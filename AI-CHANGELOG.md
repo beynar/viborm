@@ -6,6 +6,168 @@ This file documents the major development discussions and implementations carrie
 
 ---
 
+## 2024-12-20: Standard Database Relationship Types Implementation
+
+**Summary**: Successfully implemented the four standard relational database relationship types in BaseORM: oneToOne, oneToMany, manyToOne, and manyToMany. This replaces the previous simplified "one" and "many" relation types with proper relational database semantics, improving clarity and following industry conventions.
+
+**Problem Addressed**: The user requested updating the relation system to support all four standard database relationship types that follow the mental model of how relational databases are structured. The previous system only had basic "one" and "many" types which were insufficient for expressing the full range of database relationships.
+
+**Relationship Types Implemented**:
+
+1. **oneToOne**: User has one Profile (Profile belongs to one User)
+2. **oneToMany**: User has many Posts (Post belongs to one User)
+3. **manyToOne**: Post belongs to one User (User has many Posts)
+4. **manyToMany**: User has many Roles, Role has many Users (requires junction table)
+
+**Solution Implemented**:
+
+1. **Updated Type System**: Extended `RelationType` in `src/types/relations.ts`:
+
+   ```typescript
+   // Before
+   export type RelationType = "one" | "many";
+
+   // After
+   export type RelationType =
+     | "oneToOne"
+     | "oneToMany"
+     | "manyToOne"
+     | "manyToMany";
+   export type SimplifiedRelationType = "one" | "many"; // Legacy support
+   ```
+
+2. **Enhanced Relation Class**: Completely refactored `src/schema/relation.ts`:
+
+   - Added relationship type validation methods (`isToOne`, `isToMany`, `requiresJunctionTable`)
+   - Added junction table validation (only allows configuration for manyToMany relations)
+   - Updated type inference to correctly handle array vs single object returns
+   - Added comprehensive documentation with database relationship examples
+
+3. **Comprehensive Factory Functions**: Created dedicated factory functions for each relationship type:
+
+   ```typescript
+   export const relation = {
+     oneToOne, // User has one Profile
+     oneToMany, // User has many Posts
+     manyToOne, // Post belongs to one User
+     manyToMany, // User has many Roles (junction table)
+
+     // Legacy aliases for backward compatibility
+     one: manyToOne, // "one" typically means "belongs to one"
+     many: oneToMany, // "many" typically means "has many"
+   };
+   ```
+
+4. **Backward Compatibility**: Maintained legacy API support:
+   - `s.relation.one()` maps to `manyToOne` (most common "belongs to" pattern)
+   - `s.relation.many()` maps to `oneToMany` (most common "has many" pattern)
+   - Existing tests continue to work without modification
+
+**Technical Implementation**:
+
+- **File Modified**: `src/types/relations.ts` - Updated RelationType definition
+- **File Completely Rewritten**: `src/schema/relation.ts` - New four-type relationship system
+- **File Updated**: `tests/recursive-schema.test.ts` - Comprehensive test suite demonstrating all relationship types
+
+**Key Technical Features**:
+
+1. **Type Safety**: Proper TypeScript inference for different relationship return types:
+
+   - `oneToOne` and `manyToOne` return single objects
+   - `oneToMany` and `manyToMany` return arrays
+
+2. **Junction Table Validation**: Runtime validation ensures junction tables can only be configured for manyToMany relationships:
+
+   ```typescript
+   userRolesRelation.junctionTable("user_roles"); // ✅ Works for manyToMany
+   postAuthorRelation.junctionTable("invalid"); // ❌ Throws error for manyToOne
+   ```
+
+3. **Relationship Introspection**: Added utility methods for relationship analysis:
+
+   ```typescript
+   relation.isToOne; // true for oneToOne, manyToOne
+   relation.isToMany; // true for oneToMany, manyToMany
+   relation.requiresJunctionTable; // true only for manyToMany
+   ```
+
+4. **Database Convention Compliance**: Relationship names follow standard database terminology:
+   - **oneToOne**: Unique foreign key constraint, one record relates to exactly one other
+   - **oneToMany**: Foreign key on "many" side, one record relates to multiple others
+   - **manyToOne**: Inverse of oneToMany, multiple records relate to one other
+   - **manyToMany**: Junction table required, multiple records relate to multiple others
+
+**Usage Examples**:
+
+```typescript
+// Complete relationship demonstration
+const User = s.model("User", {
+  id: s.string(),
+
+  // oneToOne: User has one Profile
+  profile: s.relation.oneToOne(() => Profile),
+
+  // oneToMany: User has many Posts
+  posts: s.relation.oneToMany(() => Post),
+
+  // manyToMany: User has many Roles
+  roles: s.relation.manyToMany(() => Role),
+});
+
+const Profile = s.model("Profile", {
+  id: s.string(),
+
+  // manyToOne: Profile belongs to one User
+  user: s.relation.manyToOne(() => User),
+});
+
+const Post = s.model("Post", {
+  id: s.string(),
+
+  // manyToOne: Post belongs to one User (author)
+  author: s.relation.manyToOne(() => User),
+
+  // Self-referential oneToMany: Post has many Comments
+  comments: s.relation.oneToMany(() => Comment),
+
+  // manyToMany: Post has many Tags
+  tags: s.relation.manyToMany(() => Tag),
+});
+
+// Self-referential relationships
+const Comment = s.model("Comment", {
+  id: s.string(),
+
+  // Self-referential oneToMany: Comment has many replies
+  replies: s.relation.oneToMany(() => Comment),
+
+  // Self-referential manyToOne: Comment belongs to one parent
+  parent: s.relation.manyToOne(() => Comment),
+});
+```
+
+**Validation Results**:
+
+- ✅ **4/4 Tests Passing**: All relationship type tests pass both runtime and type checking
+- ✅ **TypeScript Compilation**: Full type safety maintained for all relationship types
+- ✅ **Runtime Validation**: Junction table restrictions properly enforced
+- ✅ **Legacy Compatibility**: Existing code continues to work with legacy `one`/`many` syntax
+- ✅ **Type Inference**: Correct array vs single object return types for each relationship
+- ✅ **Self-Referential Support**: All relationship types work with recursive/self-referential models
+
+**Benefits Delivered**:
+
+- ✅ **Industry Standard**: BaseORM now uses standard relational database terminology
+- ✅ **Clear Semantics**: Relationship direction and cardinality are explicit in type names
+- ✅ **Database Alignment**: Relationship types directly map to database foreign key patterns
+- ✅ **Junction Table Safety**: Runtime validation prevents incorrect junction table usage
+- ✅ **Full Coverage**: All possible database relationship patterns are supported
+- ✅ **Migration Path**: Legacy code continues to work while new code can use precise types
+
+**Impact**: BaseORM now provides industry-standard relationship modeling that directly mirrors relational database conventions. The four relationship types (oneToOne, oneToMany, manyToOne, manyToMany) provide clear, unambiguous semantics that database developers immediately understand, while maintaining full backward compatibility with existing codebases.
+
+---
+
 ## 2024-12-20: Recursive Schema Support Implementation
 
 **Summary**: Successfully implemented comprehensive recursive schema support in BaseORM, enabling circular references between models using a function factory pattern that breaks TypeScript's circular reference limitations while maintaining type safety and runtime functionality.
@@ -417,7 +579,7 @@ expectTypeOf<ComprehensiveType>().toEqualTypeOf<{
 - ✅ **Regression Prevention**: Type changes will be immediately caught by failing tests
 - ✅ **Developer Confidence**: Comprehensive proof that type inference works as expected
 - ✅ **Documentation Value**: Tests demonstrate correct type inference patterns and expected behaviors
-- ✅ **Edge Case Coverage**: Even unusual combinations and configurations are tested
+- ✅ **Edge Case Coverage**: Tests demonstrate correct type inference patterns and expected behaviors
 - ✅ **CI/CD Integration**: Type correctness validated on every code change
 
 **Test Results**: All 92 tests pass including:

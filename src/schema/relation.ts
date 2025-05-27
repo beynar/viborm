@@ -1,5 +1,6 @@
 // Relation Class Implementation
 // Based on specification: readme/1.4_relation_class.md
+// Updated to support standard relational database relationship types
 
 import type {
   RelationType,
@@ -15,9 +16,7 @@ export class Relation<
   G extends Getter = Getter,
   T extends RelationType = RelationType
 > {
-  public relationType?: RelationType | undefined;
-  // private _targetModel: M | undefined = undefined;
-  // private _resolved = false;
+  public relationType: RelationType;
   public onField?: string | undefined;
   public refField?: string | undefined;
   public cascadeOptions?: CascadeOptions | undefined;
@@ -29,24 +28,11 @@ export class Relation<
   }
 
   /**
-   * Gets the target model, resolving it lazily if not already resolved
+   * Gets the target model, resolving it lazily
    */
-  // get targetModel(): M {
-  //   if (!this._resolved) {
-  //     const target = this.targetGetter();
-  //     this._targetModel = Array.isArray(target) ? target[0] : target;
-  //     this._resolved = true;
-  //   }
-  //   return this._targetModel as M;
-  // }
-
-  /**
-   * Resets the lazy relation, forcing re-resolution on next access
-   */
-  // reset(): void {
-  //   this._resolved = false;
-  //   this._targetModel = undefined;
-  // }
+  get targetModel() {
+    return this.getter();
+  }
 
   // Field mapping
   on(fieldName: string): this {
@@ -72,28 +58,61 @@ export class Relation<
 
   // Many-to-many junction table configuration
   junctionTable(tableName: string): this {
+    if (this.relationType !== "manyToMany") {
+      throw new Error(
+        "Junction tables can only be configured for manyToMany relations"
+      );
+    }
     this.junctionTableName = tableName;
     return this;
   }
 
   junctionField(fieldName: string): this {
+    if (this.relationType !== "manyToMany") {
+      throw new Error(
+        "Junction fields can only be configured for manyToMany relations"
+      );
+    }
     this.junctionFieldName = fieldName;
     return this;
   }
 
-  // For "one" relations, transform to "many"
-  many(): Relation<G, "many"> {
-    return new Relation(this.getter, "many");
-  }
-
+  /**
+   * Type inference for relation return types
+   */
   get infer() {
     return {} as G extends () => infer M
       ? M extends Model<any>
-        ? T extends "many"
+        ? T extends "oneToMany" | "manyToMany"
           ? M["infer"][]
           : M["infer"]
         : never
       : never;
+  }
+
+  /**
+   * Check if this is a "to-many" relationship
+   */
+  get isToMany(): boolean {
+    return (
+      this.relationType === "oneToMany" || this.relationType === "manyToMany"
+    );
+  }
+
+  /**
+   * Check if this is a "to-one" relationship
+   */
+  get isToOne(): boolean {
+    return (
+      this.relationType === "oneToOne" || this.relationType === "manyToOne"
+    );
+  }
+
+  /**
+   * Check if this requires a junction table
+   */
+  get requiresJunctionTable(): boolean {
+    return this.relationType === "manyToMany";
   }
 }
 
@@ -102,25 +121,49 @@ export class Relation<
 // =============================================================================
 
 /**
- * Main relation factory for "one" relationship
+ * One-to-One relationship factory
+ * Example: User has one Profile, Profile belongs to one User
  */
-function relationFactory<G extends Getter>(getter: G): Relation<G, "one"> {
-  return new Relation<G, "one">(getter, "one");
+function oneToOne<G extends Getter>(getter: G): Relation<G, "oneToOne"> {
+  return new Relation<G, "oneToOne">(getter, "oneToOne");
 }
 
 /**
- * Factory specifically for "many" relationships
+ * One-to-Many relationship factory
+ * Example: User has many Posts, Post belongs to one User
  */
-relationFactory.many = <G extends Getter>(getter: G): Relation<G, "many"> => {
-  return new Relation<G, "many">(getter, "many");
-};
+function oneToMany<G extends Getter>(getter: G): Relation<G, "oneToMany"> {
+  return new Relation<G, "oneToMany">(getter, "oneToMany");
+}
 
-// Define the type for the relation factory
+/**
+ * Many-to-One relationship factory
+ * Example: Many Posts belong to one User, User has many Posts
+ */
+function manyToOne<G extends Getter>(getter: G): Relation<G, "manyToOne"> {
+  return new Relation<G, "manyToOne">(getter, "manyToOne");
+}
 
+/**
+ * Many-to-Many relationship factory
+ * Example: Users have many Roles, Roles have many Users
+ */
+function manyToMany<G extends Getter>(getter: G): Relation<G, "manyToMany"> {
+  return new Relation<G, "manyToMany">(getter, "manyToMany");
+}
+
+// Main relation factory object
 export const relation = {
-  one: relationFactory,
-  many: relationFactory.many,
+  oneToOne,
+  oneToMany,
+  manyToOne,
+  manyToMany,
+
+  // Legacy aliases for backward compatibility
+  one: manyToOne, // "one" typically means "belongs to one" (manyToOne)
+  many: oneToMany, // "many" typically means "has many" (oneToMany)
 };
+
 export type RelationFactory = typeof relation;
 
 // =============================================================================
@@ -128,23 +171,44 @@ export type RelationFactory = typeof relation;
 // =============================================================================
 
 /**
- * Helper function to create a lazy relation with explicit typing
- * This helps TypeScript with recursive schema inference
+ * Helper function to create a lazy one-to-one relation
  */
 export function lazy<T extends Model<any>>(
   getter: () => T
-): Relation<() => T, "one"> {
-  return new Relation<() => T, "one">(getter, "one");
+): Relation<() => T, "oneToOne"> {
+  return new Relation<() => T, "oneToOne">(getter, "oneToOne");
 }
 
 /**
- * Helper function to create a lazy "many" relation with explicit typing
+ * Helper functions for all relation types
  */
-lazy.many = <T extends Model<any>>(
+lazy.oneToOne = <T extends Model<any>>(
   getter: () => T
-): Relation<() => T, "many"> => {
-  return new Relation<() => T, "many">(getter, "many");
+): Relation<() => T, "oneToOne"> => {
+  return new Relation<() => T, "oneToOne">(getter, "oneToOne");
 };
+
+lazy.oneToMany = <T extends Model<any>>(
+  getter: () => T
+): Relation<() => T, "oneToMany"> => {
+  return new Relation<() => T, "oneToMany">(getter, "oneToMany");
+};
+
+lazy.manyToOne = <T extends Model<any>>(
+  getter: () => T
+): Relation<() => T, "manyToOne"> => {
+  return new Relation<() => T, "manyToOne">(getter, "manyToOne");
+};
+
+lazy.manyToMany = <T extends Model<any>>(
+  getter: () => T
+): Relation<() => T, "manyToMany"> => {
+  return new Relation<() => T, "manyToMany">(getter, "manyToMany");
+};
+
+// Legacy aliases
+lazy.one = lazy.manyToOne;
+lazy.many = lazy.oneToMany;
 
 // Define the type for the lazy factory
 export type LazyFactory = typeof lazy;
