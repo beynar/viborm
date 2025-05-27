@@ -20,6 +20,6 @@ export type Field<T = any> =
   | import("./boolean.js").BooleanField<any>
   | import("./bigint.js").BigIntField<any>
   | import("./datetime.js").DateTimeField<any>
-  | import("./json.js").JsonField<any, any>
+  | import("./json.js").JsonField<any>
   | import("./blob.js").BlobField<any>
   | import("./enum.js").EnumField<any, any>;
