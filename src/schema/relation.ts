@@ -12,6 +12,16 @@ import { Model } from "./model.js";
 
 export type Getter = () => Model<any>;
 
+// Relation options interface
+export interface RelationOptions {
+  onDelete?: CascadeOptions;
+  onUpdate?: CascadeOptions;
+  onField?: string;
+  refField?: string;
+  junctionTable?: string;
+  junctionField?: string;
+}
+
 export class Relation<
   G extends Getter = Getter,
   T extends RelationType = RelationType
@@ -23,8 +33,17 @@ export class Relation<
   public junctionTableName?: string | undefined;
   public junctionFieldName?: string | undefined;
 
-  constructor(public getter: G, relationType: T) {
+  constructor(public getter: G, relationType: T, options?: RelationOptions) {
     this.relationType = relationType;
+
+    // Apply options if provided
+    if (options) {
+      this.cascadeOptions = options.onDelete || options.onUpdate;
+      this.onField = options.onField;
+      this.refField = options.refField;
+      this.junctionTableName = options.junctionTable;
+      this.junctionFieldName = options.junctionField;
+    }
   }
 
   /**
@@ -32,49 +51,6 @@ export class Relation<
    */
   get targetModel() {
     return this.getter();
-  }
-
-  // Field mapping
-  on(fieldName: string): this {
-    this.onField = fieldName;
-    return this;
-  }
-
-  ref(fieldName: string): this {
-    this.refField = fieldName;
-    return this;
-  }
-
-  // Cascade options
-  onDelete(options: CascadeOptions) {
-    this.cascadeOptions = options;
-    return this;
-  }
-
-  onUpdate(options: CascadeOptions) {
-    this.cascadeOptions = options;
-    return this as unknown as Relation<G, T>;
-  }
-
-  // Many-to-many junction table configuration
-  junctionTable(tableName: string): this {
-    if (this.relationType !== "manyToMany") {
-      throw new Error(
-        "Junction tables can only be configured for manyToMany relations"
-      );
-    }
-    this.junctionTableName = tableName;
-    return this;
-  }
-
-  junctionField(fieldName: string): this {
-    if (this.relationType !== "manyToMany") {
-      throw new Error(
-        "Junction fields can only be configured for manyToMany relations"
-      );
-    }
-    this.junctionFieldName = fieldName;
-    return this;
   }
 
   /**
@@ -117,50 +93,72 @@ export class Relation<
 }
 
 // =============================================================================
-// RELATION FACTORIES
+// RELATION FACTORY WITH OPTIONS
 // =============================================================================
 
 /**
- * One-to-One relationship factory
- * Example: User has one Profile, Profile belongs to one User
+ * Relation factory that accepts options and returns relation type methods
  */
-function oneToOne<G extends Getter>(getter: G): Relation<G, "oneToOne"> {
+export class RelationFactory {
+  constructor(private options?: RelationOptions) {}
+
+  /**
+   * One-to-One relationship factory
+   */
+  oneToOne<G extends Getter>(getter: G): Relation<G, "oneToOne"> {
+    return new Relation<G, "oneToOne">(getter, "oneToOne", this.options);
+  }
+
+  /**
+   * One-to-Many relationship factory
+   */
+  oneToMany<G extends Getter>(getter: G): Relation<G, "oneToMany"> {
+    return new Relation<G, "oneToMany">(getter, "oneToMany", this.options);
+  }
+
+  /**
+   * Many-to-One relationship factory
+   */
+  manyToOne<G extends Getter>(getter: G): Relation<G, "manyToOne"> {
+    return new Relation<G, "manyToOne">(getter, "manyToOne", this.options);
+  }
+
+  /**
+   * Many-to-Many relationship factory
+   */
+  manyToMany<G extends Getter>(getter: G): Relation<G, "manyToMany"> {
+    return new Relation<G, "manyToMany">(getter, "manyToMany", this.options);
+  }
+}
+
+// Main relation factory function - accepts options and returns RelationFactory instance
+export function relation(options?: RelationOptions): RelationFactory {
+  return new RelationFactory(options);
+}
+
+// Attach direct methods to the relation function for convenience
+// This allows both s.relation().oneToOne() and s.relation.oneToOne()
+relation.oneToOne = <G extends Getter>(getter: G): Relation<G, "oneToOne"> => {
   return new Relation<G, "oneToOne">(getter, "oneToOne");
-}
-
-/**
- * One-to-Many relationship factory
- * Example: User has many Posts, Post belongs to one User
- */
-function oneToMany<G extends Getter>(getter: G): Relation<G, "oneToMany"> {
-  return new Relation<G, "oneToMany">(getter, "oneToMany");
-}
-
-/**
- * Many-to-One relationship factory
- * Example: Many Posts belong to one User, User has many Posts
- */
-function manyToOne<G extends Getter>(getter: G): Relation<G, "manyToOne"> {
-  return new Relation<G, "manyToOne">(getter, "manyToOne");
-}
-
-/**
- * Many-to-Many relationship factory
- * Example: Users have many Roles, Roles have many Users
- */
-function manyToMany<G extends Getter>(getter: G): Relation<G, "manyToMany"> {
-  return new Relation<G, "manyToMany">(getter, "manyToMany");
-}
-
-// Main relation factory object
-export const relation = {
-  oneToOne,
-  oneToMany,
-  manyToOne,
-  manyToMany,
 };
 
-export type RelationFactory = typeof relation;
+relation.oneToMany = <G extends Getter>(
+  getter: G
+): Relation<G, "oneToMany"> => {
+  return new Relation<G, "oneToMany">(getter, "oneToMany");
+};
+
+relation.manyToOne = <G extends Getter>(
+  getter: G
+): Relation<G, "manyToOne"> => {
+  return new Relation<G, "manyToOne">(getter, "manyToOne");
+};
+
+relation.manyToMany = <G extends Getter>(
+  getter: G
+): Relation<G, "manyToMany"> => {
+  return new Relation<G, "manyToMany">(getter, "manyToMany");
+};
 
 // =============================================================================
 // LAZY EVALUATION HELPERS

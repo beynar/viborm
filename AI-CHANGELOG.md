@@ -356,10 +356,10 @@ Type '(value: TData) => JsonField<TData, MakeDefault<T>>' is not assignable to t
 **Validation Results**:
 
 - ✅ **TypeScript Compilation**: All type errors resolved, full project compiles without errors
-- ✅ **Method Chaining**: All chainable methods (nullable, list, id, default) work correctly
-- ✅ **Schema Preservation**: Schema validation functionality maintained through method chaining
-- ✅ **Type Inference**: Proper type inference maintained for both schemaless and schema-based JSON fields
-- ✅ **Test Coverage**: 5/5 tests passing, covering type inference, validation, and schema preservation
+- **Method Chaining**: All chainable methods (nullable, list, id, default) work correctly
+- **Schema Preservation**: Schema validation functionality maintained through method chaining
+- **Type Inference**: Proper type inference maintained for both schemaless and schema-based JSON fields
+- **Test Coverage**: 5/5 tests passing, covering type inference, validation, and schema preservation
 
 **Benefits Delivered**:
 
@@ -1207,5 +1207,63 @@ const result = await userModel.fields.get("profile")!.validate(profileData);
 ```
 
 This enhancement demonstrates BaseORM's excellent integration with the TypeScript ecosystem and validates the design decision to support Standard Schema V1 for maximum compatibility with validation libraries.
+
+---
+
+## 2024-12-31 - Relation API Refactoring: Options as Function Arguments
+
+### Problem Solved
+
+The chainable pattern for relation options was causing TypeScript compilation issues. The previous API allowed chaining methods like `.onDelete()`, `.onUpdate()`, `.on()`, etc., but this created type conflicts in the schema builder.
+
+### Changes Made
+
+- **Major API Change**: Removed all chainable methods from the `Relation` class
+- **New Options Pattern**: Relation options are now passed as arguments to `s.relation(options)`
+- **Backward Compatibility**: Direct relation methods (`s.relation.oneToOne()`, etc.) still work
+- **Forward Compatibility**: New syntax supports options: `s.relation({ onDelete: "CASCADE" }).manyToOne(() => User)`
+
+### Technical Details
+
+1. **RelationOptions Interface**: Created a comprehensive options interface supporting:
+
+   - `onDelete` and `onUpdate` cascade options
+   - `onField` and `refField` for field mapping
+   - `junctionTable` and `junctionField` for many-to-many relationships
+
+2. **RelationFactory Class**: Implemented a factory class that:
+
+   - Accepts options in constructor
+   - Provides all four relation type methods
+   - Applies options when creating `Relation` instances
+
+3. **Function Overloading**: The `relation` function now:
+   - Can be called with options: `s.relation({ onDelete: "CASCADE" })`
+   - Returns a `RelationFactory` with relation type methods
+   - Still provides direct method access: `s.relation.oneToOne()`
+
+### Usage Examples
+
+```typescript
+// New syntax with options
+const Profile = s.model("Profile", {
+  user: s.relation({ onDelete: "CASCADE" }).manyToOne(() => User),
+});
+
+// Legacy syntax still works
+const User = s.model("User", {
+  profile: s.relation.oneToOne(() => Profile),
+});
+```
+
+### Testing
+
+- ✅ Existing relation test passes with new API
+- ✅ Both new and legacy syntax work correctly
+- ✅ Type inference preserved for relation return types
+
+### Impact
+
+This change eliminates the TypeScript compilation errors while maintaining API usability. The new pattern is more explicit about relation configuration and follows a cleaner functional approach.
 
 ---

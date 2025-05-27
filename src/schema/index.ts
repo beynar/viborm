@@ -27,10 +27,8 @@ import {
   relation,
   Relation,
   lazy,
-  type RelationFactory,
   type LazyFactory,
 } from "./relation.js";
-
 export class SchemaBuilder {
   // Create a new model
   model<
@@ -93,10 +91,8 @@ export class SchemaBuilder {
     return enumField(values);
   }
 
-  // Relation factory - expose the relation object with .many property
-  get relation(): RelationFactory {
-    return relation;
-  }
+  // Relation factory - expose the relation function
+  relation = relation;
 
   // Lazy relation factory for recursive schemas - expose the lazy object with .many property
   get lazy(): LazyFactory {

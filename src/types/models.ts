@@ -60,6 +60,7 @@ import type { BaseField, Field } from "../schema/field.js";
 import { Model } from "../schema/model.js";
 import type { Relation } from "../schema/relation.js";
 import { BaseFieldType, FieldState, Nullable } from "./index.js";
+import { RelationNew } from "../schema/relation.new.js";
 
 // Type for extracting scalar fields from a model
 export type ScalarFields<TModel extends Record<string, any>> = {
@@ -79,22 +80,14 @@ export type ModelFieldNames<TModel extends Record<string, any>> = keyof TModel &
 export type ModelType<
   TFields extends Record<string, Field | Relation<any, any>>
 > = {
-  [K in keyof TFields]: TFields[K] extends BaseField<any>
-    ? TFields[K]["infer"]
-    : TFields[K] extends Relation<infer G, infer T>
-    ? G extends () => infer M
-      ? M extends Model<any>
-        ? T extends "oneToOne" | "manyToOne"
-          ? M["infer"]
-          : M["infer"][]
-        : never
-      : never
-    : never;
+  [K in keyof TFields]: TFields[K]["infer"];
 };
 
 // Extract the scalar type from a model type (without relations)
 export type ModelScalars<
-  TFields extends Record<string, Field | Relation<any, any>>
+  TFields extends
+    | Record<string, Field | Relation<any, any>>
+    | RelationNew<any, any>
 > = {
   [K in keyof TFields as TFields[K] extends BaseField<any>
     ? K

@@ -6,26 +6,17 @@ describe("Recursive Schema Support with Standard Relationship Types", () => {
     const User = s.model("User", {
       id: s.string(),
       email: s.string(),
-      profile: s.relation.oneToOne(() => Profile).onDelete("CASCADE"),
+      profile: s.relation({ onField: "test" }).oneToOne(() => Profile),
     });
 
     const Profile = s.model("Profile", {
       id: s.string(),
       bio: s.string(),
-      user: s.relation.manyToOne(() => User).onDelete("CASCADE"),
-    });
-  });
-  test("should support all four standard database relationship types", () => {
-    const User = s.model("User", {
-      id: s.string(),
-      email: s.string(),
-      profile: s.relation((r) => r.oneToOne(Profile).onDelete("CASCADE")),
+      user: s
+        .relation({ onDelete: "CASCADE", onField: "test" })
+        .manyToOne(() => User),
     });
 
-    const Profile = s.model("Profile", {
-      id: s.string(),
-      bio: s.string(),
-      user: s.relation((r) => r.manyToOne((User).onDelete("CASCADE")),
-    });
+    type O = (typeof User.infer)["profile"]["id"];
   });
 });
