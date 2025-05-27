@@ -1,0 +1,84 @@
+// DateTime Field Class
+// Date and time field with automatic timestamp generation
+import { BaseField } from "./base.js";
+export class DateTimeField extends BaseField {
+    constructor() {
+        super();
+        this.fieldType = "dateTime";
+        this.validators = [];
+    }
+    createInstance() {
+        const newField = new DateTimeField();
+        newField.validators = [...this.validators];
+        return newField;
+    }
+    // Override chainable methods to return DateTimeField instances
+    nullable() {
+        const newField = new DateTimeField();
+        this.copyPropertiesTo(newField);
+        newField.isOptional = true;
+        newField.validators = [...this.validators];
+        return newField;
+    }
+    list() {
+        const newField = new DateTimeField();
+        this.copyPropertiesTo(newField);
+        newField.isList = true;
+        newField.validators = [...this.validators];
+        return newField;
+    }
+    id() {
+        const newField = new DateTimeField();
+        this.copyPropertiesTo(newField);
+        newField.isId = true;
+        newField.validators = [...this.validators];
+        return newField;
+    }
+    unique() {
+        const newField = new DateTimeField();
+        this.copyPropertiesTo(newField);
+        newField.isUnique = true;
+        newField.validators = [...this.validators];
+        return newField;
+    }
+    default(value) {
+        const newField = new DateTimeField();
+        this.copyPropertiesTo(newField);
+        newField.defaultValue = value;
+        newField.validators = [...this.validators];
+        return newField;
+    }
+    // Add validator method that accepts standard schema or custom validation functions
+    validator(...validators) {
+        this.validators.push(...validators);
+        return this;
+    }
+    // DateTime-specific auto-generation methods
+    get auto() {
+        return {
+            now: () => {
+                const newField = new DateTimeField();
+                this.copyPropertiesTo(newField);
+                newField.autoGenerate = "now";
+                newField.validators = [...this.validators];
+                return newField;
+            },
+            updatedAt: () => {
+                const newField = new DateTimeField();
+                this.copyPropertiesTo(newField);
+                newField.autoGenerate = "updatedAt";
+                newField.validators = [...this.validators];
+                return newField;
+            },
+        };
+    }
+    // Override validate to include custom validators
+    async validate(value) {
+        return super.validate(value, ...this.validators);
+    }
+}
+// Factory function for creating datetime fields with proper typing
+export function datetime() {
+    return new DateTimeField();
+}
+//# sourceMappingURL=datetime.js.map

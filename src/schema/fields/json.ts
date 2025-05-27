@@ -25,7 +25,7 @@ export class JsonField<
   > = DefaultFieldState<TData>
 > extends BaseField<T> {
   public override fieldType = "json" as const;
-  private schema?: StandardSchemaV1<any, TData>;
+  private schema: StandardSchemaV1<any, TData> | undefined;
 
   constructor(schema?: StandardSchemaV1<any, TData>) {
     super();

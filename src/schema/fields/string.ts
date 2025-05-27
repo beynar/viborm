@@ -67,7 +67,9 @@ export class StringField<
   }
 
   override default(
-    value: T["BaseType"] | (() => T["BaseType"])
+    value: T["IsList"] extends true
+      ? T["BaseType"][] | (() => T["BaseType"][])
+      : T["BaseType"] | (() => T["BaseType"])
   ): StringField<MakeDefault<T>> {
     const newField = new StringField<MakeDefault<T>>();
     this.copyPropertiesTo(newField);

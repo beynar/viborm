@@ -88,7 +88,7 @@ Every implementations guides lives are here :
 
 We use vitest for unit testings. All tests should be well organized inside the @tests folder. Vitest is configured to inject its api globally.
 
-To test runtime execution you use describe to group logical testing together and small unit test inside the describe callback for clarity. Like this 
+To test runtime execution you use describe to group logical testing together and small unit test inside the describe callback for clarity. Like this
 
 describe("sum", () => {
   test("adds 1 + 2 to equal 3", () => {
@@ -109,3 +109,5 @@ expectTypeOf({ a: 1, b: 1 }).not.toEqualTypeOf<{ a: number }>()
 
 
 to run test use `pnpm vitest run tests/NAMEOFTHEFILE`
+
+

@@ -6,8 +6,6 @@
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
     "allowJs": false,
-    "outDir": "./dist",
-    "rootDir": "./src",
     "strict": true,
     "declaration": true,
     "declarationMap": true,
@@ -25,6 +23,11 @@
     "lib": ["ES2020", "DOM"],
     "types": ["node", "vitest/globals"]
   },
-  "include": ["src/**/*", "tests/**/*.test.ts"],
+  "include": [
+    "src/**/*",
+    "tests/**/*.test.ts",
+    "tests/**/*.test-d.ts",
+    "tests/model-type-inference-d.ts"
+  ],
   "exclude": ["node_modules", "dist", "**/*.spec.ts"]
 }
