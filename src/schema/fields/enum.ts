@@ -22,7 +22,7 @@ export class EnumField<
 > extends BaseField<T> {
   public override fieldType = "enum" as const;
   public readonly enumValues: TEnum;
-  private validators: FieldValidator<TEnum[number]>[] = [];
+  private fieldValidator?: FieldValidator<InferType<T>>;
 
   constructor(values: TEnum) {
     super();
@@ -33,7 +33,7 @@ export class EnumField<
     U extends FieldState<any, any, any, any, any, any>
   >(): BaseField<U> {
     const newField = new EnumField<TEnum, U>(this.enumValues);
-    (newField as any).validators = [...this.validators];
+    (newField as any).fieldValidator = this.fieldValidator;
     return newField as any;
   }
 
@@ -42,7 +42,7 @@ export class EnumField<
     const newField = new EnumField<TEnum, MakeNullable<T>>(this.enumValues);
     this.copyPropertiesTo(newField);
     (newField as any).isOptional = true;
-    (newField as any).validators = [...this.validators];
+    (newField as any).fieldValidator = this.fieldValidator;
     return newField;
   }
 
@@ -50,7 +50,7 @@ export class EnumField<
     const newField = new EnumField<TEnum, MakeList<T>>(this.enumValues);
     this.copyPropertiesTo(newField);
     (newField as any).isList = true;
-    (newField as any).validators = [...this.validators];
+    (newField as any).fieldValidator = this.fieldValidator;
     return newField;
   }
 
@@ -58,7 +58,7 @@ export class EnumField<
     const newField = new EnumField<TEnum, MakeId<T>>(this.enumValues);
     this.copyPropertiesTo(newField);
     (newField as any).isId = true;
-    (newField as any).validators = [...this.validators];
+    (newField as any).fieldValidator = this.fieldValidator;
     return newField;
   }
 
@@ -66,7 +66,7 @@ export class EnumField<
     const newField = new EnumField<TEnum, MakeUnique<T>>(this.enumValues);
     this.copyPropertiesTo(newField);
     (newField as any).isUnique = true;
-    (newField as any).validators = [...this.validators];
+    (newField as any).fieldValidator = this.fieldValidator;
     return newField;
   }
 
@@ -74,18 +74,18 @@ export class EnumField<
     const newField = new EnumField<TEnum, MakeDefault<T>>(this.enumValues);
     this.copyPropertiesTo(newField);
     (newField as any).defaultValue = value;
-    (newField as any).validators = [...this.validators];
+    (newField as any).fieldValidator = this.fieldValidator;
     return newField;
   }
 
-  // Add validator method that accepts standard schema or custom validation functions
-  validator(...validators: FieldValidator<TEnum[number]>[]): this {
-    this.validators.push(...validators);
+  // Add validator method that accepts a single standard schema
+  validator(validator: FieldValidator<InferType<T>>): this {
+    this.fieldValidator = validator;
     return this;
   }
 
-  // Override validate to include custom validators and enum validation
-  override async validate(value: TEnum[number]): Promise<any> {
+  // Override validate to include custom validator and enum validation
+  override async validate(value: any): Promise<any> {
     // First check if value is in enum
     if (!this.enumValues.includes(value as any)) {
       return {
@@ -94,7 +94,7 @@ export class EnumField<
       };
     }
 
-    return super.validate(value, ...this.validators);
+    return super.validate(value, this.fieldValidator);
   }
 }
 

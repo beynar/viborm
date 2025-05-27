@@ -18,7 +18,7 @@ export class BigIntField<
   T extends FieldState<any, any, any, any, any, any> = DefaultFieldState<bigint>
 > extends BaseField<T> {
   public override fieldType = "bigInt" as const;
-  private validators: FieldValidator<bigint>[] = [];
+  private fieldValidator?: FieldValidator<InferType<T>>;
 
   constructor() {
     super();
@@ -28,7 +28,7 @@ export class BigIntField<
     U extends FieldState<any, any, any, any, any, any>
   >(): BaseField<U> {
     const newField = new BigIntField<U>();
-    (newField as any).validators = [...this.validators];
+    (newField as any).fieldValidator = this.fieldValidator;
     return newField as any;
   }
 
@@ -37,7 +37,7 @@ export class BigIntField<
     const newField = new BigIntField<MakeNullable<T>>();
     this.copyPropertiesTo(newField);
     (newField as any).isOptional = true;
-    (newField as any).validators = [...this.validators];
+    (newField as any).fieldValidator = this.fieldValidator;
     return newField;
   }
 
@@ -45,7 +45,7 @@ export class BigIntField<
     const newField = new BigIntField<MakeList<T>>();
     this.copyPropertiesTo(newField);
     (newField as any).isList = true;
-    (newField as any).validators = [...this.validators];
+    (newField as any).fieldValidator = this.fieldValidator;
     return newField;
   }
 
@@ -53,7 +53,7 @@ export class BigIntField<
     const newField = new BigIntField<MakeId<T>>();
     this.copyPropertiesTo(newField);
     (newField as any).isId = true;
-    (newField as any).validators = [...this.validators];
+    (newField as any).fieldValidator = this.fieldValidator;
     return newField;
   }
 
@@ -61,7 +61,7 @@ export class BigIntField<
     const newField = new BigIntField<MakeUnique<T>>();
     this.copyPropertiesTo(newField);
     (newField as any).isUnique = true;
-    (newField as any).validators = [...this.validators];
+    (newField as any).fieldValidator = this.fieldValidator;
     return newField;
   }
 
@@ -69,19 +69,19 @@ export class BigIntField<
     const newField = new BigIntField<MakeDefault<T>>();
     this.copyPropertiesTo(newField);
     (newField as any).defaultValue = value;
-    (newField as any).validators = [...this.validators];
+    (newField as any).fieldValidator = this.fieldValidator;
     return newField;
   }
 
-  // Add validator method that accepts standard schema or custom validation functions
-  validator(...validators: FieldValidator<bigint>[]): this {
-    this.validators.push(...validators);
+  // Add validator method that accepts a single standard schema
+  validator(validator: FieldValidator<InferType<T>>): this {
+    this.fieldValidator = validator;
     return this;
   }
 
-  // Override validate to include custom validators
-  override async validate(value: bigint): Promise<any> {
-    return super.validate(value, ...this.validators);
+  // Override validate to include custom validator
+  override async validate(value: any): Promise<any> {
+    return super.validate(value, this.fieldValidator);
   }
 }
 

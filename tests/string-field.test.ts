@@ -1,3 +1,4 @@
+import z from "zod";
 import { string } from "../src/schema/fields/string.js";
 import type { StringField } from "../src/schema/fields/string.js";
 
@@ -37,24 +38,12 @@ describe("StringField", () => {
   });
 
   describe("validation", () => {
-    const emailValidator = (value: string) =>
-      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) || "Invalid email format";
-
-    const minLengthValidator = (min: number) => (value: string) =>
-      value.length >= min || `Must be at least ${min} characters`;
-
-    const maxLengthValidator = (max: number) => (value: string) =>
-      value.length <= max || `Must be at most ${max} characters`;
+    const emailValidator = z.string().min(3).email();
 
     test("applies validators correctly", () => {
       const emailField = string().unique().validator(emailValidator);
-      const lengthField = string().validator(
-        minLengthValidator(5),
-        maxLengthValidator(100)
-      );
 
       expect(emailField.constructor.name).toBe("StringField");
-      expect(lengthField.constructor.name).toBe("StringField");
     });
 
     test("validates email correctly", async () => {
@@ -68,7 +57,7 @@ describe("StringField", () => {
     });
 
     test("validates length correctly", async () => {
-      const lengthField = string().validator(minLengthValidator(5));
+      const lengthField = string().validator(z.string().min(5));
 
       const validResult = await lengthField.validate("hello");
       const invalidResult = await lengthField.validate("hi");
@@ -78,10 +67,7 @@ describe("StringField", () => {
     });
 
     test("validates complex field with multiple validators", async () => {
-      const complexField = string()
-        .id()
-        .unique()
-        .validator(minLengthValidator(3));
+      const complexField = string().id().unique().validator(z.string().min(3));
 
       const validResult = await complexField.validate("test");
       const invalidResult = await complexField.validate("ab");
@@ -107,17 +93,12 @@ describe("StringField", () => {
 
   describe("schema creation", () => {
     test("creates schema with various string fields", () => {
-      const emailValidator = (value: string) =>
-        /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) || "Invalid email format";
-      const minLengthValidator = (min: number) => (value: string) =>
-        value.length >= min || `Must be at least ${min} characters`;
-      const maxLengthValidator = (max: number) => (value: string) =>
-        value.length <= max || `Must be at most ${max} characters`;
+      const emailValidator = z.string().min(3).email();
 
       const testSchema = {
         id: string().id(),
         email: string().unique().validator(emailValidator),
-        name: string().validator(minLengthValidator(2), maxLengthValidator(50)),
+        name: string().validator(z.string().min(2)),
         bio: string().nullable(),
         tags: string().list(),
         slug: string().unique(),

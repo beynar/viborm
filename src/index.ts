@@ -10,9 +10,6 @@ export type { Field } from "./schema/index.js";
 // Type exports
 export type * from "./types/index.js";
 
-// Validation utilities
-export * from "./validation/index.js";
-
 // Query builder
 export { QueryBuilder } from "./query/queryBuilder.js";
 

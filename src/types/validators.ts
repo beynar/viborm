@@ -6,15 +6,14 @@ import { StandardSchemaV1 } from "./standardSchema";
 // Standard Schema interface for cross-library compatibility
 
 // Validation result interface
-export interface ValidationResult {
+export interface ValidationResult<T> {
   valid: boolean;
   errors?: string[] | undefined;
+  output?: T | undefined;
 }
 
-// Field validator can be a function or Standard Schema
-export type FieldValidator<T> =
-  | ((value: T) => boolean | string | Promise<boolean | string>)
-  | StandardSchemaV1<any, T>;
+// Field validator accepts only Standard Schema
+export type FieldValidator<T> = StandardSchemaV1<any, T>;
 
 // Model validator can be a function or Standard Schema
 export type ModelValidator<T> =

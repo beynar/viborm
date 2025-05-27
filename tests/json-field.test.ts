@@ -42,7 +42,7 @@ describe("JsonField", () => {
   describe("Zod schema integration", () => {
     test("should infer correct types from Zod schema", () => {
       // Create a field with a Zod schema
-      const profileField = json(userProfileSchema as any);
+      const profileField = json(userProfileSchema);
 
       // Type should be inferred from the Zod schema
       type ProfileType = typeof profileField.infer;
@@ -59,7 +59,7 @@ describe("JsonField", () => {
     });
 
     test("should work with nullable schema fields", () => {
-      const nullableProfileField = json(userProfileSchema as any).nullable();
+      const nullableProfileField = json(userProfileSchema).nullable();
       type NullableProfileType = typeof nullableProfileField.infer;
 
       expectTypeOf<NullableProfileType>().toMatchTypeOf<{
@@ -74,7 +74,7 @@ describe("JsonField", () => {
     });
 
     test("should work with list schema fields", () => {
-      const profileListField = json(userProfileSchema as any).list();
+      const profileListField = json(userProfileSchema).list();
       type ProfileListType = typeof profileListField.infer;
 
       expectTypeOf<ProfileListType>().toMatchTypeOf<
@@ -93,7 +93,7 @@ describe("JsonField", () => {
 
   describe("Zod validation", () => {
     test("should validate data against Zod schema successfully", async () => {
-      const field = json(userProfileSchema as any);
+      const field = json(userProfileSchema);
 
       const validData = {
         name: "John Doe",
@@ -111,7 +111,7 @@ describe("JsonField", () => {
     });
 
     test("should fail validation for invalid data against Zod schema", async () => {
-      const field = json(userProfileSchema as any);
+      const field = json(userProfileSchema);
 
       const invalidData = {
         name: "", // Invalid: empty string
@@ -130,7 +130,7 @@ describe("JsonField", () => {
     });
 
     test("should validate complex nested data", async () => {
-      const field = json(settingsSchema as any);
+      const field = json(settingsSchema);
 
       const validSettings = {
         apiKey: "550e8400-e29b-41d4-a716-446655440000",
@@ -143,7 +143,7 @@ describe("JsonField", () => {
     });
 
     test("should validate union types with flexible schema", async () => {
-      const field = json(flexibleDataSchema as any);
+      const field = json(flexibleDataSchema);
 
       // Test string
       const stringResult = await field.validate("hello");
@@ -168,7 +168,7 @@ describe("JsonField", () => {
 
   describe("schema preservation through chaining", () => {
     test("should preserve Zod schema through method chaining", () => {
-      const originalField = json(userProfileSchema as any);
+      const originalField = json(userProfileSchema);
       const chainedField = originalField.nullable().default({
         name: "Default User",
         age: 25,
@@ -185,7 +185,7 @@ describe("JsonField", () => {
     });
 
     test("should maintain validation capabilities after chaining", async () => {
-      const field = json(userProfileSchema as any)
+      const field = json(userProfileSchema)
         .nullable()
         .default({
           name: "Test",
@@ -255,7 +255,7 @@ describe("JsonField", () => {
         features: z.array(z.string()),
       });
 
-      const configField = json(configSchema as any).default({
+      const configField = json(configSchema).default({
         database: { host: "localhost", port: 5432, ssl: false },
         cache: { ttl: 3600, maxSize: 1000 },
         features: ["auth", "logging"],
@@ -279,7 +279,7 @@ describe("JsonField", () => {
         tags: z.array(z.string()),
       });
 
-      const metadataField = json(metadataSchema as any).nullable();
+      const metadataField = json(metadataSchema).nullable();
 
       const validMetadata = {
         lastLogin: "2024-12-20T10:30:00Z",

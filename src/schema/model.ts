@@ -108,7 +108,7 @@ export class Model<TFields extends Record<string, Field | Relation<any>> = {}> {
   async validate(
     data: ModelType<TFields>,
     ...validators: ModelValidator<ModelType<TFields>>[]
-  ): Promise<ValidationResult> {
+  ): Promise<ValidationResult<any>> {
     const errors: string[] = [];
 
     for (const validator of validators) {

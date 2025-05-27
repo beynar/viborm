@@ -68,7 +68,7 @@ export class Relation<T = any> {
   async validate(
     data: T,
     ...validators: RelationValidator<T>[]
-  ): Promise<ValidationResult> {
+  ): Promise<ValidationResult<any>> {
     const errors: string[] = [];
 
     for (const validator of validators) {

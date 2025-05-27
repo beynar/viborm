@@ -25,7 +25,7 @@ export class BooleanField<
   > = DefaultFieldState<boolean>
 > extends BaseField<T> {
   public override fieldType = "boolean" as const;
-  private validators: FieldValidator<boolean>[] = [];
+  private fieldValidator?: FieldValidator<InferType<T>>;
 
   constructor() {
     super();
@@ -35,7 +35,7 @@ export class BooleanField<
     U extends FieldState<any, any, any, any, any, any>
   >(): BaseField<U> {
     const newField = new BooleanField<U>();
-    (newField as any).validators = [...this.validators];
+    (newField as any).fieldValidator = this.fieldValidator;
     return newField as any;
   }
 
@@ -44,7 +44,7 @@ export class BooleanField<
     const newField = new BooleanField<MakeNullable<T>>();
     this.copyPropertiesTo(newField);
     (newField as any).isOptional = true;
-    (newField as any).validators = [...this.validators];
+    (newField as any).fieldValidator = this.fieldValidator;
     return newField;
   }
 
@@ -52,7 +52,7 @@ export class BooleanField<
     const newField = new BooleanField<MakeList<T>>();
     this.copyPropertiesTo(newField);
     (newField as any).isList = true;
-    (newField as any).validators = [...this.validators];
+    (newField as any).fieldValidator = this.fieldValidator;
     return newField;
   }
 
@@ -60,7 +60,7 @@ export class BooleanField<
     const newField = new BooleanField<MakeId<T>>();
     this.copyPropertiesTo(newField);
     (newField as any).isId = true;
-    (newField as any).validators = [...this.validators];
+    (newField as any).fieldValidator = this.fieldValidator;
     return newField;
   }
 
@@ -68,7 +68,7 @@ export class BooleanField<
     const newField = new BooleanField<MakeUnique<T>>();
     this.copyPropertiesTo(newField);
     (newField as any).isUnique = true;
-    (newField as any).validators = [...this.validators];
+    (newField as any).fieldValidator = this.fieldValidator;
     return newField;
   }
 
@@ -76,19 +76,19 @@ export class BooleanField<
     const newField = new BooleanField<MakeDefault<T>>();
     this.copyPropertiesTo(newField);
     (newField as any).defaultValue = value;
-    (newField as any).validators = [...this.validators];
+    (newField as any).fieldValidator = this.fieldValidator;
     return newField;
   }
 
-  // Add validator method that accepts standard schema or custom validation functions
-  validator(...validators: FieldValidator<boolean>[]): this {
-    this.validators.push(...validators);
+  // Add validator method that accepts a single standard schema
+  validator(validator: FieldValidator<InferType<T>>): this {
+    this.fieldValidator = validator;
     return this;
   }
 
-  // Override validate to include custom validators
-  override async validate(value: boolean): Promise<any> {
-    return super.validate(value, ...this.validators);
+  // Override validate to include custom validator
+  override async validate(value: any): Promise<any> {
+    return super.validate(value, this.fieldValidator);
   }
 }
 

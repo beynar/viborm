@@ -19,7 +19,7 @@ export class NumberField<
   T extends FieldState<any, any, any, any, any, any> = DefaultFieldState<number>
 > extends BaseField<T> {
   public override fieldType: "int" | "float" | "decimal" = "int";
-  private validators: FieldValidator<number>[] = [];
+  private fieldValidator?: FieldValidator<InferType<T>>;
 
   constructor(fieldType: "int" | "float" | "decimal" = "int") {
     super();
@@ -30,7 +30,7 @@ export class NumberField<
     U extends FieldState<any, any, any, any, any, any>
   >(): BaseField<U> {
     const newField = new NumberField<U>(this.fieldType);
-    (newField as any).validators = [...this.validators];
+    (newField as any).fieldValidator = this.fieldValidator;
     return newField as any;
   }
 
@@ -39,7 +39,7 @@ export class NumberField<
     const newField = new NumberField<MakeNullable<T>>(this.fieldType);
     this.copyPropertiesTo(newField);
     (newField as any).isOptional = true;
-    (newField as any).validators = [...this.validators];
+    (newField as any).fieldValidator = this.fieldValidator;
     return newField;
   }
 
@@ -47,7 +47,7 @@ export class NumberField<
     const newField = new NumberField<MakeList<T>>(this.fieldType);
     this.copyPropertiesTo(newField);
     (newField as any).isList = true;
-    (newField as any).validators = [...this.validators];
+    (newField as any).fieldValidator = this.fieldValidator;
     return newField;
   }
 
@@ -55,7 +55,7 @@ export class NumberField<
     const newField = new NumberField<MakeId<T>>(this.fieldType);
     this.copyPropertiesTo(newField);
     (newField as any).isId = true;
-    (newField as any).validators = [...this.validators];
+    (newField as any).fieldValidator = this.fieldValidator;
     return newField;
   }
 
@@ -63,7 +63,7 @@ export class NumberField<
     const newField = new NumberField<MakeUnique<T>>(this.fieldType);
     this.copyPropertiesTo(newField);
     (newField as any).isUnique = true;
-    (newField as any).validators = [...this.validators];
+    (newField as any).fieldValidator = this.fieldValidator;
     return newField;
   }
 
@@ -71,15 +71,11 @@ export class NumberField<
     const newField = new NumberField<MakeDefault<T>>(this.fieldType);
     this.copyPropertiesTo(newField);
     (newField as any).defaultValue = value;
-    (newField as any).validators = [...this.validators];
+    (newField as any).fieldValidator = this.fieldValidator;
     return newField;
   }
 
-  // Add validator method that accepts standard schema or custom validation functions
-  validator(...validators: FieldValidator<number>[]): this {
-    this.validators.push(...validators);
-    return this;
-  }
+  // Add validator method that accepts a single standard schema
 
   // Number-specific auto-generation methods (only for int fields)
   get auto(): NumberAutoMethods<NumberField<T>> {
@@ -94,15 +90,19 @@ export class NumberField<
         const newField = new NumberField<T>(this.fieldType);
         this.copyPropertiesTo(newField);
         (newField as any).autoGenerate = "increment";
-        (newField as any).validators = [...this.validators];
+        (newField as any).fieldValidator = this.fieldValidator;
         return newField;
       },
     };
   }
 
-  // Override validate to include custom validators
-  override async validate(value: number): Promise<any> {
-    return super.validate(value, ...this.validators);
+  validator(validator: FieldValidator<InferType<T>>): this {
+    this.fieldValidator = validator;
+    return this;
+  }
+  // Override validate to include custom validator
+  override async validate(value: any): Promise<any> {
+    return super.validate(value, this.fieldValidator);
   }
 }
 

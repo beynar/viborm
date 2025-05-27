@@ -5,13 +5,11 @@ import type {
   ScalarFieldType,
   FieldValidator,
   ValidationResult,
-  StandardSchemaV1,
   AutoGenerateType,
 } from "../../types/index.js";
 
 import type {
   FieldState,
-  DefaultFieldState,
   MakeNullable,
   MakeList,
   MakeId,
@@ -87,43 +85,28 @@ export abstract class BaseField<
     U extends FieldState<any, any, any, any, any, any>
   >(): BaseField<U>;
 
-  // Validation method - accepts any number of validators
+  // Validation method - accepts a single standard schema validator
   async validate(
-    value: T["BaseType"],
-    ...validators: FieldValidator<T["BaseType"]>[]
-  ): Promise<ValidationResult> {
+    value: InferType<T>,
+    validator?: FieldValidator<InferType<T>>
+  ): Promise<ValidationResult<InferType<T>>> {
     const errors: string[] = [];
-
+    let output: InferType<T> = value;
     try {
       // Type validation
       if (!this.validateType(value)) {
         errors.push(`Invalid type for field. Expected ${this.fieldType}`);
       }
 
-      // Run all provided validators
-      for (const validator of validators) {
+      // Run standard schema validator if provided
+      if (validator) {
         try {
-          if (typeof validator === "function") {
-            const result = await validator(value);
-            if (result !== true) {
-              errors.push(
-                typeof result === "string" ? result : "Validation failed"
-              );
-            }
-          } else if (
-            validator &&
-            typeof validator === "object" &&
-            "~standard" in validator
-          ) {
-            const standardValidator = validator as StandardSchemaV1<
-              T["BaseType"],
-              T["BaseType"]
-            >;
-            const result = await standardValidator["~standard"].validate(value);
+          const result = await validator["~standard"].validate(value);
 
-            if ("issues" in result && result.issues) {
-              errors.push(...result.issues.map((issue: any) => issue.message));
-            }
+          if ("issues" in result && result.issues) {
+            errors.push(...result.issues.map((issue: any) => issue.message));
+          } else {
+            output = result.value;
           }
         } catch (error) {
           errors.push(
@@ -142,6 +125,7 @@ export abstract class BaseField<
     }
 
     return {
+      output: errors.length === 0 ? output : undefined,
       valid: errors.length === 0,
       errors: errors.length > 0 ? errors : undefined,
     };

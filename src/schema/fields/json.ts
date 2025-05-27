@@ -62,9 +62,9 @@ export class JsonField<
   }
 
   // Override validate to use schema validation if provided
-  override async validate(value: any): Promise<ValidationResult> {
+  override async validate(value: any): Promise<ValidationResult<InferType<T>>> {
     const errors: string[] = [];
-
+    let output: InferType<T> = value;
     try {
       // Basic type validation
       if (!this.validateType(value)) {
@@ -78,6 +78,8 @@ export class JsonField<
 
           if ("issues" in result && result.issues) {
             errors.push(...result.issues.map((issue: any) => issue.message));
+          } else {
+            output = result.value;
           }
         } catch (error) {
           errors.push(
@@ -96,6 +98,7 @@ export class JsonField<
     }
 
     return {
+      output: errors.length === 0 ? value : undefined,
       valid: errors.length === 0,
       errors: errors.length > 0 ? errors : undefined,
     };

@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { s } from "../src/schema/index.js";
 
 describe("Model Type Inference - Practical Tests", () => {
@@ -117,10 +118,10 @@ describe("Model Type Inference - Practical Tests", () => {
         value >= min || `Must be at least ${min}`;
 
       const validatedModel = s.model("validated", {
-        name: s.string().validator(minLengthValidator(2)),
-        email: s.string().validator(emailValidator),
-        age: s.int().validator(minValueValidator(0)),
-        score: s.float().validator(minValueValidator(0.0)),
+        name: s.string().validator(z.string().min(2)),
+        email: s.string().validator(z.string().email()),
+        age: s.int().validator(z.number().min(0)),
+        score: s.float().validator(z.number().min(0.0)),
       });
 
       type ValidatedType = typeof validatedModel.infer;

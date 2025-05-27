@@ -57,8 +57,8 @@ describe("JsonField Practical Examples with Zod", () => {
       const userModel = s.model("user", {
         id: s.string().id().auto.ulid(),
         email: s.string(),
-        profile: s.json(userProfileSchema as any),
-        preferences: s.json(userPreferencesSchema as any).default({
+        profile: s.json(userProfileSchema),
+        preferences: s.json(userPreferencesSchema).default({
           theme: "auto",
           language: "en",
           notifications: { email: true, push: true, sms: false },
@@ -69,14 +69,20 @@ describe("JsonField Practical Examples with Zod", () => {
 
       type UserType = typeof userModel.infer;
 
-      // Verify basic type inference works correctly
-      expectTypeOf<UserType>().toMatchTypeOf<{
-        id: string;
-        email: string;
-        profile: any; // Since we're using schema, this would be typed but we'll keep it simple
-        preferences: any;
-        metadata: any | null;
-      }>();
+      expectTypeOf<UserType["profile"]>().toMatchTypeOf<
+        (typeof userProfileSchema)["_output"]
+      >();
+      // Verify that the JSON fields are properly typed based on their schemas
+      // Test individual properties to ensure proper type inference from Zod schemas
+      expectTypeOf<UserType["profile"]["firstName"]>().toEqualTypeOf<string>();
+      expectTypeOf<UserType["profile"]["lastName"]>().toEqualTypeOf<string>();
+      expectTypeOf<UserType["preferences"]["theme"]>().toEqualTypeOf<
+        "light" | "dark" | "auto"
+      >();
+      expectTypeOf<
+        UserType["preferences"]["notifications"]["email"]
+      >().toEqualTypeOf<boolean>();
+      expectTypeOf<UserType["metadata"]>().toMatchTypeOf<any | null>();
 
       // Test field properties
       expect(userModel.fields.get("id")!.isId).toBe(true);
@@ -89,8 +95,8 @@ describe("JsonField Practical Examples with Zod", () => {
       const userModel = s.model("user", {
         id: s.string().id().auto.ulid(),
         email: s.string(),
-        profile: s.json(userProfileSchema as any),
-        preferences: s.json(userPreferencesSchema as any),
+        profile: s.json(userProfileSchema),
+        preferences: s.json(userPreferencesSchema),
       });
 
       // Valid profile data
@@ -144,21 +150,51 @@ describe("JsonField Practical Examples with Zod", () => {
         id: s.string().id().auto.ulid(),
         name: s.string(),
         price: s.decimal(),
-        metadata: s.json(productMetadataSchema as any),
+        metadata: s.json(productMetadataSchema),
         customFields: s.json().nullable(), // Flexible JSON for custom data
-        variants: s.json(productMetadataSchema as any).list(), // Array of metadata
+        variants: s.json(productMetadataSchema).list(), // Array of metadata
       });
 
       type ProductType = typeof productModel.infer;
 
-      // Verify basic type structure
+      // Verify complex metadata type structure
       expectTypeOf<ProductType>().toMatchTypeOf<{
         id: string;
         name: string;
         price: number;
-        metadata: any;
+        metadata: {
+          category: string;
+          tags: string[];
+          specifications: Record<string, string | number | boolean>;
+          images: Array<{
+            url: string;
+            alt: string;
+            width: number;
+            height: number;
+          }>;
+          seo: {
+            title: string;
+            description: string;
+            keywords: string[];
+          };
+        };
         customFields: any | null;
-        variants: any[];
+        variants: Array<{
+          category: string;
+          tags: string[];
+          specifications: Record<string, string | number | boolean>;
+          images: Array<{
+            url: string;
+            alt: string;
+            width: number;
+            height: number;
+          }>;
+          seo: {
+            title: string;
+            description: string;
+            keywords: string[];
+          };
+        }>;
       }>();
 
       expect(productModel.fields.get("metadata")!.fieldType).toBe("json");
@@ -169,7 +205,7 @@ describe("JsonField Practical Examples with Zod", () => {
     test("should validate complex product metadata", async () => {
       const productModel = s.model("product", {
         id: s.string().id(),
-        metadata: s.json(productMetadataSchema as any),
+        metadata: s.json(productMetadataSchema),
       });
 
       const validMetadata = {
@@ -269,7 +305,7 @@ describe("JsonField Practical Examples with Zod", () => {
       const settingsModel = s.model("settings", {
         id: s.string().id(),
         environment: s.string(),
-        config: s.json(configSchema as any),
+        config: s.json(configSchema),
         overrides: s.json().nullable(),
       });
 
@@ -298,12 +334,37 @@ describe("JsonField Practical Examples with Zod", () => {
         .validate(validConfig);
       expect(result.valid).toBe(true);
 
-      // Verify basic type inference works
+      // Verify that the config field is properly typed based on the schema
       type SettingsType = typeof settingsModel.infer;
       expectTypeOf<SettingsType>().toMatchTypeOf<{
         id: string;
         environment: string;
-        config: any; // Would be properly typed with schema, but keeping simple
+        config: {
+          database: {
+            host: string;
+            port: number;
+            username: string;
+            ssl: boolean;
+            poolSize: number;
+          };
+          cache: {
+            redis: {
+              host: string;
+              port: number;
+              ttl: number;
+            };
+            memory: {
+              maxSize: number;
+              evictionPolicy: "lru" | "lfu" | "fifo";
+            };
+          };
+          features: {
+            enableLogging: boolean;
+            enableMetrics: boolean;
+            enableAuth: boolean;
+            experimentalFeatures: string[];
+          };
+        };
         overrides: any | null;
       }>();
     });
