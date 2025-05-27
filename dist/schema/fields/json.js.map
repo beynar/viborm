@@ -1,0 +1,1 @@
+{"version":3,"file":"json.js","sourceRoot":"","sources":["../../../src/schema/fields/json.ts"],"names":[],"mappings":"AAAA,mBAAmB;AACnB,yCAAyC;AAEzC,OAAO,EAAE,SAAS,EAAE,MAAM,WAAW,CAAC;AAEtC,MAAM,OAAO,SAAmB,SAAQ,SAAY;IAClD;QACE,KAAK,EAAE,CAAC;QACR,IAAI,CAAC,SAAS,GAAG,MAAM,CAAC;IAC1B,CAAC;IAES,cAAc;QACtB,OAAO,IAAI,SAAS,EAAS,CAAC;IAChC,CAAC;CACF"}

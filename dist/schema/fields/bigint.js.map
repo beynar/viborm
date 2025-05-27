@@ -1,0 +1,1 @@
+{"version":3,"file":"bigint.js","sourceRoot":"","sources":["../../../src/schema/fields/bigint.ts"],"names":[],"mappings":"AAAA,qBAAqB;AACrB,wCAAwC;AAExC,OAAO,EAAE,SAAS,EAAE,MAAM,WAAW,CAAC;AAEtC,MAAM,OAAO,WAAY,SAAQ,SAAiB;IAChD;QACE,KAAK,EAAE,CAAC;QACR,IAAI,CAAC,SAAS,GAAG,QAAQ,CAAC;IAC5B,CAAC;IAES,cAAc;QACtB,OAAO,IAAI,WAAW,EAAS,CAAC;IAClC,CAAC;CACF"}
