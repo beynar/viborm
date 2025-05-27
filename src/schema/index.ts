@@ -13,7 +13,15 @@ import {
   BlobField,
   EnumField,
   type Field,
-} from "./field.js";
+} from "./fields/index.js";
+import { string } from "./fields/string.js";
+import { int, float, decimal } from "./fields/number.js";
+import { boolean } from "./fields/boolean.js";
+import { bigint } from "./fields/bigint.js";
+import { datetime } from "./fields/datetime.js";
+import { json } from "./fields/json.js";
+import { blob } from "./fields/blob.js";
+import { enumField } from "./fields/enum.js";
 import { Relation } from "./relation.js";
 
 export class SchemaBuilder {
@@ -26,46 +34,56 @@ export class SchemaBuilder {
   }
 
   // Create specific field types
-  string(): StringField {
-    return new StringField();
+  string() {
+    return string();
   }
 
-  boolean(): BooleanField {
-    return new BooleanField();
+  boolean() {
+    return boolean();
   }
 
-  int(): NumberField {
-    return new NumberField("int");
+  int() {
+    return int();
   }
 
-  bigInt(): BigIntField {
-    return new BigIntField();
+  bigInt() {
+    return bigint();
   }
 
-  float(): NumberField {
-    return new NumberField("float");
+  float() {
+    return float();
   }
 
-  decimal(precision: number, scale: number): NumberField {
-    return new NumberField("decimal");
+  decimal() {
+    return decimal();
   }
 
-  dateTime(): DateTimeField {
-    return new DateTimeField();
+  dateTime() {
+    return datetime();
   }
 
-  json<T = any>(): JsonField<T> {
-    return new JsonField<T>();
+  json(): ReturnType<typeof json>;
+  json<
+    TSchema extends import("../types/standardSchema.js").StandardSchemaV1<
+      any,
+      any
+    >
+  >(schema: TSchema): ReturnType<typeof json<TSchema>>;
+  json<
+    TSchema extends import("../types/standardSchema.js").StandardSchemaV1<
+      any,
+      any
+    >
+  >(schema?: TSchema) {
+    return schema ? json(schema) : json();
   }
 
-  blob(): BlobField {
-    return new BlobField();
+  blob() {
+    return blob();
   }
 
-  enum<TEnum extends readonly (string | number)[]>(
-    values: TEnum
-  ): EnumField<TEnum> {
-    return new EnumField(values);
+  enum<TEnum extends readonly (string | number)[]>(values: TEnum) {
+    return enumField(values);
   }
 
   // Relation factory

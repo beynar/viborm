@@ -1,19 +1,9 @@
 // Validator Type Definitions
 // Based on specifications: readme/6_validation.md and readme/1.2_field_class.md
 
+import { StandardSchemaV1 } from "./standardSchema";
+
 // Standard Schema interface for cross-library compatibility
-export interface StandardSchemaV1<Input = unknown, Output = Input> {
-  readonly "~standard": {
-    readonly version: 1;
-    readonly vendor: string;
-    readonly validate: (
-      value: unknown
-    ) =>
-      | { value: Output }
-      | { issues: Array<{ message: string }> }
-      | Promise<{ value: Output } | { issues: Array<{ message: string }> }>;
-  };
-}
 
 // Validation result interface
 export interface ValidationResult {
@@ -24,7 +14,7 @@ export interface ValidationResult {
 // Field validator can be a function or Standard Schema
 export type FieldValidator<T> =
   | ((value: T) => boolean | string | Promise<boolean | string>)
-  | StandardSchemaV1<T, T>;
+  | StandardSchemaV1<any, T>;
 
 // Model validator can be a function or Standard Schema
 export type ModelValidator<T> =

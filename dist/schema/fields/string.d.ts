@@ -1,24 +1,18 @@
 import { BaseField } from "./base.js";
-import type { ValidationResult } from "../../types/index.js";
-export declare class StringField<T extends string = string> extends BaseField<T> {
-    private regexPattern?;
-    private minLength?;
-    private maxLength?;
+import type { FieldState, DefaultFieldState, MakeNullable, MakeList, MakeId, MakeUnique, MakeDefault } from "../../types/field-states.js";
+import type { FieldValidator } from "../../types/validators.js";
+export declare class StringField<T extends FieldState<any, any, any, any, any, any> = DefaultFieldState<string>> extends BaseField<T> {
+    fieldType: "string";
+    private validators;
     constructor();
-    protected createInstance<U>(): BaseField<U>;
-    regex(pattern: RegExp): this;
-    min(length: number): this;
-    max(length: number): this;
-    get auto(): {
-        uuid: () => this;
-        ulid: () => this;
-        nanoid: () => this;
-        cuid: () => this;
-    };
-    validate(value: T, ...validators: import("../../types/index.js").FieldValidator<T>[]): Promise<ValidationResult>;
-    protected copyPropertiesTo(target: BaseField<any>): void;
-    "~getRegexPattern"(): RegExp | undefined;
-    "~getMinLength"(): number | undefined;
-    "~getMaxLength"(): number | undefined;
+    protected createInstance<U extends FieldState<any, any, any, any, any, any>>(): BaseField<U>;
+    nullable(): StringField<MakeNullable<T>>;
+    list(): StringField<MakeList<T>>;
+    id(): StringField<MakeId<T>>;
+    unique(): StringField<MakeUnique<T>>;
+    default(value: T["BaseType"] | (() => T["BaseType"])): StringField<MakeDefault<T>>;
+    validator(...validators: FieldValidator<string>[]): this;
+    validate(value: string): Promise<any>;
 }
+export declare function string(): StringField<DefaultFieldState<string>>;
 //# sourceMappingURL=string.d.ts.map

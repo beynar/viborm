@@ -18,6 +18,9 @@ import type {
   MakeUnique,
   MakeDefault,
   InferType,
+  InferInputType,
+  InferStorageType,
+  ValidateFieldState,
   BaseFieldType,
 } from "../../types/field-states.js";
 
@@ -78,80 +81,8 @@ export abstract class BaseField<
     return newField;
   }
 
-  // Auto-generation methods
-  get auto() {
-    return {
-      uuid: () => {
-        if (this.fieldType !== "string") {
-          throw new Error("uuid() can only be used with string fields");
-        }
-        const newField = this.createInstance<any>();
-        this.copyPropertiesTo(newField);
-        newField.autoGenerate = "uuid";
-        return newField;
-      },
-
-      ulid: () => {
-        if (this.fieldType !== "string") {
-          throw new Error("ulid() can only be used with string fields");
-        }
-        const newField = this.createInstance<any>();
-        this.copyPropertiesTo(newField);
-        newField.autoGenerate = "ulid";
-        return newField;
-      },
-
-      nanoid: () => {
-        if (this.fieldType !== "string") {
-          throw new Error("nanoid() can only be used with string fields");
-        }
-        const newField = this.createInstance<any>();
-        this.copyPropertiesTo(newField);
-        newField.autoGenerate = "nanoid";
-        return newField;
-      },
-
-      cuid: () => {
-        if (this.fieldType !== "string") {
-          throw new Error("cuid() can only be used with string fields");
-        }
-        const newField = this.createInstance<any>();
-        this.copyPropertiesTo(newField);
-        newField.autoGenerate = "cuid";
-        return newField;
-      },
-
-      increment: () => {
-        if (this.fieldType !== "int") {
-          throw new Error("increment() can only be used with int fields");
-        }
-        const newField = this.createInstance<any>();
-        this.copyPropertiesTo(newField);
-        newField.autoGenerate = "increment";
-        return newField;
-      },
-
-      now: () => {
-        if (this.fieldType !== "dateTime") {
-          throw new Error("now() can only be used with dateTime fields");
-        }
-        const newField = this.createInstance<any>();
-        this.copyPropertiesTo(newField);
-        newField.autoGenerate = "now";
-        return newField;
-      },
-
-      updatedAt: () => {
-        if (this.fieldType !== "dateTime") {
-          throw new Error("updatedAt() can only be used with dateTime fields");
-        }
-        const newField = this.createInstance<any>();
-        this.copyPropertiesTo(newField);
-        newField.autoGenerate = "updatedAt";
-        return newField;
-      },
-    };
-  }
+  // Auto-generation methods - to be implemented by specific field types
+  // Each field type will implement only the relevant auto methods
 
   // Abstract method to create the correct instance type
   protected abstract createInstance<
@@ -192,8 +123,8 @@ export abstract class BaseField<
             >;
             const result = await standardValidator["~standard"].validate(value);
 
-            if ("issues" in result) {
-              errors.push(...result.issues.map((issue) => issue.message));
+            if ("issues" in result && result.issues) {
+              errors.push(...result.issues.map((issue: any) => issue.message));
             }
           }
         } catch (error) {
@@ -259,8 +190,20 @@ export abstract class BaseField<
     target.autoGenerate = this.autoGenerate;
   }
 
-  // Type inference getter
+  // Type inference getters
   get infer(): InferType<T> {
     return {} as InferType<T>;
+  }
+
+  get inferInput(): InferInputType<T> {
+    return {} as InferInputType<T>;
+  }
+
+  get inferStorage(): InferStorageType<T> {
+    return {} as InferStorageType<T>;
+  }
+
+  get validateState(): ValidateFieldState<T> {
+    return {} as ValidateFieldState<T>;
   }
 }

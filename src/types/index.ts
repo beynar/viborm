@@ -8,6 +8,7 @@ export * from "./models.js";
 export * from "./relations.js";
 export * from "./utilities.js";
 export * from "./field-states.js";
+export * from "./standardSchema.js";
 
 // Export specific types to avoid conflicts
 export type { BatchPayload, WhereInputBase } from "./operations.js";

@@ -14,6 +14,9 @@ importers:
       drizzle-orm:
         specifier: ^0.43.1
         version: 0.43.1(@prisma/client@6.8.2(prisma@6.8.2(typescript@5.8.3))(typescript@5.8.3))(prisma@6.8.2(typescript@5.8.3))
+      zod:
+        specifier: ^3.25.30
+        version: 3.25.30
     devDependencies:
       '@types/node':
         specifier: ^22.15.21
@@ -695,6 +698,9 @@ packages:
     engines: {node: '>=8'}
     hasBin: true
 
+  zod@3.25.30:
+    resolution: {integrity: sha512-VolhdEtu6TJr/fzGuHA/SZ5ixvXqA6ADOG9VRcQ3rdOKmF5hkmcJbyaQjUH5BgmpA9gej++zYRX7zjSmdReIwA==}
+
 snapshots:
 
   '@esbuild/aix-ppc64@0.25.4':
@@ -1169,3 +1175,5 @@ snapshots:
     dependencies:
       siginfo: 2.0.0
       stackback: 0.0.2
+
+  zod@3.25.30: {}

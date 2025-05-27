@@ -41,6 +41,7 @@ export interface ModelDefinition {
 }
 import type { BaseField, Field } from "../schema/field.js";
 import type { Relation } from "../schema/relation.js";
+import { BaseFieldType } from "./index.js";
 export type ScalarFields<TModel extends Record<string, any>> = {
     [K in keyof TModel]: TModel[K] extends BaseField<any> ? K : never;
 }[keyof TModel];
@@ -49,7 +50,7 @@ export type RelationFields<TModel extends Record<string, any>> = {
 }[keyof TModel];
 export type ModelFieldNames<TModel extends Record<string, any>> = keyof TModel & string;
 export type ModelType<TFields extends Record<string, Field | Relation<any>>> = {
-    [K in keyof TFields]: TFields[K] extends BaseField<infer T> ? T : TFields[K] extends Relation<infer R> ? R : never;
+    [K in keyof TFields]: TFields[K] extends infer F ? F extends BaseFieldType<infer S> ? F["infer"] : TFields[K] extends Relation<infer R> ? R : never : never;
 };
 export type ModelScalars<TFields extends Record<string, Field | Relation<any>>> = {
     [K in keyof TFields as TFields[K] extends BaseField<any> ? K : never]: TFields[K] extends BaseField<infer T> ? T : never;

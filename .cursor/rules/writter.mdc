@@ -10,6 +10,14 @@ When I tell you to write a file, like a documentation or a new file I want you t
 This folder contains detailed specifications for each component of the BaseORM project. These documents are designed to be comprehensive guides for developers working on individual parts of the system.
 
 
+## Interacting with me
+I will ask you to do some stuff, but I may be wrong sometimes. I excpect you to challenge my ideas if you think it is appropriate. Do not be a sycophante AI, be smart please.
+
+
+## Keeping track of the changes 
+In order for you, the AI assistant to keep track of what has been done since the begining of the project, we write a comprehensive changelog inside the following file [AI-CHANGELOG.md](mdc:AI-CHANGELOG.md). Refer to it as needed to understand how the project is evolving. I will ask you to write in it from time to time, you will then have to perform a summary of current discussion I have with you with a clean title a what you have done the problem solved etc.
+Always add new entry on the top of the document.
+
 ## Project Overview
 
 BaseORM is a TypeScript ORM for Postgres and MySQL with two main components:
@@ -74,3 +82,30 @@ Every implementations guides lives are here :
 [3_adapter_api.md](mdc:readme/3_adapter_api.md)
 [4_validation.md](mdc:readme/4_validation.md)
 [5_type_system.md](mdc:readme/5_type_system.md)
+
+
+## Writting tests. 
+
+We use vitest for unit testings. All tests should be well organized inside the @tests folder. Vitest is configured to inject its api globally.
+
+To test runtime execution you use describe to group logical testing together and small unit test inside the describe callback for clarity. Like this 
+
+describe("sum", () => {
+  test("adds 1 + 2 to equal 3", () => {
+    expect(sum(1, 2)).toBe(3);
+  });
+  test("adds 4 + 5 to equal 9", () => {
+    expect(sum(4, 5)).toBe(9);
+  });
+});
+
+
+To test type you will use `expectTypeOf` `toEqualTypeOf` `toMatchTypeOf` from vitest. Like this
+
+expectTypeOf({ a: 1 }).toEqualTypeOf<{ a: number }>()
+expectTypeOf({ a: 1 }).toEqualTypeOf({ a: 1 })
+expectTypeOf({ a: 1 }).toEqualTypeOf({ a: 2 })
+expectTypeOf({ a: 1, b: 1 }).not.toEqualTypeOf<{ a: number }>()
+
+
+to run test use `pnpm vitest run tests/NAMEOFTHEFILE`

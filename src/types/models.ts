@@ -58,6 +58,7 @@ export interface ModelDefinition {
 // Import BaseField and Relation types for proper type inference
 import type { BaseField, Field } from "../schema/field.js";
 import type { Relation } from "../schema/relation.js";
+import { BaseFieldType, FieldState, Nullable } from "./index.js";
 
 // Type for extracting scalar fields from a model
 export type ScalarFields<TModel extends Record<string, any>> = {
@@ -75,10 +76,12 @@ export type ModelFieldNames<TModel extends Record<string, any>> = keyof TModel &
 
 // Type for creating a model type from field definitions
 export type ModelType<TFields extends Record<string, Field | Relation<any>>> = {
-  [K in keyof TFields]: TFields[K] extends BaseField<infer T>
-    ? T
-    : TFields[K] extends Relation<infer R>
-    ? R
+  [K in keyof TFields]: TFields[K] extends infer F
+    ? F extends BaseFieldType<infer S>
+      ? F["infer"]
+      : TFields[K] extends Relation<infer R>
+      ? R
+      : never
     : never;
 };
 

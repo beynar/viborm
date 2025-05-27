@@ -23,8 +23,8 @@
     "noFallthroughCasesInSwitch": true,
     "noImplicitOverride": true,
     "lib": ["ES2020", "DOM"],
-    "types": ["node"]
+    "types": ["node", "vitest/globals"]
   },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "**/*.test.ts", "**/*.spec.ts"]
+  "include": ["src/**/*", "tests/**/*.test.ts"],
+  "exclude": ["node_modules", "dist", "**/*.spec.ts"]
 }

@@ -23,16 +23,20 @@ export const SUPPORTED_DATABASES = ["postgresql", "mysql"] as const;
 // Main schema builder instance (re-exported for convenience)
 export { s as schema } from "./schema/index.js";
 
+const string = s.string().nullable();
+
+import { z } from "zod/v4";
+
+const profile = z.object({
+  name: z.string(),
+  age: z.number(),
+});
+
 const test = s.model("test", {
-  string: s.string().nullable(),
-  boolean: s.boolean(),
-  number: s.int(),
-  bigint: s.bigInt(),
-  float: s.float(),
-  decimal: s.decimal(1, 2),
-  dateTime: s.dateTime(),
-  json: s.json(),
-  blob: s.blob(),
+  string: s.string().auto.uuid(),
+  date: s.dateTime().nullable(),
+  status: s.enum(["active", "inactive"] as const),
+  profile: s.json(profile),
 });
 
 type U = typeof test.infer;
