@@ -10,7 +10,6 @@ import type {
   MakeId,
   MakeUnique,
   MakeDefault,
-  NumberAutoMethods,
   InferType,
 } from "../../types/field-states.js";
 import type { FieldValidator } from "../../types/validators.js";
@@ -75,25 +74,19 @@ export class NumberField<
     return newField;
   }
 
-  // Add validator method that accepts a single standard schema
-
-  // Number-specific auto-generation methods (only for int fields)
-  get auto(): NumberAutoMethods<NumberField<T>> {
-    return {
-      increment: (): NumberField<T> => {
-        if (this.fieldType !== "int") {
-          throw new Error(
-            "increment() can only be used with int fields, not " +
-              this.fieldType
-          );
-        }
-        const newField = new NumberField<T>(this.fieldType);
-        this.copyPropertiesTo(newField);
-        (newField as any).autoGenerate = "increment";
-        (newField as any).fieldValidator = this.fieldValidator;
-        return newField;
-      },
-    };
+  // Number-specific auto-generation method (only for int fields)
+  autoIncrement(): NumberField<T> {
+    if (this.fieldType !== "int") {
+      throw new Error(
+        "autoIncrement() can only be used with int fields, not " +
+          this.fieldType
+      );
+    }
+    const newField = new NumberField<T>(this.fieldType);
+    this.copyPropertiesTo(newField);
+    (newField as any).autoGenerate = "increment";
+    (newField as any).fieldValidator = this.fieldValidator;
+    return newField;
   }
 
   validator(validator: FieldValidator<InferType<T>>): this {

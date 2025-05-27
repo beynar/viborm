@@ -10,7 +10,6 @@ import type {
   MakeId,
   MakeUnique,
   MakeDefault,
-  StringAutoMethods,
   InferType,
 } from "../../types/field-states.js";
 import type { FieldValidator } from "../../types/validators.js";
@@ -75,41 +74,37 @@ export class StringField<
     return newField;
   }
 
-  // String-specific auto-generation methods
-  get auto(): StringAutoMethods<StringField<T>> {
-    return {
-      uuid: (): StringField<T> => {
-        const newField = new StringField<T>();
-        this.copyPropertiesTo(newField);
-        (newField as any).autoGenerate = "uuid";
-        (newField as any).fieldValidator = this.fieldValidator;
-        return newField;
-      },
+  // String-specific auto-generation methods (direct methods instead of nested auto object)
+  uuid(): StringField<T> {
+    const newField = new StringField<T>();
+    this.copyPropertiesTo(newField);
+    (newField as any).autoGenerate = "uuid";
+    (newField as any).fieldValidator = this.fieldValidator;
+    return newField;
+  }
 
-      ulid: (): StringField<T> => {
-        const newField = new StringField<T>();
-        this.copyPropertiesTo(newField);
-        (newField as any).autoGenerate = "ulid";
-        (newField as any).fieldValidator = this.fieldValidator;
-        return newField;
-      },
+  ulid(): StringField<T> {
+    const newField = new StringField<T>();
+    this.copyPropertiesTo(newField);
+    (newField as any).autoGenerate = "ulid";
+    (newField as any).fieldValidator = this.fieldValidator;
+    return newField;
+  }
 
-      nanoid: (): StringField<T> => {
-        const newField = new StringField<T>();
-        this.copyPropertiesTo(newField);
-        (newField as any).autoGenerate = "nanoid";
-        (newField as any).fieldValidator = this.fieldValidator;
-        return newField;
-      },
+  nanoid(): StringField<T> {
+    const newField = new StringField<T>();
+    this.copyPropertiesTo(newField);
+    (newField as any).autoGenerate = "nanoid";
+    (newField as any).fieldValidator = this.fieldValidator;
+    return newField;
+  }
 
-      cuid: (): StringField<T> => {
-        const newField = new StringField<T>();
-        this.copyPropertiesTo(newField);
-        (newField as any).autoGenerate = "cuid";
-        (newField as any).fieldValidator = this.fieldValidator;
-        return newField;
-      },
-    };
+  cuid(): StringField<T> {
+    const newField = new StringField<T>();
+    this.copyPropertiesTo(newField);
+    (newField as any).autoGenerate = "cuid";
+    (newField as any).fieldValidator = this.fieldValidator;
+    return newField;
   }
 
   // Add validator method that accepts a single standard schema

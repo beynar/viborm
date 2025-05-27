@@ -10,7 +10,7 @@ describe("Recursive Schema Support with Standard Relationship Types", () => {
     });
 
     const Profile = s.model("Profile", {
-      id: s.string(),
+      id: s.string().nullable().id(),
       bio: s.string(),
       user: s
         .relation({ onDelete: "CASCADE", onField: "test" })

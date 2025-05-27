@@ -82,7 +82,7 @@ describe("JSON Schema Support", () => {
   describe("Model with JSON fields", () => {
     test("creates model with mixed JSON fields", () => {
       const productModel = s.model("product", {
-        id: s.string().id().auto.ulid(),
+        id: s.string().id().ulid(),
         name: s.string(),
         price: s.decimal(),
 
@@ -95,7 +95,7 @@ describe("JSON Schema Support", () => {
         // Nullable JSON field
         settings: s.json().nullable(),
 
-        createdAt: s.dateTime().auto.now(),
+        createdAt: s.dateTime().now(),
       });
 
       expect(productModel.name).toBe("product");
@@ -173,7 +173,7 @@ describe("JSON Schema Support", () => {
   describe("E-commerce example", () => {
     test("creates e-commerce model with JSON fields", () => {
       const productModel = s.model("product", {
-        id: s.string().id().auto.ulid(),
+        id: s.string().id().ulid(),
         name: s.string(),
         description: s.string().nullable(),
         price: s.decimal(),
@@ -187,12 +187,12 @@ describe("JSON Schema Support", () => {
         // Array of product variants
         variants: s.json().list(),
 
-        createdAt: s.dateTime().auto.now(),
-        updatedAt: s.dateTime().auto.now(),
+        createdAt: s.dateTime().now(),
+        updatedAt: s.dateTime().now(),
       });
 
       const userModel = s.model("user", {
-        id: s.string().id().auto.ulid(),
+        id: s.string().id().ulid(),
         email: s.string().unique(),
         username: s.string().unique(),
 
@@ -205,7 +205,7 @@ describe("JSON Schema Support", () => {
         // Audit trail
         auditLog: s.json().list(),
 
-        createdAt: s.dateTime().auto.now(),
+        createdAt: s.dateTime().now(),
       });
 
       expect(productModel.name).toBe("product");

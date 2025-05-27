@@ -10,7 +10,6 @@ import type {
   MakeId,
   MakeUnique,
   MakeDefault,
-  DateTimeAutoMethods,
   InferType,
 } from "../../types/field-states.js";
 import type { FieldValidator } from "../../types/validators.js";
@@ -74,26 +73,21 @@ export class DateTimeField<
     return newField;
   }
 
-  // Add validator method that accepts a single standard schema
+  // DateTime-specific auto-generation methods (direct methods instead of nested auto object)
+  now(): DateTimeField<T> {
+    const newField = new DateTimeField<T>();
+    this.copyPropertiesTo(newField);
+    (newField as any).autoGenerate = "now";
+    (newField as any).fieldValidator = this.fieldValidator;
+    return newField;
+  }
 
-  // DateTime-specific auto-generation methods
-  get auto(): DateTimeAutoMethods<DateTimeField<T>> {
-    return {
-      now: (): DateTimeField<T> => {
-        const newField = new DateTimeField<T>();
-        this.copyPropertiesTo(newField);
-        (newField as any).autoGenerate = "now";
-        (newField as any).fieldValidator = this.fieldValidator;
-        return newField;
-      },
-      updatedAt: (): DateTimeField<T> => {
-        const newField = new DateTimeField<T>();
-        this.copyPropertiesTo(newField);
-        (newField as any).autoGenerate = "updatedAt";
-        (newField as any).fieldValidator = this.fieldValidator;
-        return newField;
-      },
-    };
+  updatedAt(): DateTimeField<T> {
+    const newField = new DateTimeField<T>();
+    this.copyPropertiesTo(newField);
+    (newField as any).autoGenerate = "updatedAt";
+    (newField as any).fieldValidator = this.fieldValidator;
+    return newField;
   }
 
   validator(validator: FieldValidator<InferType<T>>): this {

@@ -99,8 +99,8 @@ describe("Comprehensive Field Types", () => {
         largeValue: s.bigInt().nullable(),
 
         // DateTime fields
-        createdAt: s.dateTime().auto.now(),
-        updatedAt: s.dateTime().auto.updatedAt(),
+        createdAt: s.dateTime().now(),
+        updatedAt: s.dateTime().updatedAt(),
         birthDate: s.dateTime().nullable(),
         loginTimes: s.dateTime().list(),
 

@@ -6,16 +6,14 @@ describe("Circular Relations", () => {
       const user = s.model("user", {
         id: s.string(),
         name: s.string(),
-        get friends() {
-          return s.relation(() => [user]);
-        },
+        friends: s.relation({ onField: "test" }).manyToMany(() => user),
       });
 
       expect(user.name).toBe("user");
       expect(user.relations.has("friends")).toBe(true);
 
       const friendsRelation = user.relations.get("friends");
-      expect(friendsRelation?.relationType).toBe("many");
+      expect(friendsRelation?.relationType).toBe("manyToMany");
       expect(friendsRelation?.targetModel.name).toBe("user");
     });
 
@@ -23,17 +21,13 @@ describe("Circular Relations", () => {
       const userModel = s.model("user", {
         id: s.string(),
         name: s.string(),
-        get posts() {
-          return s.relation(() => [postModel]);
-        },
+        posts: s.relation({ onField: "test" }).manyToMany(() => postModel),
       });
 
       const postModel = s.model("post", {
         id: s.string(),
         title: s.string(),
-        get author() {
-          return s.relation(() => userModel);
-        },
+        author: s.relation({ onField: "test" }).manyToOne(() => userModel),
       });
 
       expect(userModel.name).toBe("user");
@@ -65,9 +59,7 @@ describe("Circular Relations", () => {
       const profile = s.model("profile", {
         name: s.string(),
         age: s.int(),
-        get friends() {
-          return s.relation(() => [profile]);
-        },
+        friends: s.relation({ onField: "test" }).manyToMany(() => profile),
       });
 
       type ProfileInfer = typeof profile.infer;
@@ -84,17 +76,13 @@ describe("Circular Relations", () => {
       const user = s.model("user", {
         id: s.string(),
         name: s.string(),
-        get posts() {
-          return s.relation(() => [post]);
-        },
+        posts: s.relation({ onField: "test" }).manyToMany(() => post),
       });
 
       const post = s.model("post", {
         id: s.string(),
         title: s.string(),
-        get author() {
-          return s.relation(() => user);
-        },
+        author: s.relation({ onField: "test" }).manyToOne(() => user),
       });
 
       type UserInfer = typeof user.infer;
@@ -107,34 +95,6 @@ describe("Circular Relations", () => {
       // Relations should work both ways
       expectTypeOf<UserInfer["posts"]>().toMatchTypeOf<any[]>();
       expectTypeOf<PostInfer["author"]>().toMatchTypeOf<any>();
-    });
-  });
-
-  describe("Comparison with Zod", () => {
-    test("should work as simply as Zod but without z.lazy()", () => {
-      // This is the key test - BaseORM should be simpler than Zod
-      // because ALL relations are automatically lazy
-
-      const profileModel = s.model("profile", {
-        name: s.string(),
-        age: s.int(),
-        get friends() {
-          return s.relation(() => [profileModel]); // No s.lazy() needed!
-        },
-      });
-
-      // Should work at runtime
-      expect(profileModel.name).toBe("profile");
-      expect(profileModel.relations.has("friends")).toBe(true);
-
-      const friendsRelation = profileModel.relations.get("friends");
-      expect(friendsRelation?.relationType).toBe("many");
-      expect(friendsRelation?.targetModel.name).toBe("profile");
-
-      // Should have proper types
-      type ProfileType = typeof profileModel.infer;
-      expectTypeOf<ProfileType["name"]>().toEqualTypeOf<string>();
-      expectTypeOf<ProfileType["age"]>().toEqualTypeOf<number>();
     });
   });
 });

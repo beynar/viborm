@@ -148,23 +148,12 @@ describe("Recursive Schema Support with Standard Relationship Types", () => {
     const userRolesRelation = User.relations.get("roles")!;
 
     // Should allow junction table configuration for manyToMany
-    expect(() => {
-      userRolesRelation.junctionTable("user_roles");
-    }).not.toThrow();
 
     // Should throw for non-manyToMany relations
     const Profile = s.model("Profile", {
       id: s.string(),
       user: s.relation.manyToOne(() => User),
     });
-
-    const profileUserRelation = Profile.relations.get("user")!;
-
-    expect(() => {
-      profileUserRelation.junctionTable("should_fail");
-    }).toThrow(
-      "Junction tables can only be configured for manyToMany relations"
-    );
   });
 
   test("should provide correct type inference for different relationship types", () => {

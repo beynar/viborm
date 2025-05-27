@@ -194,11 +194,11 @@ describe("Comprehensive Model Type Inference", () => {
   describe("Auto fields and smart inference", () => {
     test("auto generated fields", () => {
       const model = s.model("autoTest", {
-        id: s.string().id().auto.ulid(),
-        uuid: s.string().auto.uuid(),
-        counter: s.int().auto.increment(),
-        createdAt: s.dateTime().auto.now(),
-        updatedAt: s.dateTime().auto.updatedAt(),
+        id: s.string().id().ulid(),
+        uuid: s.string().uuid(),
+        counter: s.int().autoIncrement(),
+        createdAt: s.dateTime().now(),
+        updatedAt: s.dateTime().updatedAt(),
         title: s.string(),
       });
 
@@ -290,9 +290,9 @@ describe("Comprehensive Model Type Inference", () => {
     test("complete user model", () => {
       const userModel = s.model("user", {
         // ID and auto fields
-        id: s.string().id().auto.ulid(),
-        createdAt: s.dateTime().auto.now(),
-        updatedAt: s.dateTime().auto.updatedAt(),
+        id: s.string().id().ulid(),
+        createdAt: s.dateTime().now(),
+        updatedAt: s.dateTime().updatedAt(),
 
         // Required fields
         email: s.string().unique(),
@@ -360,7 +360,7 @@ describe("Comprehensive Model Type Inference", () => {
 
     test("blog post model", () => {
       const postModel = s.model("post", {
-        id: s.string().id().auto.ulid(),
+        id: s.string().id().ulid(),
         slug: s.string().unique(),
         title: s.string(),
         content: s.string(),
@@ -377,8 +377,8 @@ describe("Comprehensive Model Type Inference", () => {
         likeCount: s.int().default(0),
 
         publishedAt: s.dateTime().nullable(),
-        createdAt: s.dateTime().auto.now(),
-        updatedAt: s.dateTime().auto.updatedAt(),
+        createdAt: s.dateTime().now(),
+        updatedAt: s.dateTime().updatedAt(),
 
         metadata: s.json().nullable(),
       });
@@ -419,7 +419,7 @@ describe("Comprehensive Model Type Inference", () => {
 
     test("e-commerce product model", () => {
       const productModel = s.model("product", {
-        id: s.string().id().auto.ulid(),
+        id: s.string().id().ulid(),
         sku: s.string().unique(),
         name: s.string(),
         description: s.string().nullable(),
@@ -441,8 +441,8 @@ describe("Comprehensive Model Type Inference", () => {
         specifications: s.json().nullable(),
         variants: s.json().list(),
 
-        createdAt: s.dateTime().auto.now(),
-        updatedAt: s.dateTime().auto.updatedAt(),
+        createdAt: s.dateTime().now(),
+        updatedAt: s.dateTime().updatedAt(),
       });
 
       type ProductModelType = typeof productModel.infer;
@@ -510,9 +510,9 @@ describe("Comprehensive Model Type Inference", () => {
         secondaryId: s.bigInt().id().nullable(),
 
         // Auto field combinations
-        autoValue: s.string().auto.uuid(),
-        autoWithDefault: s.string().auto.uuid().default("fallback"),
-        autoNullable: s.string().auto.uuid().nullable(),
+        autoValue: s.string().uuid(),
+        autoWithDefault: s.string().uuid().default("fallback"),
+        autoNullable: s.string().uuid().nullable(),
 
         // Default combinations
         defaultString: s.string().default("test"),

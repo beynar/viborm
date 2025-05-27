@@ -149,10 +149,10 @@ describe("Model Type Inference - Practical Tests", () => {
   describe("Auto-generation types", () => {
     test("string auto-generation methods", () => {
       const stringAutoModel = s.model("stringAuto", {
-        uuid: s.string().auto.uuid(),
-        ulid: s.string().auto.ulid(),
-        cuid: s.string().auto.cuid(),
-        nanoid: s.string().auto.nanoid(),
+        uuid: s.string().uuid(),
+        ulid: s.string().ulid(),
+        cuid: s.string().cuid(),
+        nanoid: s.string().nanoid(),
       });
 
       type StringAutoType = typeof stringAutoModel.infer;
@@ -178,8 +178,8 @@ describe("Model Type Inference - Practical Tests", () => {
 
     test("number auto-generation methods", () => {
       const numberAutoModel = s.model("numberAuto", {
-        id: s.int().auto.increment(),
-        counter: s.int().auto.increment(),
+        id: s.int().autoIncrement(),
+        counter: s.int().autoIncrement(),
       });
 
       type NumberAutoType = typeof numberAutoModel.infer;
@@ -199,8 +199,8 @@ describe("Model Type Inference - Practical Tests", () => {
 
     test("datetime auto-generation methods", () => {
       const dateAutoModel = s.model("dateAuto", {
-        createdAt: s.dateTime().auto.now(),
-        updatedAt: s.dateTime().auto.updatedAt(),
+        createdAt: s.dateTime().now(),
+        updatedAt: s.dateTime().updatedAt(),
       });
 
       type DateAutoType = typeof dateAutoModel.infer;
@@ -414,9 +414,9 @@ describe("Model Type Inference - Practical Tests", () => {
 
     test("auto-generated fields properties", () => {
       const autoModel = s.model("autoTest", {
-        uuid: s.string().auto.uuid(),
-        increment: s.int().auto.increment(),
-        timestamp: s.dateTime().auto.now(),
+        uuid: s.string().uuid(),
+        increment: s.int().autoIncrement(),
+        timestamp: s.dateTime().now(),
       });
 
       // Test that auto fields are created correctly
@@ -475,7 +475,7 @@ describe("Model Type Inference - Practical Tests", () => {
   describe("Real-world examples", () => {
     test("user model", () => {
       const userModel = s.model("user", {
-        id: s.string().id().auto.ulid(),
+        id: s.string().id().ulid(),
         email: s.string().unique(),
         name: s.string(),
         bio: s.string().nullable(),
@@ -484,7 +484,7 @@ describe("Model Type Inference - Practical Tests", () => {
         role: s.enum(["user", "admin", "moderator"] as const).default("user"),
         tags: s.string().list(),
         metadata: s.json().nullable(),
-        createdAt: s.dateTime().auto.now(),
+        createdAt: s.dateTime().now(),
       });
 
       type UserType = typeof userModel.infer;
@@ -521,7 +521,7 @@ describe("Model Type Inference - Practical Tests", () => {
 
     test("product model", () => {
       const productModel = s.model("product", {
-        id: s.string().id().auto.ulid(),
+        id: s.string().id().ulid(),
         name: s.string(),
         price: s.decimal(),
         inStock: s.boolean(),
@@ -531,7 +531,7 @@ describe("Model Type Inference - Practical Tests", () => {
         variants: s.json().list(),
         images: s.blob().list(),
         tags: s.string().list().nullable(),
-        createdAt: s.dateTime().auto.now(),
+        createdAt: s.dateTime().now(),
       });
 
       type ProductType = typeof productModel.infer;

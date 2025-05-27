@@ -16,8 +16,8 @@ describe("Smart Type Inference", () => {
 
   describe("Auto-generated fields", () => {
     test("auto-generated fields are never nullable", () => {
-      const autoUlidField = s.string().auto.ulid();
-      const nullableAutoField = s.string().auto.uuid().nullable();
+      const autoUlidField = s.string().ulid();
+      const nullableAutoField = s.string().uuid().nullable();
 
       // Runtime tests
       expect(autoUlidField.constructor.name).toBe("StringField");
@@ -38,7 +38,7 @@ describe("Smart Type Inference", () => {
 
   describe("Input vs Storage type distinction", () => {
     test("provides different inference methods", () => {
-      const autoIdField = s.string().id().auto.ulid();
+      const autoIdField = s.string().id().ulid();
 
       // Test that the methods exist
       expect(autoIdField).toHaveProperty("infer");
@@ -58,7 +58,7 @@ describe("Smart Type Inference", () => {
 
   describe("Complex combinations", () => {
     test("handles complex field combinations correctly", () => {
-      const complexField = s.string().id().auto.ulid().unique();
+      const complexField = s.string().id().ulid().unique();
 
       expect(complexField.constructor.name).toBe("StringField");
       expect((complexField as any).isId).toBe(true);
@@ -83,7 +83,7 @@ describe("Smart Type Inference", () => {
     test("creates valid schema with mixed field types", () => {
       const userSchema = {
         // ID field: never nullable, auto-generated = optional for input
-        id: s.string().id().auto.ulid(),
+        id: s.string().id().ulid(),
 
         // Regular field: nullable as specified
         name: s.string().nullable(),
@@ -95,7 +95,7 @@ describe("Smart Type Inference", () => {
         email: s.string(),
 
         // Problematic field (should still work but shows warnings)
-        problematicId: s.int().id().nullable().auto.increment(),
+        problematicId: s.int().id().nullable().autoIncrement(),
       };
 
       // Test that all fields are created correctly
@@ -115,11 +115,11 @@ describe("Smart Type Inference", () => {
   describe("Runtime behavior", () => {
     test("creates valid sample data matching schema structure", () => {
       const userSchema = {
-        id: s.string().id().auto.ulid(),
+        id: s.string().id().ulid(),
         name: s.string().nullable(),
         status: s.string().default("active"),
         email: s.string(),
-        problematicId: s.int().id().nullable().auto.increment(),
+        problematicId: s.int().id().nullable().autoIncrement(),
       };
 
       // Test that we can create valid objects

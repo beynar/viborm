@@ -3,29 +3,6 @@
 
 import type { ScalarFieldType, AutoGenerateType } from "./scalars.js";
 
-// Field-specific auto method interfaces for type safety
-export interface StringAutoMethods<TField> {
-  uuid(): TField;
-  ulid(): TField;
-  nanoid(): TField;
-  cuid(): TField;
-}
-
-export interface NumberAutoMethods<TField> {
-  increment(): TField;
-}
-
-export interface DateTimeAutoMethods<TField> {
-  now(): TField;
-  updatedAt(): TField;
-}
-
-// Combined auto methods interface (for base class compatibility)
-export interface AllAutoMethods<TField>
-  extends StringAutoMethods<TField>,
-    NumberAutoMethods<TField>,
-    DateTimeAutoMethods<TField> {}
-
 // Basic field state configuration with literal boolean types
 export interface FieldState<
   T = any,

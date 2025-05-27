@@ -60,8 +60,8 @@ describe("All Field Types", () => {
         bigValue: s.bigInt().nullable(),
 
         // DateTime fields
-        createdAt: s.dateTime().auto.now(),
-        updatedAt: s.dateTime().auto.updatedAt(),
+        createdAt: s.dateTime().now(),
+        updatedAt: s.dateTime().updatedAt(),
         birthDate: s.dateTime().nullable(),
 
         // JSON fields

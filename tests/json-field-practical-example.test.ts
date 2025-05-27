@@ -55,7 +55,7 @@ describe("JsonField Practical Examples with Zod", () => {
   describe("User model with typed JSON fields", () => {
     test("should create user model with strongly typed profile and preferences", () => {
       const userModel = s.model("user", {
-        id: s.string().id().auto.ulid(),
+        id: s.string().id().ulid(),
         email: s.string(),
         profile: s.json(userProfileSchema),
         preferences: s.json(userPreferencesSchema).default({
@@ -93,7 +93,7 @@ describe("JsonField Practical Examples with Zod", () => {
 
     test("should validate user data against schemas", async () => {
       const userModel = s.model("user", {
-        id: s.string().id().auto.ulid(),
+        id: s.string().id().ulid(),
         email: s.string(),
         profile: s.json(userProfileSchema),
         preferences: s.json(userPreferencesSchema),
@@ -147,7 +147,7 @@ describe("JsonField Practical Examples with Zod", () => {
   describe("E-commerce product model", () => {
     test("should create product model with complex metadata schema", () => {
       const productModel = s.model("product", {
-        id: s.string().id().auto.ulid(),
+        id: s.string().id().ulid(),
         name: s.string(),
         price: s.decimal(),
         metadata: s.json(productMetadataSchema),

@@ -36,7 +36,7 @@ type R = (typeof profile._output)["friends"];
 
 // Testing circular relations - even simpler than Zod!
 const user = s.model("user", {
-  id: s.string().auto.uuid(),
+  id: s.string().uuid(),
   name: s.string(),
   // get friends() {
   //   return s.relation(() => user); // All relations are lazy by default!
@@ -51,7 +51,7 @@ const test2 = s.model("test2", {
 });
 
 const test = s.model("test", {
-  string: s.string().auto.uuid(),
+  string: s.string().uuid(),
   date: s.dateTime().nullable(),
   status: s.enum(["active", "inactive"] as const),
   // profile: s.json(profile),
