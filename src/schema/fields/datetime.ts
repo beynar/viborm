@@ -11,6 +11,7 @@ import type {
   MakeUnique,
   MakeDefault,
   DateTimeAutoMethods,
+  InferType,
 } from "../../types/field-states.js";
 import type { FieldValidator } from "../../types/validators.js";
 
@@ -65,9 +66,7 @@ export class DateTimeField<
     return newField;
   }
 
-  override default(
-    value: T["BaseType"] | (() => T["BaseType"])
-  ): DateTimeField<MakeDefault<T>> {
+  override default(value: InferType<T>): DateTimeField<MakeDefault<T>> {
     const newField = new DateTimeField<MakeDefault<T>>();
     this.copyPropertiesTo(newField);
     (newField as any).defaultValue = value;

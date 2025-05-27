@@ -11,6 +11,7 @@ import type {
   MakeUnique,
   MakeDefault,
   NumberAutoMethods,
+  InferType,
 } from "../../types/field-states.js";
 import type { FieldValidator } from "../../types/validators.js";
 
@@ -66,9 +67,7 @@ export class NumberField<
     return newField;
   }
 
-  override default(
-    value: T["BaseType"] | (() => T["BaseType"])
-  ): NumberField<MakeDefault<T>> {
+  override default(value: InferType<T>): NumberField<MakeDefault<T>> {
     const newField = new NumberField<MakeDefault<T>>(this.fieldType);
     this.copyPropertiesTo(newField);
     (newField as any).defaultValue = value;

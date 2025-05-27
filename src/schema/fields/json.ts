@@ -61,9 +61,7 @@ export class JsonField<
     return newField;
   }
 
-  override default(
-    value: T["BaseType"] | (() => T["BaseType"])
-  ): JsonField<TData, MakeDefault<T>> {
+  override default(value: TData): JsonField<TData, MakeDefault<T>> {
     const newField = new JsonField<TData, MakeDefault<T>>(this.schema);
     this.copyPropertiesTo(newField);
     (newField as any).defaultValue = value;

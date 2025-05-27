@@ -35,7 +35,7 @@ describe("Comprehensive Field Types", () => {
         .unique()
         .nullable()
         .list()
-        .default("test");
+        .default(["test"]);
 
       expect(complexString.constructor.name).toBe("StringField");
       expect((complexString as any).isId).toBe(true);
@@ -52,7 +52,7 @@ describe("Comprehensive Field Types", () => {
     });
 
     test("boolean field supports chainable methods", () => {
-      const complexBool = s.boolean().list().nullable().default(true);
+      const complexBool = s.boolean().list().nullable().default([true]);
 
       expect(complexBool.constructor.name).toBe("BooleanField");
       expect((complexBool as any).isList).toBe(true);

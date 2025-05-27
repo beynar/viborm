@@ -11,6 +11,7 @@ import type {
   MakeUnique,
   MakeDefault,
   StringAutoMethods,
+  InferType,
 } from "../../types/field-states.js";
 import type { FieldValidator } from "../../types/validators.js";
 
@@ -66,11 +67,7 @@ export class StringField<
     return newField;
   }
 
-  override default(
-    value: T["IsList"] extends true
-      ? T["BaseType"][] | (() => T["BaseType"][])
-      : T["BaseType"] | (() => T["BaseType"])
-  ): StringField<MakeDefault<T>> {
+  override default(value: InferType<T>): StringField<MakeDefault<T>> {
     const newField = new StringField<MakeDefault<T>>();
     this.copyPropertiesTo(newField);
     (newField as any).defaultValue = value;

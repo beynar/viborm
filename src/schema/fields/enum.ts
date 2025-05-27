@@ -10,6 +10,7 @@ import type {
   MakeId,
   MakeUnique,
   MakeDefault,
+  InferType,
 } from "../../types/field-states.js";
 import type { FieldValidator } from "../../types/validators.js";
 
@@ -69,9 +70,7 @@ export class EnumField<
     return newField;
   }
 
-  override default(
-    value: T["BaseType"] | (() => T["BaseType"])
-  ): EnumField<TEnum, MakeDefault<T>> {
+  override default(value: InferType<T>): EnumField<TEnum, MakeDefault<T>> {
     const newField = new EnumField<TEnum, MakeDefault<T>>(this.enumValues);
     this.copyPropertiesTo(newField);
     (newField as any).defaultValue = value;

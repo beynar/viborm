@@ -60,8 +60,8 @@ describe("Model Type Inference - Practical Tests", () => {
     test("model with array fields", () => {
       const postModel = s.model("post", {
         id: s.string().id(),
-        title: s.string(),
-        tags: s.string().list(),
+        title: s.string().default("My Post"),
+        tags: s.string().list().default(["typescript", "testing"]),
         scores: s.int().list(),
       });
 
@@ -80,6 +80,170 @@ describe("Model Type Inference - Practical Tests", () => {
       // Test array field types
       expectTypeOf<PostType["tags"]>().toEqualTypeOf<string[]>();
       expectTypeOf<PostType["scores"]>().toEqualTypeOf<number[]>();
+    });
+  });
+
+  describe("Validation and precision methods", () => {
+    test("decimal fields", () => {
+      const financialModel = s.model("financial", {
+        price: s.decimal(),
+        balance: s.decimal(),
+      });
+
+      type FinancialType = typeof financialModel.infer;
+
+      const data: FinancialType = {
+        price: 99.99,
+        balance: 1234.5678,
+      };
+
+      expect(data.price).toBe(99.99);
+      expect(data.balance).toBe(1234.5678);
+
+      // Test that decimal fields are typed as numbers
+      expectTypeOf<FinancialType["price"]>().toEqualTypeOf<number>();
+      expectTypeOf<FinancialType["balance"]>().toEqualTypeOf<number>();
+    });
+
+    test("validation through validator method", () => {
+      // Create validator functions
+      const minLengthValidator = (min: number) => (value: string) =>
+        value.length >= min || `Must be at least ${min} characters`;
+
+      const emailValidator = (value: string) =>
+        /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) || "Invalid email format";
+
+      const minValueValidator = (min: number) => (value: number) =>
+        value >= min || `Must be at least ${min}`;
+
+      const validatedModel = s.model("validated", {
+        name: s.string().validator(minLengthValidator(2)),
+        email: s.string().validator(emailValidator),
+        age: s.int().validator(minValueValidator(0)),
+        score: s.float().validator(minValueValidator(0.0)),
+      });
+
+      type ValidatedType = typeof validatedModel.infer;
+
+      const data: ValidatedType = {
+        name: "John",
+        email: "john@example.com",
+        age: 25,
+        score: 95.5,
+      };
+
+      expect(data.name).toBe("John");
+      expect(data.email).toBe("john@example.com");
+      expect(data.age).toBe(25);
+      expect(data.score).toBe(95.5);
+
+      // Test that validation doesn't change the types
+      expectTypeOf<ValidatedType["name"]>().toEqualTypeOf<string>();
+      expectTypeOf<ValidatedType["email"]>().toEqualTypeOf<string>();
+      expectTypeOf<ValidatedType["age"]>().toEqualTypeOf<number>();
+      expectTypeOf<ValidatedType["score"]>().toEqualTypeOf<number>();
+    });
+  });
+
+  describe("Auto-generation types", () => {
+    test("string auto-generation methods", () => {
+      const stringAutoModel = s.model("stringAuto", {
+        uuid: s.string().auto.uuid(),
+        ulid: s.string().auto.ulid(),
+        cuid: s.string().auto.cuid(),
+        nanoid: s.string().auto.nanoid(),
+      });
+
+      type StringAutoType = typeof stringAutoModel.infer;
+
+      const data: StringAutoType = {
+        uuid: "uuid-123",
+        ulid: "ulid-123",
+        cuid: "cuid-123",
+        nanoid: "nanoid-123",
+      };
+
+      expect(typeof data.uuid).toBe("string");
+      expect(typeof data.ulid).toBe("string");
+      expect(typeof data.cuid).toBe("string");
+      expect(typeof data.nanoid).toBe("string");
+
+      // Test types
+      expectTypeOf<StringAutoType["uuid"]>().toEqualTypeOf<string>();
+      expectTypeOf<StringAutoType["ulid"]>().toEqualTypeOf<string>();
+      expectTypeOf<StringAutoType["cuid"]>().toEqualTypeOf<string>();
+      expectTypeOf<StringAutoType["nanoid"]>().toEqualTypeOf<string>();
+    });
+
+    test("number auto-generation methods", () => {
+      const numberAutoModel = s.model("numberAuto", {
+        id: s.int().auto.increment(),
+        counter: s.int().auto.increment(),
+      });
+
+      type NumberAutoType = typeof numberAutoModel.infer;
+
+      const data: NumberAutoType = {
+        id: 1,
+        counter: 5,
+      };
+
+      expect(typeof data.id).toBe("number");
+      expect(typeof data.counter).toBe("number");
+
+      // Test types
+      expectTypeOf<NumberAutoType["id"]>().toEqualTypeOf<number>();
+      expectTypeOf<NumberAutoType["counter"]>().toEqualTypeOf<number>();
+    });
+
+    test("datetime auto-generation methods", () => {
+      const dateAutoModel = s.model("dateAuto", {
+        createdAt: s.dateTime().auto.now(),
+        updatedAt: s.dateTime().auto.updatedAt(),
+      });
+
+      type DateAutoType = typeof dateAutoModel.infer;
+
+      const data: DateAutoType = {
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      expect(data.createdAt).toBeInstanceOf(Date);
+      expect(data.updatedAt).toBeInstanceOf(Date);
+
+      // Test types
+      expectTypeOf<DateAutoType["createdAt"]>().toEqualTypeOf<Date>();
+      expectTypeOf<DateAutoType["updatedAt"]>().toEqualTypeOf<Date>();
+    });
+  });
+
+  describe("Field modifiers and constraints", () => {
+    test("unique fields", () => {
+      const uniqueModel = s.model("unique", {
+        id: s.string().id(),
+        email: s.string().unique(),
+        username: s.string().unique(),
+      });
+
+      // Test that unique fields are created correctly
+      expect((uniqueModel.fields.get("email") as any).isUnique).toBe(true);
+      expect((uniqueModel.fields.get("username") as any).isUnique).toBe(true);
+
+      type UniqueType = typeof uniqueModel.infer;
+
+      const data: UniqueType = {
+        id: "id-123",
+        email: "user@example.com",
+        username: "unique_user",
+      };
+
+      expect(data.email).toBe("user@example.com");
+      expect(data.username).toBe("unique_user");
+
+      // Test that unique constraint doesn't change types
+      expectTypeOf<UniqueType["email"]>().toEqualTypeOf<string>();
+      expectTypeOf<UniqueType["username"]>().toEqualTypeOf<string>();
     });
   });
 

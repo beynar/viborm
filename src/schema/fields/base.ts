@@ -51,9 +51,7 @@ export abstract class BaseField<
     return newField;
   }
 
-  default(
-    value: T["BaseType"] | (() => T["BaseType"])
-  ): BaseFieldType<MakeDefault<T>> {
+  default(value: InferType<T>): BaseFieldType<MakeDefault<T>> {
     const newField = this.createInstance<MakeDefault<T>>();
     this.copyPropertiesTo(newField);
     (newField as any).defaultValue = value;

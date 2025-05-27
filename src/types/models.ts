@@ -76,12 +76,10 @@ export type ModelFieldNames<TModel extends Record<string, any>> = keyof TModel &
 
 // Type for creating a model type from field definitions
 export type ModelType<TFields extends Record<string, Field | Relation<any>>> = {
-  [K in keyof TFields]: TFields[K] extends infer F
-    ? F extends BaseFieldType<infer S>
-      ? F["infer"]
-      : TFields[K] extends Relation<infer R>
-      ? R
-      : never
+  [K in keyof TFields]: TFields[K] extends BaseField<any>
+    ? TFields[K]["infer"]
+    : TFields[K] extends Relation<infer R>
+    ? R
     : never;
 };
 

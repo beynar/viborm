@@ -10,6 +10,7 @@ import type {
   MakeId,
   MakeUnique,
   MakeDefault,
+  InferType,
 } from "../../types/field-states.js";
 import type { FieldValidator } from "../../types/validators.js";
 
@@ -71,9 +72,7 @@ export class BlobField<
     return newField;
   }
 
-  override default(
-    value: T["BaseType"] | (() => T["BaseType"])
-  ): BlobField<MakeDefault<T>> {
+  override default(value: InferType<T>): BlobField<MakeDefault<T>> {
     const newField = new BlobField<MakeDefault<T>>();
     this.copyPropertiesTo(newField);
     (newField as any).defaultValue = value;

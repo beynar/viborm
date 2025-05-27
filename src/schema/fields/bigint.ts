@@ -10,6 +10,7 @@ import type {
   MakeId,
   MakeUnique,
   MakeDefault,
+  InferType,
 } from "../../types/field-states.js";
 import type { FieldValidator } from "../../types/validators.js";
 
@@ -64,9 +65,7 @@ export class BigIntField<
     return newField;
   }
 
-  override default(
-    value: T["BaseType"] | (() => T["BaseType"])
-  ): BigIntField<MakeDefault<T>> {
+  override default(value: InferType<T>): BigIntField<MakeDefault<T>> {
     const newField = new BigIntField<MakeDefault<T>>();
     this.copyPropertiesTo(newField);
     (newField as any).defaultValue = value;
