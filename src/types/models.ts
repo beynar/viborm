@@ -57,6 +57,7 @@ export interface ModelDefinition {
 
 // Import BaseField and Relation types for proper type inference
 import type { BaseField, Field } from "../schema/field.js";
+import { Model } from "../schema/model.js";
 import type { Relation } from "../schema/relation.js";
 import { BaseFieldType, FieldState, Nullable } from "./index.js";
 
@@ -80,9 +81,13 @@ export type ModelType<
 > = {
   [K in keyof TFields]: TFields[K] extends BaseField<any>
     ? TFields[K]["infer"]
-    : TFields[K] extends Relation<infer M, infer T>
-    ? TFields[K]["getter"] extends () => infer M
-      ? M["infer"]
+    : TFields[K] extends Relation<infer G, infer T>
+    ? G extends () => infer M
+      ? M extends Model<any>
+        ? T extends "oneToOne" | "manyToOne"
+          ? M["infer"]
+          : M["infer"][]
+        : never
       : never
     : never;
 };
@@ -94,19 +99,6 @@ export type ModelScalars<
   [K in keyof TFields as TFields[K] extends BaseField<any>
     ? K
     : never]: TFields[K] extends BaseField<infer T> ? T : never;
-};
-
-// Extract the relation type from a model type
-export type ModelRelations<
-  TFields extends Record<string, Field | Relation<any, any>>
-> = {
-  [K in keyof TFields as TFields[K] extends Relation<any, any>
-    ? K
-    : never]: TFields[K] extends Relation<infer M, infer T>
-    ? T extends "one"
-      ? M["infer"]
-      : M["infer"][]
-    : never;
 };
 
 // Model payload type for internal use

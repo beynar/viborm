@@ -134,24 +134,6 @@ describe("Recursive Schema Support with Standard Relationship Types", () => {
     expect(profileUserRelation.requiresJunctionTable).toBe(false);
   });
 
-  test("should support legacy relation syntax for backward compatibility", () => {
-    const User = s.model("User", {
-      id: s.string(),
-      email: s.string(),
-      posts: s.relation.many(() => Post), // Legacy: should map to oneToMany
-    });
-
-    const Post = s.model("Post", {
-      id: s.string(),
-      title: s.string(),
-      author: s.relation.one(() => User), // Legacy: should map to manyToOne
-    });
-
-    // Verify legacy mappings work
-    expect(User.relations.get("posts")?.relationType).toBe("oneToMany");
-    expect(Post.relations.get("author")?.relationType).toBe("manyToOne");
-  });
-
   test("should enforce junction table restrictions", () => {
     const User = s.model("User", {
       id: s.string(),

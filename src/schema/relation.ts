@@ -46,14 +46,14 @@ export class Relation<
   }
 
   // Cascade options
-  onDelete(options: CascadeOptions): this {
+  onDelete(options: CascadeOptions) {
     this.cascadeOptions = options;
     return this;
   }
 
-  onUpdate(options: CascadeOptions): this {
+  onUpdate(options: CascadeOptions) {
     this.cascadeOptions = options;
-    return this;
+    return this as unknown as Relation<G, T>;
   }
 
   // Many-to-many junction table configuration
@@ -158,10 +158,6 @@ export const relation = {
   oneToMany,
   manyToOne,
   manyToMany,
-
-  // Legacy aliases for backward compatibility
-  one: manyToOne, // "one" typically means "belongs to one" (manyToOne)
-  many: oneToMany, // "many" typically means "has many" (oneToMany)
 };
 
 export type RelationFactory = typeof relation;
