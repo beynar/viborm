@@ -28,66 +28,51 @@ export class DateTimeField<
     U extends FieldState<any, any, any, any, any, any>
   >(): BaseField<U> {
     const newField = new DateTimeField<U>();
-    (newField as any).fieldValidator = this.fieldValidator;
     return newField as any;
+  }
+
+  // Copy datetime-specific properties
+  protected override copyFieldSpecificProperties(target: BaseField<any>): void {
+    (target as any).fieldValidator = this.fieldValidator;
   }
 
   // Override chainable methods to return DateTimeField instances
   override nullable(): DateTimeField<MakeNullable<T>> {
-    const newField = new DateTimeField<MakeNullable<T>>();
-    this.copyPropertiesTo(newField);
-    (newField as any).isOptional = true;
-    (newField as any).fieldValidator = this.fieldValidator;
-    return newField;
+    return this.cloneWith<MakeNullable<T>>({
+      isOptional: true,
+    }) as DateTimeField<MakeNullable<T>>;
   }
 
   override list(): DateTimeField<MakeList<T>> {
-    const newField = new DateTimeField<MakeList<T>>();
-    this.copyPropertiesTo(newField);
-    (newField as any).isList = true;
-    (newField as any).fieldValidator = this.fieldValidator;
-    return newField;
+    return this.cloneWith<MakeList<T>>({ isList: true }) as DateTimeField<
+      MakeList<T>
+    >;
   }
 
   override id(): DateTimeField<MakeId<T>> {
-    const newField = new DateTimeField<MakeId<T>>();
-    this.copyPropertiesTo(newField);
-    (newField as any).isId = true;
-    (newField as any).fieldValidator = this.fieldValidator;
-    return newField;
+    return this.cloneWith<MakeId<T>>({ isId: true }) as DateTimeField<
+      MakeId<T>
+    >;
   }
 
   override unique(): DateTimeField<MakeUnique<T>> {
-    const newField = new DateTimeField<MakeUnique<T>>();
-    this.copyPropertiesTo(newField);
-    (newField as any).isUnique = true;
-    (newField as any).fieldValidator = this.fieldValidator;
-    return newField;
+    return this.cloneWith<MakeUnique<T>>({ isUnique: true }) as DateTimeField<
+      MakeUnique<T>
+    >;
   }
 
   override default(value: InferType<T>): DateTimeField<MakeDefault<T>> {
-    const newField = new DateTimeField<MakeDefault<T>>();
-    this.copyPropertiesTo(newField);
-    (newField as any).defaultValue = value;
-    (newField as any).fieldValidator = this.fieldValidator;
-    return newField;
+    return this.cloneWith<MakeDefault<T>>({
+      defaultValue: value,
+    }) as DateTimeField<MakeDefault<T>>;
   }
 
-  // DateTime-specific auto-generation methods (direct methods instead of nested auto object)
   now(): DateTimeField<T> {
-    const newField = new DateTimeField<T>();
-    this.copyPropertiesTo(newField);
-    (newField as any).autoGenerate = "now";
-    (newField as any).fieldValidator = this.fieldValidator;
-    return newField;
+    return this.cloneWith<T>({ autoGenerate: "now" }) as DateTimeField<T>;
   }
 
   updatedAt(): DateTimeField<T> {
-    const newField = new DateTimeField<T>();
-    this.copyPropertiesTo(newField);
-    (newField as any).autoGenerate = "updatedAt";
-    (newField as any).fieldValidator = this.fieldValidator;
-    return newField;
+    return this.cloneWith<T>({ autoGenerate: "updatedAt" }) as DateTimeField<T>;
   }
 
   validator(validator: FieldValidator<InferType<T>>): this {

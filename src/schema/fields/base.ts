@@ -43,38 +43,23 @@ export abstract class BaseField<
 
   // Type-safe modifiers that return new field instances with updated types
   nullable(): BaseFieldType<MakeNullable<T>> {
-    const newField = this.createInstance<MakeNullable<T>>();
-    this.copyPropertiesTo(newField);
-    (newField as any).isOptional = true;
-    return newField;
+    return this.cloneWith<MakeNullable<T>>({ isOptional: true });
   }
 
   default(value: InferType<T>): BaseFieldType<MakeDefault<T>> {
-    const newField = this.createInstance<MakeDefault<T>>();
-    this.copyPropertiesTo(newField);
-    (newField as any).defaultValue = value;
-    return newField;
+    return this.cloneWith<MakeDefault<T>>({ defaultValue: value });
   }
 
   unique(): BaseFieldType<MakeUnique<T>> {
-    const newField = this.createInstance<MakeUnique<T>>();
-    this.copyPropertiesTo(newField);
-    (newField as any).isUnique = true;
-    return newField;
+    return this.cloneWith<MakeUnique<T>>({ isUnique: true });
   }
 
   id(): BaseFieldType<MakeId<T>> {
-    const newField = this.createInstance<MakeId<T>>();
-    this.copyPropertiesTo(newField);
-    (newField as any).isId = true;
-    return newField;
+    return this.cloneWith<MakeId<T>>({ isId: true });
   }
 
   list(): BaseFieldType<MakeList<T>> {
-    const newField = this.createInstance<MakeList<T>>();
-    this.copyPropertiesTo(newField);
-    (newField as any).isList = true;
-    return newField;
+    return this.cloneWith<MakeList<T>>({ isList: true });
   }
 
   // Auto-generation methods - to be implemented by specific field types
@@ -84,6 +69,27 @@ export abstract class BaseField<
   protected abstract createInstance<
     U extends FieldState<any, any, any, any, any, any>
   >(): BaseField<U>;
+
+  // Generic clone-and-modify helper for reducing duplication
+  protected cloneWith<U extends FieldState<any, any, any, any, any, any>>(
+    modifications: Partial<BaseField<any>> = {}
+  ): BaseField<U> {
+    const newField = this.createInstance<U>();
+    this.copyPropertiesTo(newField);
+    this.copyFieldSpecificProperties(newField);
+
+    // Apply all modifications
+    for (const [key, value] of Object.entries(modifications)) {
+      (newField as any)[key] = value;
+    }
+
+    return newField;
+  }
+
+  // Hook for subclasses to copy their specific properties
+  protected copyFieldSpecificProperties(target: BaseField<any>): void {
+    // Base implementation does nothing - subclasses can override
+  }
 
   // Validation method - accepts a single standard schema validator
   async validate(
@@ -124,10 +130,11 @@ export abstract class BaseField<
       );
     }
 
+    const valid = errors.length === 0;
     return {
-      output: errors.length === 0 ? output : undefined,
-      valid: errors.length === 0,
-      errors: errors.length > 0 ? errors : undefined,
+      output: valid ? output : undefined,
+      valid,
+      errors: valid ? undefined : errors,
     };
   }
 

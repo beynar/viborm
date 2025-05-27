@@ -35,49 +35,41 @@ export class BlobField<
     U extends FieldState<any, any, any, any, any, any>
   >(): BaseField<U> {
     const newField = new BlobField<U>();
-    (newField as any).fieldValidator = this.fieldValidator;
     return newField as any;
+  }
+
+  // Copy blob-specific properties
+  protected override copyFieldSpecificProperties(target: BaseField<any>): void {
+    (target as any).fieldValidator = this.fieldValidator;
   }
 
   // Override chainable methods to return BlobField instances
   override nullable(): BlobField<MakeNullable<T>> {
-    const newField = new BlobField<MakeNullable<T>>();
-    this.copyPropertiesTo(newField);
-    (newField as any).isOptional = true;
-    (newField as any).fieldValidator = this.fieldValidator;
-    return newField;
+    return this.cloneWith<MakeNullable<T>>({ isOptional: true }) as BlobField<
+      MakeNullable<T>
+    >;
   }
 
   override list(): BlobField<MakeList<T>> {
-    const newField = new BlobField<MakeList<T>>();
-    this.copyPropertiesTo(newField);
-    (newField as any).isList = true;
-    (newField as any).fieldValidator = this.fieldValidator;
-    return newField;
+    return this.cloneWith<MakeList<T>>({ isList: true }) as BlobField<
+      MakeList<T>
+    >;
   }
 
   override id(): BlobField<MakeId<T>> {
-    const newField = new BlobField<MakeId<T>>();
-    this.copyPropertiesTo(newField);
-    (newField as any).isId = true;
-    (newField as any).fieldValidator = this.fieldValidator;
-    return newField;
+    return this.cloneWith<MakeId<T>>({ isId: true }) as BlobField<MakeId<T>>;
   }
 
   override unique(): BlobField<MakeUnique<T>> {
-    const newField = new BlobField<MakeUnique<T>>();
-    this.copyPropertiesTo(newField);
-    (newField as any).isUnique = true;
-    (newField as any).fieldValidator = this.fieldValidator;
-    return newField;
+    return this.cloneWith<MakeUnique<T>>({ isUnique: true }) as BlobField<
+      MakeUnique<T>
+    >;
   }
 
   override default(value: InferType<T>): BlobField<MakeDefault<T>> {
-    const newField = new BlobField<MakeDefault<T>>();
-    this.copyPropertiesTo(newField);
-    (newField as any).defaultValue = value;
-    (newField as any).fieldValidator = this.fieldValidator;
-    return newField;
+    return this.cloneWith<MakeDefault<T>>({ defaultValue: value }) as BlobField<
+      MakeDefault<T>
+    >;
   }
 
   // Add validator method that accepts a single standard schema

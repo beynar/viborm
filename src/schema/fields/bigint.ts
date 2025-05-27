@@ -28,49 +28,41 @@ export class BigIntField<
     U extends FieldState<any, any, any, any, any, any>
   >(): BaseField<U> {
     const newField = new BigIntField<U>();
-    (newField as any).fieldValidator = this.fieldValidator;
     return newField as any;
+  }
+
+  // Copy bigint-specific properties
+  protected override copyFieldSpecificProperties(target: BaseField<any>): void {
+    (target as any).fieldValidator = this.fieldValidator;
   }
 
   // Override chainable methods to return BigIntField instances
   override nullable(): BigIntField<MakeNullable<T>> {
-    const newField = new BigIntField<MakeNullable<T>>();
-    this.copyPropertiesTo(newField);
-    (newField as any).isOptional = true;
-    (newField as any).fieldValidator = this.fieldValidator;
-    return newField;
+    return this.cloneWith<MakeNullable<T>>({ isOptional: true }) as BigIntField<
+      MakeNullable<T>
+    >;
   }
 
   override list(): BigIntField<MakeList<T>> {
-    const newField = new BigIntField<MakeList<T>>();
-    this.copyPropertiesTo(newField);
-    (newField as any).isList = true;
-    (newField as any).fieldValidator = this.fieldValidator;
-    return newField;
+    return this.cloneWith<MakeList<T>>({ isList: true }) as BigIntField<
+      MakeList<T>
+    >;
   }
 
   override id(): BigIntField<MakeId<T>> {
-    const newField = new BigIntField<MakeId<T>>();
-    this.copyPropertiesTo(newField);
-    (newField as any).isId = true;
-    (newField as any).fieldValidator = this.fieldValidator;
-    return newField;
+    return this.cloneWith<MakeId<T>>({ isId: true }) as BigIntField<MakeId<T>>;
   }
 
   override unique(): BigIntField<MakeUnique<T>> {
-    const newField = new BigIntField<MakeUnique<T>>();
-    this.copyPropertiesTo(newField);
-    (newField as any).isUnique = true;
-    (newField as any).fieldValidator = this.fieldValidator;
-    return newField;
+    return this.cloneWith<MakeUnique<T>>({ isUnique: true }) as BigIntField<
+      MakeUnique<T>
+    >;
   }
 
   override default(value: InferType<T>): BigIntField<MakeDefault<T>> {
-    const newField = new BigIntField<MakeDefault<T>>();
-    this.copyPropertiesTo(newField);
-    (newField as any).defaultValue = value;
-    (newField as any).fieldValidator = this.fieldValidator;
-    return newField;
+    return this.cloneWith<MakeDefault<T>>({
+      defaultValue: value,
+    }) as BigIntField<MakeDefault<T>>;
   }
 
   // Add validator method that accepts a single standard schema

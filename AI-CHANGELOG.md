@@ -6,6 +6,65 @@ This file documents the major development discussions and implementations carrie
 
 ---
 
+## 2024-12-19 - Code Duplication Elimination in Field Classes
+
+**Problem Solved**: Massive code duplication across all field types where every chainable method (nullable, unique, id, etc.) had 6-8 lines of identical boilerplate code.
+
+**Solution Implemented**:
+
+- Added `cloneWith()` helper method in BaseField that accepts an object of modifications and iterates over them
+- Added `copyFieldSpecificProperties()` hook for subclasses to copy their specific properties (like validators)
+- Refactored all chainable methods to use one-liner calls: `return this.cloneWith<T>({ property: value })`
+
+**Key Benefits**:
+
+- Reduced ~80% of boilerplate code across ALL field types (StringField, NumberField, DateTimeField, BooleanField, BigIntField, BlobField, EnumField, JsonField)
+- Single source of truth for field cloning logic
+- Extensible pattern - adding new field types is now much simpler
+- Automatic preservation of field-specific properties (validators, schemas, enum values, etc.)
+- Multi-property modifications supported out of the box
+- All existing tests continue to pass
+
+**Files Modified**:
+
+- `src/schema/fields/base.ts` - Added cloneWith() helper and copyFieldSpecificProperties() hook
+- `src/schema/fields/string.ts` - Refactored all methods to use cloneWith()
+- `src/schema/fields/number.ts` - Refactored all methods to use cloneWith()
+- `src/schema/fields/datetime.ts` - Refactored all methods to use cloneWith()
+- `src/schema/fields/boolean.ts` - Refactored all methods to use cloneWith()
+- `src/schema/fields/bigint.ts` - Refactored all methods to use cloneWith()
+- `src/schema/fields/blob.ts` - Refactored all methods to use cloneWith()
+- `src/schema/fields/enum.ts` - Refactored all methods to use cloneWith()
+- `src/schema/fields/json.ts` - Refactored all methods to use cloneWith()
+
+**Technical Details**:
+The new pattern replaces this 6-line boilerplate:
+
+```ts
+const newField = new StringField<T>();
+this.copyPropertiesTo(newField);
+(newField as any).isOptional = true;
+(newField as any).fieldValidator = this.fieldValidator;
+return newField;
+```
+
+With this clean one-liner:
+
+```ts
+return this.cloneWith<T>({ isOptional: true }) as StringField<T>;
+```
+
+**Field-Specific Property Preservation**:
+Each field type now implements `copyFieldSpecificProperties()` to automatically preserve:
+
+- `StringField`, `NumberField`, `DateTimeField`, `BooleanField`, `BigIntField`, `BlobField`: Preserves `fieldValidator`
+- `EnumField`: Preserves `fieldValidator` and `enumValues` (via constructor)
+- `JsonField`: Preserves `schema` property
+
+This approach maintains full type safety, immutability principles, and extensibility while dramatically reducing code duplication across the entire field system.
+
+---
+
 ## 2024-12-23: Simplified Auto-Generation Methods
 
 **Summary**: Simplified the auto-generation API by removing the nested `.auto` object and making auto-generation methods directly accessible on field types. Users can now write `s.string().uuid()` instead of `s.string().auto.uuid()`. Also renamed `increment()` to `autoIncrement()` for better clarity.
@@ -1321,51 +1380,4 @@ The chainable pattern for relation options was causing TypeScript compilation is
 ### Changes Made
 
 - **Major API Change**: Removed all chainable methods from the `Relation` class
-- **New Options Pattern**: Relation options are now passed as arguments to `s.relation(options)`
-- **Backward Compatibility**: Direct relation methods (`s.relation.oneToOne()`, etc.) still work
-- **Forward Compatibility**: New syntax supports options: `s.relation({ onDelete: "CASCADE" }).manyToOne(() => User)`
-
-### Technical Details
-
-1. **RelationOptions Interface**: Created a comprehensive options interface supporting:
-
-   - `onDelete` and `onUpdate` cascade options
-   - `onField` and `refField` for field mapping
-   - `junctionTable` and `junctionField` for many-to-many relationships
-
-2. **RelationFactory Class**: Implemented a factory class that:
-
-   - Accepts options in constructor
-   - Provides all four relation type methods
-   - Applies options when creating `Relation` instances
-
-3. **Function Overloading**: The `relation` function now:
-   - Can be called with options: `s.relation({ onDelete: "CASCADE" })`
-   - Returns a `RelationFactory` with relation type methods
-   - Still provides direct method access: `s.relation.oneToOne()`
-
-### Usage Examples
-
-```typescript
-// New syntax with options
-const Profile = s.model("Profile", {
-  user: s.relation({ onDelete: "CASCADE" }).manyToOne(() => User),
-});
-
-// Legacy syntax still works
-const User = s.model("User", {
-  profile: s.relation.oneToOne(() => Profile),
-});
-```
-
-### Testing
-
-- ✅ Existing relation test passes with new API
-- ✅ Both new and legacy syntax work correctly
-- ✅ Type inference preserved for relation return types
-
-### Impact
-
-This change eliminates the TypeScript compilation errors while maintaining API usability. The new pattern is more explicit about relation configuration and follows a cleaner functional approach.
-
----
+- **New Options Pattern**: Relation options are now passed as arguments to `

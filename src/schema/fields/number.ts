@@ -29,49 +29,41 @@ export class NumberField<
     U extends FieldState<any, any, any, any, any, any>
   >(): BaseField<U> {
     const newField = new NumberField<U>(this.fieldType);
-    (newField as any).fieldValidator = this.fieldValidator;
     return newField as any;
+  }
+
+  // Copy number-specific properties
+  protected override copyFieldSpecificProperties(target: BaseField<any>): void {
+    (target as any).fieldValidator = this.fieldValidator;
   }
 
   // Override chainable methods to return NumberField instances
   override nullable(): NumberField<MakeNullable<T>> {
-    const newField = new NumberField<MakeNullable<T>>(this.fieldType);
-    this.copyPropertiesTo(newField);
-    (newField as any).isOptional = true;
-    (newField as any).fieldValidator = this.fieldValidator;
-    return newField;
+    return this.cloneWith<MakeNullable<T>>({ isOptional: true }) as NumberField<
+      MakeNullable<T>
+    >;
   }
 
   override list(): NumberField<MakeList<T>> {
-    const newField = new NumberField<MakeList<T>>(this.fieldType);
-    this.copyPropertiesTo(newField);
-    (newField as any).isList = true;
-    (newField as any).fieldValidator = this.fieldValidator;
-    return newField;
+    return this.cloneWith<MakeList<T>>({ isList: true }) as NumberField<
+      MakeList<T>
+    >;
   }
 
   override id(): NumberField<MakeId<T>> {
-    const newField = new NumberField<MakeId<T>>(this.fieldType);
-    this.copyPropertiesTo(newField);
-    (newField as any).isId = true;
-    (newField as any).fieldValidator = this.fieldValidator;
-    return newField;
+    return this.cloneWith<MakeId<T>>({ isId: true }) as NumberField<MakeId<T>>;
   }
 
   override unique(): NumberField<MakeUnique<T>> {
-    const newField = new NumberField<MakeUnique<T>>(this.fieldType);
-    this.copyPropertiesTo(newField);
-    (newField as any).isUnique = true;
-    (newField as any).fieldValidator = this.fieldValidator;
-    return newField;
+    return this.cloneWith<MakeUnique<T>>({ isUnique: true }) as NumberField<
+      MakeUnique<T>
+    >;
   }
 
   override default(value: InferType<T>): NumberField<MakeDefault<T>> {
-    const newField = new NumberField<MakeDefault<T>>(this.fieldType);
-    this.copyPropertiesTo(newField);
-    (newField as any).defaultValue = value;
-    (newField as any).fieldValidator = this.fieldValidator;
-    return newField;
+    return this.cloneWith<MakeDefault<T>>({
+      defaultValue: value,
+    }) as NumberField<MakeDefault<T>>;
   }
 
   // Number-specific auto-generation method (only for int fields)
@@ -82,11 +74,7 @@ export class NumberField<
           this.fieldType
       );
     }
-    const newField = new NumberField<T>(this.fieldType);
-    this.copyPropertiesTo(newField);
-    (newField as any).autoGenerate = "increment";
-    (newField as any).fieldValidator = this.fieldValidator;
-    return newField;
+    return this.cloneWith<T>({ autoGenerate: "increment" }) as NumberField<T>;
   }
 
   validator(validator: FieldValidator<InferType<T>>): this {

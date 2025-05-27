@@ -32,33 +32,32 @@ export class JsonField<
     return newField as any;
   }
 
+  // Copy json-specific properties
+  protected override copyFieldSpecificProperties(target: BaseField<any>): void {
+    (target as any).schema = this.schema;
+  }
+
   // Override chainable methods to return JsonField instances with schema preserved
   override nullable(): JsonField<MakeNullable<T>> {
-    const newField = new JsonField<MakeNullable<T>>(this.schema);
-    this.copyPropertiesTo(newField);
-    (newField as any).isOptional = true;
-    return newField;
+    return this.cloneWith<MakeNullable<T>>({ isOptional: true }) as JsonField<
+      MakeNullable<T>
+    >;
   }
 
   override list(): JsonField<MakeList<T>> {
-    const newField = new JsonField<MakeList<T>>(this.schema);
-    this.copyPropertiesTo(newField);
-    (newField as any).isList = true;
-    return newField;
+    return this.cloneWith<MakeList<T>>({ isList: true }) as JsonField<
+      MakeList<T>
+    >;
   }
 
   override id(): JsonField<MakeId<T>> {
-    const newField = new JsonField<MakeId<T>>(this.schema);
-    this.copyPropertiesTo(newField);
-    (newField as any).isId = true;
-    return newField;
+    return this.cloneWith<MakeId<T>>({ isId: true }) as JsonField<MakeId<T>>;
   }
 
   override default(value: InferType<T>): JsonField<MakeDefault<T>> {
-    const newField = new JsonField<MakeDefault<T>>(this.schema);
-    this.copyPropertiesTo(newField);
-    (newField as any).defaultValue = value;
-    return newField;
+    return this.cloneWith<MakeDefault<T>>({ defaultValue: value }) as JsonField<
+      MakeDefault<T>
+    >;
   }
 
   // Override validate to use schema validation if provided
@@ -97,10 +96,11 @@ export class JsonField<
       );
     }
 
+    const valid = errors.length === 0;
     return {
-      output: errors.length === 0 ? value : undefined,
-      valid: errors.length === 0,
-      errors: errors.length > 0 ? errors : undefined,
+      output: valid ? output : undefined,
+      valid,
+      errors: valid ? undefined : errors,
     };
   }
 

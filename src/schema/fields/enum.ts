@@ -33,49 +33,48 @@ export class EnumField<
     U extends FieldState<any, any, any, any, any, any>
   >(): BaseField<U> {
     const newField = new EnumField<TEnum, U>(this.enumValues);
-    (newField as any).fieldValidator = this.fieldValidator;
     return newField as any;
+  }
+
+  // Copy enum-specific properties
+  protected override copyFieldSpecificProperties(target: BaseField<any>): void {
+    (target as any).fieldValidator = this.fieldValidator;
   }
 
   // Override chainable methods to return EnumField instances
   override nullable(): EnumField<TEnum, MakeNullable<T>> {
-    const newField = new EnumField<TEnum, MakeNullable<T>>(this.enumValues);
-    this.copyPropertiesTo(newField);
-    (newField as any).isOptional = true;
-    (newField as any).fieldValidator = this.fieldValidator;
-    return newField;
+    return this.cloneWith<MakeNullable<T>>({ isOptional: true }) as EnumField<
+      TEnum,
+      MakeNullable<T>
+    >;
   }
 
   override list(): EnumField<TEnum, MakeList<T>> {
-    const newField = new EnumField<TEnum, MakeList<T>>(this.enumValues);
-    this.copyPropertiesTo(newField);
-    (newField as any).isList = true;
-    (newField as any).fieldValidator = this.fieldValidator;
-    return newField;
+    return this.cloneWith<MakeList<T>>({ isList: true }) as EnumField<
+      TEnum,
+      MakeList<T>
+    >;
   }
 
   override id(): EnumField<TEnum, MakeId<T>> {
-    const newField = new EnumField<TEnum, MakeId<T>>(this.enumValues);
-    this.copyPropertiesTo(newField);
-    (newField as any).isId = true;
-    (newField as any).fieldValidator = this.fieldValidator;
-    return newField;
+    return this.cloneWith<MakeId<T>>({ isId: true }) as EnumField<
+      TEnum,
+      MakeId<T>
+    >;
   }
 
   override unique(): EnumField<TEnum, MakeUnique<T>> {
-    const newField = new EnumField<TEnum, MakeUnique<T>>(this.enumValues);
-    this.copyPropertiesTo(newField);
-    (newField as any).isUnique = true;
-    (newField as any).fieldValidator = this.fieldValidator;
-    return newField;
+    return this.cloneWith<MakeUnique<T>>({ isUnique: true }) as EnumField<
+      TEnum,
+      MakeUnique<T>
+    >;
   }
 
   override default(value: InferType<T>): EnumField<TEnum, MakeDefault<T>> {
-    const newField = new EnumField<TEnum, MakeDefault<T>>(this.enumValues);
-    this.copyPropertiesTo(newField);
-    (newField as any).defaultValue = value;
-    (newField as any).fieldValidator = this.fieldValidator;
-    return newField;
+    return this.cloneWith<MakeDefault<T>>({ defaultValue: value }) as EnumField<
+      TEnum,
+      MakeDefault<T>
+    >;
   }
 
   // Add validator method that accepts a single standard schema

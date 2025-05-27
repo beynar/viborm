@@ -29,82 +29,58 @@ export class StringField<
     U extends FieldState<any, any, any, any, any, any>
   >(): BaseField<U> {
     const newField = new StringField<U>();
-    (newField as any).fieldValidator = this.fieldValidator;
     return newField as any;
+  }
+
+  // Copy string-specific properties
+  protected override copyFieldSpecificProperties(target: BaseField<any>): void {
+    (target as any).fieldValidator = this.fieldValidator;
   }
 
   // Override chainable methods to return StringField instances
   override nullable(): StringField<MakeNullable<T>> {
-    const newField = new StringField<MakeNullable<T>>();
-    this.copyPropertiesTo(newField);
-    (newField as any).isOptional = true;
-    (newField as any).fieldValidator = this.fieldValidator;
-    return newField;
+    return this.cloneWith<MakeNullable<T>>({ isOptional: true }) as StringField<
+      MakeNullable<T>
+    >;
   }
 
   override list(): StringField<MakeList<T>> {
-    const newField = new StringField<MakeList<T>>();
-    this.copyPropertiesTo(newField);
-    (newField as any).isList = true;
-    (newField as any).fieldValidator = this.fieldValidator;
-    return newField;
+    return this.cloneWith<MakeList<T>>({ isList: true }) as StringField<
+      MakeList<T>
+    >;
   }
 
   override id(): StringField<MakeId<T>> {
-    const newField = new StringField<MakeId<T>>();
-    this.copyPropertiesTo(newField);
-    (newField as any).isId = true;
-    (newField as any).fieldValidator = this.fieldValidator;
-    return newField;
+    return this.cloneWith<MakeId<T>>({ isId: true }) as StringField<MakeId<T>>;
   }
 
   override unique(): StringField<MakeUnique<T>> {
-    const newField = new StringField<MakeUnique<T>>();
-    this.copyPropertiesTo(newField);
-    (newField as any).isUnique = true;
-    (newField as any).fieldValidator = this.fieldValidator;
-    return newField;
+    return this.cloneWith<MakeUnique<T>>({ isUnique: true }) as StringField<
+      MakeUnique<T>
+    >;
   }
 
   override default(value: InferType<T>): StringField<MakeDefault<T>> {
-    const newField = new StringField<MakeDefault<T>>();
-    this.copyPropertiesTo(newField);
-    (newField as any).defaultValue = value;
-    (newField as any).fieldValidator = this.fieldValidator;
-    return newField;
+    return this.cloneWith<MakeDefault<T>>({
+      defaultValue: value,
+    }) as StringField<MakeDefault<T>>;
   }
 
   // String-specific auto-generation methods (direct methods instead of nested auto object)
   uuid(): StringField<T> {
-    const newField = new StringField<T>();
-    this.copyPropertiesTo(newField);
-    (newField as any).autoGenerate = "uuid";
-    (newField as any).fieldValidator = this.fieldValidator;
-    return newField;
+    return this.cloneWith<T>({ autoGenerate: "uuid" }) as StringField<T>;
   }
 
   ulid(): StringField<T> {
-    const newField = new StringField<T>();
-    this.copyPropertiesTo(newField);
-    (newField as any).autoGenerate = "ulid";
-    (newField as any).fieldValidator = this.fieldValidator;
-    return newField;
+    return this.cloneWith<T>({ autoGenerate: "ulid" }) as StringField<T>;
   }
 
   nanoid(): StringField<T> {
-    const newField = new StringField<T>();
-    this.copyPropertiesTo(newField);
-    (newField as any).autoGenerate = "nanoid";
-    (newField as any).fieldValidator = this.fieldValidator;
-    return newField;
+    return this.cloneWith<T>({ autoGenerate: "nanoid" }) as StringField<T>;
   }
 
   cuid(): StringField<T> {
-    const newField = new StringField<T>();
-    this.copyPropertiesTo(newField);
-    (newField as any).autoGenerate = "cuid";
-    (newField as any).fieldValidator = this.fieldValidator;
-    return newField;
+    return this.cloneWith<T>({ autoGenerate: "cuid" }) as StringField<T>;
   }
 
   // Add validator method that accepts a single standard schema
