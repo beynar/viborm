@@ -284,15 +284,3 @@ For optimal experience, use these `tsconfig.json` settings:
 ```
 
 This type system represents a significant advancement in ORM design, providing both compile-time safety and excellent developer experience while maintaining the familiar Prisma-like API.
-
-const User = s.model("User", {
-id: s.string(),
-email: s.string(),
-profile: s.relation((r) => r.oneToOne(Profile).onDelete("CASCADE")),
-});
-
-    const Profile = s.model("Profile", {
-      id: s.string(),
-      bio: s.string(),
-      user: s.relation((r) => r.manyToOne(User).onDelete("CASCADE")),
-    });
