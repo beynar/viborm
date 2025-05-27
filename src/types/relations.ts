@@ -5,10 +5,7 @@
 export type RelationType = "one" | "many";
 
 // Cascade options for relations
-export interface CascadeOptions {
-  onDelete?: "CASCADE" | "SET NULL" | "RESTRICT" | "NO ACTION";
-  onUpdate?: "CASCADE" | "SET NULL" | "RESTRICT" | "NO ACTION";
-}
+export type CascadeOptions = "CASCADE" | "SET NULL" | "RESTRICT" | "NO ACTION";
 
 // Relation configuration
 export interface RelationConfig {

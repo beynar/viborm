@@ -116,9 +116,12 @@ relationFactory.many = <G extends Getter>(getter: G): Relation<G, "many"> => {
 };
 
 // Define the type for the relation factory
-export type RelationFactory = typeof relationFactory;
 
-export const relation = relationFactory;
+export const relation = {
+  one: relationFactory,
+  many: relationFactory.many,
+};
+export type RelationFactory = typeof relation;
 
 // =============================================================================
 // LAZY EVALUATION HELPERS
