@@ -1,7 +1,7 @@
 // BaseORM - Main Entry Point
 // TypeScript ORM for Postgres and MySQL
 
-import { s } from "./schema/index.js";
+import { Model, s } from "./schema/index.js";
 
 // Main exports - Schema Builder
 export { s, SchemaBuilder, Model, Relation } from "./schema/index.js";
@@ -27,13 +27,40 @@ import { z } from "zod/v4";
 const profile = z.object({
   name: z.string(),
   age: z.number(),
+  get friends() {
+    return z.lazy(() => profile);
+  },
+});
+
+type R = (typeof profile._output)["friends"];
+
+// Testing circular relations - even simpler than Zod!
+const user = s.model("user", {
+  id: s.string().auto.uuid(),
+  name: s.string(),
+  // get friends() {
+  //   return s.relation(() => user); // All relations are lazy by default!
+  // },
+});
+
+const test2 = s.model("test2", {
+  test: s.string(),
+  get user() {
+    return s.relation(() => user);
+  },
 });
 
 const test = s.model("test", {
   string: s.string().auto.uuid(),
   date: s.dateTime().nullable(),
   status: s.enum(["active", "inactive"] as const),
-  profile: s.json(profile),
+  // profile: s.json(profile),
+  get friends() {
+    return s.relation(() => test);
+  },
 });
+
+type test2 = typeof test2;
+type test = test2 extends Model<any> ? true : false;
 
 type U = typeof test.infer;

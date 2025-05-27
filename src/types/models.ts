@@ -75,17 +75,21 @@ export type ModelFieldNames<TModel extends Record<string, any>> = keyof TModel &
   string;
 
 // Type for creating a model type from field definitions
-export type ModelType<TFields extends Record<string, Field | Relation<any>>> = {
+export type ModelType<
+  TFields extends Record<string, Field | Relation<any, any>>
+> = {
   [K in keyof TFields]: TFields[K] extends BaseField<any>
     ? TFields[K]["infer"]
-    : TFields[K] extends Relation<infer R>
-    ? R
+    : TFields[K] extends Relation<infer M, infer T>
+    ? TFields[K]["getter"] extends () => infer M
+      ? M["infer"]
+      : never
     : never;
 };
 
 // Extract the scalar type from a model type (without relations)
 export type ModelScalars<
-  TFields extends Record<string, Field | Relation<any>>
+  TFields extends Record<string, Field | Relation<any, any>>
 > = {
   [K in keyof TFields as TFields[K] extends BaseField<any>
     ? K
@@ -94,11 +98,15 @@ export type ModelScalars<
 
 // Extract the relation type from a model type
 export type ModelRelations<
-  TFields extends Record<string, Field | Relation<any>>
+  TFields extends Record<string, Field | Relation<any, any>>
 > = {
-  [K in keyof TFields as TFields[K] extends Relation<any>
+  [K in keyof TFields as TFields[K] extends Relation<any, any>
     ? K
-    : never]: TFields[K] extends Relation<infer R> ? R : never;
+    : never]: TFields[K] extends Relation<infer M, infer T>
+    ? T extends "one"
+      ? M["infer"]
+      : M["infer"][]
+    : never;
 };
 
 // Model payload type for internal use
@@ -130,7 +138,7 @@ export type ModelInclude<TModel extends Record<string, any>> = {
 
 // Type-safe field constraint definitions
 export type FieldConstraints<
-  TFields extends Record<string, Field | Relation<any>>
+  TFields extends Record<string, Field | Relation<any, any>>
 > = {
   [K in ScalarFields<TFields>]: string;
 };

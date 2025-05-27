@@ -22,13 +22,20 @@ import { datetime } from "./fields/datetime.js";
 import { json } from "./fields/json.js";
 import { blob } from "./fields/blob.js";
 import { enumField } from "./fields/enum.js";
-import { Relation } from "./relation.js";
+import {
+  Getter,
+  relation,
+  Relation,
+  lazy,
+  type RelationFactory,
+  type LazyFactory,
+} from "./relation.js";
 
 export class SchemaBuilder {
   // Create a new model
   model<
     TName extends string,
-    TFields extends Record<string, Field | Relation<any>>
+    TFields extends Record<string, Field | Relation<any, any>>
   >(name: TName, fields: TFields): Model<TFields> {
     return new Model(name, fields);
   }
@@ -86,12 +93,14 @@ export class SchemaBuilder {
     return enumField(values);
   }
 
-  // Relation factory
-  get relation() {
-    return {
-      one: <T>(target: () => T): Relation<T> => new Relation().one(target),
-      many: <T>(target: () => T): Relation<T[]> => new Relation().many(target),
-    };
+  // Relation factory - expose the relation object with .many property
+  get relation(): RelationFactory {
+    return relation;
+  }
+
+  // Lazy relation factory for recursive schemas - expose the lazy object with .many property
+  get lazy(): LazyFactory {
+    return lazy;
   }
 }
 
@@ -111,5 +120,7 @@ export {
   BlobField,
   EnumField,
   Relation,
+  relation,
+  lazy,
 };
-export type { Field };
+export type { Field, Getter };

@@ -13,9 +13,11 @@ import type {
   ModelType,
 } from "../types/index.js";
 
-export class Model<TFields extends Record<string, Field | Relation<any>> = {}> {
+export class Model<
+  TFields extends Record<string, Field | Relation<any, any>> = {}
+> {
   public readonly fields: Map<string, BaseField<any>> = new Map();
-  public readonly relations: Map<string, Relation<any>> = new Map();
+  public readonly relations: Map<string, Relation<any, any>> = new Map();
   public readonly name: string;
   public tableName?: string;
   public readonly indexes: IndexDefinition[] = [];
@@ -34,7 +36,7 @@ export class Model<TFields extends Record<string, Field | Relation<any>> = {}> {
         this.relations.set(key, definition);
       } else {
         throw new Error(
-          `Invalid field definition for '${key}'. Must be a Field or Relation instance.`
+          `Invalid field definition for '${key}'. Must be a Field, Relation, or LazyRelation instance.`
         );
       }
     }
