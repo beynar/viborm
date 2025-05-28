@@ -6,7 +6,7 @@ import type {
   FieldState,
   DefaultFieldState,
   MakeNullable,
-  MakeList,
+  MakeArray,
   MakeId,
   MakeUnique,
   MakeDefault,
@@ -44,17 +44,17 @@ export class StringField<
     >;
   }
 
-  override list(): StringField<MakeList<T>> {
-    return this.cloneWith<MakeList<T>>({ isList: true }) as StringField<
-      MakeList<T>
+  array(): StringField<MakeArray<T>> {
+    return this.cloneWith<MakeArray<T>>({ isArray: true }) as StringField<
+      MakeArray<T>
     >;
   }
 
-  override id(): StringField<MakeId<T>> {
+  id(): StringField<MakeId<T>> {
     return this.cloneWith<MakeId<T>>({ isId: true }) as StringField<MakeId<T>>;
   }
 
-  override unique(): StringField<MakeUnique<T>> {
+  unique(): StringField<MakeUnique<T>> {
     return this.cloneWith<MakeUnique<T>>({ isUnique: true }) as StringField<
       MakeUnique<T>
     >;

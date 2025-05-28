@@ -6,7 +6,7 @@ import type {
   FieldState,
   DefaultFieldState,
   MakeNullable,
-  MakeList,
+  MakeArray,
   MakeId,
   MakeUnique,
   MakeDefault,
@@ -49,21 +49,21 @@ export class EnumField<
     >;
   }
 
-  override list(): EnumField<TEnum, MakeList<T>> {
-    return this.cloneWith<MakeList<T>>({ isList: true }) as EnumField<
+  array(): EnumField<TEnum, MakeArray<T>> {
+    return this.cloneWith<MakeArray<T>>({ isArray: true }) as EnumField<
       TEnum,
-      MakeList<T>
+      MakeArray<T>
     >;
   }
 
-  override id(): EnumField<TEnum, MakeId<T>> {
+  id(): EnumField<TEnum, MakeId<T>> {
     return this.cloneWith<MakeId<T>>({ isId: true }) as EnumField<
       TEnum,
       MakeId<T>
     >;
   }
 
-  override unique(): EnumField<TEnum, MakeUnique<T>> {
+  unique(): EnumField<TEnum, MakeUnique<T>> {
     return this.cloneWith<MakeUnique<T>>({ isUnique: true }) as EnumField<
       TEnum,
       MakeUnique<T>

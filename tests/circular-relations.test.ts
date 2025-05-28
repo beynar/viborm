@@ -1,3 +1,4 @@
+import { z } from "zod/v4";
 import { s } from "../src/schema/index.js";
 
 describe("Circular Relations", () => {
@@ -98,3 +99,25 @@ describe("Circular Relations", () => {
     });
   });
 });
+
+const profileSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+});
+
+const user = s.model("user", {
+  id: s.string(),
+  name: s.string().validator(z.email()),
+  posts: s.relation({ onField: "test" }).manyToMany(() => post),
+  profile: s.json(profileSchema),
+});
+
+const post = s.model("post", {
+  id: s.string(),
+  title: s.string().array(),
+  author: s.relation({ onField: "test" }).manyToOne(() => user),
+});
+
+type UserInfer = typeof user.infer;
+type ProfileInfer = UserInfer["profile"];
+type PostInfer = typeof post.infer;

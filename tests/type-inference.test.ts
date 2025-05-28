@@ -68,13 +68,13 @@ describe("Smart Type Inference", () => {
 
   describe("List fields with constraints", () => {
     test("list fields respect constraints", () => {
-      const listIdField = s.string().list().id();
-      const nullableListField = s.string().list().nullable();
+      const listIdField = s.string().array().id();
+      const nullableListField = s.string().array().nullable();
 
       expect(listIdField.constructor.name).toBe("StringField");
       expect(nullableListField.constructor.name).toBe("StringField");
-      expect((listIdField as any).isList).toBe(true);
-      expect((nullableListField as any).isList).toBe(true);
+      expect((listIdField as any).isArray).toBe(true);
+      expect((nullableListField as any).isArray).toBe(true);
       expect((nullableListField as any).isOptional).toBe(true);
     });
   });

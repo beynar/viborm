@@ -152,7 +152,7 @@ describe("JsonField Practical Examples with Zod", () => {
         price: s.decimal(),
         metadata: s.json(productMetadataSchema),
         customFields: s.json().nullable(), // Flexible JSON for custom data
-        variants: s.json(productMetadataSchema).list(), // Array of metadata
+        variants: s.json(productMetadataSchema), // Array of metadata
       });
 
       type ProductType = typeof productModel.infer;
@@ -179,7 +179,7 @@ describe("JsonField Practical Examples with Zod", () => {
           };
         };
         customFields: any | null;
-        variants: Array<{
+        variants: {
           category: string;
           tags: string[];
           specifications: Record<string, string | number | boolean>;
@@ -194,11 +194,10 @@ describe("JsonField Practical Examples with Zod", () => {
             description: string;
             keywords: string[];
           };
-        }>;
+        };
       }>();
 
       expect(productModel.fields.get("metadata")!.fieldType).toBe("json");
-      expect(productModel.fields.get("variants")!.isList).toBe(true);
       expect(productModel.fields.get("customFields")!.isOptional).toBe(true);
     });
 

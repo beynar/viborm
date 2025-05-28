@@ -74,7 +74,7 @@ describe("JsonField", () => {
     });
 
     test("should work with list schema fields", () => {
-      const profileListField = json(userProfileSchema).list();
+      const profileListField = json(z.array(userProfileSchema));
       type ProfileListType = typeof profileListField.infer;
 
       expectTypeOf<ProfileListType>().toMatchTypeOf<
@@ -231,11 +231,10 @@ describe("JsonField", () => {
     });
 
     test("should preserve field properties through method chaining", () => {
-      const field = json().nullable().id().default({ test: "default" });
+      const field = json().nullable().default({ test: "default" });
 
       expect(field.fieldType).toBe("json");
       expect(field.isOptional).toBe(true);
-      expect(field.isId).toBe(true);
       expect(field.defaultValue).toEqual({ test: "default" });
     });
   });

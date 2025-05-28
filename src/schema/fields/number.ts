@@ -6,7 +6,7 @@ import type {
   FieldState,
   DefaultFieldState,
   MakeNullable,
-  MakeList,
+  MakeArray,
   MakeId,
   MakeUnique,
   MakeDefault,
@@ -44,17 +44,17 @@ export class NumberField<
     >;
   }
 
-  override list(): NumberField<MakeList<T>> {
-    return this.cloneWith<MakeList<T>>({ isList: true }) as NumberField<
-      MakeList<T>
+  array(): NumberField<MakeArray<T>> {
+    return this.cloneWith<MakeArray<T>>({ isArray: true }) as NumberField<
+      MakeArray<T>
     >;
   }
 
-  override id(): NumberField<MakeId<T>> {
+  id(): NumberField<MakeId<T>> {
     return this.cloneWith<MakeId<T>>({ isId: true }) as NumberField<MakeId<T>>;
   }
 
-  override unique(): NumberField<MakeUnique<T>> {
+  unique(): NumberField<MakeUnique<T>> {
     return this.cloneWith<MakeUnique<T>>({ isUnique: true }) as NumberField<
       MakeUnique<T>
     >;

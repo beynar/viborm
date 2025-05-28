@@ -11,7 +11,7 @@ import type {
 import type {
   FieldState,
   MakeNullable,
-  MakeList,
+  MakeArray,
   MakeId,
   MakeUnique,
   MakeDefault,
@@ -35,7 +35,7 @@ export abstract class BaseField<
   public isOptional: boolean = false;
   public isUnique: boolean = false;
   public isId: boolean = false;
-  public isList: boolean = false;
+  public isArray: boolean = false;
   public defaultValue?: T["BaseType"] | (() => T["BaseType"]) | undefined;
   public autoGenerate?: AutoGenerateType | undefined;
 
@@ -50,17 +50,17 @@ export abstract class BaseField<
     return this.cloneWith<MakeDefault<T>>({ defaultValue: value });
   }
 
-  unique(): BaseFieldType<MakeUnique<T>> {
-    return this.cloneWith<MakeUnique<T>>({ isUnique: true });
-  }
+  // unique(): BaseFieldType<MakeUnique<T>> {
+  //   return this.cloneWith<MakeUnique<T>>({ isUnique: true });
+  // }
 
-  id(): BaseFieldType<MakeId<T>> {
-    return this.cloneWith<MakeId<T>>({ isId: true });
-  }
+  // id(): BaseFieldType<MakeId<T>> {
+  //   return this.cloneWith<MakeId<T>>({ isId: true });
+  // }
 
-  list(): BaseFieldType<MakeList<T>> {
-    return this.cloneWith<MakeList<T>>({ isList: true });
-  }
+  // array(): BaseFieldType<MakeArray<T>> {
+  //   return this.cloneWith<MakeArray<T>>({ isArray: true });
+  // }
 
   // Auto-generation methods - to be implemented by specific field types
   // Each field type will implement only the relevant auto methods
@@ -174,7 +174,7 @@ export abstract class BaseField<
     target.isOptional = this.isOptional;
     target.isUnique = this.isUnique;
     target.isId = this.isId;
-    target.isList = this.isList;
+    target.isArray = this.isArray;
     target.defaultValue = this.defaultValue;
     target.autoGenerate = this.autoGenerate;
   }

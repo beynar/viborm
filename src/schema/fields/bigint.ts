@@ -6,7 +6,7 @@ import type {
   FieldState,
   DefaultFieldState,
   MakeNullable,
-  MakeList,
+  MakeArray,
   MakeId,
   MakeUnique,
   MakeDefault,
@@ -43,17 +43,17 @@ export class BigIntField<
     >;
   }
 
-  override list(): BigIntField<MakeList<T>> {
-    return this.cloneWith<MakeList<T>>({ isList: true }) as BigIntField<
-      MakeList<T>
+  array(): BigIntField<MakeArray<T>> {
+    return this.cloneWith<MakeArray<T>>({ isArray: true }) as BigIntField<
+      MakeArray<T>
     >;
   }
 
-  override id(): BigIntField<MakeId<T>> {
+  id(): BigIntField<MakeId<T>> {
     return this.cloneWith<MakeId<T>>({ isId: true }) as BigIntField<MakeId<T>>;
   }
 
-  override unique(): BigIntField<MakeUnique<T>> {
+  unique(): BigIntField<MakeUnique<T>> {
     return this.cloneWith<MakeUnique<T>>({ isUnique: true }) as BigIntField<
       MakeUnique<T>
     >;

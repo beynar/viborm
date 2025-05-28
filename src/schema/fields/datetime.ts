@@ -6,7 +6,7 @@ import type {
   FieldState,
   DefaultFieldState,
   MakeNullable,
-  MakeList,
+  MakeArray,
   MakeId,
   MakeUnique,
   MakeDefault,
@@ -43,19 +43,19 @@ export class DateTimeField<
     }) as DateTimeField<MakeNullable<T>>;
   }
 
-  override list(): DateTimeField<MakeList<T>> {
-    return this.cloneWith<MakeList<T>>({ isList: true }) as DateTimeField<
-      MakeList<T>
+  array(): DateTimeField<MakeArray<T>> {
+    return this.cloneWith<MakeArray<T>>({ isArray: true }) as DateTimeField<
+      MakeArray<T>
     >;
   }
 
-  override id(): DateTimeField<MakeId<T>> {
+  id(): DateTimeField<MakeId<T>> {
     return this.cloneWith<MakeId<T>>({ isId: true }) as DateTimeField<
       MakeId<T>
     >;
   }
 
-  override unique(): DateTimeField<MakeUnique<T>> {
+  unique(): DateTimeField<MakeUnique<T>> {
     return this.cloneWith<MakeUnique<T>>({ isUnique: true }) as DateTimeField<
       MakeUnique<T>
     >;

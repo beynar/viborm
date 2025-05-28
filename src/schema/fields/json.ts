@@ -6,7 +6,7 @@ import type {
   FieldState,
   DefaultFieldState,
   MakeNullable,
-  MakeList,
+  MakeArray,
   MakeId,
   MakeDefault,
   InferType,
@@ -42,16 +42,6 @@ export class JsonField<
     return this.cloneWith<MakeNullable<T>>({ isOptional: true }) as JsonField<
       MakeNullable<T>
     >;
-  }
-
-  override list(): JsonField<MakeList<T>> {
-    return this.cloneWith<MakeList<T>>({ isList: true }) as JsonField<
-      MakeList<T>
-    >;
-  }
-
-  override id(): JsonField<MakeId<T>> {
-    return this.cloneWith<MakeId<T>>({ isId: true }) as JsonField<MakeId<T>>;
   }
 
   override default(value: InferType<T>): JsonField<MakeDefault<T>> {

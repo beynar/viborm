@@ -62,8 +62,8 @@ describe("Model Type Inference - Practical Tests", () => {
       const postModel = s.model("post", {
         id: s.string().id(),
         title: s.string().default("My Post"),
-        tags: s.string().list().default(["typescript", "testing"]),
-        scores: s.int().list(),
+        tags: s.string().array().default(["typescript", "testing"]),
+        scores: s.int().array(),
       });
 
       type PostType = typeof postModel.infer;
@@ -255,7 +255,7 @@ describe("Model Type Inference - Practical Tests", () => {
         id: s.string().id(),
         name: s.string(),
         bio: s.string().nullable(),
-        tags: s.string().list(),
+        tags: s.string().array(),
 
         // Number fields
         age: s.int(),
@@ -264,25 +264,25 @@ describe("Model Type Inference - Practical Tests", () => {
 
         // Boolean fields
         isActive: s.boolean(),
-        permissions: s.boolean().list(),
+        permissions: s.boolean().array(),
 
         // BigInt fields
         bigValue: s.bigInt(),
 
         // DateTime fields
         createdAt: s.dateTime(),
-        dates: s.dateTime().list(),
+        dates: s.dateTime().array(),
 
         // JSON fields
         metadata: s.json(),
-        configs: s.json().list(),
+        configs: s.json(),
 
         // Blob fields
         avatar: s.blob().nullable(),
 
         // Enum fields
         status: s.enum(["active", "inactive"] as const),
-        roles: s.enum(["user", "admin"] as const).list(),
+        roles: s.enum(["user", "admin"] as const).array(),
       });
 
       type ModelType = typeof model.infer;
@@ -301,7 +301,7 @@ describe("Model Type Inference - Practical Tests", () => {
       expectTypeOf<ModelType["createdAt"]>().toEqualTypeOf<Date>();
       expectTypeOf<ModelType["dates"]>().toEqualTypeOf<Date[]>();
       expectTypeOf<ModelType["metadata"]>().toEqualTypeOf<any>();
-      expectTypeOf<ModelType["configs"]>().toEqualTypeOf<any[]>();
+      expectTypeOf<ModelType["configs"]>().toEqualTypeOf<any>();
       expectTypeOf<ModelType["avatar"]>().toEqualTypeOf<Uint8Array | null>();
       expectTypeOf<ModelType["status"]>().toEqualTypeOf<
         "active" | "inactive"
@@ -315,7 +315,7 @@ describe("Model Type Inference - Practical Tests", () => {
       const enumModel = s.model("enumTest", {
         status: s.enum(["draft", "published", "archived"] as const),
         priority: s.enum(["low", "medium", "high"] as const).nullable(),
-        categories: s.enum(["tech", "business", "lifestyle"] as const).list(),
+        categories: s.enum(["tech", "business", "lifestyle"] as const).array(),
       });
 
       type EnumModelType = typeof enumModel.infer;
@@ -345,7 +345,7 @@ describe("Model Type Inference - Practical Tests", () => {
     test("number enum types", () => {
       const numberEnumModel = s.model("numberEnum", {
         level: s.enum([1, 2, 3, 4, 5] as const),
-        scores: s.enum([10, 20, 30] as const).list(),
+        scores: s.enum([10, 20, 30] as const).array(),
       });
 
       type NumberEnumType = typeof numberEnumModel.infer;
@@ -482,7 +482,7 @@ describe("Model Type Inference - Practical Tests", () => {
         avatar: s.blob().nullable(),
         isActive: s.boolean().default(true),
         role: s.enum(["user", "admin", "moderator"] as const).default("user"),
-        tags: s.string().list(),
+        tags: s.string().array(),
         metadata: s.json().nullable(),
         createdAt: s.dateTime().now(),
       });
@@ -527,10 +527,10 @@ describe("Model Type Inference - Practical Tests", () => {
         inStock: s.boolean(),
         categories: s
           .enum(["electronics", "clothing", "books"] as const)
-          .list(),
-        variants: s.json().list(),
-        images: s.blob().list(),
-        tags: s.string().list().nullable(),
+          .array(),
+        variants: s.json(),
+        images: s.blob().array(),
+        tags: s.string().array().nullable(),
         createdAt: s.dateTime().now(),
       });
 
@@ -557,7 +557,7 @@ describe("Model Type Inference - Practical Tests", () => {
       expectTypeOf<ProductType["categories"]>().toEqualTypeOf<
         ("electronics" | "clothing" | "books")[]
       >();
-      expectTypeOf<ProductType["variants"]>().toEqualTypeOf<any[]>();
+      expectTypeOf<ProductType["variants"]>().toEqualTypeOf<any>();
       expectTypeOf<ProductType["images"]>().toEqualTypeOf<Uint8Array[]>();
       expectTypeOf<ProductType["tags"]>().toEqualTypeOf<string[] | null>();
     });

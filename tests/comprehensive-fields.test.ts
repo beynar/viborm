@@ -34,14 +34,14 @@ describe("Comprehensive Field Types", () => {
         .id()
         .unique()
         .nullable()
-        .list()
+        .array()
         .default(["test"]);
 
       expect(complexString.constructor.name).toBe("StringField");
       expect((complexString as any).isId).toBe(true);
       expect((complexString as any).isUnique).toBe(true);
       expect((complexString as any).isOptional).toBe(true);
-      expect((complexString as any).isList).toBe(true);
+      expect((complexString as any).isArray).toBe(true);
     });
 
     test("number field supports chainable methods", () => {
@@ -52,10 +52,10 @@ describe("Comprehensive Field Types", () => {
     });
 
     test("boolean field supports chainable methods", () => {
-      const complexBool = s.boolean().list().nullable().default([true]);
+      const complexBool = s.boolean().array().nullable().default([true]);
 
       expect(complexBool.constructor.name).toBe("BooleanField");
-      expect((complexBool as any).isList).toBe(true);
+      expect((complexBool as any).isArray).toBe(true);
       expect((complexBool as any).isOptional).toBe(true);
     });
 
@@ -80,19 +80,19 @@ describe("Comprehensive Field Types", () => {
         firstName: s.string(),
         lastName: s.string(),
         bio: s.string().nullable(),
-        tags: s.string().list(),
-        socialLinks: s.string().list().nullable(),
+        tags: s.string().array(),
+        socialLinks: s.string().array().nullable(),
 
         // Number fields
         age: s.int(),
         score: s.float(),
         balance: s.decimal(),
-        favoriteNumbers: s.int().list(),
+        favoriteNumbers: s.int().array(),
 
         // Boolean fields
         isActive: s.boolean().default(true),
         isVerified: s.boolean().default(false),
-        permissions: s.boolean().list(),
+        permissions: s.boolean().array(),
 
         // BigInt fields
         userId: s.bigInt().id(),
@@ -102,16 +102,16 @@ describe("Comprehensive Field Types", () => {
         createdAt: s.dateTime().now(),
         updatedAt: s.dateTime().updatedAt(),
         birthDate: s.dateTime().nullable(),
-        loginTimes: s.dateTime().list(),
+        loginTimes: s.dateTime().array(),
 
         // JSON fields
         metadata: s.json(),
         preferences: s.json().nullable(),
-        history: s.json().list(),
+        history: s.json(),
 
         // Blob fields
         avatar: s.blob().nullable(),
-        attachments: s.blob().list(),
+        attachments: s.blob().array(),
 
         // Enum fields
         status: s
@@ -120,7 +120,7 @@ describe("Comprehensive Field Types", () => {
         role: s.enum(["user", "admin", "moderator"] as const),
         categories: s
           .enum([1, 2, 3, 4, 5] as const)
-          .list()
+          .array()
           .nullable(),
       });
 
@@ -225,7 +225,7 @@ describe("Comprehensive Field Types", () => {
       const complexFields = {
         complexString: s.string().id().unique(),
         complexNumber: s.int().unique(),
-        complexBool: s.boolean().list().nullable(),
+        complexBool: s.boolean().array().nullable(),
         complexEnum: s
           .enum(["red", "green", "blue"] as const)
           .nullable()
@@ -245,7 +245,7 @@ describe("Comprehensive Field Types", () => {
       expect((complexFields.complexString as any).isId).toBe(true);
       expect((complexFields.complexString as any).isUnique).toBe(true);
       expect((complexFields.complexNumber as any).isUnique).toBe(true);
-      expect((complexFields.complexBool as any).isList).toBe(true);
+      expect((complexFields.complexBool as any).isArray).toBe(true);
       expect((complexFields.complexBool as any).isOptional).toBe(true);
     });
   });

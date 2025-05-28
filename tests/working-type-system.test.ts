@@ -15,15 +15,15 @@ describe("Working Type System", () => {
     });
 
     test("string list field", () => {
-      const tags = string().list();
+      const tags = string().array();
       expect(tags.constructor.name).toBe("StringField");
-      expect((tags as any).isList).toBe(true);
+      expect((tags as any).isArray).toBe(true);
     });
 
     test("nullable string list field", () => {
-      const optionalTags = string().list().nullable();
+      const optionalTags = string().array().nullable();
       expect(optionalTags.constructor.name).toBe("StringField");
-      expect((optionalTags as any).isList).toBe(true);
+      expect((optionalTags as any).isArray).toBe(true);
       expect((optionalTags as any).isOptional).toBe(true);
     });
   });
@@ -41,9 +41,9 @@ describe("Working Type System", () => {
     });
 
     test("float list field", () => {
-      const scores = float().list();
+      const scores = float().array();
       expect(scores.constructor.name).toBe("NumberField");
-      expect((scores as any).isList).toBe(true);
+      expect((scores as any).isArray).toBe(true);
     });
   });
 
@@ -71,9 +71,9 @@ describe("Working Type System", () => {
       // Create fields
       const name = string();
       const optionalName = string().nullable();
-      const tags = string().list();
+      const tags = string().array();
       const age = int();
-      const scores = float().list();
+      const scores = float().array();
 
       // Create sample data that would match the inferred types
       const nameValue = "Alice";
@@ -102,8 +102,8 @@ describe("Working Type System", () => {
         name: string(),
         age: int(),
         bio: string().nullable(),
-        tags: string().list(),
-        scores: float().list().nullable(),
+        tags: string().array(),
+        scores: float().array().nullable(),
         description: string().default("No description"),
       };
 
@@ -133,8 +133,8 @@ describe("Working Type System", () => {
       expect((userSchema.id as any).isId).toBe(true);
       expect((userSchema.email as any).isUnique).toBe(true);
       expect((userSchema.bio as any).isOptional).toBe(true);
-      expect((userSchema.tags as any).isList).toBe(true);
-      expect((userSchema.scores as any).isList).toBe(true);
+      expect((userSchema.tags as any).isArray).toBe(true);
+      expect((userSchema.scores as any).isArray).toBe(true);
       expect((userSchema.scores as any).isOptional).toBe(true);
     });
 

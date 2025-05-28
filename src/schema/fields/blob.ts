@@ -6,7 +6,7 @@ import type {
   FieldState,
   DefaultFieldState,
   MakeNullable,
-  MakeList,
+  MakeArray,
   MakeId,
   MakeUnique,
   MakeDefault,
@@ -50,17 +50,17 @@ export class BlobField<
     >;
   }
 
-  override list(): BlobField<MakeList<T>> {
-    return this.cloneWith<MakeList<T>>({ isList: true }) as BlobField<
-      MakeList<T>
+  array(): BlobField<MakeArray<T>> {
+    return this.cloneWith<MakeArray<T>>({ isArray: true }) as BlobField<
+      MakeArray<T>
     >;
   }
 
-  override id(): BlobField<MakeId<T>> {
+  id(): BlobField<MakeId<T>> {
     return this.cloneWith<MakeId<T>>({ isId: true }) as BlobField<MakeId<T>>;
   }
 
-  override unique(): BlobField<MakeUnique<T>> {
+  unique(): BlobField<MakeUnique<T>> {
     return this.cloneWith<MakeUnique<T>>({ isUnique: true }) as BlobField<
       MakeUnique<T>
     >;

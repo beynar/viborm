@@ -1,20 +1,20 @@
 // Simplified Field State Types
 // Practical type system for field configuration
 
-import type { ScalarFieldType, AutoGenerateType } from "./scalars.js";
+import type { AutoGenerateType } from "./scalars.js";
 
 // Basic field state configuration with literal boolean types
 export interface FieldState<
   T = any,
   IsNullable extends boolean = boolean,
-  IsList extends boolean = boolean,
+  IsArray extends boolean = boolean,
   IsId extends boolean = boolean,
   IsUnique extends boolean = boolean,
   HasDefault extends boolean = boolean
 > {
   BaseType: T;
   IsNullable: IsNullable;
-  IsList: IsList;
+  IsArray: IsArray;
   IsId: IsId;
   IsUnique: IsUnique;
   HasDefault: HasDefault;
@@ -36,13 +36,13 @@ export type MakeNullable<T extends FieldState<any, any, any, any, any, any>> =
   FieldState<
     T["BaseType"],
     true,
-    T["IsList"],
+    T["IsArray"],
     T["IsId"],
     T["IsUnique"],
     T["HasDefault"]
   >;
 
-export type MakeList<T extends FieldState<any, any, any, any, any, any>> =
+export type MakeArray<T extends FieldState<any, any, any, any, any, any>> =
   FieldState<
     T["BaseType"],
     T["IsNullable"],
@@ -56,7 +56,7 @@ export type MakeId<T extends FieldState<any, any, any, any, any, any>> =
   FieldState<
     T["BaseType"],
     T["IsNullable"],
-    T["IsList"],
+    T["IsArray"],
     true,
     T["IsUnique"],
     T["HasDefault"]
@@ -66,7 +66,7 @@ export type MakeUnique<T extends FieldState<any, any, any, any, any, any>> =
   FieldState<
     T["BaseType"],
     T["IsNullable"],
-    T["IsList"],
+    T["IsArray"],
     T["IsId"],
     true,
     T["HasDefault"]
@@ -76,7 +76,7 @@ export type MakeDefault<T extends FieldState<any, any, any, any, any, any>> =
   FieldState<
     T["BaseType"],
     T["IsNullable"],
-    T["IsList"],
+    T["IsArray"],
     T["IsId"],
     T["IsUnique"],
     true
@@ -88,7 +88,7 @@ export type MakeAuto<
 > = FieldState<
   T["BaseType"],
   T["IsNullable"],
-  T["IsList"],
+  T["IsArray"],
   T["IsId"],
   T["IsUnique"],
   true
@@ -109,7 +109,7 @@ export type SmartInferType<T extends FieldState<any, any, any, any, any, any>> =
     : T["HasDefault"] extends true
     ? SmartInferNonNullable<T>
     : // Step 2: Otherwise, respect the explicit nullable setting
-    T["IsList"] extends true
+    T["IsArray"] extends true
     ? T["IsNullable"] extends true
       ? T["BaseType"][] | null
       : T["BaseType"][]
@@ -119,7 +119,7 @@ export type SmartInferType<T extends FieldState<any, any, any, any, any, any>> =
 
 // Helper type for non-nullable inference
 type SmartInferNonNullable<T extends FieldState<any, any, any, any, any, any>> =
-  T["IsList"] extends true
+  T["IsArray"] extends true
     ? T["BaseType"][] // Lists of non-nullable items (never null lists for ID/auto/default)
     : T["BaseType"]; // Non-nullable single values
 
@@ -138,7 +138,7 @@ export type InferInputType<T extends FieldState<any, any, any, any, any, any>> =
 
 // Helper type for optional inference (used in input types)
 type SmartInferOptional<T extends FieldState<any, any, any, any, any, any>> =
-  T["IsList"] extends true
+  T["IsArray"] extends true
     ? T["BaseType"][] | undefined
     : T["BaseType"] | undefined;
 
@@ -189,12 +189,10 @@ export interface BaseFieldType<
 
   // Modifier methods
   nullable(): BaseFieldType<MakeNullable<T>>;
-  list(): BaseFieldType<MakeList<T>>;
-  id(): BaseFieldType<MakeId<T>>;
-  unique(): BaseFieldType<MakeUnique<T>>;
-  default(
-    value: T["BaseType"] | (() => T["BaseType"])
-  ): BaseFieldType<MakeDefault<T>>;
+  // array(): BaseFieldType<MakeArray<T>>;
+  // id(): BaseFieldType<MakeId<T>>;
+  // unique(): BaseFieldType<MakeUnique<T>>;
+  default(value: InferType<T>): BaseFieldType<MakeDefault<T>>;
 }
 
 // Utility types for extracting field information

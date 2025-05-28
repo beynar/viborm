@@ -6,7 +6,7 @@ import type {
   FieldState,
   DefaultFieldState,
   MakeNullable,
-  MakeList,
+  MakeArray,
   MakeId,
   MakeUnique,
   MakeDefault,
@@ -50,17 +50,17 @@ export class BooleanField<
     }) as BooleanField<MakeNullable<T>>;
   }
 
-  override list(): BooleanField<MakeList<T>> {
-    return this.cloneWith<MakeList<T>>({ isList: true }) as BooleanField<
-      MakeList<T>
+  array(): BooleanField<MakeArray<T>> {
+    return this.cloneWith<MakeArray<T>>({ isArray: true }) as BooleanField<
+      MakeArray<T>
     >;
   }
 
-  override id(): BooleanField<MakeId<T>> {
+  id(): BooleanField<MakeId<T>> {
     return this.cloneWith<MakeId<T>>({ isId: true }) as BooleanField<MakeId<T>>;
   }
 
-  override unique(): BooleanField<MakeUnique<T>> {
+  unique(): BooleanField<MakeUnique<T>> {
     return this.cloneWith<MakeUnique<T>>({ isUnique: true }) as BooleanField<
       MakeUnique<T>
     >;

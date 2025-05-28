@@ -107,15 +107,15 @@ describe("Comprehensive Model Type Inference", () => {
       const blogModel = s.model("blog", {
         id: s.string().id(),
         title: s.string(),
-        tags: s.string().list(),
-        ratings: s.int().list(),
-        flags: s.boolean().list(),
-        scores: s.decimal().list(),
-        bigNumbers: s.bigInt().list(),
-        timestamps: s.dateTime().list(),
-        images: s.blob().list(),
-        metadata: s.json().list(),
-        categories: s.enum(["A", "B", "C"] as const).list(),
+        tags: s.string().array(),
+        ratings: s.int().array(),
+        flags: s.boolean().array(),
+        scores: s.decimal().array(),
+        bigNumbers: s.bigInt().array(),
+        timestamps: s.dateTime().array(),
+        images: s.blob().array(),
+        metadata: s.json(),
+        categories: s.enum(["A", "B", "C"] as const).array(),
       });
 
       type BlogType = typeof blogModel.infer;
@@ -154,9 +154,9 @@ describe("Comprehensive Model Type Inference", () => {
     test("model with list nullable combinations", () => {
       const complexModel = s.model("complex", {
         id: s.string().id(),
-        optionalTags: s.string().list().nullable(), // string[] | null
-        nullableItems: s.int().nullable().list(), // number[] | null (nullable applies to final result)
-        complexList: s.string().nullable().list().nullable(), // string[] | null (nullable applies to final result)
+        optionalTags: s.string().array().nullable(), // string[] | null
+        nullableItems: s.int().nullable().array(), // number[] | null (nullable applies to final result)
+        complexList: s.string().nullable().array().nullable(), // string[] | null (nullable applies to final result)
       });
 
       type ComplexType = typeof complexModel.infer;
@@ -233,7 +233,7 @@ describe("Comprehensive Model Type Inference", () => {
         count: s.int().default(0),
         price: s.decimal().default(9.99),
         role: s.enum(["user", "admin"] as const).default("user"),
-        tags: s.string().list().default(["default"]),
+        tags: s.string().array().default(["default"]),
       });
 
       type ModelType = typeof model.infer;
@@ -311,8 +311,8 @@ describe("Comprehensive Model Type Inference", () => {
         preferences: s.json().default({}),
 
         // Lists
-        tags: s.string().list(),
-        permissions: s.string().list().nullable(),
+        tags: s.string().array(),
+        permissions: s.string().array().nullable(),
 
         // Computed/tracked fields
         loginCount: s.int().default(0),
@@ -370,8 +370,8 @@ describe("Comprehensive Model Type Inference", () => {
         status: s
           .enum(["draft", "published", "archived"] as const)
           .default("draft"),
-        tags: s.string().list(),
-        categories: s.enum(["tech", "lifestyle", "business"] as const).list(),
+        tags: s.string().array(),
+        categories: s.enum(["tech", "lifestyle", "business"] as const).array(),
 
         viewCount: s.int().default(0),
         likeCount: s.int().default(0),
@@ -435,11 +435,11 @@ describe("Comprehensive Model Type Inference", () => {
         isDigital: s.boolean().default(false),
 
         category: s.enum(["electronics", "clothing", "books", "home"] as const),
-        tags: s.string().list(),
-        images: s.blob().list(),
+        tags: s.string().array(),
+        images: s.blob().array(),
 
         specifications: s.json().nullable(),
-        variants: s.json().list(),
+        variants: s.json(),
 
         createdAt: s.dateTime().now(),
         updatedAt: s.dateTime().updatedAt(),
@@ -517,26 +517,26 @@ describe("Comprehensive Model Type Inference", () => {
         // Default combinations
         defaultString: s.string().default("test"),
         defaultWithNullable: s.string().default("test").nullable(),
-        defaultList: s.string().list(),
+        defaultList: s.string().array(),
 
         // Unique combinations
         uniqueField: s.string().unique(),
         uniqueNullable: s.string().unique().nullable(),
 
         // Complex list combinations
-        basicList: s.string().list(),
-        nullableList: s.string().list().nullable(),
-        listOfNullables: s.string().nullable().list(),
+        basicList: s.string().array(),
+        nullableList: s.string().array().nullable(),
+        listOfNullables: s.string().nullable().array(),
         complexListType: s
           .enum(["A", "B"] as const)
           .nullable()
-          .list()
+          .array()
           .nullable(),
 
         // JSON variations
         basicJson: s.json(),
         nullableJson: s.json().nullable(),
-        jsonList: s.json().list(),
+        jsonList: s.json(),
         jsonWithDefault: s.json().default({ key: "value" }),
       });
 

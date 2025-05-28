@@ -9,7 +9,7 @@ describe("Model", () => {
         email: string().unique(),
         name: string(),
         bio: string().nullable(),
-        tags: string().list(),
+        tags: string().array(),
         slug: string().unique(),
         description: string().default("No description"),
       };
@@ -23,7 +23,7 @@ describe("Model", () => {
       expect((userModel.id as any).isId).toBe(true);
       expect((userModel.email as any).isUnique).toBe(true);
       expect((userModel.bio as any).isOptional).toBe(true);
-      expect((userModel.tags as any).isList).toBe(true);
+      expect((userModel.tags as any).isArray).toBe(true);
       expect((userModel.slug as any).isUnique).toBe(true);
     });
 
@@ -33,7 +33,7 @@ describe("Model", () => {
         email: s.string().unique(),
         name: s.string(),
         bio: s.string().nullable(),
-        tags: s.string().list(),
+        tags: s.string().array(),
         slug: s.string().unique(),
         description: s.string().default("No description"),
       });
@@ -85,7 +85,7 @@ describe("Model", () => {
         email: string().unique(),
         name: string(),
         bio: string().nullable(),
-        tags: string().list(),
+        tags: string().array(),
         slug: string().unique(),
         description: string().default("No description"),
       };

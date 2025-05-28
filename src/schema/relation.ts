@@ -2,12 +2,7 @@
 // Based on specification: readme/1.4_relation_class.md
 // Updated to support standard relational database relationship types
 
-import type {
-  RelationType,
-  CascadeOptions,
-  RelationValidator,
-  ValidationResult,
-} from "../types/index.js";
+import type { RelationType, CascadeOptions } from "../types/index.js";
 import { Model } from "./model.js";
 
 export type Getter = () => Model<any>;

@@ -12,6 +12,7 @@ export type ScalarFieldType =
   | "dateTime"
   | "json"
   | "blob"
+  | "vector"
   | "enum";
 
 // Database mappings for scalar types
@@ -57,6 +58,10 @@ export const ScalarTypeMappings: Record<ScalarFieldType, DatabaseMapping> = {
     postgresql: "BYTEA",
     mysql: "BLOB",
   },
+  vector: {
+    postgresql: "VECTOR",
+    mysql: "JSON",
+  },
   enum: {
     postgresql: "ENUM",
     mysql: "ENUM",
@@ -88,6 +93,8 @@ export type ScalarToTypeScript<T extends ScalarFieldType> = T extends "string"
   ? any
   : T extends "blob"
   ? Uint8Array
+  : T extends "vector"
+  ? number[]
   : T extends "enum"
   ? string | number
   : never;

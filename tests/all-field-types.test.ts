@@ -4,11 +4,11 @@ describe("All Field Types", () => {
   describe("Individual field type creation", () => {
     test("creates all field types with basic modifiers", () => {
       const stringField = s.string().nullable();
-      const intField = s.int().list();
+      const intField = s.int().array();
       const boolField = s.boolean().default(true);
       const bigintField = s.bigInt().unique();
       const dateField = s.dateTime().nullable();
-      const jsonField = s.json().list();
+      const jsonField = s.json();
       const blobField = s.blob().nullable();
       const enumField = s.enum(["a", "b", "c"] as const).nullable();
 
@@ -24,10 +24,9 @@ describe("All Field Types", () => {
 
       // Test properties are set correctly
       expect((stringField as any).isOptional).toBe(true);
-      expect((intField as any).isList).toBe(true);
+      expect((intField as any).isArray).toBe(true);
       expect((bigintField as any).isUnique).toBe(true);
       expect((dateField as any).isOptional).toBe(true);
-      expect((jsonField as any).isList).toBe(true);
       expect((blobField as any).isOptional).toBe(true);
       expect((enumField as any).isOptional).toBe(true);
     });
@@ -41,19 +40,19 @@ describe("All Field Types", () => {
         email: s.string().unique(),
         name: s.string(),
         bio: s.string().nullable(),
-        tags: s.string().list(),
+        tags: s.string().array(),
         description: s.string().default("No description"),
 
         // Number fields
         age: s.int(),
         score: s.float(),
         price: s.decimal(),
-        count: s.int().list(),
+        count: s.int().array(),
 
         // Boolean fields
         isActive: s.boolean(),
         isVerified: s.boolean().default(false),
-        permissions: s.boolean().list(),
+        permissions: s.boolean().array(),
 
         // BigInt fields
         bigId: s.bigInt().id(),
@@ -67,16 +66,16 @@ describe("All Field Types", () => {
         // JSON fields
         metadata: s.json(),
         config: s.json().nullable(),
-        settings: s.json().list(),
+        settings: s.json(),
 
         // Blob fields
         avatar: s.blob().nullable(),
-        documents: s.blob().list(),
+        documents: s.blob().array(),
 
         // Enum fields
         status: s.enum(["draft", "published", "archived"] as const),
         role: s.enum(["user", "admin", "moderator"] as const).default("user"),
-        categories: s.enum([1, 2, 3, 4, 5] as const).list(),
+        categories: s.enum([1, 2, 3, 4, 5] as const).array(),
       });
 
       expect(comprehensiveModel.name).toBe("comprehensive");
@@ -133,7 +132,7 @@ describe("All Field Types", () => {
       const complexDate = s.dateTime().nullable();
       const complexEnum = s
         .enum(["red", "green", "blue"] as const)
-        .list()
+        .array()
         .nullable();
 
       expect(complexString.constructor.name).toBe("StringField");
@@ -146,7 +145,7 @@ describe("All Field Types", () => {
       expect((complexString as any).isOptional).toBe(true);
       expect((complexNumber as any).isId).toBe(true);
       expect((complexDate as any).isOptional).toBe(true);
-      expect((complexEnum as any).isList).toBe(true);
+      expect((complexEnum as any).isArray).toBe(true);
       expect((complexEnum as any).isOptional).toBe(true);
     });
   });
@@ -155,14 +154,14 @@ describe("All Field Types", () => {
     test("validates field properties are set correctly", () => {
       const fields = {
         stringField: s.string().nullable(),
-        intField: s.int().list(),
+        intField: s.int().array(),
         bigintField: s.bigInt().unique(),
         complexField: s.string().id().unique().nullable(),
       };
 
       // Test individual properties
       expect((fields.stringField as any).isOptional).toBe(true);
-      expect((fields.intField as any).isList).toBe(true);
+      expect((fields.intField as any).isArray).toBe(true);
       expect((fields.bigintField as any).isUnique).toBe(true);
 
       // Test complex field has multiple properties

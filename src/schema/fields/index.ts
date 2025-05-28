@@ -12,6 +12,7 @@ export { DateTimeField, datetime } from "./datetime.js";
 export { JsonField, json } from "./json.js";
 export { BlobField, blob } from "./blob.js";
 export { EnumField, enumField } from "./enum.js";
+export { VectorField, vector } from "./vector.js";
 
 // Union type for all field types
 export type Field<T = any> =
@@ -22,4 +23,5 @@ export type Field<T = any> =
   | import("./datetime.js").DateTimeField<any>
   | import("./json.js").JsonField<any>
   | import("./blob.js").BlobField<any>
-  | import("./enum.js").EnumField<any, any>;
+  | import("./enum.js").EnumField<any, any>
+  | import("./vector.js").VectorField<any>;

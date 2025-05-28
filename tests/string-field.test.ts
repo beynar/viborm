@@ -13,7 +13,7 @@ describe("StringField", () => {
     test("returns StringField instances for all chainable methods", () => {
       const idField = string().id();
       const nullableField = string().nullable();
-      const listField = string().list();
+      const listField = string().array();
       const uniqueField = string().unique();
       const defaultField = string().default("test");
 
@@ -27,12 +27,12 @@ describe("StringField", () => {
     test("sets properties correctly", () => {
       const idField = string().id();
       const nullableField = string().nullable();
-      const listField = string().list();
+      const listField = string().array();
       const uniqueField = string().unique();
 
       expect((idField as any).isId).toBe(true);
       expect((nullableField as any).isOptional).toBe(true);
-      expect((listField as any).isList).toBe(true);
+      expect((listField as any).isArray).toBe(true);
       expect((uniqueField as any).isUnique).toBe(true);
     });
   });
@@ -82,7 +82,7 @@ describe("StringField", () => {
     test("infers correct types", () => {
       const idField = string().id();
       const nullableField = string().nullable();
-      const listField = string().list();
+      const listField = string().array();
 
       // Type tests
       expectTypeOf(idField.infer).toEqualTypeOf<string>();
@@ -100,7 +100,7 @@ describe("StringField", () => {
         email: string().unique().validator(emailValidator),
         name: string().validator(z.string().min(2)),
         bio: string().nullable(),
-        tags: string().list(),
+        tags: string().array(),
         slug: string().unique(),
         description: string().default("No description"),
       };

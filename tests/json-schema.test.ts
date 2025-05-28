@@ -15,9 +15,8 @@ describe("JSON Schema Support", () => {
     });
 
     test("creates JSON list field", () => {
-      const jsonList = s.json().list();
+      const jsonList = s.json();
       expect(jsonList.constructor.name).toBe("JsonField");
-      expect((jsonList as any).isList).toBe(true);
     });
   });
 
@@ -90,7 +89,7 @@ describe("JSON Schema Support", () => {
         metadata: s.json(),
 
         // Array of JSON objects
-        variants: s.json().list(),
+        variants: s.json(),
 
         // Nullable JSON field
         settings: s.json().nullable(),
@@ -110,7 +109,7 @@ describe("JSON Schema Support", () => {
       expect(variantsField?.constructor.name).toBe("JsonField");
       expect(settingsField?.constructor.name).toBe("JsonField");
 
-      expect((variantsField as any).isList).toBe(true);
+      expect((variantsField as any).isArray).toBe(false);
       expect((settingsField as any).isOptional).toBe(true);
     });
   });
@@ -185,7 +184,7 @@ describe("JSON Schema Support", () => {
         metadata: s.json(),
 
         // Array of product variants
-        variants: s.json().list(),
+        variants: s.json(),
 
         createdAt: s.dateTime().now(),
         updatedAt: s.dateTime().now(),
@@ -203,7 +202,7 @@ describe("JSON Schema Support", () => {
         settings: s.json().nullable(),
 
         // Audit trail
-        auditLog: s.json().list(),
+        auditLog: s.json(),
 
         createdAt: s.dateTime().now(),
       });
@@ -232,9 +231,9 @@ describe("JSON Schema Support", () => {
       );
 
       // Test properties
-      expect((productModel.fields.get("variants") as any).isList).toBe(true);
+      expect((productModel.fields.get("variants") as any).isArray).toBe(false);
       expect((userModel.fields.get("settings") as any).isOptional).toBe(true);
-      expect((userModel.fields.get("auditLog") as any).isList).toBe(true);
+      expect((userModel.fields.get("auditLog") as any).isArray).toBe(false);
     });
   });
 });
