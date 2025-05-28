@@ -1,6 +1,6 @@
-# BaseORM Developer Specifications
+# VibeORM Developer Specifications
 
-This folder contains detailed specifications for each component of the BaseORM project. These documents are designed to be comprehensive guides for developers working on individual parts of the system.
+This folder contains detailed specifications for each component of the VibeORM project. These documents are designed to be comprehensive guides for developers working on individual parts of the system.
 
 ## Table of Contents
 
@@ -14,7 +14,7 @@ This folder contains detailed specifications for each component of the BaseORM p
 
 ## Project Overview
 
-BaseORM is a TypeScript ORM for Postgres and MySQL with two main components:
+VibeORM is a TypeScript ORM for Postgres and MySQL with two main components:
 
 1. **Schema Builder** - A chainable API for defining models, fields, and relations
 2. **Query Builder** - A Prisma-like interface for querying and mutating data

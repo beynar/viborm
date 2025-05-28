@@ -1,6 +1,6 @@
-# BaseORM Type System
+# VibeORM Type System
 
-This document describes the conceptual framework of BaseORM's type system, which provides full type safety without code generation by leveraging TypeScript's type inference capabilities.
+This document describes the conceptual framework of VibeORM's type system, which provides full type safety without code generation by leveraging TypeScript's type inference capabilities.
 
 ## Table of Contents
 
@@ -18,7 +18,7 @@ This document describes the conceptual framework of BaseORM's type system, which
 
 ## Core Principles
 
-BaseORM's type system is built on these fundamental principles:
+VibeORM's type system is built on these fundamental principles:
 
 - **Schema-First Design**: All types are derived from your schema definition
 - **Type Inference**: TypeScript's inference does the heavy lifting, minimizing explicit type annotations
@@ -56,7 +56,7 @@ A `User` model with `id`, `email`, and `posts` would have a model type represent
 
 ## Operation Input Types
 
-Different database operations require different input structures. BaseORM provides specialized types for each operation.
+Different database operations require different input structures. VibeORM provides specialized types for each operation.
 
 ### CreateInput
 
@@ -207,9 +207,9 @@ Typed enumerations for various operations.
 
 ## Type Inference Strategy
 
-Unlike Prisma, which generates types at build time, BaseORM leverages TypeScript's type inference system:
+Unlike Prisma, which generates types at build time, VibeORM leverages TypeScript's type inference system:
 
-1. **Type Template Construction**: BaseORM defines generic type templates that are parameterized by your schema
+1. **Type Template Construction**: VibeORM defines generic type templates that are parameterized by your schema
 2. **Schema Introspection**: The schema builder captures type information during model definition
 3. **Type Inference**: TypeScript infers concrete types from the templates and your schema
 4. **Type Propagation**: Types flow through your queries, ensuring end-to-end type safety
@@ -218,7 +218,7 @@ This approach eliminates the need for code generation while maintaining full typ
 
 ## Implementation Guide
 
-This section provides step-by-step guidance for implementing the BaseORM type system.
+This section provides step-by-step guidance for implementing the VibeORM type system.
 
 ### Step 1: Define Schema Representation Types
 
@@ -336,12 +336,14 @@ type CreateInput<TModel extends ModelDefinition> =
     [K in RequiredCreateFields<TModel>]: FieldToTypeScript<
       ScalarFields<TModel>[K]
     >;
-  } & { // Optional fields
+  } & {
+    // Optional fields
     [K in OptionalCreateFields<TModel>]?: MakeOptional<
       FieldToTypeScript<ScalarFields<TModel>[K]>,
       ScalarFields<TModel>[K]
     >;
-  } & { // Relation fields (all optional for create)
+  } & {
+    // Relation fields (all optional for create)
     [K in keyof RelationFields<TModel>]?: CreateNestedInput<
       ReturnType<RelationFields<TModel>[K]["target"]>,
       TModel
@@ -617,7 +619,7 @@ type DistributeOver<T, U> = T extends any ? U<T> : never;
 
 ## Complete Type Implementation List
 
-This section provides a comprehensive list of all types that need to be implemented for BaseORM. Instead of generating types per model, BaseORM uses generic types that infer the correct structure based on the model schema.
+This section provides a comprehensive list of all types that need to be implemented for VibeORM. Instead of generating types per model, VibeORM uses generic types that infer the correct structure based on the model schema.
 
 ### Generic Model Types
 
@@ -784,7 +786,7 @@ These types are shared across all models:
 - `InteractiveTransactionOptions` - Options for interactive transactions
 - `BatchTransactionOptions` - Options for batch transactions
 
-This comprehensive list ensures that BaseORM provides complete type coverage equivalent to Prisma's generated types, but computed at development time through TypeScript's type system.
+This comprehensive list ensures that VibeORM provides complete type coverage equivalent to Prisma's generated types, but computed at development time through TypeScript's type system.
 
 ## Testing Strategy
 

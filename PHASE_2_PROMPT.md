@@ -2,7 +2,7 @@
 
 ## Context
 
-You are continuing the development of BaseORM, a TypeScript ORM with zero-generation, fully type-safe capabilities. Phase 1 involved analyzing Prisma's type system and creating an implementation guide. Phase 2 was to implement the core foundation types that all other client types will depend on.
+You are continuing the development of VibeORM, a TypeScript ORM with zero-generation, fully type-safe capabilities. Phase 1 involved analyzing Prisma's type system and creating an implementation guide. Phase 2 was to implement the core foundation types that all other client types will depend on.
 
 ## Current State
 

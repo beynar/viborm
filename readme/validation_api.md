@@ -2,7 +2,7 @@
 
 ## Overview
 
-BaseORM provides a clean and simple validation API where the `validate()` method accepts any number of validators directly, eliminating the need for separate `validator()` methods.
+VibeORM provides a clean and simple validation API where the `validate()` method accepts any number of validators directly, eliminating the need for separate `validator()` methods.
 
 All validation logic is delegated to user-provided validators. For common validation patterns (like min/max length, regex patterns, etc.), see the [Common Validators Reference](validation_validators.md).
 
@@ -175,7 +175,7 @@ interface ValidationResult {
 
 ## Standard Schema Integration
 
-BaseORM supports Standard Schema v1 validators:
+VibeORM supports Standard Schema v1 validators:
 
 ```typescript
 import { email, minLength } from "some-standard-schema-library";

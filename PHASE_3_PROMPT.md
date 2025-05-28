@@ -2,7 +2,7 @@
 
 ## Context
 
-You are continuing the development of BaseORM, a TypeScript ORM with zero-generation, fully type-safe capabilities. Phase 2 (Foundation Types) has been completed successfully. Now we move to Phase 3: implementing the Query Input Types that will enable Prisma-like querying capabilities.
+You are continuing the development of VibeORM, a TypeScript ORM with zero-generation, fully type-safe capabilities. Phase 2 (Foundation Types) has been completed successfully. Now we move to Phase 3: implementing the Query Input Types that will enable Prisma-like querying capabilities.
 
 ## Current State
 

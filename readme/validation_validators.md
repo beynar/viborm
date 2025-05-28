@@ -2,7 +2,7 @@
 
 ## Overview
 
-With BaseORM's simplified validation API, all validation logic is delegated to user-provided validators. This document provides ready-to-use validators for common validation needs that replace previously built-in methods.
+With VibeORM's simplified validation API, all validation logic is delegated to user-provided validators. This document provides ready-to-use validators for common validation needs that replace previously built-in methods.
 
 ## String Validators
 

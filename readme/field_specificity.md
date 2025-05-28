@@ -1,4 +1,4 @@
-# Field Type Specificity in BaseORM
+# Field Type Specificity in VibeORM
 
 This document explains the new field class hierarchy that ensures type safety and prevents invalid method combinations like `boolean().max().min()`.
 

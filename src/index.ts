@@ -1,4 +1,4 @@
-// BaseORM - Main Entry Point
+// VibeORM - Main Entry Point
 // TypeScript ORM for Postgres and MySQL
 
 // Main exports - Schema Builder

@@ -1,6 +1,6 @@
-# BaseORM Source Code Structure
+# VibeORM Source Code Structure
 
-This directory contains the complete implementation of BaseORM, a TypeScript ORM for PostgreSQL and MySQL databases.
+This directory contains the complete implementation of VibeORM, a TypeScript ORM for PostgreSQL and MySQL databases.
 
 ## Directory Structure
 
@@ -35,7 +35,7 @@ src/
 
 ### Schema Builder (`/schema`)
 
-The core of BaseORM's type-safe schema definition system:
+The core of VibeORM's type-safe schema definition system:
 
 - **SchemaBuilder**: Main API class providing chainable methods
 - **Model**: Represents database tables with fields, relations, indexes
