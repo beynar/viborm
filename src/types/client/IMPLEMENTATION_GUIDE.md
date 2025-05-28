@@ -1,8 +1,8 @@
-# VibeORM Client Type System Implementation Guide
+# VibORM Client Type System Implementation Guide
 
 ## Overview
 
-This guide describes the implementation strategy for VibeORM's generic type system that dynamically infers all query, mutation, and result types from model definitions. Unlike Prisma's generated approach, VibeORM uses TypeScript's type inference to create a fully type-safe ORM without code generation.
+This guide describes the implementation strategy for VibORM's generic type system that dynamically infers all query, mutation, and result types from model definitions. Unlike Prisma's generated approach, VibORM uses TypeScript's type inference to create a fully type-safe ORM without code generation.
 
 ## Core Philosophy
 
@@ -340,7 +340,7 @@ This guide describes the implementation strategy for VibeORM's generic type syst
 
 **Key Types Needed**:
 
-- `VibeORMClient`: Main client interface
+- `VibORMClient`: Main client interface
 - `TransactionClient`: Client interface within transactions
 - Client lifecycle method signatures
 
@@ -532,7 +532,7 @@ src/types/client/
 │   │
 │   └── root/                          # 8.2 Client Root Types
 │       ├── index.ts
-│       ├── base-orm-client.ts         # VibeORMClient main interface
+│       ├── base-orm-client.ts         # VibORMClient main interface
 │       ├── transaction-client.ts      # TransactionClient interface
 │       └── lifecycle-methods.ts       # Connect, disconnect, etc.
 │

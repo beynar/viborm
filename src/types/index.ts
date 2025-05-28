@@ -1,5 +1,5 @@
 // Type Definitions Index
-// All TypeScript types and interfaces for VibeORM
+// All TypeScript types and interfaces for VibORM
 
 // Re-export all types from their respective modules
 export * from "./scalars.js";

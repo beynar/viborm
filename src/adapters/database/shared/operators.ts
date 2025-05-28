@@ -1,4 +1,4 @@
-// Operator system for WHERE clause generation in VibeORM adapters
+// Operator system for WHERE clause generation in VibORM adapters
 
 import type { WhereClause } from "../../types.js";
 import type { Sql } from "../../../sql/sql.js";

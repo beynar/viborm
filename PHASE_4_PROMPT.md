@@ -2,7 +2,7 @@
 
 ## Context
 
-You are continuing the development of VibeORM, a TypeScript ORM with zero-generation, fully type-safe capabilities. The first three phases have been completed successfully:
+You are continuing the development of VibORM, a TypeScript ORM with zero-generation, fully type-safe capabilities. The first three phases have been completed successfully:
 
 - ✅ Phase 1: Foundation Types infrastructure
 - ✅ Phase 2: Enhanced Foundation Types with comprehensive model introspection
@@ -24,11 +24,11 @@ Now we move to Phase 4: implementing the **Client Interface and ORM Integration*
 
 ## Phase 4 Objectives
 
-Implement the **Client Interface** that enables developers to use VibeORM with this API:
+Implement the **Client Interface** that enables developers to use VibORM with this API:
 
 ```typescript
 // Target API we want to achieve
-import { VibeORM } from "baseorm";
+import { VibORM } from "baseorm";
 
 // Define schema
 const user = s.model("user", {
@@ -48,7 +48,7 @@ const post = s.model("post", {
 });
 
 // Create ORM instance
-const orm = new VibeORM({
+const orm = new VibORM({
   models: { user, post },
   adapter: mockAdapter, // For testing - real adapter comes later
 });
@@ -142,13 +142,13 @@ Create `src/client/base-orm-client.ts`:
 **API Design**:
 
 ```typescript
-interface VibeORMClientConfig {
+interface VibORMClientConfig {
   models: Record<string, Model<any>>;
   adapter: AdapterInterface; // Abstract adapter interface
 }
 
-class VibeORM {
-  constructor(config: VibeORMClientConfig);
+class VibORM {
+  constructor(config: VibORMClientConfig);
 
   // Dynamic model access - should be type-safe
   [modelName: string]: ModelDelegate<any>;
@@ -158,7 +158,7 @@ class VibeORM {
   disconnect(): Promise<void>;
 
   // Transaction support (future)
-  $transaction<T>(fn: (tx: VibeORM) => Promise<T>): Promise<T>;
+  $transaction<T>(fn: (tx: VibORM) => Promise<T>): Promise<T>;
 
   // Raw queries
   $executeRaw(query: string, ...values: any[]): Promise<number>;
@@ -445,4 +445,4 @@ This phase prepares for:
 5. **Add client integration** - Wire everything together
 6. **Test incrementally** - Add one operation at a time
 
-Remember: This phase transforms VibeORM from a type system into a working ORM. Focus on developer experience, type safety, and laying the groundwork for production database adapters.
+Remember: This phase transforms VibORM from a type system into a working ORM. Focus on developer experience, type safety, and laying the groundwork for production database adapters.

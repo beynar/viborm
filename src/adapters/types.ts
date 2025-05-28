@@ -1,4 +1,4 @@
-// Core adapter interfaces and types for VibeORM
+// Core adapter interfaces and types for VibORM
 
 import type { Sql } from "../sql/sql.js";
 import type { BaseField } from "../schema/fields/base.js";

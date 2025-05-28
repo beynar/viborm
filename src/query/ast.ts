@@ -1,5 +1,5 @@
-// Query AST (Abstract Syntax Tree) for VibeORM
-// Simplified, unified structure using VibeORM query language
+// Query AST (Abstract Syntax Tree) for VibORM
+// Simplified, unified structure using VibORM query language
 
 import { Model } from "../schema/model";
 import { BaseField } from "../schema/fields/base";
@@ -126,7 +126,7 @@ export type ConditionOperator =
   // Null checks
   | "isNull"
   | "isNotNull"
-  // Array/List operations (VibeORM logical operations)
+  // Array/List operations (VibORM logical operations)
   | "has"
   | "hasEvery"
   | "hasSome"
@@ -270,7 +270,7 @@ export interface AggregateOrderingTarget {
 export interface ValueAST extends ASTNode {
   type: "VALUE";
   value: unknown;
-  valueType: VibeOrmValueType;
+  valueType: VibormValueType;
   options?: ValueOptionsAST;
 }
 
@@ -280,7 +280,7 @@ export interface ValueOptionsAST {
   [key: string]: any; // Extensible for other options
 }
 
-export type VibeOrmValueType =
+export type VibormValueType =
   | "string"
   | "boolean"
   | "int"
@@ -469,7 +469,7 @@ export function createCondition(
 
 export function createValue(
   value: unknown,
-  valueType: VibeOrmValueType,
+  valueType: VibormValueType,
   options?: ValueOptionsAST
 ): ValueAST {
   const valueNode: ValueAST = {

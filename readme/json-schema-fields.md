@@ -1,10 +1,10 @@
 # Schema-Based JSON Fields
 
-VibeORM's JSON fields support schema-based validation and type inference using the Standard Schema V1 interface. This allows you to define strongly-typed JSON fields with automatic validation while maintaining the flexibility of JSON data.
+VibORM's JSON fields support schema-based validation and type inference using the Standard Schema V1 interface. This allows you to define strongly-typed JSON fields with automatic validation while maintaining the flexibility of JSON data.
 
 ## Overview
 
-JSON fields in VibeORM can operate in two modes:
+JSON fields in VibORM can operate in two modes:
 
 1. **Untyped Mode** (default): For maximum flexibility, accepts any JSON-serializable data
 2. **Schema Mode**: For type safety and validation, uses a Standard Schema to define structure
@@ -77,7 +77,7 @@ type UserType = typeof user.infer;
 
 ## Standard Schema Interface
 
-VibeORM uses the Standard Schema V1 interface for maximum compatibility with validation libraries:
+VibORM uses the Standard Schema V1 interface for maximum compatibility with validation libraries:
 
 ```ts
 interface StandardSchemaV1<Input = unknown, Output = Input> {

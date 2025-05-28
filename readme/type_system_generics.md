@@ -1,10 +1,10 @@
-# VibeORM Generic Type System
+# VibORM Generic Type System
 
 This document explains the generic type system implementation that enables full type inference from schema definitions with field-specific type safety.
 
 ## Overview
 
-VibeORM uses a sophisticated generic type system combined with a hierarchical field class structure that provides:
+VibORM uses a sophisticated generic type system combined with a hierarchical field class structure that provides:
 
 1. Full TypeScript type inference without code generation
 2. Field-specific method availability (prevents `boolean().max()`)

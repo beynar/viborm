@@ -1,10 +1,10 @@
-# VibeORM
+# VibORM
 
 **A Vibe Coding Experiment: Building the Perfect TypeScript ORM**
 
-## 🚀 What is VibeORM?
+## 🚀 What is VibORM?
 
-VibeORM is an experimental TypeScript ORM born from a simple question: _"Can we vibe code a perfect ORM?"_
+VibORM is an experimental TypeScript ORM born from a simple question: _"Can we vibe code a perfect ORM?"_
 
 This project represents my attempt to combine the beautiful developer experience of Prisma with the pure TypeScript philosophy of Drizzle, creating something that feels magical to use while remaining 100% TypeScript under the hood.
 
@@ -16,7 +16,7 @@ I love Prisma's syntax and developer experience, but I have issues with:
 - **Code generation** - I prefer type inference over generated code
 - **Not being "full TypeScript"** like Drizzle
 
-So VibeORM is my attempt to create an ORM that:
+So VibORM is my attempt to create an ORM that:
 
 - ✨ **Feels like Prisma** - Familiar, intuitive API that developers already know and love
 - 🔧 **Pure TypeScript** - Zero binaries, zero code generation, just beautiful type inference
@@ -25,7 +25,7 @@ So VibeORM is my attempt to create an ORM that:
 
 ## 🏗️ Project Status & Architecture
 
-VibeORM is structured around several key components, each at different stages of completion:
+VibORM is structured around several key components, each at different stages of completion:
 
 ### ✅ **Schema Builder** (Complete)
 
@@ -96,7 +96,7 @@ const metadata = s.json(); // Flexible untyped JSON
 
 ## 🎯 Design Philosophy
 
-VibeORM follows these core principles:
+VibORM follows these core principles:
 
 - **🔒 Type Safety First** - Everything is fully type-safe using TypeScript's type inference
 - **⛓️ Chainable API** - Fluent, readable schema definitions with method chaining
@@ -122,7 +122,7 @@ The changelog contains:
 
 ## 🚀 Current Example
 
-Here's what VibeORM looks like today:
+Here's what VibORM looks like today:
 
 ```typescript
 import { s } from "baseorm";
@@ -188,4 +188,4 @@ MIT - Feel free to learn from, fork, or experiment with this code.
 
 ---
 
-_VibeORM: Where TypeScript meets database perfection_ ✨
+_VibORM: Where TypeScript meets database perfection_ ✨

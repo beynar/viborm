@@ -1,7 +1,7 @@
 // Scalar Type Definitions
 // Based on specification: readme/1.3_field_scalar_types.md
 
-// Scalar field types supported by VibeORM
+// Scalar field types supported by VibORM
 export type ScalarFieldType =
   | "string"
   | "boolean"

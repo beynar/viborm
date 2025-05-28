@@ -4,7 +4,7 @@
 
 ### Context
 
-Resumed work on Phase 3 of VibeORM - Query Input Types Implementation, the final component for zero-generation, fully type-safe TypeScript ORM. This phase involves complex conditional types for relation filtering, field operations, and mutation arguments.
+Resumed work on Phase 3 of VibORM - Query Input Types Implementation, the final component for zero-generation, fully type-safe TypeScript ORM. This phase involves complex conditional types for relation filtering, field operations, and mutation arguments.
 
 ### Major Achievements (85% Complete)
 
@@ -109,7 +109,7 @@ export type FieldFilter<T> =
 
 ### Impact
 
-This phase represents a **major milestone** in VibeORM development. The successful resolution of complex TypeScript conditional types enables:
+This phase represents a **major milestone** in VibORM development. The successful resolution of complex TypeScript conditional types enables:
 
 - **Zero-generation type safety**: All types inferred from schema definitions
 - **Prisma-compatible API**: Familiar query interface with full type safety
@@ -119,7 +119,7 @@ The remaining issues are **refinements** rather than fundamental blockers, indic
 
 ## 2024-01-XX - Phase 1 Foundation Infrastructure Completed Successfully
 
-**Problem Solved**: Completed Phase 1 implementation of VibeORM's client type system foundation infrastructure, fixing all critical type inference issues and establishing a solid foundation for query system development.
+**Problem Solved**: Completed Phase 1 implementation of VibORM's client type system foundation infrastructure, fixing all critical type inference issues and establishing a solid foundation for query system development.
 
 ### Key Achievements
 
@@ -147,7 +147,7 @@ The remaining issues are **refinements** rather than fundamental blockers, indic
 
 **✅ Required/Optional Field Logic Implemented**
 
-- Implemented VibeORM's design philosophy where fields are optional for create operations if they are:
+- Implemented VibORM's design philosophy where fields are optional for create operations if they are:
   - ID fields (always optional)
   - Unique fields (optional)
   - Array fields (optional)
@@ -183,18 +183,18 @@ The remaining issues are **refinements** rather than fundamental blockers, indic
 - Auto-generation type detection working correctly
 - Model/field extraction working for all scenarios
 - Field type mapping functional for basic and complex cases
-- Required/optional field logic implemented according to VibeORM design
+- Required/optional field logic implemented according to VibORM design
 - Comprehensive test coverage established
 
 **Next Steps**: Ready to begin Phase 2 implementation of basic query system using the established foundation.
 
 ---
 
-## December 23, 2024 - VibeORM Client Type System Architecture and Implementation Guide
+## December 23, 2024 - VibORM Client Type System Architecture and Implementation Guide
 
 ### Overview
 
-Conducted comprehensive analysis of VibeORM's client type system requirements by examining Prisma-generated models and created a detailed implementation guide for building a generic, model-driven type system that dynamically infers all query, mutation, and result types without code generation.
+Conducted comprehensive analysis of VibORM's client type system requirements by examining Prisma-generated models and created a detailed implementation guide for building a generic, model-driven type system that dynamically infers all query, mutation, and result types without code generation.
 
 ### Problem Addressed
 
@@ -313,13 +313,13 @@ Created detailed organization with:
 
 ### Impact
 
-VibeORM now has a complete blueprint for implementing a sophisticated client type system that rivals Prisma's generated approach while leveraging TypeScript's inference capabilities. The implementation guide provides clear direction for building a type-safe ORM client with dynamic inference, proper organization, and maintainable architecture. This establishes the foundation for creating one of the most advanced type systems in the TypeScript ORM ecosystem.
+VibORM now has a complete blueprint for implementing a sophisticated client type system that rivals Prisma's generated approach while leveraging TypeScript's inference capabilities. The implementation guide provides clear direction for building a type-safe ORM client with dynamic inference, proper organization, and maintainable architecture. This establishes the foundation for creating one of the most advanced type systems in the TypeScript ORM ecosystem.
 
 ---
 
 # Purpose
 
-This file documents the major development discussions and implementations carried out with AI assistance on the VibeORM project. Each entry represents a significant conversation or development session that resulted in substantial changes to the codebase. This helps maintain project continuity and provides context for future development decisions.
+This file documents the major development discussions and implementations carried out with AI assistance on the VibORM project. Each entry represents a significant conversation or development session that resulted in substantial changes to the codebase. This helps maintain project continuity and provides context for future development decisions.
 
 ---
 
@@ -327,7 +327,7 @@ This file documents the major development discussions and implementations carrie
 
 ### Overview
 
-Conducted a comprehensive refactoring of the entire test suite to create a well-organized, systematic testing structure for the VibeORM schema components. This reorganization significantly improves test clarity, maintainability, and coverage.
+Conducted a comprehensive refactoring of the entire test suite to create a well-organized, systematic testing structure for the VibORM schema components. This reorganization significantly improves test clarity, maintainability, and coverage.
 
 ### Test Structure Created
 
@@ -425,7 +425,7 @@ The test suite now covers all major schema components with both runtime behavior
 
 ## Purpose
 
-This file documents the major development discussions and implementations carried out with AI assistance on the VibeORM project. Each entry represents a significant conversation or development session that resulted in substantial changes to the codebase. This helps maintain project continuity and provides context for future development decisions.
+This file documents the major development discussions and implementations carried out with AI assistance on the VibORM project. Each entry represents a significant conversation or development session that resulted in substantial changes to the codebase. This helps maintain project continuity and provides context for future development decisions.
 
 ---
 
@@ -691,7 +691,7 @@ This change significantly improves the developer experience while maintaining al
 
 ## 2024-12-20: Standard Database Relationship Types Implementation
 
-**Summary**: Successfully implemented the four standard relational database relationship types in VibeORM: oneToOne, oneToMany, manyToOne, and manyToMany. This replaces the previous simplified "one" and "many" relation types with proper relational database semantics, improving clarity and following industry conventions.
+**Summary**: Successfully implemented the four standard relational database relationship types in VibORM: oneToOne, oneToMany, manyToOne, and manyToMany. This replaces the previous simplified "one" and "many" relation types with proper relational database semantics, improving clarity and following industry conventions.
 
 **Problem Addressed**: The user requested updating the relation system to support all four standard database relationship types that follow the mental model of how relational databases are structured. The previous system only had basic "one" and "many" types which were insufficient for expressing the full range of database relationships.
 
@@ -840,20 +840,20 @@ const Comment = s.model("Comment", {
 
 **Benefits Delivered**:
 
-- ✅ **Industry Standard**: VibeORM now uses standard relational database terminology
+- ✅ **Industry Standard**: VibORM now uses standard relational database terminology
 - ✅ **Clear Semantics**: Relationship direction and cardinality are explicit in type names
 - ✅ **Database Alignment**: Relationship types directly map to database foreign key patterns
 - ✅ **Junction Table Safety**: Runtime validation prevents incorrect junction table usage
 - ✅ **Full Coverage**: All possible database relationship patterns are supported
 - ✅ **Migration Path**: Legacy code continues to work while new code can use precise types
 
-**Impact**: VibeORM now provides industry-standard relationship modeling that directly mirrors relational database conventions. The four relationship types (oneToOne, oneToMany, manyToOne, manyToMany) provide clear, unambiguous semantics that database developers immediately understand, while maintaining full backward compatibility with existing codebases.
+**Impact**: VibORM now provides industry-standard relationship modeling that directly mirrors relational database conventions. The four relationship types (oneToOne, oneToMany, manyToOne, manyToMany) provide clear, unambiguous semantics that database developers immediately understand, while maintaining full backward compatibility with existing codebases.
 
 ---
 
 ## 2024-12-20: Recursive Schema Support Implementation
 
-**Summary**: Successfully implemented comprehensive recursive schema support in VibeORM, enabling circular references between models using a function factory pattern that breaks TypeScript's circular reference limitations while maintaining type safety and runtime functionality.
+**Summary**: Successfully implemented comprehensive recursive schema support in VibORM, enabling circular references between models using a function factory pattern that breaks TypeScript's circular reference limitations while maintaining type safety and runtime functionality.
 
 **Problem Addressed**: The user requested support for recursive schemas similar to Zod's capability, specifically patterns like:
 
@@ -873,7 +873,7 @@ const Post = z.object({
 });
 ```
 
-When attempting direct circular references in VibeORM, TypeScript compilation failed with error: "Function implicitly has return type 'any' because it does not have a return type annotation and is referenced directly or indirectly in one of its return expressions.ts(7024)"
+When attempting direct circular references in VibORM, TypeScript compilation failed with error: "Function implicitly has return type 'any' because it does not have a return type annotation and is referenced directly or indirectly in one of its return expressions.ts(7024)"
 
 **Root Cause Analysis**: The issue stemmed from circular references in TypeScript type inference. When schemas reference each other directly through getter functions, TypeScript cannot resolve the return types, leading to compilation errors. This is a fundamental limitation of TypeScript's type system when dealing with immediate circular dependencies.
 
@@ -972,16 +972,16 @@ The arrow function pattern `() => Model` works because:
 
 **Benefits Delivered**:
 
-- ✅ **Full Recursive Support**: VibeORM now supports any recursive schema pattern
+- ✅ **Full Recursive Support**: VibORM now supports any recursive schema pattern
 - ✅ **Type Safety**: Complete TypeScript type inference maintained through circular references
 - ✅ **Clean API**: Intuitive function factory pattern that feels natural to JavaScript developers
 - ✅ **No Complex Annotations**: No need for complex TypeScript type annotations or workarounds
 - ✅ **Runtime Performance**: Efficient lazy evaluation with no overhead until relations are accessed
 - ✅ **Scalable**: Works for simple self-references or complex multi-model circular networks
 
-**Comparison to Zod**: While Zod requires complex `z.lazy()` methods and explicit type annotations for recursive schemas, VibeORM's direct reference pattern provides a cleaner, more intuitive approach that leverages JavaScript's natural variable hoisting behavior.
+**Comparison to Zod**: While Zod requires complex `z.lazy()` methods and explicit type annotations for recursive schemas, VibORM's direct reference pattern provides a cleaner, more intuitive approach that leverages JavaScript's natural variable hoisting behavior.
 
-**Impact**: VibeORM now provides enterprise-grade recursive schema support that matches or exceeds the capabilities of other TypeScript ORMs while maintaining a simple, intuitive API. The direct reference pattern with arrow function lazy evaluation establishes the cleanest possible syntax for handling circular dependencies in schema definitions.
+**Impact**: VibORM now provides enterprise-grade recursive schema support that matches or exceeds the capabilities of other TypeScript ORMs while maintaining a simple, intuitive API. The direct reference pattern with arrow function lazy evaluation establishes the cleanest possible syntax for handling circular dependencies in schema definitions.
 
 ---
 
@@ -1058,9 +1058,9 @@ Type '(value: TData) => JsonField<TData, MakeDefault<T>>' is not assignable to t
 
 ## 2024-12-20: Final Comprehensive Model Type Inference Testing Suite
 
-**Summary**: Successfully created a comprehensive testing suite for model type inference using `expectTypeOf` to assert `typeof MODEL.infer` types, providing extensive coverage of VibeORM's type system capabilities with both static type checking and runtime validation.
+**Summary**: Successfully created a comprehensive testing suite for model type inference using `expectTypeOf` to assert `typeof MODEL.infer` types, providing extensive coverage of VibORM's type system capabilities with both static type checking and runtime validation.
 
-**Problem Addressed**: The user requested comprehensive type tests that assert the `typeof MODEL.infer` to ensure VibeORM's type inference system works correctly across all field types, combinations, and edge cases. Previous tests focused more on runtime behavior rather than comprehensive type-level validation.
+**Problem Addressed**: The user requested comprehensive type tests that assert the `typeof MODEL.infer` to ensure VibORM's type inference system works correctly across all field types, combinations, and edge cases. Previous tests focused more on runtime behavior rather than comprehensive type-level validation.
 
 **Key Achievements**:
 
@@ -1118,7 +1118,7 @@ Type '(value: TData) => JsonField<TData, MakeDefault<T>>' is not assignable to t
   - Mixed enum types (`"start" | 1 | "end" | 2`)
   - Complex nested structures
 
-- **Smart Inference Testing**: Validates VibeORM's intelligent type constraints:
+- **Smart Inference Testing**: Validates VibORM's intelligent type constraints:
 
   - ID fields remain non-nullable even when marked `.nullable()`
   - Auto-generated fields are never null despite nullable modifiers
@@ -1166,7 +1166,7 @@ expectTypeOf<ComprehensiveType>().toEqualTypeOf<{
 
 **Benefits Delivered**:
 
-- ✅ **Complete Type Safety Validation**: Every aspect of VibeORM's type inference is thoroughly tested
+- ✅ **Complete Type Safety Validation**: Every aspect of VibORM's type inference is thoroughly tested
 - ✅ **Regression Prevention**: Type changes will be immediately caught by failing tests
 - ✅ **Developer Confidence**: Comprehensive proof that type inference works as expected
 - ✅ **Documentation Value**: Tests demonstrate correct type inference patterns and expected behaviors
@@ -1190,7 +1190,7 @@ pnpm vitest run tests/model-type-inference-practical
 pnpm vitest run tests/
 ```
 
-**Impact**: VibeORM now has enterprise-grade type testing that validates every aspect of the type inference system. The comprehensive test suite ensures that TypeScript types are correctly inferred from schema definitions across all possible field types, modifiers, and combinations. This provides confidence for developers using VibeORM that they can rely on the type system for complex, real-world applications.
+**Impact**: VibORM now has enterprise-grade type testing that validates every aspect of the type inference system. The comprehensive test suite ensures that TypeScript types are correctly inferred from schema definitions across all possible field types, modifiers, and combinations. This provides confidence for developers using VibORM that they can rely on the type system for complex, real-world applications.
 
 ---
 
@@ -1304,7 +1304,7 @@ pnpm vitest run tests/string-field.test.ts
 pnpm vitest tests/
 ```
 
-**Impact**: VibeORM now has a professional, well-organized testing setup that enables confident development and refactoring. The comprehensive test coverage ensures reliability while the organized structure makes it easy for developers to understand and contribute to the testing suite.
+**Impact**: VibORM now has a professional, well-organized testing setup that enables confident development and refactoring. The comprehensive test coverage ensures reliability while the organized structure makes it easy for developers to understand and contribute to the testing suite.
 
 ---
 
@@ -1387,7 +1387,7 @@ const data = blob(); // No .auto property
 - ✅ **Type Correctness**: Each field type has semantically appropriate auto methods
 - ✅ **Backward Compatibility**: All existing valid usage patterns continue to work
 
-**Impact**: VibeORM now provides the most intuitive and type-safe auto-generation API, where developers can only use methods that make semantic sense for each field type. This eliminates a major source of potential bugs and improves the overall developer experience.
+**Impact**: VibORM now provides the most intuitive and type-safe auto-generation API, where developers can only use methods that make semantic sense for each field type. This eliminates a major source of potential bugs and improves the overall developer experience.
 
 ---
 
@@ -1480,7 +1480,7 @@ type UserType = typeof user.infer;
 - ✅ **Standard Compatibility**: Works with any Standard Schema V1 implementation
 - ✅ **Zero Breaking Changes**: Existing code continues to work
 
-**Impact**: VibeORM now offers the most sophisticated JSON field implementation among TypeScript ORMs, combining the flexibility of JSON with the type safety of structured schemas. This enables developers to build type-safe applications with complex nested data structures while maintaining runtime validation guarantees.
+**Impact**: VibORM now offers the most sophisticated JSON field implementation among TypeScript ORMs, combining the flexibility of JSON with the type safety of structured schemas. This enables developers to build type-safe applications with complex nested data structures while maintaining runtime validation guarantees.
 
 ---
 
@@ -1499,7 +1499,7 @@ The chainable pattern for relation options was causing TypeScript compilation is
 
 ### Overview
 
-Enhanced the type inference testing suite to properly distinguish between nullable arrays (`T[] | null`) and arrays of nullable items (`(T | null)[]`). This addresses a critical distinction in TypeScript array typing that ensures VibeORM's type inference correctly handles different nullable array patterns.
+Enhanced the type inference testing suite to properly distinguish between nullable arrays (`T[] | null`) and arrays of nullable items (`(T | null)[]`). This addresses a critical distinction in TypeScript array typing that ensures VibORM's type inference correctly handles different nullable array patterns.
 
 ### Problem Addressed
 
@@ -1572,12 +1572,12 @@ const modelWithArrays = s.model("arrayTypes", {
 
 - **Test Coverage**: 526/528 tests passing (99.6% success rate)
 - **New Tests Added**: 11 additional type inference tests specifically for nullable array patterns
-- **Type Validation**: Complete verification that VibeORM correctly handles both nullable array patterns
+- **Type Validation**: Complete verification that VibORM correctly handles both nullable array patterns
 - **Documentation Value**: Tests now clearly demonstrate the difference between the two nullable array patterns
 
 ### Benefits Delivered
 
-- ✅ **Correct Type Modeling**: Validates that VibeORM properly distinguishes between nullable array patterns
+- ✅ **Correct Type Modeling**: Validates that VibORM properly distinguishes between nullable array patterns
 - ✅ **TypeScript Accuracy**: Ensures generated types match intended semantic meaning
 - ✅ **Developer Guidance**: Tests serve as examples of how to achieve different nullable array behaviors
 - ✅ **Regression Prevention**: Guards against type inference errors in array handling
@@ -1604,4 +1604,4 @@ const user = s.model("user", {
 
 ### Impact
 
-This enhancement ensures VibeORM's type system correctly models the semantic difference between nullable arrays and arrays containing nullable items. This level of type precision is crucial for database modeling where these patterns have different meanings and storage implications.
+This enhancement ensures VibORM's type system correctly models the semantic difference between nullable arrays and arrays containing nullable items. This level of type precision is crucial for database modeling where these patterns have different meanings and storage implications.
