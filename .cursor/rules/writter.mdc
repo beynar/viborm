@@ -71,19 +71,6 @@ const users = await orm.user.findMany({
 - Telemetry
 
 
-Every implementations guides lives are here : 
-
-[1_schema_builder.md](mdc:readme/1_schema_builder.md)
-[1.1_model_class.md](mdc:readme/1.1_model_class.md)
-[1.2_field_class.md](mdc:readme/1.2_field_class.md)
-[1.3_field_scalar_types.md](mdc:readme/1.3_field_scalar_types.md)
-[1.4_relation_class.md](mdc:readme/1.4_relation_class.md)
-[2_query_builder.md](mdc:readme/2_query_builder.md)
-[3_adapter_api.md](mdc:readme/3_adapter_api.md)
-[4_validation.md](mdc:readme/4_validation.md)
-[5_type_system.md](mdc:readme/5_type_system.md)
-
-
 ## Writting tests. 
 
 We use vitest for unit testings. All tests should be well organized inside the @tests folder. Vitest is configured to inject its api globally.

@@ -137,6 +137,11 @@ export const testPost = s.model("Post", {
   updatedAt: s.dateTime().now(),
   authorId: s.string(),
   author: s.relation().manyToOne(() => testUser),
+  metadata: s.json(
+    z.object({
+      tags: z.array(z.string()),
+    })
+  ),
 });
 
 /**

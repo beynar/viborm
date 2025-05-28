@@ -3,24 +3,17 @@ import { schema } from "./schema";
 
 const client = createClient({ schema, adapter: {} as any });
 
-const [res] = await client.user.findMany({
+const res = await client.post.findFirstOrThrow({
   where: {
-    posts: {
-      none: {
-        authorId: "eze",
+    id: "01J9000000000000000000000",
+    metadata: 
+      path: ["tags"],
+      equals: {
+        tags: ["test"],
       },
     },
-    age: {
-      equals: 20,
-    },
-    email: {
-      contains: "test",
-      mode: "default",
-      not: {
-        not: {
-          equals: "test",
-        },
-      },
-    },
+  },
+  include: {
+    author: true,
   },
 });
