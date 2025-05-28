@@ -10,9 +10,11 @@ import type {
   MakeId,
   MakeUnique,
   MakeDefault,
+  MakeAuto,
   InferType,
 } from "../../types/field-states.js";
 import type { FieldValidator } from "../../types/validators.js";
+import type { AutoGenerateType } from "../../types/scalars.js";
 
 export class DateTimeField<
   T extends FieldState<any, any, any, any, any, any> = DefaultFieldState<Date>
@@ -70,16 +72,16 @@ export class DateTimeField<
   }
 
   // DateTime auto-generation methods
-  now(): DateTimeField<T> {
-    return this["~cloneWith"]<T>({
+  now(): DateTimeField<MakeAuto<T, "now">> {
+    return this["~cloneWith"]<MakeAuto<T, "now">>({
       "~autoGenerate": "now",
-    }) as DateTimeField<T>;
+    }) as DateTimeField<MakeAuto<T, "now">>;
   }
 
-  updatedAt(): DateTimeField<T> {
-    return this["~cloneWith"]<T>({
+  updatedAt(): DateTimeField<MakeAuto<T, "updatedAt">> {
+    return this["~cloneWith"]<MakeAuto<T, "updatedAt">>({
       "~autoGenerate": "updatedAt",
-    }) as DateTimeField<T>;
+    }) as DateTimeField<MakeAuto<T, "updatedAt">>;
   }
 
   // Add validator method that accepts a single standard schema

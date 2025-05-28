@@ -10,9 +10,11 @@ import type {
   MakeId,
   MakeUnique,
   MakeDefault,
+  MakeAuto,
   InferType,
 } from "../../types/field-states.js";
 import type { FieldValidator } from "../../types/validators.js";
+import type { AutoGenerateType } from "../../types/scalars.js";
 
 export class NumberField<
   T extends FieldState<any, any, any, any, any, any> = DefaultFieldState<number>
@@ -89,10 +91,10 @@ export class NumberField<
   }
 
   // Auto-generate methods for numbers
-  increment(): NumberField<T> {
-    return this["~cloneWith"]<T>({
+  autoIncrement(): NumberField<MakeAuto<T, "increment">> {
+    return this["~cloneWith"]<MakeAuto<T, "increment">>({
       "~autoGenerate": "increment",
-    }) as NumberField<T>;
+    }) as NumberField<MakeAuto<T, "increment">>;
   }
 
   // Add validator method that accepts a single standard schema

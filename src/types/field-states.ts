@@ -91,7 +91,7 @@ export type MakeAuto<
   T["IsArray"],
   T["IsId"],
   T["IsUnique"],
-  true
+  T["HasDefault"]
 > & {
   AutoGenerate: A;
 };

@@ -89,7 +89,7 @@ describe("BigInt Field", () => {
     });
 
     test("should chain id() with auto-generation methods", () => {
-      const incrementField = s.bigInt().id().increment();
+      const incrementField = s.bigInt().id().autoIncrement();
       expect(incrementField["~isId"]).toBe(true);
       expect(incrementField["~autoGenerate"]).toBe("increment");
     });

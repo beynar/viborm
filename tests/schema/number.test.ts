@@ -89,7 +89,7 @@ describe("Number Field", () => {
     });
 
     test("should chain id() with auto-generation methods", () => {
-      const autoIncrementField = s.int().id().increment();
+      const autoIncrementField = s.int().id().autoIncrement();
       expect(autoIncrementField["~isId"]).toBe(true);
       expect(autoIncrementField["~autoGenerate"]).toBe("increment");
     });
@@ -182,7 +182,7 @@ describe("Number Field", () => {
     });
 
     test("auto-increment field infer type should be number", () => {
-      const autoIncrement = s.int().increment();
+      const autoIncrement = s.int().autoIncrement();
       expectTypeOf(autoIncrement.infer).toEqualTypeOf<number>();
     });
 

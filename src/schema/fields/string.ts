@@ -10,9 +10,11 @@ import type {
   MakeId,
   MakeUnique,
   MakeDefault,
+  MakeAuto,
   InferType,
 } from "../../types/field-states.js";
 import type { FieldValidator } from "../../types/validators.js";
+import type { AutoGenerateType } from "../../types/scalars.js";
 
 export class StringField<
   T extends FieldState<any, any, any, any, any, any> = DefaultFieldState<string>
@@ -71,22 +73,28 @@ export class StringField<
   }
 
   // String-specific auto-generation methods (direct methods instead of nested auto object)
-  uuid(): StringField<T> {
-    return this["~cloneWith"]<T>({ "~autoGenerate": "uuid" }) as StringField<T>;
+  uuid(): StringField<MakeAuto<T, "uuid">> {
+    return this["~cloneWith"]<MakeAuto<T, "uuid">>({
+      "~autoGenerate": "uuid",
+    }) as StringField<MakeAuto<T, "uuid">>;
   }
 
-  ulid(): StringField<T> {
-    return this["~cloneWith"]<T>({ "~autoGenerate": "ulid" }) as StringField<T>;
+  ulid(): StringField<MakeAuto<T, "ulid">> {
+    return this["~cloneWith"]<MakeAuto<T, "ulid">>({
+      "~autoGenerate": "ulid",
+    }) as StringField<MakeAuto<T, "ulid">>;
   }
 
-  nanoid(): StringField<T> {
-    return this["~cloneWith"]<T>({
+  nanoid(): StringField<MakeAuto<T, "nanoid">> {
+    return this["~cloneWith"]<MakeAuto<T, "nanoid">>({
       "~autoGenerate": "nanoid",
-    }) as StringField<T>;
+    }) as StringField<MakeAuto<T, "nanoid">>;
   }
 
-  cuid(): StringField<T> {
-    return this["~cloneWith"]<T>({ "~autoGenerate": "cuid" }) as StringField<T>;
+  cuid(): StringField<MakeAuto<T, "cuid">> {
+    return this["~cloneWith"]<MakeAuto<T, "cuid">>({
+      "~autoGenerate": "cuid",
+    }) as StringField<MakeAuto<T, "cuid">>;
   }
 
   // Add validator method that accepts a single standard schema
