@@ -1,5 +1,5 @@
-// DateTime Field Class
-// Date and time field with automatic timestamp generation
+// DateTime Field Implementation
+// Type-safe datetime field with enhanced generics
 
 import { BaseField } from "./base.js";
 import type {
@@ -17,14 +17,14 @@ import type { FieldValidator } from "../../types/validators.js";
 export class DateTimeField<
   T extends FieldState<any, any, any, any, any, any> = DefaultFieldState<Date>
 > extends BaseField<T> {
-  public override fieldType = "dateTime" as const;
-  private fieldValidator?: FieldValidator<InferType<T>>;
+  public override "~fieldType" = "dateTime" as const;
+  private "~fieldValidator"?: FieldValidator<InferType<T>>;
 
   constructor() {
     super();
   }
 
-  protected createInstance<
+  protected "~createInstance"<
     U extends FieldState<any, any, any, any, any, any>
   >(): BaseField<U> {
     const newField = new DateTimeField<U>();
@@ -32,57 +32,65 @@ export class DateTimeField<
   }
 
   // Copy datetime-specific properties
-  protected override copyFieldSpecificProperties(target: BaseField<any>): void {
-    (target as any).fieldValidator = this.fieldValidator;
+  protected override "~copyFieldSpecificProperties"(
+    target: BaseField<any>
+  ): void {
+    (target as any)["~fieldValidator"] = this["~fieldValidator"];
   }
 
   // Override chainable methods to return DateTimeField instances
   override nullable(): DateTimeField<MakeNullable<T>> {
-    return this.cloneWith<MakeNullable<T>>({
-      isOptional: true,
+    return this["~cloneWith"]<MakeNullable<T>>({
+      "~isOptional": true,
     }) as DateTimeField<MakeNullable<T>>;
   }
 
   array(): DateTimeField<MakeArray<T>> {
-    return this.cloneWith<MakeArray<T>>({ isArray: true }) as DateTimeField<
-      MakeArray<T>
-    >;
+    return this["~cloneWith"]<MakeArray<T>>({
+      "~isArray": true,
+    }) as DateTimeField<MakeArray<T>>;
   }
 
   id(): DateTimeField<MakeId<T>> {
-    return this.cloneWith<MakeId<T>>({ isId: true }) as DateTimeField<
+    return this["~cloneWith"]<MakeId<T>>({ "~isId": true }) as DateTimeField<
       MakeId<T>
     >;
   }
 
   unique(): DateTimeField<MakeUnique<T>> {
-    return this.cloneWith<MakeUnique<T>>({ isUnique: true }) as DateTimeField<
-      MakeUnique<T>
-    >;
+    return this["~cloneWith"]<MakeUnique<T>>({
+      "~isUnique": true,
+    }) as DateTimeField<MakeUnique<T>>;
   }
 
   override default(value: InferType<T>): DateTimeField<MakeDefault<T>> {
-    return this.cloneWith<MakeDefault<T>>({
-      defaultValue: value,
+    return this["~cloneWith"]<MakeDefault<T>>({
+      "~defaultValue": value,
     }) as DateTimeField<MakeDefault<T>>;
   }
 
+  // DateTime auto-generation methods
   now(): DateTimeField<T> {
-    return this.cloneWith<T>({ autoGenerate: "now" }) as DateTimeField<T>;
+    return this["~cloneWith"]<T>({
+      "~autoGenerate": "now",
+    }) as DateTimeField<T>;
   }
 
   updatedAt(): DateTimeField<T> {
-    return this.cloneWith<T>({ autoGenerate: "updatedAt" }) as DateTimeField<T>;
+    return this["~cloneWith"]<T>({
+      "~autoGenerate": "updatedAt",
+    }) as DateTimeField<T>;
   }
 
+  // Add validator method that accepts a single standard schema
   validator(validator: FieldValidator<InferType<T>>): this {
-    this.fieldValidator = validator;
+    this["~fieldValidator"] = validator;
     return this;
   }
 
   // Override validate to include custom validator
-  override async validate(value: any): Promise<any> {
-    return super.validate(value, this.fieldValidator);
+  override async "~validate"(value: any): Promise<any> {
+    return super["~validate"](value, this["~fieldValidator"]);
   }
 }
 

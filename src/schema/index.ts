@@ -22,13 +22,7 @@ import { datetime } from "./fields/datetime.js";
 import { json } from "./fields/json.js";
 import { blob } from "./fields/blob.js";
 import { enumField } from "./fields/enum.js";
-import {
-  Getter,
-  relation,
-  Relation,
-  lazy,
-  type LazyFactory,
-} from "./relation.js";
+import { Getter, relation, Relation } from "./relation.js";
 export class SchemaBuilder {
   // Create a new model
   model<
@@ -39,53 +33,22 @@ export class SchemaBuilder {
   }
 
   // Create specific field types
-  string() {
-    return string();
-  }
+  string = string;
 
-  boolean() {
-    return boolean();
-  }
+  boolean = boolean;
 
-  int() {
-    return int();
-  }
+  int = int;
 
-  bigInt() {
-    return bigint();
-  }
+  bigInt = bigint;
 
-  float() {
-    return float();
-  }
+  float = float;
 
-  decimal() {
-    return decimal();
-  }
+  decimal = decimal;
 
-  dateTime() {
-    return datetime();
-  }
+  dateTime = datetime;
 
-  json(): ReturnType<typeof json>;
-  json<
-    TSchema extends import("../types/standardSchema.js").StandardSchemaV1<
-      any,
-      any
-    >
-  >(schema: TSchema): ReturnType<typeof json<TSchema>>;
-  json<
-    TSchema extends import("../types/standardSchema.js").StandardSchemaV1<
-      any,
-      any
-    >
-  >(schema?: TSchema) {
-    return schema ? json(schema) : json();
-  }
-
-  blob() {
-    return blob();
-  }
+  json = json;
+  blob = blob;
 
   enum<TEnum extends readonly (string | number)[]>(values: TEnum) {
     return enumField(values);
@@ -93,11 +56,6 @@ export class SchemaBuilder {
 
   // Relation factory - expose the relation function
   relation = relation;
-
-  // Lazy relation factory for recursive schemas - expose the lazy object with .many property
-  get lazy(): LazyFactory {
-    return lazy;
-  }
 }
 
 // Export the main schema builder instance
@@ -117,6 +75,5 @@ export {
   EnumField,
   Relation,
   relation,
-  lazy,
 };
 export type { Field, Getter };

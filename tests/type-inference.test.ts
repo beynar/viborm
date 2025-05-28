@@ -9,8 +9,8 @@ describe("Smart Type Inference", () => {
       // Runtime tests
       expect(idField.constructor.name).toBe("StringField");
       expect(nullableIdField.constructor.name).toBe("StringField");
-      expect((idField as any).isId).toBe(true);
-      expect((nullableIdField as any).isId).toBe(true);
+      expect((idField as any)["~isId"]).toBe(true);
+      expect((nullableIdField as any)["~isId"]).toBe(true);
     });
   });
 
@@ -42,8 +42,6 @@ describe("Smart Type Inference", () => {
 
       // Test that the methods exist
       expect(autoIdField).toHaveProperty("infer");
-      expect(autoIdField).toHaveProperty("inferInput");
-      expect(autoIdField).toHaveProperty("inferStorage");
     });
   });
 
@@ -52,7 +50,7 @@ describe("Smart Type Inference", () => {
       const normalNullableField = s.string().nullable();
 
       expect(normalNullableField.constructor.name).toBe("StringField");
-      expect((normalNullableField as any).isOptional).toBe(true);
+      expect((normalNullableField as any)["~isOptional"]).toBe(true);
     });
   });
 
@@ -61,8 +59,8 @@ describe("Smart Type Inference", () => {
       const complexField = s.string().id().ulid().unique();
 
       expect(complexField.constructor.name).toBe("StringField");
-      expect((complexField as any).isId).toBe(true);
-      expect((complexField as any).isUnique).toBe(true);
+      expect((complexField as any)["~isId"]).toBe(true);
+      expect((complexField as any)["~isUnique"]).toBe(true);
     });
   });
 
@@ -73,9 +71,9 @@ describe("Smart Type Inference", () => {
 
       expect(listIdField.constructor.name).toBe("StringField");
       expect(nullableListField.constructor.name).toBe("StringField");
-      expect((listIdField as any).isArray).toBe(true);
-      expect((nullableListField as any).isArray).toBe(true);
-      expect((nullableListField as any).isOptional).toBe(true);
+      expect((listIdField as any)["~isArray"]).toBe(true);
+      expect((nullableListField as any)["~isArray"]).toBe(true);
+      expect((nullableListField as any)["~isOptional"]).toBe(true);
     });
   });
 
@@ -95,7 +93,7 @@ describe("Smart Type Inference", () => {
         email: s.string(),
 
         // Problematic field (should still work but shows warnings)
-        problematicId: s.int().id().nullable().autoIncrement(),
+        problematicId: s.int().id().nullable().increment(),
       };
 
       // Test that all fields are created correctly
@@ -106,9 +104,9 @@ describe("Smart Type Inference", () => {
       expect(userSchema.problematicId.constructor.name).toBe("NumberField");
 
       // Test properties
-      expect((userSchema.id as any).isId).toBe(true);
-      expect((userSchema.name as any).isOptional).toBe(true);
-      expect((userSchema.problematicId as any).isId).toBe(true);
+      expect((userSchema.id as any)["~isId"]).toBe(true);
+      expect((userSchema.name as any)["~isOptional"]).toBe(true);
+      expect((userSchema.problematicId as any)["~isId"]).toBe(true);
     });
   });
 
@@ -119,7 +117,7 @@ describe("Smart Type Inference", () => {
         name: s.string().nullable(),
         status: s.string().default("active"),
         email: s.string(),
-        problematicId: s.int().id().nullable().autoIncrement(),
+        problematicId: s.int().id().nullable().increment(),
       };
 
       // Test that we can create valid objects

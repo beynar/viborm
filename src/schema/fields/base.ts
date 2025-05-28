@@ -28,55 +28,40 @@ export abstract class BaseField<
 > implements BaseFieldType<T>
 {
   // Hidden state property for type inference
-  public readonly __fieldState!: T;
+  public readonly "~fieldState"!: T;
 
   // Runtime properties
-  public fieldType?: ScalarFieldType | undefined;
-  public isOptional: boolean = false;
-  public isUnique: boolean = false;
-  public isId: boolean = false;
-  public isArray: boolean = false;
-  public defaultValue?: T["BaseType"] | (() => T["BaseType"]) | undefined;
-  public autoGenerate?: AutoGenerateType | undefined;
+  public "~fieldType"?: ScalarFieldType | undefined;
+  public "~isOptional": boolean = false;
+  public "~isUnique": boolean = false;
+  public "~isId": boolean = false;
+  public "~isArray": boolean = false;
+  public "~defaultValue"?: T["BaseType"] | (() => T["BaseType"]) | undefined;
+  public "~autoGenerate"?: AutoGenerateType | undefined;
 
   constructor() {}
 
   // Type-safe modifiers that return new field instances with updated types
   nullable(): BaseFieldType<MakeNullable<T>> {
-    return this.cloneWith<MakeNullable<T>>({ isOptional: true });
+    return this["~cloneWith"]<MakeNullable<T>>({ "~isOptional": true });
   }
 
   default(value: InferType<T>): BaseFieldType<MakeDefault<T>> {
-    return this.cloneWith<MakeDefault<T>>({ defaultValue: value });
+    return this["~cloneWith"]<MakeDefault<T>>({ "~defaultValue": value });
   }
 
-  // unique(): BaseFieldType<MakeUnique<T>> {
-  //   return this.cloneWith<MakeUnique<T>>({ isUnique: true });
-  // }
-
-  // id(): BaseFieldType<MakeId<T>> {
-  //   return this.cloneWith<MakeId<T>>({ isId: true });
-  // }
-
-  // array(): BaseFieldType<MakeArray<T>> {
-  //   return this.cloneWith<MakeArray<T>>({ isArray: true });
-  // }
-
-  // Auto-generation methods - to be implemented by specific field types
-  // Each field type will implement only the relevant auto methods
-
   // Abstract method to create the correct instance type
-  protected abstract createInstance<
+  protected abstract "~createInstance"<
     U extends FieldState<any, any, any, any, any, any>
   >(): BaseField<U>;
 
   // Generic clone-and-modify helper for reducing duplication
-  protected cloneWith<U extends FieldState<any, any, any, any, any, any>>(
+  protected "~cloneWith"<U extends FieldState<any, any, any, any, any, any>>(
     modifications: Partial<BaseField<any>> = {}
   ): BaseField<U> {
-    const newField = this.createInstance<U>();
-    this.copyPropertiesTo(newField);
-    this.copyFieldSpecificProperties(newField);
+    const newField = this["~createInstance"]<U>();
+    this["~copyPropertiesTo"](newField);
+    this["~copyFieldSpecificProperties"](newField);
 
     // Apply all modifications
     for (const [key, value] of Object.entries(modifications)) {
@@ -87,12 +72,12 @@ export abstract class BaseField<
   }
 
   // Hook for subclasses to copy their specific properties
-  protected copyFieldSpecificProperties(target: BaseField<any>): void {
+  protected "~copyFieldSpecificProperties"(target: BaseField<any>): void {
     // Base implementation does nothing - subclasses can override
   }
 
   // Validation method - accepts a single standard schema validator
-  async validate(
+  async "~validate"(
     value: InferType<T>,
     validator?: FieldValidator<InferType<T>>
   ): Promise<ValidationResult<InferType<T>>> {
@@ -100,8 +85,8 @@ export abstract class BaseField<
     let output: InferType<T> = value;
     try {
       // Type validation
-      if (!this.validateType(value)) {
-        errors.push(`Invalid type for field. Expected ${this.fieldType}`);
+      if (!this["~validateType"](value)) {
+        errors.push(`Invalid type for field. Expected ${this["~fieldType"]}`);
       }
 
       // Run standard schema validator if provided
@@ -139,12 +124,12 @@ export abstract class BaseField<
   }
 
   // Helper methods
-  protected validateType(value: any): boolean {
-    if (this.isOptional && (value === null || value === undefined)) {
+  protected "~validateType"(value: any): boolean {
+    if (this["~isOptional"] && (value === null || value === undefined)) {
       return true;
     }
 
-    switch (this.fieldType) {
+    switch (this["~fieldType"]) {
       case "string":
         return typeof value === "string";
       case "boolean":
@@ -169,30 +154,18 @@ export abstract class BaseField<
     }
   }
 
-  protected copyPropertiesTo(target: BaseField<any>): void {
-    target.fieldType = this.fieldType;
-    target.isOptional = this.isOptional;
-    target.isUnique = this.isUnique;
-    target.isId = this.isId;
-    target.isArray = this.isArray;
-    target.defaultValue = this.defaultValue;
-    target.autoGenerate = this.autoGenerate;
+  protected "~copyPropertiesTo"(target: BaseField<any>): void {
+    target["~fieldType"] = this["~fieldType"];
+    target["~isOptional"] = this["~isOptional"];
+    target["~isUnique"] = this["~isUnique"];
+    target["~isId"] = this["~isId"];
+    target["~isArray"] = this["~isArray"];
+    target["~defaultValue"] = this["~defaultValue"];
+    target["~autoGenerate"] = this["~autoGenerate"];
   }
 
   // Type inference getters
   get infer(): InferType<T> {
     return {} as InferType<T>;
-  }
-
-  get inferInput(): InferInputType<T> {
-    return {} as InferInputType<T>;
-  }
-
-  get inferStorage(): InferStorageType<T> {
-    return {} as InferStorageType<T>;
-  }
-
-  get validateState(): ValidateFieldState<T> {
-    return {} as ValidateFieldState<T>;
   }
 }

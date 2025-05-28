@@ -14,14 +14,14 @@ export { BlobField, blob } from "./blob.js";
 export { EnumField, enumField } from "./enum.js";
 export { VectorField, vector } from "./vector.js";
 
-// Union type for all field types
+// Union type for all field types with flexible state support
 export type Field<T = any> =
   | import("./string.js").StringField<any>
   | import("./number.js").NumberField<any>
   | import("./boolean.js").BooleanField<any>
   | import("./bigint.js").BigIntField<any>
   | import("./datetime.js").DateTimeField<any>
-  | import("./json.js").JsonField<any>
+  | import("./json.js").JsonField<any, any>
   | import("./blob.js").BlobField<any>
   | import("./enum.js").EnumField<any, any>
   | import("./vector.js").VectorField<any>;

@@ -196,7 +196,7 @@ describe("Comprehensive Model Type Inference", () => {
       const model = s.model("autoTest", {
         id: s.string().id().ulid(),
         uuid: s.string().uuid(),
-        counter: s.int().autoIncrement(),
+        counter: s.int().increment(),
         createdAt: s.dateTime().now(),
         updatedAt: s.dateTime().updatedAt(),
         title: s.string(),

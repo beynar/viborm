@@ -181,12 +181,8 @@ export type ValidateFieldState<
 export interface BaseFieldType<
   T extends FieldState<any, any, any, any, any, any>
 > {
-  readonly __fieldState: T;
+  readonly "~fieldState": T;
   readonly infer: InferType<T>; // Smart inference for general use
-  readonly inferInput: InferInputType<T>; // Type for input operations (create/update)
-  readonly inferStorage: InferStorageType<T>; // Type for database storage
-  readonly validateState: ValidateFieldState<T>; // Type-level validation warnings
-
   // Modifier methods
   nullable(): BaseFieldType<MakeNullable<T>>;
   // array(): BaseFieldType<MakeArray<T>>;

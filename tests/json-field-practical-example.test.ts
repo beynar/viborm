@@ -85,10 +85,12 @@ describe("JsonField Practical Examples with Zod", () => {
       expectTypeOf<UserType["metadata"]>().toMatchTypeOf<any | null>();
 
       // Test field properties
-      expect(userModel.fields.get("id")!.isId).toBe(true);
-      expect(userModel.fields.get("profile")!.fieldType).toBe("json");
-      expect(userModel.fields.get("preferences")!.defaultValue).toBeDefined();
-      expect(userModel.fields.get("metadata")!.isOptional).toBe(true);
+      expect(userModel.fields.get("id")!["~isId"]).toBe(true);
+      expect(userModel.fields.get("profile")!["~fieldType"]).toBe("json");
+      expect(
+        userModel.fields.get("preferences")!["~defaultValue"]
+      ).toBeDefined();
+      expect(userModel.fields.get("metadata")!["~isOptional"]).toBe(true);
     });
 
     test("should validate user data against schemas", async () => {
@@ -113,7 +115,7 @@ describe("JsonField Practical Examples with Zod", () => {
 
       const profileResult = await userModel.fields
         .get("profile")!
-        .validate(validProfile);
+        ["~validate"](validProfile);
       expect(profileResult.valid).toBe(true);
 
       // Valid preferences data
@@ -126,7 +128,7 @@ describe("JsonField Practical Examples with Zod", () => {
 
       const preferencesResult = await userModel.fields
         .get("preferences")!
-        .validate(validPreferences);
+        ["~validate"](validPreferences);
       expect(preferencesResult.valid).toBe(true);
 
       // Invalid profile data
@@ -138,7 +140,9 @@ describe("JsonField Practical Examples with Zod", () => {
 
       const invalidProfileResult = await userModel.fields
         .get("profile")!
-        .validate(invalidProfile);
+        ["~validate"](invalidProfile);
+
+      console.log({ invalidProfileResult });
       expect(invalidProfileResult.valid).toBe(false);
       expect(invalidProfileResult.errors).toBeDefined();
     });
@@ -197,8 +201,10 @@ describe("JsonField Practical Examples with Zod", () => {
         };
       }>();
 
-      expect(productModel.fields.get("metadata")!.fieldType).toBe("json");
-      expect(productModel.fields.get("customFields")!.isOptional).toBe(true);
+      expect(productModel.fields.get("metadata")!["~fieldType"]).toBe("json");
+      expect(productModel.fields.get("customFields")!["~isOptional"]).toBe(
+        true
+      );
     });
 
     test("should validate complex product metadata", async () => {
@@ -241,7 +247,7 @@ describe("JsonField Practical Examples with Zod", () => {
 
       const result = await productModel.fields
         .get("metadata")!
-        .validate(validMetadata);
+        ["~validate"](validMetadata);
       expect(result.valid).toBe(true);
 
       // Test invalid data
@@ -266,7 +272,7 @@ describe("JsonField Practical Examples with Zod", () => {
 
       const invalidResult = await productModel.fields
         .get("metadata")!
-        .validate(invalidMetadata);
+        ["~validate"](invalidMetadata);
       expect(invalidResult.valid).toBe(false);
       expect(invalidResult.errors!.length).toBeGreaterThan(0);
     });
@@ -330,7 +336,7 @@ describe("JsonField Practical Examples with Zod", () => {
 
       const result = await settingsModel.fields
         .get("config")!
-        .validate(validConfig);
+        ["~validate"](validConfig);
       expect(result.valid).toBe(true);
 
       // Verify that the config field is properly typed based on the schema

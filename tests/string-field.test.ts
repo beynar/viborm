@@ -30,10 +30,10 @@ describe("StringField", () => {
       const listField = string().array();
       const uniqueField = string().unique();
 
-      expect((idField as any).isId).toBe(true);
-      expect((nullableField as any).isOptional).toBe(true);
-      expect((listField as any).isArray).toBe(true);
-      expect((uniqueField as any).isUnique).toBe(true);
+      expect((idField as any)["~isId"]).toBe(true);
+      expect((nullableField as any)["~isOptional"]).toBe(true);
+      expect((listField as any)["~isArray"]).toBe(true);
+      expect((uniqueField as any)["~isUnique"]).toBe(true);
     });
   });
 
@@ -49,8 +49,8 @@ describe("StringField", () => {
     test("validates email correctly", async () => {
       const emailField = string().validator(emailValidator);
 
-      const validResult = await emailField.validate("test@example.com");
-      const invalidResult = await emailField.validate("invalid-email");
+      const validResult = await emailField["~validate"]("test@example.com");
+      const invalidResult = await emailField["~validate"]("invalid-email");
 
       expect(validResult.valid).toBe(true);
       expect(invalidResult.valid).toBe(false);
@@ -59,8 +59,8 @@ describe("StringField", () => {
     test("validates length correctly", async () => {
       const lengthField = string().validator(z.string().min(5));
 
-      const validResult = await lengthField.validate("hello");
-      const invalidResult = await lengthField.validate("hi");
+      const validResult = await lengthField["~validate"]("hello");
+      const invalidResult = await lengthField["~validate"]("hi");
 
       expect(validResult.valid).toBe(true);
       expect(invalidResult.valid).toBe(false);
@@ -69,8 +69,8 @@ describe("StringField", () => {
     test("validates complex field with multiple validators", async () => {
       const complexField = string().id().unique().validator(z.string().min(3));
 
-      const validResult = await complexField.validate("test");
-      const invalidResult = await complexField.validate("ab");
+      const validResult = await complexField["~validate"]("test");
+      const invalidResult = await complexField["~validate"]("ab");
 
       expect(complexField.constructor.name).toBe("StringField");
       expect(validResult.valid).toBe(true);

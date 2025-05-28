@@ -11,20 +11,20 @@ describe("Working Type System", () => {
     test("nullable string field", () => {
       const optionalName = string().nullable();
       expect(optionalName.constructor.name).toBe("StringField");
-      expect((optionalName as any).isOptional).toBe(true);
+      expect((optionalName as any)["~isOptional"]).toBe(true);
     });
 
     test("string list field", () => {
       const tags = string().array();
       expect(tags.constructor.name).toBe("StringField");
-      expect((tags as any).isArray).toBe(true);
+      expect((tags as any)["~isArray"]).toBe(true);
     });
 
     test("nullable string list field", () => {
       const optionalTags = string().array().nullable();
       expect(optionalTags.constructor.name).toBe("StringField");
-      expect((optionalTags as any).isArray).toBe(true);
-      expect((optionalTags as any).isOptional).toBe(true);
+      expect((optionalTags as any)["~isArray"]).toBe(true);
+      expect((optionalTags as any)["~isOptional"]).toBe(true);
     });
   });
 
@@ -37,13 +37,13 @@ describe("Working Type System", () => {
     test("nullable integer field", () => {
       const optionalAge = int().nullable();
       expect(optionalAge.constructor.name).toBe("NumberField");
-      expect((optionalAge as any).isOptional).toBe(true);
+      expect((optionalAge as any)["~isOptional"]).toBe(true);
     });
 
     test("float list field", () => {
       const scores = float().array();
       expect(scores.constructor.name).toBe("NumberField");
-      expect((scores as any).isArray).toBe(true);
+      expect((scores as any)["~isArray"]).toBe(true);
     });
   });
 
@@ -51,13 +51,13 @@ describe("Working Type System", () => {
     test("ID field", () => {
       const id = string().id();
       expect(id.constructor.name).toBe("StringField");
-      expect((id as any).isId).toBe(true);
+      expect((id as any)["~isId"]).toBe(true);
     });
 
     test("unique field", () => {
       const uniqueEmail = string().unique();
       expect(uniqueEmail.constructor.name).toBe("StringField");
-      expect((uniqueEmail as any).isUnique).toBe(true);
+      expect((uniqueEmail as any)["~isUnique"]).toBe(true);
     });
 
     test("field with default", () => {
@@ -130,12 +130,12 @@ describe("Working Type System", () => {
       expect(userSchema.description.constructor.name).toBe("StringField");
 
       // Test field properties
-      expect((userSchema.id as any).isId).toBe(true);
-      expect((userSchema.email as any).isUnique).toBe(true);
-      expect((userSchema.bio as any).isOptional).toBe(true);
-      expect((userSchema.tags as any).isArray).toBe(true);
-      expect((userSchema.scores as any).isArray).toBe(true);
-      expect((userSchema.scores as any).isOptional).toBe(true);
+      expect((userSchema.id as any)["~isId"]).toBe(true);
+      expect((userSchema.email as any)["~isUnique"]).toBe(true);
+      expect((userSchema.bio as any)["~isOptional"]).toBe(true);
+      expect((userSchema.tags as any)["~isArray"]).toBe(true);
+      expect((userSchema.scores as any)["~isArray"]).toBe(true);
+      expect((userSchema.scores as any)["~isOptional"]).toBe(true);
     });
 
     test("creates valid user data", () => {

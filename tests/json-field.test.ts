@@ -105,7 +105,7 @@ describe("JsonField", () => {
         },
       };
 
-      const result = await field.validate(validData);
+      const result = await field["~validate"](validData);
       expect(result.valid).toBe(true);
       expect(result.errors).toBeUndefined();
     });
@@ -123,7 +123,7 @@ describe("JsonField", () => {
         },
       };
 
-      const result = await field.validate(invalidData);
+      const result = await field["~validate"](invalidData);
       expect(result.valid).toBe(false);
       expect(result.errors).toBeDefined();
       expect(result.errors!.length).toBeGreaterThan(0);
@@ -138,7 +138,7 @@ describe("JsonField", () => {
         features: ["feature1", "feature2", "feature3"],
       };
 
-      const result = await field.validate(validSettings);
+      const result = await field["~validate"](validSettings);
       expect(result.valid).toBe(true);
     });
 
@@ -146,19 +146,19 @@ describe("JsonField", () => {
       const field = json(flexibleDataSchema);
 
       // Test string
-      const stringResult = await field.validate("hello");
+      const stringResult = await field["~validate"]("hello");
       expect(stringResult.valid).toBe(true);
 
       // Test number
-      const numberResult = await field.validate(42);
+      const numberResult = await field["~validate"](42);
       expect(numberResult.valid).toBe(true);
 
       // Test array
-      const arrayResult = await field.validate([1, "two", { three: 3 }]);
+      const arrayResult = await field["~validate"]([1, "two", { three: 3 }]);
       expect(arrayResult.valid).toBe(true);
 
       // Test object
-      const objectResult = await field.validate({
+      const objectResult = await field["~validate"]({
         key: "value",
         nested: { data: true },
       });
@@ -179,9 +179,8 @@ describe("JsonField", () => {
         },
       });
 
-      expect(chainedField.getSchema()).toBe(userProfileSchema);
-      expect(chainedField.isOptional).toBe(true);
-      expect(chainedField.defaultValue).toBeDefined();
+      expect(chainedField["~isOptional"]).toBe(true);
+      expect(chainedField["~defaultValue"]).toBeDefined();
     });
 
     test("should maintain validation capabilities after chaining", async () => {
@@ -195,7 +194,7 @@ describe("JsonField", () => {
         });
 
       // Test valid data
-      const validResult = await field.validate({
+      const validResult = await field["~validate"]({
         name: "Valid User",
         age: 30,
         email: "valid@example.com",
@@ -204,7 +203,7 @@ describe("JsonField", () => {
       expect(validResult.valid).toBe(true);
 
       // Test invalid data
-      const invalidResult = await field.validate({
+      const invalidResult = await field["~validate"]({
         name: "",
         age: "not-a-number",
         email: "invalid-email",
@@ -217,25 +216,25 @@ describe("JsonField", () => {
     test("should validate any JSON value when no schema provided", async () => {
       const field = json();
 
-      const result1 = await field.validate({ test: "value" });
+      const result1 = await field["~validate"]({ test: "value" });
       expect(result1.valid).toBe(true);
 
-      const result2 = await field.validate([1, 2, 3]);
+      const result2 = await field["~validate"]([1, 2, 3]);
       expect(result2.valid).toBe(true);
 
-      const result3 = await field.validate("string");
+      const result3 = await field["~validate"]("string");
       expect(result3.valid).toBe(true);
 
-      const result4 = await field.validate(42);
+      const result4 = await field["~validate"](42);
       expect(result4.valid).toBe(true);
     });
 
     test("should preserve field properties through method chaining", () => {
       const field = json().nullable().default({ test: "default" });
 
-      expect(field.fieldType).toBe("json");
-      expect(field.isOptional).toBe(true);
-      expect(field.defaultValue).toEqual({ test: "default" });
+      expect(field["~fieldType"]).toBe("json");
+      expect(field["~isOptional"]).toBe(true);
+      expect(field["~defaultValue"]).toEqual({ test: "default" });
     });
   });
 
@@ -266,7 +265,7 @@ describe("JsonField", () => {
         features: ["auth", "logging", "metrics"],
       };
 
-      const result = await configField.validate(validConfig);
+      const result = await configField["~validate"](validConfig);
       expect(result.valid).toBe(true);
     });
 
@@ -287,7 +286,7 @@ describe("JsonField", () => {
         tags: ["premium", "verified"],
       };
 
-      const result = await metadataField.validate(validMetadata);
+      const result = await metadataField["~validate"](validMetadata);
       expect(result.valid).toBe(true);
     });
   });

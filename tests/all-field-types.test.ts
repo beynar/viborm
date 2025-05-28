@@ -23,12 +23,12 @@ describe("All Field Types", () => {
       expect(enumField.constructor.name).toBe("EnumField");
 
       // Test properties are set correctly
-      expect((stringField as any).isOptional).toBe(true);
-      expect((intField as any).isArray).toBe(true);
-      expect((bigintField as any).isUnique).toBe(true);
-      expect((dateField as any).isOptional).toBe(true);
-      expect((blobField as any).isOptional).toBe(true);
-      expect((enumField as any).isOptional).toBe(true);
+      expect((stringField as any)["~isOptional"]).toBe(true);
+      expect((intField as any)["~isArray"]).toBe(true);
+      expect((bigintField as any)["~isUnique"]).toBe(true);
+      expect((dateField as any)["~isOptional"]).toBe(true);
+      expect((blobField as any)["~isOptional"]).toBe(true);
+      expect((enumField as any)["~isOptional"]).toBe(true);
     });
   });
 
@@ -141,12 +141,12 @@ describe("All Field Types", () => {
       expect(complexEnum.constructor.name).toBe("EnumField");
 
       // Test properties from chaining
-      expect((complexString as any).isUnique).toBe(true);
-      expect((complexString as any).isOptional).toBe(true);
-      expect((complexNumber as any).isId).toBe(true);
-      expect((complexDate as any).isOptional).toBe(true);
-      expect((complexEnum as any).isArray).toBe(true);
-      expect((complexEnum as any).isOptional).toBe(true);
+      expect((complexString as any)["~isUnique"]).toBe(true);
+      expect((complexString as any)["~isOptional"]).toBe(true);
+      expect((complexNumber as any)["~isId"]).toBe(true);
+      expect((complexDate as any)["~isOptional"]).toBe(true);
+      expect((complexEnum as any)["~isArray"]).toBe(true);
+      expect((complexEnum as any)["~isOptional"]).toBe(true);
     });
   });
 
@@ -160,14 +160,14 @@ describe("All Field Types", () => {
       };
 
       // Test individual properties
-      expect((fields.stringField as any).isOptional).toBe(true);
-      expect((fields.intField as any).isArray).toBe(true);
-      expect((fields.bigintField as any).isUnique).toBe(true);
+      expect((fields.stringField as any)["~isOptional"]).toBe(true);
+      expect((fields.intField as any)["~isArray"]).toBe(true);
+      expect((fields.bigintField as any)["~isUnique"]).toBe(true);
 
       // Test complex field has multiple properties
-      expect((fields.complexField as any).isId).toBe(true);
-      expect((fields.complexField as any).isUnique).toBe(true);
-      expect((fields.complexField as any).isOptional).toBe(true);
+      expect((fields.complexField as any)["~isId"]).toBe(true);
+      expect((fields.complexField as any)["~isUnique"]).toBe(true);
+      expect((fields.complexField as any)["~isOptional"]).toBe(true);
     });
   });
 
@@ -196,8 +196,6 @@ describe("All Field Types", () => {
 
       fields.forEach((field) => {
         expect(field).toHaveProperty("infer");
-        expect(field).toHaveProperty("inferInput");
-        expect(field).toHaveProperty("inferStorage");
       });
     });
   });

@@ -178,8 +178,8 @@ describe("Model Type Inference - Practical Tests", () => {
 
     test("number auto-generation methods", () => {
       const numberAutoModel = s.model("numberAuto", {
-        id: s.int().autoIncrement(),
-        counter: s.int().autoIncrement(),
+        id: s.int().increment(),
+        counter: s.int().increment(),
       });
 
       type NumberAutoType = typeof numberAutoModel.infer;
@@ -228,8 +228,8 @@ describe("Model Type Inference - Practical Tests", () => {
       });
 
       // Test that unique fields are created correctly
-      expect((uniqueModel.fields.get("email") as any).isUnique).toBe(true);
-      expect((uniqueModel.fields.get("username") as any).isUnique).toBe(true);
+      expect((uniqueModel.fields.get("email") as any)["~isUnique"]).toBe(true);
+      expect((uniqueModel.fields.get("username") as any)["~isUnique"]).toBe(true);
 
       type UniqueType = typeof uniqueModel.infer;
 
@@ -397,8 +397,8 @@ describe("Model Type Inference - Practical Tests", () => {
       // Test that ID fields are created correctly
       expect(idModel.fields.get("stringId")).toBeDefined();
       expect(idModel.fields.get("bigintId")).toBeDefined();
-      expect((idModel.fields.get("stringId") as any).isId).toBe(true);
-      expect((idModel.fields.get("bigintId") as any).isId).toBe(true);
+      expect((idModel.fields.get("stringId") as any)["~isId"]).toBe(true);
+      expect((idModel.fields.get("bigintId") as any)["~isId"]).toBe(true);
 
       type IdModelType = typeof idModel.infer;
 
@@ -415,16 +415,16 @@ describe("Model Type Inference - Practical Tests", () => {
     test("auto-generated fields properties", () => {
       const autoModel = s.model("autoTest", {
         uuid: s.string().uuid(),
-        increment: s.int().autoIncrement(),
+        increment: s.int().increment(),
         timestamp: s.dateTime().now(),
       });
 
       // Test that auto fields are created correctly
-      expect((autoModel.fields.get("uuid") as any).autoGenerate).toBe("uuid");
-      expect((autoModel.fields.get("increment") as any).autoGenerate).toBe(
+      expect((autoModel.fields.get("uuid") as any)["~autoGenerate"]).toBe("uuid");
+      expect((autoModel.fields.get("increment") as any)["~autoGenerate"]).toBe(
         "increment"
       );
-      expect((autoModel.fields.get("timestamp") as any).autoGenerate).toBe(
+      expect((autoModel.fields.get("timestamp") as any)["~autoGenerate"]).toBe(
         "now"
       );
 
@@ -450,13 +450,13 @@ describe("Model Type Inference - Practical Tests", () => {
       });
 
       // Test that default values are set
-      expect((defaultModel.fields.get("title") as any).defaultValue).toBe(
+      expect((defaultModel.fields.get("title") as any)["~defaultValue"]).toBe(
         "Untitled"
       );
-      expect((defaultModel.fields.get("active") as any).defaultValue).toBe(
+      expect((defaultModel.fields.get("active") as any)["~defaultValue"]).toBe(
         true
       );
-      expect((defaultModel.fields.get("count") as any).defaultValue).toBe(0);
+      expect((defaultModel.fields.get("count") as any)["~defaultValue"]).toBe(0);
 
       type DefaultModelType = typeof defaultModel.infer;
 

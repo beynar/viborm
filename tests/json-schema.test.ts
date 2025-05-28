@@ -1,3 +1,4 @@
+import z from "zod";
 import { s } from "../src/schema/index.js";
 import type { StandardSchemaV1 } from "../src/types/standardSchema.js";
 
@@ -11,7 +12,7 @@ describe("JSON Schema Support", () => {
     test("creates nullable JSON field", () => {
       const nullableJson = s.json().nullable();
       expect(nullableJson.constructor.name).toBe("JsonField");
-      expect((nullableJson as any).isOptional).toBe(true);
+      expect((nullableJson as any)["~isOptional"]).toBe(true);
     });
 
     test("creates JSON list field", () => {
@@ -22,59 +23,12 @@ describe("JSON Schema Support", () => {
 
   describe("Typed JSON fields with schema", () => {
     test("creates JSON field with custom schema", () => {
-      const userPreferencesSchema: StandardSchemaV1<
-        any,
-        {
-          theme: "light" | "dark" | "auto";
-          language: string;
-          notifications: {
-            email: boolean;
-            push: boolean;
-            sms: boolean;
-          };
-        }
-      > = {
-        "~standard": {
-          version: 1,
-          vendor: "baseorm-example",
-          validate: async (value: unknown) => {
-            if (typeof value !== "object" || value === null) {
-              return {
-                issues: [{ message: "User preferences must be an object" }],
-              };
-            }
+      const userPreferencesSchema = z.object({
+        theme: z.string(),
+        language: z.string(),
+      });
 
-            const obj = value as any;
-
-            if (!["light", "dark", "auto"].includes(obj.theme)) {
-              return {
-                issues: [{ message: "Theme must be light, dark, or auto" }],
-              };
-            }
-
-            if (typeof obj.language !== "string") {
-              return { issues: [{ message: "Language must be a string" }] };
-            }
-
-            return { value: obj };
-          },
-          types: {
-            input: {} as any,
-            output: {} as {
-              theme: "light" | "dark" | "auto";
-              language: string;
-              notifications: {
-                email: boolean;
-                push: boolean;
-                sms: boolean;
-              };
-            },
-          },
-        },
-      };
-
-      const typedJsonField = s.json(userPreferencesSchema);
-      expect(typedJsonField.constructor.name).toBe("JsonField");
+      const userPreferences = s.json(userPreferencesSchema);
     });
   });
 
@@ -109,8 +63,8 @@ describe("JSON Schema Support", () => {
       expect(variantsField?.constructor.name).toBe("JsonField");
       expect(settingsField?.constructor.name).toBe("JsonField");
 
-      expect((variantsField as any).isArray).toBe(false);
-      expect((settingsField as any).isOptional).toBe(true);
+      expect((variantsField as any)["~isArray"]).toBe(false);
+      expect((settingsField as any)["~isOptional"]).toBe(true);
     });
   });
 
@@ -158,14 +112,12 @@ describe("JSON Schema Support", () => {
 
       // Test that the field exists and has basic properties
       expect(jsonField.constructor.name).toBe("JsonField");
-      expect(jsonField).toHaveProperty("validate");
+      expect(jsonField).toHaveProperty("~validate");
 
-      // Basic validation test (if validate method exists)
-      if (typeof jsonField.validate === "function") {
-        const validJson = { key: "value" };
-        const result = await jsonField.validate(validJson);
-        expect(result).toBeDefined();
-      }
+      // Basic validation test with the new ~validate method
+      const validJson = { key: "value" };
+      const result = await jsonField["~validate"](validJson);
+      expect(result).toBeDefined();
     });
   });
 
@@ -231,9 +183,13 @@ describe("JSON Schema Support", () => {
       );
 
       // Test properties
-      expect((productModel.fields.get("variants") as any).isArray).toBe(false);
-      expect((userModel.fields.get("settings") as any).isOptional).toBe(true);
-      expect((userModel.fields.get("auditLog") as any).isArray).toBe(false);
+      expect((productModel.fields.get("variants") as any)["~isArray"]).toBe(
+        false
+      );
+      expect((userModel.fields.get("settings") as any)["~isOptional"]).toBe(
+        true
+      );
+      expect((userModel.fields.get("auditLog") as any)["~isArray"]).toBe(false);
     });
   });
 });

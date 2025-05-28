@@ -38,25 +38,25 @@ describe("Comprehensive Field Types", () => {
         .default(["test"]);
 
       expect(complexString.constructor.name).toBe("StringField");
-      expect((complexString as any).isId).toBe(true);
-      expect((complexString as any).isUnique).toBe(true);
-      expect((complexString as any).isOptional).toBe(true);
-      expect((complexString as any).isArray).toBe(true);
+      expect((complexString as any)["~isId"]).toBe(true);
+      expect((complexString as any)["~isUnique"]).toBe(true);
+      expect((complexString as any)["~isOptional"]).toBe(true);
+      expect((complexString as any)["~isArray"]).toBe(true);
     });
 
     test("number field supports chainable methods", () => {
       const complexNumber = s.int().unique();
 
       expect(complexNumber.constructor.name).toBe("NumberField");
-      expect((complexNumber as any).isUnique).toBe(true);
+      expect((complexNumber as any)["~isUnique"]).toBe(true);
     });
 
     test("boolean field supports chainable methods", () => {
       const complexBool = s.boolean().array().nullable().default([true]);
 
       expect(complexBool.constructor.name).toBe("BooleanField");
-      expect((complexBool as any).isArray).toBe(true);
-      expect((complexBool as any).isOptional).toBe(true);
+      expect((complexBool as any)["~isArray"]).toBe(true);
+      expect((complexBool as any)["~isOptional"]).toBe(true);
     });
 
     test("enum field supports chainable methods", () => {
@@ -66,7 +66,7 @@ describe("Comprehensive Field Types", () => {
         .default("red");
 
       expect(complexEnum.constructor.name).toBe("EnumField");
-      expect((complexEnum as any).isOptional).toBe(true);
+      expect((complexEnum as any)["~isOptional"]).toBe(true);
     });
   });
 
@@ -242,11 +242,11 @@ describe("Comprehensive Field Types", () => {
       expect(complexFields.complexBlob.constructor.name).toBe("BlobField");
 
       // Test properties are set
-      expect((complexFields.complexString as any).isId).toBe(true);
-      expect((complexFields.complexString as any).isUnique).toBe(true);
-      expect((complexFields.complexNumber as any).isUnique).toBe(true);
-      expect((complexFields.complexBool as any).isArray).toBe(true);
-      expect((complexFields.complexBool as any).isOptional).toBe(true);
+      expect((complexFields.complexString as any)["~isId"]).toBe(true);
+      expect((complexFields.complexString as any)["~isUnique"]).toBe(true);
+      expect((complexFields.complexNumber as any)["~isUnique"]).toBe(true);
+      expect((complexFields.complexBool as any)["~isArray"]).toBe(true);
+      expect((complexFields.complexBool as any)["~isOptional"]).toBe(true);
     });
   });
 });

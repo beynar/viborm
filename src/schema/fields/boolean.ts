@@ -1,5 +1,5 @@
-// Boolean Field Class
-// Simple boolean field with only common methods
+// Boolean Field Implementation
+// Type-safe boolean field with enhanced generics
 
 import { BaseField } from "./base.js";
 import type {
@@ -24,14 +24,14 @@ export class BooleanField<
     any
   > = DefaultFieldState<boolean>
 > extends BaseField<T> {
-  public override fieldType = "boolean" as const;
-  private fieldValidator?: FieldValidator<InferType<T>>;
+  public override "~fieldType" = "boolean" as const;
+  private "~fieldValidator"?: FieldValidator<InferType<T>>;
 
   constructor() {
     super();
   }
 
-  protected createInstance<
+  protected "~createInstance"<
     U extends FieldState<any, any, any, any, any, any>
   >(): BaseField<U> {
     const newField = new BooleanField<U>();
@@ -39,48 +39,52 @@ export class BooleanField<
   }
 
   // Copy boolean-specific properties
-  protected override copyFieldSpecificProperties(target: BaseField<any>): void {
-    (target as any).fieldValidator = this.fieldValidator;
+  protected override "~copyFieldSpecificProperties"(
+    target: BaseField<any>
+  ): void {
+    (target as any)["~fieldValidator"] = this["~fieldValidator"];
   }
 
   // Override chainable methods to return BooleanField instances
   override nullable(): BooleanField<MakeNullable<T>> {
-    return this.cloneWith<MakeNullable<T>>({
-      isOptional: true,
+    return this["~cloneWith"]<MakeNullable<T>>({
+      "~isOptional": true,
     }) as BooleanField<MakeNullable<T>>;
   }
 
   array(): BooleanField<MakeArray<T>> {
-    return this.cloneWith<MakeArray<T>>({ isArray: true }) as BooleanField<
-      MakeArray<T>
-    >;
+    return this["~cloneWith"]<MakeArray<T>>({
+      "~isArray": true,
+    }) as BooleanField<MakeArray<T>>;
   }
 
   id(): BooleanField<MakeId<T>> {
-    return this.cloneWith<MakeId<T>>({ isId: true }) as BooleanField<MakeId<T>>;
-  }
-
-  unique(): BooleanField<MakeUnique<T>> {
-    return this.cloneWith<MakeUnique<T>>({ isUnique: true }) as BooleanField<
-      MakeUnique<T>
+    return this["~cloneWith"]<MakeId<T>>({ "~isId": true }) as BooleanField<
+      MakeId<T>
     >;
   }
 
+  unique(): BooleanField<MakeUnique<T>> {
+    return this["~cloneWith"]<MakeUnique<T>>({
+      "~isUnique": true,
+    }) as BooleanField<MakeUnique<T>>;
+  }
+
   override default(value: InferType<T>): BooleanField<MakeDefault<T>> {
-    return this.cloneWith<MakeDefault<T>>({
-      defaultValue: value,
+    return this["~cloneWith"]<MakeDefault<T>>({
+      "~defaultValue": value,
     }) as BooleanField<MakeDefault<T>>;
   }
 
   // Add validator method that accepts a single standard schema
   validator(validator: FieldValidator<InferType<T>>): this {
-    this.fieldValidator = validator;
+    this["~fieldValidator"] = validator;
     return this;
   }
 
   // Override validate to include custom validator
-  override async validate(value: any): Promise<any> {
-    return super.validate(value, this.fieldValidator);
+  override async "~validate"(value: any): Promise<any> {
+    return super["~validate"](value, this["~fieldValidator"]);
   }
 }
 

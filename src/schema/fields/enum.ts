@@ -1,5 +1,5 @@
-// Enum Field Class
-// Field for storing enumerated values
+// Enum Field Implementation
+// Type-safe enum field with enhanced generics
 
 import { BaseField } from "./base.js";
 import type {
@@ -20,86 +20,91 @@ export class EnumField<
     TEnum[number]
   >
 > extends BaseField<T> {
-  public override fieldType = "enum" as const;
-  public readonly enumValues: TEnum;
-  private fieldValidator?: FieldValidator<InferType<T>>;
+  public override "~fieldType" = "enum" as const;
+  private "~enumValues": TEnum;
+  private "~fieldValidator"?: FieldValidator<InferType<T>>;
 
-  constructor(values: TEnum) {
+  constructor(enumValues: TEnum) {
     super();
-    this.enumValues = values;
+    this["~enumValues"] = enumValues;
   }
 
-  protected createInstance<
+  protected "~createInstance"<
     U extends FieldState<any, any, any, any, any, any>
   >(): BaseField<U> {
-    const newField = new EnumField<TEnum, U>(this.enumValues);
+    const newField = new EnumField<TEnum, U>(this["~enumValues"]);
     return newField as any;
   }
 
   // Copy enum-specific properties
-  protected override copyFieldSpecificProperties(target: BaseField<any>): void {
-    (target as any).fieldValidator = this.fieldValidator;
+  protected override "~copyFieldSpecificProperties"(
+    target: BaseField<any>
+  ): void {
+    (target as any)["~fieldValidator"] = this["~fieldValidator"];
   }
 
   // Override chainable methods to return EnumField instances
   override nullable(): EnumField<TEnum, MakeNullable<T>> {
-    return this.cloneWith<MakeNullable<T>>({ isOptional: true }) as EnumField<
-      TEnum,
-      MakeNullable<T>
-    >;
+    return this["~cloneWith"]<MakeNullable<T>>({
+      "~isOptional": true,
+    }) as EnumField<TEnum, MakeNullable<T>>;
   }
 
   array(): EnumField<TEnum, MakeArray<T>> {
-    return this.cloneWith<MakeArray<T>>({ isArray: true }) as EnumField<
+    return this["~cloneWith"]<MakeArray<T>>({ "~isArray": true }) as EnumField<
       TEnum,
       MakeArray<T>
     >;
   }
 
   id(): EnumField<TEnum, MakeId<T>> {
-    return this.cloneWith<MakeId<T>>({ isId: true }) as EnumField<
+    return this["~cloneWith"]<MakeId<T>>({ "~isId": true }) as EnumField<
       TEnum,
       MakeId<T>
     >;
   }
 
   unique(): EnumField<TEnum, MakeUnique<T>> {
-    return this.cloneWith<MakeUnique<T>>({ isUnique: true }) as EnumField<
-      TEnum,
-      MakeUnique<T>
-    >;
+    return this["~cloneWith"]<MakeUnique<T>>({
+      "~isUnique": true,
+    }) as EnumField<TEnum, MakeUnique<T>>;
   }
 
   override default(value: InferType<T>): EnumField<TEnum, MakeDefault<T>> {
-    return this.cloneWith<MakeDefault<T>>({ defaultValue: value }) as EnumField<
-      TEnum,
-      MakeDefault<T>
-    >;
+    return this["~cloneWith"]<MakeDefault<T>>({
+      "~defaultValue": value,
+    }) as EnumField<TEnum, MakeDefault<T>>;
   }
 
   // Add validator method that accepts a single standard schema
   validator(validator: FieldValidator<InferType<T>>): this {
-    this.fieldValidator = validator;
+    this["~fieldValidator"] = validator;
     return this;
   }
 
-  // Override validate to include custom validator and enum validation
-  override async validate(value: any): Promise<any> {
-    // First check if value is in enum
-    if (!this.enumValues.includes(value as any)) {
+  // Get enum values for external use
+  getEnumValues(): TEnum {
+    return this["~enumValues"];
+  }
+
+  // Override validate to include enum validation
+  override async "~validate"(value: any): Promise<any> {
+    // Check if value is one of the allowed enum values
+    if (!this["~enumValues"].includes(value)) {
       return {
+        output: undefined,
         valid: false,
-        errors: [`Value must be one of: ${this.enumValues.join(", ")}`],
+        errors: [`Value must be one of: ${this["~enumValues"].join(", ")}`],
       };
     }
 
-    return super.validate(value, this.fieldValidator);
+    return super["~validate"](value, this["~fieldValidator"]);
   }
 }
 
 // Factory function for creating enum fields with proper typing
-export function enumField<TEnum extends readonly (string | number)[]>(
-  values: TEnum
-): EnumField<TEnum, DefaultFieldState<TEnum[number]>> {
-  return new EnumField(values);
+export function enumField<T extends readonly (string | number)[]>(
+  enumValues: T
+): EnumField<T, DefaultFieldState<T[number]>> {
+  return new EnumField(enumValues);
 }

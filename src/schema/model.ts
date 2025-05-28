@@ -107,7 +107,7 @@ export class Model<
   }
 
   // Validation execution - accepts any number of validators
-  async validate(
+  async "~validate"(
     data: ModelType<TFields>,
     ...validators: ModelValidator<ModelType<TFields>>[]
   ): Promise<ValidationResult<any>> {

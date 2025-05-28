@@ -20,11 +20,11 @@ describe("Model", () => {
       });
 
       // Test specific field properties
-      expect((userModel.id as any).isId).toBe(true);
-      expect((userModel.email as any).isUnique).toBe(true);
-      expect((userModel.bio as any).isOptional).toBe(true);
-      expect((userModel.tags as any).isArray).toBe(true);
-      expect((userModel.slug as any).isUnique).toBe(true);
+      expect((userModel.id as any)["~isId"]).toBe(true);
+      expect((userModel.email as any)["~isUnique"]).toBe(true);
+      expect((userModel.bio as any)["~isOptional"]).toBe(true);
+      expect((userModel.tags as any)["~isArray"]).toBe(true);
+      expect((userModel.slug as any)["~isUnique"]).toBe(true);
     });
 
     test("creates model using schema builder", () => {

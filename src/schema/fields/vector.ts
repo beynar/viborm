@@ -1,14 +1,16 @@
-// Vector Field Class
-// Field for storing vector embeddings
+// Vector Field Implementation
+// Type-safe vector field with enhanced generics
 
 import { BaseField } from "./base.js";
 import type {
   FieldState,
   DefaultFieldState,
   MakeNullable,
+  MakeArray,
+  MakeId,
+  MakeUnique,
   MakeDefault,
   InferType,
-  BaseFieldType,
 } from "../../types/field-states.js";
 // import type { StandardSchemaV1 } from "../../types/standardSchema.js"; // No longer needed for validate
 // import type { FieldValidator, ValidationResult } from "../../types/validators.js"; // No longer needed
@@ -18,58 +20,100 @@ export class VectorField<
     number[]
   >
 > extends BaseField<S> {
-  public override fieldType = "vector" as const;
-  public readonly dimension: number;
+  public override "~fieldType" = "vector" as const;
+  private "~dimension": number | undefined;
 
-  constructor(dimension: number) {
+  constructor(dimension?: number) {
     super();
-    this.dimension = dimension;
+    this["~dimension"] = dimension;
   }
 
-  protected override createInstance<
+  protected "~createInstance"<
     U extends FieldState<any, any, any, any, any, any>
   >(): BaseField<U> {
-    const newField = new VectorField<U>(this.dimension);
+    const newField = new VectorField<any>(this["~dimension"]);
     return newField as any;
   }
 
-  protected override copyFieldSpecificProperties(target: BaseField<any>): void {
-    (target as any).dimension = this.dimension;
+  protected override "~copyFieldSpecificProperties"(
+    target: BaseField<any>
+  ): void {
+    (target as any)["~dimension"] = this["~dimension"];
   }
 
+  // Override chainable methods to return VectorField instances
   override nullable(): VectorField<MakeNullable<S>> {
-    return this.cloneWith<MakeNullable<S>>({ isOptional: true }) as VectorField<
-      MakeNullable<S>
+    return this["~cloneWith"]<MakeNullable<S>>({
+      "~isOptional": true,
+    }) as VectorField<MakeNullable<S>>;
+  }
+
+  array(): VectorField<MakeArray<S>> {
+    return this["~cloneWith"]<MakeArray<S>>({
+      "~isArray": true,
+    }) as VectorField<MakeArray<S>>;
+  }
+
+  id(): VectorField<MakeId<S>> {
+    return this["~cloneWith"]<MakeId<S>>({ "~isId": true }) as VectorField<
+      MakeId<S>
     >;
   }
 
-  override default(value: InferType<S>): VectorField<MakeDefault<S>> {
-    // Validate that the default value is an array with correct dimension
-    if (!Array.isArray(value)) {
-      throw new Error("Vector default value must be an array");
-    }
-    if (value.length !== this.dimension) {
-      throw new Error(
-        `Vector default value must have dimension ${this.dimension}. Received ${value.length}`
-      );
-    }
-    for (const item of value) {
-      if (typeof item !== "number") {
-        throw new Error("Vector default value elements must be numbers");
-      }
-    }
+  unique(): VectorField<MakeUnique<S>> {
+    return this["~cloneWith"]<MakeUnique<S>>({
+      "~isUnique": true,
+    }) as VectorField<MakeUnique<S>>;
+  }
 
-    return this.cloneWith<MakeDefault<S>>({
-      defaultValue: value,
+  override default(value: InferType<S>): VectorField<MakeDefault<S>> {
+    return this["~cloneWith"]<MakeDefault<S>>({
+      "~defaultValue": value,
     }) as VectorField<MakeDefault<S>>;
   }
 
-  override async validate(value: any): Promise<any> {
-    return {
-      error: false,
-      value: [],
-      issues: [],
-    };
+  // Vector-specific method for setting dimension
+  dimension(dim: number): VectorField<S> {
+    const newField = this["~cloneWith"]<S>({}) as VectorField<S>;
+    newField["~dimension"] = dim;
+    return newField;
+  }
+
+  // Override validate to include dimension validation
+  override async "~validate"(value: any): Promise<any> {
+    // Basic type validation first
+    if (!Array.isArray(value)) {
+      return {
+        output: undefined,
+        valid: false,
+        errors: ["Value must be an array of numbers"],
+      };
+    }
+
+    // Check if all elements are numbers
+    if (!value.every((item) => typeof item === "number")) {
+      return {
+        output: undefined,
+        valid: false,
+        errors: ["All vector elements must be numbers"],
+      };
+    }
+
+    // Dimension validation if specified
+    if (
+      this["~dimension"] !== undefined &&
+      value.length !== this["~dimension"]
+    ) {
+      return {
+        output: undefined,
+        valid: false,
+        errors: [
+          `Vector must have exactly ${this["~dimension"]} dimensions, got ${value.length}`,
+        ],
+      };
+    }
+
+    return super["~validate"](value as InferType<S>);
   }
 
   // The .id() and .unique() methods are intentionally NOT defined/overridden
@@ -80,16 +124,9 @@ export class VectorField<
   // override async validate(value: any): Promise<ValidationResult<InferType<S>>> { ... } // REMOVED
 }
 
-// Factory function for creating vector fields
+// Factory function for creating vector fields with proper typing
 export function vector(
-  dimension: number
+  dimension?: number
 ): VectorField<DefaultFieldState<number[]>> {
-  if (
-    typeof dimension !== "number" ||
-    !Number.isInteger(dimension) ||
-    dimension <= 0
-  ) {
-    throw new Error("Vector dimension must be a positive integer.");
-  }
   return new VectorField(dimension);
 }

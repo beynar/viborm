@@ -6,6 +6,104 @@ This file documents the major development discussions and implementations carrie
 
 ---
 
+## 2024-12-19 - Validate Method Renaming to ~validate
+
+**Problem Solved**: User requested that the `validate` method should also be prefixed with "~" to follow the internal property naming convention established earlier.
+
+**Solution Implemented**:
+
+- **Method Renaming**: Updated all `validate` methods across the field system to use `"~validate"` prefix
+  - Updated base field class `BaseField.validate()` → `BaseField["~validate"]()`
+  - Updated all field subclass overrides (StringField, NumberField, BooleanField, etc.)
+  - Updated Model class validation method
+  - Updated all super calls from `super.validate()` to `super["~validate"]()`
+- **Test Updates**: Updated all test files to use the new `["~validate"]()` syntax instead of `.validate()`
+  - Used sed commands to systematically replace `.validate(` with `["~validate"](` across all test files
+  - Fixed specific test cases that checked for the existence of the validate method
+- **JSON Schema Test Fixes**: Updated json-schema.test.ts to check for `~validate` property and simplified schema usage with Zod
+
+**Files Modified**:
+
+- `src/schema/fields/base.ts` - Base validate method renamed
+- All field classes: `string.ts`, `number.ts`, `boolean.ts`, `bigint.ts`, `datetime.ts`, `blob.ts`, `enum.ts`, `vector.ts`, `json.ts`
+- `src/schema/model.ts` - Model validation method renamed
+- All test files in `tests/` directory - Updated method calls to use bracket notation
+
+**Impact**: All validation methods are now consistently using the internal "~" prefix convention, maintaining clear separation between public API and internal implementation details.
+
+---
+
+## 2024-12-19 - Internal Property Naming Convention Change (~prefix)
+
+**Problem Solved**: User requested all internal properties like `__fieldState`, `fieldType`, `copyFieldSpecificProperties` to be prefixed with "~" for clear distinction from public API. Tests were failing due to type compatibility issues with modified field states.
+
+**Solution Implemented**:
+
+- **Internal Property Renaming**: Changed all internal properties to use "~" prefix:
+
+  - `__fieldState` → `~fieldState`
+  - `fieldType` → `~fieldType`
+  - `copyFieldSpecificProperties` → `~copyFieldSpecificProperties`
+  - `isOptional`, `isUnique`, `isId`, `isArray` → `~isOptional`, `~isUnique`, `~isId`, `~isArray`
+  - `defaultValue`, `autoGenerate` → `~defaultValue`, `~autoGenerate`
+  - And all other internal properties across all field classes
+
+- **Type System Improvements**: Made the `Field` type union more flexible to accept any field state, allowing modified fields (`.nullable()`, `.default()`, etc.) to be properly accepted in model definitions
+
+- **JSON Field Factory Enhancement**: Updated the `json()` factory function to properly support optional schema parameters with correct TypeScript overloads
+
+- **Property Access Pattern**: Used bracket notation (`field["~property"]`) throughout the codebase since `~` is not a valid JavaScript identifier character
+
+**Key Benefits**:
+
+- ✅ **Clear API Separation**: "~" prefix makes it immediately obvious which properties are internal vs public
+- ✅ **Type Compatibility**: Fixed type errors where modified field states weren't accepted in models
+- ✅ **Consistent Convention**: All internal properties now follow the same naming pattern
+- ✅ **Maintainability**: Reduced risk of accidental external usage of internal properties
+- ✅ **Test Coverage**: All comprehensive field tests now passing
+
+**Files Modified**:
+
+- `src/types/field-states.ts` - Updated BaseFieldType interface with "~fieldState" property
+- `src/schema/fields/base.ts` - Updated BaseField class with all ~ prefixed properties
+- `src/schema/fields/*.ts` - Updated all field classes (string, number, boolean, bigint, datetime, json, blob, enum, vector)
+- `src/schema/fields/index.ts` - Made Field type more flexible for modified field states
+- `tests/comprehensive-fields.test.ts` - Updated property access to use bracket notation
+
+**Technical Implementation**:
+
+```typescript
+// Before
+class BaseField {
+  public __fieldState!: T;
+  public fieldType?: ScalarFieldType;
+  public isOptional: boolean = false;
+  // ...
+}
+
+// After
+class BaseField {
+  public readonly "~fieldState"!: T;
+  public "~fieldType"?: ScalarFieldType;
+  public "~isOptional": boolean = false;
+  // ...
+}
+
+// Property access in tests
+// Before: expect(field.isOptional).toBe(true)
+// After:  expect((field as any)["~isOptional"]).toBe(true)
+```
+
+**Test Results**:
+
+- ✅ `tests/comprehensive-fields.test.ts` - All 9 tests passing
+- ✅ Runtime functionality preserved
+- ✅ Type safety maintained with improved flexibility
+
+**Migration Impact**: This is an internal change that doesn't affect the public API. External users continue to use the same field creation and chaining methods. Only internal property access patterns changed.
+
+---
+
 ## 2024-12-19 - Code Duplication Elimination in Field Classes
 
 **Problem Solved**: Massive code duplication across all field types where every chainable method (nullable, unique, id, etc.) had 6-8 lines of identical boilerplate code.

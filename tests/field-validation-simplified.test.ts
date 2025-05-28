@@ -18,12 +18,12 @@ describe("Simplified Field Validation", () => {
       const field = string().validator(z.string().min(3));
 
       // Test successful validation
-      const validResult = await field.validate("hello");
+      const validResult = await field["~validate"]("hello");
       expect(validResult.valid).toBe(true);
       expect(validResult.errors).toBeUndefined();
 
       // Test failed validation
-      const invalidResult = await field.validate("hi");
+      const invalidResult = await field["~validate"]("hi");
       expect(invalidResult.valid).toBe(false);
       expect(invalidResult.errors.length).toBe(1);
     });
@@ -31,10 +31,10 @@ describe("Simplified Field Validation", () => {
     test("number field accepts only one standard schema validator", async () => {
       const field = int().validator(z.number().min(0));
 
-      const validResult = await field.validate(5);
+      const validResult = await field["~validate"](5);
       expect(validResult.valid).toBe(true);
 
-      const invalidResult = await field.validate(-1);
+      const invalidResult = await field["~validate"](-1);
       expect(invalidResult.valid).toBe(false);
       expect(invalidResult.errors.length).toBe(1);
     });
@@ -42,10 +42,10 @@ describe("Simplified Field Validation", () => {
     test("boolean field accepts only one standard schema validator", async () => {
       const field = boolean().validator(z.literal(true));
 
-      const validResult = await field.validate(true);
+      const validResult = await field["~validate"](true);
       expect(validResult.valid).toBe(true);
 
-      const invalidResult = await field.validate(false);
+      const invalidResult = await field["~validate"](false);
       expect(invalidResult.valid).toBe(false);
       expect(invalidResult.errors.length).toBe(1);
     });
@@ -53,10 +53,10 @@ describe("Simplified Field Validation", () => {
     test("datetime field accepts only one standard schema validator", async () => {
       const field = datetime().validator(z.date().min(new Date("2020-01-01")));
 
-      const validResult = await field.validate(new Date("2023-01-01"));
+      const validResult = await field["~validate"](new Date("2023-01-01"));
       expect(validResult.valid).toBe(true);
 
-      const invalidResult = await field.validate(new Date("2019-01-01"));
+      const invalidResult = await field["~validate"](new Date("2019-01-01"));
       expect(invalidResult.valid).toBe(false);
       expect(invalidResult.errors.length).toBe(1);
     });
@@ -64,10 +64,10 @@ describe("Simplified Field Validation", () => {
     test("bigint field accepts only one standard schema validator", async () => {
       const field = bigint().validator(z.bigint().min(0n));
 
-      const validResult = await field.validate(5n);
+      const validResult = await field["~validate"](5n);
       expect(validResult.valid).toBe(true);
 
-      const invalidResult = await field.validate(-1n);
+      const invalidResult = await field["~validate"](-1n);
       expect(invalidResult.valid).toBe(false);
       expect(invalidResult.errors.length).toBe(1);
     });
@@ -77,10 +77,10 @@ describe("Simplified Field Validation", () => {
         z.enum(["red", "green", "blue"])
       );
 
-      const validResult = await field.validate("green");
+      const validResult = await field["~validate"]("green");
       expect(validResult.valid).toBe(true);
 
-      const invalidResult = await field.validate("purple");
+      const invalidResult = await field["~validate"]("purple");
       expect(invalidResult.valid).toBe(false);
       expect(invalidResult.errors.length).toBe(1);
     });
@@ -88,10 +88,10 @@ describe("Simplified Field Validation", () => {
     test("blob field accepts only one standard schema validator", async () => {
       const field = blob().validator(z.instanceof(Uint8Array));
 
-      const validResult = await field.validate(new Uint8Array([1, 2, 3]));
+      const validResult = await field["~validate"](new Uint8Array([1, 2, 3]));
       expect(validResult.valid).toBe(true);
 
-      const invalidResult = await field.validate([]);
+      const invalidResult = await field["~validate"]([]);
       expect(invalidResult.valid).toBe(false);
     });
   });
@@ -108,8 +108,8 @@ describe("Simplified Field Validation", () => {
     test("validator method can be chained with other field methods", () => {
       const field = string().validator(z.string().min(3)).nullable().unique();
 
-      expect(field.isOptional).toBe(true);
-      expect(field.isUnique).toBe(true);
+      expect(field["~isOptional"]).toBe(true);
+      expect(field["~isUnique"]).toBe(true);
     });
   });
 
@@ -118,7 +118,7 @@ describe("Simplified Field Validation", () => {
       const field = string().validator(z.string().min(3)).nullable();
 
       // Test that validator still works
-      const invalidResult = await field.validate("hi");
+      const invalidResult = await field["~validate"]("hi");
       expect(invalidResult.valid).toBe(false);
       expect(invalidResult.errors.length).toBe(1);
     });
@@ -127,7 +127,7 @@ describe("Simplified Field Validation", () => {
       const field = int().validator(z.number().min(0)).default(10);
 
       // Test that validator still works
-      const invalidResult = await field.validate(-5);
+      const invalidResult = await field["~validate"](-5);
       expect(invalidResult.valid).toBe(false);
       expect(invalidResult.errors.length).toBe(1);
     });
