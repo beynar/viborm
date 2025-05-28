@@ -64,7 +64,7 @@ const users = await orm.user.findMany({
 
 ### ✅ **Validation System** (Complete)
 
-Built-in validation system with support for custom validators and Standard Schema V1 interface (Zod, Valibot, Arktype).
+Built-in validation system with support for Standard Schema V1 interface (Zod, Valibot, Arktype).
 
 ```typescript
 // Custom field validation
