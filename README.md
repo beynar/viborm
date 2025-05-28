@@ -62,6 +62,24 @@ const users = await orm.user.findMany({
 // users is fully typed based on your schema definition
 ```
 
+### ✅ **Validation System** (Complete)
+
+Built-in validation system with support for custom validators and Standard Schema V1 interface (Zod, Valibot, Arktype).
+
+```typescript
+// Custom field validation
+const user = s.model("user", {
+  email: s.string().validator(z.string().email()),
+  age: s.int().validator(z.number().min(0).max(120)),
+  username: s.string().validator(usernameSchema),
+});
+
+// Schema-based JSON fields with automatic validation
+const userProfile = s.json(profileSchema); // Strongly typed + validated
+const settings = s.json(settingsSchema).nullable();
+const metadata = s.json(); // Flexible untyped JSON
+```
+
 ### 🚧 **Components In Progress**
 
 - **AST Compiler** - Transforms TypeScript schema definitions into executable query logic
@@ -73,10 +91,7 @@ const users = await orm.user.findMany({
 ### 📋 **Planned Features**
 
 - **Transactions** - Full ACID transaction support
-- **Real-time Subscriptions** - Live query capabilities
-- **Edge Runtime Support** - Works in Cloudflare Workers, Vercel Edge, etc.
 - **Multiple Database Support** - PostgreSQL, MySQL, SQLite, and more
-- **Advanced Relations** - Complex many-to-many, polymorphic relationships
 
 ## 🎯 Design Philosophy
 
@@ -88,6 +103,7 @@ VibeORM follows these core principles:
 - **🏃‍♂️ Zero Generation** - Types are inferred at compile time, not generated
 - **🔗 Prisma-Compatible** - Familiar query API that Prisma users already know
 - **🏗️ Modular Design** - Loosely coupled components that can be independently tested
+- **✅ Validation Built-in** - Schema-level validation with Standard Schema V1 support
 
 ## 📖 Documentation & Development History
 
@@ -109,21 +125,25 @@ Here's what VibeORM looks like today:
 
 ```typescript
 import { s } from "baseorm";
+import { z } from "zod";
 
-// Schema Definition (✅ Working)
+// Schema Definition with Validation (✅ Working)
 const user = s.model("user", {
   id: s.string().id().ulid(),
-  name: s.string(),
-  email: s.string().unique(),
+  name: s.string().validator(z.string().min(1).max(100)),
+  email: s.string().unique().validator(z.string().email()),
+  age: s.int().nullable().validator(z.number().min(0).max(120)),
   posts: s.relation.oneToMany(() => post),
+  profile: s.json(profileSchema), // Strongly typed JSON with validation
   createdAt: s.dateTime().now(),
 });
 
 const post = s.model("post", {
   id: s.string().id().ulid(),
-  title: s.string(),
+  title: s.string().validator(z.string().min(1).max(200)),
   content: s.string().nullable(),
   author: s.relation.manyToOne(() => user),
+  metadata: s.json(postMetadataSchema).nullable(),
   publishedAt: s.dateTime().nullable(),
 });
 
@@ -152,6 +172,7 @@ This is very much an **active experiment**. The goal is to push the boundaries o
 
 - **Schema System**: ✅ Production-ready
 - **Type Inference**: ✅ Production-ready
+- **Validation System**: ✅ Production-ready
 - **Query System**: 🚧 In active development
 - **Database Layer**: 📋 Planned
 - **Migration Tools**: 📋 Planned
