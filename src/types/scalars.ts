@@ -98,38 +98,3 @@ export type ScalarToTypeScript<T extends ScalarFieldType> = T extends "string"
   : T extends "enum"
   ? string | number
   : never;
-
-// Field configuration options
-export interface FieldOptions {
-  nullable?: boolean;
-  unique?: boolean;
-  id?: boolean;
-  auto?: AutoGenerateType;
-  default?: any;
-  list?: boolean;
-}
-
-// String field specific options
-export interface StringFieldOptions extends FieldOptions {
-  minLength?: number;
-  maxLength?: number;
-  regex?: RegExp;
-}
-
-// Number field specific options
-export interface NumberFieldOptions extends FieldOptions {
-  min?: number;
-  max?: number;
-}
-
-// Decimal field specific options
-export interface DecimalFieldOptions extends NumberFieldOptions {
-  precision?: number;
-  scale?: number;
-}
-
-// Enum field specific options
-export interface EnumFieldOptions<T extends readonly (string | number)[]>
-  extends FieldOptions {
-  values: T;
-}

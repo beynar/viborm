@@ -34,7 +34,7 @@ describe("Enum Field", () => {
     });
 
     test("should have enum values defined", () => {
-      expect(enumField.getEnumValues()).toEqual(["a", "b"]);
+      expect(enumField["~getEnumValues"]()).toEqual(["a", "b"]);
     });
   });
 
@@ -48,7 +48,7 @@ describe("Enum Field", () => {
     });
 
     test("should maintain enum values", () => {
-      expect(nullableEnumField.getEnumValues()).toEqual(["a", "b"]);
+      expect(nullableEnumField["~getEnumValues"]()).toEqual(["a", "b"]);
     });
   });
 
@@ -132,7 +132,7 @@ describe("Enum Field", () => {
     test("enum field should have expected type properties", () => {
       expectTypeOf(enumField).toHaveProperty("~fieldType");
       expectTypeOf(enumField).toHaveProperty("~isOptional");
-      expectTypeOf(enumField).toHaveProperty("getEnumValues");
+      expectTypeOf(enumField).toHaveProperty("~getEnumValues");
     });
 
     test("methods should return correct types", () => {

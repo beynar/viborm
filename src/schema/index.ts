@@ -35,10 +35,7 @@ export class SchemaBuilder {
   dateTime = datetime;
   json = json;
   blob = blob;
-
-  enum<TEnum extends readonly (string | number)[]>(values: TEnum) {
-    return enumField(values);
-  }
+  enum = enumField;
 
   // Relation factory - expose the relation function
   relation = relation;

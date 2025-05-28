@@ -83,7 +83,7 @@ export class EnumField<
   }
 
   // Get enum values for external use
-  getEnumValues(): TEnum {
+  "~getEnumValues"(): TEnum {
     return this["~enumValues"];
   }
 

@@ -1,8 +1,14 @@
 // Filter Type Definitions
 // For where clauses and field filtering
 
-import type { QueryMode, SortOrder } from "./queries.js";
+// Sort order
+export type SortOrder = "asc" | "desc";
 
+// Query mode for text searches
+export type QueryMode = "default" | "insensitive";
+
+// Null ordering
+export type NullsOrder = "first" | "last";
 // Base filter operations
 export interface BaseFilter<T> {
   equals?: T;

@@ -90,37 +90,3 @@ export type ModelScalars<
     ? K
     : never]: TFields[K] extends BaseField<infer T> ? T : never;
 };
-
-// Model payload type for internal use
-export interface ModelPayload<T> {
-  name: string;
-  scalars: T;
-  objects: Record<string, any>;
-  composites: Record<string, any>;
-}
-
-// Model select type
-export type ModelSelect<TModel extends Record<string, any>> = {
-  [K in keyof TModel]?: boolean;
-};
-
-// Model include type for relations
-export type ModelInclude<TModel extends Record<string, any>> = {
-  [K in RelationFields<TModel>]?:
-    | boolean
-    | {
-        select?: any;
-        include?: any;
-        where?: any;
-        orderBy?: any;
-        take?: number;
-        skip?: number;
-      };
-};
-
-// Type-safe field constraint definitions
-export type FieldConstraints<
-  TFields extends Record<string, Field | Relation<any, any>>
-> = {
-  [K in ScalarFields<TFields>]: string;
-};

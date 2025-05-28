@@ -6,8 +6,6 @@ import { Relation } from "./relation.js";
 import type {
   IndexDefinition,
   UniqueConstraintDefinition,
-  ModelValidator,
-  ValidationResult,
   IndexOptions,
   UniqueConstraintOptions,
   ModelType,
@@ -104,51 +102,6 @@ export class Model<
     });
 
     return this;
-  }
-
-  // Validation execution - accepts any number of validators
-  async "~validate"(
-    data: ModelType<TFields>,
-    ...validators: ModelValidator<ModelType<TFields>>[]
-  ): Promise<ValidationResult<any>> {
-    const errors: string[] = [];
-
-    for (const validator of validators) {
-      try {
-        if (typeof validator === "function") {
-          // Function validator
-          const result = await validator(data);
-          if (result !== true) {
-            errors.push(
-              typeof result === "string" ? result : "Validation failed"
-            );
-          }
-        } else if (
-          validator &&
-          typeof validator === "object" &&
-          "~standard" in validator
-        ) {
-          // Standard Schema validator
-          const standardValidator = validator as any;
-          const result = await standardValidator["~standard"].validate(data);
-
-          if ("issues" in result) {
-            errors.push(...result.issues.map((issue: any) => issue.message));
-          }
-        }
-      } catch (error) {
-        errors.push(
-          `Validation error: ${
-            error instanceof Error ? error.message : "Unknown error"
-          }`
-        );
-      }
-    }
-
-    return {
-      valid: errors.length === 0,
-      errors: errors.length > 0 ? errors : undefined,
-    };
   }
 
   get infer() {

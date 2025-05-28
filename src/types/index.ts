@@ -11,24 +11,6 @@ export * from "./field-states.js";
 export * from "./standardSchema.js";
 
 // Export specific types to avoid conflicts
-export type { BatchPayload, WhereInputBase } from "./operations.js";
-
-export type {
-  FindUniqueArgs,
-  FindFirstArgs,
-  FindManyArgs,
-  CreateArgs,
-  CreateManyArgs,
-  UpdateArgs,
-  UpdateManyArgs,
-  UpsertArgs,
-  DeleteArgs,
-  DeleteManyArgs,
-  CountArgs,
-  AggregateArgs,
-  GroupByArgs,
-  DatabaseClient,
-} from "./queries.js";
 
 export type {
   StringFilter,
@@ -36,4 +18,4 @@ export type {
   BoolFilter,
   DateTimeFilter,
   FieldFilter,
-} from "./filters.js";
+} from "./client/filters.js";
