@@ -1,7 +1,7 @@
 // Schema Builder Entry Point
 // Based on specification: readme/1_schema_builder.md
 
-import { Model } from "./model.js";
+import { model, Model } from "./model.js";
 import {
   BaseField,
   StringField,
@@ -25,28 +25,14 @@ import { enumField } from "./fields/enum.js";
 import { Getter, relation, Relation } from "./relation.js";
 export class SchemaBuilder {
   // Create a new model
-  model<
-    TName extends string,
-    TFields extends Record<string, Field | Relation<any, any>>
-  >(name: TName, fields: TFields): Model<TFields> {
-    return new Model(name, fields);
-  }
-
-  // Create specific field types
+  model = model;
   string = string;
-
   boolean = boolean;
-
   int = int;
-
   bigInt = bigint;
-
   float = float;
-
   decimal = decimal;
-
   dateTime = datetime;
-
   json = json;
   blob = blob;
 

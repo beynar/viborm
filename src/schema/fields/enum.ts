@@ -89,8 +89,10 @@ export class EnumField<
 
   // Override validate to include enum validation
   override async "~validate"(value: any): Promise<any> {
+    const isValidOptional =
+      this["~isOptional"] && (value === null || value === undefined);
     // Check if value is one of the allowed enum values
-    if (!this["~enumValues"].includes(value)) {
+    if (!this["~enumValues"].includes(value) && !isValidOptional) {
       return {
         output: undefined,
         valid: false,

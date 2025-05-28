@@ -82,6 +82,8 @@ export class JsonField<
     const errors: string[] = [];
     let output: InferType<T> = value;
     try {
+      const isValidOptional =
+        this["~isOptional"] && (value === null || value === undefined);
       // Basic type validation
       if (!this["~validateType"](value)) {
         errors.push(`Invalid type for field. Expected ${this["~fieldType"]}`);
@@ -89,6 +91,13 @@ export class JsonField<
 
       // Schema validation if provided
       if (this["~schema"]) {
+        if (isValidOptional) {
+          return {
+            output: null as any,
+            valid: true,
+            errors: undefined,
+          };
+        }
         try {
           const result = await this["~schema"]["~standard"].validate(value);
 

@@ -155,3 +155,11 @@ export class Model<
     return {} as ModelType<TFields>;
   }
 }
+
+export const model = <
+  TName extends string,
+  TFields extends Record<string, Field | Relation<any, any>>
+>(
+  name: TName,
+  fields: TFields
+) => new Model(name, fields);
