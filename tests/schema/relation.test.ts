@@ -4,22 +4,22 @@ describe("Relations", () => {
   describe("Relation Types", () => {
     test("should create oneToOne relation", () => {
       const relation = s.relation().oneToOne(() => s.model("target", {}));
-      expect(relation.relationType).toBe("oneToOne");
+      expect(relation["~relationType"]).toBe("oneToOne");
     });
 
     test("should create oneToMany relation", () => {
       const relation = s.relation().oneToMany(() => s.model("target", {}));
-      expect(relation.relationType).toBe("oneToMany");
+      expect(relation["~relationType"]).toBe("oneToMany");
     });
 
     test("should create manyToOne relation", () => {
       const relation = s.relation().manyToOne(() => s.model("target", {}));
-      expect(relation.relationType).toBe("manyToOne");
+      expect(relation["~relationType"]).toBe("manyToOne");
     });
 
     test("should create manyToMany relation", () => {
       const relation = s.relation().manyToMany(() => s.model("target", {}));
-      expect(relation.relationType).toBe("manyToMany");
+      expect(relation["~relationType"]).toBe("manyToMany");
     });
   });
 
@@ -43,24 +43,24 @@ describe("Relations", () => {
       const oneToMany = s.relation().oneToMany(() => s.model("target", {}));
       const manyToMany = s.relation().manyToMany(() => s.model("target", {}));
 
-      expect(oneToMany.isToMany).toBe(true);
-      expect(manyToMany.isToMany).toBe(true);
+      expect(oneToMany["~isToMany"]).toBe(true);
+      expect(manyToMany["~isToMany"]).toBe(true);
     });
 
     test("should identify to-one relationships", () => {
       const oneToOne = s.relation().oneToOne(() => s.model("target", {}));
       const manyToOne = s.relation().manyToOne(() => s.model("target", {}));
 
-      expect(oneToOne.isToOne).toBe(true);
-      expect(manyToOne.isToOne).toBe(true);
+      expect(oneToOne["~isToOne"]).toBe(true);
+      expect(manyToOne["~isToOne"]).toBe(true);
     });
 
     test("should identify junction table requirement", () => {
       const manyToMany = s.relation().manyToMany(() => s.model("target", {}));
       const oneToOne = s.relation().oneToOne(() => s.model("target", {}));
 
-      expect(manyToMany.requiresJunctionTable).toBe(true);
-      expect(oneToOne.requiresJunctionTable).toBe(false);
+      expect(manyToMany["~requiresJunctionTable"]).toBe(true);
+      expect(oneToOne["~requiresJunctionTable"]).toBe(false);
     });
   });
 
@@ -99,7 +99,7 @@ describe("Relations", () => {
 
       expect(userModel.relations.get("friends")).toBeDefined();
       const friendsRelation = userModel.relations.get("friends")!;
-      expect(friendsRelation.relationType).toBe("manyToMany");
+      expect(friendsRelation["~relationType"]).toBe("manyToMany");
     });
   });
 
@@ -107,25 +107,26 @@ describe("Relations", () => {
     test("relations should have expected type properties", () => {
       const relation = s.relation().oneToOne(() => s.model("target", {}));
 
-      expectTypeOf(relation).toHaveProperty("relationType");
+      expectTypeOf(relation).toHaveProperty("~relationType");
       expectTypeOf(relation).toHaveProperty("targetModel");
-      expectTypeOf(relation).toHaveProperty("isToMany");
-      expectTypeOf(relation).toHaveProperty("isToOne");
+      expectTypeOf(relation).toHaveProperty("~isToMany");
+      expectTypeOf(relation).toHaveProperty("~isToOne");
+      expectTypeOf(relation).toHaveProperty("~requiresJunctionTable");
     });
 
     test("relation methods should return correct types", () => {
       expectTypeOf(
         s.relation().oneToOne(() => s.model("target", {}))
-      ).toHaveProperty("relationType");
+      ).toHaveProperty("~relationType");
       expectTypeOf(
         s.relation().oneToMany(() => s.model("target", {}))
-      ).toHaveProperty("relationType");
+      ).toHaveProperty("~relationType");
       expectTypeOf(
         s.relation().manyToOne(() => s.model("target", {}))
-      ).toHaveProperty("relationType");
+      ).toHaveProperty("~relationType");
       expectTypeOf(
         s.relation().manyToMany(() => s.model("target", {}))
-      ).toHaveProperty("relationType");
+      ).toHaveProperty("~relationType");
     });
 
     test("oneToOne relation infer should return single model type", () => {

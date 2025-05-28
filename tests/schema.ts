@@ -105,5 +105,5 @@ export const manyToMany = s.model("manyToMany", {
 
 export const manyToOne = s.model("manyToOne", {
   id: s.string().id().ulid(),
-  test: s.relation().oneToMany(() => oneToOne),
+  test: s.relation({}).oneToMany(() => oneToOne),
 });

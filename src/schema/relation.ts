@@ -21,23 +21,23 @@ export class Relation<
   G extends Getter = Getter,
   T extends RelationType = RelationType
 > {
-  public relationType: RelationType;
-  public onField?: string | undefined;
-  public refField?: string | undefined;
-  public cascadeOptions?: CascadeOptions | undefined;
-  public junctionTableName?: string | undefined;
-  public junctionFieldName?: string | undefined;
+  public "~relationType": RelationType;
+  public "~onField"?: string | undefined;
+  public "~refField"?: string | undefined;
+  public "~cascadeOptions"?: CascadeOptions | undefined;
+  public "~junctionTableName"?: string | undefined;
+  public "~junctionFieldName"?: string | undefined;
 
   constructor(public getter: G, relationType: T, options?: RelationOptions) {
-    this.relationType = relationType;
+    this["~relationType"] = relationType;
 
     // Apply options if provided
     if (options) {
-      this.cascadeOptions = options.onDelete || options.onUpdate;
-      this.onField = options.onField;
-      this.refField = options.refField;
-      this.junctionTableName = options.junctionTable;
-      this.junctionFieldName = options.junctionField;
+      this["~cascadeOptions"] = options.onDelete || options.onUpdate;
+      this["~onField"] = options.onField;
+      this["~refField"] = options.refField;
+      this["~junctionTableName"] = options.junctionTable;
+      this["~junctionFieldName"] = options.junctionField;
     }
   }
 
@@ -64,26 +64,28 @@ export class Relation<
   /**
    * Check if this is a "to-many" relationship
    */
-  get isToMany(): boolean {
+  get "~isToMany"(): boolean {
     return (
-      this.relationType === "oneToMany" || this.relationType === "manyToMany"
+      this["~relationType"] === "oneToMany" ||
+      this["~relationType"] === "manyToMany"
     );
   }
 
   /**
    * Check if this is a "to-one" relationship
    */
-  get isToOne(): boolean {
+  get "~isToOne"(): boolean {
     return (
-      this.relationType === "oneToOne" || this.relationType === "manyToOne"
+      this["~relationType"] === "oneToOne" ||
+      this["~relationType"] === "manyToOne"
     );
   }
 
   /**
    * Check if this requires a junction table
    */
-  get requiresJunctionTable(): boolean {
-    return this.relationType === "manyToMany";
+  get "~requiresJunctionTable"(): boolean {
+    return this["~relationType"] === "manyToMany";
   }
 }
 
