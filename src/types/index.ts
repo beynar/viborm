@@ -9,13 +9,3 @@ export * from "./relations.js";
 export * from "./utilities.js";
 export * from "./field-states.js";
 export * from "./standardSchema.js";
-
-// Export specific types to avoid conflicts
-
-export type {
-  StringFilter,
-  NumberFilter,
-  BoolFilter,
-  DateTimeFilter,
-  FieldFilter,
-} from "./client/filters.js";

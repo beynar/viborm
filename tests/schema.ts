@@ -118,6 +118,7 @@ export const testUser = s.model("User", {
   name: s.string(),
   email: s.string().unique(),
   age: s.int().nullable(),
+  bio: s.string().nullable(),
   createdAt: s.dateTime().now(),
   updatedAt: s.dateTime().now(),
   posts: s.relation().oneToMany(() => testPost),
@@ -148,3 +149,9 @@ export const testProfile = s.model("Profile", {
   userId: s.string().unique(),
   user: s.relation().oneToOne(() => testUser),
 });
+
+export const schema = {
+  user: testUser,
+  post: testPost,
+  profile: testProfile,
+};

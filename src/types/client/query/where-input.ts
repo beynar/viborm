@@ -52,7 +52,7 @@ export type ManyToManyRelationFilter<TRelatedModel extends Model<any>> = {
 export type ScalarWhereInput<TModel extends Model<any>> = {
   [K in FieldNames<TModel>]?: K extends keyof ModelFields<TModel>
     ? ModelFields<TModel>[K] extends BaseField<any>
-      ? FieldFilter<MapFieldType<ModelFields<TModel>[K]>>
+      ? FieldFilter<ModelFields<TModel>[K]>
       : never
     : never;
 };
