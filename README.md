@@ -21,6 +21,7 @@ So VibeORM is my attempt to create an ORM that:
 - ✨ **Feels like Prisma** - Familiar, intuitive API that developers already know and love
 - 🔧 **Pure TypeScript** - Zero binaries, zero code generation, just beautiful type inference
 - 🎯 **Perfect DX** - Chainable schema builder, type-safe queries, intelligent autocomplete
+- 🗄️ **Database Agnostic and Interoperable** - Works with any SQL database through a unified query interface with the same schema syntax and features.
 
 ## 🏗️ Project Status & Architecture
 
