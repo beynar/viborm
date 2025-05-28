@@ -14,7 +14,7 @@ JSON fields in VibORM can operate in two modes:
 ### Untyped JSON Fields
 
 ```ts
-import { s } from "baseorm";
+import { s } from "viborm";
 
 const user = s.model("user", {
   id: s.string().id(),
@@ -27,8 +27,8 @@ const user = s.model("user", {
 ### Schema-Based JSON Fields
 
 ```ts
-import { s } from "baseorm";
-import type { StandardSchemaV1 } from "baseorm/types";
+import { s } from "viborm";
+import type { StandardSchemaV1 } from "viborm/types";
 
 // Define your schema
 const userPreferencesSchema: StandardSchemaV1<

@@ -32,7 +32,7 @@ VibORM is structured around several key components, each at different stages of 
 The chainable API for defining models, fields, and relations.
 
 ```typescript
-import { s } from "baseorm";
+import { s } from "viborm";
 
 const user = s.model("user", {
   id: s.string().id().ulid(),
@@ -108,9 +108,9 @@ VibORM follows these core principles:
 
 ## 📖 Documentation & Development History
 
-This project is being developed as a "vibe coding" experiment, where we explore what's possible when we prioritize developer experience and type safety above all else.
+This project is being developed as a "vibe coding" experiment, where we explore what's possible for the AI to accomplish
 
-**Every change, discussion, and breakthrough is meticulously documented in [AI-CHANGELOG.md](./AI-CHANGELOG.md)**
+**Every change, discussion, and breakthrough is meticulously documented by Claude in [AI-CHANGELOG.md](./AI-CHANGELOG.md)**
 
 The changelog contains:
 
@@ -125,7 +125,7 @@ The changelog contains:
 Here's what VibORM looks like today:
 
 ```typescript
-import { s } from "baseorm";
+import { s } from "viborm";
 import { z } from "zod";
 
 // Schema Definition with Validation (✅ Working)

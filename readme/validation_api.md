@@ -15,7 +15,7 @@ All validation logic is delegated to user-provided validators. For common valida
 ### Basic Usage
 
 ```typescript
-import { s } from "baseorm";
+import { s } from "viborm";
 
 const emailField = s.string();
 

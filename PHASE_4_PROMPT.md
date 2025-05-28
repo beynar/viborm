@@ -28,7 +28,7 @@ Implement the **Client Interface** that enables developers to use VibORM with th
 
 ```typescript
 // Target API we want to achieve
-import { VibORM } from "baseorm";
+import { VibORM } from "viborm";
 
 // Define schema
 const user = s.model("user", {

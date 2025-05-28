@@ -218,7 +218,7 @@ const invalidModel = s.model("invalid", {
 ### Basic Model Definition
 
 ```typescript
-import { s } from "baseorm";
+import { s } from "viborm";
 
 const user = s.model("user", {
   id: s.string().id().auto.ulid(),

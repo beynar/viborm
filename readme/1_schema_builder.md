@@ -100,7 +100,7 @@ The Schema Builder is the foundation of our ORM. Its purpose is to allow users t
 ## Example Usage
 
 ```ts
-import { s } from "baseorm";
+import { s } from "viborm";
 
 const user = s
   .model({

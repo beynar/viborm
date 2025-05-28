@@ -40,7 +40,7 @@ All components are designed to be fully type-safe, with TypeScript types inferre
 ## Example Usage
 
 ```ts
-import { s } from "baseorm";
+import { s } from "viborm";
 
 // Schema Definition
 const user = s.model("user", {

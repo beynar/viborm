@@ -1,5 +1,5 @@
 {
-  "name": "baseorm",
+  "name": "viborm",
   "version": "0.1.0",
   "description": "Type-safe ORM for PostgreSQL and MySQL with Prisma-like API",
   "scripts": {
