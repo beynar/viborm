@@ -107,3 +107,44 @@ export const manyToOne = s.model("manyToOne", {
   id: s.string().id().ulid(),
   test: s.relation({}).oneToMany(() => oneToOne),
 });
+
+// ===== TEST MODELS FOR CLIENT TESTS =====
+
+/**
+ * Test user model for client type tests
+ */
+export const testUser = s.model("User", {
+  id: s.string().id().ulid(),
+  name: s.string(),
+  email: s.string().unique(),
+  age: s.int().nullable(),
+  createdAt: s.dateTime().now(),
+  updatedAt: s.dateTime().now(),
+  posts: s.relation().oneToMany(() => testPost),
+  profile: s.relation().oneToOne(() => testProfile),
+});
+
+/**
+ * Test post model for client type tests
+ */
+export const testPost = s.model("Post", {
+  id: s.string().id().ulid(),
+  title: s.string(),
+  content: s.string().nullable(),
+  published: s.boolean().default(false),
+  createdAt: s.dateTime().now(),
+  updatedAt: s.dateTime().now(),
+  authorId: s.string(),
+  author: s.relation().manyToOne(() => testUser),
+});
+
+/**
+ * Test profile model for client type tests
+ */
+export const testProfile = s.model("Profile", {
+  id: s.string().id().ulid(),
+  bio: s.string().nullable(),
+  avatar: s.string().nullable(),
+  userId: s.string().unique(),
+  user: s.relation().oneToOne(() => testUser),
+});
