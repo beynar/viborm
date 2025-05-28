@@ -1,7 +1,7 @@
-import { createClient } from "../src/types/client/client";
+import { createClient } from "../src/client";
 import { schema } from "./schema";
 
-const client = createClient(schema);
+const client = createClient({ schema, adapter: {} as any });
 
 const [res] = await client.user.findMany({
   where: {

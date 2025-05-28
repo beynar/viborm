@@ -34,7 +34,7 @@ export type Operation =
   | "groupBy"
   | "upsert";
 
-export type PayloadByOperation<
+export type OperationPayload<
   O extends Operation,
   M extends Model<any>
 > = O extends "findMany"
@@ -65,7 +65,7 @@ export type PayloadByOperation<
   ? GroupByArgs<M>
   : never;
 
-export type ResultByOperation<
+export type OperationResult<
   O extends Operation,
   M extends Model<any>,
   I
