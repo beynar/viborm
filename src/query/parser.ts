@@ -2,8 +2,6 @@
 // Transforms Prisma-like query objects into unified AST structure
 
 import { Model } from "../schema/model";
-import { BaseField } from "../schema/fields/base";
-import { Relation } from "../schema/relation";
 import {
   Operation,
   OperationPayload,
@@ -15,28 +13,24 @@ import {
   SelectionAST,
   InclusionAST,
   DataAST,
+  BatchDataAST,
+  AggregationAST,
+  GroupByAST,
+  CursorAST,
   OrderingAST,
-  ValueAST,
   SchemaRegistry,
   ModelReference,
-  FieldReference,
-  RelationReference,
-  BaseOrmValueType,
-  ConditionOperator,
-  ConditionTarget,
-  FieldConditionTarget,
-  RelationConditionTarget,
-  LogicalConditionTarget,
-  DataOperation,
-  DataTarget,
-  FieldDataTarget,
-  RelationDataTarget,
-  OrderingTarget,
-  FieldOrderingTarget,
-  createCondition,
-  createValue,
+  ParseError,
 } from "./ast";
+import { FieldResolver } from "./field-resolver";
+import { ValueParser } from "./value-parser";
 import { FilterParser } from "./filter-parser";
+import { DataParser } from "./data-parser";
+import { SelectionParser } from "./selection-parser";
+import { OrderingParser } from "./ordering-parser";
+import { AggregationParser } from "./aggregation-parser";
+import { BatchParser } from "./batch-parser";
+import { CursorParser } from "./cursor-parser";
 
 // ================================
 // Core Parser Interface
@@ -52,206 +46,32 @@ export interface QueryParser {
 }
 
 // ================================
-// Parser Error Types
-// ================================
-
-export class ParseError extends Error {
-  constructor(
-    message: string,
-    public context?: {
-      model?: string;
-      field?: string;
-      operation?: string;
-      path?: string[];
-    }
-  ) {
-    super(message);
-    this.name = "ParseError";
-  }
-}
-
-// ================================
-// Field Resolution
-// ================================
-
-export class FieldResolver {
-  constructor(private registry: SchemaRegistry) {}
-
-  /**
-   * Resolves a field path like "user.profile.bio" to field/relation references
-   */
-  resolveFieldPath(
-    modelName: string,
-    fieldPath: string[]
-  ): FieldReference | RelationReference {
-    if (fieldPath.length === 0) {
-      throw new ParseError("Empty field path", { model: modelName });
-    }
-
-    let currentModel = this.registry.getModel(modelName);
-    if (!currentModel) {
-      throw new ParseError(`Model '${modelName}' not found`, {
-        model: modelName,
-      });
-    }
-
-    // Navigate through relations if path has multiple parts
-    for (let i = 0; i < fieldPath.length - 1; i++) {
-      const relationName = fieldPath[i];
-      if (!relationName) {
-        throw new ParseError("Invalid field path with empty segment", {
-          model: currentModel.name,
-          path: fieldPath,
-        });
-      }
-
-      const relation = currentModel.relations.get(relationName);
-
-      if (!relation) {
-        throw new ParseError(
-          `Relation '${relationName}' not found in model '${currentModel.name}'`,
-          { model: currentModel.name, field: relationName, path: fieldPath }
-        );
-      }
-
-      currentModel = relation.targetModel;
-      if (!currentModel) {
-        throw new ParseError(
-          `Target model for relation '${relationName}' is not available`,
-          { field: relationName, path: fieldPath }
-        );
-      }
-    }
-
-    // Get final field or relation
-    const finalName = fieldPath[fieldPath.length - 1];
-    if (!finalName) {
-      throw new ParseError("Invalid field path with empty final segment", {
-        model: currentModel.name,
-        path: fieldPath,
-      });
-    }
-
-    // Try field first
-    const field = currentModel.fields.get(finalName);
-    if (field) {
-      return this.registry.createFieldReference(currentModel.name, finalName);
-    }
-
-    // Try relation
-    const relation = currentModel.relations.get(finalName);
-    if (relation) {
-      return this.registry.createRelationReference(
-        currentModel.name,
-        finalName
-      );
-    }
-
-    throw new ParseError(
-      `Field or relation '${finalName}' not found in model '${currentModel.name}'`,
-      { model: currentModel.name, field: finalName, path: fieldPath }
-    );
-  }
-
-  /**
-   * Resolves a simple field name within a model
-   */
-  resolveField(modelName: string, fieldName: string): FieldReference {
-    const field = this.registry.getField(modelName, fieldName);
-    if (!field) {
-      throw new ParseError(
-        `Field '${fieldName}' not found in model '${modelName}'`,
-        { model: modelName, field: fieldName }
-      );
-    }
-    return this.registry.createFieldReference(modelName, fieldName);
-  }
-
-  /**
-   * Resolves a relation name within a model
-   */
-  resolveRelation(modelName: string, relationName: string): RelationReference {
-    const relation = this.registry.getRelation(modelName, relationName);
-    if (!relation) {
-      throw new ParseError(
-        `Relation '${relationName}' not found in model '${modelName}'`,
-        { model: modelName, field: relationName }
-      );
-    }
-    return this.registry.createRelationReference(modelName, relationName);
-  }
-}
-
-// ================================
-// Value Parser
-// ================================
-
-export class ValueParser {
-  /**
-   * Parses a value into AST format with proper type inference
-   */
-  parseValue(value: unknown, field?: BaseField<any>): ValueAST {
-    const valueType = this.inferValueType(value, field);
-    return createValue(value, valueType);
-  }
-
-  /**
-   * Infers BaseORM value type from JavaScript value and field context
-   */
-  private inferValueType(
-    value: unknown,
-    field?: BaseField<any>
-  ): BaseOrmValueType {
-    // Handle null explicitly
-    if (value === null) {
-      return "null";
-    }
-
-    // Use field type if available
-    if (field) {
-      // Map field types to value types
-      if (field["~fieldType"] === "string") return "string";
-      if (field["~fieldType"] === "int" || field["~fieldType"] === "float")
-        return "int";
-      if (field["~fieldType"] === "bigInt") return "bigInt";
-      if (field["~fieldType"] === "boolean") return "boolean";
-      if (field["~fieldType"] === "dateTime") return "dateTime";
-      if (field["~fieldType"] === "json") return "json";
-      if (field["~fieldType"] === "enum") return "enum";
-      if (field["~fieldType"] === "blob") return "blob";
-    }
-
-    // Fallback to JavaScript type inference
-    if (typeof value === "string") return "string";
-    if (typeof value === "boolean") return "boolean";
-    if (typeof value === "number") return "int";
-    if (typeof value === "bigint") return "bigInt";
-    if (value instanceof Date) return "dateTime";
-    if (Array.isArray(value)) return "array";
-
-    // Default to JSON for objects
-    return "json";
-  }
-}
-
-// ================================
-// Main Parser Implementation
+// Main Query Parser Implementation
 // ================================
 
 export class DefaultQueryParser implements QueryParser {
   private fieldResolver: FieldResolver;
   private valueParser: ValueParser;
   private filterParser: FilterParser;
+  private dataParser: DataParser;
+  private selectionParser: SelectionParser;
+  private orderingParser: OrderingParser;
+  private aggregationParser: AggregationParser;
+  private batchParser: BatchParser;
+  private cursorParser: CursorParser;
 
   constructor(public registry: SchemaRegistry) {
     this.fieldResolver = new FieldResolver(registry);
     this.valueParser = new ValueParser();
     this.filterParser = new FilterParser(this.fieldResolver, this.valueParser);
+    this.dataParser = new DataParser(this.fieldResolver, this.valueParser);
+    this.selectionParser = new SelectionParser(this.fieldResolver);
+    this.orderingParser = new OrderingParser(this.fieldResolver);
+    this.aggregationParser = new AggregationParser(this.fieldResolver);
+    this.batchParser = new BatchParser(this.dataParser);
+    this.cursorParser = new CursorParser(this.fieldResolver, this.valueParser);
   }
 
-  /**
-   * Main parsing entry point
-   */
   parse<M extends Model<any>, O extends Operation>(
     model: string,
     operation: O,
@@ -263,17 +83,23 @@ export class DefaultQueryParser implements QueryParser {
       type: "QUERY_ARGS",
     };
 
-    // Parse common arguments based on operation type
+    // Parse different clauses based on what's provided
     if (this.hasWhereClause(args)) {
       queryArgs.where = this.parseWhereClause(args.where, modelRef);
     }
 
+    // Handle data operations (regular or batch)
     if (this.hasDataClause(args)) {
       queryArgs.data = this.parseDataClause(args.data, modelRef);
+    } else if (this.hasBatchDataClause(args, operation)) {
+      queryArgs.data = this.parseBatchDataClause(args, modelRef, operation);
     }
 
+    // Handle selection (regular or aggregation)
     if (this.hasSelectClause(args)) {
       queryArgs.select = this.parseSelectClause(args.select, modelRef);
+    } else if (this.hasAggregateClause(args)) {
+      queryArgs.select = this.parseAggregateClause(args, modelRef);
     }
 
     if (this.hasIncludeClause(args)) {
@@ -284,12 +110,32 @@ export class DefaultQueryParser implements QueryParser {
       queryArgs.orderBy = this.parseOrderByClause(args.orderBy, modelRef);
     }
 
-    // Parse pagination
-    if ("take" in args && args.take !== undefined) {
-      queryArgs.take = args.take;
+    // Handle groupBy
+    if (this.hasGroupByClause(args)) {
+      queryArgs.groupBy = this.parseGroupByClause(args.groupBy, modelRef);
     }
-    if ("skip" in args && args.skip !== undefined) {
-      queryArgs.skip = args.skip;
+
+    // Handle having (similar to where but for grouped results)
+    if (this.hasHavingClause(args)) {
+      queryArgs.having = this.parseHavingClause(args.having, modelRef);
+    }
+
+    // Handle cursor-based pagination
+    if (this.hasCursorClause(args)) {
+      queryArgs.cursor = this.parseCursorClause(args.cursor, modelRef);
+    }
+
+    // Handle other standard query arguments
+    if ((args as any).take !== undefined) {
+      queryArgs.take = (args as any).take;
+    }
+
+    if ((args as any).skip !== undefined) {
+      queryArgs.skip = (args as any).skip;
+    }
+
+    if ((args as any).distinct !== undefined) {
+      queryArgs.distinct = (args as any).distinct;
     }
 
     return {
@@ -300,68 +146,138 @@ export class DefaultQueryParser implements QueryParser {
     };
   }
 
-  // ================================
-  // Type Guards for Arguments
-  // ================================
-
+  // Type guards for different clause types
   private hasWhereClause(args: any): args is { where: any } {
-    return args && typeof args.where === "object";
+    return args && typeof args === "object" && "where" in args;
   }
 
   private hasDataClause(args: any): args is { data: any } {
-    return args && typeof args.data === "object";
+    return args && typeof args === "object" && "data" in args;
+  }
+
+  private hasBatchDataClause(args: any, operation: Operation): boolean {
+    if (!args || typeof args !== "object") return false;
+
+    // Check for batch operations
+    return (
+      operation === "createMany" ||
+      operation === "updateMany" ||
+      operation === "deleteMany"
+    );
   }
 
   private hasSelectClause(args: any): args is { select: any } {
-    return args && typeof args.select === "object";
+    return args && typeof args === "object" && "select" in args;
+  }
+
+  private hasAggregateClause(args: any): boolean {
+    return (
+      args &&
+      typeof args === "object" &&
+      ("aggregate" in args ||
+        "_count" in args ||
+        "_avg" in args ||
+        "_sum" in args ||
+        "_min" in args ||
+        "_max" in args)
+    );
   }
 
   private hasIncludeClause(args: any): args is { include: any } {
-    return args && typeof args.include === "object";
+    return args && typeof args === "object" && "include" in args;
   }
 
   private hasOrderByClause(args: any): args is { orderBy: any } {
-    return args && args.orderBy !== undefined;
+    return args && typeof args === "object" && "orderBy" in args;
   }
 
-  // ================================
-  // Placeholder Methods (to be implemented)
-  // ================================
+  private hasGroupByClause(args: any): args is { groupBy: any } {
+    return args && typeof args === "object" && "groupBy" in args;
+  }
 
+  private hasHavingClause(args: any): args is { having: any } {
+    return args && typeof args === "object" && "having" in args;
+  }
+
+  private hasCursorClause(args: any): args is { cursor: any } {
+    return args && typeof args === "object" && "cursor" in args;
+  }
+
+  // Delegate parsing to specialized parsers
   private parseWhereClause(where: any, model: ModelReference): ConditionAST[] {
     return this.filterParser.parseWhere(where, model);
   }
 
   private parseDataClause(data: any, model: ModelReference): DataAST[] {
-    // TODO: Implement data clause parsing
-    throw new Error("parseDataClause not implemented yet");
+    return this.dataParser.parseData(data, model);
+  }
+
+  private parseBatchDataClause(
+    args: any,
+    model: ModelReference,
+    operation: Operation
+  ): BatchDataAST {
+    const batchOp = operation as "createMany" | "updateMany" | "deleteMany";
+    return this.batchParser.parseBatchOperation(batchOp, args, model);
   }
 
   private parseSelectClause(select: any, model: ModelReference): SelectionAST {
-    // TODO: Implement select clause parsing
-    throw new Error("parseSelectClause not implemented yet");
+    return this.selectionParser.parseSelect(select, model);
+  }
+
+  private parseAggregateClause(
+    args: any,
+    model: ModelReference
+  ): AggregationAST {
+    // Handle different aggregation formats
+    if (args.aggregate) {
+      return this.aggregationParser.parseAggregate(args.aggregate, model);
+    }
+
+    // Handle direct aggregation operations like { _count: true }
+    const aggregateObj: any = {};
+    for (const key of ["_count", "_avg", "_sum", "_min", "_max"]) {
+      if (args[key]) {
+        aggregateObj[key] = args[key];
+      }
+    }
+
+    return this.aggregationParser.parseAggregate(aggregateObj, model);
   }
 
   private parseIncludeClause(
     include: any,
     model: ModelReference
   ): InclusionAST {
-    // TODO: Implement include clause parsing
-    throw new Error("parseIncludeClause not implemented yet");
+    return this.selectionParser.parseInclude(include, model);
   }
 
   private parseOrderByClause(
     orderBy: any,
     model: ModelReference
   ): OrderingAST[] {
-    // TODO: Implement orderBy clause parsing
-    throw new Error("parseOrderByClause not implemented yet");
+    return this.orderingParser.parseOrderBy(orderBy, model);
+  }
+
+  private parseGroupByClause(
+    groupBy: any,
+    model: ModelReference
+  ): GroupByAST[] {
+    return this.aggregationParser.parseGroupBy(groupBy, model);
+  }
+
+  private parseHavingClause(
+    having: any,
+    model: ModelReference
+  ): ConditionAST[] {
+    // Having clause uses the same syntax as WHERE, just applied after grouping
+    return this.filterParser.parseWhere(having, model);
+  }
+
+  private parseCursorClause(cursor: any, model: ModelReference): CursorAST {
+    return this.cursorParser.parseCursor(cursor, model);
   }
 }
-
-// ================================
-// Parser Factory
-// ================================
 
 export function createQueryParser(registry: SchemaRegistry): QueryParser {
   return new DefaultQueryParser(registry);

@@ -8,8 +8,10 @@ import type {
   ModelFields,
   ModelRelations,
   MapFieldType,
+  GetUniqueFields,
 } from "../foundation/index.js";
 import type { FieldFilter } from "./filters.js";
+import { InferType } from "../../../index.js";
 
 /**
  * Extract target model from relation
@@ -89,8 +91,12 @@ export type WhereInput<TModel extends Model<any>> = ScalarWhereInput<TModel> & {
 };
 
 /**
- * Unique where input
+ * Unique where input - allows filtering on unique attributes and id
  */
 export type WhereUniqueInput<TModel extends Model<any>> = {
-  id?: string;
+  [K in GetUniqueFields<TModel>]?: ModelFields<TModel>[K] extends BaseField<
+    infer TState
+  >
+    ? InferType<TState>
+    : never;
 };

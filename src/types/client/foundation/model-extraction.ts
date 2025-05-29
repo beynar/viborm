@@ -31,6 +31,29 @@ type ActualRelationNames<TModel extends Model<any>> = {
     : never;
 }[keyof ExtractModelFields<TModel>];
 
+// Helper to get relation names that are actually Relation instances plural
+export type ActualPluralRelationNames<TModel extends Model<any>> = {
+  [K in keyof ExtractModelFields<TModel>]: ExtractModelFields<TModel>[K] extends Relation<
+    any,
+    infer TRelationType
+  >
+    ? TRelationType extends "manyToMany" | "oneToMany"
+      ? K
+      : never
+    : never;
+}[keyof ExtractModelFields<TModel>];
+
+export type ActualSingleRelationNames<TModel extends Model<any>> = {
+  [K in keyof ExtractModelFields<TModel>]: ExtractModelFields<TModel>[K] extends Relation<
+    any,
+    infer TRelationType
+  >
+    ? TRelationType extends "oneToOne" | "manyToOne"
+      ? K
+      : never
+    : never;
+}[keyof ExtractModelFields<TModel>];
+
 // Extract only BaseField instances from model definition
 export type ExtractFields<TModel extends Model<any>> =
   ActualFieldNames<TModel> extends never
@@ -43,6 +66,18 @@ export type ExtractFields<TModel extends Model<any>> =
 
 // Extract only Relation instances from model definition
 export type ExtractRelations<TModel extends Model<any>> =
+  ActualRelationNames<TModel> extends never
+    ? {} // Return empty object if no relations
+    : {
+        [K in ActualRelationNames<TModel>]: ExtractModelFields<TModel>[K] extends Relation<
+          any,
+          any
+        >
+          ? ExtractModelFields<TModel>[K]
+          : never;
+      };
+// Extract only Relation instances from model definition
+export type ExtractPluralRelations<TModel extends Model<any>> =
   ActualRelationNames<TModel> extends never
     ? {} // Return empty object if no relations
     : {

@@ -12,6 +12,11 @@ import type {
   MapFieldType,
 } from "../foundation/index.js";
 
+// Import types that will be used in nested inputs
+import type { WhereInput } from "./where-input.js";
+import type { OrderByInput } from "./orderby-input.js";
+import { CountSelectInput } from "../operations/find-args.js";
+
 // ===== CORE SELECTION TYPES =====
 
 /**
@@ -34,6 +39,10 @@ export type SelectInput<TModel extends Model<any>> = {
       ? boolean | NestedSelectInput<ModelRelations<TModel>[K]>
       : never
     : never;
+} & {
+  _count?: {
+    select: CountSelectInput<TModel>;
+  };
 };
 
 /**
@@ -91,10 +100,6 @@ export type NestedIncludeInput<TRelation extends Relation<any, any>> = {
   take?: number;
   skip?: number;
 };
-
-// Import types that will be used in nested inputs
-import type { WhereInput } from "./where-input.js";
-import type { OrderByInput } from "./orderby-input.js";
 
 // ===== SELECTION VALIDATION =====
 

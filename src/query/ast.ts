@@ -7,6 +7,25 @@ import { Relation } from "../schema/relation";
 import { Operation } from "../types/client/operations/defintion";
 
 // ================================
+// Parser Error Types
+// ================================
+
+export class ParseError extends Error {
+  constructor(
+    message: string,
+    public context?: {
+      model?: string;
+      field?: string;
+      operation?: string;
+      path?: string[];
+    }
+  ) {
+    super(message);
+    this.name = "ParseError";
+  }
+}
+
+// ================================
 // Base AST Node Types
 // ================================
 
@@ -62,14 +81,15 @@ export interface QueryAST extends ASTNode {
 export interface QueryArgsAST extends ASTNode {
   type: "QUERY_ARGS";
   where?: ConditionAST[];
-  data?: DataAST[];
-  select?: SelectionAST;
+  data?: DataAST[] | BatchDataAST; // Support both single and batch data operations
+  select?: SelectionAST | AggregationAST; // Support both selection and aggregation
   include?: InclusionAST;
   orderBy?: OrderingAST[];
-  groupBy?: string[];
+  groupBy?: GroupByAST[];
   having?: ConditionAST[];
   take?: number;
   skip?: number;
+  cursor?: CursorAST; // Cursor-based pagination
   distinct?: string[];
 }
 
@@ -407,6 +427,10 @@ export interface ASTVisitor<T = void> {
   visitSelection?(node: SelectionAST): T;
   visitInclusion?(node: InclusionAST): T;
   visitData?(node: DataAST): T;
+  visitBatchData?(node: BatchDataAST): T;
+  visitAggregation?(node: AggregationAST): T;
+  visitGroupBy?(node: GroupByAST): T;
+  visitCursor?(node: CursorAST): T;
   visitOrdering?(node: OrderingAST): T;
   visitValue?(node: ValueAST): T;
 }
@@ -415,7 +439,9 @@ export interface ASTTransformer {
   transform(node: QueryAST): QueryAST;
   transformCondition(node: ConditionAST): ConditionAST;
   transformSelection(node: SelectionAST): SelectionAST;
+  transformAggregation(node: AggregationAST): AggregationAST;
   transformData(node: DataAST): DataAST;
+  transformBatchData(node: BatchDataAST): BatchDataAST;
   transformValue(node: ValueAST): ValueAST;
 }
 
@@ -427,6 +453,8 @@ export interface ASTValidator {
   validate(ast: QueryAST): ValidationResult;
   validateCondition(condition: ConditionAST): ValidationResult;
   validateData(data: DataAST): ValidationResult;
+  validateBatchData(batchData: BatchDataAST): ValidationResult;
+  validateAggregation(aggregation: AggregationAST): ValidationResult;
 }
 
 export interface ValidationResult {
@@ -483,4 +511,134 @@ export function createValue(
   }
 
   return valueNode;
+}
+
+// ================================
+// Aggregation System
+// ================================
+
+export interface AggregationAST extends ASTNode {
+  type: "AGGREGATION";
+  model: ModelReference;
+  aggregations: AggregationFieldAST[];
+}
+
+export interface AggregationFieldAST extends ASTNode {
+  type: "AGGREGATION_FIELD";
+  operation: AggregationOperation;
+  field?: FieldReference; // Optional for count operations
+  alias?: string; // For custom naming
+}
+
+export type AggregationOperation = "_count" | "_avg" | "_sum" | "_min" | "_max";
+
+export interface GroupByAST extends ASTNode {
+  type: "GROUP_BY";
+  field: FieldReference;
+}
+
+// ================================
+// Batch Operations System
+// ================================
+
+export interface BatchDataAST extends ASTNode {
+  type: "BATCH_DATA";
+  model: ModelReference;
+  operation: BatchOperation;
+  items: DataAST[]; // Array of individual data operations
+  options?: BatchOptionsAST;
+}
+
+export interface BatchOptionsAST {
+  skipDuplicates?: boolean; // For createMany
+  updateOnConflict?: boolean; // For upsert behavior
+}
+
+export type BatchOperation = "createMany" | "updateMany" | "deleteMany";
+
+// ================================
+// Cursor Pagination System
+// ================================
+
+export interface CursorAST extends ASTNode {
+  type: "CURSOR";
+  field: FieldReference;
+  value: ValueAST;
+  direction?: "forward" | "backward";
+}
+
+export function createAggregation(
+  model: ModelReference,
+  aggregations: AggregationFieldAST[]
+): AggregationAST {
+  return {
+    type: "AGGREGATION",
+    model,
+    aggregations,
+  };
+}
+
+export function createAggregationField(
+  operation: AggregationOperation,
+  field?: FieldReference,
+  alias?: string
+): AggregationFieldAST {
+  const aggregationField: AggregationFieldAST = {
+    type: "AGGREGATION_FIELD",
+    operation,
+  };
+
+  if (field !== undefined) {
+    aggregationField.field = field;
+  }
+  if (alias !== undefined) {
+    aggregationField.alias = alias;
+  }
+
+  return aggregationField;
+}
+
+export function createBatchData(
+  model: ModelReference,
+  operation: BatchOperation,
+  items: DataAST[],
+  options?: BatchOptionsAST
+): BatchDataAST {
+  const batchData: BatchDataAST = {
+    type: "BATCH_DATA",
+    model,
+    operation,
+    items,
+  };
+
+  if (options !== undefined) {
+    batchData.options = options;
+  }
+
+  return batchData;
+}
+
+export function createGroupBy(field: FieldReference): GroupByAST {
+  return {
+    type: "GROUP_BY",
+    field,
+  };
+}
+
+export function createCursor(
+  field: FieldReference,
+  value: ValueAST,
+  direction?: "forward" | "backward"
+): CursorAST {
+  const cursor: CursorAST = {
+    type: "CURSOR",
+    field,
+    value,
+  };
+
+  if (direction !== undefined) {
+    cursor.direction = direction;
+  }
+
+  return cursor;
 }

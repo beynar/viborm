@@ -2,18 +2,13 @@
 // Type-safe argument interfaces for find operations
 
 import type { Model } from "../../../schema/model.js";
-import type {
-  WhereInput,
-  WhereUniqueInput,
-  ScalarWhereInput,
-} from "../query/where-input.js";
+import type { WhereInput, WhereUniqueInput } from "../query/where-input.js";
 import type {
   SelectInput,
   IncludeInput,
   ValidateSelectInclude,
 } from "../query/select-input.js";
 import type {
-  OrderByInput,
   OrderByWithRelationInput,
   OrderByArrayInput,
 } from "../query/orderby-input.js";
@@ -251,6 +246,7 @@ import type {
   FieldNames,
   ModelFields,
   MapFieldType,
+  ActualPluralRelationNames,
 } from "../foundation/index.js";
 import type { BaseField } from "../../../schema/fields/base.js";
 
@@ -258,9 +254,11 @@ import type { BaseField } from "../../../schema/fields/base.js";
  * Count selection input
  */
 export type CountSelectInput<TModel extends Model<any>> = {
-  [K in FieldNames<TModel>]?: boolean;
-} & {
-  _all?: boolean;
+  [K in ActualPluralRelationNames<TModel>]?:
+    | boolean
+    | {
+        where: WhereInput<TModel>;
+      };
 };
 
 /**

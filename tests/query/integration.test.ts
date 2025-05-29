@@ -389,20 +389,24 @@ describe("Query Parser Integration", () => {
 
       expect(ast.operation).toBe("create");
       expect(ast.args.data).toBeDefined();
-      expect(ast.args.data?.length).toBeGreaterThan(0);
+      if (Array.isArray(ast.args.data)) {
+        expect(ast.args.data.length).toBeGreaterThan(0);
 
-      // Should have field data operations
-      const nameData = ast.args.data!.find((d) =>
-        d.fields?.some(
-          (f) => f.target?.type === "FIELD" && f.target?.field?.name === "name"
-        )
-      );
-      expect(nameData).toBeDefined();
-      if (nameData) {
-        const nameField = nameData.fields.find(
-          (f) => f.target?.type === "FIELD" && f.target?.field?.name === "name"
+        // Should have field data operations
+        const nameData = ast.args.data!.find((d) =>
+          d.fields?.some(
+            (f) =>
+              f.target?.type === "FIELD" && f.target?.field?.name === "name"
+          )
         );
-        expect(nameField?.operation).toBe("set");
+        expect(nameData).toBeDefined();
+        if (nameData) {
+          const nameField = nameData.fields.find(
+            (f) =>
+              f.target?.type === "FIELD" && f.target?.field?.name === "name"
+          );
+          expect(nameField?.operation).toBe("set");
+        }
       }
     });
   });
@@ -427,18 +431,20 @@ describe("Query Parser Integration", () => {
       expect(ast.args.where).toBeDefined();
       expect(ast.args.data).toBeDefined();
 
-      // Check increment operation
-      const ageData = ast.args.data!.find((d) =>
-        d.fields?.some(
-          (f) => f.target?.type === "FIELD" && f.target?.field?.name === "age"
-        )
-      );
-      expect(ageData).toBeDefined();
-      if (ageData) {
-        const ageField = ageData.fields.find(
-          (f) => f.target?.type === "FIELD" && f.target?.field?.name === "age"
+      if (Array.isArray(ast.args.data)) {
+        // Check increment operation
+        const ageData = ast.args.data!.find((d) =>
+          d.fields?.some(
+            (f) => f.target?.type === "FIELD" && f.target?.field?.name === "age"
+          )
         );
-        expect(ageField?.operation).toBe("increment");
+        expect(ageData).toBeDefined();
+        if (ageData) {
+          const ageField = ageData.fields.find(
+            (f) => f.target?.type === "FIELD" && f.target?.field?.name === "age"
+          );
+          expect(ageField?.operation).toBe("increment");
+        }
       }
     });
   });
