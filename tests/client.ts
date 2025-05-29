@@ -6,14 +6,13 @@ const client = createClient({ schema, adapter: {} as any });
 const res = await client.post.findFirstOrThrow({
   where: {
     id: "01J9000000000000000000000",
-    metadata: 
+    metadata: {
       path: ["tags"],
-      equals: {
-        tags: ["test"],
-      },
+      equals: "true",
+      array_ends_with,
     },
   },
-  include: {
-    author: true,
+  select: {
+    authorId: true,
   },
 });
