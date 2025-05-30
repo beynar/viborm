@@ -14,6 +14,7 @@ describe("Enhanced Query Parser Integration", () => {
     age: s.int(),
     email: s.string(),
     createdAt: s.dateTime().unique(),
+    posts: s.relation.oneToMany(() => postModel),
   });
 
   const postModel = s.model("post", {
@@ -23,6 +24,7 @@ describe("Enhanced Query Parser Integration", () => {
     authorId: s.string(),
     likes: s.int(),
     createdAt: s.dateTime(),
+    author: s.relation.manyToOne(() => userModel),
   });
 
   beforeEach(() => {

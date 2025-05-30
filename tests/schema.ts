@@ -1,5 +1,6 @@
 import z from "zod/v4";
 import { s } from "../src/schema/index.js";
+import { ModelType } from "../src/index.js";
 
 export const string = s.string();
 export const nullableString = s.string().nullable();
@@ -119,10 +120,12 @@ export const testUser = s.model("User", {
   email: s.string().unique(),
   age: s.int().nullable(),
   bio: s.string().nullable(),
+  tags: s.string().array(),
   createdAt: s.dateTime().now(),
   updatedAt: s.dateTime().now(),
   posts: s.relation().oneToMany(() => testPost),
   profile: s.relation().oneToOne(() => testProfile),
+  friends: s.relation().manyToMany(() => testUser),
 });
 
 /**
@@ -133,6 +136,7 @@ export const testPost = s.model("Post", {
   title: s.string(),
   content: s.string().nullable(),
   published: s.boolean().default(false),
+
   createdAt: s.dateTime().now(),
   updatedAt: s.dateTime().now(),
   authorId: s.string(),

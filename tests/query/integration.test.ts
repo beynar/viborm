@@ -307,14 +307,19 @@ describe("Query Parser Integration", () => {
       } as any);
 
       expect(ast.args.select).toBeDefined();
-      expect(Array.isArray(ast.args.select)).toBe(true);
+      expect(ast.args.select?.type).toBe("SELECTION");
 
-      if (Array.isArray(ast.args.select)) {
-        expect(ast.args.select.length).toBe(3);
-        const selectFields = ast.args.select.map((s) => s.field.name);
+      // Check the correct structure: select is a SelectionAST object with fields array
+      if (ast.args.select && "fields" in ast.args.select) {
+        expect(Array.isArray(ast.args.select.fields)).toBe(true);
+        expect(ast.args.select.fields.length).toBe(3);
+
+        const selectFields = ast.args.select.fields.map((s) => s.field.name);
         expect(selectFields).toContain("id");
         expect(selectFields).toContain("name");
         expect(selectFields).toContain("email");
+      } else {
+        throw new Error("Expected select to be a SelectionAST with fields");
       }
     });
 
@@ -331,23 +336,29 @@ describe("Query Parser Integration", () => {
       } as any);
 
       expect(ast.args.include).toBeDefined();
-      expect(Array.isArray(ast.args.include)).toBe(true);
+      expect(ast.args.include?.type).toBe("INCLUSION");
 
-      if (Array.isArray(ast.args.include)) {
-        expect(ast.args.include.length).toBe(2);
+      // Check the correct structure: include is an InclusionAST object with relations array
+      if (ast.args.include && "relations" in ast.args.include) {
+        expect(Array.isArray(ast.args.include.relations)).toBe(true);
+        expect(ast.args.include.relations.length).toBe(2);
 
         // Check profile inclusion
-        const profileInclude = ast.args.include.find(
+        const profileInclude = ast.args.include.relations.find(
           (inc) => inc.relation.name === "profile"
         );
         expect(profileInclude).toBeDefined();
 
         // Check posts inclusion with nested tags
-        const postsInclude = ast.args.include.find(
+        const postsInclude = ast.args.include.relations.find(
           (inc) => inc.relation.name === "posts"
         );
         expect(postsInclude).toBeDefined();
         expect(postsInclude?.nested).toBeDefined();
+      } else {
+        throw new Error(
+          "Expected include to be an InclusionAST with relations"
+        );
       }
     });
   });
@@ -632,13 +643,13 @@ describe("Query Parser Integration", () => {
         parser.parse("User", "findMany", {
           where: {
             posts: {
-              invalidOperation: {
-                title: "test",
-              },
+              invalidOperation: { title: "test" },
             },
           },
         } as any);
-      }).toThrow("Invalid relation operation 'invalidOperation'");
+      }).toThrow(
+        "Invalid relation filter for 'posts': must use 'some', 'every', 'none', 'is', or 'isNot'"
+      );
     });
 
     test("should throw error for unknown fields", () => {

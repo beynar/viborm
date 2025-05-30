@@ -31,6 +31,7 @@ import { OrderingParser } from "./ordering-parser";
 import { AggregationParser } from "./aggregation-parser";
 import { BatchParser } from "./batch-parser";
 import { CursorParser } from "./cursor-parser";
+import { UpsertParser } from "./upsert-parser";
 
 // ================================
 // Core Parser Interface
@@ -59,6 +60,7 @@ export class DefaultQueryParser implements QueryParser {
   private aggregationParser: AggregationParser;
   private batchParser: BatchParser;
   private cursorParser: CursorParser;
+  private upsertParser: UpsertParser;
 
   constructor(public registry: SchemaRegistry) {
     this.fieldResolver = new FieldResolver(registry);
@@ -70,6 +72,7 @@ export class DefaultQueryParser implements QueryParser {
     this.aggregationParser = new AggregationParser(this.fieldResolver);
     this.batchParser = new BatchParser(this.dataParser);
     this.cursorParser = new CursorParser(this.fieldResolver, this.valueParser);
+    this.upsertParser = new UpsertParser(this.dataParser, this.fieldResolver);
   }
 
   parse<M extends Model<any>, O extends Operation>(
@@ -77,7 +80,14 @@ export class DefaultQueryParser implements QueryParser {
     operation: O,
     args: OperationPayload<O, M>
   ): QueryAST {
+    // Validate operation
+    this.validateOperation(operation);
+
+    // Validate model existence (this will throw if model doesn't exist)
     const modelRef = this.registry.createModelReference(model);
+
+    // Validate required fields for specific operations
+    this.validateRequiredFields(operation, args);
 
     const queryArgs: QueryArgsAST = {
       type: "QUERY_ARGS",
@@ -88,11 +98,17 @@ export class DefaultQueryParser implements QueryParser {
       queryArgs.where = this.parseWhereClause(args.where, modelRef);
     }
 
-    // Handle data operations (regular or batch)
-    if (this.hasDataClause(args)) {
-      queryArgs.data = this.parseDataClause(args.data, modelRef);
-    } else if (this.hasBatchDataClause(args, operation)) {
-      queryArgs.data = this.parseBatchDataClause(args, modelRef, operation);
+    // Handle upsert operations specially
+    if (operation === "upsert") {
+      const upsertData = this.upsertParser.parseUpsert(args, modelRef);
+      (queryArgs as any).upsert = upsertData;
+    } else {
+      // Handle data operations (batch takes priority over regular)
+      if (this.hasBatchDataClause(args, operation)) {
+        queryArgs.data = this.parseBatchDataClause(args, modelRef, operation);
+      } else if (this.hasDataClause(args)) {
+        queryArgs.data = this.parseDataClause(args.data, modelRef);
+      }
     }
 
     // Handle selection (regular or aggregation)
@@ -144,6 +160,60 @@ export class DefaultQueryParser implements QueryParser {
       model: modelRef,
       args: queryArgs,
     };
+  }
+
+  // Validation methods
+  private validateOperation(operation: Operation): void {
+    const validOperations = [
+      "findMany",
+      "findFirst",
+      "findUnique",
+      "create",
+      "update",
+      "upsert",
+      "delete",
+      "createMany",
+      "updateMany",
+      "deleteMany",
+      "aggregate",
+      "count",
+      "groupBy",
+    ];
+
+    if (!validOperations.includes(operation)) {
+      throw new ParseError(`Unknown operation: ${operation}`, { operation });
+    }
+  }
+
+  private validateRequiredFields(operation: Operation, args: any): void {
+    switch (operation) {
+      case "create":
+        if (!args || typeof args !== "object" || !args.data) {
+          throw new ParseError(`${operation} requires data field`, {
+            operation,
+          });
+        }
+        break;
+
+      case "updateMany":
+        if (!args || typeof args !== "object" || !args.data) {
+          throw new ParseError(`${operation}.data is required`, { operation });
+        }
+        break;
+
+      case "createMany":
+        if (!args || typeof args !== "object" || !args.data) {
+          throw new ParseError(`${operation} requires data field`, {
+            operation,
+          });
+        }
+        if (!Array.isArray(args.data)) {
+          throw new ParseError(`${operation}.data must be an array`, {
+            operation,
+          });
+        }
+        break;
+    }
   }
 
   // Type guards for different clause types

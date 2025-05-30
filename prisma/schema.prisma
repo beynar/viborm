@@ -7,12 +7,13 @@
 generator client {
   provider        = "prisma-client"
   output          = "../generated/prisma"
-  previewFeatures = ["queryCompiler", "driverAdapters"]
+  previewFeatures = ["driverAdapters", "relationJoins"]
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider     = "postgresql"
+  url          = env("DATABASE_URL")
+  relationMode = "prisma"
 }
 
 model User {
@@ -21,6 +22,7 @@ model User {
   name      String?
   password  String
   metadata  Json?
+  tags      String[]
   bio       String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

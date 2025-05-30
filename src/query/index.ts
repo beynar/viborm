@@ -11,3 +11,5 @@ export * from "./ordering-parser";
 export * from "./aggregation-parser";
 export * from "./batch-parser";
 export * from "./cursor-parser";
+export * from "./upsert-parser";
+export * from "./sql-ast-visitor";

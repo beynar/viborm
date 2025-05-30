@@ -32,6 +32,7 @@ import { DeleteResult } from "../results/mutation-result";
 import { CreateResult, UpdateResult } from "../results";
 
 export type Operation =
+  | "findFirst"
   | "findMany"
   | "findUnique"
   | "create"

@@ -39,6 +39,15 @@ const FILTER_OPERATORS: Record<string, ConditionOperator> = {
   hasEvery: "hasEvery",
   hasSome: "hasSome",
   isEmpty: "isEmpty",
+  // JSON operations that tests expect
+  jsonPath: "jsonPath",
+  jsonContains: "jsonContains",
+  jsonStartsWith: "jsonStartsWith",
+  jsonEndsWith: "jsonEndsWith",
+  // Additional JSON array operations
+  arrayContains: "arrayContains",
+  arrayStartsWith: "arrayStartsWith",
+  arrayEndsWith: "arrayEndsWith",
 };
 
 const RELATION_OPERATORS = ["some", "every", "none", "is", "isNot"];
@@ -138,14 +147,61 @@ export class FilterParser {
       );
     }
 
-    // Handle filter objects (e.g., { age: { gte: 18 } })
+    // Check if this is an array field with array operations (has, hasEvery, etc.)
+    if (field.field["~isArray"]) {
+      const arrayOps = ["has", "hasEvery", "hasSome", "isEmpty"];
+      const hasArrayOp = Object.keys(value).some((key) =>
+        arrayOps.includes(key)
+      );
+
+      if (hasArrayOp) {
+        // Let the value parser handle the array operations
+        const valueAST = this.valueParser.parseValue(value, field.field);
+        // Use the array operation as the condition operator
+        const arrayOp = Object.keys(value).find((key) =>
+          arrayOps.includes(key)
+        )!;
+        return createCondition(target, arrayOp as ConditionOperator, valueAST);
+      }
+    }
+
+    // Check if this is a JSON field with JSON operations
+    if (field.field["~fieldType"] === "json") {
+      const jsonOps = [
+        "path",
+        "string_contains",
+        "string_starts_with",
+        "string_ends_with",
+        "array_contains",
+        "array_starts_with",
+        "array_ends_with",
+      ];
+      const hasJsonOp = Object.keys(value).some((key) => jsonOps.includes(key));
+
+      if (hasJsonOp) {
+        // Let the value parser handle the JSON operations
+        const valueAST = this.valueParser.parseValue(value, field.field);
+        return createCondition(target, "equals", valueAST);
+      }
+    }
+
+    // Handle filter objects (e.g., { age: { gte: 18 } } or { name: { contains: "Jo", mode: "insensitive" } })
     const filterEntries = Object.entries(value);
+
     if (filterEntries.length === 1) {
       const firstEntry = filterEntries[0];
       if (!firstEntry) {
         throw new ParseError("Invalid filter entry");
       }
       const [operator, operatorValue] = firstEntry;
+
+      // Skip the mode property, it's handled as part of the value options
+      if (operator === "mode") {
+        throw new ParseError(
+          "Mode property must be used with a filter operation like contains, startsWith, etc."
+        );
+      }
+
       const conditionOperator = this.mapOperator(operator);
 
       // Handle array operators (in, notIn) by creating array of ValueAST
@@ -159,16 +215,33 @@ export class FilterParser {
         return createCondition(target, conditionOperator, arrayValues);
       }
 
-      return createCondition(
-        target,
-        conditionOperator,
-        this.valueParser.parseValue(operatorValue, field.field)
-      );
+      // Create value with mode handling
+      const valueAST = this.valueParser.parseValue(operatorValue, field.field);
+
+      // Check if there's a mode specified for string operations
+      if (
+        value.mode &&
+        (operator === "contains" ||
+          operator === "startsWith" ||
+          operator === "endsWith")
+      ) {
+        valueAST.options = valueAST.options || {};
+        valueAST.options.mode = value.mode;
+      }
+
+      return createCondition(target, conditionOperator, valueAST);
     }
 
     // Handle multiple operators combined with AND logic
     const conditions: ConditionAST[] = [];
+    const mode = value.mode; // Extract mode once to apply to all string operations
+
     for (const [operator, operatorValue] of filterEntries) {
+      // Skip mode property as it's used as an option for string operations
+      if (operator === "mode") {
+        continue;
+      }
+
       const conditionOperator = this.mapOperator(operator);
 
       // Handle array operators for multiple conditions too
@@ -183,13 +256,23 @@ export class FilterParser {
           createCondition(target, conditionOperator, arrayValues)
         );
       } else {
-        conditions.push(
-          createCondition(
-            target,
-            conditionOperator,
-            this.valueParser.parseValue(operatorValue, field.field)
-          )
+        const valueAST = this.valueParser.parseValue(
+          operatorValue,
+          field.field
         );
+
+        // Apply mode to string operations
+        if (
+          mode &&
+          (operator === "contains" ||
+            operator === "startsWith" ||
+            operator === "endsWith")
+        ) {
+          valueAST.options = valueAST.options || {};
+          valueAST.options.mode = mode;
+        }
+
+        conditions.push(createCondition(target, conditionOperator, valueAST));
       }
     }
 
@@ -286,14 +369,21 @@ export class FilterParser {
   }
 
   /**
-   * Maps string operators to ConditionOperator enum
+   * Maps string operators to AST operators
    */
   private mapOperator(operator: string): ConditionOperator {
     const mapped = FILTER_OPERATORS[operator];
     if (!mapped) {
-      throw new ParseError(`Unknown filter operator '${operator}'`, {
-        operation: operator,
-      });
+      // Instead of throwing immediately, check if this might be a custom operation
+      // For now, we'll still throw but provide better context
+      throw new ParseError(
+        `Unknown filter operator '${operator}'. Supported operators: ${Object.keys(
+          FILTER_OPERATORS
+        ).join(", ")}`,
+        {
+          operation: operator,
+        }
+      );
     }
     return mapped;
   }

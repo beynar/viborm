@@ -168,6 +168,10 @@ export class AggregationParser {
             model.name,
             fieldName
           );
+
+          // Validate field type compatibility with aggregation operation
+          this.validateAggregationFieldType(operation, fieldRef);
+
           aggregations.push(createAggregationField(operation, fieldRef));
         } catch (error) {
           if (error instanceof ParseError) {
@@ -186,6 +190,57 @@ export class AggregationParser {
     }
 
     return aggregations;
+  }
+
+  /**
+   * Validates that aggregation operations are compatible with field types
+   */
+  private validateAggregationFieldType(
+    operation: AggregationOperation,
+    field: FieldReference
+  ): void {
+    const fieldType = field.field["~fieldType"];
+
+    // Numeric operations require numeric fields
+    const numericOperations = ["_avg", "_sum"];
+    const numericTypes = ["int", "bigInt", "float", "decimal"];
+
+    if (numericOperations.includes(operation)) {
+      if (!fieldType || !numericTypes.includes(fieldType)) {
+        throw new ParseError(
+          `${operation} operation requires a numeric field, but field '${field.name}' is of type '${fieldType}'`,
+          {
+            model: field.model.name,
+            field: field.name,
+            operation,
+          }
+        );
+      }
+    }
+
+    // _min and _max work on orderable types
+    const orderableOperations = ["_min", "_max"];
+    const orderableTypes = [
+      "int",
+      "bigInt",
+      "float",
+      "decimal",
+      "string",
+      "dateTime",
+    ];
+
+    if (orderableOperations.includes(operation)) {
+      if (!fieldType || !orderableTypes.includes(fieldType)) {
+        throw new ParseError(
+          `${operation} operation requires an orderable field, but field '${field.name}' is of type '${fieldType}'`,
+          {
+            model: field.model.name,
+            field: field.name,
+            operation,
+          }
+        );
+      }
+    }
   }
 
   /**

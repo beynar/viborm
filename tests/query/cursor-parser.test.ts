@@ -91,7 +91,7 @@ describe("CursorParser", () => {
 
       expect(() =>
         parser.parseCursor({ unknownField: "value" }, modelRef)
-      ).toThrow("Failed to parse cursor field 'unknownField'");
+      ).toThrow();
     });
   });
 

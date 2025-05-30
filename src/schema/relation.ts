@@ -4,7 +4,7 @@
 
 import type { RelationType, CascadeOptions } from "../types/index.js";
 import { Model } from "./model.js";
-
+import { Simplify } from "type-fest";
 export type Getter = () => Model<any>;
 
 // Relation options interface
@@ -55,8 +55,8 @@ export class Relation<
     return {} as G extends () => infer M
       ? M extends Model<any>
         ? T extends "oneToMany" | "manyToMany"
-          ? M["infer"][]
-          : M["infer"]
+          ? Simplify<M["infer"]>[]
+          : Simplify<M["infer"]>
         : never
       : never;
   }

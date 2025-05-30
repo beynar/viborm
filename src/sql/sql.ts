@@ -20,7 +20,6 @@ export class Sql {
       if (rawStrings.length === 0) {
         throw new TypeError("Expected at least 1 string");
       }
-
       throw new TypeError(
         `Expected ${rawStrings.length} strings to have ${
           rawStrings.length - 1
@@ -66,91 +65,42 @@ export class Sql {
     }
   }
 
-  get sql() {
+  toStatement(placeholder: "$n" | ":n" | "?" = "?") {
     const len = this.strings.length;
     let i = 1;
     let value = this.strings[0]!;
-    while (i < len) value += `?${this.strings[i++]!}`;
+    while (i < len) value += `${placeholder}${i}${this.strings[i++]!}`;
     return value;
-  }
-
-  get statement() {
-    const len = this.strings.length;
-    let i = 1;
-    let value = this.strings[0]!;
-    while (i < len) value += `:${i}${this.strings[i++]!}`;
-    return value;
-  }
-
-  get text() {
-    const len = this.strings.length;
-    let i = 1;
-    let value = this.strings[0]!;
-    while (i < len) value += `$${i}${this.strings[i++]!}`;
-    return value;
-  }
-
-  inspect() {
-    return {
-      sql: this.sql,
-      statement: this.statement,
-      text: this.text,
-      values: this.values,
-    };
   }
 }
 
-/**
- * Create a SQL query for a list of values.
- */
-export function join(
-  values: readonly RawValue[],
-  separator = ",",
-  prefix = "",
-  suffix = ""
-) {
-  if (values.length === 0) {
-    throw new TypeError(
-      "Expected `join([])` to be called with an array of multiple elements, but got an empty array"
-    );
-  }
-
-  return new Sql(
-    [prefix, ...Array(values.length - 1).fill(separator), suffix],
-    values
-  );
-}
-
-/**
- * Create a SQL query for a list of structured values.
- */
-export function bulk(
-  data: ReadonlyArray<ReadonlyArray<RawValue>>,
-  separator = ",",
-  prefix = "",
-  suffix = ""
-) {
-  const firstRow = data[0];
-  const length = data.length && firstRow ? firstRow.length : 0;
-
-  if (length === 0) {
-    throw new TypeError(
-      "Expected `bulk([][])` to be called with a nested array of multiple elements, but got an empty array"
-    );
-  }
+function spreadValues(...data: Array<Record<string, RawValue>>) {
+  const firstRow = data[0]!;
+  // Assuming all rows have the same keys
+  const valueKeys = Object.keys(firstRow) as string[];
+  const allLengths = new Set();
 
   const values = data.map((item, index) => {
-    if (item.length !== length) {
-      throw new TypeError(
-        `Expected \`bulk([${index}][])\` to have a length of ${length}, but got ${item.length}`
-      );
-    }
-
-    return new Sql(["(", ...Array(item.length - 1).fill(separator), ")"], item);
+    const keys = Object.keys(item);
+    const values = keys.map((key) => item[key]);
+    allLengths.add(values.length);
+    return new Sql(["(", ...Array(keys.length - 1).fill(","), ")"], values);
   });
 
+  if (allLengths.size > 1) {
+    throw new TypeError(
+      "All inserted rows must have the same number of values"
+    );
+  }
+
+  allLengths.clear();
+
   return new Sql(
-    [prefix, ...Array(values.length - 1).fill(separator), suffix],
+    [
+      `(${valueKeys.join(",")}) VALUES `,
+      ...Array(values.length - 1).fill(","),
+      ")",
+    ],
     values
   );
 }
@@ -158,21 +108,71 @@ export function bulk(
 /**
  * Create raw SQL statement.
  */
-export function raw(value: string) {
-  return new Sql([value], []);
+function raw(strings: readonly string[], ...values: readonly RawValue[]) {
+  const concatenated = strings.reduce((acc, string, index) => {
+    return acc + string + (values[index] ?? "");
+  }, "");
+  return new Sql([concatenated], []);
+}
+
+const wrap = (prefix: string, wrapped: Sql, suffix: string) => {
+  return sql`${new Sql([prefix], [])}${wrapped}${new Sql([suffix], [])}`;
+};
+
+/**
+ * Create a SQL query for a list of values.
+ */
+function join(
+  values: readonly Sql[],
+  separator = ",",
+  prefix = "",
+  suffix = ""
+) {
+  return new Sql(
+    [prefix, ...Array(values.length - 1).fill(separator), suffix],
+    values
+  );
 }
 
 /**
  * Placeholder value for "no text".
  */
-export const empty = raw("");
+const empty = raw``;
 
 /**
  * Create a SQL object from a template string.
  */
-export default function sql(
-  strings: readonly string[],
-  ...values: readonly RawValue[]
-) {
+function sql(strings: readonly string[], ...values: readonly RawValue[]) {
   return new Sql(strings, values);
 }
+
+const sqlProxy = new Proxy(sql, {
+  get(target, prop) {
+    if (prop === "raw") {
+      return raw;
+    }
+    if (prop === "spreadValues") {
+      return spreadValues;
+    }
+    if (prop === "empty") {
+      return empty;
+    }
+    if (prop === "wrap") {
+      return wrap;
+    }
+    if (prop === "join") {
+      return join;
+    }
+    return (strings: TemplateStringsArray, ...values: RawValue[]) => {
+      return target(strings, ...values);
+    };
+  },
+}) as typeof sql & {
+  raw: typeof raw;
+  wrap: typeof wrap;
+  spreadValues: typeof spreadValues;
+  empty: typeof empty;
+  join: typeof join;
+};
+
+export { sqlProxy as sql };

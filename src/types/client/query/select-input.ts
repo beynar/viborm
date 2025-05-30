@@ -16,6 +16,7 @@ import type {
 import type { WhereInput } from "./where-input.js";
 import type { OrderByInput } from "./orderby-input.js";
 import { CountSelectInput } from "../operations/find-args.js";
+import { SimplifyDeep } from "type-fest";
 
 // ===== CORE SELECTION TYPES =====
 
@@ -139,24 +140,32 @@ export type ValidSelection<
 export type InferSelectResult<
   TModel extends Model<any>,
   TSelect extends SelectInput<TModel>
-> = {
-  [K in keyof TSelect as TSelect[K] extends true
-    ? K
-    : never]: K extends FieldNames<TModel>
-    ? K extends keyof ModelFields<TModel>
-      ? ModelFields<TModel>[K] extends BaseField<any>
-        ? MapFieldType<ModelFields<TModel>[K]>
+> = SimplifyDeep<
+  {
+    [K in keyof TSelect as TSelect[K] extends true
+      ? K
+      : never]: K extends FieldNames<TModel>
+      ? K extends keyof ModelFields<TModel>
+        ? ModelFields<TModel>[K] extends BaseField<any>
+          ? MapFieldType<ModelFields<TModel>[K]>
+          : never
         : never
-      : never
-    : K extends RelationNames<TModel>
-    ? K extends keyof ModelRelations<TModel>
-      ? ModelRelations<TModel>[K] extends Relation<any, any>
-        ? TSelect[K] extends NestedSelectInput<ModelRelations<TModel>[K]>
-          ? InferNestedSelectResult<ModelRelations<TModel>[K], TSelect[K]>
-          : InferRelationResult<ModelRelations<TModel>[K]>
+      : K extends RelationNames<TModel>
+      ? K extends keyof ModelRelations<TModel>
+        ? ModelRelations<TModel>[K] extends Relation<any, any>
+          ? TSelect[K] extends NestedSelectInput<ModelRelations<TModel>[K]>
+            ? InferNestedSelectResult<ModelRelations<TModel>[K], TSelect[K]>
+            : InferRelationResult<ModelRelations<TModel>[K]>
+          : never
         : never
-      : never
-    : never;
+      : never;
+  } & (TSelect extends { _count: infer TCount }
+    ? { _count: InferCountResult<TCount> }
+    : {})
+>;
+
+export type InferCountResult<TCount> = {
+  [K in keyof TCount]: number;
 };
 
 /**

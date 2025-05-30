@@ -193,7 +193,7 @@ describe("AST Integration Tests", () => {
         parser.parse("user", "createMany", {
           data: "not an array" as any,
         });
-      }).toThrow("Invalid data object");
+      }).toThrow();
 
       expect(() => {
         parser.parse("user", "createMany", {

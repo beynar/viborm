@@ -159,7 +159,19 @@ export type ConditionOperator =
   // Array JSON operations
   | "arrayContains"
   | "arrayStartsWith"
-  | "arrayEndsWith";
+  | "arrayEndsWith"
+  // Advanced JSON path operations (NEW)
+  | "jsonPathExists"
+  | "jsonPathEquals"
+  | "jsonPathContains"
+  | "jsonPathIn"
+  | "jsonPathRegex"
+  // Advanced array operations (NEW)
+  | "arrayLength"
+  | "arrayOverlaps"
+  | "arrayContainedBy"
+  | "arrayAny"
+  | "arrayAll";
 
 // ================================
 // Selection System
@@ -234,12 +246,8 @@ export type DataOperation =
   | "decrement"
   | "multiply"
   | "divide"
-  // Array operations (logical - adapters handle implementation)
+  // Array operations (only set and push are currently supported)
   | "push"
-  | "pop"
-  | "unshift"
-  | "shift"
-  | "remove"
   // Relation operations
   | "connect"
   | "disconnect"
@@ -291,12 +299,24 @@ export interface ValueAST extends ASTNode {
   type: "VALUE";
   value: unknown;
   valueType: BaseOrmValueType;
+  isArray?: boolean; // Flag to indicate if this is an array of the base type
   options?: ValueOptionsAST;
 }
 
 export interface ValueOptionsAST {
   mode?: "insensitive"; // For string operations
-  path?: string[]; // For JSON operations
+  path?: string[]; // For JSON path operations (matches JsonFilter.path)
+  // JSON filter operations (matching JsonFilter from filters.ts)
+  string_contains?: string;
+  string_starts_with?: string;
+  string_ends_with?: string;
+  array_contains?: any;
+  array_starts_with?: any;
+  array_ends_with?: any;
+  // Array filter operations (for ListFilter)
+  arrayOp?: "has" | "hasEvery" | "hasSome" | "isEmpty";
+  // Special operation flags
+  operation?: string; // For operations like "push"
   [key: string]: any; // Extensible for other options
 }
 
@@ -312,9 +332,7 @@ export type BaseOrmValueType =
   | "blob"
   | "vector"
   | "enum"
-  | "null"
-  // Array types (adapters decide storage)
-  | "array";
+  | "null";
 
 // ================================
 // Schema Registry
@@ -498,7 +516,7 @@ export function createCondition(
 export function createValue(
   value: unknown,
   valueType: BaseOrmValueType,
-  options?: ValueOptionsAST
+  options?: ValueOptionsAST & { isArray?: boolean }
 ): ValueAST {
   const valueNode: ValueAST = {
     type: "VALUE",
@@ -506,8 +524,15 @@ export function createValue(
     valueType,
   };
 
-  if (options !== undefined) {
-    valueNode.options = options;
+  if (options?.isArray) {
+    valueNode.isArray = true;
+  }
+
+  if (options && Object.keys(options).length > 0) {
+    const { isArray, ...restOptions } = options;
+    if (Object.keys(restOptions).length > 0) {
+      valueNode.options = restOptions;
+    }
   }
 
   return valueNode;
@@ -641,4 +666,153 @@ export function createCursor(
   }
 
   return cursor;
+}
+
+// ================================
+// Upsert System (NEW)
+// ================================
+
+export interface UpsertAST extends ASTNode {
+  type: "UPSERT";
+  model: ModelReference;
+  conflictTarget: ConflictTargetAST;
+  createData: DataAST;
+  updateData: DataAST;
+  where?: ConditionAST[];
+}
+
+export interface ConflictTargetAST extends ASTNode {
+  type: "CONFLICT_TARGET";
+  target: ConflictTargetType;
+}
+
+export type ConflictTargetType =
+  | FieldConflictTarget
+  | IndexConflictTarget
+  | ConstraintConflictTarget;
+
+export interface FieldConflictTarget {
+  type: "FIELD";
+  fields: FieldReference[];
+}
+
+export interface IndexConflictTarget {
+  type: "INDEX";
+  indexName: string;
+}
+
+export interface ConstraintConflictTarget {
+  type: "CONSTRAINT";
+  constraintName: string;
+}
+
+// ================================
+// Upsert Helper Functions (NEW)
+// ================================
+
+export function createUpsert(
+  model: ModelReference,
+  conflictTarget: ConflictTargetAST,
+  createData: DataAST,
+  updateData: DataAST,
+  where?: ConditionAST[]
+): UpsertAST {
+  const upsert: UpsertAST = {
+    type: "UPSERT",
+    model,
+    conflictTarget,
+    createData,
+    updateData,
+  };
+
+  if (where !== undefined) {
+    upsert.where = where;
+  }
+
+  return upsert;
+}
+
+export function createConflictTarget(
+  target: ConflictTargetType
+): ConflictTargetAST {
+  return {
+    type: "CONFLICT_TARGET",
+    target,
+  };
+}
+
+export function createFieldConflictTarget(
+  fields: FieldReference[]
+): FieldConflictTarget {
+  return {
+    type: "FIELD",
+    fields,
+  };
+}
+
+export function createIndexConflictTarget(
+  indexName: string
+): IndexConflictTarget {
+  return {
+    type: "INDEX",
+    indexName,
+  };
+}
+
+export function createConstraintConflictTarget(
+  constraintName: string
+): ConstraintConflictTarget {
+  return {
+    type: "CONSTRAINT",
+    constraintName,
+  };
+}
+
+// ================================
+// Enhanced Value Helper Functions (NEW)
+// ================================
+
+export function createJsonPathValue(
+  value: unknown,
+  path: string[],
+  jsonOptions?: {
+    string_contains?: string;
+    string_starts_with?: string;
+    string_ends_with?: string;
+    array_contains?: any;
+    array_starts_with?: any;
+    array_ends_with?: any;
+  }
+): ValueAST {
+  return {
+    type: "VALUE",
+    value,
+    valueType: "json",
+    options: {
+      path,
+      ...jsonOptions,
+    },
+  };
+}
+
+export function createArrayValue(
+  value: unknown,
+  baseType: BaseOrmValueType,
+  arrayOptions?: {
+    array_contains?: any;
+    array_starts_with?: any;
+    array_ends_with?: any;
+  }
+): ValueAST {
+  const valueNode: ValueAST = {
+    type: "VALUE",
+    value,
+    valueType: baseType,
+  };
+
+  if (arrayOptions) {
+    valueNode.options = arrayOptions;
+  }
+
+  return valueNode;
 }
