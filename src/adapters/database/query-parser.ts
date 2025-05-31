@@ -3,40 +3,17 @@ import { Model } from "../../schema/model";
 import { Operation } from "../../types/client/operations/defintion";
 import { Field, Relation } from "../../schema";
 import { DatabaseAdapter, QueryClauses } from "./database-adapter";
+import { QueryValidator } from "./query-validator";
+import { QueryErrors, QueryParserError, ValidationError } from "./query-errors";
 
-// ================================
-// Error Classes
-// ================================
-
-export class QueryParserError extends Error {
-  constructor(
-    message: string,
-    public context?: {
-      operation?: Operation;
-      model?: string;
-      field?: string;
-      relation?: string;
-      payload?: any;
-    }
-  ) {
-    super(message);
-    this.name = "QueryParserError";
-  }
-}
-
-export class ValidationError extends QueryParserError {
-  constructor(message: string, context?: QueryParserError["context"]) {
-    super(message, context);
-    this.name = "ValidationError";
-  }
-}
+// Re-export error classes for consumers
+export { QueryParserError, ValidationError, QueryErrors } from "./query-errors";
 
 // ================================
 // Core Types
 // ================================
 
 export type BuilderContext = {
-  sql?: Sql;
   model: Model<any>;
   field?: Field<any>;
   relation?: Relation<any, any>;
@@ -61,185 +38,6 @@ class QueryParser {
   constructor(private adapter: DatabaseAdapter) {}
 
   // ================================
-  // Validation Methods
-  // ================================
-
-  private validateOperation(operation: Operation): void {
-    const validOperations: Operation[] = [
-      "findMany",
-      "findFirst",
-      "findUnique",
-      "findUniqueOrThrow",
-      "findFirstOrThrow",
-      "create",
-      "createMany",
-      "update",
-      "updateMany",
-      "delete",
-      "deleteMany",
-      "upsert",
-      "count",
-      "aggregate",
-      "groupBy",
-    ];
-
-    if (!validOperations.includes(operation)) {
-      throw new ValidationError(`Invalid operation: ${operation}`, {
-        operation,
-      });
-    }
-  }
-
-  private validateModel(model: Model<any>): void {
-    if (!model) {
-      throw new ValidationError("Model is required");
-    }
-
-    if (!model.name) {
-      throw new ValidationError("Model must have a name", {
-        model: model.name,
-      });
-    }
-
-    if (!model.fields || model.fields.size === 0) {
-      throw new ValidationError(`Model '${model.name}' has no fields`, {
-        model: model.name,
-      });
-    }
-  }
-
-  private validateField(model: Model<any>, fieldName: string): void {
-    if (!model.fields.has(fieldName)) {
-      const availableFields = Array.from(model.fields.keys()).join(", ");
-      throw new ValidationError(
-        `Field '${fieldName}' not found on model '${model.name}'. Available fields: ${availableFields}`,
-        { model: model.name, field: fieldName }
-      );
-    }
-  }
-
-  private validateRelation(model: Model<any>, relationName: string): void {
-    if (!model.relations.has(relationName)) {
-      const availableRelations = Array.from(model.relations.keys()).join(", ");
-      throw new ValidationError(
-        `Relation '${relationName}' not found on model '${model.name}'. Available relations: ${availableRelations}`,
-        { model: model.name, relation: relationName }
-      );
-    }
-  }
-
-  private validatePayload(operation: Operation, payload: any): void {
-    if (!payload || typeof payload !== "object") {
-      throw new ValidationError(
-        `Payload is required for operation '${operation}'`,
-        { operation, payload }
-      );
-    }
-
-    // Validate operation-specific requirements
-    switch (operation) {
-      case "create":
-      case "createMany":
-      case "update":
-      case "updateMany":
-      case "upsert":
-        if (!payload.data) {
-          throw new ValidationError(
-            `Operation '${operation}' requires 'data' field`,
-            { operation, payload }
-          );
-        }
-        break;
-
-      case "findUnique":
-      case "findUniqueOrThrow":
-        if (!payload.where) {
-          throw new ValidationError(
-            `Operation '${operation}' requires 'where' field`,
-            { operation, payload }
-          );
-        }
-        break;
-    }
-
-    // Validate createMany data is array
-    if (operation === "createMany" && !Array.isArray(payload.data)) {
-      throw new ValidationError(
-        "createMany operation requires 'data' to be an array",
-        { operation, payload }
-      );
-    }
-  }
-
-  private validateSelectFields(model: Model<any>, select: any): void {
-    if (!select || typeof select !== "object") return;
-
-    for (const [fieldName, value] of Object.entries(select)) {
-      if (model.fields.has(fieldName)) {
-        // Scalar field - value should be true
-        if (value !== true) {
-          throw new ValidationError(
-            `Scalar field '${fieldName}' in select must have value 'true'`,
-            { model: model.name, field: fieldName }
-          );
-        }
-      } else if (model.relations.has(fieldName)) {
-        // Relation field - value can be true or object with nested select
-        if (value === true) {
-          // Simple relation selection - valid
-          continue;
-        } else if (typeof value === "object" && value !== null) {
-          // Nested relation selection - validate recursively
-          const relation = model.relations.get(fieldName)!;
-          const targetModel = this.resolveRelationModel(relation);
-          const relationValue = value as any; // Cast to any to access nested properties
-
-          // Validate nested select if present
-          if (relationValue.select) {
-            this.validateSelectFields(targetModel, relationValue.select);
-          }
-
-          // Validate nested include if present (relations can have both select and include)
-          if (relationValue.include) {
-            this.validateIncludeFields(targetModel, relationValue.include);
-          }
-
-          // Validate nested where if present (relations can have where clauses)
-          if (relationValue.where) {
-            // We could add where validation here, but it would be complex
-            // For now, we'll let the where validation happen in buildWhereStatement
-          }
-        } else {
-          throw new ValidationError(
-            `Relation '${fieldName}' in select must be 'true' or an object with select/include properties`,
-            { model: model.name, relation: fieldName }
-          );
-        }
-      } else {
-        // Field/relation not found
-        const availableFields = Array.from(model.fields.keys());
-        const availableRelations = Array.from(model.relations.keys());
-        const available = [...availableFields, ...availableRelations].join(
-          ", "
-        );
-
-        throw new ValidationError(
-          `Field or relation '${fieldName}' not found on model '${model.name}' in select clause. Available: ${available}`,
-          { model: model.name, field: fieldName }
-        );
-      }
-    }
-  }
-
-  private validateIncludeFields(model: Model<any>, include: any): void {
-    if (!include || typeof include !== "object") return;
-
-    for (const relationName of Object.keys(include)) {
-      this.validateRelation(model, relationName);
-    }
-  }
-
-  // ================================
   // Main Entry Points
   // ================================
 
@@ -251,104 +49,141 @@ class QueryParser {
   ): Sql {
     const parser = new QueryParser(adapter);
 
-    try {
-      // Validate inputs
-      parser.validateOperation(operation);
-      parser.validateModel(model);
-      parser.validatePayload(operation, payload);
+    // Use the external validator
+    QueryValidator.validateQuery(operation, model, payload, (relation) =>
+      parser.resolveRelationModel(relation)
+    );
 
-      // Additional validations for read operations
-      if (
-        [
-          "findMany",
-          "findFirst",
-          "findUnique",
-          "findUniqueOrThrow",
-          "findFirstOrThrow",
-        ].includes(operation)
-      ) {
-        if (payload.select) {
-          parser.validateSelectFields(model, payload.select);
-        }
-        if (payload.include) {
-          parser.validateIncludeFields(model, payload.include);
-        }
-      }
+    // Generate alias and build query directly
+    const alias = parser.generateAlias();
+    const ctx = parser.createContextFromPayload(
+      model,
+      operation,
+      alias,
+      payload
+    );
 
-      return parser.traverse(operation, model, payload);
-    } catch (error) {
-      if (error instanceof QueryParserError) {
-        throw error;
-      }
+    // Build all possible clauses - adapters will use what they need
+    const clauses = parser.buildQueryClauses(model, payload, alias, operation);
 
-      // Wrap unexpected errors
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
-      throw new QueryParserError(
-        `Unexpected error during query parsing: ${errorMessage}`,
-        { operation, model: model.name, payload }
-      );
-    }
-  }
-
-  private traverse(operation: Operation, model: Model<any>, payload: any): Sql {
-    const alias = this.generateAlias();
-
-    // Build the query based on operation type
-    return this.traversePayload(model, payload, operation, alias);
+    // Let the adapter handle the specific operation
+    return parser.adapter.operations[operation](ctx, clauses);
   }
 
   // ================================
-  // Core Traversal Methods
+  // Query Clause Builder
   // ================================
 
-  private traversePayload(
+  private buildQueryClauses(
     model: Model<any>,
     payload: any,
-    operation: Operation,
-    alias: string
-  ): Sql {
-    // Handle different payload structures based on operation
-    switch (operation) {
-      case "findMany":
-      case "findFirst":
-      case "findUnique":
-      case "findUniqueOrThrow":
-      case "findFirstOrThrow":
-        return this.buildSelectQuery(model, payload, alias, operation);
+    alias: string,
+    operation: Operation
+  ): QueryClauses {
+    const ctx = this.createContextFromPayload(model, operation, alias, payload);
 
+    // Build SELECT clause based on operation type
+    const selectStatement = this.buildSelectClause(
+      model,
+      payload,
+      alias,
+      operation
+    );
+    const selectClause = this.adapter.builders.select(ctx, selectStatement);
+
+    // Build FROM clause (always needed)
+    const fromStatement = this.buildFromStatement(model, alias);
+    const fromClause = this.adapter.builders.from(ctx, fromStatement);
+
+    // Build optional clauses
+    const clauses: QueryClauses = {
+      select: selectClause,
+      from: fromClause,
+    };
+
+    // WHERE clause (if present)
+    if (payload.where) {
+      const whereStatement = this.buildWhereStatement(
+        model,
+        payload.where,
+        alias
+      );
+      clauses.where = this.adapter.builders.where(ctx, whereStatement);
+    }
+
+    // ORDER BY clause (if present)
+    if (payload.orderBy) {
+      const orderByStatement = this.buildOrderByStatement(
+        model,
+        payload.orderBy,
+        alias
+      );
+      clauses.orderBy = this.adapter.builders.orderBy(ctx, orderByStatement);
+    }
+
+    // LIMIT clause (if take/skip present)
+    if (payload.take !== undefined || payload.skip !== undefined) {
+      clauses.limit = this.adapter.builders.limit(ctx, sql.empty);
+    }
+
+    // GROUP BY clause (for groupBy operations)
+    if (payload.by) {
+      const groupByStatement = this.buildGroupByStatement(
+        model,
+        payload.by,
+        alias
+      );
+      clauses.groupBy = this.adapter.builders.groupBy(ctx, groupByStatement);
+    }
+
+    // HAVING clause (for groupBy operations)
+    if (payload.having) {
+      const havingStatement = this.buildWhereStatement(
+        model,
+        payload.having,
+        alias
+      );
+      clauses.having = this.adapter.builders.having(ctx, havingStatement);
+    }
+
+    // INCLUDE clause (relation subqueries)
+    const relationSubqueries = this.buildAllRelationSubqueries(
+      model,
+      payload,
+      alias
+    );
+    if (relationSubqueries.length > 0) {
+      clauses.include = relationSubqueries;
+    }
+
+    return clauses;
+  }
+
+  // ================================
+  // Smart SELECT Clause Builder
+  // ================================
+
+  private buildSelectClause(
+    model: Model<any>,
+    payload: any,
+    alias: string,
+    operation: Operation
+  ): Sql {
+    const ctx = this.createContext(model, operation, alias);
+
+    switch (operation) {
       case "count":
-        return this.buildCountQuery(model, payload, alias);
+        return this.adapter.builders.count(ctx, sql.raw`*`);
 
       case "aggregate":
-        return this.buildAggregateQuery(model, payload, alias);
+        return this.buildAggregateStatement(model, payload, alias);
 
       case "groupBy":
-        return this.buildGroupByQuery(model, payload, alias);
-
-      case "create":
-        return this.buildCreateQuery(model, payload, alias);
-
-      case "createMany":
-        return this.buildCreateManyQuery(model, payload, alias);
-
-      case "update":
-        return this.buildUpdateQuery(model, payload, alias);
-
-      case "updateMany":
-        return this.buildUpdateManyQuery(model, payload, alias);
-
-      case "delete":
-        return this.buildDeleteQuery(model, payload, alias);
-
-      case "deleteMany":
-        return this.buildDeleteManyQuery(model, payload, alias);
-
-      case "upsert":
-        return this.buildUpsertQuery(model, payload, alias);
+        return this.buildGroupBySelectStatement(model, payload, alias);
 
       default:
-        throw new Error(`Unsupported operation: ${operation}`);
+        // Standard field selection for findMany, findFirst, etc.
+        return this.buildSelectStatement(model, payload.select, alias);
     }
   }
 
@@ -362,384 +197,62 @@ class QueryParser {
     alias: string,
     operation: Operation
   ): Sql {
-    const ctx: BuilderContext = {
+    const ctx = this.createContextFromPayload(model, operation, alias, payload);
+
+    // Determine parent field selection behavior
+    const hasExplicitSelect = payload.select !== undefined;
+    const parentFieldSelection = hasExplicitSelect ? payload.select : null; // null means select all fields
+
+    // Build individual SQL fragments
+    const selectStatement = this.buildSelectStatement(
       model,
-      baseOperation: operation,
-      alias,
-    };
-
-    try {
-      // Determine parent field selection behavior
-      const hasExplicitSelect = payload.select !== undefined;
-      const parentFieldSelection = hasExplicitSelect ? payload.select : null; // null means select all fields
-
-      // Build individual SQL fragments
-      const selectStatement = this.buildSelectStatement(
-        model,
-        parentFieldSelection,
-        alias
-      );
-      const fromStatement = this.buildFromStatement(model, alias);
-      const whereStatement = payload.where
-        ? this.buildWhereStatement(model, payload.where, alias)
-        : sql.empty;
-      const orderByStatement = payload.orderBy
-        ? this.buildOrderByStatement(model, payload.orderBy, alias)
-        : sql.empty;
-      const limitStatement =
-        payload.take || payload.skip
-          ? this.buildLimitStatement(payload.take, payload.skip)
-          : sql.empty;
-
-      // Handle both select relations and include relations using unified approach
-      const relationSubqueries = this.buildAllRelationSubqueries(
-        model,
-        payload,
-        alias
-      );
-
-      // Use builders to wrap statements in proper clause syntax
-      const selectClause = this.adapter.builders.select(ctx, selectStatement);
-      const fromClause = this.adapter.builders.from(ctx, fromStatement);
-      const whereClause =
-        whereStatement !== sql.empty
-          ? this.adapter.builders.where(ctx, whereStatement)
-          : sql.empty;
-      const orderByClause =
-        orderByStatement !== sql.empty
-          ? this.adapter.builders.orderBy(ctx, orderByStatement)
-          : sql.empty;
-      const limitClause =
-        limitStatement !== sql.empty
-          ? this.adapter.builders.limit(ctx, limitStatement)
-          : sql.empty;
-
-      const clauses: QueryClauses = {
-        select: selectClause,
-        from: fromClause,
-        ...(whereClause !== sql.empty && { where: whereClause }),
-        ...(orderByClause !== sql.empty && { orderBy: orderByClause }),
-        ...(limitClause !== sql.empty && { limit: limitClause }),
-        ...(relationSubqueries.length > 0 && { include: relationSubqueries }),
-      };
-
-      // Use adapter operation to compose final query
-      return this.adapter.operations[operation](ctx, clauses);
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
-      throw new QueryParserError(
-        `Failed to build select query: ${errorMessage}`,
-        { operation, model: model.name, payload }
-      );
-    }
-  }
-
-  private buildCountQuery(model: Model<any>, payload: any, alias: string): Sql {
-    const ctx: BuilderContext = {
-      model,
-      baseOperation: "count",
-      alias,
-    };
-
-    // Count queries typically only need WHERE clause
-    const whereStatement = payload.where
-      ? this.buildWhereStatement(model, payload.where, alias)
-      : sql.empty;
-
-    const fromStatement = this.buildFromStatement(model, alias);
-    const selectStatement = sql.raw`COUNT(*)`;
-
-    const selectClause = this.adapter.builders.select(ctx, selectStatement);
-    const fromClause = this.adapter.builders.from(ctx, fromStatement);
-    const whereClause =
-      whereStatement !== sql.empty
-        ? this.adapter.builders.where(ctx, whereStatement)
-        : undefined;
-
-    const clauses: QueryClauses = {
-      select: selectClause,
-      from: fromClause,
-      ...(whereClause && { where: whereClause }),
-    };
-
-    return this.adapter.operations.count(ctx, clauses);
-  }
-
-  private buildAggregateQuery(
-    model: Model<any>,
-    payload: any,
-    alias: string
-  ): Sql {
-    const ctx: BuilderContext = {
-      model,
-      baseOperation: "aggregate",
-      alias,
-    };
-
-    // Build aggregate SELECT statement based on payload._count, _sum, _avg, etc.
-    const selectStatement = this.buildAggregateSelectStatement(
-      model,
-      payload,
+      parentFieldSelection,
       alias
     );
     const fromStatement = this.buildFromStatement(model, alias);
     const whereStatement = payload.where
       ? this.buildWhereStatement(model, payload.where, alias)
-      : sql.empty;
-
-    const selectClause = this.adapter.builders.select(ctx, selectStatement);
-    const fromClause = this.adapter.builders.from(ctx, fromStatement);
-    const whereClause =
-      whereStatement !== sql.empty
-        ? this.adapter.builders.where(ctx, whereStatement)
-        : undefined;
-
-    const clauses: QueryClauses = {
-      select: selectClause,
-      from: fromClause,
-      ...(whereClause && { where: whereClause }),
-    };
-
-    return this.adapter.operations.aggregate(ctx, clauses);
-  }
-
-  private buildGroupByQuery(
-    model: Model<any>,
-    payload: any,
-    alias: string
-  ): Sql {
-    const ctx: BuilderContext = {
-      model,
-      baseOperation: "groupBy",
-      alias,
-    };
-
-    const selectStatement = this.buildGroupBySelectStatement(
-      model,
-      payload,
-      alias
-    );
-    const fromStatement = this.buildFromStatement(model, alias);
-    const whereStatement = payload.where
-      ? this.buildWhereStatement(model, payload.where, alias)
-      : sql.empty;
-    const groupByStatement = this.buildGroupByStatement(
-      model,
-      payload.by,
-      alias
-    );
-    const havingStatement = payload.having
-      ? this.buildWhereStatement(model, payload.having, alias)
       : sql.empty;
     const orderByStatement = payload.orderBy
       ? this.buildOrderByStatement(model, payload.orderBy, alias)
       : sql.empty;
 
+    // Handle both select relations and include relations using unified approach
+    const relationSubqueries = this.buildAllRelationSubqueries(
+      model,
+      payload,
+      alias
+    );
+
+    // Use builders to wrap statements in proper clause syntax
     const selectClause = this.adapter.builders.select(ctx, selectStatement);
     const fromClause = this.adapter.builders.from(ctx, fromStatement);
     const whereClause =
       whereStatement !== sql.empty
         ? this.adapter.builders.where(ctx, whereStatement)
-        : undefined;
-    const groupByClause = this.adapter.builders.groupBy(ctx, groupByStatement);
-    const havingClause =
-      havingStatement !== sql.empty
-        ? this.adapter.builders.having(ctx, havingStatement)
-        : undefined;
+        : sql.empty;
     const orderByClause =
       orderByStatement !== sql.empty
         ? this.adapter.builders.orderBy(ctx, orderByStatement)
-        : undefined;
+        : sql.empty;
+
+    // Let adapter handle limit/offset with take/skip values from context
+    const limitClause =
+      payload.take !== undefined || payload.skip !== undefined
+        ? this.adapter.builders.limit(ctx, sql.empty)
+        : sql.empty;
 
     const clauses: QueryClauses = {
       select: selectClause,
       from: fromClause,
-      ...(whereClause && { where: whereClause }),
-      ...(orderByClause && { orderBy: orderByClause }),
+      ...(whereClause !== sql.empty && { where: whereClause }),
+      ...(orderByClause !== sql.empty && { orderBy: orderByClause }),
+      ...(limitClause !== sql.empty && { limit: limitClause }),
+      ...(relationSubqueries.length > 0 && { include: relationSubqueries }),
     };
 
-    return this.adapter.operations.groupBy(ctx, clauses);
-  }
-
-  private buildCreateQuery(
-    model: Model<any>,
-    payload: any,
-    alias: string
-  ): Sql {
-    const ctx: BuilderContext = {
-      model,
-      baseOperation: "create",
-      alias,
-    };
-
-    return this.adapter.operations.create(ctx, payload);
-  }
-
-  private buildCreateManyQuery(
-    model: Model<any>,
-    payload: any,
-    alias: string
-  ): Sql {
-    const ctx: BuilderContext = {
-      model,
-      baseOperation: "createMany",
-      alias,
-    };
-
-    return this.adapter.operations.createMany(ctx, payload);
-  }
-
-  private buildUpdateQuery(
-    model: Model<any>,
-    payload: any,
-    alias: string
-  ): Sql {
-    const ctx: BuilderContext = {
-      model,
-      baseOperation: "update",
-      alias,
-      // Pass the data through context so adapter can access it
-      ...(payload.data && { data: payload.data }),
-    };
-
-    // Pre-process WHERE clause if present
-    const whereStatement = payload.where
-      ? this.buildWhereStatement(model, payload.where, alias)
-      : sql.empty;
-
-    // Build WHERE clause using builders
-    const whereClause =
-      whereStatement !== sql.empty
-        ? this.adapter.builders.where(ctx, whereStatement)
-        : undefined;
-
-    // Create processed clauses for the adapter
-    const clauses: QueryClauses = {
-      select: sql.empty, // Not needed for update
-      from: sql.empty, // Not needed for update
-      ...(whereClause && { where: whereClause }),
-    };
-
-    return this.adapter.operations.update(ctx, clauses);
-  }
-
-  private buildUpdateManyQuery(
-    model: Model<any>,
-    payload: any,
-    alias: string
-  ): Sql {
-    const ctx: BuilderContext = {
-      model,
-      baseOperation: "updateMany",
-      alias,
-      // Pass the data through context so adapter can access it
-      ...(payload.data && { data: payload.data }),
-    };
-
-    // Pre-process WHERE clause if present
-    const whereStatement = payload.where
-      ? this.buildWhereStatement(model, payload.where, alias)
-      : sql.empty;
-
-    // Build WHERE clause using builders
-    const whereClause =
-      whereStatement !== sql.empty
-        ? this.adapter.builders.where(ctx, whereStatement)
-        : undefined;
-
-    // Create processed clauses for the adapter
-    const clauses: QueryClauses = {
-      select: sql.empty, // Not needed for updateMany
-      from: sql.empty, // Not needed for updateMany
-      ...(whereClause && { where: whereClause }),
-    };
-
-    return this.adapter.operations.updateMany(ctx, clauses);
-  }
-
-  private buildDeleteQuery(
-    model: Model<any>,
-    payload: any,
-    alias: string
-  ): Sql {
-    const ctx: BuilderContext = {
-      model,
-      baseOperation: "delete",
-      alias,
-    };
-
-    // Pre-process WHERE clause if present
-    const whereStatement = payload.where
-      ? this.buildWhereStatement(model, payload.where, alias)
-      : sql.empty;
-
-    // Build WHERE clause using builders
-    const whereClause =
-      whereStatement !== sql.empty
-        ? this.adapter.builders.where(ctx, whereStatement)
-        : undefined;
-
-    // Create processed clauses for the adapter
-    const clauses: QueryClauses = {
-      select: sql.empty, // Not needed for delete
-      from: sql.empty, // Not needed for delete
-      ...(whereClause && { where: whereClause }),
-    };
-
-    return this.adapter.operations.delete(ctx, clauses);
-  }
-
-  private buildDeleteManyQuery(
-    model: Model<any>,
-    payload: any,
-    alias: string
-  ): Sql {
-    const ctx: BuilderContext = {
-      model,
-      baseOperation: "deleteMany",
-      alias,
-    };
-
-    // Pre-process WHERE clause if present
-    const whereStatement = payload.where
-      ? this.buildWhereStatement(model, payload.where, alias)
-      : sql.empty;
-
-    // Build WHERE clause using builders
-    const whereClause =
-      whereStatement !== sql.empty
-        ? this.adapter.builders.where(ctx, whereStatement)
-        : undefined;
-
-    // Create processed clauses for the adapter
-    const clauses: QueryClauses = {
-      select: sql.empty, // Not needed for deleteMany
-      from: sql.empty, // Not needed for deleteMany
-      ...(whereClause && { where: whereClause }),
-    };
-
-    return this.adapter.operations.deleteMany(ctx, clauses);
-  }
-
-  private buildUpsertQuery(
-    model: Model<any>,
-    payload: any,
-    alias: string
-  ): Sql {
-    const ctx: BuilderContext = {
-      model,
-      baseOperation: "upsert",
-      alias,
-      // Pass upsert-specific data through context
-      ...(payload.where && { where: payload.where }),
-      ...(payload.create && { create: payload.create }),
-      ...(payload.update && { update: payload.update }),
-    };
-
-    // For upsert, we don't need to pre-process WHERE since it's used differently
-    // The adapter will handle the conflict detection based on the where clause
-    return this.adapter.operations.upsert(ctx, payload);
+    // Use adapter operation to compose final query
+    return this.adapter.operations[operation](ctx, clauses);
   }
 
   // ================================
@@ -756,24 +269,21 @@ class QueryParser {
     if (select === null || select === undefined) {
       // Default: select all scalar fields (no relations by default)
       // This happens when using include (no explicit select) or when select is not specified
-      for (const [fieldName] of model.fields) {
-        fields.push(sql.raw`"${alias}"."${fieldName}"`);
+      for (const [fieldName] of Array.from(model.fields)) {
+        fields.push(this.adapter.identifiers.column(alias, fieldName));
       }
     } else {
       // Selective fields - handle only scalar fields now (relations handled separately)
       for (const [fieldName, include] of Object.entries(select)) {
         if (include === true && model.fields.has(fieldName)) {
           // Scalar field selection
-          fields.push(sql.raw`"${alias}"."${fieldName}"`);
+          fields.push(this.adapter.identifiers.column(alias, fieldName));
         } else if (model.relations.has(fieldName)) {
           // Relations are handled in buildAllRelationSubqueries - skip here
           continue;
         } else if (include === true) {
           // Field/relation not found
-          throw new ValidationError(
-            `Field or relation '${fieldName}' not found on model '${model.name}' in select clause`,
-            { model: model.name, field: fieldName }
-          );
+          QueryErrors.fieldOrRelationNotFound(fieldName, model.name, []);
         }
       }
     }
@@ -786,10 +296,6 @@ class QueryParser {
     parentAlias: string,
     childAlias: string
   ): any {
-    // This will depend on the relation type and foreign key setup
-    // For now, return a basic condition that the adapter can handle
-    // The actual implementation will depend on how relations are configured
-
     const relationType = relation["~relationType"];
     const onField = relation["~onField"];
     const refField = relation["~refField"];
@@ -818,7 +324,7 @@ class QueryParser {
 
   private buildFromStatement(model: Model<any>, alias: string): Sql {
     const tableName = model.tableName || model.name;
-    return sql.raw`"${tableName}" AS "${alias}"`;
+    return this.adapter.identifiers.table(tableName, alias);
   }
 
   private buildWhereStatement(
@@ -828,54 +334,45 @@ class QueryParser {
   ): Sql {
     const conditions: Sql[] = [];
 
-    try {
-      for (const [fieldName, condition] of Object.entries(where)) {
-        if (fieldName === "AND" || fieldName === "OR" || fieldName === "NOT") {
-          // Handle logical operators
-          conditions.push(
-            this.buildLogicalCondition(
-              model,
-              fieldName,
-              condition as any,
-              alias
-            )
-          );
-        } else if (model.fields.has(fieldName)) {
-          // Validate field exists
-          this.validateField(model, fieldName);
-          // Handle field conditions
-          conditions.push(
-            this.buildFieldCondition(model, fieldName, condition, alias)
-          );
-        } else if (model.relations.has(fieldName)) {
-          // Validate relation exists
-          this.validateRelation(model, fieldName);
-          // Handle relation conditions
-          conditions.push(
-            this.buildRelationCondition(model, fieldName, condition, alias)
-          );
-        } else {
-          // Field/relation not found
-          throw new ValidationError(
-            `Field or relation '${fieldName}' not found on model '${model.name}'`,
-            { model: model.name, field: fieldName }
-          );
-        }
+    for (const [fieldName, condition] of Object.entries(where)) {
+      if (fieldName === "AND" || fieldName === "OR" || fieldName === "NOT") {
+        // Handle logical operators
+        conditions.push(
+          this.buildLogicalCondition(model, fieldName, condition as any, alias)
+        );
+      } else if (fieldName.startsWith("_")) {
+        // Handle abstract conditions (relation links, parent refs)
+        conditions.push(
+          this.handleAbstractCondition(model, fieldName, condition, alias)
+        );
+      } else if (model.fields.has(fieldName)) {
+        // Validate field exists
+        QueryValidator.validateField(model, fieldName);
+        // Handle field conditions
+        conditions.push(
+          this.buildFieldCondition(model, fieldName, condition, alias)
+        );
+      } else if (model.relations.has(fieldName)) {
+        // Validate relation exists
+        QueryValidator.validateRelation(model, fieldName);
+        // Handle relation conditions
+        conditions.push(
+          this.buildRelationCondition(model, fieldName, condition, alias)
+        );
+      } else {
+        // Field/relation not found
+        const availableFields = Array.from(model.fields.keys());
+        const availableRelations = Array.from(model.relations.keys());
+        const available = [...availableFields, ...availableRelations];
+        QueryErrors.fieldOrRelationNotFound(fieldName, model.name, available);
       }
-
-      if (conditions.length === 0) {
-        return sql.empty;
-      }
-
-      return sql.join(conditions, " AND ");
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
-      throw new QueryParserError(
-        `Failed to build where statement: ${errorMessage}`,
-        { model: model.name }
-      );
     }
+
+    if (conditions.length === 0) {
+      return sql.empty;
+    }
+    const ctx = this.createContext(model, "findMany", alias);
+    return this.adapter.builders.AND(ctx, ...conditions);
   }
 
   private buildOrderByStatement(
@@ -885,91 +382,39 @@ class QueryParser {
   ): Sql {
     const orders: Sql[] = [];
 
-    try {
-      if (Array.isArray(orderBy)) {
-        for (const order of orderBy) {
-          orders.push(
-            ...this.parseOrderByObject(order, alias, model).map(
-              (s) => sql.raw`${s}`
-            )
-          );
-        }
-      } else {
-        orders.push(
-          ...this.parseOrderByObject(orderBy, alias, model).map(
-            (s) => sql.raw`${s}`
-          )
-        );
+    if (Array.isArray(orderBy)) {
+      for (const order of orderBy) {
+        orders.push(...this.parseOrderByObject(order, alias, model));
       }
-
-      return sql.join(orders, ", ");
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
-      throw new QueryParserError(
-        `Failed to build order by statement: ${errorMessage}`,
-        { model: model.name }
-      );
+    } else {
+      orders.push(...this.parseOrderByObject(orderBy, alias, model));
     }
+
+    return sql.join(orders, ", ");
   }
 
   private parseOrderByObject(
     orderBy: any,
     alias: string,
     model: Model<any>
-  ): string[] {
-    const orders: string[] = [];
+  ): Sql[] {
+    const orders: Sql[] = [];
 
     for (const [field, direction] of Object.entries(orderBy)) {
       // Validate field exists
-      this.validateField(model, field);
+      QueryValidator.validateField(model, field);
 
       if (typeof direction === "string") {
         const validDirections = ["asc", "desc", "ASC", "DESC"];
         if (!validDirections.includes(direction)) {
-          throw new ValidationError(
-            `Invalid order direction '${direction}'. Must be 'asc' or 'desc'`,
-            { model: model.name, field }
-          );
+          QueryErrors.invalidOrderDirection(direction, field, model.name);
         }
-        orders.push(`"${alias}"."${field}" ${direction.toUpperCase()}`);
+        const columnRef = this.adapter.identifiers.column(alias, field);
+        orders.push(sql`${columnRef} ${sql.raw`${direction.toUpperCase()}`}`);
       }
     }
 
     return orders;
-  }
-
-  private buildLimitStatement(take?: number, skip?: number): Sql {
-    const parts: Sql[] = [];
-
-    try {
-      if (take !== undefined) {
-        if (take < 0) {
-          throw new ValidationError("LIMIT value must be non-negative");
-        }
-        parts.push(sql`LIMIT ${take}`);
-      }
-
-      if (skip !== undefined) {
-        if (skip < 0) {
-          throw new ValidationError("OFFSET value must be non-negative");
-        }
-        if (parts.length > 0) {
-          parts.push(sql`OFFSET `);
-        } else {
-          parts.push(sql`OFFSET `);
-        }
-        parts.push(sql`${skip}`);
-      }
-
-      return sql.join(parts, " ");
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
-      throw new QueryParserError(
-        `Failed to build limit statement: ${errorMessage}`
-      );
-    }
   }
 
   // ================================
@@ -982,47 +427,34 @@ class QueryParser {
     condition: any,
     alias: string
   ): Sql {
-    try {
-      const field = model.fields.get(fieldName);
-      if (!field) {
-        throw new ValidationError(
-          `Field '${fieldName}' not found on model '${model.name}'`,
-          { model: model.name, field: fieldName }
-        );
-      }
-
-      const ctx: BuilderContext = {
-        model,
-        field: field as any,
-        baseOperation: "findMany",
-        alias,
-        fieldName,
-      };
-
-      // Handle simple equality
-      if (
-        typeof condition === "string" ||
-        typeof condition === "number" ||
-        typeof condition === "boolean"
-      ) {
-        return sql`${sql.raw`"${alias}"."${fieldName}" = `}${condition}`;
-      }
-
-      // Handle null values
-      if (condition === null) {
-        return sql.raw`"${alias}"."${fieldName}" IS NULL`;
-      }
-
-      // Handle complex filters using generic pattern
-      return this.applyFieldFilter(ctx, condition, fieldName);
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
-      throw new QueryParserError(
-        `Failed to build field condition for '${fieldName}': ${errorMessage}`,
-        { model: model.name, field: fieldName }
-      );
+    const field = model.fields.get(fieldName);
+    if (!field) {
+      const availableFields = Array.from(model.fields.keys());
+      QueryErrors.fieldNotFound(model.name, fieldName, availableFields);
     }
+
+    const ctx = this.createContext(model, "findMany", alias, {
+      field: field as any,
+      fieldName,
+    });
+
+    // Handle simple equality by converting to explicit equals filter
+    if (
+      typeof condition === "string" ||
+      typeof condition === "number" ||
+      typeof condition === "boolean"
+    ) {
+      return this.applyFieldFilter(ctx, { equals: condition }, fieldName);
+    }
+
+    // Handle null values
+    if (condition === null) {
+      // Use field-specific null handling through filters
+      return this.applyFieldFilter(ctx, { equals: null }, fieldName);
+    }
+
+    // Handle complex filters using generic pattern
+    return this.applyFieldFilter(ctx, condition, fieldName);
   }
 
   private buildRelationCondition(
@@ -1031,60 +463,50 @@ class QueryParser {
     condition: any,
     alias: string
   ): Sql {
-    try {
-      const relation = model.relations.get(relationName);
-      if (!relation) {
-        throw new ValidationError(
-          `Relation '${relationName}' not found on model '${model.name}'`,
-          { model: model.name, relation: relationName }
-        );
-      }
-
-      const ctx: BuilderContext = {
-        model,
-        relation,
-        baseOperation: "findMany",
-        alias,
-      };
-
-      // Build the relation subquery first, then pass it to the adapter
-      let relationSubquery: Sql;
-
-      if (condition.some) {
-        // Build subquery for the relation with the 'some' condition
-        relationSubquery = this.buildRelationFilterSubquery(
-          relation,
-          condition.some,
-          alias
-        );
-        return this.adapter.filters.relations.some(ctx, relationSubquery);
-      } else if (condition.every) {
-        // Build subquery for the relation with the 'every' condition
-        relationSubquery = this.buildRelationFilterSubquery(
-          relation,
-          condition.every,
-          alias
-        );
-        return this.adapter.filters.relations.every(ctx, relationSubquery);
-      } else if (condition.none) {
-        // Build subquery for the relation with the 'none' condition
-        relationSubquery = this.buildRelationFilterSubquery(
-          relation,
-          condition.none,
-          alias
-        );
-        return this.adapter.filters.relations.none(ctx, relationSubquery);
-      } else {
-        // Direct relation filter (for one-to-one/many-to-one)
-        return this.adapter.filters.relations.direct(ctx, sql.empty);
-      }
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
-      throw new QueryParserError(
-        `Failed to build relation condition for '${relationName}': ${errorMessage}`,
-        { model: model.name, relation: relationName }
+    const relation = model.relations.get(relationName);
+    if (!relation) {
+      const availableRelations = Array.from(model.relations.keys());
+      QueryErrors.relationNotFound(
+        model.name,
+        relationName,
+        availableRelations
       );
+    }
+
+    const ctx = this.createContext(model, "findMany", alias, {
+      relation,
+    });
+
+    // Build the relation subquery first, then pass it to the adapter
+    let relationSubquery: Sql;
+
+    if (condition.some) {
+      // Build subquery for the relation with the 'some' condition
+      relationSubquery = this.buildRelationFilterSubquery(
+        relation,
+        condition.some,
+        alias
+      );
+      return this.adapter.filters.relations.some(ctx, relationSubquery);
+    } else if (condition.every) {
+      // Build subquery for the relation with the 'every' condition
+      relationSubquery = this.buildRelationFilterSubquery(
+        relation,
+        condition.every,
+        alias
+      );
+      return this.adapter.filters.relations.every(ctx, relationSubquery);
+    } else if (condition.none) {
+      // Build subquery for the relation with the 'none' condition
+      relationSubquery = this.buildRelationFilterSubquery(
+        relation,
+        condition.none,
+        alias
+      );
+      return this.adapter.filters.relations.none(ctx, relationSubquery);
+    } else {
+      // Direct relation filter (for one-to-one/many-to-one)
+      return this.adapter.filters.relations.direct(ctx, sql.empty);
     }
   }
 
@@ -1094,57 +516,95 @@ class QueryParser {
     conditions: any,
     alias: string
   ): Sql {
-    try {
-      const ctx: BuilderContext = {
-        model,
-        baseOperation: "findMany",
-        alias,
-      };
+    const ctx = this.createContext(model, "findMany", alias);
 
-      if (!Array.isArray(conditions) && typeof conditions !== "object") {
-        throw new ValidationError(
-          `Logical operator '${operator}' requires array or object conditions`,
-          { model: model.name }
-        );
-      }
-
-      const conditionSqls = Array.isArray(conditions)
-        ? conditions.map((cond) => this.buildWhereStatement(model, cond, alias))
-        : [this.buildWhereStatement(model, conditions, alias)];
-
-      if (conditionSqls.length === 0) {
-        throw new ValidationError(
-          `Logical operator '${operator}' requires at least one condition`,
-          { model: model.name }
-        );
-      }
-
-      switch (operator) {
-        case "AND":
-          return this.adapter.builders.AND(ctx, ...conditionSqls);
-        case "OR":
-          return this.adapter.builders.OR(ctx, ...conditionSqls);
-        case "NOT":
-          const firstCondition = conditionSqls[0];
-          if (!firstCondition) {
-            throw new ValidationError(
-              "NOT operator requires at least one condition"
-            );
-          }
-          return this.adapter.builders.NOT(ctx, firstCondition);
-        default:
-          throw new ValidationError(
-            `Unsupported logical operator: ${operator}`
-          );
-      }
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
-      throw new QueryParserError(
-        `Failed to build logical condition '${operator}': ${errorMessage}`,
-        { model: model.name }
-      );
+    if (!Array.isArray(conditions) && typeof conditions !== "object") {
+      QueryErrors.logicalOperatorRequiresConditions(operator, model.name);
     }
+
+    const conditionSqls = Array.isArray(conditions)
+      ? conditions.map((cond) => this.buildWhereStatement(model, cond, alias))
+      : [this.buildWhereStatement(model, conditions, alias)];
+
+    if (conditionSqls.length === 0) {
+      QueryErrors.logicalOperatorNeedsAtLeastOne(operator, model.name);
+    }
+
+    switch (operator) {
+      case "AND":
+        return this.adapter.builders.AND(ctx, ...conditionSqls);
+      case "OR":
+        return this.adapter.builders.OR(ctx, ...conditionSqls);
+      case "NOT":
+        const firstCondition = conditionSqls[0];
+        if (!firstCondition) {
+          QueryErrors.notOperatorNeedsCondition();
+        }
+        return this.adapter.builders.NOT(ctx, firstCondition);
+      default:
+        QueryErrors.unsupportedLogicalOperator(operator);
+    }
+  }
+
+  /**
+   * Handles abstract conditions that are not actual model fields/relations
+   * These are internal conditions used for relation linking and other meta operations
+   */
+  private handleAbstractCondition(
+    model: Model<any>,
+    fieldName: string,
+    condition: any,
+    alias: string
+  ): Sql {
+    switch (fieldName) {
+      case "_relationLink":
+        return this.buildRelationLinkSQL(condition, alias);
+      case "_parentRef":
+        return this.buildParentRefSQL(condition, alias);
+      default:
+        QueryErrors.unknownAbstractCondition(fieldName, model.name);
+    }
+  }
+
+  /**
+   * Builds SQL for relation link conditions
+   * Converts abstract relation metadata into concrete SQL JOIN conditions
+   */
+  private buildRelationLinkSQL(condition: any, alias: string): Sql {
+    const { parentAlias, childAlias, relationType, onField, refField } =
+      condition;
+
+    // Generate the appropriate SQL condition based on relation type
+    if (onField && refField) {
+      // Foreign key relationship: child.refField = parent.onField
+      const childCol = this.adapter.identifiers.column(
+        childAlias || alias,
+        refField
+      );
+      const parentCol = this.adapter.identifiers.column(parentAlias, onField);
+      return sql`${childCol} = ${parentCol}`;
+    }
+
+    // Fallback for complex relations
+    QueryErrors.relationLinkGenerationFailed(relationType);
+  }
+
+  /**
+   * Builds SQL for parent reference conditions
+   * Handles conditions like: { _parentRef: "t0.userId" }
+   */
+  private buildParentRefSQL(condition: any, alias: string): Sql {
+    if (typeof condition !== "string" || !condition.includes(".")) {
+      QueryErrors.invalidParentRef(condition);
+    }
+
+    const [parentAlias, parentField] = condition.split(".");
+
+    if (!parentAlias || !parentField) {
+      QueryErrors.invalidParentRef(condition);
+    }
+
+    return this.adapter.identifiers.column(parentAlias, parentField);
   }
 
   // ================================
@@ -1156,55 +616,40 @@ class QueryParser {
     condition: any,
     fieldName: string
   ): Sql {
-    try {
-      const field = ctx.field!;
-      const fieldType = field["~fieldType"];
+    const field = ctx.field!;
+    const fieldType = field["~fieldType"];
 
-      if (!condition || typeof condition !== "object") {
-        throw new ValidationError(
-          `Field filter condition for '${fieldName}' must be an object`,
-          { model: ctx.model.name, field: fieldName }
-        );
-      }
+    if (!condition || typeof condition !== "object") {
+      QueryErrors.filterConditionInvalid(fieldName, ctx.model.name);
+    }
 
-      // Get the filter operation and value
-      const entries = Object.entries(condition);
-      if (entries.length !== 1) {
-        throw new ValidationError(
-          `Field filter condition for '${fieldName}' must have exactly one operation`,
-          { model: ctx.model.name, field: fieldName }
-        );
-      }
+    // Get the filter operation and value
+    const entries = Object.entries(condition);
+    if (entries.length !== 1) {
+      QueryErrors.filterOperationInvalid(fieldName, ctx.model.name);
+    }
 
-      const [operation, value] = entries[0] as [string, any];
+    const [operation, value] = entries[0] as [string, any];
 
-      // Get the appropriate filter handler based on field type
-      const filterGroup = this.getFilterGroup(fieldType);
-      if (!filterGroup) {
-        throw new ValidationError(
-          `No filter group found for field type '${fieldType}'`,
-          { model: ctx.model.name, field: fieldName }
-        );
-      }
+    // Get the appropriate filter handler based on field type
+    const filterGroup = this.getFilterGroup(fieldType);
+    if (!filterGroup) {
+      QueryErrors.filterGroupNotFound(fieldType, fieldName, ctx.model.name);
+    }
 
-      const filterHandler = filterGroup[operation] as FilterHandler;
-      if (!filterHandler) {
-        const availableOperations = Object.keys(filterGroup).join(", ");
-        throw new ValidationError(
-          `Unsupported filter operation '${operation}' for field type '${fieldType}'. Available operations: ${availableOperations}`,
-          { model: ctx.model.name, field: fieldName }
-        );
-      }
-
-      return filterHandler(ctx, value);
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
-      throw new QueryParserError(
-        `Failed to apply field filter: ${errorMessage}`,
-        { model: ctx.model.name, field: fieldName }
+    const filterHandler = filterGroup[operation] as FilterHandler;
+    if (!filterHandler) {
+      const availableOperations = Object.keys(filterGroup);
+      QueryErrors.filterOperationUnsupported(
+        operation,
+        fieldType,
+        fieldName,
+        ctx.model.name,
+        availableOperations
       );
     }
+
+    return filterHandler(ctx, value);
   }
 
   private getFilterGroup(
@@ -1237,22 +682,11 @@ class QueryParser {
   // ================================
 
   private resolveRelationModel(relation: Relation<any, any>): Model<any> {
-    try {
-      const model = relation.getter();
-      if (!model) {
-        throw new ValidationError(`Relation target model not found`, {
-          model: "unknown",
-        });
-      }
-      return model;
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
-      throw new QueryParserError(
-        `Failed to resolve relation model: ${errorMessage}`,
-        { model: "unknown" }
-      );
+    const model = relation.getter();
+    if (!model) {
+      QueryErrors.relationModelNotFound();
     }
+    return model;
   }
 
   // ================================
@@ -1271,70 +705,84 @@ class QueryParser {
   // Additional Statement Building Methods
   // ================================
 
-  private buildAggregateSelectStatement(
+  private buildAggregateStatement(
     model: Model<any>,
     payload: any,
     alias: string
   ): Sql {
     const aggregations: Sql[] = [];
+    const ctx = this.createContext(model, "aggregate", alias);
 
-    // Handle different aggregate functions
-    if (payload._count) {
-      if (payload._count === true) {
-        aggregations.push(sql.raw`COUNT(*) AS _count`);
-      } else {
-        // Handle field-specific counts
-        for (const [field, include] of Object.entries(payload._count)) {
+    // Define aggregate operations mapping
+    const aggregateOps = {
+      _count: this.adapter.aggregates.count,
+      _sum: this.adapter.aggregates.sum,
+      _avg: this.adapter.aggregates.avg,
+      _min: this.adapter.aggregates.min,
+      _max: this.adapter.aggregates.max,
+    };
+
+    // Process each aggregate operation
+    for (const [aggKey, aggFunction] of Object.entries(aggregateOps)) {
+      const aggPayload = payload[aggKey];
+      if (!aggPayload) continue;
+
+      if (aggPayload === true) {
+        // Global aggregate (e.g., _count: true)
+        let expr: Sql | null = null;
+
+        if (aggKey === "_count") {
+          // Count is the only aggregate that supports global aggregation
+          expr = this.adapter.aggregates.count(ctx);
+        } else {
+          // Other aggregates need specific fields - skip global aggregation
+          expr = this.handleGlobalAggregate(aggKey, ctx);
+        }
+
+        if (expr) {
+          const aliasedExpr = this.adapter.identifiers.aliased(expr, aggKey);
+          aggregations.push(aliasedExpr);
+        }
+      } else if (typeof aggPayload === "object") {
+        // Field-specific aggregates (e.g., _sum: { price: true, quantity: true })
+        for (const [field, include] of Object.entries(aggPayload)) {
           if (include === true) {
-            aggregations.push(
-              sql.raw`COUNT("${alias}"."${field}") AS "_count_${field}"`
+            const columnRef = this.adapter.identifiers.column(alias, field);
+            const expr = aggFunction(ctx, columnRef);
+            const aliasedExpr = this.adapter.identifiers.aliased(
+              expr,
+              `${aggKey}_${field}`
             );
+            aggregations.push(aliasedExpr);
           }
         }
       }
     }
 
-    if (payload._sum) {
-      for (const [field, include] of Object.entries(payload._sum)) {
-        if (include === true) {
-          aggregations.push(
-            sql.raw`SUM("${alias}"."${field}") AS "_sum_${field}"`
-          );
-        }
-      }
-    }
-
-    if (payload._avg) {
-      for (const [field, include] of Object.entries(payload._avg)) {
-        if (include === true) {
-          aggregations.push(
-            sql.raw`AVG("${alias}"."${field}") AS "_avg_${field}"`
-          );
-        }
-      }
-    }
-
-    if (payload._min) {
-      for (const [field, include] of Object.entries(payload._min)) {
-        if (include === true) {
-          aggregations.push(
-            sql.raw`MIN("${alias}"."${field}") AS "_min_${field}"`
-          );
-        }
-      }
-    }
-
-    if (payload._max) {
-      for (const [field, include] of Object.entries(payload._max)) {
-        if (include === true) {
-          aggregations.push(
-            sql.raw`MAX("${alias}"."${field}") AS "_max_${field}"`
-          );
-        }
-      }
-    }
-
     return sql.join(aggregations, ", ");
+  }
+
+  private handleGlobalAggregate(
+    aggKey: string,
+    ctx: BuilderContext
+  ): Sql | null {
+    // Only _count supports global aggregation (COUNT(*))
+    // Other aggregates need specific fields
+    if (aggKey === "_count") {
+      return this.adapter.aggregates.count(ctx, undefined);
+    }
+
+    // For other aggregates without specific fields, we skip them
+    // This could be enhanced to aggregate all numeric fields if needed
+    return null;
+  }
+
+  private buildAggregateSelectStatement(
+    model: Model<any>,
+    payload: any,
+    alias: string
+  ): Sql {
+    return this.buildAggregateStatement(model, payload, alias);
   }
 
   private buildGroupBySelectStatement(
@@ -1347,10 +795,10 @@ class QueryParser {
     // Add groupBy fields to SELECT
     if (Array.isArray(payload.by)) {
       for (const field of payload.by) {
-        selections.push(sql.raw`"${alias}"."${field}"`);
+        selections.push(this.adapter.identifiers.column(alias, field));
       }
     } else {
-      selections.push(sql.raw`"${alias}"."${payload.by}"`);
+      selections.push(this.adapter.identifiers.column(alias, payload.by));
     }
 
     // Add aggregations if present
@@ -1375,10 +823,10 @@ class QueryParser {
 
     if (Array.isArray(by)) {
       for (const field of by) {
-        fields.push(sql.raw`"${alias}"."${field}"`);
+        fields.push(this.adapter.identifiers.column(alias, field));
       }
     } else {
-      fields.push(sql.raw`"${alias}"."${by}"`);
+      fields.push(this.adapter.identifiers.column(alias, by));
     }
     return sql.join(fields, ", ");
   }
@@ -1394,7 +842,7 @@ class QueryParser {
     if (payload.select) {
       for (const [fieldName, value] of Object.entries(payload.select)) {
         if (model.relations.has(fieldName)) {
-          this.validateRelation(model, fieldName);
+          QueryValidator.validateRelation(model, fieldName);
           const relation = model.relations.get(fieldName)!;
           const subquery = this.buildUnifiedRelationSubquery(
             relation,
@@ -1412,7 +860,7 @@ class QueryParser {
       for (const [relationName, relationArgs] of Object.entries(
         payload.include
       )) {
-        this.validateRelation(model, relationName);
+        QueryValidator.validateRelation(model, relationName);
         const relation = model.relations.get(relationName)!;
         const subquery = this.buildUnifiedRelationSubquery(
           relation,
@@ -1433,76 +881,62 @@ class QueryParser {
     parentAlias: string,
     relationFieldName: string
   ): Sql {
-    try {
-      const targetModel = this.resolveRelationModel(relation);
-      const childAlias = this.generateAlias();
+    const targetModel = this.resolveRelationModel(relation);
+    const childAlias = this.generateAlias();
 
-      // Validate the target model
-      this.validateModel(targetModel);
+    // Validate the target model
+    QueryValidator.validateModel(targetModel);
 
-      const ctx: BuilderContext = {
-        model: targetModel,
-        relation,
-        baseOperation: "findMany",
-        alias: childAlias,
-        parentAlias,
+    const ctx = this.createContext(targetModel, "findMany", childAlias, {
+      relation,
+      parentAlias,
+    });
+
+    // Build the relation payload
+    // relationArgs can be:
+    // - true (include all fields)
+    // - object with select/include/where properties
+    let relationPayload: any = {};
+
+    if (relationArgs === true) {
+      // Simple include: select all fields from target model
+      relationPayload = {
+        where: this.buildRelationLinkCondition(
+          relation,
+          parentAlias,
+          childAlias
+        ),
       };
-
-      // Build the relation payload
-      // relationArgs can be:
-      // - true (include all fields)
-      // - object with select/include/where properties
-      let relationPayload: any = {};
-
-      if (relationArgs === true) {
-        // Simple include: select all fields from target model
-        relationPayload = {
-          where: this.buildRelationLinkCondition(
-            relation,
-            parentAlias,
-            childAlias
-          ),
-        };
-      } else if (typeof relationArgs === "object" && relationArgs !== null) {
-        // Complex include/select: pass through the nested arguments
-        relationPayload = {
-          ...relationArgs,
-          where: this.combineWhereConditions(
-            relationArgs.where,
-            this.buildRelationLinkCondition(relation, parentAlias, childAlias)
-          ),
-        };
-      } else {
-        throw new ValidationError(
-          `Invalid relation arguments for '${relationFieldName}'. Must be true or object with select/include properties`,
-          { model: targetModel.name, relation: relationFieldName }
-        );
-      }
-
-      // Build the subquery for the related model
-      const subquery = this.buildSelectQuery(
-        targetModel,
-        relationPayload,
-        childAlias,
-        "findMany"
-      );
-
-      // Use adapter's aggregate subquery builder to wrap in relation context
-      const wrappedSubquery = this.adapter.subqueries.aggregate(ctx, subquery);
-
-      // Return as aliased subquery column
-      return sql`(${wrappedSubquery}) AS "${relationFieldName}"`;
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
-      throw new QueryParserError(
-        `Failed to build relation subquery for '${relationFieldName}': ${errorMessage}`,
-        {
-          model: this.resolveRelationModel(relation).name,
-          relation: relationFieldName,
-        }
-      );
+    } else if (typeof relationArgs === "object" && relationArgs !== null) {
+      // Complex include/select: pass through the nested arguments
+      relationPayload = {
+        ...relationArgs,
+        where: this.combineWhereConditions(
+          relationArgs.where,
+          this.buildRelationLinkCondition(relation, parentAlias, childAlias)
+        ),
+      };
+    } else {
+      QueryErrors.invalidRelationArguments(relationFieldName, targetModel.name);
     }
+
+    // Build the subquery for the related model
+    const subquery = this.buildSelectQuery(
+      targetModel,
+      relationPayload,
+      childAlias,
+      "findMany"
+    );
+
+    // Use adapter's aggregate subquery builder to wrap in relation context
+    const wrappedSubquery = this.adapter.subqueries.aggregate(ctx, subquery);
+
+    // Return as aliased subquery column
+    const aliasedSubquery = this.adapter.identifiers.aliased(
+      sql`(${wrappedSubquery})`,
+      relationFieldName
+    );
+    return aliasedSubquery;
   }
 
   private combineWhereConditions(userWhere: any, linkWhere: any): any {
@@ -1528,12 +962,10 @@ class QueryParser {
     const targetModel = this.resolveRelationModel(relation);
     const childAlias = this.generateAlias();
 
-    const ctx: BuilderContext = {
-      model: targetModel,
+    const ctx = this.createContext(targetModel, "findMany", childAlias, {
       relation,
-      baseOperation: "findMany",
-      alias: childAlias,
-    };
+      parentAlias: alias,
+    });
 
     let relationPayload: any = {};
 
@@ -1550,10 +982,10 @@ class QueryParser {
         ),
       };
     } else {
-      throw new ValidationError(`Invalid relation filter condition format`, {
-        model: targetModel.name,
-        relation: relation.getter().name,
-      });
+      QueryErrors.invalidRelationFilterFormat(
+        targetModel.name,
+        relation.getter().name
+      );
     }
 
     return this.buildSelectQuery(
@@ -1562,6 +994,46 @@ class QueryParser {
       childAlias,
       "findMany"
     );
+  }
+
+  // ================================
+  // Context Factory
+  // ================================
+
+  private createContext(
+    model: Model<any>,
+    operation: Operation,
+    alias: string,
+    options: {
+      field?: Field<any>;
+      relation?: Relation<any, any>;
+      parentAlias?: string;
+      fieldName?: string;
+    } = {}
+  ): BuilderContext {
+    return {
+      model,
+      baseOperation: operation,
+      alias,
+      ...options,
+    };
+  }
+
+  private createContextFromPayload(
+    model: Model<any>,
+    operation: Operation,
+    alias: string,
+    payload: any,
+    options: {
+      field?: Field<any>;
+      relation?: Relation<any, any>;
+      parentAlias?: string;
+      fieldName?: string;
+    } = {}
+  ): BuilderContext {
+    return this.createContext(model, operation, alias, {
+      ...options,
+    });
   }
 }
 

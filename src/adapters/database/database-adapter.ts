@@ -31,6 +31,8 @@ export interface QueryClauses {
   where?: Sql;
   orderBy?: Sql;
   limit?: Sql;
+  groupBy?: Sql;
+  having?: Sql;
   include?: Sql[];
 }
 
@@ -58,11 +60,33 @@ export interface DatabaseAdapter {
     findFirstOrThrow: (ctx: BuilderContext, clauses: QueryClauses) => Sql;
   };
 
+  // === IDENTIFIER ESCAPING ===
+  identifiers: {
+    // Escape a single identifier (table, column, alias)
+    escape: (identifier: string) => Sql;
+    // Create a qualified column reference
+    column: (alias: string, field: string) => Sql;
+    // Create a table reference with alias
+    table: (tableName: string, alias: string) => Sql;
+    // Create an aliased expression
+    aliased: (expression: Sql, alias: string) => Sql;
+  };
+
   utils: {
-    coalesce: (ctx: BuilderContext) => Sql;
-    escape: (ctx: BuilderContext) => Sql;
-    jsonObject: (ctx: BuilderContext) => Sql;
-    jsonArray: (ctx: BuilderContext) => Sql;
+    coalesce: (ctx: BuilderContext, statement: Sql) => Sql;
+    escape: (ctx: BuilderContext, statement: Sql) => Sql;
+    jsonObject: (ctx: BuilderContext, statement: Sql) => Sql;
+    jsonArray: (ctx: BuilderContext, statement: Sql) => Sql;
+    wrap: (ctx: BuilderContext, statement: Sql) => Sql;
+  };
+
+  // === AGGREGATE FUNCTIONS ===
+  aggregates: {
+    count: (ctx: BuilderContext, expression?: Sql) => Sql;
+    sum: (ctx: BuilderContext, expression: Sql) => Sql;
+    avg: (ctx: BuilderContext, expression: Sql) => Sql;
+    min: (ctx: BuilderContext, expression: Sql) => Sql;
+    max: (ctx: BuilderContext, expression: Sql) => Sql;
   };
 
   // === DATA BUILDERS ===

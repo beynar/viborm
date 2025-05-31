@@ -115,8 +115,10 @@ function raw(strings: readonly string[], ...values: readonly RawValue[]) {
   return new Sql([concatenated], []);
 }
 
-const wrap = (prefix: string, wrapped: Sql, suffix: string) => {
-  return sql`${new Sql([prefix], [])}${wrapped}${new Sql([suffix], [])}`;
+const wrap = (prefix: string, wrapped: Sql | undefined, suffix: string) => {
+  return wrapped
+    ? empty
+    : sql`${new Sql([prefix], [])}${wrapped}${new Sql([suffix], [])}`;
 };
 
 /**
