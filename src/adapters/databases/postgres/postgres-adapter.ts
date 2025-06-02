@@ -310,6 +310,19 @@ export class PostgresAdapter implements DatabaseAdapter {
         sql`${this.column(ctx)} / ${value}`,
     },
 
+    bigint: {
+      set: (ctx: BuilderContext, value: bigint | number | string): Sql =>
+        sql`${value}`,
+      increment: (ctx: BuilderContext, value: bigint | number | string): Sql =>
+        sql`${this.column(ctx)} + ${value}`,
+      decrement: (ctx: BuilderContext, value: bigint | number | string): Sql =>
+        sql`${this.column(ctx)} - ${value}`,
+      multiply: (ctx: BuilderContext, value: bigint | number | string): Sql =>
+        sql`${this.column(ctx)} * ${value}`,
+      divide: (ctx: BuilderContext, value: bigint | number | string): Sql =>
+        sql`${this.column(ctx)} / ${value}`,
+    },
+
     boolean: {
       set: (ctx: BuilderContext, value: boolean): Sql => sql`${value}`,
     },

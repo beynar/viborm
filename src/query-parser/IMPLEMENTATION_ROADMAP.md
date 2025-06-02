@@ -298,7 +298,7 @@ private buildMutationQuery(model: Model<any>, payload: any, alias: string, opera
 
 ## ✅ **Phase 4: Complete Relation Inclusion (COMPLETED!)**
 
-**Status**: COMPLETE ✅ (All 16 tests passing)
+**Status**: COMPLETE ✅ (All 16 tests passing for basic inclusion, additional tests for M2M and Nested M2M)
 
 **What Was Implemented**:
 
@@ -307,6 +307,8 @@ private buildMutationQuery(model: Model<any>, payload: any, alias: string, opera
 - **JSON Aggregation**: Proper PostgreSQL JSON aggregation for relation data using `COALESCE(json_agg(row_to_json(...)), '[]'::json)`
 - **Relation Configuration**: Support for `onField` and `refField` relation configuration for proper foreign key mapping
 - **All Read Operations**: Relation inclusion works for all read operations including `findUniqueOrThrow` and `findFirstOrThrow`
+- **✅ Many-to-Many Relations**: Full support for direct Many-to-Many relations with proper junction table handling (EXISTS subqueries).
+- **✅ Nested Many-to-Many Relations**: Full support for arbitrarily nested Many-to-Many relations with correct filtering and inclusion at all levels.
 
 **Core Fix Applied**:
 
@@ -334,31 +336,6 @@ findMany: (ctx: BuilderContext, clauses: QueryClauses): Sql => {
 };
 ```
 
-**Key Features Implemented**:
-
-- **OneToMany Relations**: `user.posts` with proper foreign key linking (`post.userId = user.id`)
-- **ManyToOne Relations**: `post.user` with proper foreign key linking (`user.id = post.userId`)
-- **Nested WHERE Conditions**: Relations support filtering (`posts: { where: { title: { contains: "Hello" } } }`)
-- **Complex Queries**: Relations work with main WHERE clauses, ORDER BY, and pagination
-- **Proper SQL Generation**: Clean PostgreSQL queries with JSON aggregation
-- **Error Handling**: Proper validation for non-existent relations and empty includes
-
-**Implementation Details**:
-
-- Enhanced `PostgresAdapter.operations.findMany/findFirst/findUnique` to handle `include` clauses
-- Maintained existing `RelationQueryBuilder.buildAllRelationSubqueries` logic (it was correct)
-- Added proper relation configuration with `s.relation({ onField, refField }).oneToMany/manyToOne`
-- Comprehensive test coverage with 16 tests including complex scenarios and full SQL validation
-
-**Test Results**: ✅ 16/16 tests passing
-
-- Basic relation inclusion: 4/4 tests passing
-- Complex relation scenarios: 5/5 tests passing
-- Error handling: 2/2 tests passing
-- Relation configuration: 1/1 test passing
-- Multiple operations: 2/2 tests passing
-- Full SQL validation: 3/3 tests passing
-
 **Generated SQL Examples**:
 
 ```sql
@@ -385,15 +362,46 @@ SELECT "t0"."id", "t0"."title", "t0"."content", "t0"."userId",
   ) t1
 )) AS "user"
 FROM "post" AS "t0"
+
+-- User with Tags (ManyToMany - Direct)
+SELECT "t0"."id", "t0"."name", "t0"."email",
+((SELECT COALESCE(json_agg(row_to_json(t1)), '[]'::json)
+  FROM (SELECT "t1"."id", "t1"."name"
+        FROM "tag" AS "t1"
+        WHERE EXISTS (
+          SELECT 1 FROM "tag_user"
+          WHERE "tag_user"."tagId" = "t1"."id"
+            AND "tag_user"."userId" = "t0"."id"
+        )) t1
+)) AS "tags"
+FROM "user" AS "t0"
+
+-- User with Posts and Categories (Nested ManyToMany)
+SELECT "t0"."id", "t0"."name", "t0"."email",
+((SELECT COALESCE(json_agg(row_to_json(t1)), '[]'::json)
+  FROM (SELECT "t1"."id", "t1"."title", "t1"."content", "t1"."authorId",
+        ((SELECT COALESCE(json_agg(row_to_json(t2)), '[]'::json)
+          FROM (SELECT "t2"."id", "t2"."name"
+                FROM "category" AS "t2"
+                WHERE EXISTS (
+                  SELECT 1 FROM "category_post"
+                  WHERE "category_post"."categoryId" = "t2"."id"
+                    AND "category_post"."postId" = "t1"."id"
+                )) t2
+        )) AS "categories"
+        FROM "post" AS "t1"
+        WHERE "t1"."authorId" = "t0"."id") t1
+)) AS "posts"
+FROM "user" AS "t0"
 ```
 
 **Technical Achievements**:
 
-- ✅ **Prisma-Compatible Relations**: Exact `include` interface matching
-- ✅ **Efficient SQL**: Single query with JSON aggregation (no N+1 problems)
-- ✅ **Type Safety**: Full TypeScript support with proper relation types
-- ✅ **Clean Architecture**: Fixed adapter issue without changing core relation logic
-- ✅ **Comprehensive Testing**: Full test coverage with actual SQL validation
+- ✅ **Prisma-Compatible Relations**: Exact `include` interface matching for all relation types, including nested M2M.
+- ✅ **Efficient SQL**: Single query with JSON aggregation and EXISTS subqueries (no N+1 problems).
+- ✅ **Type Safety**: Full TypeScript support with proper relation types for direct and nested relations.
+- ✅ **Clean Architecture**: Fixed adapter issue without changing core relation logic, then enhanced core logic for M2M.
+- ✅ **Comprehensive Testing**: Full test coverage with actual SQL validation for all relation types and nesting scenarios.
 
 ---
 

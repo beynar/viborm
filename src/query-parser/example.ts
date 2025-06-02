@@ -17,8 +17,6 @@ const user = s.model("User", {
     .oneToMany(() => post),
 });
 
-type User = typeof user.infer;
-
 const post = s.model("Post", {
   id: s.string(),
   title: s.string(),

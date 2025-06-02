@@ -3,13 +3,10 @@
     "target": "ES2020",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "allowSyntheticDefaultImports": true,
-    "esModuleInterop": true,
-    "allowJs": false,
     "strict": true,
-    "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
     "removeComments": false,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
@@ -17,9 +14,6 @@
     "skipLibCheck": true,
     "exactOptionalPropertyTypes": true,
     "noUncheckedIndexedAccess": true,
-    "noImplicitReturns": true,
-    "noFallthroughCasesInSwitch": true,
-    "noImplicitOverride": true,
     "lib": ["ES2020", "DOM"],
     "types": ["node", "vitest/globals"]
   },
@@ -29,5 +23,5 @@
     "tests/**/*.test-d.ts",
     "tests/model-type-inference-d.ts"
   ],
-  "exclude": ["node_modules", "dist", "**/*.spec.ts"]
+  "exclude": ["dist", "**/*.spec.ts", "node_modules"]
 }

@@ -81,7 +81,7 @@ export class WhereClauseBuilder implements ClauseBuilder {
   /**
    * Build field-based conditions
    *
-   * Handles filtering on scalar fields with type-specific operators
+   * Delegates to FieldFilterBuilder for field-specific filter generation
    */
   private buildFieldCondition(
     model: Model<any>,
@@ -110,17 +110,28 @@ export class WhereClauseBuilder implements ClauseBuilder {
       typeof condition === "number" ||
       typeof condition === "boolean"
     ) {
-      return this.applyFieldFilter(ctx, { equals: condition }, fieldName);
+      return this.parser.components.fieldFilters.handle(
+        ctx,
+        { equals: condition },
+        fieldName
+      );
     }
 
     // Handle null values
     if (condition === null) {
-      // Use field-specific null handling through filters
-      return this.applyFieldFilter(ctx, { equals: null }, fieldName);
+      return this.parser.components.fieldFilters.handle(
+        ctx,
+        { equals: null },
+        fieldName
+      );
     }
 
-    // Handle complex filters using generic pattern
-    return this.applyFieldFilter(ctx, condition, fieldName);
+    // Handle complex filters by delegating to FieldFilterBuilder
+    return this.parser.components.fieldFilters.handle(
+      ctx,
+      condition,
+      fieldName
+    );
   }
 
   /**
@@ -468,82 +479,6 @@ export class WhereClauseBuilder implements ClauseBuilder {
     }
     const ctx = this.parser.createContext(model, "findMany", alias);
     return this.adapter.builders.AND(ctx, ...conditions);
-  }
-
-  /**
-   * Apply field filter using adapter's filter system
-   * Migrated from query-parser.ts applyFieldFilter
-   */
-  private applyFieldFilter(
-    ctx: BuilderContext,
-    condition: any,
-    fieldName: string
-  ): Sql {
-    const field = ctx.field!;
-    const fieldType = field["~fieldType"];
-
-    if (!condition || typeof condition !== "object") {
-      throw new Error(
-        `Filter condition invalid for field '${fieldName}' on model '${ctx.model.name}'`
-      );
-    }
-
-    // Get the filter operation and value
-    const entries = Object.entries(condition);
-    if (entries.length !== 1) {
-      throw new Error(
-        `Filter operation invalid for field '${fieldName}' on model '${ctx.model.name}'`
-      );
-    }
-
-    const [operation, value] = entries[0] as [string, any];
-
-    // Get the appropriate filter handler based on field type
-    const filterGroup = this.getFilterGroup(fieldType);
-    if (!filterGroup) {
-      throw new Error(
-        `Filter group not found for field type '${fieldType}' on field '${fieldName}' in model '${ctx.model.name}'`
-      );
-    }
-
-    const filterHandler = filterGroup[operation];
-    if (!filterHandler) {
-      const availableOperations = Object.keys(filterGroup);
-      throw new Error(
-        `Filter operation '${operation}' unsupported for field type '${fieldType}' on field '${fieldName}' in model '${
-          ctx.model.name
-        }'. Available operations: ${availableOperations.join(", ")}`
-      );
-    }
-
-    return filterHandler(ctx, value);
-  }
-
-  /**
-   * Get filter group based on field type
-   * Migrated from query-parser.ts getFilterGroup
-   */
-  private getFilterGroup(fieldType: string): Record<string, any> | undefined {
-    switch (fieldType) {
-      case "string":
-        return this.adapter.filters.string;
-      case "int":
-      case "float":
-      case "decimal":
-        return this.adapter.filters.number;
-      case "bigInt":
-        return this.adapter.filters.bigint;
-      case "boolean":
-        return this.adapter.filters.boolean;
-      case "dateTime":
-        return this.adapter.filters.dateTime;
-      case "json":
-        return this.adapter.filters.json;
-      case "enum":
-        return this.adapter.filters.enum;
-      default:
-        return undefined;
-    }
   }
 
   /**

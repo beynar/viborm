@@ -361,6 +361,9 @@ export class QueryParser {
 
   /**
    * Process data for UPDATE operations - validate and transform
+   *
+   * Now leverages FieldUpdateBuilder for early validation of field types
+   * and update operations to catch errors before SQL generation.
    */
   private processUpdateData(model: Model<any>, data: any): Record<string, any> {
     if (!data || typeof data !== "object") {
@@ -369,24 +372,113 @@ export class QueryParser {
       );
     }
 
-    // For now, basic processing - just pass through the data
-    // In the future, this would handle:
-    // - Field validation
-    // - Type coercion
-    // - Increment/decrement operations
-    // - Relation mutations (connect, disconnect, etc.)
+    // Validate each field and its update value against FieldUpdateBuilder
+    const processedData: Record<string, any> = {};
 
-    return { ...data };
+    for (const [fieldName, updateValue] of Object.entries(data)) {
+      // Check if field exists on the model
+      const field = model.fields.get(fieldName);
+      if (!field) {
+        const availableFields = Array.from(model.fields.keys());
+        throw new Error(
+          `Field '${fieldName}' not found on model '${
+            model.name
+          }'. Available fields: ${availableFields.join(", ")}`
+        );
+      }
+
+      const fieldType = field["~fieldType"];
+      if (!fieldType) {
+        throw new Error(
+          `Field type missing for '${fieldName}' in model '${model.name}'`
+        );
+      }
+
+      // Validate that the field type is supported for updates
+      if (!this.fieldUpdates.isFieldTypeSupported(fieldType)) {
+        throw new Error(
+          `Field type '${fieldType}' is not supported for updates on field '${fieldName}' in model '${model.name}'`
+        );
+      }
+
+      // Validate the update value format (simple value vs operation object)
+      if (
+        !this.fieldUpdates.isValidSimpleValue(updateValue) &&
+        !this.fieldUpdates.isValidUpdateOperation(updateValue)
+      ) {
+        throw new Error(
+          `Invalid update value for field '${fieldName}' in model '${model.name}'. Expected a simple value or update operation object.`
+        );
+      }
+
+      // If it's an update operation object, validate the operations are supported for this field type
+      if (this.fieldUpdates.isValidUpdateOperation(updateValue)) {
+        const availableOperations =
+          this.fieldUpdates.getAvailableOperations(fieldType);
+
+        // Type guard: isValidUpdateOperation confirms it's an object, but TypeScript needs explicit check
+        if (
+          typeof updateValue === "object" &&
+          updateValue !== null &&
+          !Array.isArray(updateValue)
+        ) {
+          const requestedOperations = Object.keys(
+            updateValue as Record<string, any>
+          );
+
+          for (const operation of requestedOperations) {
+            if (!availableOperations.includes(operation)) {
+              throw new Error(
+                `Update operation '${operation}' is not supported for field type '${fieldType}' on field '${fieldName}' in model '${
+                  model.name
+                }'. Available operations: ${availableOperations.join(", ")}`
+              );
+            }
+          }
+        }
+      }
+
+      // If all validations pass, include the value in processed data
+      processedData[fieldName] = updateValue;
+    }
+
+    return processedData;
   }
 
   /**
    * Build SET clause for UPDATE operations
+   *
+   * Delegates to FieldUpdateBuilder for field-specific update operation processing
    */
-  private buildSetClause(data: Record<string, any>): Sql {
-    const setPairs = Object.entries(data).map(([column, value]) => {
+  private buildSetClause(data: Record<string, any>, model: Model<any>): Sql {
+    const setPairs = Object.entries(data).map(([fieldName, updateValue]) => {
+      // Get the field from the model
+      const field = model.fields.get(fieldName);
+      if (!field) {
+        const availableFields = Array.from(model.fields.keys());
+        throw new Error(
+          `Field '${fieldName}' not found on model '${
+            model.name
+          }'. Available fields: ${availableFields.join(", ")}`
+        );
+      }
+
+      // Create context for field update processing
+      const ctx = this.contextFactory.create(model, "update", "mutation", {
+        field: field as any,
+        fieldName,
+      });
+
+      // Delegate to FieldUpdateBuilder for processing the update value/operation
+      const updateExpression = this.fieldUpdates.handle(
+        ctx,
+        updateValue,
+        fieldName
+      );
+
       // For UPDATE operations, use bare column names without table qualifiers
-      const columnId = this.adapter.identifiers.escape(column);
-      return sql`${columnId} = ${value}`;
+      const columnId = this.adapter.identifiers.escape(fieldName);
+      return sql`${columnId} = ${updateExpression}`;
     });
 
     return sql.join(setPairs, ", ");
@@ -557,7 +649,7 @@ export class QueryParser {
       where: payload.where
         ? this.buildMutationWhereClause(model, payload.where)
         : undefined,
-      set: this.buildSetClause(processedData),
+      set: this.buildSetClause(processedData, model),
     };
 
     return this.adapter.operations.update(context, clauses);
@@ -589,7 +681,7 @@ export class QueryParser {
       where: payload.where
         ? this.buildMutationWhereClause(model, payload.where)
         : undefined,
-      set: this.buildSetClause(processedData),
+      set: this.buildSetClause(processedData, model),
     };
 
     return this.adapter.operations.updateMany(context, clauses);
@@ -689,7 +781,10 @@ export class QueryParser {
     }
 
     if (conditions.length === 1) {
-      return conditions[0]!;
+      if (conditions[0] === undefined) {
+        return sql.empty;
+      }
+      return conditions[0];
     }
 
     return this.adapter.builders.AND({} as any, ...conditions);
@@ -732,97 +827,14 @@ export class QueryParser {
         typeof condition === "boolean" ||
         condition === null
       ) {
-        return this.applyMutationFieldFilter(
-          ctx,
-          { equals: condition },
-          fieldName
-        );
+        return this.fieldFilters.handle(ctx, { equals: condition }, fieldName);
       }
 
-      // Handle complex filters
-      return this.applyMutationFieldFilter(ctx, condition, fieldName);
+      // Handle complex filters - delegate to FieldFilterBuilder
+      return this.fieldFilters.handle(ctx, condition, fieldName);
     } finally {
       // Restore original column identifier
       this.adapter.identifiers.column = originalColumn;
-    }
-  }
-
-  /**
-   * Apply field filter for mutations
-   */
-  private applyMutationFieldFilter(
-    ctx: BuilderContext,
-    condition: any,
-    fieldName: string
-  ): Sql {
-    const field = ctx.field;
-    if (!field) {
-      throw new Error(`Field context missing for '${fieldName}'`);
-    }
-
-    const fieldType = (field as any)["~fieldType"];
-    const filterGroup = this.getMutationFilterGroup(fieldType);
-
-    if (!filterGroup) {
-      throw new Error(
-        `No filters available for field type '${fieldType}' on field '${fieldName}'`
-      );
-    }
-
-    // Apply each filter operation in the condition
-    const filterConditions: Sql[] = [];
-
-    for (const [operation, value] of Object.entries(condition)) {
-      const filterFn = filterGroup[operation];
-      if (!filterFn) {
-        throw new Error(
-          `Filter operation '${operation}' not supported for field type '${fieldType}' on field '${fieldName}'`
-        );
-      }
-
-      const filterResult = filterFn(ctx, value);
-      filterConditions.push(filterResult);
-    }
-
-    if (filterConditions.length === 0) {
-      return sql.empty;
-    }
-
-    if (filterConditions.length === 1) {
-      return filterConditions[0]!;
-    }
-
-    // Multiple conditions are ANDed together
-    return this.adapter.builders.AND(ctx, ...filterConditions);
-  }
-
-  /**
-   * Get filter group for mutations
-   */
-  private getMutationFilterGroup(
-    fieldType: string
-  ): Record<string, any> | undefined {
-    const filters = this.adapter.filters as any;
-
-    switch (fieldType) {
-      case "string":
-        return filters.string;
-      case "int":
-      case "float":
-      case "decimal":
-        return filters.number;
-      case "bigint":
-        return filters.bigint;
-      case "boolean":
-        return filters.boolean;
-      case "dateTime":
-        return filters.dateTime;
-      case "json":
-        return filters.json;
-      case "enum":
-        return filters.enum;
-      default:
-        return undefined;
     }
   }
 

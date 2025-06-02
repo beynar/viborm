@@ -514,17 +514,16 @@ describe("QueryParser - Relation Inclusion (Phase 4)", () => {
 
       const sql = result.toStatement();
 
-      // This test now validates the CORRECT Many-to-Many SQL with subqueries (no JOINs)
+      // This test now validates the CORRECT Many-to-Many SQL with JSON aggregation
       expect(sql).toBe(
-        'SELECT "t0"."id", "t0"."title", "t0"."content", "t0"."userId", (' +
-          '\n      SELECT "t1"."id", "t1"."name", "t1"."color"' +
-          '\n      FROM "tag" AS "t1"' +
-          "\n      WHERE EXISTS (" +
+        'SELECT "t0"."id", "t0"."title", "t0"."content", "t0"."userId", ((' +
+          "\n        SELECT COALESCE(json_agg(row_to_json(t1)), '[]'::json)" +
+          '\n        FROM (SELECT "t1"."id", "t1"."name", "t1"."color" FROM "tag" AS "t1" WHERE EXISTS (' +
           '\n      SELECT 1 FROM "post_tags"' +
           '\n      WHERE "post_tags"."tagId" = "t1"."id"' +
           '\n        AND "post_tags"."postId" = "t0"."id"' +
-          "\n    )" +
-          '\n    ) AS "tags" FROM "post" AS "t0"'
+          "\n    )) t1" +
+          '\n      )) AS "tags" FROM "post" AS "t0"'
       );
     });
   });
@@ -702,7 +701,10 @@ describe("Full SQL Validation - Relation Inclusion", () => {
 
       const sql = result.toStatement();
       expect(sql).toBe(
-        'SELECT "t0"."id", "t0"."name", "t0"."email", ((\n        SELECT COALESCE(json_agg(row_to_json(t1)), \'[]\'::json)\n        FROM (SELECT "t1"."id", "t1"."title", "t1"."content", "t1"."userId" FROM "post" AS "t1" WHERE "t1"."userId" = "t0"."id") t1\n      )) AS "posts" FROM "user" AS "t0"'
+        `SELECT "t0"."id", "t0"."name", "t0"."email", ((
+        SELECT COALESCE(json_agg(row_to_json(t1)), \'[]\'::json)
+        FROM (SELECT "t1"."id", "t1"."title", "t1"."content", "t1"."userId" FROM "post" AS "t1" WHERE "t1"."userId" = "t0"."id") t1
+        )) AS "posts" FROM "user" AS "t0"`
       );
     });
 
@@ -793,17 +795,16 @@ describe("Full SQL Validation - Relation Inclusion", () => {
 
       const sql = result.toStatement();
 
-      // This test now validates the CORRECT Many-to-Many SQL with subqueries (no JOINs)
+      // This test now validates the CORRECT Many-to-Many SQL with JSON aggregation
       expect(sql).toBe(
-        'SELECT "t0"."id", "t0"."title", "t0"."content", "t0"."userId", (' +
-          '\n      SELECT "t1"."id", "t1"."name", "t1"."color"' +
-          '\n      FROM "tag" AS "t1"' +
-          "\n      WHERE EXISTS (" +
+        'SELECT "t0"."id", "t0"."title", "t0"."content", "t0"."userId", ((' +
+          "\n        SELECT COALESCE(json_agg(row_to_json(t1)), '[]'::json)" +
+          '\n        FROM (SELECT "t1"."id", "t1"."name", "t1"."color" FROM "tag" AS "t1" WHERE EXISTS (' +
           '\n      SELECT 1 FROM "post_tags"' +
           '\n      WHERE "post_tags"."tagId" = "t1"."id"' +
           '\n        AND "post_tags"."postId" = "t0"."id"' +
-          "\n    )" +
-          '\n    ) AS "tags" FROM "post" AS "t0"'
+          "\n    )) t1" +
+          '\n      )) AS "tags" FROM "post" AS "t0"'
       );
     });
   });
