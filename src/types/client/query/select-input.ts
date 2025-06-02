@@ -1,5 +1,5 @@
 // Selection Input Types
-// Type-safe field selection interfaces for BaseORM queries
+// Type-safe field selection interfaces for VibORM queries
 
 import type { Model } from "../../../schema/model.js";
 import type { BaseField } from "../../../schema/fields/base.js";

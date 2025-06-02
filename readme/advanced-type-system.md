@@ -1,10 +1,10 @@
-# Advanced Type System for BaseORM Fields
+# Advanced Type System for VibORM Fields
 
-This document explains the advanced generic type system designed for BaseORM that enables complete type inference from schema definitions.
+This document explains the advanced generic type system designed for VibORM that enables complete type inference from schema definitions.
 
 ## Overview
 
-The BaseORM type system uses TypeScript's advanced generic capabilities to encode field states (nullable, list, ID, unique, default, auto-generate) directly in the type system. This allows for:
+The VibORM type system uses TypeScript's advanced generic capabilities to encode field states (nullable, list, ID, unique, default, auto-generate) directly in the type system. This allows for:
 
 - **Complete Type Inference**: TypeScript can infer exact types from schema definitions
 - **Type Safety**: All field configurations are validated at compile time

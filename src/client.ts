@@ -45,17 +45,17 @@ function createRecursiveProxy<S extends Schema>(
   return proxy;
 }
 
-export interface BaseORMConfig<S extends Schema> {
+export interface VibORMConfig<S extends Schema> {
   schema: S;
   adapter: AdapterInterface;
 }
 
-export class BaseORM<S extends Schema> {
+export class VibORM<S extends Schema> {
   private adapter: AdapterInterface;
   private schema: S;
   private client: Client<S>;
 
-  constructor(config: BaseORMConfig<S>) {
+  constructor(config: VibORMConfig<S>) {
     this.adapter = config.adapter;
     this.schema = config.schema;
     this.client = this.createClient();
@@ -83,7 +83,7 @@ export class BaseORM<S extends Schema> {
     ) as Client<S>;
   }
 
-  // More elegant approach - proxy the BaseORM itself
+  // More elegant approach - proxy the VibORM itself
   private clientProxy = new Proxy(this, {
     get(target, prop) {
       if (typeof prop === "string" && target.schema[prop]) {
@@ -95,10 +95,10 @@ export class BaseORM<S extends Schema> {
 
   // Return the proxy instead of this
   static create<S extends Schema>(
-    config: BaseORMConfig<S>
-  ): Omit<BaseORM<S>, keyof S> & Client<S> {
-    const orm = new BaseORM(config);
-    return orm.clientProxy as Omit<BaseORM<S>, keyof S> & Client<S>;
+    config: VibORMConfig<S>
+  ): Omit<VibORM<S>, keyof S> & Client<S> {
+    const orm = new VibORM(config);
+    return orm.clientProxy as Omit<VibORM<S>, keyof S> & Client<S>;
   }
 
   async $connect(): Promise<void> {
@@ -128,6 +128,6 @@ export class BaseORM<S extends Schema> {
 }
 
 // Convenience function for creating ORM instances
-export const createClient = <S extends Schema>(config: BaseORMConfig<S>) => {
-  return BaseORM.create(config);
+export const createClient = <S extends Schema>(config: VibORMConfig<S>) => {
+  return VibORM.create(config);
 };

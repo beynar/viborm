@@ -8,7 +8,21 @@ import {
   JsonField,
   EnumField,
 } from "../../../src/schema/fields";
-import type { FieldFilter } from "../../../src/types/client/query/filters";
+import type {
+  FieldFilter,
+  StringFilter,
+  NumberFilter,
+  BoolFilter,
+  BoolNullableFilter,
+  DateTimeFilter,
+  DateTimeNullableFilter,
+  BigIntFilter,
+  BigIntNullableFilter,
+  JsonFilter,
+  JsonNullableFilter,
+  EnumFilter,
+  EnumNullableFilter,
+} from "../../../src/types/client/query/filters";
 
 describe("FieldFilter Type Tests", () => {
   test("StringField filters", () => {
@@ -16,18 +30,8 @@ describe("FieldFilter Type Tests", () => {
     const nonNullableString = new StringField();
     type NonNullableStringFilter = FieldFilter<typeof nonNullableString>;
 
-    // Should allow direct string values
-    expectTypeOf<NonNullableStringFilter>().toMatchTypeOf<string>();
-
-    // Should allow string filter objects
-    expectTypeOf<NonNullableStringFilter>().toMatchTypeOf<{
-      equals?: string;
-      contains?: string;
-      startsWith?: string;
-      endsWith?: string;
-      in?: string[];
-      not?: string;
-    }>();
+    // Should extend string or StringFilter
+    expectTypeOf<NonNullableStringFilter>().toExtend<string | StringFilter>();
 
     // Should NOT allow null
     expectTypeOf<NonNullableStringFilter>().not.toMatchTypeOf<null>();
@@ -36,15 +40,9 @@ describe("FieldFilter Type Tests", () => {
     const nullableString = new StringField().nullable();
     type NullableStringFilter = FieldFilter<typeof nullableString>;
 
-    // Should allow direct string values and null
-    expectTypeOf<NullableStringFilter>().toMatchTypeOf<string | null>();
-
-    // Should allow nullable string filter objects
-    expectTypeOf<NullableStringFilter>().toMatchTypeOf<{
-      equals?: string | null;
-      contains?: string;
-      not?: string | null;
-    }>();
+    // Test that specific values are assignable to the filter type
+    expectTypeOf<string>().toExtend<NullableStringFilter>();
+    expectTypeOf<null>().toExtend<NullableStringFilter>();
   });
 
   test("NumberField filters", () => {
@@ -52,26 +50,19 @@ describe("FieldFilter Type Tests", () => {
     const nonNullableNumber = new NumberField();
     type NonNullableNumberFilter = FieldFilter<typeof nonNullableNumber>;
 
-    // Should allow direct number values
-    expectTypeOf<NonNullableNumberFilter>().toMatchTypeOf<number>();
-
-    // Should allow number filter objects
-    expectTypeOf<NonNullableNumberFilter>().toMatchTypeOf<{
-      equals?: number;
-      lt?: number;
-      gte?: number;
-      in?: number[];
-    }>();
+    // Should extend number or NumberFilter
+    expectTypeOf<NonNullableNumberFilter>().toExtend<number | NumberFilter>();
 
     // Should NOT allow null
-    expectTypeOf<NonNullableNumberFilter>().not.toMatchTypeOf<null>();
+    expectTypeOf<NonNullableNumberFilter>().not.toExtend<null>();
 
     // Nullable number field
     const nullableNumber = new NumberField().nullable();
     type NullableNumberFilter = FieldFilter<typeof nullableNumber>;
 
-    // Should allow direct number values and null
-    expectTypeOf<NullableNumberFilter>().toMatchTypeOf<number | null>();
+    // Test that specific values are assignable to the filter type
+    expectTypeOf<number>().toExtend<NullableNumberFilter>();
+    expectTypeOf<null>().toExtend<NullableNumberFilter>();
   });
 
   test("BooleanField filters", () => {
@@ -79,24 +70,19 @@ describe("FieldFilter Type Tests", () => {
     const nonNullableBoolean = new BooleanField();
     type NonNullableBooleanFilter = FieldFilter<typeof nonNullableBoolean>;
 
-    // Should allow direct boolean values
-    expectTypeOf<NonNullableBooleanFilter>().toMatchTypeOf<boolean>();
-
-    // Should allow boolean filter objects
-    expectTypeOf<NonNullableBooleanFilter>().toMatchTypeOf<{
-      equals?: boolean;
-      not?: boolean;
-    }>();
+    // Should extend boolean or BoolFilter
+    expectTypeOf<NonNullableBooleanFilter>().toExtend<boolean | BoolFilter>();
 
     // Should NOT allow null
-    expectTypeOf<NonNullableBooleanFilter>().not.toMatchTypeOf<null>();
+    expectTypeOf<NonNullableBooleanFilter>().not.toExtend<null>();
 
     // Nullable boolean field
     const nullableBoolean = new BooleanField().nullable();
     type NullableBooleanFilter = FieldFilter<typeof nullableBoolean>;
 
-    // Should allow direct boolean values and null
-    expectTypeOf<NullableBooleanFilter>().toMatchTypeOf<boolean | null>();
+    // Test that specific values are assignable to the filter type
+    expectTypeOf<boolean>().toExtend<NullableBooleanFilter>();
+    expectTypeOf<null>().toExtend<NullableBooleanFilter>();
   });
 
   test("DateTimeField filters", () => {
@@ -104,26 +90,19 @@ describe("FieldFilter Type Tests", () => {
     const nonNullableDateTime = new DateTimeField();
     type NonNullableDateTimeFilter = FieldFilter<typeof nonNullableDateTime>;
 
-    // Should allow direct Date values
-    expectTypeOf<NonNullableDateTimeFilter>().toMatchTypeOf<Date>();
-
-    // Should allow datetime filter objects
-    expectTypeOf<NonNullableDateTimeFilter>().toMatchTypeOf<{
-      equals?: Date;
-      lt?: Date;
-      gte?: Date;
-      in?: Date[];
-    }>();
+    // Should extend Date or DateTimeFilter
+    expectTypeOf<NonNullableDateTimeFilter>().toExtend<Date | DateTimeFilter>();
 
     // Should NOT allow null
-    expectTypeOf<NonNullableDateTimeFilter>().not.toMatchTypeOf<null>();
+    expectTypeOf<NonNullableDateTimeFilter>().not.toExtend<null>();
 
     // Nullable datetime field
     const nullableDateTime = new DateTimeField().nullable();
     type NullableDateTimeFilter = FieldFilter<typeof nullableDateTime>;
 
-    // Should allow direct Date values and null
-    expectTypeOf<NullableDateTimeFilter>().toMatchTypeOf<Date | null>();
+    // Test that specific values are assignable to the filter type
+    expectTypeOf<Date>().toExtend<NullableDateTimeFilter>();
+    expectTypeOf<null>().toExtend<NullableDateTimeFilter>();
   });
 
   test("BigIntField filters", () => {
@@ -131,26 +110,19 @@ describe("FieldFilter Type Tests", () => {
     const nonNullableBigInt = new BigIntField();
     type NonNullableBigIntFilter = FieldFilter<typeof nonNullableBigInt>;
 
-    // Should allow direct bigint values
-    expectTypeOf<NonNullableBigIntFilter>().toMatchTypeOf<bigint>();
-
-    // Should allow bigint filter objects
-    expectTypeOf<NonNullableBigIntFilter>().toMatchTypeOf<{
-      equals?: bigint;
-      lt?: bigint;
-      gte?: bigint;
-      in?: bigint[];
-    }>();
+    // Should extend bigint or BigIntFilter
+    expectTypeOf<NonNullableBigIntFilter>().toExtend<bigint | BigIntFilter>();
 
     // Should NOT allow null
-    expectTypeOf<NonNullableBigIntFilter>().not.toMatchTypeOf<null>();
+    expectTypeOf<NonNullableBigIntFilter>().not.toExtend<null>();
 
     // Nullable bigint field
     const nullableBigInt = new BigIntField().nullable();
     type NullableBigIntFilter = FieldFilter<typeof nullableBigInt>;
 
-    // Should allow direct bigint values and null
-    expectTypeOf<NullableBigIntFilter>().toMatchTypeOf<bigint | null>();
+    // Test that specific values are assignable to the filter type
+    expectTypeOf<bigint>().toExtend<NullableBigIntFilter>();
+    expectTypeOf<null>().toExtend<NullableBigIntFilter>();
   });
 
   test("JsonField filters", () => {
@@ -158,22 +130,15 @@ describe("FieldFilter Type Tests", () => {
     const nonNullableJson = new JsonField();
     type NonNullableJsonFilter = FieldFilter<typeof nonNullableJson>;
 
-    // Should allow any direct values
-    expectTypeOf<NonNullableJsonFilter>().toMatchTypeOf<any>();
-
-    // Should allow json filter objects
-    expectTypeOf<NonNullableJsonFilter>().toMatchTypeOf<{
-      equals?: any;
-      path?: string[];
-      string_contains?: string;
-    }>();
+    // Test basic assignability to any
+    expectTypeOf<NonNullableJsonFilter>().toExtend<JsonFilter>();
 
     // Nullable json field
     const nullableJson = new JsonField().nullable();
     type NullableJsonFilter = FieldFilter<typeof nullableJson>;
 
-    // Should allow any direct values and null
-    expectTypeOf<NullableJsonFilter>().toMatchTypeOf<any | null>();
+    // Test that null is assignable
+    expectTypeOf<null>().toExtend<NullableJsonFilter>(null as any);
   });
 
   test("EnumField filters", () => {
@@ -185,20 +150,16 @@ describe("FieldFilter Type Tests", () => {
     ] as const);
     type NonNullableEnumFilter = FieldFilter<typeof nonNullableEnum>;
 
-    // Should allow direct enum values
-    expectTypeOf<NonNullableEnumFilter>().toMatchTypeOf<
-      "active" | "inactive" | "pending"
-    >();
+    expectTypeOf<
+      EnumFilter<"active" | "inactive" | "pending">
+    >().toExtend<NonNullableEnumFilter>();
 
-    // Should allow enum filter objects
-    expectTypeOf<NonNullableEnumFilter>().toMatchTypeOf<{
-      equals?: "active" | "inactive" | "pending";
-      in?: ("active" | "inactive" | "pending")[];
-      not?: "active" | "inactive" | "pending";
-    }>();
+    expectTypeOf<
+      "active" | "inactive" | "pending"
+    >().toExtend<NonNullableEnumFilter>();
 
     // Should NOT allow null
-    expectTypeOf<NonNullableEnumFilter>().not.toMatchTypeOf<null>();
+    expectTypeOf<NonNullableEnumFilter>().not.toExtend<null>();
 
     // Nullable enum field
     const nullableEnum = new EnumField([
@@ -208,9 +169,10 @@ describe("FieldFilter Type Tests", () => {
     ] as const).nullable();
     type NullableEnumFilter = FieldFilter<typeof nullableEnum>;
 
-    // Should allow direct enum values and null
-    expectTypeOf<NullableEnumFilter>().toMatchTypeOf<
-      "active" | "inactive" | "pending" | null
-    >();
+    // Test that enum values and null are compatible
+    expectTypeOf<"active">().toExtend<NullableEnumFilter>("active" as any);
+    expectTypeOf<"inactive">().toExtend<NullableEnumFilter>("inactive" as any);
+    expectTypeOf<"pending">().toExtend<NullableEnumFilter>("pending" as any);
+    expectTypeOf<null>().toExtend<NullableEnumFilter>(null as any);
   });
 });

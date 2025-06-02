@@ -11,7 +11,7 @@ All field, model, and relation properties are now directly accessible as public 
 All field types inherit these common properties:
 
 ```typescript
-import { s } from "baseorm";
+import { s } from "viborm";
 
 const field = s.string().nullable().unique().default("hello");
 

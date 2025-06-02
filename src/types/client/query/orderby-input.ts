@@ -1,5 +1,5 @@
 // OrderBy Input Types
-// Type-safe ordering interfaces for BaseORM queries
+// Type-safe ordering interfaces for VibORM queries
 
 import type { Model } from "../../../schema/model.js";
 import type { BaseField } from "../../../schema/fields/base.js";

@@ -2,7 +2,7 @@
 
 ## Summary
 
-Successfully updated **ALL** field types in BaseORM to work with the advanced generic type system. All field types now support:
+Successfully updated **ALL** field types in VibORM to work with the advanced generic type system. All field types now support:
 
 - ✅ **Chainable methods** that return proper field instances (not interface types)
 - ✅ **Type inference** through the `.infer` property
@@ -210,7 +210,7 @@ All tests pass successfully:
 
 🎉 **All field types are now fully compatible with the advanced type system!**
 
-The BaseORM now provides:
+The VibORM now provides:
 
 - Complete type safety without code generation
 - Full TypeScript type inference from schema definitions
