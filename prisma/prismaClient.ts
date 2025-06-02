@@ -13,8 +13,13 @@ const res = await prisma.user.findFirst({
   where: {
     email: "test",
   },
-  include: {
-    comments: true,
+  select: {
+    id: true,
+    comments: {
+      include: {
+        author: true,
+      },
+    },
   },
 });
 // await prisma.user.create({

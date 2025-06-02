@@ -1,4 +1,11 @@
-import { s } from "../../src/schema/index.js";
+import { describe, test, expect, expectTypeOf } from "vitest";
+import { s } from "../../src/schema";
+import {
+  generateJunctionTableName,
+  generateJunctionFieldName,
+  getJunctionTableName,
+  getJunctionFieldNames,
+} from "../../src/schema/relation";
 
 describe("Relations", () => {
   describe("Relation Types", () => {
@@ -210,6 +217,101 @@ describe("Relations", () => {
       expectTypeOf(relation.infer).toHaveProperty("age");
       expectTypeOf(relation.infer).toHaveProperty("tags");
       expectTypeOf(relation.infer).toHaveProperty("isActive");
+    });
+  });
+
+  describe("Many-to-Many Junction Table Conventions", () => {
+    test("should generate correct junction table names", () => {
+      // Test alphabetical ordering
+      expect(generateJunctionTableName("post", "tag")).toBe("post_tag");
+      expect(generateJunctionTableName("tag", "post")).toBe("post_tag"); // same result
+
+      // Test case insensitivity
+      expect(generateJunctionTableName("User", "Role")).toBe("role_user");
+      expect(generateJunctionTableName("PRODUCT", "category")).toBe(
+        "category_product"
+      );
+    });
+
+    test("should generate correct junction field names", () => {
+      expect(generateJunctionFieldName("post")).toBe("postId");
+      expect(generateJunctionFieldName("tag")).toBe("tagId");
+      expect(generateJunctionFieldName("User")).toBe("userId");
+      expect(generateJunctionFieldName("Category")).toBe("categoryId");
+    });
+
+    test("should get junction table name with explicit vs implicit", () => {
+      // Explicit junction table name
+      const explicitRelation = s
+        .relation({
+          junctionTable: "custom_junction_table",
+        })
+        .manyToMany(() => s.model("target", {}));
+
+      expect(getJunctionTableName(explicitRelation, "source", "target")).toBe(
+        "custom_junction_table"
+      );
+
+      // Implicit junction table name (auto-generated)
+      const implicitRelation = s
+        .relation()
+        .manyToMany(() => s.model("target", {}));
+
+      expect(getJunctionTableName(implicitRelation, "source", "target")).toBe(
+        "source_target"
+      );
+      expect(getJunctionTableName(implicitRelation, "user", "role")).toBe(
+        "role_user"
+      ); // alphabetical
+    });
+
+    test("should get junction field names correctly", () => {
+      // Test with explicit junction field
+      const explicitRelation = s
+        .relation({
+          junctionField: "customFieldId",
+        })
+        .manyToMany(() => s.model("target", {}));
+
+      const [sourceField, targetField] = getJunctionFieldNames(
+        explicitRelation,
+        "source",
+        "target"
+      );
+      expect(sourceField).toBe("sourceId"); // auto-generated
+      expect(targetField).toBe("customFieldId"); // explicit
+
+      // Test with implicit junction fields
+      const implicitRelation = s
+        .relation()
+        .manyToMany(() => s.model("target", {}));
+
+      const [sourceField2, targetField2] = getJunctionFieldNames(
+        implicitRelation,
+        "post",
+        "tag"
+      );
+      expect(sourceField2).toBe("postId");
+      expect(targetField2).toBe("tagId");
+    });
+
+    test("should handle real-world naming scenarios", () => {
+      // Common scenarios
+      expect(generateJunctionTableName("user", "permission")).toBe(
+        "permission_user"
+      );
+      expect(generateJunctionTableName("article", "category")).toBe(
+        "article_category"
+      );
+      expect(generateJunctionTableName("student", "course")).toBe(
+        "course_student"
+      );
+
+      // Field names
+      expect(generateJunctionFieldName("user")).toBe("userId");
+      expect(generateJunctionFieldName("permission")).toBe("permissionId");
+      expect(generateJunctionFieldName("article")).toBe("articleId");
+      expect(generateJunctionFieldName("category")).toBe("categoryId");
     });
   });
 });

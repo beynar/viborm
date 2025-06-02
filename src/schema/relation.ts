@@ -164,3 +164,62 @@ relation.manyToMany = <G extends Getter>(
 /**
  * Helper function to create a lazy one-to-one relation
  */
+
+/**
+ * Generates a standard junction table name for Many-to-Many relations
+ * Format: {model1}_{model2} (alphabetical order, lowercase, underscore-separated)
+ */
+export function generateJunctionTableName(
+  model1Name: string,
+  model2Name: string
+): string {
+  const names = [model1Name.toLowerCase(), model2Name.toLowerCase()].sort();
+  return `${names[0]}_${names[1]}`;
+}
+
+/**
+ * Generates a standard junction field name
+ * Format: {modelName}Id (camelCase with "Id" suffix)
+ */
+export function generateJunctionFieldName(modelName: string): string {
+  return `${modelName.toLowerCase()}Id`;
+}
+
+/**
+ * Gets the junction table name for a Many-to-Many relation
+ * Uses explicitly provided junction table name
+ */
+export function getJunctionTableName(
+  relation: Relation<any, any>,
+  sourceModelName: string,
+  targetModelName: string
+): string {
+  // Use explicitly provided junction table name
+  if (relation["~junctionTableName"]) {
+    return relation["~junctionTableName"];
+  }
+
+  // Generate standard junction table name
+  return generateJunctionTableName(sourceModelName, targetModelName);
+}
+
+/**
+ * Gets the junction field names for a Many-to-Many relation
+ * Returns [sourceFieldName, targetFieldName]
+ */
+export function getJunctionFieldNames(
+  relation: Relation<any, any>,
+  sourceModelName: string,
+  targetModelName: string
+): [string, string] {
+  // Generate the default field name for the source model (linking back to the current model)
+  const sourceFieldName = generateJunctionFieldName(sourceModelName);
+
+  // Use explicitly provided junction field name for target, or generate default
+  // The junctionField in relation config refers to the field that points to the target model
+  const targetFieldName =
+    relation["~junctionFieldName"] ||
+    generateJunctionFieldName(targetModelName);
+
+  return [sourceFieldName, targetFieldName];
+}

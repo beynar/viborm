@@ -2,7 +2,7 @@ import { describe, test, expect } from "vitest";
 import {
   QueryValidator,
   ValidationError,
-} from "../../src/adapters/database/query-validator";
+} from "../../src/adapters/databases/query-validator";
 import { s } from "../../src/schema";
 
 describe("QueryValidator", () => {
