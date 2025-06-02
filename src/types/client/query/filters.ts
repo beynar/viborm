@@ -309,10 +309,16 @@ export type FieldFilter<F extends BaseField<any>> = F extends DateTimeField<any>
     : BigIntFilter | bigint
   : F extends JsonField<any>
   ? IsFieldNullable<F> extends true
-    ? JsonNullableFilter | any | null
-    : JsonFilter | any
-  : F extends EnumField<infer E>
-  ? IsFieldNullable<F> extends true
-    ? EnumNullableFilter<E[number]> | E[number] | null
-    : EnumFilter<E[number]> | E[number]
+    ? JsonNullableFilter | null
+    : JsonFilter
+  : F extends EnumField<any>
+  ? F extends { "~enumValues": infer E }
+    ? IsFieldNullable<F> extends true
+      ? E extends (string | number)[]
+        ? EnumNullableFilter<E[number]> | E[number] | null
+        : never
+      : E extends (string | number)[]
+      ? EnumFilter<E[number]> | E[number]
+      : never
+    : never
   : never;

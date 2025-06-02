@@ -26,22 +26,26 @@ export type CreateArgs<TModel extends Model<any>> = ValidateSelectInclude<{
  * Arguments for createMany operations
  */
 export type CreateManyArgs<TModel extends Model<any>> = {
-  data: CreateInput<TModel>[] | CreateInput<TModel>;
+  data: CreateInput<TModel, false>[] | CreateInput<TModel, false>;
   skipDuplicates?: boolean;
 };
 
 /**
  * Input for creating a new record
  */
-export type CreateInput<TModel extends Model<any>> =
-  MapModelCreateFields<TModel> & {
-    // Relation create operations
-    [K in RelationNames<TModel>]?: K extends keyof ModelRelations<TModel>
-      ? ModelRelations<TModel>[K] extends Relation<any, any>
-        ? RelationCreateInput<ModelRelations<TModel>[K]>
-        : never
-      : never;
-  };
+export type CreateInput<
+  TModel extends Model<any>,
+  Deep extends boolean = true
+> = MapModelCreateFields<TModel> & Deep extends true
+  ? {
+      // Relation create operations
+      [K in RelationNames<TModel>]?: K extends keyof ModelRelations<TModel>
+        ? ModelRelations<TModel>[K] extends Relation<any, any>
+          ? RelationCreateInput<ModelRelations<TModel>[K]>
+          : never
+        : never;
+    }
+  : {};
 
 // ===== UPDATE OPERATIONS =====
 
@@ -60,27 +64,25 @@ export type UpdateArgs<TModel extends Model<any>> = ValidateSelectInclude<{
  */
 export type UpdateManyArgs<TModel extends Model<any>> = {
   where: WhereInput<TModel>;
-  data: UpdateManyInput<TModel>;
+  data: UpdateInput<TModel, false>;
 };
 
 /**
  * Input for updating a record
  */
-export type UpdateInput<TModel extends Model<any>> =
-  MapModelUpdateFieldsWithOperations<TModel> & {
-    // Relation update operations
-    [K in RelationNames<TModel>]?: K extends keyof ModelRelations<TModel>
-      ? ModelRelations<TModel>[K] extends Relation<any, any>
-        ? RelationUpdateInput<ModelRelations<TModel>[K]>
-        : never
-      : never;
-  };
-
-/**
- * Input for updating multiple records
- */
-export type UpdateManyInput<TModel extends Model<any>> =
-  MapModelUpdateFieldsWithOperations<TModel>;
+export type UpdateInput<
+  TModel extends Model<any>,
+  Deep extends boolean = true
+> = MapModelUpdateFieldsWithOperations<TModel> & Deep extends true
+  ? {
+      // Relation update operations
+      [K in RelationNames<TModel>]?: K extends keyof ModelRelations<TModel>
+        ? ModelRelations<TModel>[K] extends Relation<any, any>
+          ? RelationUpdateInput<ModelRelations<TModel>[K]>
+          : never
+        : never;
+    }
+  : {};
 
 // ===== UPSERT OPERATIONS =====
 
@@ -225,11 +227,11 @@ export type MultiRelationUpdateInput<TRelatedModel extends Model<any>> = {
   updateMany?:
     | {
         where: WhereInput<TRelatedModel>;
-        data: UpdateManyInput<TRelatedModel>;
+        data: UpdateInput<TRelatedModel, false>;
       }
     | Array<{
         where: WhereInput<TRelatedModel>;
-        data: UpdateManyInput<TRelatedModel>;
+        data: UpdateInput<TRelatedModel, false>;
       }>;
   deleteMany?: WhereInput<TRelatedModel> | WhereInput<TRelatedModel>[];
   upsert?:

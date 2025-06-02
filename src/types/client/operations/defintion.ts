@@ -2,7 +2,13 @@ import { GroupByArgs } from "./find-args";
 import { AggregateArgs } from "./find-args";
 import { CountArgs } from "./find-args";
 import { FindFirstArgs } from "./find-args";
-import { DeleteManyArgs, UpdateArgs, UpsertArgs } from "./mutation-args";
+import {
+  DeleteManyArgs,
+  UpdateArgs,
+  UpsertArgs,
+  CreateManyArgs,
+  UpdateManyArgs,
+} from "./mutation-args";
 import { DeleteArgs } from "./mutation-args";
 import { FindManyArgs } from "./find-args";
 import { Model } from "../../../schema";
@@ -16,15 +22,23 @@ import {
   GroupByResult,
 } from "../results/find-result";
 import { FindUniqueResult } from "../results/find-result";
-import { DeleteManyResult, UpsertResult } from "../results/mutation-result";
+import {
+  DeleteManyResult,
+  UpsertResult,
+  CreateManyResult,
+  UpdateManyResult,
+} from "../results/mutation-result";
 import { DeleteResult } from "../results/mutation-result";
 import { CreateResult, UpdateResult } from "../results";
 
 export type Operation =
+  | "findFirst"
   | "findMany"
   | "findUnique"
   | "create"
+  | "createMany"
   | "update"
+  | "updateMany"
   | "delete"
   | "deleteMany"
   | "findUniqueOrThrow"
@@ -63,6 +77,10 @@ export type OperationPayload<
   ? AggregateArgs<M>
   : O extends "groupBy"
   ? GroupByArgs<M>
+  : O extends "createMany"
+  ? CreateManyArgs<M>
+  : O extends "updateMany"
+  ? UpdateManyArgs<M>
   : never;
 
 export type OperationResult<
@@ -120,5 +138,13 @@ export type OperationResult<
   : O extends "groupBy"
   ? I extends GroupByArgs<M>
     ? GroupByResult<M, I>
+    : never
+  : O extends "createMany"
+  ? I extends CreateManyArgs<M>
+    ? CreateManyResult<M, I>
+    : never
+  : O extends "updateMany"
+  ? I extends UpdateManyArgs<M>
+    ? UpdateManyResult<M, I>
     : never
   : never;

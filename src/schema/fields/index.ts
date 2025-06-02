@@ -1,8 +1,6 @@
 // Field Types - Index
 // Exports all field types from their individual files
 
-import { FieldState } from "../../types/field-states.js";
-
 export { BaseField } from "./base.js";
 export { StringField, string } from "./string.js";
 export { NumberField, int, float, decimal } from "./number.js";
