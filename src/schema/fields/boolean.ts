@@ -2,7 +2,9 @@
 // Type-safe boolean field with enhanced generics
 
 import { BaseField } from "./base.js";
+
 import type {
+  FieldValidator,
   FieldState,
   DefaultFieldState,
   MakeNullable,
@@ -11,8 +13,7 @@ import type {
   MakeUnique,
   MakeDefault,
   InferType,
-} from "../../types/field-states.js";
-import type { FieldValidator } from "../../types/validators.js";
+} from "./types.js";
 
 export class BooleanField<
   T extends FieldState<

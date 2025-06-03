@@ -1,4 +1,4 @@
-import { Sql, sql } from "../../sql/sql";
+import { Sql, sql } from "@sql";
 import { Model } from "../../schema/model";
 import { DatabaseAdapter } from "../../adapters/database-adapter";
 import { BuilderContext, ClauseBuilder } from "../types";

@@ -1,4 +1,4 @@
-import { Sql, sql } from "../../sql/sql";
+import { Sql, sql } from "@sql";
 import { DatabaseAdapter } from "../../adapters/database-adapter";
 import { BuilderContext, FieldHandler } from "../types";
 import type { QueryParser } from "../index";

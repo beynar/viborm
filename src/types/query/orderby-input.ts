@@ -1,9 +1,7 @@
 // OrderBy Input Types
 // Type-safe ordering interfaces for VibORM queries
 
-import type { Model } from "../../../schema/model.js";
-import type { BaseField } from "../../../schema/fields/base.js";
-import type { Relation } from "../../../schema/relation.js";
+import type { Model, BaseField, Relation } from "@schema";
 import type {
   FieldNames,
   ModelFields,

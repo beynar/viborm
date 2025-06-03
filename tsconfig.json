@@ -8,6 +8,7 @@
     "declaration": false,
     "declarationMap": false,
     "sourceMap": false,
+    "noEmit": true,
     "removeComments": false,
     "noImplicitAny": false,
     "forceConsistentCasingInFileNames": true,
@@ -17,7 +18,19 @@
     "exactOptionalPropertyTypes": true,
     "noUncheckedIndexedAccess": true,
     "lib": ["ES2020", "DOM"],
-    "types": ["node", "vitest/globals"]
+    "types": ["node", "vitest/globals"],
+    "paths": {
+      "@types/*": ["./src/types/*"],
+      "@types": ["./src/types/index.ts"],
+      "@schema/*": ["./src/schema/*"],
+      "@schema": ["./src/schema/index.ts"],
+      "@query-parser/*": ["./src/query-parser/*"],
+      "@query-parser": ["./src/query-parser/index.ts"],
+      "@adapters/*": ["./src/adapters/*"],
+      "@adapters": ["./src/adapters/index.ts"],
+      "@sql": ["./src/sql/sql.ts"],
+      "@standard-schema": ["./src/standardSchema.ts"]
+    }
   },
   "include": [
     "src/**/*",

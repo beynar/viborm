@@ -1,6 +1,5 @@
 import z from "zod/v4";
 import { s } from "../src/schema/index.js";
-import { ModelType } from "../src/index.js";
 
 export const string = s.string();
 export const nullableString = s.string().nullable();

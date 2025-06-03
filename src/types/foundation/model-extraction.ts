@@ -1,14 +1,7 @@
 // Foundation Types: Model Extraction
 // Extract type information from actual Model and BaseField classes
 
-import type { Model } from "../../../schema/model.js";
-import type { BaseField } from "../../../schema/fields/base.js";
-import type { Relation } from "../../../schema/relation.js";
-
-// Base type aliases for foundation
-export type ModelDefinition = Model<any>;
-export type FieldDefinition = BaseField<any>;
-export type RelationDefinition = Relation<any, any>;
+import type { Model, BaseField, Relation } from "@schema";
 
 // Extract the generic parameter from Model<TFields> to get field definitions
 export type ExtractModelFields<TModel extends Model<any>> =

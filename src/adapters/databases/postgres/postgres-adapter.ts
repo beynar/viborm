@@ -1,11 +1,7 @@
-import { Sql, sql } from "../../../sql/sql";
+import { Sql, sql } from "@sql";
 import { DatabaseAdapter, QueryClauses } from "../../database-adapter";
-import { BuilderContext } from "../../../query-parser/types";
-import {
-  QueryMode,
-  StringFilter,
-} from "../../../types/client/query/filters-input";
-import { Relation } from "../../../schema";
+import { BuilderContext } from "@query-parser";
+import { QueryMode, StringFilter } from "@types";
 
 /**
  * PostgreSQL Database Adapter

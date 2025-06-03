@@ -1,5 +1,4 @@
-import type { Model } from "../../../schema/model.js";
-import type { Relation } from "../../../schema/relation.js";
+import type { Model } from "@schema";
 import type { WhereInput, WhereUniqueInput } from "../query/where-input.js";
 import type { SelectInput, IncludeInput } from "../query/select-input.js";
 import type { ValidateSelectInclude } from "../query/select-input.js";

@@ -3,7 +3,7 @@ import { s } from "../schema";
 import { PostgresAdapter } from "../adapters/databases/postgres/postgres-adapter";
 import { QueryParser } from "./index";
 import { Prisma, PrismaClient } from "../../generated/prisma";
-import { UpdateInput } from "../types/client/query/update-input";
+import { UpdateInput } from "@types";
 
 const user = s.model("User", {
   id: s.string().id(),

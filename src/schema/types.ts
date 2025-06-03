@@ -1,3 +1,3 @@
-import type { Model } from "../../schema/model";
+import { Model } from "./model";
 
 export type Schema = Record<string, Model<any>>;

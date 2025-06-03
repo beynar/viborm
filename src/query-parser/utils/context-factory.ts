@@ -1,7 +1,6 @@
-import { Model } from "../../schema/model";
-import { Field, Relation } from "../../schema";
-import { Operation } from "../../types/client/operations/defintion";
-import { BuilderContext } from "../types";
+import { Model, Field, Relation } from "@schema";
+import { Operation } from "@types";
+import { BuilderContext } from "@query-parser";
 import type { QueryParser } from "../index";
 
 /**

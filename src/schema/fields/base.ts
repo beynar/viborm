@@ -6,21 +6,12 @@ import type {
   FieldValidator,
   ValidationResult,
   AutoGenerateType,
-} from "../../types/index.js";
-
-import type {
   FieldState,
   MakeNullable,
-  MakeArray,
-  MakeId,
-  MakeUnique,
   MakeDefault,
   InferType,
-  InferInputType,
-  InferStorageType,
-  ValidateFieldState,
   BaseFieldType,
-} from "../../types/field-states.js";
+} from "./types";
 
 // Base Field class with simplified generic type system
 export abstract class BaseField<

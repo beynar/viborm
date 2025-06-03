@@ -23,3 +23,5 @@ export type Field<T = any> =
   | import("./blob.js").BlobField<any>
   | import("./enum.js").EnumField<any, any>
   | import("./vector.js").VectorField<any>;
+
+export * from "./types.js";

@@ -1,4 +1,4 @@
-import type { Model } from "../../../schema/model.js";
+import type { Model } from "@schema";
 import type {
   FindManyArgs,
   FindUniqueArgs,

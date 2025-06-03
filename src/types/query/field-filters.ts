@@ -6,7 +6,7 @@ import {
   JsonField,
   NumberField,
   StringField,
-} from "../../../schema";
+} from "@schema";
 import { IsFieldArray, IsFieldNullable } from "../foundation/field-mapping";
 import {
   string,

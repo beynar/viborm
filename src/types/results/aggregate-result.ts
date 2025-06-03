@@ -1,5 +1,4 @@
-import type { Model } from "../../../schema/model.js";
-import type { BaseField } from "../../../schema/fields/base.js";
+import type { Model, BaseField } from "@schema";
 import type {
   FieldNames,
   ModelFields,

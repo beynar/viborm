@@ -1,4 +1,4 @@
-import { Sql, sql } from "../../../sql/sql";
+import { Sql, sql } from "@sql";
 import { DatabaseAdapter, QueryClauses } from "../../database-adapter";
 import { BuilderContext } from "../../../query-parser/types";
 import { QueryMode } from "../../../types/client/query/filters-input";

@@ -1,4 +1,4 @@
-import { Sql, sql } from "../../sql/sql";
+import { Sql, sql } from "@sql";
 import { Model } from "../../schema/model";
 import { Relation } from "../../schema";
 import { DatabaseAdapter } from "../../adapters/database-adapter";
@@ -7,7 +7,7 @@ import type { QueryParser } from "../index";
 import {
   getJunctionTableName,
   getJunctionFieldNames,
-} from "../../schema/relation";
+} from "../../schema/fields/relation";
 
 /**
  * RelationQueryBuilder - Relation Query Generation Component

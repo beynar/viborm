@@ -5,7 +5,7 @@ import {
   generateJunctionFieldName,
   getJunctionTableName,
   getJunctionFieldNames,
-} from "../../src/schema/relation";
+} from "../../src/schema/fields/relation";
 
 describe("Relations", () => {
   describe("Relation Types", () => {

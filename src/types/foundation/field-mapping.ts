@@ -1,21 +1,16 @@
 // Foundation Types: Field Mapping
 // Bridge between BaseField instances and TypeScript types
 
-import type { BaseField } from "../../../schema/fields/base.js";
-import type { Model } from "../../../schema/model.js";
 import type {
-  FieldState,
+  BaseField,
+  Model,
   InferType,
   InferInputType,
   InferStorageType,
-} from "../../field-states.js";
-import type { AutoGenerateType } from "../../scalars.js";
-import { FieldUpdateOperations } from "../query/update-input.js";
-import type {
-  ModelFields,
-  FieldNames,
-  ModelDefinition,
-} from "./model-extraction.js";
+  AutoGenerateType,
+} from "@schema";
+
+import type { ModelFields, FieldNames } from "./model-extraction.js";
 
 // Core type mapping using existing FieldState system
 export type MapFieldType<TField extends BaseField<any>> =

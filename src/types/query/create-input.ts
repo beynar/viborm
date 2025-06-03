@@ -1,11 +1,10 @@
 import {
   ExtractRelationModel,
   ModelRelations,
-} from "../foundation/model-extraction";
-import { Model } from "../../../schema/model";
-import { MapModelCreateFields } from "../foundation/field-mapping";
-import { RelationNames } from "../foundation/model-extraction";
-import { Relation } from "../../../schema/relation";
+  MapModelCreateFields,
+  RelationNames,
+} from "../foundation";
+import { Model, Relation } from "@schema";
 import { WhereUniqueInput } from "./where-input";
 
 /**

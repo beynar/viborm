@@ -1,6 +1,3 @@
-// Vector Field Implementation
-// Type-safe vector field with enhanced generics
-
 import { BaseField } from "./base.js";
 import type {
   FieldState,
@@ -11,9 +8,7 @@ import type {
   MakeUnique,
   MakeDefault,
   InferType,
-} from "../../types/field-states.js";
-// import type { StandardSchemaV1 } from "../../types/standardSchema.js"; // No longer needed for validate
-// import type { FieldValidator, ValidationResult } from "../../types/validators.js"; // No longer needed
+} from "./types";
 
 export class VectorField<
   S extends FieldState<number[], any, any, any, any, any> = DefaultFieldState<

@@ -1,4 +1,4 @@
-import { BaseField, Model } from "../../../schema";
+import { BaseField, Model } from "@schema";
 import { FieldNames, ModelFields } from "../foundation/model-extraction";
 
 // Import the FieldUpdateOperations type specifically

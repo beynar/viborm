@@ -1,7 +1,5 @@
 // Where Input Types
-import type { Model } from "../../../schema/model.js";
-import type { Relation } from "../../../schema/relation.js";
-import type { BaseField } from "../../../schema/fields/base.js";
+import type { Model, BaseField, Relation, InferType } from "@schema";
 import type {
   FieldNames,
   RelationNames,
@@ -12,7 +10,6 @@ import type {
   ExtractRelationModel,
 } from "../foundation/index.js";
 import type { FieldFilter } from "./filters-input.js";
-import { InferType } from "../../../index.js";
 
 /**
  * Relation filters for different relation types

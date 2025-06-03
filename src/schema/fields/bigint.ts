@@ -2,7 +2,9 @@
 // Type-safe bigint field with enhanced generics
 
 import { BaseField } from "./base.js";
+
 import type {
+  FieldValidator,
   FieldState,
   DefaultFieldState,
   MakeNullable,
@@ -12,9 +14,7 @@ import type {
   MakeDefault,
   MakeAuto,
   InferType,
-} from "../../types/field-states.js";
-import type { FieldValidator } from "../../types/validators.js";
-import type { AutoGenerateType } from "../../types/scalars.js";
+} from "./types.js";
 
 export class BigIntField<
   T extends FieldState<any, any, any, any, any, any> = DefaultFieldState<bigint>

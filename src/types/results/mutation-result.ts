@@ -1,4 +1,4 @@
-import type { Model } from "../../../schema/model";
+import type { Model } from "@schema";
 import type {
   CreateArgs,
   CreateManyArgs,

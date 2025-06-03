@@ -1,7 +1,40 @@
-// Simplified Field State Types
-// Practical type system for field configuration
+import { StandardSchemaV1 } from "@standard-schema";
 
-import type { AutoGenerateType } from "./scalars.js";
+export type ScalarFieldType =
+  | "string"
+  | "boolean"
+  | "int"
+  | "bigInt"
+  | "float"
+  | "decimal"
+  | "dateTime"
+  | "json"
+  | "blob"
+  | "vector"
+  | "enum";
+
+// Auto-generation types
+export type AutoGenerateType =
+  | "uuid"
+  | "ulid"
+  | "nanoid"
+  | "cuid"
+  | "increment"
+  | "now"
+  | "updatedAt";
+
+// Validator Type Definitions
+// Based on specifications: readme/6_validation.md and readme/1.2_field_class.md
+
+// Validation result interface (defined in StandardSchemaV1.Result)
+export interface ValidationResult<T> {
+  valid: boolean;
+  errors?: string[] | undefined; // Simplified error reporting for now
+  output?: T | undefined;
+}
+
+// Field validator accepts only Standard Schema
+export type FieldValidator<T> = StandardSchemaV1<any, T>; // Input can be any, output is T
 
 // Basic field state configuration with literal boolean types
 export interface FieldState<

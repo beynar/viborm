@@ -22,27 +22,23 @@ import { datetime } from "./fields/datetime.js";
 import { json } from "./fields/json.js";
 import { blob } from "./fields/blob.js";
 import { enumField } from "./fields/enum.js";
-import { Getter, relation, Relation } from "./relation.js";
-export class SchemaBuilder {
-  // Create a new model
-  model = model;
-  string = string;
-  boolean = boolean;
-  int = int;
-  bigInt = bigint;
-  float = float;
-  decimal = decimal;
-  dateTime = datetime;
-  json = json;
-  blob = blob;
-  enum = enumField;
-
-  // Relation factory - expose the relation function
-  relation = relation;
-}
+import { Getter, relation, Relation } from "./fields/relation.js";
 
 // Export the main schema builder instance
-export const s = new SchemaBuilder();
+export const s = {
+  model: model,
+  string: string,
+  boolean: boolean,
+  int: int,
+  bigInt: bigint,
+  float: float,
+  decimal: decimal,
+  dateTime: datetime,
+  json: json,
+  blob: blob,
+  enum: enumField,
+  relation: relation,
+};
 
 // Re-export classes for advanced usage
 export {
@@ -60,3 +56,7 @@ export {
   relation,
 };
 export type { Field, Getter };
+
+export * from "./types";
+export * from "./fields";
+export * from "./model";

@@ -1,9 +1,7 @@
 // Selection Input Types
 // Type-safe field selection interfaces for VibORM queries
 
-import type { Model } from "../../../schema/model.js";
-import type { BaseField } from "../../../schema/fields/base.js";
-import type { Relation } from "../../../schema/relation.js";
+import type { Model, BaseField, Relation } from "@schema";
 import type {
   FieldNames,
   RelationNames,
@@ -16,7 +14,7 @@ import type {
 import type { WhereInput } from "./where-input.js";
 import type { OrderByInput } from "./orderby-input.js";
 import { CountSelectInput } from "../operations/find-args.js";
-import { SimplifyDeep } from "../../utilities.js";
+import { SimplifyDeep } from "../utilities.js";
 
 // ===== CORE SELECTION TYPES =====
 

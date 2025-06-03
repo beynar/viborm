@@ -1,23 +1,18 @@
-import { Operation } from "./types/client/operations/defintion";
-import { Schema } from "./types/client/schema";
-import { Client } from "./types/client/client";
+import { ProviderAdapter } from "@adapters";
+import { Schema } from "@schema";
+import { Sql } from "@sql";
+import { Operation, OperationPayload, OperationResult } from "@types";
 
-// Define the adapter interface
-export interface AdapterInterface {
-  // Connection management
-  connect(): Promise<void>;
-  disconnect(): Promise<void>;
-
-  // Core operations - these receive processed query objects
-  execute(operation: {
-    type: Operation;
-    model: string;
-    payload: any;
-  }): Promise<any>;
-}
+export type Client<S extends Schema> = {
+  [K in keyof S]: {
+    [O in Operation]: <P extends OperationPayload<O, S[K]>>(
+      args: P
+    ) => OperationResult<O, S[K], P>;
+  };
+};
 
 function createRecursiveProxy<S extends Schema>(
-  adapter: AdapterInterface,
+  adapter: ProviderAdapter,
   schema: S,
   callback: (opts: {
     modelName: keyof S;
@@ -47,11 +42,11 @@ function createRecursiveProxy<S extends Schema>(
 
 export interface VibORMConfig<S extends Schema> {
   schema: S;
-  adapter: AdapterInterface;
+  adapter: ProviderAdapter;
 }
 
 export class VibORM<S extends Schema> {
-  private adapter: AdapterInterface;
+  private adapter: ProviderAdapter;
   private schema: S;
   private client: Client<S>;
 
@@ -73,11 +68,8 @@ export class VibORM<S extends Schema> {
         }
 
         // Execute the operation through the adapter
-        return await this.adapter.execute({
-          type: operation,
-          model: String(modelName),
-          payload: payload || {},
-        });
+        // const sql = generateSQL
+        // return await this.adapter.execute(sql);
       },
       []
     ) as Client<S>;
@@ -111,19 +103,7 @@ export class VibORM<S extends Schema> {
 
   // Raw query methods
   async $executeRaw(query: string, ...values: any[]): Promise<number> {
-    return await this.adapter.execute({
-      type: "executeRaw" as any,
-      model: "",
-      payload: { query, values },
-    });
-  }
-
-  async $queryRaw<T = unknown>(query: string, ...values: any[]): Promise<T> {
-    return await this.adapter.execute({
-      type: "queryRaw" as any,
-      model: "",
-      payload: { query, values },
-    });
+    return await this.adapter.execute(new Sql([query], values));
   }
 }
 

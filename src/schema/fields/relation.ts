@@ -2,9 +2,8 @@
 // Based on specification: readme/1.4_relation_class.md
 // Updated to support standard relational database relationship types
 
-import type { RelationType, CascadeOptions } from "../types/index.js";
-import { Model } from "./model.js";
-import { Simplify } from "../types/utilities.js";
+import { Model } from "../model.js";
+import { Simplify } from "../../types/utilities.js";
 export type Getter = () => Model<any>;
 
 // Relation options interface
@@ -223,3 +222,12 @@ export function getJunctionFieldNames(
 
   return [sourceFieldName, targetFieldName];
 }
+
+export type RelationType =
+  | "oneToOne"
+  | "oneToMany"
+  | "manyToOne"
+  | "manyToMany";
+
+// Cascade options for relations
+export type CascadeOptions = "CASCADE" | "SET NULL" | "RESTRICT" | "NO ACTION";

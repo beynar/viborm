@@ -1,8 +1,11 @@
 // JSON Field Class
 // Field for storing structured JSON data with optional schema validation
 
+import { StandardSchemaV1 } from "../../standardSchema.js";
 import { BaseField } from "./base.js";
+
 import type {
+  ValidationResult,
   FieldState,
   DefaultFieldState,
   MakeNullable,
@@ -11,9 +14,7 @@ import type {
   MakeUnique,
   MakeDefault,
   InferType,
-} from "../../types/field-states.js";
-import type { StandardSchemaV1 } from "../../types/standardSchema.js";
-import type { ValidationResult } from "../../types/validators.js";
+} from "./types.js";
 
 export class JsonField<
   TData = any,

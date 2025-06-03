@@ -1,7 +1,7 @@
 // Find Operation Arguments
 // Type-safe argument interfaces for find operations
 
-import type { Model } from "../../../schema/model.js";
+import type { Model, BaseField } from "@schema";
 import type { WhereInput, WhereUniqueInput } from "../query/where-input.js";
 import type {
   SelectInput,
@@ -182,8 +182,6 @@ export type CountArgs<TModel extends Model<any>> = {
 };
 
 // ===== AGGREGATION SELECTION TYPES =====
-
-import type { BaseField } from "../../../schema/fields/base.js";
 
 /**
  * Count selection input

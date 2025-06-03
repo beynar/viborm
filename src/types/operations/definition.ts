@@ -11,7 +11,7 @@ import {
 } from "./mutation-args";
 import { DeleteArgs } from "./mutation-args";
 import { FindManyArgs } from "./find-args";
-import { Model } from "../../../schema";
+import { Model } from "@schema";
 import { FindUniqueArgs } from "./find-args";
 import { CreateArgs } from "./mutation-args";
 import {

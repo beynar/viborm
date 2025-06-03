@@ -1,7 +1,5 @@
-import { Sql } from "../sql/sql";
-import { Model } from "../schema/model";
-import { Operation } from "../types/client/operations/defintion";
-import { Field, Relation } from "../schema";
+import { Sql } from "@sql";
+
 import {
   BigIntFilter,
   BoolFilter,
@@ -12,19 +10,15 @@ import {
   NumberFilter,
   QueryMode,
   StringFilter,
-} from "../types/client/query/filters-input";
-
-import {
   BoolFieldUpdateOperationsInput,
   DateTimeFieldUpdateOperationsInput,
   EnumFieldUpdateOperationsInput,
   IntFieldUpdateOperationsInput,
   JsonFieldUpdateOperationsInput,
   StringFieldUpdateOperationsInput,
-} from "../types/client/query/update-input";
+} from "@types";
 
 import { BuilderContext } from "../query-parser/types";
-import { BuiltIns } from "../types";
 
 // ================================
 // Query Clauses Type

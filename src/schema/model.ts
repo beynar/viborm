@@ -1,15 +1,8 @@
 // Model Class Implementation
 // Based on specification: readme/1.1_model_class.md
 
-import { BaseField, type Field } from "./field.js";
-import { Relation } from "./relation.js";
-import type {
-  IndexDefinition,
-  UniqueConstraintDefinition,
-  IndexOptions,
-  UniqueConstraintOptions,
-  ModelType,
-} from "../types/index.js";
+import { BaseField, type Field } from "./fields";
+import { Relation } from "./fields/relation.js";
 
 export class Model<
   TFields extends Record<string, Field | Relation<any, any>> = {}
@@ -105,7 +98,9 @@ export class Model<
   }
 
   get infer() {
-    return {} as ModelType<TFields>;
+    return {} as {
+      [K in keyof TFields]: TFields[K]["infer"];
+    };
   }
 }
 
@@ -116,3 +111,27 @@ export const model = <
   name: TName,
   fields: TFields
 ) => new Model(name, fields);
+
+export type IndexType = "btree" | "hash" | "gin" | "gist";
+
+export interface IndexOptions {
+  name?: string;
+  unique?: boolean;
+  type?: IndexType;
+  where?: string; // For partial indexes (PostgreSQL)
+}
+
+export interface IndexDefinition {
+  fields: string[];
+  options: IndexOptions;
+}
+
+// Unique constraint types
+export interface UniqueConstraintOptions {
+  name?: string;
+}
+
+export interface UniqueConstraintDefinition {
+  fields: string[];
+  options: UniqueConstraintOptions;
+}

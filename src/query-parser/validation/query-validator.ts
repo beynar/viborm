@@ -1,6 +1,10 @@
-import { Model } from "../../schema/model";
-import { Operation } from "../../types/client/operations/defintion";
-import { BuilderContext, ValidationResult, QueryParserConfig } from "../types";
+import { Model } from "@schema";
+import { Operation } from "@types";
+import {
+  BuilderContext,
+  ValidationResult,
+  QueryParserConfig,
+} from "@query-parser";
 import type { QueryParser } from "../index";
 
 /**
