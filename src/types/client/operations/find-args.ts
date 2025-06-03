@@ -12,6 +12,12 @@ import type {
   OrderByInput,
   OrderByArrayInput,
 } from "../query/orderby-input.js";
+import type {
+  FieldNames,
+  ModelFields,
+  MapFieldType,
+  ActualPluralRelationNames,
+} from "../foundation/index.js";
 
 // ===== CORE FIND ARGUMENTS =====
 
@@ -72,22 +78,6 @@ export type FindFirstOrThrowArgs<TModel extends Model<any>> =
 
 // ===== SPECIALIZED FIND ARGUMENTS =====
 
-/**
- * Arguments for findRaw operations (raw SQL queries)
- */
-export type FindRawArgs = {
-  query: string;
-  parameters?: any[];
-};
-
-/**
- * Arguments for queryRaw operations
- */
-export type QueryRawArgs = {
-  query: string;
-  parameters?: any[];
-};
-
 // ===== PAGINATION ARGUMENTS =====
 
 /**
@@ -146,52 +136,7 @@ export type SearchArgs<TModel extends Model<any>> = {
   };
 };
 
-// ===== ORDERING ARGUMENTS =====
-
-/**
- * Enhanced ordering arguments
- */
-export type EnhancedOrderByArgs<TModel extends Model<any>> = {
-  orderBy?:
-    | OrderByInput<TModel>
-    | OrderByArrayInput<TModel>
-    | RandomOrderBy
-    | RelevanceOrderBy;
-};
-
-/**
- * Random ordering
- */
-export type RandomOrderBy = {
-  _random: true;
-};
-
-/**
- * Relevance ordering (for search results)
- */
-export type RelevanceOrderBy = {
-  _relevance: "asc" | "desc";
-};
-
 // ===== RELATION ARGUMENTS =====
-
-/**
- * Relation loading arguments
- */
-export type RelationArgs<TModel extends Model<any>> = {
-  include?: IncludeInput<TModel>;
-  select?: SelectInput<TModel>;
-};
-
-/**
- * Nested relation arguments
- */
-export type NestedRelationArgs<TModel extends Model<any>> = {
-  where?: WhereInput<TModel>;
-  orderBy?: OrderByInput<TModel>;
-  take?: number;
-  skip?: number;
-};
 
 // ===== ADVANCED FIND ARGUMENTS =====
 
@@ -242,12 +187,6 @@ export type CountArgs<TModel extends Model<any>> = {
 
 // ===== AGGREGATION SELECTION TYPES =====
 
-import type {
-  FieldNames,
-  ModelFields,
-  MapFieldType,
-  ActualPluralRelationNames,
-} from "../foundation/index.js";
 import type { BaseField } from "../../../schema/fields/base.js";
 
 /**
@@ -404,17 +343,3 @@ export type FindArgKeys =
   | "skip"
   | "cursor"
   | "distinct";
-
-/**
- * Validate find arguments structure
- */
-export type ValidateFindArgs<TArgs> = TArgs extends Record<string, any>
-  ? {
-      [K in keyof TArgs]: K extends FindArgKeys ? TArgs[K] : never;
-    }
-  : never;
-
-/**
- * Merge multiple argument types
- */
-export type MergeArgs<T1, T2> = Omit<T1, keyof T2> & T2;

@@ -48,7 +48,7 @@ type ScalarSort = input<typeof scalarSortOrder>;
 
 const relationManySort = lazy(() =>
   object({
-    _count: optional(sortOrder),
+    _count: sortOrder,
   })
 );
 

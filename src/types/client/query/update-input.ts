@@ -5,7 +5,9 @@ import {
   DateTimeField,
   EnumField,
   JsonField,
+  Model,
   NumberField,
+  Relation,
   StringField,
 } from "../../../schema";
 import { IsFieldArray, IsFieldNullable } from "../foundation/field-mapping";
@@ -24,9 +26,18 @@ import {
   any,
   bigint,
   lazy,
-  json,
   input,
+  json,
 } from "zod/v4-mini";
+import {
+  ExtractRelationModel,
+  FieldNames,
+} from "../foundation/model-extraction";
+import { ModelFields } from "../foundation/model-extraction";
+import { ModelRelations } from "../foundation/model-extraction";
+import { RelationNames } from "../foundation/model-extraction";
+import { CreateInput } from "./create-input";
+import { WhereInput, WhereUniqueInput } from "./where-input";
 
 // Type inference helper
 type InferFilter<T> = input<T>;
@@ -471,3 +482,134 @@ export type FieldUpdateOperations<F extends BaseField<any>> =
     : F extends EnumField<any, any>
     ? EnumUpdateOperations<F>
     : never;
+
+/**
+ * Relation update input - differentiates between single and multiple relations
+ */
+export type RelationUpdateInput<TRelation extends Relation<any, any>> =
+  TRelation extends Relation<any, infer TRelationType>
+    ? TRelationType extends "oneToOne" | "manyToOne"
+      ? SingleRelationUpdateInput<ExtractRelationModel<TRelation>>
+      : TRelationType extends "oneToMany" | "manyToMany"
+      ? MultiRelationUpdateInput<ExtractRelationModel<TRelation>>
+      : never
+    : never;
+
+// ===== SINGLE RELATION OPERATIONS =====
+
+/**
+ * Update operations for single relations (oneToOne, manyToOne)
+ */
+export type SingleRelationUpdateInput<TRelatedModel extends Model<any>> = {
+  create?: CreateInput<TRelatedModel>;
+  connect?: WhereUniqueInput<TRelatedModel>;
+  disconnect?: boolean;
+  delete?: boolean;
+  update?: UpdateInput<TRelatedModel>;
+  upsert?: {
+    create: CreateInput<TRelatedModel>;
+    update: UpdateInput<TRelatedModel>;
+  };
+  connectOrCreate?: {
+    where: WhereUniqueInput<TRelatedModel>;
+    create: CreateInput<TRelatedModel>;
+  };
+};
+// Enhanced update type with field-specific operations
+export type ScalarUpdateInput<TModel extends Model<any>> =
+  FieldNames<TModel> extends never
+    ? {}
+    : {
+        [K in FieldNames<TModel>]?: K extends keyof ModelFields<TModel>
+          ? ModelFields<TModel>[K] extends BaseField<any>
+            ? FieldUpdateOperations<ModelFields<TModel>[K]>
+            : never
+          : never;
+      };
+
+/**
+ * Input for updating a record
+ */
+export type UpdateInput<
+  TModel extends Model<any>,
+  Deep extends boolean = true
+> = ScalarUpdateInput<TModel> &
+  (Deep extends true
+    ? {
+        // Relation update operations
+        [K in RelationNames<TModel>]?: K extends keyof ModelRelations<TModel>
+          ? ModelRelations<TModel>[K] extends Relation<any, any>
+            ? RelationUpdateInput<ModelRelations<TModel>[K]>
+            : never
+          : never;
+      }
+    : {});
+/**
+ * Nested update input for relations
+ */
+export type NestedUpdateInput<TRelation extends Relation<any, any>> = {
+  create?: CreateInput<ExtractRelationModel<TRelation>>;
+  connect?: WhereUniqueInput<ExtractRelationModel<TRelation>>;
+  disconnect?: boolean;
+  delete?: boolean;
+  update?: UpdateInput<ExtractRelationModel<TRelation>>;
+  upsert?: {
+    create: CreateInput<ExtractRelationModel<TRelation>>;
+    update: UpdateInput<ExtractRelationModel<TRelation>>;
+  };
+  connectOrCreate?: {
+    where: WhereUniqueInput<ExtractRelationModel<TRelation>>;
+    create: CreateInput<ExtractRelationModel<TRelation>>;
+  };
+};
+/**
+ * Update operations for multi relations (oneToMany, manyToMany)
+ */
+export type MultiRelationUpdateInput<TRelatedModel extends Model<any>> = {
+  create?: CreateInput<TRelatedModel> | CreateInput<TRelatedModel>[];
+  connect?: WhereUniqueInput<TRelatedModel> | WhereUniqueInput<TRelatedModel>[];
+  disconnect?:
+    | WhereUniqueInput<TRelatedModel>
+    | WhereUniqueInput<TRelatedModel>[];
+  delete?: WhereUniqueInput<TRelatedModel> | WhereUniqueInput<TRelatedModel>[];
+  update?:
+    | {
+        where: WhereUniqueInput<TRelatedModel>;
+        data: UpdateInput<TRelatedModel>;
+      }
+    | Array<{
+        where: WhereUniqueInput<TRelatedModel>;
+        data: UpdateInput<TRelatedModel>;
+      }>;
+  updateMany?:
+    | {
+        where: WhereInput<TRelatedModel>;
+        data: UpdateInput<TRelatedModel, false>;
+      }
+    | Array<{
+        where: WhereInput<TRelatedModel>;
+        data: UpdateInput<TRelatedModel, false>;
+      }>;
+  deleteMany?: WhereInput<TRelatedModel> | WhereInput<TRelatedModel>[];
+  upsert?:
+    | {
+        where: WhereUniqueInput<TRelatedModel>;
+        create: CreateInput<TRelatedModel>;
+        update: UpdateInput<TRelatedModel>;
+      }
+    | Array<{
+        where: WhereUniqueInput<TRelatedModel>;
+        create: CreateInput<TRelatedModel>;
+        update: UpdateInput<TRelatedModel>;
+      }>;
+  connectOrCreate?:
+    | {
+        where: WhereUniqueInput<TRelatedModel>;
+        create: CreateInput<TRelatedModel>;
+      }
+    | Array<{
+        where: WhereUniqueInput<TRelatedModel>;
+        create: CreateInput<TRelatedModel>;
+      }>;
+  set?: WhereUniqueInput<TRelatedModel> | WhereUniqueInput<TRelatedModel>[];
+};
