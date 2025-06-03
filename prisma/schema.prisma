@@ -32,6 +32,8 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   role      Role?    @default(USER)
+  mentor    Mentor?  @relation("mentor", fields: [mentorId], references: [id])
+  mentorId  String?
 
   // Relations
   posts     Post[]
@@ -39,6 +41,15 @@ model User {
   followers Follow[]  @relation("following")
   following Follow[]  @relation("followers")
   likes     Like[]
+  userId    String?
+}
+
+model Mentor {
+  id        String   @id @default(uuid())
+  mentee    User[]   @relation("mentor")
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Post {

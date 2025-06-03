@@ -9,7 +9,7 @@ import type {
   ValidateSelectInclude,
 } from "../query/select-input.js";
 import type {
-  OrderByWithRelationInput,
+  OrderByInput,
   OrderByArrayInput,
 } from "../query/orderby-input.js";
 
@@ -22,7 +22,7 @@ export type BaseFindArgs<TModel extends Model<any>> = {
   select?: SelectInput<TModel>;
   include?: IncludeInput<TModel>;
   where?: WhereInput<TModel>;
-  orderBy?: OrderByWithRelationInput<TModel> | OrderByArrayInput<TModel>;
+  orderBy?: OrderByInput<TModel> | OrderByArrayInput<TModel>;
 };
 
 /**
@@ -153,7 +153,7 @@ export type SearchArgs<TModel extends Model<any>> = {
  */
 export type EnhancedOrderByArgs<TModel extends Model<any>> = {
   orderBy?:
-    | OrderByWithRelationInput<TModel>
+    | OrderByInput<TModel>
     | OrderByArrayInput<TModel>
     | RandomOrderBy
     | RelevanceOrderBy;
@@ -188,7 +188,7 @@ export type RelationArgs<TModel extends Model<any>> = {
  */
 export type NestedRelationArgs<TModel extends Model<any>> = {
   where?: WhereInput<TModel>;
-  orderBy?: OrderByWithRelationInput<TModel>;
+  orderBy?: OrderByInput<TModel>;
   take?: number;
   skip?: number;
 };
@@ -200,7 +200,7 @@ export type NestedRelationArgs<TModel extends Model<any>> = {
  */
 export type AggregateArgs<TModel extends Model<any>> = {
   where?: WhereInput<TModel>;
-  orderBy?: OrderByWithRelationInput<TModel>;
+  orderBy?: OrderByInput<TModel>;
   cursor?: WhereUniqueInput<TModel>;
   take?: number;
   skip?: number;
@@ -216,7 +216,7 @@ export type AggregateArgs<TModel extends Model<any>> = {
  */
 export type GroupByArgs<TModel extends Model<any>> = {
   where?: WhereInput<TModel>;
-  orderBy?: OrderByWithRelationInput<TModel>;
+  orderBy?: OrderByInput<TModel>;
   by: Array<keyof SelectInput<TModel>>;
   having?: HavingInput<TModel>;
   take?: number;
@@ -233,7 +233,7 @@ export type GroupByArgs<TModel extends Model<any>> = {
  */
 export type CountArgs<TModel extends Model<any>> = {
   where?: WhereInput<TModel>;
-  orderBy?: OrderByWithRelationInput<TModel>;
+  orderBy?: OrderByInput<TModel>;
   cursor?: WhereUniqueInput<TModel>;
   take?: number;
   skip?: number;

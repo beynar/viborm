@@ -9,23 +9,10 @@ import type {
   ModelRelations,
   MapFieldType,
   GetUniqueFields,
+  ExtractRelationModel,
 } from "../foundation/index.js";
 import type { FieldFilter } from "./filters.js";
 import { InferType } from "../../../index.js";
-
-/**
- * Extract target model from relation
- */
-export type ExtractRelationModel<TRelation> = TRelation extends Relation<
-  infer TGetter,
-  any
->
-  ? TGetter extends () => infer TModel
-    ? TModel extends Model<any>
-      ? TModel
-      : never
-    : never
-  : never;
 
 /**
  * Relation filters for different relation types

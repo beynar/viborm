@@ -9,11 +9,20 @@ const prisma = new PrismaClient({
   log: ["query", "info", "warn", "error"],
 });
 
-const res = await prisma.user.findFirst({
+const res = await prisma.user.findMany({
   where: {
     id: "test",
     tags: {
       equals: ["ez"],
+    },
+  },
+  orderBy: {
+    metadata: "asc",
+    posts: {
+      _count: "asc",
+    },
+    mentor: {
+      mentee: {},
     },
   },
   // data: {

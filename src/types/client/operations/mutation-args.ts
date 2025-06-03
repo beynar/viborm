@@ -8,8 +8,10 @@ import type {
   RelationNames,
   ModelRelations,
   MapModelCreateFields,
-  MapModelUpdateFieldsWithOperations,
+  ModelFields,
 } from "../foundation/index.js";
+import { FieldUpdateOperations } from "../query/update-input.js";
+import { BaseField } from "../../../schema/field.js";
 
 // ===== CREATE OPERATIONS =====
 
@@ -68,13 +70,25 @@ export type UpdateManyArgs<TModel extends Model<any>> = {
   data: UpdateInput<TModel, false>;
 };
 
+// Enhanced update type with field-specific operations
+export type ScalarUpdateInput<TModel extends Model<any>> =
+  FieldNames<TModel> extends never
+    ? {}
+    : {
+        [K in FieldNames<TModel>]?: K extends keyof ModelFields<TModel>
+          ? ModelFields<TModel>[K] extends BaseField<any>
+            ? FieldUpdateOperations<ModelFields<TModel>[K]>
+            : never
+          : never;
+      };
+
 /**
  * Input for updating a record
  */
 export type UpdateInput<
   TModel extends Model<any>,
   Deep extends boolean = true
-> = MapModelUpdateFieldsWithOperations<TModel> &
+> = ScalarUpdateInput<TModel> &
   (Deep extends true
     ? {
         // Relation update operations

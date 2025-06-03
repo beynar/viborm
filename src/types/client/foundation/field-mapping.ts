@@ -223,18 +223,6 @@ export type MapModelUpdateFields<TModel extends Model<any>> =
           : never;
       };
 
-// Enhanced update type with field-specific operations
-export type MapModelUpdateFieldsWithOperations<TModel extends Model<any>> =
-  FieldNames<TModel> extends never
-    ? {}
-    : {
-        [K in FieldNames<TModel>]?: K extends keyof ModelFields<TModel>
-          ? ModelFields<TModel>[K] extends BaseField<any>
-            ? FieldUpdateOperations<ModelFields<TModel>[K]>
-            : never
-          : never;
-      };
-
 // Utility to check if a field name exists in model
 export type IsValidFieldName<
   TModel extends Model<any>,

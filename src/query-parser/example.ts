@@ -64,7 +64,7 @@ const query = {
 const role = s.enum(["ADMIN", "USER"] as const);
 type T = UpdateInput<typeof user, false>["role"];
 
-const t = await client.user.findFirst({
+const t = await client.user.findMany({
   where: {
     role: {
       equals: "ADMIN",
@@ -89,6 +89,20 @@ const t = await client.user.findFirst({
     friends: {
       select: {
         id: true,
+      },
+    },
+  },
+  orderBy: {
+    age: {
+      sort: "asc",
+      nulls: "last",
+    },
+    posts: {
+      _count: "asc",
+    },
+    friend: {
+      posts: {
+        _count: "asc",
       },
     },
   },

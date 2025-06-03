@@ -119,3 +119,17 @@ export type HasRelations<TModel extends Model<any>> =
 export type ModelPropertyNames<TModel extends Model<any>> =
   | FieldNames<TModel>
   | RelationNames<TModel>;
+
+/**
+ * Extract target model from relation
+ */
+export type ExtractRelationModel<TRelation> = TRelation extends Relation<
+  infer TGetter,
+  any
+>
+  ? TGetter extends () => infer TModel
+    ? TModel extends Model<any>
+      ? TModel
+      : never
+    : never
+  : never;

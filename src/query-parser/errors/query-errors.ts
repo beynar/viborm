@@ -59,7 +59,11 @@ export abstract class QueryParserError extends Error {
     this.timestamp = new Date();
 
     // Maintain proper stack trace
-    if (Error.captureStackTrace) {
+    if (
+      "captureStackTrace" in Error &&
+      Error.captureStackTrace &&
+      typeof Error.captureStackTrace === "function"
+    ) {
       Error.captureStackTrace(this, this.constructor);
     }
   }

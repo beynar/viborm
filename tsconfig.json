@@ -9,6 +9,7 @@
     "declarationMap": false,
     "sourceMap": false,
     "removeComments": false,
+    "noImplicitAny": false,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
@@ -24,5 +25,5 @@
     "tests/**/*.test-d.ts",
     "tests/model-type-inference-d.ts"
   ],
-  "exclude": ["dist", "**/*.spec.ts", "node_modules"]
+  "exclude": ["dist", "node_modules"]
 }
