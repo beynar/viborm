@@ -60,6 +60,11 @@ client.user.findFirst({
     role: {
       in: ["ADMIN"],
     },
+    AND: [
+      {
+        role: "ADMIN",
+      },
+    ],
     tags: {
       equals: null,
     },

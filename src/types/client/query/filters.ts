@@ -379,20 +379,6 @@ type EnumFilters<T extends EnumField<any, any>> = T extends EnumField<
   : never;
 
 // ============================================================================
-// COMPOSITE FILTERS
-// ============================================================================
-const whereInputBase = <TModel extends ZodMiniType>(modelSchema: TModel) =>
-  object({
-    AND: optional(union([modelSchema, array(modelSchema)])),
-    OR: optional(array(modelSchema)),
-    NOT: optional(union([modelSchema, array(modelSchema)])),
-  });
-
-export type WhereInputBase<TModel extends ZodMiniType> = InferFilter<
-  ReturnType<typeof whereInputBase<TModel>>
->;
-
-// ============================================================================
 // FIELD UPDATE OPERATIONS
 // ============================================================================
 const stringFieldUpdateOperationsInput = object({
