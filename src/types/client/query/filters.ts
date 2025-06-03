@@ -379,154 +379,23 @@ type EnumFilters<T extends EnumField<any, any>> = T extends EnumField<
   : never;
 
 // ============================================================================
-// FIELD UPDATE OPERATIONS
+// LIST FILTERS (Generic)
 // ============================================================================
-const stringFieldUpdateOperationsInput = object({
-  set: optional(string()),
-});
+export type ListFilter<T> = InferFilter<ReturnType<typeof baseListFilter<any>>>;
 
-const nullableStringFieldUpdateOperationsInput = object({
-  set: optional(nullable(string())),
-});
+// ============================================================================
+// COMPOSITE FILTERS
+// ============================================================================
+const whereInputBase = <TModel extends ZodMiniType>(modelSchema: TModel) =>
+  object({
+    AND: optional(union([modelSchema, array(modelSchema)])),
+    OR: optional(array(modelSchema)),
+    NOT: optional(union([modelSchema, array(modelSchema)])),
+  });
 
-const intFieldUpdateOperationsInput = object({
-  set: optional(number()),
-  increment: optional(number()),
-  decrement: optional(number()),
-  multiply: optional(number()),
-  divide: optional(number()),
-});
-
-const nullableIntFieldUpdateOperationsInput = object({
-  set: optional(nullable(number())),
-  increment: optional(number()),
-  decrement: optional(number()),
-  multiply: optional(number()),
-  divide: optional(number()),
-});
-
-const floatFieldUpdateOperationsInput = object({
-  set: optional(number()),
-  increment: optional(number()),
-  decrement: optional(number()),
-  multiply: optional(number()),
-  divide: optional(number()),
-});
-
-const nullableFloatFieldUpdateOperationsInput = object({
-  set: optional(nullable(number())),
-  increment: optional(number()),
-  decrement: optional(number()),
-  multiply: optional(number()),
-  divide: optional(number()),
-});
-
-const bigIntFieldUpdateOperationsInput = object({
-  set: optional(bigint()),
-  increment: optional(bigint()),
-  decrement: optional(bigint()),
-  multiply: optional(bigint()),
-  divide: optional(bigint()),
-});
-
-const nullableBigIntFieldUpdateOperationsInput = object({
-  set: optional(nullable(bigint())),
-  increment: optional(bigint()),
-  decrement: optional(bigint()),
-  multiply: optional(bigint()),
-  divide: optional(bigint()),
-});
-
-const boolFieldUpdateOperationsInput = object({
-  set: optional(boolean()),
-});
-
-const nullableBoolFieldUpdateOperationsInput = object({
-  set: optional(nullable(boolean())),
-});
-
-const dateTimeFieldUpdateOperationsInput = object({
-  set: optional(date()),
-});
-
-const nullableDateTimeFieldUpdateOperationsInput = object({
-  set: optional(nullable(date())),
-});
-
-const jsonFieldUpdateOperationsInput = object({
-  set: optional(any()),
-});
-
-const nullableJsonFieldUpdateOperationsInput = object({
-  set: optional(nullable(any())),
-});
-
-const enumFieldUpdateOperationsInput = <T extends string[]>(values: T) =>
-  union([
-    enumType(values),
-    object({
-      set: optional(enumType(values)),
-    }),
-  ]);
-
-const nullableEnumFieldUpdateOperationsInput = <T extends string[]>(
-  values: T
-) =>
-  union([
-    nullable(enumType(values)),
-    object({
-      set: optional(nullable(enumType(values))),
-    }),
-  ]);
-
-// Field update operation types
-export type StringFieldUpdateOperationsInput = InferFilter<
-  typeof stringFieldUpdateOperationsInput
+export type WhereInputBase<TModel extends ZodMiniType> = InferFilter<
+  ReturnType<typeof whereInputBase<TModel>>
 >;
-export type NullableStringFieldUpdateOperationsInput = InferFilter<
-  typeof nullableStringFieldUpdateOperationsInput
->;
-export type IntFieldUpdateOperationsInput = InferFilter<
-  typeof intFieldUpdateOperationsInput
->;
-export type NullableIntFieldUpdateOperationsInput = InferFilter<
-  typeof nullableIntFieldUpdateOperationsInput
->;
-export type FloatFieldUpdateOperationsInput = InferFilter<
-  typeof floatFieldUpdateOperationsInput
->;
-export type NullableFloatFieldUpdateOperationsInput = InferFilter<
-  typeof nullableFloatFieldUpdateOperationsInput
->;
-export type BigIntFieldUpdateOperationsInput = InferFilter<
-  typeof bigIntFieldUpdateOperationsInput
->;
-export type NullableBigIntFieldUpdateOperationsInput = InferFilter<
-  typeof nullableBigIntFieldUpdateOperationsInput
->;
-export type BoolFieldUpdateOperationsInput = InferFilter<
-  typeof boolFieldUpdateOperationsInput
->;
-export type NullableBoolFieldUpdateOperationsInput = InferFilter<
-  typeof nullableBoolFieldUpdateOperationsInput
->;
-export type DateTimeFieldUpdateOperationsInput = InferFilter<
-  typeof dateTimeFieldUpdateOperationsInput
->;
-export type NullableDateTimeFieldUpdateOperationsInput = InferFilter<
-  typeof nullableDateTimeFieldUpdateOperationsInput
->;
-export type JsonFieldUpdateOperationsInput = InferFilter<
-  typeof jsonFieldUpdateOperationsInput
->;
-export type NullableJsonFieldUpdateOperationsInput = InferFilter<
-  typeof nullableJsonFieldUpdateOperationsInput
->;
-
-export type EnumFieldUpdateOperationsInput<T extends string | number> =
-  InferFilter<ReturnType<typeof enumFieldUpdateOperationsInput<any>>>;
-export type NullableEnumFieldUpdateOperationsInput<T extends string | number> =
-  InferFilter<ReturnType<typeof nullableEnumFieldUpdateOperationsInput<any>>>;
 
 // ============================================================================
 // FIELD FILTER MAPPING

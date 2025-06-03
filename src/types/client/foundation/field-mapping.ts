@@ -10,6 +10,7 @@ import type {
   InferStorageType,
 } from "../../field-states.js";
 import type { AutoGenerateType } from "../../scalars.js";
+import { FieldUpdateOperations } from "../query/update-input.js";
 import type {
   ModelFields,
   FieldNames,
@@ -229,53 +230,10 @@ export type MapModelUpdateFieldsWithOperations<TModel extends Model<any>> =
     : {
         [K in FieldNames<TModel>]?: K extends keyof ModelFields<TModel>
           ? ModelFields<TModel>[K] extends BaseField<any>
-            ? FieldUpdateOperationInput<MapFieldType<ModelFields<TModel>[K]>>
+            ? FieldUpdateOperations<ModelFields<TModel>[K]>
             : never
           : never;
       };
-
-// Field-specific update operations
-export type FieldUpdateOperationInput<T> = T extends number
-  ? T | NumberFieldUpdateOperations
-  : T extends string
-  ? T | StringFieldUpdateOperations
-  : T extends boolean
-  ? T | BooleanFieldUpdateOperations
-  : T extends Date
-  ? T | DateTimeFieldUpdateOperations
-  : T extends any[]
-  ? T | ArrayFieldUpdateOperations<T>
-  : T;
-
-// Number field update operations
-export type NumberFieldUpdateOperations = {
-  set?: number;
-  increment?: number;
-  decrement?: number;
-  multiply?: number;
-  divide?: number;
-};
-
-// String field update operations
-export type StringFieldUpdateOperations = {
-  set?: string;
-};
-
-// Boolean field update operations
-export type BooleanFieldUpdateOperations = {
-  set?: boolean;
-};
-
-// DateTime field update operations
-export type DateTimeFieldUpdateOperations = {
-  set?: Date;
-};
-
-// Array field update operations
-export type ArrayFieldUpdateOperations<T extends any[]> = {
-  set?: T;
-  push?: T[number] | T[number][];
-};
 
 // Utility to check if a field name exists in model
 export type IsValidFieldName<

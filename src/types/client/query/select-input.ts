@@ -316,7 +316,7 @@ export type PartialSelectInput<TModel extends Model<any>> = Partial<
  */
 export type DeepSelectInput<
   TModel extends Model<any>,
-  TDepth extends number = 3
+  TDepth extends number = 10
 > = TDepth extends 0
   ? BaseSelectInput<TModel>
   : SelectInput<TModel> & {
@@ -343,4 +343,20 @@ export type Prev<T extends number> = T extends 0
   ? 1
   : T extends 3
   ? 2
+  : T extends 4
+  ? 3
+  : T extends 5
+  ? 4
+  : T extends 6
+  ? 5
+  : T extends 7
+  ? 6
+  : T extends 8
+  ? 7
+  : T extends 9
+  ? 8
+  : T extends 10
+  ? 9
+  : T extends 11
+  ? 10
   : number;

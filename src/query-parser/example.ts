@@ -3,20 +3,29 @@ import { s } from "../schema";
 import { PostgresAdapter } from "../adapters/databases/postgres/postgres-adapter";
 import { QueryParser } from "./index";
 import { Prisma, PrismaClient } from "../../generated/prisma";
-import { ExtractFields } from "../types/client/foundation/model-extraction";
+import {
+  ExtractFields,
+  FieldNames,
+} from "../types/client/foundation/model-extraction";
 import { FieldFilter } from "../types/client/query/filters";
+import { MapModelUpdateFieldsWithOperations } from "../types/client/foundation";
+import { UpdateInput } from "../types/client/operations/mutation-args";
 
 const user = s.model("User", {
-  id: s.string(),
+  id: s.string().id(),
   name: s.string(),
   email: s.string(),
+  createdAt: s.dateTime(),
   tags: s.string().array().nullable(),
-  age: s.int(),
+  age: s.int().nullable(),
   metadata: s.json().nullable(),
   role: s.enum(["ADMIN", "USER"] as const).nullable(),
   friends: s
     .relation({ onField: "id", refField: "friendId" })
     .manyToMany(() => user),
+  friend: s
+    .relation({ onField: "id", refField: "friendId" })
+    .manyToOne(() => user),
   posts: s
     .relation({ onField: "id", refField: "authorId" })
     .oneToMany(() => post),
@@ -52,24 +61,50 @@ const query = {
     id: true,
   },
 };
-const tags = s.string().array();
-type T = FieldFilter<typeof tags>;
+const role = s.enum(["ADMIN", "USER"] as const);
+type T = UpdateInput<typeof user, false>["role"];
 
-client.user.findFirst({
+const t = await client.user.findFirst({
   where: {
     role: {
-      in: ["ADMIN"],
+      equals: "ADMIN",
     },
-    AND: [
-      {
-        role: "ADMIN",
+
+    posts: {
+      some: {
+        title: {
+          contains: "test",
+        },
       },
-    ],
-    tags: {
-      equals: null,
+    },
+  },
+  data: {
+    role: {
+      set: "",
+    },
+  },
+  select: {
+    id: true,
+    friend: true,
+    friends: {
+      select: {
+        id: true,
+      },
     },
   },
 });
+client.user.update({
+  where: {
+    id: "1",
+  },
+  data: {
+    age: {
+      set: 22,
+    },
+    role: "ADMIN",
+  },
+});
+
 // const res = client.user.findUnique(query);
 const sql = QueryParser.parse("findFirst", user, query, new PostgresAdapter());
 

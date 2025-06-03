@@ -1,12 +1,98 @@
 # BaseORM Development Changelog
 
+## 2024-12-20 - Complete Update Input Reorganization with Array and Nullable Support
+
+**Problem**: User requested reorganizing `update-input.ts` to match the structure of `filters.ts` and add support for nullable and array field types that were missing.
+
+**Solution**: Completely restructured the update-input.ts file following the exact pattern from filters.ts:
+
+### Major Changes:
+
+1. **Base Schema Constructors**: Created reusable base operations similar to filters.ts:
+
+   - `baseSetOperation<T>()` - Basic set operation for all field types
+   - `baseNullableSetOperation<T>()` - Nullable version of set operation
+   - `baseArithmeticOperations<T>()` - Set, increment, decrement, multiply, divide for numbers/bigints
+   - `baseNullableArithmeticOperations<T>()` - Nullable version of arithmetic operations
+   - `baseArrayUpdateOperations<T>()` - Array manipulation: set, push, unshift, pop, shift, splice
+   - `baseNullableArrayUpdateOperations<T>()` - Nullable array operations
+
+2. **Complete Field Type Coverage**: Extended to support all field types with 4 variants each:
+
+   - **String**: `StringFieldUpdateOperationsInput`, `NullableStringFieldUpdateOperationsInput`, `StringArrayFieldUpdateOperationsInput`, `NullableStringArrayFieldUpdateOperationsInput`
+   - **Number** (Int/Float): All numeric variants with arithmetic operations
+   - **Boolean**: Basic set operations for boolean types and arrays
+   - **DateTime**: Date operations with array support
+   - **BigInt**: Arithmetic operations with bigint support and arrays
+   - **JSON**: Enhanced with `merge` and `path` operations (no arrays - JSON fields can't be arrays)
+   - **Enum**: Generic enum operations with proper type safety
+
+3. **Type Helper System**: Added conditional type helpers for each field type:
+
+   ```typescript
+   type StringUpdateOperations<T extends StringField<any>> =
+     IsFieldArray<T> extends true
+       ? IsFieldNullable<T> extends true
+         ? NullableStringArrayFieldUpdateOperationsInput
+         : StringArrayFieldUpdateOperationsInput
+       : IsFieldNullable<T> extends true
+       ? NullableStringFieldUpdateOperationsInput
+       : StringFieldUpdateOperationsInput;
+   ```
+
+4. **Final Type Mapping**: Created unified `FieldUpdateOperations<F extends BaseField<any>>` that maps any field to its correct update operations based on field type and modifiers.
+
+5. **File Organization**: Structured with clear sections matching filters.ts:
+   - Base operations at top
+   - Field-specific sections with comment headers
+   - All variants for each field type grouped together
+   - Type helpers per field type
+   - Final mapping at bottom
+
+### Array Operations Added:
+
+- `set`: Replace entire array
+- `push`: Add items to end (single item or array of items)
+- `unshift`: Add items to beginning
+- `pop`: Remove last item (boolean flag)
+- `shift`: Remove first item (boolean flag)
+- `splice`: Advanced array manipulation with start index, delete count, and items to insert
+
+### JSON Operations Enhanced:
+
+- `set`: Replace entire JSON value
+- `merge`: Merge with existing JSON object
+- `path`: Update nested JSON property by path
+
+### Testing:
+
+- Created comprehensive test suite with 44 tests covering:
+  - Runtime validation of all schema variants
+  - Type checking for all operation types
+  - Array operations functionality
+  - Nullable operations functionality
+  - JSON-specific operations
+
+**Result**:
+
+- Perfect consistency with filters.ts architecture
+- Complete support for all field types including nullable and array variants
+- Type-safe array manipulation operations
+- Enhanced JSON update capabilities
+- All 44 tests passing
+- Clean separation between query filters and update operations
+- Future-ready architecture for adding new field types
+
+**Files Modified**:
+
+- `src/types/client/query/update-input.ts` - Complete reorganization
+- `tests/types/client/query/update-input.test.ts` - Comprehensive new test suite
+
 ## 2024-12-20 - Error System Standardization in Field Components
 
 ### **Problem Solved**
 
-
 All three field components (`FieldFilterBuilder`, `FieldUpdateBuilder`, `FieldValidatorBuilder`) were throwing generic `Error` objects instead of using the comprehensive error system defined in `query-errors.ts`. This created inconsistent error handling, poor debugging experience, and missed the benefits of the structured error architecture already implemented in the project.
-
 
 ### **Key Changes Made**
 
@@ -1373,7 +1459,6 @@ WITH
 SELECT mutation.*, related.aggregated_data FROM mutation, related;
 ```
 
-
 ### Impact Assessment
 
 - **Performance**: Minimal overhead, modern databases optimize simple CTEs effectively
@@ -1385,7 +1470,6 @@ SELECT mutation.*, related.aggregated_data FROM mutation, related;
 This enhancement positions BaseORM as a truly modern ORM with sophisticated query capabilities that match Prisma's advanced features while maintaining our composable, type-safe architecture.
 
 **Problem Solved**: Completed Phase 1 implementation of VibORM's client type system foundation infrastructure, fixing all critical type inference issues and establishing a solid foundation for query system development.
-
 
 ## Comprehensive Test Quality Improvements Complete ✅
 
@@ -1408,12 +1492,10 @@ User requested comprehensive full SQL output validation tests instead of partial
 
 **Full SQL Validation Benefits**:
 
-
 - **Complete SQL Structure Validation**: Tests now validate entire SQL statements instead of just checking for keyword presence
 - **Parameter Placeholder Validation**: Ensures proper placement and handling of SQL parameters
 - **Keyword Order Validation**: Verifies correct SQL clause ordering (SELECT, FROM, WHERE, ORDER BY, etc.)
 - **Table/Column Identifier Validation**: Confirms proper quoting and aliasing of database identifiers
-
 
 ### Implementation Details
 
@@ -1452,9 +1534,7 @@ User requested comprehensive full SQL output validation tests instead of partial
   'SELECT COUNT(*) AS "_count", SUM("t0"."salary") AS "_sum_salary" FROM "user" AS "t0" GROUP BY "t0"."department"'
   ```
 
-
 ### Technical Achievements
-
 
 **Issues Discovered and Documented**:
 
@@ -1462,17 +1542,13 @@ User requested comprehensive full SQL output validation tests instead of partial
 - **UPDATE/DELETE Table Names**: Some operations show empty table identifiers (`""` instead of `"user"`)
 - **DISTINCT Functionality**: Not yet implemented (documented for future enhancement)
 
-
 **Improved Error Detection**:
-
 
 - **Exact SQL Structure**: Tests now catch incorrect SQL generation order and syntax
 - **Database Compatibility**: Validates PostgreSQL-specific quoting and identifier handling
 - **Type Safety**: Ensures proper field type handling and validation
 
-
 **Future Enhancement Opportunities**:
-
 
 - DISTINCT clause implementation for findMany operations
 - Parameter value binding improvements for LIMIT/OFFSET
@@ -1603,18 +1679,15 @@ GROUP BY "t0"."department"
 ORDER BY "_count" DESC
 ```
 
-
 ### Demo Implementation
 
 Created comprehensive `aggregate-operations-demo.ts` showcasing:
-
 
 - All COUNT variations
 - All AGGREGATE combinations
 - All GROUP BY scenarios
 - Advanced examples with filtering and ordering
 - Real-world use cases
-
 
 ### Key Technical Decisions
 
@@ -1626,9 +1699,7 @@ Created comprehensive `aggregate-operations-demo.ts` showcasing:
 
 ### Results
 
-
 **Phase 3 Status**: ✅ COMPLETE
-
 
 - All aggregate operations fully implemented
 - 24/24 tests passing
@@ -1695,9 +1766,7 @@ Created comprehensive `aggregate-operations-demo.ts` showcasing:
 - **Clauses Structure**: Updated adapter to handle new clauses structure with `set` property
 - **SQL Generation**: Clean PostgreSQL-specific SQL with proper RETURNING clauses
 
-
 ### **Testing & Validation**
-
 
 - **Comprehensive Test Suite**: 22 tests covering all mutation operations
 - **Error Handling Tests**: Validation of proper error messages and edge cases
@@ -1990,7 +2059,6 @@ const sql = QueryParser.parse("findUnique", user, query, new PostgresAdapter());
 
 ### 7. **Technical Implementation Details**
 
-
 **Key Patterns Used**:
 
 - **Component Coordination**: `this.parser.components.X` for inter-component communication
@@ -2070,7 +2138,6 @@ The relation filtering issue that was blocking development is now **completely r
   - Abstract conditions for relation linking
   - Comprehensive error handling with helpful messages
 - **Architecture**: Coordinates with field filters and relation filters
-
 
 ### 3. **Migrated ORDER BY Clause Building** (`src/query-parser/clauses/orderby-clause.ts`)
 
@@ -2367,7 +2434,6 @@ The interface contained "legacy signatures" from before the architectural cleanu
 - ✅ **Future-Proof**: Interface accurately reflects the clean architecture principles
 - ✅ **Maintainable**: Clear boundaries make the codebase easier to understand and extend
 
-
 **Files Modified**:
 
 - `src/adapters/database/database-adapter.ts` - Updated interface signatures
@@ -2378,9 +2444,7 @@ The interface contained "legacy signatures" from before the architectural cleanu
 
 ## 2024-12-19 - Complete QueryParser Implementation with Full Operation Support
 
-
 ### Summary
-
 
 Implemented a comprehensive QueryParser with DatabaseAdapter interface that handles all BaseORM operations through a clean builder pattern, eliminating the need for an AST phase by treating query payloads as abstract syntax trees.
 
@@ -2391,9 +2455,7 @@ Implemented a comprehensive QueryParser with DatabaseAdapter interface that hand
 - Designed a flexible DatabaseAdapter interface that allows database-specific implementations
 - Established a clean separation between SQL fragment generation and clause building
 
-
 ### Key Implementation Details
-
 
 **QueryParser Architecture:**
 
@@ -2506,7 +2568,6 @@ const FILTER_OPERATORS: Record<string, ConditionOperator> = {
 
 ### 3. **Enhanced Parser Validation**
 
-
 **Issue**: The parser wasn't validating operation existence and required fields, causing tests to fail with unclear errors.
 
 **Solution**: Added comprehensive validation methods:
@@ -2516,7 +2577,7 @@ const FILTER_OPERATORS: Record<string, ConditionOperator> = {
   - `create` requires `data` field
   - `updateMany` requires `data` field
   - `createMany` requires `data` field and it must be an array
-  
+
 ### 4. **Aggregation Field Type Validation**
 
 **Issue**: Aggregation operations weren't validating field types (e.g., `_avg` on string fields should error).
@@ -2599,7 +2660,6 @@ parser.parse("user", "aggregate", {
 
 2. **Consolidated Condition System**:
 
-
    - **Before**: Multiple specific filter types (`StringFilterAST`, `NumberFilterAST`, `DateTimeFilterAST`, etc.)
    - **After**: Single `ConditionAST` with generic `operator` and `target` pattern
    - **Benefit**: ~80% reduction in AST node types while supporting all BaseORM operations
@@ -2674,9 +2734,7 @@ interface ValueAST {
 }
 ```
 
-
 ### Benefits Delivered
-
 
 ✅ **Massive Simplification**: Reduced AST complexity by ~70% while maintaining all functionality
 ✅ **Clean Architecture**: Database-agnostic AST with adapter-level SQL generation
@@ -2725,9 +2783,7 @@ const ast: QueryAST = {
 
 **User Insight**: The user brilliantly suggested moving from simple options objects to a query parser with AST generation, which the adapter would then translate to SQL dialects. This architectural change makes the system much more powerful and extensible.
 
-
 **What Was Done**:
-
 
 ### Major Architectural Transformation
 
@@ -2747,14 +2803,12 @@ const ast: QueryAST = {
    - **AST Optimization**: Optional `optimizeAST()` method for query optimization
    - **Error Handling**: New `ASTError` type for AST-specific errors
 
-
 3. **PostgreSQL AST Translator** (`src/adapters/database/postgres/adapter.ts`):
    - **Complete Implementation**: All AST node types translated to PostgreSQL SQL
    - **Security**: All SQL generation through secure template literals
    - **Dialect-Specific**: PostgreSQL features like ILIKE, RETURNING, ON CONFLICT
    - **Expression Handling**: Recursive expression translation with proper precedence
    - **JOIN Support**: ON and USING conditions with all join types
-
 
 ### Technical Excellence
 
@@ -2844,9 +2898,7 @@ transformToDatabase(value, "string");
 transformToDatabase(value, stringField); // Has access to validation, array flags, etc.
 ```
 
-
 **Impact**: This change enables the adapter system to fully leverage BaseORM's sophisticated field type system, paving the way for advanced features like automatic validation, complex type transformations, and rich metadata usage.
-
 
 ## 2024-12-29 - Adapter Foundation Infrastructure Implementation
 
@@ -2923,9 +2975,7 @@ User identified that nested relation includes like `user.posts.tags` were being 
 
 **Issue Location**: `src/query-parser/relations/relation-queries.ts` - `buildSelectQuery` method (line ~570)
 
-
 The relation query builder was processing individual relation subqueries but **not recursively processing nested `include` clauses**:
-
 
 ```typescript
 // BEFORE (Missing nested includes)
@@ -3045,9 +3095,7 @@ SELECT "t0"."id", "t0"."name", "t0"."email", ((
 
 **Added 14 new comprehensive tests** in `tests/query/nested-relation-inclusion.test.ts`:
 
-
 #### **Test Coverage**:
-
 
 - **Two-Level Nesting**: Basic user.posts.tags scenarios
 - **Three-Level Nesting**: Deep user.posts.tags.posts chains
@@ -3078,9 +3126,7 @@ SELECT "t0"."id", "t0"."name", "t0"."email", ((
 - TypeScript inference works correctly at all nesting levels
 - No type safety compromises made
 
-
 #### **3. Performance Optimized**
-
 
 - No unnecessary query duplication
 - Efficient SQL generation with proper subquery structure
@@ -3176,13 +3222,10 @@ return sql`(
 )`;
 ```
 
-
 **2. Fixed SQL Parameter Generation**:
-
 
 - Used `sql.raw` for table aliases to prevent parameterization
 - Fixed both `row_to_json()` function calls and subquery aliases
-
 
 ### Before vs After Examples
 
@@ -3219,7 +3262,6 @@ FROM (SELECT ... FROM "profile" AS "t1" WHERE ... LIMIT 1) t1
 
 ### Impact
 
-
 - **Database Compatibility**: Generated SQL now valid and executable
 - **Type Correctness**: Many-to-One relations now return correct data structure
 - **Developer Experience**: No more confusing array-wrapped single objects
@@ -3234,4 +3276,3 @@ FROM (SELECT ... FROM "profile" AS "t1" WHERE ... LIMIT 1) t1
 ---
 
 ## 🚨 Critical One-to-One Relation SQL Fix ✅
-

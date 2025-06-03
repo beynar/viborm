@@ -4,22 +4,25 @@ import { Operation } from "../types/client/operations/defintion";
 import { Field, Relation } from "../schema";
 import {
   BigIntFilter,
-  BoolFieldUpdateOperationsInput,
   BoolFilter,
-  DateTimeFieldUpdateOperationsInput,
   DateTimeFilter,
-  EnumFieldUpdateOperationsInput,
   EnumFilter,
-  IntFieldUpdateOperationsInput,
-  JsonFieldUpdateOperationsInput,
   JsonFilter,
   ListFilter,
   NumberFilter,
   QueryMode,
-  StringFieldUpdateOperationsInput,
   StringFilter,
 } from "../types/client/query/filters";
-import { SQL } from "drizzle-orm";
+
+import {
+  BoolFieldUpdateOperationsInput,
+  DateTimeFieldUpdateOperationsInput,
+  EnumFieldUpdateOperationsInput,
+  IntFieldUpdateOperationsInput,
+  JsonFieldUpdateOperationsInput,
+  StringFieldUpdateOperationsInput,
+} from "../types/client/query/update-input";
+
 import { BuilderContext } from "../query-parser/types";
 
 // ================================

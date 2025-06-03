@@ -36,16 +36,17 @@ export type CreateManyArgs<TModel extends Model<any>> = {
 export type CreateInput<
   TModel extends Model<any>,
   Deep extends boolean = true
-> = MapModelCreateFields<TModel> & Deep extends true
-  ? {
-      // Relation create operations
-      [K in RelationNames<TModel>]?: K extends keyof ModelRelations<TModel>
-        ? ModelRelations<TModel>[K] extends Relation<any, any>
-          ? RelationCreateInput<ModelRelations<TModel>[K]>
-          : never
-        : never;
-    }
-  : {};
+> = MapModelCreateFields<TModel> &
+  (Deep extends true
+    ? {
+        // Relation create operations
+        [K in RelationNames<TModel>]?: K extends keyof ModelRelations<TModel>
+          ? ModelRelations<TModel>[K] extends Relation<any, any>
+            ? RelationCreateInput<ModelRelations<TModel>[K]>
+            : never
+          : never;
+      }
+    : {});
 
 // ===== UPDATE OPERATIONS =====
 
@@ -73,16 +74,17 @@ export type UpdateManyArgs<TModel extends Model<any>> = {
 export type UpdateInput<
   TModel extends Model<any>,
   Deep extends boolean = true
-> = MapModelUpdateFieldsWithOperations<TModel> & Deep extends true
-  ? {
-      // Relation update operations
-      [K in RelationNames<TModel>]?: K extends keyof ModelRelations<TModel>
-        ? ModelRelations<TModel>[K] extends Relation<any, any>
-          ? RelationUpdateInput<ModelRelations<TModel>[K]>
-          : never
-        : never;
-    }
-  : {};
+> = MapModelUpdateFieldsWithOperations<TModel> &
+  (Deep extends true
+    ? {
+        // Relation update operations
+        [K in RelationNames<TModel>]?: K extends keyof ModelRelations<TModel>
+          ? ModelRelations<TModel>[K] extends Relation<any, any>
+            ? RelationUpdateInput<ModelRelations<TModel>[K]>
+            : never
+          : never;
+      }
+    : {});
 
 // ===== UPSERT OPERATIONS =====
 

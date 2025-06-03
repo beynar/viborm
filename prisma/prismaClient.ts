@@ -22,6 +22,15 @@ const res = await prisma.user.findFirst({
   //   }
   // },
 });
+
+const res2 = await prisma.user.update({
+  where: {
+    id: "test",
+  },
+  data: {
+    createdAt: new Date(),
+  },
+});
 // await prisma.user.create({
 //   data: {
 //     id: "test",
