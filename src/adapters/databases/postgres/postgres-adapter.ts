@@ -1,7 +1,10 @@
 import { Sql, sql } from "../../../sql/sql";
 import { DatabaseAdapter, QueryClauses } from "../../database-adapter";
 import { BuilderContext } from "../../../query-parser/types";
-import { QueryMode, StringFilter } from "../../../types/client/query/filters";
+import {
+  QueryMode,
+  StringFilter,
+} from "../../../types/client/query/filters-input";
 import { Relation } from "../../../schema";
 
 /**
@@ -334,6 +337,10 @@ export class PostgresAdapter implements DatabaseAdapter {
     json: {
       set: (ctx: BuilderContext, value: any): Sql =>
         sql`${JSON.stringify(value)}::jsonb`,
+      merge: (ctx: BuilderContext, value: any): Sql =>
+        sql`${this.column(ctx)} || ${JSON.stringify(value)}::jsonb`,
+      path: (ctx: BuilderContext, value: any): Sql =>
+        sql`${this.column(ctx)} #> ${`{${value.join(",")}}`}`,
     },
 
     enum: {

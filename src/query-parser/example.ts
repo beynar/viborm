@@ -3,13 +3,7 @@ import { s } from "../schema";
 import { PostgresAdapter } from "../adapters/databases/postgres/postgres-adapter";
 import { QueryParser } from "./index";
 import { Prisma, PrismaClient } from "../../generated/prisma";
-import {
-  ExtractFields,
-  FieldNames,
-} from "../types/client/foundation/model-extraction";
-import { FieldFilter } from "../types/client/query/filters";
-import { MapModelUpdateFieldsWithOperations } from "../types/client/foundation";
-import { UpdateInput } from "../types/client/operations/mutation-args";
+import { UpdateInput } from "../types/client/query/update-input";
 
 const user = s.model("User", {
   id: s.string().id(),
@@ -78,15 +72,16 @@ const t = await client.user.findMany({
       },
     },
   },
-  data: {
-    role: {
-      set: "",
-    },
-  },
+
   select: {
     id: true,
     friend: true,
     friends: {
+      where: {
+        email: {
+          contains: "test",
+        },
+      },
       select: {
         id: true,
       },

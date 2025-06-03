@@ -1,7 +1,7 @@
 import { Model } from "../schema/model";
 import { Field, Relation } from "../schema";
 import { Operation } from "../types/client/operations/defintion";
-import { QueryMode } from "../types/client/query/filters";
+import { QueryMode } from "../types/client/query/filters-input";
 
 /**
  * Shared Types for Query Parser Components

@@ -12,7 +12,7 @@ import {
   NumberFilter,
   QueryMode,
   StringFilter,
-} from "../types/client/query/filters";
+} from "../types/client/query/filters-input";
 
 import {
   BoolFieldUpdateOperationsInput,
@@ -24,10 +24,12 @@ import {
 } from "../types/client/query/update-input";
 
 import { BuilderContext } from "../query-parser/types";
+import { BuiltIns } from "../types";
 
 // ================================
 // Query Clauses Type
 // ================================
+
 export interface QueryClauses {
   select: Sql;
   from: Sql;

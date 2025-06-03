@@ -76,45 +76,17 @@ export type DeleteManyArgs<TModel extends Model<any>> = {
   where: WhereInput<TModel>;
 };
 
-// ===== RELATION MUTATION INPUTS =====
-
-/**
- * Extract the target model from a relation for mutation operations
- */
-export type ExtractRelationModelForMutation<TRelation> =
-  TRelation extends Relation<infer TGetter, any>
-    ? TGetter extends () => infer TModel
-      ? TModel extends Model<any>
-        ? TModel
-        : never
-      : never
-    : never;
-
-// ===== BATCH OPERATIONS =====
-
-/**
- * Batch payload result
- */
-export type BatchPayload = {
-  count: number;
-};
-
-/**
- * Arguments for batch operations
- */
-export type BatchArgs<TData> = {
-  data: TData[];
-  skipDuplicates?: boolean;
-};
-
 /**
  * Extract mutation argument keys
  */
-export type MutationArgKeys =
-  | "data"
-  | "where"
-  | "create"
-  | "update"
-  | "select"
-  | "include"
-  | "skipDuplicates";
+export const MutationArgKeys = [
+  "data",
+  "where",
+  "create",
+  "update",
+  "select",
+  "include",
+  "skipDuplicates",
+] as const;
+
+export type MutationArgKeys = (typeof MutationArgKeys)[number];

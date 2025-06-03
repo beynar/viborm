@@ -5,7 +5,7 @@ import { BaseField } from "./base.js";
 import {
   stringFilter,
   nullableStringFilter,
-} from "../../types/client/query/filters.js";
+} from "../../types/client/query/filters-input.js";
 import type {
   FieldState,
   DefaultFieldState,

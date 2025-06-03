@@ -22,7 +22,7 @@ import type {
   JsonNullableFilter,
   EnumFilter,
   EnumNullableFilter,
-} from "../../../src/types/client/query/filters";
+} from "../../../src/types/client/query/filters-input";
 
 describe("FieldFilter Type Tests", () => {
   test("StringField filters", () => {

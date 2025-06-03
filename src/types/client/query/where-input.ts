@@ -11,7 +11,7 @@ import type {
   GetUniqueFields,
   ExtractRelationModel,
 } from "../foundation/index.js";
-import type { FieldFilter } from "./filters.js";
+import type { FieldFilter } from "./filters-input.js";
 import { InferType } from "../../../index.js";
 
 /**

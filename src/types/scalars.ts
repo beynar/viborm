@@ -21,53 +21,6 @@ export interface DatabaseMapping {
   mysql: string;
 }
 
-export const ScalarTypeMappings: Record<ScalarFieldType, DatabaseMapping> = {
-  string: {
-    postgresql: "TEXT",
-    mysql: "VARCHAR(191)",
-  },
-  boolean: {
-    postgresql: "BOOLEAN",
-    mysql: "TINYINT(1)",
-  },
-  int: {
-    postgresql: "INTEGER",
-    mysql: "INT",
-  },
-  bigInt: {
-    postgresql: "BIGINT",
-    mysql: "BIGINT",
-  },
-  float: {
-    postgresql: "DOUBLE PRECISION",
-    mysql: "DOUBLE",
-  },
-  decimal: {
-    postgresql: "DECIMAL",
-    mysql: "DECIMAL",
-  },
-  dateTime: {
-    postgresql: "TIMESTAMP",
-    mysql: "DATETIME",
-  },
-  json: {
-    postgresql: "JSONB",
-    mysql: "JSON",
-  },
-  blob: {
-    postgresql: "BYTEA",
-    mysql: "BLOB",
-  },
-  vector: {
-    postgresql: "VECTOR",
-    mysql: "JSON",
-  },
-  enum: {
-    postgresql: "ENUM",
-    mysql: "ENUM",
-  },
-};
-
 // Auto-generation types
 export type AutoGenerateType =
   | "uuid"

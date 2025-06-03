@@ -32,12 +32,14 @@ const res = await prisma.user.findMany({
   // },
 });
 
-const res2 = await prisma.user.update({
+const res2 = await prisma.user.findMany({
   where: {
     id: "test",
   },
-  data: {
-    createdAt: new Date(),
+  skip: 1,
+  take: 1,
+  cursor: {
+    id: "test",
   },
 });
 // await prisma.user.create({

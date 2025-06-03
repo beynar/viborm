@@ -76,10 +76,6 @@ export type FindFirstArgs<TModel extends Model<any>> = ValidateSelectInclude<
 export type FindFirstOrThrowArgs<TModel extends Model<any>> =
   FindFirstArgs<TModel>;
 
-// ===== SPECIALIZED FIND ARGUMENTS =====
-
-// ===== PAGINATION ARGUMENTS =====
-
 /**
  * Cursor-based pagination arguments
  */

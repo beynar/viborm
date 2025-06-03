@@ -1,5 +1,4 @@
 import {
-  BaseField,
   BigIntField,
   BooleanField,
   DateTimeField,
@@ -22,74 +21,18 @@ import {
   type ZodMiniType,
   lazy,
   union,
-  literal,
-  omit,
-  any,
   bigint,
   json,
-  extend,
 } from "zod/v4-mini";
 
-export type QueryMode = "default" | "insensitive";
-export type NullsOrder = "first" | "last";
-
-// Base filter schemas
-const baseFilter = <Z extends ZodMiniType>(schema: Z) =>
-  object({
-    equals: optional(schema),
-    not: optional(
-      union([
-        schema,
-        object({
-          equals: optional(schema),
-          notIn: optional(array(schema)),
-          in: optional(array(schema)),
-        }),
-      ])
-    ),
-    in: optional(array(schema)),
-    notIn: optional(array(schema)),
-  });
-
-const baseNullableFilter = <Z extends ZodMiniType>(schema: Z) =>
-  object({
-    equals: optional(nullable(schema)),
-    not: optional(
-      union([
-        nullable(schema),
-        object({
-          equals: optional(nullable(schema)),
-          notIn: optional(array(schema)),
-          in: optional(array(schema)),
-        }),
-      ])
-    ),
-    in: optional(array(schema)),
-    notIn: optional(array(schema)),
-  });
-
-// List/Array filters
-const baseListFilter = <T extends ZodMiniType>(schema: T) =>
-  object({
-    equals: optional(array(schema)),
-    has: optional(schema),
-    hasEvery: optional(array(schema)),
-    hasSome: optional(array(schema)),
-    isEmpty: optional(boolean()),
-  });
-
-const baseNullableListFilter = <T extends ZodMiniType>(schema: T) =>
-  nullable(
-    union([
-      extend(omit(baseListFilter(schema), { equals: true }), {
-        equals: optional(nullable(array(schema))),
-      }),
-      array(schema),
-    ])
-  );
-
-// Type inference helper
-type InferFilter<T> = T extends ZodMiniType ? T["_zod"]["input"] : never;
+// Import base filter schemas from the main filters-input file
+import {
+  baseFilter,
+  baseNullableFilter,
+  baseListFilter,
+  baseNullableListFilter,
+  type InferFilter,
+} from "./filters-input";
 
 // ============================================================================
 // STRING FILTERS
@@ -129,13 +72,14 @@ export type StringNullableArrayFilter = InferFilter<
   typeof nullableStringArrayFilter
 >;
 
-type StringFilters<T extends StringField<any>> = IsFieldArray<T> extends true
-  ? IsFieldNullable<T> extends true
-    ? StringNullableArrayFilter
-    : StringArrayFilter
-  : IsFieldNullable<T> extends true
-  ? StringNullableFilter
-  : StringFilter;
+export type StringFilters<T extends StringField<any>> =
+  IsFieldArray<T> extends true
+    ? IsFieldNullable<T> extends true
+      ? StringNullableArrayFilter
+      : StringArrayFilter
+    : IsFieldNullable<T> extends true
+    ? StringNullableFilter
+    : StringFilter;
 
 // ============================================================================
 // NUMBER FILTERS
@@ -179,13 +123,14 @@ export type FloatNullableFilter = NumberNullableFilter;
 export type FloatArrayFilter = NumberArrayFilter;
 export type FloatNullableArrayFilter = NumberNullableArrayFilter;
 
-type NumberFilters<T extends NumberField<any>> = IsFieldArray<T> extends true
-  ? IsFieldNullable<T> extends true
-    ? NumberNullableArrayFilter
-    : NumberArrayFilter
-  : IsFieldNullable<T> extends true
-  ? NumberNullableFilter
-  : NumberFilter;
+export type NumberFilters<T extends NumberField<any>> =
+  IsFieldArray<T> extends true
+    ? IsFieldNullable<T> extends true
+      ? NumberNullableArrayFilter
+      : NumberArrayFilter
+    : IsFieldNullable<T> extends true
+    ? NumberNullableFilter
+    : NumberFilter;
 
 // ============================================================================
 // BOOLEAN FILTERS
@@ -212,13 +157,14 @@ export type BoolNullableArrayFilter = InferFilter<
   typeof nullableBooleanArrayFilter
 >;
 
-type BooleanFilters<T extends BooleanField<any>> = IsFieldArray<T> extends true
-  ? IsFieldNullable<T> extends true
-    ? BoolNullableArrayFilter
-    : BoolArrayFilter
-  : IsFieldNullable<T> extends true
-  ? BoolNullableFilter
-  : BoolFilter;
+export type BooleanFilters<T extends BooleanField<any>> =
+  IsFieldArray<T> extends true
+    ? IsFieldNullable<T> extends true
+      ? BoolNullableArrayFilter
+      : BoolArrayFilter
+    : IsFieldNullable<T> extends true
+    ? BoolNullableFilter
+    : BoolFilter;
 
 // ============================================================================
 // DATETIME FILTERS
@@ -254,7 +200,7 @@ export type DateTimeNullableArrayFilter = InferFilter<
   typeof nullableDateTimeArrayFilter
 >;
 
-type DateTimeFilters<T extends DateTimeField<any>> =
+export type DateTimeFilters<T extends DateTimeField<any>> =
   IsFieldArray<T> extends true
     ? IsFieldNullable<T> extends true
       ? DateTimeNullableArrayFilter
@@ -297,13 +243,14 @@ export type BigIntNullableArrayFilter = InferFilter<
   typeof nullableBigIntArrayFilter
 >;
 
-type BigIntFilters<T extends BigIntField<any>> = IsFieldArray<T> extends true
-  ? IsFieldNullable<T> extends true
-    ? BigIntNullableArrayFilter
-    : BigIntArrayFilter
-  : IsFieldNullable<T> extends true
-  ? BigIntNullableFilter
-  : BigIntFilter;
+export type BigIntFilters<T extends BigIntField<any>> =
+  IsFieldArray<T> extends true
+    ? IsFieldNullable<T> extends true
+      ? BigIntNullableArrayFilter
+      : BigIntArrayFilter
+    : IsFieldNullable<T> extends true
+    ? BigIntNullableFilter
+    : BigIntFilter;
 
 // ============================================================================
 // JSON FILTERS
@@ -332,7 +279,7 @@ export const nullableJsonFilter = lazy(() =>
 export type JsonFilter = InferFilter<typeof jsonFilter>;
 export type JsonNullableFilter = InferFilter<typeof nullableJsonFilter>;
 
-type JsonFilters<T extends JsonField<any, any>> =
+export type JsonFilters<T extends JsonField<any, any>> =
   IsFieldNullable<T> extends true ? JsonNullableFilter : JsonFilter;
 
 // ============================================================================
@@ -363,7 +310,7 @@ export type EnumNullableArrayFilter<T extends string[]> = InferFilter<
   ReturnType<typeof nullableEnumArrayFilter<T>>
 >;
 
-type EnumFilters<T extends EnumField<any, any>> = T extends EnumField<
+export type EnumFilters<T extends EnumField<any, any>> = T extends EnumField<
   infer E,
   any
 >
@@ -376,42 +323,4 @@ type EnumFilters<T extends EnumField<any, any>> = T extends EnumField<
       ? EnumNullableFilter<E>
       : EnumFilter<E>
     : never
-  : never;
-
-// ============================================================================
-// LIST FILTERS (Generic)
-// ============================================================================
-export type ListFilter<T> = InferFilter<ReturnType<typeof baseListFilter<any>>>;
-
-// ============================================================================
-// COMPOSITE FILTERS
-// ============================================================================
-const whereInputBase = <TModel extends ZodMiniType>(modelSchema: TModel) =>
-  object({
-    AND: optional(union([modelSchema, array(modelSchema)])),
-    OR: optional(array(modelSchema)),
-    NOT: optional(union([modelSchema, array(modelSchema)])),
-  });
-
-export type WhereInputBase<TModel extends ZodMiniType> = InferFilter<
-  ReturnType<typeof whereInputBase<TModel>>
->;
-
-// ============================================================================
-// FIELD FILTER MAPPING
-// ============================================================================
-export type FieldFilter<F extends BaseField<any>> = F extends DateTimeField<any>
-  ? DateTimeFilters<F>
-  : F extends StringField<any>
-  ? StringFilters<F>
-  : F extends NumberField<any>
-  ? NumberFilters<F>
-  : F extends BooleanField<any>
-  ? BooleanFilters<F>
-  : F extends BigIntField<any>
-  ? BigIntFilters<F>
-  : F extends JsonField<any, any>
-  ? JsonFilters<F>
-  : F extends EnumField<infer E, infer TState>
-  ? EnumFilters<F>
   : never;

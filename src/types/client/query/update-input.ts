@@ -38,6 +38,7 @@ import { ModelRelations } from "../foundation/model-extraction";
 import { RelationNames } from "../foundation/model-extraction";
 import { CreateInput } from "./create-input";
 import { WhereInput, WhereUniqueInput } from "./where-input";
+import type { UpdateManyInput } from "./update-many-input";
 
 // Type inference helper
 type InferFilter<T> = input<T>;
@@ -584,11 +585,11 @@ export type MultiRelationUpdateInput<TRelatedModel extends Model<any>> = {
   updateMany?:
     | {
         where: WhereInput<TRelatedModel>;
-        data: UpdateInput<TRelatedModel, false>;
+        data: UpdateManyInput<TRelatedModel>;
       }
     | Array<{
         where: WhereInput<TRelatedModel>;
-        data: UpdateInput<TRelatedModel, false>;
+        data: UpdateManyInput<TRelatedModel>;
       }>;
   deleteMany?: WhereInput<TRelatedModel> | WhereInput<TRelatedModel>[];
   upsert?:

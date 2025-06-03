@@ -1,5 +1,121 @@
 # BaseORM Development Changelog
 
+## 2024-12-20 - Split Filters Input into Separate Files for Better Organization
+
+**Problem**: The `filters-input.ts` file was quite large (418 lines) with both base filter schemas and all field-specific filter implementations mixed together. Following the successful pattern from the update-input split, the user requested splitting it for better organization and maintainability.
+
+**Solution**: Split the large file into two focused modules with clear separation of concerns:
+
+### Changes Made:
+
+1. **Created `field-filters.ts`**:
+
+   - Contains all field-specific filter implementations (string, number, boolean, dateTime, bigInt, json, enum)
+   - Contains field-specific filter types and helper types
+   - Imports base filter schemas from the main filters-input file
+   - Provides focused, type-specific filter operations
+
+2. **Updated `filters-input.ts`**:
+
+   - Kept base filter schemas (baseFilter, baseNullableFilter, baseListFilter, baseNullableListFilter)
+   - Kept generic types (QueryMode, NullsOrder, ListFilter, WhereInputBase)
+   - Kept the final FieldFilter mapping that routes to field-specific types
+   - Exported base schemas for use in field-filters.ts
+   - Added re-export of all field-filters content for backward compatibility
+
+3. **Updated module exports**:
+
+   - Added export for `field-filters` in `src/types/client/query/index.ts`
+   - Maintains backward compatibility - all types still accessible from main query module
+
+4. **Created test coverage**:
+   - Added `filters-input-split.test.ts` to verify the split works correctly
+   - Tests that all types are importable and accessible through the same paths
+
+### Key Benefits:
+
+- **Better Separation of Concerns**: Base filter schemas separate from field-specific implementations
+- **Improved Maintainability**: Smaller, focused files that are easier to navigate and maintain
+- **Clear Organization**: Field-specific logic isolated in dedicated module
+- **Backward Compatibility**: All existing imports continue to work unchanged
+- **Type Safety**: Maintains all existing type safety guarantees
+- **Consistent Pattern**: Follows the same successful approach used for update-input split
+
+### File Structure:
+
+- **`filters-input.ts`**: 110 lines (down from 418) - Base schemas and final mapping
+- **`field-filters.ts`**: 280 lines - Field-specific filter implementations
+- **Total savings**: Better organization without code duplication
+
+**Files Modified**:
+
+- `src/types/client/query/filters-input.ts` - Simplified to base schemas and mapping
+- `src/types/client/query/field-filters.ts` - New file with field implementations
+- `src/types/client/query/index.ts` - Added export for new module
+- `tests/types/client/query/filters-input-split.test.ts` - New test file
+
+**Result**:
+
+- Clean file organization with focused responsibilities
+- Better maintainability for field-specific filter logic
+- All types remain accessible through the same import paths
+- Consistent with established splitting patterns in the codebase
+- Ready for future enhancements to individual field types
+
+## 2024-12-20 - Split Update Input into Separate Files for Better Organization
+
+**Problem**: The `update-input.ts` file was becoming quite large (600+ lines) with both single record update operations and updateMany-specific functionality mixed together. User requested splitting it into two separate files for better maintainability and clearer separation of concerns.
+
+**Solution**: Split the large file into two focused modules:
+
+### Changes Made:
+
+1. **Created `update-many-input.ts`**:
+
+   - Contains `UpdateManyInput<TModel>` type for updateMany operations
+   - Contains `RelationUpdateManyInput<TModel>` for updateMany within relations
+   - Focuses solely on scalar field updates (no deep relation operations)
+   - Imports `FieldUpdateOperations` from `update-input.ts` to reuse field-level operations
+
+2. **Updated `update-input.ts`**:
+
+   - Kept all field-specific update operations (string, number, boolean, etc.)
+   - Kept relation update operations (SingleRelationUpdateInput, MultiRelationUpdateInput)
+   - Updated `MultiRelationUpdateInput.updateMany` to use `UpdateManyInput` from the new file
+   - Added import for `UpdateManyInput` type
+
+3. **Updated module exports**:
+
+   - Added export for `update-many-input` in `src/types/client/query/index.ts`
+   - Maintains backward compatibility - all types still accessible from main query module
+
+4. **Created test coverage**:
+   - Added `update-input-split.test.ts` to verify the split works correctly
+   - Tests that both types are importable and distinct from each other
+
+### Key Benefits:
+
+- **Better Separation of Concerns**: `UpdateInput` for single records with full relation support, `UpdateManyInput` for batch operations with scalar-only updates
+- **Improved Maintainability**: Smaller, focused files are easier to navigate and maintain
+- **Clearer Intent**: `UpdateManyInput` explicitly excludes relation operations, making it clear that updateMany is for scalar updates only
+- **Backward Compatibility**: All existing imports continue to work unchanged
+- **Type Safety**: Maintains all existing type safety guarantees
+
+**Files Modified**:
+
+- `src/types/client/query/update-input.ts` - Updated to import UpdateManyInput
+- `src/types/client/query/update-many-input.ts` - New file created
+- `src/types/client/query/index.ts` - Added export for new module
+- `tests/types/client/query/update-input-split.test.ts` - New test file
+
+**Result**:
+
+- Clean file organization with focused responsibilities
+- `update-input.ts`: 470 lines (down from 616)
+- `update-many-input.ts`: 28 lines of focused functionality
+- All types remain accessible through the same import paths
+- Tests confirm the split maintains type integrity
+
 ## 2024-12-20 - Complete Update Input Reorganization with Array and Nullable Support
 
 **Problem**: User requested reorganizing `update-input.ts` to match the structure of `filters.ts` and add support for nullable and array field types that were missing.
