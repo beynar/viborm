@@ -2,6 +2,10 @@
 // Type-safe string field with advanced generics
 
 import { BaseField } from "./base.js";
+import {
+  stringFilter,
+  nullableStringFilter,
+} from "../../types/client/query/filters.js";
 import type {
   FieldState,
   DefaultFieldState,
@@ -15,6 +19,8 @@ import type {
 } from "../../types/field-states.js";
 import type { FieldValidator } from "../../types/validators.js";
 import type { AutoGenerateType } from "../../types/scalars.js";
+import { IsFieldNullable } from "../../types/client/foundation/field-mapping.js";
+import { s } from "../index.js";
 
 export class StringField<
   T extends FieldState<any, any, any, any, any, any> = DefaultFieldState<string>

@@ -11,16 +11,16 @@ const prisma = new PrismaClient({
 
 const res = await prisma.user.findFirst({
   where: {
-    email: "test",
-  },
-  select: {
-    id: true,
-    comments: {
-      include: {
-        author: true,
-      },
+    id: "test",
+    tags: {
+      equals: ["ez"],
     },
   },
+  // data: {
+  //   metadata:{
+  //     jelk:"ez"
+  //   }
+  // },
 });
 // await prisma.user.create({
 //   data: {

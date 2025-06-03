@@ -16,7 +16,7 @@ import type {
 import type { WhereInput } from "./where-input.js";
 import type { OrderByInput } from "./orderby-input.js";
 import { CountSelectInput } from "../operations/find-args.js";
-import { SimplifyDeep } from "type-fest";
+import { SimplifyDeep } from "../../utilities.js";
 
 // ===== CORE SELECTION TYPES =====
 

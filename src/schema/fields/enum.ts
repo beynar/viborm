@@ -15,7 +15,7 @@ import type {
 import type { FieldValidator } from "../../types/validators.js";
 
 export class EnumField<
-  TEnum extends readonly (string | number)[],
+  TEnum extends string[],
   T extends FieldState<any, any, any, any, any, any> = DefaultFieldState<
     TEnum[number]
   >
@@ -105,7 +105,7 @@ export class EnumField<
 }
 
 // Factory function for creating enum fields with proper typing
-export function enumField<T extends readonly (string | number)[]>(
+export function enumField<T extends string[]>(
   enumValues: T
 ): EnumField<T, DefaultFieldState<T[number]>> {
   return new EnumField(enumValues);

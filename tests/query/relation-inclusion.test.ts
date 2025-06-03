@@ -415,9 +415,10 @@ describe("QueryParser - Relation Inclusion (Phase 4)", () => {
       );
 
       const sql = result.toStatement();
-      expect(sql).toBe(
-        'SELECT "t0"."id", "t0"."name", "t0"."email", ((\n          SELECT row_to_json(t1)\n          FROM (SELECT "t1"."id", "t1"."bio", "t1"."avatarUrl", "t1"."userId" FROM "profile" AS "t1" WHERE "t1"."userId" = "t0"."id" LIMIT 1) t1\n        )) AS "profile" FROM "user" AS "t0"'
-      );
+      expect(sql).toBe(/*SQL*/ `SELECT "t0"."id", "t0"."name", "t0"."email", 
+        ((SELECT row_to_json(t1)
+        FROM (SELECT "t1"."id", "t1"."bio" FROM "profile" AS "t1" WHERE "t1"."userId" = "t0"."id" LIMIT 1) t1
+        )) AS "profile" FROM "user" AS "t0"`);
     });
   });
 

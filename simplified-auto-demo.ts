@@ -1,6 +1,5 @@
 // Simplified Auto Methods Demo
 // Demonstrates the new direct auto-generation methods
-
 import { s } from "./src/schema/index.js";
 
 // ✅ String fields with direct auto methods (no more .auto. nesting)

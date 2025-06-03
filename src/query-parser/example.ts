@@ -3,12 +3,17 @@ import { s } from "../schema";
 import { PostgresAdapter } from "../adapters/databases/postgres/postgres-adapter";
 import { QueryParser } from "./index";
 import { Prisma, PrismaClient } from "../../generated/prisma";
+import { ExtractFields } from "../types/client/foundation/model-extraction";
+import { FieldFilter } from "../types/client/query/filters";
 
 const user = s.model("User", {
   id: s.string(),
   name: s.string(),
   email: s.string(),
+  tags: s.string().array().nullable(),
   age: s.int(),
+  metadata: s.json().nullable(),
+  role: s.enum(["ADMIN", "USER"] as const).nullable(),
   friends: s
     .relation({ onField: "id", refField: "friendId" })
     .manyToMany(() => user),
@@ -22,9 +27,9 @@ const post = s.model("Post", {
   title: s.string(),
   content: s.string(),
   authorId: s.string(),
-  author: s
-    .relation({ onField: "authorId", refField: "id" })
-    .manyToOne(() => user),
+  // author: s
+  //   .relation({ onField: "authorId", refField: "id" })
+  //   .manyToOne(() => user),
 });
 
 const client = createClient({
@@ -47,7 +52,19 @@ const query = {
     id: true,
   },
 };
+const tags = s.string().array();
+type T = FieldFilter<typeof tags>;
 
+client.user.findFirst({
+  where: {
+    role: {
+      in: ["ADMIN"],
+    },
+    tags: {
+      equals: null,
+    },
+  },
+});
 // const res = client.user.findUnique(query);
 const sql = QueryParser.parse("findFirst", user, query, new PostgresAdapter());
 

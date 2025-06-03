@@ -216,3 +216,43 @@ export interface JsonArray extends Array<JsonValue> {}
 
 // Serializable type checker
 export type IsSerializable<T> = T extends JsonValue ? true : false;
+
+export type BuiltIns =
+  | null
+  | undefined
+  | string
+  | number
+  | boolean
+  | symbol
+  | bigint
+  | void
+  | Date
+  | RegExp;
+
+type NonRecursiveType =
+  | BuiltIns
+  | Function
+  | (new (...arguments_: any[]) => unknown);
+
+type ConditionalSimplifyDeep<
+  Type,
+  ExcludeType = never,
+  IncludeType = unknown
+> = Type extends ExcludeType
+  ? Type
+  : Type extends IncludeType
+  ? {
+      [TypeKey in keyof Type]: ConditionalSimplifyDeep<
+        Type[TypeKey],
+        ExcludeType,
+        IncludeType
+      >;
+    }
+  : Type;
+
+export type Simplify<T> = { [KeyType in keyof T]: T[KeyType] } & {};
+export type SimplifyDeep<Type, ExcludeType = never> = ConditionalSimplifyDeep<
+  Type,
+  ExcludeType | NonRecursiveType | Set<unknown> | Map<unknown, unknown>,
+  object
+>;

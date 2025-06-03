@@ -75,13 +75,6 @@ export type RelationFields<TModel extends Record<string, any>> = {
 export type ModelFieldNames<TModel extends Record<string, any>> = keyof TModel &
   string;
 
-// Type for simplifying a model type output
-export type Simplify<T> = {
-  [KeyType in keyof T]: T[KeyType] extends Relation<any, any>
-    ? Simplify<ModelType<T[KeyType]["infer"]>>
-    : T[KeyType];
-} & {};
-
 // Type for creating a model type from field definitions
 export type ModelType<
   TFields extends Record<string, Field | Relation<any, any>>

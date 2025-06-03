@@ -4,7 +4,7 @@
 
 import type { RelationType, CascadeOptions } from "../types/index.js";
 import { Model } from "./model.js";
-import { Simplify } from "type-fest";
+import { Simplify } from "../types/utilities.js";
 export type Getter = () => Model<any>;
 
 // Relation options interface
