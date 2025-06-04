@@ -188,8 +188,13 @@ export class OrderByClauseBuilder implements ClauseBuilder {
       return orderExpression;
     }
 
-    // Use database-specific case-insensitive ordering
-    return sql`UPPER(${orderExpression})`;
+    // Use database-specific case-insensitive ordering via adapter utility
+    const ctx = {
+      model: { name: "unknown" } as any,
+      baseOperation: "findMany" as any,
+      alias: "temp",
+    } as any;
+    return this.adapter.utils.caseInsensitive(ctx, orderExpression);
   }
 
   /**

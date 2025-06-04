@@ -133,12 +133,12 @@ export class FieldFilterBuilder implements FieldHandler {
       );
     }
 
-    // Combine multiple operations with AND
+    // Combine multiple operations with AND using adapter operators
     if (filterParts.length === 1) {
       return filterParts[0]!;
     }
 
-    return sql.join(filterParts, " AND ", "(", ")");
+    return this.adapter.operators.and(ctx, ...filterParts);
   }
 
   /**

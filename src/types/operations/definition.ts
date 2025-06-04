@@ -2,6 +2,7 @@ import { GroupByArgs } from "./find-args";
 import { AggregateArgs } from "./find-args";
 import { CountArgs } from "./find-args";
 import { FindFirstArgs } from "./find-args";
+import { ExistArgs } from "./find-args";
 import {
   DeleteManyArgs,
   UpdateArgs,
@@ -20,6 +21,7 @@ import {
   FindFirstResult,
   FindManyResult,
   GroupByResult,
+  ExistResult,
 } from "../results/find-result";
 import { FindUniqueResult } from "../results/find-result";
 import {
@@ -46,7 +48,8 @@ export type Operation =
   | "count"
   | "aggregate"
   | "groupBy"
-  | "upsert";
+  | "upsert"
+  | "exist";
 
 export type OperationPayload<
   O extends Operation,
@@ -81,6 +84,8 @@ export type OperationPayload<
   ? CreateManyArgs<M>
   : O extends "updateMany"
   ? UpdateManyArgs<M>
+  : O extends "exist"
+  ? ExistArgs<M>
   : never;
 
 export type OperationResult<
@@ -146,5 +151,9 @@ export type OperationResult<
   : O extends "updateMany"
   ? I extends UpdateManyArgs<M>
     ? UpdateManyResult<M, I>
+    : never
+  : O extends "exist"
+  ? I extends ExistArgs<M>
+    ? boolean
     : never
   : never;

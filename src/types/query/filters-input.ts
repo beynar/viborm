@@ -90,20 +90,6 @@ export * from "./field-filters";
 export type ListFilter<T> = InferFilter<ReturnType<typeof baseListFilter<any>>>;
 
 // ============================================================================
-// COMPOSITE FILTERS
-// ============================================================================
-const whereInputBase = <TModel extends ZodMiniType>(modelSchema: TModel) =>
-  object({
-    AND: optional(union([modelSchema, array(modelSchema)])),
-    OR: optional(array(modelSchema)),
-    NOT: optional(union([modelSchema, array(modelSchema)])),
-  });
-
-export type WhereInputBase<TModel extends ZodMiniType> = InferFilter<
-  ReturnType<typeof whereInputBase<TModel>>
->;
-
-// ============================================================================
 // FIELD FILTER MAPPING
 // ============================================================================
 export type FieldFilter<F extends BaseField<any>> = F extends DateTimeField<any>

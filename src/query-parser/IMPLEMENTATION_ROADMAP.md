@@ -21,6 +21,7 @@ This document provides a comprehensive roadmap for implementing the remaining fe
   - **Distinct handling**: Support for distinct field arrays
   - **Basic pagination**: LIMIT/OFFSET support via LimitClauseBuilder
   - **Error handling**: Proper validation and error throwing
+  - **✅ exist**: **NEW** - Lightweight existence check with SELECT 1 and LIMIT 1 optimization
 - **✅ Mutation Operations**: **PHASE 2 COMPLETE** - Full CRUD operations with Prisma-compatible interface
   - **create/createMany**: Single and bulk record insertion with data validation
   - **update/updateMany**: Single and bulk record updates with WHERE validation

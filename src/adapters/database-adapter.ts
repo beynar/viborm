@@ -57,6 +57,7 @@ export interface DatabaseAdapter {
     groupBy: (ctx: BuilderContext, clauses: QueryClauses) => Sql;
     findUniqueOrThrow: (ctx: BuilderContext, clauses: QueryClauses) => Sql;
     findFirstOrThrow: (ctx: BuilderContext, clauses: QueryClauses) => Sql;
+    exist: (ctx: BuilderContext, clauses: QueryClauses) => Sql;
   };
 
   // === IDENTIFIER ESCAPING ===
@@ -77,6 +78,50 @@ export interface DatabaseAdapter {
     jsonObject: (ctx: BuilderContext, statement: Sql) => Sql;
     jsonArray: (ctx: BuilderContext, statement: Sql) => Sql;
     wrap: (ctx: BuilderContext, statement: Sql) => Sql;
+    exists: (ctx: BuilderContext, statement: Sql) => Sql;
+    caseInsensitive: (ctx: BuilderContext, statement: Sql) => Sql;
+  };
+
+  // === OPERATORS ===
+  operators: {
+    // Comparison operators
+    eq: (ctx: BuilderContext, left: Sql, right: Sql) => Sql;
+    neq: (ctx: BuilderContext, left: Sql, right: Sql) => Sql;
+    lt: (ctx: BuilderContext, left: Sql, right: Sql) => Sql;
+    lte: (ctx: BuilderContext, left: Sql, right: Sql) => Sql;
+    gt: (ctx: BuilderContext, left: Sql, right: Sql) => Sql;
+    gte: (ctx: BuilderContext, left: Sql, right: Sql) => Sql;
+
+    // Pattern matching operators
+    like: (ctx: BuilderContext, column: Sql, pattern: Sql) => Sql;
+    ilike: (ctx: BuilderContext, column: Sql, pattern: Sql) => Sql;
+    notLike: (ctx: BuilderContext, column: Sql, pattern: Sql) => Sql;
+    notIlike: (ctx: BuilderContext, column: Sql, pattern: Sql) => Sql;
+
+    // Range operators
+    between: (ctx: BuilderContext, column: Sql, min: Sql, max: Sql) => Sql;
+    notBetween: (ctx: BuilderContext, column: Sql, min: Sql, max: Sql) => Sql;
+
+    // Regular expression operators (database-specific implementation)
+    regexp: (ctx: BuilderContext, column: Sql, pattern: Sql) => Sql;
+    notRegexp: (ctx: BuilderContext, column: Sql, pattern: Sql) => Sql;
+
+    // Set membership operators
+    in: (ctx: BuilderContext, column: Sql, values: Sql) => Sql;
+    notIn: (ctx: BuilderContext, column: Sql, values: Sql) => Sql;
+
+    // Logical operators
+    and: (ctx: BuilderContext, ...conditions: Sql[]) => Sql;
+    or: (ctx: BuilderContext, ...conditions: Sql[]) => Sql;
+    not: (ctx: BuilderContext, condition: Sql) => Sql;
+
+    // Null operators
+    isNull: (ctx: BuilderContext, column: Sql) => Sql;
+    isNotNull: (ctx: BuilderContext, column: Sql) => Sql;
+
+    // Existence operators for subqueries
+    exists: (ctx: BuilderContext, subquery: Sql) => Sql;
+    notExists: (ctx: BuilderContext, subquery: Sql) => Sql;
   };
 
   // === AGGREGATE FUNCTIONS ===
@@ -201,9 +246,6 @@ export interface DatabaseAdapter {
     having: (ctx: BuilderContext, statement: Sql) => Sql;
     count: (ctx: BuilderContext, statement: Sql) => Sql;
     aggregate: (ctx: BuilderContext, statement: Sql) => Sql;
-    NOT: (ctx: BuilderContext, statement: Sql) => Sql;
-    OR: (ctx: BuilderContext, ...statements: Sql[]) => Sql;
-    AND: (ctx: BuilderContext, ...statements: Sql[]) => Sql;
   };
 
   // === CTE BUILDERS ===

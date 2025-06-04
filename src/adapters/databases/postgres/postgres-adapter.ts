@@ -256,6 +256,19 @@ export class PostgresAdapter implements DatabaseAdapter {
 
       return sql.join(parts, " ");
     },
+
+    exist: (ctx: BuilderContext, clauses: QueryClauses): Sql => {
+      // Build inner query: SELECT 1 FROM table WHERE conditions LIMIT 1
+      const innerParts = [sql`SELECT`, clauses.select, sql`FROM`, clauses.from];
+
+      if (clauses.where) innerParts.push(sql`WHERE`, clauses.where);
+      if (clauses.limit) innerParts.push(clauses.limit);
+
+      const innerQuery = sql.join(innerParts, " ");
+
+      // Wrap in EXISTS: SELECT EXISTS(inner_query)
+      return sql`SELECT ${this.utils.exists(ctx, innerQuery)}`;
+    },
   };
 
   // ================================
@@ -272,6 +285,82 @@ export class PostgresAdapter implements DatabaseAdapter {
       sql`json_build_object(${statement})`,
     jsonArray: (ctx: BuilderContext, statement: Sql): Sql =>
       sql`json_build_array(${statement})`,
+    exists: (ctx: BuilderContext, statement: Sql): Sql =>
+      sql`EXISTS(${statement})`,
+    caseInsensitive: (ctx: BuilderContext, statement: Sql): Sql =>
+      sql`UPPER(${statement})`,
+  };
+
+  // ================================
+  // OPERATORS
+  // ================================
+
+  operators = {
+    // Comparison operators
+    eq: (ctx: BuilderContext, left: Sql, right: Sql): Sql =>
+      sql`${left} = ${right}`,
+    neq: (ctx: BuilderContext, left: Sql, right: Sql): Sql =>
+      sql`${left} != ${right}`,
+    lt: (ctx: BuilderContext, left: Sql, right: Sql): Sql =>
+      sql`${left} < ${right}`,
+    lte: (ctx: BuilderContext, left: Sql, right: Sql): Sql =>
+      sql`${left} <= ${right}`,
+    gt: (ctx: BuilderContext, left: Sql, right: Sql): Sql =>
+      sql`${left} > ${right}`,
+    gte: (ctx: BuilderContext, left: Sql, right: Sql): Sql =>
+      sql`${left} >= ${right}`,
+
+    // Pattern matching operators
+    like: (ctx: BuilderContext, column: Sql, pattern: Sql): Sql =>
+      sql`${column} LIKE ${pattern}`,
+    ilike: (ctx: BuilderContext, column: Sql, pattern: Sql): Sql =>
+      sql`${column} ILIKE ${pattern}`,
+    notLike: (ctx: BuilderContext, column: Sql, pattern: Sql): Sql =>
+      sql`${column} NOT LIKE ${pattern}`,
+    notIlike: (ctx: BuilderContext, column: Sql, pattern: Sql): Sql =>
+      sql`${column} NOT ILIKE ${pattern}`,
+
+    // Range operators
+    between: (ctx: BuilderContext, column: Sql, min: Sql, max: Sql): Sql =>
+      sql`${column} BETWEEN ${min} AND ${max}`,
+    notBetween: (ctx: BuilderContext, column: Sql, min: Sql, max: Sql): Sql =>
+      sql`${column} NOT BETWEEN ${min} AND ${max}`,
+
+    // Regular expression operators (PostgreSQL-specific)
+    regexp: (ctx: BuilderContext, column: Sql, pattern: Sql): Sql =>
+      sql`${column} ~ ${pattern}`,
+    notRegexp: (ctx: BuilderContext, column: Sql, pattern: Sql): Sql =>
+      sql`${column} !~ ${pattern}`,
+
+    // Set membership operators
+    in: (ctx: BuilderContext, column: Sql, values: Sql): Sql =>
+      sql`${column} = ANY(${values})`,
+    notIn: (ctx: BuilderContext, column: Sql, values: Sql): Sql =>
+      sql`${column} != ALL(${values})`,
+
+    // Logical operators
+    and: (ctx: BuilderContext, ...conditions: Sql[]): Sql => {
+      if (conditions.length === 0) return sql.empty;
+      if (conditions.length === 1) return conditions[0]!;
+      return sql`(${sql.join(conditions, " AND ")})`;
+    },
+    or: (ctx: BuilderContext, ...conditions: Sql[]): Sql => {
+      if (conditions.length === 0) return sql.empty;
+      if (conditions.length === 1) return conditions[0]!;
+      return sql`(${sql.join(conditions, " OR ")})`;
+    },
+    not: (ctx: BuilderContext, condition: Sql): Sql => sql`NOT (${condition})`,
+
+    // Null operators
+    isNull: (ctx: BuilderContext, column: Sql): Sql => sql`${column} IS NULL`,
+    isNotNull: (ctx: BuilderContext, column: Sql): Sql =>
+      sql`${column} IS NOT NULL`,
+
+    // Existence operators for subqueries
+    exists: (ctx: BuilderContext, subquery: Sql): Sql =>
+      sql`EXISTS (${subquery})`,
+    notExists: (ctx: BuilderContext, subquery: Sql): Sql =>
+      sql`NOT EXISTS (${subquery})`,
   };
 
   // ================================
@@ -364,131 +453,153 @@ export class PostgresAdapter implements DatabaseAdapter {
   filters = {
     string: {
       equals: (ctx: BuilderContext, value: any, mode?: QueryMode): Sql =>
-        sql`${this.column(ctx)} = ${value}`,
+        this.operators.eq(ctx, this.column(ctx), sql`${value}`),
       not: (ctx: BuilderContext, value: any, mode?: QueryMode): Sql =>
-        sql`${this.column(ctx)} != ${value}`,
+        this.operators.neq(ctx, this.column(ctx), sql`${value}`),
       in: (ctx: BuilderContext, value: any, mode?: QueryMode): Sql =>
-        sql`${this.column(ctx)} = ANY(${value})`,
+        this.operators.in(ctx, this.column(ctx), sql`${value}`),
       notIn: (ctx: BuilderContext, value: any, mode?: QueryMode): Sql =>
-        sql`${this.column(ctx)} != ALL(${value})`,
+        this.operators.notIn(ctx, this.column(ctx), sql`${value}`),
       lt: (ctx: BuilderContext, value: any, mode?: QueryMode): Sql =>
-        sql`${this.column(ctx)} < ${value}`,
+        this.operators.lt(ctx, this.column(ctx), sql`${value}`),
       lte: (ctx: BuilderContext, value: any, mode?: QueryMode): Sql =>
-        sql`${this.column(ctx)} <= ${value}`,
+        this.operators.lte(ctx, this.column(ctx), sql`${value}`),
       gt: (ctx: BuilderContext, value: any, mode?: QueryMode): Sql =>
-        sql`${this.column(ctx)} > ${value}`,
+        this.operators.gt(ctx, this.column(ctx), sql`${value}`),
       gte: (ctx: BuilderContext, value: any, mode?: QueryMode): Sql =>
-        sql`${this.column(ctx)} >= ${value}`,
+        this.operators.gte(ctx, this.column(ctx), sql`${value}`),
       contains: (ctx: BuilderContext, value: any, mode?: QueryMode): Sql => {
-        const col = this.column(ctx);
+        const column = this.column(ctx);
+        const pattern = sql`${`%${value}%`}`;
         if (mode === "insensitive") {
-          return sql`${col} ILIKE ${`%${value}%`}`;
+          return this.operators.ilike(ctx, column, pattern);
         }
-        return sql`${col} LIKE ${`%${value}%`}`;
+        return this.operators.like(ctx, column, pattern);
       },
       startsWith: (ctx: BuilderContext, value: any, mode?: QueryMode): Sql => {
-        const col = this.column(ctx);
+        const column = this.column(ctx);
+        const pattern = sql`${`${value}%`}`;
         if (mode === "insensitive") {
-          return sql`${col} ILIKE ${`${value}%`}`;
+          return this.operators.ilike(ctx, column, pattern);
         }
-        return sql`${col} LIKE ${`${value}%`}`;
+        return this.operators.like(ctx, column, pattern);
       },
       endsWith: (ctx: BuilderContext, value: any, mode?: QueryMode): Sql => {
-        const col = this.column(ctx);
+        const column = this.column(ctx);
+        const pattern = sql`${`%${value}`}`;
         if (mode === "insensitive") {
-          return sql`${col} ILIKE ${`%${value}`}`;
+          return this.operators.ilike(ctx, column, pattern);
         }
-        return sql`${col} LIKE ${`%${value}`}`;
+        return this.operators.like(ctx, column, pattern);
       },
       mode: (ctx: BuilderContext, value: any, mode?: QueryMode): Sql =>
         sql.empty, // Mode is handled by other operations
       isEmpty: (ctx: BuilderContext, value: any, mode?: QueryMode): Sql =>
-        value ? sql`${this.column(ctx)} = ''` : sql`${this.column(ctx)} != ''`,
+        value
+          ? this.operators.eq(ctx, this.column(ctx), sql`''`)
+          : this.operators.neq(ctx, this.column(ctx), sql`''`),
       search: (ctx: BuilderContext, value: any, mode?: QueryMode): Sql =>
         sql`to_tsvector(${this.column(ctx)}) @@ plainto_tsquery(${value})`,
     },
 
     number: {
       equals: (ctx: BuilderContext, value: any): Sql =>
-        sql`${this.column(ctx)} = ${value}`,
+        this.operators.eq(ctx, this.column(ctx), sql`${value}`),
       not: (ctx: BuilderContext, value: any): Sql =>
-        sql`${this.column(ctx)} != ${value}`,
+        this.operators.neq(ctx, this.column(ctx), sql`${value}`),
       in: (ctx: BuilderContext, value: any): Sql =>
-        sql`${this.column(ctx)} = ANY(${value})`,
+        this.operators.in(ctx, this.column(ctx), sql`${value}`),
       notIn: (ctx: BuilderContext, value: any): Sql =>
-        sql`${this.column(ctx)} != ALL(${value})`,
+        this.operators.notIn(ctx, this.column(ctx), sql`${value}`),
       lt: (ctx: BuilderContext, value: any): Sql =>
-        sql`${this.column(ctx)} < ${value}`,
+        this.operators.lt(ctx, this.column(ctx), sql`${value}`),
       lte: (ctx: BuilderContext, value: any): Sql =>
-        sql`${this.column(ctx)} <= ${value}`,
+        this.operators.lte(ctx, this.column(ctx), sql`${value}`),
       gt: (ctx: BuilderContext, value: any): Sql =>
-        sql`${this.column(ctx)} > ${value}`,
+        this.operators.gt(ctx, this.column(ctx), sql`${value}`),
       gte: (ctx: BuilderContext, value: any): Sql =>
-        sql`${this.column(ctx)} >= ${value}`,
+        this.operators.gte(ctx, this.column(ctx), sql`${value}`),
     },
 
     bigint: {
       equals: (ctx: BuilderContext, value: any): Sql =>
-        sql`${this.column(ctx)} = ${value}`,
+        this.operators.eq(ctx, this.column(ctx), sql`${value}`),
       not: (ctx: BuilderContext, value: any): Sql =>
-        sql`${this.column(ctx)} != ${value}`,
+        this.operators.neq(ctx, this.column(ctx), sql`${value}`),
       in: (ctx: BuilderContext, value: any): Sql =>
-        sql`${this.column(ctx)} = ANY(${value})`,
+        this.operators.in(ctx, this.column(ctx), sql`${value}`),
       notIn: (ctx: BuilderContext, value: any): Sql =>
-        sql`${this.column(ctx)} != ALL(${value})`,
+        this.operators.notIn(ctx, this.column(ctx), sql`${value}`),
       lt: (ctx: BuilderContext, value: any): Sql =>
-        sql`${this.column(ctx)} < ${value}`,
+        this.operators.lt(ctx, this.column(ctx), sql`${value}`),
       lte: (ctx: BuilderContext, value: any): Sql =>
-        sql`${this.column(ctx)} <= ${value}`,
+        this.operators.lte(ctx, this.column(ctx), sql`${value}`),
       gt: (ctx: BuilderContext, value: any): Sql =>
-        sql`${this.column(ctx)} > ${value}`,
+        this.operators.gt(ctx, this.column(ctx), sql`${value}`),
       gte: (ctx: BuilderContext, value: any): Sql =>
-        sql`${this.column(ctx)} >= ${value}`,
+        this.operators.gte(ctx, this.column(ctx), sql`${value}`),
     },
 
     boolean: {
       equals: (ctx: BuilderContext, value: any): Sql =>
-        sql`${this.column(ctx)} = ${value}`,
+        this.operators.eq(ctx, this.column(ctx), sql`${value}`),
       not: (ctx: BuilderContext, value: any): Sql =>
-        sql`${this.column(ctx)} != ${value}`,
+        this.operators.neq(ctx, this.column(ctx), sql`${value}`),
       in: (ctx: BuilderContext, value: any): Sql =>
-        sql`${this.column(ctx)} = ANY(${value})`,
+        this.operators.in(ctx, this.column(ctx), sql`${value}`),
       notIn: (ctx: BuilderContext, value: any): Sql =>
-        sql`${this.column(ctx)} != ALL(${value})`,
+        this.operators.notIn(ctx, this.column(ctx), sql`${value}`),
     },
 
     dateTime: {
       equals: (ctx: BuilderContext, value: any): Sql =>
-        sql`${this.column(ctx)} = ${value}`,
+        this.operators.eq(ctx, this.column(ctx), sql`${value}`),
       not: (ctx: BuilderContext, value: any): Sql =>
-        sql`${this.column(ctx)} != ${value}`,
+        this.operators.neq(ctx, this.column(ctx), sql`${value}`),
       in: (ctx: BuilderContext, value: any): Sql =>
-        sql`${this.column(ctx)} = ANY(${value})`,
+        this.operators.in(ctx, this.column(ctx), sql`${value}`),
       notIn: (ctx: BuilderContext, value: any): Sql =>
-        sql`${this.column(ctx)} != ALL(${value})`,
+        this.operators.notIn(ctx, this.column(ctx), sql`${value}`),
       lt: (ctx: BuilderContext, value: any): Sql =>
-        sql`${this.column(ctx)} < ${value}`,
+        this.operators.lt(ctx, this.column(ctx), sql`${value}`),
       lte: (ctx: BuilderContext, value: any): Sql =>
-        sql`${this.column(ctx)} <= ${value}`,
+        this.operators.lte(ctx, this.column(ctx), sql`${value}`),
       gt: (ctx: BuilderContext, value: any): Sql =>
-        sql`${this.column(ctx)} > ${value}`,
+        this.operators.gt(ctx, this.column(ctx), sql`${value}`),
       gte: (ctx: BuilderContext, value: any): Sql =>
-        sql`${this.column(ctx)} >= ${value}`,
+        this.operators.gte(ctx, this.column(ctx), sql`${value}`),
     },
 
     json: {
       equals: (ctx: BuilderContext, value: any): Sql =>
-        sql`${this.column(ctx)} = ${JSON.stringify(value)}::jsonb`,
+        this.operators.eq(
+          ctx,
+          this.column(ctx),
+          sql`${JSON.stringify(value)}::jsonb`
+        ),
       not: (ctx: BuilderContext, value: any): Sql =>
-        sql`${this.column(ctx)} != ${JSON.stringify(value)}::jsonb`,
+        this.operators.neq(
+          ctx,
+          this.column(ctx),
+          sql`${JSON.stringify(value)}::jsonb`
+        ),
       path: (ctx: BuilderContext, path: any): Sql =>
         sql`${this.column(ctx)} #> ${`{${path.join(",")}}`}`,
-      string_contains: (ctx: BuilderContext, value: any): Sql =>
-        sql`${this.column(ctx)}::text LIKE ${`%${value}%`}`,
-      string_starts_with: (ctx: BuilderContext, value: any): Sql =>
-        sql`${this.column(ctx)}::text LIKE ${`${value}%`}`,
-      string_ends_with: (ctx: BuilderContext, value: any): Sql =>
-        sql`${this.column(ctx)}::text LIKE ${`%${value}`}`,
+      string_contains: (ctx: BuilderContext, value: any): Sql => {
+        const column = sql`${this.column(ctx)}::text`;
+        const pattern = sql`${`%${value}%`}`;
+        return this.operators.like(ctx, column, pattern);
+      },
+      string_starts_with: (ctx: BuilderContext, value: any): Sql => {
+        const column = sql`${this.column(ctx)}::text`;
+        const pattern = sql`${`${value}%`}`;
+        return this.operators.like(ctx, column, pattern);
+      },
+      string_ends_with: (ctx: BuilderContext, value: any): Sql => {
+        const column = sql`${this.column(ctx)}::text`;
+        const pattern = sql`${`%${value}`}`;
+        return this.operators.like(ctx, column, pattern);
+      },
       array_contains: (ctx: BuilderContext, value: any): Sql =>
         sql`${this.column(ctx)} ? ${JSON.stringify(value)}`,
       array_starts_with: (ctx: BuilderContext, value: any): Sql =>
@@ -499,18 +610,18 @@ export class PostgresAdapter implements DatabaseAdapter {
 
     enum: {
       equals: (ctx: BuilderContext, value: any): Sql =>
-        sql`${this.column(ctx)} = ${value}`,
+        this.operators.eq(ctx, this.column(ctx), sql`${value}`),
       not: (ctx: BuilderContext, value: any): Sql =>
-        sql`${this.column(ctx)} != ${value}`,
+        this.operators.neq(ctx, this.column(ctx), sql`${value}`),
       in: (ctx: BuilderContext, value: any): Sql =>
-        sql`${this.column(ctx)} = ANY(${value})`,
+        this.operators.in(ctx, this.column(ctx), sql`${value}`),
       notIn: (ctx: BuilderContext, value: any): Sql =>
-        sql`${this.column(ctx)} != ALL(${value})`,
+        this.operators.notIn(ctx, this.column(ctx), sql`${value}`),
     },
 
     list: {
       equals: (ctx: BuilderContext, value: any): Sql =>
-        sql`${this.column(ctx)} = ${value}`,
+        this.operators.eq(ctx, this.column(ctx), sql`${value}`),
       has: (ctx: BuilderContext, value: any): Sql =>
         sql`${value} = ANY(${this.column(ctx)})`,
       hasEvery: (ctx: BuilderContext, value: any): Sql =>
@@ -519,22 +630,25 @@ export class PostgresAdapter implements DatabaseAdapter {
         sql`${this.column(ctx)} && ${value}`,
       isEmpty: (ctx: BuilderContext, value: any): Sql =>
         value
-          ? sql`array_length(${this.column(ctx)}, 1) IS NULL`
+          ? this.operators.isNull(
+              ctx,
+              sql`array_length(${this.column(ctx)}, 1)`
+            )
           : sql`array_length(${this.column(ctx)}, 1) > 0`,
     },
 
     relations: {
       direct: (ctx: BuilderContext, statement: Sql): Sql => statement,
       some: (ctx: BuilderContext, statement: Sql): Sql =>
-        sql`EXISTS (${statement})`,
+        this.operators.exists(ctx, statement),
       every: (ctx: BuilderContext, statement: Sql): Sql =>
-        sql`NOT EXISTS (${statement})`,
+        this.operators.notExists(ctx, statement),
       none: (ctx: BuilderContext, statement: Sql): Sql =>
-        sql`NOT EXISTS (${statement})`,
+        this.operators.notExists(ctx, statement),
       exists: (ctx: BuilderContext, statement: Sql): Sql =>
-        sql`EXISTS (${statement})`,
+        this.operators.exists(ctx, statement),
       notExists: (ctx: BuilderContext, statement: Sql): Sql =>
-        sql`NOT EXISTS (${statement})`,
+        this.operators.notExists(ctx, statement),
     },
   } as unknown as DatabaseAdapter["filters"];
 
@@ -594,18 +708,6 @@ export class PostgresAdapter implements DatabaseAdapter {
     count: (ctx: BuilderContext, statement: Sql): Sql =>
       sql`COUNT(${statement})`,
     aggregate: (ctx: BuilderContext, statement: Sql): Sql => statement,
-    NOT: (ctx: BuilderContext, statement: Sql): Sql => sql`NOT (${statement})`,
-    OR: (ctx: BuilderContext, ...statements: Sql[]): Sql =>
-      sql`(${sql.join(statements, " OR ")})`,
-    AND: (ctx: BuilderContext, ...statements: Sql[]): Sql => {
-      if (statements.length === 0) {
-        return sql.empty;
-      }
-      if (statements.length === 1) {
-        return statements[0]!;
-      }
-      return sql`(${sql.join(statements, " AND ")})`;
-    },
   };
 
   // ================================

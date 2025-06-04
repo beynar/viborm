@@ -324,3 +324,48 @@ export type EnumFilters<T extends EnumField<any, any>> = T extends EnumField<
       : EnumFilter<E>
     : never
   : never;
+
+export const filterValidators = {
+  string: {
+    base: stringFilter,
+    nullable: nullableStringFilter,
+    array: stringArrayFilter,
+    nullableArray: nullableStringArrayFilter,
+  },
+  number: {
+    base: numberFilter,
+    nullable: nullableNumberFilter,
+    array: numberArrayFilter,
+    nullableArray: nullableNumberArrayFilter,
+  },
+  boolean: {
+    base: booleanFilter,
+    nullable: nullableBooleanFilter,
+    array: booleanArrayFilter,
+    nullableArray: nullableBooleanArrayFilter,
+  },
+  dateTime: {
+    base: dateTimeFilter,
+    nullable: nullableDateTimeFilter,
+    array: dateTimeArrayFilter,
+    nullableArray: nullableDateTimeArrayFilter,
+  },
+  bigInt: {
+    base: bigIntFilter,
+    nullable: nullableBigIntFilter,
+    array: bigIntArrayFilter,
+    nullableArray: nullableBigIntArrayFilter,
+  },
+  json: {
+    base: jsonFilter,
+    nullable: nullableJsonFilter,
+  },
+  enum<T extends string[]>(values: T) {
+    return {
+      base: enumFilter(values),
+      nullable: nullableEnumFilter(values),
+      array: enumArrayFilter(values),
+      nullableArray: nullableEnumArrayFilter(values),
+    };
+  },
+};

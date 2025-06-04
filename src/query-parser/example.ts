@@ -2,8 +2,6 @@ import { createClient } from "../client";
 import { s } from "../schema";
 import { PostgresAdapter } from "../adapters/databases/postgres/postgres-adapter";
 import { QueryParser } from "./index";
-import { Prisma, PrismaClient } from "../../generated/prisma";
-import { UpdateInput } from "@types";
 
 const user = s.model("User", {
   id: s.string().id(),
@@ -14,12 +12,6 @@ const user = s.model("User", {
   age: s.int().nullable(),
   metadata: s.json().nullable(),
   role: s.enum(["ADMIN", "USER"] as const).nullable(),
-  friends: s
-    .relation({ onField: "id", refField: "friendId" })
-    .manyToMany(() => user),
-  friend: s
-    .relation({ onField: "id", refField: "friendId" })
-    .manyToOne(() => user),
   posts: s
     .relation({ onField: "id", refField: "authorId" })
     .oneToMany(() => post),
@@ -30,9 +22,6 @@ const post = s.model("Post", {
   title: s.string(),
   content: s.string(),
   authorId: s.string(),
-  // author: s
-  //   .relation({ onField: "authorId", refField: "id" })
-  //   .manyToOne(() => user),
 });
 
 const client = createClient({
@@ -55,105 +44,47 @@ const query = {
     id: true,
   },
 };
-const role = s.enum(["ADMIN", "USER"] as const);
-type T = UpdateInput<typeof user, false>["role"];
-
-const t = await client.user.findMany({
-  where: {
-    role: {
-      equals: "ADMIN",
-    },
-
-    posts: {
-      some: {
-        title: {
-          contains: "test",
-        },
-      },
-    },
-  },
-
-  select: {
-    id: true,
-    friend: true,
-    friends: {
-      where: {
-        email: {
-          contains: "test",
-        },
-      },
-      select: {
-        id: true,
-      },
-    },
-  },
-  orderBy: {
-    age: {
-      sort: "asc",
-      nulls: "last",
-    },
-    posts: {
-      _count: "asc",
-    },
-    friend: {
-      posts: {
-        _count: "asc",
-      },
-    },
-  },
-});
-client.user.update({
-  where: {
-    id: "1",
-  },
-  data: {
-    age: {
-      set: 22,
-    },
-    role: "ADMIN",
-  },
-});
 
 // const res = client.user.findUnique(query);
 const sql = QueryParser.parse("findFirst", user, query, new PostgresAdapter());
 
 console.log("here", sql.toStatement());
 
-async function main() {
-  const prisma = new PrismaClient({
-    log: ["query", "info", "warn", "error"],
-    datasources: {
-      db: {
-        url: `postgresql://postgres:password@localhost:2222/baseorm`,
-      },
-    },
-  });
+// async function main() {
+//   const prisma = new PrismaClient({
+//     log: ["query", "info", "warn", "error"],
+//     datasources: {
+//       db: {
+//         url: `postgresql://postgres:password@localhost:2222/baseorm`,
+//       },
+//     },
+//   });
 
-  const res = await prisma.user.update({
-    where: {
-      id: "test",
-    },
-    select: {
-      posts: {
-        take: 2,
-      },
-    },
-    data: {
-      bio: "test",
-    },
-  });
+//   const res = await prisma.user.update({
+//     where: {
+//       id: "test",
+//     },
+//     select: {
+//       posts: {
+//         take: 2,
+//       },
+//     },
+//     data: {
+//       bio: "test",
+//     },
+//   });
 
-  console.log("res", res);
+//   console.log("res", res);
 
-  // testPrisma().catch(console.error);
+//   // testPrisma().catch(console.error);
 
-  const queryParserO = `SELECT "t0"."id" FROM "User" AS "t0" WHERE EXISTS(SELECT "t1"."authorId" FROM "Post" AS "t1" WHERE ("t1"."title" = 'test' AND ("t0"."id") = ("t1"."authorId") AND "t1"."authorId" IS NOT NULL)) LIMIT 1`;
+//   const queryParserO = `SELECT "t0"."id" FROM "User" AS "t0" WHERE EXISTS(SELECT "t1"."authorId" FROM "Post" AS "t1" WHERE ("t1"."title" = 'test' AND ("t0"."id") = ("t1"."authorId") AND "t1"."authorId" IS NOT NULL)) LIMIT 1`;
 
-  const prismaOutput = `SELECT "t0"."id" FROM "User" AS "t0" WHERE EXISTS(SELECT "t1"."authorId" FROM "Post" AS "t1" WHERE ("t1"."title" = 'test' AND ("t0"."id") = ("t1"."authorId") AND "t1"."authorId" IS NOT NULL)) LIMIT 1`;
+//   const prismaOutput = `SELECT "t0"."id" FROM "User" AS "t0" WHERE EXISTS(SELECT "t1"."authorId" FROM "Post" AS "t1" WHERE ("t1"."title" = 'test' AND ("t0"."id") = ("t1"."authorId") AND "t1"."authorId" IS NOT NULL)) LIMIT 1`;
 
-  const prismaResult = await prisma.$queryRaw(Prisma.raw(queryParserO));
+//   const prismaResult = await prisma.$queryRaw(Prisma.raw(queryParserO));
 
-  console.log("prismaResult", prismaResult);
-}
+//   console.log("prismaResult", prismaResult);
+// }
 
-main().catch(console.error);
+// main().catch(console.error);

@@ -223,15 +223,15 @@ export class WhereClauseBuilder implements ClauseBuilder {
 
     switch (operator) {
       case "AND":
-        return this.adapter.builders.AND(ctx, ...conditionSqls);
+        return this.adapter.operators.and(ctx, ...conditionSqls);
       case "OR":
-        return this.adapter.builders.OR(ctx, ...conditionSqls);
+        return this.adapter.operators.or(ctx, ...conditionSqls);
       case "NOT":
         const firstCondition = conditionSqls[0];
         if (!firstCondition) {
           throw new Error("NOT operator needs a condition");
         }
-        return this.adapter.builders.NOT(ctx, firstCondition);
+        return this.adapter.operators.not(ctx, firstCondition);
       default:
         throw new Error(`Unsupported logical operator: ${operator}`);
     }
@@ -478,7 +478,7 @@ export class WhereClauseBuilder implements ClauseBuilder {
       return sql.empty;
     }
     const ctx = this.parser.createContext(model, "findMany", alias);
-    return this.adapter.builders.AND(ctx, ...conditions);
+    return this.adapter.operators.and(ctx, ...conditions);
   }
 
   /**
@@ -505,6 +505,9 @@ export class WhereClauseBuilder implements ClauseBuilder {
     // For EXISTS, we just need to select any field - commonly the foreign key
     const selectField = this.adapter.identifiers.column(childAlias, refField);
 
+    // Create context for operator calls
+    const ctx = this.parser.createContext(targetModel, "findMany", childAlias);
+
     // Build WHERE conditions for the subquery
     const whereConditions: Sql[] = [];
 
@@ -520,25 +523,27 @@ export class WhereClauseBuilder implements ClauseBuilder {
       }
     }
 
-    // 2. Add the relation link condition (child.refField = parent.onField)
+    // 2. Add the relation link condition (child.refField = parent.onField) using adapter operators
     if (onField && refField) {
       const childCol = this.adapter.identifiers.column(childAlias, refField);
       const parentCol = this.adapter.identifiers.column(parentAlias, onField);
-      whereConditions.push(sql`(${parentCol}) = (${childCol})`);
+      const relationLink = this.adapter.operators.eq(ctx, parentCol, childCol);
+      whereConditions.push(relationLink);
     }
 
-    // 3. Add NULL safety for the foreign key (like Prisma does)
+    // 3. Add NULL safety for the foreign key using adapter operators
     const foreignKeyColumn = this.adapter.identifiers.column(
       childAlias,
       refField
     );
-    whereConditions.push(sql`${foreignKeyColumn} IS NOT NULL`);
+    const nullCheck = this.adapter.operators.isNotNull(ctx, foreignKeyColumn);
+    whereConditions.push(nullCheck);
 
-    // Build the combined WHERE clause - join with AND, no extra parentheses
+    // Build the combined WHERE clause using adapter operators for AND
     const finalWhere =
       whereConditions.length === 1
         ? whereConditions[0]
-        : sql`(${sql.join(whereConditions, " AND ")})`;
+        : this.adapter.operators.and(ctx, ...whereConditions);
 
     // Build the simple SELECT subquery: SELECT refField FROM table WHERE conditions
     return sql`SELECT ${selectField} FROM ${fromClause} WHERE ${finalWhere}`;
@@ -566,13 +571,20 @@ export class WhereClauseBuilder implements ClauseBuilder {
 
     // Generate the appropriate SQL condition based on relation type
     if (onField && refField) {
-      // Foreign key relationship: child.refField = parent.onField
+      // Create context for operators - use a minimal context since we don't have full model info here
+      const ctx = {
+        model: { name: "unknown" } as any,
+        baseOperation: "findMany" as any,
+        alias: childAlias || alias,
+      } as any;
+
+      // Foreign key relationship: child.refField = parent.onField using adapter operators
       const childCol = this.adapter.identifiers.column(
         childAlias || alias,
         refField
       );
       const parentCol = this.adapter.identifiers.column(parentAlias, onField);
-      return sql`${childCol} = ${parentCol}`;
+      return this.adapter.operators.eq(ctx, childCol, parentCol);
     }
 
     // Fallback for complex relations
@@ -616,22 +628,37 @@ export class WhereClauseBuilder implements ClauseBuilder {
       refField,
     } = junctionData;
 
-    return sql`EXISTS (
-      SELECT 1 FROM ${this.adapter.identifiers.escape(junctionTable)}
-      WHERE ${this.adapter.identifiers.escape(
-        junctionTable
-      )}.${this.adapter.identifiers.escape(
-      targetField
-    )} = ${this.adapter.identifiers.escape(
-      childAlias
-    )}.${this.adapter.identifiers.escape(refField)}
-        AND ${this.adapter.identifiers.escape(
-          junctionTable
-        )}.${this.adapter.identifiers.escape(
-      sourceField
-    )} = ${this.adapter.identifiers.escape(
-      parentAlias
-    )}.${this.adapter.identifiers.escape(onField)}
-    )`;
+    // Build using adapter's query builders for consistency
+    const junctionAlias = this.parser.generateAlias();
+
+    // Build SELECT and FROM clauses using adapter builders
+    const selectClause = this.adapter.builders.select(context, sql`1`);
+    const fromClause = this.adapter.builders.from(
+      context,
+      this.adapter.identifiers.table(junctionTable, junctionAlias)
+    );
+
+    // Build WHERE conditions using adapter eq utility
+    const condition1 = this.adapter.operators.eq(
+      context,
+      this.adapter.identifiers.column(junctionAlias, targetField),
+      this.adapter.identifiers.column(childAlias, refField)
+    );
+    const condition2 = this.adapter.operators.eq(
+      context,
+      this.adapter.identifiers.column(junctionAlias, sourceField),
+      this.adapter.identifiers.column(parentAlias, onField)
+    );
+
+    const whereClause = this.adapter.builders.where(
+      context,
+      this.adapter.operators.and(context, condition1, condition2)
+    );
+
+    // Combine into inner query
+    const innerQuery = sql.join([selectClause, fromClause, whereClause], " ");
+
+    // Use the adapter's exists util
+    return this.adapter.utils.exists(context, innerQuery);
   }
 }

@@ -89,3 +89,7 @@ export const MutationArgKeys = [
 ] as const;
 
 export type MutationArgKeys = (typeof MutationArgKeys)[number];
+
+export type BatchPayload = {
+  count: number;
+};

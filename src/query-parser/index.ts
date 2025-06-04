@@ -169,6 +169,8 @@ export class QueryParser {
       sql = this.upsertOperations.handle(model, payload);
     } else if (this.isAggregateOperation(operation)) {
       sql = this.buildAggregateQuery(model, payload, alias, operation);
+    } else if (operation === "exist") {
+      sql = this.buildExistQuery(model, payload, alias, context);
     } else {
       throw new Error(`Unsupported operation: ${operation}`);
     }
@@ -213,7 +215,8 @@ export class QueryParser {
     const clauses: any = {
       select: selectStatement,
       from: fromStatement,
-      ...(whereStatement && { where: whereStatement }),
+      ...(whereStatement &&
+        !this.isEmptyWhereClause(whereStatement) && { where: whereStatement }),
       ...(orderByStatement && { orderBy: orderByStatement }),
       ...(relationSubqueries.length > 0 && { include: relationSubqueries }),
     };
@@ -445,41 +448,41 @@ export class QueryParser {
 
   /**
    * Build SET clause for UPDATE operations
-   *
-   * Delegates to FieldUpdateBuilder for field-specific update operation processing
    */
   private buildSetClause(data: Record<string, any>, model: Model<any>): Sql {
-    const setPairs = Object.entries(data).map(([fieldName, updateValue]) => {
-      // Get the field from the model
+    const setParts = Object.entries(data).map(([fieldName, value]) => {
+      const columnId = this.adapter.identifiers.escape(fieldName);
+
+      // Create context for operators
+      const ctx = {
+        model,
+        baseOperation: "update" as any,
+        alias: "temp",
+        fieldName,
+      } as any;
+
+      // Process the update value through field update handlers
       const field = model.fields.get(fieldName);
-      if (!field) {
-        const availableFields = Array.from(model.fields.keys());
-        throw new Error(
-          `Field '${fieldName}' not found on model '${
-            model.name
-          }'. Available fields: ${availableFields.join(", ")}`
+      if (field) {
+        const updateCtx = this.contextFactory.create(model, "update", "temp", {
+          field: field as any,
+          fieldName,
+        });
+        const updateExpression = this.fieldUpdates.handle(
+          updateCtx,
+          value,
+          fieldName
         );
+
+        // Use adapter operators for equality
+        return this.adapter.operators.eq(ctx, columnId, updateExpression);
       }
 
-      // Create context for field update processing
-      const ctx = this.contextFactory.create(model, "update", "mutation", {
-        field: field as any,
-        fieldName,
-      });
-
-      // Delegate to FieldUpdateBuilder for processing the update value/operation
-      const updateExpression = this.fieldUpdates.handle(
-        ctx,
-        updateValue,
-        fieldName
-      );
-
-      // For UPDATE operations, use bare column names without table qualifiers
-      const columnId = this.adapter.identifiers.escape(fieldName);
-      return sql`${columnId} = ${updateExpression}`;
+      // Fallback for fields without handlers
+      return this.adapter.operators.eq(ctx, columnId, sql`${value}`);
     });
 
-    return sql.join(setPairs, ", ");
+    return sql.join(setParts, ", ");
   }
 
   /**
@@ -754,15 +757,33 @@ export class QueryParser {
         const andConditions = (value as any[]).map((condition: any) =>
           this.buildMutationWhereConditions(model, condition)
         );
-        conditions.push(this.adapter.builders.AND({} as any, ...andConditions));
+        // Create minimal context for operators
+        const ctx = {
+          model,
+          baseOperation: "update" as any,
+          alias: "temp",
+        } as any;
+        conditions.push(this.adapter.operators.and(ctx, ...andConditions));
       } else if (key === "OR") {
         const orConditions = (value as any[]).map((condition: any) =>
           this.buildMutationWhereConditions(model, condition)
         );
-        conditions.push(this.adapter.builders.OR({} as any, ...orConditions));
+        // Create minimal context for operators
+        const ctx = {
+          model,
+          baseOperation: "update" as any,
+          alias: "temp",
+        } as any;
+        conditions.push(this.adapter.operators.or(ctx, ...orConditions));
       } else if (key === "NOT") {
         const notCondition = this.buildMutationWhereConditions(model, value);
-        conditions.push(this.adapter.builders.NOT({} as any, notCondition));
+        // Create minimal context for operators
+        const ctx = {
+          model,
+          baseOperation: "update" as any,
+          alias: "temp",
+        } as any;
+        conditions.push(this.adapter.operators.not(ctx, notCondition));
       } else {
         // Handle field conditions
         const fieldCondition = this.buildMutationFieldCondition(
@@ -785,7 +806,9 @@ export class QueryParser {
       return conditions[0];
     }
 
-    return this.adapter.builders.AND({} as any, ...conditions);
+    // Create minimal context for final AND combination
+    const ctx = { model, baseOperation: "update" as any, alias: "temp" } as any;
+    return this.adapter.operators.and(ctx, ...conditions);
   }
 
   /**
@@ -1020,6 +1043,40 @@ export class QueryParser {
     options: any = {}
   ): BuilderContext {
     return this.contextFactory.create(model, operation, alias, options);
+  }
+
+  // Helper method to check if a WHERE clause is truly empty
+  private isEmptyWhereClause(where: Sql): boolean {
+    return where === sql.empty || where.toStatement().trim() === "";
+  }
+
+  /**
+   * Build EXIST query using database adapter
+   */
+  private buildExistQuery(
+    model: Model<any>,
+    payload: any,
+    alias: string,
+    context: BuilderContext
+  ): Sql {
+    // Build individual SQL fragments using the clause builders (same as other operations)
+    const selectStatement = sql`1`; // For EXISTS, we only need to check existence
+    const fromStatement = this.buildFromStatement(model, alias);
+    const whereStatement = payload.where
+      ? this.whereClause.build(context, payload.where)
+      : undefined;
+
+    // Build clauses object following the same pattern as other operations
+    const clauses: any = {
+      select: selectStatement,
+      from: fromStatement,
+      ...(whereStatement &&
+        !this.isEmptyWhereClause(whereStatement) && { where: whereStatement }),
+      limit: this.adapter.builders.limit(context, sql`1`), // Always add LIMIT 1 for performance
+    };
+
+    // Let adapter handle the specific operation (same pattern as other operations)
+    return this.adapter.operations.exist(context, clauses);
   }
 }
 

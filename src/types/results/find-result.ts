@@ -6,6 +6,7 @@ import type {
   AggregateArgs,
   GroupByArgs,
   CountArgs,
+  ExistArgs,
 } from "../operations/find-args.js";
 import type {
   SelectInput,
@@ -208,3 +209,23 @@ export type NonNullableResult<TResult> = TResult extends null ? never : TResult;
 export type ExtractArrayElement<TResult> = TResult extends Array<infer TElement>
   ? TElement
   : never;
+
+// ================================
+// EXIST OPERATION RESULT
+// ================================
+
+/**
+ * Result type for exist operation
+ *
+ * Always returns a boolean indicating whether any records
+ * match the given WHERE conditions.
+ */
+export type ExistResult<
+  TModel extends Model<any>,
+  TArgs extends ExistArgs<TModel>
+> = boolean;
+
+/**
+ * Type guard to check if a result is from an exist operation
+ */
+export type IsExistResult<TResult> = TResult extends boolean ? true : false;

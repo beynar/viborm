@@ -337,3 +337,27 @@ export type FindArgKeys =
   | "skip"
   | "cursor"
   | "distinct";
+
+// ================================
+// EXIST OPERATION ARGS
+// ================================
+
+/**
+ * Arguments for exist operation
+ *
+ * The exist operation is a lightweight way to check if any records
+ * exist that match the given WHERE conditions. It returns a boolean
+ * instead of counting records, making it more efficient.
+ */
+export type ExistArgs<TModel extends Model<any>> = {
+  where?: WhereInput<TModel>;
+};
+
+/**
+ * Enhanced exist args with logical operators
+ */
+export type EnhancedExistArgs<TModel extends Model<any>> = ExistArgs<TModel> & {
+  AND?: WhereInput<TModel>[];
+  OR?: WhereInput<TModel>[];
+  NOT?: WhereInput<TModel> | WhereInput<TModel>[];
+};
