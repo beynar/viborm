@@ -2,7 +2,7 @@ import { Sql, sql } from "@sql";
 import { Model } from "../../schema/model";
 import { DatabaseAdapter } from "../../adapters/database-adapter";
 import { BuilderContext, ClauseBuilder, PaginationContext } from "../types";
-import type { QueryParser } from "../index";
+import type { QueryParser } from "../query-parser";
 
 /**
  * LimitClauseBuilder - LIMIT/OFFSET Clause Generation Component

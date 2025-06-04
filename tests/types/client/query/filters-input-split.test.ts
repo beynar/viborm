@@ -3,7 +3,7 @@ import type {
   FieldFilter,
   StringFilter,
   NumberFilter,
-} from "../../../../src/types/client/query";
+} from "../../../../src/types/query";
 
 describe("Filters Input Split", () => {
   test("Should be able to import FieldFilter from main filters-input module", () => {

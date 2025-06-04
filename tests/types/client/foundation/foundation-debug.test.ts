@@ -10,7 +10,7 @@ import type {
   IsFieldNullable,
   IsFieldId,
   MapModelCreateFields,
-} from "../../../../src/types/client/foundation/index.js";
+} from "../../../../src/types/foundation/index.js";
 
 describe("Foundation Debug", () => {
   test("Debug auto generation type inference", () => {

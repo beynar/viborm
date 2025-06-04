@@ -52,7 +52,7 @@ import {
   type NullableBigIntArrayFieldUpdateOperationsInput,
   type JsonFieldUpdateOperationsInput,
   type NullableJsonFieldUpdateOperationsInput,
-} from "../../../../src/types/client/query/update-input";
+} from "../../../../src/types/query/update-input";
 
 describe("Field Update Operations", () => {
   describe("String update operations", () => {

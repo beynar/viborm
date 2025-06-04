@@ -2,7 +2,7 @@ import { Sql, sql } from "@sql";
 import { Model } from "../../schema/model";
 import { DatabaseAdapter } from "../../adapters/database-adapter";
 import { BuilderContext, ClauseBuilder } from "../types";
-import type { QueryParser } from "../index";
+import type { QueryParser } from "../query-parser";
 
 /**
  * WhereClauseBuilder - WHERE Clause Generation Component
@@ -100,7 +100,7 @@ export class WhereClauseBuilder implements ClauseBuilder {
     }
 
     const ctx = this.parser.createContext(model, "findMany", alias, {
-      field: field as any,
+      field,
       fieldName,
     });
 
@@ -108,7 +108,9 @@ export class WhereClauseBuilder implements ClauseBuilder {
     if (
       typeof condition === "string" ||
       typeof condition === "number" ||
-      typeof condition === "boolean"
+      typeof condition === "boolean" ||
+      typeof condition === "bigint" ||
+      (condition && condition instanceof Date)
     ) {
       return this.parser.components.fieldFilters.handle(
         ctx,

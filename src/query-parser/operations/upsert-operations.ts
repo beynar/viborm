@@ -2,7 +2,7 @@ import { Sql } from "@sql";
 import { Model } from "../../schema/model";
 import { DatabaseAdapter } from "../../adapters/database-adapter";
 import { BuilderContext, OperationHandler, UpsertClauses } from "../types";
-import type { QueryParser } from "../index";
+import type { QueryParser } from "../query-parser";
 
 /**
  * UpsertOperations - Upsert Operation Handler

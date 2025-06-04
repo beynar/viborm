@@ -18,65 +18,105 @@ import {
   union,
   omit,
   extend,
+  transform,
+  pipe,
+  core,
+  ZodMiniObject,
+  refine,
+  z,
+  string,
 } from "zod/v4-mini";
 
 export type QueryMode = "default" | "insensitive";
 export type NullsOrder = "first" | "last";
 
-// Base filter schemas - exported for use in field-filters.ts
-export const baseFilter = <Z extends ZodMiniType>(schema: Z) =>
-  object({
-    equals: optional(schema),
-    not: optional(
-      union([
-        schema,
-        object({
-          equals: optional(schema),
-          notIn: optional(array(schema)),
-          in: optional(array(schema)),
-        }),
-      ])
-    ),
-    in: optional(array(schema)),
-    notIn: optional(array(schema)),
-  });
+export const rawTransformer = (schema: ZodMiniType) =>
+  pipe(
+    schema,
+    transform((value) => ({
+      equals: value,
+    }))
+  );
 
-export const baseNullableFilter = <Z extends ZodMiniType>(schema: Z) =>
-  object({
+// Base filter schemas - exported for use in field-filters.ts
+export const baseFilter = <Z extends ZodMiniType>(
+  schema: Z,
+  extendedObject?: ZodMiniObject
+) => {
+  const baseFilterSchema = object({
+    ...(extendedObject?.def.shape || {}),
     equals: optional(nullable(schema)),
     not: optional(
       union([
-        nullable(schema),
         object({
           equals: optional(nullable(schema)),
           notIn: optional(array(schema)),
           in: optional(array(schema)),
         }),
+        nullable(schema),
       ])
     ),
     in: optional(array(schema)),
     notIn: optional(array(schema)),
   });
+  return union([baseFilterSchema, rawTransformer(schema)]);
+  // if (extendedObject) {
+  //   return union([
+  //     extend(baseFilterSchema, extendedObject.shape),
+  //     rawTransformer(schema),
+  //   ]);
+  // }
+};
+
+export const baseNullableFilter = <Z extends ZodMiniType>(
+  schema: Z,
+  extendedObject?: ZodMiniObject
+) => {
+  let baseObject = object({
+    equals: optional(nullable(schema)),
+    not: optional(
+      union([
+        object({
+          equals: optional(nullable(schema)),
+          notIn: optional(array(schema)),
+          in: optional(array(schema)),
+        }),
+        nullable(schema),
+      ])
+    ),
+    in: optional(array(schema)),
+    notIn: optional(array(schema)),
+  });
+  if (extendedObject) {
+    baseObject = extend(baseObject, extendedObject);
+  }
+  return union([baseObject, rawTransformer(nullable(schema))]);
+};
 
 // List/Array filters - exported for use in field-filters.ts
 export const baseListFilter = <T extends ZodMiniType>(schema: T) =>
-  object({
-    equals: optional(array(schema)),
-    has: optional(schema),
-    hasEvery: optional(array(schema)),
-    hasSome: optional(array(schema)),
-    isEmpty: optional(boolean()),
-  });
+  union([
+    object({
+      equals: optional(array(schema)),
+      has: optional(schema),
+      hasEvery: optional(array(schema)),
+      hasSome: optional(array(schema)),
+      isEmpty: optional(boolean()),
+    }),
+    rawTransformer(array(schema)),
+  ]);
 
 export const baseNullableListFilter = <T extends ZodMiniType>(schema: T) =>
-  nullable(
-    union([
-      extend(omit(baseListFilter(schema), { equals: true }), {
-        equals: optional(nullable(array(schema))),
-      }),
-      array(schema),
-    ])
-  );
+  union([
+    object({
+      equals: optional(nullable(array(schema))),
+      has: optional(schema),
+      hasEvery: optional(array(schema)),
+      hasSome: optional(array(schema)),
+      isEmpty: optional(boolean()),
+    }),
+    rawTransformer(array(schema)),
+  ]);
 
 // Type inference helper - exported for use in field-filters.ts
 export type InferFilter<T> = T extends ZodMiniType ? T["_zod"]["input"] : never;

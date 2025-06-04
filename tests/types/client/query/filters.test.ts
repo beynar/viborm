@@ -22,7 +22,7 @@ import {
   BigIntNullableArrayFilter,
   JsonFilter,
   JsonNullableFilter,
-} from "../../../../src/types/client/query/filters-input";
+} from "../../../../src/types/query/filters-input";
 
 describe("Filter Types", () => {
   describe("String filters", () => {

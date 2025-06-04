@@ -13,7 +13,7 @@ import {
   BoolFieldUpdateOperationsInput,
   DateTimeFieldUpdateOperationsInput,
   EnumFieldUpdateOperationsInput,
-  IntFieldUpdateOperationsInput,
+  NumberFieldUpdateOperationsInput,
   JsonFieldUpdateOperationsInput,
   StringFieldUpdateOperationsInput,
 } from "@types";
@@ -139,16 +139,16 @@ export interface DatabaseAdapter {
       keyof StringFieldUpdateOperationsInput,
       (ctx: BuilderContext, value: string, mode?: QueryMode) => Sql
     >;
-    number: Record<
-      keyof IntFieldUpdateOperationsInput,
+    decimal: Record<
+      keyof NumberFieldUpdateOperationsInput,
       (ctx: BuilderContext, value: number) => Sql
     >;
     int?: Record<
-      keyof IntFieldUpdateOperationsInput,
+      keyof NumberFieldUpdateOperationsInput,
       (ctx: BuilderContext, value: number) => Sql
     >;
     float?: Record<
-      keyof IntFieldUpdateOperationsInput,
+      keyof NumberFieldUpdateOperationsInput,
       (ctx: BuilderContext, value: number) => Sql
     >;
 
@@ -180,15 +180,15 @@ export interface DatabaseAdapter {
       keyof StringFilter,
       (ctx: BuilderContext, value: string, mode?: QueryMode) => Sql
     >;
-    number: Record<
-      keyof NumberFilter,
-      (ctx: BuilderContext, value: number) => Sql
-    >;
     int?: Record<
       keyof NumberFilter,
       (ctx: BuilderContext, value: number) => Sql
     >;
     float?: Record<
+      keyof NumberFilter,
+      (ctx: BuilderContext, value: number) => Sql
+    >;
+    decimal?: Record<
       keyof NumberFilter,
       (ctx: BuilderContext, value: number) => Sql
     >;

@@ -1,6 +1,6 @@
 import { DatabaseAdapter } from "../../adapters/database-adapter";
 import { BuilderContext, FieldHandler } from "../types";
-import type { QueryParser } from "../index";
+import type { QueryParser } from "../query-parser";
 /**
  * FieldValidatorBuilder - Field-Specific Validation Component
  *

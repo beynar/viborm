@@ -1,5 +1,5 @@
 import { describe, test, expect } from "vitest";
-import { QueryParser } from "../../src/query-parser";
+import { QueryParser } from "../../src/query-parser/query-parser";
 import { PostgresAdapter } from "../../src/adapters/databases/postgres/postgres-adapter";
 import { s } from "../../src/schema";
 

@@ -1,7 +1,7 @@
 import { Sql, sql } from "@sql";
 import { DatabaseAdapter, QueryClauses } from "../../database-adapter";
 import { BuilderContext } from "../../../query-parser/types";
-import { QueryMode } from "../../../types/client/query/filters-input";
+import { QueryMode } from "../../../types/query/filters-input";
 
 /**
  * MySQL Database Adapter

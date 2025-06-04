@@ -2,7 +2,7 @@ import { Sql } from "@sql";
 import { Model } from "../../schema/model";
 import { DatabaseAdapter } from "../../adapters/database-adapter";
 import { BuilderContext, OperationHandler, MutationClauses } from "../types";
-import type { QueryParser } from "../index";
+import type { QueryParser } from "../query-parser";
 
 /**
  * MutationOperations - Data Mutation Operation Handler

@@ -7,7 +7,7 @@ import {
   QueryClauses,
   AggregationContext,
 } from "../types";
-import type { QueryParser } from "../index";
+import type { QueryParser } from "../query-parser";
 
 /**
  * AggregateOperations - Aggregation and Analytics Operation Handler

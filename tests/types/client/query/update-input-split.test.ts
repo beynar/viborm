@@ -1,8 +1,5 @@
 import { describe, test, expectTypeOf } from "vitest";
-import type {
-  UpdateInput,
-  UpdateManyInput,
-} from "../../../../src/types/client/query";
+import type { UpdateInput, UpdateManyInput } from "../../../../src/types/query";
 
 describe("Update Input Split", () => {
   test("UpdateManyInput should be a different type from UpdateInput", () => {

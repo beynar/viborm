@@ -4,8 +4,8 @@ import {
   BuilderContext,
   ValidationResult,
   QueryParserConfig,
-} from "@query-parser";
-import type { QueryParser } from "../index";
+} from "@query-parser/query-parser";
+import type { QueryParser } from "../query-parser";
 
 /**
  * QueryValidator - Centralized Query Validation Component

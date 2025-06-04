@@ -1,7 +1,7 @@
 import { Model, Field, Relation } from "@schema";
 import { Operation } from "@types";
-import { BuilderContext } from "@query-parser";
-import type { QueryParser } from "../index";
+import { BuilderContext } from "@query-parser/query-parser";
+import type { QueryParser } from "../query-parser";
 
 /**
  * ContextFactory - BuilderContext Creation Utility

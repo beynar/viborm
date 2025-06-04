@@ -4,6 +4,6 @@
 // Re-export all types from their respective modules
 
 export * from "./utilities.js";
-export * from "./operations";
-export * from "./query";
-export * from "./results";
+export * from "./operations/index.js";
+export * from "./query/index.js";
+export * from "./results/index.js";

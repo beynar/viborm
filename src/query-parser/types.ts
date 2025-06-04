@@ -187,12 +187,6 @@ export interface ComponentConfig {
  * Error Types
  */
 
-export interface QueryParserError extends Error {
-  code: string;
-  context?: BuilderContext;
-  component?: string;
-}
-
 /**
  * Performance Monitoring Types
  */

@@ -38,29 +38,24 @@ import {
 // STRING FILTERS
 // ============================================================================
 const baseStringFilter = () =>
-  union([
-    string(),
-    object({
-      contains: optional(string()),
-      startsWith: optional(string()),
-      endsWith: optional(string()),
-      mode: optional(enumType(["default", "insensitive"])),
-      lt: optional(string()),
-      lte: optional(string()),
-      gt: optional(string()),
-      gte: optional(string()),
-    }),
-  ]);
+  object({
+    contains: optional(string()),
+    startsWith: optional(string()),
+    endsWith: optional(string()),
+    mode: optional(enumType(["default", "insensitive"])),
+    lt: optional(string()),
+    lte: optional(string()),
+    gt: optional(string()),
+    gte: optional(string()),
+  });
 
 export const stringFilter = lazy(() =>
-  union([baseStringFilter(), baseFilter(string())])
+  baseFilter(string(), baseStringFilter())
 );
 export const nullableStringFilter = lazy(() =>
-  union([nullable(baseStringFilter()), baseNullableFilter(string())])
+  baseNullableFilter(string(), baseStringFilter())
 );
-export const stringArrayFilter = lazy(() =>
-  union([baseListFilter(string()), array(string())])
-);
+export const stringArrayFilter = lazy(() => baseListFilter(string()));
 export const nullableStringArrayFilter = lazy(() =>
   baseNullableListFilter(string())
 );
@@ -85,25 +80,20 @@ export type StringFilters<T extends StringField<any>> =
 // NUMBER FILTERS
 // ============================================================================
 const baseNumberFilter = () =>
-  union([
-    number(),
-    object({
-      lt: optional(number()),
-      lte: optional(number()),
-      gt: optional(number()),
-      gte: optional(number()),
-    }),
-  ]);
+  object({
+    lt: optional(number()),
+    lte: optional(number()),
+    gt: optional(number()),
+    gte: optional(number()),
+  });
 
 export const numberFilter = lazy(() =>
-  union([baseNumberFilter(), baseFilter(number())])
+  baseFilter(number(), baseNumberFilter())
 );
 export const nullableNumberFilter = lazy(() =>
-  union([nullable(baseNumberFilter()), baseNullableFilter(number())])
+  baseNullableFilter(number(), baseNumberFilter())
 );
-export const numberArrayFilter = lazy(() =>
-  union([baseListFilter(number()), array(number())])
-);
+export const numberArrayFilter = lazy(() => baseListFilter(number()));
 export const nullableNumberArrayFilter = lazy(() =>
   baseNullableListFilter(number())
 );
@@ -135,17 +125,10 @@ export type NumberFilters<T extends NumberField<any>> =
 // ============================================================================
 // BOOLEAN FILTERS
 // ============================================================================
-const baseBooleanFilter = () => boolean();
 
-export const booleanFilter = lazy(() =>
-  union([baseBooleanFilter(), baseFilter(boolean())])
-);
-export const nullableBooleanFilter = lazy(() =>
-  union([nullable(baseBooleanFilter()), baseNullableFilter(boolean())])
-);
-export const booleanArrayFilter = lazy(() =>
-  union([baseListFilter(boolean()), array(boolean())])
-);
+export const booleanFilter = lazy(() => baseFilter(boolean()));
+export const nullableBooleanFilter = lazy(() => baseNullableFilter(boolean()));
+export const booleanArrayFilter = lazy(() => baseListFilter(boolean()));
 export const nullableBooleanArrayFilter = lazy(() =>
   baseNullableListFilter(boolean())
 );
@@ -170,25 +153,20 @@ export type BooleanFilters<T extends BooleanField<any>> =
 // DATETIME FILTERS
 // ============================================================================
 const baseDateTimeFilter = () =>
-  union([
-    date(),
-    object({
-      lt: optional(date()),
-      lte: optional(date()),
-      gt: optional(date()),
-      gte: optional(date()),
-    }),
-  ]);
+  object({
+    lt: optional(date()),
+    lte: optional(date()),
+    gt: optional(date()),
+    gte: optional(date()),
+  });
 
 export const dateTimeFilter = lazy(() =>
-  union([baseDateTimeFilter(), baseFilter(date())])
+  baseFilter(date(), baseDateTimeFilter())
 );
 export const nullableDateTimeFilter = lazy(() =>
-  union([nullable(baseDateTimeFilter()), baseNullableFilter(date())])
+  baseNullableFilter(date(), baseDateTimeFilter())
 );
-export const dateTimeArrayFilter = lazy(() =>
-  union([baseListFilter(date()), array(date())])
-);
+export const dateTimeArrayFilter = lazy(() => baseListFilter(date()));
 export const nullableDateTimeArrayFilter = lazy(() =>
   baseNullableListFilter(date())
 );
@@ -213,25 +191,20 @@ export type DateTimeFilters<T extends DateTimeField<any>> =
 // BIGINT FILTERS
 // ============================================================================
 const baseBigIntFilter = () =>
-  union([
-    bigint(),
-    object({
-      lt: optional(bigint()),
-      lte: optional(bigint()),
-      gt: optional(bigint()),
-      gte: optional(bigint()),
-    }),
-  ]);
+  object({
+    lt: optional(bigint()),
+    lte: optional(bigint()),
+    gt: optional(bigint()),
+    gte: optional(bigint()),
+  });
 
 export const bigIntFilter = lazy(() =>
-  union([baseBigIntFilter(), baseFilter(bigint())])
+  baseFilter(bigint(), baseBigIntFilter())
 );
 export const nullableBigIntFilter = lazy(() =>
-  union([nullable(baseBigIntFilter()), baseNullableFilter(bigint())])
+  baseNullableFilter(bigint(), baseBigIntFilter())
 );
-export const bigIntArrayFilter = lazy(() =>
-  union([baseListFilter(bigint()), array(bigint())])
-);
+export const bigIntArrayFilter = lazy(() => baseListFilter(bigint()));
 export const nullableBigIntArrayFilter = lazy(() =>
   baseNullableListFilter(bigint())
 );
@@ -255,7 +228,7 @@ export type BigIntFilters<T extends BigIntField<any>> =
 // ============================================================================
 // JSON FILTERS
 // ============================================================================
-const baseJsonFilter = lazy(() =>
+const baseJsonFilter = () =>
   object({
     path: optional(array(string())),
     equals: optional(json()),
@@ -266,14 +239,11 @@ const baseJsonFilter = lazy(() =>
     array_contains: optional(json()),
     array_starts_with: optional(json()),
     array_ends_with: optional(json()),
-  })
-);
+  });
 
-export const jsonFilter = lazy(() =>
-  union([baseJsonFilter, baseFilter(json())])
-);
+export const jsonFilter = lazy(() => baseFilter(json(), baseJsonFilter()));
 export const nullableJsonFilter = lazy(() =>
-  union([nullable(baseJsonFilter), baseNullableFilter(json())])
+  baseNullableFilter(json(), baseJsonFilter())
 );
 
 export type JsonFilter = InferFilter<typeof jsonFilter>;
@@ -289,10 +259,10 @@ const enumFilter = <T extends string[]>(values: T) =>
   union([enumType(values), baseFilter(enumType(values))]);
 
 const nullableEnumFilter = <T extends string[]>(values: T) =>
-  union([nullable(enumType(values)), baseNullableFilter(enumType(values))]);
+  union([enumType(values), baseNullableFilter(enumType(values))]);
 
 const enumArrayFilter = <T extends string[]>(values: T) =>
-  union([baseListFilter(enumType(values)), array(enumType(values))]);
+  baseListFilter(enumType(values));
 
 const nullableEnumArrayFilter = <T extends string[]>(values: T) =>
   baseNullableListFilter(enumType(values));
@@ -333,6 +303,24 @@ export const filterValidators = {
     nullableArray: nullableStringArrayFilter,
   },
   number: {
+    base: numberFilter,
+    nullable: nullableNumberFilter,
+    array: numberArrayFilter,
+    nullableArray: nullableNumberArrayFilter,
+  },
+  int: {
+    base: numberFilter,
+    nullable: nullableNumberFilter,
+    array: numberArrayFilter,
+    nullableArray: nullableNumberArrayFilter,
+  },
+  float: {
+    base: numberFilter,
+    nullable: nullableNumberFilter,
+    array: numberArrayFilter,
+    nullableArray: nullableNumberArrayFilter,
+  },
+  decimal: {
     base: numberFilter,
     nullable: nullableNumberFilter,
     array: numberArrayFilter,

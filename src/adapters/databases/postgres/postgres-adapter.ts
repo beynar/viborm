@@ -1,6 +1,6 @@
 import { Sql, sql } from "@sql";
 import { DatabaseAdapter, QueryClauses } from "../../database-adapter";
-import { BuilderContext } from "@query-parser";
+import { BuilderContext } from "@query-parser/query-parser";
 import { QueryMode, StringFilter } from "@types";
 
 /**
@@ -386,7 +386,29 @@ export class PostgresAdapter implements DatabaseAdapter {
         sql`${value}`,
     },
 
-    number: {
+    int: {
+      set: (ctx: BuilderContext, value: number): Sql => sql`${value}`,
+      increment: (ctx: BuilderContext, value: number): Sql =>
+        sql`${this.column(ctx)} + ${value}`,
+      decrement: (ctx: BuilderContext, value: number): Sql =>
+        sql`${this.column(ctx)} - ${value}`,
+      multiply: (ctx: BuilderContext, value: number): Sql =>
+        sql`${this.column(ctx)} * ${value}`,
+      divide: (ctx: BuilderContext, value: number): Sql =>
+        sql`${this.column(ctx)} / ${value}`,
+    },
+    decimal: {
+      set: (ctx: BuilderContext, value: number): Sql => sql`${value}`,
+      increment: (ctx: BuilderContext, value: number): Sql =>
+        sql`${this.column(ctx)} + ${value}`,
+      decrement: (ctx: BuilderContext, value: number): Sql =>
+        sql`${this.column(ctx)} - ${value}`,
+      multiply: (ctx: BuilderContext, value: number): Sql =>
+        sql`${this.column(ctx)} * ${value}`,
+      divide: (ctx: BuilderContext, value: number): Sql =>
+        sql`${this.column(ctx)} / ${value}`,
+    },
+    float: {
       set: (ctx: BuilderContext, value: number): Sql => sql`${value}`,
       increment: (ctx: BuilderContext, value: number): Sql =>
         sql`${this.column(ctx)} + ${value}`,

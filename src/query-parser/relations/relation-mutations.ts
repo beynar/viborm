@@ -1,7 +1,7 @@
 import { Sql } from "@sql";
 import { DatabaseAdapter } from "../../adapters/database-adapter";
 import { BuilderContext, RelationHandler, RelationContext } from "../types";
-import type { QueryParser } from "../index";
+import type { QueryParser } from "../query-parser";
 
 /**
  * RelationMutationBuilder - Relation Mutation Operation Component

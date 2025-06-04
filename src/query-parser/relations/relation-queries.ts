@@ -3,7 +3,7 @@ import { Model } from "../../schema/model";
 import { Relation } from "../../schema";
 import { DatabaseAdapter } from "../../adapters/database-adapter";
 import { BuilderContext, RelationHandler } from "../types";
-import type { QueryParser } from "../index";
+import type { QueryParser } from "../query-parser";
 import {
   getJunctionTableName,
   getJunctionFieldNames,

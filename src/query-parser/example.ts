@@ -1,12 +1,13 @@
 import { createClient } from "../client";
 import { s } from "../schema";
 import { PostgresAdapter } from "../adapters/databases/postgres/postgres-adapter";
-import { QueryParser } from "./index";
+import { QueryParser } from "./query-parser";
+import { boolean, object, pipe, string, transform, union } from "zod/v4-mini";
 
 const user = s.model("User", {
   id: s.string().id(),
   name: s.string(),
-  email: s.string(),
+  email: s.string().array(),
   createdAt: s.dateTime(),
   tags: s.string().array().nullable(),
   age: s.int().nullable(),
@@ -42,13 +43,22 @@ const query = {
   },
   select: {
     id: true,
+    posts: {
+      select: {
+        title: true,
+      },
+    },
   },
 };
 
-// const res = client.user.findUnique(query);
-const sql = QueryParser.parse("findFirst", user, query, new PostgresAdapter());
+// const res = client.user.findFirst({
+//   where: {
+//     email: [1, 2],
+//   },
+// });
+// const sql = QueryParser.parse("findFirst", user, query, new PostgresAdapter());
 
-console.log("here", sql.toStatement());
+// console.log("here", sql.toStatement());
 
 // async function main() {
 //   const prisma = new PrismaClient({
@@ -88,3 +98,18 @@ console.log("here", sql.toStatement());
 // }
 
 // main().catch(console.error);
+
+import { filterValidators } from "@types";
+import { dataInputValidators } from "@types";
+
+const stringTest = filterValidators.string.base["~standard"].validate({
+  contains: "test",
+});
+const stringTest2 = filterValidators.string.base["~standard"].validate({
+  equals: "test",
+});
+const stringTest3 = filterValidators.string.base["~standard"].validate({});
+
+console.log("stringTest", stringTest);
+console.log("stringTest2", stringTest2);
+console.log("stringTest3", stringTest3);

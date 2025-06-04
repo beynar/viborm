@@ -28,7 +28,7 @@ import type {
   HasUniqueFields,
   HasNullableFields,
   HasArrayFields,
-} from "../../../../src/types/client/foundation/index.js";
+} from "../../../../src/types/foundation/index.js";
 
 describe("Field Mapping Types", () => {
   describe("Basic Field Type Mapping", () => {

@@ -15,7 +15,7 @@ import type {
   HasFields,
   HasRelations,
   ModelPropertyNames,
-} from "../../../../src/types/client/foundation/index.js";
+} from "../../../../src/types/foundation/index.js";
 
 describe("Model Extraction Types", () => {
   describe("Basic Model with Fields Only", () => {

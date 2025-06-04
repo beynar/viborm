@@ -1,6 +1,6 @@
 import { describe, test, expect, expectTypeOf } from "vitest";
 import { s } from "../../src/schema";
-import { QueryParser } from "../../src/query-parser";
+import { QueryParser } from "../../src/query-parser/query-parser";
 import { postgresAdapter } from "../../src/adapters/databases/postgres/postgres-adapter";
 import { Sql } from "@sql";
 
