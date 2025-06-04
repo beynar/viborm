@@ -21,7 +21,6 @@ import { RelationMutationBuilder } from "./relations/relation-mutations";
 
 import { FieldFilterBuilder } from "./fields/field-filters";
 import { FieldUpdateBuilder } from "./fields/field-updates";
-import { FieldValidatorBuilder } from "./fields/field-validators";
 
 import { ContextFactory } from "./utils/context-factory";
 import { AliasGenerator } from "./utils/alias-generator";
@@ -92,7 +91,6 @@ export class QueryParser {
   // Field handlers
   private fieldFilters: FieldFilterBuilder;
   private fieldUpdates: FieldUpdateBuilder;
-  private fieldValidators: FieldValidatorBuilder;
 
   constructor(private adapter: DatabaseAdapter) {
     // Initialize utilities first (other components depend on these)
@@ -109,7 +107,6 @@ export class QueryParser {
     // Initialize field handlers
     this.fieldFilters = new FieldFilterBuilder(this, adapter);
     this.fieldUpdates = new FieldUpdateBuilder(this, adapter);
-    this.fieldValidators = new FieldValidatorBuilder(this, adapter);
 
     // Initialize relation handlers
     this.relationQueries = new RelationQueryBuilder(this, adapter);
