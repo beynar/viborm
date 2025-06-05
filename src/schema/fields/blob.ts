@@ -1,6 +1,7 @@
 // Blob Field Implementation
 // Type-safe blob field with enhanced generics
 
+import { lazy } from "zod/v4";
 import { BaseField } from "./base.js";
 
 import type {
@@ -14,6 +15,8 @@ import type {
   MakeDefault,
   InferType,
 } from "./types.js";
+import { getFilterValidator } from "./validators/filter-validators.js";
+import { getBaseValidator } from "./validators/base-validators.js";
 
 export class BlobField<
   T extends FieldState<
@@ -87,6 +90,9 @@ export class BlobField<
   override async "~validate"(value: any): Promise<any> {
     return super["~validate"](value, this["~fieldValidator"]);
   }
+
+  ["~baseValidator"] = getBaseValidator(this);
+  ["~filterValidator"] = getFilterValidator(this);
 }
 
 // Factory function for creating blob fields with proper typing

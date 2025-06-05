@@ -1,6 +1,7 @@
 // Base Field Class
 // Foundation for all field types with common functionality
 
+import { lazy, ZodTypeAny } from "zod/v4";
 import type {
   ScalarFieldType,
   FieldValidator,
@@ -12,6 +13,7 @@ import type {
   InferType,
   BaseFieldType,
 } from "./types";
+import { getFieldSchema } from "./fieldValidators";
 
 // Base Field class with simplified generic type system
 export abstract class BaseField<

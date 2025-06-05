@@ -7,3 +7,4 @@ export * from "./utilities.js";
 export * from "./operations/index.js";
 export * from "./query/index.js";
 export * from "./results/index.js";
+export * from "./foundation/index.js";

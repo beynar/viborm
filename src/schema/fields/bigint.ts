@@ -15,6 +15,8 @@ import type {
   MakeAuto,
   InferType,
 } from "./types.js";
+import { getBaseValidator } from "./validators/base-validators.js";
+import { getFilterValidator } from "./validators/filter-validators.js";
 
 export class BigIntField<
   T extends FieldState<any, any, any, any, any, any> = DefaultFieldState<bigint>
@@ -88,6 +90,9 @@ export class BigIntField<
   override async "~validate"(value: any): Promise<any> {
     return super["~validate"](value, this["~fieldValidator"]);
   }
+
+  ["~baseValidator"] = getBaseValidator(this);
+  ["~filterValidator"] = getFilterValidator(this);
 }
 
 // Factory function for creating bigint fields with proper typing

@@ -14,6 +14,8 @@ import type {
   MakeDefault,
   InferType,
 } from "./types.js";
+import { getBaseValidator } from "./validators/base-validators.js";
+import { getFilterValidator } from "./validators/filter-validators.js";
 
 export class BooleanField<
   T extends FieldState<
@@ -87,6 +89,9 @@ export class BooleanField<
   override async "~validate"(value: any): Promise<any> {
     return super["~validate"](value, this["~fieldValidator"]);
   }
+
+  ["~baseValidator"] = getBaseValidator(this);
+  ["~filterValidator"] = getFilterValidator(this);
 }
 
 // Factory function for creating boolean fields with proper typing

@@ -15,6 +15,8 @@ import type {
   MakeDefault,
   InferType,
 } from "./types.js";
+import { getBaseValidator } from "./validators/base-validators.js";
+import { getFilterValidator } from "./validators/filter-validators.js";
 
 export class JsonField<
   TData = any,
@@ -130,6 +132,9 @@ export class JsonField<
       errors: valid ? undefined : errors,
     };
   }
+
+  ["~baseValidator"] = getBaseValidator(this);
+  ["~filterValidator"] = getFilterValidator(this);
 }
 
 export function json<T extends StandardSchemaV1 | undefined>(

@@ -35,6 +35,15 @@ export type IsFieldId<TField extends BaseField<any>> = TField extends BaseField<
   ? TState["IsId"]
   : never;
 
+export type IsFieldOptional<TField extends BaseField<any>> =
+  TField extends BaseField<infer TState>
+    ? TState["IsNullable"] extends true
+      ? true
+      : TState["HasDefault"] extends true
+      ? true
+      : false
+    : never;
+
 export type IsFieldUnique<TField extends BaseField<any>> =
   TField extends BaseField<infer TState> ? TState["IsUnique"] : never;
 

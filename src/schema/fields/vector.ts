@@ -9,6 +9,8 @@ import type {
   MakeDefault,
   InferType,
 } from "./types";
+import { getBaseValidator } from "./validators/base-validators.js";
+import { getFilterValidator } from "./validators/filter-validators.js";
 
 export class VectorField<
   S extends FieldState<number[], any, any, any, any, any> = DefaultFieldState<
@@ -117,6 +119,9 @@ export class VectorField<
   // public validator(validator: FieldValidator<InferType<S>>): this { ... } // REMOVED
 
   // override async validate(value: any): Promise<ValidationResult<InferType<S>>> { ... } // REMOVED
+
+  ["~baseValidator"] = getBaseValidator(this);
+  ["~filterValidator"] = getFilterValidator(this);
 }
 
 // Factory function for creating vector fields with proper typing

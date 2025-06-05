@@ -2,7 +2,17 @@ import { createClient } from "../client";
 import { s } from "../schema";
 import { PostgresAdapter } from "../adapters/databases/postgres/postgres-adapter";
 import { QueryParser } from "./query-parser";
-import { boolean, object, pipe, string, transform, union } from "zod/v4-mini";
+import {
+  boolean,
+  object,
+  pipe,
+  string,
+  transform,
+  union,
+  custom,
+  lazy,
+  ZodMiniType,
+} from "zod/v4-mini";
 
 const user = s.model("User", {
   id: s.string().id(),
@@ -113,3 +123,39 @@ const stringTest3 = filterValidators.string.base["~standard"].validate({});
 console.log("stringTest", stringTest);
 console.log("stringTest2", stringTest2);
 console.log("stringTest3", stringTest3);
+
+const standardSchema = string();
+
+const customStandardSchema = string().check((ctx) => {
+  const result = standardSchema["~standard"]["validate"](ctx.value);
+  console.log("result", result);
+
+  ctx.value = "result";
+  // return {
+  //   value: "result",
+  // };
+});
+// const customStandardSchema = custom((data) => {
+//   const result = standardSchema["~standard"]["validate"](data);
+//   console.log("result", result);
+
+//   return {
+//     value: "result",
+//   };
+// });
+
+console.log("customStandardSchema", customStandardSchema.parse("test"));
+
+const rawTransformer = (schema: ZodMiniType) =>
+  pipe(
+    schema,
+    transform((value) => {
+      return {
+        set: value,
+      };
+    })
+  );
+
+const withRaw = rawTransformer(customStandardSchema);
+
+console.log("with transform", withRaw.parse("test"));

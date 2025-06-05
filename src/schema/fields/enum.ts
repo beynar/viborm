@@ -14,6 +14,8 @@ import type {
   MakeDefault,
   InferType,
 } from "./types.js";
+import { getBaseValidator } from "./validators/base-validators.js";
+import { getFilterValidator } from "./validators/filter-validators.js";
 
 export class EnumField<
   TEnum extends string[],
@@ -103,6 +105,9 @@ export class EnumField<
 
     return super["~validate"](value, this["~fieldValidator"]);
   }
+
+  ["~baseValidator"] = getBaseValidator(this);
+  ["~filterValidator"] = getFilterValidator(this);
 }
 
 // Factory function for creating enum fields with proper typing

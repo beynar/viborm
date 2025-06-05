@@ -15,6 +15,8 @@ import type {
   MakeAuto,
   InferType,
 } from "./types.js";
+import { getBaseValidator } from "./validators/base-validators.js";
+import { getFilterValidator } from "./validators/filter-validators.js";
 
 export class NumberField<
   T extends FieldState<any, any, any, any, any, any> = DefaultFieldState<number>
@@ -107,6 +109,9 @@ export class NumberField<
   override async "~validate"(value: any): Promise<any> {
     return super["~validate"](value, this["~fieldValidator"]);
   }
+
+  ["~baseValidator"] = getBaseValidator(this);
+  ["~filterValidator"] = getFilterValidator(this);
 }
 
 // Factory function for creating number fields with proper typing
