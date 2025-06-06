@@ -29,23 +29,82 @@ export const rawToEquals = (schema: ZodMiniType) =>
     }))
   );
 
-export const wrapNullable = (schema: ZodMiniType, isNullable: boolean) => {
-  if (isNullable) {
+export const wrapNullable = (schema: ZodMiniType, field: Field) => {
+  if (field["~isOptional"]) {
     return nullable(schema);
   }
   return schema;
 };
 
-export const wrapArray = (schema: ZodMiniType, isArray: boolean) => {
-  if (isArray) {
+export const wrapArray = (schema: ZodMiniType, field: Field) => {
+  if (field["~isArray"]) {
     return array(schema);
   }
   return schema;
 };
 
-export const wrapOptional = (schema: ZodMiniType, isOptional: boolean) => {
-  if (isOptional) {
+export const wrapOptional = (schema: ZodMiniType, field: Field) => {
+  if (
+    field["~isOptional"] ||
+    field["~autoGenerate"] ||
+    field["~defaultValue"]
+  ) {
     return optional(schema);
+  }
+  return schema;
+};
+
+export const wrapDefault = (schema: ZodMiniType, field: Field) => {
+  const defaultValue = field["~defaultValue"];
+  if (defaultValue) {
+    return pipe(
+      schema,
+      transform((value) => {
+        if (value === undefined) {
+          return defaultValue;
+        }
+        return value;
+      })
+    );
+  }
+  return schema;
+};
+
+let counter = 0;
+const letterCount = 26;
+const digitCount = 36; // Base 36: 0-9, a-z
+
+export const wrapAutoGenerate = (schema: ZodMiniType, field: Field) => {
+  if (field["~autoGenerate"]) {
+    return pipe(
+      schema,
+      transform((value) => {
+        if (value) {
+          return value;
+        }
+
+        const autoGenType = field["~autoGenerate"];
+
+        switch (autoGenType) {
+          case "cuid": {
+            return crypto.randomUUID();
+          }
+          case "uuid": {
+            return crypto.randomUUID();
+          }
+          case "now":
+          case "updatedAt": {
+            return new Date();
+          }
+          case "ulid":
+          case "nanoid":
+          case "increment":
+          default:
+            // For now, fallback to cuid for unimplemented types
+            return crypto.randomUUID();
+        }
+      })
+    );
   }
   return schema;
 };

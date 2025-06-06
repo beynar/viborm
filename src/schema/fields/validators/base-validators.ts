@@ -11,7 +11,7 @@ import {
   any,
 } from "zod/v4-mini";
 
-import { Field, s } from "@schema";
+import { Field } from "@schema";
 import { wrapStandardSchema, Zod } from "./utils";
 
 const baseValidators = {
@@ -64,13 +64,3 @@ export const getBaseValidator = <F extends Field>(field: F) => {
     field["~validator"]
   ) as BaseValidator<F>;
 };
-
-const type = s
-  .enum(["a", "b", "c"] as const)
-  .nullable()
-  .array();
-type TEST<F extends Field> = F["~baseValidator"]["_zod"]["input"];
-type TEST2<F extends Field> = ReturnType<
-  typeof getBaseValidator<F>
->["_zod"]["input"];
-type Result2 = TEST2<typeof type>;
