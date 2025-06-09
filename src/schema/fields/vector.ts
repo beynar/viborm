@@ -9,8 +9,12 @@ import type {
   MakeDefault,
   InferType,
 } from "./types";
-import { getBaseValidator } from "./validators/base-validators.js";
-import { getFilterValidator } from "./validators/filter-validators.js";
+import {
+  getBaseValidator,
+  getCreateValidator,
+  getFilterValidator,
+  getUpdateValidator,
+} from "./validators";
 
 export class VectorField<
   S extends FieldState<number[], any, any, any, any, any> = DefaultFieldState<
@@ -76,52 +80,10 @@ export class VectorField<
     return newField;
   }
 
-  // Override validate to include dimension validation
-  override async "~validate"(value: any): Promise<any> {
-    // Basic type validation first
-    if (!Array.isArray(value)) {
-      return {
-        output: undefined,
-        valid: false,
-        errors: ["Value must be an array of numbers"],
-      };
-    }
-
-    // Check if all elements are numbers
-    if (!value.every((item) => typeof item === "number")) {
-      return {
-        output: undefined,
-        valid: false,
-        errors: ["All vector elements must be numbers"],
-      };
-    }
-
-    // Dimension validation if specified
-    if (
-      this["~dimension"] !== undefined &&
-      value.length !== this["~dimension"]
-    ) {
-      return {
-        output: undefined,
-        valid: false,
-        errors: [
-          `Vector must have exactly ${this["~dimension"]} dimensions, got ${value.length}`,
-        ],
-      };
-    }
-
-    return super["~validate"](value as InferType<S>);
-  }
-
-  // The .id() and .unique() methods are intentionally NOT defined/overridden
-  // so they remain unavailable for VectorField
-
-  // public validator(validator: FieldValidator<InferType<S>>): this { ... } // REMOVED
-
-  // override async validate(value: any): Promise<ValidationResult<InferType<S>>> { ... } // REMOVED
-
   ["~baseValidator"] = getBaseValidator(this);
   ["~filterValidator"] = getFilterValidator(this);
+  ["~createValidator"] = getCreateValidator(this);
+  ["~updateValidator"] = getUpdateValidator(this);
 }
 
 // Factory function for creating vector fields with proper typing

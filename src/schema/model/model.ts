@@ -1,8 +1,12 @@
 // Model Class Implementation
 // Based on specification: readme/1.1_model_class.md
-
-import { BaseField, type Field } from "./fields";
-import { Relation } from "./fields/relation.js";
+import { Relation, BaseField, type Field } from "../fields";
+import {
+  parseCreateInput,
+  parseUpdateInput,
+  parseWhereManyInput,
+  parseWhereUniqueInput,
+} from "./validator";
 
 export class Model<
   TFields extends Record<string, Field | Relation<any, any>> = {}
@@ -102,6 +106,20 @@ export class Model<
       [K in keyof TFields]: TFields[K]["infer"];
     };
   }
+  ["~validate"] = {
+    whereMany: (input: Record<string, any>) => {
+      return parseWhereManyInput(this, input);
+    },
+    whereUnique: (input: Record<string, any>) => {
+      return parseWhereUniqueInput(this, input);
+    },
+    update: (input: Record<string, any>) => {
+      return parseUpdateInput(this, input);
+    },
+    create: (input: Record<string, any>) => {
+      return parseCreateInput(this, input);
+    },
+  };
 }
 
 export const model = <

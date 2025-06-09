@@ -25,3 +25,5 @@ export type Field<T = any> =
   | import("./vector.js").VectorField<any>;
 
 export * from "./types.js";
+export * from "./validators";
+export * from "./relation";

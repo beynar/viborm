@@ -2,7 +2,7 @@
 // Based on specification: readme/1.4_relation_class.md
 // Updated to support standard relational database relationship types
 
-import { Model } from "../model.js";
+import { Model } from "../model";
 import { Simplify } from "../../types/utilities.js";
 export type Getter = () => Model<any>;
 

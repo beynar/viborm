@@ -1,7 +1,6 @@
 // Base Field Class
 // Foundation for all field types with common functionality
 
-import { lazy, ZodTypeAny } from "zod/v4";
 import type {
   ScalarFieldType,
   FieldValidator,
@@ -13,7 +12,6 @@ import type {
   InferType,
   BaseFieldType,
 } from "./types";
-import { getFieldSchema } from "./fieldValidators";
 
 // Base Field class with simplified generic type system
 export abstract class BaseField<
@@ -67,84 +65,6 @@ export abstract class BaseField<
   // Hook for subclasses to copy their specific properties
   protected "~copyFieldSpecificProperties"(target: BaseField<any>): void {
     // Base implementation does nothing - subclasses can override
-  }
-
-  // Validation method - accepts a single standard schema validator
-  async "~validate"(
-    value: InferType<T>,
-    validator?: FieldValidator<InferType<T>>
-  ): Promise<ValidationResult<InferType<T>>> {
-    const errors: string[] = [];
-    let output: InferType<T> = value;
-    try {
-      // Type validation
-      if (!this["~validateType"](value)) {
-        errors.push(`Invalid type for field. Expected ${this["~fieldType"]}`);
-      }
-
-      // Run standard schema validator if provided
-      if (validator) {
-        try {
-          const result = await validator["~standard"].validate(value);
-
-          if ("issues" in result && result.issues) {
-            errors.push(...result.issues.map((issue: any) => issue.message));
-          } else {
-            output = result.value;
-          }
-        } catch (error) {
-          errors.push(
-            `Validator error: ${
-              error instanceof Error ? error.message : "Unknown error"
-            }`
-          );
-        }
-      }
-    } catch (error) {
-      errors.push(
-        `Validation error: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }`
-      );
-    }
-
-    const valid = errors.length === 0;
-    return {
-      output: valid ? output : undefined,
-      valid,
-      errors: valid ? undefined : errors,
-    };
-  }
-
-  // Helper methods
-  protected "~validateType"(value: any): boolean {
-    if (this["~isOptional"] && (value === null || value === undefined)) {
-      return true;
-    }
-
-    switch (this["~fieldType"]) {
-      case "string":
-        return typeof value === "string";
-      case "boolean":
-        return typeof value === "boolean";
-      case "int":
-      case "float":
-      case "decimal":
-        return typeof value === "number";
-      case "bigInt":
-        return typeof value === "bigint";
-      case "dateTime":
-        return (
-          value instanceof Date ||
-          (typeof value === "string" && !isNaN(Date.parse(value)))
-        );
-      case "json":
-        return true; // JSON can be any type
-      case "blob":
-        return value instanceof Uint8Array;
-      default:
-        return true;
-    }
   }
 
   protected "~copyPropertiesTo"(target: BaseField<any>): void {

@@ -21,6 +21,9 @@ import {
   ZodMiniType,
 } from "zod/v4-mini";
 
+import { ulid } from "ulidx";
+import { nanoid } from "nanoid";
+
 export const rawToEquals = (schema: ZodMiniType) =>
   pipe(
     schema,
@@ -70,10 +73,6 @@ export const wrapDefault = (schema: ZodMiniType, field: Field) => {
   return schema;
 };
 
-let counter = 0;
-const letterCount = 26;
-const digitCount = 36; // Base 36: 0-9, a-z
-
 export const wrapAutoGenerate = (schema: ZodMiniType, field: Field) => {
   if (field["~autoGenerate"]) {
     return pipe(
@@ -82,11 +81,11 @@ export const wrapAutoGenerate = (schema: ZodMiniType, field: Field) => {
         if (value) {
           return value;
         }
-
         const autoGenType = field["~autoGenerate"];
 
         switch (autoGenType) {
           case "cuid": {
+            // need to implement cuid in a CF compatible way
             return crypto.randomUUID();
           }
           case "uuid": {
@@ -96,12 +95,15 @@ export const wrapAutoGenerate = (schema: ZodMiniType, field: Field) => {
           case "updatedAt": {
             return new Date();
           }
-          case "ulid":
-          case "nanoid":
-          case "increment":
-          default:
-            // For now, fallback to cuid for unimplemented types
-            return crypto.randomUUID();
+          case "ulid": {
+            return ulid();
+          }
+          case "nanoid": {
+            return nanoid();
+          }
+          case "increment": {
+            return value;
+          }
         }
       })
     );

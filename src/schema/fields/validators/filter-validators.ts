@@ -1,5 +1,4 @@
-import { Field, s, ScalarFieldType, StringField } from "@schema";
-import { IsFieldArray, IsFieldNullable } from "@types";
+import { Field, ScalarFieldType } from "@schema";
 import {
   boolean,
   optional,
@@ -19,18 +18,13 @@ import {
   lazy,
   null as null_,
 } from "zod/v4-mini";
-
 import { GetValidatorType, Zod, ZodConditionalMerge } from "./utils";
-import { any } from "zod/v4";
-
-export type QueryMode = "default" | "insensitive";
-export type NullsOrder = "first" | "last";
 
 // ============================================================================
 // GENERIC FILTERS
 // ============================================================================
 
-export const rawTransformer = <Z extends ZodMiniType>(schema: Z) =>
+const rawTransformer = <Z extends ZodMiniType>(schema: Z) =>
   // @ts-ignore
   pipe(
     schema,

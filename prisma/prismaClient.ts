@@ -32,14 +32,9 @@ const res = await prisma.user.findMany({
   // },
 });
 
-const res2 = await prisma.user.findMany({
+const res2 = await prisma.user.findUnique({
   where: {
-    id: "test",
-  },
-  skip: 1,
-  take: 1,
-  cursor: {
-    id: "test",
+    id: "123",
   },
 });
 // await prisma.user.create({

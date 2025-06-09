@@ -15,8 +15,12 @@ import type {
   MakeAuto,
   InferType,
 } from "./types.js";
-import { getBaseValidator } from "./validators/base-validators.js";
-import { getFilterValidator } from "./validators/filter-validators.js";
+import {
+  getBaseValidator,
+  getCreateValidator,
+  getFilterValidator,
+  getUpdateValidator,
+} from "./validators";
 
 export class StringField<
   T extends FieldState<any, any, any, any, any, any> = DefaultFieldState<string>
@@ -105,18 +109,10 @@ export class StringField<
     return this;
   }
 
-  // Override validate to include custom validator
-  override async "~validate"(value: any): Promise<any> {
-    return super["~validate"](value, this["~fieldValidator"]);
-  }
-
   ["~baseValidator"] = getBaseValidator(this);
-  get "~filterValidator"() {
-    const filterValidator = getFilterValidator(this);
-
-    this["~filterValidator"] = filterValidator;
-    return filterValidator;
-  }
+  ["~filterValidator"] = getFilterValidator(this);
+  ["~createValidator"] = getCreateValidator(this);
+  ["~updateValidator"] = getUpdateValidator(this);
 }
 
 // Factory function for creating string fields with proper typing

@@ -19,7 +19,7 @@ import {
 } from "zod/v4-mini";
 import { GetValidatorType, Zod, ZodConditionalMerge } from "./utils";
 
-export const rawTransformer = <Z extends ZodMiniType>(schema: Z) =>
+const rawTransformer = <Z extends ZodMiniType>(schema: Z) =>
   // @ts-ignore
   pipe(
     schema,
@@ -433,7 +433,7 @@ export type UpdateValidator<F extends Field> = ReturnType<
   (typeof inputValidators)[F["~fieldType"]][GetValidatorType<F>]
 >;
 
-export const getInputrValidator = <F extends Field>(field: F) => {
+export const getUpdateValidator = <F extends Field>(field: F) => {
   const fieldType = field["~fieldType"];
   const isArray = field["~isArray"];
   const isNullable = field["~isOptional"];

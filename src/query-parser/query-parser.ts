@@ -1,5 +1,5 @@
 import { Sql } from "@sql";
-import { Model } from "../schema/model";
+import { Model } from "@schema";
 import { Operation } from "@types";
 import { DatabaseAdapter } from "../adapters/database-adapter";
 import { BuilderContext } from "./types";

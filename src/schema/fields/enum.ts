@@ -14,8 +14,12 @@ import type {
   MakeDefault,
   InferType,
 } from "./types.js";
-import { getBaseValidator } from "./validators/base-validators.js";
-import { getFilterValidator } from "./validators/filter-validators.js";
+import {
+  getBaseValidator,
+  getCreateValidator,
+  getFilterValidator,
+  getUpdateValidator,
+} from "./validators";
 
 export class EnumField<
   TEnum extends string[],
@@ -90,24 +94,10 @@ export class EnumField<
     return this["~enumValues"];
   }
 
-  // Override validate to include enum validation
-  override async "~validate"(value: any): Promise<any> {
-    const isValidOptional =
-      this["~isOptional"] && (value === null || value === undefined);
-    // Check if value is one of the allowed enum values
-    if (!this["~enumValues"].includes(value) && !isValidOptional) {
-      return {
-        output: undefined,
-        valid: false,
-        errors: [`Value must be one of: ${this["~enumValues"].join(", ")}`],
-      };
-    }
-
-    return super["~validate"](value, this["~fieldValidator"]);
-  }
-
   ["~baseValidator"] = getBaseValidator(this);
   ["~filterValidator"] = getFilterValidator(this);
+  ["~createValidator"] = getCreateValidator(this);
+  ["~updateValidator"] = getUpdateValidator(this);
 }
 
 // Factory function for creating enum fields with proper typing

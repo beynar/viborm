@@ -15,8 +15,12 @@ import type {
   MakeDefault,
   InferType,
 } from "./types.js";
-import { getFilterValidator } from "./validators/filter-validators.js";
-import { getBaseValidator } from "./validators/base-validators.js";
+import {
+  getBaseValidator,
+  getCreateValidator,
+  getFilterValidator,
+  getUpdateValidator,
+} from "./validators";
 
 export class BlobField<
   T extends FieldState<
@@ -86,13 +90,10 @@ export class BlobField<
     return this;
   }
 
-  // Override validate to include custom validator
-  override async "~validate"(value: any): Promise<any> {
-    return super["~validate"](value, this["~fieldValidator"]);
-  }
-
   ["~baseValidator"] = getBaseValidator(this);
   ["~filterValidator"] = getFilterValidator(this);
+  ["~createValidator"] = getCreateValidator(this);
+  ["~updateValidator"] = getUpdateValidator(this);
 }
 
 // Factory function for creating blob fields with proper typing

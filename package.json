@@ -41,7 +41,9 @@
     "@prisma/adapter-pg": "^6.8.2",
     "@prisma/client": "6.8.2",
     "drizzle-orm": "^0.43.1",
+    "nanoid": "^5.1.5",
     "pg": "^8.16.0",
-    "pglite-prisma-adapter": "^0.5.0"
+    "pglite-prisma-adapter": "^0.5.0",
+    "ulidx": "^2.4.1"
   }
 }

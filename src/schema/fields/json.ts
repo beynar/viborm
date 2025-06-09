@@ -15,8 +15,12 @@ import type {
   MakeDefault,
   InferType,
 } from "./types.js";
-import { getBaseValidator } from "./validators/base-validators.js";
-import { getFilterValidator } from "./validators/filter-validators.js";
+import {
+  getBaseValidator,
+  getCreateValidator,
+  getFilterValidator,
+  getUpdateValidator,
+} from "./validators";
 
 export class JsonField<
   TData = any,
@@ -53,88 +57,16 @@ export class JsonField<
     }) as JsonField<TData, MakeNullable<T>>;
   }
 
-  array(): JsonField<TData, MakeArray<T>> {
-    return this["~cloneWith"]<MakeArray<T>>({ "~isArray": true }) as JsonField<
-      TData,
-      MakeArray<T>
-    >;
-  }
-
-  id(): JsonField<TData, MakeId<T>> {
-    return this["~cloneWith"]<MakeId<T>>({ "~isId": true }) as JsonField<
-      TData,
-      MakeId<T>
-    >;
-  }
-
-  unique(): JsonField<TData, MakeUnique<T>> {
-    return this["~cloneWith"]<MakeUnique<T>>({
-      "~isUnique": true,
-    }) as JsonField<TData, MakeUnique<T>>;
-  }
-
   override default(value: InferType<T>): JsonField<TData, MakeDefault<T>> {
     return this["~cloneWith"]<MakeDefault<T>>({
       "~defaultValue": value,
     }) as JsonField<TData, MakeDefault<T>>;
   }
-  // Override validate to use schema validation if provided
-  override async "~validate"(
-    value: any
-  ): Promise<ValidationResult<InferType<T>>> {
-    const errors: string[] = [];
-    let output: InferType<T> = value;
-    try {
-      const isValidOptional =
-        this["~isOptional"] && (value === null || value === undefined);
-      // Basic type validation
-      if (!this["~validateType"](value)) {
-        errors.push(`Invalid type for field. Expected ${this["~fieldType"]}`);
-      }
-
-      // Schema validation if provided
-      if (this["~schema"]) {
-        if (isValidOptional) {
-          return {
-            output: null as any,
-            valid: true,
-            errors: undefined,
-          };
-        }
-        try {
-          const result = await this["~schema"]["~standard"].validate(value);
-
-          if ("issues" in result && result.issues) {
-            errors.push(...result.issues.map((issue: any) => issue.message));
-          } else {
-            output = result.value;
-          }
-        } catch (error) {
-          errors.push(
-            `Schema validation error: ${
-              error instanceof Error ? error.message : "Unknown error"
-            }`
-          );
-        }
-      }
-    } catch (error) {
-      errors.push(
-        `Validation error: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }`
-      );
-    }
-
-    const valid = errors.length === 0;
-    return {
-      output: valid ? output : undefined,
-      valid,
-      errors: valid ? undefined : errors,
-    };
-  }
 
   ["~baseValidator"] = getBaseValidator(this);
   ["~filterValidator"] = getFilterValidator(this);
+  ["~createValidator"] = getCreateValidator(this);
+  ["~updateValidator"] = getUpdateValidator(this);
 }
 
 export function json<T extends StandardSchemaV1 | undefined>(
