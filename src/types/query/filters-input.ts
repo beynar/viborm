@@ -136,7 +136,7 @@ export type FieldFilter<F extends BaseField<any>> = F extends DateTimeField<any>
   ? import("./field-filters").DateTimeFilters<F>
   : F extends StringField<any>
   ? import("./field-filters").StringFilters<F>
-  : F extends NumberField<any>
+  : F extends NumberField
   ? import("./field-filters").NumberFilters<F>
   : F extends BooleanField<any>
   ? import("./field-filters").BooleanFilters<F>

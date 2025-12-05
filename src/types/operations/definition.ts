@@ -1,39 +1,22 @@
-import { GroupByArgs } from "./find-args";
-import { AggregateArgs } from "./find-args";
-import { CountArgs } from "./find-args";
-import { FindFirstArgs } from "./find-args";
-import { ExistArgs } from "./find-args";
-import {
-  DeleteManyArgs,
-  UpdateArgs,
-  UpsertArgs,
-  CreateManyArgs,
-  UpdateManyArgs,
-} from "./mutation-args";
-import { DeleteArgs } from "./mutation-args";
-import { FindManyArgs } from "./find-args";
-import { Model } from "@schema";
-import { FindUniqueArgs } from "./find-args";
-import { CreateArgs } from "./mutation-args";
-import {
-  AggregateResult,
-  CountResult,
-  FindFirstResult,
-  FindManyResult,
-  GroupByResult,
-  ExistResult,
-} from "../results/find-result";
-import { FindUniqueResult } from "../results/find-result";
-import {
-  DeleteManyResult,
-  UpsertResult,
-  CreateManyResult,
-  UpdateManyResult,
-} from "../results/mutation-result";
-import { DeleteResult } from "../results/mutation-result";
-import { CreateResult, UpdateResult } from "../results";
+import { Model } from "@schema/model";
+import type {
+  ModelFindManyArgs,
+  ModelFindFirstArgs,
+  ModelFindUniqueArgs,
+  ModelCreateArgs,
+  ModelUpdateArgs,
+  ModelDeleteArgs,
+  ModelDeleteManyArgs,
+  ModelUpsertArgs,
+  ModelCountArgs,
+  ModelAggregateArgs,
+  ModelGroupByArgs,
+  CreateManyEnvelope,
+  ModelUpdateManyArgs,
+  ModelExistArgs,
+} from "@schema/model/types";
 
-export type Operation =
+export type Operations =
   | "findFirst"
   | "findMany"
   | "findUnique"
@@ -51,109 +34,54 @@ export type Operation =
   | "upsert"
   | "exist";
 
+/**
+ * Extracts the fields type from a Model
+ */
+type ModelFields<M extends Model<any>> = M extends Model<infer F> ? F : never;
+
+/**
+ * Operation payload type - uses manual types instead of ArkType inference
+ * This dramatically improves IDE performance
+ */
 export type OperationPayload<
-  O extends Operation,
+  O extends Operations,
   M extends Model<any>
 > = O extends "findMany"
-  ? FindManyArgs<M>
+  ? ModelFindManyArgs<ModelFields<M>>
   : O extends "findUnique"
-  ? FindUniqueArgs<M>
+  ? ModelFindUniqueArgs<ModelFields<M>>
   : O extends "findFirst"
-  ? FindFirstArgs<M>
+  ? ModelFindFirstArgs<ModelFields<M>>
   : O extends "create"
-  ? CreateArgs<M>
+  ? ModelCreateArgs<ModelFields<M>>
   : O extends "update"
-  ? UpdateArgs<M>
+  ? ModelUpdateArgs<ModelFields<M>>
   : O extends "delete"
-  ? DeleteArgs<M>
+  ? ModelDeleteArgs<ModelFields<M>>
   : O extends "deleteMany"
-  ? DeleteManyArgs<M>
+  ? ModelDeleteManyArgs<ModelFields<M>>
   : O extends "upsert"
-  ? UpsertArgs<M>
+  ? ModelUpsertArgs<ModelFields<M>>
   : O extends "findUniqueOrThrow"
-  ? FindUniqueArgs<M>
+  ? ModelFindUniqueArgs<ModelFields<M>>
   : O extends "findFirstOrThrow"
-  ? FindFirstArgs<M>
+  ? ModelFindFirstArgs<ModelFields<M>>
   : O extends "count"
-  ? CountArgs<M>
+  ? ModelCountArgs<ModelFields<M>>
   : O extends "aggregate"
-  ? AggregateArgs<M>
+  ? ModelAggregateArgs<ModelFields<M>>
   : O extends "groupBy"
-  ? GroupByArgs<M>
+  ? ModelGroupByArgs<ModelFields<M>>
   : O extends "createMany"
-  ? CreateManyArgs<M>
+  ? CreateManyEnvelope<ModelFields<M>>
   : O extends "updateMany"
-  ? UpdateManyArgs<M>
+  ? ModelUpdateManyArgs<ModelFields<M>>
   : O extends "exist"
-  ? ExistArgs<M>
+  ? ModelExistArgs<ModelFields<M>>
   : never;
 
 export type OperationResult<
-  O extends Operation,
+  O extends Operations,
   M extends Model<any>,
   I
-> = O extends "findMany"
-  ? I extends FindManyArgs<M>
-    ? FindManyResult<M, I>
-    : never
-  : O extends "findUnique"
-  ? I extends FindUniqueArgs<M>
-    ? FindUniqueResult<M, I>
-    : never
-  : O extends "findFirst"
-  ? I extends FindFirstArgs<M>
-    ? FindFirstResult<M, I>
-    : never
-  : O extends "create"
-  ? I extends CreateArgs<M>
-    ? CreateResult<M, I>
-    : never
-  : O extends "update"
-  ? I extends UpdateArgs<M>
-    ? UpdateResult<M, I>
-    : never
-  : O extends "delete"
-  ? I extends DeleteArgs<M>
-    ? DeleteResult<M, I>
-    : never
-  : O extends "deleteMany"
-  ? I extends DeleteManyArgs<M>
-    ? DeleteManyResult<M, I>
-    : never
-  : O extends "upsert"
-  ? I extends UpsertArgs<M>
-    ? UpsertResult<M, I>
-    : never
-  : O extends "findUniqueOrThrow"
-  ? I extends FindUniqueArgs<M>
-    ? FindUniqueResult<M, I>
-    : never
-  : O extends "findFirstOrThrow"
-  ? I extends FindFirstArgs<M>
-    ? FindFirstResult<M, I>
-    : never
-  : O extends "count"
-  ? I extends CountArgs<M>
-    ? CountResult<M, I>
-    : never
-  : O extends "aggregate"
-  ? I extends AggregateArgs<M>
-    ? AggregateResult<M, I>
-    : never
-  : O extends "groupBy"
-  ? I extends GroupByArgs<M>
-    ? GroupByResult<M, I>
-    : never
-  : O extends "createMany"
-  ? I extends CreateManyArgs<M>
-    ? CreateManyResult<M, I>
-    : never
-  : O extends "updateMany"
-  ? I extends UpdateManyArgs<M>
-    ? UpdateManyResult<M, I>
-    : never
-  : O extends "exist"
-  ? I extends ExistArgs<M>
-    ? boolean
-    : never
-  : never;
+> = any;

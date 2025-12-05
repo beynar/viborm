@@ -1,29 +1,53 @@
-// Field Types - Index
-// Exports all field types from their individual files
+// Field Exports
+// Re-exports all field types and utilities
 
-export { BaseField } from "./base.js";
-export { StringField, string } from "./string.js";
-export { NumberField, int, float, decimal } from "./number.js";
-export { BooleanField, boolean } from "./boolean.js";
-export { BigIntField, bigint } from "./bigint.js";
-export { DateTimeField, datetime } from "./datetime.js";
-export { JsonField, json } from "./json.js";
-export { BlobField, blob } from "./blob.js";
-export { EnumField, enumField } from "./enum.js";
-export { VectorField, vector } from "./vector.js";
+// Base types and utilities from common
+export {
+  type FieldState,
+  type ScalarFieldType,
+  type AutoGenerateType,
+  type UpdateState,
+  type MaybeNullable,
+  type MaybeArray,
+  type DefaultValue,
+  type InferBaseType,
+  type InferCreateType,
+  createDefaultState,
+} from "./common";
 
-// Union type for all field types with flexible state support
-export type Field<T = any> =
-  | import("./string.js").StringField<any>
-  | import("./number.js").NumberField<any>
-  | import("./boolean.js").BooleanField<any>
-  | import("./bigint.js").BigIntField<any>
-  | import("./datetime.js").DateTimeField<any>
-  | import("./json.js").JsonField<any, any>
-  | import("./blob.js").BlobField<any>
-  | import("./enum.js").EnumField<any, any>
-  | import("./vector.js").VectorField<any>;
+// Field interface and type guard
+// Export FieldLike as both FieldLike and BaseField for backward compatibility
+export { type Field, type FieldLike, type FieldLike as BaseField, isField } from "./base";
 
-export * from "./types.js";
-export * from "./validators";
-export * from "../relation/relation.js";
+// Standard schema utilities
+export * from "./standard-schema";
+
+// Field classes and factory functions
+export { StringField, string } from "./string/field";
+export {
+  IntField,
+  FloatField,
+  DecimalField,
+  int,
+  float,
+  decimal,
+} from "./number/field";
+export type { NumberField } from "./number/index";
+export { BooleanField, boolean } from "./boolean/field";
+export { DateTimeField, dateTime } from "./datetime/field";
+export { BigIntField, bigInt } from "./bigint/field";
+export { JsonField, json } from "./json/field";
+export { VectorField, vector } from "./vector/field";
+export { BlobField, blob } from "./blob/field";
+export { EnumField, enumField } from "./enum/field";
+
+// Schema exports (explicit ArkType schemas)
+export * from "./string/schemas";
+export * from "./number/schemas";
+export * from "./boolean/schemas";
+export * from "./datetime/schemas";
+export * from "./bigint/schemas";
+export * from "./json/schemas";
+export * from "./vector/schemas";
+export * from "./blob/schemas";
+export * from "./enum/schemas";

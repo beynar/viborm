@@ -1,62 +1,176 @@
 // Schema Builder Entry Point
-// Based on specification: readme/1_schema_builder.md
+// Main API for defining models, fields, and relations
 
-import { model, Model } from "./model.js";
+import { model, Model } from "./model";
 import {
-  BaseField,
   StringField,
-  NumberField,
+  IntField,
+  FloatField,
+  DecimalField,
   BooleanField,
   BigIntField,
   DateTimeField,
   JsonField,
   BlobField,
   EnumField,
+  VectorField,
   type Field,
-} from "./fields/index.js";
-import { string } from "./fields/string.js";
-import { int, float, decimal } from "./fields/number.js";
-import { boolean } from "./fields/boolean.js";
-import { bigint } from "./fields/bigint.js";
-import { datetime } from "./fields/datetime.js";
-import { json } from "./fields/json.js";
-import { blob } from "./fields/blob.js";
-import { enumField } from "./fields/enum.js";
-import { Getter, relation, Relation } from "./relation/relation.js";
+  string,
+  int,
+  float,
+  decimal,
+  boolean,
+  bigInt,
+  dateTime,
+  json,
+  blob,
+  enumField,
+  vector,
+} from "./fields";
+import { Relation, relation, type Getter } from "./relation";
 
-// Export the main schema builder instance
+// =============================================================================
+// SCHEMA BUILDER API
+// =============================================================================
+
+/**
+ * Main schema builder object
+ * Use this to define models, fields, and relations
+ *
+ * @example
+ * ```ts
+ * import { s } from "viborm";
+ *
+ * const user = s.model({
+ *   id: s.string().id().ulid(),
+ *   name: s.string(),
+ *   email: s.string().unique(),
+ *   age: s.int().nullable(),
+ *   posts: s.relation.oneToMany(() => post),
+ * }).map("users");
+ * ```
+ */
 export const s = {
-  model: model,
-  string: string,
-  boolean: boolean,
-  int: int,
-  bigInt: bigint,
-  float: float,
-  decimal: decimal,
-  dateTime: datetime,
-  json: json,
-  blob: blob,
+  // Model factory
+  model,
+
+  // Scalar field factories
+  string,
+  boolean,
+  int,
+  float,
+  decimal,
+  bigInt,
+  dateTime,
+  json,
+  blob,
   enum: enumField,
-  relation: relation,
+  vector,
+
+  // Relation factory
+  relation,
 };
 
-// Re-export classes for advanced usage
+// =============================================================================
+// RE-EXPORTS
+// =============================================================================
+
+// Classes for advanced usage
 export {
   Model,
-  BaseField,
   StringField,
-  NumberField,
+  IntField,
+  FloatField,
+  DecimalField,
   BooleanField,
   BigIntField,
   DateTimeField,
   JsonField,
   BlobField,
   EnumField,
+  VectorField,
   Relation,
   relation,
 };
+
+export type { NumberField } from "./fields";
+
+// Types
 export type { Field, Getter };
 
-export * from "./types";
+// Export all from submodules
 export * from "./fields";
 export * from "./model";
+export * from "./relation";
+
+// =============================================================================
+// TYPE INFERENCE EXPORTS
+// =============================================================================
+
+// Re-export core types from common
+export type {
+  InferBaseType,
+  InferCreateType,
+  AutoGenerateType,
+  FieldState as FieldStateType,
+} from "./fields/common";
+
+// =============================================================================
+// FIELD TYPE MAPPING
+// =============================================================================
+
+/**
+ * Maps a ScalarFieldType string to its base TypeScript type
+ */
+export type ScalarTypeToTS<
+  T extends import("./fields/common").ScalarFieldType
+> = T extends "string"
+  ? string
+  : T extends "int" | "float" | "decimal"
+  ? number
+  : T extends "boolean"
+  ? boolean
+  : T extends "datetime"
+  ? Date
+  : T extends "bigint"
+  ? bigint
+  : T extends "json"
+  ? unknown
+  : T extends "blob"
+  ? Uint8Array
+  : T extends "vector"
+  ? number[]
+  : T extends "enum"
+  ? string
+  : never;
+
+/**
+ * Infers the TypeScript type from a FieldState
+ * Handles nullable and array modifiers
+ */
+export type InferType<TState extends import("./fields/common").FieldState> =
+  TState["array"] extends true
+    ? TState["nullable"] extends true
+      ? ScalarTypeToTS<TState["type"]>[] | null
+      : ScalarTypeToTS<TState["type"]>[]
+    : TState["nullable"] extends true
+    ? ScalarTypeToTS<TState["type"]> | null
+    : ScalarTypeToTS<TState["type"]>;
+
+/**
+ * Infers the input type for create operations (handles defaults)
+ */
+export type InferInputType<
+  TState extends import("./fields/common").FieldState
+> = TState["hasDefault"] extends true
+  ? InferType<TState> | undefined
+  : TState["autoGenerate"] extends import("./fields/common").AutoGenerateType
+  ? InferType<TState> | undefined
+  : InferType<TState>;
+
+/**
+ * Infers the storage type (same as base type)
+ */
+export type InferStorageType<
+  TState extends import("./fields/common").FieldState
+> = InferType<TState>;

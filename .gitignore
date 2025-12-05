@@ -3,3 +3,6 @@ node_modules
 .env
 
 /generated/prisma
+
+# TypeScript incremental build cache
+.tsbuildinfo

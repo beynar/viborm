@@ -9,6 +9,8 @@
     "declarationMap": false,
     "sourceMap": false,
     "noEmit": true,
+    "incremental": true,
+    "tsBuildInfoFile": ".tsbuildinfo",
     "removeComments": false,
     "noImplicitAny": false,
     "forceConsistentCasingInFileNames": true,

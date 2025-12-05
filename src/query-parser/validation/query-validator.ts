@@ -1,10 +1,10 @@
 import { Model } from "@schema";
-import { Operation } from "@types";
+import { Operations } from "@types";
 import {
   BuilderContext,
   ValidationResult,
   QueryParserConfig,
-} from "@query-parser/query-parser";
+} from "../types";
 import type { QueryParser } from "../query-parser";
 
 /**
@@ -17,7 +17,7 @@ import type { QueryParser } from "../query-parser";
  *
  * VALIDATION CATEGORIES:
  * - Schema validation: Fields, relations, and types exist and are accessible
- * - Operation validation: Operations are valid for the given model and context
+ * - Operation validation: Operationss are valid for the given model and context
  * - Payload validation: Query payloads have required fields and valid structure
  * - Security validation: Prevents dangerous operations and SQL injection
  * - Performance validation: Warns about potentially expensive operations
@@ -74,7 +74,7 @@ export class QueryValidator {
    * Validates the entire query operation before SQL generation
    */
   validateQuery(
-    operation: Operation,
+    operation: Operations,
     model: Model<any>,
     payload: any
   ): ValidationResult {
@@ -100,7 +100,7 @@ export class QueryValidator {
    */
   validateModelSchema(
     model: Model<any>,
-    operation: Operation
+    operation: Operations
   ): ValidationResult {
     // TODO: Implement model schema validation
     throw new Error("validateModelSchema() not implemented yet");
@@ -184,7 +184,7 @@ export class QueryValidator {
   validateMutationData(
     model: Model<any>,
     data: any,
-    operation: Operation,
+    operation: Operations,
     context: BuilderContext
   ): ValidationResult {
     // TODO: Implement mutation data validation
@@ -225,7 +225,7 @@ export class QueryValidator {
    * Checks for potential security vulnerabilities and dangerous operations
    */
   validateSecurity(
-    operation: Operation,
+    operation: Operations,
     model: Model<any>,
     payload: any
   ): ValidationResult {
@@ -239,7 +239,7 @@ export class QueryValidator {
    * Analyzes query for potential performance issues
    */
   validatePerformance(
-    operation: Operation,
+    operation: Operations,
     model: Model<any>,
     payload: any
   ): ValidationResult {
@@ -314,7 +314,7 @@ export class QueryValidator {
    */
 
   private performValidation(
-    operation: Operation,
+    operation: Operations,
     model: Model<any>,
     payload: any
   ): ValidationResult {
@@ -323,7 +323,7 @@ export class QueryValidator {
   }
 
   private generateCacheKey(
-    operation: Operation,
+    operation: Operations,
     model: Model<any>,
     payload: any
   ): string {

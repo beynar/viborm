@@ -1,5 +1,7 @@
 import z from "zod/v4";
 import { s } from "../src/schema/index.js";
+import { createClient } from "../src/index.js";
+import { PrismaClient } from "../generated/prisma/client.js";
 
 export const string = s.string();
 export const nullableString = s.string().nullable();
@@ -50,7 +52,8 @@ export const enumFieldWithValidation = s
   .enum(["a", "b"])
   .validator(z.enum(["a", "b"]));
 
-export const model = s.model("test", {
+export const model = s.model({
+  id: s.string().id().ulid(),
   string,
   stringWithDefault,
   stringWithValidation,
@@ -88,22 +91,22 @@ export const model = s.model("test", {
   manyToOne: s.relation().manyToOne(() => manyToOne),
 });
 
-export const oneToOne = s.model("oneToOne", {
+export const oneToOne = s.model({
   id: s.string().id().ulid(),
   test: s.relation().oneToOne(() => oneToOne),
 });
 
-export const oneToMany = s.model("oneToMany", {
+export const oneToMany = s.model({
   id: s.string().id().ulid(),
   test: s.relation().manyToOne(() => oneToOne),
 });
 
-export const manyToMany = s.model("manyToMany", {
+export const manyToMany = s.model({
   id: s.string().id().ulid(),
   test: s.relation().manyToMany(() => oneToOne),
 });
 
-export const manyToOne = s.model("manyToOne", {
+export const manyToOne = s.model({
   id: s.string().id().ulid(),
   test: s.relation({}).oneToMany(() => oneToOne),
 });
@@ -113,7 +116,7 @@ export const manyToOne = s.model("manyToOne", {
 /**
  * Test user model for client type tests
  */
-export const testUser = s.model("User", {
+export const testUser = s.model({
   id: s.string().id().ulid(),
   name: s.string(),
   email: s.string().unique(),
@@ -130,12 +133,11 @@ export const testUser = s.model("User", {
 /**
  * Test post model for client type tests
  */
-export const testPost = s.model("Post", {
+export const testPost = s.model({
   id: s.string().id().ulid(),
   title: s.string(),
   content: s.string().nullable(),
   published: s.boolean().default(false),
-
   createdAt: s.dateTime().now(),
   updatedAt: s.dateTime().now(),
   authorId: s.string(),
@@ -152,16 +154,42 @@ export const testPost = s.model("Post", {
 /**
  * Test profile model for client type tests
  */
-export const testProfile = s.model("Profile", {
-  id: s.string().id().ulid(),
-  bio: s.string().nullable(),
-  avatar: s.string().nullable(),
-  userId: s.string().unique(),
-  user: s.relation().oneToOne(() => testUser),
-});
+export const testProfile = s
+  .model({
+    id: s.string().id().ulid(),
+    bio: s.string().nullable(),
+    avatar: s.string().nullable(),
+    userId: s.string().unique(),
+    user: s.relation().oneToOne(() => testUser),
+  })
+  .map("Profile")
+  .index(["avatar", "bio"], { name: "idx_profile_eaeaz", type: "gin" });
 
 export const schema = {
   user: testUser,
   post: testPost,
   profile: testProfile,
+  model,
 };
+
+const client = createClient({
+  schema,
+  adapter: {} as any,
+});
+
+const res = await client.model.findFirst({
+  where: {
+    id: "ezlek",
+  },
+  select: {
+    json: true,
+  },
+});
+
+const prisma = new PrismaClient();
+
+prisma.example.findFirst({
+  where: {
+    oneToOne: {},
+  },
+});

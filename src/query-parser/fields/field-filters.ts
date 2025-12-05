@@ -32,7 +32,7 @@ export class FieldFilterBuilder {
         "FieldFilterBuilder"
       );
     }
-    const fieldType = field["~fieldType"];
+    const fieldType = field["~"].state.type;
 
     const validatedConditions = this.validateFilter(field, conditions, ctx);
 
@@ -120,7 +120,7 @@ export class FieldFilterBuilder {
     field: Field,
     ctx: BuilderContext
   ): Record<string, any> {
-    const fieldType = field["~fieldType"];
+    const fieldType = field["~"].state.type;
 
     // Map numeric field types to the 'number' filter group since adapters
     // only have a single 'number' filter group, not separate int/float/decimal groups
@@ -139,24 +139,46 @@ export class FieldFilterBuilder {
   }
 
   private getFilterValidator(field: Field, ctx: BuilderContext): ZodMiniType {
-    const fieldType = field["~fieldType"];
-    const fieldState = field["~state"];
-    const isNullable = fieldState?.IsNullable === true;
-    const isArray = fieldState?.IsArray === true;
+    const fieldType = field["~"].state.type;
+    const isNullable = field["~"].state.nullable;
+    const isArray = field["~"].state.array;
+
+    // Map field types to validator keys (validators use camelCase for bigInt/dateTime)
+    const validatorKeyMap: Record<string, keyof typeof filterValidators> = {
+      string: "string",
+      int: "int",
+      float: "float",
+      decimal: "decimal",
+      bigint: "bigInt",
+      boolean: "boolean",
+      datetime: "dateTime",
+      json: "json",
+    };
+
+    // Handle enum separately for proper type inference
+    if (fieldType === "enum") {
+      const enumValidators = filterValidators.enum((field["~"] as any).enumValues);
+      if (isArray) {
+        return isNullable ? enumValidators.nullableArray : enumValidators.array;
+      } else {
+        return isNullable ? enumValidators.nullable : enumValidators.base;
+      }
+    }
 
     switch (fieldType) {
       case "string":
       case "int":
       case "float":
       case "decimal":
-      case "bigInt":
+      case "bigint":
       case "boolean":
-      case "enum":
-      case "dateTime": {
-        const validators =
-          fieldType === "enum"
-            ? filterValidators.enum(field["~state"].enumValues)
-            : filterValidators[fieldType];
+      case "datetime": {
+        const validators = filterValidators[validatorKeyMap[fieldType]!] as {
+          base: ZodMiniType;
+          nullable: ZodMiniType;
+          array: ZodMiniType;
+          nullableArray: ZodMiniType;
+        };
         if (isArray) {
           return isNullable ? validators.nullableArray : validators.array;
         } else {

@@ -496,9 +496,9 @@ export class WhereClauseBuilder implements ClauseBuilder {
     const childAlias = this.parser.generateAlias();
 
     // Get relation configuration
-    const relationType = relation["~relationType"];
-    const onField = relation["~onField"];
-    const refField = relation["~refField"];
+    const relationType = relation.config.relationType;
+    const onField = relation.config.onField;
+    const refField = relation.config.refField;
 
     // Build the basic SELECT statement for the target table
     const tableName = targetModel.tableName || targetModel.name;

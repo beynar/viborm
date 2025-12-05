@@ -1,5 +1,5 @@
 // Where Input Types
-import type { Model, BaseField, Relation, InferType } from "@schema";
+import type { Model, BaseField, Relation } from "@schema";
 import type {
   FieldNames,
   RelationNames,
@@ -66,9 +66,7 @@ export type WhereInput<TModel extends Model<any>> = ScalarWhereInput<TModel> & {
  * Unique where input - allows filtering on unique attributes and id
  */
 export type WhereUniqueInput<TModel extends Model<any>> = {
-  [K in GetUniqueFields<TModel>]?: ModelFields<TModel>[K] extends BaseField<
-    infer TState
-  >
-    ? InferType<TState>
+  [K in GetUniqueFields<TModel>]?: ModelFields<TModel>[K] extends BaseField<any>
+    ? MapFieldType<ModelFields<TModel>[K]>
     : never;
 };

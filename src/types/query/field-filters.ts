@@ -113,7 +113,7 @@ export type FloatNullableFilter = NumberNullableFilter;
 export type FloatArrayFilter = NumberArrayFilter;
 export type FloatNullableArrayFilter = NumberNullableArrayFilter;
 
-export type NumberFilters<T extends NumberField<any>> =
+export type NumberFilters<T extends NumberField> =
   IsFieldArray<T> extends true
     ? IsFieldNullable<T> extends true
       ? NumberNullableArrayFilter

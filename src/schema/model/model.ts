@@ -1,134 +1,32 @@
 // Model Class Implementation
-// Based on specification: readme/1.1_model_class.md
-import { Relation, BaseField, type Field } from "../fields";
-import {
-  parseCreateInput,
-  parseUpdateInput,
-  parseWhereManyInput,
-  parseWhereUniqueInput,
-} from "./validator";
+// Defines database models with fields and relations
 
-export class Model<
-  TFields extends Record<string, Field | Relation<any, any>> = {}
-> {
-  public readonly fields: Map<string, BaseField<any>> = new Map();
-  public readonly relations: Map<string, Relation<any, any>> = new Map();
-  public readonly name: string;
-  public tableName?: string;
-  public readonly indexes: IndexDefinition[] = [];
-  public readonly uniqueConstraints: UniqueConstraintDefinition[] = [];
+import { isField, type Field } from "../fields/base";
+import { Relation } from "../relation/relation";
+import { buildModelSchemas, type TypedModelSchemas } from "./runtime";
+import { ScalarFieldKeys } from "./types";
 
-  constructor(name: string, private fieldDefinitions: TFields) {
-    this.name = name;
-    this.separateFieldsAndRelations(fieldDefinitions);
-  }
+// =============================================================================
+// TYPE INFERENCE HELPER
+// =============================================================================
 
-  private separateFieldsAndRelations(definitions: TFields): void {
-    for (const [key, definition] of Object.entries(definitions)) {
-      if (definition instanceof BaseField) {
-        this.fields.set(key, definition as BaseField<any>);
-      } else if (definition instanceof Relation) {
-        this.relations.set(key, definition);
-      } else {
-        throw new Error(
-          `Invalid field definition for '${key}'. Must be a Field, Relation, or LazyRelation instance.`
-        );
-      }
-    }
-  }
-
-  // Database table mapping
-  map(tableName: string): this {
-    if (
-      !tableName ||
-      typeof tableName !== "string" ||
-      tableName.trim() === ""
-    ) {
-      throw new Error("Table name must be a non-empty string");
-    }
-    this.tableName = tableName;
-    return this;
-  }
-
-  // Index management
-  index(fields: string | string[], options: IndexOptions = {}): this {
-    const fieldArray = Array.isArray(fields) ? fields : [fields];
-
-    // Validate all fields exist
-    for (const field of fieldArray) {
-      if (!this.fields.has(field)) {
-        const availableFields = Array.from(this.fields.keys());
-        throw new Error(
-          `Field '${field}' does not exist in model '${
-            this.name
-          }'. Available fields: ${availableFields.join(", ")}`
-        );
-      }
-    }
-
-    this.indexes.push({
-      fields: fieldArray,
-      options,
-    });
-
-    return this;
-  }
-
-  // Unique constraints
-  unique(
-    fields: string | string[],
-    options: UniqueConstraintOptions = {}
-  ): this {
-    const fieldArray = Array.isArray(fields) ? fields : [fields];
-
-    // Validate all fields exist
-    for (const field of fieldArray) {
-      if (!this.fields.has(field)) {
-        const availableFields = Array.from(this.fields.keys());
-        throw new Error(
-          `Field '${field}' does not exist in model '${
-            this.name
-          }'. Available fields: ${availableFields.join(", ")}`
-        );
-      }
-    }
-
-    this.uniqueConstraints.push({
-      fields: fieldArray,
-      options,
-    });
-
-    return this;
-  }
-
-  get infer() {
-    return {} as {
-      [K in keyof TFields]: TFields[K]["infer"];
-    };
-  }
-  ["~validate"] = {
-    whereMany: (input: Record<string, any>) => {
-      return parseWhereManyInput(this, input);
-    },
-    whereUnique: (input: Record<string, any>) => {
-      return parseWhereUniqueInput(this, input);
-    },
-    update: (input: Record<string, any>) => {
-      return parseUpdateInput(this, input);
-    },
-    create: (input: Record<string, any>) => {
-      return parseCreateInput(this, input);
-    },
-  };
-}
-
-export const model = <
-  TName extends string,
+/**
+ * Infers the TypeScript types for model fields
+ * Only includes scalar fields, not relations
+ */
+type InferModelFields<
   TFields extends Record<string, Field | Relation<any, any>>
->(
-  name: TName,
-  fields: TFields
-) => new Model(name, fields);
+> = {
+  [K in keyof TFields as TFields[K] extends Field
+    ? K
+    : never]: TFields[K] extends Field
+    ? TFields[K]["~"]["schemas"]["base"]["infer"]
+    : never;
+};
+
+// =============================================================================
+// INDEX AND CONSTRAINT TYPES
+// =============================================================================
 
 export type IndexType = "btree" | "hash" | "gin" | "gist";
 
@@ -144,7 +42,6 @@ export interface IndexDefinition {
   options: IndexOptions;
 }
 
-// Unique constraint types
 export interface UniqueConstraintOptions {
   name?: string;
 }
@@ -153,3 +50,224 @@ export interface UniqueConstraintDefinition {
   fields: string[];
   options: UniqueConstraintOptions;
 }
+
+// =============================================================================
+// MODEL CLASS
+// =============================================================================
+
+export class Model<
+  TFields extends Record<string, Field | Relation<any, any>> = {}
+> {
+  public readonly fields: Map<string, Field> = new Map();
+  public readonly relations: Map<string, Relation<any, any>> = new Map();
+  /** The table name in the database (set via .map()) */
+  public tableName?: string;
+  public readonly indexes: IndexDefinition[] = [];
+  public readonly uniqueConstraints: UniqueConstraintDefinition[] = [];
+
+  private _schemas?: TypedModelSchemas<TFields>;
+
+  constructor(private fieldDefinitions: TFields) {
+    this.separateFieldsAndRelations(fieldDefinitions);
+  }
+
+  /**
+   * Gets the model name (for display/error messages)
+   * Returns tableName if set, otherwise "Model"
+   */
+  get name(): string {
+    return this.tableName ?? "Model";
+  }
+
+  private separateFieldsAndRelations(definitions: TFields): void {
+    for (const [key, definition] of Object.entries(definitions)) {
+      if (isField(definition)) {
+        this.fields.set(key, definition as Field);
+      } else if (definition instanceof Relation) {
+        this.relations.set(key, definition);
+      } else {
+        throw new Error(
+          `Invalid field definition for '${key}'. Must be a Field or Relation instance.`
+        );
+      }
+    }
+  }
+
+  // ===========================================================================
+  // TABLE MAPPING
+  // ===========================================================================
+
+  /**
+   * Maps the model to a specific database table name
+   */
+  map(tableName: string): this {
+    if (
+      !tableName ||
+      typeof tableName !== "string" ||
+      tableName.trim() === ""
+    ) {
+      throw new Error("Table name must be a non-empty string");
+    }
+    this.tableName = tableName;
+    return this;
+  }
+
+  // ===========================================================================
+  // INDEX MANAGEMENT
+  // ===========================================================================
+
+  /**
+   * Adds an index on the specified field(s)
+   */
+  index(
+    fields: ScalarFieldKeys<TFields> | ScalarFieldKeys<TFields>[],
+    options: IndexOptions = {}
+  ): this {
+    const fieldArray = Array.isArray(fields) ? fields : [fields];
+
+    // Validate all fields exist
+    for (const field of fieldArray) {
+      if (!this.fields.has(String(field))) {
+        const availableFields = Array.from(this.fields.keys());
+        throw new Error(
+          `Field '${String(
+            field
+          )}' does not exist in model. Available fields: ${availableFields.join(
+            ", "
+          )}`
+        );
+      }
+    }
+
+    this.indexes.push({
+      fields: fieldArray.map(String),
+      options,
+    });
+
+    return this;
+  }
+
+  // ===========================================================================
+  // UNIQUE CONSTRAINTS
+  // ===========================================================================
+
+  /**
+   * Adds a unique constraint on the specified field(s)
+   */
+  unique(
+    fields: ScalarFieldKeys<TFields> | ScalarFieldKeys<TFields>[],
+    options: UniqueConstraintOptions = {}
+  ): this {
+    const fieldArray = Array.isArray(fields) ? fields : [fields];
+
+    // Validate all fields exist
+    for (const field of fieldArray) {
+      if (!this.fields.has(String(field))) {
+        const availableFields = Array.from(this.fields.keys());
+        throw new Error(
+          `Field '${String(
+            field
+          )}' does not exist in model. Available fields: ${availableFields.join(
+            ", "
+          )}`
+        );
+      }
+    }
+
+    this.uniqueConstraints.push({
+      fields: fieldArray.map(String),
+      options,
+    });
+
+    return this;
+  }
+
+  // ===========================================================================
+  // SCHEMAS
+  // ===========================================================================
+
+  /**
+   * Gets all ArkType schemas for this model
+   * Lazily computed and cached
+   */
+  get schemas(): TypedModelSchemas<TFields> {
+    if (!this._schemas) {
+      this._schemas = buildModelSchemas(this);
+    }
+    return this._schemas;
+  }
+
+  // ===========================================================================
+  // TYPE INFERENCE
+  // ===========================================================================
+
+  /**
+   * Inferred TypeScript type for model records
+   * Only includes scalar fields, not relations
+   */
+  get infer(): InferModelFields<TFields> {
+    return {} as InferModelFields<TFields>;
+  }
+
+  /**
+   * Internal namespace for accessing internals
+   */
+  get "~"() {
+    return {
+      infer: this.infer,
+      schemas: this.schemas,
+      fields: this.fieldDefinitions,
+    };
+  }
+
+  // ===========================================================================
+  // VALIDATION METHODS
+  // ===========================================================================
+
+  /**
+   * Validates a where input against the model's where schema
+   */
+  validateWhere(input: unknown) {
+    return this.schemas.where(input);
+  }
+
+  /**
+   * Validates a where unique input against the model's whereUnique schema
+   */
+  validateWhereUnique(input: unknown) {
+    return this.schemas.whereUnique(input);
+  }
+
+  /**
+   * Validates a create input against the model's create schema
+   */
+  validateCreate(input: unknown) {
+    return this.schemas.create(input);
+  }
+
+  /**
+   * Validates an update input against the model's update schema
+   */
+  validateUpdate(input: unknown) {
+    return this.schemas.update(input);
+  }
+}
+
+// =============================================================================
+// FACTORY FUNCTION
+// =============================================================================
+
+/**
+ * Creates a new model with the given fields
+ *
+ * @example
+ * const user = s.model({
+ *   id: s.string().id().ulid(),
+ *   name: s.string(),
+ * }).map("users");
+ */
+export const model = <
+  TFields extends Record<string, Field | Relation<any, any>>
+>(
+  fields: TFields
+) => new Model(fields);

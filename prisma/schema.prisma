@@ -12,105 +12,96 @@ generator client {
 
 datasource db {
   provider     = "postgresql"
-  url          = env("DATABASE_URL")
   relationMode = "prisma"
+  url          = env("DATABASE_URL")
 }
 
-enum Role {
-  ADMIN
-  USER
+enum Enum {
+  A
+  B
+  C
 }
 
-model User {
-  id        String   @id @default(uuid())
-  email     String   @unique
-  name      String?
-  password  String
-  metadata  Json?
-  tags      String[]
-  bio       String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  role      Role?    @default(USER)
-  mentor    Mentor?  @relation("mentor", fields: [mentorId], references: [id])
-  mentorId  String?
+model Example {
+  string            String
+  nullableString    String?
+  stringAsId        String   @id
+  stringWithDefault String   @default("default")
+  arrayOfStrings    String[]
 
-  // Relations
-  posts     Post[]
-  comments  Comment[]
-  followers Follow[]  @relation("following")
-  following Follow[]  @relation("followers")
-  likes     Like[]
-  userId    String?
+  // Number
+  number            Int
+  nullableNumber    Int?
+  numberAsId        Int
+  numberWithDefault Int   @default(1)
+  arrayOfNumbers    Int[]
+
+  // Boolean
+  boolean            Boolean
+  nullableBoolean    Boolean?
+  booleanAsId        Boolean
+  booleanWithDefault Boolean   @default(true)
+  arrayOfBooleans    Boolean[]
+
+  // BigInt
+  bigint            BigInt
+  nullableBigInt    BigInt?
+  bigintAsId        BigInt
+  bigintWithDefault BigInt   @default(1)
+  arrayOfBigInts    BigInt[]
+
+  // DateTime
+  dateTime            DateTime
+  nullableDateTime    DateTime?
+  dateTimeAsId        DateTime
+  dateTimeWithDefault DateTime   @default(now())
+  arrayOfDateTimes    DateTime[]
+
+  // Json
+  json            Json
+  nullableJson    Json?
+  jsonAsId        Json
+  jsonWithDefault Json   @default("{}")
+  arrayOfJsons    Json[]
+
+  // Enum
+  enum            Enum
+  nullableEnum    Enum?
+  enumAsId        Enum
+  enumWithDefault Enum   @default(A)
+  arrayOfEnums    Enum[]
+
+  // Relation
+  oneToOne    OneToOne     @relation(fields: [oneToOneId], references: [id])
+  oneToMany   OneToMany[]
+  manyToOne   ManyToOne    @relation(fields: [manyToOneId], references: [id])
+  manyToMany  ManyToMany[]
+  oneToOneId  String
+  manyToOneId String
 }
 
-model Mentor {
-  id        String   @id @default(uuid())
-  mentee    User[]   @relation("mentor")
-  name      String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+model OneToOne {
+  id       String    @id @default(uuid())
+  examples Example[]
 }
 
-model Post {
-  id        String   @id @default(uuid())
-  title     String
-  content   String
-  published Boolean  @default(false)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // Relations
-  author   User      @relation(fields: [authorId], references: [id])
-  authorId String
-  comments Comment[]
-  likes    Like[]
-  tags     Tag[]
+model OneToMany {
+  id                String   @id @default(uuid())
+  example           Example? @relation(fields: [exampleStringAsId], references: [stringAsId])
+  exampleStringAsId String?
 }
 
-model Comment {
-  id        String   @id @default(uuid())
-  content   String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // Relations
-  author   User   @relation(fields: [authorId], references: [id])
-  authorId String
-  post     Post   @relation(fields: [postId], references: [id])
-  postId   String
+model ManyToOne {
+  id       String    @id @default(uuid())
+  examples Example[]
 }
 
-model Tag {
+model ManyToMany {
   id   String @id @default(uuid())
   name String @unique
 
   // Relations
-  posts Post[]
-}
 
-model Like {
-  id        String   @id @default(uuid())
-  createdAt DateTime @default(now())
-
-  // Relations
-  user   User   @relation(fields: [userId], references: [id])
-  userId String
-  post   Post   @relation(fields: [postId], references: [id])
-  postId String
-
-  @@unique([userId, postId])
-}
-
-model Follow {
-  id        String   @id @default(uuid())
-  createdAt DateTime @default(now())
-
-  // Relations
-  follower    User   @relation("following", fields: [followerId], references: [id])
-  followerId  String
-  following   User   @relation("followers", fields: [followingId], references: [id])
-  followingId String
-
-  @@unique([followerId, followingId])
+  example           Example? @relation(fields: [exampleStringAsId], references: [stringAsId])
+  exampleStringAsId String?
 }

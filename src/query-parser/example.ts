@@ -1,4 +1,4 @@
-import { createClient } from "../client";
+import { createClient } from "../client/client";
 import { s } from "../schema";
 import { PostgresAdapter } from "../adapters/databases/postgres/postgres-adapter";
 import { QueryParser } from "./query-parser";
@@ -14,7 +14,7 @@ import {
   ZodMiniType,
 } from "zod/v4-mini";
 
-const user = s.model("User", {
+const user = s.model({
   id: s.string().id(),
   name: s.string(),
   email: s.string().array(),
@@ -26,14 +26,14 @@ const user = s.model("User", {
   posts: s
     .relation({ onField: "id", refField: "authorId" })
     .oneToMany(() => post),
-});
+}).map("User");
 
-const post = s.model("Post", {
+const post = s.model({
   id: s.string(),
   title: s.string(),
   content: s.string(),
   authorId: s.string(),
-});
+}).map("Post");
 
 const client = createClient({
   schema: {

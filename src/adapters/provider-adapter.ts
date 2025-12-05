@@ -1,5 +1,5 @@
 import { BuilderContext } from "../query-parser/types";
-import { Schema } from "@schema";
+import { Schema } from "../client/types";
 import { Sql } from "@sql";
 
 export interface ProviderAdapter {

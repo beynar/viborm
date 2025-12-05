@@ -1,5 +1,5 @@
 import { Model, Field, Relation } from "@schema";
-import { Operation, QueryMode } from "@types";
+import { Operations, QueryMode } from "@types";
 
 /**
  * Shared Types for Query Parser Components
@@ -31,9 +31,9 @@ import { Operation, QueryMode } from "@types";
 export type BuilderContext = {
   // Core identification
   model: Model<any>;
-  field?: Field<any>;
+  field?: Field;
   relation?: Relation<any, any>;
-  baseOperation: Operation;
+  baseOperation: Operations;
   alias: string;
 
   // Relation context
@@ -110,7 +110,7 @@ export interface ClauseBuilder extends QueryParserComponent {
 }
 
 export interface OperationHandler extends QueryParserComponent {
-  canHandle(operation: Operation): boolean;
+  canHandle(operation: Operations): boolean;
   handle(model: Model<any>, payload: any): any;
 }
 

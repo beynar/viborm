@@ -1,6 +1,6 @@
 import { Model, Field, Relation } from "@schema";
-import { Operation } from "@types";
-import { BuilderContext } from "@query-parser/query-parser";
+import { Operations } from "@types";
+import { BuilderContext } from "../types";
 import type { QueryParser } from "../query-parser";
 
 /**
@@ -66,10 +66,10 @@ export class ContextFactory {
    */
   create(
     model: Model<any>,
-    operation: Operation,
+    operation: Operations,
     alias: string,
     options: {
-      field?: Field<any>;
+      field?: Field;
       relation?: Relation<any, any>;
       parentAlias?: string;
       fieldName?: string;
@@ -95,11 +95,11 @@ export class ContextFactory {
    */
   createFromPayload(
     model: Model<any>,
-    operation: Operation,
+    operation: Operations,
     alias: string,
     payload: any,
     options: {
-      field?: Field<any>;
+      field?: Field;
       relation?: Relation<any, any>;
       parentAlias?: string;
       fieldName?: string;
@@ -129,7 +129,7 @@ export class ContextFactory {
   createFieldContext(
     model: Model<any>,
     fieldName: string,
-    operation: Operation,
+    operation: Operations,
     alias: string,
     additionalOptions: any = {}
   ): BuilderContext {
@@ -155,7 +155,7 @@ export class ContextFactory {
   createRelationContext(
     model: Model<any>,
     relationName: string,
-    operation: Operation,
+    operation: Operations,
     alias: string,
     parentAlias?: string,
     additionalOptions: any = {}
@@ -182,7 +182,7 @@ export class ContextFactory {
   createNestedContext(
     parentContext: BuilderContext,
     model: Model<any>,
-    operation: Operation,
+    operation: Operations,
     alias: string,
     depth: number = 0
   ): BuilderContext {
@@ -202,7 +202,7 @@ export class ContextFactory {
    */
   createMutationContext(
     model: Model<any>,
-    operation: Operation,
+    operation: Operations,
     alias: string,
     data: any,
     conflictFields?: string[]
@@ -350,7 +350,7 @@ export class ContextFactory {
    */
   generateKey(
     model: Model<any>,
-    operation: Operation,
+    operation: Operations,
     alias: string,
     options: any = {}
   ): string {
@@ -369,7 +369,7 @@ export class ContextFactory {
    */
   createCached(
     model: Model<any>,
-    operation: Operation,
+    operation: Operations,
     alias: string,
     options: any = {}
   ): BuilderContext {

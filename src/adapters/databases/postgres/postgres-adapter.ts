@@ -1,6 +1,6 @@
 import { Sql, sql } from "@sql";
 import { DatabaseAdapter, QueryClauses } from "../../database-adapter";
-import { BuilderContext } from "@query-parser/query-parser";
+import { BuilderContext } from "@query-parser";
 import { QueryMode, StringFilter } from "@types";
 
 /**
@@ -687,7 +687,7 @@ export class PostgresAdapter implements DatabaseAdapter {
     aggregate: (ctx: BuilderContext, statement: Sql): Sql => {
       // Get relation type from context if available
       const relation = ctx.relation;
-      const relationType = relation ? relation["~relationType"] : null;
+      const relationType = relation ? relation.config.relationType : null;
 
       // For One-to-One and Many-to-One relations, return single object or null
       if (relationType === "oneToOne" || relationType === "manyToOne") {

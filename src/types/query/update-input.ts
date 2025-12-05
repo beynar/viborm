@@ -43,7 +43,7 @@ import { CreateInput } from "./create-input";
 import { WhereInput, WhereUniqueInput } from "./where-input";
 import type { UpdateManyInput } from "./update-many-input";
 
-export const rawTransformer = (schema: ZodMiniType) =>
+export const updateRawTransformer = (schema: ZodMiniType) =>
   pipe(
     schema,
     transform((value) => ({
@@ -64,7 +64,7 @@ const baseSetOperation = <T extends ZodMiniType>(
 ) =>
   union([
     object({ set: optional(schema), ...(extendedObject?.def.shape || {}) }),
-    rawTransformer(schema),
+    updateRawTransformer(schema),
   ]);
 
 const baseNullableSetOperation = <T extends ZodMiniType>(
@@ -77,7 +77,7 @@ const baseNullableSetOperation = <T extends ZodMiniType>(
         set: optional(nullable(schema)),
         ...(extendedObject?.def.shape || {}),
       }),
-      rawTransformer(schema),
+      updateRawTransformer(schema),
     ])
   );
 
@@ -98,7 +98,7 @@ const baseArrayUpdateOperations = <T extends ZodMiniType>(schema: T) =>
         })
       ),
     }),
-    rawTransformer(array(schema)),
+    updateRawTransformer(array(schema)),
   ]);
 
 const baseNullableArrayUpdateOperations = <T extends ZodMiniType>(schema: T) =>
@@ -117,7 +117,7 @@ const baseNullableArrayUpdateOperations = <T extends ZodMiniType>(schema: T) =>
         })
       ),
     }),
-    rawTransformer(nullable(array(schema))),
+    updateRawTransformer(nullable(array(schema))),
   ]);
 
 // ============================================================================
@@ -219,7 +219,29 @@ export type NullableNumberArrayFieldUpdateOperationsInput = InferFilter<
   typeof nullableNumberArrayFieldUpdateOperationsInput
 >;
 
-type NumberUpdateOperations<T extends NumberField<any>> =
+// Int-specific exports (aliases for number validators)
+export const intFieldUpdateOperationsInput = numberFieldUpdateOperationsInput;
+export const nullableIntFieldUpdateOperationsInput = nullableNumberFieldUpdateOperationsInput;
+export const intArrayFieldUpdateOperationsInput = numberArrayFieldUpdateOperationsInput;
+export const nullableIntArrayFieldUpdateOperationsInput = nullableNumberArrayFieldUpdateOperationsInput;
+
+export type IntFieldUpdateOperationsInput = NumberFieldUpdateOperationsInput;
+export type NullableIntFieldUpdateOperationsInput = NullableNumberFieldUpdateOperationsInput;
+export type IntArrayFieldUpdateOperationsInput = NumberArrayFieldUpdateOperationsInput;
+export type NullableIntArrayFieldUpdateOperationsInput = NullableNumberArrayFieldUpdateOperationsInput;
+
+// Float-specific exports (aliases for number validators)
+export const floatFieldUpdateOperationsInput = numberFieldUpdateOperationsInput;
+export const nullableFloatFieldUpdateOperationsInput = nullableNumberFieldUpdateOperationsInput;
+export const floatArrayFieldUpdateOperationsInput = numberArrayFieldUpdateOperationsInput;
+export const nullableFloatArrayFieldUpdateOperationsInput = nullableNumberArrayFieldUpdateOperationsInput;
+
+export type FloatFieldUpdateOperationsInput = NumberFieldUpdateOperationsInput;
+export type NullableFloatFieldUpdateOperationsInput = NullableNumberFieldUpdateOperationsInput;
+export type FloatArrayFieldUpdateOperationsInput = NumberArrayFieldUpdateOperationsInput;
+export type NullableFloatArrayFieldUpdateOperationsInput = NullableNumberArrayFieldUpdateOperationsInput;
+
+type NumberUpdateOperations<T extends NumberField> =
   IsFieldArray<T> extends true
     ? IsFieldNullable<T> extends true
       ? NullableNumberArrayFieldUpdateOperationsInput
@@ -454,7 +476,7 @@ export type FieldUpdateOperations<F extends BaseField<any>> =
     ? DateTimeUpdateOperations<F>
     : F extends StringField<any>
     ? StringUpdateOperations<F>
-    : F extends NumberField<any>
+    : F extends NumberField
     ? NumberUpdateOperations<F>
     : F extends BooleanField<any>
     ? BooleanUpdateOperations<F>

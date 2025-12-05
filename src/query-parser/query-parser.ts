@@ -1,6 +1,6 @@
 import { Sql } from "@sql";
 import { Model } from "@schema";
-import { Operation } from "@types";
+import { Operations } from "@types";
 import { DatabaseAdapter } from "../adapters/database-adapter";
 import { BuilderContext } from "./types";
 import { sql } from "@sql";
@@ -126,7 +126,7 @@ export class QueryParser {
    * managing the lifecycle of the QueryParser instance internally.
    */
   static parse(
-    operation: Operation,
+    operation: Operations,
     model: Model<any>,
     payload: any,
     adapter: DatabaseAdapter
@@ -139,7 +139,7 @@ export class QueryParser {
    * Internal query building method that routes to appropriate operation handler
    */
   private buildQuery(
-    operation: Operation,
+    operation: Operations,
     model: Model<any>,
     payload: any
   ): Sql {
@@ -182,7 +182,7 @@ export class QueryParser {
     model: Model<any>,
     payload: any,
     alias: string,
-    operation: Operation
+    operation: Operations
   ): Sql {
     const context = this.contextFactory.createFromPayload(
       model,
@@ -264,7 +264,7 @@ export class QueryParser {
   }
 
   // Helper methods to categorize operations
-  private isReadOperation(operation: Operation): boolean {
+  private isReadOperation(operation: Operations): boolean {
     return [
       "findMany",
       "findFirst",
@@ -274,7 +274,7 @@ export class QueryParser {
     ].includes(operation);
   }
 
-  private isMutationOperation(operation: Operation): boolean {
+  private isMutationOperation(operation: Operations): boolean {
     return [
       "create",
       "createMany",
@@ -285,11 +285,11 @@ export class QueryParser {
     ].includes(operation);
   }
 
-  private isUpsertOperation(operation: Operation): boolean {
+  private isUpsertOperation(operation: Operations): boolean {
     return operation === "upsert";
   }
 
-  private isAggregateOperation(operation: Operation): boolean {
+  private isAggregateOperation(operation: Operations): boolean {
     return ["count", "aggregate", "groupBy"].includes(operation);
   }
 
@@ -385,7 +385,7 @@ export class QueryParser {
         );
       }
 
-      const fieldType = field["~fieldType"];
+      const fieldType = field["~"].state.type;
       if (!fieldType) {
         throw new Error(
           `Field type missing for '${fieldName}' in model '${model.name}'`
@@ -455,7 +455,7 @@ export class QueryParser {
     model: Model<any>,
     payload: any,
     alias: string,
-    operation: Operation
+    operation: Operations
   ): Sql {
     const context = this.contextFactory.createFromPayload(
       model,
@@ -829,7 +829,7 @@ export class QueryParser {
     model: Model<any>,
     payload: any,
     alias: string,
-    operation: Operation
+    operation: Operations
   ): Sql {
     const context = this.contextFactory.createFromPayload(
       model,
@@ -990,7 +990,6 @@ export class QueryParser {
       relationMutations: this.relationMutations,
       fieldFilters: this.fieldFilters,
       fieldUpdates: this.fieldUpdates,
-      fieldValidators: this.fieldValidators,
     };
   }
 
@@ -1001,7 +1000,7 @@ export class QueryParser {
 
   public createContext(
     model: Model<any>,
-    operation: Operation,
+    operation: Operations,
     alias: string,
     options: any = {}
   ): BuilderContext {

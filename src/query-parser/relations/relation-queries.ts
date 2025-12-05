@@ -114,9 +114,9 @@ export class RelationQueryBuilder implements RelationHandler {
     parentAlias: string,
     childAlias: string
   ): any {
-    const relationType = relation["~relationType"];
-    const onField = relation["~onField"];
-    const refField = relation["~refField"];
+    const relationType = relation.config.relationType;
+    const onField = relation.config.onField;
+    const refField = relation.config.refField;
 
     // Basic foreign key relationship condition
     if (onField && refField) {
@@ -531,7 +531,7 @@ export class RelationQueryBuilder implements RelationHandler {
     parentAlias: string,
     relationFieldName: string
   ): Sql {
-    const relationType = relation["~relationType"];
+    const relationType = relation.config.relationType;
 
     // Route to specific relation type handlers
     switch (relationType) {
@@ -735,7 +735,7 @@ export class RelationQueryBuilder implements RelationHandler {
     relationFieldName: string,
     sourceModel: Model<any>
   ): Sql {
-    const relationType = relation["~relationType"];
+    const relationType = relation.config.relationType;
 
     // Route to specific relation type handlers
     switch (relationType) {
@@ -818,8 +818,8 @@ export class RelationQueryBuilder implements RelationHandler {
         targetField: targetFieldName,
         parentAlias,
         childAlias,
-        onField: relation["~onField"] || "id",
-        refField: relation["~refField"] || "id",
+        onField: relation.config.onField || "id",
+        refField: relation.config.refField || "id",
       },
     };
 

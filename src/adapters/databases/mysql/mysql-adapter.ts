@@ -321,6 +321,18 @@ export class MySQLAdapter implements DatabaseAdapter {
         sql`${this.column(ctx)} / ${value}`,
     },
 
+    decimal: {
+      set: (ctx: BuilderContext, value: number): Sql => sql`${value}`,
+      increment: (ctx: BuilderContext, value: number): Sql =>
+        sql`${this.column(ctx)} + ${value}`,
+      decrement: (ctx: BuilderContext, value: number): Sql =>
+        sql`${this.column(ctx)} - ${value}`,
+      multiply: (ctx: BuilderContext, value: number): Sql =>
+        sql`${this.column(ctx)} * ${value}`,
+      divide: (ctx: BuilderContext, value: number): Sql =>
+        sql`${this.column(ctx)} / ${value}`,
+    },
+
     boolean: {
       set: (ctx: BuilderContext, value: boolean): Sql => sql`${value}`,
     },
