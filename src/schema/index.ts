@@ -122,6 +122,7 @@ export type { Field, Getter };
 export * from "./fields";
 export * from "./model";
 export * from "./relation";
+export * from "./validation";
 
 // =============================================================================
 // TYPE INFERENCE EXPORTS

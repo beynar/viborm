@@ -26,8 +26,8 @@ export interface RelationInternals<
   readonly isToMany: boolean;
   readonly isToOne: boolean;
   readonly isOptional: TOptional;
-  readonly fields?: string | undefined;
-  readonly references?: string | undefined;
+  readonly fields?: string[] | undefined;
+  readonly references?: string[] | undefined;
   readonly onDelete?: ReferentialAction | undefined;
   readonly onUpdate?: ReferentialAction | undefined;
   // ManyToMany only
@@ -55,8 +55,8 @@ export abstract class Relation<
   T extends RelationType,
   TOptional extends boolean = false
 > {
-  protected _fields?: string;
-  protected _references?: string;
+  protected _fields?: string[];
+  protected _references?: string[];
   protected _onDelete?: ReferentialAction;
   protected _onUpdate?: ReferentialAction;
 
@@ -65,15 +65,15 @@ export abstract class Relation<
     protected readonly _relationType: T
   ) {}
 
-  /** FK field on the current model */
-  fields(fieldName: string): this {
-    this._fields = fieldName;
+  /** FK field(s) on the current model */
+  fields(...fieldNames: string[]): this {
+    this._fields = fieldNames;
     return this;
   }
 
-  /** Field on the target model being referenced */
-  references(fieldName: string): this {
-    this._references = fieldName;
+  /** Field(s) on the target model being referenced */
+  references(...fieldNames: string[]): this {
+    this._references = fieldNames;
     return this;
   }
 
@@ -135,8 +135,8 @@ export class ToOneRelation<
   /** Mark relation as optional (allows null) */
   optional(): ToOneRelation<G, T, true> {
     const rel = new ToOneRelation<G, T, true>(this._getter, this._relationType);
-    if (this._fields) rel._fields = this._fields;
-    if (this._references) rel._references = this._references;
+    if (this._fields) rel._fields = [...this._fields];
+    if (this._references) rel._references = [...this._references];
     if (this._onDelete) rel._onDelete = this._onDelete;
     if (this._onUpdate) rel._onUpdate = this._onUpdate;
     rel._optional = true;

@@ -129,26 +129,11 @@ export class Model<
     options: IndexOptions = {}
   ): this {
     const fieldArray = Array.isArray(fields) ? fields : [fields];
-
-    // Validate all fields exist
-    for (const field of fieldArray) {
-      if (!this._fields.has(String(field))) {
-        const availableFields = Array.from(this._fields.keys());
-        throw new Error(
-          `Field '${String(
-            field
-          )}' does not exist in model. Available fields: ${availableFields.join(
-            ", "
-          )}`
-        );
-      }
-    }
-
+    // Validation deferred to SchemaValidator (I001)
     this._indexes.push({
       fields: fieldArray.map(String),
       options,
     });
-
     return this;
   }
 
