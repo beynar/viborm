@@ -10,7 +10,6 @@ import {
   testUser,
   testPost,
   testProfile,
-  model,
   string,
   nullableString,
   stringWithDefault,
@@ -26,7 +25,7 @@ import {
   nullableJson,
   enumField,
   nullableEnumField,
-} from "../schema.js";
+} from "../test-models.js";
 import type {
   ModelWhereInput,
   ModelUpdateInput,

@@ -39,7 +39,7 @@ const buildOrderBySchemaInternal = <TFields extends FieldRecord>(
   const shape: Record<string, Type> = {};
   const sortOrderInput = createSortOrderInputSchema();
 
-  for (const [name] of model.fields) {
+  for (const [name] of model["~"].fieldMap) {
     shape[name + "?"] = sortOrderInput;
   }
 
@@ -54,7 +54,7 @@ const buildWhereSchemaInternal = <TFields extends FieldRecord>(
 ): Type => {
   const shape: Record<string, Type> = {};
 
-  for (const [name, field] of model.fields) {
+  for (const [name, field] of model["~"].fieldMap) {
     shape[name + "?"] = field["~"].schemas.filter;
   }
 
@@ -70,7 +70,7 @@ const buildWhereUniqueSchemaInternal = <TFields extends FieldRecord>(
   const shape: Record<string, Type> = {};
   const uniqueFieldNames: string[] = [];
 
-  for (const [name, field] of model.fields) {
+  for (const [name, field] of model["~"].fieldMap) {
     const state = field["~"].state;
     if (state.isId || state.isUnique) {
       shape[name + "?"] = field["~"].schemas.base;
@@ -109,11 +109,11 @@ const buildSelectSchemaInternal = <TFields extends FieldRecord>(
 ): Type => {
   const shape: Record<string, string> = {};
 
-  for (const [name] of model.fields) {
+  for (const [name] of model["~"].fieldMap) {
     shape[name + "?"] = "boolean";
   }
 
-  for (const [name] of model.relations) {
+  for (const [name] of model["~"].relations) {
     shape[name + "?"] = "boolean";
   }
 
@@ -128,7 +128,7 @@ const buildIncludeSchemaInternal = <TFields extends FieldRecord>(
 ): Type => {
   const shape: Record<string, string> = {};
 
-  for (const [name] of model.relations) {
+  for (const [name] of model["~"].relations) {
     shape[name + "?"] = "boolean";
   }
 
@@ -141,7 +141,7 @@ const buildIncludeSchemaInternal = <TFields extends FieldRecord>(
 const buildDistinctSchema = <TFields extends FieldRecord>(
   model: Model<TFields>
 ): Type => {
-  const fieldNames = Array.from(model.fields.keys());
+  const fieldNames = Array.from(model["~"].fieldMap.keys());
 
   if (fieldNames.length === 0) {
     return type("string[]");
@@ -163,7 +163,7 @@ const buildDistinctSchema = <TFields extends FieldRecord>(
 const buildBySchema = <TFields extends FieldRecord>(
   model: Model<TFields>
 ): Type => {
-  const fieldNames = Array.from(model.fields.keys());
+  const fieldNames = Array.from(model["~"].fieldMap.keys());
 
   if (fieldNames.length === 0) {
     return type("string").or(type("string[]"));
@@ -198,7 +198,7 @@ const buildCountAggregateSchema = <TFields extends FieldRecord>(
 ): Type => {
   const shape: Record<string, string> = { "_all?": "true" };
 
-  for (const [name] of model.fields) {
+  for (const [name] of model["~"].fieldMap) {
     shape[name + "?"] = "true";
   }
 
@@ -213,7 +213,7 @@ const buildNumericAggregateSchema = <TFields extends FieldRecord>(
 ): Type => {
   const shape: Record<string, string> = {};
 
-  for (const [name, field] of model.fields) {
+  for (const [name, field] of model["~"].fieldMap) {
     const fieldType = field["~"].state.type;
     if (["int", "float", "decimal", "bigint"].includes(fieldType)) {
       shape[name + "?"] = "true";
@@ -236,7 +236,7 @@ const buildMinMaxAggregateSchema = <TFields extends FieldRecord>(
 ): Type => {
   const shape: Record<string, string> = {};
 
-  for (const [name] of model.fields) {
+  for (const [name] of model["~"].fieldMap) {
     shape[name + "?"] = "true";
   }
 
@@ -285,7 +285,7 @@ const buildCountHavingSchema = <TFields extends FieldRecord>(
   const shape: Record<string, Type> = {};
   const aggregateFilter = buildHavingAggregateFilterSchema();
 
-  for (const [name] of model.fields) {
+  for (const [name] of model["~"].fieldMap) {
     shape[name + "?"] = aggregateFilter;
   }
   shape["_all?"] = aggregateFilter;
@@ -302,7 +302,7 @@ const buildNumericHavingSchema = <TFields extends FieldRecord>(
   const shape: Record<string, Type> = {};
   const aggregateFilter = buildHavingAggregateFilterSchema();
 
-  for (const [name, field] of model.fields) {
+  for (const [name, field] of model["~"].fieldMap) {
     const fieldType = field["~"].state.type;
     if (["int", "float", "decimal", "bigint"].includes(fieldType)) {
       shape[name + "?"] = aggregateFilter;
@@ -325,7 +325,7 @@ const buildMinMaxHavingSchema = <TFields extends FieldRecord>(
   const shape: Record<string, Type> = {};
   const aggregateFilter = buildHavingAggregateFilterSchema();
 
-  for (const [name] of model.fields) {
+  for (const [name] of model["~"].fieldMap) {
     shape[name + "?"] = aggregateFilter;
   }
 
@@ -341,7 +341,7 @@ const buildHavingSchema = <TFields extends FieldRecord>(
   const shape: Record<string, Type> = {};
 
   // Scalar field filters
-  for (const [name, field] of model.fields) {
+  for (const [name, field] of model["~"].fieldMap) {
     shape[name + "?"] = field["~"].schemas.filter;
   }
 
@@ -434,7 +434,7 @@ export const buildCountArgsSchema = <TFields extends FieldRecord>(
   const countSelectShape: Record<string, Type | string> = {
     "_all?": "boolean",
   };
-  for (const [name] of model.fields) {
+  for (const [name] of model["~"].fieldMap) {
     countSelectShape[name + "?"] = "boolean";
   }
   const countSelectSchema = type(countSelectShape);

@@ -259,7 +259,7 @@ export class QueryParser {
    * Build FROM statement - temporary implementation
    */
   private buildFromStatement(model: Model<any>, alias: string): any {
-    const tableName = model.tableName || model.name;
+    const tableName = model["~"].tableName || model.name;
     return this.adapter.identifiers.table(tableName, alias);
   }
 
@@ -295,7 +295,7 @@ export class QueryParser {
 
   // Helper method to resolve relation models (needed for validation)
   private resolveRelationModel(relation: any): Model<any> {
-    const model = relation.getter();
+    const model = relation["~"].getter();
     if (!model) {
       throw new Error("Relation model could not be resolved");
     }
@@ -375,9 +375,9 @@ export class QueryParser {
 
     for (const [fieldName, updateValue] of Object.entries(data)) {
       // Check if field exists on the model
-      const field = model.fields.get(fieldName);
+      const field = model["~"].fieldMap.get(fieldName);
       if (!field) {
-        const availableFields = Array.from(model.fields.keys());
+        const availableFields = Array.from(model["~"].fieldMap.keys());
         throw new Error(
           `Field '${fieldName}' not found on model '${
             model.name
@@ -425,7 +425,7 @@ export class QueryParser {
       } as any;
 
       // Process the update value through field update handlers
-      const field = model.fields.get(fieldName);
+      const field = model["~"].fieldMap.get(fieldName);
       if (field) {
         const updateCtx = this.contextFactory.create(model, "update", "temp", {
           field: field as any,
@@ -782,9 +782,9 @@ export class QueryParser {
     fieldName: string,
     condition: any
   ): Sql {
-    const field = model.fields.get(fieldName);
+    const field = model["~"].fieldMap.get(fieldName);
     if (!field) {
-      const availableFields = Array.from(model.fields.keys());
+      const availableFields = Array.from(model["~"].fieldMap.keys());
       throw new Error(
         `Field '${fieldName}' not found on model '${
           model.name

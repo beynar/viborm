@@ -27,7 +27,15 @@ import {
   enumField,
   vector,
 } from "./fields";
-import { Relation, relation, type Getter } from "./relation";
+import {
+  Relation,
+  relation,
+  oneToOne,
+  oneToMany,
+  manyToOne,
+  manyToMany,
+  type Getter,
+} from "./relation";
 
 // =============================================================================
 // SCHEMA BUILDER API
@@ -45,9 +53,15 @@ import { Relation, relation, type Getter } from "./relation";
  *   id: s.string().id().ulid(),
  *   name: s.string(),
  *   email: s.string().unique(),
- *   age: s.int().nullable(),
- *   posts: s.relation.oneToMany(() => post),
+ *   posts: s.oneToMany(() => post),
+ *   profile: s.oneToOne(() => profile).optional(),
  * }).map("users");
+ *
+ * const post = s.model({
+ *   id: s.string().id().ulid(),
+ *   authorId: s.string(),
+ *   author: s.manyToOne(() => user).fields("authorId").references("id"),
+ * }).map("posts");
  * ```
  */
 export const s = {
@@ -67,7 +81,13 @@ export const s = {
   enum: enumField,
   vector,
 
-  // Relation factory
+  // Relation factories (preferred)
+  oneToOne,
+  oneToMany,
+  manyToOne,
+  manyToMany,
+
+  // Legacy relation factory
   relation,
 };
 

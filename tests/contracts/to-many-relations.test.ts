@@ -27,8 +27,8 @@ const post = s.model({
 const author = s.model({
   id: s.string().id().ulid(),
   name: s.string(),
-  posts: s.relation().oneToMany(() => post),
-  tags: s.relation().manyToMany(() => tag),
+  posts: s.oneToMany(() => post),
+  tags: s.manyToMany(() => tag),
 });
 
 type AuthorFields = (typeof author)["~"]["fields"];

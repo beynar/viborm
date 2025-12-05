@@ -86,7 +86,7 @@ export class MySQLAdapter implements DatabaseAdapter {
     },
 
     create: (ctx: BuilderContext, payload: any): Sql => {
-      const tableName = ctx.model.tableName || ctx.model.name;
+      const tableName = ctx.model["~"].tableName || ctx.model.name;
       // MySQL doesn't have RETURNING, but we can simulate with SELECT
       return sql`INSERT INTO ${this.identifiers.escape(
         tableName
@@ -94,14 +94,14 @@ export class MySQLAdapter implements DatabaseAdapter {
     },
 
     createMany: (ctx: BuilderContext, payload: any): Sql => {
-      const tableName = ctx.model.tableName || ctx.model.name;
+      const tableName = ctx.model["~"].tableName || ctx.model.name;
       return sql`INSERT INTO ${this.identifiers.escape(
         tableName
       )} ${sql.spreadValues(payload.data)}`;
     },
 
     update: (ctx: BuilderContext, clauses: QueryClauses): Sql => {
-      const tableName = ctx.model.tableName || ctx.model.name;
+      const tableName = ctx.model["~"].tableName || ctx.model.name;
       const data = (ctx as any).data || {};
 
       const setClause = sql.join(
@@ -125,7 +125,7 @@ export class MySQLAdapter implements DatabaseAdapter {
     },
 
     delete: (ctx: BuilderContext, clauses: QueryClauses): Sql => {
-      const tableName = ctx.model.tableName || ctx.model.name;
+      const tableName = ctx.model["~"].tableName || ctx.model.name;
 
       const parts = [sql`DELETE FROM ${this.identifiers.escape(tableName)}`];
 
@@ -139,7 +139,7 @@ export class MySQLAdapter implements DatabaseAdapter {
     },
 
     upsert: (ctx: BuilderContext, payload: any): Sql => {
-      const tableName = ctx.model.tableName || ctx.model.name;
+      const tableName = ctx.model["~"].tableName || ctx.model.name;
 
       // MySQL ON DUPLICATE KEY UPDATE
       const updateClause = sql.join(

@@ -229,8 +229,8 @@ export class SelectClauseBuilder implements ClauseBuilder {
     for (const [fieldName, include] of Object.entries(selection)) {
       if (
         include === true &&
-        !model.fields.has(fieldName) &&
-        !model.relations.has(fieldName)
+        !model["~"].fieldMap.has(fieldName) &&
+        !model["~"].relations.has(fieldName)
       ) {
         throw new Error(
           `Field or relation '${fieldName}' not found on model '${model.name}'`
@@ -307,16 +307,16 @@ export class SelectClauseBuilder implements ClauseBuilder {
     if (select === null || select === undefined) {
       // Default: select all scalar fields (no relations by default)
       // This happens when using include (no explicit select) or when select is not specified
-      for (const [fieldName] of Array.from(model.fields)) {
+      for (const [fieldName] of Array.from(model["~"].fieldMap)) {
         fields.push(this.adapter.identifiers.column(alias, fieldName));
       }
     } else {
       // Selective fields - handle only scalar fields now (relations handled separately)
       for (const [fieldName, include] of Object.entries(select)) {
-        if (include === true && model.fields.has(fieldName)) {
+        if (include === true && model["~"].fieldMap.has(fieldName)) {
           // Scalar field selection
           fields.push(this.adapter.identifiers.column(alias, fieldName));
-        } else if (model.relations.has(fieldName)) {
+        } else if (model["~"].relations.has(fieldName)) {
           // Relations are handled in buildAllRelationSubqueries - skip here
           continue;
         } else if (include === true) {

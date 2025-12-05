@@ -133,7 +133,7 @@ export class ContextFactory {
     alias: string,
     additionalOptions: any = {}
   ): BuilderContext {
-    const field = model.fields.get(fieldName);
+    const field = model["~"].fieldMap.get(fieldName);
     if (!field) {
       throw new Error(
         `Field '${fieldName}' not found on model '${model.name}'`
@@ -160,7 +160,7 @@ export class ContextFactory {
     parentAlias?: string,
     additionalOptions: any = {}
   ): BuilderContext {
-    const relation = model.relations.get(relationName);
+    const relation = model["~"].relations.get(relationName);
     if (!relation) {
       throw new Error(
         `Relation '${relationName}' not found on model '${model.name}'`
@@ -279,7 +279,7 @@ export class ContextFactory {
 
     // Validate field exists if specified
     if (context.field && context.fieldName) {
-      if (!context.model.fields.has(context.fieldName)) {
+      if (!context.model["~"].fieldMap.has(context.fieldName)) {
         throw new Error(
           `Field '${context.fieldName}' not found on model '${context.model.name}'`
         );
@@ -289,7 +289,7 @@ export class ContextFactory {
     // Validate relation exists if specified
     if (context.relation) {
       // Basic relation validation - more detailed validation would require relation name
-      if (typeof context.relation.getter !== "function") {
+      if (typeof context.relation["~"].getter !== "function") {
         throw new Error("Invalid relation object in context");
       }
     }

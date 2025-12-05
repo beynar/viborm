@@ -1,301 +1,277 @@
 // Relation Class Implementation
-// Based on specification: readme/1.4_relation_class.md
-// Updated to support standard relational database relationship types
+// Clean class hierarchy for different relation types
 
 import { Model } from "../model";
 import { Simplify } from "../../types/utilities.js";
 
 export type Getter = () => Model<any>;
-
-// =============================================================================
-// RELATION CONFIG INTERFACE
-// =============================================================================
-
 export type RelationType =
   | "oneToOne"
   | "oneToMany"
   | "manyToOne"
   | "manyToMany";
+export type ReferentialAction = "cascade" | "setNull" | "restrict" | "noAction";
 
-export type CascadeOptions = "CASCADE" | "SET NULL" | "RESTRICT" | "NO ACTION";
+// =============================================================================
+// RELATION INTERNALS (exposed via ~)
+// =============================================================================
 
-/**
- * Configuration interface for relations
- * Using `| undefined` for exactOptionalPropertyTypes compatibility
- */
-export interface RelationConfig {
-  relationType: RelationType;
-  isOptional?: boolean | undefined;
-  onField?: string | undefined;
-  refField?: string | undefined;
-  cascadeOptions?: CascadeOptions | undefined;
-  junctionTable?: string | undefined;
-  junctionField?: string | undefined;
-}
-
-/**
- * Internal methods and computed properties for relations
- */
 export interface RelationInternals<
   G extends Getter,
   T extends RelationType,
   TOptional extends boolean = false
 > {
+  readonly getter: G;
+  readonly relationType: T;
   readonly isToMany: boolean;
   readonly isToOne: boolean;
   readonly isOptional: TOptional;
-  readonly requiresJunctionTable: boolean;
+  readonly fields?: string | undefined;
+  readonly references?: string | undefined;
+  readonly onDelete?: ReferentialAction | undefined;
+  readonly onUpdate?: ReferentialAction | undefined;
+  // ManyToMany only
+  readonly through?: string | undefined;
+  readonly throughA?: string | undefined;
+  readonly throughB?: string | undefined;
+  // Type inference
   readonly infer: G extends () => infer M
     ? M extends Model<any>
       ? T extends "oneToMany" | "manyToMany"
-        ? Simplify<M["infer"]>[]
+        ? Simplify<M["~"]["infer"]>[]
         : TOptional extends true
-        ? Simplify<M["infer"]> | null
-        : Simplify<M["infer"]>
+        ? Simplify<M["~"]["infer"]> | null
+        : Simplify<M["~"]["infer"]>
       : never
     : never;
 }
 
 // =============================================================================
-// RELATION CLASS
+// BASE RELATION (shared logic)
 // =============================================================================
 
-export class Relation<
-  G extends Getter = Getter,
-  T extends RelationType = RelationType,
+export abstract class Relation<
+  G extends Getter,
+  T extends RelationType,
   TOptional extends boolean = false
 > {
-  readonly config: RelationConfig;
-  readonly "~": RelationInternals<G, T, TOptional>;
+  protected _fields?: string;
+  protected _references?: string;
+  protected _onDelete?: ReferentialAction;
+  protected _onUpdate?: ReferentialAction;
 
   constructor(
-    public getter: G,
-    relationType: T,
-    options?: Partial<Omit<RelationConfig, "relationType">>
-  ) {
-    this.config = {
-      relationType,
-      isOptional: options?.isOptional,
-      onField: options?.onField,
-      refField: options?.refField,
-      cascadeOptions: options?.cascadeOptions,
-      junctionTable: options?.junctionTable,
-      junctionField: options?.junctionField,
-    };
+    protected readonly _getter: G,
+    protected readonly _relationType: T
+  ) {}
 
-    // Initialize internals
+  /** FK field on the current model */
+  fields(fieldName: string): this {
+    this._fields = fieldName;
+    return this;
+  }
+
+  /** Field on the target model being referenced */
+  references(fieldName: string): this {
+    this._references = fieldName;
+    return this;
+  }
+
+  /** Action when referenced row is deleted */
+  onDelete(action: ReferentialAction): this {
+    this._onDelete = action;
+    return this;
+  }
+
+  /** Action when referenced row is updated */
+  onUpdate(action: ReferentialAction): this {
+    this._onUpdate = action;
+    return this;
+  }
+
+  protected buildInternals(): RelationInternals<G, T, TOptional> {
     const self = this;
-    this["~"] = {
+    return {
+      getter: this._getter,
+      relationType: this._relationType,
       get isToMany() {
         return (
-          self.config.relationType === "oneToMany" ||
-          self.config.relationType === "manyToMany"
+          self._relationType === "oneToMany" ||
+          self._relationType === "manyToMany"
         );
       },
       get isToOne() {
         return (
-          self.config.relationType === "oneToOne" ||
-          self.config.relationType === "manyToOne"
+          self._relationType === "oneToOne" ||
+          self._relationType === "manyToOne"
         );
       },
-      get isOptional() {
-        return (self.config.isOptional ?? false) as TOptional;
-      },
-      get requiresJunctionTable() {
-        return self.config.relationType === "manyToMany";
-      },
-      get infer() {
-        return {} as any;
-      },
+      isOptional: false as TOptional,
+      fields: this._fields,
+      references: this._references,
+      onDelete: this._onDelete,
+      onUpdate: this._onUpdate,
+      through: undefined,
+      throughA: undefined,
+      throughB: undefined,
+      infer: {} as any,
     };
   }
 
-  /**
-   * Gets the target model, resolving it lazily
-   */
-  get targetModel() {
-    return this.getter();
+  abstract get "~"(): RelationInternals<G, T, TOptional>;
+}
+
+// =============================================================================
+// TO-ONE RELATIONS (oneToOne, manyToOne) - can be optional
+// =============================================================================
+
+export class ToOneRelation<
+  G extends Getter,
+  T extends "oneToOne" | "manyToOne",
+  TOptional extends boolean = false
+> extends Relation<G, T, TOptional> {
+  private _optional: boolean = false;
+
+  /** Mark relation as optional (allows null) */
+  optional(): ToOneRelation<G, T, true> {
+    const rel = new ToOneRelation<G, T, true>(this._getter, this._relationType);
+    if (this._fields) rel._fields = this._fields;
+    if (this._references) rel._references = this._references;
+    if (this._onDelete) rel._onDelete = this._onDelete;
+    if (this._onUpdate) rel._onUpdate = this._onUpdate;
+    rel._optional = true;
+    return rel;
   }
 
-  /**
-   * Marks this relation as optional
-   * Optional relations allow disconnect/delete operations
-   */
-  optional(): Relation<G, T, true> {
-    return new Relation<G, T, true>(
-      this.getter,
-      this.config.relationType as T,
-      {
-        ...this.config,
-        isOptional: true,
-      }
-    );
+  get "~"(): RelationInternals<G, T, TOptional> {
+    const base = this.buildInternals();
+    return {
+      ...base,
+      isOptional: this._optional as TOptional,
+    };
   }
 }
 
 // =============================================================================
-// RELATION OPTIONS INTERFACE (for factory functions)
+// ONE-TO-MANY RELATION - no optional, no through
 // =============================================================================
 
-export interface RelationOptions {
-  onDelete?: CascadeOptions;
-  onUpdate?: CascadeOptions;
-  onField?: string;
-  refField?: string;
-  junctionTable?: string;
-  junctionField?: string;
-}
-
-// =============================================================================
-// RELATION FACTORY WITH OPTIONS
-// =============================================================================
-
-/**
- * Relation factory that accepts options and returns relation type methods
- */
-export class RelationFactory {
-  constructor(private options?: RelationOptions) {}
-
-  /**
-   * One-to-One relationship factory
-   */
-  oneToOne<G extends Getter>(getter: G): Relation<G, "oneToOne"> {
-    return new Relation<G, "oneToOne">(getter, "oneToOne", {
-      cascadeOptions: this.options?.onDelete || this.options?.onUpdate,
-      onField: this.options?.onField,
-      refField: this.options?.refField,
-      junctionTable: this.options?.junctionTable,
-      junctionField: this.options?.junctionField,
-    });
+export class OneToManyRelation<G extends Getter> extends Relation<
+  G,
+  "oneToMany",
+  false
+> {
+  constructor(getter: G) {
+    super(getter, "oneToMany");
   }
 
-  /**
-   * One-to-Many relationship factory
-   */
-  oneToMany<G extends Getter>(getter: G): Relation<G, "oneToMany"> {
-    return new Relation<G, "oneToMany">(getter, "oneToMany", {
-      cascadeOptions: this.options?.onDelete || this.options?.onUpdate,
-      onField: this.options?.onField,
-      refField: this.options?.refField,
-      junctionTable: this.options?.junctionTable,
-      junctionField: this.options?.junctionField,
-    });
-  }
-
-  /**
-   * Many-to-One relationship factory
-   */
-  manyToOne<G extends Getter>(getter: G): Relation<G, "manyToOne"> {
-    return new Relation<G, "manyToOne">(getter, "manyToOne", {
-      cascadeOptions: this.options?.onDelete || this.options?.onUpdate,
-      onField: this.options?.onField,
-      refField: this.options?.refField,
-      junctionTable: this.options?.junctionTable,
-      junctionField: this.options?.junctionField,
-    });
-  }
-
-  /**
-   * Many-to-Many relationship factory
-   */
-  manyToMany<G extends Getter>(getter: G): Relation<G, "manyToMany"> {
-    return new Relation<G, "manyToMany">(getter, "manyToMany", {
-      cascadeOptions: this.options?.onDelete || this.options?.onUpdate,
-      onField: this.options?.onField,
-      refField: this.options?.refField,
-      junctionTable: this.options?.junctionTable,
-      junctionField: this.options?.junctionField,
-    });
+  get "~"(): RelationInternals<G, "oneToMany", false> {
+    return this.buildInternals();
   }
 }
 
-// Main relation factory function - accepts options and returns RelationFactory instance
-export function relation(options?: RelationOptions): RelationFactory {
-  return new RelationFactory(options);
+// =============================================================================
+// MANY-TO-MANY RELATION - has through, A, B
+// =============================================================================
+
+export class ManyToManyRelation<G extends Getter> extends Relation<
+  G,
+  "manyToMany",
+  false
+> {
+  private _through?: string;
+  private _throughA?: string;
+  private _throughB?: string;
+
+  constructor(getter: G) {
+    super(getter, "manyToMany");
+  }
+
+  /** Junction table name */
+  through(tableName: string): this {
+    this._through = tableName;
+    return this;
+  }
+
+  /** Junction table FK column for source model */
+  A(fieldName: string): this {
+    this._throughA = fieldName;
+    return this;
+  }
+
+  /** Junction table FK column for target model */
+  B(fieldName: string): this {
+    this._throughB = fieldName;
+    return this;
+  }
+
+  get "~"(): RelationInternals<G, "manyToMany", false> {
+    const base = this.buildInternals();
+    return {
+      ...base,
+      through: this._through,
+      throughA: this._throughA,
+      throughB: this._throughB,
+    };
+  }
 }
 
-// Attach direct methods to the relation function for convenience
-// This allows both s.relation().oneToOne() and s.relation.oneToOne()
-relation.oneToOne = <G extends Getter>(getter: G): Relation<G, "oneToOne"> => {
-  return new Relation<G, "oneToOne">(getter, "oneToOne");
-};
-
-relation.oneToMany = <G extends Getter>(
-  getter: G
-): Relation<G, "oneToMany"> => {
-  return new Relation<G, "oneToMany">(getter, "oneToMany");
-};
-
-relation.manyToOne = <G extends Getter>(
-  getter: G
-): Relation<G, "manyToOne"> => {
-  return new Relation<G, "manyToOne">(getter, "manyToOne");
-};
-
-relation.manyToMany = <G extends Getter>(
-  getter: G
-): Relation<G, "manyToMany"> => {
-  return new Relation<G, "manyToMany">(getter, "manyToMany");
-};
-
 // =============================================================================
-// LAZY EVALUATION HELPERS
+// FACTORY FUNCTIONS
 // =============================================================================
 
-/**
- * Generates a standard junction table name for Many-to-Many relations
- * Format: {model1}_{model2} (alphabetical order, lowercase, underscore-separated)
- */
+export const oneToOne = <G extends Getter>(getter: G) =>
+  new ToOneRelation<G, "oneToOne">(getter, "oneToOne");
+
+export const oneToMany = <G extends Getter>(getter: G) =>
+  new OneToManyRelation<G>(getter);
+
+export const manyToOne = <G extends Getter>(getter: G) =>
+  new ToOneRelation<G, "manyToOne">(getter, "manyToOne");
+
+export const manyToMany = <G extends Getter>(getter: G) =>
+  new ManyToManyRelation<G>(getter);
+
+// Legacy: s.relation().oneToOne() style
+export function relation() {
+  return { oneToOne, oneToMany, manyToOne, manyToMany };
+}
+
+// =============================================================================
+// HELPERS
+// =============================================================================
+
 export function generateJunctionTableName(
-  model1Name: string,
-  model2Name: string
+  model1: string,
+  model2: string
 ): string {
-  const names = [model1Name.toLowerCase(), model2Name.toLowerCase()].sort();
+  const names = [model1.toLowerCase(), model2.toLowerCase()].sort();
   return `${names[0]}_${names[1]}`;
 }
 
-/**
- * Generates a standard junction field name
- * Format: {modelName}Id (camelCase with "Id" suffix)
- */
 export function generateJunctionFieldName(modelName: string): string {
   return `${modelName.toLowerCase()}Id`;
 }
 
-/**
- * Gets the junction table name for a Many-to-Many relation
- * Uses explicitly provided junction table name
- */
 export function getJunctionTableName(
-  relation: Relation<any, any>,
+  relation: Relation<any, any, any>,
   sourceModelName: string,
   targetModelName: string
 ): string {
-  // Use explicitly provided junction table name
-  if (relation.config.junctionTable) {
-    return relation.config.junctionTable;
-  }
-
-  // Generate standard junction table name
-  return generateJunctionTableName(sourceModelName, targetModelName);
+  return (
+    relation["~"].through ||
+    generateJunctionTableName(sourceModelName, targetModelName)
+  );
 }
 
-/**
- * Gets the junction field names for a Many-to-Many relation
- * Returns [sourceFieldName, targetFieldName]
- */
 export function getJunctionFieldNames(
-  relation: Relation<any, any>,
+  relation: Relation<any, any, any>,
   sourceModelName: string,
   targetModelName: string
 ): [string, string] {
-  // Generate the default field name for the source model (linking back to the current model)
-  const sourceFieldName = generateJunctionFieldName(sourceModelName);
-
-  // Use explicitly provided junction field name for target, or generate default
-  // The junctionField in relation config refers to the field that points to the target model
+  const sourceFieldName =
+    relation["~"].throughA || generateJunctionFieldName(sourceModelName);
   const targetFieldName =
-    relation.config.junctionField || generateJunctionFieldName(targetModelName);
-
+    relation["~"].throughB || generateJunctionFieldName(targetModelName);
   return [sourceFieldName, targetFieldName];
 }

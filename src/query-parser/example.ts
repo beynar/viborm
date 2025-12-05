@@ -23,9 +23,7 @@ const user = s.model({
   age: s.int().nullable(),
   metadata: s.json().nullable(),
   role: s.enum(["ADMIN", "USER"] as const).nullable(),
-  posts: s
-    .relation({ onField: "id", refField: "authorId" })
-    .oneToMany(() => post),
+  posts: s.oneToMany(() => post),
 }).map("User");
 
 const post = s.model({
@@ -33,6 +31,7 @@ const post = s.model({
   title: s.string(),
   content: s.string(),
   authorId: s.string(),
+  author: s.manyToOne(() => user).fields("authorId").references("id"),
 }).map("Post");
 
 const client = createClient({

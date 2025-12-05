@@ -127,13 +127,10 @@ type Infer<T extends Model> = T extends Model<infer F>
   : any;
 
 const buildTypeFor_____ = <const T extends Model>(model: T) => {
-  const schema = Object.entries(model.fields).reduce((acc, [key, value]) => {
-    Object.assign(acc, {
-      [key]: value.schemas.update,
-    });
-    return acc;
-  }, {});
-  // return schema;
+  const schema: Record<string, any> = {};
+  for (const [key, field] of model["~"].fieldMap) {
+    schema[key] = field["~"].schemas.update;
+  }
   return type(schema) as unknown as BaseType<Infer<T>>;
 };
 

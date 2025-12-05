@@ -112,7 +112,7 @@ export class PostgresAdapter implements DatabaseAdapter {
     },
 
     create: (ctx: BuilderContext, payload: any): Sql => {
-      const tableName = ctx.model.tableName || ctx.model.name;
+      const tableName = ctx.model["~"].tableName || ctx.model.name;
       // PostgreSQL RETURNING clause
       return sql`INSERT INTO "${sql.raw`${tableName}`}" ${sql.spreadValues(
         payload.data
@@ -120,14 +120,14 @@ export class PostgresAdapter implements DatabaseAdapter {
     },
 
     createMany: (ctx: BuilderContext, payload: any): Sql => {
-      const tableName = ctx.model.tableName || ctx.model.name;
+      const tableName = ctx.model["~"].tableName || ctx.model.name;
       return sql`INSERT INTO "${sql.raw`${tableName}`}" ${sql.spreadValues(
         payload.data
       )} RETURNING *`;
     },
 
     update: (ctx: BuilderContext, clauses: QueryClauses): Sql => {
-      const tableName = ctx.model.tableName || ctx.model.name;
+      const tableName = ctx.model["~"].tableName || ctx.model.name;
 
       const parts = [sql`UPDATE "${sql.raw`${tableName}`}"`];
 
@@ -147,7 +147,7 @@ export class PostgresAdapter implements DatabaseAdapter {
     },
 
     updateMany: (ctx: BuilderContext, clauses: QueryClauses): Sql => {
-      const tableName = ctx.model.tableName || ctx.model.name;
+      const tableName = ctx.model["~"].tableName || ctx.model.name;
 
       const parts = [sql`UPDATE "${sql.raw`${tableName}`}"`];
 
@@ -167,7 +167,7 @@ export class PostgresAdapter implements DatabaseAdapter {
     },
 
     delete: (ctx: BuilderContext, clauses: QueryClauses): Sql => {
-      const tableName = ctx.model.tableName || ctx.model.name;
+      const tableName = ctx.model["~"].tableName || ctx.model.name;
 
       const parts = [sql`DELETE FROM "${sql.raw`${tableName}`}"`];
 
@@ -182,7 +182,7 @@ export class PostgresAdapter implements DatabaseAdapter {
     },
 
     deleteMany: (ctx: BuilderContext, clauses: QueryClauses): Sql => {
-      const tableName = ctx.model.tableName || ctx.model.name;
+      const tableName = ctx.model["~"].tableName || ctx.model.name;
 
       const parts = [sql`DELETE FROM "${sql.raw`${tableName}`}"`];
 
@@ -197,7 +197,7 @@ export class PostgresAdapter implements DatabaseAdapter {
     },
 
     upsert: (ctx: BuilderContext, payload: any): Sql => {
-      const tableName = ctx.model.tableName || ctx.model.name;
+      const tableName = ctx.model["~"].tableName || ctx.model.name;
       const where = payload.where;
       const create = payload.create;
       const update = payload.update;
@@ -687,7 +687,7 @@ export class PostgresAdapter implements DatabaseAdapter {
     aggregate: (ctx: BuilderContext, statement: Sql): Sql => {
       // Get relation type from context if available
       const relation = ctx.relation;
-      const relationType = relation ? relation.config.relationType : null;
+      const relationType = relation ? relation["~"].relationType : null;
 
       // For One-to-One and Many-to-One relations, return single object or null
       if (relationType === "oneToOne" || relationType === "manyToOne") {

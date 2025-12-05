@@ -44,14 +44,14 @@ export const buildWhereSchema = <TFields extends FieldRecord>(
   const shape: Record<string, Type | (() => Type)> = {};
 
   // Add scalar field filters
-  for (const [name, field] of model.fields) {
+  for (const [name, field] of model["~"].fieldMap) {
     shape[name + "?"] = field["~"].schemas.filter;
   }
 
   // Add relation filters with lazy evaluation to avoid circular refs
-  for (const [name, relation] of model.relations) {
-    const relationType = relation.config.relationType;
-    const getTargetModel = relation.getter;
+  for (const [name, relation] of model["~"].relations) {
+    const relationType = relation["~"].relationType;
+    const getTargetModel = relation["~"].getter;
 
     if (relationType === "oneToOne" || relationType === "manyToOne") {
       // To-one relations: explicit is/isNot filters only
@@ -98,10 +98,9 @@ export const buildWhereUniqueSchema = <TFields extends FieldRecord>(
 ): Type<ModelWhereUniqueInput<TFields>> => {
   const shape: Record<string, Type> = {};
   const uniqueFieldNames: string[] = [];
-  const compoundUniqueNames: string[] = [];
 
   // Add single-field unique constraints
-  for (const [name, field] of model.fields) {
+  for (const [name, field] of model["~"].fieldMap) {
     const state = field["~"].state;
     if (state.isId || state.isUnique) {
       shape[name + "?"] = field["~"].schemas.base;
@@ -109,30 +108,8 @@ export const buildWhereUniqueSchema = <TFields extends FieldRecord>(
     }
   }
 
-  // Add compound unique constraints
-  // E.g., @@unique([email, name]) -> { email_name?: { email: string, name: string } }
-  for (const constraint of model.uniqueConstraints) {
-    const constraintFields = constraint.fields;
-    const constraintName =
-      constraint.options.name || constraintFields.join("_");
-
-    // Build the compound unique schema
-    const compoundShape: Record<string, Type> = {};
-    for (const fieldName of constraintFields) {
-      const field = model.fields.get(fieldName);
-      if (field) {
-        compoundShape[fieldName] = field["~"].schemas.base;
-      }
-    }
-
-    if (Object.keys(compoundShape).length > 0) {
-      shape[constraintName + "?"] = type(compoundShape);
-      compoundUniqueNames.push(constraintName);
-    }
-  }
-
-  // Collect all valid unique identifiers
-  const allUniqueIdentifiers = [...uniqueFieldNames, ...compoundUniqueNames];
+  // Collect all valid unique identifiers (single-field unique constraints only)
+  const allUniqueIdentifiers = [...uniqueFieldNames];
 
   // If no unique fields or constraints defined, return simple schema
   if (allUniqueIdentifiers.length === 0) {
@@ -171,7 +148,7 @@ const buildRelationCreateSchema = (
   relation: Relation<any, any>,
   getTargetModel: () => Model<any>
 ): Type => {
-  const relationType = relation.config.relationType;
+  const relationType = relation["~"].relationType;
 
   if (relationType === "oneToOne" || relationType === "manyToOne") {
     // To-one: create, connect, connectOrCreate
@@ -216,7 +193,7 @@ export const buildCreateSchema = <TFields extends FieldRecord>(
   const shape: Record<string, Type | (() => Type)> = {};
 
   // Scalar fields - optional if hasDefault, autoGenerate, or nullable
-  for (const [name, field] of model.fields) {
+  for (const [name, field] of model["~"].fieldMap) {
     const state = field["~"].state;
     const isOptional =
       state.hasDefault || state.autoGenerate !== undefined || state.nullable;
@@ -225,8 +202,8 @@ export const buildCreateSchema = <TFields extends FieldRecord>(
   }
 
   // Relation fields (all optional in create) with lazy evaluation
-  for (const [name, relation] of model.relations) {
-    const getTargetModel = relation.getter;
+  for (const [name, relation] of model["~"].relations) {
+    const getTargetModel = relation["~"].getter;
     shape[name + "?"] = () =>
       buildRelationCreateSchema(relation, getTargetModel);
   }
@@ -250,7 +227,7 @@ export const buildCreateManySchema = <TFields extends FieldRecord>(
   const shape: Record<string, Type> = {};
 
   // Only scalar fields, no relations - optional if hasDefault, autoGenerate, or nullable
-  for (const [name, field] of model.fields) {
+  for (const [name, field] of model["~"].fieldMap) {
     const state = field["~"].state;
     const isOptional =
       state.hasDefault || state.autoGenerate !== undefined || state.nullable;
@@ -278,8 +255,8 @@ const buildRelationUpdateSchema = (
   relation: Relation<any, any>,
   getTargetModel: () => Model<any>
 ): Type => {
-  const relationType = relation.config.relationType;
-  const isOptional = relation.config.isOptional ?? false;
+  const relationType = relation["~"].relationType;
+  const isOptional = relation["~"].isOptional ?? false;
 
   if (relationType === "oneToOne" || relationType === "manyToOne") {
     // To-one: create, connect, update, upsert, (disconnect/delete if optional)
@@ -348,13 +325,13 @@ export const buildUpdateSchema = <TFields extends FieldRecord>(
   const shape: Record<string, Type | (() => Type)> = {};
 
   // Scalar fields
-  for (const [name, field] of model.fields) {
+  for (const [name, field] of model["~"].fieldMap) {
     shape[name + "?"] = field["~"].schemas.update;
   }
 
   // Relation fields (all optional in update) with lazy evaluation
-  for (const [name, relation] of model.relations) {
-    const getTargetModel = relation.getter;
+  for (const [name, relation] of model["~"].relations) {
+    const getTargetModel = relation["~"].getter;
     shape[name + "?"] = () =>
       buildRelationUpdateSchema(relation, getTargetModel);
   }
@@ -378,12 +355,12 @@ export const buildSelectSchema = <TFields extends FieldRecord>(
   const shape: Record<string, string> = {};
 
   // Scalar fields
-  for (const [name] of model.fields) {
+  for (const [name] of model["~"].fieldMap) {
     shape[name + "?"] = "boolean";
   }
 
   // Relations
-  for (const [name] of model.relations) {
+  for (const [name] of model["~"].relations) {
     shape[name + "?"] = "boolean";
   }
 
@@ -402,7 +379,7 @@ export const buildIncludeSchema = <TFields extends FieldRecord>(
 ): Type<ModelInclude<TFields>> => {
   const shape: Record<string, string> = {};
 
-  for (const [name] of model.relations) {
+  for (const [name] of model["~"].relations) {
     shape[name + "?"] = "boolean";
   }
 
@@ -429,7 +406,7 @@ export const buildOrderBySchema = <TFields extends FieldRecord>(
     })
   );
 
-  for (const [name] of model.fields) {
+  for (const [name] of model["~"].fieldMap) {
     shape[name + "?"] = sortOrderInput;
   }
 

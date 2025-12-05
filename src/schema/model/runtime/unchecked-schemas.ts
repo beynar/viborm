@@ -22,13 +22,13 @@ export const buildUncheckedCreateSchema = <TFields extends FieldRecord>(
   const shape: Record<string, Type | string> = {};
 
   // Scalar fields
-  for (const [name, field] of model.fields) {
+  for (const [name, field] of model["~"].fieldMap) {
     shape[name] = field["~"].schemas.create;
   }
 
   // FK fields from to-one relations (optional)
-  for (const [name, relation] of model.relations) {
-    const relationType = relation.config.relationType;
+  for (const [name, relation] of model["~"].relations) {
+    const relationType = relation["~"].relationType;
     if (relationType === "manyToOne" || relationType === "oneToOne") {
       shape[`${name}Id?`] = "string";
     }
@@ -48,13 +48,13 @@ export const buildUncheckedUpdateSchema = <TFields extends FieldRecord>(
   const shape: Record<string, Type | string> = {};
 
   // Scalar fields (optional)
-  for (const [name, field] of model.fields) {
+  for (const [name, field] of model["~"].fieldMap) {
     shape[name + "?"] = field["~"].schemas.update;
   }
 
   // FK fields from to-one relations (optional, nullable for disconnect)
-  for (const [name, relation] of model.relations) {
-    const relationType = relation.config.relationType;
+  for (const [name, relation] of model["~"].relations) {
+    const relationType = relation["~"].relationType;
     if (relationType === "manyToOne" || relationType === "oneToOne") {
       shape[`${name}Id?`] = type("string").or(type("null"));
     }

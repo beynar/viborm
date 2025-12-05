@@ -36,8 +36,8 @@ const user = s.model({
   email: s.string(),
   age: s.int().nullable(),
   createdAt: s.dateTime().now(),
-  profile: s.relation().oneToOne(() => profile),
-  posts: s.relation().oneToMany(() => post),
+  profile: s.oneToOne(() => profile),
+  posts: s.oneToMany(() => post),
 });
 
 type UserFields = (typeof user)["~"]["fields"];

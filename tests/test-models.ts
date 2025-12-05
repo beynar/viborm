@@ -65,9 +65,9 @@ export const testUser = s.model({
   createdAt: s.dateTime().now(),
   updatedAt: s.dateTime().now(),
   // Relations
-  posts: s.relation().oneToMany(() => testPost),
-  profile: s.relation().oneToOne(() => testProfile),
-  friends: s.relation().manyToMany(() => testUser),
+  posts: s.oneToMany(() => testPost),
+  profile: s.oneToOne(() => testProfile),
+  friends: s.manyToMany(() => testUser),
 });
 
 /**
@@ -82,7 +82,7 @@ export const testPost = s.model({
   updatedAt: s.dateTime().now(),
   authorId: s.string(),
   // Relations
-  author: s.relation().manyToOne(() => testUser),
+  author: s.manyToOne(() => testUser),
   metadata: s
     .json(
       z.object({
@@ -101,7 +101,7 @@ export const testProfile = s.model({
   avatar: s.string().nullable(),
   userId: s.string().unique(),
   // Relations
-  user: s.relation().oneToOne(() => testUser),
+  user: s.oneToOne(() => testUser),
 });
 
 // =============================================================================

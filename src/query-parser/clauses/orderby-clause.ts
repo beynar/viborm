@@ -231,8 +231,8 @@ export class OrderByClauseBuilder implements ClauseBuilder {
       return;
     }
 
-    if (!model.fields.has(fieldName)) {
-      const availableFields = Array.from(model.fields.keys());
+    if (!model["~"].fieldMap.has(fieldName)) {
+      const availableFields = Array.from(model["~"].fieldMap.keys());
       throw new Error(
         `Field '${fieldName}' not found on model '${
           model.name

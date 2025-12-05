@@ -23,19 +23,51 @@ export type ScalarSelect<T extends FieldRecord> = {
 };
 
 /**
- * Nested select value for a relation
- * Can be true (include all) or an object with nested select
+ * Nested select args for to-one relations
+ * Includes nested include for deeper relation loading
  */
-export type RelationSelectValue<TRelationFields extends FieldRecord> =
+export interface ToOneSelectArgs<TRelationFields extends FieldRecord> {
+  select?: ModelSelectNested<TRelationFields>;
+  include?: ModelIncludeNested<TRelationFields>;
+}
+
+/**
+ * Nested select args for to-many relations
+ * Includes pagination, filtering, and nested include
+ */
+export interface ToManySelectArgs<TRelationFields extends FieldRecord> {
+  select?: ModelSelectNested<TRelationFields>;
+  include?: ModelIncludeNested<TRelationFields>;
+  where?: ModelWhereInput<TRelationFields>;
+  orderBy?: ModelOrderBy<TRelationFields> | ModelOrderBy<TRelationFields>[];
+  cursor?: { [K in keyof TRelationFields]?: unknown };
+  take?: number;
+  skip?: number;
+  distinct?: ScalarFieldKeys<TRelationFields>[];
+}
+
+/**
+ * Nested select value for a relation based on relation type
+ * To-many relations include filtering options
+ */
+export type RelationSelectValue<
+  TRelationFields extends FieldRecord,
+  TRelationType extends string
+> =
   | boolean
-  | { select?: ModelSelectNested<TRelationFields> };
+  | (TRelationType extends "oneToMany" | "manyToMany"
+      ? ToManySelectArgs<TRelationFields>
+      : ToOneSelectArgs<TRelationFields>);
 
 /**
  * Full nested select type
- * Allows selecting specific fields including nested relations
+ * Allows selecting specific fields including nested relations with filtering
  */
 export type ModelSelectNested<T extends FieldRecord> = ScalarSelect<T> & {
-  [K in RelationKeys<T>]?: RelationSelectValue<GetRelationFields<T[K]>>;
+  [K in RelationKeys<T>]?: RelationSelectValue<
+    GetRelationFields<T[K]>,
+    GetRelationType<T[K]>
+  >;
 };
 
 // =============================================================================

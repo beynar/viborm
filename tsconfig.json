@@ -36,9 +36,7 @@
   },
   "include": [
     "src/**/*",
-    "tests/**/*.test.ts",
-    "tests/**/*.test-d.ts",
-    "tests/model-type-inference-d.ts"
+    "tests/**/*.ts"
   ],
   "exclude": ["dist", "node_modules"]
 }

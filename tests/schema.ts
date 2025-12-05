@@ -85,30 +85,30 @@ export const model = s.model({
   enumFieldWithDefault,
   enumFieldWithValidation,
   nullableEnumField,
-  oneToOne: s.relation().oneToOne(() => oneToOne),
-  oneToMany: s.relation().oneToMany(() => oneToMany),
-  manyToMany: s.relation().manyToMany(() => manyToMany),
-  manyToOne: s.relation().manyToOne(() => manyToOne),
+  oneToOne: s.oneToOne(() => oneToOne),
+  oneToMany: s.oneToMany(() => oneToMany),
+  manyToMany: s.manyToMany(() => manyToMany),
+  manyToOne: s.manyToOne(() => manyToOne),
 });
 
 export const oneToOne = s.model({
   id: s.string().id().ulid(),
-  test: s.relation().oneToOne(() => oneToOne),
+  test: s.oneToOne(() => oneToOne),
 });
 
 export const oneToMany = s.model({
   id: s.string().id().ulid(),
-  test: s.relation().manyToOne(() => oneToOne),
+  test: s.manyToOne(() => oneToOne),
 });
 
 export const manyToMany = s.model({
   id: s.string().id().ulid(),
-  test: s.relation().manyToMany(() => oneToOne),
+  test: s.manyToMany(() => oneToOne),
 });
 
 export const manyToOne = s.model({
   id: s.string().id().ulid(),
-  test: s.relation({}).oneToMany(() => oneToOne),
+  test: s.oneToMany(() => oneToOne),
 });
 
 // ===== TEST MODELS FOR CLIENT TESTS =====
@@ -125,9 +125,13 @@ export const testUser = s.model({
   tags: s.string().array(),
   createdAt: s.dateTime().now(),
   updatedAt: s.dateTime().now(),
-  posts: s.relation().oneToMany(() => testPost),
-  profile: s.relation().oneToOne(() => testProfile),
-  friends: s.relation().manyToMany(() => testUser),
+  posts: s.oneToMany(() => testPost),
+  profile: s.oneToOne(() => testProfile).optional(),
+  friends: s
+    .manyToMany(() => testUser)
+    .through("firends")
+    .A("user")
+    .B("friend"),
 });
 
 /**
@@ -141,7 +145,10 @@ export const testPost = s.model({
   createdAt: s.dateTime().now(),
   updatedAt: s.dateTime().now(),
   authorId: s.string(),
-  author: s.relation().manyToOne(() => testUser),
+  author: s
+    .manyToOne(() => testUser)
+    .fields("authorId")
+    .references("id"),
   metadata: s
     .json(
       z.object({
@@ -160,7 +167,7 @@ export const testProfile = s
     bio: s.string().nullable(),
     avatar: s.string().nullable(),
     userId: s.string().unique(),
-    user: s.relation().oneToOne(() => testUser),
+    user: s.oneToOne(() => testUser),
   })
   .map("Profile")
   .index(["avatar", "bio"], { name: "idx_profile_eaeaz", type: "gin" });
@@ -179,10 +186,27 @@ const client = createClient({
 
 const res = await client.model.findFirst({
   where: {
-    id: "ezlek",
+    oneToOne: {
+      is: {
+        id: "ezlek",
+        test: {
+          is: {
+            id: "ezlek",
+          },
+        },
+      },
+    },
   },
   select: {
-    json: true,
+    manyToOne: {
+      include: {
+        test: {
+          select: {
+            id: true,
+          },
+        },
+      },
+    },
   },
 });
 

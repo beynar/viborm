@@ -89,9 +89,9 @@ export class WhereClauseBuilder implements ClauseBuilder {
     condition: any,
     alias: string
   ): Sql {
-    const field = model.fields.get(fieldName);
+    const field = model["~"].fieldMap.get(fieldName);
     if (!field) {
-      const availableFields = Array.from(model.fields.keys());
+      const availableFields = Array.from(model["~"].fieldMap.keys());
       throw new Error(
         `Field '${fieldName}' not found on model '${
           model.name
@@ -147,9 +147,9 @@ export class WhereClauseBuilder implements ClauseBuilder {
     condition: any,
     alias: string
   ): Sql {
-    const relation = model.relations.get(relationName);
+    const relation = model["~"].relations.get(relationName);
     if (!relation) {
-      const availableRelations = Array.from(model.relations.keys());
+      const availableRelations = Array.from(model["~"].relations.keys());
       throw new Error(
         `Relation '${relationName}' not found on model '${
           model.name
@@ -359,11 +359,11 @@ export class WhereClauseBuilder implements ClauseBuilder {
         // Abstract conditions are valid
         continue;
       } else if (
-        !model.fields.has(fieldName) &&
-        !model.relations.has(fieldName)
+        !model["~"].fieldMap.has(fieldName) &&
+        !model["~"].relations.has(fieldName)
       ) {
-        const availableFields = Array.from(model.fields.keys());
-        const availableRelations = Array.from(model.relations.keys());
+        const availableFields = Array.from(model["~"].fieldMap.keys());
+        const availableRelations = Array.from(model["~"].relations.keys());
         const available = [...availableFields, ...availableRelations];
         throw new Error(
           `Field or relation '${fieldName}' not found on model '${
@@ -453,20 +453,20 @@ export class WhereClauseBuilder implements ClauseBuilder {
         conditions.push(
           this.handleAbstractCondition(model, fieldName, condition, alias)
         );
-      } else if (model.fields.has(fieldName)) {
+      } else if (model["~"].fieldMap.has(fieldName)) {
         // Handle field conditions
         conditions.push(
           this.buildFieldCondition(model, fieldName, condition, alias)
         );
-      } else if (model.relations.has(fieldName)) {
+      } else if (model["~"].relations.has(fieldName)) {
         // Handle relation conditions
         conditions.push(
           this.buildRelationCondition(model, fieldName, condition, alias)
         );
       } else {
         // Field/relation not found
-        const availableFields = Array.from(model.fields.keys());
-        const availableRelations = Array.from(model.relations.keys());
+        const availableFields = Array.from(model["~"].fieldMap.keys());
+        const availableRelations = Array.from(model["~"].relations.keys());
         const available = [...availableFields, ...availableRelations];
         throw new Error(
           `Field or relation '${fieldName}' not found on model '${
@@ -496,12 +496,12 @@ export class WhereClauseBuilder implements ClauseBuilder {
     const childAlias = this.parser.generateAlias();
 
     // Get relation configuration
-    const relationType = relation.config.relationType;
-    const onField = relation.config.onField;
-    const refField = relation.config.refField;
+    const relationType = relation["~"].relationType;
+    const onField = relation["~"].fields;
+    const refField = relation["~"].references;
 
     // Build the basic SELECT statement for the target table
-    const tableName = targetModel.tableName || targetModel.name;
+    const tableName = targetModel["~"].tableName || targetModel.name;
     const fromClause = this.adapter.identifiers.table(tableName, childAlias);
 
     // For EXISTS, we just need to select any field - commonly the foreign key
@@ -556,7 +556,7 @@ export class WhereClauseBuilder implements ClauseBuilder {
    * Helper method for relation model resolution
    */
   private resolveRelationModel(relation: any): any {
-    const model = relation.getter();
+    const model = relation["~"].getter();
     if (!model) {
       throw new Error("Relation model not found");
     }

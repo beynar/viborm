@@ -114,6 +114,8 @@ export type {
 // =============================================================================
 export type {
   ScalarSelect,
+  ToOneSelectArgs,
+  ToManySelectArgs,
   RelationSelectValue,
   ModelSelectNested,
   ToOneIncludeArgs,

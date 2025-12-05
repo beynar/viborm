@@ -15,7 +15,7 @@ import { ScalarFieldKeys } from "./types";
  * Only includes scalar fields, not relations
  */
 type InferModelFields<
-  TFields extends Record<string, Field | Relation<any, any>>
+  TFields extends Record<string, Field | Relation<any, any, any>>
 > = {
   [K in keyof TFields as TFields[K] extends Field
     ? K
@@ -55,36 +55,37 @@ export interface UniqueConstraintDefinition {
 // MODEL CLASS
 // =============================================================================
 
-export class Model<
-  TFields extends Record<string, Field | Relation<any, any>> = {}
-> {
-  public readonly fields: Map<string, Field> = new Map();
-  public readonly relations: Map<string, Relation<any, any>> = new Map();
-  /** The table name in the database (set via .map()) */
-  public tableName?: string;
-  public readonly indexes: IndexDefinition[] = [];
-  public readonly uniqueConstraints: UniqueConstraintDefinition[] = [];
+type ModelOptions = {
+  tableName?: string | undefined;
+  indexes?: IndexDefinition[];
+};
 
+export class Model<
+  TFields extends Record<string, Field | Relation<any, any, any>> = {}
+> {
+  // ---------------------------------------------------------------------------
+  // Private state (exposed via ~)
+  // ---------------------------------------------------------------------------
+  private _fields: Map<string, Field> = new Map();
+  private _relations: Map<string, Relation<any, any>> = new Map();
+  private _tableName: string | undefined = undefined;
+  private _indexes: IndexDefinition[] = [];
   private _schemas?: TypedModelSchemas<TFields>;
 
-  constructor(private fieldDefinitions: TFields) {
-    this.separateFieldsAndRelations(fieldDefinitions);
-  }
-
-  /**
-   * Gets the model name (for display/error messages)
-   * Returns tableName if set, otherwise "Model"
-   */
-  get name(): string {
-    return this.tableName ?? "Model";
+  constructor(private _fieldDefinitions: TFields, options?: ModelOptions) {
+    this.separateFieldsAndRelations(_fieldDefinitions);
+    if (options) {
+      this._tableName = options.tableName ?? undefined;
+      this._indexes = options.indexes ?? [];
+    }
   }
 
   private separateFieldsAndRelations(definitions: TFields): void {
     for (const [key, definition] of Object.entries(definitions)) {
       if (isField(definition)) {
-        this.fields.set(key, definition as Field);
+        this._fields.set(key, definition as Field);
       } else if (definition instanceof Relation) {
-        this.relations.set(key, definition);
+        this._relations.set(key, definition);
       } else {
         throw new Error(
           `Invalid field definition for '${key}'. Must be a Field or Relation instance.`
@@ -93,9 +94,17 @@ export class Model<
     }
   }
 
-  // ===========================================================================
-  // TABLE MAPPING
-  // ===========================================================================
+  // ---------------------------------------------------------------------------
+  // Public API
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Gets the model/table name (for display/error messages)
+   * Returns tableName if set, otherwise "Model"
+   */
+  get name(): string {
+    return this._tableName ?? "Model";
+  }
 
   /**
    * Maps the model to a specific database table name
@@ -108,13 +117,9 @@ export class Model<
     ) {
       throw new Error("Table name must be a non-empty string");
     }
-    this.tableName = tableName;
+    this._tableName = tableName;
     return this;
   }
-
-  // ===========================================================================
-  // INDEX MANAGEMENT
-  // ===========================================================================
 
   /**
    * Adds an index on the specified field(s)
@@ -127,8 +132,8 @@ export class Model<
 
     // Validate all fields exist
     for (const field of fieldArray) {
-      if (!this.fields.has(String(field))) {
-        const availableFields = Array.from(this.fields.keys());
+      if (!this._fields.has(String(field))) {
+        const availableFields = Array.from(this._fields.keys());
         throw new Error(
           `Field '${String(
             field
@@ -139,7 +144,7 @@ export class Model<
       }
     }
 
-    this.indexes.push({
+    this._indexes.push({
       fields: fieldArray.map(String),
       options,
     });
@@ -147,109 +152,51 @@ export class Model<
     return this;
   }
 
-  // ===========================================================================
-  // UNIQUE CONSTRAINTS
-  // ===========================================================================
-
-  /**
-   * Adds a unique constraint on the specified field(s)
-   */
-  unique(
-    fields: ScalarFieldKeys<TFields> | ScalarFieldKeys<TFields>[],
-    options: UniqueConstraintOptions = {}
-  ): this {
-    const fieldArray = Array.isArray(fields) ? fields : [fields];
-
-    // Validate all fields exist
-    for (const field of fieldArray) {
-      if (!this.fields.has(String(field))) {
-        const availableFields = Array.from(this.fields.keys());
-        throw new Error(
-          `Field '${String(
-            field
-          )}' does not exist in model. Available fields: ${availableFields.join(
-            ", "
-          )}`
-        );
+  extends<ETFields extends Record<string, Field | Relation<any, any, any>>>(
+    fields: ETFields
+  ): Model<TFields & ETFields> {
+    return new Model(
+      { ...this._fieldDefinitions, ...fields },
+      {
+        tableName: this._tableName,
+        indexes: this._indexes,
       }
-    }
-
-    this.uniqueConstraints.push({
-      fields: fieldArray.map(String),
-      options,
-    });
-
-    return this;
+    );
   }
 
-  // ===========================================================================
-  // SCHEMAS
-  // ===========================================================================
+  // ---------------------------------------------------------------------------
+  // Internal namespace (~)
+  // ---------------------------------------------------------------------------
 
   /**
-   * Gets all ArkType schemas for this model
-   * Lazily computed and cached
-   */
-  get schemas(): TypedModelSchemas<TFields> {
-    if (!this._schemas) {
-      this._schemas = buildModelSchemas(this);
-    }
-    return this._schemas;
-  }
-
-  // ===========================================================================
-  // TYPE INFERENCE
-  // ===========================================================================
-
-  /**
-   * Inferred TypeScript type for model records
-   * Only includes scalar fields, not relations
-   */
-  get infer(): InferModelFields<TFields> {
-    return {} as InferModelFields<TFields>;
-  }
-
-  /**
-   * Internal namespace for accessing internals
+   * Internal namespace for ORM internals
+   * Not part of the public API - may change without notice
    */
   get "~"() {
+    // Use a self reference for lazy schema access to avoid circular issues
+    const self = this;
+
     return {
-      infer: this.infer,
-      schemas: this.schemas,
-      fields: this.fieldDefinitions,
+      /** Field definitions as passed to the model constructor */
+      fields: this._fieldDefinitions,
+      /** Map of scalar field names to Field instances */
+      fieldMap: this._fields,
+      /** Map of relation names to Relation instances */
+      relations: this._relations,
+      /** Database table name (set via .map()) */
+      tableName: this._tableName,
+      /** Index definitions */
+      indexes: this._indexes,
+      /** ArkType schemas for validation (lazily computed) */
+      get schemas(): TypedModelSchemas<TFields> {
+        if (!self._schemas) {
+          self._schemas = buildModelSchemas(self);
+        }
+        return self._schemas;
+      },
+      /** Inferred TypeScript type for model records */
+      infer: {} as InferModelFields<TFields>,
     };
-  }
-
-  // ===========================================================================
-  // VALIDATION METHODS
-  // ===========================================================================
-
-  /**
-   * Validates a where input against the model's where schema
-   */
-  validateWhere(input: unknown) {
-    return this.schemas.where(input);
-  }
-
-  /**
-   * Validates a where unique input against the model's whereUnique schema
-   */
-  validateWhereUnique(input: unknown) {
-    return this.schemas.whereUnique(input);
-  }
-
-  /**
-   * Validates a create input against the model's create schema
-   */
-  validateCreate(input: unknown) {
-    return this.schemas.create(input);
-  }
-
-  /**
-   * Validates an update input against the model's update schema
-   */
-  validateUpdate(input: unknown) {
-    return this.schemas.update(input);
   }
 }
 
@@ -267,7 +214,7 @@ export class Model<
  * }).map("users");
  */
 export const model = <
-  TFields extends Record<string, Field | Relation<any, any>>
+  TFields extends Record<string, Field | Relation<any, any, any>>
 >(
   fields: TFields
 ) => new Model(fields);

@@ -114,9 +114,9 @@ export class RelationQueryBuilder implements RelationHandler {
     parentAlias: string,
     childAlias: string
   ): any {
-    const relationType = relation.config.relationType;
-    const onField = relation.config.onField;
-    const refField = relation.config.refField;
+    const relationType = relation["~"].relationType;
+    const onField = relation["~"].fields;
+    const refField = relation["~"].references;
 
     // Basic foreign key relationship condition
     if (onField && refField) {
@@ -159,9 +159,9 @@ export class RelationQueryBuilder implements RelationHandler {
     // Handle relations from select clause
     if (payload.select) {
       for (const [fieldName, value] of Object.entries(payload.select)) {
-        if (model.relations.has(fieldName)) {
+        if (model["~"].relations.has(fieldName)) {
           this.validateRelation(model, fieldName);
-          const relation = model.relations.get(fieldName)!;
+          const relation = model["~"].relations.get(fieldName)!;
           const subquery = this.buildUnifiedRelationSubqueryWithModel(
             relation,
             value,
@@ -180,7 +180,7 @@ export class RelationQueryBuilder implements RelationHandler {
         payload.include
       )) {
         this.validateRelation(model, relationName);
-        const relation = model.relations.get(relationName)!;
+        const relation = model["~"].relations.get(relationName)!;
         const subquery = this.buildUnifiedRelationSubqueryWithModel(
           relation,
           relationArgs,
@@ -476,8 +476,8 @@ export class RelationQueryBuilder implements RelationHandler {
    * Ensures the relation is properly defined
    */
   private validateRelation(model: Model<any>, relationName: string): void {
-    if (!model.relations.has(relationName)) {
-      const availableRelations = Array.from(model.relations.keys());
+    if (!model["~"].relations.has(relationName)) {
+      const availableRelations = Array.from(model["~"].relations.keys());
       throw new Error(
         `Relation '${relationName}' not found on model '${
           model.name
@@ -492,7 +492,7 @@ export class RelationQueryBuilder implements RelationHandler {
    * Gets the target model for a relation
    */
   private resolveRelationModel(relation: Relation<any, any>): Model<any> {
-    const model = relation.getter();
+    const model = relation["~"].getter();
     if (!model) {
       throw new Error("Relation model not found");
     }
@@ -531,7 +531,7 @@ export class RelationQueryBuilder implements RelationHandler {
     parentAlias: string,
     relationFieldName: string
   ): Sql {
-    const relationType = relation.config.relationType;
+    const relationType = relation["~"].relationType;
 
     // Route to specific relation type handlers
     switch (relationType) {
@@ -721,7 +721,7 @@ export class RelationQueryBuilder implements RelationHandler {
    * Build FROM statement for relation queries
    */
   private buildFromStatement(model: Model<any>, alias: string): any {
-    const tableName = model.tableName || model.name;
+    const tableName = model["~"].tableName || model.name;
     return this.adapter.identifiers.table(tableName, alias);
   }
 
@@ -735,7 +735,7 @@ export class RelationQueryBuilder implements RelationHandler {
     relationFieldName: string,
     sourceModel: Model<any>
   ): Sql {
-    const relationType = relation.config.relationType;
+    const relationType = relation["~"].relationType;
 
     // Route to specific relation type handlers
     switch (relationType) {
@@ -818,8 +818,8 @@ export class RelationQueryBuilder implements RelationHandler {
         targetField: targetFieldName,
         parentAlias,
         childAlias,
-        onField: relation.config.onField || "id",
-        refField: relation.config.refField || "id",
+        onField: relation["~"].fields || "id",
+        refField: relation["~"].references || "id",
       },
     };
 

@@ -1,8 +1,14 @@
 // Relation exports
 export {
   Relation,
-  RelationFactory,
+  ToOneRelation,
+  OneToManyRelation,
+  ManyToManyRelation,
   relation,
+  oneToOne,
+  oneToMany,
+  manyToOne,
+  manyToMany,
   generateJunctionTableName,
   generateJunctionFieldName,
   getJunctionTableName,
@@ -11,9 +17,7 @@ export {
 export type {
   Getter,
   RelationType,
-  CascadeOptions,
-  RelationConfig,
+  ReferentialAction,
   RelationInternals,
-  RelationOptions,
 } from "./relation";
 export * from "./schemas";

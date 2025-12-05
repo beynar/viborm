@@ -7,14 +7,13 @@ import type {
   ModelWhereUniqueInput,
   ModelCreateInput,
   ModelUpdateInput,
-  ModelSelect,
-  ModelInclude,
   ModelOrderBy,
   ModelCountAggregateInput,
   ModelAvgAggregateInput,
   ModelMinMaxAggregateInput,
   ModelScalarWhereWithAggregates,
 } from "./input-types";
+import type { ModelSelectNested, ModelIncludeNested } from "./select-include-types";
 
 // =============================================================================
 // QUERY OPERATION ARGS
@@ -29,8 +28,8 @@ export type ModelFindManyArgs<TFields extends FieldRecord> = {
   cursor?: ModelWhereUniqueInput<TFields>;
   take?: number;
   skip?: number;
-  select?: ModelSelect<TFields>;
-  include?: ModelInclude<TFields>;
+  select?: ModelSelectNested<TFields>;
+  include?: ModelIncludeNested<TFields>;
   distinct?: ScalarFieldKeys<TFields>[];
 };
 
@@ -45,8 +44,8 @@ export type ModelFindFirstArgs<TFields extends FieldRecord> =
  */
 export type ModelFindUniqueArgs<TFields extends FieldRecord> = {
   where: ModelWhereUniqueInput<TFields>;
-  select?: ModelSelect<TFields>;
-  include?: ModelInclude<TFields>;
+  select?: ModelSelectNested<TFields>;
+  include?: ModelIncludeNested<TFields>;
 };
 
 /**
@@ -111,8 +110,8 @@ export type ModelGroupByArgs<TFields extends FieldRecord> = {
  */
 export type ModelCreateArgs<TFields extends FieldRecord> = {
   data: ModelCreateInput<TFields>;
-  select?: ModelSelect<TFields>;
-  include?: ModelInclude<TFields>;
+  select?: ModelSelectNested<TFields>;
+  include?: ModelIncludeNested<TFields>;
 };
 
 /**
@@ -121,8 +120,8 @@ export type ModelCreateArgs<TFields extends FieldRecord> = {
 export type ModelUpdateArgs<TFields extends FieldRecord> = {
   where: ModelWhereUniqueInput<TFields>;
   data: ModelUpdateInput<TFields>;
-  select?: ModelSelect<TFields>;
-  include?: ModelInclude<TFields>;
+  select?: ModelSelectNested<TFields>;
+  include?: ModelIncludeNested<TFields>;
 };
 
 /**
@@ -138,8 +137,8 @@ export type ModelUpdateManyArgs<TFields extends FieldRecord> = {
  */
 export type ModelDeleteArgs<TFields extends FieldRecord> = {
   where: ModelWhereUniqueInput<TFields>;
-  select?: ModelSelect<TFields>;
-  include?: ModelInclude<TFields>;
+  select?: ModelSelectNested<TFields>;
+  include?: ModelIncludeNested<TFields>;
 };
 
 /**
@@ -156,7 +155,7 @@ export type ModelUpsertArgs<TFields extends FieldRecord> = {
   where: ModelWhereUniqueInput<TFields>;
   create: ModelCreateInput<TFields>;
   update: ModelUpdateInput<TFields>;
-  select?: ModelSelect<TFields>;
-  include?: ModelInclude<TFields>;
+  select?: ModelSelectNested<TFields>;
+  include?: ModelIncludeNested<TFields>;
 };
 
