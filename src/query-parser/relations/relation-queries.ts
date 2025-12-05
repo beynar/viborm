@@ -7,7 +7,7 @@ import type { QueryParser } from "../query-parser";
 import {
   getJunctionTableName,
   getJunctionFieldNames,
-} from "../../schema/fields/relation";
+} from "../../schema/relation/relation";
 
 /**
  * RelationQueryBuilder - Relation Query Generation Component

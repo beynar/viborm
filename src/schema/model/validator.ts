@@ -6,7 +6,7 @@ import {
   getSingularRelationFieldsNames,
   getPluralRelationFieldsNames,
 } from "./utils";
-import { Relation } from "@schema/fields/relation";
+import { Relation } from "@schema/relation";
 
 export const parseScalarsCreationInput = (
   model: Model,

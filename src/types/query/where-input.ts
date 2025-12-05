@@ -14,19 +14,11 @@ import type { FieldFilter } from "./filters-input.js";
 /**
  * Relation filters for different relation types
  */
-export type OneToOneRelationFilter<TRelatedModel extends Model<any>> =
+
+export type SingularRelationFilter<TRelatedModel extends Model<any>> =
   WhereInput<TRelatedModel> | null;
 
-export type ManyToOneRelationFilter<TRelatedModel extends Model<any>> =
-  WhereInput<TRelatedModel> | null;
-
-export type OneToManyRelationFilter<TRelatedModel extends Model<any>> = {
-  some?: WhereInput<TRelatedModel>;
-  every?: WhereInput<TRelatedModel>;
-  none?: WhereInput<TRelatedModel>;
-};
-
-export type ManyToManyRelationFilter<TRelatedModel extends Model<any>> = {
+export type PluralRelationFilter<TRelatedModel extends Model<any>> = {
   some?: WhereInput<TRelatedModel>;
   every?: WhereInput<TRelatedModel>;
   none?: WhereInput<TRelatedModel>;
@@ -50,21 +42,17 @@ export type WhereInput<TModel extends Model<any>> = ScalarWhereInput<TModel> & {
   [K in RelationNames<TModel>]?: K extends keyof ModelRelations<TModel>
     ? ModelRelations<TModel>[K] extends Relation<any, infer TRelationType>
       ? TRelationType extends "oneToOne"
-        ? OneToOneRelationFilter<
+        ? SingularRelationFilter<
             ExtractRelationModel<ModelRelations<TModel>[K]>
           >
         : TRelationType extends "manyToOne"
-        ? ManyToOneRelationFilter<
+        ? SingularRelationFilter<
             ExtractRelationModel<ModelRelations<TModel>[K]>
           >
         : TRelationType extends "oneToMany"
-        ? OneToManyRelationFilter<
-            ExtractRelationModel<ModelRelations<TModel>[K]>
-          >
+        ? PluralRelationFilter<ExtractRelationModel<ModelRelations<TModel>[K]>>
         : TRelationType extends "manyToMany"
-        ? ManyToManyRelationFilter<
-            ExtractRelationModel<ModelRelations<TModel>[K]>
-          >
+        ? PluralRelationFilter<ExtractRelationModel<ModelRelations<TModel>[K]>>
         : never
       : never
     : never;

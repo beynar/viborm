@@ -26,4 +26,4 @@ export type Field<T = any> =
 
 export * from "./types.js";
 export * from "./validators";
-export * from "./relation";
+export * from "../relation/relation.js";

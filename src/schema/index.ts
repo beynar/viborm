@@ -22,7 +22,7 @@ import { datetime } from "./fields/datetime.js";
 import { json } from "./fields/json.js";
 import { blob } from "./fields/blob.js";
 import { enumField } from "./fields/enum.js";
-import { Getter, relation, Relation } from "./fields/relation.js";
+import { Getter, relation, Relation } from "./relation/relation.js";
 
 // Export the main schema builder instance
 export const s = {
