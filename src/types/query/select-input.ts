@@ -1,7 +1,7 @@
 // Selection Input Types
 // Type-safe field selection interfaces for VibORM queries
 
-import type { Model, BaseField, Relation } from "@schema";
+import type { Model, Field, Relation } from "@schema";
 import type {
   FieldNames,
   RelationNames,
@@ -144,7 +144,7 @@ export type InferSelectResult<
       ? K
       : never]: K extends FieldNames<TModel>
       ? K extends keyof ModelFields<TModel>
-        ? ModelFields<TModel>[K] extends BaseField<any>
+        ? ModelFields<TModel>[K] extends Field
           ? MapFieldType<ModelFields<TModel>[K]>
           : never
         : never
@@ -175,7 +175,7 @@ export type InferIncludeResult<
 > = {
   // All scalar fields are included by default
   [K in FieldNames<TModel>]: K extends keyof ModelFields<TModel>
-    ? ModelFields<TModel>[K] extends BaseField<any>
+    ? ModelFields<TModel>[K] extends Field
       ? MapFieldType<ModelFields<TModel>[K]>
       : never
     : never;
@@ -256,7 +256,7 @@ export type WrapRelationResult<
  */
 export type InferDefaultSelectResult<TModel extends Model<any>> = {
   [K in FieldNames<TModel>]: K extends keyof ModelFields<TModel>
-    ? ModelFields<TModel>[K] extends BaseField<any>
+    ? ModelFields<TModel>[K] extends Field
       ? MapFieldType<ModelFields<TModel>[K]>
       : never
     : never;

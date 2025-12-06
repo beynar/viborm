@@ -17,7 +17,7 @@ import type {
  * Builds an unchecked create schema (FK-based, no nested relations)
  */
 export const buildUncheckedCreateSchema = <TFields extends FieldRecord>(
-  model: Model<TFields>
+  model: Model<any>
 ): Type<ModelUncheckedCreateInput<TFields>> => {
   const shape: Record<string, Type | string> = {};
 
@@ -43,7 +43,7 @@ export const buildUncheckedCreateSchema = <TFields extends FieldRecord>(
  * Builds an unchecked update schema (FK-based, no nested relations)
  */
 export const buildUncheckedUpdateSchema = <TFields extends FieldRecord>(
-  model: Model<TFields>
+  model: Model<any>
 ): Type<ModelUncheckedUpdateInput<TFields>> => {
   const shape: Record<string, Type | string> = {};
 
@@ -64,4 +64,5 @@ export const buildUncheckedUpdateSchema = <TFields extends FieldRecord>(
     ModelUncheckedUpdateInput<TFields>
   >;
 };
+
 

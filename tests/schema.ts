@@ -170,7 +170,9 @@ export const testProfile = s
     user: s.oneToOne(() => testUser),
   })
   .map("Profile")
-  .index(["avatar", "bio"], { name: "idx_profile_eaeaz", type: "gin" });
+  .index(["avatar", "bio"], { name: "idx_profile_eaeaz", type: "gin" })
+  .id(["avatar", "bio"])
+  .unique(["avatar", "bio"], { name: "ezl" });
 
 export const schema = {
   user: testUser,
@@ -182,6 +184,36 @@ export const schema = {
 const client = createClient({
   schema,
   adapter: {} as any,
+});
+
+// Test WhereUnique with different identifier types
+
+// 1. Single-field ID
+client.profile.findUnique({
+  where: {
+    id: "test-id",
+  },
+});
+
+// 2. Single-field unique
+client.profile.findUnique({
+  where: {
+    userId: "user-123",
+  },
+});
+
+// 3. Compound ID (auto-generated name from fields: avatar_bio)
+client.profile.findUnique({
+  where: {
+    avatar_bio: { avatar: "avatar.jpg", bio: "My bio" },
+  },
+});
+
+// 4. Compound unique with custom name
+client.profile.findUnique({
+  where: {
+    ezl: { avatar: "avatar.jpg", bio: "My bio" },
+  },
 });
 
 const res = await client.model.findFirst({

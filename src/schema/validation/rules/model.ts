@@ -234,21 +234,27 @@ export function validateFieldsSinglePass(
     }
   }
 
-  // M001: No ID field
-  if (idCount === 0) {
+  // Check for compound ID
+  const hasCompoundId =
+    model["~"].compoundId !== undefined &&
+    model["~"].compoundId.fields &&
+    model["~"].compoundId.fields.length > 0;
+
+  // M001: No ID field (allow if compound ID exists)
+  if (idCount === 0 && !hasCompoundId) {
     errors.push({
       code: "M001",
-      message: `'${name}' must have an ID field`,
+      message: `'${name}' must have an ID field (or use .id() for compound key)`,
       severity: "error",
       model: name,
     });
   }
 
-  // F002: Multiple IDs
-  if (idCount > 1) {
+  // F002: Multiple single-field IDs (not allowed if compound ID exists either)
+  if (idCount > 1 || (idCount > 0 && hasCompoundId)) {
     errors.push({
       code: "F002",
-      message: `'${name}' has ${idCount} ID fields (max 1)`,
+      message: `'${name}' has conflicting ID definitions (use either single field .id() or model .id())`,
       severity: "error",
       model: name,
     });
@@ -325,16 +331,51 @@ export function indexNameUnique(
   return errors;
 }
 
-/** I003: Unique constraint fields must exist (via .unique() on field) */
-export function uniqueFieldsExist(
+/** I003: Compound unique/id fields must exist */
+export function compoundFieldsExist(
   _s: Schema,
   name: string,
   model: Model<any>
 ): ValidationError[] {
-  // Fields with .unique() are already validated to exist (they're in fieldMap)
-  // This rule checks that unique constraints reference valid fields
-  // Since we use field-level .unique(), this is always satisfied
-  return [];
+  const errors: ValidationError[] = [];
+  const fields = new Set(model["~"].fieldMap.keys());
+
+  // Check compound ID fields (now uses CompoundConstraint with fields property)
+  const compoundId = model["~"].compoundId;
+  if (compoundId && compoundId.fields) {
+    for (const f of compoundId.fields) {
+      if (!fields.has(f)) {
+        errors.push({
+          code: "I003",
+          message: `Compound ID field '${f}' not in '${name}'`,
+          severity: "error",
+          model: name,
+          field: f,
+        });
+      }
+    }
+  }
+
+  // Check compound unique fields (now uses CompoundConstraint with fields property)
+  const compoundUniques = model["~"].compoundUniques;
+  if (compoundUniques) {
+    for (const constraint of compoundUniques) {
+      if (!constraint.fields) continue;
+      for (const f of constraint.fields) {
+        if (!fields.has(f)) {
+          errors.push({
+            code: "I003",
+            message: `Compound unique field '${f}' not in '${name}'`,
+            severity: "error",
+            model: name,
+            field: f,
+          });
+        }
+      }
+    }
+  }
+
+  return errors;
 }
 
 export const modelRules = [
@@ -348,5 +389,6 @@ export const modelRules = [
   // Index checks (iterate indexes, not fields)
   indexFieldsExist,
   indexNameUnique,
-  uniqueFieldsExist,
+  // Compound key checks
+  compoundFieldsExist,
 ];

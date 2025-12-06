@@ -1,18 +1,10 @@
 // Args Schema Builders
 // Builds runtime ArkType schemas for query operation arguments
+// Note: Exported functions use Type without generic since these are runtime schemas
 
 import { type, Type } from "arktype";
 import type { Model } from "../model";
-import type {
-  FieldRecord,
-  ModelFindManyArgs,
-  ModelFindFirstArgs,
-  ModelFindUniqueArgs,
-  ModelCountArgs,
-  ModelExistArgs,
-  ModelAggregateArgs,
-  ModelGroupByArgs,
-} from "../types";
+import type { FieldRecord } from "../types";
 
 // =============================================================================
 // INTERNAL SCHEMA HELPERS
@@ -33,9 +25,7 @@ const createSortOrderInputSchema = () =>
 /**
  * Builds an orderBy schema from model fields
  */
-const buildOrderBySchemaInternal = <TFields extends FieldRecord>(
-  model: Model<TFields>
-): Type => {
+const buildOrderBySchemaInternal = (model: Model<any>): Type => {
   const shape: Record<string, Type> = {};
   const sortOrderInput = createSortOrderInputSchema();
 
@@ -49,9 +39,7 @@ const buildOrderBySchemaInternal = <TFields extends FieldRecord>(
 /**
  * Builds a where schema from model fields (simplified for operation args)
  */
-const buildWhereSchemaInternal = <TFields extends FieldRecord>(
-  model: Model<TFields>
-): Type => {
+const buildWhereSchemaInternal = (model: Model<any>): Type => {
   const shape: Record<string, Type> = {};
 
   for (const [name, field] of model["~"].fieldMap) {
@@ -62,14 +50,21 @@ const buildWhereSchemaInternal = <TFields extends FieldRecord>(
 };
 
 /**
- * Builds a whereUnique schema from model fields
+ * Generates compound key name from field names (e.g., ["email", "orgId"] -> "email_orgId")
  */
-const buildWhereUniqueSchemaInternal = <TFields extends FieldRecord>(
-  model: Model<TFields>
-): Type => {
+const generateCompoundKeyName = (fields: readonly string[]): string =>
+  fields.join("_");
+
+/**
+ * Builds a whereUnique schema from model fields
+ * Includes single-field unique constraints AND compound ID/unique constraints
+ */
+const buildWhereUniqueSchemaInternal = (model: Model<any>): Type => {
   const shape: Record<string, Type> = {};
   const uniqueFieldNames: string[] = [];
+  const compoundKeyNames: string[] = [];
 
+  // Add single-field unique constraints
   for (const [name, field] of model["~"].fieldMap) {
     const state = field["~"].state;
     if (state.isId || state.isUnique) {
@@ -78,14 +73,53 @@ const buildWhereUniqueSchemaInternal = <TFields extends FieldRecord>(
     }
   }
 
-  if (uniqueFieldNames.length === 0) {
+  // Add compound ID (uses custom name if provided)
+  const compoundId = model["~"].compoundId;
+  if (compoundId && compoundId.fields && compoundId.fields.length > 0) {
+    const keyName = compoundId.name ?? generateCompoundKeyName(compoundId.fields);
+    compoundKeyNames.push(keyName);
+
+    const compoundShape: Record<string, Type> = {};
+    for (const fieldName of compoundId.fields) {
+      const field = model["~"].fieldMap.get(fieldName);
+      if (field) {
+        compoundShape[fieldName] = field["~"].schemas.base;
+      }
+    }
+    shape[keyName + "?"] = type(compoundShape);
+  }
+
+  // Add compound uniques (uses custom name if provided)
+  const compoundUniques = model["~"].compoundUniques;
+  if (compoundUniques && compoundUniques.length > 0) {
+    for (const constraint of compoundUniques) {
+      if (!constraint.fields || constraint.fields.length === 0) continue;
+
+      const keyName = constraint.name ?? generateCompoundKeyName(constraint.fields);
+      if (compoundKeyNames.includes(keyName)) continue;
+      compoundKeyNames.push(keyName);
+
+      const compoundShape: Record<string, Type> = {};
+      for (const fieldName of constraint.fields) {
+        const field = model["~"].fieldMap.get(fieldName);
+        if (field) {
+          compoundShape[fieldName] = field["~"].schemas.base;
+        }
+      }
+      shape[keyName + "?"] = type(compoundShape);
+    }
+  }
+
+  const allUniqueIdentifiers = [...uniqueFieldNames, ...compoundKeyNames];
+
+  if (allUniqueIdentifiers.length === 0) {
     return type(shape);
   }
 
-  // Add runtime validation: at least one unique field must be provided
+  // Add runtime validation: at least one unique field/constraint must be provided
   const baseSchema = type(shape);
   return baseSchema.narrow((data, ctx) => {
-    const hasUniqueField = uniqueFieldNames.some(
+    const hasUniqueField = allUniqueIdentifiers.some(
       (name) =>
         data &&
         typeof data === "object" &&
@@ -94,7 +128,7 @@ const buildWhereUniqueSchemaInternal = <TFields extends FieldRecord>(
     );
     if (!hasUniqueField) {
       return ctx.mustBe(
-        `an object with at least one of: ${uniqueFieldNames.join(", ")}`
+        `an object with at least one of: ${allUniqueIdentifiers.join(", ")}`
       );
     }
     return true;
@@ -104,8 +138,8 @@ const buildWhereUniqueSchemaInternal = <TFields extends FieldRecord>(
 /**
  * Builds a select schema from model fields
  */
-const buildSelectSchemaInternal = <TFields extends FieldRecord>(
-  model: Model<TFields>
+const buildSelectSchemaInternal = <TFields extends FieldRecord = FieldRecord>(
+  model: Model<any>
 ): Type => {
   const shape: Record<string, string> = {};
 
@@ -123,8 +157,8 @@ const buildSelectSchemaInternal = <TFields extends FieldRecord>(
 /**
  * Builds an include schema for relations
  */
-const buildIncludeSchemaInternal = <TFields extends FieldRecord>(
-  model: Model<TFields>
+const buildIncludeSchemaInternal = <TFields extends FieldRecord = FieldRecord>(
+  model: Model<any>
 ): Type => {
   const shape: Record<string, string> = {};
 
@@ -138,8 +172,8 @@ const buildIncludeSchemaInternal = <TFields extends FieldRecord>(
 /**
  * Creates a distinct schema for field name array
  */
-const buildDistinctSchema = <TFields extends FieldRecord>(
-  model: Model<TFields>
+const buildDistinctSchema = <TFields extends FieldRecord = FieldRecord>(
+  model: Model<any>
 ): Type => {
   const fieldNames = Array.from(model["~"].fieldMap.keys());
 
@@ -160,8 +194,8 @@ const buildDistinctSchema = <TFields extends FieldRecord>(
 /**
  * Creates a "by" schema for groupBy (single field or array of fields)
  */
-const buildBySchema = <TFields extends FieldRecord>(
-  model: Model<TFields>
+const buildBySchema = <TFields extends FieldRecord = FieldRecord>(
+  model: Model<any>
 ): Type => {
   const fieldNames = Array.from(model["~"].fieldMap.keys());
 
@@ -193,8 +227,8 @@ const buildBySchema = <TFields extends FieldRecord>(
  * Builds a count aggregate input schema
  * Accepts: true | { fieldName?: true, _all?: true }
  */
-const buildCountAggregateSchema = <TFields extends FieldRecord>(
-  model: Model<TFields>
+const buildCountAggregateSchema = <TFields extends FieldRecord = FieldRecord>(
+  model: Model<any>
 ): Type => {
   const shape: Record<string, string> = { "_all?": "true" };
 
@@ -208,8 +242,8 @@ const buildCountAggregateSchema = <TFields extends FieldRecord>(
 /**
  * Builds an avg/sum aggregate input schema (only numeric fields)
  */
-const buildNumericAggregateSchema = <TFields extends FieldRecord>(
-  model: Model<TFields>
+const buildNumericAggregateSchema = <TFields extends FieldRecord = FieldRecord>(
+  model: Model<any>
 ): Type => {
   const shape: Record<string, string> = {};
 
@@ -231,8 +265,8 @@ const buildNumericAggregateSchema = <TFields extends FieldRecord>(
 /**
  * Builds a min/max aggregate input schema (all comparable fields)
  */
-const buildMinMaxAggregateSchema = <TFields extends FieldRecord>(
-  model: Model<TFields>
+const buildMinMaxAggregateSchema = <TFields extends FieldRecord = FieldRecord>(
+  model: Model<any>
 ): Type => {
   const shape: Record<string, string> = {};
 
@@ -279,8 +313,8 @@ const buildHavingAggregateFilterSchema = (): Type => {
  * Builds a count having schema for having clause
  * Allows filtering on count aggregates: { id: { gt: 5 }, _all: { gte: 10 } }
  */
-const buildCountHavingSchema = <TFields extends FieldRecord>(
-  model: Model<TFields>
+const buildCountHavingSchema = <TFields extends FieldRecord = FieldRecord>(
+  model: Model<any>
 ): Type => {
   const shape: Record<string, Type> = {};
   const aggregateFilter = buildHavingAggregateFilterSchema();
@@ -296,8 +330,8 @@ const buildCountHavingSchema = <TFields extends FieldRecord>(
 /**
  * Builds a numeric having schema for having clause (_avg, _sum)
  */
-const buildNumericHavingSchema = <TFields extends FieldRecord>(
-  model: Model<TFields>
+const buildNumericHavingSchema = <TFields extends FieldRecord = FieldRecord>(
+  model: Model<any>
 ): Type => {
   const shape: Record<string, Type> = {};
   const aggregateFilter = buildHavingAggregateFilterSchema();
@@ -319,8 +353,8 @@ const buildNumericHavingSchema = <TFields extends FieldRecord>(
 /**
  * Builds a min/max having schema for having clause
  */
-const buildMinMaxHavingSchema = <TFields extends FieldRecord>(
-  model: Model<TFields>
+const buildMinMaxHavingSchema = <TFields extends FieldRecord = FieldRecord>(
+  model: Model<any>
 ): Type => {
   const shape: Record<string, Type> = {};
   const aggregateFilter = buildHavingAggregateFilterSchema();
@@ -335,8 +369,8 @@ const buildMinMaxHavingSchema = <TFields extends FieldRecord>(
 /**
  * Builds a full having schema with scalar filters + aggregate filters
  */
-const buildHavingSchema = <TFields extends FieldRecord>(
-  model: Model<TFields>
+const buildHavingSchema = <TFields extends FieldRecord = FieldRecord>(
+  model: Model<any>
 ): Type => {
   const shape: Record<string, Type> = {};
 
@@ -362,9 +396,7 @@ const buildHavingSchema = <TFields extends FieldRecord>(
 /**
  * Builds a findMany args schema with full runtime validation
  */
-export const buildFindManyArgsSchema = <TFields extends FieldRecord>(
-  model: Model<TFields>
-): Type<ModelFindManyArgs<TFields>> => {
+export const buildFindManyArgsSchema = (model: Model<any>): Type => {
   const whereSchema = buildWhereSchemaInternal(model);
   const orderBySchema = buildOrderBySchemaInternal(model);
   const cursorSchema = buildWhereUniqueSchemaInternal(model);
@@ -372,7 +404,6 @@ export const buildFindManyArgsSchema = <TFields extends FieldRecord>(
   const includeSchema = buildIncludeSchemaInternal(model);
   const distinctSchema = buildDistinctSchema(model);
 
-  // Build shape with all optional fields
   const shape: Record<string, Type | string> = {
     "where?": whereSchema,
     "orderBy?": orderBySchema.or(orderBySchema.array()),
@@ -384,28 +415,20 @@ export const buildFindManyArgsSchema = <TFields extends FieldRecord>(
     "distinct?": distinctSchema,
   };
 
-  return type(shape as Record<string, Type>) as unknown as Type<
-    ModelFindManyArgs<TFields>
-  >;
+  return type(shape as Record<string, Type>);
 };
 
 /**
  * Builds a findFirst args schema (same as findMany)
  */
-export const buildFindFirstArgsSchema = <TFields extends FieldRecord>(
-  model: Model<TFields>
-): Type<ModelFindFirstArgs<TFields>> => {
-  return buildFindManyArgsSchema(model) as unknown as Type<
-    ModelFindFirstArgs<TFields>
-  >;
+export const buildFindFirstArgsSchema = (model: Model<any>): Type => {
+  return buildFindManyArgsSchema(model);
 };
 
 /**
  * Builds a findUnique args schema with full runtime validation
  */
-export const buildFindUniqueArgsSchema = <TFields extends FieldRecord>(
-  model: Model<TFields>
-): Type<ModelFindUniqueArgs<TFields>> => {
+export const buildFindUniqueArgsSchema = (model: Model<any>): Type => {
   const whereUniqueSchema = buildWhereUniqueSchemaInternal(model);
   const selectSchema = buildSelectSchemaInternal(model);
   const includeSchema = buildIncludeSchemaInternal(model);
@@ -416,16 +439,14 @@ export const buildFindUniqueArgsSchema = <TFields extends FieldRecord>(
     "include?": includeSchema,
   };
 
-  return type(shape) as unknown as Type<ModelFindUniqueArgs<TFields>>;
+  return type(shape);
 };
 
 /**
  * Builds a count args schema - like Prisma's count operation
  * Supports where, cursor, take, skip, orderBy, and select for field-specific counts
  */
-export const buildCountArgsSchema = <TFields extends FieldRecord>(
-  model: Model<TFields>
-): Type<ModelCountArgs<TFields>> => {
+export const buildCountArgsSchema = (model: Model<any>): Type => {
   const whereSchema = buildWhereSchemaInternal(model);
   const whereUniqueSchema = buildWhereUniqueSchemaInternal(model);
   const orderBySchema = buildOrderBySchemaInternal(model);
@@ -448,31 +469,27 @@ export const buildCountArgsSchema = <TFields extends FieldRecord>(
     "select?": countSelectSchema,
   };
 
-  return type(shape) as unknown as Type<ModelCountArgs<TFields>>;
+  return type(shape);
 };
 
 /**
  * Builds an exist args schema - lightweight check if records exist
  * Returns boolean instead of count for efficiency
  */
-export const buildExistArgsSchema = <TFields extends FieldRecord>(
-  model: Model<TFields>
-): Type<ModelExistArgs<TFields>> => {
+export const buildExistArgsSchema = (model: Model<any>): Type => {
   const whereSchema = buildWhereSchemaInternal(model);
 
   const shape: Record<string, Type> = {
     "where?": whereSchema,
   };
 
-  return type(shape) as unknown as Type<ModelExistArgs<TFields>>;
+  return type(shape);
 };
 
 /**
  * Builds an aggregate args schema with full runtime validation
  */
-export const buildAggregateArgsSchema = <TFields extends FieldRecord>(
-  model: Model<TFields>
-): Type<ModelAggregateArgs<TFields>> => {
+export const buildAggregateArgsSchema = (model: Model<any>): Type => {
   const whereSchema = buildWhereSchemaInternal(model);
   const orderBySchema = buildOrderBySchemaInternal(model);
   const cursorSchema = buildWhereUniqueSchemaInternal(model);
@@ -493,17 +510,13 @@ export const buildAggregateArgsSchema = <TFields extends FieldRecord>(
     "_max?": minMaxSchema,
   };
 
-  return type(shape as Record<string, Type>) as unknown as Type<
-    ModelAggregateArgs<TFields>
-  >;
+  return type(shape as Record<string, Type>);
 };
 
 /**
  * Builds a groupBy args schema with full runtime validation
  */
-export const buildGroupByArgsSchema = <TFields extends FieldRecord>(
-  model: Model<TFields>
-): Type<ModelGroupByArgs<TFields>> => {
+export const buildGroupByArgsSchema = (model: Model<any>): Type => {
   const whereSchema = buildWhereSchemaInternal(model);
   const orderBySchema = buildOrderBySchemaInternal(model);
   const bySchema = buildBySchema(model);
@@ -528,8 +541,7 @@ export const buildGroupByArgsSchema = <TFields extends FieldRecord>(
     "_max?": minMaxSchema,
   };
 
-  return type(shape as Record<string, Type>) as unknown as Type<
-    ModelGroupByArgs<TFields>
-  >;
+  return type(shape as Record<string, Type>);
 };
+
 

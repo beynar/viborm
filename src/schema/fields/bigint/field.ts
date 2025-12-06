@@ -8,6 +8,7 @@ import {
   type DefaultValue,
   createDefaultState,
 } from "../common";
+import type { NativeType } from "../native-types";
 import * as schemas from "./schemas";
 
 // =============================================================================
@@ -61,7 +62,10 @@ type BigIntFieldSchemas<State extends FieldState<"bigint">> = {
 // =============================================================================
 
 export class BigIntField<State extends FieldState<"bigint">> {
-  constructor(private state: State) {}
+  constructor(
+    private state: State,
+    private _nativeType?: NativeType
+  ) {}
 
   // ===========================================================================
   // CHAINABLE MODIFIERS
@@ -181,6 +185,7 @@ export class BigIntField<State extends FieldState<"bigint">> {
     return {
       state: this.state,
       schemas: this.schemas,
+      nativeType: this._nativeType,
     };
   }
 }
@@ -189,4 +194,5 @@ export class BigIntField<State extends FieldState<"bigint">> {
 // FACTORY FUNCTION
 // =============================================================================
 
-export const bigInt = () => new BigIntField(createDefaultState("bigint"));
+export const bigInt = (nativeType?: NativeType) =>
+  new BigIntField(createDefaultState("bigint"), nativeType);

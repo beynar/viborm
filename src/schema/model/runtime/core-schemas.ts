@@ -33,7 +33,7 @@ const whereSchemaCache = new WeakMap<Model<any>, Type>();
  * Uses caching to prevent circular reference issues with self-referential models
  */
 export const buildWhereSchema = <TFields extends FieldRecord>(
-  model: Model<TFields>
+  model: Model<any>
 ): Type<ModelWhereInput<TFields>> => {
   // Check cache first to prevent circular references
   const cached = whereSchemaCache.get(model);
@@ -89,15 +89,22 @@ export const buildWhereSchema = <TFields extends FieldRecord>(
 // =============================================================================
 
 /**
+ * Generates compound key name from field names (e.g., ["email", "orgId"] -> "email_orgId")
+ */
+const generateCompoundKeyName = (fields: readonly string[]): string =>
+  fields.join("_");
+
+/**
  * Builds a where unique schema from model fields
- * Only includes fields marked as id or unique, plus compound unique constraints
+ * Includes single-field unique constraints AND compound ID/unique constraints
  * Validates at runtime that at least one unique field/constraint is provided
  */
 export const buildWhereUniqueSchema = <TFields extends FieldRecord>(
-  model: Model<TFields>
+  model: Model<any>
 ): Type<ModelWhereUniqueInput<TFields>> => {
   const shape: Record<string, Type> = {};
   const uniqueFieldNames: string[] = [];
+  const compoundKeyNames: string[] = [];
 
   // Add single-field unique constraints
   for (const [name, field] of model["~"].fieldMap) {
@@ -108,8 +115,50 @@ export const buildWhereUniqueSchema = <TFields extends FieldRecord>(
     }
   }
 
-  // Collect all valid unique identifiers (single-field unique constraints only)
-  const allUniqueIdentifiers = [...uniqueFieldNames];
+  // Add compound ID (e.g., .id(["email", "orgId"], { name: "myKey" }) -> { myKey: { email, orgId } })
+  const compoundId = model["~"].compoundId;
+  if (compoundId && compoundId.fields && compoundId.fields.length > 0) {
+    // Use custom name if provided, otherwise generate from field names
+    const keyName = compoundId.name ?? generateCompoundKeyName(compoundId.fields);
+    compoundKeyNames.push(keyName);
+
+    // Build the compound key object schema
+    const compoundShape: Record<string, Type> = {};
+    for (const fieldName of compoundId.fields) {
+      const field = model["~"].fieldMap.get(fieldName);
+      if (field) {
+        compoundShape[fieldName] = field["~"].schemas.base;
+      }
+    }
+    shape[keyName + "?"] = type(compoundShape);
+  }
+
+  // Add compound uniques (e.g., .unique(["email", "orgId"], { name: "myUnique" }) -> { myUnique: { email, orgId } })
+  const compoundUniques = model["~"].compoundUniques;
+  if (compoundUniques && compoundUniques.length > 0) {
+    for (const constraint of compoundUniques) {
+      if (!constraint.fields || constraint.fields.length === 0) continue;
+
+      // Use custom name if provided, otherwise generate from field names
+      const keyName = constraint.name ?? generateCompoundKeyName(constraint.fields);
+      // Skip if this compound key was already added (e.g., same as compound ID)
+      if (compoundKeyNames.includes(keyName)) continue;
+      compoundKeyNames.push(keyName);
+
+      // Build the compound key object schema
+      const compoundShape: Record<string, Type> = {};
+      for (const fieldName of constraint.fields) {
+        const field = model["~"].fieldMap.get(fieldName);
+        if (field) {
+          compoundShape[fieldName] = field["~"].schemas.base;
+        }
+      }
+      shape[keyName + "?"] = type(compoundShape);
+    }
+  }
+
+  // Collect all valid unique identifiers
+  const allUniqueIdentifiers = [...uniqueFieldNames, ...compoundKeyNames];
 
   // If no unique fields or constraints defined, return simple schema
   if (allUniqueIdentifiers.length === 0) {
@@ -188,7 +237,7 @@ const buildRelationCreateSchema = (
  * Required fields are required, optional fields (with defaults/auto-generate/nullable) are optional
  */
 export const buildCreateSchema = <TFields extends FieldRecord>(
-  model: Model<TFields>
+  model: Model<any>
 ): Type<ModelCreateInput<TFields>> => {
   const shape: Record<string, Type | (() => Type)> = {};
 
@@ -222,7 +271,7 @@ export const buildCreateSchema = <TFields extends FieldRecord>(
  * Only includes scalar fields, no nested relations
  */
 export const buildCreateManySchema = <TFields extends FieldRecord>(
-  model: Model<TFields>
+  model: Model<any>
 ): Type<CreateManyEnvelope<TFields>> => {
   const shape: Record<string, Type> = {};
 
@@ -320,7 +369,7 @@ const buildRelationUpdateSchema = (
  * All fields are optional in update operations
  */
 export const buildUpdateSchema = <TFields extends FieldRecord>(
-  model: Model<TFields>
+  model: Model<any>
 ): Type<ModelUpdateInput<TFields>> => {
   const shape: Record<string, Type | (() => Type)> = {};
 
@@ -350,7 +399,7 @@ export const buildUpdateSchema = <TFields extends FieldRecord>(
  * Each field can be true/false to include/exclude
  */
 export const buildSelectSchema = <TFields extends FieldRecord>(
-  model: Model<TFields>
+  model: Model<any>
 ): Type<ModelSelect<TFields>> => {
   const shape: Record<string, string> = {};
 
@@ -375,7 +424,7 @@ export const buildSelectSchema = <TFields extends FieldRecord>(
  * Builds an include schema for relations
  */
 export const buildIncludeSchema = <TFields extends FieldRecord>(
-  model: Model<TFields>
+  model: Model<any>
 ): Type<ModelInclude<TFields>> => {
   const shape: Record<string, string> = {};
 
@@ -394,7 +443,7 @@ export const buildIncludeSchema = <TFields extends FieldRecord>(
  * Builds an orderBy schema from model fields with nulls handling
  */
 export const buildOrderBySchema = <TFields extends FieldRecord>(
-  model: Model<TFields>
+  model: Model<any>
 ): Type<ModelOrderBy<TFields>> => {
   const shape: Record<string, Type> = {};
 

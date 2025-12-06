@@ -3,6 +3,7 @@
 
 import type { Field } from "../../fields/base";
 import type { Relation } from "../../relation/relation";
+import type { Model } from "../model";
 import type { Simplify, AtLeast, SortOrderInput } from "./base-types";
 import type {
   FieldRecord,
@@ -16,6 +17,11 @@ import type {
   InferFieldCreate,
   InferFieldFilter,
   InferFieldUpdate,
+  AnyCompoundConstraint,
+  EffectiveKeyName,
+  ExtractFields,
+  ExtractCompoundId,
+  ExtractCompoundUniques,
 } from "./helpers";
 import type {
   RelationCreateInput,
@@ -123,24 +129,81 @@ export type ModelWhereInput<T extends FieldRecord> = Simplify<
 // WHERE UNIQUE INPUT TYPES
 // =============================================================================
 
+import type { CompoundKeyName } from "../model";
+
 /**
- * Base shape for unique input (all fields optional)
+ * Creates a union of single-field unique identifiers
+ * Each unique field becomes its own valid identifier option: { id: string } | { email: string }
  */
-type WhereUniqueBase<T extends FieldRecord> = {
-  [K in keyof T as T[K] extends Field ? K : never]?: InferFieldBase<T[K]>;
+type SingleFieldUniqueInput<T extends FieldRecord> = {
+  [K in UniqueFieldKeys<T>]: { [P in K]: InferFieldBase<T[P]> };
+}[UniqueFieldKeys<T>];
+
+/**
+ * Generates compound key object type from field names
+ * e.g., ["email", "orgId"] -> { email: string; orgId: string }
+ */
+type CompoundKeyObject<
+  T extends FieldRecord,
+  Fields extends readonly string[]
+> = {
+  [K in Fields[number] as K extends keyof T ? K : never]: K extends keyof T
+    ? InferFieldBase<T[K]>
+    : never;
 };
 
 /**
- * Computes the where unique input type for a model
- * Requires at least one unique/id field to be provided
+ * Generates the compound ID unique input type
+ * Uses custom name from CompoundConstraint if provided, otherwise auto-generates
+ * e.g., { myCustomName: { email: string; orgId: string } } or { email_orgId: {...} }
+ */
+type CompoundIdUniqueInput<
+  T extends FieldRecord,
+  TCompoundId extends AnyCompoundConstraint | undefined
+> = TCompoundId extends AnyCompoundConstraint
+  ? {
+      [K in EffectiveKeyName<TCompoundId>]: CompoundKeyObject<
+        T,
+        TCompoundId["fields"]
+      >;
+    }
+  : never;
+
+/**
+ * Extracts compound unique fields from the tuple type
+ * Uses custom names from CompoundConstraint if provided
+ */
+type ExtractCompoundUniquesInput<
+  T extends FieldRecord,
+  TCompoundUniques extends readonly AnyCompoundConstraint[]
+> = TCompoundUniques extends readonly [
+  infer First extends AnyCompoundConstraint,
+  ...infer Rest extends readonly AnyCompoundConstraint[]
+]
+  ?
+      | {
+          [K in EffectiveKeyName<First>]: CompoundKeyObject<T, First["fields"]>;
+        }
+      | ExtractCompoundUniquesInput<T, Rest>
+  : never;
+
+/**
+ * Computes the where unique input type for a model (single fields only)
+ * Only includes fields that are marked as unique or id
  */
 export type ModelWhereUniqueInput<T extends FieldRecord> =
   UniqueFieldKeys<T> extends never
-    ? WhereUniqueBase<T> // No unique fields, allow any combination
-    : AtLeast<
-        WhereUniqueBase<T>,
-        UniqueFieldKeys<T> & keyof WhereUniqueBase<T>
-      >;
+    ? Record<string, never> // No unique fields defined
+    : SingleFieldUniqueInput<T>;
+
+/**
+ * Extended where unique input that includes compound keys
+ * Accepts Model directly and extracts what it needs internally
+ */
+export type ModelWhereUniqueInputFull<M extends Model<any>> =
+  | ModelWhereUniqueInput<ExtractFields<M>>
+  | CompoundIdUniqueInput<ExtractFields<M>, ExtractCompoundId<M>>
+  | ExtractCompoundUniquesInput<ExtractFields<M>, ExtractCompoundUniques<M>>;
 
 // =============================================================================
 // UPDATE INPUT TYPES

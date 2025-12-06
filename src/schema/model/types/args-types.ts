@@ -1,10 +1,13 @@
 // Args Types
 // Operation argument types for queries and mutations
+// All types accept Model<any> directly and extract what they need internally
 
-import type { FieldRecord, ScalarFieldKeys } from "./helpers";
+import type { Model } from "../model";
+import type { ExtractFields, ScalarFieldKeys } from "./helpers";
 import type {
   ModelWhereInput,
   ModelWhereUniqueInput,
+  ModelWhereUniqueInputFull,
   ModelCreateInput,
   ModelUpdateInput,
   ModelOrderBy,
@@ -22,83 +25,82 @@ import type { ModelSelectNested, ModelIncludeNested } from "./select-include-typ
 /**
  * FindMany args for a model - complete pagination and selection
  */
-export type ModelFindManyArgs<TFields extends FieldRecord> = {
-  where?: ModelWhereInput<TFields>;
-  orderBy?: ModelOrderBy<TFields> | ModelOrderBy<TFields>[];
-  cursor?: ModelWhereUniqueInput<TFields>;
+export type ModelFindManyArgs<M extends Model<any>> = {
+  where?: ModelWhereInput<ExtractFields<M>>;
+  orderBy?: ModelOrderBy<ExtractFields<M>> | ModelOrderBy<ExtractFields<M>>[];
+  cursor?: ModelWhereUniqueInputFull<M>;
   take?: number;
   skip?: number;
-  select?: ModelSelectNested<TFields>;
-  include?: ModelIncludeNested<TFields>;
-  distinct?: ScalarFieldKeys<TFields>[];
+  select?: ModelSelectNested<ExtractFields<M>>;
+  include?: ModelIncludeNested<ExtractFields<M>>;
+  distinct?: ScalarFieldKeys<ExtractFields<M>>[];
 };
 
 /**
  * FindFirst args (same as FindMany but returns single result)
  */
-export type ModelFindFirstArgs<TFields extends FieldRecord> =
-  ModelFindManyArgs<TFields>;
+export type ModelFindFirstArgs<M extends Model<any>> = ModelFindManyArgs<M>;
 
 /**
- * FindUnique args
+ * FindUnique args - includes compound key support
  */
-export type ModelFindUniqueArgs<TFields extends FieldRecord> = {
-  where: ModelWhereUniqueInput<TFields>;
-  select?: ModelSelectNested<TFields>;
-  include?: ModelIncludeNested<TFields>;
+export type ModelFindUniqueArgs<M extends Model<any>> = {
+  where: ModelWhereUniqueInputFull<M>;
+  select?: ModelSelectNested<ExtractFields<M>>;
+  include?: ModelIncludeNested<ExtractFields<M>>;
 };
 
 /**
  * Count args for a model - like Prisma's count operation
  */
-export type ModelCountArgs<TFields extends FieldRecord> = {
-  where?: ModelWhereInput<TFields>;
-  orderBy?: ModelOrderBy<TFields> | ModelOrderBy<TFields>[];
-  cursor?: ModelWhereUniqueInput<TFields>;
+export type ModelCountArgs<M extends Model<any>> = {
+  where?: ModelWhereInput<ExtractFields<M>>;
+  orderBy?: ModelOrderBy<ExtractFields<M>> | ModelOrderBy<ExtractFields<M>>[];
+  cursor?: ModelWhereUniqueInputFull<M>;
   take?: number;
   skip?: number;
-  select?: ModelCountAggregateInput<TFields>;
+  select?: ModelCountAggregateInput<ExtractFields<M>>;
 };
 
 /**
  * Exist args for a model - lightweight check if records exist
  * Returns boolean instead of count for efficiency
  */
-export type ModelExistArgs<TFields extends FieldRecord> = {
-  where?: ModelWhereInput<TFields>;
+export type ModelExistArgs<M extends Model<any>> = {
+  where?: ModelWhereInput<ExtractFields<M>>;
 };
 
 /**
  * Aggregate args for a model
  */
-export type ModelAggregateArgs<TFields extends FieldRecord> = {
-  where?: ModelWhereInput<TFields>;
-  orderBy?: ModelOrderBy<TFields> | ModelOrderBy<TFields>[];
-  cursor?: ModelWhereUniqueInput<TFields>;
+export type ModelAggregateArgs<M extends Model<any>> = {
+  where?: ModelWhereInput<ExtractFields<M>>;
+  orderBy?: ModelOrderBy<ExtractFields<M>> | ModelOrderBy<ExtractFields<M>>[];
+  cursor?: ModelWhereUniqueInputFull<M>;
   take?: number;
   skip?: number;
-  _count?: true | ModelCountAggregateInput<TFields>;
-  _avg?: ModelAvgAggregateInput<TFields>;
-  _sum?: ModelAvgAggregateInput<TFields>;
-  _min?: ModelMinMaxAggregateInput<TFields>;
-  _max?: ModelMinMaxAggregateInput<TFields>;
+  _count?: true | ModelCountAggregateInput<ExtractFields<M>>;
+  _avg?: ModelAvgAggregateInput<ExtractFields<M>>;
+  _sum?: ModelAvgAggregateInput<ExtractFields<M>>;
+  _min?: ModelMinMaxAggregateInput<ExtractFields<M>>;
+  _max?: ModelMinMaxAggregateInput<ExtractFields<M>>;
 };
 
 /**
  * GroupBy args for a model
  */
-export type ModelGroupByArgs<TFields extends FieldRecord> = {
-  where?: ModelWhereInput<TFields>;
-  orderBy?: ModelOrderBy<TFields> | ModelOrderBy<TFields>[];
-  by: ScalarFieldKeys<TFields>[] | ScalarFieldKeys<TFields>;
-  having?: ModelScalarWhereWithAggregates<TFields>;
+export type ModelGroupByArgs<M extends Model<any>> = {
+  where?: ModelWhereInput<ExtractFields<M>>;
+  orderBy?: ModelOrderBy<ExtractFields<M>> | ModelOrderBy<ExtractFields<M>>[];
+  by: ScalarFieldKeys<ExtractFields<M>>[] | ScalarFieldKeys<ExtractFields<M>>;
+  having?: ModelScalarWhereWithAggregates<ExtractFields<M>>;
   take?: number;
   skip?: number;
-  _count?: true | ModelCountAggregateInput<TFields>;
-  _avg?: ModelAvgAggregateInput<TFields>;
-  _sum?: ModelAvgAggregateInput<TFields>;
-  _min?: ModelMinMaxAggregateInput<TFields>;
-  _max?: ModelMinMaxAggregateInput<TFields>;
+  _count?: true | ModelCountAggregateInput<ExtractFields<M>>;
+  _avg?: ModelAvgAggregateInput<ExtractFields<M>>;
+  _sum?: ModelAvgAggregateInput<ExtractFields<M>>;
+  _min?: ModelMinMaxAggregateInput<ExtractFields<M>>;
+  _max?: ModelMinMaxAggregateInput<ExtractFields<M>>;
 };
 
 // =============================================================================
@@ -108,54 +110,53 @@ export type ModelGroupByArgs<TFields extends FieldRecord> = {
 /**
  * Create args
  */
-export type ModelCreateArgs<TFields extends FieldRecord> = {
-  data: ModelCreateInput<TFields>;
-  select?: ModelSelectNested<TFields>;
-  include?: ModelIncludeNested<TFields>;
+export type ModelCreateArgs<M extends Model<any>> = {
+  data: ModelCreateInput<ExtractFields<M>>;
+  select?: ModelSelectNested<ExtractFields<M>>;
+  include?: ModelIncludeNested<ExtractFields<M>>;
 };
 
 /**
  * Update args
  */
-export type ModelUpdateArgs<TFields extends FieldRecord> = {
-  where: ModelWhereUniqueInput<TFields>;
-  data: ModelUpdateInput<TFields>;
-  select?: ModelSelectNested<TFields>;
-  include?: ModelIncludeNested<TFields>;
+export type ModelUpdateArgs<M extends Model<any>> = {
+  where: ModelWhereUniqueInput<ExtractFields<M>>;
+  data: ModelUpdateInput<ExtractFields<M>>;
+  select?: ModelSelectNested<ExtractFields<M>>;
+  include?: ModelIncludeNested<ExtractFields<M>>;
 };
 
 /**
  * UpdateMany args
  */
-export type ModelUpdateManyArgs<TFields extends FieldRecord> = {
-  where?: ModelWhereInput<TFields>;
-  data: ModelUpdateInput<TFields>;
+export type ModelUpdateManyArgs<M extends Model<any>> = {
+  where?: ModelWhereInput<ExtractFields<M>>;
+  data: ModelUpdateInput<ExtractFields<M>>;
 };
 
 /**
  * Delete args
  */
-export type ModelDeleteArgs<TFields extends FieldRecord> = {
-  where: ModelWhereUniqueInput<TFields>;
-  select?: ModelSelectNested<TFields>;
-  include?: ModelIncludeNested<TFields>;
+export type ModelDeleteArgs<M extends Model<any>> = {
+  where: ModelWhereUniqueInput<ExtractFields<M>>;
+  select?: ModelSelectNested<ExtractFields<M>>;
+  include?: ModelIncludeNested<ExtractFields<M>>;
 };
 
 /**
  * DeleteMany args
  */
-export type ModelDeleteManyArgs<TFields extends FieldRecord> = {
-  where?: ModelWhereInput<TFields>;
+export type ModelDeleteManyArgs<M extends Model<any>> = {
+  where?: ModelWhereInput<ExtractFields<M>>;
 };
 
 /**
  * Upsert args
  */
-export type ModelUpsertArgs<TFields extends FieldRecord> = {
-  where: ModelWhereUniqueInput<TFields>;
-  create: ModelCreateInput<TFields>;
-  update: ModelUpdateInput<TFields>;
-  select?: ModelSelectNested<TFields>;
-  include?: ModelIncludeNested<TFields>;
+export type ModelUpsertArgs<M extends Model<any>> = {
+  where: ModelWhereUniqueInput<ExtractFields<M>>;
+  create: ModelCreateInput<ExtractFields<M>>;
+  update: ModelUpdateInput<ExtractFields<M>>;
+  select?: ModelSelectNested<ExtractFields<M>>;
+  include?: ModelIncludeNested<ExtractFields<M>>;
 };
-

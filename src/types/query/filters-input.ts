@@ -1,5 +1,5 @@
 import {
-  BaseField,
+  Field,
   BigIntField,
   BooleanField,
   DateTimeField,
@@ -132,7 +132,7 @@ export type ListFilter<T> = InferFilter<ReturnType<typeof baseListFilter<any>>>;
 // ============================================================================
 // FIELD FILTER MAPPING
 // ============================================================================
-export type FieldFilter<F extends BaseField<any>> = F extends DateTimeField<any>
+export type FieldFilter<F extends Field> = F extends DateTimeField<any>
   ? import("./field-filters").DateTimeFilters<F>
   : F extends StringField<any>
   ? import("./field-filters").StringFilters<F>

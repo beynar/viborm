@@ -4,7 +4,6 @@
 
 import type { Field, FieldState } from "../../fields/base";
 import type { Relation } from "../../relation/relation";
-import type { Model } from "../model";
 import type { StandardSchemaV1 } from "../../../standardSchema";
 
 // =============================================================================
@@ -13,6 +12,114 @@ import type { StandardSchemaV1 } from "../../../standardSchema";
 
 /** Simplified constraint for model fields */
 export type FieldRecord = Record<string, Field | Relation<any, any, any>>;
+
+// =============================================================================
+// COMPOUND CONSTRAINT TYPES
+// =============================================================================
+
+/**
+ * Represents a compound constraint (ID or unique) with fields and optional name.
+ * The name is used for WhereUnique input keys; if undefined, auto-generated from fields.
+ */
+export interface CompoundConstraint<
+  TFields extends readonly string[] = readonly string[],
+  TName extends string | undefined = undefined
+> {
+  fields: TFields;
+  name: TName;
+}
+
+/** Any compound constraint (for loose typing) */
+export type AnyCompoundConstraint = CompoundConstraint<any, any>;
+
+// =============================================================================
+// MODEL STATE TYPES (for single-generic Model pattern)
+// =============================================================================
+
+/**
+ * Consolidated state interface for Model.
+ * Using a single State generic makes the API future-proof:
+ * - Adding new state properties won't break `Model<any>` usages
+ * - Consistent pattern with field classes
+ */
+export interface ModelState<
+  TFields extends FieldRecord = FieldRecord,
+  TCompoundId extends AnyCompoundConstraint | undefined = undefined,
+  TCompoundUniques extends readonly AnyCompoundConstraint[] = []
+> {
+  fields: TFields;
+  compoundId: TCompoundId;
+  compoundUniques: TCompoundUniques;
+}
+
+/** Default state for new models (no compound ID or uniques) */
+export type DefaultModelState<TFields extends FieldRecord> = ModelState<
+  TFields,
+  undefined,
+  []
+>;
+
+/** Any valid model state (for loose typing) */
+export type AnyModelState = ModelState<any, any, any>;
+
+// =============================================================================
+// MODEL STATE EXTRACTION HELPERS
+// =============================================================================
+
+// Import Model for type extraction
+import type { Model } from "../model";
+
+/**
+ * Extract field definitions from any Model
+ * Works correctly with Model<any>
+ */
+export type ExtractFields<M> = M extends Model<infer S>
+  ? S extends AnyModelState
+    ? S["fields"]
+    : never
+  : never;
+
+/**
+ * Extract compound ID from any Model
+ */
+export type ExtractCompoundId<M> = M extends Model<infer S>
+  ? S extends AnyModelState
+    ? S["compoundId"]
+    : never
+  : never;
+
+/**
+ * Extract compound uniques from any Model
+ */
+export type ExtractCompoundUniques<M> = M extends Model<infer S>
+  ? S extends AnyModelState
+    ? S["compoundUniques"]
+    : never
+  : never;
+
+// =============================================================================
+// COMPOUND KEY TYPES
+// =============================================================================
+
+/**
+ * Generates the compound key name from field names
+ * e.g., ["email", "username"] -> "email_username"
+ */
+export type CompoundKeyName<T extends readonly string[]> = T extends readonly [
+  infer F extends string,
+  ...infer R extends string[]
+]
+  ? R extends []
+    ? F
+    : `${F}_${CompoundKeyName<R>}`
+  : never;
+
+/**
+ * Gets the effective key name for a compound constraint.
+ * Uses custom name if provided, otherwise auto-generates from field names.
+ */
+export type EffectiveKeyName<C extends CompoundConstraint> =
+  C["name"] extends string ? C["name"] : CompoundKeyName<C["fields"]>;
 
 // =============================================================================
 // SCALAR TYPE MAPPING
@@ -140,11 +247,22 @@ export type RelationGetter<R> = [R] extends [Relation<infer G, any, any>]
   ? G
   : never;
 
-/** Step 2: Extract model from getter (non-distributive) */
-export type GetterModel<G> = [G] extends [() => Model<infer F>] ? F : never;
+/** Step 2: Extract model state from getter (non-distributive) */
+export type GetterModelState<G> = [G] extends [() => Model<infer S>]
+  ? S
+  : never;
+
+/** Step 3: Extract fields from model state - ensures FieldRecord constraint */
+export type GetterModelFields<G> = GetterModelState<G> extends {
+  fields: infer F;
+}
+  ? F extends FieldRecord
+    ? F
+    : FieldRecord
+  : FieldRecord;
 
 /** Combined: Get target fields (uses cached intermediates) */
-export type GetRelationFields<R> = GetterModel<RelationGetter<R>>;
+export type GetRelationFields<R> = GetterModelFields<RelationGetter<R>>;
 
 /** Extract relation type (non-distributive) */
 export type GetRelationType<R> = [R] extends [Relation<any, infer T, any>]

@@ -21,7 +21,7 @@ const includeSchemaCache = new WeakMap<Model<any>, Type>();
  * Builds a nested select schema with lazy evaluation for recursive relations
  */
 export const buildSelectNestedSchema = <TFields extends FieldRecord>(
-  model: Model<TFields>
+  model: Model<any>
 ): Type<ModelSelectNested<TFields>> => {
   // Check cache first
   const cached = selectSchemaCache.get(model);
@@ -84,7 +84,7 @@ export const buildSelectNestedSchema = <TFields extends FieldRecord>(
  * Builds a nested include schema with lazy evaluation for recursive relations
  */
 export const buildIncludeNestedSchema = <TFields extends FieldRecord>(
-  model: Model<TFields>
+  model: Model<any>
 ): Type<ModelIncludeNested<TFields>> => {
   // Check cache first
   const cached = includeSchemaCache.get(model);

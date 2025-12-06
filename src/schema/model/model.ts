@@ -4,7 +4,31 @@
 import { isField, type Field } from "../fields/base";
 import { Relation } from "../relation/relation";
 import { buildModelSchemas, type TypedModelSchemas } from "./runtime";
-import { ScalarFieldKeys } from "./types";
+import type {
+  FieldRecord,
+  ScalarFieldKeys as _ScalarFieldKeys,
+  ModelState,
+  AnyModelState,
+  DefaultModelState,
+  CompoundConstraint,
+} from "./types/helpers";
+
+// Re-export types from helpers for external use
+export type {
+  ModelState,
+  AnyModelState,
+  DefaultModelState,
+  ExtractFields,
+  ExtractCompoundId,
+  ExtractCompoundUniques,
+  CompoundKeyName,
+  CompoundConstraint,
+  EffectiveKeyName,
+} from "./types/helpers";
+
+// Re-export ScalarFieldKeys for convenience
+export type ScalarFieldKeys<T extends FieldRecord> = _ScalarFieldKeys<T> &
+  string;
 
 // =============================================================================
 // TYPE INFERENCE HELPER
@@ -14,9 +38,7 @@ import { ScalarFieldKeys } from "./types";
  * Infers the TypeScript types for model fields
  * Only includes scalar fields, not relations
  */
-type InferModelFields<
-  TFields extends Record<string, Field | Relation<any, any, any>>
-> = {
+type InferModelFields<TFields extends FieldRecord> = {
   [K in keyof TFields as TFields[K] extends Field
     ? K
     : never]: TFields[K] extends Field
@@ -42,27 +64,39 @@ export interface IndexDefinition {
   options: IndexOptions;
 }
 
-export interface UniqueConstraintOptions {
+/** Options for compound primary key (@@id) */
+export interface CompoundIdOptions {
   name?: string;
 }
 
-export interface UniqueConstraintDefinition {
-  fields: string[];
-  options: UniqueConstraintOptions;
+/** Options for compound unique constraint (@@unique) */
+export interface CompoundUniqueOptions {
+  name?: string;
 }
+
+// =============================================================================
+// MODEL OPTIONS (internal)
+// =============================================================================
+
+type ModelOptions<
+  TCompoundId extends CompoundConstraint | undefined,
+  TCompoundUniques extends readonly CompoundConstraint[]
+> = {
+  tableName?: string | undefined;
+  indexes?: IndexDefinition[];
+  compoundId?: TCompoundId;
+  compoundUniques?: TCompoundUniques;
+};
 
 // =============================================================================
 // MODEL CLASS
 // =============================================================================
 
-type ModelOptions = {
-  tableName?: string | undefined;
-  indexes?: IndexDefinition[];
-};
-
-export class Model<
-  TFields extends Record<string, Field | Relation<any, any, any>> = {}
-> {
+/**
+ * Model class with single State generic for future-proofing.
+ * Use extraction helpers (ExtractFields, ExtractCompoundId, etc.) to access state parts.
+ */
+export class Model<State extends AnyModelState = ModelState> {
   // ---------------------------------------------------------------------------
   // Private state (exposed via ~)
   // ---------------------------------------------------------------------------
@@ -70,17 +104,27 @@ export class Model<
   private _relations: Map<string, Relation<any, any>> = new Map();
   private _tableName: string | undefined = undefined;
   private _indexes: IndexDefinition[] = [];
-  private _schemas?: TypedModelSchemas<TFields>;
+  private _compoundId: State["compoundId"] = undefined as State["compoundId"];
+  private _compoundUniques: State["compoundUniques"] =
+    [] as unknown as State["compoundUniques"];
+  private _schemas?: TypedModelSchemas<State["fields"]>;
 
-  constructor(private _fieldDefinitions: TFields, options?: ModelOptions) {
+  constructor(
+    private _fieldDefinitions: State["fields"],
+    options?: ModelOptions<State["compoundId"], State["compoundUniques"]>
+  ) {
     this.separateFieldsAndRelations(_fieldDefinitions);
     if (options) {
       this._tableName = options.tableName ?? undefined;
       this._indexes = options.indexes ?? [];
+      this._compoundId = (options.compoundId ??
+        undefined) as State["compoundId"];
+      this._compoundUniques = (options.compoundUniques ??
+        []) as unknown as State["compoundUniques"];
     }
   }
 
-  private separateFieldsAndRelations(definitions: TFields): void {
+  private separateFieldsAndRelations(definitions: State["fields"]): void {
     for (const [key, definition] of Object.entries(definitions)) {
       if (isField(definition)) {
         this._fields.set(key, definition as Field);
@@ -125,26 +169,159 @@ export class Model<
    * Adds an index on the specified field(s)
    */
   index(
-    fields: ScalarFieldKeys<TFields> | ScalarFieldKeys<TFields>[],
+    fields:
+      | ScalarFieldKeys<State["fields"]>
+      | ScalarFieldKeys<State["fields"]>[],
     options: IndexOptions = {}
   ): this {
     const fieldArray = Array.isArray(fields) ? fields : [fields];
     // Validation deferred to SchemaValidator (I001)
     this._indexes.push({
-      fields: fieldArray.map(String),
+      fields: fieldArray,
       options,
     });
     return this;
   }
 
-  extends<ETFields extends Record<string, Field | Relation<any, any, any>>>(
+  /**
+   * Defines a compound primary key (@@id in Prisma)
+   * Use this when the primary key consists of multiple fields
+   *
+   * @example
+   * const membership = s.model({
+   *   orgId: s.string(),
+   *   userId: s.string(),
+   *   role: s.string(),
+   * }).id(["orgId", "userId"]);
+   *
+   * // With custom constraint name
+   * .id(["orgId", "userId"], { name: "membership_pk" });
+   */
+  id<
+    const K extends readonly ScalarFieldKeys<State["fields"]>[],
+    const N extends string | undefined = undefined
+  >(
+    fields: K,
+    options?: { name?: N }
+  ): Model<
+    ModelState<
+      State["fields"],
+      CompoundConstraint<K, N>,
+      State["compoundUniques"]
+    >
+  >;
+  id<
+    K extends ScalarFieldKeys<State["fields"]>,
+    const N extends string | undefined = undefined
+  >(
+    fields: K,
+    options?: { name?: N }
+  ): Model<
+    ModelState<
+      State["fields"],
+      CompoundConstraint<[K], N>,
+      State["compoundUniques"]
+    >
+  >;
+  id(
+    fields:
+      | ScalarFieldKeys<State["fields"]>
+      | readonly ScalarFieldKeys<State["fields"]>[],
+    options?: CompoundIdOptions
+  ): Model<any> {
+    const fieldArray = Array.isArray(fields) ? fields : [fields];
+    return new Model(this._fieldDefinitions, {
+      tableName: this._tableName,
+      indexes: this._indexes,
+      compoundId: { fields: fieldArray, name: options?.name },
+      compoundUniques: this._compoundUniques,
+    });
+  }
+
+  /**
+   * Adds a compound unique constraint (@@unique in Prisma)
+   * Use this when multiple fields together must be unique
+   *
+   * @example
+   * const user = s.model({
+   *   id: s.string().id(),
+   *   email: s.string(),
+   *   orgId: s.string(),
+   * }).unique(["email", "orgId"]);
+   *
+   * // With custom constraint name
+   * .unique(["email", "orgId"], { name: "user_email_org_unique" });
+   */
+  unique<
+    const K extends readonly ScalarFieldKeys<State["fields"]>[],
+    const N extends string | undefined = undefined
+  >(
+    fields: K,
+    options?: { name?: N }
+  ): Model<
+    ModelState<
+      State["fields"],
+      State["compoundId"],
+      [...State["compoundUniques"], CompoundConstraint<K, N>]
+    >
+  >;
+  unique<
+    K extends ScalarFieldKeys<State["fields"]>,
+    const N extends string | undefined = undefined
+  >(
+    fields: K,
+    options?: { name?: N }
+  ): Model<
+    ModelState<
+      State["fields"],
+      State["compoundId"],
+      [...State["compoundUniques"], CompoundConstraint<[K], N>]
+    >
+  >;
+  unique(
+    fields:
+      | ScalarFieldKeys<State["fields"]>
+      | readonly ScalarFieldKeys<State["fields"]>[],
+    options?: CompoundUniqueOptions
+  ): Model<any> {
+    const fieldArray = Array.isArray(fields) ? fields : [fields];
+    const newUniques = [
+      ...this._compoundUniques,
+      { fields: fieldArray, name: options?.name },
+    ];
+    return new Model(this._fieldDefinitions, {
+      tableName: this._tableName,
+      indexes: this._indexes,
+      compoundId: this._compoundId,
+      compoundUniques: newUniques,
+    });
+  }
+
+  /**
+   * Extends the model with additional fields
+   */
+  extends<ETFields extends FieldRecord>(
     fields: ETFields
-  ): Model<TFields & ETFields> {
-    return new Model(
+  ): Model<
+    ModelState<
+      State["fields"] & ETFields,
+      State["compoundId"],
+      State["compoundUniques"]
+    >
+  > {
+    return new Model<
+      ModelState<
+        State["fields"] & ETFields,
+        State["compoundId"],
+        State["compoundUniques"]
+      >
+    >(
       { ...this._fieldDefinitions, ...fields },
       {
         tableName: this._tableName,
         indexes: this._indexes,
+        compoundId: this._compoundId,
+        compoundUniques: this._compoundUniques,
       }
     );
   }
@@ -172,15 +349,19 @@ export class Model<
       tableName: this._tableName,
       /** Index definitions */
       indexes: this._indexes,
+      /** Compound primary key fields (@@id) - array of field names */
+      compoundId: this._compoundId,
+      /** Compound unique constraints (@@unique) - array of field name arrays */
+      compoundUniques: this._compoundUniques,
       /** ArkType schemas for validation (lazily computed) */
-      get schemas(): TypedModelSchemas<TFields> {
+      get schemas(): TypedModelSchemas<State["fields"]> {
         if (!self._schemas) {
           self._schemas = buildModelSchemas(self);
         }
         return self._schemas;
       },
       /** Inferred TypeScript type for model records */
-      infer: {} as InferModelFields<TFields>,
+      infer: {} as InferModelFields<State["fields"]>,
     };
   }
 }
@@ -197,9 +378,14 @@ export class Model<
  *   id: s.string().id().ulid(),
  *   name: s.string(),
  * }).map("users");
+ *
+ * // With compound primary key
+ * const membership = s.model({
+ *   orgId: s.string(),
+ *   userId: s.string(),
+ *   role: s.string(),
+ * }).id(["orgId", "userId"]);
  */
-export const model = <
-  TFields extends Record<string, Field | Relation<any, any, any>>
->(
+export const model = <TFields extends FieldRecord>(
   fields: TFields
-) => new Model(fields);
+): Model<DefaultModelState<TFields>> => new Model(fields);

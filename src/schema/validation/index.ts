@@ -15,24 +15,17 @@ export {
 } from "./validator";
 
 export {
-  // Model rules (M001-M006)
-  modelHasId,
+  // Model rules (consolidated into single-pass validation)
   modelHasFields,
   modelUniqueName,
   modelNameValid,
   modelNameNotReserved,
-  // Field rules (F001-F008)
-  fieldNameValid,
-  singleIdField,
-  columnUniqueInModel,
-  defaultTypeMatch,
-  idNotNullable,
-  idNotArray,
-  autoOnlyOnId,
+  // Single-pass field validation (M001 + F001-F008)
+  validateFieldsSinglePass,
   // Index rules (I001-I003)
   indexFieldsExist,
   indexNameUnique,
-  uniqueFieldsExist,
+  compoundFieldsExist,
   modelRules,
   // Relation rules (R001-R007)
   relationTargetExists,

@@ -8,6 +8,7 @@ import {
   type DefaultValue,
   createDefaultState,
 } from "../common";
+import type { NativeType } from "../native-types";
 import * as schemas from "./schemas";
 
 // =============================================================================
@@ -61,7 +62,10 @@ type BooleanFieldSchemas<State extends FieldState<"boolean">> = {
 // =============================================================================
 
 export class BooleanField<State extends FieldState<"boolean">> {
-  constructor(private state: State) {}
+  constructor(
+    private state: State,
+    private _nativeType?: NativeType
+  ) {}
 
   // ===========================================================================
   // CHAINABLE MODIFIERS
@@ -168,6 +172,7 @@ export class BooleanField<State extends FieldState<"boolean">> {
     return {
       state: this.state,
       schemas: this.schemas,
+      nativeType: this._nativeType,
     };
   }
 }
@@ -176,4 +181,5 @@ export class BooleanField<State extends FieldState<"boolean">> {
 // FACTORY FUNCTION
 // =============================================================================
 
-export const boolean = () => new BooleanField(createDefaultState("boolean"));
+export const boolean = (nativeType?: NativeType) =>
+  new BooleanField(createDefaultState("boolean"), nativeType);

@@ -1,4 +1,4 @@
-import { Model } from "@schema/model";
+import { Model, ExtractFields } from "@schema/model";
 import type {
   ModelFindManyArgs,
   ModelFindFirstArgs,
@@ -43,49 +43,44 @@ export type Operations =
   | "exist";
 
 /**
- * Extracts the fields type from a Model
- */
-type ModelFields<M extends Model<any>> = M extends Model<infer F> ? F : never;
-
-/**
- * Operation payload type - uses manual types instead of ArkType inference
- * This dramatically improves IDE performance
+ * Operation payload type - passes Model directly to args types
+ * Each args type extracts what it needs internally
  */
 export type OperationPayload<
   O extends Operations,
   M extends Model<any>
 > = O extends "findMany"
-  ? ModelFindManyArgs<ModelFields<M>>
+  ? ModelFindManyArgs<M>
   : O extends "findUnique"
-  ? ModelFindUniqueArgs<ModelFields<M>>
+  ? ModelFindUniqueArgs<M>
   : O extends "findFirst"
-  ? ModelFindFirstArgs<ModelFields<M>>
+  ? ModelFindFirstArgs<M>
   : O extends "create"
-  ? ModelCreateArgs<ModelFields<M>>
+  ? ModelCreateArgs<M>
   : O extends "update"
-  ? ModelUpdateArgs<ModelFields<M>>
+  ? ModelUpdateArgs<M>
   : O extends "delete"
-  ? ModelDeleteArgs<ModelFields<M>>
+  ? ModelDeleteArgs<M>
   : O extends "deleteMany"
-  ? ModelDeleteManyArgs<ModelFields<M>>
+  ? ModelDeleteManyArgs<M>
   : O extends "upsert"
-  ? ModelUpsertArgs<ModelFields<M>>
+  ? ModelUpsertArgs<M>
   : O extends "findUniqueOrThrow"
-  ? ModelFindUniqueArgs<ModelFields<M>>
+  ? ModelFindUniqueArgs<M>
   : O extends "findFirstOrThrow"
-  ? ModelFindFirstArgs<ModelFields<M>>
+  ? ModelFindFirstArgs<M>
   : O extends "count"
-  ? ModelCountArgs<ModelFields<M>>
+  ? ModelCountArgs<M>
   : O extends "aggregate"
-  ? ModelAggregateArgs<ModelFields<M>>
+  ? ModelAggregateArgs<M>
   : O extends "groupBy"
-  ? ModelGroupByArgs<ModelFields<M>>
+  ? ModelGroupByArgs<M>
   : O extends "createMany"
-  ? CreateManyEnvelope<ModelFields<M>>
+  ? CreateManyEnvelope<ExtractFields<M>>
   : O extends "updateMany"
-  ? ModelUpdateManyArgs<ModelFields<M>>
+  ? ModelUpdateManyArgs<M>
   : O extends "exist"
-  ? ModelExistArgs<ModelFields<M>>
+  ? ModelExistArgs<M>
   : never;
 
 /**
@@ -97,13 +92,13 @@ export type OperationResult<
   M extends Model<any>,
   Args
 > = O extends "findFirst" | "findUnique"
-  ? InferResult<ModelFields<M>, Args> | null
+  ? InferResult<ExtractFields<M>, Args> | null
   : O extends "findFirstOrThrow" | "findUniqueOrThrow"
-  ? InferResult<ModelFields<M>, Args>
+  ? InferResult<ExtractFields<M>, Args>
   : O extends "findMany"
-  ? InferResult<ModelFields<M>, Args>[]
+  ? InferResult<ExtractFields<M>, Args>[]
   : O extends "create" | "update" | "delete" | "upsert"
-  ? InferResult<ModelFields<M>, Args>
+  ? InferResult<ExtractFields<M>, Args>
   : O extends "createMany" | "updateMany" | "deleteMany"
   ? BatchPayload
   : O extends "count"
@@ -111,9 +106,9 @@ export type OperationResult<
   : O extends "exist"
   ? boolean
   : O extends "aggregate"
-  ? AggregateResultType<ModelFields<M>, Args>
+  ? AggregateResultType<ExtractFields<M>, Args>
   : O extends "groupBy"
-  ? GroupByResultType<ModelFields<M>, Args>[]
+  ? GroupByResultType<ExtractFields<M>, Args>[]
   : never;
 
 /**

@@ -1,5 +1,5 @@
 import {
-  BaseField,
+  Field,
   BigIntField,
   BooleanField,
   DateTimeField,
@@ -471,7 +471,7 @@ type EnumUpdateOperations<T extends EnumField<any, any>> = T extends EnumField<
 // ============================================================================
 // FIELD UPDATE MAPPING
 // ============================================================================
-export type FieldUpdateOperations<F extends BaseField<any>> =
+export type FieldUpdateOperations<F extends Field> =
   F extends DateTimeField<any>
     ? DateTimeUpdateOperations<F>
     : F extends StringField<any>
@@ -526,7 +526,7 @@ export type ScalarUpdateInput<TModel extends Model<any>> =
     ? {}
     : {
         [K in FieldNames<TModel>]?: K extends keyof ModelFields<TModel>
-          ? ModelFields<TModel>[K] extends BaseField<any>
+          ? ModelFields<TModel>[K] extends Field
             ? FieldUpdateOperations<ModelFields<TModel>[K]>
             : never
           : never;

@@ -1,7 +1,7 @@
 // OrderBy Input Types
 // Type-safe ordering interfaces for VibORM queries
 
-import type { Model, BaseField, Relation } from "@schema";
+import type { Model, Field, Relation } from "@schema";
 import type {
   FieldNames,
   ModelFields,
@@ -59,7 +59,7 @@ export type RelationManySort = input<typeof relationManySort>;
  */
 export type OrderByScalarInput<TModel extends Model<any>> = {
   [K in FieldNames<TModel>]?: K extends keyof ModelFields<TModel>
-    ? ModelFields<TModel>[K] extends BaseField<any>
+    ? ModelFields<TModel>[K] extends Field
       ? ScalarSort
       : never
     : never;

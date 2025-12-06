@@ -1,7 +1,7 @@
 // Find Operation Arguments
 // Type-safe argument interfaces for find operations
 
-import type { Model, BaseField } from "@schema";
+import type { Model, Field } from "@schema";
 import type { WhereInput, WhereUniqueInput } from "../query/where-input.js";
 import type {
   SelectInput,
@@ -199,7 +199,7 @@ export type CountSelectInput<TModel extends Model<any>> = {
  */
 export type AvgSelectInput<TModel extends Model<any>> = {
   [K in FieldNames<TModel> as K extends keyof ModelFields<TModel>
-    ? ModelFields<TModel>[K] extends BaseField<any>
+    ? ModelFields<TModel>[K] extends Field
       ? MapFieldType<ModelFields<TModel>[K]> extends number
         ? K
         : never
@@ -212,7 +212,7 @@ export type AvgSelectInput<TModel extends Model<any>> = {
  */
 export type SumSelectInput<TModel extends Model<any>> = {
   [K in FieldNames<TModel> as K extends keyof ModelFields<TModel>
-    ? ModelFields<TModel>[K] extends BaseField<any>
+    ? ModelFields<TModel>[K] extends Field
       ? MapFieldType<ModelFields<TModel>[K]> extends number
         ? K
         : never
@@ -225,7 +225,7 @@ export type SumSelectInput<TModel extends Model<any>> = {
  */
 export type MinSelectInput<TModel extends Model<any>> = {
   [K in FieldNames<TModel> as K extends keyof ModelFields<TModel>
-    ? ModelFields<TModel>[K] extends BaseField<any>
+    ? ModelFields<TModel>[K] extends Field
       ? MapFieldType<ModelFields<TModel>[K]> extends number | string | Date
         ? K
         : never
@@ -238,7 +238,7 @@ export type MinSelectInput<TModel extends Model<any>> = {
  */
 export type MaxSelectInput<TModel extends Model<any>> = {
   [K in FieldNames<TModel> as K extends keyof ModelFields<TModel>
-    ? ModelFields<TModel>[K] extends BaseField<any>
+    ? ModelFields<TModel>[K] extends Field
       ? MapFieldType<ModelFields<TModel>[K]> extends number | string | Date
         ? K
         : never
@@ -267,7 +267,7 @@ export type HavingInput<TModel extends Model<any>> = {
   };
   _avg?: {
     [K in FieldNames<TModel> as K extends keyof ModelFields<TModel>
-      ? ModelFields<TModel>[K] extends BaseField<any>
+      ? ModelFields<TModel>[K] extends Field
         ? MapFieldType<ModelFields<TModel>[K]> extends number
           ? K
           : never
@@ -284,7 +284,7 @@ export type HavingInput<TModel extends Model<any>> = {
   };
   _sum?: {
     [K in FieldNames<TModel> as K extends keyof ModelFields<TModel>
-      ? ModelFields<TModel>[K] extends BaseField<any>
+      ? ModelFields<TModel>[K] extends Field
         ? MapFieldType<ModelFields<TModel>[K]> extends number
           ? K
           : never
@@ -301,7 +301,7 @@ export type HavingInput<TModel extends Model<any>> = {
   };
   _min?: {
     [K in FieldNames<TModel> as K extends keyof ModelFields<TModel>
-      ? ModelFields<TModel>[K] extends BaseField<any>
+      ? ModelFields<TModel>[K] extends Field
         ? MapFieldType<ModelFields<TModel>[K]> extends number | string | Date
           ? K
           : never
@@ -312,7 +312,7 @@ export type HavingInput<TModel extends Model<any>> = {
   };
   _max?: {
     [K in FieldNames<TModel> as K extends keyof ModelFields<TModel>
-      ? ModelFields<TModel>[K] extends BaseField<any>
+      ? ModelFields<TModel>[K] extends Field
         ? MapFieldType<ModelFields<TModel>[K]> extends number | string | Date
           ? K
           : never

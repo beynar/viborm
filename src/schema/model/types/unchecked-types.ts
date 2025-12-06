@@ -142,3 +142,4 @@ export const getFkFromRelation = (relationName: string): string => {
   return `${relationName}Id`;
 };
 
+

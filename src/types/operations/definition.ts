@@ -1,4 +1,4 @@
-import { Model } from "@schema/model";
+import { Model, ExtractFields } from "@schema/model";
 import type {
   ModelFindManyArgs,
   ModelFindFirstArgs,
@@ -35,50 +35,43 @@ export type Operations =
   | "exist";
 
 /**
- * Extracts the fields type from a Model
+ * Operation payload type - passes Model directly to args types
+ * Each args type extracts what it needs internally
  */
-type ModelFields<M extends Model<any>> = M extends Model<infer F> ? F : never;
-
-/**
- * Operation payload type - uses manual types instead of ArkType inference
- * This dramatically improves IDE performance
- */
-export type OperationPayload<
-  O extends Operations,
-  M extends Model<any>
-> = O extends "findMany"
-  ? ModelFindManyArgs<ModelFields<M>>
-  : O extends "findUnique"
-  ? ModelFindUniqueArgs<ModelFields<M>>
-  : O extends "findFirst"
-  ? ModelFindFirstArgs<ModelFields<M>>
-  : O extends "create"
-  ? ModelCreateArgs<ModelFields<M>>
-  : O extends "update"
-  ? ModelUpdateArgs<ModelFields<M>>
-  : O extends "delete"
-  ? ModelDeleteArgs<ModelFields<M>>
-  : O extends "deleteMany"
-  ? ModelDeleteManyArgs<ModelFields<M>>
-  : O extends "upsert"
-  ? ModelUpsertArgs<ModelFields<M>>
-  : O extends "findUniqueOrThrow"
-  ? ModelFindUniqueArgs<ModelFields<M>>
-  : O extends "findFirstOrThrow"
-  ? ModelFindFirstArgs<ModelFields<M>>
-  : O extends "count"
-  ? ModelCountArgs<ModelFields<M>>
-  : O extends "aggregate"
-  ? ModelAggregateArgs<ModelFields<M>>
-  : O extends "groupBy"
-  ? ModelGroupByArgs<ModelFields<M>>
-  : O extends "createMany"
-  ? CreateManyEnvelope<ModelFields<M>>
-  : O extends "updateMany"
-  ? ModelUpdateManyArgs<ModelFields<M>>
-  : O extends "exist"
-  ? ModelExistArgs<ModelFields<M>>
-  : never;
+export type OperationPayload<O extends Operations, M extends Model<any>> =
+  O extends "findMany"
+    ? ModelFindManyArgs<M>
+    : O extends "findUnique"
+      ? ModelFindUniqueArgs<M>
+      : O extends "findFirst"
+        ? ModelFindFirstArgs<M>
+        : O extends "create"
+          ? ModelCreateArgs<M>
+          : O extends "update"
+            ? ModelUpdateArgs<M>
+            : O extends "delete"
+              ? ModelDeleteArgs<M>
+              : O extends "deleteMany"
+                ? ModelDeleteManyArgs<M>
+                : O extends "upsert"
+                  ? ModelUpsertArgs<M>
+                  : O extends "findUniqueOrThrow"
+                    ? ModelFindUniqueArgs<M>
+                    : O extends "findFirstOrThrow"
+                      ? ModelFindFirstArgs<M>
+                      : O extends "count"
+                        ? ModelCountArgs<M>
+                        : O extends "aggregate"
+                          ? ModelAggregateArgs<M>
+                          : O extends "groupBy"
+                            ? ModelGroupByArgs<M>
+                            : O extends "createMany"
+                              ? CreateManyEnvelope<ExtractFields<M>>
+                              : O extends "updateMany"
+                                ? ModelUpdateManyArgs<M>
+                                : O extends "exist"
+                                  ? ModelExistArgs<M>
+                                  : never;
 
 export type OperationResult<
   O extends Operations,

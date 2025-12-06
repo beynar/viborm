@@ -147,7 +147,7 @@ export interface TypedModelSchemas<TFields extends FieldRecord> {
  * Builds all schemas for a model
  */
 export const buildModelSchemas = <TFields extends FieldRecord>(
-  model: Model<TFields>
+  model: Model<any>
 ): TypedModelSchemas<TFields> => ({
   // Core input types
   where: buildWhereSchema(model),

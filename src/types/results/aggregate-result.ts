@@ -1,4 +1,4 @@
-import type { Model, BaseField } from "@schema";
+import type { Model, Field } from "@schema";
 import type {
   FieldNames,
   ModelFields,
@@ -23,7 +23,7 @@ export type CountAggregateResult<TModel extends Model<any>> = {
  */
 export type AvgAggregateResult<TModel extends Model<any>> = {
   [K in FieldNames<TModel>]?: K extends keyof ModelFields<TModel>
-    ? ModelFields<TModel>[K] extends BaseField<any>
+    ? ModelFields<TModel>[K] extends Field
       ? MapFieldType<ModelFields<TModel>[K]> extends number
         ? number | null
         : never
@@ -36,7 +36,7 @@ export type AvgAggregateResult<TModel extends Model<any>> = {
  */
 export type SumAggregateResult<TModel extends Model<any>> = {
   [K in FieldNames<TModel>]?: K extends keyof ModelFields<TModel>
-    ? ModelFields<TModel>[K] extends BaseField<any>
+    ? ModelFields<TModel>[K] extends Field
       ? MapFieldType<ModelFields<TModel>[K]> extends number
         ? number | null
         : never
@@ -49,7 +49,7 @@ export type SumAggregateResult<TModel extends Model<any>> = {
  */
 export type MinAggregateResult<TModel extends Model<any>> = {
   [K in FieldNames<TModel>]?: K extends keyof ModelFields<TModel>
-    ? ModelFields<TModel>[K] extends BaseField<any>
+    ? ModelFields<TModel>[K] extends Field
       ? MapFieldType<ModelFields<TModel>[K]> | null
       : never
     : never;
@@ -60,7 +60,7 @@ export type MinAggregateResult<TModel extends Model<any>> = {
  */
 export type MaxAggregateResult<TModel extends Model<any>> = {
   [K in FieldNames<TModel>]?: K extends keyof ModelFields<TModel>
-    ? ModelFields<TModel>[K] extends BaseField<any>
+    ? ModelFields<TModel>[K] extends Field
       ? MapFieldType<ModelFields<TModel>[K]> | null
       : never
     : never;
@@ -99,7 +99,7 @@ export type ConditionalAggregateResult<
       ? {
           [F in keyof TSelect[K]]: F extends FieldNames<TModel>
             ? F extends keyof ModelFields<TModel>
-              ? ModelFields<TModel>[F] extends BaseField<any>
+              ? ModelFields<TModel>[F] extends Field
                 ? MapFieldType<ModelFields<TModel>[F]> extends number
                   ? number | null
                   : never
@@ -113,7 +113,7 @@ export type ConditionalAggregateResult<
       ? {
           [F in keyof TSelect[K]]: F extends FieldNames<TModel>
             ? F extends keyof ModelFields<TModel>
-              ? ModelFields<TModel>[F] extends BaseField<any>
+              ? ModelFields<TModel>[F] extends Field
                 ? MapFieldType<ModelFields<TModel>[F]> extends number
                   ? number | null
                   : never
@@ -127,7 +127,7 @@ export type ConditionalAggregateResult<
       ? {
           [F in keyof TSelect[K]]: F extends FieldNames<TModel>
             ? F extends keyof ModelFields<TModel>
-              ? ModelFields<TModel>[F] extends BaseField<any>
+              ? ModelFields<TModel>[F] extends Field
                 ? MapFieldType<ModelFields<TModel>[F]> | null
                 : never
               : never
@@ -139,7 +139,7 @@ export type ConditionalAggregateResult<
       ? {
           [F in keyof TSelect[K]]: F extends FieldNames<TModel>
             ? F extends keyof ModelFields<TModel>
-              ? ModelFields<TModel>[F] extends BaseField<any>
+              ? ModelFields<TModel>[F] extends Field
                 ? MapFieldType<ModelFields<TModel>[F]> | null
                 : never
               : never
@@ -161,7 +161,7 @@ export type GroupByAggregateResult<
 > = Array<
   {
     [K in TGroupBy[number]]: K extends keyof ModelFields<TModel>
-      ? ModelFields<TModel>[K] extends BaseField<any>
+      ? ModelFields<TModel>[K] extends Field
         ? MapFieldType<ModelFields<TModel>[K]>
         : never
       : never;
@@ -187,7 +187,7 @@ export type HavingAggregateResult<
  */
 export type StatisticalAggregateResult<TModel extends Model<any>> = {
   [K in FieldNames<TModel>]?: K extends keyof ModelFields<TModel>
-    ? ModelFields<TModel>[K] extends BaseField<any>
+    ? ModelFields<TModel>[K] extends Field
       ? MapFieldType<ModelFields<TModel>[K]> extends number
         ? {
             count: number;
@@ -215,7 +215,7 @@ export type StatisticalAggregateResult<TModel extends Model<any>> = {
  */
 export type PercentileAggregateResult<TModel extends Model<any>> = {
   [K in FieldNames<TModel>]?: K extends keyof ModelFields<TModel>
-    ? ModelFields<TModel>[K] extends BaseField<any>
+    ? ModelFields<TModel>[K] extends Field
       ? MapFieldType<ModelFields<TModel>[K]> extends number
         ? {
             p25: number | null;
@@ -235,7 +235,7 @@ export type PercentileAggregateResult<TModel extends Model<any>> = {
  */
 export type TimeAggregateResult<TModel extends Model<any>> = {
   [K in FieldNames<TModel>]?: K extends keyof ModelFields<TModel>
-    ? ModelFields<TModel>[K] extends BaseField<any>
+    ? ModelFields<TModel>[K] extends Field
       ? MapFieldType<ModelFields<TModel>[K]> extends Date
         ? {
             earliest: Date | null;
@@ -257,7 +257,7 @@ export type SupportsNumericAggregation<
   TModel extends Model<any>,
   TField extends FieldNames<TModel>
 > = TField extends keyof ModelFields<TModel>
-  ? ModelFields<TModel>[TField] extends BaseField<any>
+  ? ModelFields<TModel>[TField] extends Field
     ? MapFieldType<ModelFields<TModel>[TField]> extends number
       ? true
       : false
@@ -271,7 +271,7 @@ export type SupportsDateAggregation<
   TModel extends Model<any>,
   TField extends FieldNames<TModel>
 > = TField extends keyof ModelFields<TModel>
-  ? ModelFields<TModel>[TField] extends BaseField<any>
+  ? ModelFields<TModel>[TField] extends Field
     ? MapFieldType<ModelFields<TModel>[TField]> extends Date
       ? true
       : false
@@ -283,7 +283,7 @@ export type SupportsDateAggregation<
  */
 export type NumericFields<TModel extends Model<any>> = {
   [K in FieldNames<TModel>]: K extends keyof ModelFields<TModel>
-    ? ModelFields<TModel>[K] extends BaseField<any>
+    ? ModelFields<TModel>[K] extends Field
       ? MapFieldType<ModelFields<TModel>[K]> extends number
         ? K
         : never
@@ -296,7 +296,7 @@ export type NumericFields<TModel extends Model<any>> = {
  */
 export type DateFields<TModel extends Model<any>> = {
   [K in FieldNames<TModel>]: K extends keyof ModelFields<TModel>
-    ? ModelFields<TModel>[K] extends BaseField<any>
+    ? ModelFields<TModel>[K] extends Field
       ? MapFieldType<ModelFields<TModel>[K]> extends Date
         ? K
         : never
@@ -309,7 +309,7 @@ export type DateFields<TModel extends Model<any>> = {
  */
 export type StringFields<TModel extends Model<any>> = {
   [K in FieldNames<TModel>]: K extends keyof ModelFields<TModel>
-    ? ModelFields<TModel>[K] extends BaseField<any>
+    ? ModelFields<TModel>[K] extends Field
       ? MapFieldType<ModelFields<TModel>[K]> extends string
         ? K
         : never

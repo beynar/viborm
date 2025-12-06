@@ -1,4 +1,4 @@
-import { BaseField, Model } from "@schema";
+import { Field, Model } from "@schema";
 import { FieldNames, ModelFields } from "../foundation/model-extraction";
 
 // Import the FieldUpdateOperations type specifically
@@ -17,7 +17,7 @@ export type UpdateManyInput<TModel extends Model<any>> =
     ? {}
     : {
         [K in FieldNames<TModel>]?: K extends keyof ModelFields<TModel>
-          ? ModelFields<TModel>[K] extends BaseField<any>
+          ? ModelFields<TModel>[K] extends Field
             ? FieldUpdateOperations<ModelFields<TModel>[K]>
             : never
           : never;

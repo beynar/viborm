@@ -8,6 +8,7 @@ import {
   type DefaultValue,
   createDefaultState,
 } from "../common";
+import type { NativeType } from "../native-types";
 import * as schemas from "./schemas";
 
 // =============================================================================
@@ -61,7 +62,10 @@ type DateTimeFieldSchemas<State extends FieldState<"datetime">> = {
 // =============================================================================
 
 export class DateTimeField<State extends FieldState<"datetime">> {
-  constructor(private state: State) {}
+  constructor(
+    private state: State,
+    private _nativeType?: NativeType
+  ) {}
 
   // ===========================================================================
   // CHAINABLE MODIFIERS
@@ -191,6 +195,7 @@ export class DateTimeField<State extends FieldState<"datetime">> {
     return {
       state: this.state,
       schemas: this.schemas,
+      nativeType: this._nativeType,
     };
   }
 }
@@ -199,4 +204,5 @@ export class DateTimeField<State extends FieldState<"datetime">> {
 // FACTORY FUNCTION
 // =============================================================================
 
-export const dateTime = () => new DateTimeField(createDefaultState("datetime"));
+export const dateTime = (nativeType?: NativeType) =>
+  new DateTimeField(createDefaultState("datetime"), nativeType);

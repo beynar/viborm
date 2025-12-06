@@ -9,6 +9,7 @@ import {
   type DefaultValue,
   createDefaultState,
 } from "../common";
+import type { NativeType } from "../native-types";
 import * as schemas from "./schemas";
 import * as schemaBuilders from "./schemas";
 import type {
@@ -98,7 +99,11 @@ export class JsonField<
   TSchema extends StandardSchemaV1 | undefined = undefined,
   State extends JsonFieldState<TSchema> = JsonFieldState<TSchema>
 > {
-  constructor(private _customSchema: TSchema, private state: State) {}
+  constructor(
+    private _customSchema: TSchema,
+    private state: State,
+    private _nativeType?: NativeType
+  ) {}
 
   // ===========================================================================
   // CHAINABLE MODIFIERS
@@ -225,6 +230,7 @@ export class JsonField<
       state: this.state,
       schemas: this.schemas,
       customSchema: this._customSchema,
+      nativeType: this._nativeType,
     };
   }
 }
@@ -246,12 +252,36 @@ export function json<TSchema extends StandardSchemaV1>(
   schema: TSchema
 ): JsonField<TSchema>;
 
+/**
+ * Creates a JSON field with native database type override
+ * @param nativeType - Native database type (e.g., PG.JSON.JSONB)
+ */
+export function json(nativeType: NativeType): JsonField<undefined>;
+
 export function json<TSchema extends StandardSchemaV1 | undefined = undefined>(
-  schema?: TSchema
+  schemaOrNativeType?: TSchema | NativeType
 ): JsonField<TSchema> {
   const baseState = createDefaultState("json") as JsonFieldState<TSchema>;
-  return new JsonField<TSchema, JsonFieldState<TSchema>>(schema as TSchema, {
-    ...baseState,
-    customSchema: schema as TSchema,
-  });
+
+  // Check if it's a native type
+  if (
+    schemaOrNativeType &&
+    typeof schemaOrNativeType === "object" &&
+    "db" in schemaOrNativeType &&
+    "type" in schemaOrNativeType
+  ) {
+    return new JsonField<TSchema, JsonFieldState<TSchema>>(
+      undefined as TSchema,
+      { ...baseState, customSchema: undefined as TSchema },
+      schemaOrNativeType as NativeType
+    );
+  }
+
+  return new JsonField<TSchema, JsonFieldState<TSchema>>(
+    schemaOrNativeType as TSchema,
+    {
+      ...baseState,
+      customSchema: schemaOrNativeType as TSchema,
+    }
+  );
 }

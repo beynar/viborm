@@ -8,6 +8,7 @@ import {
   type DefaultValue,
   createDefaultState,
 } from "../common";
+import type { NativeType } from "../native-types";
 import * as schemas from "./schemas";
 
 // =============================================================================
@@ -49,7 +50,10 @@ type VectorFieldSchemas<State extends VectorFieldState> = {
 // =============================================================================
 
 export class VectorField<State extends VectorFieldState = VectorFieldState> {
-  constructor(private state: State) {}
+  constructor(
+    private state: State,
+    private _nativeType?: NativeType
+  ) {}
 
   // ===========================================================================
   // CHAINABLE MODIFIERS
@@ -154,6 +158,7 @@ export class VectorField<State extends VectorFieldState = VectorFieldState> {
     return {
       state: this.state,
       schemas: this.schemas,
+      nativeType: this._nativeType,
     };
   }
 }
@@ -162,10 +167,10 @@ export class VectorField<State extends VectorFieldState = VectorFieldState> {
 // FACTORY FUNCTION
 // =============================================================================
 
-export const vector = (dimension?: number) => {
+export const vector = (dimension?: number, nativeType?: NativeType) => {
   const state: VectorFieldState = createDefaultState("vector");
   if (dimension !== undefined) {
     state.dimension = dimension;
   }
-  return new VectorField(state);
+  return new VectorField(state, nativeType);
 };

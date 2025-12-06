@@ -15,9 +15,17 @@ export {
   createDefaultState,
 } from "./common";
 
-// Field interface and type guard
-// Export FieldLike as both FieldLike and BaseField for backward compatibility
-export { type Field, type FieldLike, type FieldLike as BaseField, isField } from "./base";
+// Field type (union of all field classes) and type guard
+export {
+  type Field,
+  type AnyField,
+  type FieldLike, // deprecated
+  type BaseField, // deprecated
+  isField,
+} from "./base";
+
+// Native database types
+export { PG, MYSQL, SQLITE, type NativeType } from "./native-types";
 
 // Standard schema utilities
 export * from "./standard-schema";

@@ -8,6 +8,7 @@ import {
   type DefaultValue,
   createDefaultState,
 } from "../common";
+import type { NativeType } from "../native-types";
 import * as schemas from "./schemas";
 
 // =============================================================================
@@ -41,7 +42,10 @@ type BlobFieldSchemas<State extends FieldState<"blob">> = {
 // =============================================================================
 
 export class BlobField<State extends FieldState<"blob">> {
-  constructor(private state: State) {}
+  constructor(
+    private state: State,
+    private _nativeType?: NativeType
+  ) {}
 
   // ===========================================================================
   // CHAINABLE MODIFIERS
@@ -126,6 +130,7 @@ export class BlobField<State extends FieldState<"blob">> {
     return {
       state: this.state,
       schemas: this.schemas,
+      nativeType: this._nativeType,
     };
   }
 }
@@ -134,4 +139,5 @@ export class BlobField<State extends FieldState<"blob">> {
 // FACTORY FUNCTION
 // =============================================================================
 
-export const blob = () => new BlobField(createDefaultState("blob"));
+export const blob = (nativeType?: NativeType) =>
+  new BlobField(createDefaultState("blob"), nativeType);

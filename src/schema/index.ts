@@ -123,6 +123,7 @@ export * from "./fields";
 export * from "./model";
 export * from "./relation";
 export * from "./validation";
+export * as TYPES from "./fields/native-types";
 
 // =============================================================================
 // TYPE INFERENCE EXPORTS

@@ -8,6 +8,7 @@ import {
   type DefaultValue,
   createDefaultState,
 } from "../common";
+import type { NativeType } from "../native-types";
 import * as schemas from "./schemas";
 
 // =============================================================================
@@ -65,52 +66,64 @@ type StringFieldSchemas<State extends FieldState<"string">> = {
 // =============================================================================
 
 export class StringField<State extends FieldState<"string">> {
-  constructor(private state: State) {}
+  constructor(private state: State, private _nativeType?: NativeType) {}
 
   // ===========================================================================
   // CHAINABLE MODIFIERS - Each returns properly typed new instance
   // ===========================================================================
 
   nullable(): StringField<UpdateState<State, { nullable: true }>> {
-    return new StringField({ ...this.state, nullable: true });
+    return new StringField({ ...this.state, nullable: true }, this._nativeType);
   }
 
   array(): StringField<UpdateState<State, { array: true }>> {
-    return new StringField({ ...this.state, array: true });
+    return new StringField({ ...this.state, array: true }, this._nativeType);
   }
 
   id(): StringField<UpdateState<State, { isId: true; isUnique: true }>> {
-    return new StringField({ ...this.state, isId: true, isUnique: true });
+    return new StringField(
+      { ...this.state, isId: true, isUnique: true },
+      this._nativeType
+    );
   }
 
   unique(): StringField<UpdateState<State, { isUnique: true }>> {
-    return new StringField({ ...this.state, isUnique: true });
+    return new StringField({ ...this.state, isUnique: true }, this._nativeType);
   }
 
   default(
     value: DefaultValue<string, State["array"], State["nullable"]>
   ): StringField<UpdateState<State, { hasDefault: true }>> {
-    return new StringField({
-      ...this.state,
-      hasDefault: true,
-      defaultValue: value,
-    });
+    return new StringField(
+      {
+        ...this.state,
+        hasDefault: true,
+        defaultValue: value,
+      },
+      this._nativeType
+    );
   }
 
   validator(
     schema: StandardSchemaV1
   ): StringField<UpdateState<State, { customValidator: StandardSchemaV1 }>> {
-    return new StringField({
-      ...this.state,
-      customValidator: schema,
-    });
+    return new StringField(
+      {
+        ...this.state,
+        customValidator: schema,
+      },
+      this._nativeType
+    );
   }
 
   /**
    * Maps this field to a custom column name in the database
    */
   map(columnName: string): this {
-    return new StringField({ ...this.state, columnName }) as this;
+    return new StringField(
+      { ...this.state, columnName },
+      this._nativeType
+    ) as this;
   }
 
   // ===========================================================================
@@ -120,41 +133,53 @@ export class StringField<State extends FieldState<"string">> {
   uuid(): StringField<
     UpdateState<State, { hasDefault: true; autoGenerate: "uuid" }>
   > {
-    return new StringField({
-      ...this.state,
-      hasDefault: true,
-      autoGenerate: "uuid",
-    });
+    return new StringField(
+      {
+        ...this.state,
+        hasDefault: true,
+        autoGenerate: "uuid",
+      },
+      this._nativeType
+    );
   }
 
   ulid(): StringField<
     UpdateState<State, { hasDefault: true; autoGenerate: "ulid" }>
   > {
-    return new StringField({
-      ...this.state,
-      hasDefault: true,
-      autoGenerate: "ulid",
-    });
+    return new StringField(
+      {
+        ...this.state,
+        hasDefault: true,
+        autoGenerate: "ulid",
+      },
+      this._nativeType
+    );
   }
 
   nanoid(): StringField<
     UpdateState<State, { hasDefault: true; autoGenerate: "nanoid" }>
   > {
-    return new StringField({
-      ...this.state,
-      hasDefault: true,
-      autoGenerate: "nanoid",
-    });
+    return new StringField(
+      {
+        ...this.state,
+        hasDefault: true,
+        autoGenerate: "nanoid",
+      },
+      this._nativeType
+    );
   }
 
   cuid(): StringField<
     UpdateState<State, { hasDefault: true; autoGenerate: "cuid" }>
   > {
-    return new StringField({
-      ...this.state,
-      hasDefault: true,
-      autoGenerate: "cuid",
-    });
+    return new StringField(
+      {
+        ...this.state,
+        hasDefault: true,
+        autoGenerate: "cuid",
+      },
+      this._nativeType
+    );
   }
 
   // ===========================================================================
@@ -220,6 +245,7 @@ export class StringField<State extends FieldState<"string">> {
     return {
       state: this.state,
       schemas: this.schemas,
+      nativeType: this._nativeType,
     };
   }
 }
@@ -228,4 +254,19 @@ export class StringField<State extends FieldState<"string">> {
 // FACTORY FUNCTION
 // =============================================================================
 
-export const string = () => new StringField(createDefaultState("string"));
+/**
+ * Creates a string field with optional native database type override
+ *
+ * @example
+ * // Default string field
+ * s.string()
+ *
+ * // With PostgreSQL native type
+ * s.string(PG.STRING.VARCHAR(255))
+ * s.string(PG.STRING.CITEXT)
+ *
+ * // With MySQL native type
+ * s.string(MYSQL.STRING.TEXT)
+ */
+export const string = (nativeType?: NativeType) =>
+  new StringField(createDefaultState("string"), nativeType);

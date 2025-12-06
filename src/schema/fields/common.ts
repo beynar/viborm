@@ -74,15 +74,18 @@ export type UpdateState<
 /**
  * Conditionally wraps a type with null
  */
-export type MaybeNullable<T, Nullable extends boolean = false> =
-  Nullable extends true ? T | null : T;
+export type MaybeNullable<
+  T,
+  Nullable extends boolean = false
+> = Nullable extends true ? T | null : T;
 
 /**
  * Conditionally wraps a type as array
  */
-export type MaybeArray<T, IsArray extends boolean = false> = IsArray extends true
-  ? T[]
-  : T;
+export type MaybeArray<
+  T,
+  IsArray extends boolean = false
+> = IsArray extends true ? T[] : T;
 
 /**
  * Type for default value - can be direct value or factory function
@@ -132,8 +135,8 @@ export type InferBaseType<
     ? (BaseType | null)[]
     : BaseType[]
   : State["nullable"] extends true
-    ? BaseType | null
-    : BaseType;
+  ? BaseType | null
+  : BaseType;
 
 /**
  * Infers the create input type from a field state
@@ -146,6 +149,5 @@ export type InferCreateType<
     ? BaseType | null | undefined
     : BaseType | undefined
   : State["nullable"] extends true
-    ? BaseType | null
-    : BaseType;
-
+  ? BaseType | null
+  : BaseType;

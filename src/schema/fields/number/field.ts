@@ -8,6 +8,7 @@ import {
   type DefaultValue,
   createDefaultState,
 } from "../common";
+import type { NativeType } from "../native-types";
 import * as schemas from "./schemas";
 
 // =============================================================================
@@ -61,7 +62,10 @@ type IntFieldSchemas<State extends FieldState<"int">> = {
 // =============================================================================
 
 export class IntField<State extends FieldState<"int">> {
-  constructor(private state: State) {}
+  constructor(
+    private state: State,
+    private _nativeType?: NativeType
+  ) {}
 
   // ===========================================================================
   // CHAINABLE MODIFIERS
@@ -181,6 +185,7 @@ export class IntField<State extends FieldState<"int">> {
     return {
       state: this.state,
       schemas: this.schemas,
+      nativeType: this._nativeType,
     };
   }
 }
@@ -236,7 +241,10 @@ type FloatFieldSchemas<State extends FieldState<"float">> = {
 // =============================================================================
 
 export class FloatField<State extends FieldState<"float">> {
-  constructor(private state: State) {}
+  constructor(
+    private state: State,
+    private _nativeType?: NativeType
+  ) {}
 
   // ===========================================================================
   // CHAINABLE MODIFIERS
@@ -342,6 +350,7 @@ export class FloatField<State extends FieldState<"float">> {
     return {
       state: this.state,
       schemas: this.schemas,
+      nativeType: this._nativeType,
     };
   }
 }
@@ -353,7 +362,10 @@ export class FloatField<State extends FieldState<"float">> {
 type DecimalFieldSchemas<State extends FieldState<"decimal">> = FloatFieldSchemas<State & FieldState<"float">>;
 
 export class DecimalField<State extends FieldState<"decimal">> {
-  constructor(private state: State) {}
+  constructor(
+    private state: State,
+    private _nativeType?: NativeType
+  ) {}
 
   // ===========================================================================
   // CHAINABLE MODIFIERS
@@ -459,6 +471,7 @@ export class DecimalField<State extends FieldState<"decimal">> {
     return {
       state: this.state,
       schemas: this.schemas,
+      nativeType: this._nativeType,
     };
   }
 }
@@ -467,6 +480,9 @@ export class DecimalField<State extends FieldState<"decimal">> {
 // FACTORY FUNCTIONS
 // =============================================================================
 
-export const int = () => new IntField(createDefaultState("int"));
-export const float = () => new FloatField(createDefaultState("float"));
-export const decimal = () => new DecimalField(createDefaultState("decimal"));
+export const int = (nativeType?: NativeType) =>
+  new IntField(createDefaultState("int"), nativeType);
+export const float = (nativeType?: NativeType) =>
+  new FloatField(createDefaultState("float"), nativeType);
+export const decimal = (nativeType?: NativeType) =>
+  new DecimalField(createDefaultState("decimal"), nativeType);

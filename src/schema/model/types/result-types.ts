@@ -55,6 +55,7 @@ export type IncludedRelationResult<R> = RelationResult<R>;
 /**
  * Result when select is provided - only selected fields are returned
  * Handles both scalar fields and relations
+ * Supports nested select AND nested include inside relation objects
  */
 export type SelectResult<T extends FieldRecord, S> = Simplify<{
   [K in keyof S & keyof T as S[K] extends true | object ? K : never]: T[K] extends Field
@@ -62,14 +63,28 @@ export type SelectResult<T extends FieldRecord, S> = Simplify<{
     : T[K] extends Relation<any, any, any>
       ? S[K] extends true
         ? RelationResult<T[K]>
-        : S[K] extends object
+        : S[K] extends { select: infer NS }
           ? // Nested select on relation
-            SelectResult<GetRelationFields<T[K]>, S[K]> extends infer R
+            SelectResult<GetRelationFields<T[K]>, NS> extends infer R
             ? [GetRelationType<T[K]>] extends ["oneToMany" | "manyToMany"]
               ? R[]
-              : R | null
+              : [GetRelationOptional<T[K]>] extends [true]
+                ? R | null
+                : R
             : never
-          : never
+          : S[K] extends { include: infer NI }
+            ? // Nested include on relation - use IncludeResult
+              IncludeResult<GetRelationFields<T[K]>, NI> extends infer R
+              ? [GetRelationType<T[K]>] extends ["oneToMany" | "manyToMany"]
+                ? R[]
+                : [GetRelationOptional<T[K]>] extends [true]
+                  ? R | null
+                  : R
+              : never
+            : S[K] extends object
+              ? // Other object shapes (where, take, skip) - return base relation result
+                RelationResult<T[K]>
+              : never
       : never;
 }>;
 

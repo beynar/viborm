@@ -8,6 +8,7 @@ import {
   type DefaultValue,
   createDefaultState,
 } from "../common";
+import type { NativeType } from "../native-types";
 import * as schemaBuilders from "./schemas";
 import type {
   EnumType,
@@ -92,7 +93,11 @@ export class EnumField<
 > {
   readonly enumValues: TEnum;
 
-  constructor(enumValues: TEnum, private state: State) {
+  constructor(
+    enumValues: TEnum,
+    private state: State,
+    private _nativeType?: NativeType
+  ) {
     this.enumValues = enumValues;
   }
 
@@ -238,6 +243,7 @@ export class EnumField<
       state: this.state,
       schemas: this.schemas,
       enumValues: this.enumValues,
+      nativeType: this._nativeType,
     };
   }
 }
@@ -246,10 +252,17 @@ export class EnumField<
 // FACTORY FUNCTION
 // =============================================================================
 
-export const enumField = <const T extends readonly string[]>(values: T) => {
+export const enumField = <const T extends readonly string[]>(
+  values: T,
+  nativeType?: NativeType
+) => {
   const baseState = createDefaultState("enum") as EnumFieldState<T>;
-  return new EnumField<T, EnumFieldState<T>>(values, {
-    ...baseState,
-    enumValues: values,
-  });
+  return new EnumField<T, EnumFieldState<T>>(
+    values,
+    {
+      ...baseState,
+      enumValues: values,
+    },
+    nativeType
+  );
 };

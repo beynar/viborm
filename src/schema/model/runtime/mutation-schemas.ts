@@ -1,17 +1,9 @@
 // Mutation Schema Builders
 // Builds runtime ArkType schemas for mutation operation arguments
+// Note: Return types use Type without generic since these are runtime schemas
 
 import { type, Type } from "arktype";
 import type { Model } from "../model";
-import type {
-  FieldRecord,
-  ModelCreateArgs,
-  ModelUpdateArgs,
-  ModelUpdateManyArgs,
-  ModelDeleteArgs,
-  ModelDeleteManyArgs,
-  ModelUpsertArgs,
-} from "../types";
 import {
   buildWhereSchema,
   buildWhereUniqueSchema,
@@ -28,9 +20,7 @@ import {
 /**
  * Builds a create args schema
  */
-export const buildCreateArgsSchema = <TFields extends FieldRecord>(
-  model: Model<TFields>
-): Type<ModelCreateArgs<TFields>> => {
+export const buildCreateArgsSchema = (model: Model<any>): Type => {
   const createSchema = buildCreateSchema(model);
   const selectSchema = buildSelectSchema(model);
   const includeSchema = buildIncludeSchema(model);
@@ -41,15 +31,13 @@ export const buildCreateArgsSchema = <TFields extends FieldRecord>(
     "include?": includeSchema,
   };
 
-  return type(shape) as unknown as Type<ModelCreateArgs<TFields>>;
+  return type(shape);
 };
 
 /**
  * Builds an update args schema
  */
-export const buildUpdateArgsSchema = <TFields extends FieldRecord>(
-  model: Model<TFields>
-): Type<ModelUpdateArgs<TFields>> => {
+export const buildUpdateArgsSchema = (model: Model<any>): Type => {
   const whereUniqueSchema = buildWhereUniqueSchema(model);
   const updateSchema = buildUpdateSchema(model);
   const selectSchema = buildSelectSchema(model);
@@ -62,15 +50,13 @@ export const buildUpdateArgsSchema = <TFields extends FieldRecord>(
     "include?": includeSchema,
   };
 
-  return type(shape) as unknown as Type<ModelUpdateArgs<TFields>>;
+  return type(shape);
 };
 
 /**
  * Builds an updateMany args schema
  */
-export const buildUpdateManyArgsSchema = <TFields extends FieldRecord>(
-  model: Model<TFields>
-): Type<ModelUpdateManyArgs<TFields>> => {
+export const buildUpdateManyArgsSchema = (model: Model<any>): Type => {
   const whereSchema = buildWhereSchema(model);
   const updateSchema = buildUpdateSchema(model);
 
@@ -79,15 +65,13 @@ export const buildUpdateManyArgsSchema = <TFields extends FieldRecord>(
     data: updateSchema,
   };
 
-  return type(shape) as unknown as Type<ModelUpdateManyArgs<TFields>>;
+  return type(shape);
 };
 
 /**
  * Builds a delete args schema
  */
-export const buildDeleteArgsSchema = <TFields extends FieldRecord>(
-  model: Model<TFields>
-): Type<ModelDeleteArgs<TFields>> => {
+export const buildDeleteArgsSchema = (model: Model<any>): Type => {
   const whereUniqueSchema = buildWhereUniqueSchema(model);
   const selectSchema = buildSelectSchema(model);
   const includeSchema = buildIncludeSchema(model);
@@ -98,30 +82,26 @@ export const buildDeleteArgsSchema = <TFields extends FieldRecord>(
     "include?": includeSchema,
   };
 
-  return type(shape) as unknown as Type<ModelDeleteArgs<TFields>>;
+  return type(shape);
 };
 
 /**
  * Builds a deleteMany args schema
  */
-export const buildDeleteManyArgsSchema = <TFields extends FieldRecord>(
-  model: Model<TFields>
-): Type<ModelDeleteManyArgs<TFields>> => {
+export const buildDeleteManyArgsSchema = (model: Model<any>): Type => {
   const whereSchema = buildWhereSchema(model);
 
   const shape: Record<string, Type> = {
     "where?": whereSchema,
   };
 
-  return type(shape) as unknown as Type<ModelDeleteManyArgs<TFields>>;
+  return type(shape);
 };
 
 /**
  * Builds an upsert args schema
  */
-export const buildUpsertArgsSchema = <TFields extends FieldRecord>(
-  model: Model<TFields>
-): Type<ModelUpsertArgs<TFields>> => {
+export const buildUpsertArgsSchema = (model: Model<any>): Type => {
   const whereUniqueSchema = buildWhereUniqueSchema(model);
   const createSchema = buildCreateSchema(model);
   const updateSchema = buildUpdateSchema(model);
@@ -136,6 +116,5 @@ export const buildUpsertArgsSchema = <TFields extends FieldRecord>(
     "include?": includeSchema,
   };
 
-  return type(shape) as unknown as Type<ModelUpsertArgs<TFields>>;
+  return type(shape);
 };
-

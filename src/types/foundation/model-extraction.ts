@@ -1,15 +1,15 @@
 // Foundation Types: Model Extraction
-// Extract type information from actual Model and BaseField classes
+// Extract type information from actual Model and Field classes
 
-import type { Model, BaseField, Relation } from "@schema";
+import type { Model, Field, Relation } from "@schema";
 
 // Extract the generic parameter from Model<TFields> to get field definitions
 export type ExtractModelFields<TModel extends Model<any>> =
   TModel extends Model<infer TFields> ? TFields : never;
 
-// Helper to get field names that are actually BaseField instances
+// Helper to get field names that are actually Field instances
 type ActualFieldNames<TModel extends Model<any>> = {
-  [K in keyof ExtractModelFields<TModel>]: ExtractModelFields<TModel>[K] extends BaseField<any>
+  [K in keyof ExtractModelFields<TModel>]: ExtractModelFields<TModel>[K] extends Field
     ? K
     : never;
 }[keyof ExtractModelFields<TModel>];
@@ -47,12 +47,12 @@ export type ActualSingleRelationNames<TModel extends Model<any>> = {
     : never;
 }[keyof ExtractModelFields<TModel>];
 
-// Extract only BaseField instances from model definition
+// Extract only Field instances from model definition
 export type ExtractFields<TModel extends Model<any>> =
   ActualFieldNames<TModel> extends never
     ? {} // Return empty object if no fields
     : {
-        [K in ActualFieldNames<TModel>]: ExtractModelFields<TModel>[K] extends BaseField<any>
+        [K in ActualFieldNames<TModel>]: ExtractModelFields<TModel>[K] extends Field
           ? ExtractModelFields<TModel>[K]
           : never;
       };
