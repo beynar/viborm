@@ -2,7 +2,7 @@
 // Model-level input types for queries and mutations
 
 import type { Field } from "../../fields/base";
-import type { Relation } from "../../relation/relation";
+import type { AnyRelation } from "../../relation/relation";
 import type { Model } from "../model";
 import type { Simplify, AtLeast, SortOrderInput } from "./base-types";
 import type {
@@ -57,9 +57,9 @@ type ScalarCreateFields<T extends FieldRecord> = RequiredScalarCreateFields<T> &
  * Relation fields for create input (always optional)
  */
 type RelationCreateFields<T extends FieldRecord> = {
-  [K in keyof T as T[K] extends Relation<any, any, any>
+  [K in keyof T as T[K] extends AnyRelation
     ? K
-    : never]?: RelationCreateInput<T[K]>;
+    : never]?: T[K] extends AnyRelation ? RelationCreateInput<T[K]> : never;
 };
 
 /**
@@ -103,9 +103,9 @@ type ScalarWhereFields<T extends FieldRecord> = {
  * Relation filters for where input
  */
 type RelationWhereFields<T extends FieldRecord> = {
-  [K in keyof T as T[K] extends Relation<any, any, any>
+  [K in keyof T as T[K] extends AnyRelation
     ? K
-    : never]?: RelationWhereInput<T[K]>;
+    : never]?: T[K] extends AnyRelation ? RelationWhereInput<T[K]> : never;
 };
 
 /**
@@ -128,8 +128,6 @@ export type ModelWhereInput<T extends FieldRecord> = Simplify<
 // =============================================================================
 // WHERE UNIQUE INPUT TYPES
 // =============================================================================
-
-import type { CompoundKeyName } from "../model";
 
 /**
  * Creates a union of single-field unique identifiers
@@ -220,9 +218,9 @@ type ScalarUpdateFields<T extends FieldRecord> = {
  * Relation fields for update input (all optional)
  */
 type RelationUpdateFields<T extends FieldRecord> = {
-  [K in keyof T as T[K] extends Relation<any, any, any>
+  [K in keyof T as T[K] extends AnyRelation
     ? K
-    : never]?: RelationUpdateInput<T[K]>;
+    : never]?: T[K] extends AnyRelation ? RelationUpdateInput<T[K]> : never;
 };
 
 /**
@@ -248,7 +246,7 @@ export type ModelSelect<T extends FieldRecord> = {
  * Computes the include type for a model
  */
 export type ModelInclude<T extends FieldRecord> = {
-  [K in keyof T as T[K] extends Relation<any, any, any> ? K : never]?: boolean;
+  [K in keyof T as T[K] extends AnyRelation ? K : never]?: boolean;
 };
 
 // =============================================================================
@@ -311,4 +309,3 @@ type AggregateSelectors<TFields extends FieldRecord> = {
  */
 export type ModelScalarWhereWithAggregates<TFields extends FieldRecord> =
   Simplify<ModelWhereInput<TFields> & AggregateSelectors<TFields>>;
-

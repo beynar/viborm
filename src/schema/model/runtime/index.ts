@@ -98,12 +98,9 @@ export {
 // =============================================================================
 
 /**
- * Runtime schemas for a model.
- * Uses Type (without generic) to avoid deep ArkType type inference.
- * The actual types are enforced at the function return level.
+ * Core schemas built in phase 1 - used by args/mutation builders
  */
-export interface TypedModelSchemas<TFields extends FieldRecord> {
-  // Core input types
+export interface CoreSchemas {
   where: Type;
   whereUnique: Type;
   create: Type;
@@ -112,7 +109,19 @@ export interface TypedModelSchemas<TFields extends FieldRecord> {
   select: Type;
   include: Type;
   orderBy: Type;
+  selectNested: Type;
+  includeNested: Type;
+  uncheckedCreate: Type;
+  uncheckedUpdate: Type;
+}
 
+/**
+ * Runtime schemas for a model.
+ * Uses Type (without generic) to avoid deep ArkType type inference.
+ * The actual types are enforced at the function return level.
+ */
+export interface TypedModelSchemas<TFields extends FieldRecord>
+  extends CoreSchemas {
   // Query operation args types
   findMany: Type;
   findFirst: Type;
@@ -129,61 +138,58 @@ export interface TypedModelSchemas<TFields extends FieldRecord> {
   deleteArgs: Type;
   deleteManyArgs: Type;
   upsertArgs: Type;
-
-  // Unchecked types (FK-based)
-  uncheckedCreate: Type;
-  uncheckedUpdate: Type;
-
-  // Nested select/include types
-  selectNested: Type;
-  includeNested: Type;
 }
 
 // =============================================================================
-// BUILD MODEL SCHEMAS
+// BUILD MODEL SCHEMAS (Two-Phase)
 // =============================================================================
 
 /**
- * Builds all schemas for a model
+ * Builds all schemas for a model using two-phase approach:
+ * 1. Build core schemas first (where, create, update, etc.)
+ * 2. Build args schemas using the core schemas (avoids rebuilding)
  */
 export const buildModelSchemas = <TFields extends FieldRecord>(
   model: Model<any>
-): TypedModelSchemas<TFields> => ({
-  // Core input types
-  where: buildWhereSchema(model),
-  whereUnique: buildWhereUniqueSchema(model),
-  create: buildCreateSchema(model),
-  createMany: buildCreateManySchema(model),
-  update: buildUpdateSchema(model),
-  select: buildSelectSchema(model),
-  include: buildIncludeSchema(model),
-  orderBy: buildOrderBySchema(model),
+): TypedModelSchemas<TFields> => {
+  // Phase 1: Build core schemas
+  const core: CoreSchemas = {
+    where: buildWhereSchema(model),
+    whereUnique: buildWhereUniqueSchema(model),
+    create: buildCreateSchema(model),
+    createMany: buildCreateManySchema(model),
+    update: buildUpdateSchema(model),
+    select: buildSelectSchema(model),
+    include: buildIncludeSchema(model),
+    orderBy: buildOrderBySchema(model),
+    selectNested: buildSelectNestedSchema(model),
+    includeNested: buildIncludeNestedSchema(model),
+    uncheckedCreate: buildUncheckedCreateSchema(model),
+    uncheckedUpdate: buildUncheckedUpdateSchema(model),
+  };
 
-  // Query operation args types
-  findMany: buildFindManyArgsSchema(model),
-  findFirst: buildFindFirstArgsSchema(model),
-  findUnique: buildFindUniqueArgsSchema(model),
-  count: buildCountArgsSchema(model),
-  exist: buildExistArgsSchema(model),
-  aggregate: buildAggregateArgsSchema(model),
-  groupBy: buildGroupByArgsSchema(model),
+  // Phase 2: Build args schemas using core schemas (no rebuilding)
+  return {
+    ...core,
 
-  // Mutation operation args types
-  createArgs: buildCreateArgsSchema(model),
-  updateArgs: buildUpdateArgsSchema(model),
-  updateManyArgs: buildUpdateManyArgsSchema(model),
-  deleteArgs: buildDeleteArgsSchema(model),
-  deleteManyArgs: buildDeleteManyArgsSchema(model),
-  upsertArgs: buildUpsertArgsSchema(model),
+    // Query operation args (some need model for field-specific schemas)
+    findMany: buildFindManyArgsSchema(model, core),
+    findFirst: buildFindFirstArgsSchema(model, core),
+    findUnique: buildFindUniqueArgsSchema(core),
+    count: buildCountArgsSchema(model, core),
+    exist: buildExistArgsSchema(core),
+    aggregate: buildAggregateArgsSchema(model, core),
+    groupBy: buildGroupByArgsSchema(model, core),
 
-  // Unchecked types (FK-based)
-  uncheckedCreate: buildUncheckedCreateSchema(model),
-  uncheckedUpdate: buildUncheckedUpdateSchema(model),
-
-  // Nested select/include types
-  selectNested: buildSelectNestedSchema(model),
-  includeNested: buildIncludeNestedSchema(model),
-});
+    // Mutation operation args (all use only core schemas)
+    createArgs: buildCreateArgsSchema(core),
+    updateArgs: buildUpdateArgsSchema(core),
+    updateManyArgs: buildUpdateManyArgsSchema(core),
+    deleteArgs: buildDeleteArgsSchema(core),
+    deleteManyArgs: buildDeleteManyArgsSchema(core),
+    upsertArgs: buildUpsertArgsSchema(core),
+  };
+};
 
 // Legacy export
 export type ModelSchemas = TypedModelSchemas<any>;

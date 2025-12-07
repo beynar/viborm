@@ -9,26 +9,17 @@ import type {
   ModelIncludeNested,
 } from "../types";
 
-// Cache for select schemas to prevent circular reference issues
-const selectSchemaCache = new WeakMap<Model<any>, Type>();
-const includeSchemaCache = new WeakMap<Model<any>, Type>();
-
 // =============================================================================
 // NESTED SELECT SCHEMA
 // =============================================================================
 
 /**
  * Builds a nested select schema with lazy evaluation for recursive relations
+ * No module-level caching needed - model["~"].schemas provides per-model caching
  */
 export const buildSelectNestedSchema = <TFields extends FieldRecord>(
   model: Model<any>
 ): Type<ModelSelectNested<TFields>> => {
-  // Check cache first
-  const cached = selectSchemaCache.get(model);
-  if (cached) {
-    return cached as Type<ModelSelectNested<TFields>>;
-  }
-
   const shape: Record<string, Type | string | (() => Type)> = {};
 
   // Scalar fields - simple boolean
@@ -47,8 +38,8 @@ export const buildSelectNestedSchema = <TFields extends FieldRecord>(
       // To-many: allow where, orderBy, take, skip, nested select/include, etc.
       shape[name + "?"] = type("boolean").or(
         type({
-          "select?": () => buildSelectNestedSchema(getTargetModel()),
-          "include?": () => buildIncludeNestedSchema(getTargetModel()),
+          "select?": () => getTargetModel()["~"].schemas.selectNested,
+          "include?": () => getTargetModel()["~"].schemas.includeNested,
           "where?": "object",
           "orderBy?": "object | object[]",
           "cursor?": "object",
@@ -61,19 +52,16 @@ export const buildSelectNestedSchema = <TFields extends FieldRecord>(
       // To-one: nested select/include
       shape[name + "?"] = type("boolean").or(
         type({
-          "select?": () => buildSelectNestedSchema(getTargetModel()),
-          "include?": () => buildIncludeNestedSchema(getTargetModel()),
+          "select?": () => getTargetModel()["~"].schemas.selectNested,
+          "include?": () => getTargetModel()["~"].schemas.includeNested,
         })
       );
     }
   }
 
-  const result = type(shape as Record<string, Type>) as unknown as Type<
+  return type(shape as Record<string, Type>) as unknown as Type<
     ModelSelectNested<TFields>
   >;
-
-  selectSchemaCache.set(model, result);
-  return result;
 };
 
 // =============================================================================
@@ -82,16 +70,11 @@ export const buildSelectNestedSchema = <TFields extends FieldRecord>(
 
 /**
  * Builds a nested include schema with lazy evaluation for recursive relations
+ * No module-level caching needed - model["~"].schemas provides per-model caching
  */
 export const buildIncludeNestedSchema = <TFields extends FieldRecord>(
   model: Model<any>
 ): Type<ModelIncludeNested<TFields>> => {
-  // Check cache first
-  const cached = includeSchemaCache.get(model);
-  if (cached) {
-    return cached as Type<ModelIncludeNested<TFields>>;
-  }
-
   const shape: Record<string, Type | string | (() => Type)> = {};
 
   // Relations - boolean OR nested include args with lazy evaluation
@@ -105,8 +88,8 @@ export const buildIncludeNestedSchema = <TFields extends FieldRecord>(
       // To-many: allow where, orderBy, take, skip, nested select/include, etc.
       shape[name + "?"] = type("boolean").or(
         type({
-          "select?": () => buildSelectNestedSchema(getTargetModel()),
-          "include?": () => buildIncludeNestedSchema(getTargetModel()),
+          "select?": () => getTargetModel()["~"].schemas.selectNested,
+          "include?": () => getTargetModel()["~"].schemas.includeNested,
           "where?": "object", // Would need to use buildWhereSchema lazily
           "orderBy?": "object | object[]",
           "cursor?": "object",
@@ -119,17 +102,14 @@ export const buildIncludeNestedSchema = <TFields extends FieldRecord>(
       // To-one: simpler nested args
       shape[name + "?"] = type("boolean").or(
         type({
-          "select?": () => buildSelectNestedSchema(getTargetModel()),
-          "include?": () => buildIncludeNestedSchema(getTargetModel()),
+          "select?": () => getTargetModel()["~"].schemas.selectNested,
+          "include?": () => getTargetModel()["~"].schemas.includeNested,
         })
       );
     }
   }
 
-  const result = type(shape as Record<string, Type>) as unknown as Type<
+  return type(shape as Record<string, Type>) as unknown as Type<
     ModelIncludeNested<TFields>
   >;
-
-  includeSchemaCache.set(model, result);
-  return result;
 };

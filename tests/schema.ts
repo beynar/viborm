@@ -1,7 +1,15 @@
 import z from "zod/v4";
-import { s } from "../src/schema/index.js";
+import {
+  AnyRelation,
+  GetRelationFields,
+  GetRelationType,
+  RelationGetter,
+  s,
+} from "../src/schema/index.js";
 import { createClient } from "../src/index.js";
 import { PrismaClient } from "../generated/prisma/client.js";
+import { FindFirstArgs } from "@types/index.js";
+import { type } from "arktype";
 
 export const string = s.string();
 export const nullableString = s.string().nullable();
@@ -111,8 +119,38 @@ export const manyToOne = s.model({
   test: s.oneToMany(() => oneToOne),
 });
 
+const sTT1 = s
+  .oneToMany(() => example)
+  .fields("relationId")
+  .references("id");
+const sTT = s
+  .oneToOne(() => example)
+  .fields("relationId")
+  .references("id");
+
+const sTT2 = s
+  .manyToOne(() => example)
+  .fields("relationId")
+  .references("id");
+const sTT3 = s
+  .manyToMany(() => example)
+  .fields("relationId")
+  .references("id");
+// .fields("authorId")
+// .references("id");
+
 // ===== TEST MODELS FOR CLIENT TESTS =====
 
+const example = s.model({
+  id: s.string().id().ulid(),
+  relation: s.oneToMany(() => relation),
+});
+
+// const t = s.oneToOne(() => example).fields("eeaz");
+const relation = s.model({
+  id: s.string().id().ulid(),
+  example: s.oneToOne(() => testUser).onDelete("cascade"),
+});
 /**
  * Test user model for client type tests
  */
@@ -126,12 +164,7 @@ export const testUser = s.model({
   createdAt: s.dateTime().now(),
   updatedAt: s.dateTime().now(),
   posts: s.oneToMany(() => testPost),
-  profile: s.oneToOne(() => testProfile).optional(),
-  friends: s
-    .manyToMany(() => testUser)
-    .through("firends")
-    .A("user")
-    .B("friend"),
+  // profile: s.oneToOne(() => testProfile).optional(),
 });
 
 /**
@@ -146,16 +179,16 @@ export const testPost = s.model({
   updatedAt: s.dateTime().now(),
   authorId: s.string(),
   author: s
-    .manyToOne(() => testUser)
+    .oneToOne(() => testUser)
     .fields("authorId")
     .references("id"),
-  metadata: s
-    .json(
-      z.object({
-        tags: z.array(z.string()),
-      })
-    )
-    .nullable(),
+  // metadata: s
+  //   .json(
+  //     z.object({
+  //       tags: z.array(z.string()),
+  //     })
+  //   )
+  //   .nullable(),
 });
 
 /**
@@ -184,6 +217,7 @@ export const schema = {
 const client = createClient({
   schema,
   adapter: {} as any,
+  driver: {} as any,
 });
 
 // Test WhereUnique with different identifier types
@@ -203,11 +237,17 @@ client.profile.findUnique({
 });
 
 // 3. Compound ID (auto-generated name from fields: avatar_bio)
-client.profile.findUnique({
+client.profile.findFirst({
   where: {
-    avatar_bio: { avatar: "avatar.jpg", bio: "My bio" },
+    user: {},
   },
 });
+
+type FindFirst = FindFirstArgs<typeof schema.profile>["where"];
+type R = (typeof schema.profile)["~"]["fields"]["user"];
+type T = R extends AnyRelation ? true : false;
+type T2 = RelationGetter<R>;
+type TEst = GetRelationFields<R>;
 
 // 4. Compound unique with custom name
 const res2 = await client.profile.findUnique({
@@ -215,9 +255,7 @@ const res2 = await client.profile.findUnique({
     ezl: { avatar: "avatar.jpg", bio: "My bio" },
     id: "ezk",
   },
-  select: {
-    bio: true,
-  },
+  select: {},
 });
 
 const res = await client.model.findFirst({
@@ -255,4 +293,14 @@ prisma.example.findFirst({
       },
     },
   },
+});
+
+const userType = type({
+  id: type("string"),
+  posts: () => postType,
+});
+
+const postType = type({
+  id: type("string"),
+  author: () => userType,
 });

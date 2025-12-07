@@ -219,6 +219,38 @@ test("infers correct type", () => {
 4. **Runtime + Types must match** - Change both together
 5. **Use `[T] extends [X]`** for non-distributive conditionals (prevents union explosion)
 6. **Lazy schema building** - Model schemas built on first access, use caching
+7. **Use cached schemas for relations** - `targetModel["~"].schemas.where` not `buildWhereSchema(targetModel)`
+8. **NO module-level state** - No `let cache = ...` or `WeakMap` at module scope. Bad for serverless (Cloudflare Workers). Use `model._schemas` for per-model caching instead.
+
+## Schema Caching Architecture
+
+```
+model["~"].schemas (lazy, cached per model)
+    ├── Core schemas (built first)
+    │   ├── where, whereUnique, create, update, orderBy
+    │   ├── select, include, selectNested, includeNested
+    │   └── uncheckedCreate, uncheckedUpdate
+    └── Args schemas (built second, use core schemas)
+        ├── findMany, findFirst, findUnique, count, exist, aggregate, groupBy
+        └── createArgs, updateArgs, deleteArgs, upsertArgs, etc.
+```
+
+**Two-phase build** in `runtime/index.ts`:
+1. Build core schemas → stored in `CoreSchemas` object
+2. Build args schemas using `CoreSchemas` (no rebuilding)
+
+**Cross-model references** (e.g., relation filters):
+```ts
+// ✓ Use cached schema from target model
+shape[name + "?"] = type({
+  "is?": () => getTargetModel()["~"].schemas.where,
+});
+
+// ✗ Don't rebuild
+shape[name + "?"] = type({
+  "is?": () => buildWhereSchema(getTargetModel()),
+});
+```
 
 ## Code Style
 

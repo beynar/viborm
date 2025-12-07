@@ -11,7 +11,8 @@ export default defineConfig({
       "@schema": resolve(__dirname, "src/schema"),
       "@types": resolve(__dirname, "src/types"),
       "@adapters": resolve(__dirname, "src/adapters"),
-      "@sql": resolve(__dirname, "src/sql"),
+      "@sql": resolve(__dirname, "src/sql/sql.ts"),
+      "@drivers": resolve(__dirname, "src/drivers"),
     },
   },
 })

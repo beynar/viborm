@@ -16,30 +16,34 @@ export const bigIntNullableArray = bigIntArray.or("null");
 // FILTER SCHEMAS - shorthand normalized to { equals: value } via pipe
 // =============================================================================
 
-export const bigIntFilter = type({
+// Base filter objects without `not` (used for recursive `not` definition)
+const bigIntFilterBase = type({
   equals: bigIntBase,
-  not: bigIntNullable,
   in: bigIntBase.array(),
   notIn: bigIntBase.array(),
   lt: bigIntBase,
   lte: bigIntBase,
   gt: bigIntBase,
   gte: bigIntBase,
-})
-  .partial()
-  .or(bigIntBase.pipe((v) => ({ equals: v })));
+}).partial();
 
-export const bigIntNullableFilter = type({
+const bigIntNullableFilterBase = type({
   equals: bigIntNullable,
-  not: bigIntNullable,
   in: bigIntBase.array(),
   notIn: bigIntBase.array(),
   lt: bigIntNullable,
   lte: bigIntNullable,
   gt: bigIntNullable,
   gte: bigIntNullable,
-})
-  .partial()
+}).partial();
+
+// `not` accepts both direct value AND nested filter object
+export const bigIntFilter = bigIntFilterBase
+  .merge(type({ "not?": bigIntFilterBase.or(bigIntNullable) }))
+  .or(bigIntBase.pipe((v) => ({ equals: v })));
+
+export const bigIntNullableFilter = bigIntNullableFilterBase
+  .merge(type({ "not?": bigIntNullableFilterBase.or(bigIntNullable) }))
   .or(bigIntNullable.pipe((v) => ({ equals: v })));
 
 export const bigIntListFilter = type({

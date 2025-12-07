@@ -6,6 +6,7 @@ import {
   type FieldState,
   type UpdateState,
   type DefaultValue,
+  type SchemaNames,
   createDefaultState,
 } from "../common";
 import type { NativeType } from "../native-types";
@@ -62,6 +63,9 @@ type BooleanFieldSchemas<State extends FieldState<"boolean">> = {
 // =============================================================================
 
 export class BooleanField<State extends FieldState<"boolean">> {
+  /** Name slots hydrated by client at initialization */
+  private _names: SchemaNames = {};
+
   constructor(
     private state: State,
     private _nativeType?: NativeType
@@ -173,6 +177,7 @@ export class BooleanField<State extends FieldState<"boolean">> {
       state: this.state,
       schemas: this.schemas,
       nativeType: this._nativeType,
+      names: this._names,
     };
   }
 }

@@ -1,0 +1,12 @@
+{
+  "title": "Internals",
+  "pages": [
+    "index",
+    "architecture",
+    "schema-system",
+    "type-system",
+    "runtime-schemas",
+    "normalization",
+    "contract"
+  ]
+}

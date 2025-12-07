@@ -27,31 +27,35 @@ export const floatNullableArray = floatArray.or("null");
 // FILTER SCHEMAS
 // =============================================================================
 
-// Integer filters - shorthand normalized to { equals: value } via pipe
-export const intFilter = type({
+// Base filter objects without `not` (used for recursive `not` definition)
+const intFilterBase = type({
   equals: intBase,
-  not: intNullable,
   in: intBase.array(),
   notIn: intBase.array(),
   lt: intBase,
   lte: intBase,
   gt: intBase,
   gte: intBase,
-})
-  .partial()
-  .or(intBase.pipe((v) => ({ equals: v })));
+}).partial();
 
-export const intNullableFilter = type({
+const intNullableFilterBase = type({
   equals: intNullable,
-  not: intNullable,
   in: intBase.array(),
   notIn: intBase.array(),
   lt: intNullable,
   lte: intNullable,
   gt: intNullable,
   gte: intNullable,
-})
-  .partial()
+}).partial();
+
+// Integer filters - shorthand normalized to { equals: value } via pipe
+// `not` accepts both direct value AND nested filter object
+export const intFilter = intFilterBase
+  .merge(type({ "not?": intFilterBase.or(intNullable) }))
+  .or(intBase.pipe((v) => ({ equals: v })));
+
+export const intNullableFilter = intNullableFilterBase
+  .merge(type({ "not?": intNullableFilterBase.or(intNullable) }))
   .or(intNullable.pipe((v) => ({ equals: v })));
 
 export const intListFilter = type({
@@ -70,31 +74,35 @@ export const intNullableListFilter = type({
   isEmpty: "boolean",
 }).partial();
 
-// Float filters - shorthand normalized to { equals: value } via pipe
-export const floatFilter = type({
+// Base filter objects for float without `not`
+const floatFilterBase = type({
   equals: floatBase,
-  not: floatNullable,
   in: floatBase.array(),
   notIn: floatBase.array(),
   lt: floatBase,
   lte: floatBase,
   gt: floatBase,
   gte: floatBase,
-})
-  .partial()
-  .or(floatBase.pipe((v) => ({ equals: v })));
+}).partial();
 
-export const floatNullableFilter = type({
+const floatNullableFilterBase = type({
   equals: floatNullable,
-  not: floatNullable,
   in: floatBase.array(),
   notIn: floatBase.array(),
   lt: floatNullable,
   lte: floatNullable,
   gt: floatNullable,
   gte: floatNullable,
-})
-  .partial()
+}).partial();
+
+// Float filters - shorthand normalized to { equals: value } via pipe
+// `not` accepts both direct value AND nested filter object
+export const floatFilter = floatFilterBase
+  .merge(type({ "not?": floatFilterBase.or(floatNullable) }))
+  .or(floatBase.pipe((v) => ({ equals: v })));
+
+export const floatNullableFilter = floatNullableFilterBase
+  .merge(type({ "not?": floatNullableFilterBase.or(floatNullable) }))
   .or(floatNullable.pipe((v) => ({ equals: v })));
 
 export const floatListFilter = type({

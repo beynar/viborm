@@ -56,6 +56,9 @@ export class PostgresAdapter implements DatabaseAdapter {
       if (values.length === 0) return sql.raw`()`;
       return sql`(${sql.join(values, ", ")})`;
     },
+
+    // PostgreSQL handles JSON natively
+    json: (v: unknown): Sql => sql`${v}`,
   };
 
   // ============================================================
@@ -269,6 +272,9 @@ export class PostgresAdapter implements DatabaseAdapter {
 
     push: (column: Sql, value: Sql): Sql =>
       sql`${column} = array_append(${column}, ${value})`,
+
+    unshift: (column: Sql, value: Sql): Sql =>
+      sql`${column} = array_prepend(${value}, ${column})`,
   };
 
   // ============================================================
@@ -303,7 +309,12 @@ export class PostgresAdapter implements DatabaseAdapter {
 
   assemble = {
     select: (parts: QueryParts): Sql => {
-      const fragments: Sql[] = [sql`SELECT ${parts.columns}`, sql`FROM ${parts.from}`];
+      // PostgreSQL supports DISTINCT ON (columns)
+      const selectClause = parts.distinct
+        ? sql`SELECT DISTINCT ON (${parts.distinct}) ${parts.columns}`
+        : sql`SELECT ${parts.columns}`;
+
+      const fragments: Sql[] = [selectClause, sql`FROM ${parts.from}`];
 
       if (parts.joins && parts.joins.length > 0) {
         fragments.push(...parts.joins);

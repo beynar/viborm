@@ -6,6 +6,7 @@ import {
   type FieldState,
   type UpdateState,
   type DefaultValue,
+  type SchemaNames,
   createDefaultState,
 } from "../common";
 import type { NativeType } from "../native-types";
@@ -42,6 +43,9 @@ type BlobFieldSchemas<State extends FieldState<"blob">> = {
 // =============================================================================
 
 export class BlobField<State extends FieldState<"blob">> {
+  /** Name slots hydrated by client at initialization */
+  private _names: SchemaNames = {};
+
   constructor(
     private state: State,
     private _nativeType?: NativeType
@@ -131,6 +135,7 @@ export class BlobField<State extends FieldState<"blob">> {
       state: this.state,
       schemas: this.schemas,
       nativeType: this._nativeType,
+      names: this._names,
     };
   }
 }

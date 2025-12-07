@@ -6,6 +6,7 @@ import {
   type FieldState,
   type UpdateState,
   type DefaultValue,
+  type SchemaNames,
   createDefaultState,
 } from "../common";
 import type { NativeType } from "../native-types";
@@ -21,16 +22,16 @@ type IntFieldSchemas<State extends FieldState<"int">> = {
       ? typeof schemas.intNullableArray
       : typeof schemas.intArray
     : State["nullable"] extends true
-      ? typeof schemas.intNullable
-      : typeof schemas.intBase;
+    ? typeof schemas.intNullable
+    : typeof schemas.intBase;
 
   filter: State["array"] extends true
     ? State["nullable"] extends true
       ? typeof schemas.intNullableListFilter
       : typeof schemas.intListFilter
     : State["nullable"] extends true
-      ? typeof schemas.intNullableFilter
-      : typeof schemas.intFilter;
+    ? typeof schemas.intNullableFilter
+    : typeof schemas.intFilter;
 
   create: State["array"] extends true
     ? State["hasDefault"] extends true
@@ -38,23 +39,23 @@ type IntFieldSchemas<State extends FieldState<"int">> = {
         ? typeof schemas.intOptionalNullableArrayCreate
         : typeof schemas.intOptionalArrayCreate
       : State["nullable"] extends true
-        ? typeof schemas.intNullableArrayCreate
-        : typeof schemas.intArrayCreate
+      ? typeof schemas.intNullableArrayCreate
+      : typeof schemas.intArrayCreate
     : State["hasDefault"] extends true
-      ? State["nullable"] extends true
-        ? typeof schemas.intOptionalNullableCreate
-        : typeof schemas.intOptionalCreate
-      : State["nullable"] extends true
-        ? typeof schemas.intNullableCreate
-        : typeof schemas.intCreate;
+    ? State["nullable"] extends true
+      ? typeof schemas.intOptionalNullableCreate
+      : typeof schemas.intOptionalCreate
+    : State["nullable"] extends true
+    ? typeof schemas.intNullableCreate
+    : typeof schemas.intCreate;
 
   update: State["array"] extends true
     ? State["nullable"] extends true
       ? typeof schemas.intNullableArrayUpdate
       : typeof schemas.intArrayUpdate
     : State["nullable"] extends true
-      ? typeof schemas.intNullableUpdate
-      : typeof schemas.intUpdate;
+    ? typeof schemas.intNullableUpdate
+    : typeof schemas.intUpdate;
 };
 
 // =============================================================================
@@ -62,10 +63,10 @@ type IntFieldSchemas<State extends FieldState<"int">> = {
 // =============================================================================
 
 export class IntField<State extends FieldState<"int">> {
-  constructor(
-    private state: State,
-    private _nativeType?: NativeType
-  ) {}
+  /** Name slots hydrated by client at initialization */
+  private _names: SchemaNames = {};
+
+  constructor(private state: State, private _nativeType?: NativeType) {}
 
   // ===========================================================================
   // CHAINABLE MODIFIERS
@@ -139,16 +140,16 @@ export class IntField<State extends FieldState<"int">> {
         ? schemas.intNullableArray
         : schemas.intArray
       : nullable
-        ? schemas.intNullable
-        : schemas.intBase;
+      ? schemas.intNullable
+      : schemas.intBase;
 
     const filter = array
       ? nullable
         ? schemas.intNullableListFilter
         : schemas.intListFilter
       : nullable
-        ? schemas.intNullableFilter
-        : schemas.intFilter;
+      ? schemas.intNullableFilter
+      : schemas.intFilter;
 
     const create = array
       ? hasDefault
@@ -156,23 +157,23 @@ export class IntField<State extends FieldState<"int">> {
           ? schemas.intOptionalNullableArrayCreate
           : schemas.intOptionalArrayCreate
         : nullable
-          ? schemas.intNullableArrayCreate
-          : schemas.intArrayCreate
+        ? schemas.intNullableArrayCreate
+        : schemas.intArrayCreate
       : hasDefault
-        ? nullable
-          ? schemas.intOptionalNullableCreate
-          : schemas.intOptionalCreate
-        : nullable
-          ? schemas.intNullableCreate
-          : schemas.intCreate;
+      ? nullable
+        ? schemas.intOptionalNullableCreate
+        : schemas.intOptionalCreate
+      : nullable
+      ? schemas.intNullableCreate
+      : schemas.intCreate;
 
     const update = array
       ? nullable
         ? schemas.intNullableArrayUpdate
         : schemas.intArrayUpdate
       : nullable
-        ? schemas.intNullableUpdate
-        : schemas.intUpdate;
+      ? schemas.intNullableUpdate
+      : schemas.intUpdate;
 
     return { base, filter, create, update } as IntFieldSchemas<State>;
   }
@@ -186,6 +187,7 @@ export class IntField<State extends FieldState<"int">> {
       state: this.state,
       schemas: this.schemas,
       nativeType: this._nativeType,
+      names: this._names,
     };
   }
 }
@@ -200,16 +202,16 @@ type FloatFieldSchemas<State extends FieldState<"float">> = {
       ? typeof schemas.floatNullableArray
       : typeof schemas.floatArray
     : State["nullable"] extends true
-      ? typeof schemas.floatNullable
-      : typeof schemas.floatBase;
+    ? typeof schemas.floatNullable
+    : typeof schemas.floatBase;
 
   filter: State["array"] extends true
     ? State["nullable"] extends true
       ? typeof schemas.floatNullableListFilter
       : typeof schemas.floatListFilter
     : State["nullable"] extends true
-      ? typeof schemas.floatNullableFilter
-      : typeof schemas.floatFilter;
+    ? typeof schemas.floatNullableFilter
+    : typeof schemas.floatFilter;
 
   create: State["array"] extends true
     ? State["hasDefault"] extends true
@@ -217,23 +219,23 @@ type FloatFieldSchemas<State extends FieldState<"float">> = {
         ? typeof schemas.floatOptionalNullableArrayCreate
         : typeof schemas.floatOptionalArrayCreate
       : State["nullable"] extends true
-        ? typeof schemas.floatNullableArrayCreate
-        : typeof schemas.floatArrayCreate
+      ? typeof schemas.floatNullableArrayCreate
+      : typeof schemas.floatArrayCreate
     : State["hasDefault"] extends true
-      ? State["nullable"] extends true
-        ? typeof schemas.floatOptionalNullableCreate
-        : typeof schemas.floatOptionalCreate
-      : State["nullable"] extends true
-        ? typeof schemas.floatNullableCreate
-        : typeof schemas.floatCreate;
+    ? State["nullable"] extends true
+      ? typeof schemas.floatOptionalNullableCreate
+      : typeof schemas.floatOptionalCreate
+    : State["nullable"] extends true
+    ? typeof schemas.floatNullableCreate
+    : typeof schemas.floatCreate;
 
   update: State["array"] extends true
     ? State["nullable"] extends true
       ? typeof schemas.floatNullableArrayUpdate
       : typeof schemas.floatArrayUpdate
     : State["nullable"] extends true
-      ? typeof schemas.floatNullableUpdate
-      : typeof schemas.floatUpdate;
+    ? typeof schemas.floatNullableUpdate
+    : typeof schemas.floatUpdate;
 };
 
 // =============================================================================
@@ -241,10 +243,10 @@ type FloatFieldSchemas<State extends FieldState<"float">> = {
 // =============================================================================
 
 export class FloatField<State extends FieldState<"float">> {
-  constructor(
-    private state: State,
-    private _nativeType?: NativeType
-  ) {}
+  /** Name slots hydrated by client at initialization */
+  private _names: SchemaNames = {};
+
+  constructor(private state: State, private _nativeType?: NativeType) {}
 
   // ===========================================================================
   // CHAINABLE MODIFIERS
@@ -304,16 +306,16 @@ export class FloatField<State extends FieldState<"float">> {
         ? schemas.floatNullableArray
         : schemas.floatArray
       : nullable
-        ? schemas.floatNullable
-        : schemas.floatBase;
+      ? schemas.floatNullable
+      : schemas.floatBase;
 
     const filter = array
       ? nullable
         ? schemas.floatNullableListFilter
         : schemas.floatListFilter
       : nullable
-        ? schemas.floatNullableFilter
-        : schemas.floatFilter;
+      ? schemas.floatNullableFilter
+      : schemas.floatFilter;
 
     const create = array
       ? hasDefault
@@ -321,23 +323,23 @@ export class FloatField<State extends FieldState<"float">> {
           ? schemas.floatOptionalNullableArrayCreate
           : schemas.floatOptionalArrayCreate
         : nullable
-          ? schemas.floatNullableArrayCreate
-          : schemas.floatArrayCreate
+        ? schemas.floatNullableArrayCreate
+        : schemas.floatArrayCreate
       : hasDefault
-        ? nullable
-          ? schemas.floatOptionalNullableCreate
-          : schemas.floatOptionalCreate
-        : nullable
-          ? schemas.floatNullableCreate
-          : schemas.floatCreate;
+      ? nullable
+        ? schemas.floatOptionalNullableCreate
+        : schemas.floatOptionalCreate
+      : nullable
+      ? schemas.floatNullableCreate
+      : schemas.floatCreate;
 
     const update = array
       ? nullable
         ? schemas.floatNullableArrayUpdate
         : schemas.floatArrayUpdate
       : nullable
-        ? schemas.floatNullableUpdate
-        : schemas.floatUpdate;
+      ? schemas.floatNullableUpdate
+      : schemas.floatUpdate;
 
     return { base, filter, create, update } as FloatFieldSchemas<State>;
   }
@@ -351,6 +353,7 @@ export class FloatField<State extends FieldState<"float">> {
       state: this.state,
       schemas: this.schemas,
       nativeType: this._nativeType,
+      names: this._names,
     };
   }
 }
@@ -359,13 +362,14 @@ export class FloatField<State extends FieldState<"float">> {
 // DECIMAL FIELD CLASS (uses float schemas)
 // =============================================================================
 
-type DecimalFieldSchemas<State extends FieldState<"decimal">> = FloatFieldSchemas<State & FieldState<"float">>;
+type DecimalFieldSchemas<State extends FieldState<"decimal">> =
+  FloatFieldSchemas<State & FieldState<"float">>;
 
 export class DecimalField<State extends FieldState<"decimal">> {
-  constructor(
-    private state: State,
-    private _nativeType?: NativeType
-  ) {}
+  /** Name slots hydrated by client at initialization */
+  private _names: SchemaNames = {};
+
+  constructor(private state: State, private _nativeType?: NativeType) {}
 
   // ===========================================================================
   // CHAINABLE MODIFIERS
@@ -425,16 +429,16 @@ export class DecimalField<State extends FieldState<"decimal">> {
         ? schemas.floatNullableArray
         : schemas.floatArray
       : nullable
-        ? schemas.floatNullable
-        : schemas.floatBase;
+      ? schemas.floatNullable
+      : schemas.floatBase;
 
     const filter = array
       ? nullable
         ? schemas.floatNullableListFilter
         : schemas.floatListFilter
       : nullable
-        ? schemas.floatNullableFilter
-        : schemas.floatFilter;
+      ? schemas.floatNullableFilter
+      : schemas.floatFilter;
 
     const create = array
       ? hasDefault
@@ -442,23 +446,23 @@ export class DecimalField<State extends FieldState<"decimal">> {
           ? schemas.floatOptionalNullableArrayCreate
           : schemas.floatOptionalArrayCreate
         : nullable
-          ? schemas.floatNullableArrayCreate
-          : schemas.floatArrayCreate
+        ? schemas.floatNullableArrayCreate
+        : schemas.floatArrayCreate
       : hasDefault
-        ? nullable
-          ? schemas.floatOptionalNullableCreate
-          : schemas.floatOptionalCreate
-        : nullable
-          ? schemas.floatNullableCreate
-          : schemas.floatCreate;
+      ? nullable
+        ? schemas.floatOptionalNullableCreate
+        : schemas.floatOptionalCreate
+      : nullable
+      ? schemas.floatNullableCreate
+      : schemas.floatCreate;
 
     const update = array
       ? nullable
         ? schemas.floatNullableArrayUpdate
         : schemas.floatArrayUpdate
       : nullable
-        ? schemas.floatNullableUpdate
-        : schemas.floatUpdate;
+      ? schemas.floatNullableUpdate
+      : schemas.floatUpdate;
 
     return { base, filter, create, update } as DecimalFieldSchemas<State>;
   }
@@ -472,6 +476,7 @@ export class DecimalField<State extends FieldState<"decimal">> {
       state: this.state,
       schemas: this.schemas,
       nativeType: this._nativeType,
+      names: this._names,
     };
   }
 }

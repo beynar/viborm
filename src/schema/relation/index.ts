@@ -13,6 +13,7 @@ export {
   generateJunctionFieldName,
   getJunctionTableName,
   getJunctionFieldNames,
+  type AnyRelation,
 } from "./relation";
 export type {
   Getter,

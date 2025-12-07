@@ -4,6 +4,25 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 
 // =============================================================================
+// SCHEMA NAMES (hydrated by client at initialization)
+// =============================================================================
+
+/**
+ * Name slots for fields, models, and relations.
+ * These are hydrated by the client at initialization time when the full
+ * schema context is available.
+ *
+ * - ts: TypeScript/schema key name (e.g., "email", "User")
+ * - sql: Resolved database name (e.g., "email_column", "users")
+ */
+export interface SchemaNames {
+  /** TypeScript key name in the schema */
+  ts?: string;
+  /** Resolved SQL name (column/table) */
+  sql?: string;
+}
+
+// =============================================================================
 // SCALAR TYPES
 // =============================================================================
 

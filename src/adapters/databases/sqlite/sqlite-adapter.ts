@@ -59,6 +59,9 @@ export class SQLiteAdapter implements DatabaseAdapter {
       if (values.length === 0) return sql.raw`()`;
       return sql`(${sql.join(values, ", ")})`;
     },
+
+    // SQLite requires JSON values to be stringified
+    json: (v: unknown): Sql => sql`${JSON.stringify(v)}`,
   };
 
   // ============================================================
@@ -287,6 +290,9 @@ export class SQLiteAdapter implements DatabaseAdapter {
 
     push: (column: Sql, value: Sql): Sql =>
       sql`${column} = json_insert(${column}, '$[#]', ${value})`,
+
+    unshift: (column: Sql, value: Sql): Sql =>
+      sql`${column} = json('[' || json(${value}) || CASE WHEN COALESCE(${column}, '[]') = '[]' THEN ']' ELSE ',' || substr(${column}, 2) END)`,
   };
 
   // ============================================================
@@ -321,6 +327,12 @@ export class SQLiteAdapter implements DatabaseAdapter {
 
   assemble = {
     select: (parts: QueryParts): Sql => {
+      // SQLite doesn't support DISTINCT ON natively
+      // Simulate using ROW_NUMBER() OVER (PARTITION BY ... ORDER BY ...)
+      if (parts.distinct) {
+        return this.assembleDistinctOn(parts);
+      }
+
       const fragments: Sql[] = [
         sql`SELECT ${parts.columns}`,
         sql`FROM ${parts.from}`,
@@ -357,6 +369,81 @@ export class SQLiteAdapter implements DatabaseAdapter {
       return sql.join(fragments, " ");
     },
   };
+
+  /**
+   * Simulate DISTINCT ON using ROW_NUMBER() window function.
+   *
+   * Generates:
+   * SELECT col1, col2, ... FROM (
+   *   SELECT columns, ROW_NUMBER() OVER (PARTITION BY distinct_cols ORDER BY order_cols) AS _rn
+   *   FROM table
+   *   WHERE ...
+   * ) AS _distinct_subquery
+   * WHERE _rn = 1
+   * ORDER BY ...
+   * LIMIT ... OFFSET ...
+   */
+  private assembleDistinctOn(parts: QueryParts): Sql {
+    // Build the ORDER BY for ROW_NUMBER() - use provided orderBy or default to distinct columns
+    const rowNumberOrder = parts.orderBy || parts.distinct!;
+
+    // Inner query with ROW_NUMBER()
+    const innerFragments: Sql[] = [
+      sql`SELECT ${parts.columns}, ROW_NUMBER() OVER (PARTITION BY ${parts.distinct} ORDER BY ${rowNumberOrder}) AS "_rn"`,
+      sql`FROM ${parts.from}`,
+    ];
+
+    if (parts.joins && parts.joins.length > 0) {
+      innerFragments.push(...parts.joins);
+    }
+
+    if (parts.where) {
+      innerFragments.push(sql`WHERE ${parts.where}`);
+    }
+
+    if (parts.groupBy) {
+      innerFragments.push(sql`GROUP BY ${parts.groupBy}`);
+    }
+
+    if (parts.having) {
+      innerFragments.push(sql`HAVING ${parts.having}`);
+    }
+
+    const innerQuery = sql.join(innerFragments, " ");
+
+    // Build outer SELECT - use explicit column aliases to exclude _rn
+    let outerSelect: Sql;
+    if (parts.distinctColumnAliases && parts.distinctColumnAliases.length > 0) {
+      // Select only the original columns, excluding _rn
+      const aliasColumns = parts.distinctColumnAliases.map(
+        (alias) => sql.raw`"${alias}"`
+      );
+      outerSelect = sql`SELECT ${sql.join(aliasColumns, ", ")} FROM (${innerQuery}) AS "_distinct_subquery"`;
+    } else {
+      // Fallback to SELECT * (includes _rn)
+      outerSelect = sql`SELECT * FROM (${innerQuery}) AS "_distinct_subquery"`;
+    }
+
+    // Outer query that filters for first row of each partition
+    const outerFragments: Sql[] = [
+      outerSelect,
+      sql.raw`WHERE "_rn" = 1`,
+    ];
+
+    if (parts.orderBy) {
+      outerFragments.push(sql`ORDER BY ${parts.orderBy}`);
+    }
+
+    if (parts.limit) {
+      outerFragments.push(sql`LIMIT ${parts.limit}`);
+    }
+
+    if (parts.offset) {
+      outerFragments.push(sql`OFFSET ${parts.offset}`);
+    }
+
+    return sql.join(outerFragments, " ");
+  }
 
   // ============================================================
   // CTE (Common Table Expressions)

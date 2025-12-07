@@ -16,13 +16,9 @@ export const stringNullableArray = stringArray.or("null");
 // FILTER SCHEMAS
 // =============================================================================
 
-/**
- * String filter with shorthand support: { equals: "foo" } OR just "foo"
- * Shorthand is normalized to { equals: value } via pipe
- */
-export const stringFilter = type({
+// Base filter object without `not` (used for recursive `not` definition)
+const stringFilterBase = type({
   equals: stringBase,
-  not: stringNullable,
   in: stringBase.array(),
   notIn: stringBase.array(),
   // String-specific filters
@@ -35,17 +31,10 @@ export const stringFilter = type({
   lte: stringBase,
   gt: stringBase,
   gte: stringBase,
-})
-  .partial()
-  .or(stringBase.pipe((v) => ({ equals: v })));
+}).partial();
 
-/**
- * Nullable string filter with shorthand support
- * Shorthand is normalized to { equals: value } via pipe
- */
-export const stringNullableFilter = type({
+const stringNullableFilterBase = type({
   equals: stringNullable,
-  not: stringNullable,
   in: stringBase.array(),
   notIn: stringBase.array(),
   // String-specific filters
@@ -58,8 +47,24 @@ export const stringNullableFilter = type({
   lte: stringNullable,
   gt: stringNullable,
   gte: stringNullable,
-})
-  .partial()
+}).partial();
+
+/**
+ * String filter with shorthand support: { equals: "foo" } OR just "foo"
+ * `not` accepts both direct value AND nested filter object
+ * Shorthand is normalized to { equals: value } via pipe
+ */
+export const stringFilter = stringFilterBase
+  .merge(type({ "not?": stringFilterBase.or(stringNullable) }))
+  .or(stringBase.pipe((v) => ({ equals: v })));
+
+/**
+ * Nullable string filter with shorthand support
+ * `not` accepts both direct value AND nested filter object
+ * Shorthand is normalized to { equals: value } via pipe
+ */
+export const stringNullableFilter = stringNullableFilterBase
+  .merge(type({ "not?": stringNullableFilterBase.or(stringNullable) }))
   .or(stringNullable.pipe((v) => ({ equals: v })));
 
 /**

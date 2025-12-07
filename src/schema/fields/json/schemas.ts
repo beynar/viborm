@@ -36,6 +36,9 @@ export const jsonFilter = type({
   array_ends_with: jsonBase,
 }).partial();
 
+// Helper to check if value is null (not a filter object)
+const isJsonNullShorthand = (v: unknown): v is null => v === null;
+
 export const jsonNullableFilter = type({
   equals: jsonNullable,
   not: jsonNullable,
@@ -46,7 +49,10 @@ export const jsonNullableFilter = type({
   array_contains: jsonBase,
   array_starts_with: jsonBase,
   array_ends_with: jsonBase,
-}).partial();
+})
+  .partial()
+  .or("null")
+  .pipe((v) => (isJsonNullShorthand(v) ? { equals: v } : v));
 
 // =============================================================================
 // UNTYPED CREATE SCHEMAS
@@ -58,12 +64,27 @@ export const jsonOptionalCreate = jsonBase.or("undefined");
 export const jsonOptionalNullableCreate = jsonNullable.or("undefined");
 
 // =============================================================================
-// UNTYPED UPDATE SCHEMAS - JSON just accepts the value directly (no set wrapper)
-// Unlike numbers, JSON has no operations like increment/multiply
+// UNTYPED UPDATE SCHEMAS - shorthand normalized to { set: value } via pipe
+// JSON accepts both direct value and { set: value } wrapper
 // =============================================================================
 
-export const jsonUpdate = jsonBase;
-export const jsonNullableUpdate = jsonNullable;
+// Helper to check if value is a shorthand (not a filter object with set key)
+const isJsonUpdateShorthand = (v: unknown): boolean =>
+  typeof v !== "object" || v === null || Array.isArray(v) || !("set" in v);
+
+export const jsonUpdate = type({
+  set: jsonBase,
+})
+  .partial()
+  .or(jsonBase)
+  .pipe((v) => (isJsonUpdateShorthand(v) ? { set: v } : v));
+
+export const jsonNullableUpdate = type({
+  set: jsonNullable,
+})
+  .partial()
+  .or(jsonNullable)
+  .pipe((v) => (isJsonUpdateShorthand(v) ? { set: v } : v));
 
 // =============================================================================
 // TYPE EXPORTS (untyped)
@@ -194,7 +215,7 @@ export const createJsonFilter = <TSchema extends StandardSchemaV1>(
 
 /**
  * Creates nullable typed JSON filter schema
- * Note: Shorthand normalization is not supported for typed JSON due to ArkType limitations
+ * Supports null shorthand: { field: null } normalized to { equals: null }
  */
 export const createJsonNullableFilter = <TSchema extends StandardSchemaV1>(
   schema: TSchema
@@ -209,25 +230,38 @@ export const createJsonNullableFilter = <TSchema extends StandardSchemaV1>(
     "array_contains?": "unknown",
     "array_starts_with?": "unknown",
     "array_ends_with?": "unknown",
-  }) as unknown as JsonNullableFilterType<TSchema>;
+  })
+    .or("null")
+    .pipe((v) => (v === null ? { equals: v } : v)) as unknown as JsonNullableFilterType<TSchema>;
 };
 
 /**
- * Creates typed JSON update schema - just accepts the value directly
+ * Creates typed JSON update schema - accepts both direct value and { set: value }
+ * Shorthand is normalized to { set: value } via pipe
  */
 export const createJsonUpdate = <TSchema extends StandardSchemaV1>(
   schema: TSchema
 ): JsonUpdateType<TSchema> => {
-  return typeFromStandardSchema(schema) as JsonUpdateType<TSchema>;
+  // Use unknown for flexible input, validation happens at typed schema level
+  return type({
+    "set?": "unknown",
+  })
+    .or("unknown")
+    .pipe((v) => (isJsonUpdateShorthand(v) ? { set: v } : v)) as unknown as JsonUpdateType<TSchema>;
 };
 
 /**
- * Creates nullable typed JSON update schema - accepts value or null
+ * Creates nullable typed JSON update schema - accepts value, null, or { set: value }
+ * Shorthand is normalized to { set: value } via pipe
  */
 export const createJsonNullableUpdate = <TSchema extends StandardSchemaV1>(
   schema: TSchema
 ): JsonNullableUpdateType<TSchema> => {
-  return type("unknown | null") as unknown as JsonNullableUpdateType<TSchema>;
+  return type({
+    "set?": type("unknown").or("null"),
+  })
+    .or(type("unknown").or("null"))
+    .pipe((v) => (isJsonUpdateShorthand(v) ? { set: v } : v)) as unknown as JsonNullableUpdateType<TSchema>;
 };
 
 /**

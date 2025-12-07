@@ -7,6 +7,7 @@ import {
   type FieldState,
   type UpdateState,
   type DefaultValue,
+  type SchemaNames,
   createDefaultState,
 } from "../common";
 import type { NativeType } from "../native-types";
@@ -99,6 +100,9 @@ export class JsonField<
   TSchema extends StandardSchemaV1 | undefined = undefined,
   State extends JsonFieldState<TSchema> = JsonFieldState<TSchema>
 > {
+  /** Name slots hydrated by client at initialization */
+  private _names: SchemaNames = {};
+
   constructor(
     private _customSchema: TSchema,
     private state: State,
@@ -231,6 +235,7 @@ export class JsonField<
       schemas: this.schemas,
       customSchema: this._customSchema,
       nativeType: this._nativeType,
+      names: this._names,
     };
   }
 }

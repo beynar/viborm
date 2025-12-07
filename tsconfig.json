@@ -9,7 +9,7 @@
     "declarationMap": false,
     "sourceMap": false,
     "noEmit": true,
-    "incremental": true,
+
     "tsBuildInfoFile": ".tsbuildinfo",
     "removeComments": false,
     "noImplicitAny": false,
@@ -30,13 +30,12 @@
       "@query-parser": ["./src/query-parser/index.ts"],
       "@adapters/*": ["./src/adapters/*"],
       "@adapters": ["./src/adapters/index.ts"],
+      "@drivers/*": ["./src/drivers/*"],
+      "@drivers": ["./src/drivers/index.ts"],
       "@sql": ["./src/sql/sql.ts"],
       "@standard-schema": ["./src/standardSchema.ts"]
     }
   },
-  "include": [
-    "src/**/*",
-    "tests/**/*.ts"
-  ],
+  "include": ["src/**/*", "tests/**/*.ts"],
   "exclude": ["dist", "node_modules"]
 }

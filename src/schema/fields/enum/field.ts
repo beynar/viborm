@@ -6,6 +6,7 @@ import {
   type FieldState,
   type UpdateState,
   type DefaultValue,
+  type SchemaNames,
   createDefaultState,
 } from "../common";
 import type { NativeType } from "../native-types";
@@ -92,6 +93,8 @@ export class EnumField<
   State extends EnumFieldState<TEnum> = EnumFieldState<TEnum>
 > {
   readonly enumValues: TEnum;
+  /** Name slots hydrated by client at initialization */
+  private _names: SchemaNames = {};
 
   constructor(
     enumValues: TEnum,
@@ -244,6 +247,7 @@ export class EnumField<
       schemas: this.schemas,
       enumValues: this.enumValues,
       nativeType: this._nativeType,
+      names: this._names,
     };
   }
 }

@@ -2,6 +2,7 @@
 // Clean class hierarchy for different relation types
 
 import { Model } from "../model";
+import { type SchemaNames } from "../fields/common";
 import { Simplify } from "../../types/utilities.js";
 
 export type Getter = () => Model<any>;
@@ -34,6 +35,8 @@ export interface RelationInternals<
   readonly through?: string | undefined;
   readonly throughA?: string | undefined;
   readonly throughB?: string | undefined;
+  // Name slots hydrated by client at initialization
+  readonly names: SchemaNames;
   // Type inference
   readonly infer: G extends () => infer M
     ? M extends Model<any>
@@ -59,6 +62,8 @@ export abstract class Relation<
   protected _references?: string[];
   protected _onDelete?: ReferentialAction;
   protected _onUpdate?: ReferentialAction;
+  /** Name slots hydrated by client at initialization */
+  private _names: SchemaNames = {};
 
   constructor(
     protected readonly _getter: G,
@@ -114,6 +119,7 @@ export abstract class Relation<
       through: undefined,
       throughA: undefined,
       throughB: undefined,
+      names: this._names,
       infer: {} as any,
     };
   }
@@ -126,7 +132,7 @@ export abstract class Relation<
 // =============================================================================
 
 export class ToOneRelation<
-  G extends Getter,
+  const G extends Getter,
   T extends "oneToOne" | "manyToOne",
   TOptional extends boolean = false
 > extends Relation<G, T, TOptional> {
@@ -220,16 +226,16 @@ export class ManyToManyRelation<G extends Getter> extends Relation<
 // FACTORY FUNCTIONS
 // =============================================================================
 
-export const oneToOne = <G extends Getter>(getter: G) =>
+export const oneToOne = <const G extends Getter>(getter: G) =>
   new ToOneRelation<G, "oneToOne">(getter, "oneToOne");
 
-export const oneToMany = <G extends Getter>(getter: G) =>
+export const oneToMany = <const G extends Getter>(getter: G) =>
   new OneToManyRelation<G>(getter);
 
-export const manyToOne = <G extends Getter>(getter: G) =>
+export const manyToOne = <const G extends Getter>(getter: G) =>
   new ToOneRelation<G, "manyToOne">(getter, "manyToOne");
 
-export const manyToMany = <G extends Getter>(getter: G) =>
+export const manyToMany = <const G extends Getter>(getter: G) =>
   new ManyToManyRelation<G>(getter);
 
 // Legacy: s.relation().oneToOne() style
@@ -275,3 +281,8 @@ export function getJunctionFieldNames(
     relation["~"].throughB || generateJunctionFieldName(targetModelName);
   return [sourceFieldName, targetFieldName];
 }
+
+export type AnyRelation =
+  | ToOneRelation<any, any, any>
+  | OneToManyRelation<any>
+  | ManyToManyRelation<any>;

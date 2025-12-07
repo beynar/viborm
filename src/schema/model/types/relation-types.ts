@@ -1,13 +1,19 @@
 // Relation Types
 // Types for handling relation operations (create, update, where)
 
+import { AnyRelation, Relation } from "@schema/relation";
 import type {
   FieldRecord,
   GetRelationFields,
   GetRelationType,
   GetRelationOptional,
 } from "./helpers";
-import type { ModelCreateInput, ModelUpdateInput, ModelWhereInput, ModelWhereUniqueInput } from "./input-types";
+import type {
+  ModelCreateInput,
+  ModelUpdateInput,
+  ModelWhereInput,
+  ModelWhereUniqueInput,
+} from "./input-types";
 
 // =============================================================================
 // TO-ONE CREATE INPUT
@@ -15,7 +21,6 @@ import type { ModelCreateInput, ModelUpdateInput, ModelWhereInput, ModelWhereUni
 
 /**
  * Create input for a to-one relation (oneToOne, manyToOne)
- * Using interface for recursive type performance
  */
 export interface ToOneCreateInput<T extends FieldRecord> {
   create?: ModelCreateInput<T>;
@@ -32,7 +37,6 @@ export interface ToOneCreateInput<T extends FieldRecord> {
 
 /**
  * Create input for a to-many relation (oneToMany, manyToMany)
- * Using interface for recursive type performance
  */
 export interface ToManyCreateInput<T extends FieldRecord> {
   create?: ModelCreateInput<T> | ModelCreateInput<T>[];
@@ -49,7 +53,6 @@ export interface ToManyCreateInput<T extends FieldRecord> {
 /**
  * Update input for a REQUIRED to-one relation
  * Does NOT allow disconnect/delete (would violate constraint)
- * Using interface for recursive type performance
  */
 export interface ToOneUpdateInputRequired<T extends FieldRecord> {
   create?: ModelCreateInput<T>;
@@ -64,7 +67,6 @@ export interface ToOneUpdateInputRequired<T extends FieldRecord> {
 /**
  * Update input for an OPTIONAL to-one relation
  * Allows disconnect/delete operations
- * Using interface for recursive type performance
  */
 export interface ToOneUpdateInputOptional<T extends FieldRecord>
   extends ToOneUpdateInputRequired<T> {
@@ -88,7 +90,6 @@ export type ToOneUpdateInput<
 
 /**
  * Update input for a to-many relation
- * Using interface for recursive type performance
  */
 export interface ToManyUpdateInput<T extends FieldRecord> {
   create?: ModelCreateInput<T> | ModelCreateInput<T>[];
@@ -121,29 +122,39 @@ export interface ToManyUpdateInput<T extends FieldRecord> {
 // =============================================================================
 
 /**
- * Explicit relation filter with is/isNot operators
- */
-type ToOneExplicitFilter<
-  T extends FieldRecord,
-  TOptional extends boolean = false
-> = TOptional extends true
-  ? { is?: ModelWhereInput<T> | null; isNot?: ModelWhereInput<T> | null }
-  : { is?: ModelWhereInput<T>; isNot?: ModelWhereInput<T> };
-
-/**
  * Where filter for a to-one relation
- * Requires explicit is/isNot operators (no shorthand)
- * Optional relations allow null in is/isNot to filter for null values
+ * Supports both explicit and shorthand forms:
  *
  * @example
- * // Use explicit is/isNot operators
+ * // Explicit form with is/isNot operators
  * where: { author: { is: { name: "Alice" } } }
  * where: { author: { isNot: { role: "admin" } } }
+ *
+ * // Shorthand form (normalized to { is: ... } at runtime)
+ * where: { author: { name: "Alice" } }
+ *
+ * // Null shorthand for optional relations
+ * where: { author: null }
+ *
+ * Uses intersection (not union) for better TypeScript autocomplete.
+ * Runtime handles both explicit and shorthand forms via pipe normalization.
  */
 export type ToOneWhereInput<
   T extends FieldRecord,
   TOptional extends boolean = false
-> = ToOneExplicitFilter<T, TOptional>;
+> = TOptional extends true
+  ?
+      | (ModelWhereInput<T> & {
+          is?: ModelWhereInput<T> | null;
+          isNot?: ModelWhereInput<T> | null;
+          caca: keyof FieldRecord;
+        })
+      | null
+  : ModelWhereInput<T> & {
+      is?: ModelWhereInput<T>;
+      isNot?: ModelWhereInput<T>;
+      caca?: T;
+    };
 
 // =============================================================================
 // TO-MANY WHERE INPUT
@@ -151,7 +162,6 @@ export type ToOneWhereInput<
 
 /**
  * Where filter for a to-many relation
- * Using interface for recursive type performance
  */
 export interface ToManyWhereInput<T extends FieldRecord> {
   some?: ModelWhereInput<T>;
@@ -168,9 +178,9 @@ export interface ToManyWhereInput<T extends FieldRecord> {
  * Uses cached GetRelationFields for better TS performance
  * Non-distributive [X] extends [Y] prevents union member explosion
  */
-export type RelationCreateInput<R> = [GetRelationType<R>] extends [
-  "oneToOne" | "manyToOne"
-]
+export type RelationCreateInput<R extends AnyRelation> = [
+  GetRelationType<R>
+] extends ["oneToOne" | "manyToOne"]
   ? ToOneCreateInput<GetRelationFields<R>>
   : [GetRelationType<R>] extends ["oneToMany" | "manyToMany"]
   ? ToManyCreateInput<GetRelationFields<R>>
@@ -181,9 +191,9 @@ export type RelationCreateInput<R> = [GetRelationType<R>] extends [
  * Uses cached GetRelationFields and GetRelationOptional for better TS performance
  * Non-distributive [X] extends [Y] prevents union member explosion
  */
-export type RelationUpdateInput<R> = [GetRelationType<R>] extends [
-  "oneToOne" | "manyToOne"
-]
+export type RelationUpdateInput<R extends AnyRelation> = [
+  GetRelationType<R>
+] extends ["oneToOne" | "manyToOne"]
   ? ToOneUpdateInput<GetRelationFields<R>, GetRelationOptional<R>>
   : [GetRelationType<R>] extends ["oneToMany" | "manyToMany"]
   ? ToManyUpdateInput<GetRelationFields<R>>
@@ -194,11 +204,10 @@ export type RelationUpdateInput<R> = [GetRelationType<R>] extends [
  * Uses cached GetRelationFields and GetRelationOptional for better TS performance
  * Non-distributive [X] extends [Y] prevents union member explosion
  */
-export type RelationWhereInput<R> = [GetRelationType<R>] extends [
-  "oneToOne" | "manyToOne"
-]
+export type RelationWhereInput<R extends AnyRelation> = [
+  GetRelationType<R>
+] extends ["oneToOne" | "manyToOne"]
   ? ToOneWhereInput<GetRelationFields<R>, GetRelationOptional<R>>
   : [GetRelationType<R>] extends ["oneToMany" | "manyToMany"]
   ? ToManyWhereInput<GetRelationFields<R>>
   : never;
-

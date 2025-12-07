@@ -144,20 +144,28 @@ export const createEnumNullableArray = <T extends readonly string[]>(
 
 /**
  * Creates enum filter schema with shorthand support.
- * Uses string for filter object fields and validates enum values via the shorthand union.
+ * Uses enum literals for validation (not generic strings).
+ * `not` accepts both direct value AND nested filter object.
  * Shorthand is normalized to { equals: value } via pipe
  */
 export const createEnumFilter = <T extends readonly string[]>(
   values: T
 ): EnumFilterType<T> => {
   const base = type.enumerated(...values);
-  // Build filter object with string types (runtime will validate via base union)
-  const filterObj = type({
-    "equals?": "string",
-    "not?": type("string").or("null"),
-    "in?": "string[]",
-    "notIn?": "string[]",
+  const baseOrNull = base.or("null");
+  
+  // Base filter object without `not`
+  const filterBase = type({
+    "equals?": base,
+    "in?": base.array(),
+    "notIn?": base.array(),
   });
+  
+  // `not` accepts both direct value AND nested filter object
+  const filterObj = filterBase.merge(
+    type({ "not?": filterBase.or(baseOrNull) })
+  );
+  
   // Cast base to Type<string> and pipe to normalize shorthand
   return filterObj.or(
     (base as unknown as Type<string>).pipe((v) => ({ equals: v }))
@@ -166,18 +174,28 @@ export const createEnumFilter = <T extends readonly string[]>(
 
 /**
  * Creates nullable enum filter schema
+ * Uses enum literals for validation (not generic strings).
+ * `not` accepts both direct value AND nested filter object.
  * Shorthand is normalized to { equals: value } via pipe
  */
 export const createEnumNullableFilter = <T extends readonly string[]>(
   values: T
 ): EnumNullableFilterType<T> => {
-  const nullable = type.enumerated(...values).or("null");
-  const filterObj = type({
-    "equals?": type("string").or("null"),
-    "not?": type("string").or("null"),
-    "in?": "string[]",
-    "notIn?": "string[]",
+  const base = type.enumerated(...values);
+  const nullable = base.or("null");
+  
+  // Base filter object without `not`
+  const filterBase = type({
+    "equals?": nullable,
+    "in?": base.array(),
+    "notIn?": base.array(),
   });
+  
+  // `not` accepts both direct value AND nested filter object
+  const filterObj = filterBase.merge(
+    type({ "not?": filterBase.or(nullable) })
+  );
+  
   // Cast to avoid type inference issues and pipe to normalize shorthand
   return filterObj.or(
     (nullable as unknown as Type<string | null>).pipe((v) => ({ equals: v }))

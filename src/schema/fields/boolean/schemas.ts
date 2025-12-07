@@ -16,18 +16,22 @@ export const booleanNullableArray = booleanArray.or("null");
 // FILTER SCHEMAS - shorthand normalized to { equals: value } via pipe
 // =============================================================================
 
-export const booleanFilter = type({
+// Base filter objects without `not` (used for recursive `not` definition)
+const booleanFilterBase = type({
   equals: booleanBase,
-  not: booleanNullable,
-})
-  .partial()
+}).partial();
+
+const booleanNullableFilterBase = type({
+  equals: booleanNullable,
+}).partial();
+
+// `not` accepts both direct value AND nested filter object
+export const booleanFilter = booleanFilterBase
+  .merge(type({ "not?": booleanFilterBase.or(booleanNullable) }))
   .or(booleanBase.pipe((v) => ({ equals: v })));
 
-export const booleanNullableFilter = type({
-  equals: booleanNullable,
-  not: booleanNullable,
-})
-  .partial()
+export const booleanNullableFilter = booleanNullableFilterBase
+  .merge(type({ "not?": booleanNullableFilterBase.or(booleanNullable) }))
   .or(booleanNullable.pipe((v) => ({ equals: v })));
 
 export const booleanListFilter = type({

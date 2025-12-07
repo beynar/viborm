@@ -6,6 +6,7 @@ import {
   type FieldState,
   type UpdateState,
   type DefaultValue,
+  type SchemaNames,
   createDefaultState,
 } from "../common";
 import type { NativeType } from "../native-types";
@@ -50,6 +51,9 @@ type VectorFieldSchemas<State extends VectorFieldState> = {
 // =============================================================================
 
 export class VectorField<State extends VectorFieldState = VectorFieldState> {
+  /** Name slots hydrated by client at initialization */
+  private _names: SchemaNames = {};
+
   constructor(
     private state: State,
     private _nativeType?: NativeType
@@ -159,6 +163,7 @@ export class VectorField<State extends VectorFieldState = VectorFieldState> {
       state: this.state,
       schemas: this.schemas,
       nativeType: this._nativeType,
+      names: this._names,
     };
   }
 }

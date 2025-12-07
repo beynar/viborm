@@ -16,7 +16,10 @@ import type {
   ModelMinMaxAggregateInput,
   ModelScalarWhereWithAggregates,
 } from "./input-types";
-import type { ModelSelectNested, ModelIncludeNested } from "./select-include-types";
+import type {
+  ModelSelectNested,
+  ModelIncludeNested,
+} from "./select-include-types";
 
 // =============================================================================
 // QUERY OPERATION ARGS
@@ -39,7 +42,12 @@ export type ModelFindManyArgs<M extends Model<any>> = {
 /**
  * FindFirst args (same as FindMany but returns single result)
  */
-export type ModelFindFirstArgs<M extends Model<any>> = ModelFindManyArgs<M>;
+export type ModelFindFirstArgs<M extends Model<any>> = Omit<
+  ModelFindManyArgs<M>,
+  "where"
+> & {
+  where: ModelWhereInput<ExtractFields<M>>;
+};
 
 /**
  * FindUnique args - includes compound key support

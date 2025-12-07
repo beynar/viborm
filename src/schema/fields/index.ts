@@ -12,6 +12,7 @@ export {
   type DefaultValue,
   type InferBaseType,
   type InferCreateType,
+  type SchemaNames,
   createDefaultState,
 } from "./common";
 

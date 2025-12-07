@@ -123,6 +123,13 @@ export * from "./fields";
 export * from "./model";
 export * from "./relation";
 export * from "./validation";
+// Hydration exports (excluding Schema type which conflicts with validation)
+export {
+  hydrateSchemaNames,
+  isSchemaHydrated,
+  getModelSqlName,
+  getFieldSqlName,
+} from "./hydration";
 export * as TYPES from "./fields/native-types";
 
 // =============================================================================

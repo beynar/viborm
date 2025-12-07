@@ -2,7 +2,8 @@
 // Defines database models with fields and relations
 
 import { isField, type Field } from "../fields/base";
-import { Relation } from "../relation/relation";
+import { type SchemaNames } from "../fields/common";
+import { AnyRelation, Relation } from "../relation/relation";
 import { buildModelSchemas, type TypedModelSchemas } from "./runtime";
 import type {
   FieldRecord,
@@ -101,13 +102,15 @@ export class Model<State extends AnyModelState = ModelState> {
   // Private state (exposed via ~)
   // ---------------------------------------------------------------------------
   private _fields: Map<string, Field> = new Map();
-  private _relations: Map<string, Relation<any, any>> = new Map();
+  private _relations: Map<string, AnyRelation> = new Map();
   private _tableName: string | undefined = undefined;
   private _indexes: IndexDefinition[] = [];
   private _compoundId: State["compoundId"] = undefined as State["compoundId"];
   private _compoundUniques: State["compoundUniques"] =
     [] as unknown as State["compoundUniques"];
   private _schemas?: TypedModelSchemas<State["fields"]>;
+  /** Name slots hydrated by client at initialization */
+  private _names: SchemaNames = {};
 
   constructor(
     private _fieldDefinitions: State["fields"],
@@ -362,6 +365,8 @@ export class Model<State extends AnyModelState = ModelState> {
       },
       /** Inferred TypeScript type for model records */
       infer: {} as InferModelFields<State["fields"]>,
+      /** Name slots hydrated by client at initialization */
+      names: this._names,
     };
   }
 }
@@ -386,6 +391,6 @@ export class Model<State extends AnyModelState = ModelState> {
  *   role: s.string(),
  * }).id(["orgId", "userId"]);
  */
-export const model = <TFields extends FieldRecord>(
+export const model = <const TFields extends FieldRecord>(
   fields: TFields
 ): Model<DefaultModelState<TFields>> => new Model(fields);

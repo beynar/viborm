@@ -1,0 +1,395 @@
+---
+title: Architecture
+description: VibORM's system architecture and component relationships
+icon: Network
+---
+
+# System Architecture
+
+VibORM is built as a layered system where each layer has clear responsibilities and well-defined interfaces.
+
+## High-Level Architecture
+
+```mermaid
+flowchart TB
+    subgraph User["User Code"]
+        SD[Schema Definition]
+        QC[Query Calls]
+    end
+
+    subgraph Schema["Schema Layer"]
+        M[Model]
+        F[Fields]
+        R[Relations]
+    end
+
+    subgraph Types["Type System"]
+        IT[Input Types]
+        OT[Output Types]
+        HT[Helper Types]
+    end
+
+    subgraph Runtime["Runtime Layer"]
+        AS[ArkType Schemas]
+        NP[Normalization Pipes]
+        V[Validation]
+    end
+
+    subgraph Client["Client Layer"]
+        CL[Client API]
+        OP[Operations]
+    end
+
+    subgraph Engine["Query Engine"]
+        QB[Query Builder]
+        SB[SQL Builder]
+        AD[Adapter]
+    end
+
+    subgraph DB["Database"]
+        PG[(PostgreSQL)]
+        MY[(MySQL)]
+        SL[(SQLite)]
+    end
+
+    SD --> M
+    M --> F
+    M --> R
+    
+    F --> IT
+    F --> OT
+    R --> IT
+    R --> OT
+    
+    F --> AS
+    R --> AS
+    AS --> NP
+    NP --> V
+    
+    QC --> CL
+    CL --> OP
+    OP --> V
+    V --> QB
+    QB --> SB
+    SB --> AD
+    
+    AD --> PG
+    AD --> MY
+    AD --> SL
+```
+
+## Layer Responsibilities
+
+### 1. Schema Layer
+
+The schema layer is where users define their data model. It's the foundation of everything.
+
+```mermaid
+classDiagram
+    class Model {
+        +fields: Map~string, Field~
+        +relations: Map~string, Relation~
+        +tableName: string
+        +compoundId: CompoundConstraint
+        +compoundUniques: CompoundConstraint[]
+        +indexes: IndexDefinition[]
+        +map(name): Model
+        +id(fields, options): Model
+        +unique(fields, options): Model
+        +index(fields, options): Model
+    }
+
+    class Field {
+        +state: FieldState
+        +schemas: FieldSchemas
+        +nullable(): Field
+        +default(value): Field
+        +id(): Field
+        +unique(): Field
+        +array(): Field
+        +map(columnName): Field
+    }
+
+    class Relation {
+        +getter: () => Model
+        +relationType: RelationType
+        +isOptional: boolean
+        +fields(): Relation
+        +references(): Relation
+        +onDelete(): Relation
+        +onUpdate(): Relation
+        +optional(): Relation
+    }
+
+    Model "1" *-- "*" Field
+    Model "1" *-- "*" Relation
+    Relation --> Model : references
+```
+
+### 2. Type System Layer
+
+Types are **inferred** from schema definitions, not generated. This happens at compile time.
+
+```mermaid
+flowchart LR
+    subgraph Schema
+        F[Field Definition]
+        R[Relation Definition]
+    end
+
+    subgraph State["Field State"]
+        N[nullable: boolean]
+        D[hasDefault: boolean]
+        I[isId: boolean]
+        U[isUnique: boolean]
+        A[isArray: boolean]
+    end
+
+    subgraph Derived["Derived Types"]
+        BT[Base Type]
+        FT[Filter Type]
+        CT[Create Type]
+        UT[Update Type]
+    end
+
+    F --> State
+    State --> BT
+    State --> FT
+    State --> CT
+    State --> UT
+```
+
+**Key insight**: The same field state produces different types for different operations:
+
+| Operation | nullable=false | nullable=true | hasDefault=true |
+|-----------|---------------|---------------|-----------------|
+| Base | `string` | `string \| null` | `string` |
+| Create | `string` (required) | `string \| null` | `string?` (optional) |
+| Update | `{ set?: string }` | `{ set?: string \| null }` | `{ set?: string }` |
+| Filter | `StringFilter` | `StringNullableFilter` | `StringFilter` |
+
+### 3. Runtime Schema Layer
+
+ArkType schemas provide runtime validation with the same guarantees as the type system.
+
+```mermaid
+flowchart TB
+    subgraph Build["Schema Building"]
+        M[Model] --> CBS[buildModelSchemas]
+        CBS --> CS[Core Schemas]
+        CBS --> AS[Args Schemas]
+    end
+
+    subgraph Core["Core Schemas"]
+        W[where]
+        WU[whereUnique]
+        C[create]
+        U[update]
+        S[select]
+        I[include]
+        O[orderBy]
+    end
+
+    subgraph Args["Operation Args Schemas"]
+        FM[findMany]
+        FU[findUnique]
+        FF[findFirst]
+        CA[createArgs]
+        UA[updateArgs]
+        DA[deleteArgs]
+    end
+
+    CS --> W
+    CS --> WU
+    CS --> C
+    CS --> U
+    CS --> S
+    CS --> I
+    CS --> O
+
+    W --> FM
+    WU --> FU
+    C --> CA
+    U --> UA
+```
+
+### 4. Client Layer
+
+The client provides a type-safe API for executing operations.
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant C as Client
+    participant V as Validator
+    participant Q as QueryEngine
+    participant DB as Database
+
+    U->>C: client.user.findMany({ where: { name: "Alice" } })
+    C->>V: Validate args against schema
+    V->>V: Normalize shorthand to canonical form
+    V-->>C: Validated & normalized args
+    C->>Q: Execute operation
+    Q->>Q: Build SQL query
+    Q->>DB: Execute SQL
+    DB-->>Q: Raw results
+    Q->>Q: Transform results
+    Q-->>C: Typed results
+    C-->>U: User[]
+```
+
+### 5. Query Engine Layer
+
+The query engine translates validated operations into SQL.
+
+```mermaid
+flowchart TB
+    subgraph Input
+        VA[Validated Args]
+    end
+
+    subgraph Builders
+        WB[WhereBuilder]
+        SB[SelectBuilder]
+        OB[OrderByBuilder]
+        RB[RelationBuilder]
+    end
+
+    subgraph Output
+        SQL[SQL Query]
+        P[Parameters]
+    end
+
+    VA --> WB
+    VA --> SB
+    VA --> OB
+    WB --> RB
+    
+    WB --> SQL
+    SB --> SQL
+    OB --> SQL
+    RB --> SQL
+    
+    SQL --> P
+```
+
+## Data Flow
+
+### Query Flow
+
+```mermaid
+flowchart LR
+    subgraph Input["User Input"]
+        UI["{name: 'Alice'}"]
+    end
+
+    subgraph Validation
+        VS[Schema Validation]
+        NP[Normalization Pipe]
+    end
+
+    subgraph Normalized
+        NO["{name: {equals: 'Alice'}}"]
+    end
+
+    subgraph Query
+        QB[Query Builder]
+        SQL["SELECT * FROM users WHERE name = $1"]
+    end
+
+    UI --> VS
+    VS --> NP
+    NP --> NO
+    NO --> QB
+    QB --> SQL
+```
+
+### Mutation Flow
+
+```mermaid
+flowchart LR
+    subgraph Input["User Input"]
+        UI["{name: 'Bob'}"]
+    end
+
+    subgraph Validation
+        VS[Schema Validation]
+        NP[Normalization Pipe]
+    end
+
+    subgraph Normalized
+        NO["{name: {set: 'Bob'}}"]
+    end
+
+    subgraph Query
+        QB[Query Builder]
+        SQL["UPDATE users SET name = $1"]
+    end
+
+    UI --> VS
+    VS --> NP
+    NP --> NO
+    NO --> QB
+    QB --> SQL
+```
+
+## File Structure
+
+```
+src/
+├── schema/
+│   ├── model/
+│   │   ├── model.ts           # Model class
+│   │   ├── types/             # TypeScript types
+│   │   │   ├── helpers.ts     # Type utilities
+│   │   │   ├── input-types.ts # Create/Update/Where types
+│   │   │   ├── result-types.ts# Query result types
+│   │   │   └── relation-types.ts
+│   │   └── runtime/           # ArkType schemas
+│   │       ├── core-schemas.ts
+│   │       ├── args-schemas.ts
+│   │       ├── mutation-schemas.ts
+│   │       └── nested-schemas.ts
+│   ├── fields/
+│   │   ├── string/
+│   │   │   ├── field.ts       # StringField class
+│   │   │   └── schemas.ts     # ArkType schemas
+│   │   ├── number/
+│   │   ├── boolean/
+│   │   └── ...
+│   ├── relation/
+│   │   └── relation.ts        # Relation classes
+│   └── validation/
+│       └── rules/             # Schema validation rules
+├── client/
+│   ├── client.ts              # Client factory
+│   └── types.ts               # Client types
+└── query-engine/
+    ├── query-engine.ts        # Main engine
+    ├── builders/              # SQL builders
+    └── operations/            # Operation handlers
+```
+
+## Design Decisions
+
+### Why Inference Over Generation?
+
+1. **No build step** - Types update instantly as you edit
+2. **Single source of truth** - Schema IS the type definition
+3. **Better IDE support** - Full autocomplete and refactoring
+4. **Simpler tooling** - No codegen to maintain
+
+### Why ArkType?
+
+1. **Runtime + Types** - Single definition for both
+2. **Morphs/Pipes** - Built-in transformation support
+3. **Performance** - Faster than Zod for validation
+4. **Type inference** - Excellent TypeScript integration
+
+### Why Two-Phase Schema Building?
+
+Core schemas (where, create, update) are built first, then reused by operation-specific schemas. This:
+1. Prevents duplicate schema building
+2. Enables lazy evaluation for circular references
+3. Improves performance via caching
+

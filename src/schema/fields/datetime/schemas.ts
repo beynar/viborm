@@ -12,8 +12,16 @@ export const dateTimeNullable = dateTimeBase.or("null");
 export const dateTimeArray = dateTimeBase.array();
 export const dateTimeNullableArray = dateTimeArray.or("null");
 
-// Also accept ISO strings and convert to Date
-export const dateTimeInput = type.instanceOf(Date).or("string");
+// Helper to validate ISO date string
+const isValidDateString = (s: string): boolean => !isNaN(new Date(s).getTime());
+
+// Also accept ISO strings and convert to Date - validates string format
+export const dateTimeInput = type.instanceOf(Date).or(
+  type("string").narrow((s, ctx) => {
+    if (isValidDateString(s)) return true;
+    return ctx.mustBe("a valid ISO date string");
+  })
+);
 export const dateTimeNullableInput = dateTimeInput.or("null");
 export const dateTimeInputArray = dateTimeInput.array();
 export const dateTimeNullableInputArray = dateTimeInputArray.or("null");
@@ -25,33 +33,37 @@ export const dateTimeNullableInputArray = dateTimeInputArray.or("null");
 
 // Helper to check if value is a shorthand (Date or string, not an object with filter keys)
 const isDateTimeShorthand = (v: unknown): v is Date | string =>
-  v instanceof Date || typeof v === "string";
+  v instanceof Date || (typeof v === "string" && !isNaN(new Date(v).getTime()));
 
-export const dateTimeFilter = type({
+// Base filter objects without `not` (used for recursive `not` definition)
+const dateTimeFilterBase = type({
   equals: dateTimeInput,
-  not: dateTimeNullableInput,
   in: dateTimeInput.array(),
   notIn: dateTimeInput.array(),
   lt: dateTimeInput,
   lte: dateTimeInput,
   gt: dateTimeInput,
   gte: dateTimeInput,
-})
-  .partial()
-  .or(dateTimeInput)
-  .pipe((v) => (isDateTimeShorthand(v) ? { equals: v } : v));
+}).partial();
 
-export const dateTimeNullableFilter = type({
+const dateTimeNullableFilterBase = type({
   equals: dateTimeNullableInput,
-  not: dateTimeNullableInput,
   in: dateTimeInput.array(),
   notIn: dateTimeInput.array(),
   lt: dateTimeNullableInput,
   lte: dateTimeNullableInput,
   gt: dateTimeNullableInput,
   gte: dateTimeNullableInput,
-})
-  .partial()
+}).partial();
+
+// `not` accepts both direct value AND nested filter object
+export const dateTimeFilter = dateTimeFilterBase
+  .merge(type({ "not?": dateTimeFilterBase.or(dateTimeNullableInput) }))
+  .or(dateTimeInput)
+  .pipe((v) => (isDateTimeShorthand(v) ? { equals: v } : v));
+
+export const dateTimeNullableFilter = dateTimeNullableFilterBase
+  .merge(type({ "not?": dateTimeNullableFilterBase.or(dateTimeNullableInput) }))
   .or(dateTimeNullableInput)
   .pipe((v) => (isDateTimeShorthand(v) || v === null ? { equals: v } : v));
 
@@ -78,11 +90,13 @@ export const dateTimeNullableListFilter = type({
 export const dateTimeCreate = dateTimeInput;
 export const dateTimeNullableCreate = dateTimeNullableInput;
 export const dateTimeOptionalCreate = dateTimeInput.or("undefined");
-export const dateTimeOptionalNullableCreate = dateTimeNullableInput.or("undefined");
+export const dateTimeOptionalNullableCreate =
+  dateTimeNullableInput.or("undefined");
 export const dateTimeArrayCreate = dateTimeInputArray;
 export const dateTimeNullableArrayCreate = dateTimeNullableInputArray;
 export const dateTimeOptionalArrayCreate = dateTimeInputArray.or("undefined");
-export const dateTimeOptionalNullableArrayCreate = dateTimeNullableInputArray.or("undefined");
+export const dateTimeOptionalNullableArrayCreate =
+  dateTimeNullableInputArray.or("undefined");
 
 // =============================================================================
 // UPDATE SCHEMAS - Shorthand normalized to { set: value } via pipe

@@ -17,30 +17,29 @@ import type {
 } from "../types";
 
 // =============================================================================
-// SCHEMA CACHE
-// =============================================================================
-
-// Cache for where schemas to prevent circular reference issues
-const whereSchemaCache = new WeakMap<Model<any>, Type>();
-
-// =============================================================================
 // WHERE SCHEMA
 // =============================================================================
+
+const isToOneShorthand = (
+  t?: unknown
+): t is { is: unknown } | { isNot: unknown } => {
+  return (
+    t !== undefined &&
+    typeof t === "object" &&
+    t !== null &&
+    ("is" in t || "isNot" in t)
+  );
+};
 
 /**
  * Builds a where schema from model fields
  * All fields are optional in where clauses
- * Uses caching to prevent circular reference issues with self-referential models
+ * Relation filters use lazy evaluation - actual schemas accessed via model["~"].schemas
+ * which provides per-model caching (no module-level state needed)
  */
 export const buildWhereSchema = <TFields extends FieldRecord>(
   model: Model<any>
 ): Type<ModelWhereInput<TFields>> => {
-  // Check cache first to prevent circular references
-  const cached = whereSchemaCache.get(model);
-  if (cached) {
-    return cached as Type<ModelWhereInput<TFields>>;
-  }
-
   const shape: Record<string, Type | (() => Type)> = {};
 
   // Add scalar field filters
@@ -48,40 +47,47 @@ export const buildWhereSchema = <TFields extends FieldRecord>(
     shape[name + "?"] = field["~"].schemas.filter;
   }
 
-  // Add relation filters with lazy evaluation to avoid circular refs
+  // Add relation filters with lazy evaluation
+  // Lazy access to targetModel["~"].schemas.where ensures:
+  // 1. No recursion during build (thunk not called until validation)
+  // 2. Target model schemas cached at model level (not module level)
   for (const [name, relation] of model["~"].relations) {
     const relationType = relation["~"].relationType;
     const getTargetModel = relation["~"].getter;
+    const targetWhere = getTargetModel()["~"].schemas.where;
+    const isOptional = relation["~"].isOptional ?? false;
 
     if (relationType === "oneToOne" || relationType === "manyToOne") {
-      // To-one relations: explicit is/isNot filters only
-      // NOTE: Shorthand { author: { name: "Alice" } } is NOT supported at runtime
-      // due to ArkType limitations with lazy evaluation and .or()/.narrow()
-      // The TypeScript type allows shorthand for better DX, but runtime requires explicit form:
-      //   { author: { is: { name: "Alice" } } }
-      shape[name + "?"] = type({
-        "is?": () => buildWhereSchema(getTargetModel()),
-        "isNot?": () => buildWhereSchema(getTargetModel()),
+      // To-one relations: supports both explicit and shorthand forms
+      // Explicit: { author: { is: { name: "Alice" } } }
+      // Shorthand: { author: { name: "Alice" } } -> normalized to { is: { name: "Alice" } }
+      // Null shorthand (optional only): { author: null } -> normalized to { is: null }
+      //
+      // Uses type("object | null") + pipe to bypass ArkType morph/union limitation
+      // (can't use .or(targetWhere) because targetWhere contains field filters with morphs)
+      const relationFilterSchema = isOptional
+        ? type("object | null")
+        : type("object");
+
+      shape[name + "?"] = relationFilterSchema.pipe((t) => {
+        if (t === null)
+          return { is: null } as unknown as ModelWhereInput<TFields>;
+        if (isToOneShorthand(t)) return t as ModelWhereInput<TFields>;
+        return { is: t } as unknown as ModelWhereInput<TFields>;
       });
     } else {
       // To-many relations: some, every, none filters
       shape[name + "?"] = type({
-        "some?": () => buildWhereSchema(getTargetModel()),
-        "every?": () => buildWhereSchema(getTargetModel()),
-        "none?": () => buildWhereSchema(getTargetModel()),
+        "some?": () => targetWhere,
+        "every?": () => targetWhere,
+        "none?": () => targetWhere,
       });
     }
   }
 
-  // Build the base where object
-  const result = type(shape as Record<string, Type>) as unknown as Type<
+  return type(shape as Record<string, Type>) as unknown as Type<
     ModelWhereInput<TFields>
   >;
-
-  // Cache the result
-  whereSchemaCache.set(model, result);
-
-  return result;
 };
 
 // =============================================================================
@@ -119,7 +125,8 @@ export const buildWhereUniqueSchema = <TFields extends FieldRecord>(
   const compoundId = model["~"].compoundId;
   if (compoundId && compoundId.fields && compoundId.fields.length > 0) {
     // Use custom name if provided, otherwise generate from field names
-    const keyName = compoundId.name ?? generateCompoundKeyName(compoundId.fields);
+    const keyName =
+      compoundId.name ?? generateCompoundKeyName(compoundId.fields);
     compoundKeyNames.push(keyName);
 
     // Build the compound key object schema
@@ -140,7 +147,8 @@ export const buildWhereUniqueSchema = <TFields extends FieldRecord>(
       if (!constraint.fields || constraint.fields.length === 0) continue;
 
       // Use custom name if provided, otherwise generate from field names
-      const keyName = constraint.name ?? generateCompoundKeyName(constraint.fields);
+      const keyName =
+        constraint.name ?? generateCompoundKeyName(constraint.fields);
       // Skip if this compound key was already added (e.g., same as compound ID)
       if (compoundKeyNames.includes(keyName)) continue;
       compoundKeyNames.push(keyName);
@@ -191,6 +199,12 @@ export const buildWhereUniqueSchema = <TFields extends FieldRecord>(
 // =============================================================================
 
 /**
+ * Helper to wrap single value in array - used for to-many relation normalization
+ * Avoids ArkType morph/array union conflict by using pipe on the union
+ */
+const ensureArray = <T>(v: T | T[]): T[] => (Array.isArray(v) ? v : [v]);
+
+/**
  * Builds a relation create schema with lazy evaluation
  */
 const buildRelationCreateSchema = (
@@ -202,28 +216,29 @@ const buildRelationCreateSchema = (
   if (relationType === "oneToOne" || relationType === "manyToOne") {
     // To-one: create, connect, connectOrCreate
     return type({
-      "create?": () => buildCreateSchema(getTargetModel()),
-      "connect?": () => buildWhereUniqueSchema(getTargetModel()),
+      "create?": () => getTargetModel()["~"].schemas.create,
+      "connect?": () => getTargetModel()["~"].schemas.whereUnique,
       "connectOrCreate?": type({
-        where: () => buildWhereUniqueSchema(getTargetModel()),
-        create: () => buildCreateSchema(getTargetModel()),
+        where: () => getTargetModel()["~"].schemas.whereUnique,
+        create: () => getTargetModel()["~"].schemas.create,
       }),
     });
   } else {
     // To-many: create/connect/connectOrCreate - shorthand single object normalized to array via pipe
-    const createSchema = type(() => buildCreateSchema(getTargetModel()));
-    const connectSchema = type(() => buildWhereUniqueSchema(getTargetModel()));
+    // Pattern: schema.or(schema.array()).pipe(ensureArray) avoids ArkType morph/array conflict
+    const createSchema = type(() => getTargetModel()["~"].schemas.create);
+    const connectSchema = type(() => getTargetModel()["~"].schemas.whereUnique);
     const connectOrCreateSchema = type({
-      where: () => buildWhereUniqueSchema(getTargetModel()),
-      create: () => buildCreateSchema(getTargetModel()),
+      where: () => getTargetModel()["~"].schemas.whereUnique,
+      create: () => getTargetModel()["~"].schemas.create,
     });
 
     return type({
-      "create?": createSchema.array().or(createSchema.pipe((v) => [v])),
-      "connect?": connectSchema.array().or(connectSchema.pipe((v) => [v])),
+      "create?": createSchema.or(createSchema.array()).pipe(ensureArray),
+      "connect?": connectSchema.or(connectSchema.array()).pipe(ensureArray),
       "connectOrCreate?": connectOrCreateSchema
-        .array()
-        .or(connectOrCreateSchema.pipe((v) => [v])),
+        .or(connectOrCreateSchema.array())
+        .pipe(ensureArray),
     });
   }
 };
@@ -310,12 +325,12 @@ const buildRelationUpdateSchema = (
   if (relationType === "oneToOne" || relationType === "manyToOne") {
     // To-one: create, connect, update, upsert, (disconnect/delete if optional)
     const baseShape: Record<string, Type | (() => Type)> = {
-      "create?": () => buildCreateSchema(getTargetModel()),
-      "connect?": () => buildWhereUniqueSchema(getTargetModel()),
-      "update?": () => buildUpdateSchema(getTargetModel()),
+      "create?": () => getTargetModel()["~"].schemas.create,
+      "connect?": () => getTargetModel()["~"].schemas.whereUnique,
+      "update?": () => getTargetModel()["~"].schemas.update,
       "upsert?": type({
-        create: () => buildCreateSchema(getTargetModel()),
-        update: () => buildUpdateSchema(getTargetModel()),
+        create: () => getTargetModel()["~"].schemas.create,
+        update: () => getTargetModel()["~"].schemas.update,
       }),
     };
 
@@ -326,36 +341,38 @@ const buildRelationUpdateSchema = (
 
     return type(baseShape as Record<string, Type>);
   } else {
-    // To-many: shorthand single object normalized to array via pipe
-    const createSchema = type(() => buildCreateSchema(getTargetModel()));
-    const connectSchema = type(() => buildWhereUniqueSchema(getTargetModel()));
-    const whereSchema = type(() => buildWhereSchema(getTargetModel()));
+    // To-many: array inputs for operations
+    // NOTE: Single-value shorthand not supported for operations using where schema (contains morphs)
+    // due to ArkType union/morph limitations
+    const createSchema = type(() => getTargetModel()["~"].schemas.create);
+    const connectSchema = type(() => getTargetModel()["~"].schemas.whereUnique);
+    const whereSchema = type(() => getTargetModel()["~"].schemas.where);
     const updateSchema = type({
-      where: () => buildWhereUniqueSchema(getTargetModel()),
-      data: () => buildUpdateSchema(getTargetModel()),
+      where: () => getTargetModel()["~"].schemas.whereUnique,
+      data: () => getTargetModel()["~"].schemas.update,
     });
     const updateManySchema = type({
-      where: () => buildWhereSchema(getTargetModel()),
-      data: () => buildUpdateSchema(getTargetModel()),
+      where: () => getTargetModel()["~"].schemas.where,
+      data: () => getTargetModel()["~"].schemas.update,
     });
     const upsertSchema = type({
-      where: () => buildWhereUniqueSchema(getTargetModel()),
-      create: () => buildCreateSchema(getTargetModel()),
-      update: () => buildUpdateSchema(getTargetModel()),
+      where: () => getTargetModel()["~"].schemas.whereUnique,
+      create: () => getTargetModel()["~"].schemas.create,
+      update: () => getTargetModel()["~"].schemas.update,
     });
 
     return type({
-      "create?": createSchema.array().or(createSchema.pipe((v) => [v])),
-      "connect?": connectSchema.array().or(connectSchema.pipe((v) => [v])),
-      "disconnect?": connectSchema.array().or(connectSchema.pipe((v) => [v])),
+      // create/connect/disconnect/delete use whereUnique/create (no morphs) - shorthand supported
+      "create?": createSchema.or(createSchema.array()).pipe(ensureArray),
+      "connect?": connectSchema.or(connectSchema.array()).pipe(ensureArray),
+      "disconnect?": connectSchema.or(connectSchema.array()).pipe(ensureArray),
       "set?": connectSchema.array(),
-      "delete?": connectSchema.array().or(connectSchema.pipe((v) => [v])),
-      "deleteMany?": whereSchema.array().or(whereSchema.pipe((v) => [v])),
-      "update?": updateSchema.array().or(updateSchema.pipe((v) => [v])),
-      "updateMany?": updateManySchema
-        .array()
-        .or(updateManySchema.pipe((v) => [v])),
-      "upsert?": upsertSchema.array().or(upsertSchema.pipe((v) => [v])),
+      "delete?": connectSchema.or(connectSchema.array()).pipe(ensureArray),
+      // Operations with update data (has morphs) - array only, no shorthand
+      "deleteMany?": whereSchema.array(),
+      "update?": updateSchema.array(),
+      "updateMany?": updateManySchema.array(),
+      "upsert?": upsertSchema.array(),
     });
   }
 };
@@ -461,4 +478,3 @@ export const buildOrderBySchema = <TFields extends FieldRecord>(
 
   return type(shape) as unknown as Type<ModelOrderBy<TFields>>;
 };
-

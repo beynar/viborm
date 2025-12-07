@@ -55,6 +55,8 @@ export interface DatabaseAdapter {
     false: () => Sql;
     /** Create a value list: ($1, $2, $3) */
     list: (values: Sql[]) => Sql;
+    /** JSON value (PG: native, MySQL/SQLite: JSON.stringify) */
+    json: (v: unknown) => Sql;
   };
 
   /**
@@ -225,8 +227,10 @@ export interface DatabaseAdapter {
     multiply: (column: Sql, by: Sql) => Sql;
     /** Divide: "col" = "col" / value */
     divide: (column: Sql, by: Sql) => Sql;
-    /** Array push (database-specific) */
+    /** Array push (database-specific): append to array */
     push: (column: Sql, value: Sql) => Sql;
+    /** Array unshift (database-specific): prepend to array */
+    unshift: (column: Sql, value: Sql) => Sql;
   };
 
   /**
@@ -327,6 +331,10 @@ export interface QueryParts {
   orderBy?: Sql;
   limit?: Sql;
   offset?: Sql;
+  /** DISTINCT ON columns (PostgreSQL), or simulated via ROW_NUMBER() (MySQL/SQLite) */
+  distinct?: Sql;
+  /** Column alias names for outer SELECT when using DISTINCT simulation (MySQL/SQLite) */
+  distinctColumnAliases?: string[];
 }
 
 /**

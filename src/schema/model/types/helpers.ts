@@ -5,13 +5,14 @@
 import type { Field, FieldState } from "../../fields/base";
 import type { Relation } from "../../relation/relation";
 import type { StandardSchemaV1 } from "../../../standardSchema";
+import type { AnyRelation } from "../../relation/relation";
 
 // =============================================================================
 // CONSTRAINT HELPER - Replace verbose Record<string, Field | Relation<any, any>>
 // =============================================================================
 
 /** Simplified constraint for model fields */
-export type FieldRecord = Record<string, Field | Relation<any, any, any>>;
+export type FieldRecord = Record<string, Field | AnyRelation>;
 
 // =============================================================================
 // COMPOUND CONSTRAINT TYPES
@@ -262,7 +263,9 @@ export type GetterModelFields<G> = GetterModelState<G> extends {
   : FieldRecord;
 
 /** Combined: Get target fields (uses cached intermediates) */
-export type GetRelationFields<R> = GetterModelFields<RelationGetter<R>>;
+export type GetRelationFields<R extends AnyRelation> = GetterModelFields<
+  RelationGetter<R>
+>;
 
 /** Extract relation type (non-distributive) */
 export type GetRelationType<R> = [R] extends [Relation<any, infer T, any>]

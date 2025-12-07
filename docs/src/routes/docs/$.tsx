@@ -14,6 +14,7 @@ import {
 } from "fumadocs-ui/layouts/docs/page";
 import defaultMdxComponents from "fumadocs-ui/mdx";
 import { baseOptions } from "@/lib/layout.shared";
+import { Mermaid } from "@/components/mermaid";
 
 export const Route = createFileRoute("/docs/$")({
   component: Page,
@@ -48,6 +49,7 @@ const clientLoader = browserCollections.docs.createClientLoader({
         <DocsBody>
           <MDX
             components={{
+              Mermaid,
               ...defaultMdxComponents,
               ...TabsComponents,
             }}
