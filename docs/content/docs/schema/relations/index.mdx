@@ -1,0 +1,111 @@
+---
+title: Relations Overview
+description: Define relationships between models
+icon: GitBranch
+---
+
+# Relations
+
+Relations define how models connect to each other. VibORM supports all standard relationship types.
+
+## Relation Types
+
+| Relation | Description | Example |
+|----------|-------------|---------|
+| `s.oneToOne()` | One record relates to one other | User → Profile |
+| `s.oneToMany()` | One record relates to many | User → Posts |
+| `s.manyToOne()` | Many records relate to one | Post → Author |
+| `s.manyToMany()` | Many relate to many | Post ↔ Tags |
+
+## Quick Example
+
+```ts
+import { s } from "viborm";
+
+const user = s.model({
+  id: s.string().id().ulid(),
+  email: s.string().unique(),
+  profile: s.oneToOne(() => profile).optional(),
+  posts: s.oneToMany(() => post),
+}).map("users");
+
+const profile = s.model({
+  id: s.string().id().ulid(),
+  bio: s.string(),
+  userId: s.string().unique(),
+  user: s.oneToOne(() => user).fields("userId").references("id"),
+}).map("profiles");
+
+const post = s.model({
+  id: s.string().id().ulid(),
+  title: s.string(),
+  authorId: s.string(),
+  author: s.manyToOne(() => user).fields("authorId").references("id"),
+  tags: s.manyToMany(() => tag),
+}).map("posts");
+
+const tag = s.model({
+  id: s.string().id().ulid(),
+  name: s.string().unique(),
+  posts: s.manyToMany(() => post),
+}).map("tags");
+```
+
+## Common Methods
+
+All relations support:
+
+```ts
+.fields("fieldName")       // FK field on current model
+.references("fieldName")   // Referenced field on target model
+.onDelete("cascade")       // Referential action on delete
+.onUpdate("cascade")       // Referential action on update
+```
+
+## Referential Actions
+
+| Action | Description |
+|--------|-------------|
+| `cascade` | Delete/update related records |
+| `setNull` | Set FK to NULL (requires nullable FK) |
+| `restrict` | Prevent delete/update if related records exist |
+| `noAction` | Database default behavior |
+
+## Class Hierarchy
+
+VibORM uses specialized classes for different relation types:
+
+```
+Relation (abstract base)
+├── ToOneRelation       → oneToOne, manyToOne (has .optional())
+├── OneToManyRelation   → oneToMany
+└── ManyToManyRelation  → manyToMany (has .through(), .A(), .B())
+```
+
+This ensures only valid methods appear in IntelliSense.
+
+## Pages
+
+<Cards>
+  <Card
+    title="One-to-One"
+    description="Single record to single record"
+    href="/docs/schema/relations/one-to-one"
+  />
+  <Card
+    title="One-to-Many"
+    description="Single record to multiple records"
+    href="/docs/schema/relations/one-to-many"
+  />
+  <Card
+    title="Many-to-One"
+    description="Multiple records to single record"
+    href="/docs/schema/relations/many-to-one"
+  />
+  <Card
+    title="Many-to-Many"
+    description="Multiple records to multiple records"
+    href="/docs/schema/relations/many-to-many"
+  />
+</Cards>
+

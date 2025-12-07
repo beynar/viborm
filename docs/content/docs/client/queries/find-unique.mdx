@@ -1,0 +1,195 @@
+---
+title: findUnique
+description: Find a single record by unique identifier
+icon: Fingerprint
+---
+
+# findUnique
+
+Find a single record by its unique identifier (primary key or unique field).
+
+## Basic Usage
+
+```ts
+// By primary key
+const user = await client.user.findUnique({
+  where: { id: "user_123" },
+});
+
+// By unique field
+const user = await client.user.findUnique({
+  where: { email: "alice@example.com" },
+});
+```
+
+## Compound Keys
+
+For models with compound unique constraints:
+
+```ts
+// Schema
+const membership = s.model({
+  orgId: s.string(),
+  userId: s.string(),
+  role: s.string(),
+}).id(["orgId", "userId"]);
+
+// Query by compound key
+const member = await client.membership.findUnique({
+  where: {
+    orgId_userId: {
+      orgId: "org_1",
+      userId: "user_1",
+    },
+  },
+});
+
+// With custom name
+const membership = s.model({ ... })
+  .id(["orgId", "userId"], { name: "membership_pk" });
+
+const member = await client.membership.findUnique({
+  where: {
+    membership_pk: {
+      orgId: "org_1",
+      userId: "user_1",
+    },
+  },
+});
+```
+
+## With Relations
+
+```ts
+const user = await client.user.findUnique({
+  where: { id: "user_123" },
+  include: {
+    posts: true,
+    profile: true,
+  },
+});
+
+// Select specific fields
+const user = await client.user.findUnique({
+  where: { id: "user_123" },
+  select: {
+    id: true,
+    email: true,
+    posts: {
+      select: { title: true },
+    },
+  },
+});
+```
+
+## Options
+
+```ts
+await client.user.findUnique({
+  where: { ... },     // Required: unique identifier
+  select: { ... },    // Optional: fields to return
+  include: { ... },   // Optional: relations to include
+});
+```
+
+## findUniqueOrThrow
+
+Throws if the record doesn't exist:
+
+```ts
+const user = await client.user.findUniqueOrThrow({
+  where: { id: "user_123" },
+});
+// Type: User (never null)
+// Throws: NotFoundError if not found
+```
+
+## Return Type
+
+```ts
+// Returns T | null
+const user = await client.user.findUnique({
+  where: { id: "user_123" },
+});
+// Type: User | null
+
+// With select
+const user = await client.user.findUnique({
+  where: { id: "user_123" },
+  select: { id: true, email: true },
+});
+// Type: { id: string; email: string } | null
+```
+
+## Valid Unique Fields
+
+You can only use fields marked as unique:
+
+```ts
+const user = s.model({
+  id: s.string().id(),           // ✅ Primary key
+  email: s.string().unique(),    // ✅ Unique field
+  name: s.string(),              // ❌ Not unique
+});
+
+// Valid
+await client.user.findUnique({ where: { id: "..." } });
+await client.user.findUnique({ where: { email: "..." } });
+
+// Invalid - TypeScript error
+await client.user.findUnique({ where: { name: "..." } });
+```
+
+## Examples
+
+### Get User by ID
+
+```ts
+async function getUserById(id: string) {
+  const user = await client.user.findUnique({
+    where: { id },
+    include: { profile: true },
+  });
+  
+  if (!user) {
+    throw new Error("User not found");
+  }
+  
+  return user;
+}
+```
+
+### Get or Create Pattern
+
+```ts
+async function getOrCreateUser(email: string, name: string) {
+  const existing = await client.user.findUnique({
+    where: { email },
+  });
+  
+  if (existing) {
+    return existing;
+  }
+  
+  return client.user.create({
+    data: { email, name },
+  });
+}
+```
+
+### Authentication Lookup
+
+```ts
+async function findUserByEmail(email: string) {
+  return client.user.findUnique({
+    where: { email },
+    select: {
+      id: true,
+      email: true,
+      passwordHash: true,
+      role: true,
+    },
+  });
+}
+```
+

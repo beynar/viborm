@@ -39,7 +39,7 @@ export const buildSelectNestedSchema = <TFields extends FieldRecord>(
   // Relations - boolean OR nested select object with lazy evaluation
   for (const [name, relation] of model["~"].relations) {
     const relationType = relation["~"].relationType;
-    const getTargetModel = relation["~"].getter;
+    const getTargetModel = relation["~"].getter as () => Model<any>;
     const isToMany =
       relationType === "oneToMany" || relationType === "manyToMany";
 

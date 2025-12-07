@@ -1,0 +1,179 @@
+---
+title: Number Fields
+description: Integer, float, and decimal field types
+icon: Hash
+---
+
+# Number Fields
+
+VibORM provides three number field types with different precision characteristics.
+
+## Field Types
+
+| Field         | TypeScript | Use Case                              |
+| ------------- | ---------- | ------------------------------------- |
+| `s.int()`     | `number`   | Whole numbers, counts, IDs            |
+| `s.float()`   | `number`   | Floating-point, approximate decimals  |
+| `s.decimal()` | `number`   | Exact decimals, money, precision math |
+
+## Integer Field
+
+```ts
+s.int(); // Required integer
+s.int().nullable(); // Integer | null
+s.int().array(); // Integer[] (native on PG, JSON on MySQL/SQLite)
+```
+
+### Auto-Increment
+
+```ts
+s.int().id().increment(); // Auto-incrementing primary key
+```
+
+## Float Field
+
+```ts
+s.float(); // Required float
+s.float().nullable(); // Float | null
+```
+
+## Decimal Field
+
+```ts
+s.decimal(); // Required decimal
+s.decimal().nullable(); // Decimal | null
+```
+
+## Chainable Methods
+
+All number types share these methods:
+
+```ts
+s.int()
+  .nullable() // Allow NULL
+  .array() // Array type (native on PG, JSON on MySQL/SQLite)
+  .id() // Primary key
+  .unique() // Unique constraint
+  .default(0) // Static default
+  .default(() => 0) // Runtime default
+  .map("column_name"); // Custom column name
+```
+
+## Native Database Types
+
+<Tabs items={["PostgreSQL", "MySQL", "SQLite"]}>
+  <Tab value="PostgreSQL">
+```ts
+import { TYPES } from "viborm";
+
+// Integer types
+s.int(TYPES.PG.INT.SMALLINT) // -32,768 to 32,767
+s.int(TYPES.PG.INT.INTEGER) // -2B to 2B (default)
+s.int(TYPES.PG.INT.OID) // Object identifier
+
+// Float types
+s.float(TYPES.PG.FLOAT.REAL) // 6 decimal precision
+s.float(TYPES.PG.FLOAT.DOUBLE_PRECISION) // 15 decimal precision
+
+// Decimal types
+s.decimal(TYPES.PG.DECIMAL.DECIMAL(10, 2)) // DECIMAL(10,2)
+s.decimal(TYPES.PG.DECIMAL.NUMERIC(10, 2)) // NUMERIC(10,2)
+s.decimal(TYPES.PG.DECIMAL.MONEY) // Currency type
+
+````
+  </Tab>
+  <Tab value="MySQL">
+```ts
+import { TYPES } from "viborm";
+
+// Integer types
+s.int(TYPES.MYSQL.INT.TINYINT)           // -128 to 127
+s.int(TYPES.MYSQL.INT.TINYINT_UNSIGNED)  // 0 to 255
+s.int(TYPES.MYSQL.INT.SMALLINT)          // -32,768 to 32,767
+s.int(TYPES.MYSQL.INT.MEDIUMINT)         // -8M to 8M
+s.int(TYPES.MYSQL.INT.INT)               // -2B to 2B
+s.int(TYPES.MYSQL.INT.INT_UNSIGNED)      // 0 to 4B
+s.int(TYPES.MYSQL.INT.YEAR)              // Year values
+
+// Float types
+s.float(TYPES.MYSQL.FLOAT.FLOAT)   // Single precision
+s.float(TYPES.MYSQL.FLOAT.DOUBLE)  // Double precision
+
+// Decimal types
+s.decimal(TYPES.MYSQL.DECIMAL.DECIMAL(10, 2))  // DECIMAL(10,2)
+````
+
+  </Tab>
+  <Tab value="SQLite">
+```ts
+import { TYPES } from "viborm";
+
+s.int(TYPES.SQLITE.INT.INTEGER) // INTEGER
+s.float(TYPES.SQLITE.FLOAT.REAL) // REAL
+s.decimal(TYPES.SQLITE.DECIMAL.REAL) // REAL (no exact decimal)
+
+````
+  </Tab>
+</Tabs>
+
+## Type Mapping
+
+### Integer
+
+| Modifier | TypeScript | PostgreSQL | MySQL | SQLite |
+|----------|------------|------------|-------|--------|
+| `s.int()` | `number` | `INTEGER` | `INT` | `INTEGER` |
+| `.nullable()` | `number \| null` | `INTEGER NULL` | `INT NULL` | `INTEGER NULL` |
+| `.array()` | `number[]` | `INTEGER[]` | `JSON` | `JSON` |
+
+### Float
+
+| Modifier | TypeScript | PostgreSQL | MySQL | SQLite |
+|----------|------------|------------|-------|--------|
+| `s.float()` | `number` | `DOUBLE PRECISION` | `DOUBLE` | `REAL` |
+| `.nullable()` | `number \| null` | `DOUBLE PRECISION NULL` | `DOUBLE NULL` | `REAL NULL` |
+| `.array()` | `number[]` | `DOUBLE PRECISION[]` | `JSON` | `JSON` |
+
+### Decimal
+
+| Modifier | TypeScript | PostgreSQL | MySQL | SQLite |
+|----------|------------|------------|-------|--------|
+| `s.decimal()` | `number` | `DECIMAL(65,30)` | `DECIMAL(65,30)` | `REAL` |
+| `.nullable()` | `number \| null` | `DECIMAL NULL` | `DECIMAL NULL` | `REAL NULL` |
+| `.array()` | `number[]` | `DECIMAL[]` | `JSON` | `JSON` |
+
+## Examples
+
+```ts
+// Auto-incrementing ID
+const id = s.int().id().increment();
+
+// Age with validation
+const age = s.int().validator(z.number().min(0).max(150));
+
+// Price with exact precision
+const price = s.decimal(TYPES.PG.DECIMAL.DECIMAL(10, 2));
+
+// Rating between 1-5
+const rating = s.float()
+  .nullable()
+  .validator(z.number().min(1).max(5));
+
+// View counter with default
+const views = s.int().default(0);
+
+// Latitude/Longitude
+const lat = s.float();
+const lng = s.float();
+````
+
+## Choosing the Right Type
+
+| Use Case        | Recommended                                 |
+| --------------- | ------------------------------------------- |
+| IDs, counts     | `s.int()`                                   |
+| Money, currency | `s.decimal()` with precision                |
+| Scientific data | `s.float()`                                 |
+| Coordinates     | `s.float()`                                 |
+| Ratings         | `s.float()` or `s.decimal()`                |
+| Percentages     | `s.decimal(TYPES.PG.DECIMAL.DECIMAL(5, 2))` |

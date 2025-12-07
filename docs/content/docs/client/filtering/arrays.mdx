@@ -1,0 +1,217 @@
+---
+title: Array Filters
+description: Filter operators for array fields
+icon: ListOrdered
+---
+
+# Array Filters
+
+Filter operators available for array fields (PostgreSQL only).
+
+<Callout type="info">
+  Array fields are only supported in PostgreSQL. MySQL and SQLite don't have native array types.
+</Callout>
+
+## Operators
+
+| Operator | Description |
+|----------|-------------|
+| `has` | Array contains value |
+| `hasEvery` | Array contains all values |
+| `hasSome` | Array contains any value |
+| `isEmpty` | Array is empty |
+| `equals` | Exact array match |
+
+## has
+
+Check if array contains a single value:
+
+```ts
+// Has "featured" tag
+where: {
+  tags: { has: "featured" },
+}
+
+// Has specific role
+where: {
+  roles: { has: "ADMIN" },
+}
+```
+
+## hasEvery
+
+Check if array contains ALL specified values:
+
+```ts
+// Has both "tech" and "tutorial"
+where: {
+  tags: { hasEvery: ["tech", "tutorial"] },
+}
+
+// User has all required permissions
+where: {
+  permissions: { hasEvery: ["read", "write", "delete"] },
+}
+```
+
+## hasSome
+
+Check if array contains ANY of the specified values:
+
+```ts
+// Has "tech" OR "science" OR "programming"
+where: {
+  tags: { hasSome: ["tech", "science", "programming"] },
+}
+
+// User has at least one admin permission
+where: {
+  permissions: { hasSome: ["admin", "superuser"] },
+}
+```
+
+## isEmpty
+
+Check if array is empty:
+
+```ts
+// No tags
+where: {
+  tags: { isEmpty: true },
+}
+
+// Has at least one tag
+where: {
+  tags: { isEmpty: false },
+}
+```
+
+## equals
+
+Exact array match (order matters):
+
+```ts
+// Exactly these tags in this order
+where: {
+  tags: { equals: ["featured", "top"] },
+}
+```
+
+## Examples
+
+### Tagged Content
+
+```ts
+async function getPostsByTag(tag: string) {
+  return client.post.findMany({
+    where: {
+      tags: { has: tag },
+      published: true,
+    },
+  });
+}
+```
+
+### Multiple Tags
+
+```ts
+async function getPostsWithAllTags(tags: string[]) {
+  return client.post.findMany({
+    where: {
+      tags: { hasEvery: tags },
+    },
+  });
+}
+
+async function getPostsWithAnyTag(tags: string[]) {
+  return client.post.findMany({
+    where: {
+      tags: { hasSome: tags },
+    },
+  });
+}
+```
+
+### Permission Check
+
+```ts
+async function getUsersWithPermission(permission: string) {
+  return client.user.findMany({
+    where: {
+      permissions: { has: permission },
+    },
+  });
+}
+
+async function getUsersWithAllPermissions(permissions: string[]) {
+  return client.user.findMany({
+    where: {
+      permissions: { hasEvery: permissions },
+    },
+  });
+}
+```
+
+### Untagged Content
+
+```ts
+async function getUntaggedPosts() {
+  return client.post.findMany({
+    where: {
+      tags: { isEmpty: true },
+    },
+  });
+}
+```
+
+### Role-Based Access
+
+```ts
+async function getAdminUsers() {
+  return client.user.findMany({
+    where: {
+      roles: { hasSome: ["ADMIN", "SUPERADMIN"] },
+    },
+  });
+}
+```
+
+## Updating Arrays
+
+```ts
+// Add to array
+await client.post.update({
+  where: { id: "post_123" },
+  data: {
+    tags: { push: "new-tag" },
+  },
+});
+
+// Set entire array
+await client.post.update({
+  where: { id: "post_123" },
+  data: {
+    tags: { set: ["tag1", "tag2", "tag3"] },
+  },
+});
+```
+
+## Alternative for MySQL/SQLite
+
+Use JSON arrays instead of native arrays:
+
+```ts
+// Schema
+const post = s.model({
+  id: s.string().id(),
+  tags: s.json().default([]),  // JSON array
+});
+
+// Query with JSON operators
+where: {
+  tags: {
+    array_contains: "featured",
+  },
+}
+```
+

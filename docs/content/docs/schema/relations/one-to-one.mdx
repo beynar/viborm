@@ -1,0 +1,171 @@
+---
+title: One-to-One
+description: Define one-to-one relationships between models
+icon: Link
+---
+
+# One-to-One Relation
+
+A one-to-one relation connects a single record to exactly one other record.
+
+## Basic Example
+
+```ts
+import { s } from "viborm";
+
+// User has one profile
+const user = s.model({
+  id: s.string().id().ulid(),
+  email: s.string().unique(),
+  profile: s.oneToOne(() => profile).optional(),
+}).map("users");
+
+// Profile belongs to one user
+const profile = s.model({
+  id: s.string().id().ulid(),
+  bio: s.string(),
+  userId: s.string().unique(),  // FK field, unique for 1:1
+  user: s.oneToOne(() => user).fields("userId").references("id"),
+}).map("profiles");
+```
+
+## Which Side Owns the FK?
+
+In a one-to-one relation, one side must have the foreign key:
+
+| Side | Has FK | Configuration |
+|------|--------|---------------|
+| Owner (Profile) | Yes | `.fields("userId").references("id")` |
+| Non-owner (User) | No | Just `.optional()` or nothing |
+
+## Chainable Methods
+
+### `.fields(...fieldNames)`
+
+Specifies the FK field(s) on the current model:
+
+```ts
+s.oneToOne(() => user).fields("userId")
+```
+
+### `.references(...fieldNames)`
+
+Specifies the referenced field(s) on the target model:
+
+```ts
+s.oneToOne(() => user).fields("userId").references("id")
+```
+
+### `.optional()`
+
+Makes the relation optional (can be null):
+
+```ts
+// User may or may not have a profile
+profile: s.oneToOne(() => profile).optional()
+```
+
+### `.onDelete(action)`
+
+Referential action when the related record is deleted:
+
+```ts
+s.oneToOne(() => user)
+  .fields("userId")
+  .references("id")
+  .onDelete("cascade")  // Delete profile when user is deleted
+```
+
+### `.onUpdate(action)`
+
+Referential action when the referenced field is updated:
+
+```ts
+s.oneToOne(() => user)
+  .fields("userId")
+  .references("id")
+  .onUpdate("cascade")
+```
+
+## Complete Example
+
+```ts
+const user = s.model({
+  id: s.string().id().ulid(),
+  email: s.string().unique(),
+  // Non-owning side - no FK, can be optional
+  profile: s.oneToOne(() => profile).optional(),
+}).map("users");
+
+const profile = s.model({
+  id: s.string().id().ulid(),
+  bio: s.string().nullable(),
+  avatar: s.string().nullable(),
+  // FK field - unique for 1:1
+  userId: s.string().unique(),
+  // Owning side - has FK configuration
+  user: s.oneToOne(() => user)
+    .fields("userId")
+    .references("id")
+    .onDelete("cascade"),
+}).map("profiles");
+```
+
+## Querying One-to-One
+
+```ts
+// Include profile when fetching user
+const user = await client.user.findUnique({
+  where: { id: "user_123" },
+  include: { profile: true },
+});
+// user.profile: Profile | null
+
+// Filter users by profile data
+const users = await client.user.findMany({
+  where: {
+    profile: {
+      is: { bio: { contains: "developer" } }
+    }
+  }
+});
+
+// Create user with profile
+const user = await client.user.create({
+  data: {
+    email: "alice@example.com",
+    profile: {
+      create: { bio: "Software developer" }
+    }
+  },
+  include: { profile: true },
+});
+```
+
+## Common Patterns
+
+### Required vs Optional
+
+```ts
+// Required: Every user MUST have a profile
+// (Create profile in same transaction)
+profile: s.oneToOne(() => profile)
+
+// Optional: User MAY have a profile
+profile: s.oneToOne(() => profile).optional()
+```
+
+### Self-Referential
+
+```ts
+const employee = s.model({
+  id: s.string().id().ulid(),
+  name: s.string(),
+  managerId: s.string().nullable(),
+  manager: s.oneToOne(() => employee)
+    .fields("managerId")
+    .references("id")
+    .optional(),
+}).map("employees");
+```
+

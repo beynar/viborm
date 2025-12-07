@@ -1,0 +1,196 @@
+---
+title: upsert
+description: Create or update a record in one operation
+icon: RefreshCw
+---
+
+# upsert
+
+Create a record if it doesn't exist, or update it if it does.
+
+## Basic Usage
+
+```ts
+const user = await client.user.upsert({
+  where: { email: "alice@example.com" },
+  create: {
+    email: "alice@example.com",
+    name: "Alice",
+  },
+  update: {
+    name: "Alice Updated",
+  },
+});
+```
+
+## How It Works
+
+1. Search for record matching `where`
+2. If found → apply `update`
+3. If not found → apply `create`
+
+## Options
+
+```ts
+await client.user.upsert({
+  where: { ... },       // Required: unique identifier
+  create: { ... },      // Required: data for new record
+  update: { ... },      // Required: data for existing record
+  select: { ... },      // Optional: fields to return
+  include: { ... },     // Optional: relations to include
+});
+```
+
+## With Relations
+
+```ts
+const user = await client.user.upsert({
+  where: { email: "alice@example.com" },
+  create: {
+    email: "alice@example.com",
+    name: "Alice",
+    profile: {
+      create: { bio: "New user" },
+    },
+  },
+  update: {
+    name: "Alice Updated",
+    profile: {
+      upsert: {
+        create: { bio: "New profile" },
+        update: { bio: "Updated profile" },
+      },
+    },
+  },
+  include: { profile: true },
+});
+```
+
+## Examples
+
+### Sync External Data
+
+```ts
+async function syncUser(externalUser: ExternalUser) {
+  return client.user.upsert({
+    where: { externalId: externalUser.id },
+    create: {
+      externalId: externalUser.id,
+      email: externalUser.email,
+      name: externalUser.name,
+      lastSyncedAt: new Date(),
+    },
+    update: {
+      email: externalUser.email,
+      name: externalUser.name,
+      lastSyncedAt: new Date(),
+    },
+  });
+}
+```
+
+### User Settings
+
+```ts
+async function updateSetting(userId: string, key: string, value: string) {
+  return client.userSetting.upsert({
+    where: {
+      userId_key: { userId, key },  // Compound unique
+    },
+    create: {
+      userId,
+      key,
+      value,
+    },
+    update: {
+      value,
+    },
+  });
+}
+```
+
+### OAuth Login
+
+```ts
+async function findOrCreateOAuthUser(provider: string, providerId: string, email: string) {
+  return client.user.upsert({
+    where: { email },
+    create: {
+      email,
+      oauthProvider: provider,
+      oauthProviderId: providerId,
+      emailVerified: true,
+    },
+    update: {
+      oauthProvider: provider,
+      oauthProviderId: providerId,
+      lastLoginAt: new Date(),
+    },
+  });
+}
+```
+
+### Increment Counter
+
+```ts
+async function recordPageView(pageId: string) {
+  return client.pageStats.upsert({
+    where: { pageId },
+    create: {
+      pageId,
+      views: 1,
+      lastViewedAt: new Date(),
+    },
+    update: {
+      views: { increment: 1 },
+      lastViewedAt: new Date(),
+    },
+  });
+}
+```
+
+### Tag Management
+
+```ts
+async function ensureTag(name: string) {
+  return client.tag.upsert({
+    where: { name },
+    create: { name },
+    update: {},  // No updates needed
+  });
+}
+
+async function tagPost(postId: string, tagNames: string[]) {
+  // Ensure all tags exist
+  await Promise.all(tagNames.map(name => ensureTag(name)));
+  
+  // Connect to post
+  return client.post.update({
+    where: { id: postId },
+    data: {
+      tags: {
+        connect: tagNames.map(name => ({ name })),
+      },
+    },
+    include: { tags: true },
+  });
+}
+```
+
+## vs Create + Update
+
+| Approach | Pros | Cons |
+|----------|------|------|
+| `upsert` | Atomic, single query | Less flexible |
+| Separate queries | More control | Race conditions possible |
+
+Use `upsert` when:
+- You don't need different logic for create vs update
+- Atomicity is important
+- You want simpler code
+
+Use separate queries when:
+- Create and update have very different logic
+- You need to know if record was created or updated
+- You need to check conditions before acting
+

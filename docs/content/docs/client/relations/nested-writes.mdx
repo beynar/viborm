@@ -1,0 +1,325 @@
+---
+title: Nested Writes
+description: Create and update related records in one operation
+icon: Layers
+---
+
+# Nested Writes
+
+Create, update, and manage related records within a single operation.
+
+## Create Operations
+
+### create
+
+Create nested records:
+
+```ts
+// Create user with profile
+const user = await client.user.create({
+  data: {
+    email: "alice@example.com",
+    profile: {
+      create: { bio: "Hello!" },
+    },
+  },
+  include: { profile: true },
+});
+
+// Create user with multiple posts
+const user = await client.user.create({
+  data: {
+    email: "bob@example.com",
+    posts: {
+      create: [
+        { title: "Post 1" },
+        { title: "Post 2" },
+      ],
+    },
+  },
+  include: { posts: true },
+});
+```
+
+### connect
+
+Connect to existing records:
+
+```ts
+// Connect existing category
+const post = await client.post.create({
+  data: {
+    title: "My Post",
+    category: {
+      connect: { id: "cat_123" },
+    },
+  },
+});
+
+// Connect multiple tags
+const post = await client.post.create({
+  data: {
+    title: "Tagged Post",
+    tags: {
+      connect: [
+        { id: "tag_1" },
+        { name: "featured" },
+      ],
+    },
+  },
+});
+```
+
+### connectOrCreate
+
+Connect if exists, create if not:
+
+```ts
+const post = await client.post.create({
+  data: {
+    title: "My Post",
+    category: {
+      connectOrCreate: {
+        where: { name: "Tech" },
+        create: { name: "Tech" },
+      },
+    },
+    tags: {
+      connectOrCreate: [
+        {
+          where: { name: "tutorial" },
+          create: { name: "tutorial" },
+        },
+        {
+          where: { name: "beginner" },
+          create: { name: "beginner" },
+        },
+      ],
+    },
+  },
+});
+```
+
+## Update Operations
+
+### update (nested)
+
+Update related records:
+
+```ts
+const user = await client.user.update({
+  where: { id: "user_123" },
+  data: {
+    profile: {
+      update: { bio: "Updated bio" },
+    },
+  },
+});
+
+// Update specific related record
+const user = await client.user.update({
+  where: { id: "user_123" },
+  data: {
+    posts: {
+      update: {
+        where: { id: "post_123" },
+        data: { published: true },
+      },
+    },
+  },
+});
+```
+
+### updateMany (nested)
+
+Update multiple related records:
+
+```ts
+const user = await client.user.update({
+  where: { id: "user_123" },
+  data: {
+    posts: {
+      updateMany: {
+        where: { published: false },
+        data: { archived: true },
+      },
+    },
+  },
+});
+```
+
+### upsert (nested)
+
+Create or update related record:
+
+```ts
+const user = await client.user.update({
+  where: { id: "user_123" },
+  data: {
+    profile: {
+      upsert: {
+        create: { bio: "New bio" },
+        update: { bio: "Updated bio" },
+      },
+    },
+  },
+});
+```
+
+## Connection Management
+
+### disconnect
+
+Disconnect related records (many-to-many):
+
+```ts
+// Disconnect specific tags
+const post = await client.post.update({
+  where: { id: "post_123" },
+  data: {
+    tags: {
+      disconnect: [{ id: "tag_1" }],
+    },
+  },
+});
+
+// Disconnect to-one (set FK to null)
+const post = await client.post.update({
+  where: { id: "post_123" },
+  data: {
+    category: { disconnect: true },
+  },
+});
+```
+
+### set
+
+Replace all connections:
+
+```ts
+// Replace all tags
+const post = await client.post.update({
+  where: { id: "post_123" },
+  data: {
+    tags: {
+      set: [{ id: "tag_2" }, { id: "tag_3" }],
+    },
+  },
+});
+
+// Clear all tags
+const post = await client.post.update({
+  where: { id: "post_123" },
+  data: {
+    tags: { set: [] },
+  },
+});
+```
+
+## Delete Operations
+
+### delete (nested)
+
+Delete related records:
+
+```ts
+const user = await client.user.update({
+  where: { id: "user_123" },
+  data: {
+    posts: {
+      delete: { id: "post_123" },
+    },
+  },
+});
+
+// Delete multiple
+const user = await client.user.update({
+  where: { id: "user_123" },
+  data: {
+    posts: {
+      delete: [{ id: "post_1" }, { id: "post_2" }],
+    },
+  },
+});
+```
+
+### deleteMany (nested)
+
+Delete by condition:
+
+```ts
+const user = await client.user.update({
+  where: { id: "user_123" },
+  data: {
+    posts: {
+      deleteMany: {
+        published: false,
+        createdAt: { lt: new Date("2023-01-01") },
+      },
+    },
+  },
+});
+```
+
+## Examples
+
+### Complete User Registration
+
+```ts
+async function registerUser(data: {
+  email: string;
+  name: string;
+  bio?: string;
+  defaultTags?: string[];
+}) {
+  return client.user.create({
+    data: {
+      email: data.email,
+      name: data.name,
+      profile: {
+        create: { bio: data.bio || "" },
+      },
+      settings: {
+        create: {
+          theme: "system",
+          notifications: true,
+        },
+      },
+      ...(data.defaultTags && {
+        followedTags: {
+          connectOrCreate: data.defaultTags.map(name => ({
+            where: { name },
+            create: { name },
+          })),
+        },
+      }),
+    },
+    include: {
+      profile: true,
+      settings: true,
+      followedTags: true,
+    },
+  });
+}
+```
+
+### Update Post with Tags
+
+```ts
+async function updatePostTags(postId: string, tagNames: string[]) {
+  return client.post.update({
+    where: { id: postId },
+    data: {
+      tags: {
+        set: [],  // Clear existing
+        connectOrCreate: tagNames.map(name => ({
+          where: { name },
+          create: { name },
+        })),
+      },
+    },
+    include: { tags: true },
+  });
+}
+```
+

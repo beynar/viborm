@@ -1,0 +1,198 @@
+---
+title: DateTime Filters
+description: Filter operators for datetime fields
+icon: Calendar
+---
+
+# DateTime Filters
+
+Filter operators available for datetime fields.
+
+## Operators
+
+| Operator | Description |
+|----------|-------------|
+| `equals` | Exact match |
+| `not` | Not equal |
+| `in` | Match any in array |
+| `notIn` | Match none in array |
+| `lt` | Before (exclusive) |
+| `lte` | Before or at (inclusive) |
+| `gt` | After (exclusive) |
+| `gte` | After or at (inclusive) |
+
+## Input Formats
+
+Accept `Date` objects or ISO strings:
+
+```ts
+// Date object
+where: { createdAt: { gte: new Date() } }
+
+// ISO string
+where: { createdAt: { gte: "2024-01-01T00:00:00.000Z" } }
+```
+
+## equals / not
+
+```ts
+// Exact match
+where: { startDate: new Date("2024-01-01") }
+
+// Not equal
+where: { expiresAt: { not: null } }
+```
+
+## Comparisons
+
+```ts
+// Before
+where: { createdAt: { lt: new Date() } }
+
+// Before or at
+where: { createdAt: { lte: new Date("2024-12-31") } }
+
+// After
+where: { updatedAt: { gt: new Date("2024-01-01") } }
+
+// After or at
+where: { publishedAt: { gte: new Date("2024-01-01") } }
+```
+
+## Date Ranges
+
+```ts
+// Between dates (inclusive)
+where: {
+  createdAt: {
+    gte: new Date("2024-01-01"),
+    lte: new Date("2024-12-31"),
+  },
+}
+
+// Last 7 days
+where: {
+  createdAt: {
+    gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+  },
+}
+
+// This year
+where: {
+  createdAt: {
+    gte: new Date(new Date().getFullYear(), 0, 1),
+    lt: new Date(new Date().getFullYear() + 1, 0, 1),
+  },
+}
+```
+
+## Examples
+
+### Recent Items
+
+```ts
+async function getRecentPosts(days = 7) {
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  
+  return client.post.findMany({
+    where: {
+      createdAt: { gte: since },
+      published: true,
+    },
+    orderBy: { createdAt: "desc" },
+  });
+}
+```
+
+### Upcoming Events
+
+```ts
+async function getUpcomingEvents() {
+  return client.event.findMany({
+    where: {
+      startDate: { gte: new Date() },
+    },
+    orderBy: { startDate: "asc" },
+  });
+}
+```
+
+### Expired Items
+
+```ts
+async function getExpiredSessions() {
+  return client.session.findMany({
+    where: {
+      expiresAt: { lt: new Date() },
+    },
+  });
+}
+```
+
+### Date Range Query
+
+```ts
+async function getOrdersInRange(start: Date, end: Date) {
+  return client.order.findMany({
+    where: {
+      createdAt: {
+        gte: start,
+        lte: end,
+      },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+}
+```
+
+### Monthly Report
+
+```ts
+async function getMonthlyUsers(year: number, month: number) {
+  const start = new Date(year, month - 1, 1);
+  const end = new Date(year, month, 0, 23, 59, 59, 999);
+  
+  return client.user.findMany({
+    where: {
+      createdAt: {
+        gte: start,
+        lte: end,
+      },
+    },
+  });
+}
+```
+
+### Last Login Filter
+
+```ts
+async function getInactiveUsers(days = 30) {
+  const threshold = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  
+  return client.user.findMany({
+    where: {
+      OR: [
+        { lastLoginAt: null },
+        { lastLoginAt: { lt: threshold } },
+      ],
+    },
+  });
+}
+```
+
+### Scheduled Content
+
+```ts
+async function getScheduledPosts() {
+  return client.post.findMany({
+    where: {
+      publishAt: {
+        gt: new Date(),
+      },
+      published: false,
+    },
+    orderBy: { publishAt: "asc" },
+  });
+}
+```
+

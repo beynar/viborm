@@ -1,0 +1,29 @@
+{
+  "title": "Documentation",
+  "pages": [
+    "index",
+    "---Getting Started---",
+    "getting-started/index",
+    "getting-started/quick-start",
+    "---Schema---",
+    "schema/index",
+    "schema/model",
+    "schema/fields",
+    "schema/relations",
+    "schema/native-types",
+    "schema/validation",
+    "---Client---",
+    "client/index",
+    "client/queries",
+    "client/mutations",
+    "client/filtering",
+    "client/relations",
+    "client/selecting",
+    "client/sorting",
+    "client/pagination",
+    "---Reference---",
+    "reference/index",
+    "reference/schema-api",
+    "reference/client-api"
+  ]
+}

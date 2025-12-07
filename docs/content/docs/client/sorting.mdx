@@ -1,0 +1,215 @@
+---
+title: Sorting
+description: Order query results
+icon: ArrowUpDown
+---
+
+# Sorting
+
+Order query results using `orderBy`.
+
+## Basic Sorting
+
+```ts
+// Ascending (default)
+const users = await client.user.findMany({
+  orderBy: { name: "asc" },
+});
+
+// Descending
+const users = await client.user.findMany({
+  orderBy: { createdAt: "desc" },
+});
+```
+
+## Multiple Fields
+
+Sort by multiple fields:
+
+```ts
+// Array syntax
+const users = await client.user.findMany({
+  orderBy: [
+    { lastName: "asc" },
+    { firstName: "asc" },
+  ],
+});
+
+// Sort by role then name
+const users = await client.user.findMany({
+  orderBy: [
+    { role: "asc" },
+    { name: "asc" },
+  ],
+});
+```
+
+## Null Handling
+
+Control where nulls appear:
+
+```ts
+// Nulls first
+const users = await client.user.findMany({
+  orderBy: {
+    lastLogin: { sort: "desc", nulls: "first" },
+  },
+});
+
+// Nulls last
+const users = await client.user.findMany({
+  orderBy: {
+    lastLogin: { sort: "desc", nulls: "last" },
+  },
+});
+```
+
+## Relation Sorting
+
+Sort by related fields:
+
+```ts
+// Sort posts by author name
+const posts = await client.post.findMany({
+  orderBy: {
+    author: { name: "asc" },
+  },
+});
+
+// Sort by nested relation
+const comments = await client.comment.findMany({
+  orderBy: {
+    post: {
+      author: { name: "asc" },
+    },
+  },
+});
+```
+
+## Aggregate Sorting
+
+Sort by relation count:
+
+```ts
+// Most posts first
+const users = await client.user.findMany({
+  orderBy: {
+    posts: { _count: "desc" },
+  },
+});
+
+// Most comments first
+const posts = await client.post.findMany({
+  orderBy: {
+    comments: { _count: "desc" },
+  },
+});
+```
+
+## Sorting Included Relations
+
+Sort included relations:
+
+```ts
+const users = await client.user.findMany({
+  include: {
+    posts: {
+      orderBy: { createdAt: "desc" },
+      take: 5,
+    },
+  },
+});
+```
+
+## Examples
+
+### User List
+
+```ts
+async function getUserList(sortBy: "name" | "createdAt" | "email", order: "asc" | "desc") {
+  return client.user.findMany({
+    orderBy: { [sortBy]: order },
+  });
+}
+```
+
+### Latest Posts
+
+```ts
+async function getLatestPosts(limit = 10) {
+  return client.post.findMany({
+    where: { published: true },
+    orderBy: { publishedAt: "desc" },
+    take: limit,
+  });
+}
+```
+
+### Popular Authors
+
+```ts
+async function getPopularAuthors() {
+  return client.user.findMany({
+    orderBy: {
+      posts: { _count: "desc" },
+    },
+    include: {
+      _count: { select: { posts: true } },
+    },
+    take: 10,
+  });
+}
+```
+
+### Alphabetical with Null Handling
+
+```ts
+async function getProductsSorted() {
+  return client.product.findMany({
+    orderBy: [
+      { category: { sort: "asc", nulls: "last" } },
+      { name: "asc" },
+    ],
+  });
+}
+```
+
+### Complex Sorting
+
+```ts
+async function getLeaderboard() {
+  return client.user.findMany({
+    orderBy: [
+      { points: "desc" },
+      { gamesWon: "desc" },
+      { createdAt: "asc" },  // Tiebreaker: oldest first
+    ],
+    take: 100,
+  });
+}
+```
+
+## Sort Direction
+
+| Value | Description |
+|-------|-------------|
+| `"asc"` | Ascending (A-Z, 0-9, oldest-newest) |
+| `"desc"` | Descending (Z-A, 9-0, newest-oldest) |
+
+## Database Collation
+
+String sorting depends on database collation:
+
+```ts
+// PostgreSQL: Case-sensitive by default
+// MySQL: Depends on collation setting
+// SQLite: Case-sensitive by default
+
+// Use case-insensitive collation in PostgreSQL
+const users = await client.user.findMany({
+  orderBy: {
+    name: "asc",  // Uses database collation
+  },
+});
+```
+

@@ -1,693 +1,449 @@
 import { Sql, sql } from "@sql";
-import { DatabaseAdapter, QueryClauses } from "../../database-adapter";
-import { BuilderContext } from "../../../query-parser/types";
-import { QueryMode } from "../../../types/query/filters-input";
+import { DatabaseAdapter, QueryParts } from "../../database-adapter";
 
 /**
  * MySQL Database Adapter
  *
- * Implements MySQL-specific SQL generation including:
- * - MySQL backtick identifier escaping
- * - MySQL syntax for queries and operations
- * - MySQL-specific functions and operators
- * - Proper handling of MySQL data types
+ * Implements the DatabaseAdapter interface for MySQL-specific SQL generation.
+ *
+ * Key MySQL features:
+ * - Backtick identifier escaping: `table`.`column`
+ * - No native ARRAY type - uses JSON for arrays
+ * - LIKE is case-insensitive by default (with collation)
+ * - JSON_OBJECT(), JSON_ARRAYAGG() for JSON operations
+ * - No RETURNING clause (use LAST_INSERT_ID())
+ * - No NULLS FIRST/LAST ordering
+ * - ON DUPLICATE KEY UPDATE for upserts
  */
 export class MySQLAdapter implements DatabaseAdapter {
-  // ================================
-  // UTILITY METHODS
-  // ================================
+  // ============================================================
+  // RAW
+  // ============================================================
 
-  /**
-   * Creates a column accessor for the current context
-   * Returns mysql-style backtick identifiers for safe SQL composition
-   */
-  private column(ctx: BuilderContext): Sql {
-    return this.identifiers.column(ctx.alias, ctx.fieldName!);
-  }
+  raw = (sqlString: string): Sql => sql.raw`${sqlString}`;
 
-  // ================================
-  // IDENTIFIER ESCAPING (MySQL-specific backticks)
-  // ================================
+  // ============================================================
+  // IDENTIFIERS
+  // ============================================================
 
   identifiers = {
-    escape: (identifier: string): Sql => sql.raw`\`${identifier}\``,
+    escape: (name: string): Sql => sql.raw`\`${name}\``,
+
     column: (alias: string, field: string): Sql =>
       sql.raw`\`${alias}\`.\`${field}\``,
+
     table: (tableName: string, alias: string): Sql =>
       sql.raw`\`${tableName}\` AS \`${alias}\``,
+
     aliased: (expression: Sql, alias: string): Sql =>
-      sql`${expression} AS \`${alias}\``,
+      sql`${expression} AS ${sql.raw`\`${alias}\``}`,
   };
 
-  // ================================
-  // OPERATIONS (MySQL-specific implementations)
-  // ================================
+  // ============================================================
+  // LITERALS
+  // ============================================================
 
-  operations = {
-    findMany: (ctx: BuilderContext, clauses: QueryClauses): Sql => {
-      const parts = [clauses.select, clauses.from];
+  literals = {
+    value: (v: unknown): Sql => sql`${v}`,
 
-      if (clauses.where) parts.push(clauses.where);
-      if (clauses.orderBy) parts.push(clauses.orderBy);
-      if (clauses.limit) parts.push(clauses.limit);
+    null: (): Sql => sql.raw`NULL`,
 
-      return sql.join(parts, " ");
-    },
+    true: (): Sql => sql.raw`TRUE`,
 
-    findFirst: (ctx: BuilderContext, clauses: QueryClauses): Sql => {
-      const parts = [clauses.select, clauses.from];
+    false: (): Sql => sql.raw`FALSE`,
 
-      if (clauses.where) parts.push(clauses.where);
-      if (clauses.orderBy) parts.push(clauses.orderBy);
-
-      // MySQL LIMIT 1
-      parts.push(sql`LIMIT 1`);
-
-      return sql.join(parts, " ");
-    },
-
-    findUnique: (ctx: BuilderContext, clauses: QueryClauses): Sql => {
-      const parts = [clauses.select, clauses.from];
-
-      if (clauses.where) parts.push(clauses.where);
-
-      // MySQL LIMIT 1
-      parts.push(sql`LIMIT 1`);
-
-      return sql.join(parts, " ");
-    },
-
-    findUniqueOrThrow: (ctx: BuilderContext, clauses: QueryClauses): Sql => {
-      return this.operations.findUnique(ctx, clauses);
-    },
-
-    findFirstOrThrow: (ctx: BuilderContext, clauses: QueryClauses): Sql => {
-      return this.operations.findFirst(ctx, clauses);
-    },
-
-    create: (ctx: BuilderContext, payload: any): Sql => {
-      const tableName = ctx.model["~"].tableName || ctx.model.name;
-      // MySQL doesn't have RETURNING, but we can simulate with SELECT
-      return sql`INSERT INTO ${this.identifiers.escape(
-        tableName
-      )} ${sql.spreadValues(payload.data)}`;
-    },
-
-    createMany: (ctx: BuilderContext, payload: any): Sql => {
-      const tableName = ctx.model["~"].tableName || ctx.model.name;
-      return sql`INSERT INTO ${this.identifiers.escape(
-        tableName
-      )} ${sql.spreadValues(payload.data)}`;
-    },
-
-    update: (ctx: BuilderContext, clauses: QueryClauses): Sql => {
-      const tableName = ctx.model["~"].tableName || ctx.model.name;
-      const data = (ctx as any).data || {};
-
-      const setClause = sql.join(
-        Object.entries(data).map(
-          ([field, value]) => sql`${this.identifiers.escape(field)} = ${value}`
-        ),
-        ", "
-      );
-
-      const parts = [
-        sql`UPDATE ${this.identifiers.escape(tableName)} SET ${setClause}`,
-      ];
-
-      if (clauses.where) parts.push(clauses.where);
-
-      return sql.join(parts, " ");
-    },
-
-    updateMany: (ctx: BuilderContext, clauses: QueryClauses): Sql => {
-      return this.operations.update(ctx, clauses);
-    },
-
-    delete: (ctx: BuilderContext, clauses: QueryClauses): Sql => {
-      const tableName = ctx.model["~"].tableName || ctx.model.name;
-
-      const parts = [sql`DELETE FROM ${this.identifiers.escape(tableName)}`];
-
-      if (clauses.where) parts.push(clauses.where);
-
-      return sql.join(parts, " ");
-    },
-
-    deleteMany: (ctx: BuilderContext, clauses: QueryClauses): Sql => {
-      return this.operations.delete(ctx, clauses);
-    },
-
-    upsert: (ctx: BuilderContext, payload: any): Sql => {
-      const tableName = ctx.model["~"].tableName || ctx.model.name;
-
-      // MySQL ON DUPLICATE KEY UPDATE
-      const updateClause = sql.join(
-        Object.entries(payload.update).map(
-          ([field, value]) => sql`${this.identifiers.escape(field)} = ${value}`
-        ),
-        ", "
-      );
-
-      return sql`INSERT INTO ${this.identifiers.escape(
-        tableName
-      )} ${sql.spreadValues(
-        payload.create
-      )} ON DUPLICATE KEY UPDATE ${updateClause}`;
-    },
-
-    count: (ctx: BuilderContext, clauses: QueryClauses): Sql => {
-      const parts = [clauses.select, clauses.from];
-
-      if (clauses.where) parts.push(clauses.where);
-
-      return sql.join(parts, " ");
-    },
-
-    aggregate: (ctx: BuilderContext, clauses: QueryClauses): Sql => {
-      const parts = [clauses.select, clauses.from];
-
-      if (clauses.where) parts.push(clauses.where);
-
-      return sql.join(parts, " ");
-    },
-
-    groupBy: (ctx: BuilderContext, clauses: QueryClauses): Sql => {
-      const parts = [clauses.select, clauses.from];
-
-      if (clauses.where) parts.push(clauses.where);
-
-      return sql.join(parts, " ");
-    },
-
-    exist: (ctx: BuilderContext, clauses: QueryClauses): Sql => {
-      // Build inner query: SELECT 1 FROM table WHERE conditions LIMIT 1
-      const innerParts = [sql`SELECT`, clauses.select, sql`FROM`, clauses.from];
-
-      if (clauses.where) innerParts.push(sql`WHERE`, clauses.where);
-      if (clauses.limit) innerParts.push(clauses.limit);
-
-      const innerQuery = sql.join(innerParts, " ");
-
-      // Wrap in EXISTS: SELECT EXISTS(inner_query)
-      return sql`SELECT EXISTS(${innerQuery})`;
+    list: (values: Sql[]): Sql => {
+      if (values.length === 0) return sql.raw`()`;
+      return sql`(${sql.join(values, ", ")})`;
     },
   };
 
-  // ================================
-  // UTILITIES (MySQL-specific)
-  // ================================
-
-  utils = {
-    coalesce: (ctx: BuilderContext, statement: Sql): Sql =>
-      sql`COALESCE(${statement}, '')`,
-    escape: (ctx: BuilderContext, statement: Sql): Sql => sql`${statement}`,
-    jsonObject: (ctx: BuilderContext, statement: Sql): Sql =>
-      sql`JSON_OBJECT(${statement})`,
-    wrap: (ctx: BuilderContext, statement: Sql): Sql =>
-      sql.wrap("(", statement, ")"),
-    jsonArray: (ctx: BuilderContext, statement: Sql): Sql =>
-      sql`JSON_ARRAY(${statement})`,
-    exists: (ctx: BuilderContext, statement: Sql): Sql =>
-      sql`EXISTS(${statement})`,
-    caseInsensitive: (ctx: BuilderContext, statement: Sql): Sql =>
-      sql`UPPER(${statement})`,
-  };
-
-  // ================================
+  // ============================================================
   // OPERATORS
-  // ================================
+  // ============================================================
 
   operators = {
-    // Comparison operators
-    eq: (ctx: BuilderContext, left: Sql, right: Sql): Sql =>
-      sql`${left} = ${right}`,
-    neq: (ctx: BuilderContext, left: Sql, right: Sql): Sql =>
-      sql`${left} != ${right}`,
-    lt: (ctx: BuilderContext, left: Sql, right: Sql): Sql =>
-      sql`${left} < ${right}`,
-    lte: (ctx: BuilderContext, left: Sql, right: Sql): Sql =>
-      sql`${left} <= ${right}`,
-    gt: (ctx: BuilderContext, left: Sql, right: Sql): Sql =>
-      sql`${left} > ${right}`,
-    gte: (ctx: BuilderContext, left: Sql, right: Sql): Sql =>
-      sql`${left} >= ${right}`,
+    // Comparison
+    eq: (left: Sql, right: Sql): Sql => sql`${left} = ${right}`,
+    neq: (left: Sql, right: Sql): Sql => sql`${left} <> ${right}`,
+    lt: (left: Sql, right: Sql): Sql => sql`${left} < ${right}`,
+    lte: (left: Sql, right: Sql): Sql => sql`${left} <= ${right}`,
+    gt: (left: Sql, right: Sql): Sql => sql`${left} > ${right}`,
+    gte: (left: Sql, right: Sql): Sql => sql`${left} >= ${right}`,
 
-    // Pattern matching operators
-    like: (ctx: BuilderContext, column: Sql, pattern: Sql): Sql =>
-      sql`${column} LIKE ${pattern}`,
-    ilike: (ctx: BuilderContext, column: Sql, pattern: Sql): Sql =>
-      sql`${column} LIKE ${pattern} COLLATE utf8mb4_unicode_ci`,
-    notLike: (ctx: BuilderContext, column: Sql, pattern: Sql): Sql =>
+    // Pattern matching
+    like: (column: Sql, pattern: Sql): Sql => sql`${column} LIKE ${pattern}`,
+    notLike: (column: Sql, pattern: Sql): Sql =>
       sql`${column} NOT LIKE ${pattern}`,
-    notIlike: (ctx: BuilderContext, column: Sql, pattern: Sql): Sql =>
+    // MySQL LIKE is case-insensitive by default with most collations
+    // Use BINARY for case-sensitive, or COLLATE for explicit control
+    ilike: (column: Sql, pattern: Sql): Sql =>
+      sql`${column} LIKE ${pattern} COLLATE utf8mb4_unicode_ci`,
+    notIlike: (column: Sql, pattern: Sql): Sql =>
       sql`${column} NOT LIKE ${pattern} COLLATE utf8mb4_unicode_ci`,
 
-    // Range operators
-    between: (ctx: BuilderContext, column: Sql, min: Sql, max: Sql): Sql =>
+    // Set membership
+    in: (column: Sql, values: Sql): Sql => sql`${column} IN ${values}`,
+    notIn: (column: Sql, values: Sql): Sql => sql`${column} NOT IN ${values}`,
+
+    // Null checks
+    isNull: (expr: Sql): Sql => sql`${expr} IS NULL`,
+    isNotNull: (expr: Sql): Sql => sql`${expr} IS NOT NULL`,
+
+    // Range
+    between: (column: Sql, min: Sql, max: Sql): Sql =>
       sql`${column} BETWEEN ${min} AND ${max}`,
-    notBetween: (ctx: BuilderContext, column: Sql, min: Sql, max: Sql): Sql =>
+    notBetween: (column: Sql, min: Sql, max: Sql): Sql =>
       sql`${column} NOT BETWEEN ${min} AND ${max}`,
 
-    // Regular expression operators (MySQL-specific)
-    regexp: (ctx: BuilderContext, column: Sql, pattern: Sql): Sql =>
-      sql`${column} REGEXP ${pattern}`,
-    notRegexp: (ctx: BuilderContext, column: Sql, pattern: Sql): Sql =>
-      sql`${column} NOT REGEXP ${pattern}`,
-
-    // Set membership operators
-    in: (ctx: BuilderContext, column: Sql, values: Sql): Sql =>
-      sql`${column} IN (${values})`,
-    notIn: (ctx: BuilderContext, column: Sql, values: Sql): Sql =>
-      sql`${column} NOT IN (${values})`,
-
-    // Logical operators
-    and: (ctx: BuilderContext, ...conditions: Sql[]): Sql => {
-      if (conditions.length === 0) return sql.empty;
+    // Logical
+    and: (...conditions: Sql[]): Sql => {
+      if (conditions.length === 0) return sql.raw`TRUE`;
       if (conditions.length === 1) return conditions[0]!;
       return sql`(${sql.join(conditions, " AND ")})`;
     },
-    or: (ctx: BuilderContext, ...conditions: Sql[]): Sql => {
-      if (conditions.length === 0) return sql.empty;
+
+    or: (...conditions: Sql[]): Sql => {
+      if (conditions.length === 0) return sql.raw`FALSE`;
       if (conditions.length === 1) return conditions[0]!;
       return sql`(${sql.join(conditions, " OR ")})`;
     },
-    not: (ctx: BuilderContext, condition: Sql): Sql => sql`NOT (${condition})`,
 
-    // Null operators
-    isNull: (ctx: BuilderContext, column: Sql): Sql => sql`${column} IS NULL`,
-    isNotNull: (ctx: BuilderContext, column: Sql): Sql =>
-      sql`${column} IS NOT NULL`,
+    not: (condition: Sql): Sql => sql`NOT (${condition})`,
 
-    // Existence operators for subqueries
-    exists: (ctx: BuilderContext, subquery: Sql): Sql =>
-      sql`EXISTS (${subquery})`,
-    notExists: (ctx: BuilderContext, subquery: Sql): Sql =>
-      sql`NOT EXISTS (${subquery})`,
+    // Subquery existence
+    exists: (subquery: Sql): Sql => sql`EXISTS (${subquery})`,
+    notExists: (subquery: Sql): Sql => sql`NOT EXISTS (${subquery})`,
   };
 
-  // ================================
-  // AGGREGATE FUNCTIONS
-  // ================================
+  // ============================================================
+  // EXPRESSIONS
+  // ============================================================
+
+  expressions = {
+    // Arithmetic
+    add: (left: Sql, right: Sql): Sql => sql`(${left} + ${right})`,
+    subtract: (left: Sql, right: Sql): Sql => sql`(${left} - ${right})`,
+    multiply: (left: Sql, right: Sql): Sql => sql`(${left} * ${right})`,
+    divide: (left: Sql, right: Sql): Sql => sql`(${left} / ${right})`,
+
+    // String operations - MySQL uses CONCAT() function
+    concat: (...parts: Sql[]): Sql => {
+      if (parts.length === 0) return sql.raw`''`;
+      if (parts.length === 1) return parts[0]!;
+      return sql`CONCAT(${sql.join(parts, ", ")})`;
+    },
+    upper: (expr: Sql): Sql => sql`UPPER(${expr})`,
+    lower: (expr: Sql): Sql => sql`LOWER(${expr})`,
+
+    // Utility
+    coalesce: (...exprs: Sql[]): Sql => sql`COALESCE(${sql.join(exprs, ", ")})`,
+    greatest: (...exprs: Sql[]): Sql => sql`GREATEST(${sql.join(exprs, ", ")})`,
+    least: (...exprs: Sql[]): Sql => sql`LEAST(${sql.join(exprs, ", ")})`,
+    cast: (expr: Sql, type: string): Sql =>
+      sql`CAST(${expr} AS ${sql.raw`${type}`})`,
+  };
+
+  // ============================================================
+  // AGGREGATES
+  // ============================================================
 
   aggregates = {
-    count: (ctx: BuilderContext, expression?: Sql): Sql =>
-      expression ? sql`COUNT(${expression})` : sql`COUNT(*)`,
-    sum: (ctx: BuilderContext, expression: Sql): Sql => sql`SUM(${expression})`,
-    avg: (ctx: BuilderContext, expression: Sql): Sql => sql`AVG(${expression})`,
-    min: (ctx: BuilderContext, expression: Sql): Sql => sql`MIN(${expression})`,
-    max: (ctx: BuilderContext, expression: Sql): Sql => sql`MAX(${expression})`,
+    count: (expr?: Sql): Sql =>
+      expr ? sql`COUNT(${expr})` : sql.raw`COUNT(*)`,
+    countDistinct: (expr: Sql): Sql => sql`COUNT(DISTINCT ${expr})`,
+    sum: (expr: Sql): Sql => sql`SUM(${expr})`,
+    avg: (expr: Sql): Sql => sql`AVG(${expr})`,
+    min: (expr: Sql): Sql => sql`MIN(${expr})`,
+    max: (expr: Sql): Sql => sql`MAX(${expr})`,
   };
 
-  // ================================
-  // UPDATE OPERATIONS (MySQL-specific)
-  // ================================
+  // ============================================================
+  // JSON
+  // ============================================================
 
-  updates = {
-    string: {
-      set: (ctx: BuilderContext, value: string, mode?: QueryMode): Sql =>
-        sql`${value}`,
+  json = {
+    object: (pairs: [string, Sql][]): Sql => {
+      if (pairs.length === 0) return sql.raw`JSON_OBJECT()`;
+      const args = pairs.flatMap(([key, value]) => [sql`${key}`, value]);
+      return sql`JSON_OBJECT(${sql.join(args, ", ")})`;
     },
 
-    number: {
-      set: (ctx: BuilderContext, value: number): Sql => sql`${value}`,
-      increment: (ctx: BuilderContext, value: number): Sql =>
-        sql`${this.column(ctx)} + ${value}`,
-      decrement: (ctx: BuilderContext, value: number): Sql =>
-        sql`${this.column(ctx)} - ${value}`,
-      multiply: (ctx: BuilderContext, value: number): Sql =>
-        sql`${this.column(ctx)} * ${value}`,
-      divide: (ctx: BuilderContext, value: number): Sql =>
-        sql`${this.column(ctx)} / ${value}`,
+    array: (items: Sql[]): Sql => {
+      if (items.length === 0) return sql.raw`JSON_ARRAY()`;
+      return sql`JSON_ARRAY(${sql.join(items, ", ")})`;
     },
 
-    decimal: {
-      set: (ctx: BuilderContext, value: number): Sql => sql`${value}`,
-      increment: (ctx: BuilderContext, value: number): Sql =>
-        sql`${this.column(ctx)} + ${value}`,
-      decrement: (ctx: BuilderContext, value: number): Sql =>
-        sql`${this.column(ctx)} - ${value}`,
-      multiply: (ctx: BuilderContext, value: number): Sql =>
-        sql`${this.column(ctx)} * ${value}`,
-      divide: (ctx: BuilderContext, value: number): Sql =>
-        sql`${this.column(ctx)} / ${value}`,
+    agg: (expr: Sql): Sql =>
+      sql`COALESCE(JSON_ARRAYAGG(${expr}), JSON_ARRAY())`,
+
+    rowToJson: (alias: string): Sql => {
+      // MySQL 8.0+ doesn't have row_to_json, we need to explicitly build object
+      // This is a simplified version - real implementation would need column list
+      return sql`JSON_OBJECT(${sql.raw`'*', \`${alias}\`.*`})`;
     },
 
-    boolean: {
-      set: (ctx: BuilderContext, value: boolean): Sql => sql`${value}`,
+    objectFromColumns: (columns: [string, Sql][]): Sql => {
+      if (columns.length === 0) return sql.raw`JSON_OBJECT()`;
+      const args = columns.flatMap(([key, value]) => [sql`${key}`, value]);
+      return sql`JSON_OBJECT(${sql.join(args, ", ")})`;
     },
 
-    dateTime: {
-      set: (ctx: BuilderContext, value: Date): Sql => sql`${value}`,
+    extract: (column: Sql, path: string[]): Sql => {
+      if (path.length === 0) return column;
+      const jsonPath = "$." + path.join(".");
+      return sql`JSON_EXTRACT(${column}, ${jsonPath})`;
     },
 
-    json: {
-      set: (ctx: BuilderContext, value: any): Sql =>
-        sql`${JSON.stringify(value)}`,
-    },
-
-    enum: {
-      set: (ctx: BuilderContext, value: string | number | null): Sql =>
-        sql`${value}`,
-    },
-
-    list: {
-      equals: (ctx: BuilderContext, value: any): Sql => sql`${value}`,
-      has: (ctx: BuilderContext, value: any): Sql =>
-        sql`JSON_CONTAINS(${this.column(ctx)}, ${JSON.stringify(value)})`,
-      hasEvery: (ctx: BuilderContext, value: any): Sql =>
-        sql`JSON_CONTAINS(${this.column(ctx)}, ${JSON.stringify(value)})`,
-      hasSome: (ctx: BuilderContext, value: any): Sql =>
-        sql`JSON_OVERLAPS(${this.column(ctx)}, ${JSON.stringify(value)})`,
-      isEmpty: (ctx: BuilderContext, value: any): Sql =>
-        value
-          ? sql`JSON_LENGTH(${this.column(ctx)}) = 0`
-          : sql`JSON_LENGTH(${this.column(ctx)}) > 0`,
+    extractText: (column: Sql, path: string[]): Sql => {
+      if (path.length === 0) return column;
+      const jsonPath = "$." + path.join(".");
+      return sql`JSON_UNQUOTE(JSON_EXTRACT(${column}, ${jsonPath}))`;
     },
   };
 
-  // ================================
-  // FILTER OPERATIONS (MySQL-specific)
-  // ================================
+  // ============================================================
+  // ARRAYS (JSON-based for MySQL)
+  // ============================================================
+
+  arrays = {
+    // MySQL uses JSON arrays
+    literal: (items: Sql[]): Sql => {
+      if (items.length === 0) return sql.raw`JSON_ARRAY()`;
+      return sql`JSON_ARRAY(${sql.join(items, ", ")})`;
+    },
+
+    // Note: For proper type handling, the query engine should wrap string values
+    // with CAST(value AS JSON) or use JSON_QUOTE for strings
+    has: (column: Sql, value: Sql): Sql =>
+      sql`JSON_CONTAINS(${column}, ${value})`,
+
+    hasEvery: (column: Sql, values: Sql): Sql =>
+      sql`JSON_CONTAINS(${column}, ${values})`,
+
+    hasSome: (column: Sql, values: Sql): Sql =>
+      sql`JSON_OVERLAPS(${column}, ${values})`,
+
+    isEmpty: (column: Sql): Sql =>
+      sql`(JSON_LENGTH(${column}) = 0 OR ${column} IS NULL)`,
+
+    length: (column: Sql): Sql => sql`JSON_LENGTH(${column})`,
+
+    get: (column: Sql, index: Sql): Sql =>
+      sql`JSON_EXTRACT(${column}, CONCAT('$[', ${index}, ']'))`,
+
+    push: (column: Sql, value: Sql): Sql =>
+      sql`JSON_ARRAY_APPEND(${column}, '$', ${value})`,
+
+    set: (column: Sql, index: Sql, value: Sql): Sql =>
+      sql`JSON_SET(${column}, CONCAT('$[', ${index}, ']'), ${value})`,
+  };
+
+  // ============================================================
+  // ORDER BY
+  // ============================================================
+
+  orderBy = {
+    asc: (column: Sql): Sql => sql`${column} ASC`,
+    desc: (column: Sql): Sql => sql`${column} DESC`,
+    // MySQL doesn't support NULLS FIRST/LAST natively
+    // Workaround: ORDER BY ISNULL(col), col
+    nullsFirst: (expr: Sql): Sql => expr, // No-op, would need complex workaround
+    nullsLast: (expr: Sql): Sql => expr, // No-op, would need complex workaround
+  };
+
+  // ============================================================
+  // CLAUSES
+  // ============================================================
+
+  clauses = {
+    select: (columns: Sql): Sql => sql`SELECT ${columns}`,
+    selectDistinct: (columns: Sql): Sql => sql`SELECT DISTINCT ${columns}`,
+    from: (table: Sql): Sql => sql`FROM ${table}`,
+    where: (condition: Sql): Sql => sql`WHERE ${condition}`,
+    orderBy: (orders: Sql): Sql => sql`ORDER BY ${orders}`,
+    limit: (count: Sql): Sql => sql`LIMIT ${count}`,
+    offset: (count: Sql): Sql => sql`OFFSET ${count}`,
+    groupBy: (columns: Sql): Sql => sql`GROUP BY ${columns}`,
+    having: (condition: Sql): Sql => sql`HAVING ${condition}`,
+  };
+
+  // ============================================================
+  // SET (UPDATE operations)
+  // ============================================================
+
+  set = {
+    assign: (column: Sql, value: Sql): Sql => sql`${column} = ${value}`,
+
+    increment: (column: Sql, by: Sql): Sql =>
+      sql`${column} = ${column} + ${by}`,
+
+    decrement: (column: Sql, by: Sql): Sql =>
+      sql`${column} = ${column} - ${by}`,
+
+    multiply: (column: Sql, by: Sql): Sql => sql`${column} = ${column} * ${by}`,
+
+    divide: (column: Sql, by: Sql): Sql => sql`${column} = ${column} / ${by}`,
+
+    push: (column: Sql, value: Sql): Sql =>
+      sql`${column} = JSON_ARRAY_APPEND(${column}, '$', ${value})`,
+  };
+
+  // ============================================================
+  // FILTERS (Relation subquery wrappers)
+  // ============================================================
 
   filters = {
-    string: {
-      equals: (ctx: BuilderContext, value: any, mode?: QueryMode): Sql =>
-        this.operators.eq(ctx, this.column(ctx), sql`${value}`),
-      not: (ctx: BuilderContext, value: any, mode?: QueryMode): Sql =>
-        this.operators.neq(ctx, this.column(ctx), sql`${value}`),
-      in: (ctx: BuilderContext, value: any, mode?: QueryMode): Sql => {
-        const values = sql.join(
-          value.map((v: any) => sql`${v}`),
-          ", "
-        );
-        return this.operators.in(ctx, this.column(ctx), values);
-      },
-      notIn: (ctx: BuilderContext, value: any, mode?: QueryMode): Sql => {
-        const values = sql.join(
-          value.map((v: any) => sql`${v}`),
-          ", "
-        );
-        return this.operators.notIn(ctx, this.column(ctx), values);
-      },
-      lt: (ctx: BuilderContext, value: any, mode?: QueryMode): Sql =>
-        this.operators.lt(ctx, this.column(ctx), sql`${value}`),
-      lte: (ctx: BuilderContext, value: any, mode?: QueryMode): Sql =>
-        this.operators.lte(ctx, this.column(ctx), sql`${value}`),
-      gt: (ctx: BuilderContext, value: any, mode?: QueryMode): Sql =>
-        this.operators.gt(ctx, this.column(ctx), sql`${value}`),
-      gte: (ctx: BuilderContext, value: any, mode?: QueryMode): Sql =>
-        this.operators.gte(ctx, this.column(ctx), sql`${value}`),
-      contains: (ctx: BuilderContext, value: any, mode?: QueryMode): Sql => {
-        const column = this.column(ctx);
-        const pattern = sql`${`%${value}%`}`;
-        if (mode === "insensitive") {
-          return this.operators.ilike(ctx, column, pattern);
-        }
-        return this.operators.like(ctx, column, pattern);
-      },
-      startsWith: (ctx: BuilderContext, value: any, mode?: QueryMode): Sql => {
-        const column = this.column(ctx);
-        const pattern = sql`${`${value}%`}`;
-        if (mode === "insensitive") {
-          return this.operators.ilike(ctx, column, pattern);
-        }
-        return this.operators.like(ctx, column, pattern);
-      },
-      endsWith: (ctx: BuilderContext, value: any, mode?: QueryMode): Sql => {
-        const column = this.column(ctx);
-        const pattern = sql`${`%${value}`}`;
-        if (mode === "insensitive") {
-          return this.operators.ilike(ctx, column, pattern);
-        }
-        return this.operators.like(ctx, column, pattern);
-      },
-      mode: (ctx: BuilderContext, value: any, mode?: QueryMode): Sql =>
-        sql.empty,
-      isEmpty: (ctx: BuilderContext, value: any, mode?: QueryMode): Sql =>
-        value
-          ? this.operators.eq(ctx, this.column(ctx), sql`''`)
-          : this.operators.neq(ctx, this.column(ctx), sql`''`),
-      search: (ctx: BuilderContext, value: any, mode?: QueryMode): Sql =>
-        sql`MATCH(${this.column(ctx)}) AGAINST(${value} IN BOOLEAN MODE)`,
-    },
+    some: (subquery: Sql): Sql => sql`EXISTS (${subquery})`,
+    every: (subquery: Sql): Sql => sql`NOT EXISTS (${subquery})`,
+    none: (subquery: Sql): Sql => sql`NOT EXISTS (${subquery})`,
+    is: (subquery: Sql): Sql => sql`EXISTS (${subquery})`,
+    isNot: (subquery: Sql): Sql => sql`NOT EXISTS (${subquery})`,
+  };
 
-    number: {
-      equals: (ctx: BuilderContext, value: any): Sql =>
-        this.operators.eq(ctx, this.column(ctx), sql`${value}`),
-      not: (ctx: BuilderContext, value: any): Sql =>
-        this.operators.neq(ctx, this.column(ctx), sql`${value}`),
-      in: (ctx: BuilderContext, value: any): Sql => {
-        const values = sql.join(
-          value.map((v: any) => sql`${v}`),
-          ", "
-        );
-        return this.operators.in(ctx, this.column(ctx), values);
-      },
-      notIn: (ctx: BuilderContext, value: any): Sql => {
-        const values = sql.join(
-          value.map((v: any) => sql`${v}`),
-          ", "
-        );
-        return this.operators.notIn(ctx, this.column(ctx), values);
-      },
-      lt: (ctx: BuilderContext, value: any): Sql =>
-        this.operators.lt(ctx, this.column(ctx), sql`${value}`),
-      lte: (ctx: BuilderContext, value: any): Sql =>
-        this.operators.lte(ctx, this.column(ctx), sql`${value}`),
-      gt: (ctx: BuilderContext, value: any): Sql =>
-        this.operators.gt(ctx, this.column(ctx), sql`${value}`),
-      gte: (ctx: BuilderContext, value: any): Sql =>
-        this.operators.gte(ctx, this.column(ctx), sql`${value}`),
-    },
-
-    bigint: {
-      equals: (ctx: BuilderContext, value: any): Sql =>
-        this.operators.eq(ctx, this.column(ctx), sql`${value}`),
-      not: (ctx: BuilderContext, value: any): Sql =>
-        this.operators.neq(ctx, this.column(ctx), sql`${value}`),
-      in: (ctx: BuilderContext, value: any): Sql => {
-        const values = sql.join(
-          value.map((v: any) => sql`${v}`),
-          ", "
-        );
-        return this.operators.in(ctx, this.column(ctx), values);
-      },
-      notIn: (ctx: BuilderContext, value: any): Sql => {
-        const values = sql.join(
-          value.map((v: any) => sql`${v}`),
-          ", "
-        );
-        return this.operators.notIn(ctx, this.column(ctx), values);
-      },
-      lt: (ctx: BuilderContext, value: any): Sql =>
-        this.operators.lt(ctx, this.column(ctx), sql`${value}`),
-      lte: (ctx: BuilderContext, value: any): Sql =>
-        this.operators.lte(ctx, this.column(ctx), sql`${value}`),
-      gt: (ctx: BuilderContext, value: any): Sql =>
-        this.operators.gt(ctx, this.column(ctx), sql`${value}`),
-      gte: (ctx: BuilderContext, value: any): Sql =>
-        this.operators.gte(ctx, this.column(ctx), sql`${value}`),
-    },
-
-    boolean: {
-      equals: (ctx: BuilderContext, value: any): Sql =>
-        this.operators.eq(ctx, this.column(ctx), sql`${value}`),
-      not: (ctx: BuilderContext, value: any): Sql =>
-        this.operators.neq(ctx, this.column(ctx), sql`${value}`),
-      in: (ctx: BuilderContext, value: any): Sql => {
-        const values = sql.join(
-          value.map((v: any) => sql`${v}`),
-          ", "
-        );
-        return this.operators.in(ctx, this.column(ctx), values);
-      },
-      notIn: (ctx: BuilderContext, value: any): Sql => {
-        const values = sql.join(
-          value.map((v: any) => sql`${v}`),
-          ", "
-        );
-        return this.operators.notIn(ctx, this.column(ctx), values);
-      },
-    },
-
-    dateTime: {
-      equals: (ctx: BuilderContext, value: any): Sql =>
-        this.operators.eq(ctx, this.column(ctx), sql`${value}`),
-      not: (ctx: BuilderContext, value: any): Sql =>
-        this.operators.neq(ctx, this.column(ctx), sql`${value}`),
-      in: (ctx: BuilderContext, value: any): Sql => {
-        const values = sql.join(
-          value.map((v: any) => sql`${v}`),
-          ", "
-        );
-        return this.operators.in(ctx, this.column(ctx), values);
-      },
-      notIn: (ctx: BuilderContext, value: any): Sql => {
-        const values = sql.join(
-          value.map((v: any) => sql`${v}`),
-          ", "
-        );
-        return this.operators.notIn(ctx, this.column(ctx), values);
-      },
-      lt: (ctx: BuilderContext, value: any): Sql =>
-        this.operators.lt(ctx, this.column(ctx), sql`${value}`),
-      lte: (ctx: BuilderContext, value: any): Sql =>
-        this.operators.lte(ctx, this.column(ctx), sql`${value}`),
-      gt: (ctx: BuilderContext, value: any): Sql =>
-        this.operators.gt(ctx, this.column(ctx), sql`${value}`),
-      gte: (ctx: BuilderContext, value: any): Sql =>
-        this.operators.gte(ctx, this.column(ctx), sql`${value}`),
-    },
-
-    json: {
-      equals: (ctx: BuilderContext, value: any): Sql =>
-        this.operators.eq(ctx, this.column(ctx), sql`${JSON.stringify(value)}`),
-      not: (ctx: BuilderContext, value: any): Sql =>
-        this.operators.neq(
-          ctx,
-          this.column(ctx),
-          sql`${JSON.stringify(value)}`
-        ),
-      path: (ctx: BuilderContext, path: any): Sql =>
-        sql`JSON_EXTRACT(${this.column(ctx)}, ${`$.${path.join(".")}`})`,
-      string_contains: (ctx: BuilderContext, value: any): Sql => {
-        const column = sql`JSON_UNQUOTE(${this.column(ctx)})`;
-        const pattern = sql`${`%${value}%`}`;
-        return this.operators.like(ctx, column, pattern);
-      },
-      string_starts_with: (ctx: BuilderContext, value: any): Sql => {
-        const column = sql`JSON_UNQUOTE(${this.column(ctx)})`;
-        const pattern = sql`${`${value}%`}`;
-        return this.operators.like(ctx, column, pattern);
-      },
-      string_ends_with: (ctx: BuilderContext, value: any): Sql => {
-        const column = sql`JSON_UNQUOTE(${this.column(ctx)})`;
-        const pattern = sql`${`%${value}`}`;
-        return this.operators.like(ctx, column, pattern);
-      },
-      array_contains: (ctx: BuilderContext, value: any): Sql =>
-        sql`JSON_CONTAINS(${this.column(ctx)}, ${JSON.stringify(value)})`,
-      array_starts_with: (ctx: BuilderContext, value: any): Sql =>
-        sql`JSON_CONTAINS(${this.column(ctx)}, ${JSON.stringify(value)})`,
-      array_ends_with: (ctx: BuilderContext, value: any): Sql =>
-        sql`JSON_CONTAINS(${this.column(ctx)}, ${JSON.stringify(value)})`,
-    },
-
-    enum: {
-      equals: (ctx: BuilderContext, value: any): Sql =>
-        this.operators.eq(ctx, this.column(ctx), sql`${value}`),
-      not: (ctx: BuilderContext, value: any): Sql =>
-        this.operators.neq(ctx, this.column(ctx), sql`${value}`),
-      in: (ctx: BuilderContext, value: any): Sql => {
-        const values = sql.join(
-          value.map((v: any) => sql`${v}`),
-          ", "
-        );
-        return this.operators.in(ctx, this.column(ctx), values);
-      },
-      notIn: (ctx: BuilderContext, value: any): Sql => {
-        const values = sql.join(
-          value.map((v: any) => sql`${v}`),
-          ", "
-        );
-        return this.operators.notIn(ctx, this.column(ctx), values);
-      },
-    },
-
-    list: {
-      equals: (ctx: BuilderContext, value: any): Sql =>
-        this.operators.eq(ctx, this.column(ctx), sql`${JSON.stringify(value)}`),
-      has: (ctx: BuilderContext, value: any): Sql =>
-        sql`JSON_CONTAINS(${this.column(ctx)}, ${JSON.stringify(value)})`,
-      hasEvery: (ctx: BuilderContext, value: any): Sql =>
-        sql`JSON_CONTAINS(${this.column(ctx)}, ${JSON.stringify(value)})`,
-      hasSome: (ctx: BuilderContext, value: any): Sql =>
-        sql`JSON_OVERLAPS(${this.column(ctx)}, ${JSON.stringify(value)})`,
-      isEmpty: (ctx: BuilderContext, value: any): Sql =>
-        value
-          ? this.operators.eq(
-              ctx,
-              sql`JSON_LENGTH(${this.column(ctx)})`,
-              sql`0`
-            )
-          : this.operators.gt(
-              ctx,
-              sql`JSON_LENGTH(${this.column(ctx)})`,
-              sql`0`
-            ),
-    },
-
-    relations: {
-      direct: (ctx: BuilderContext, statement: Sql): Sql => statement,
-      some: (ctx: BuilderContext, statement: Sql): Sql =>
-        this.operators.exists(ctx, statement),
-      every: (ctx: BuilderContext, statement: Sql): Sql =>
-        this.operators.notExists(ctx, statement),
-      none: (ctx: BuilderContext, statement: Sql): Sql =>
-        this.operators.notExists(ctx, statement),
-      exists: (ctx: BuilderContext, statement: Sql): Sql =>
-        this.operators.exists(ctx, statement),
-      notExists: (ctx: BuilderContext, statement: Sql): Sql =>
-        this.operators.notExists(ctx, statement),
-    },
-  } as unknown as DatabaseAdapter["filters"];
-
-  // ================================
-  // SUBQUERIES (MySQL-specific)
-  // ================================
+  // ============================================================
+  // SUBQUERIES
+  // ============================================================
 
   subqueries = {
-    correlation: (ctx: BuilderContext, statement: Sql): Sql => {
-      return sql`(${statement})`;
+    scalar: (query: Sql): Sql => sql`(${query})`,
+
+    correlate: (query: Sql, alias: string): Sql =>
+      sql`(${query}) AS ${sql.raw`\`${alias}\``}`,
+
+    existsCheck: (from: Sql, where: Sql): Sql =>
+      sql`SELECT 1 FROM ${from} WHERE ${where}`,
+  };
+
+  // ============================================================
+  // ASSEMBLE (Build complete SQL statements)
+  // ============================================================
+
+  assemble = {
+    select: (parts: QueryParts): Sql => {
+      const fragments: Sql[] = [
+        sql`SELECT ${parts.columns}`,
+        sql`FROM ${parts.from}`,
+      ];
+
+      if (parts.joins && parts.joins.length > 0) {
+        fragments.push(...parts.joins);
+      }
+
+      if (parts.where) {
+        fragments.push(sql`WHERE ${parts.where}`);
+      }
+
+      if (parts.groupBy) {
+        fragments.push(sql`GROUP BY ${parts.groupBy}`);
+      }
+
+      if (parts.having) {
+        fragments.push(sql`HAVING ${parts.having}`);
+      }
+
+      if (parts.orderBy) {
+        fragments.push(sql`ORDER BY ${parts.orderBy}`);
+      }
+
+      if (parts.limit) {
+        fragments.push(sql`LIMIT ${parts.limit}`);
+      }
+
+      if (parts.offset) {
+        fragments.push(sql`OFFSET ${parts.offset}`);
+      }
+
+      return sql.join(fragments, " ");
+    },
+  };
+
+  // ============================================================
+  // CTE (Common Table Expressions - MySQL 8.0+)
+  // ============================================================
+
+  cte = {
+    with: (definitions: { name: string; query: Sql }[]): Sql => {
+      const defs = definitions.map(
+        ({ name, query }) => sql`${sql.raw`\`${name}\``} AS (${query})`
+      );
+      return sql`WITH ${sql.join(defs, ", ")}`;
     },
 
-    aggregate: (ctx: BuilderContext, statement: Sql): Sql => {
-      // MySQL JSON aggregation
-      return sql`(
-        SELECT COALESCE(JSON_ARRAYAGG(JSON_OBJECT(${sql.raw`*`})), JSON_ARRAY())
-        FROM (${statement}) ${ctx.alias}
+    recursive: (
+      name: string,
+      anchor: Sql,
+      recursive: Sql,
+      union: "all" | "distinct" = "all"
+    ): Sql => {
+      const unionKeyword =
+        union === "all" ? sql.raw`UNION ALL` : sql.raw`UNION`;
+      return sql`WITH RECURSIVE ${sql.raw`\`${name}\``} AS (
+        ${anchor}
+        ${unionKeyword}
+        ${recursive}
       )`;
     },
   };
 
-  // ================================
-  // BUILDERS (MySQL-specific)
-  // ================================
+  // ============================================================
+  // MUTATIONS
+  // ============================================================
 
-  builders = {
-    select: (ctx: BuilderContext, statement: Sql): Sql =>
-      sql`SELECT ${statement}`,
-    from: (ctx: BuilderContext, statement: Sql): Sql => sql`FROM ${statement}`,
-    where: (ctx: BuilderContext, statement: Sql): Sql =>
-      sql`WHERE ${statement}`,
-    orderBy: (ctx: BuilderContext, statement: Sql): Sql =>
-      sql`ORDER BY ${statement}`,
-    limit: (ctx: BuilderContext, statement: Sql): Sql =>
-      sql`LIMIT ${statement}`,
-    take: (ctx: BuilderContext, statement: Sql): Sql => sql`LIMIT ${statement}`,
-    skip: (ctx: BuilderContext, statement: Sql): Sql =>
-      sql`OFFSET ${statement}`,
-    groupBy: (ctx: BuilderContext, statement: Sql): Sql =>
-      sql`GROUP BY ${statement}`,
-    having: (ctx: BuilderContext, statement: Sql): Sql =>
-      sql`HAVING ${statement}`,
-    count: (ctx: BuilderContext, statement: Sql): Sql =>
-      sql`COUNT(${statement})`,
-    aggregate: (ctx: BuilderContext, statement: Sql): Sql => statement,
+  mutations = {
+    insert: (table: Sql, columns: string[], values: Sql[][]): Sql => {
+      const cols = columns.map((c) => sql.raw`\`${c}\``);
+      const rows = values.map((row) => sql`(${sql.join(row, ", ")})`);
+      return sql`INSERT INTO ${table} (${sql.join(
+        cols,
+        ", "
+      )}) VALUES ${sql.join(rows, ", ")}`;
+    },
+
+    update: (table: Sql, sets: Sql, where?: Sql): Sql => {
+      if (where) {
+        return sql`UPDATE ${table} SET ${sets} WHERE ${where}`;
+      }
+      return sql`UPDATE ${table} SET ${sets}`;
+    },
+
+    delete: (table: Sql, where?: Sql): Sql => {
+      if (where) {
+        return sql`DELETE FROM ${table} WHERE ${where}`;
+      }
+      return sql`DELETE FROM ${table}`;
+    },
+
+    // MySQL doesn't support RETURNING - returns empty
+    // Use LAST_INSERT_ID() or SELECT after mutation
+    returning: (_columns: Sql): Sql => sql.empty,
+
+    // MySQL uses ON DUPLICATE KEY UPDATE syntax
+    onConflict: (_target: Sql | null, action: Sql): Sql => {
+      return sql`ON DUPLICATE KEY UPDATE ${action}`;
+    },
   };
 
-  // ================================
-  // CTE BUILDERS
-  // ================================
+  // ============================================================
+  // JOINS
+  // ============================================================
 
-  cte = {
-    build: (ctes: Array<{ alias: string; query: Sql }>): Sql => {
-      const cteDefinitions = ctes.map(
-        ({ alias, query }) => sql`${sql.raw`${alias}`} AS (${query})`
-      );
-      return sql`WITH ${sql.join(cteDefinitions, ", ")}`;
-    },
+  joins = {
+    inner: (table: Sql, condition: Sql): Sql =>
+      sql`INNER JOIN ${table} ON ${condition}`,
+
+    left: (table: Sql, condition: Sql): Sql =>
+      sql`LEFT JOIN ${table} ON ${condition}`,
+
+    right: (table: Sql, condition: Sql): Sql =>
+      sql`RIGHT JOIN ${table} ON ${condition}`,
+
+    // MySQL doesn't support FULL OUTER JOIN directly
+    // Would need UNION of LEFT and RIGHT joins
+    full: (table: Sql, condition: Sql): Sql =>
+      sql`LEFT JOIN ${table} ON ${condition}`,
+
+    cross: (table: Sql): Sql => sql`CROSS JOIN ${table}`,
   };
 }
 

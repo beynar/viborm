@@ -1,0 +1,176 @@
+---
+title: Enum Field
+description: Enum field type for constrained string values
+icon: List
+---
+
+# Enum Field
+
+The Enum field type restricts values to a predefined set of options.
+
+## Basic Usage
+
+```ts
+import { s } from "viborm";
+
+s.enum(["PENDING", "ACTIVE", "SUSPENDED"])     // Required enum
+s.enum(["PENDING", "ACTIVE"]).nullable()       // Enum | null
+```
+
+## Chainable Methods
+
+```ts
+s.enum(["USER", "ADMIN", "MODERATOR"])
+  .nullable()           // Allow NULL
+  .default("USER")      // Default value (must be in enum)
+  .map("column_name")   // Custom column name
+```
+
+## Type Inference
+
+The TypeScript type is automatically inferred as a union:
+
+```ts
+const role = s.enum(["USER", "ADMIN", "MODERATOR"]);
+// TypeScript type: "USER" | "ADMIN" | "MODERATOR"
+
+const status = s.enum(["draft", "published", "archived"]).nullable();
+// TypeScript type: "draft" | "published" | "archived" | null
+```
+
+## Database Behavior
+
+<Tabs items={["PostgreSQL", "MySQL", "SQLite"]}>
+  <Tab value="PostgreSQL">
+PostgreSQL creates a native `ENUM` type:
+
+```sql
+CREATE TYPE "Role" AS ENUM ('USER', 'ADMIN', 'MODERATOR');
+CREATE TABLE users (
+  role "Role" NOT NULL
+);
+```
+  </Tab>
+  <Tab value="MySQL">
+MySQL uses inline `ENUM`:
+
+```sql
+CREATE TABLE users (
+  role ENUM('USER', 'ADMIN', 'MODERATOR') NOT NULL
+);
+```
+  </Tab>
+  <Tab value="SQLite">
+SQLite stores as `TEXT` with check constraint:
+
+```sql
+CREATE TABLE users (
+  role TEXT CHECK(role IN ('USER', 'ADMIN', 'MODERATOR')) NOT NULL
+);
+```
+  </Tab>
+</Tabs>
+
+## Type Mapping
+
+| Modifier | TypeScript | PostgreSQL | MySQL | SQLite |
+|----------|------------|------------|-------|--------|
+| `s.enum([...])` | Union type | `ENUM` | `ENUM` | `TEXT` |
+| `.nullable()` | `T \| null` | `ENUM NULL` | `ENUM NULL` | `TEXT NULL` |
+| `.array()` | `T[]` | `ENUM[]` | `JSON` | `JSON` |
+
+## Examples
+
+```ts
+// User role
+const role = s.enum(["USER", "ADMIN", "MODERATOR"]).default("USER");
+
+// Order status
+const orderStatus = s.enum([
+  "PENDING",
+  "CONFIRMED",
+  "PROCESSING",
+  "SHIPPED",
+  "DELIVERED",
+  "CANCELLED",
+]).default("PENDING");
+
+// Content visibility
+const visibility = s.enum(["PUBLIC", "PRIVATE", "UNLISTED"]).default("PUBLIC");
+
+// Priority level
+const priority = s.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]);
+
+// Subscription tier
+const tier = s.enum(["FREE", "PRO", "ENTERPRISE"]).default("FREE");
+```
+
+## Using with TypeScript
+
+Extract the enum type for use elsewhere:
+
+```ts
+const statusField = s.enum(["ACTIVE", "INACTIVE", "PENDING"]);
+
+// Extract type from field
+type Status = typeof statusField["~"]["schemas"]["base"]["infer"];
+// "ACTIVE" | "INACTIVE" | "PENDING"
+
+// Use in your code
+function updateStatus(id: string, status: Status) {
+  return client.user.update({
+    where: { id },
+    data: { status },
+  });
+}
+```
+
+## Enum vs String
+
+| Aspect | Enum | String |
+|--------|------|--------|
+| Type safety | Compile-time restricted | Any string |
+| Validation | Database enforced | Needs custom validator |
+| Storage | Optimized (integer internally) | Full string |
+| Flexibility | Fixed set | Any value |
+| Migrations | Requires migration to add values | No migration needed |
+
+### When to Use Enum
+
+- Fixed set of values that rarely changes
+- Status fields, roles, types
+- Need database-level enforcement
+
+### When to Use String
+
+- Values may change frequently
+- User-defined categories
+- Need flexibility without migrations
+
+## Common Patterns
+
+### State Machine
+
+```ts
+const orderStatus = s.enum([
+  "PENDING",      // Initial state
+  "CONFIRMED",    // After payment
+  "PROCESSING",   // Being prepared
+  "SHIPPED",      // In transit
+  "DELIVERED",    // Completed
+  "CANCELLED",    // Cancelled by user
+  "REFUNDED",     // Money returned
+]);
+```
+
+### Multi-Level Permissions
+
+```ts
+const permission = s.enum([
+  "NONE",
+  "READ",
+  "WRITE",
+  "ADMIN",
+]);
+```
+

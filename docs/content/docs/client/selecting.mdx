@@ -1,0 +1,273 @@
+---
+title: Selecting Fields
+description: Control which fields are returned in queries
+icon: CheckSquare
+---
+
+# Selecting Fields
+
+Control exactly which fields are returned from queries using `select` and `include`.
+
+## select
+
+Return only specified fields:
+
+```ts
+const users = await client.user.findMany({
+  select: {
+    id: true,
+    email: true,
+    name: true,
+  },
+});
+// Type: { id: string; email: string; name: string }[]
+```
+
+## include
+
+Return all scalar fields plus specified relations:
+
+```ts
+const users = await client.user.findMany({
+  include: {
+    posts: true,
+    profile: true,
+  },
+});
+// Type: { id: string; email: string; ...; posts: Post[]; profile: Profile | null }[]
+```
+
+## select vs include
+
+| Aspect | `select` | `include` |
+|--------|----------|-----------|
+| Base fields | Only selected | All scalars |
+| Relations | Must select | Add to base |
+| Default | Nothing selected | All scalars |
+
+## Nested Selection
+
+Select fields within relations:
+
+```ts
+const users = await client.user.findMany({
+  select: {
+    id: true,
+    email: true,
+    posts: {
+      select: {
+        id: true,
+        title: true,
+      },
+    },
+  },
+});
+// Type: { id: string; email: string; posts: { id: string; title: string }[] }[]
+```
+
+## Nested Include
+
+Include relations within relations:
+
+```ts
+const users = await client.user.findMany({
+  include: {
+    posts: {
+      include: {
+        comments: true,
+      },
+    },
+  },
+});
+```
+
+## Mixing select and include
+
+Use `select` within `include`:
+
+```ts
+const users = await client.user.findMany({
+  include: {
+    posts: {
+      select: {
+        id: true,
+        title: true,
+      },
+    },
+  },
+});
+```
+
+Use `include` within `select`:
+
+```ts
+const users = await client.user.findMany({
+  select: {
+    id: true,
+    email: true,
+    posts: {
+      include: {
+        tags: true,
+      },
+    },
+  },
+});
+```
+
+## Filtering Relations
+
+Apply filters to included relations:
+
+```ts
+const users = await client.user.findMany({
+  include: {
+    posts: {
+      where: { published: true },
+      orderBy: { createdAt: "desc" },
+      take: 5,
+    },
+  },
+});
+```
+
+## Count Relations
+
+Get relation counts:
+
+```ts
+const users = await client.user.findMany({
+  include: {
+    _count: {
+      select: {
+        posts: true,
+        followers: true,
+      },
+    },
+  },
+});
+// user._count.posts: number
+// user._count.followers: number
+```
+
+## Examples
+
+### Public Profile
+
+```ts
+async function getPublicProfile(userId: string) {
+  return client.user.findUnique({
+    where: { id: userId },
+    select: {
+      id: true,
+      name: true,
+      bio: true,
+      avatarUrl: true,
+      createdAt: true,
+      posts: {
+        where: { published: true },
+        select: {
+          id: true,
+          title: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: "desc" },
+        take: 10,
+      },
+      _count: {
+        select: { posts: true, followers: true },
+      },
+    },
+  });
+}
+```
+
+### Minimal List
+
+```ts
+async function getUserList() {
+  return client.user.findMany({
+    select: {
+      id: true,
+      name: true,
+      email: true,
+    },
+    orderBy: { name: "asc" },
+  });
+}
+```
+
+### Full Detail
+
+```ts
+async function getUserDetail(userId: string) {
+  return client.user.findUnique({
+    where: { id: userId },
+    include: {
+      profile: true,
+      posts: {
+        include: {
+          tags: true,
+          _count: { select: { comments: true } },
+        },
+      },
+      settings: true,
+    },
+  });
+}
+```
+
+### API Response
+
+```ts
+async function getPostForAPI(postId: string) {
+  const post = await client.post.findUnique({
+    where: { id: postId },
+    select: {
+      id: true,
+      title: true,
+      content: true,
+      createdAt: true,
+      author: {
+        select: {
+          id: true,
+          name: true,
+          avatarUrl: true,
+        },
+      },
+      tags: {
+        select: { name: true },
+      },
+      _count: {
+        select: { comments: true, likes: true },
+      },
+    },
+  });
+  
+  return post;
+}
+```
+
+## Type Safety
+
+Return types are automatically inferred:
+
+```ts
+// Full record
+const user = await client.user.findUnique({ where: { id } });
+// Type: User | null
+
+// Selected fields
+const user = await client.user.findUnique({
+  where: { id },
+  select: { id: true, email: true },
+});
+// Type: { id: string; email: string } | null
+
+// With relations
+const user = await client.user.findUnique({
+  where: { id },
+  include: { posts: true },
+});
+// Type: (User & { posts: Post[] }) | null
+```
+

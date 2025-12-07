@@ -1,0 +1,289 @@
+---
+title: Many-to-Many
+description: Define many-to-many relationships between models
+icon: GitMerge
+---
+
+# Many-to-Many Relation
+
+A many-to-many relation connects multiple records on both sides. VibORM manages the junction table automatically.
+
+## Basic Example
+
+```ts
+import { s } from "viborm";
+
+const post = s.model({
+  id: s.string().id().ulid(),
+  title: s.string(),
+  tags: s.manyToMany(() => tag),
+}).map("posts");
+
+const tag = s.model({
+  id: s.string().id().ulid(),
+  name: s.string().unique(),
+  posts: s.manyToMany(() => post),
+}).map("tags");
+```
+
+VibORM automatically creates a junction table `post_tag` with `postId` and `tagId` columns.
+
+## Characteristics
+
+| Aspect | Value |
+|--------|-------|
+| Returns | Array on both sides |
+| Junction table | Auto-created or explicit |
+| Can be empty | Yes (empty array) |
+| FK location | Junction table |
+
+## Chainable Methods
+
+### `.through(tableName)`
+
+Specify a custom junction table name:
+
+```ts
+s.manyToMany(() => tag).through("post_tags")
+```
+
+### `.A(fieldName)`
+
+Specify the junction table FK column for the source model:
+
+```ts
+s.manyToMany(() => tag)
+  .through("post_tags")
+  .A("post_id")  // FK to posts table
+```
+
+### `.B(fieldName)`
+
+Specify the junction table FK column for the target model:
+
+```ts
+s.manyToMany(() => tag)
+  .through("post_tags")
+  .A("post_id")
+  .B("tag_id")  // FK to tags table
+```
+
+## Auto-Generated Junction Table
+
+Without explicit configuration, VibORM generates:
+
+```ts
+// For: post.tags = s.manyToMany(() => tag)
+// Junction table: post_tag
+// Columns: postId, tagId
+```
+
+Table name is derived from model names in alphabetical order: `post` + `tag` → `post_tag`.
+
+## Explicit Junction Table
+
+For full control:
+
+```ts
+const post = s.model({
+  id: s.string().id().ulid(),
+  title: s.string(),
+  tags: s.manyToMany(() => tag)
+    .through("post_tags")
+    .A("post_id")
+    .B("tag_id"),
+}).map("posts");
+
+const tag = s.model({
+  id: s.string().id().ulid(),
+  name: s.string().unique(),
+  posts: s.manyToMany(() => post)
+    .through("post_tags")
+    .A("tag_id")
+    .B("post_id"),
+}).map("tags");
+```
+
+## Complete Example
+
+```ts
+// Users can follow other users
+const user = s.model({
+  id: s.string().id().ulid(),
+  name: s.string(),
+  following: s.manyToMany(() => user)
+    .through("user_follows")
+    .A("follower_id")
+    .B("following_id"),
+  followers: s.manyToMany(() => user)
+    .through("user_follows")
+    .A("following_id")
+    .B("follower_id"),
+}).map("users");
+
+// Products and categories
+const product = s.model({
+  id: s.string().id().ulid(),
+  name: s.string(),
+  categories: s.manyToMany(() => category),
+}).map("products");
+
+const category = s.model({
+  id: s.string().id().ulid(),
+  name: s.string(),
+  products: s.manyToMany(() => product),
+}).map("categories");
+```
+
+## Querying Many-to-Many
+
+```ts
+// Include tags when fetching post
+const post = await client.post.findUnique({
+  where: { id: "post_123" },
+  include: { tags: true },
+});
+// post.tags: Tag[]
+
+// Filter posts by tags
+const posts = await client.post.findMany({
+  where: {
+    tags: {
+      some: { name: "featured" }  // Has "featured" tag
+    }
+  }
+});
+
+// Posts with ALL specified tags
+const posts = await client.post.findMany({
+  where: {
+    tags: {
+      every: { name: { in: ["tech", "tutorial"] } }
+    }
+  }
+});
+
+// Posts with NONE of specified tags
+const posts = await client.post.findMany({
+  where: {
+    tags: {
+      none: { name: "draft" }
+    }
+  }
+});
+
+// Count tags per post
+const posts = await client.post.findMany({
+  include: {
+    _count: { select: { tags: true } }
+  }
+});
+```
+
+## Managing Relations
+
+```ts
+// Connect existing tags
+await client.post.update({
+  where: { id: "post_123" },
+  data: {
+    tags: {
+      connect: [
+        { id: "tag_1" },
+        { id: "tag_2" },
+      ]
+    }
+  }
+});
+
+// Disconnect tags
+await client.post.update({
+  where: { id: "post_123" },
+  data: {
+    tags: {
+      disconnect: [{ id: "tag_1" }]
+    }
+  }
+});
+
+// Set tags (replace all)
+await client.post.update({
+  where: { id: "post_123" },
+  data: {
+    tags: {
+      set: [{ id: "tag_2" }, { id: "tag_3" }]
+    }
+  }
+});
+
+// Create new tags and connect
+await client.post.update({
+  where: { id: "post_123" },
+  data: {
+    tags: {
+      create: { name: "new-tag" },
+      connect: { id: "existing_tag" },
+    }
+  }
+});
+
+// Connect or create
+await client.post.update({
+  where: { id: "post_123" },
+  data: {
+    tags: {
+      connectOrCreate: {
+        where: { name: "tech" },
+        create: { name: "tech" }
+      }
+    }
+  }
+});
+```
+
+## Common Patterns
+
+### Explicit Junction Model
+
+When you need additional data on the relation:
+
+```ts
+// Junction model with extra fields
+const enrollment = s.model({
+  id: s.string().id().ulid(),
+  studentId: s.string(),
+  courseId: s.string(),
+  enrolledAt: s.dateTime().now(),
+  grade: s.string().nullable(),
+  student: s.manyToOne(() => student).fields("studentId").references("id"),
+  course: s.manyToOne(() => course).fields("courseId").references("id"),
+})
+  .map("enrollments")
+  .unique(["studentId", "courseId"]);
+
+const student = s.model({
+  id: s.string().id().ulid(),
+  name: s.string(),
+  enrollments: s.oneToMany(() => enrollment),
+}).map("students");
+
+const course = s.model({
+  id: s.string().id().ulid(),
+  title: s.string(),
+  enrollments: s.oneToMany(() => enrollment),
+}).map("courses");
+```
+
+### Self-Referential Many-to-Many
+
+```ts
+const user = s.model({
+  id: s.string().id().ulid(),
+  name: s.string(),
+  friends: s.manyToMany(() => user)
+    .through("friendships")
+    .A("user_id")
+    .B("friend_id"),
+}).map("users");
+```
+

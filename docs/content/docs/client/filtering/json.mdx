@@ -1,0 +1,208 @@
+---
+title: JSON Filters
+description: Filter operators for JSON fields
+icon: Braces
+---
+
+# JSON Filters
+
+Filter operators available for JSON fields.
+
+## Path Queries
+
+Access nested values by path:
+
+```ts
+where: {
+  metadata: {
+    path: ["settings", "theme"],
+    equals: "dark",
+  },
+}
+```
+
+## Operators
+
+| Operator | Description |
+|----------|-------------|
+| `path` + `equals` | Match path value |
+| `path` + comparisons | Compare path value |
+| `string_contains` | JSON contains string |
+| `string_starts_with` | JSON string starts with |
+| `string_ends_with` | JSON string ends with |
+| `array_contains` | Array contains value |
+| `array_starts_with` | Array starts with value |
+| `array_ends_with` | Array ends with value |
+
+## Path-Based Filters
+
+```ts
+// Exact match at path
+where: {
+  data: {
+    path: ["user", "role"],
+    equals: "admin",
+  },
+}
+
+// Comparison at path
+where: {
+  data: {
+    path: ["stats", "score"],
+    gte: 100,
+  },
+}
+
+// Null check
+where: {
+  data: {
+    path: ["optional", "field"],
+    equals: null,
+  },
+}
+```
+
+## String Operations
+
+```ts
+// Contains string anywhere in JSON
+where: {
+  metadata: {
+    string_contains: "premium",
+  },
+}
+
+// Starts with
+where: {
+  config: {
+    string_starts_with: '{"version":',
+  },
+}
+```
+
+## Array Operations
+
+```ts
+// Array contains value
+where: {
+  tags: {
+    array_contains: "featured",
+  },
+}
+
+// Array contains multiple values
+where: {
+  roles: {
+    array_contains: ["admin", "moderator"],  // Has all
+  },
+}
+```
+
+## Examples
+
+### Filter by Settings
+
+```ts
+async function getDarkModeUsers() {
+  return client.user.findMany({
+    where: {
+      preferences: {
+        path: ["theme"],
+        equals: "dark",
+      },
+    },
+  });
+}
+```
+
+### Feature Flags
+
+```ts
+async function getBetaUsers() {
+  return client.user.findMany({
+    where: {
+      settings: {
+        path: ["features", "beta"],
+        equals: true,
+      },
+    },
+  });
+}
+```
+
+### Tags Search
+
+```ts
+async function getPostsByTag(tag: string) {
+  return client.post.findMany({
+    where: {
+      metadata: {
+        array_contains: tag,
+      },
+    },
+  });
+}
+```
+
+### Nested Config
+
+```ts
+async function getServersInRegion(region: string) {
+  return client.server.findMany({
+    where: {
+      config: {
+        path: ["deployment", "region"],
+        equals: region,
+      },
+    },
+  });
+}
+```
+
+### Version Check
+
+```ts
+async function getOutdatedClients(minVersion: number) {
+  return client.device.findMany({
+    where: {
+      appData: {
+        path: ["version"],
+        lt: minVersion,
+      },
+    },
+  });
+}
+```
+
+## Database Support
+
+<Tabs items={["PostgreSQL", "MySQL", "SQLite"]}>
+  <Tab value="PostgreSQL">
+Full JSON/JSONB support with path queries, containment, and operators.
+
+```sql
+-- Path query
+SELECT * FROM users WHERE preferences->'theme' = '"dark"'
+
+-- Containment
+SELECT * FROM posts WHERE tags @> '["featured"]'
+```
+  </Tab>
+  <Tab value="MySQL">
+JSON support with `JSON_EXTRACT` for path queries.
+
+```sql
+-- Path query
+SELECT * FROM users WHERE JSON_EXTRACT(preferences, '$.theme') = 'dark'
+```
+  </Tab>
+  <Tab value="SQLite">
+Limited JSON support via `json_extract` function.
+
+```sql
+-- Path query
+SELECT * FROM users WHERE json_extract(preferences, '$.theme') = 'dark'
+```
+  </Tab>
+</Tabs>
+

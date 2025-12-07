@@ -1,0 +1,199 @@
+---
+title: findMany
+description: Find multiple records with filtering and pagination
+icon: List
+---
+
+# findMany
+
+Find multiple records matching your criteria.
+
+## Basic Usage
+
+```ts
+const users = await client.user.findMany();
+// Returns all users
+```
+
+## With Filtering
+
+```ts
+const activeAdmins = await client.user.findMany({
+  where: {
+    role: "ADMIN",
+    active: true,
+  },
+});
+```
+
+## With Sorting
+
+```ts
+const users = await client.user.findMany({
+  orderBy: { createdAt: "desc" },
+});
+
+// Multiple sort fields
+const users = await client.user.findMany({
+  orderBy: [
+    { role: "asc" },
+    { name: "asc" },
+  ],
+});
+```
+
+## With Pagination
+
+```ts
+// Offset pagination
+const page1 = await client.user.findMany({
+  take: 10,
+  skip: 0,
+});
+
+// Cursor pagination
+const page2 = await client.user.findMany({
+  take: 10,
+  cursor: { id: "last_id" },
+  skip: 1,  // Skip the cursor itself
+});
+```
+
+## With Relations
+
+```ts
+// Include relations
+const users = await client.user.findMany({
+  include: { posts: true },
+});
+
+// Select specific fields
+const users = await client.user.findMany({
+  select: {
+    id: true,
+    email: true,
+    posts: {
+      select: { title: true },
+    },
+  },
+});
+```
+
+## All Options
+
+```ts
+await client.user.findMany({
+  where: { ... },           // Filter conditions
+  orderBy: { ... },         // Sort order
+  take: 10,                 // Max records
+  skip: 0,                  // Offset
+  cursor: { id: "..." },    // Cursor for pagination
+  select: { ... },          // Fields to return
+  include: { ... },         // Relations to include
+  distinct: ["field"],      // Distinct by field
+});
+```
+
+## findFirst
+
+Same as `findMany` but returns single record or null:
+
+```ts
+const user = await client.user.findFirst({
+  where: { email: { contains: "alice" } },
+});
+// Type: User | null
+```
+
+## findFirstOrThrow
+
+Throws if no record found:
+
+```ts
+const user = await client.user.findFirstOrThrow({
+  where: { email: "alice@example.com" },
+});
+// Type: User (never null)
+// Throws: NotFoundError if not found
+```
+
+## Return Type
+
+```ts
+// Default: all scalar fields
+const users = await client.user.findMany();
+// Type: { id: string; email: string; name: string; ... }[]
+
+// With select: only selected fields
+const users = await client.user.findMany({
+  select: { id: true, email: true },
+});
+// Type: { id: string; email: string }[]
+
+// With include: scalars + included relations
+const users = await client.user.findMany({
+  include: { posts: true },
+});
+// Type: { id: string; ...; posts: Post[] }[]
+```
+
+## Examples
+
+### Paginated List
+
+```ts
+async function getUsers(page: number, pageSize: number) {
+  const [users, total] = await Promise.all([
+    client.user.findMany({
+      take: pageSize,
+      skip: (page - 1) * pageSize,
+      orderBy: { createdAt: "desc" },
+    }),
+    client.user.count(),
+  ]);
+  
+  return {
+    users,
+    total,
+    pages: Math.ceil(total / pageSize),
+  };
+}
+```
+
+### Search with Filters
+
+```ts
+async function searchUsers(query: string, role?: string) {
+  return client.user.findMany({
+    where: {
+      AND: [
+        {
+          OR: [
+            { name: { contains: query, mode: "insensitive" } },
+            { email: { contains: query, mode: "insensitive" } },
+          ],
+        },
+        role ? { role } : {},
+      ],
+    },
+    take: 20,
+  });
+}
+```
+
+### Load with Relations
+
+```ts
+const usersWithPosts = await client.user.findMany({
+  where: { active: true },
+  include: {
+    posts: {
+      where: { published: true },
+      orderBy: { createdAt: "desc" },
+      take: 5,
+    },
+    profile: true,
+  },
+});
+```
+

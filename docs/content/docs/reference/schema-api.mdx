@@ -1,0 +1,218 @@
+---
+title: Schema API Reference
+description: Complete reference for schema definition APIs
+icon: FileCode
+---
+
+# Schema API Reference
+
+Complete reference for all schema definition APIs.
+
+## Model
+
+### `s.model(fields)`
+
+Create a new model:
+
+```ts
+const user = s.model({
+  id: s.string().id(),
+  name: s.string(),
+});
+```
+
+### Model Methods
+
+| Method | Description |
+|--------|-------------|
+| `.map(name)` | Set table name |
+| `.index(fields, options?)` | Add index |
+| `.id(fields, options?)` | Compound primary key |
+| `.unique(fields, options?)` | Compound unique constraint |
+| `.extends(fields)` | Add fields |
+
+## Field Types
+
+### String
+
+```ts
+s.string()
+s.string(TYPES.PG.STRING.VARCHAR(255))
+```
+
+| Method | Description |
+|--------|-------------|
+| `.id()` | Mark as primary key |
+| `.unique()` | Unique constraint |
+| `.nullable()` | Allow NULL |
+| `.array()` | Array type |
+| `.default(value)` | Default value |
+| `.validator(schema)` | Custom validation |
+| `.map(name)` | Column name |
+| `.uuid()` | Auto-generate UUID |
+| `.ulid()` | Auto-generate ULID |
+| `.nanoid()` | Auto-generate NanoID |
+| `.cuid()` | Auto-generate CUID |
+
+### Number Types
+
+```ts
+s.int()
+s.float()
+s.decimal()
+s.bigInt()
+```
+
+| Method | Description |
+|--------|-------------|
+| `.id()` | Primary key |
+| `.unique()` | Unique constraint |
+| `.nullable()` | Allow NULL |
+| `.array()` | Array type |
+| `.default(value)` | Default value |
+| `.increment()` | Auto-increment (int only) |
+
+### Boolean
+
+```ts
+s.boolean()
+```
+
+| Method | Description |
+|--------|-------------|
+| `.nullable()` | Allow NULL |
+| `.default(value)` | Default value |
+
+### DateTime
+
+```ts
+s.dateTime()
+```
+
+| Method | Description |
+|--------|-------------|
+| `.nullable()` | Allow NULL |
+| `.default(value)` | Default value |
+| `.now()` | Default to current time |
+| `.updatedAt()` | Auto-update on change |
+
+### JSON
+
+```ts
+s.json()
+s.json(zodSchema)
+```
+
+| Method | Description |
+|--------|-------------|
+| `.nullable()` | Allow NULL |
+| `.default(value)` | Default value |
+
+### Enum
+
+```ts
+s.enum(["VALUE1", "VALUE2"])
+```
+
+| Method | Description |
+|--------|-------------|
+| `.nullable()` | Allow NULL |
+| `.default(value)` | Default value |
+
+### Blob
+
+```ts
+s.blob()
+```
+
+| Method | Description |
+|--------|-------------|
+| `.nullable()` | Allow NULL |
+
+### Vector
+
+```ts
+s.vector()
+```
+
+| Method | Description |
+|--------|-------------|
+| `.nullable()` | Allow NULL |
+
+## Relations
+
+### One-to-One
+
+```ts
+s.oneToOne(() => targetModel)
+```
+
+| Method | Description |
+|--------|-------------|
+| `.fields(...names)` | FK fields |
+| `.references(...names)` | Referenced fields |
+| `.optional()` | Nullable relation |
+| `.onDelete(action)` | Delete behavior |
+| `.onUpdate(action)` | Update behavior |
+
+### One-to-Many
+
+```ts
+s.oneToMany(() => targetModel)
+```
+
+No additional methods — FK is on the many side.
+
+### Many-to-One
+
+```ts
+s.manyToOne(() => targetModel)
+```
+
+| Method | Description |
+|--------|-------------|
+| `.fields(...names)` | FK fields |
+| `.references(...names)` | Referenced fields |
+| `.optional()` | Nullable relation |
+| `.onDelete(action)` | Delete behavior |
+| `.onUpdate(action)` | Update behavior |
+
+### Many-to-Many
+
+```ts
+s.manyToMany(() => targetModel)
+```
+
+| Method | Description |
+|--------|-------------|
+| `.through(tableName)` | Junction table name |
+| `.A(columnName)` | Source FK column |
+| `.B(columnName)` | Target FK column |
+
+## Referential Actions
+
+| Action | Description |
+|--------|-------------|
+| `"cascade"` | Delete/update related |
+| `"setNull"` | Set FK to null |
+| `"restrict"` | Prevent operation |
+| `"noAction"` | Database default |
+
+## Index Options
+
+```ts
+.index(fields, {
+  name: "idx_name",
+  type: "btree",
+  unique: false,
+  where: "condition",
+})
+```
+
+| Option | Values |
+|--------|--------|
+| `name` | Custom index name |
+| `type` | `"btree"`, `"hash"`, `"gin"`, `"gist"` |
+| `unique` | `true`, `false` |
+| `where` | Partial index condition |
+

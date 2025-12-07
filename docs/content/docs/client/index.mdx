@@ -1,0 +1,168 @@
+---
+title: Client API
+description: Query and mutate data with full type safety
+icon: Terminal
+---
+
+# Client API
+
+The VibORM client provides a fully type-safe API for database operations. All operations are inferred from your schema — no code generation required.
+
+## Creating a Client
+
+```ts
+import { createClient } from "viborm";
+import { PostgresAdapter } from "viborm/adapters/postgres";
+import { user, post } from "./schema";
+
+const client = createClient({
+  schema: { user, post },
+  adapter: new PostgresAdapter({
+    connectionString: process.env.DATABASE_URL,
+  }),
+});
+```
+
+## Operations Overview
+
+### Query Operations
+
+| Operation | Description | Returns |
+|-----------|-------------|---------|
+| `findMany` | Find multiple records | `T[]` |
+| `findFirst` | Find first matching record | `T \| null` |
+| `findUnique` | Find by unique identifier | `T \| null` |
+| `findFirstOrThrow` | Find first or throw | `T` |
+| `findUniqueOrThrow` | Find unique or throw | `T` |
+| `exist` | Check if records exist | `boolean` |
+
+### Mutation Operations
+
+| Operation | Description | Returns |
+|-----------|-------------|---------|
+| `create` | Create a record | `T` |
+| `createMany` | Create multiple records | `{ count }` |
+| `update` | Update a record | `T` |
+| `updateMany` | Update multiple records | `{ count }` |
+| `delete` | Delete a record | `T` |
+| `deleteMany` | Delete multiple records | `{ count }` |
+| `upsert` | Create or update | `T` |
+
+### Aggregate Operations
+
+| Operation | Description | Returns |
+|-----------|-------------|---------|
+| `count` | Count records | `number` |
+| `aggregate` | Run aggregations | `{ _count, _avg, ... }` |
+| `groupBy` | Group and aggregate | `Array` |
+
+## Quick Examples
+
+```ts
+// Find many with filters
+const users = await client.user.findMany({
+  where: { role: "ADMIN" },
+  orderBy: { createdAt: "desc" },
+  take: 10,
+});
+
+// Find unique by ID
+const user = await client.user.findUnique({
+  where: { id: "user_123" },
+});
+
+// Create a record
+const newUser = await client.user.create({
+  data: {
+    email: "alice@example.com",
+    name: "Alice",
+  },
+});
+
+// Update with relations
+const updated = await client.user.update({
+  where: { id: "user_123" },
+  data: {
+    name: "Alice Smith",
+    posts: {
+      create: { title: "New Post" },
+    },
+  },
+  include: { posts: true },
+});
+
+// Count with filters
+const count = await client.user.count({
+  where: { role: "ADMIN" },
+});
+```
+
+## Type Safety
+
+Every operation is fully typed:
+
+```ts
+// ✅ TypeScript knows the exact return type
+const user = await client.user.findUnique({
+  where: { id: "user_123" },
+  select: { id: true, email: true },
+});
+// Type: { id: string; email: string } | null
+
+// ❌ TypeScript catches invalid fields
+await client.user.create({
+  data: {
+    email: "bob@example.com",
+    invalidField: "value",  // Error!
+  },
+});
+
+// ❌ TypeScript catches missing required fields
+await client.user.create({
+  data: {
+    name: "Bob",
+    // Error: 'email' is required
+  },
+});
+```
+
+## Sections
+
+<Cards>
+  <Card
+    title="Queries"
+    description="findMany, findUnique, findFirst, aggregations"
+    href="/docs/client/queries"
+  />
+  <Card
+    title="Mutations"
+    description="create, update, delete, upsert"
+    href="/docs/client/mutations"
+  />
+  <Card
+    title="Filtering"
+    description="Filter operators by field type"
+    href="/docs/client/filtering"
+  />
+  <Card
+    title="Relations"
+    description="Query and filter on relations"
+    href="/docs/client/relations"
+  />
+  <Card
+    title="Selecting"
+    description="Select and include fields"
+    href="/docs/client/selecting"
+  />
+  <Card
+    title="Sorting"
+    description="Order results"
+    href="/docs/client/sorting"
+  />
+  <Card
+    title="Pagination"
+    description="Offset and cursor pagination"
+    href="/docs/client/pagination"
+  />
+</Cards>
+

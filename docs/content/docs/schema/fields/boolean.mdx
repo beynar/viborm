@@ -1,0 +1,126 @@
+---
+title: Boolean Field
+description: Boolean field type for true/false values
+icon: ToggleLeft
+---
+
+# Boolean Field
+
+The boolean field type represents true/false values.
+
+## Basic Usage
+
+```ts
+import { s } from "viborm";
+
+s.boolean()               // Required boolean
+s.boolean().nullable()    // Boolean | null
+```
+
+## Chainable Methods
+
+```ts
+s.boolean()
+  .nullable()           // Allow NULL
+  .id()                 // Primary key (rare)
+  .unique()             // Unique constraint (rare)
+  .default(false)       // Static default
+  .default(() => true)  // Runtime default
+  .map("column_name")   // Custom column name
+```
+
+## Native Database Types
+
+<Tabs items={["PostgreSQL", "MySQL", "SQLite"]}>
+  <Tab value="PostgreSQL">
+```ts
+import { TYPES } from "viborm";
+
+s.boolean(TYPES.PG.BOOLEAN.BOOLEAN)  // BOOLEAN (native)
+```
+  </Tab>
+  <Tab value="MySQL">
+```ts
+import { TYPES } from "viborm";
+
+s.boolean(TYPES.MYSQL.BOOLEAN.TINYINT)  // TINYINT(1)
+```
+  </Tab>
+  <Tab value="SQLite">
+```ts
+import { TYPES } from "viborm";
+
+s.boolean(TYPES.SQLITE.BOOLEAN.INTEGER)  // INTEGER (0/1)
+```
+  </Tab>
+</Tabs>
+
+## Type Mapping
+
+| Modifier | TypeScript | PostgreSQL | MySQL | SQLite |
+|----------|------------|------------|-------|--------|
+| `s.boolean()` | `boolean` | `BOOLEAN` | `TINYINT(1)` | `INTEGER` |
+| `.nullable()` | `boolean \| null` | `BOOLEAN NULL` | `TINYINT(1) NULL` | `INTEGER NULL` |
+| `.array()` | `boolean[]` | `BOOLEAN[]` | `JSON` | `JSON` |
+
+## Examples
+
+```ts
+// Active flag with default
+const active = s.boolean().default(true);
+
+// Published status
+const published = s.boolean().default(false);
+
+// Email verification (nullable for pending)
+const emailVerified = s.boolean().nullable().default(null);
+
+// Soft delete flag
+const deleted = s.boolean().default(false);
+
+// Feature flags
+const betaFeatures = s.boolean().default(false);
+const darkMode = s.boolean().default(false);
+```
+
+## Common Patterns
+
+### Soft Delete
+
+```ts
+const user = s.model({
+  id: s.string().id().ulid(),
+  // ...
+  deleted: s.boolean().default(false),
+  deletedAt: s.dateTime().nullable(),
+});
+
+// Query only active records
+await client.user.findMany({
+  where: { deleted: false },
+});
+```
+
+### Feature Flags
+
+```ts
+const userSettings = s.model({
+  userId: s.string().id(),
+  emailNotifications: s.boolean().default(true),
+  pushNotifications: s.boolean().default(false),
+  marketingEmails: s.boolean().default(false),
+});
+```
+
+### Status Flags
+
+```ts
+const post = s.model({
+  id: s.string().id().ulid(),
+  title: s.string(),
+  published: s.boolean().default(false),
+  featured: s.boolean().default(false),
+  archived: s.boolean().default(false),
+});
+```
+

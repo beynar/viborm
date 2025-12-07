@@ -1,0 +1,89 @@
+---
+title: Query Operations
+description: Find and retrieve data from your database
+icon: Search
+---
+
+# Query Operations
+
+Query operations retrieve data from your database with full type safety.
+
+## Overview
+
+| Operation | Description | Returns |
+|-----------|-------------|---------|
+| `findMany` | Find multiple records | `T[]` |
+| `findFirst` | Find first matching | `T \| null` |
+| `findUnique` | Find by unique ID | `T \| null` |
+| `findFirstOrThrow` | Find first or throw | `T` |
+| `findUniqueOrThrow` | Find unique or throw | `T` |
+| `exist` | Check existence | `boolean` |
+
+## Common Options
+
+All query operations support:
+
+```ts
+{
+  where: { ... },           // Filter conditions
+  select: { ... },          // Select specific fields
+  include: { ... },         // Include relations
+}
+```
+
+`findMany` and `findFirst` additionally support:
+
+```ts
+{
+  orderBy: { ... },         // Sort results
+  take: 10,                 // Limit results
+  skip: 0,                  // Offset results
+  cursor: { ... },          // Cursor pagination
+  distinct: ["field"],      // Distinct values
+}
+```
+
+## Quick Examples
+
+```ts
+// Find all active users
+const users = await client.user.findMany({
+  where: { active: true },
+});
+
+// Find first admin
+const admin = await client.user.findFirst({
+  where: { role: "ADMIN" },
+});
+
+// Find by ID
+const user = await client.user.findUnique({
+  where: { id: "user_123" },
+});
+
+// Check if admin exists
+const hasAdmin = await client.user.exist({
+  where: { role: "ADMIN" },
+});
+```
+
+## Pages
+
+<Cards>
+  <Card
+    title="findMany"
+    description="Find multiple records with filtering and pagination"
+    href="/docs/client/queries/find-many"
+  />
+  <Card
+    title="findUnique"
+    description="Find single record by unique identifier"
+    href="/docs/client/queries/find-unique"
+  />
+  <Card
+    title="Aggregations"
+    description="count, aggregate, and groupBy operations"
+    href="/docs/client/queries/aggregations"
+  />
+</Cards>
+

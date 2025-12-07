@@ -1,0 +1,225 @@
+---
+title: update
+description: Update existing records
+icon: Pencil
+---
+
+# update
+
+Update existing records in your database.
+
+## update
+
+Update a single record by unique identifier:
+
+```ts
+const user = await client.user.update({
+  where: { id: "user_123" },
+  data: { name: "Alice Smith" },
+});
+```
+
+### Field Operations
+
+```ts
+// Set value
+await client.post.update({
+  where: { id: "post_123" },
+  data: { title: "New Title" },
+});
+
+// Increment/decrement numbers
+await client.post.update({
+  where: { id: "post_123" },
+  data: {
+    views: { increment: 1 },
+    likes: { decrement: 1 },
+  },
+});
+
+// Multiply/divide
+await client.product.update({
+  where: { id: "product_123" },
+  data: {
+    price: { multiply: 1.1 },  // 10% increase
+  },
+});
+
+// Array operations (PostgreSQL)
+await client.post.update({
+  where: { id: "post_123" },
+  data: {
+    tags: { push: "new-tag" },
+  },
+});
+```
+
+### With Relations
+
+```ts
+// Create related records
+await client.user.update({
+  where: { id: "user_123" },
+  data: {
+    posts: {
+      create: { title: "New Post" },
+    },
+  },
+});
+
+// Connect existing records
+await client.user.update({
+  where: { id: "user_123" },
+  data: {
+    posts: {
+      connect: { id: "post_456" },
+    },
+  },
+});
+
+// Disconnect records (many-to-many)
+await client.post.update({
+  where: { id: "post_123" },
+  data: {
+    tags: {
+      disconnect: [{ id: "tag_1" }],
+    },
+  },
+});
+
+// Replace all (set)
+await client.post.update({
+  where: { id: "post_123" },
+  data: {
+    tags: {
+      set: [{ id: "tag_2" }, { id: "tag_3" }],
+    },
+  },
+});
+
+// Update nested records
+await client.user.update({
+  where: { id: "user_123" },
+  data: {
+    posts: {
+      update: {
+        where: { id: "post_123" },
+        data: { published: true },
+      },
+    },
+  },
+});
+
+// Delete nested records
+await client.user.update({
+  where: { id: "user_123" },
+  data: {
+    posts: {
+      delete: { id: "post_123" },
+    },
+  },
+});
+```
+
+## updateMany
+
+Update multiple records matching criteria:
+
+```ts
+const result = await client.user.updateMany({
+  where: { role: "GUEST" },
+  data: { role: "USER" },
+});
+// Result: { count: 42 }
+```
+
+### Examples
+
+```ts
+// Mark posts as archived
+await client.post.updateMany({
+  where: {
+    createdAt: { lt: new Date("2023-01-01") },
+    published: false,
+  },
+  data: { archived: true },
+});
+
+// Update all prices
+await client.product.updateMany({
+  where: { category: "electronics" },
+  data: {
+    price: { multiply: 0.9 },  // 10% discount
+  },
+});
+```
+
+## Options
+
+### update
+
+```ts
+await client.user.update({
+  where: { ... },       // Required: unique identifier
+  data: { ... },        // Required: fields to update
+  select: { ... },      // Optional: fields to return
+  include: { ... },     // Optional: relations to include
+});
+```
+
+### updateMany
+
+```ts
+await client.user.updateMany({
+  where: { ... },       // Optional: filter (all if empty)
+  data: { ... },        // Required: fields to update
+});
+```
+
+## Examples
+
+### Update Profile
+
+```ts
+async function updateProfile(userId: string, data: { name?: string; bio?: string }) {
+  return client.user.update({
+    where: { id: userId },
+    data: {
+      name: data.name,
+      profile: {
+        update: { bio: data.bio },
+      },
+    },
+    include: { profile: true },
+  });
+}
+```
+
+### Increment View Count
+
+```ts
+async function recordView(postId: string) {
+  return client.post.update({
+    where: { id: postId },
+    data: {
+      views: { increment: 1 },
+      lastViewedAt: new Date(),
+    },
+  });
+}
+```
+
+### Bulk Status Update
+
+```ts
+async function archiveOldPosts(beforeDate: Date) {
+  return client.post.updateMany({
+    where: {
+      createdAt: { lt: beforeDate },
+      archived: false,
+    },
+    data: { archived: true },
+  });
+}
+```
+

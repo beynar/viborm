@@ -1,0 +1,131 @@
+---
+title: Vector Field
+description: Vector field type for embeddings and similarity search
+icon: Sparkles
+---
+
+# Vector Field
+
+The Vector field type stores numerical vectors for AI/ML embeddings and similarity search.
+
+<Callout type="info">
+  Vector fields are primarily supported in PostgreSQL with the `pgvector` extension.
+</Callout>
+
+## Basic Usage
+
+```ts
+import { s } from "viborm";
+
+s.vector()               // Required number[]
+s.vector().nullable()    // number[] | null
+```
+
+## Chainable Methods
+
+```ts
+s.vector()
+  .nullable()           // Allow NULL
+  .default([])          // Default value
+  .map("column_name")   // Custom column name
+```
+
+## Type Mapping
+
+| Modifier | TypeScript | PostgreSQL | MySQL | SQLite |
+|----------|------------|------------|-------|--------|
+| `s.vector()` | `number[]` | `vector` | N/A | N/A |
+| `.nullable()` | `number[] \| null` | `vector NULL` | N/A | N/A |
+
+## PostgreSQL Setup
+
+Enable the pgvector extension:
+
+```sql
+CREATE EXTENSION IF NOT EXISTS vector;
+```
+
+## Examples
+
+```ts
+// OpenAI embedding (1536 dimensions)
+const embedding = s.vector();
+
+// Nullable embedding
+const optionalEmbedding = s.vector().nullable();
+```
+
+## Complete Example
+
+```ts
+const document = s.model({
+  id: s.string().id().ulid(),
+  content: s.string(),
+  embedding: s.vector(),  // Store embedding
+  createdAt: s.dateTime().now(),
+}).map("documents");
+
+// Store a document with embedding
+await client.document.create({
+  data: {
+    content: "Hello, world!",
+    embedding: [0.1, 0.2, 0.3, ...], // 1536 floats for OpenAI
+  }
+});
+```
+
+## Similarity Search
+
+Vector similarity search is typically done with raw SQL or a specialized query:
+
+```ts
+// Using raw SQL for cosine similarity
+const similar = await client.$queryRaw`
+  SELECT id, content, 1 - (embedding <=> ${queryVector}::vector) as similarity
+  FROM documents
+  ORDER BY embedding <=> ${queryVector}::vector
+  LIMIT 10
+`;
+```
+
+## Vector Dimensions
+
+| Model | Dimensions |
+|-------|------------|
+| OpenAI text-embedding-ada-002 | 1536 |
+| OpenAI text-embedding-3-small | 1536 |
+| OpenAI text-embedding-3-large | 3072 |
+| Cohere embed-english-v3.0 | 1024 |
+| sentence-transformers | 384-768 |
+
+## Indexing Vectors
+
+For efficient similarity search, create an index:
+
+```sql
+-- HNSW index (recommended for most cases)
+CREATE INDEX ON documents USING hnsw (embedding vector_cosine_ops);
+
+-- IVFFlat index (for very large datasets)
+CREATE INDEX ON documents USING ivfflat (embedding vector_cosine_ops)
+  WITH (lists = 100);
+```
+
+## Distance Functions
+
+| Operator | Function | Use Case |
+|----------|----------|----------|
+| `\<->` | L2 distance | General |
+| `\<#>` | Inner product | Normalized vectors |
+| `\<=>` | Cosine distance | Text embeddings |
+
+## When to Use Vector
+
+| Use Case | Recommendation |
+|----------|----------------|
+| Semantic search | Vector embeddings |
+| Image similarity | Vector embeddings |
+| Recommendation | Vector embeddings |
+| Full-text search | PostgreSQL tsvector or dedicated search |
+| Exact matching | Regular fields with indexes |
+

@@ -1,0 +1,252 @@
+---
+title: Many-to-One
+description: Define many-to-one relationships between models
+icon: ArrowLeftToLine
+---
+
+# Many-to-One Relation
+
+A many-to-one relation connects multiple records to a single related record. This is the "many" side that owns the foreign key.
+
+## Basic Example
+
+```ts
+import { s } from "viborm";
+
+const post = s.model({
+  id: s.string().id().ulid(),
+  title: s.string(),
+  authorId: s.string(),  // FK field
+  author: s.manyToOne(() => user)
+    .fields("authorId")
+    .references("id"),
+}).map("posts");
+
+const user = s.model({
+  id: s.string().id().ulid(),
+  email: s.string().unique(),
+  posts: s.oneToMany(() => post),  // Inverse side
+}).map("users");
+```
+
+## Characteristics
+
+| Aspect | Value |
+|--------|-------|
+| Returns | Single object or null |
+| FK location | On this model |
+| Can be null | Yes, with `.optional()` |
+| Required by default | Yes |
+
+## Chainable Methods
+
+### `.fields(...fieldNames)`
+
+**Required.** Specifies the FK field(s) on this model:
+
+```ts
+s.manyToOne(() => user).fields("authorId")
+
+// Composite FK
+s.manyToOne(() => organization).fields("orgId", "teamId")
+```
+
+### `.references(...fieldNames)`
+
+**Required.** Specifies the referenced field(s) on the target:
+
+```ts
+s.manyToOne(() => user).fields("authorId").references("id")
+
+// Composite reference
+s.manyToOne(() => organization)
+  .fields("orgId", "teamId")
+  .references("id", "teamId")
+```
+
+### `.optional()`
+
+Makes the relation optional (FK can be null):
+
+```ts
+// Post may or may not have an author
+author: s.manyToOne(() => user)
+  .fields("authorId")
+  .references("id")
+  .optional()
+```
+
+When using `.optional()`, the FK field should also be nullable:
+
+```ts
+authorId: s.string().nullable(),
+author: s.manyToOne(() => user)
+  .fields("authorId")
+  .references("id")
+  .optional()
+```
+
+### `.onDelete(action)`
+
+Referential action when the related record is deleted:
+
+```ts
+s.manyToOne(() => user)
+  .fields("authorId")
+  .references("id")
+  .onDelete("cascade")  // Delete posts when user is deleted
+```
+
+| Action | Effect |
+|--------|--------|
+| `cascade` | Delete this record too |
+| `setNull` | Set FK to null (requires `.optional()`) |
+| `restrict` | Prevent deletion |
+| `noAction` | Database default |
+
+### `.onUpdate(action)`
+
+Referential action when the referenced field changes:
+
+```ts
+s.manyToOne(() => user)
+  .fields("authorId")
+  .references("id")
+  .onUpdate("cascade")  // Update FK when user ID changes
+```
+
+## Complete Example
+
+```ts
+const post = s.model({
+  id: s.string().id().ulid(),
+  title: s.string(),
+  content: s.string(),
+  published: s.boolean().default(false),
+  
+  // Required author
+  authorId: s.string(),
+  author: s.manyToOne(() => user)
+    .fields("authorId")
+    .references("id")
+    .onDelete("cascade"),
+  
+  // Optional category
+  categoryId: s.string().nullable(),
+  category: s.manyToOne(() => category)
+    .fields("categoryId")
+    .references("id")
+    .optional()
+    .onDelete("setNull"),
+}).map("posts");
+```
+
+## Querying Many-to-One
+
+```ts
+// Include author when fetching post
+const post = await client.post.findUnique({
+  where: { id: "post_123" },
+  include: { author: true },
+});
+// post.author: User
+
+// Filter posts by author
+const posts = await client.post.findMany({
+  where: {
+    author: {
+      is: { role: "ADMIN" }
+    }
+  }
+});
+
+// Filter posts without author (optional relation)
+const orphanedPosts = await client.post.findMany({
+  where: {
+    author: {
+      is: null
+    }
+  }
+});
+
+// Select specific author fields
+const posts = await client.post.findMany({
+  select: {
+    title: true,
+    author: {
+      select: { name: true, email: true }
+    }
+  }
+});
+```
+
+## Creating with Relations
+
+```ts
+// Connect to existing user
+const post = await client.post.create({
+  data: {
+    title: "My Post",
+    content: "Hello!",
+    author: {
+      connect: { id: "user_123" }
+    }
+  }
+});
+
+// Or use FK directly
+const post = await client.post.create({
+  data: {
+    title: "My Post",
+    content: "Hello!",
+    authorId: "user_123"
+  }
+});
+
+// Create and connect in one operation
+const post = await client.post.create({
+  data: {
+    title: "My Post",
+    content: "Hello!",
+    author: {
+      connectOrCreate: {
+        where: { email: "alice@example.com" },
+        create: { email: "alice@example.com", name: "Alice" }
+      }
+    }
+  }
+});
+```
+
+## Common Patterns
+
+### Required vs Optional
+
+```ts
+// Required: Every post MUST have an author
+authorId: s.string(),
+author: s.manyToOne(() => user).fields("authorId").references("id")
+
+// Optional: Post MAY have a category
+categoryId: s.string().nullable(),
+category: s.manyToOne(() => category)
+  .fields("categoryId")
+  .references("id")
+  .optional()
+```
+
+### Self-Referential (Tree Structure)
+
+```ts
+const comment = s.model({
+  id: s.string().id().ulid(),
+  content: s.string(),
+  parentId: s.string().nullable(),
+  parent: s.manyToOne(() => comment)
+    .fields("parentId")
+    .references("id")
+    .optional(),
+  replies: s.oneToMany(() => comment),
+}).map("comments");
+```
+

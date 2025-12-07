@@ -2,20 +2,22 @@ import { Sql, sql } from "@sql";
 import { DatabaseAdapter, QueryParts } from "../../database-adapter";
 
 /**
- * PostgreSQL Database Adapter
+ * SQLite Database Adapter
  *
- * Implements the DatabaseAdapter interface for PostgreSQL-specific SQL generation.
+ * Implements the DatabaseAdapter interface for SQLite-specific SQL generation.
  *
- * Key PostgreSQL features:
+ * Key SQLite features:
  * - Double-quote identifier escaping: "table"."column"
- * - Native ARRAY type with operators: @>, &&, ANY()
- * - ILIKE for case-insensitive matching
- * - json_build_object(), json_agg() for JSON operations
- * - RETURNING clause for mutations
- * - NULLS FIRST/LAST ordering
- * - ON CONFLICT DO UPDATE/NOTHING
+ * - No native ARRAY type - uses JSON for arrays
+ * - LIKE is case-insensitive for ASCII by default
+ * - json_object(), json_group_array() for JSON operations (SQLite 3.38+)
+ * - RETURNING clause supported (SQLite 3.35+)
+ * - No NULLS FIRST/LAST ordering
+ * - ON CONFLICT DO UPDATE/NOTHING (same as PostgreSQL)
+ * - || for string concatenation
+ * - Boolean stored as 0/1 integers
  */
-export class PostgresAdapter implements DatabaseAdapter {
+export class SQLiteAdapter implements DatabaseAdapter {
   // ============================================================
   // RAW
   // ============================================================
@@ -48,9 +50,10 @@ export class PostgresAdapter implements DatabaseAdapter {
 
     null: (): Sql => sql.raw`NULL`,
 
-    true: (): Sql => sql.raw`TRUE`,
+    // SQLite uses 1/0 for booleans
+    true: (): Sql => sql.raw`1`,
 
-    false: (): Sql => sql.raw`FALSE`,
+    false: (): Sql => sql.raw`0`,
 
     list: (values: Sql[]): Sql => {
       if (values.length === 0) return sql.raw`()`;
@@ -75,13 +78,16 @@ export class PostgresAdapter implements DatabaseAdapter {
     like: (column: Sql, pattern: Sql): Sql => sql`${column} LIKE ${pattern}`,
     notLike: (column: Sql, pattern: Sql): Sql =>
       sql`${column} NOT LIKE ${pattern}`,
-    ilike: (column: Sql, pattern: Sql): Sql => sql`${column} ILIKE ${pattern}`,
+    // SQLite LIKE is case-insensitive for ASCII by default
+    // Use COLLATE NOCASE for explicit case-insensitivity
+    ilike: (column: Sql, pattern: Sql): Sql =>
+      sql`${column} LIKE ${pattern} COLLATE NOCASE`,
     notIlike: (column: Sql, pattern: Sql): Sql =>
-      sql`${column} NOT ILIKE ${pattern}`,
+      sql`${column} NOT LIKE ${pattern} COLLATE NOCASE`,
 
     // Set membership
-    in: (column: Sql, values: Sql): Sql => sql`${column} = ANY(${values})`,
-    notIn: (column: Sql, values: Sql): Sql => sql`${column} <> ALL(${values})`,
+    in: (column: Sql, values: Sql): Sql => sql`${column} IN ${values}`,
+    notIn: (column: Sql, values: Sql): Sql => sql`${column} NOT IN ${values}`,
 
     // Null checks
     isNull: (expr: Sql): Sql => sql`${expr} IS NULL`,
@@ -95,13 +101,13 @@ export class PostgresAdapter implements DatabaseAdapter {
 
     // Logical
     and: (...conditions: Sql[]): Sql => {
-      if (conditions.length === 0) return sql.raw`TRUE`;
+      if (conditions.length === 0) return sql.raw`1`;
       if (conditions.length === 1) return conditions[0]!;
       return sql`(${sql.join(conditions, " AND ")})`;
     },
 
     or: (...conditions: Sql[]): Sql => {
-      if (conditions.length === 0) return sql.raw`FALSE`;
+      if (conditions.length === 0) return sql.raw`0`;
       if (conditions.length === 1) return conditions[0]!;
       return sql`(${sql.join(conditions, " OR ")})`;
     },
@@ -124,7 +130,7 @@ export class PostgresAdapter implements DatabaseAdapter {
     multiply: (left: Sql, right: Sql): Sql => sql`(${left} * ${right})`,
     divide: (left: Sql, right: Sql): Sql => sql`(${left} / ${right})`,
 
-    // String operations
+    // String operations - SQLite uses || for concatenation
     concat: (...parts: Sql[]): Sql => {
       if (parts.length === 0) return sql.raw`''`;
       if (parts.length === 1) return parts[0]!;
@@ -135,8 +141,8 @@ export class PostgresAdapter implements DatabaseAdapter {
 
     // Utility
     coalesce: (...exprs: Sql[]): Sql => sql`COALESCE(${sql.join(exprs, ", ")})`,
-    greatest: (...exprs: Sql[]): Sql => sql`GREATEST(${sql.join(exprs, ", ")})`,
-    least: (...exprs: Sql[]): Sql => sql`LEAST(${sql.join(exprs, ", ")})`,
+    greatest: (...exprs: Sql[]): Sql => sql`MAX(${sql.join(exprs, ", ")})`,
+    least: (...exprs: Sql[]): Sql => sql`MIN(${sql.join(exprs, ", ")})`,
     cast: (expr: Sql, type: string): Sql =>
       sql`CAST(${expr} AS ${sql.raw`${type}`})`,
   };
@@ -155,74 +161,85 @@ export class PostgresAdapter implements DatabaseAdapter {
   };
 
   // ============================================================
-  // JSON
+  // JSON (SQLite 3.38+ JSON functions)
   // ============================================================
 
   json = {
     object: (pairs: [string, Sql][]): Sql => {
-      if (pairs.length === 0) return sql.raw`'{}'::json`;
+      if (pairs.length === 0) return sql.raw`json_object()`;
       const args = pairs.flatMap(([key, value]) => [sql`${key}`, value]);
-      return sql`json_build_object(${sql.join(args, ", ")})`;
+      return sql`json_object(${sql.join(args, ", ")})`;
     },
 
     array: (items: Sql[]): Sql => {
-      if (items.length === 0) return sql.raw`'[]'::json`;
-      return sql`json_build_array(${sql.join(items, ", ")})`;
+      if (items.length === 0) return sql.raw`json_array()`;
+      return sql`json_array(${sql.join(items, ", ")})`;
     },
 
-    agg: (expr: Sql): Sql => sql`COALESCE(json_agg(${expr}), '[]'::json)`,
+    agg: (expr: Sql): Sql =>
+      sql`COALESCE(json_group_array(${expr}), json_array())`,
 
-    rowToJson: (alias: string): Sql => sql`row_to_json(${sql.raw`"${alias}"`})`,
+    rowToJson: (alias: string): Sql => {
+      // SQLite doesn't have row_to_json - would need to build manually
+      // This is a placeholder that returns the alias as a reference
+      return sql`json_object(${sql.raw`'row', "${alias}".*`})`;
+    },
 
     objectFromColumns: (columns: [string, Sql][]): Sql => {
-      if (columns.length === 0) return sql.raw`'{}'::json`;
+      if (columns.length === 0) return sql.raw`json_object()`;
       const args = columns.flatMap(([key, value]) => [sql`${key}`, value]);
-      return sql`json_build_object(${sql.join(args, ", ")})`;
+      return sql`json_object(${sql.join(args, ", ")})`;
     },
 
     extract: (column: Sql, path: string[]): Sql => {
       if (path.length === 0) return column;
-      if (path.length === 1) return sql`${column}->${path[0]}`;
-      const pathStr = path.join(",");
-      return sql`${column}#>'{${sql.raw`${pathStr}`}}'`;
+      const jsonPath = "$." + path.join(".");
+      return sql`json_extract(${column}, ${jsonPath})`;
     },
 
     extractText: (column: Sql, path: string[]): Sql => {
+      // SQLite json_extract returns the value in native form
+      // For text, we can cast or use as-is
       if (path.length === 0) return column;
-      if (path.length === 1) return sql`${column}->>${path[0]}`;
-      const pathStr = path.join(",");
-      return sql`${column}#>>'{${sql.raw`${pathStr}`}}'`;
+      const jsonPath = "$." + path.join(".");
+      return sql`json_extract(${column}, ${jsonPath})`;
     },
   };
 
   // ============================================================
-  // ARRAYS (Native PostgreSQL arrays)
+  // ARRAYS (JSON-based for SQLite)
   // ============================================================
 
   arrays = {
+    // SQLite uses JSON arrays
     literal: (items: Sql[]): Sql => {
-      if (items.length === 0) return sql.raw`'{}'`;
-      return sql`ARRAY[${sql.join(items, ", ")}]`;
+      if (items.length === 0) return sql.raw`json_array()`;
+      return sql`json_array(${sql.join(items, ", ")})`;
     },
 
-    has: (column: Sql, value: Sql): Sql => sql`${value} = ANY(${column})`,
+    // Check if value exists in JSON array using json_each
+    has: (column: Sql, value: Sql): Sql =>
+      sql`EXISTS (SELECT 1 FROM json_each(${column}) WHERE value = ${value})`,
 
-    hasEvery: (column: Sql, values: Sql): Sql => sql`${column} @> ${values}`,
+    hasEvery: (column: Sql, values: Sql): Sql =>
+      sql`(SELECT COUNT(*) FROM json_each(${values}) WHERE value IN (SELECT value FROM json_each(${column}))) = json_array_length(${values})`,
 
-    hasSome: (column: Sql, values: Sql): Sql => sql`${column} && ${values}`,
+    hasSome: (column: Sql, values: Sql): Sql =>
+      sql`EXISTS (SELECT 1 FROM json_each(${column}) AS a, json_each(${values}) AS b WHERE a.value = b.value)`,
 
     isEmpty: (column: Sql): Sql =>
-      sql`(cardinality(${column}) = 0 OR ${column} IS NULL)`,
+      sql`(json_array_length(${column}) = 0 OR ${column} IS NULL)`,
 
-    length: (column: Sql): Sql => sql`cardinality(${column})`,
+    length: (column: Sql): Sql => sql`json_array_length(${column})`,
 
-    get: (column: Sql, index: Sql): Sql => sql`${column}[${index}]`,
+    get: (column: Sql, index: Sql): Sql =>
+      sql`json_extract(${column}, '$[' || ${index} || ']')`,
 
     push: (column: Sql, value: Sql): Sql =>
-      sql`array_append(${column}, ${value})`,
+      sql`json_insert(${column}, '$[#]', ${value})`,
 
     set: (column: Sql, index: Sql, value: Sql): Sql =>
-      sql`${column}[:${index}-1] || ARRAY[${value}] || ${column}[${index}+1:]`,
+      sql`json_set(${column}, '$[' || ${index} || ']', ${value})`,
   };
 
   // ============================================================
@@ -232,8 +249,9 @@ export class PostgresAdapter implements DatabaseAdapter {
   orderBy = {
     asc: (column: Sql): Sql => sql`${column} ASC`,
     desc: (column: Sql): Sql => sql`${column} DESC`,
-    nullsFirst: (expr: Sql): Sql => sql`${expr} NULLS FIRST`,
-    nullsLast: (expr: Sql): Sql => sql`${expr} NULLS LAST`,
+    // SQLite doesn't support NULLS FIRST/LAST natively
+    nullsFirst: (expr: Sql): Sql => expr, // No-op
+    nullsLast: (expr: Sql): Sql => expr, // No-op
   };
 
   // ============================================================
@@ -268,7 +286,7 @@ export class PostgresAdapter implements DatabaseAdapter {
     divide: (column: Sql, by: Sql): Sql => sql`${column} = ${column} / ${by}`,
 
     push: (column: Sql, value: Sql): Sql =>
-      sql`${column} = array_append(${column}, ${value})`,
+      sql`${column} = json_insert(${column}, '$[#]', ${value})`,
   };
 
   // ============================================================
@@ -303,7 +321,10 @@ export class PostgresAdapter implements DatabaseAdapter {
 
   assemble = {
     select: (parts: QueryParts): Sql => {
-      const fragments: Sql[] = [sql`SELECT ${parts.columns}`, sql`FROM ${parts.from}`];
+      const fragments: Sql[] = [
+        sql`SELECT ${parts.columns}`,
+        sql`FROM ${parts.from}`,
+      ];
 
       if (parts.joins && parts.joins.length > 0) {
         fragments.push(...parts.joins);
@@ -390,8 +411,10 @@ export class PostgresAdapter implements DatabaseAdapter {
       return sql`DELETE FROM ${table}`;
     },
 
+    // SQLite 3.35+ supports RETURNING
     returning: (columns: Sql): Sql => sql`RETURNING ${columns}`,
 
+    // SQLite uses same syntax as PostgreSQL for ON CONFLICT
     onConflict: (target: Sql | null, action: Sql): Sql => {
       if (target) {
         return sql`ON CONFLICT (${target}) DO ${action}`;
@@ -411,15 +434,17 @@ export class PostgresAdapter implements DatabaseAdapter {
     left: (table: Sql, condition: Sql): Sql =>
       sql`LEFT JOIN ${table} ON ${condition}`,
 
+    // SQLite doesn't support RIGHT JOIN - use LEFT JOIN with tables swapped
     right: (table: Sql, condition: Sql): Sql =>
-      sql`RIGHT JOIN ${table} ON ${condition}`,
+      sql`LEFT JOIN ${table} ON ${condition}`,
 
+    // SQLite doesn't support FULL OUTER JOIN
     full: (table: Sql, condition: Sql): Sql =>
-      sql`FULL OUTER JOIN ${table} ON ${condition}`,
+      sql`LEFT JOIN ${table} ON ${condition}`,
 
     cross: (table: Sql): Sql => sql`CROSS JOIN ${table}`,
   };
 }
 
 // Export singleton instance
-export const postgresAdapter = new PostgresAdapter();
+export const sqliteAdapter = new SQLiteAdapter();

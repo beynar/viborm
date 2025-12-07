@@ -1,0 +1,88 @@
+---
+title: Installation
+description: Get started with VibORM in your project
+icon: Download
+---
+
+# Installation
+
+## Prerequisites
+
+- Node.js 18+ or Bun
+- TypeScript 5.0+
+- A supported database (PostgreSQL, MySQL, or SQLite)
+
+## Install VibORM
+
+```bash
+npm install viborm
+```
+
+Or with other package managers:
+
+```bash
+pnpm add viborm
+yarn add viborm
+bun add viborm
+```
+
+## Database Drivers
+
+Install the driver for your database:
+
+<Tabs items={["PostgreSQL", "MySQL", "SQLite"]}>
+  <Tab value="PostgreSQL">
+```bash
+npm install pg
+```
+  </Tab>
+  <Tab value="MySQL">
+```bash
+npm install mysql2
+```
+  </Tab>
+  <Tab value="SQLite">
+```bash
+npm install better-sqlite3
+```
+  </Tab>
+</Tabs>
+
+## TypeScript Configuration
+
+Ensure your `tsconfig.json` has strict mode enabled for full type inference:
+
+```json
+{
+  "compilerOptions": {
+    "strict": true,
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler"
+  }
+}
+```
+
+## Project Structure
+
+A typical VibORM project structure:
+
+```
+src/
+├── db/
+│   ├── schema.ts      # Model definitions
+│   ├── client.ts      # Client initialization
+│   └── index.ts       # Re-exports
+├── ...
+```
+
+## Next Steps
+
+<Cards>
+  <Card
+    title="Quick Start Tutorial"
+    description="Build your first schema in 5 minutes"
+    href="/docs/getting-started/quick-start"
+  />
+</Cards>
+

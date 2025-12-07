@@ -1,0 +1,172 @@
+---
+title: DateTime Field
+description: DateTime field type for timestamps and dates
+icon: Calendar
+---
+
+# DateTime Field
+
+The DateTime field type represents timestamps and dates.
+
+## Basic Usage
+
+```ts
+import { s } from "viborm";
+
+s.dateTime()               // Required datetime
+s.dateTime().nullable()    // DateTime | null
+```
+
+## Chainable Methods
+
+```ts
+s.dateTime()
+  .nullable()                      // Allow NULL
+  .id()                            // Primary key (rare)
+  .unique()                        // Unique constraint
+  .default(new Date())             // Static default (fixed time)
+  .default(() => new Date())       // Runtime default (current time)
+  .map("column_name")              // Custom column name
+```
+
+### Auto-Timestamps
+
+```ts
+s.dateTime().now()        // Default to current timestamp on create
+s.dateTime().updatedAt()  // Update to current timestamp on every update
+```
+
+## Native Database Types
+
+<Tabs items={["PostgreSQL", "MySQL", "SQLite"]}>
+  <Tab value="PostgreSQL">
+```ts
+import { TYPES } from "viborm";
+
+s.dateTime(TYPES.PG.DATETIME.TIMESTAMP())      // TIMESTAMP
+s.dateTime(TYPES.PG.DATETIME.TIMESTAMP(3))     // TIMESTAMP(3) - ms precision
+s.dateTime(TYPES.PG.DATETIME.TIMESTAMPTZ())    // TIMESTAMP WITH TIME ZONE
+s.dateTime(TYPES.PG.DATETIME.TIMESTAMPTZ(3))   // TIMESTAMPTZ(3)
+s.dateTime(TYPES.PG.DATETIME.DATE)             // DATE only
+s.dateTime(TYPES.PG.DATETIME.TIME())           // TIME only
+s.dateTime(TYPES.PG.DATETIME.TIMETZ())         // TIME WITH TIME ZONE
+s.dateTime(TYPES.PG.DATETIME.INTERVAL)         // INTERVAL
+```
+  </Tab>
+  <Tab value="MySQL">
+```ts
+import { TYPES } from "viborm";
+
+s.dateTime(TYPES.MYSQL.DATETIME.DATETIME())    // DATETIME
+s.dateTime(TYPES.MYSQL.DATETIME.DATETIME(3))   // DATETIME(3) - ms precision
+s.dateTime(TYPES.MYSQL.DATETIME.TIMESTAMP())   // TIMESTAMP
+s.dateTime(TYPES.MYSQL.DATETIME.DATE)          // DATE only
+s.dateTime(TYPES.MYSQL.DATETIME.TIME())        // TIME only
+```
+  </Tab>
+  <Tab value="SQLite">
+```ts
+import { TYPES } from "viborm";
+
+s.dateTime(TYPES.SQLITE.DATETIME.TEXT)     // TEXT (ISO format)
+s.dateTime(TYPES.SQLITE.DATETIME.REAL)     // REAL (Julian day)
+s.dateTime(TYPES.SQLITE.DATETIME.INTEGER)  // INTEGER (Unix timestamp)
+```
+  </Tab>
+</Tabs>
+
+## Type Mapping
+
+| Modifier | TypeScript | PostgreSQL | MySQL | SQLite |
+|----------|------------|------------|-------|--------|
+| `s.dateTime()` | `Date` | `TIMESTAMP` | `DATETIME` | `TEXT` |
+| `.nullable()` | `Date \| null` | `TIMESTAMP NULL` | `DATETIME NULL` | `TEXT NULL` |
+| `.array()` | `Date[]` | `TIMESTAMP[]` | `JSON` | `JSON` |
+
+## Input Types
+
+DateTime fields accept both `Date` objects and ISO strings:
+
+```ts
+// Both are valid in queries
+await client.user.create({
+  data: {
+    createdAt: new Date(),           // Date object
+    updatedAt: "2024-01-15T10:30:00Z" // ISO string
+  }
+});
+```
+
+## Examples
+
+```ts
+// Created timestamp (set once)
+const createdAt = s.dateTime().default(() => new Date());
+// or
+const createdAt = s.dateTime().now();
+
+// Updated timestamp (auto-updates)
+const updatedAt = s.dateTime().updatedAt();
+
+// Optional date
+const lastLogin = s.dateTime().nullable();
+
+// Scheduled date
+const publishAt = s.dateTime().nullable();
+
+// Expiration date
+const expiresAt = s.dateTime();
+```
+
+## Common Patterns
+
+### Timestamps on All Models
+
+```ts
+const timestamps = {
+  createdAt: s.dateTime().now(),
+  updatedAt: s.dateTime().updatedAt(),
+};
+
+const user = s.model({
+  id: s.string().id().ulid(),
+  email: s.string(),
+  ...timestamps,
+});
+
+const post = s.model({
+  id: s.string().id().ulid(),
+  title: s.string(),
+  ...timestamps,
+});
+```
+
+### Soft Delete with Timestamp
+
+```ts
+const user = s.model({
+  id: s.string().id().ulid(),
+  deleted: s.boolean().default(false),
+  deletedAt: s.dateTime().nullable(),
+});
+```
+
+### Scheduled Publishing
+
+```ts
+const post = s.model({
+  id: s.string().id().ulid(),
+  title: s.string(),
+  publishAt: s.dateTime().nullable(),
+  publishedAt: s.dateTime().nullable(),
+});
+
+// Find scheduled posts ready to publish
+await client.post.findMany({
+  where: {
+    publishAt: { lte: new Date() },
+    publishedAt: null,
+  },
+});
+```
+

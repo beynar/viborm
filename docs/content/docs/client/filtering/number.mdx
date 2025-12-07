@@ -1,0 +1,171 @@
+---
+title: Number Filters
+description: Filter operators for number fields
+icon: Hash
+---
+
+# Number Filters
+
+Filter operators available for `int`, `float`, `decimal`, and `bigInt` fields.
+
+## Operators
+
+| Operator | Description |
+|----------|-------------|
+| `equals` | Exact match |
+| `not` | Not equal |
+| `in` | Match any in array |
+| `notIn` | Match none in array |
+| `lt` | Less than |
+| `lte` | Less than or equal |
+| `gt` | Greater than |
+| `gte` | Greater than or equal |
+
+## equals / not
+
+```ts
+// Exact match
+where: { age: 25 }
+where: { age: { equals: 25 } }
+
+// Not equal
+where: { age: { not: 0 } }
+```
+
+## Comparisons
+
+```ts
+// Less than
+where: { age: { lt: 18 } }
+
+// Less than or equal
+where: { age: { lte: 17 } }
+
+// Greater than
+where: { age: { gt: 65 } }
+
+// Greater than or equal
+where: { age: { gte: 21 } }
+```
+
+## Range Queries
+
+Combine operators for ranges:
+
+```ts
+// Between 18 and 65 (inclusive)
+where: {
+  age: {
+    gte: 18,
+    lte: 65,
+  },
+}
+
+// Greater than 100 but not 200
+where: {
+  price: {
+    gt: 100,
+    not: 200,
+  },
+}
+```
+
+## in / notIn
+
+```ts
+// Match specific values
+where: { status: { in: [1, 2, 3] } }
+
+// Exclude values
+where: { priority: { notIn: [0, -1] } }
+```
+
+## BigInt
+
+BigInt uses the same operators with `bigint` values:
+
+```ts
+where: { viewCount: { gte: 1000000n } }
+where: { id: { in: [1n, 2n, 3n] } }
+```
+
+## Examples
+
+### Age Filter
+
+```ts
+async function getAdultUsers() {
+  return client.user.findMany({
+    where: { age: { gte: 18 } },
+  });
+}
+```
+
+### Price Range
+
+```ts
+async function getProductsInRange(min: number, max: number) {
+  return client.product.findMany({
+    where: {
+      price: {
+        gte: min,
+        lte: max,
+      },
+    },
+    orderBy: { price: "asc" },
+  });
+}
+```
+
+### Stock Filter
+
+```ts
+async function getLowStockProducts(threshold = 10) {
+  return client.product.findMany({
+    where: {
+      stock: { lte: threshold },
+      active: true,
+    },
+  });
+}
+```
+
+### View Count Threshold
+
+```ts
+async function getPopularPosts(minViews = 1000) {
+  return client.post.findMany({
+    where: {
+      views: { gte: minViews },
+      published: true,
+    },
+    orderBy: { views: "desc" },
+  });
+}
+```
+
+### Rating Filter
+
+```ts
+async function getHighRatedProducts(minRating = 4.0) {
+  return client.product.findMany({
+    where: {
+      rating: { gte: minRating },
+      reviewCount: { gte: 10 },  // Minimum reviews
+    },
+  });
+}
+```
+
+### Pagination by ID Range
+
+```ts
+async function getItemsAfter(lastId: number, limit = 20) {
+  return client.item.findMany({
+    where: { id: { gt: lastId } },
+    take: limit,
+    orderBy: { id: "asc" },
+  });
+}
+```
+

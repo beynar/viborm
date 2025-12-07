@@ -1,0 +1,309 @@
+---
+title: Client API Reference
+description: Complete reference for client query APIs
+icon: Terminal
+---
+
+# Client API Reference
+
+Complete reference for all client query and mutation APIs.
+
+## Query Operations
+
+### findMany
+
+```ts
+client.model.findMany({
+  where?: WhereInput,
+  orderBy?: OrderByInput,
+  take?: number,
+  skip?: number,
+  cursor?: UniqueInput,
+  select?: SelectInput,
+  include?: IncludeInput,
+  distinct?: string[],
+})
+```
+
+Returns: `T[]`
+
+### findFirst
+
+```ts
+client.model.findFirst({
+  where?: WhereInput,
+  orderBy?: OrderByInput,
+  take?: number,
+  skip?: number,
+  cursor?: UniqueInput,
+  select?: SelectInput,
+  include?: IncludeInput,
+})
+```
+
+Returns: `T | null`
+
+### findUnique
+
+```ts
+client.model.findUnique({
+  where: UniqueInput,
+  select?: SelectInput,
+  include?: IncludeInput,
+})
+```
+
+Returns: `T | null`
+
+### findFirstOrThrow / findUniqueOrThrow
+
+Same as above but throws if not found.
+
+Returns: `T`
+
+### exist
+
+```ts
+client.model.exist({
+  where?: WhereInput,
+})
+```
+
+Returns: `boolean`
+
+## Mutation Operations
+
+### create
+
+```ts
+client.model.create({
+  data: CreateInput,
+  select?: SelectInput,
+  include?: IncludeInput,
+})
+```
+
+Returns: `T`
+
+### createMany
+
+```ts
+client.model.createMany({
+  data: CreateInput[],
+  skipDuplicates?: boolean,
+})
+```
+
+Returns: `{ count: number }`
+
+### update
+
+```ts
+client.model.update({
+  where: UniqueInput,
+  data: UpdateInput,
+  select?: SelectInput,
+  include?: IncludeInput,
+})
+```
+
+Returns: `T`
+
+### updateMany
+
+```ts
+client.model.updateMany({
+  where?: WhereInput,
+  data: UpdateInput,
+})
+```
+
+Returns: `{ count: number }`
+
+### delete
+
+```ts
+client.model.delete({
+  where: UniqueInput,
+  select?: SelectInput,
+  include?: IncludeInput,
+})
+```
+
+Returns: `T`
+
+### deleteMany
+
+```ts
+client.model.deleteMany({
+  where?: WhereInput,
+})
+```
+
+Returns: `{ count: number }`
+
+### upsert
+
+```ts
+client.model.upsert({
+  where: UniqueInput,
+  create: CreateInput,
+  update: UpdateInput,
+  select?: SelectInput,
+  include?: IncludeInput,
+})
+```
+
+Returns: `T`
+
+## Aggregate Operations
+
+### count
+
+```ts
+client.model.count({
+  where?: WhereInput,
+  select?: { _all?: boolean, field?: boolean },
+})
+```
+
+Returns: `number` or `{ _all: number, field: number }`
+
+### aggregate
+
+```ts
+client.model.aggregate({
+  where?: WhereInput,
+  _count?: true | { field: true },
+  _avg?: { field: true },
+  _sum?: { field: true },
+  _min?: { field: true },
+  _max?: { field: true },
+})
+```
+
+### groupBy
+
+```ts
+client.model.groupBy({
+  by: string[],
+  where?: WhereInput,
+  having?: HavingInput,
+  orderBy?: OrderByInput,
+  take?: number,
+  skip?: number,
+  _count?: true | { field: true },
+  _avg?: { field: true },
+  _sum?: { field: true },
+  _min?: { field: true },
+  _max?: { field: true },
+})
+```
+
+## Filter Operators
+
+### Common
+
+| Operator | Description |
+|----------|-------------|
+| `equals` | Exact match |
+| `not` | Negation |
+| `in` | Match any |
+| `notIn` | Match none |
+
+### String
+
+| Operator | Description |
+|----------|-------------|
+| `contains` | Substring |
+| `startsWith` | Prefix |
+| `endsWith` | Suffix |
+| `mode` | Case sensitivity |
+
+### Number / DateTime
+
+| Operator | Description |
+|----------|-------------|
+| `lt` | Less than |
+| `lte` | Less or equal |
+| `gt` | Greater than |
+| `gte` | Greater or equal |
+
+### Array
+
+| Operator | Description |
+|----------|-------------|
+| `has` | Contains value |
+| `hasEvery` | Contains all |
+| `hasSome` | Contains any |
+| `isEmpty` | Is empty |
+
+### JSON
+
+| Operator | Description |
+|----------|-------------|
+| `path` + `equals` | Match path value |
+| `string_contains` | JSON contains string |
+| `array_contains` | Array contains value |
+
+### Logical
+
+| Operator | Description |
+|----------|-------------|
+| `AND` | All conditions |
+| `OR` | Any condition |
+| `NOT` | Negation |
+
+## Relation Filters
+
+### To-One
+
+| Operator | Description |
+|----------|-------------|
+| `is` | Match related |
+| `isNot` | Exclude matching |
+
+### To-Many
+
+| Operator | Description |
+|----------|-------------|
+| `some` | At least one |
+| `every` | All match |
+| `none` | No matches |
+
+## Nested Writes
+
+### Create
+
+| Operator | Description |
+|----------|-------------|
+| `create` | Create nested |
+| `connect` | Link existing |
+| `connectOrCreate` | Link or create |
+
+### Update
+
+| Operator | Description |
+|----------|-------------|
+| `update` | Update nested |
+| `updateMany` | Update multiple |
+| `upsert` | Create or update |
+| `set` | Replace all |
+| `disconnect` | Unlink |
+| `delete` | Delete nested |
+| `deleteMany` | Delete multiple |
+
+## Ordering
+
+```ts
+orderBy: {
+  field: "asc" | "desc",
+  // or
+  field: { sort: "asc" | "desc", nulls: "first" | "last" },
+  // or relation
+  relation: { field: "asc" | "desc" },
+  // or count
+  relation: { _count: "asc" | "desc" },
+}
+```
+

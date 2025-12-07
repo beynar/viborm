@@ -1,0 +1,125 @@
+---
+title: Filtering
+description: Filter operators for different field types
+icon: Filter
+---
+
+# Filtering
+
+The `where` clause supports various filter operators depending on the field type.
+
+## Basic Filtering
+
+```ts
+const users = await client.user.findMany({
+  where: {
+    role: "ADMIN",              // Exact match
+    active: true,               // Boolean
+    age: { gte: 18 },           // Comparison
+    name: { contains: "alice" }, // String search
+  },
+});
+```
+
+## Common Operators
+
+All field types support:
+
+| Operator | Description |
+|----------|-------------|
+| `equals` | Exact match |
+| `not` | Negation |
+| `in` | Match any in array |
+| `notIn` | Match none in array |
+
+```ts
+where: {
+  role: "ADMIN",                    // Shorthand for equals
+  role: { equals: "ADMIN" },        // Explicit equals
+  role: { not: "GUEST" },           // Not equal
+  role: { in: ["ADMIN", "MODERATOR"] },  // In array
+  role: { notIn: ["GUEST", "BANNED"] },  // Not in array
+}
+```
+
+## Logical Operators
+
+Combine conditions with `AND`, `OR`, `NOT`:
+
+```ts
+// AND (implicit)
+where: {
+  role: "ADMIN",
+  active: true,
+}
+
+// AND (explicit)
+where: {
+  AND: [
+    { role: "ADMIN" },
+    { active: true },
+  ],
+}
+
+// OR
+where: {
+  OR: [
+    { role: "ADMIN" },
+    { email: { endsWith: "@company.com" } },
+  ],
+}
+
+// NOT
+where: {
+  NOT: { role: "GUEST" },
+}
+
+// Combined
+where: {
+  AND: [
+    { active: true },
+    {
+      OR: [
+        { role: "ADMIN" },
+        { email: { endsWith: "@company.com" } },
+      ],
+    },
+  ],
+}
+```
+
+## Filter by Type
+
+<Cards>
+  <Card
+    title="String Filters"
+    description="contains, startsWith, endsWith, mode"
+    href="/docs/client/filtering/string"
+  />
+  <Card
+    title="Number Filters"
+    description="lt, lte, gt, gte comparisons"
+    href="/docs/client/filtering/number"
+  />
+  <Card
+    title="Boolean Filters"
+    description="equals, not operators"
+    href="/docs/client/filtering/boolean"
+  />
+  <Card
+    title="DateTime Filters"
+    description="Date comparisons and ranges"
+    href="/docs/client/filtering/datetime"
+  />
+  <Card
+    title="JSON Filters"
+    description="Path queries and operations"
+    href="/docs/client/filtering/json"
+  />
+  <Card
+    title="Array Filters"
+    description="has, hasEvery, hasSome, isEmpty"
+    href="/docs/client/filtering/arrays"
+  />
+</Cards>
+

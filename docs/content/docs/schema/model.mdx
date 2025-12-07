@@ -1,0 +1,179 @@
+---
+title: Model
+description: Define database tables with the Model class
+icon: Table
+---
+
+# Model
+
+Models represent database tables. Each model contains fields (columns) and relations (foreign keys).
+
+## Creating a Model
+
+Use `s.model()` with an object of field definitions:
+
+```ts
+import { s } from "viborm";
+
+const user = s.model({
+  id: s.string().id().ulid(),
+  email: s.string().unique(),
+  name: s.string(),
+  createdAt: s.dateTime().default(() => new Date()),
+});
+```
+
+## Table Name
+
+By default, VibORM uses the variable name. Use `.map()` to set a custom table name:
+
+```ts
+const user = s.model({
+  id: s.string().id(),
+  // ...
+}).map("users"); // SQL: CREATE TABLE "users" (...)
+```
+
+## Chainable Methods
+
+### `.map(tableName)`
+
+Sets the database table name.
+
+```ts
+.map("users")
+.map("user_accounts")
+```
+
+### `.index(fields, options?)`
+
+Adds an index on one or more fields.
+
+```ts
+// Single field index
+.index("email")
+
+// Composite index
+.index(["lastName", "firstName"])
+
+// With options
+.index(["status", "createdAt"], {
+  name: "idx_status_date",
+  type: "btree",        // btree | hash | gin | gist
+  unique: false,
+  where: "status != 'deleted'"  // Partial index (PostgreSQL)
+})
+```
+
+### `.id(fields, options?)`
+
+Defines a compound primary key (when multiple fields form the PK):
+
+```ts
+const membership = s.model({
+  orgId: s.string(),
+  userId: s.string(),
+  role: s.string(),
+}).id(["orgId", "userId"]);
+
+// With custom constraint name
+.id(["orgId", "userId"], { name: "membership_pk" })
+```
+
+### `.unique(fields, options?)`
+
+Adds a compound unique constraint:
+
+```ts
+const user = s.model({
+  id: s.string().id(),
+  email: s.string(),
+  orgId: s.string(),
+}).unique(["email", "orgId"]);
+
+// With custom constraint name
+.unique(["email", "orgId"], { name: "user_email_org_unique" })
+```
+
+### `.extends(fields)`
+
+Adds additional fields to an existing model:
+
+```ts
+const baseModel = s.model({
+  id: s.string().id(),
+  createdAt: s.dateTime().default(() => new Date()),
+});
+
+const user = baseModel.extends({
+  email: s.string().unique(),
+  name: s.string(),
+});
+```
+
+## Index Options
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `name` | `string` | Custom index name |
+| `type` | `"btree" \| "hash" \| "gin" \| "gist"` | Index type (PostgreSQL) |
+| `unique` | `boolean` | Unique index |
+| `where` | `string` | Partial index condition |
+
+## Complete Example
+
+```ts
+const user = s.model({
+  // Primary key with auto-generation
+  id: s.string().id().ulid(),
+  
+  // Required fields
+  email: s.string().unique(),
+  passwordHash: s.string(),
+  
+  // Optional fields
+  name: s.string().nullable(),
+  bio: s.string().nullable(),
+  
+  // With defaults
+  role: s.enum(["USER", "ADMIN"]).default("USER"),
+  active: s.boolean().default(true),
+  createdAt: s.dateTime().default(() => new Date()),
+  updatedAt: s.dateTime().updatedAt(),
+  
+  // Relations
+  posts: s.oneToMany(() => post),
+  profile: s.oneToOne(() => profile).optional(),
+})
+  .map("users")
+  .index("email")
+  .index(["role", "active"])
+  .unique(["email", "orgId"]);
+```
+
+## Accessing Model Internals
+
+The `~` property exposes internal state (for advanced use):
+
+```ts
+const user = s.model({ ... });
+
+user["~"].fields       // Field definitions
+user["~"].fieldMap     // Map<string, Field>
+user["~"].relations    // Map<string, Relation>
+user["~"].tableName    // Table name
+user["~"].indexes      // Index definitions
+user["~"].compoundId   // Compound PK (if any)
+user["~"].schemas      // ArkType validation schemas
+user["~"].infer        // Inferred TypeScript type
+```
+
+## Type Inference
+
+Access the inferred type for a model:
+
+```ts
+type User = typeof user["~"]["infer"];
+// { id: string; email: string; name: string | null; ... }
+```
+

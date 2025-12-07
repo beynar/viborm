@@ -1,0 +1,214 @@
+---
+title: One-to-Many
+description: Define one-to-many relationships between models
+icon: ArrowRightFromLine
+---
+
+# One-to-Many Relation
+
+A one-to-many relation connects a single record to multiple related records. This is the "one" side of the relationship.
+
+## Basic Example
+
+```ts
+import { s } from "viborm";
+
+// One user has many posts
+const user = s.model({
+  id: s.string().id().ulid(),
+  email: s.string().unique(),
+  posts: s.oneToMany(() => post),  // Array of posts
+}).map("users");
+
+// Each post belongs to one user (many-to-one side)
+const post = s.model({
+  id: s.string().id().ulid(),
+  title: s.string(),
+  authorId: s.string(),
+  author: s.manyToOne(() => user).fields("authorId").references("id"),
+}).map("posts");
+```
+
+## Characteristics
+
+| Aspect | Value |
+|--------|-------|
+| Returns | Array (`Post[]`) |
+| FK location | On the "many" side |
+| Can be empty | Yes (empty array) |
+| Optional modifier | No (arrays are never null) |
+
+## No FK on This Side
+
+The one-to-many side does NOT have a foreign key. The FK is on the many-to-one side:
+
+```ts
+// ✅ Correct - no FK configuration
+posts: s.oneToMany(() => post)
+
+// ❌ Wrong - oneToMany doesn't have FK
+posts: s.oneToMany(() => post).fields("???")
+```
+
+## Chainable Methods
+
+One-to-many relations have minimal configuration since they don't own the FK:
+
+```ts
+s.oneToMany(() => post)
+// That's it! No .fields(), .references(), or .optional()
+```
+
+## Complete Example
+
+```ts
+const user = s.model({
+  id: s.string().id().ulid(),
+  email: s.string().unique(),
+  name: s.string(),
+  // One user has many posts
+  posts: s.oneToMany(() => post),
+  // One user has many comments
+  comments: s.oneToMany(() => comment),
+}).map("users");
+
+const post = s.model({
+  id: s.string().id().ulid(),
+  title: s.string(),
+  content: s.string(),
+  authorId: s.string(),
+  // Many posts belong to one user
+  author: s.manyToOne(() => user).fields("authorId").references("id"),
+  // One post has many comments
+  comments: s.oneToMany(() => comment),
+}).map("posts");
+
+const comment = s.model({
+  id: s.string().id().ulid(),
+  content: s.string(),
+  authorId: s.string(),
+  postId: s.string(),
+  // Many comments belong to one user
+  author: s.manyToOne(() => user).fields("authorId").references("id"),
+  // Many comments belong to one post
+  post: s.manyToOne(() => post).fields("postId").references("id"),
+}).map("comments");
+```
+
+## Querying One-to-Many
+
+```ts
+// Include posts when fetching user
+const user = await client.user.findUnique({
+  where: { id: "user_123" },
+  include: { posts: true },
+});
+// user.posts: Post[]
+
+// Filter and paginate included posts
+const user = await client.user.findUnique({
+  where: { id: "user_123" },
+  include: {
+    posts: {
+      where: { published: true },
+      orderBy: { createdAt: "desc" },
+      take: 10,
+    }
+  }
+});
+
+// Filter users by their posts
+const authors = await client.user.findMany({
+  where: {
+    posts: {
+      some: { published: true }  // Has at least one published post
+    }
+  }
+});
+
+// Users with ALL published posts
+const consistentAuthors = await client.user.findMany({
+  where: {
+    posts: {
+      every: { published: true }
+    }
+  }
+});
+
+// Users with NO posts
+const newUsers = await client.user.findMany({
+  where: {
+    posts: {
+      none: {}
+    }
+  }
+});
+```
+
+## Creating Related Records
+
+```ts
+// Create user with posts
+const user = await client.user.create({
+  data: {
+    email: "alice@example.com",
+    name: "Alice",
+    posts: {
+      create: [
+        { title: "First Post", content: "Hello!" },
+        { title: "Second Post", content: "World!" },
+      ]
+    }
+  },
+  include: { posts: true },
+});
+
+// Add posts to existing user
+await client.user.update({
+  where: { id: "user_123" },
+  data: {
+    posts: {
+      create: { title: "New Post", content: "Content" },
+    }
+  }
+});
+```
+
+## Common Patterns
+
+### Blog with Categories
+
+```ts
+const category = s.model({
+  id: s.string().id().ulid(),
+  name: s.string().unique(),
+  posts: s.oneToMany(() => post),
+}).map("categories");
+
+const post = s.model({
+  id: s.string().id().ulid(),
+  title: s.string(),
+  categoryId: s.string(),
+  category: s.manyToOne(() => category).fields("categoryId").references("id"),
+}).map("posts");
+```
+
+### Organization with Members
+
+```ts
+const organization = s.model({
+  id: s.string().id().ulid(),
+  name: s.string(),
+  members: s.oneToMany(() => membership),
+}).map("organizations");
+
+const membership = s.model({
+  id: s.string().id().ulid(),
+  role: s.enum(["ADMIN", "MEMBER"]),
+  orgId: s.string(),
+  userId: s.string(),
+  organization: s.manyToOne(() => organization).fields("orgId").references("id"),
+  user: s.manyToOne(() => user).fields("userId").references("id"),
+}).map("memberships");
+```
+

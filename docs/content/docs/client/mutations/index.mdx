@@ -1,0 +1,74 @@
+---
+title: Mutation Operations
+description: Create, update, and delete data
+icon: PenLine
+---
+
+# Mutation Operations
+
+Mutations modify data in your database.
+
+## Overview
+
+| Operation | Description | Returns |
+|-----------|-------------|---------|
+| `create` | Create a single record | `T` |
+| `createMany` | Create multiple records | `{ count }` |
+| `update` | Update a single record | `T` |
+| `updateMany` | Update multiple records | `{ count }` |
+| `delete` | Delete a single record | `T` |
+| `deleteMany` | Delete multiple records | `{ count }` |
+| `upsert` | Create or update | `T` |
+
+## Quick Examples
+
+```ts
+// Create
+const user = await client.user.create({
+  data: { email: "alice@example.com", name: "Alice" },
+});
+
+// Update
+await client.user.update({
+  where: { id: "user_123" },
+  data: { name: "Alice Smith" },
+});
+
+// Delete
+await client.user.delete({
+  where: { id: "user_123" },
+});
+
+// Upsert
+await client.user.upsert({
+  where: { email: "alice@example.com" },
+  create: { email: "alice@example.com", name: "Alice" },
+  update: { name: "Alice Updated" },
+});
+```
+
+## Pages
+
+<Cards>
+  <Card
+    title="create"
+    description="Create single or multiple records"
+    href="/docs/client/mutations/create"
+  />
+  <Card
+    title="update"
+    description="Update single or multiple records"
+    href="/docs/client/mutations/update"
+  />
+  <Card
+    title="delete"
+    description="Delete single or multiple records"
+    href="/docs/client/mutations/delete"
+  />
+  <Card
+    title="upsert"
+    description="Create or update in one operation"
+    href="/docs/client/mutations/upsert"
+  />
+</Cards>
+

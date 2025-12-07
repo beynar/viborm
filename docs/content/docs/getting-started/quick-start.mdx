@@ -1,0 +1,150 @@
+---
+title: Quick Start
+description: Build your first VibORM schema in 5 minutes
+icon: Zap
+---
+
+# Quick Start
+
+This guide walks you through creating a simple blog schema with users and posts.
+
+## 1. Define Your Schema
+
+Create a `schema.ts` file with your model definitions:
+
+```ts title="src/db/schema.ts"
+import { s } from "viborm";
+
+// User model
+export const user = s.model({
+  id: s.string().id().ulid(),
+  email: s.string().unique(),
+  name: s.string(),
+  createdAt: s.dateTime().default(() => new Date()),
+  posts: s.oneToMany(() => post),
+}).map("users");
+
+// Post model
+export const post = s.model({
+  id: s.string().id().ulid(),
+  title: s.string(),
+  content: s.string().nullable(),
+  published: s.boolean().default(false),
+  authorId: s.string(),
+  author: s.manyToOne(() => user).fields("authorId").references("id"),
+  createdAt: s.dateTime().default(() => new Date()),
+}).map("posts");
+```
+
+## 2. Create the Client
+
+Initialize your database client:
+
+```ts title="src/db/client.ts"
+import { createClient } from "viborm";
+import { PostgresAdapter } from "viborm/adapters/postgres";
+import { user, post } from "./schema";
+
+export const db = createClient({
+  schema: { user, post },
+  adapter: new PostgresAdapter({
+    connectionString: process.env.DATABASE_URL,
+  }),
+});
+```
+
+## 3. Query Your Data
+
+Now you can use the fully typed client:
+
+```ts title="src/index.ts"
+import { db } from "./db/client";
+
+// Create a user
+const newUser = await db.user.create({
+  data: {
+    email: "alice@example.com",
+    name: "Alice",
+  },
+});
+
+// Create a post for the user
+const newPost = await db.post.create({
+  data: {
+    title: "My First Post",
+    content: "Hello, VibORM!",
+    authorId: newUser.id,
+  },
+});
+
+// Find users with their posts
+const users = await db.user.findMany({
+  where: {
+    email: { contains: "@example.com" },
+  },
+  include: {
+    posts: {
+      where: { published: true },
+      orderBy: { createdAt: "desc" },
+    },
+  },
+});
+
+// Update a post
+await db.post.update({
+  where: { id: newPost.id },
+  data: { published: true },
+});
+
+// Delete unpublished posts
+await db.post.deleteMany({
+  where: { published: false },
+});
+```
+
+## 4. Type Safety in Action
+
+VibORM provides full type inference:
+
+```ts
+// ✅ TypeScript knows the exact shape
+const user = await db.user.findUnique({
+  where: { email: "alice@example.com" },
+  select: { id: true, name: true },
+});
+// Type: { id: string; name: string } | null
+
+// ❌ TypeScript catches errors at compile time
+await db.user.create({
+  data: {
+    email: "bob@example.com",
+    // Error: 'name' is required
+  },
+});
+
+// ❌ Invalid field names are rejected
+await db.user.findMany({
+  where: { invalidField: "value" }, // Error: 'invalidField' does not exist
+});
+```
+
+## Next Steps
+
+<Cards>
+  <Card
+    title="Schema Definition"
+    description="Learn about models, fields, and relations"
+    href="/docs/schema"
+  />
+  <Card
+    title="Client API"
+    description="Explore all query and mutation operations"
+    href="/docs/client"
+  />
+  <Card
+    title="Filtering"
+    description="Master the filter operators"
+    href="/docs/client/filtering"
+  />
+</Cards>
+

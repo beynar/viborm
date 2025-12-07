@@ -1,0 +1,14 @@
+{
+  "title": "Client",
+  "pages": [
+    "index",
+    "queries",
+    "mutations",
+    "filtering",
+    "relations",
+    "selecting",
+    "sorting",
+    "pagination"
+  ]
+}
+

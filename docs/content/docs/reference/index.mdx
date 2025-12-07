@@ -1,0 +1,66 @@
+---
+title: API Reference
+description: Quick reference for VibORM APIs
+icon: Book
+---
+
+# API Reference
+
+Quick lookup for VibORM APIs.
+
+## Reference Guides
+
+<Cards>
+  <Card
+    title="Schema API"
+    description="Fields, models, and relations reference"
+    href="/docs/reference/schema-api"
+  />
+  <Card
+    title="Client API"
+    description="Operations and query options reference"
+    href="/docs/reference/client-api"
+  />
+</Cards>
+
+## Quick Links
+
+### Schema
+
+| API | Description |
+|-----|-------------|
+| `s.model()` | Create a model |
+| `s.string()` | String field |
+| `s.int()` | Integer field |
+| `s.float()` | Float field |
+| `s.decimal()` | Decimal field |
+| `s.bigInt()` | BigInt field |
+| `s.boolean()` | Boolean field |
+| `s.dateTime()` | DateTime field |
+| `s.json()` | JSON field |
+| `s.blob()` | Binary field |
+| `s.enum()` | Enum field |
+| `s.vector()` | Vector field |
+| `s.oneToOne()` | One-to-one relation |
+| `s.oneToMany()` | One-to-many relation |
+| `s.manyToOne()` | Many-to-one relation |
+| `s.manyToMany()` | Many-to-many relation |
+
+### Client
+
+| API | Description |
+|-----|-------------|
+| `findMany` | Find multiple records |
+| `findFirst` | Find first matching |
+| `findUnique` | Find by unique ID |
+| `create` | Create record |
+| `createMany` | Create multiple |
+| `update` | Update record |
+| `updateMany` | Update multiple |
+| `delete` | Delete record |
+| `deleteMany` | Delete multiple |
+| `upsert` | Create or update |
+| `count` | Count records |
+| `aggregate` | Run aggregations |
+| `groupBy` | Group and aggregate |
+

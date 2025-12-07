@@ -1,0 +1,97 @@
+---
+title: Introduction
+description: A fully type-safe TypeScript ORM with zero code generation
+icon: Database
+---
+
+# VibORM
+
+VibORM is a modern TypeScript ORM that provides **full type safety** without code generation. Define your schema once and get perfectly typed queries, mutations, and results.
+
+## Why VibORM?
+
+| Feature            | VibORM         | Prisma          | Drizzle    |
+| ------------------ | -------------- | --------------- | ---------- |
+| Type Safety        | Full inference | Code generation | Partial    |
+| Schema Definition  | TypeScript     | Schema file     | TypeScript |
+| Code Generation    | None           | Required        | None       |
+| Query API          | Prisma-like    | Prisma          | SQL-like   |
+| Runtime Validation | ArkType        | None            | None       |
+
+## Key Features
+
+- **Zero Code Generation** — Types are inferred from your schema at compile time
+- **Prisma-like API** — Familiar patterns if you're coming from Prisma
+- **Full Type Safety** — Every query, filter, and result is fully typed
+- **Runtime Validation** — Built-in ArkType schemas validate data at runtime
+- **Chainable API** — Fluent, composable schema definitions
+- **Database Agnostic** — Supports PostgreSQL, MySQL, and SQLite
+
+## Quick Example
+
+```ts
+import { s, createClient } from "viborm";
+
+// Define your schema with full type inference
+const user = s
+  .model({
+    id: s.string().id().ulid(),
+    email: s.string().unique(),
+    name: s.string().nullable(),
+    role: s.enum(["USER", "ADMIN"]).default("USER"),
+    posts: s.oneToMany(() => post),
+  })
+  .map("users");
+
+const post = s
+  .model({
+    id: s.string().id().ulid(),
+    title: s.string(),
+    published: s.boolean().default(false),
+    authorId: s.string(),
+    author: s
+      .manyToOne(() => user)
+      .fields("authorId")
+      .references("id"),
+  })
+  .map("posts");
+
+// Create a fully typed client
+const client = createClient({
+  schema: { user, post },
+  adapter: new PostgresAdapter({ connectionString: "..." }),
+});
+
+// Query with full type safety
+const users = await client.user.findMany({
+  where: { role: "ADMIN" },
+  include: { posts: { where: { published: true } } },
+});
+// Type: { id: string; email: string; name: string | null; role: "USER" | "ADMIN"; posts: Post[] }[]
+```
+
+## Installation
+
+```bash
+npm install viborm
+```
+
+## Next Steps
+
+<Cards>
+  <Card
+    title="Quick Start"
+    description="Build your first schema in 5 minutes"
+    href="/docs/getting-started/quick-start"
+  />
+  <Card
+    title="Schema Definition"
+    description="Learn how to define models, fields, and relations"
+    href="/docs/schema"
+  />
+  <Card
+    title="Client API"
+    description="Query and mutate data with full type safety"
+    href="/docs/client"
+  />
+</Cards>

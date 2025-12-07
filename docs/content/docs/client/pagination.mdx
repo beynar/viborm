@@ -1,0 +1,240 @@
+---
+title: Pagination
+description: Paginate query results with offset or cursor
+icon: ChevronRight
+---
+
+# Pagination
+
+Paginate query results using offset-based or cursor-based pagination.
+
+## Offset Pagination
+
+Simple page-based pagination:
+
+```ts
+// Page 1 (first 10 records)
+const page1 = await client.user.findMany({
+  take: 10,
+  skip: 0,
+});
+
+// Page 2
+const page2 = await client.user.findMany({
+  take: 10,
+  skip: 10,
+});
+
+// Page N
+const pageN = await client.user.findMany({
+  take: 10,
+  skip: (page - 1) * 10,
+});
+```
+
+### With Total Count
+
+```ts
+async function getPage(page: number, pageSize: number) {
+  const [items, total] = await Promise.all([
+    client.user.findMany({
+      take: pageSize,
+      skip: (page - 1) * pageSize,
+      orderBy: { createdAt: "desc" },
+    }),
+    client.user.count(),
+  ]);
+  
+  return {
+    items,
+    total,
+    page,
+    pageSize,
+    totalPages: Math.ceil(total / pageSize),
+  };
+}
+```
+
+## Cursor Pagination
+
+More efficient for large datasets:
+
+```ts
+// First page
+const page1 = await client.user.findMany({
+  take: 10,
+  orderBy: { id: "asc" },
+});
+
+// Next page (using last item's ID as cursor)
+const page2 = await client.user.findMany({
+  take: 10,
+  skip: 1,  // Skip the cursor itself
+  cursor: { id: lastId },
+  orderBy: { id: "asc" },
+});
+```
+
+### Bi-directional Cursor
+
+Navigate forward and backward:
+
+```ts
+// Forward (next)
+const next = await client.user.findMany({
+  take: 10,
+  skip: 1,
+  cursor: { id: cursorId },
+  orderBy: { id: "asc" },
+});
+
+// Backward (previous)
+const prev = await client.user.findMany({
+  take: -10,  // Negative take = backward
+  skip: 1,
+  cursor: { id: cursorId },
+  orderBy: { id: "asc" },
+});
+```
+
+## take and skip
+
+| Option | Description |
+|--------|-------------|
+| `take` | Number of records to return (positive = forward, negative = backward) |
+| `skip` | Number of records to skip |
+| `cursor` | Start position for cursor pagination |
+
+## Examples
+
+### Simple Paginator
+
+```ts
+async function paginate<T>(
+  findMany: (args: { take: number; skip: number }) => Promise<T[]>,
+  page: number,
+  pageSize: number
+) {
+  return findMany({
+    take: pageSize,
+    skip: (page - 1) * pageSize,
+  });
+}
+
+// Usage
+const users = await paginate(
+  (args) => client.user.findMany({ ...args, orderBy: { name: "asc" } }),
+  1,
+  20
+);
+```
+
+### Infinite Scroll
+
+```ts
+async function loadMore(cursor?: string, limit = 20) {
+  const items = await client.post.findMany({
+    take: limit + 1,  // Fetch one extra to check if more exist
+    ...(cursor && {
+      skip: 1,
+      cursor: { id: cursor },
+    }),
+    orderBy: { createdAt: "desc" },
+  });
+  
+  const hasMore = items.length > limit;
+  const data = hasMore ? items.slice(0, -1) : items;
+  
+  return {
+    data,
+    hasMore,
+    nextCursor: hasMore ? data[data.length - 1].id : undefined,
+  };
+}
+```
+
+### Relay-Style Pagination
+
+```ts
+interface Connection<T> {
+  edges: { node: T; cursor: string }[];
+  pageInfo: {
+    hasNextPage: boolean;
+    hasPreviousPage: boolean;
+    startCursor?: string;
+    endCursor?: string;
+  };
+}
+
+async function getConnection(
+  first?: number,
+  after?: string,
+  last?: number,
+  before?: string
+): Promise<Connection<User>> {
+  const take = first ?? -(last ?? 10);
+  const cursor = after ?? before;
+  
+  const items = await client.user.findMany({
+    take: Math.abs(take) + 1,
+    ...(cursor && { skip: 1, cursor: { id: cursor } }),
+    orderBy: { id: "asc" },
+  });
+  
+  const hasMore = items.length > Math.abs(take);
+  const nodes = hasMore ? items.slice(0, -1) : items;
+  
+  return {
+    edges: nodes.map(node => ({
+      node,
+      cursor: node.id,
+    })),
+    pageInfo: {
+      hasNextPage: first ? hasMore : false,
+      hasPreviousPage: last ? hasMore : false,
+      startCursor: nodes[0]?.id,
+      endCursor: nodes[nodes.length - 1]?.id,
+    },
+  };
+}
+```
+
+## Offset vs Cursor
+
+| Aspect | Offset | Cursor |
+|--------|--------|--------|
+| Simplicity | ✅ Simple | ⚠️ More complex |
+| Performance | ⚠️ Degrades on large offsets | ✅ Consistent |
+| Random access | ✅ Any page | ❌ Sequential only |
+| Real-time data | ⚠️ Can skip/duplicate | ✅ Consistent |
+
+### When to Use Offset
+
+- Small datasets (&lt;10k records)
+- Need random page access
+- Simple admin interfaces
+
+### When to Use Cursor
+
+- Large datasets
+- Infinite scroll
+- Real-time feeds
+- Mobile apps
+
+## distinct
+
+Return unique values:
+
+```ts
+// Distinct roles
+const roles = await client.user.findMany({
+  distinct: ["role"],
+  select: { role: true },
+});
+
+// Distinct by multiple fields
+const unique = await client.post.findMany({
+  distinct: ["authorId", "categoryId"],
+});
+```
+

@@ -1,0 +1,193 @@
+---
+title: create
+description: Create new records in the database
+icon: Plus
+---
+
+# create
+
+Create new records in your database.
+
+## create
+
+Create a single record:
+
+```ts
+const user = await client.user.create({
+  data: {
+    email: "alice@example.com",
+    name: "Alice",
+  },
+});
+```
+
+### With Relations
+
+```ts
+// Create with nested records
+const user = await client.user.create({
+  data: {
+    email: "alice@example.com",
+    name: "Alice",
+    posts: {
+      create: [
+        { title: "First Post" },
+        { title: "Second Post" },
+      ],
+    },
+    profile: {
+      create: { bio: "Hello!" },
+    },
+  },
+  include: { posts: true, profile: true },
+});
+
+// Connect existing records
+const user = await client.user.create({
+  data: {
+    email: "bob@example.com",
+    name: "Bob",
+    posts: {
+      connect: [{ id: "post_1" }, { id: "post_2" }],
+    },
+  },
+});
+
+// Connect or create
+const user = await client.user.create({
+  data: {
+    email: "carol@example.com",
+    name: "Carol",
+    profile: {
+      connectOrCreate: {
+        where: { userId: "carol_123" },
+        create: { bio: "New profile", userId: "carol_123" },
+      },
+    },
+  },
+});
+```
+
+### Return Selected Fields
+
+```ts
+const user = await client.user.create({
+  data: { email: "alice@example.com", name: "Alice" },
+  select: { id: true, email: true },
+});
+// Type: { id: string; email: string }
+```
+
+## createMany
+
+Create multiple records in a single operation:
+
+```ts
+const result = await client.user.createMany({
+  data: [
+    { email: "alice@example.com", name: "Alice" },
+    { email: "bob@example.com", name: "Bob" },
+    { email: "carol@example.com", name: "Carol" },
+  ],
+});
+// Result: { count: 3 }
+```
+
+### Skip Duplicates
+
+```ts
+const result = await client.user.createMany({
+  data: [
+    { email: "alice@example.com", name: "Alice" },
+    { email: "alice@example.com", name: "Alice Duplicate" }, // Skipped
+  ],
+  skipDuplicates: true,
+});
+// Result: { count: 1 }
+```
+
+<Callout type="info">
+  `createMany` doesn't support nested relations. Use multiple `create` calls for nested data.
+</Callout>
+
+## Options
+
+### create
+
+```ts
+await client.user.create({
+  data: { ... },        // Required: record data
+  select: { ... },      // Optional: fields to return
+  include: { ... },     // Optional: relations to include
+});
+```
+
+### createMany
+
+```ts
+await client.user.createMany({
+  data: [{ ... }],      // Required: array of records
+  skipDuplicates: true, // Optional: skip constraint violations
+});
+```
+
+## Examples
+
+### User Registration
+
+```ts
+async function registerUser(email: string, password: string, name: string) {
+  const passwordHash = await hashPassword(password);
+  
+  return client.user.create({
+    data: {
+      email,
+      name,
+      passwordHash,
+      profile: {
+        create: { bio: "" },
+      },
+    },
+    select: {
+      id: true,
+      email: true,
+      name: true,
+    },
+  });
+}
+```
+
+### Create Post with Tags
+
+```ts
+async function createPost(authorId: string, title: string, tagNames: string[]) {
+  return client.post.create({
+    data: {
+      title,
+      authorId,
+      tags: {
+        connectOrCreate: tagNames.map(name => ({
+          where: { name },
+          create: { name },
+        })),
+      },
+    },
+    include: { tags: true },
+  });
+}
+```
+
+### Bulk Import
+
+```ts
+async function importUsers(users: { email: string; name: string }[]) {
+  const result = await client.user.createMany({
+    data: users,
+    skipDuplicates: true,
+  });
+  
+  console.log(`Imported ${result.count} users`);
+  return result;
+}
+```
+

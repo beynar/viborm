@@ -1,0 +1,219 @@
+---
+title: Aggregations
+description: count, aggregate, and groupBy operations
+icon: Calculator
+---
+
+# Aggregations
+
+Aggregate operations compute values across multiple records.
+
+## count
+
+Count records matching criteria:
+
+```ts
+// Count all
+const total = await client.user.count();
+// Type: number
+
+// Count with filter
+const admins = await client.user.count({
+  where: { role: "ADMIN" },
+});
+
+// Count specific fields
+const counts = await client.user.count({
+  select: {
+    _all: true,
+    email: true,  // Count non-null emails
+  },
+});
+// Type: { _all: number; email: number }
+```
+
+## exist
+
+Check if any records match (more efficient than count):
+
+```ts
+const hasAdmins = await client.user.exist({
+  where: { role: "ADMIN" },
+});
+// Type: boolean
+```
+
+## aggregate
+
+Run multiple aggregation functions:
+
+```ts
+const stats = await client.post.aggregate({
+  where: { published: true },
+  _count: true,
+  _avg: { views: true },
+  _sum: { views: true },
+  _min: { createdAt: true },
+  _max: { views: true },
+});
+
+// Result:
+// {
+//   _count: 100,
+//   _avg: { views: 45.5 },
+//   _sum: { views: 4550 },
+//   _min: { createdAt: Date },
+//   _max: { views: 1000 }
+// }
+```
+
+### Aggregate Functions
+
+| Function | Description | Fields |
+|----------|-------------|--------|
+| `_count` | Count records | All fields or `true` |
+| `_avg` | Average value | Numeric fields |
+| `_sum` | Sum values | Numeric fields |
+| `_min` | Minimum value | All comparable fields |
+| `_max` | Maximum value | All comparable fields |
+
+### Aggregate Options
+
+```ts
+await client.post.aggregate({
+  where: { ... },         // Filter
+  orderBy: { ... },       // Sort (for cursor)
+  cursor: { ... },        // Pagination cursor
+  take: 100,              // Limit records
+  skip: 0,                // Offset
+  _count: true | { ... },
+  _avg: { field: true },
+  _sum: { field: true },
+  _min: { field: true },
+  _max: { field: true },
+});
+```
+
+## groupBy
+
+Group records and compute aggregates per group:
+
+```ts
+const byRole = await client.user.groupBy({
+  by: ["role"],
+  _count: true,
+});
+
+// Result:
+// [
+//   { role: "USER", _count: 100 },
+//   { role: "ADMIN", _count: 5 },
+// ]
+```
+
+### With Aggregates
+
+```ts
+const stats = await client.post.groupBy({
+  by: ["authorId"],
+  _count: true,
+  _avg: { views: true },
+  _sum: { views: true },
+});
+
+// Result:
+// [
+//   { authorId: "user_1", _count: 10, _avg: { views: 50 }, _sum: { views: 500 } },
+//   { authorId: "user_2", _count: 5, _avg: { views: 100 }, _sum: { views: 500 } },
+// ]
+```
+
+### With Filtering
+
+```ts
+const stats = await client.post.groupBy({
+  by: ["authorId"],
+  where: { published: true },
+  _count: true,
+  having: {
+    _count: { _all: { gt: 5 } },  // Only authors with 5+ posts
+  },
+  orderBy: { _count: { _all: "desc" } },
+  take: 10,
+});
+```
+
+### groupBy Options
+
+```ts
+await client.post.groupBy({
+  by: ["field1", "field2"],  // Group by fields
+  where: { ... },            // Filter before grouping
+  having: { ... },           // Filter after grouping
+  orderBy: { ... },          // Sort groups
+  take: 10,                  // Limit groups
+  skip: 0,                   // Offset groups
+  _count: true | { ... },
+  _avg: { ... },
+  _sum: { ... },
+  _min: { ... },
+  _max: { ... },
+});
+```
+
+## Examples
+
+### Dashboard Stats
+
+```ts
+async function getDashboardStats() {
+  const [userCount, postStats, recentActivity] = await Promise.all([
+    client.user.count(),
+    client.post.aggregate({
+      _count: true,
+      _avg: { views: true },
+      _sum: { views: true },
+    }),
+    client.post.groupBy({
+      by: ["createdAt"],
+      where: {
+        createdAt: { gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
+      },
+      _count: true,
+    }),
+  ]);
+  
+  return { userCount, postStats, recentActivity };
+}
+```
+
+### Top Authors
+
+```ts
+async function getTopAuthors(limit = 10) {
+  return client.post.groupBy({
+    by: ["authorId"],
+    where: { published: true },
+    _count: true,
+    _sum: { views: true },
+    orderBy: { _sum: { views: "desc" } },
+    take: limit,
+  });
+}
+```
+
+### Category Stats
+
+```ts
+async function getCategoryStats() {
+  return client.post.groupBy({
+    by: ["categoryId"],
+    _count: true,
+    _avg: { views: true },
+    having: {
+      _count: { _all: { gte: 1 } },
+    },
+  });
+}
+```
+

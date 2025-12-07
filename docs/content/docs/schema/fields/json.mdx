@@ -1,0 +1,194 @@
+---
+title: JSON Field
+description: JSON field type for structured data
+icon: Braces
+---
+
+# JSON Field
+
+The JSON field type stores structured data as JSON. It can be untyped (`unknown`) or typed with a StandardSchema validator.
+
+## Basic Usage
+
+```ts
+import { s } from "viborm";
+
+s.json()               // Required JSON (unknown type)
+s.json().nullable()    // JSON | null
+```
+
+## Typed JSON
+
+Provide a StandardSchema (Zod, Valibot, etc.) for type-safe JSON:
+
+```ts
+import { z } from "zod";
+
+const settingsSchema = z.object({
+  theme: z.enum(["light", "dark"]),
+  notifications: z.boolean(),
+  language: z.string(),
+});
+
+s.json(settingsSchema)  // Typed as { theme: "light" | "dark"; ... }
+```
+
+## Chainable Methods
+
+```ts
+s.json()
+  .nullable()           // Allow NULL
+  .default({})          // Static default
+  .default(() => ({}))  // Runtime default
+  .map("column_name")   // Custom column name
+```
+
+## Native Database Types
+
+<Tabs items={["PostgreSQL", "MySQL", "SQLite"]}>
+  <Tab value="PostgreSQL">
+```ts
+import { TYPES } from "viborm";
+
+s.json(TYPES.PG.JSON.JSON)   // JSON (text-based)
+s.json(TYPES.PG.JSON.JSONB)  // JSONB (binary, indexable, default)
+```
+  </Tab>
+  <Tab value="MySQL">
+```ts
+import { TYPES } from "viborm";
+
+s.json(TYPES.MYSQL.JSON.JSON)  // JSON
+```
+  </Tab>
+  <Tab value="SQLite">
+```ts
+import { TYPES } from "viborm";
+
+s.json(TYPES.SQLITE.JSON.TEXT)  // TEXT (stored as string)
+```
+  </Tab>
+</Tabs>
+
+## Type Mapping
+
+| Modifier | TypeScript | PostgreSQL | MySQL | SQLite |
+|----------|------------|------------|-------|--------|
+| `s.json()` | `unknown` | `JSONB` | `JSON` | `TEXT` |
+| `s.json(schema)` | Inferred | `JSONB` | `JSON` | `TEXT` |
+| `.nullable()` | `T \| null` | `JSONB NULL` | `JSON NULL` | `TEXT NULL` |
+| `.array()` | `T[]` | `JSONB[]` | `JSON` | `JSON` |
+
+## Examples
+
+### Untyped JSON
+
+```ts
+const metadata = s.json().default({});
+const tags = s.json().default([]);
+```
+
+### Typed with Zod
+
+```ts
+import { z } from "zod";
+
+// User preferences
+const preferencesSchema = z.object({
+  theme: z.enum(["light", "dark", "system"]).default("system"),
+  fontSize: z.number().min(10).max(24).default(14),
+  notifications: z.object({
+    email: z.boolean().default(true),
+    push: z.boolean().default(false),
+  }),
+});
+
+const preferences = s.json(preferencesSchema).default({
+  theme: "system",
+  fontSize: 14,
+  notifications: { email: true, push: false },
+});
+
+// Address structure
+const addressSchema = z.object({
+  street: z.string(),
+  city: z.string(),
+  country: z.string(),
+  postalCode: z.string(),
+});
+
+const address = s.json(addressSchema).nullable();
+```
+
+### Complex Nested Types
+
+```ts
+const orderItemSchema = z.object({
+  productId: z.string(),
+  quantity: z.number().int().positive(),
+  price: z.number().positive(),
+  discount: z.number().min(0).max(1).optional(),
+});
+
+const orderSchema = z.object({
+  items: z.array(orderItemSchema),
+  shipping: addressSchema,
+  notes: z.string().optional(),
+});
+
+const orderData = s.json(orderSchema);
+```
+
+## Querying JSON
+
+JSON fields support path-based filtering:
+
+```ts
+// Filter by nested value
+await client.user.findMany({
+  where: {
+    preferences: {
+      path: ["theme"],
+      equals: "dark",
+    },
+  },
+});
+
+// String operations on JSON strings
+await client.user.findMany({
+  where: {
+    metadata: {
+      string_contains: "premium",
+    },
+  },
+});
+
+// Array operations
+await client.user.findMany({
+  where: {
+    tags: {
+      array_contains: "featured",
+    },
+  },
+});
+```
+
+## JSON vs Separate Fields
+
+| Approach | Pros | Cons |
+|----------|------|------|
+| JSON field | Flexible, no migrations | Harder to query, no constraints |
+| Separate fields | Type-safe queries, indexes | Schema changes need migrations |
+| Related table | Full SQL power | More complex queries |
+
+Use JSON for:
+- User preferences
+- Metadata that varies per record
+- Third-party API responses
+- Audit logs
+
+Use separate fields for:
+- Data you need to filter/sort by
+- Data with strict validation
+- Data referenced in relations
+

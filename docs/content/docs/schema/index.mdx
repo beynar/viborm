@@ -1,0 +1,128 @@
+---
+title: Schema Definition
+description: Define type-safe database schemas with VibORM
+icon: FileCode
+---
+
+# Schema Definition
+
+The schema module is the foundation of VibORM. It provides a fluent, chainable API for defining database models, fields, and relations with full TypeScript type inference.
+
+## Overview
+
+```ts
+import { s } from "viborm";
+
+const user = s.model({
+  id: s.string().id().ulid(),
+  email: s.string().unique(),
+  name: s.string().nullable(),
+  posts: s.oneToMany(() => post),
+}).map("users");
+```
+
+## Key Concepts
+
+### The `s` Builder
+
+All schema definitions use the `s` builder object:
+
+```ts
+import { s } from "viborm";
+
+s.model({ ... })     // Create a model
+s.string()           // String field
+s.int()              // Integer field
+s.oneToMany(...)     // One-to-many relation
+// ... and more
+```
+
+### Chainable API
+
+Every method returns a new instance, enabling fluent definitions:
+
+```ts
+s.string()           // Basic string
+  .nullable()        // Can be null
+  .unique()          // Unique constraint
+  .default("value")  // Default value
+  .map("column_name") // Custom column name
+```
+
+### Type Inference
+
+Types are inferred automatically from your schema:
+
+```ts
+const user = s.model({
+  id: s.string().id(),
+  email: s.string(),
+  age: s.int().nullable(),
+});
+
+// Inferred type:
+// { id: string; email: string; age: number | null }
+```
+
+## Components
+
+<Cards>
+  <Card
+    title="Models"
+    description="Define database tables with fields and relations"
+    href="/docs/schema/model"
+  />
+  <Card
+    title="Fields"
+    description="Scalar field types: string, int, boolean, etc."
+    href="/docs/schema/fields"
+  />
+  <Card
+    title="Relations"
+    description="Define relationships between models"
+    href="/docs/schema/relations"
+  />
+  <Card
+    title="Native Types"
+    description="Database-specific type overrides"
+    href="/docs/schema/native-types"
+  />
+  <Card
+    title="Validation"
+    description="Schema validation rules and error handling"
+    href="/docs/schema/validation"
+  />
+</Cards>
+
+## Architecture
+
+The schema module consists of:
+
+| Component | Purpose |
+|-----------|---------|
+| **Model** | Represents a database table |
+| **Fields** | Scalar columns (string, int, etc.) |
+| **Relations** | Connections between models |
+| **Validation** | Schema correctness checks |
+| **Runtime Schemas** | ArkType validation schemas |
+
+## State-Based Generics
+
+VibORM uses a single `State` generic pattern for future-proof type inference:
+
+```ts
+// Field state tracks all modifiers
+class StringField<State extends FieldState<"string">> {
+  nullable(): StringField<UpdateState<State, { nullable: true }>>
+  // ...
+}
+
+// Model state tracks fields and constraints
+class Model<State extends ModelState> {
+  id(fields: ...): Model<ModelState<...>>
+  // ...
+}
+```
+
+This pattern ensures that adding new features won't break existing code.
+

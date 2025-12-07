@@ -1,0 +1,200 @@
+---
+title: Schema Validation
+description: Validate schema correctness before runtime
+icon: ShieldCheck
+---
+
+# Schema Validation
+
+VibORM includes a comprehensive validation system that checks your schema for errors before runtime.
+
+## Quick Start
+
+```ts
+import { validateSchemaOrThrow } from "viborm";
+
+// Validate all models
+validateSchemaOrThrow([user, post, comment]);
+```
+
+## Validation Functions
+
+### `validateSchema(models)`
+
+Returns a validation result with all errors:
+
+```ts
+import { validateSchema } from "viborm";
+
+const result = validateSchema([user, post]);
+
+if (!result.valid) {
+  for (const error of result.errors) {
+    console.log(`[${error.code}] ${error.model}: ${error.message}`);
+  }
+}
+```
+
+### `validateSchemaOrThrow(models)`
+
+Throws on the first error (useful for startup):
+
+```ts
+import { validateSchemaOrThrow } from "viborm";
+
+// Throws if invalid
+validateSchemaOrThrow([user, post]);
+```
+
+### `SchemaValidator` Class
+
+For custom validation:
+
+```ts
+import { SchemaValidator } from "viborm";
+
+const validator = new SchemaValidator([user, post], {
+  database: "postgres",  // Optional: enable DB-specific rules
+});
+
+const result = validator.validate();
+```
+
+## Rule Categories
+
+| Code | Category | Description |
+|------|----------|-------------|
+| **M0xx** | Model | Basic model structure |
+| **F0xx** | Field | Field-level constraints |
+| **I0xx** | Index | Index definitions |
+| **R0xx** | Relation | Relation configuration |
+| **JT0xx** | Junction | Many-to-many tables |
+| **SR0xx** | Self-ref | Self-referential relations |
+| **CM0xx** | Cross-model | Cross-model dependencies |
+| **FK0xx** | Foreign Key | FK field validation |
+| **RA0xx** | Referential Action | onDelete/onUpdate rules |
+| **DB0xx** | Database | Database-specific constraints |
+
+## Model Rules (M0xx)
+
+| Code | Rule | Description |
+|------|------|-------------|
+| M001 | `modelHasFields` | Model must have at least one field |
+| M002 | `modelUniqueName` | Model names must be unique |
+| M003 | `modelNameValid` | Model name cannot be empty |
+| M004 | `modelNameNotReserved` | Model name cannot be SQL reserved word |
+
+## Field Rules (F0xx)
+
+| Code | Rule | Description |
+|------|------|-------------|
+| F001 | `noduplicateFields` | No duplicate field names |
+| F002 | `modelHasId` | Model must have exactly one ID (field or compound) |
+| F003 | `defaultTypeMatch` | Default value must match field type |
+| F004 | `arrayFieldsSupported` | Array fields only on supported DBs |
+
+## Index Rules (I0xx)
+
+| Code | Rule | Description |
+|------|------|-------------|
+| I001 | `indexFieldsExist` | Index fields must exist in model |
+| I002 | `indexNameUnique` | Index names must be unique per model |
+| I003 | `compoundFieldsExist` | Compound ID/unique fields must exist |
+
+## Relation Rules (R0xx)
+
+| Code | Rule | Description |
+|------|------|-------------|
+| R001 | `relationTargetExists` | Relation target model must exist |
+| R002 | `relationHasInverse` | Bidirectional relations should have inverse |
+| R003 | `relationNameUnique` | Relation names must be unique per model |
+
+## Foreign Key Rules (FK0xx)
+
+| Code | Rule | Description |
+|------|------|-------------|
+| FK001 | `fkFieldExists` | FK field must exist in model |
+| FK002 | `fkReferenceExists` | Referenced field must exist in target |
+| FK003 | `fkTypeMatch` | FK and reference types must match |
+| FK004 | `fkRequiredForOwning` | Owning side must have FK |
+| FK005 | `fkReferencesUnique` | FK must reference unique field |
+| FK006 | `fkFieldNotRelation` | FK field cannot be a relation |
+| FK007 | `fkCardinalityMatch` | FK count must match relation cardinality |
+
+## Referential Action Rules (RA0xx)
+
+| Code | Rule | Description |
+|------|------|-------------|
+| RA001 | `onDeleteValid` | onDelete action must be valid |
+| RA002 | `onUpdateValid` | onUpdate action must be valid |
+| RA003 | `cascadeOnRequiredWarning` | Warning: CASCADE on required relation |
+| RA004 | `setNullRequiresNullable` | SET NULL requires nullable FK |
+
+## Junction Table Rules (JT0xx)
+
+| Code | Rule | Description |
+|------|------|-------------|
+| JT001 | `junctionTableUnique` | Junction table names must be unique |
+| JT002 | `junctionFieldsValid` | Junction FK columns must be valid |
+| JT003 | `junctionFieldsDistinct` | A and B columns must be different |
+| JT004 | `selfRefJunctionOrder` | Self-ref junction must have consistent order |
+| JT005 | `throughOnlyManyToMany` | `.through()` only on many-to-many |
+
+## Self-Reference Rules (SR0xx)
+
+| Code | Rule | Description |
+|------|------|-------------|
+| SR001 | `selfRefValidInverse` | Self-ref must have valid inverse |
+| SR002 | `selfRefDistinctNames` | Self-ref relations must have distinct names |
+
+## Cross-Model Rules (CM0xx)
+
+| Code | Rule | Description |
+|------|------|-------------|
+| CM001 | `noOrphanFkFields` | FK fields should have relation |
+| CM002 | `relationPairFkSingleSide` | Only one side should have FK |
+| CM003 | `polymorphicRelationWarning` | Warning for polymorphic pattern |
+| CM004 | `noCircularRequiredChain` | No circular required relations |
+
+## Database Rules (DB0xx)
+
+| Code | Rule | Description |
+|------|------|-------------|
+| DB001 | `mysqlNoArrayFields` | MySQL doesn't support array fields |
+| DB002 | `sqliteNoEnum` | SQLite enum is stored as TEXT |
+
+## Error Structure
+
+```ts
+interface ValidationError {
+  code: string;        // e.g., "F002"
+  severity: "error" | "warning";
+  model: string;       // Model name
+  field?: string;      // Field name (if applicable)
+  message: string;     // Human-readable message
+}
+
+interface ValidationResult {
+  valid: boolean;
+  errors: ValidationError[];
+}
+```
+
+## Example Errors
+
+```ts
+const result = validateSchema([user, post]);
+
+// Example errors:
+// [F002] User: Model must have exactly one ID field
+// [FK003] Post.authorId: FK type 'int' doesn't match reference type 'string'
+// [RA004] Comment.postId: SET NULL requires nullable FK field
+```
+
+## Best Practices
+
+1. **Validate on startup** — Catch errors early
+2. **Use `validateSchemaOrThrow`** — Fail fast in development
+3. **Check warnings** — Warnings may indicate issues
+4. **Database-specific validation** — Pass `database` option for DB rules
+

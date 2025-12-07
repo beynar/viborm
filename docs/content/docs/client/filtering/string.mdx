@@ -1,0 +1,145 @@
+---
+title: String Filters
+description: Filter operators for string fields
+icon: Type
+---
+
+# String Filters
+
+Filter operators available for string fields.
+
+## Operators
+
+| Operator | Description |
+|----------|-------------|
+| `equals` | Exact match |
+| `not` | Not equal |
+| `in` | Match any in array |
+| `notIn` | Match none in array |
+| `contains` | Contains substring |
+| `startsWith` | Starts with prefix |
+| `endsWith` | Ends with suffix |
+| `mode` | Case sensitivity |
+
+## equals / not
+
+```ts
+// Exact match
+where: { email: "alice@example.com" }
+where: { email: { equals: "alice@example.com" } }
+
+// Not equal
+where: { email: { not: "admin@example.com" } }
+
+// Not with nested conditions
+where: { email: { not: { contains: "spam" } } }
+```
+
+## in / notIn
+
+```ts
+// Match any
+where: { role: { in: ["ADMIN", "MODERATOR"] } }
+
+// Match none
+where: { status: { notIn: ["BANNED", "SUSPENDED"] } }
+```
+
+## contains
+
+```ts
+// Contains substring
+where: { name: { contains: "alice" } }
+
+// Case insensitive
+where: { name: { contains: "alice", mode: "insensitive" } }
+```
+
+## startsWith / endsWith
+
+```ts
+// Starts with
+where: { email: { startsWith: "admin" } }
+
+// Ends with
+where: { email: { endsWith: "@company.com" } }
+
+// Case insensitive
+where: { email: { endsWith: "@company.com", mode: "insensitive" } }
+```
+
+## mode (Case Sensitivity)
+
+```ts
+// Default: case sensitive
+where: { name: { contains: "Alice" } }
+
+// Case insensitive
+where: { name: { contains: "alice", mode: "insensitive" } }
+```
+
+<Callout type="info">
+  PostgreSQL uses `ILIKE` for insensitive mode. MySQL uses collation settings.
+</Callout>
+
+## Combined Example
+
+```ts
+// Search with multiple conditions
+const users = await client.user.findMany({
+  where: {
+    OR: [
+      { name: { contains: query, mode: "insensitive" } },
+      { email: { contains: query, mode: "insensitive" } },
+    ],
+    NOT: {
+      email: { endsWith: "@blocked.com" },
+    },
+  },
+});
+```
+
+## Examples
+
+### Search Function
+
+```ts
+async function searchUsers(query: string) {
+  return client.user.findMany({
+    where: {
+      OR: [
+        { name: { contains: query, mode: "insensitive" } },
+        { email: { contains: query, mode: "insensitive" } },
+        { bio: { contains: query, mode: "insensitive" } },
+      ],
+    },
+    take: 20,
+  });
+}
+```
+
+### Email Domain Filter
+
+```ts
+async function getUsersByDomain(domain: string) {
+  return client.user.findMany({
+    where: {
+      email: { endsWith: `@${domain}` },
+    },
+  });
+}
+```
+
+### Username Validation
+
+```ts
+async function isUsernameAvailable(username: string) {
+  const existing = await client.user.findFirst({
+    where: {
+      username: { equals: username, mode: "insensitive" },
+    },
+  });
+  return !existing;
+}
+```
+

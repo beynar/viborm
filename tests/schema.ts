@@ -210,30 +210,27 @@ client.profile.findUnique({
 });
 
 // 4. Compound unique with custom name
-client.profile.findUnique({
+const res2 = await client.profile.findUnique({
   where: {
     ezl: { avatar: "avatar.jpg", bio: "My bio" },
+    id: "ezk",
+  },
+  select: {
+    bio: true,
   },
 });
 
 const res = await client.model.findFirst({
   where: {
-    oneToOne: {
-      is: {
-        id: "ezlek",
-        test: {
-          is: {
-            id: "ezlek",
-          },
-        },
-      },
-    },
+    id: "lkz",
   },
   select: {
+    string: true,
     manyToOne: {
       include: {
         test: {
           select: {
+            string: true,
             id: true,
           },
         },
@@ -246,6 +243,16 @@ const prisma = new PrismaClient();
 
 prisma.example.findFirst({
   where: {
-    oneToOne: {},
+    string: {
+      equals: "kejzelkz",
+    },
+  },
+  select: {
+    string: true,
+    oneToOne: {
+      select: {
+        id: true,
+      },
+    },
   },
 });

@@ -1,0 +1,200 @@
+---
+title: delete
+description: Delete records from the database
+icon: Trash2
+---
+
+# delete
+
+Remove records from your database.
+
+## delete
+
+Delete a single record by unique identifier:
+
+```ts
+const user = await client.user.delete({
+  where: { id: "user_123" },
+});
+// Returns the deleted record
+```
+
+### With Return Fields
+
+```ts
+const user = await client.user.delete({
+  where: { id: "user_123" },
+  select: { id: true, email: true },
+});
+// Type: { id: string; email: string }
+```
+
+### With Relations
+
+```ts
+const user = await client.user.delete({
+  where: { id: "user_123" },
+  include: { posts: true },  // Include relations in return
+});
+```
+
+## deleteMany
+
+Delete multiple records matching criteria:
+
+```ts
+const result = await client.post.deleteMany({
+  where: { published: false },
+});
+// Result: { count: 15 }
+```
+
+### Delete All
+
+```ts
+// Delete all records (use with caution!)
+const result = await client.post.deleteMany({});
+// or
+const result = await client.post.deleteMany();
+```
+
+### Examples
+
+```ts
+// Delete old drafts
+await client.post.deleteMany({
+  where: {
+    published: false,
+    createdAt: { lt: new Date("2023-01-01") },
+  },
+});
+
+// Delete by relation
+await client.post.deleteMany({
+  where: {
+    author: {
+      is: { status: "BANNED" },
+    },
+  },
+});
+
+// Delete inactive users
+await client.user.deleteMany({
+  where: {
+    lastLogin: { lt: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000) },
+    role: { not: "ADMIN" },
+  },
+});
+```
+
+## Options
+
+### delete
+
+```ts
+await client.user.delete({
+  where: { ... },       // Required: unique identifier
+  select: { ... },      // Optional: fields to return
+  include: { ... },     // Optional: relations to include
+});
+```
+
+### deleteMany
+
+```ts
+await client.user.deleteMany({
+  where: { ... },       // Optional: filter (all if empty)
+});
+```
+
+## Cascading Deletes
+
+When a record is deleted, related records are handled based on `onDelete`:
+
+```ts
+const post = s.model({
+  authorId: s.string(),
+  author: s.manyToOne(() => user)
+    .fields("authorId")
+    .references("id")
+    .onDelete("cascade"),  // Delete posts when user is deleted
+});
+```
+
+| Action | Behavior |
+|--------|----------|
+| `cascade` | Delete related records |
+| `setNull` | Set FK to null |
+| `restrict` | Prevent deletion |
+| `noAction` | Database default |
+
+## Soft Delete Pattern
+
+Instead of deleting, mark records as deleted:
+
+```ts
+const user = s.model({
+  id: s.string().id(),
+  deleted: s.boolean().default(false),
+  deletedAt: s.dateTime().nullable(),
+});
+
+// Soft delete
+async function softDeleteUser(id: string) {
+  return client.user.update({
+    where: { id },
+    data: {
+      deleted: true,
+      deletedAt: new Date(),
+    },
+  });
+}
+
+// Query only active records
+async function getActiveUsers() {
+  return client.user.findMany({
+    where: { deleted: false },
+  });
+}
+```
+
+## Examples
+
+### Delete User Account
+
+```ts
+async function deleteAccount(userId: string) {
+  // Delete in correct order due to FK constraints
+  await client.post.deleteMany({
+    where: { authorId: userId },
+  });
+  
+  await client.profile.delete({
+    where: { userId },
+  }).catch(() => {}); // Ignore if no profile
+  
+  return client.user.delete({
+    where: { id: userId },
+  });
+}
+```
+
+### Cleanup Old Data
+
+```ts
+async function cleanupOldData() {
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  
+  const [sessions, logs] = await Promise.all([
+    client.session.deleteMany({
+      where: { expiresAt: { lt: new Date() } },
+    }),
+    client.auditLog.deleteMany({
+      where: { createdAt: { lt: thirtyDaysAgo } },
+    }),
+  ]);
+  
+  console.log(`Deleted ${sessions.count} sessions, ${logs.count} logs`);
+}
+```
+

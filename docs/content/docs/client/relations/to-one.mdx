@@ -1,0 +1,204 @@
+---
+title: To-One Relation Filters
+description: Filter by oneToOne and manyToOne relations
+icon: Link
+---
+
+# To-One Relation Filters
+
+Filter on `oneToOne` and `manyToOne` relations using `is` and `isNot`.
+
+## is
+
+Match records where the related record matches conditions:
+
+```ts
+// Posts by admin author
+const adminPosts = await client.post.findMany({
+  where: {
+    author: {
+      is: { role: "ADMIN" },
+    },
+  },
+});
+
+// Users with verified profile
+const verifiedUsers = await client.user.findMany({
+  where: {
+    profile: {
+      is: { verified: true },
+    },
+  },
+});
+```
+
+## isNot
+
+Exclude records where the related record matches conditions:
+
+```ts
+// Posts not by banned authors
+const posts = await client.post.findMany({
+  where: {
+    author: {
+      isNot: { status: "BANNED" },
+    },
+  },
+});
+```
+
+## Null Checks
+
+```ts
+// Posts with an author
+const withAuthor = await client.post.findMany({
+  where: {
+    author: {
+      isNot: null,
+    },
+  },
+});
+
+// Posts without an author (orphaned)
+const orphaned = await client.post.findMany({
+  where: {
+    author: {
+      is: null,
+    },
+  },
+});
+
+// Users without a profile
+const noProfile = await client.user.findMany({
+  where: {
+    profile: {
+      is: null,
+    },
+  },
+});
+```
+
+## Nested Conditions
+
+Filter deeply nested relations:
+
+```ts
+// Posts by authors from specific organization
+const posts = await client.post.findMany({
+  where: {
+    author: {
+      is: {
+        organization: {
+          is: { name: "Acme Corp" },
+        },
+      },
+    },
+  },
+});
+
+// Comments on posts by verified authors
+const comments = await client.comment.findMany({
+  where: {
+    post: {
+      is: {
+        author: {
+          is: { verified: true },
+        },
+      },
+    },
+  },
+});
+```
+
+## Combined Filters
+
+```ts
+// Posts by active admin authors
+const posts = await client.post.findMany({
+  where: {
+    author: {
+      is: {
+        role: "ADMIN",
+        active: true,
+      },
+    },
+    published: true,
+  },
+});
+
+// Users with premium subscription
+const premiumUsers = await client.user.findMany({
+  where: {
+    subscription: {
+      is: {
+        plan: "PREMIUM",
+        active: true,
+        expiresAt: { gt: new Date() },
+      },
+    },
+  },
+});
+```
+
+## Examples
+
+### Find Posts by Author Email
+
+```ts
+async function getPostsByAuthorEmail(email: string) {
+  return client.post.findMany({
+    where: {
+      author: {
+        is: { email },
+      },
+    },
+    include: { author: true },
+  });
+}
+```
+
+### Find Users Without Profile
+
+```ts
+async function getUsersWithoutProfile() {
+  return client.user.findMany({
+    where: {
+      profile: { is: null },
+    },
+  });
+}
+```
+
+### Filter by Organization
+
+```ts
+async function getTeamPosts(orgId: string) {
+  return client.post.findMany({
+    where: {
+      author: {
+        is: {
+          organizationId: orgId,
+        },
+      },
+      published: true,
+    },
+    orderBy: { createdAt: "desc" },
+  });
+}
+```
+
+### Exclude Banned Authors
+
+```ts
+async function getPublicPosts() {
+  return client.post.findMany({
+    where: {
+      published: true,
+      author: {
+        isNot: { status: "BANNED" },
+      },
+    },
+  });
+}
+```
+

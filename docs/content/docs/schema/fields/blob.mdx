@@ -1,0 +1,149 @@
+---
+title: Blob Field
+description: Blob field type for binary data
+icon: FileCode2
+---
+
+# Blob Field
+
+The Blob field type stores binary data like files, images, or encrypted content.
+
+## Basic Usage
+
+```ts
+import { s } from "viborm";
+
+s.blob()               // Required Uint8Array
+s.blob().nullable()    // Uint8Array | null
+```
+
+## Chainable Methods
+
+```ts
+s.blob()
+  .nullable()           // Allow NULL
+  .default(new Uint8Array())  // Static default
+  .map("column_name")   // Custom column name
+```
+
+## Native Database Types
+
+<Tabs items={["PostgreSQL", "MySQL", "SQLite"]}>
+  <Tab value="PostgreSQL">
+```ts
+import { TYPES } from "viborm";
+
+s.blob(TYPES.PG.BLOB.BYTEA)  // BYTEA
+```
+  </Tab>
+  <Tab value="MySQL">
+```ts
+import { TYPES } from "viborm";
+
+s.blob(TYPES.MYSQL.BLOB.BLOB)        // BLOB (64KB)
+s.blob(TYPES.MYSQL.BLOB.TINYBLOB)    // TINYBLOB (256B)
+s.blob(TYPES.MYSQL.BLOB.MEDIUMBLOB)  // MEDIUMBLOB (16MB)
+s.blob(TYPES.MYSQL.BLOB.LONGBLOB)    // LONGBLOB (4GB)
+s.blob(TYPES.MYSQL.BLOB.BINARY(16))  // BINARY(16)
+s.blob(TYPES.MYSQL.BLOB.VARBINARY(255))  // VARBINARY(255)
+```
+  </Tab>
+  <Tab value="SQLite">
+```ts
+import { TYPES } from "viborm";
+
+s.blob(TYPES.SQLITE.BLOB.BLOB)  // BLOB
+```
+  </Tab>
+</Tabs>
+
+## Type Mapping
+
+| Modifier | TypeScript | PostgreSQL | MySQL | SQLite |
+|----------|------------|------------|-------|--------|
+| `s.blob()` | `Uint8Array` | `BYTEA` | `BLOB` | `BLOB` |
+| `.nullable()` | `Uint8Array \| null` | `BYTEA NULL` | `BLOB NULL` | `BLOB NULL` |
+| `.array()` | `Uint8Array[]` | `BYTEA[]` | `JSON` | `JSON` |
+
+## Size Limits by Type
+
+| MySQL Type | Max Size |
+|------------|----------|
+| `TINYBLOB` | 255 bytes |
+| `BLOB` | 65,535 bytes (64KB) |
+| `MEDIUMBLOB` | 16,777,215 bytes (16MB) |
+| `LONGBLOB` | 4,294,967,295 bytes (4GB) |
+
+## Examples
+
+```ts
+// File content
+const fileContent = s.blob();
+
+// Avatar image (nullable)
+const avatar = s.blob().nullable();
+
+// Encrypted data
+const encryptedData = s.blob();
+
+// Fixed-size hash
+const passwordHash = s.blob(TYPES.MYSQL.BLOB.BINARY(64));
+```
+
+## Working with Blobs
+
+```ts
+// Create with Uint8Array
+const fileBuffer = new Uint8Array([0x48, 0x65, 0x6c, 0x6c, 0x6f]);
+
+await client.file.create({
+  data: {
+    name: "hello.txt",
+    content: fileBuffer,
+  }
+});
+
+// Read blob data
+const file = await client.file.findUnique({
+  where: { id: "file_123" },
+});
+
+// file.content is Uint8Array
+const text = new TextDecoder().decode(file.content);
+```
+
+## Converting to/from Other Types
+
+```ts
+// String to Uint8Array
+const encoder = new TextEncoder();
+const bytes = encoder.encode("Hello, World!");
+
+// Uint8Array to String
+const decoder = new TextDecoder();
+const text = decoder.decode(bytes);
+
+// Buffer to Uint8Array (Node.js)
+const buffer = Buffer.from("Hello");
+const uint8 = new Uint8Array(buffer);
+
+// Uint8Array to Buffer (Node.js)
+const backToBuffer = Buffer.from(uint8);
+
+// Base64 to Uint8Array
+const base64 = "SGVsbG8=";
+const binaryString = atob(base64);
+const bytes2 = Uint8Array.from(binaryString, c => c.charCodeAt(0));
+```
+
+## When to Use Blob
+
+| Use Case | Recommendation |
+|----------|----------------|
+| Small files (&lt;1MB) | Blob field |
+| Large files (>1MB) | Object storage (S3, etc.) + URL field |
+| Passwords | Hash + Blob |
+| Encryption keys | Blob |
+| Thumbnails | Blob |
+| Documents | Object storage |
+

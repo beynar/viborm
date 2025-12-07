@@ -1,0 +1,241 @@
+---
+title: To-Many Relation Filters
+description: Filter by oneToMany and manyToMany relations
+icon: GitMerge
+---
+
+# To-Many Relation Filters
+
+Filter on `oneToMany` and `manyToMany` relations using `some`, `every`, and `none`.
+
+## some
+
+Match records where at least one related record matches:
+
+```ts
+// Users with at least one published post
+const authors = await client.user.findMany({
+  where: {
+    posts: {
+      some: { published: true },
+    },
+  },
+});
+
+// Posts with at least one approved comment
+const posts = await client.post.findMany({
+  where: {
+    comments: {
+      some: { approved: true },
+    },
+  },
+});
+```
+
+## every
+
+Match records where ALL related records match:
+
+```ts
+// Users where all posts are published
+const consistentAuthors = await client.user.findMany({
+  where: {
+    posts: {
+      every: { published: true },
+    },
+  },
+});
+
+// Posts where all comments are approved
+const cleanPosts = await client.post.findMany({
+  where: {
+    comments: {
+      every: { approved: true },
+    },
+  },
+});
+```
+
+<Callout type="warning">
+  `every` also matches records with NO related records. Use `some` + `every` to require at least one.
+</Callout>
+
+```ts
+// Users with at least one post, all published
+const activeAuthors = await client.user.findMany({
+  where: {
+    AND: [
+      { posts: { some: {} } },           // Has at least one
+      { posts: { every: { published: true } } },  // All published
+    ],
+  },
+});
+```
+
+## none
+
+Match records where NO related records match:
+
+```ts
+// Users with no posts
+const newUsers = await client.user.findMany({
+  where: {
+    posts: { none: {} },
+  },
+});
+
+// Users with no banned posts
+const cleanUsers = await client.user.findMany({
+  where: {
+    posts: {
+      none: { status: "BANNED" },
+    },
+  },
+});
+```
+
+## Many-to-Many Filtering
+
+```ts
+// Posts with "featured" tag
+const featuredPosts = await client.post.findMany({
+  where: {
+    tags: {
+      some: { name: "featured" },
+    },
+  },
+});
+
+// Posts with ALL specified tags
+const tutorials = await client.post.findMany({
+  where: {
+    AND: [
+      { tags: { some: { name: "tutorial" } } },
+      { tags: { some: { name: "beginner" } } },
+    ],
+  },
+});
+
+// Posts without "draft" tag
+const publishedPosts = await client.post.findMany({
+  where: {
+    tags: {
+      none: { name: "draft" },
+    },
+  },
+});
+```
+
+## Nested Conditions
+
+```ts
+// Users with posts that have comments from admins
+const mentionedUsers = await client.user.findMany({
+  where: {
+    posts: {
+      some: {
+        comments: {
+          some: {
+            author: {
+              is: { role: "ADMIN" },
+            },
+          },
+        },
+      },
+    },
+  },
+});
+```
+
+## Combined Filters
+
+```ts
+// Active users with engagement
+const engagedUsers = await client.user.findMany({
+  where: {
+    active: true,
+    OR: [
+      { posts: { some: { views: { gt: 100 } } } },
+      { comments: { some: {} } },
+    ],
+  },
+});
+```
+
+## Examples
+
+### Find Active Authors
+
+```ts
+async function getActiveAuthors() {
+  return client.user.findMany({
+    where: {
+      posts: {
+        some: {
+          published: true,
+          createdAt: { gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) },
+        },
+      },
+    },
+  });
+}
+```
+
+### Find Popular Posts
+
+```ts
+async function getPopularPosts() {
+  return client.post.findMany({
+    where: {
+      comments: {
+        some: {},  // Has at least one comment
+      },
+      tags: {
+        some: { name: "popular" },
+      },
+    },
+  });
+}
+```
+
+### Find Posts by Tag
+
+```ts
+async function getPostsByTags(tagNames: string[]) {
+  return client.post.findMany({
+    where: {
+      AND: tagNames.map(name => ({
+        tags: { some: { name } },
+      })),
+    },
+    include: { tags: true },
+  });
+}
+```
+
+### Find Users Without Activity
+
+```ts
+async function getInactiveUsers() {
+  return client.user.findMany({
+    where: {
+      posts: { none: {} },
+      comments: { none: {} },
+    },
+  });
+}
+```
+
+### Count Relations
+
+```ts
+const usersWithPostCount = await client.user.findMany({
+  include: {
+    _count: {
+      select: { posts: true, comments: true },
+    },
+  },
+});
+// user._count.posts, user._count.comments
+```
+

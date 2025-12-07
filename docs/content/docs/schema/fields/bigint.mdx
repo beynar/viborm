@@ -1,0 +1,126 @@
+---
+title: BigInt Field
+description: BigInt field type for large integers
+icon: Binary
+---
+
+# BigInt Field
+
+The BigInt field type represents integers larger than JavaScript's `Number.MAX_SAFE_INTEGER` (2^53 - 1).
+
+## Basic Usage
+
+```ts
+import { s } from "viborm";
+
+s.bigInt()               // Required bigint
+s.bigInt().nullable()    // BigInt | null
+```
+
+## Chainable Methods
+
+```ts
+s.bigInt()
+  .nullable()           // Allow NULL
+  .id()                 // Primary key
+  .unique()             // Unique constraint
+  .default(0n)          // Static default
+  .default(() => 0n)    // Runtime default
+  .map("column_name")   // Custom column name
+```
+
+## Native Database Types
+
+<Tabs items={["PostgreSQL", "MySQL", "SQLite"]}>
+  <Tab value="PostgreSQL">
+```ts
+import { TYPES } from "viborm";
+
+s.bigInt(TYPES.PG.BIGINT.BIGINT)  // BIGINT
+```
+  </Tab>
+  <Tab value="MySQL">
+```ts
+import { TYPES } from "viborm";
+
+s.bigInt(TYPES.MYSQL.BIGINT.BIGINT)           // BIGINT (signed)
+s.bigInt(TYPES.MYSQL.BIGINT.BIGINT_UNSIGNED)  // BIGINT UNSIGNED
+```
+  </Tab>
+  <Tab value="SQLite">
+```ts
+import { TYPES } from "viborm";
+
+s.bigInt(TYPES.SQLITE.BIGINT.INTEGER)  // INTEGER
+```
+  </Tab>
+</Tabs>
+
+## Type Mapping
+
+| Modifier | TypeScript | PostgreSQL | MySQL | SQLite |
+|----------|------------|------------|-------|--------|
+| `s.bigInt()` | `bigint` | `BIGINT` | `BIGINT` | `INTEGER` |
+| `.nullable()` | `bigint \| null` | `BIGINT NULL` | `BIGINT NULL` | `INTEGER NULL` |
+| `.array()` | `bigint[]` | `BIGINT[]` | `JSON` | `JSON` |
+
+## Range
+
+| Type | Range |
+|------|-------|
+| `BIGINT` | -9,223,372,036,854,775,808 to 9,223,372,036,854,775,807 |
+| `BIGINT UNSIGNED` (MySQL) | 0 to 18,446,744,073,709,551,615 |
+
+## Examples
+
+```ts
+// Large counter
+const viewCount = s.bigInt().default(0n);
+
+// Twitter-style snowflake ID
+const snowflakeId = s.bigInt().id();
+
+// Unix timestamp in milliseconds
+const timestampMs = s.bigInt();
+
+// Cryptocurrency amount (in smallest unit)
+const satoshis = s.bigInt().default(0n);
+```
+
+## Working with BigInt
+
+```ts
+// Create with bigint literal
+await client.post.create({
+  data: {
+    id: 1234567890123456789n,
+    viewCount: 0n,
+  }
+});
+
+// Filter with bigint
+await client.post.findMany({
+  where: {
+    viewCount: { gte: 1000000n },
+  }
+});
+
+// Update with bigint
+await client.post.update({
+  where: { id: 1n },
+  data: {
+    viewCount: { increment: 1n },
+  }
+});
+```
+
+## When to Use BigInt
+
+| Use Case | Recommended |
+|----------|-------------|
+| Counts &lt; 9 quadrillion | `s.int()` is sufficient |
+| Twitter/Discord IDs | `s.bigInt()` |
+| Cryptocurrency amounts | `s.bigInt()` |
+| Nanosecond timestamps | `s.bigInt()` |
+| Scientific computing | `s.bigInt()` |
+

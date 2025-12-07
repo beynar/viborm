@@ -1,0 +1,131 @@
+---
+title: String Field
+description: String field type for text data
+icon: Type
+---
+
+# String Field
+
+The string field type represents text data.
+
+## Basic Usage
+
+```ts
+import { s } from "viborm";
+
+s.string(); // Required string
+s.string().nullable(); // String | null
+s.string().array(); // String[] (native on PG, JSON on MySQL/SQLite)
+```
+
+## Chainable Methods
+
+### Common Modifiers
+
+```ts
+s.string()
+  .nullable() // Allow NULL
+  .array() // Array type (native on PG, JSON on MySQL/SQLite)
+  .id() // Primary key
+  .unique() // Unique constraint
+  .default("value") // Static default
+  .default(() => "x") // Runtime default
+  .map("column_name"); // Custom column name
+```
+
+### Auto-Generation
+
+String fields support automatic ID generation:
+
+```ts
+s.string().id().uuid(); // UUIDv4: "550e8400-e29b-41d4-a716-446655440000"
+s.string().id().ulid(); // ULID: "01ARZ3NDEKTSV4RRFFQ69G5FAV" (sortable)
+s.string().id().nanoid(); // NanoID: "V1StGXR8_Z5jdHi6B-myT"
+s.string().id().cuid(); // CUID: "cjld2cjxh0000qzrmn831i7rn"
+```
+
+### Custom Validation
+
+```ts
+import { z } from "zod";
+
+s.string().validator(z.string().email());
+s.string().validator(z.string().min(3).max(100));
+s.string().validator(z.string().regex(/^[a-z]+$/));
+```
+
+## Native Database Types
+
+Override the default database type:
+
+<Tabs items={["PostgreSQL", "MySQL", "SQLite"]}>
+  <Tab value="PostgreSQL">
+```ts
+import { TYPES } from "viborm";
+
+s.string(TYPES.PG.STRING.TEXT) // TEXT (default)
+s.string(TYPES.PG.STRING.VARCHAR(255)) // VARCHAR(255)
+s.string(TYPES.PG.STRING.CHAR(10)) // CHAR(10)
+s.string(TYPES.PG.STRING.CITEXT) // Case-insensitive text
+s.string(TYPES.PG.STRING.UUID) // UUID native type
+s.string(TYPES.PG.STRING.XML) // XML
+s.string(TYPES.PG.STRING.INET) // IP address
+s.string(TYPES.PG.STRING.CIDR) // IP network
+s.string(TYPES.PG.STRING.MACADDR) // MAC address
+s.string(TYPES.PG.STRING.TSVECTOR) // Full-text search
+
+````
+  </Tab>
+  <Tab value="MySQL">
+```ts
+import { TYPES } from "viborm";
+
+s.string(TYPES.MYSQL.STRING.VARCHAR(255))  // VARCHAR(255)
+s.string(TYPES.MYSQL.STRING.CHAR(10))      // CHAR(10)
+s.string(TYPES.MYSQL.STRING.TEXT)          // TEXT
+s.string(TYPES.MYSQL.STRING.TINYTEXT)      // TINYTEXT
+s.string(TYPES.MYSQL.STRING.MEDIUMTEXT)    // MEDIUMTEXT
+s.string(TYPES.MYSQL.STRING.LONGTEXT)      // LONGTEXT
+````
+
+  </Tab>
+  <Tab value="SQLite">
+```ts
+import { TYPES } from "viborm";
+
+s.string(TYPES.SQLITE.STRING.TEXT) // TEXT (only option)
+
+````
+  </Tab>
+</Tabs>
+
+## Type Mapping
+
+| Modifier | TypeScript | PostgreSQL | MySQL | SQLite |
+|----------|------------|------------|-------|--------|
+| `s.string()` | `string` | `TEXT` | `VARCHAR(191)` | `TEXT` |
+| `.nullable()` | `string \| null` | `TEXT NULL` | `VARCHAR(191) NULL` | `TEXT NULL` |
+| `.array()` | `string[]` | `TEXT[]` | `JSON` | `JSON` |
+
+## Examples
+
+```ts
+// Email with validation
+const email = s.string()
+  .unique()
+  .validator(z.string().email());
+
+// Username with constraints
+const username = s.string()
+  .unique()
+  .validator(z.string().min(3).max(30).regex(/^[a-z0-9_]+$/));
+
+// Primary key with ULID
+const id = s.string().id().ulid();
+
+// Optional bio
+const bio = s.string().nullable().default(null);
+
+// Tags array (PostgreSQL)
+const tags = s.string().array().default([]);
+````
