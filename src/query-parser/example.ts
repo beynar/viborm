@@ -14,25 +14,32 @@ import {
   ZodMiniType,
 } from "zod/v4-mini";
 
-const user = s.model({
-  id: s.string().id(),
-  name: s.string(),
-  email: s.string().array(),
-  createdAt: s.dateTime(),
-  tags: s.string().array().nullable(),
-  age: s.int().nullable(),
-  metadata: s.json().nullable(),
-  role: s.enum(["ADMIN", "USER"] as const).nullable(),
-  posts: s.oneToMany(() => post),
-}).map("User");
+const user = s
+  .model({
+    id: s.string().id(),
+    name: s.string(),
+    email: s.string().array(),
+    createdAt: s.dateTime(),
+    tags: s.string().array().nullable(),
+    age: s.int().nullable(),
+    metadata: s.json().nullable(),
+    role: s.enum(["ADMIN", "USER"] as const).nullable(),
+    posts: s.relation.oneToMany(() => post),
+  })
+  .map("User");
 
-const post = s.model({
-  id: s.string(),
-  title: s.string(),
-  content: s.string(),
-  authorId: s.string(),
-  author: s.manyToOne(() => user).fields("authorId").references("id"),
-}).map("Post");
+const post = s
+  .model({
+    id: s.string(),
+    title: s.string(),
+    content: s.string(),
+    authorId: s.string(),
+    author: s.relation
+      .fields("authorId")
+      .references("id")
+      .manyToOne(() => user),
+  })
+  .map("Post");
 
 const client = createClient({
   schema: {

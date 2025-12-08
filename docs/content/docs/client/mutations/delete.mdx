@@ -114,10 +114,11 @@ When a record is deleted, related records are handled based on `onDelete`:
 ```ts
 const post = s.model({
   authorId: s.string(),
-  author: s.manyToOne(() => user)
+  author: s.relation
     .fields("authorId")
     .references("id")
-    .onDelete("cascade"),  // Delete posts when user is deleted
+    .onDelete("cascade")  // Delete posts when user is deleted
+    .manyToOne(() => user),
 });
 ```
 

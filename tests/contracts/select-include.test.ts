@@ -34,8 +34,8 @@ const user = s.model({
   id: s.string().id().ulid(),
   name: s.string(),
   email: s.string(),
-  profile: s.oneToOne(() => profile),
-  posts: s.oneToMany(() => post),
+  profile: s.relation.oneToOne(() => profile),
+  posts: s.relation.oneToMany(() => post),
 });
 
 type UserFields = (typeof user)["~"]["fields"];
@@ -270,4 +270,3 @@ describe("Nested Include Schema Type/Runtime Parity", () => {
     });
   });
 });
-

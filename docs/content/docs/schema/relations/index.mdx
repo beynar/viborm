@@ -8,14 +8,27 @@ icon: GitBranch
 
 Relations define how models connect to each other. VibORM supports all standard relationship types.
 
+## Relation Builder Pattern
+
+VibORM uses a **config-first, getter-last** pattern for defining relations:
+
+```ts
+s.relation.config().type(() => targetModel)
+```
+
+This pattern avoids TypeScript circular reference issues because:
+1. Config methods (`fields`, `references`, etc.) return `this` - no generics involved
+2. Terminal methods (`oneToOne`, `manyToOne`, etc.) introduce the generic **last**
+3. Since there's no more chaining after the terminal method, TypeScript doesn't need to resolve the generic to enable further method calls
+
 ## Relation Types
 
 | Relation | Description | Example |
 |----------|-------------|---------|
-| `s.oneToOne()` | One record relates to one other | User → Profile |
-| `s.oneToMany()` | One record relates to many | User → Posts |
-| `s.manyToOne()` | Many records relate to one | Post → Author |
-| `s.manyToMany()` | Many relate to many | Post ↔ Tags |
+| `s.relation.oneToOne()` | One record relates to one other | User → Profile |
+| `s.relation.oneToMany()` | One record relates to many | User → Posts |
+| `s.relation.manyToOne()` | Many records relate to one | Post → Author |
+| `s.relation.manyToMany()` | Many relate to many | Post ↔ Tags |
 
 ## Quick Example
 
@@ -25,41 +38,53 @@ import { s } from "viborm";
 const user = s.model({
   id: s.string().id().ulid(),
   email: s.string().unique(),
-  profile: s.oneToOne(() => profile).optional(),
-  posts: s.oneToMany(() => post),
+  profile: s.relation.optional().oneToOne(() => profile),
+  posts: s.relation.oneToMany(() => post),
 }).map("users");
 
 const profile = s.model({
   id: s.string().id().ulid(),
   bio: s.string(),
   userId: s.string().unique(),
-  user: s.oneToOne(() => user).fields("userId").references("id"),
+  user: s.relation
+    .fields("userId")
+    .references("id")
+    .oneToOne(() => user),
 }).map("profiles");
 
 const post = s.model({
   id: s.string().id().ulid(),
   title: s.string(),
   authorId: s.string(),
-  author: s.manyToOne(() => user).fields("authorId").references("id"),
-  tags: s.manyToMany(() => tag),
+  author: s.relation
+    .fields("authorId")
+    .references("id")
+    .manyToOne(() => user),
+  tags: s.relation.manyToMany(() => tag),
 }).map("posts");
 
 const tag = s.model({
   id: s.string().id().ulid(),
   name: s.string().unique(),
-  posts: s.manyToMany(() => post),
+  posts: s.relation.manyToMany(() => post),
 }).map("tags");
 ```
 
-## Common Methods
+## Config Methods (before terminal)
 
-All relations support:
+All config methods can be chained before the terminal method:
 
 ```ts
-.fields("fieldName")       // FK field on current model
-.references("fieldName")   // Referenced field on target model
-.onDelete("cascade")       // Referential action on delete
-.onUpdate("cascade")       // Referential action on update
+s.relation
+  .fields("fieldName")       // FK field on current model
+  .references("fieldName")   // Referenced field on target model
+  .onDelete("cascade")       // Referential action on delete
+  .onUpdate("cascade")       // Referential action on update
+  .optional()                // Mark as optional (to-one only)
+  .through("tableName")      // Junction table (many-to-many only)
+  .A("fieldName")            // Junction FK for source (many-to-many only)
+  .B("fieldName")            // Junction FK for target (many-to-many only)
+  .manyToOne(() => target)   // Terminal method - ALWAYS LAST
 ```
 
 ## Referential Actions

@@ -124,7 +124,7 @@ describe("SchemaValidator", () => {
     test("R002: oneToOne without inverse oneToOne fails", () => {
       const user = s.model({
         id: s.string().id(),
-        profile: s.oneToOne(() => profile),
+        profile: s.relation.oneToOne(() => profile),
       });
       const profile = s.model({ id: s.string().id() });
       const result = validateSchema({ user, profile });
@@ -134,7 +134,7 @@ describe("SchemaValidator", () => {
     test("R003: oneToMany without manyToOne inverse fails", () => {
       const user = s.model({
         id: s.string().id(),
-        posts: s.oneToMany(() => post),
+        posts: s.relation.oneToMany(() => post),
       });
       const post = s.model({ id: s.string().id() });
       const result = validateSchema({ user, post });
@@ -145,7 +145,7 @@ describe("SchemaValidator", () => {
       const user = s.model({ id: s.string().id() });
       const post = s.model({
         id: s.string().id(),
-        author: s.manyToOne(() => user),
+        author: s.relation.manyToOne(() => user),
       });
       const result = validateSchema({ user, post });
       expect(result.errors.some((e) => e.code === "R004")).toBe(true);
@@ -154,7 +154,7 @@ describe("SchemaValidator", () => {
     test("R005: manyToMany without inverse manyToMany fails", () => {
       const user = s.model({
         id: s.string().id(),
-        tags: s.manyToMany(() => tag),
+        tags: s.relation.manyToMany(() => tag),
       });
       const tag = s.model({ id: s.string().id() });
       const result = validateSchema({ user, tag });
@@ -165,7 +165,7 @@ describe("SchemaValidator", () => {
       const external = s.model({ id: s.string().id() });
       const user = s.model({
         id: s.string().id(),
-        ext: s.oneToOne(() => external),
+        ext: s.relation.oneToOne(() => external),
       });
       const result = validateSchema({ user });
       expect(result.errors.some((e) => e.code === "R006")).toBe(true);
@@ -174,13 +174,13 @@ describe("SchemaValidator", () => {
     test("R007: multiple relations to same model warns", () => {
       const user = s.model({
         id: s.string().id(),
-        posts: s.oneToMany(() => post),
-        drafts: s.oneToMany(() => post),
+        posts: s.relation.oneToMany(() => post),
+        drafts: s.relation.oneToMany(() => post),
       });
       const post = s.model({
         id: s.string().id(),
-        author: s.manyToOne(() => user),
-        draftAuthor: s.manyToOne(() => user),
+        author: s.relation.manyToOne(() => user),
+        draftAuthor: s.relation.manyToOne(() => user),
       });
       const result = validateSchema({ user, post });
       expect(result.warnings.some((e) => e.code === "R007")).toBe(true);
@@ -189,11 +189,11 @@ describe("SchemaValidator", () => {
     test("Matching inverses pass", () => {
       const user = s.model({
         id: s.string().id(),
-        posts: s.oneToMany(() => post),
+        posts: s.relation.oneToMany(() => post),
       });
       const post = s.model({
         id: s.string().id(),
-        author: s.manyToOne(() => user),
+        author: s.relation.manyToOne(() => user),
       });
       const result = validateSchema({ user, post });
       const relErrors = result.errors.filter((e) => e.code.startsWith("R00"));
@@ -209,16 +209,16 @@ describe("SchemaValidator", () => {
       // Junction table reuse across >2 relations
       const a = s.model({
         id: s.string().id(),
-        bs: s.manyToMany(() => b).through("pivot"),
-        cs: s.manyToMany(() => c).through("pivot"),
+        bs: s.relation.through("pivot").manyToMany(() => b),
+        cs: s.relation.through("pivot").manyToMany(() => c),
       });
       const b = s.model({
         id: s.string().id(),
-        as: s.manyToMany(() => a).through("pivot"),
+        as: s.relation.through("pivot").manyToMany(() => a),
       });
       const c = s.model({
         id: s.string().id(),
-        as: s.manyToMany(() => a).through("pivot"),
+        as: s.relation.through("pivot").manyToMany(() => a),
       });
       const result = validateSchema({ a, b, c });
       expect(result.errors.some((e) => e.code === "JT001")).toBe(true);
@@ -227,11 +227,11 @@ describe("SchemaValidator", () => {
     test("JT002: invalid junction field name detected", () => {
       const user = s.model({
         id: s.string().id(),
-        friends: s
-          .manyToMany(() => user)
+        friends: s.relation
           .through("friends")
           .A("123bad")
-          .B("ok"),
+          .B("ok")
+          .manyToMany(() => user),
       });
       const result = validateSchema({ user });
       expect(result.errors.some((e) => e.code === "JT002")).toBe(true);
@@ -240,11 +240,11 @@ describe("SchemaValidator", () => {
     test("JT003: A and B same field name fails", () => {
       const user = s.model({
         id: s.string().id(),
-        friends: s
-          .manyToMany(() => user)
+        friends: s.relation
           .through("friends")
           .A("userId")
-          .B("userId"),
+          .B("userId")
+          .manyToMany(() => user),
       });
       const result = validateSchema({ user });
       expect(result.errors.some((e) => e.code === "JT003")).toBe(true);
@@ -253,11 +253,11 @@ describe("SchemaValidator", () => {
     test("JT004: self-ref junction A > B alphabetically warns", () => {
       const user = s.model({
         id: s.string().id(),
-        friends: s
-          .manyToMany(() => user)
+        friends: s.relation
           .through("friends")
           .A("z_user")
-          .B("a_friend"),
+          .B("a_friend")
+          .manyToMany(() => user),
       });
       const result = validateSchema({ user });
       expect(result.warnings.some((e) => e.code === "JT004")).toBe(true);
@@ -276,7 +276,7 @@ describe("SchemaValidator", () => {
     test("SR001: self-ref oneToMany needs manyToOne inverse", () => {
       const user = s.model({
         id: s.string().id(),
-        subordinates: s.oneToMany(() => user),
+        subordinates: s.relation.oneToMany(() => user),
       });
       const result = validateSchema({ user });
       expect(result.errors.some((e) => e.code === "SR001")).toBe(true);
@@ -285,8 +285,8 @@ describe("SchemaValidator", () => {
     test("SR001: self-ref with inverse passes", () => {
       const user = s.model({
         id: s.string().id(),
-        subordinates: s.oneToMany(() => user),
-        manager: s.manyToOne(() => user).optional(),
+        subordinates: s.relation.oneToMany(() => user),
+        manager: s.relation.optional().manyToOne(() => user),
       });
       const result = validateSchema({ user });
       expect(result.errors.filter((e) => e.code === "SR001")).toHaveLength(0);
@@ -299,8 +299,8 @@ describe("SchemaValidator", () => {
       // .extends() replaces keys, not duplicates them
       const user = s.model({
         id: s.string().id(),
-        followers: s.manyToMany(() => user),
-        following: s.manyToMany(() => user),
+        followers: s.relation.manyToMany(() => user),
+        following: s.relation.manyToMany(() => user),
       });
       const result = validateSchema({ user });
       // No SR002 error because names are distinct
@@ -316,7 +316,7 @@ describe("SchemaValidator", () => {
       const user = s.model({ id: s.string().id() });
       const post = s.model({
         id: s.string().id(),
-        author: s.manyToOne(() => user).fields("nonExistent"),
+        author: s.relation.fields("nonExistent").manyToOne(() => user),
       });
       const result = validateSchema({ user, post });
       expect(result.errors.some((e) => e.code === "FK001")).toBe(true);
@@ -327,10 +327,10 @@ describe("SchemaValidator", () => {
       const post = s.model({
         id: s.string().id(),
         authorId: s.string(),
-        author: s
-          .manyToOne(() => user)
+        author: s.relation
           .fields("authorId")
-          .references("nonExistent"),
+          .references("nonExistent")
+          .manyToOne(() => user),
       });
       const result = validateSchema({ user, post });
       expect(result.errors.some((e) => e.code === "FK002")).toBe(true);
@@ -341,10 +341,10 @@ describe("SchemaValidator", () => {
       const post = s.model({
         id: s.string().id(),
         authorId: s.int(),
-        author: s
-          .manyToOne(() => user)
+        author: s.relation
           .fields("authorId")
-          .references("id"),
+          .references("id")
+          .manyToOne(() => user),
       });
       const result = validateSchema({ user, post });
       expect(result.errors.some((e) => e.code === "FK003")).toBe(true);
@@ -353,11 +353,11 @@ describe("SchemaValidator", () => {
     test("FK004: manyToOne without FK warns", () => {
       const user = s.model({
         id: s.string().id(),
-        posts: s.oneToMany(() => post),
+        posts: s.relation.oneToMany(() => post),
       });
       const post = s.model({
         id: s.string().id(),
-        author: s.manyToOne(() => user),
+        author: s.relation.manyToOne(() => user),
       });
       const result = validateSchema({ user, post });
       expect(result.warnings.some((e) => e.code === "FK004")).toBe(true);
@@ -371,10 +371,10 @@ describe("SchemaValidator", () => {
       const post = s.model({
         id: s.string().id(),
         authorName: s.string(),
-        author: s
-          .manyToOne(() => user)
+        author: s.relation
           .fields("authorName")
-          .references("name"),
+          .references("name")
+          .manyToOne(() => user),
       });
       const result = validateSchema({ user, post });
       expect(result.warnings.some((e) => e.code === "FK005")).toBe(true);
@@ -391,10 +391,10 @@ describe("SchemaValidator", () => {
         id: s.string().id(),
         authorId: s.string(),
         orgId: s.string(),
-        author: s
-          .manyToOne(() => user)
+        author: s.relation
           .fields("authorId", "orgId")
-          .references("id"),
+          .references("id")
+          .manyToOne(() => user),
       });
       const result = validateSchema({ user, post });
       expect(result.errors.some((e) => e.code === "FK007")).toBe(true);
@@ -418,10 +418,10 @@ describe("SchemaValidator", () => {
       const post = s.model({
         id: s.string().id(),
         authorId: s.string(),
-        author: s
-          .manyToOne(() => user)
+        author: s.relation
           .fields("authorId")
-          .onDelete("cascade"),
+          .onDelete("cascade")
+          .manyToOne(() => user),
       });
       const result = validateSchema({ user, post });
       expect(result.warnings.some((e) => e.code === "RA003")).toBe(true);
@@ -432,10 +432,10 @@ describe("SchemaValidator", () => {
       const post = s.model({
         id: s.string().id(),
         authorId: s.string(),
-        author: s
-          .manyToOne(() => user)
+        author: s.relation
           .fields("authorId")
-          .onDelete("setNull"),
+          .onDelete("setNull")
+          .manyToOne(() => user),
       });
       const result = validateSchema({ user, post });
       expect(result.errors.some((e) => e.code === "RA004")).toBe(true);
@@ -446,11 +446,11 @@ describe("SchemaValidator", () => {
       const post = s.model({
         id: s.string().id(),
         authorId: s.string().nullable(),
-        author: s
-          .manyToOne(() => user)
+        author: s.relation
           .fields("authorId")
           .onDelete("setNull")
-          .optional(),
+          .optional()
+          .manyToOne(() => user),
       });
       const result = validateSchema({ user, post });
       expect(result.errors.filter((e) => e.code === "RA004")).toHaveLength(0);
@@ -473,23 +473,23 @@ describe("SchemaValidator", () => {
     test("CM002: circular required relations detected", () => {
       const a = s.model({
         id: s.string().id(),
-        b: s.manyToOne(() => b), // required
+        b: s.relation.manyToOne(() => b), // required
       });
       const b = s.model({
         id: s.string().id(),
-        a: s.manyToOne(() => a), // required - circular!
-        as: s.oneToMany(() => a),
+        a: s.relation.manyToOne(() => a), // required - circular!
+        as: s.relation.oneToMany(() => a),
       });
       // Add inverses
       const aWithInverse = s.model({
         id: s.string().id(),
-        b: s.manyToOne(() => bWithInverse),
-        bs: s.oneToMany(() => bWithInverse),
+        b: s.relation.manyToOne(() => bWithInverse),
+        bs: s.relation.oneToMany(() => bWithInverse),
       });
       const bWithInverse = s.model({
         id: s.string().id(),
-        a: s.manyToOne(() => aWithInverse),
-        as: s.oneToMany(() => aWithInverse),
+        a: s.relation.manyToOne(() => aWithInverse),
+        as: s.relation.oneToMany(() => aWithInverse),
       });
       const result = validateSchema({ a: aWithInverse, b: bWithInverse });
       expect(result.errors.some((e) => e.code === "CM002")).toBe(true);
@@ -499,12 +499,12 @@ describe("SchemaValidator", () => {
       const user = s.model({
         id: s.string().id(),
         profileId: s.string(),
-        profile: s.oneToOne(() => profile).fields("profileId"),
+        profile: s.relation.fields("profileId").oneToOne(() => profile),
       });
       const profile = s.model({
         id: s.string().id(),
         userId: s.string(),
-        user: s.oneToOne(() => user).fields("userId"),
+        user: s.relation.fields("userId").oneToOne(() => user),
       });
       const result = validateSchema({ user, profile });
       expect(result.warnings.some((e) => e.code === "CM003")).toBe(true);
@@ -527,7 +527,7 @@ describe("SchemaValidator", () => {
         id: s.string().id(),
         post_type: s.string(),
         post_id: s.string(),
-        post: s.manyToOne(() => post).fields("post_id"),
+        post: s.relation.fields("post_id").manyToOne(() => post),
       });
       const result = validateSchema({ post, comment });
       expect(result.warnings.filter((e) => e.code === "CM004")).toHaveLength(0);

@@ -39,7 +39,7 @@ const user = s
     email: s.string().unique(),
     name: s.string().nullable(),
     role: s.enum(["USER", "ADMIN"]).default("USER"),
-    posts: s.oneToMany(() => post),
+    posts: s.relation.oneToMany(() => post),
   })
   .map("users");
 
@@ -49,10 +49,10 @@ const post = s
     title: s.string(),
     published: s.boolean().default(false),
     authorId: s.string(),
-    author: s
-      .manyToOne(() => user)
+    author: s.relation
       .fields("authorId")
-      .references("id"),
+      .references("id")
+      .manyToOne(() => user),
   })
   .map("posts");
 

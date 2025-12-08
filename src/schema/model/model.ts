@@ -364,7 +364,9 @@ export class Model<State extends AnyModelState = ModelState> {
         return self._schemas;
       },
       /** Inferred TypeScript type for model records */
-      infer: {} as InferModelFields<State["fields"]>,
+      get infer() {
+        return {} as InferModelFields<State["fields"]>;
+      },
       /** Name slots hydrated by client at initialization */
       names: this._names,
     };
@@ -378,11 +380,21 @@ export class Model<State extends AnyModelState = ModelState> {
 /**
  * Creates a new model with the given fields
  *
+ * Relations use a builder pattern with config-first, getter-last:
+ * s.relation.fields("authorId").references("id").manyToOne(() => user)
+ *
  * @example
  * const user = s.model({
  *   id: s.string().id().ulid(),
  *   name: s.string(),
+ *   posts: s.relation.oneToMany(() => post),
  * }).map("users");
+ *
+ * const post = s.model({
+ *   id: s.string().id().ulid(),
+ *   authorId: s.string(),
+ *   author: s.relation.fields("authorId").references("id").manyToOne(() => user),
+ * }).map("posts");
  *
  * // With compound primary key
  * const membership = s.model({

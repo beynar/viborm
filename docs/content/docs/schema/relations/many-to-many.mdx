@@ -16,13 +16,13 @@ import { s } from "viborm";
 const post = s.model({
   id: s.string().id().ulid(),
   title: s.string(),
-  tags: s.manyToMany(() => tag),
+  tags: s.relation.manyToMany(() => tag),
 }).map("posts");
 
 const tag = s.model({
   id: s.string().id().ulid(),
   name: s.string().unique(),
-  posts: s.manyToMany(() => post),
+  posts: s.relation.manyToMany(() => post),
 }).map("tags");
 ```
 
@@ -37,14 +37,14 @@ VibORM automatically creates a junction table `post_tag` with `postId` and `tagI
 | Can be empty | Yes (empty array) |
 | FK location | Junction table |
 
-## Chainable Methods
+## Config Methods (before `.manyToMany()`)
 
 ### `.through(tableName)`
 
 Specify a custom junction table name:
 
 ```ts
-s.manyToMany(() => tag).through("post_tags")
+s.relation.through("post_tags").manyToMany(() => tag)
 ```
 
 ### `.A(fieldName)`
@@ -52,9 +52,10 @@ s.manyToMany(() => tag).through("post_tags")
 Specify the junction table FK column for the source model:
 
 ```ts
-s.manyToMany(() => tag)
+s.relation
   .through("post_tags")
   .A("post_id")  // FK to posts table
+  .manyToMany(() => tag)
 ```
 
 ### `.B(fieldName)`
@@ -62,10 +63,11 @@ s.manyToMany(() => tag)
 Specify the junction table FK column for the target model:
 
 ```ts
-s.manyToMany(() => tag)
+s.relation
   .through("post_tags")
   .A("post_id")
   .B("tag_id")  // FK to tags table
+  .manyToMany(() => tag)
 ```
 
 ## Auto-Generated Junction Table
@@ -73,7 +75,7 @@ s.manyToMany(() => tag)
 Without explicit configuration, VibORM generates:
 
 ```ts
-// For: post.tags = s.manyToMany(() => tag)
+// For: post.tags = s.relation.manyToMany(() => tag)
 // Junction table: post_tag
 // Columns: postId, tagId
 ```
@@ -88,19 +90,21 @@ For full control:
 const post = s.model({
   id: s.string().id().ulid(),
   title: s.string(),
-  tags: s.manyToMany(() => tag)
+  tags: s.relation
     .through("post_tags")
     .A("post_id")
-    .B("tag_id"),
+    .B("tag_id")
+    .manyToMany(() => tag),
 }).map("posts");
 
 const tag = s.model({
   id: s.string().id().ulid(),
   name: s.string().unique(),
-  posts: s.manyToMany(() => post)
+  posts: s.relation
     .through("post_tags")
     .A("tag_id")
-    .B("post_id"),
+    .B("post_id")
+    .manyToMany(() => post),
 }).map("tags");
 ```
 
@@ -111,27 +115,29 @@ const tag = s.model({
 const user = s.model({
   id: s.string().id().ulid(),
   name: s.string(),
-  following: s.manyToMany(() => user)
+  following: s.relation
     .through("user_follows")
     .A("follower_id")
-    .B("following_id"),
-  followers: s.manyToMany(() => user)
+    .B("following_id")
+    .manyToMany(() => user),
+  followers: s.relation
     .through("user_follows")
     .A("following_id")
-    .B("follower_id"),
+    .B("follower_id")
+    .manyToMany(() => user),
 }).map("users");
 
 // Products and categories
 const product = s.model({
   id: s.string().id().ulid(),
   name: s.string(),
-  categories: s.manyToMany(() => category),
+  categories: s.relation.manyToMany(() => category),
 }).map("products");
 
 const category = s.model({
   id: s.string().id().ulid(),
   name: s.string(),
-  products: s.manyToMany(() => product),
+  products: s.relation.manyToMany(() => product),
 }).map("categories");
 ```
 
@@ -255,8 +261,14 @@ const enrollment = s.model({
   courseId: s.string(),
   enrolledAt: s.dateTime().now(),
   grade: s.string().nullable(),
-  student: s.manyToOne(() => student).fields("studentId").references("id"),
-  course: s.manyToOne(() => course).fields("courseId").references("id"),
+  student: s.relation
+    .fields("studentId")
+    .references("id")
+    .manyToOne(() => student),
+  course: s.relation
+    .fields("courseId")
+    .references("id")
+    .manyToOne(() => course),
 })
   .map("enrollments")
   .unique(["studentId", "courseId"]);
@@ -264,13 +276,13 @@ const enrollment = s.model({
 const student = s.model({
   id: s.string().id().ulid(),
   name: s.string(),
-  enrollments: s.oneToMany(() => enrollment),
+  enrollments: s.relation.oneToMany(() => enrollment),
 }).map("students");
 
 const course = s.model({
   id: s.string().id().ulid(),
   title: s.string(),
-  enrollments: s.oneToMany(() => enrollment),
+  enrollments: s.relation.oneToMany(() => enrollment),
 }).map("courses");
 ```
 
@@ -280,10 +292,11 @@ const course = s.model({
 const user = s.model({
   id: s.string().id().ulid(),
   name: s.string(),
-  friends: s.manyToMany(() => user)
+  friends: s.relation
     .through("friendships")
     .A("user_id")
-    .B("friend_id"),
+    .B("friend_id")
+    .manyToMany(() => user),
 }).map("users");
 ```
 

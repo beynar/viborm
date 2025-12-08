@@ -55,14 +55,17 @@ const user = s.model({
   email: s.string(TYPES.PG.STRING.CITEXT).unique(),
   name: s.string().nullable(),
   createdAt: s.dateTime().default(() => new Date()),
-  posts: s.oneToMany(() => post),
+  posts: s.relation.oneToMany(() => post),
 }).map("users");
 
 const post = s.model({
   id: s.string().id().ulid(),
   title: s.string(),
   authorId: s.string(),
-  author: s.manyToOne(() => user).fields("authorId").references("id"),
+  author: s.relation
+    .fields("authorId")
+    .references("id")
+    .manyToOne(() => user),
 }).map("posts");
 ```
 
@@ -295,7 +298,7 @@ const user = s.model({
   id: s.string().id().ulid(),
   name: s.string(),
   email: s.string().unique(),
-  posts: s.oneToMany(() => post),
+  posts: s.relation.oneToMany(() => post),
 });
 ```
 
@@ -365,36 +368,40 @@ Relations define how models connect. VibORM uses a class hierarchy for type-safe
 
 ### Relation Types
 
+VibORM uses a **config-first, getter-last** pattern for relations:
+
 | Relation | Returns | Example |
 |----------|---------|---------|
-| `s.oneToOne()` | Single object or null | User → Profile |
-| `s.oneToMany()` | Array | User → Posts |
-| `s.manyToOne()` | Single object or null | Post → Author |
-| `s.manyToMany()` | Array | Post ↔ Tags |
+| `s.relation.oneToOne()` | Single object or null | User → Profile |
+| `s.relation.oneToMany()` | Array | User → Posts |
+| `s.relation.manyToOne()` | Single object or null | Post → Author |
+| `s.relation.manyToMany()` | Array | Post ↔ Tags |
 
 ### Relation Configuration
 
 ```ts
-// Owner side (has foreign key)
-s.manyToOne(() => user)
+// Owner side (has foreign key) - config BEFORE terminal method
+s.relation
   .fields("authorId")              // FK field on this model
   .references("id")                // Referenced field on target
   .onDelete("cascade")             // cascade | setNull | restrict | noAction
   .onUpdate("cascade")
   .optional()                      // Allow NULL (to-one only)
+  .manyToOne(() => user)           // Terminal method - ALWAYS LAST
 
 // Inverse side (no FK)
-s.oneToMany(() => post)            // No configuration needed
+s.relation.oneToMany(() => post)   // No configuration needed
 ```
 
 ### Many-to-Many Relations
 
 ```ts
 const post = s.model({
-  tags: s.manyToMany(() => tag)
+  tags: s.relation
     .through("post_tags")          // Junction table name
     .A("postId")                   // Source FK column
-    .B("tagId"),                   // Target FK column
+    .B("tagId")                    // Target FK column
+    .manyToMany(() => tag),        // Terminal method - ALWAYS LAST
 });
 ```
 
@@ -682,7 +689,7 @@ model["~"].infer         // Phantom type for inference
 ### Relation Internals
 
 ```ts
-const rel = s.manyToOne(() => user).fields("authorId").references("id");
+const rel = s.relation.fields("authorId").references("id").manyToOne(() => user);
 
 rel["~"].getter          // () => Model (lazy reference)
 rel["~"].relationType    // "manyToOne"

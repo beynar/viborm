@@ -17,7 +17,7 @@ const user = s.model({
   id: s.string().id().ulid(),
   email: s.string().unique(),
   name: s.string().nullable(),
-  posts: s.oneToMany(() => post),
+  posts: s.relation.oneToMany(() => post),
 }).map("users");
 ```
 
@@ -30,10 +30,10 @@ All schema definitions use the `s` builder object:
 ```ts
 import { s } from "viborm";
 
-s.model({ ... })     // Create a model
-s.string()           // String field
-s.int()              // Integer field
-s.oneToMany(...)     // One-to-many relation
+s.model({ ... })              // Create a model
+s.string()                    // String field
+s.int()                       // Integer field
+s.relation.oneToMany(...)     // One-to-many relation
 // ... and more
 ```
 

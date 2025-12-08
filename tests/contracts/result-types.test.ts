@@ -36,8 +36,8 @@ const user = s.model({
   email: s.string(),
   age: s.int().nullable(),
   createdAt: s.dateTime().now(),
-  profile: s.oneToOne(() => profile),
-  posts: s.oneToMany(() => post),
+  profile: s.relation.oneToOne(() => profile),
+  posts: s.relation.oneToMany(() => post),
 });
 
 type UserFields = (typeof user)["~"]["fields"];
@@ -104,9 +104,9 @@ describe("SelectResult Type Contracts", () => {
     type Result = SelectResult<UserFields, { profile: true }>;
 
     // profile is to-one optional, so it's nullable
-    expectTypeOf<Result["profile"]>().toMatchTypeOf<
-      ModelBaseResult<ProfileFields> | null
-    >();
+    expectTypeOf<
+      Result["profile"]
+    >().toMatchTypeOf<ModelBaseResult<ProfileFields> | null>();
   });
 
   it("to-many relation is array", () => {
@@ -140,9 +140,9 @@ describe("IncludeResult Type Contracts", () => {
   it("to-one included relation is nullable", () => {
     type Result = IncludeResult<UserFields, { profile: true }>;
 
-    expectTypeOf<Result["profile"]>().toMatchTypeOf<
-      ModelBaseResult<ProfileFields> | null
-    >();
+    expectTypeOf<
+      Result["profile"]
+    >().toMatchTypeOf<ModelBaseResult<ProfileFields> | null>();
   });
 
   it("to-many included relation is array", () => {
@@ -206,4 +206,3 @@ describe("InferResult Type Contracts", () => {
     expectTypeOf<Result>().not.toHaveProperty("profile");
   });
 });
-

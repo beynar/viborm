@@ -11,7 +11,12 @@ import type { AnyRelation } from "../../relation/relation";
 // CONSTRAINT HELPER - Replace verbose Record<string, Field | Relation<any, any>>
 // =============================================================================
 
-/** Simplified constraint for model fields */
+/**
+ * Simplified constraint for model fields.
+ * Supports:
+ * - Field: scalar field definitions (s.string(), s.int(), etc.)
+ * - AnyRelation: relation instances from s.relation builder
+ */
 export type FieldRecord = Record<string, Field | AnyRelation>;
 
 // =============================================================================

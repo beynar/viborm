@@ -28,10 +28,12 @@ const user = s.model({
 By default, VibORM uses the variable name. Use `.map()` to set a custom table name:
 
 ```ts
-const user = s.model({
-  id: s.string().id(),
-  // ...
-}).map("users"); // SQL: CREATE TABLE "users" (...)
+const user = s
+  .model({
+    id: s.string().id(),
+    // ...
+  })
+  .map("users"); // SQL: CREATE TABLE "users" (...)
 ```
 
 ## Chainable Methods
@@ -113,38 +115,39 @@ const user = baseModel.extends({
 
 ## Index Options
 
-| Option | Type | Description |
-|--------|------|-------------|
-| `name` | `string` | Custom index name |
-| `type` | `"btree" \| "hash" \| "gin" \| "gist"` | Index type (PostgreSQL) |
-| `unique` | `boolean` | Unique index |
-| `where` | `string` | Partial index condition |
+| Option   | Type                                   | Description             |
+| -------- | -------------------------------------- | ----------------------- |
+| `name`   | `string`                               | Custom index name       |
+| `type`   | `"btree" \| "hash" \| "gin" \| "gist"` | Index type (PostgreSQL) |
+| `unique` | `boolean`                              | Unique index            |
+| `where`  | `string`                               | Partial index condition |
 
 ## Complete Example
 
 ```ts
-const user = s.model({
-  // Primary key with auto-generation
-  id: s.string().id().ulid(),
-  
-  // Required fields
-  email: s.string().unique(),
-  passwordHash: s.string(),
-  
-  // Optional fields
-  name: s.string().nullable(),
-  bio: s.string().nullable(),
-  
-  // With defaults
-  role: s.enum(["USER", "ADMIN"]).default("USER"),
-  active: s.boolean().default(true),
-  createdAt: s.dateTime().default(() => new Date()),
-  updatedAt: s.dateTime().updatedAt(),
-  
-  // Relations
-  posts: s.oneToMany(() => post),
-  profile: s.oneToOne(() => profile).optional(),
-})
+const user = s
+  .model({
+    // Primary key with auto-generation
+    id: s.string().id().ulid(),
+
+    // Required fields
+    email: s.string().unique(),
+    passwordHash: s.string(),
+
+    // Optional fields
+    name: s.string().nullable(),
+    bio: s.string().nullable(),
+
+    // With defaults
+    role: s.enum(["USER", "ADMIN"]).default("USER"),
+    active: s.boolean().default(true),
+    createdAt: s.dateTime().default(() => new Date()),
+    updatedAt: s.dateTime().updatedAt(),
+
+    // Relations (config-first, getter-last pattern)
+    posts: s.relation.oneToMany(() => post),
+    profile: s.relation.optional().oneToOne(() => profile),
+  })
   .map("users")
   .index("email")
   .index(["role", "active"])
@@ -173,7 +176,6 @@ user["~"].infer        // Inferred TypeScript type
 Access the inferred type for a model:
 
 ```ts
-type User = typeof user["~"]["infer"];
+type User = (typeof user)["~"]["infer"];
 // { id: string; email: string; name: string | null; ... }
 ```
-

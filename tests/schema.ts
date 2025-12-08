@@ -2,14 +2,12 @@ import z from "zod/v4";
 import {
   AnyRelation,
   GetRelationFields,
-  GetRelationType,
   RelationGetter,
   s,
 } from "../src/schema/index.js";
 import { createClient } from "../src/index.js";
 import { PrismaClient } from "../generated/prisma/client.js";
 import { FindFirstArgs } from "@types/index.js";
-import { type } from "arktype";
 
 export const string = s.string();
 export const nullableString = s.string().nullable();
@@ -93,63 +91,45 @@ export const model = s.model({
   enumFieldWithDefault,
   enumFieldWithValidation,
   nullableEnumField,
-  oneToOne: s.oneToOne(() => oneToOne),
-  oneToMany: s.oneToMany(() => oneToMany),
-  manyToMany: s.manyToMany(() => manyToMany),
-  manyToOne: s.manyToOne(() => manyToOne),
+  oneToOne: s.relation.oneToOne(() => oneToOne),
+  oneToMany: s.relation.oneToMany(() => oneToMany),
+  manyToMany: s.relation.manyToMany(() => manyToMany),
+  manyToOne: s.relation.manyToOne(() => manyToOne),
 });
 
 export const oneToOne = s.model({
   id: s.string().id().ulid(),
-  test: s.oneToOne(() => oneToOne),
+  test: s.relation.oneToOne(() => oneToOne),
 });
 
 export const oneToMany = s.model({
   id: s.string().id().ulid(),
-  test: s.manyToOne(() => oneToOne),
+  test: s.relation.manyToOne(() => oneToOne),
 });
 
 export const manyToMany = s.model({
   id: s.string().id().ulid(),
-  test: s.manyToMany(() => oneToOne),
+  test: s.relation.manyToMany(() => oneToOne),
 });
 
 export const manyToOne = s.model({
   id: s.string().id().ulid(),
-  test: s.oneToMany(() => oneToOne),
+  test: s.relation.oneToMany(() => oneToOne),
 });
-
-const sTT1 = s
-  .oneToMany(() => example)
-  .fields("relationId")
-  .references("id");
-const sTT = s
-  .oneToOne(() => example)
-  .fields("relationId")
-  .references("id");
-
-const sTT2 = s
-  .manyToOne(() => example)
-  .fields("relationId")
-  .references("id");
-const sTT3 = s
-  .manyToMany(() => example)
-  .fields("relationId")
-  .references("id");
-// .fields("authorId")
-// .references("id");
 
 // ===== TEST MODELS FOR CLIENT TESTS =====
 
 const example = s.model({
   id: s.string().id().ulid(),
-  relation: s.oneToMany(() => relation),
+  relation: s.relation.oneToMany(() => relation),
 });
 
-// const t = s.oneToOne(() => example).fields("eeaz");
 const relation = s.model({
   id: s.string().id().ulid(),
-  example: s.oneToOne(() => testUser).onDelete("cascade"),
+  example: s.relation
+    .fields("eeaz")
+    .references("id")
+    .oneToOne(() => example),
 });
 /**
  * Test user model for client type tests
@@ -163,8 +143,11 @@ export const testUser = s.model({
   tags: s.string().array(),
   createdAt: s.dateTime().now(),
   updatedAt: s.dateTime().now(),
-  posts: s.oneToMany(() => testPost),
-  // profile: s.oneToOne(() => testProfile).optional(),
+  posts: s.relation
+    .fields("authorId")
+    .references("id")
+    .oneToMany(() => testPost),
+  // profile: s.relation.optional().oneToOne(() => testProfile),
 });
 
 /**
@@ -178,10 +161,7 @@ export const testPost = s.model({
   createdAt: s.dateTime().now(),
   updatedAt: s.dateTime().now(),
   authorId: s.string(),
-  author: s
-    .oneToOne(() => testUser)
-    .fields("authorId")
-    .references("id"),
+  author: s.relation.oneToOne(() => testUser),
   // metadata: s
   //   .json(
   //     z.object({
@@ -200,7 +180,7 @@ export const testProfile = s
     bio: s.string().nullable(),
     avatar: s.string().nullable(),
     userId: s.string().unique(),
-    user: s.oneToOne(() => testUser),
+    user: s.relation.oneToOne(() => testUser),
   })
   .map("Profile")
   .index(["avatar", "bio"], { name: "idx_profile_eaeaz", type: "gin" })
@@ -221,27 +201,29 @@ const client = createClient({
 });
 
 // Test WhereUnique with different identifier types
+// NOTE: These are for type-checking only, commented out to prevent execution at import time
 
 // 1. Single-field ID
-client.profile.findUnique({
-  where: {
-    id: "test-id",
-  },
-});
+// client.profile.findUnique({
+//   where: {
+//     id: "test-id",
+//   },
+// });
 
 // 2. Single-field unique
-client.profile.findUnique({
-  where: {
-    userId: "user-123",
-  },
-});
+// client.profile.findUnique({
+//   where: {
+//     userId: "user-123",
+//   },
+// });
 
 // 3. Compound ID (auto-generated name from fields: avatar_bio)
-client.profile.findFirst({
-  where: {
-    user: {},
-  },
-});
+// NOTE: Commented out to prevent execution at import time
+// client.profile.findFirst({
+//   where: {
+//     user: {},
+//   },
+// });
 
 type FindFirst = FindFirstArgs<typeof schema.profile>["where"];
 type R = (typeof schema.profile)["~"]["fields"]["user"];
@@ -250,32 +232,33 @@ type T2 = RelationGetter<R>;
 type TEst = GetRelationFields<R>;
 
 // 4. Compound unique with custom name
-const res2 = await client.profile.findUnique({
-  where: {
-    ezl: { avatar: "avatar.jpg", bio: "My bio" },
-    id: "ezk",
-  },
-  select: {},
-});
+// NOTE: These await calls are commented out to prevent execution at import time
+// const res2 = await client.profile.findUnique({
+//   where: {
+//     ezl: { avatar: "avatar.jpg", bio: "My bio" },
+//     id: "ezk",
+//   },
+//   select: {},
+// });
 
-const res = await client.model.findFirst({
-  where: {
-    id: "lkz",
-  },
-  select: {
-    string: true,
-    manyToOne: {
-      include: {
-        test: {
-          select: {
-            string: true,
-            id: true,
-          },
-        },
-      },
-    },
-  },
-});
+// const res = await client.model.findFirst({
+//   where: {
+//     id: "lkz",
+//   },
+//   select: {
+//     string: true,
+//     manyToOne: {
+//       include: {
+//         test: {
+//           select: {
+//             string: true,
+//             id: true,
+//           },
+//         },
+//       },
+//     },
+//   },
+// });
 
 const prisma = new PrismaClient();
 
@@ -295,12 +278,13 @@ prisma.example.findFirst({
   },
 });
 
-const userType = type({
-  id: type("string"),
-  posts: () => postType,
-});
+// NOTE: ArkType example for circular types - commented out to prevent execution at import time
+// const userType = type({
+//   id: type("string"),
+//   posts: () => postType,
+// });
 
-const postType = type({
-  id: type("string"),
-  author: () => userType,
-});
+// const postType = type({
+//   id: type("string"),
+//   author: () => userType,
+// });

@@ -148,7 +148,7 @@ export const oneToOneTarget = s.model({
 export const oneToOneSource = s.model({
   id: s.string().id().ulid(),
   targetId: s.string().unique(),
-  target: s.oneToOne(() => oneToOneTarget).optional(),
+  target: s.relation.optional().oneToOne(() => oneToOneTarget),
 });
 
 // --- One-to-Many Models ---
@@ -161,7 +161,7 @@ export const oneToManyChild = s.model({
 export const oneToManyParent = s.model({
   id: s.string().id().ulid(),
   name: s.string(),
-  children: s.oneToMany(() => oneToManyChild),
+  children: s.relation.oneToMany(() => oneToManyChild),
 });
 
 // --- Many-to-One Models ---
@@ -174,7 +174,7 @@ export const manyToOneSource = s.model({
   id: s.string().id().ulid(),
   title: s.string(),
   targetId: s.string(),
-  target: s.manyToOne(() => manyToOneTarget),
+  target: s.relation.manyToOne(() => manyToOneTarget),
 });
 
 // --- Many-to-Many Models ---
@@ -186,7 +186,7 @@ export const manyToManyA = s.model({
 export const manyToManyB = s.model({
   id: s.string().id().ulid(),
   title: s.string(),
-  aList: s.manyToMany(() => manyToManyA),
+  aList: s.relation.manyToMany(() => manyToManyA),
 });
 
 // Legacy exports for backward compatibility
@@ -219,4 +219,3 @@ export type ManyToOneSourceFields = (typeof manyToOneSource)["~"]["fields"];
 export type ManyToOneTargetFields = (typeof manyToOneTarget)["~"]["fields"];
 export type ManyToManyAFields = (typeof manyToManyA)["~"]["fields"];
 export type ManyToManyBFields = (typeof manyToManyB)["~"]["fields"];
-

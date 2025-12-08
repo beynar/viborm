@@ -17,7 +17,7 @@ import { s } from "viborm";
 const user = s.model({
   id: s.string().id().ulid(),
   email: s.string().unique(),
-  profile: s.oneToOne(() => profile).optional(),
+  profile: s.relation.optional().oneToOne(() => profile),
 }).map("users");
 
 // Profile belongs to one user
@@ -25,7 +25,10 @@ const profile = s.model({
   id: s.string().id().ulid(),
   bio: s.string(),
   userId: s.string().unique(),  // FK field, unique for 1:1
-  user: s.oneToOne(() => user).fields("userId").references("id"),
+  user: s.relation
+    .fields("userId")
+    .references("id")
+    .oneToOne(() => user),
 }).map("profiles");
 ```
 
@@ -35,17 +38,17 @@ In a one-to-one relation, one side must have the foreign key:
 
 | Side | Has FK | Configuration |
 |------|--------|---------------|
-| Owner (Profile) | Yes | `.fields("userId").references("id")` |
-| Non-owner (User) | No | Just `.optional()` or nothing |
+| Owner (Profile) | Yes | `.fields("userId").references("id")` before `.oneToOne()` |
+| Non-owner (User) | No | Just `.optional()` before `.oneToOne()` or nothing |
 
-## Chainable Methods
+## Config Methods (before `.oneToOne()`)
 
 ### `.fields(...fieldNames)`
 
 Specifies the FK field(s) on the current model:
 
 ```ts
-s.oneToOne(() => user).fields("userId")
+s.relation.fields("userId").oneToOne(() => user)
 ```
 
 ### `.references(...fieldNames)`
@@ -53,7 +56,10 @@ s.oneToOne(() => user).fields("userId")
 Specifies the referenced field(s) on the target model:
 
 ```ts
-s.oneToOne(() => user).fields("userId").references("id")
+s.relation
+  .fields("userId")
+  .references("id")
+  .oneToOne(() => user)
 ```
 
 ### `.optional()`
@@ -62,7 +68,7 @@ Makes the relation optional (can be null):
 
 ```ts
 // User may or may not have a profile
-profile: s.oneToOne(() => profile).optional()
+profile: s.relation.optional().oneToOne(() => profile)
 ```
 
 ### `.onDelete(action)`
@@ -70,10 +76,11 @@ profile: s.oneToOne(() => profile).optional()
 Referential action when the related record is deleted:
 
 ```ts
-s.oneToOne(() => user)
+s.relation
   .fields("userId")
   .references("id")
   .onDelete("cascade")  // Delete profile when user is deleted
+  .oneToOne(() => user)
 ```
 
 ### `.onUpdate(action)`
@@ -81,10 +88,11 @@ s.oneToOne(() => user)
 Referential action when the referenced field is updated:
 
 ```ts
-s.oneToOne(() => user)
+s.relation
   .fields("userId")
   .references("id")
   .onUpdate("cascade")
+  .oneToOne(() => user)
 ```
 
 ## Complete Example
@@ -94,7 +102,7 @@ const user = s.model({
   id: s.string().id().ulid(),
   email: s.string().unique(),
   // Non-owning side - no FK, can be optional
-  profile: s.oneToOne(() => profile).optional(),
+  profile: s.relation.optional().oneToOne(() => profile),
 }).map("users");
 
 const profile = s.model({
@@ -104,10 +112,11 @@ const profile = s.model({
   // FK field - unique for 1:1
   userId: s.string().unique(),
   // Owning side - has FK configuration
-  user: s.oneToOne(() => user)
+  user: s.relation
     .fields("userId")
     .references("id")
-    .onDelete("cascade"),
+    .onDelete("cascade")
+    .oneToOne(() => user),
 }).map("profiles");
 ```
 
@@ -149,10 +158,10 @@ const user = await client.user.create({
 ```ts
 // Required: Every user MUST have a profile
 // (Create profile in same transaction)
-profile: s.oneToOne(() => profile)
+profile: s.relation.oneToOne(() => profile)
 
 // Optional: User MAY have a profile
-profile: s.oneToOne(() => profile).optional()
+profile: s.relation.optional().oneToOne(() => profile)
 ```
 
 ### Self-Referential
@@ -162,10 +171,11 @@ const employee = s.model({
   id: s.string().id().ulid(),
   name: s.string(),
   managerId: s.string().nullable(),
-  manager: s.oneToOne(() => employee)
+  manager: s.relation
     .fields("managerId")
     .references("id")
-    .optional(),
+    .optional()
+    .oneToOne(() => employee),
 }).map("employees");
 ```
 

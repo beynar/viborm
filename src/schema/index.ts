@@ -27,15 +27,7 @@ import {
   enumField,
   vector,
 } from "./fields";
-import {
-  Relation,
-  relation,
-  oneToOne,
-  oneToMany,
-  manyToOne,
-  manyToMany,
-  type Getter,
-} from "./relation";
+import { Relation, relation, type Getter } from "./relation";
 
 // =============================================================================
 // SCHEMA BUILDER API
@@ -45,6 +37,14 @@ import {
  * Main schema builder object
  * Use this to define models, fields, and relations
  *
+ * Relations use a builder pattern with config-first, getter-last:
+ * s.relation.fields("authorId").references("id").manyToOne(() => user)
+ *
+ * This pattern avoids TypeScript circular reference issues because:
+ * 1. Config methods (fields, references, etc.) return `this` - no generics
+ * 2. Terminal methods (oneToOne, manyToOne, etc.) introduce the generic LAST
+ * 3. No more chaining after terminal = no need to resolve generic for method lookup
+ *
  * @example
  * ```ts
  * import { s } from "viborm";
@@ -53,14 +53,14 @@ import {
  *   id: s.string().id().ulid(),
  *   name: s.string(),
  *   email: s.string().unique(),
- *   posts: s.oneToMany(() => post),
- *   profile: s.oneToOne(() => profile).optional(),
+ *   posts: s.relation.oneToMany(() => post),
+ *   profile: s.relation.optional().oneToOne(() => profile),
  * }).map("users");
  *
  * const post = s.model({
  *   id: s.string().id().ulid(),
  *   authorId: s.string(),
- *   author: s.manyToOne(() => user).fields("authorId").references("id"),
+ *   author: s.relation.fields("authorId").references("id").manyToOne(() => user),
  * }).map("posts");
  * ```
  */
@@ -81,13 +81,7 @@ export const s = {
   enum: enumField,
   vector,
 
-  // Relation factories (preferred)
-  oneToOne,
-  oneToMany,
-  manyToOne,
-  manyToMany,
-
-  // Legacy relation factory
+  // Relation builder (config-first, getter-last pattern)
   relation,
 };
 
@@ -110,7 +104,6 @@ export {
   EnumField,
   VectorField,
   Relation,
-  relation,
 };
 
 export type { NumberField } from "./fields";

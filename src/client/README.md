@@ -53,7 +53,7 @@ const user = s.model({
   id: s.string().id().ulid(),
   email: s.string().unique(),
   name: s.string().nullable(),
-  posts: s.oneToMany(() => post),
+  posts: s.relation.oneToMany(() => post),
 }).map("users");
 
 const post = s.model({
@@ -61,7 +61,10 @@ const post = s.model({
   title: s.string(),
   published: s.boolean().default(false),
   authorId: s.string(),
-  author: s.manyToOne(() => user).fields("authorId").references("id"),
+  author: s.relation
+    .fields("authorId")
+    .references("id")
+    .manyToOne(() => user),
 }).map("posts");
 
 // Create client

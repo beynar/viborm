@@ -39,7 +39,7 @@ describe("Compound ID", () => {
       const m = s.model({
         a: s.string(),
         b: s.int(),
-        rel: s.oneToMany(() => m),
+        rel: s.relation.oneToMany(() => m),
       });
 
       // Should only allow "a" | "b", not "rel"
@@ -196,7 +196,7 @@ describe("Compound Unique", () => {
       const m = s.model({
         id: s.string().id(),
         a: s.string(),
-        rel: s.oneToMany(() => m),
+        rel: s.relation.oneToMany(() => m),
       });
 
       // @ts-expect-error - "rel" is not a scalar field

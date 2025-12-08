@@ -141,53 +141,67 @@ s.vector()
 
 ## Relations
 
+VibORM uses a **config-first, getter-last** pattern for relations:
+
+```ts
+s.relation.config().type(() => targetModel)
+```
+
 ### One-to-One
 
 ```ts
-s.oneToOne(() => targetModel)
-```
+s.relation.oneToOne(() => targetModel)
 
-| Method | Description |
-|--------|-------------|
-| `.fields(...names)` | FK fields |
-| `.references(...names)` | Referenced fields |
-| `.optional()` | Nullable relation |
-| `.onDelete(action)` | Delete behavior |
-| `.onUpdate(action)` | Update behavior |
+// With config
+s.relation
+  .fields("userId")
+  .references("id")
+  .optional()
+  .oneToOne(() => targetModel)
+```
 
 ### One-to-Many
 
 ```ts
-s.oneToMany(() => targetModel)
+s.relation.oneToMany(() => targetModel)
 ```
 
-No additional methods — FK is on the many side.
+No FK config needed — FK is on the many side.
 
 ### Many-to-One
 
 ```ts
-s.manyToOne(() => targetModel)
+s.relation
+  .fields("authorId")
+  .references("id")
+  .manyToOne(() => targetModel)
 ```
-
-| Method | Description |
-|--------|-------------|
-| `.fields(...names)` | FK fields |
-| `.references(...names)` | Referenced fields |
-| `.optional()` | Nullable relation |
-| `.onDelete(action)` | Delete behavior |
-| `.onUpdate(action)` | Update behavior |
 
 ### Many-to-Many
 
 ```ts
-s.manyToMany(() => targetModel)
+s.relation.manyToMany(() => targetModel)
+
+// With junction table config
+s.relation
+  .through("post_tags")
+  .A("post_id")
+  .B("tag_id")
+  .manyToMany(() => targetModel)
 ```
+
+### Relation Config Methods
 
 | Method | Description |
 |--------|-------------|
-| `.through(tableName)` | Junction table name |
-| `.A(columnName)` | Source FK column |
-| `.B(columnName)` | Target FK column |
+| `.fields(...names)` | FK fields on current model |
+| `.references(...names)` | Referenced fields on target |
+| `.optional()` | Nullable relation (to-one only) |
+| `.onDelete(action)` | Delete behavior |
+| `.onUpdate(action)` | Update behavior |
+| `.through(tableName)` | Junction table (many-to-many) |
+| `.A(columnName)` | Source FK column (many-to-many) |
+| `.B(columnName)` | Target FK column (many-to-many) |
 
 ## Referential Actions
 

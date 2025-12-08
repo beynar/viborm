@@ -17,7 +17,7 @@ import { s } from "viborm";
 const user = s.model({
   id: s.string().id().ulid(),
   email: s.string().unique(),
-  posts: s.oneToMany(() => post),  // Array of posts
+  posts: s.relation.oneToMany(() => post),  // Array of posts
 }).map("users");
 
 // Each post belongs to one user (many-to-one side)
@@ -25,7 +25,10 @@ const post = s.model({
   id: s.string().id().ulid(),
   title: s.string(),
   authorId: s.string(),
-  author: s.manyToOne(() => user).fields("authorId").references("id"),
+  author: s.relation
+    .fields("authorId")
+    .references("id")
+    .manyToOne(() => user),
 }).map("posts");
 ```
 
@@ -44,18 +47,18 @@ The one-to-many side does NOT have a foreign key. The FK is on the many-to-one s
 
 ```ts
 // ✅ Correct - no FK configuration
-posts: s.oneToMany(() => post)
+posts: s.relation.oneToMany(() => post)
 
 // ❌ Wrong - oneToMany doesn't have FK
-posts: s.oneToMany(() => post).fields("???")
+posts: s.relation.fields("???").oneToMany(() => post)
 ```
 
-## Chainable Methods
+## Minimal Configuration
 
 One-to-many relations have minimal configuration since they don't own the FK:
 
 ```ts
-s.oneToMany(() => post)
+s.relation.oneToMany(() => post)
 // That's it! No .fields(), .references(), or .optional()
 ```
 
@@ -67,9 +70,9 @@ const user = s.model({
   email: s.string().unique(),
   name: s.string(),
   // One user has many posts
-  posts: s.oneToMany(() => post),
+  posts: s.relation.oneToMany(() => post),
   // One user has many comments
-  comments: s.oneToMany(() => comment),
+  comments: s.relation.oneToMany(() => comment),
 }).map("users");
 
 const post = s.model({
@@ -78,9 +81,12 @@ const post = s.model({
   content: s.string(),
   authorId: s.string(),
   // Many posts belong to one user
-  author: s.manyToOne(() => user).fields("authorId").references("id"),
+  author: s.relation
+    .fields("authorId")
+    .references("id")
+    .manyToOne(() => user),
   // One post has many comments
-  comments: s.oneToMany(() => comment),
+  comments: s.relation.oneToMany(() => comment),
 }).map("posts");
 
 const comment = s.model({
@@ -89,9 +95,15 @@ const comment = s.model({
   authorId: s.string(),
   postId: s.string(),
   // Many comments belong to one user
-  author: s.manyToOne(() => user).fields("authorId").references("id"),
+  author: s.relation
+    .fields("authorId")
+    .references("id")
+    .manyToOne(() => user),
   // Many comments belong to one post
-  post: s.manyToOne(() => post).fields("postId").references("id"),
+  post: s.relation
+    .fields("postId")
+    .references("id")
+    .manyToOne(() => post),
 }).map("comments");
 ```
 
@@ -182,14 +194,17 @@ await client.user.update({
 const category = s.model({
   id: s.string().id().ulid(),
   name: s.string().unique(),
-  posts: s.oneToMany(() => post),
+  posts: s.relation.oneToMany(() => post),
 }).map("categories");
 
 const post = s.model({
   id: s.string().id().ulid(),
   title: s.string(),
   categoryId: s.string(),
-  category: s.manyToOne(() => category).fields("categoryId").references("id"),
+  category: s.relation
+    .fields("categoryId")
+    .references("id")
+    .manyToOne(() => category),
 }).map("posts");
 ```
 
@@ -199,7 +214,7 @@ const post = s.model({
 const organization = s.model({
   id: s.string().id().ulid(),
   name: s.string(),
-  members: s.oneToMany(() => membership),
+  members: s.relation.oneToMany(() => membership),
 }).map("organizations");
 
 const membership = s.model({
@@ -207,8 +222,14 @@ const membership = s.model({
   role: s.enum(["ADMIN", "MEMBER"]),
   orgId: s.string(),
   userId: s.string(),
-  organization: s.manyToOne(() => organization).fields("orgId").references("id"),
-  user: s.manyToOne(() => user).fields("userId").references("id"),
+  organization: s.relation
+    .fields("orgId")
+    .references("id")
+    .manyToOne(() => organization),
+  user: s.relation
+    .fields("userId")
+    .references("id")
+    .manyToOne(() => user),
 }).map("memberships");
 ```
 

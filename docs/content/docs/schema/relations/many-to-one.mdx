@@ -17,15 +17,16 @@ const post = s.model({
   id: s.string().id().ulid(),
   title: s.string(),
   authorId: s.string(),  // FK field
-  author: s.manyToOne(() => user)
+  author: s.relation
     .fields("authorId")
-    .references("id"),
+    .references("id")
+    .manyToOne(() => user),
 }).map("posts");
 
 const user = s.model({
   id: s.string().id().ulid(),
   email: s.string().unique(),
-  posts: s.oneToMany(() => post),  // Inverse side
+  posts: s.relation.oneToMany(() => post),  // Inverse side
 }).map("users");
 ```
 
@@ -38,17 +39,17 @@ const user = s.model({
 | Can be null | Yes, with `.optional()` |
 | Required by default | Yes |
 
-## Chainable Methods
+## Config Methods (before `.manyToOne()`)
 
 ### `.fields(...fieldNames)`
 
 **Required.** Specifies the FK field(s) on this model:
 
 ```ts
-s.manyToOne(() => user).fields("authorId")
+s.relation.fields("authorId").manyToOne(() => user)
 
 // Composite FK
-s.manyToOne(() => organization).fields("orgId", "teamId")
+s.relation.fields("orgId", "teamId").manyToOne(() => organization)
 ```
 
 ### `.references(...fieldNames)`
@@ -56,12 +57,16 @@ s.manyToOne(() => organization).fields("orgId", "teamId")
 **Required.** Specifies the referenced field(s) on the target:
 
 ```ts
-s.manyToOne(() => user).fields("authorId").references("id")
+s.relation
+  .fields("authorId")
+  .references("id")
+  .manyToOne(() => user)
 
 // Composite reference
-s.manyToOne(() => organization)
+s.relation
   .fields("orgId", "teamId")
   .references("id", "teamId")
+  .manyToOne(() => organization)
 ```
 
 ### `.optional()`
@@ -70,20 +75,22 @@ Makes the relation optional (FK can be null):
 
 ```ts
 // Post may or may not have an author
-author: s.manyToOne(() => user)
+author: s.relation
   .fields("authorId")
   .references("id")
   .optional()
+  .manyToOne(() => user)
 ```
 
 When using `.optional()`, the FK field should also be nullable:
 
 ```ts
 authorId: s.string().nullable(),
-author: s.manyToOne(() => user)
+author: s.relation
   .fields("authorId")
   .references("id")
   .optional()
+  .manyToOne(() => user)
 ```
 
 ### `.onDelete(action)`
@@ -91,10 +98,11 @@ author: s.manyToOne(() => user)
 Referential action when the related record is deleted:
 
 ```ts
-s.manyToOne(() => user)
+s.relation
   .fields("authorId")
   .references("id")
   .onDelete("cascade")  // Delete posts when user is deleted
+  .manyToOne(() => user)
 ```
 
 | Action | Effect |
@@ -109,10 +117,11 @@ s.manyToOne(() => user)
 Referential action when the referenced field changes:
 
 ```ts
-s.manyToOne(() => user)
+s.relation
   .fields("authorId")
   .references("id")
   .onUpdate("cascade")  // Update FK when user ID changes
+  .manyToOne(() => user)
 ```
 
 ## Complete Example
@@ -126,18 +135,20 @@ const post = s.model({
   
   // Required author
   authorId: s.string(),
-  author: s.manyToOne(() => user)
+  author: s.relation
     .fields("authorId")
     .references("id")
-    .onDelete("cascade"),
+    .onDelete("cascade")
+    .manyToOne(() => user),
   
   // Optional category
   categoryId: s.string().nullable(),
-  category: s.manyToOne(() => category)
+  category: s.relation
     .fields("categoryId")
     .references("id")
     .optional()
-    .onDelete("setNull"),
+    .onDelete("setNull")
+    .manyToOne(() => category),
 }).map("posts");
 ```
 
@@ -225,14 +236,18 @@ const post = await client.post.create({
 ```ts
 // Required: Every post MUST have an author
 authorId: s.string(),
-author: s.manyToOne(() => user).fields("authorId").references("id")
+author: s.relation
+  .fields("authorId")
+  .references("id")
+  .manyToOne(() => user)
 
 // Optional: Post MAY have a category
 categoryId: s.string().nullable(),
-category: s.manyToOne(() => category)
+category: s.relation
   .fields("categoryId")
   .references("id")
   .optional()
+  .manyToOne(() => category)
 ```
 
 ### Self-Referential (Tree Structure)
@@ -242,11 +257,12 @@ const comment = s.model({
   id: s.string().id().ulid(),
   content: s.string(),
   parentId: s.string().nullable(),
-  parent: s.manyToOne(() => comment)
+  parent: s.relation
     .fields("parentId")
     .references("id")
-    .optional(),
-  replies: s.oneToMany(() => comment),
+    .optional()
+    .manyToOne(() => comment),
+  replies: s.relation.oneToMany(() => comment),
 }).map("comments");
 ```
 

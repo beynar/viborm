@@ -10,7 +10,10 @@ import {
   needsTransaction,
   canUseSubqueryOnly,
 } from "../../src/query-engine/builders/relation-data-builder.js";
-import { createQueryContext, createModelRegistry } from "../../src/query-engine/index.js";
+import {
+  createQueryContext,
+  createModelRegistry,
+} from "../../src/query-engine/index.js";
 import { PostgresAdapter } from "../../src/adapters/databases/postgres/postgres-adapter.js";
 
 // =============================================================================
@@ -32,7 +35,10 @@ const Post = s
     content: s.string().nullable(),
     published: s.boolean().default(false),
     authorId: s.string(),
-    author: s.manyToOne(() => User).fields(["authorId"]).references(["id"]),
+    author: s.relation
+      .fields("authorId")
+      .references("id")
+      .manyToOne(() => User),
   })
   .map("posts");
 
@@ -41,7 +47,10 @@ const UserWithPosts = s.model({
   id: s.string().id().ulid(),
   name: s.string(),
   email: s.string().unique(),
-  posts: s.oneToMany(() => Post).fields(["id"]).references(["authorId"]),
+  posts: s.relation
+    .fields("id")
+    .references("authorId")
+    .oneToMany(() => Post),
 });
 
 // Model with compound ID
@@ -362,11 +371,7 @@ describe("error handling", () => {
     const data = {
       name: "Alice",
       posts: {
-        create: [
-          { title: "Post 1" },
-          { title: "Post 2" },
-          { title: "Post 3" },
-        ],
+        create: [{ title: "Post 1" }, { title: "Post 2" }, { title: "Post 3" }],
       },
     };
 
@@ -391,4 +396,3 @@ describe("error handling", () => {
     expect((relations.posts?.connect as unknown[])?.length).toBe(2);
   });
 });
-

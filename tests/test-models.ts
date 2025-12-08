@@ -1,6 +1,6 @@
 /**
  * Test Model Definitions
- * 
+ *
  * Isolated model definitions for testing without client imports.
  * This avoids the path alias issues when testing runtime schemas.
  */
@@ -64,10 +64,10 @@ export const testUser = s.model({
   tags: s.string().array(),
   createdAt: s.dateTime().now(),
   updatedAt: s.dateTime().now(),
-  // Relations
-  posts: s.oneToMany(() => testPost),
-  profile: s.oneToOne(() => testProfile),
-  friends: s.manyToMany(() => testUser),
+  // Relations - using builder pattern: s.relation.config().type(() => model)
+  posts: s.relation.oneToMany(() => testPost),
+  profile: s.relation.oneToOne(() => testProfile),
+  friends: s.relation.manyToMany(() => testUser),
 });
 
 /**
@@ -82,7 +82,7 @@ export const testPost = s.model({
   updatedAt: s.dateTime().now(),
   authorId: s.string(),
   // Relations
-  author: s.manyToOne(() => testUser),
+  author: s.relation.manyToOne(() => testUser),
   metadata: s
     .json(
       z.object({
@@ -101,7 +101,7 @@ export const testProfile = s.model({
   avatar: s.string().nullable(),
   userId: s.string().unique(),
   // Relations
-  user: s.oneToOne(() => testUser),
+  user: s.relation.oneToOne(() => testUser),
 });
 
 // =============================================================================
@@ -113,4 +113,3 @@ export const testSchema = {
   post: testPost,
   profile: testProfile,
 };
-

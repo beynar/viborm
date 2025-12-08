@@ -27,8 +27,8 @@ const post = s.model({
 const author = s.model({
   id: s.string().id().ulid(),
   name: s.string(),
-  posts: s.oneToMany(() => post),
-  tags: s.manyToMany(() => tag),
+  posts: s.relation.oneToMany(() => post),
+  tags: s.relation.manyToMany(() => tag),
 });
 
 type AuthorFields = (typeof author)["~"]["fields"];
@@ -178,4 +178,3 @@ describe("To-Many Relation Where Type/Runtime Parity", () => {
     });
   });
 });
-
