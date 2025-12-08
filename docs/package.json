@@ -5,12 +5,14 @@
   "type": "module",
   "scripts": {
     "dev": "vite dev",
-    "build": "vite build",
+    "build": "vite build && tsc --noEmit",
+    "preview": "vite preview",
     "start": "node .output/server/index.mjs",
     "types:check": "fumadocs-mdx && tsc --noEmit",
     "postinstall": "fumadocs-mdx"
   },
   "dependencies": {
+    "@cloudflare/vite-plugin": "^1.17.0",
     "@tanstack/react-router": "^1.134.12",
     "@tanstack/react-router-devtools": "^1.134.12",
     "@tanstack/react-start": "^1.134.12",
