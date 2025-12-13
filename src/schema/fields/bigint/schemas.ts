@@ -1,125 +1,294 @@
 // BigInt Field Schemas
-// Explicit ArkType schemas for all bigint field variants
+// Follows FIELD_IMPLEMENTATION_GUIDE and mirrors number schemas
 
-import { type } from "arktype";
+import {
+  array,
+  bigint,
+  boolean,
+  nullable,
+  object,
+  optional,
+  partial,
+  union,
+  _default,
+  extend,
+  type input as Input,
+} from "zod/v4-mini";
+import {
+  FieldState,
+  isOptional,
+  shorthandFilter,
+  shorthandUpdate,
+} from "../common";
 
 // =============================================================================
 // BASE TYPES
 // =============================================================================
 
-export const bigIntBase = type.bigint;
-export const bigIntNullable = bigIntBase.or("null");
-export const bigIntArray = bigIntBase.array();
-export const bigIntNullableArray = bigIntArray.or("null");
+export const bigIntBase = bigint();
+export const bigIntNullable = nullable(bigIntBase);
+export const bigIntList = array(bigIntBase);
+export const bigIntListNullable = nullable(bigIntList);
 
 // =============================================================================
-// FILTER SCHEMAS - shorthand normalized to { equals: value } via pipe
+// FILTER SCHEMAS
 // =============================================================================
 
-// Base filter objects without `not` (used for recursive `not` definition)
-const bigIntFilterBase = type({
-  equals: bigIntBase,
-  in: bigIntBase.array(),
-  notIn: bigIntBase.array(),
-  lt: bigIntBase,
-  lte: bigIntBase,
-  gt: bigIntBase,
-  gte: bigIntBase,
-}).partial();
+const bigIntFilterBase = partial(
+  object({
+    equals: bigIntBase,
+    in: array(bigIntBase),
+    notIn: array(bigIntBase),
+    lt: bigIntBase,
+    lte: bigIntBase,
+    gt: bigIntBase,
+    gte: bigIntBase,
+  })
+);
 
-const bigIntNullableFilterBase = type({
-  equals: bigIntNullable,
-  in: bigIntBase.array(),
-  notIn: bigIntBase.array(),
-  lt: bigIntNullable,
-  lte: bigIntNullable,
-  gt: bigIntNullable,
-  gte: bigIntNullable,
-}).partial();
+const bigIntNullableFilterBase = partial(
+  object({
+    equals: bigIntNullable,
+    in: array(bigIntBase),
+    notIn: array(bigIntBase),
+    lt: bigIntNullable,
+    lte: bigIntNullable,
+    gt: bigIntNullable,
+    gte: bigIntNullable,
+  })
+);
 
-// `not` accepts both direct value AND nested filter object
-export const bigIntFilter = bigIntFilterBase
-  .merge(type({ "not?": bigIntFilterBase.or(bigIntNullable) }))
-  .or(bigIntBase.pipe((v) => ({ equals: v })));
+const bigIntListFilterBase = partial(
+  object({
+    equals: bigIntList,
+    has: bigIntBase,
+    hasEvery: array(bigIntBase),
+    hasSome: array(bigIntBase),
+    isEmpty: boolean(),
+  })
+);
 
-export const bigIntNullableFilter = bigIntNullableFilterBase
-  .merge(type({ "not?": bigIntNullableFilterBase.or(bigIntNullable) }))
-  .or(bigIntNullable.pipe((v) => ({ equals: v })));
+const bigIntListNullableFilterBase = partial(
+  object({
+    equals: bigIntListNullable,
+    has: bigIntBase,
+    hasEvery: array(bigIntBase),
+    hasSome: array(bigIntBase),
+    isEmpty: boolean(),
+  })
+);
 
-export const bigIntListFilter = type({
-  equals: bigIntBase.array(),
-  has: bigIntBase,
-  hasEvery: bigIntBase.array(),
-  hasSome: bigIntBase.array(),
-  isEmpty: "boolean",
-}).partial();
+const bigIntFilter = union([
+  extend(bigIntFilterBase, {
+    not: optional(union([bigIntFilterBase, shorthandFilter(bigIntBase)])),
+  }),
+  shorthandFilter(bigIntBase),
+]);
 
-export const bigIntNullableListFilter = type({
-  equals: bigIntNullableArray,
-  has: bigIntBase,
-  hasEvery: bigIntArray,
-  hasSome: bigIntArray,
-  isEmpty: "boolean",
-}).partial();
+const bigIntNullableFilter = union([
+  extend(bigIntNullableFilterBase, {
+    not: optional(union([bigIntNullableFilterBase, bigIntNullable])),
+  }),
+  shorthandFilter(bigIntNullable),
+]);
+
+const bigIntListFilter = union([
+  extend(bigIntListFilterBase, {
+    not: optional(union([bigIntListFilterBase, shorthandFilter(bigIntList)])),
+  }),
+  shorthandFilter(bigIntList),
+]);
+
+const bigIntListNullableFilter = union([
+  extend(bigIntListNullableFilterBase, {
+    not: optional(
+      union([bigIntListNullableFilterBase, shorthandFilter(bigIntListNullable)])
+    ),
+  }),
+  shorthandFilter(bigIntListNullable),
+]);
 
 // =============================================================================
 // CREATE SCHEMAS
 // =============================================================================
 
 export const bigIntCreate = bigIntBase;
-export const bigIntNullableCreate = bigIntNullable;
-export const bigIntOptionalCreate = bigIntBase.or("undefined");
-export const bigIntOptionalNullableCreate = bigIntNullable.or("undefined");
-export const bigIntArrayCreate = bigIntArray;
-export const bigIntNullableArrayCreate = bigIntNullableArray;
-export const bigIntOptionalArrayCreate = bigIntArray.or("undefined");
-export const bigIntOptionalNullableArrayCreate = bigIntNullableArray.or("undefined");
+export const bigIntNullableCreate = _default(optional(bigIntNullable), null);
+export const bigIntOptionalCreate = optional(bigIntBase);
+export const bigIntOptionalNullableCreate = _default(
+  optional(bigIntNullable),
+  null
+);
+export const bigIntListCreate = bigIntList;
+export const bigIntListNullableCreate = _default(
+  optional(bigIntListNullable),
+  null
+);
+export const bigIntOptionalListCreate = optional(bigIntList);
+export const bigIntOptionalListNullableCreate = _default(
+  optional(bigIntListNullable),
+  null
+);
 
 // =============================================================================
-// UPDATE SCHEMAS - shorthand normalized to { set: value } via pipe
+// UPDATE SCHEMAS
 // =============================================================================
 
-export const bigIntUpdate = type({
-  set: bigIntBase,
-  increment: bigIntBase,
-  decrement: bigIntBase,
-  multiply: bigIntBase,
-  divide: bigIntBase,
-})
-  .partial()
-  .or(bigIntBase.pipe((v) => ({ set: v })));
+export const bigIntUpdate = union([
+  partial(
+    object({
+      set: bigIntBase,
+      increment: bigIntBase,
+      decrement: bigIntBase,
+      multiply: bigIntBase,
+      divide: bigIntBase,
+    })
+  ),
+  shorthandUpdate(bigIntBase),
+]);
 
-export const bigIntNullableUpdate = type({
-  set: bigIntNullable,
-  increment: bigIntBase,
-  decrement: bigIntBase,
-  multiply: bigIntBase,
-  divide: bigIntBase,
-})
-  .partial()
-  .or(bigIntNullable.pipe((v) => ({ set: v })));
+export const bigIntNullableUpdate = union([
+  partial(
+    object({
+      set: bigIntNullable,
+      increment: bigIntBase,
+      decrement: bigIntBase,
+      multiply: bigIntBase,
+      divide: bigIntBase,
+    })
+  ),
+  shorthandUpdate(bigIntNullable),
+]);
 
-export const bigIntArrayUpdate = type({
-  set: bigIntBase.array(),
-  push: bigIntBase.or(bigIntBase.array()),
-  unshift: bigIntBase.or(bigIntBase.array()),
-}).partial();
+export const bigIntListUpdate = union([
+  partial(
+    object({
+      set: array(bigIntBase),
+      push: union([bigIntBase, array(bigIntBase)]),
+      unshift: union([bigIntBase, array(bigIntBase)]),
+    })
+  ),
+  shorthandUpdate(bigIntList),
+]);
 
-export const bigIntNullableArrayUpdate = type({
-  set: bigIntNullableArray,
-  push: bigIntBase.or(bigIntArray),
-  unshift: bigIntBase.or(bigIntArray),
-}).partial();
+export const bigIntListNullableUpdate = union([
+  partial(
+    object({
+      set: bigIntListNullable,
+      push: union([bigIntBase, bigIntList]),
+      unshift: union([bigIntBase, bigIntList]),
+    })
+  ),
+  shorthandUpdate(bigIntListNullable),
+]);
 
 // =============================================================================
-// TYPE EXPORTS
-// Use inferIn for types with pipes (filters/updates) to get INPUT type
+// SCHEMA FACTORIES
 // =============================================================================
 
-export type BigIntBase = typeof bigIntBase.infer;
-export type BigIntNullable = typeof bigIntNullable.infer;
-export type BigIntFilter = typeof bigIntFilter.inferIn;
-export type BigIntNullableFilter = typeof bigIntNullableFilter.inferIn;
-export type BigIntListFilter = typeof bigIntListFilter.infer;
-export type BigIntUpdate = typeof bigIntUpdate.inferIn;
-export type BigIntNullableUpdate = typeof bigIntNullableUpdate.inferIn;
+export const bigIntSchemas = <Optional extends boolean>(o: Optional) => {
+  return {
+    base: bigIntBase,
+    filter: bigIntFilter,
+    create: (o === true
+      ? bigIntOptionalCreate
+      : bigIntCreate) as Optional extends true
+      ? typeof bigIntOptionalCreate
+      : typeof bigIntCreate,
+    update: bigIntUpdate,
+  };
+};
+
+export const bigIntNullableSchemas = <Optional extends boolean>(
+  o: Optional
+) => {
+  return {
+    base: bigIntNullable,
+    filter: bigIntNullableFilter,
+    create: (o === true
+      ? bigIntOptionalNullableCreate
+      : bigIntNullableCreate) as Optional extends true
+      ? typeof bigIntOptionalNullableCreate
+      : typeof bigIntNullableCreate,
+    update: bigIntNullableUpdate,
+  };
+};
+
+export const bigIntListSchemas = <Optional extends boolean>(o: Optional) => {
+  return {
+    base: bigIntList,
+    filter: bigIntListFilter,
+    create: (o === true
+      ? bigIntOptionalListCreate
+      : bigIntListCreate) as Optional extends true
+      ? typeof bigIntOptionalListCreate
+      : typeof bigIntListCreate,
+    update: bigIntListUpdate,
+  };
+};
+
+export const bigIntListNullableSchemas = <Optional extends boolean>(
+  o: Optional
+) => {
+  return {
+    base: bigIntListNullable,
+    filter: bigIntListNullableFilter,
+    create: (o === true
+      ? bigIntOptionalListNullableCreate
+      : bigIntListNullableCreate) as Optional extends true
+      ? typeof bigIntOptionalListNullableCreate
+      : typeof bigIntListNullableCreate,
+    update: bigIntListNullableUpdate,
+  };
+};
+
+// =============================================================================
+// TYPE HELPERS
+// =============================================================================
+
+export type BigIntListNullableSchemas<Optional extends boolean = false> =
+  ReturnType<typeof bigIntListNullableSchemas<Optional>>;
+export type BigIntListSchemas<Optional extends boolean = false> = ReturnType<
+  typeof bigIntListSchemas<Optional>
+>;
+export type BigIntNullableSchemas<Optional extends boolean = false> =
+  ReturnType<typeof bigIntNullableSchemas<Optional>>;
+export type BigIntSchemas<Optional extends boolean = false> = ReturnType<
+  typeof bigIntSchemas<Optional>
+>;
+
+export type InferBigIntSchemas<F extends FieldState<"bigint">> =
+  F["array"] extends true
+    ? F["nullable"] extends true
+      ? BigIntListNullableSchemas<isOptional<F>>
+      : BigIntListSchemas<isOptional<F>>
+    : F["nullable"] extends true
+    ? BigIntNullableSchemas<isOptional<F>>
+    : BigIntSchemas<isOptional<F>>;
+
+// =============================================================================
+// MAIN SCHEMA GETTER
+// =============================================================================
+
+export const getFieldBigIntSchemas = <F extends FieldState<"bigint">>(f: F) => {
+  const isOpt = f.hasDefault || f.nullable;
+  const isArr = f.array;
+  return (
+    isArr
+      ? isOpt
+        ? bigIntListNullableSchemas(isOpt)
+        : bigIntListSchemas(isOpt)
+      : isOpt
+      ? bigIntNullableSchemas(isOpt)
+      : bigIntSchemas(isOpt)
+  ) as InferBigIntSchemas<F>;
+};
+
+// =============================================================================
+// INPUT TYPE INFERENCE
+// =============================================================================
+
+export type InferBigIntInput<
+  F extends FieldState<"bigint">,
+  Type extends "create" | "update" | "filter"
+> = Input<InferBigIntSchemas<F>[Type]>;

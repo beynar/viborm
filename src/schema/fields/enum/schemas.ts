@@ -1,288 +1,325 @@
 // Enum Field Schemas
-// Explicit ArkType schemas for enum field variants
-// Note: Enum schemas are created at runtime based on enum values using type.enumerated
+// Value-driven factories without chained helpers (zod v4-mini style)
 
-import { type, Type } from "arktype";
-
+import {
+  enum as _enum,
+  array,
+  boolean,
+  nullable,
+  object,
+  optional,
+  partial,
+  union,
+  _default,
+  extend,
+  type input as Input,
+} from "zod/v4-mini";
+import {
+  FieldState,
+  isOptional,
+  shorthandFilter,
+  shorthandUpdate,
+} from "../common";
+import { enumField } from "./field";
 // =============================================================================
-// TYPE HELPERS FOR ENUM SCHEMAS
-// =============================================================================
-
-/** Base enum type */
-export type EnumType<T extends readonly string[]> = Type<T[number], {}>;
-
-/** Nullable enum type */
-export type EnumNullableType<T extends readonly string[]> = Type<
-  T[number] | null,
-  {}
->;
-
-/** Enum array type */
-export type EnumArrayType<T extends readonly string[]> = Type<T[number][], {}>;
-
-/** Nullable enum array type (the array itself is nullable, not elements) */
-export type EnumNullableArrayType<T extends readonly string[]> = Type<
-  T[number][] | null,
-  {}
->;
-
-/** Enum filter type */
-export type EnumFilterType<T extends readonly string[]> = Type<
-  | {
-      equals?: T[number];
-      not?: T[number] | null;
-      in?: T[number][];
-      notIn?: T[number][];
-    }
-  | T[number],
-  {}
->;
-
-/** Nullable enum filter type */
-export type EnumNullableFilterType<T extends readonly string[]> = Type<
-  | {
-      equals?: T[number] | null;
-      not?: T[number] | null;
-      in?: T[number][];
-      notIn?: T[number][];
-    }
-  | T[number]
-  | null,
-  {}
->;
-
-/** Enum list filter type */
-export type EnumListFilterType<T extends readonly string[]> = Type<
-  {
-    equals?: T[number][];
-    has?: T[number];
-    hasEvery?: T[number][];
-    hasSome?: T[number][];
-    isEmpty?: boolean;
-  },
-  {}
->;
-
-/** Enum update type */
-export type EnumUpdateType<T extends readonly string[]> = Type<
-  { set?: T[number] } | T[number],
-  {}
->;
-
-/** Nullable enum update type */
-export type EnumNullableUpdateType<T extends readonly string[]> = Type<
-  { set?: T[number] | null } | T[number] | null,
-  {}
->;
-
-/** Enum array update type */
-export type EnumArrayUpdateType<T extends readonly string[]> = Type<
-  {
-    set?: T[number][];
-    push?: T[number] | T[number][];
-    unshift?: T[number] | T[number][];
-  },
-  {}
->;
-
-/** Optional enum create type */
-export type EnumOptionalType<T extends readonly string[]> = Type<
-  T[number] | undefined,
-  {}
->;
-
-/** Optional nullable enum create type */
-export type EnumOptionalNullableType<T extends readonly string[]> = Type<
-  T[number] | null | undefined,
-  {}
->;
-
-// =============================================================================
-// SCHEMA BUILDERS
+// STATE EXTENSION
 // =============================================================================
 
-/**
- * Creates base enum schema from values using type.enumerated().
- */
-export const createEnumBase = <T extends readonly string[]>(
-  values: T
-): EnumType<T> => {
-  return type.enumerated(...values) as unknown as EnumType<T>;
-};
+export interface EnumFieldState<T extends string[] = string[]>
+  extends FieldState<"enum"> {
+  enumValues: T;
+}
 
-/**
- * Creates nullable enum schema
- */
-export const createEnumNullable = <T extends readonly string[]>(
-  values: T
-): EnumNullableType<T> => {
-  return type
-    .enumerated(...values)
-    .or("null") as unknown as EnumNullableType<T>;
-};
+// =============================================================================
+// BASE BUILDERS
+// =============================================================================
 
-/**
- * Creates enum array schema
- */
-export const createEnumArray = <T extends readonly string[]>(
-  values: T
-): EnumArrayType<T> => {
-  return type.enumerated(...values).array() as unknown as EnumArrayType<T>;
-};
+const enumBase = <T extends string[]>(values: T) => _enum(values);
 
-/**
- * Creates nullable enum array schema (array itself is nullable)
- */
-export const createEnumNullableArray = <T extends readonly string[]>(
-  values: T
-): EnumNullableArrayType<T> => {
-  return type
-    .enumerated(...values)
-    .array()
-    .or("null") as unknown as EnumNullableArrayType<T>;
-};
+const enumNullable = <T extends string[]>(values: T) =>
+  nullable(enumBase(values));
 
-/**
- * Creates enum filter schema with shorthand support.
- * Uses enum literals for validation (not generic strings).
- * `not` accepts both direct value AND nested filter object.
- * Shorthand is normalized to { equals: value } via pipe
- */
-export const createEnumFilter = <T extends readonly string[]>(
-  values: T
-): EnumFilterType<T> => {
-  const base = type.enumerated(...values);
-  const baseOrNull = base.or("null");
-  
-  // Base filter object without `not`
-  const filterBase = type({
-    "equals?": base,
-    "in?": base.array(),
-    "notIn?": base.array(),
-  });
-  
-  // `not` accepts both direct value AND nested filter object
-  const filterObj = filterBase.merge(
-    type({ "not?": filterBase.or(baseOrNull) })
+const enumList = <T extends string[]>(values: T) => array(enumBase(values));
+
+const enumListNullable = <T extends string[]>(values: T) =>
+  nullable(enumList(values));
+
+// =============================================================================
+// FILTER FACTORIES
+// =============================================================================
+
+const enumFilterFactory = <T extends string[]>(values: T) => {
+  const base = enumBase(values);
+  const filterBase = partial(
+    object({
+      equals: base,
+      in: array(base),
+      notIn: array(base),
+    })
   );
-  
-  // Cast base to Type<string> and pipe to normalize shorthand
-  return filterObj.or(
-    (base as unknown as Type<string>).pipe((v) => ({ equals: v }))
-  ) as unknown as EnumFilterType<T>;
+  return union([
+    extend(filterBase, {
+      not: optional(union([filterBase, shorthandFilter(base)])),
+    }),
+    shorthandFilter(base),
+  ]);
 };
 
-/**
- * Creates nullable enum filter schema
- * Uses enum literals for validation (not generic strings).
- * `not` accepts both direct value AND nested filter object.
- * Shorthand is normalized to { equals: value } via pipe
- */
-export const createEnumNullableFilter = <T extends readonly string[]>(
-  values: T
-): EnumNullableFilterType<T> => {
-  const base = type.enumerated(...values);
-  const nullable = base.or("null");
-  
-  // Base filter object without `not`
-  const filterBase = type({
-    "equals?": nullable,
-    "in?": base.array(),
-    "notIn?": base.array(),
-  });
-  
-  // `not` accepts both direct value AND nested filter object
-  const filterObj = filterBase.merge(
-    type({ "not?": filterBase.or(nullable) })
+const enumNullableFilterFactory = <T extends string[]>(values: T) => {
+  const base = enumNullable(values);
+  const filterBase = partial(
+    object({
+      equals: base,
+      in: array(enumBase(values)),
+      notIn: array(enumBase(values)),
+    })
   );
-  
-  // Cast to avoid type inference issues and pipe to normalize shorthand
-  return filterObj.or(
-    (nullable as unknown as Type<string | null>).pipe((v) => ({ equals: v }))
-  ) as unknown as EnumNullableFilterType<T>;
+  return union([
+    extend(filterBase, {
+      not: optional(union([filterBase, base])),
+    }),
+    shorthandFilter(base),
+  ]);
 };
 
-/**
- * Creates enum list filter schema
- */
-export const createEnumListFilter = <T extends readonly string[]>(
-  _values: T
-): EnumListFilterType<T> => {
-  return type({
-    "equals?": "string[]",
-    "has?": "string",
-    "hasEvery?": "string[]",
-    "hasSome?": "string[]",
-    "isEmpty?": "boolean",
-  }) as unknown as EnumListFilterType<T>;
+const enumListFilterFactory = <T extends string[]>(values: T) => {
+  const base = enumBase(values);
+  const list = enumList(values);
+  const listFilterBase = partial(
+    object({
+      equals: list,
+      has: base,
+      hasEvery: array(base),
+      hasSome: array(base),
+      isEmpty: boolean(),
+    })
+  );
+  return union([
+    extend(listFilterBase, {
+      not: optional(union([listFilterBase, shorthandFilter(list)])),
+    }),
+    shorthandFilter(list),
+  ]);
 };
 
-/**
- * Creates enum update schema with shorthand support
- * Shorthand is normalized to { set: value } via pipe
- */
-export const createEnumUpdate = <T extends readonly string[]>(
-  values: T
-): EnumUpdateType<T> => {
-  const base = type.enumerated(...values);
-  const updateObj = type({
-    "set?": "string",
-  });
-  // Cast base to Type<string> and pipe to normalize shorthand
-  return updateObj.or(
-    (base as unknown as Type<string>).pipe((v) => ({ set: v }))
-  ) as unknown as EnumUpdateType<T>;
+const enumListNullableFilterFactory = <T extends string[]>(values: T) => {
+  const base = enumBase(values);
+  const listNullable = enumListNullable(values);
+  const listFilterBase = partial(
+    object({
+      equals: listNullable,
+      has: base,
+      hasEvery: array(base),
+      hasSome: array(base),
+      isEmpty: boolean(),
+    })
+  );
+  return union([
+    extend(listFilterBase, {
+      not: optional(union([listFilterBase, shorthandFilter(listNullable)])),
+    }),
+    shorthandFilter(listNullable),
+  ]);
 };
 
-/**
- * Creates nullable enum update schema
- * Shorthand is normalized to { set: value } via pipe
- */
-export const createEnumNullableUpdate = <T extends readonly string[]>(
-  values: T
-): EnumNullableUpdateType<T> => {
-  const nullable = type.enumerated(...values).or("null");
-  const updateObj = type({
-    "set?": type("string").or("null"),
-  });
-  // Cast to avoid type inference issues and pipe to normalize shorthand
-  return updateObj.or(
-    (nullable as unknown as Type<string | null>).pipe((v) => ({ set: v }))
-  ) as unknown as EnumNullableUpdateType<T>;
+// =============================================================================
+// CREATE FACTORIES
+// =============================================================================
+
+const enumCreate = <T extends string[]>(values: T) => enumBase(values);
+
+const enumNullableCreate = <T extends string[]>(values: T) =>
+  _default(optional(enumNullable(values)), null);
+
+const enumOptionalCreate = <T extends string[]>(values: T) =>
+  optional(enumBase(values));
+
+const enumOptionalNullableCreate = <T extends string[]>(values: T) =>
+  _default(optional(enumNullable(values)), null);
+
+const enumListCreate = <T extends string[]>(values: T) => enumList(values);
+
+const enumListNullableCreate = <T extends string[]>(values: T) =>
+  _default(optional(enumListNullable(values)), null);
+
+const enumOptionalListCreate = <T extends string[]>(values: T) =>
+  optional(enumList(values));
+
+const enumOptionalListNullableCreate = <T extends string[]>(values: T) =>
+  _default(optional(enumListNullable(values)), null);
+
+// =============================================================================
+// UPDATE FACTORIES
+// =============================================================================
+
+const enumUpdateFactory = <T extends string[]>(values: T) => {
+  const base = enumBase(values);
+  return union([partial(object({ set: base })), shorthandUpdate(base)]);
 };
 
-/**
- * Creates enum array update schema
- */
-export const createEnumArrayUpdate = <T extends readonly string[]>(
-  _values: T
-): EnumArrayUpdateType<T> => {
-  return type({
-    "set?": "string[]",
-    "push?": type("string").or("string[]"),
-    "unshift?": type("string").or("string[]"),
-  }) as unknown as EnumArrayUpdateType<T>;
+const enumNullableUpdateFactory = <T extends string[]>(values: T) => {
+  const base = enumNullable(values);
+  return union([partial(object({ set: base })), shorthandUpdate(base)]);
 };
 
-/**
- * Creates optional enum create schema
- */
-export const createEnumOptionalCreate = <T extends readonly string[]>(
-  values: T
-): EnumOptionalType<T> => {
-  return type
-    .enumerated(...values)
-    .or("undefined") as unknown as EnumOptionalType<T>;
+const enumListUpdateFactory = <T extends string[]>(values: T) => {
+  const base = enumBase(values);
+  const list = enumList(values);
+  return union([
+    partial(
+      object({
+        set: list,
+        push: union([base, array(base)]),
+        unshift: union([base, array(base)]),
+      })
+    ),
+    shorthandUpdate(list),
+  ]);
 };
 
-/**
- * Creates optional nullable enum create schema
- */
-export const createEnumOptionalNullableCreate = <T extends readonly string[]>(
-  values: T
-): EnumOptionalNullableType<T> => {
-  return type
-    .enumerated(...values)
-    .or("null")
-    .or("undefined") as unknown as EnumOptionalNullableType<T>;
+const enumListNullableUpdateFactory = <T extends string[]>(values: T) => {
+  const base = enumBase(values);
+  const listNullable = enumListNullable(values);
+  return union([
+    partial(
+      object({
+        set: listNullable,
+        push: union([base, enumList(values)]),
+        unshift: union([base, enumList(values)]),
+      })
+    ),
+    shorthandUpdate(listNullable),
+  ]);
 };
+
+// =============================================================================
+// SCHEMA FACTORIES
+// =============================================================================
+
+export const enumSchemas = <T extends string[], Optional extends boolean>(
+  values: T,
+  o: Optional
+) => {
+  return {
+    base: enumBase(values),
+    filter: enumFilterFactory(values),
+    create: (o === true
+      ? enumOptionalCreate(values)
+      : enumCreate(values)) as Optional extends true
+      ? ReturnType<typeof enumOptionalCreate<T>>
+      : ReturnType<typeof enumCreate<T>>,
+    update: enumUpdateFactory(values),
+  };
+};
+
+export const enumNullableSchemas = <
+  T extends string[],
+  Optional extends boolean
+>(
+  values: T,
+  o: Optional
+) => {
+  return {
+    base: enumNullable(values),
+    filter: enumNullableFilterFactory(values),
+    create: (o === true
+      ? enumOptionalNullableCreate(values)
+      : enumNullableCreate(values)) as Optional extends true
+      ? ReturnType<typeof enumOptionalNullableCreate<T>>
+      : ReturnType<typeof enumNullableCreate<T>>,
+    update: enumNullableUpdateFactory(values),
+  };
+};
+
+export const enumListSchemas = <T extends string[], Optional extends boolean>(
+  values: T,
+  o: Optional
+) => {
+  return {
+    base: enumList(values),
+    filter: enumListFilterFactory(values),
+    create: (o === true
+      ? enumOptionalListCreate(values)
+      : enumListCreate(values)) as Optional extends true
+      ? ReturnType<typeof enumOptionalListCreate<T>>
+      : ReturnType<typeof enumListCreate<T>>,
+    update: enumListUpdateFactory(values),
+  };
+};
+
+export const enumListNullableSchemas = <
+  T extends string[],
+  Optional extends boolean
+>(
+  values: T,
+  o: Optional
+) => {
+  return {
+    base: enumListNullable(values),
+    filter: enumListNullableFilterFactory(values),
+    create: (o === true
+      ? enumOptionalListNullableCreate(values)
+      : enumListNullableCreate(values)) as Optional extends true
+      ? ReturnType<typeof enumOptionalListNullableCreate<T>>
+      : ReturnType<typeof enumListNullableCreate<T>>,
+    update: enumListNullableUpdateFactory(values),
+  };
+};
+
+// =============================================================================
+// TYPE HELPERS
+// =============================================================================
+
+export type EnumListNullableSchemas<
+  T extends string[],
+  Optional extends boolean = false
+> = ReturnType<typeof enumListNullableSchemas<T, Optional>>;
+
+export type EnumListSchemas<
+  T extends string[],
+  Optional extends boolean = false
+> = ReturnType<typeof enumListSchemas<T, Optional>>;
+
+export type EnumNullableSchemas<
+  T extends string[],
+  Optional extends boolean = false
+> = ReturnType<typeof enumNullableSchemas<T, Optional>>;
+
+export type EnumSchemas<
+  T extends string[],
+  Optional extends boolean = false
+> = ReturnType<typeof enumSchemas<T, Optional>>;
+
+export type InferEnumSchemas<F extends EnumFieldState> = F["array"] extends true
+  ? F["nullable"] extends true
+    ? EnumListNullableSchemas<F["enumValues"], isOptional<F>>
+    : EnumListSchemas<F["enumValues"], isOptional<F>>
+  : F["nullable"] extends true
+  ? EnumNullableSchemas<F["enumValues"], isOptional<F>>
+  : EnumSchemas<F["enumValues"], isOptional<F>>;
+
+// =============================================================================
+// MAIN SCHEMA GETTER
+// =============================================================================
+
+export const getFieldEnumSchemas = <F extends EnumFieldState>(f: F) => {
+  const isOpt = f.hasDefault || f.nullable;
+  const isArr = f.array;
+  const values = f.enumValues;
+  return (isArr
+    ? isOpt
+      ? enumListNullableSchemas(values, isOpt)
+      : enumListSchemas(values, isOpt)
+    : isOpt
+    ? enumNullableSchemas(values, isOpt)
+    : enumSchemas(values, isOpt)) as unknown as InferEnumSchemas<F>;
+};
+
+// =============================================================================
+// INPUT TYPE INFERENCE
+// =============================================================================
+
+export type InferEnumInput<
+  F extends EnumFieldState,
+  Type extends "create" | "update" | "filter"
+> = Input<InferEnumSchemas<F>[Type]>;

@@ -34,7 +34,7 @@ interface FieldState<T extends ScalarFieldType = ScalarFieldType> {
   isUnique: boolean;
   defaultValue: any;
   autoGenerate: "uuid" | "ulid" | "cuid" | "nanoid" | "increment" | undefined;
-  customValidator: StandardSchemaV1 | undefined;
+  schema: StandardSchemaV1 | undefined;
   columnName: string | undefined;
 }
 

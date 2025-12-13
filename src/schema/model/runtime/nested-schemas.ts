@@ -9,13 +9,19 @@ import type {
   ModelIncludeNested,
 } from "../types";
 
+/**
+ * Placeholder type used when target model's schemas are being built.
+ * This allows circular references to work - the actual schema is resolved at validation time.
+ */
+const placeholderType = type("object");
+
 // =============================================================================
 // NESTED SELECT SCHEMA
 // =============================================================================
 
 /**
  * Builds a nested select schema with lazy evaluation for recursive relations
- * No module-level caching needed - model["~"].schemas provides per-model caching
+ * Returns placeholder during circular reference resolution.
  */
 export const buildSelectNestedSchema = <TFields extends FieldRecord>(
   model: Model<any>
@@ -34,12 +40,18 @@ export const buildSelectNestedSchema = <TFields extends FieldRecord>(
     const isToMany =
       relationType === "oneToMany" || relationType === "manyToMany";
 
+    // Return placeholder during building to handle circular refs
+    const getSelectNested = () =>
+      getTargetModel()["~"].schemas?.selectNested ?? placeholderType;
+    const getIncludeNested = () =>
+      getTargetModel()["~"].schemas?.includeNested ?? placeholderType;
+
     if (isToMany) {
       // To-many: allow where, orderBy, take, skip, nested select/include, etc.
       shape[name + "?"] = type("boolean").or(
         type({
-          "select?": () => getTargetModel()["~"].schemas.selectNested,
-          "include?": () => getTargetModel()["~"].schemas.includeNested,
+          "select?": () => getSelectNested(),
+          "include?": () => getIncludeNested(),
           "where?": "object",
           "orderBy?": "object | object[]",
           "cursor?": "object",
@@ -52,8 +64,8 @@ export const buildSelectNestedSchema = <TFields extends FieldRecord>(
       // To-one: nested select/include
       shape[name + "?"] = type("boolean").or(
         type({
-          "select?": () => getTargetModel()["~"].schemas.selectNested,
-          "include?": () => getTargetModel()["~"].schemas.includeNested,
+          "select?": () => getSelectNested(),
+          "include?": () => getIncludeNested(),
         })
       );
     }
@@ -70,7 +82,7 @@ export const buildSelectNestedSchema = <TFields extends FieldRecord>(
 
 /**
  * Builds a nested include schema with lazy evaluation for recursive relations
- * No module-level caching needed - model["~"].schemas provides per-model caching
+ * Returns placeholder during circular reference resolution.
  */
 export const buildIncludeNestedSchema = <TFields extends FieldRecord>(
   model: Model<any>
@@ -84,13 +96,19 @@ export const buildIncludeNestedSchema = <TFields extends FieldRecord>(
     const isToMany =
       relationType === "oneToMany" || relationType === "manyToMany";
 
+    // Return placeholder during building to handle circular refs
+    const getSelectNested = () =>
+      getTargetModel()["~"].schemas?.selectNested ?? placeholderType;
+    const getIncludeNested = () =>
+      getTargetModel()["~"].schemas?.includeNested ?? placeholderType;
+
     if (isToMany) {
       // To-many: allow where, orderBy, take, skip, nested select/include, etc.
       shape[name + "?"] = type("boolean").or(
         type({
-          "select?": () => getTargetModel()["~"].schemas.selectNested,
-          "include?": () => getTargetModel()["~"].schemas.includeNested,
-          "where?": "object", // Would need to use buildWhereSchema lazily
+          "select?": () => getSelectNested(),
+          "include?": () => getIncludeNested(),
+          "where?": "object",
           "orderBy?": "object | object[]",
           "cursor?": "object",
           "take?": "number",
@@ -102,8 +120,8 @@ export const buildIncludeNestedSchema = <TFields extends FieldRecord>(
       // To-one: simpler nested args
       shape[name + "?"] = type("boolean").or(
         type({
-          "select?": () => getTargetModel()["~"].schemas.selectNested,
-          "include?": () => getTargetModel()["~"].schemas.includeNested,
+          "select?": () => getSelectNested(),
+          "include?": () => getIncludeNested(),
         })
       );
     }

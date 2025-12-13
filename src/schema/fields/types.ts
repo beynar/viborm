@@ -1,8 +1,8 @@
 // Field Types and Configurations
-// Types for the ArkType-based field system
+// Types for the field system (Zod-backed)
 
 import type { StandardSchemaV1 } from "../../standardSchema";
-import type { Type } from "arktype";
+import type { ZodType } from "zod/v4-mini";
 
 // =============================================================================
 // SCALAR FIELD TYPES
@@ -125,17 +125,17 @@ export interface VectorFieldConfig extends BaseFieldConfig<number[]> {
 
 /**
  * Common interface for field schemas
- * Each field exposes these schemas for validation
+ * Each field exposes these schemas for validation (Zod types)
  */
 export interface FieldSchemas {
   /** Base type schema */
-  base: Type;
+  base: ZodType;
   /** Filter schema for where clauses */
-  filter: Type;
+  filter: ZodType;
   /** Create input schema */
-  create: Type;
+  create: ZodType;
   /** Update input schema */
-  update: Type;
+  update: ZodType;
 }
 
 // =============================================================================

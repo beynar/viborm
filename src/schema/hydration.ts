@@ -29,6 +29,10 @@ export type Schema = Record<string, Model<any>>;
  * - relation["~"].names.ts = relation key (e.g., "posts")
  * - relation["~"].names.sql = relation key (relations don't have column mapping)
  *
+ * Note: Full schemas are built lazily when first accessed via model["~"].schemas.
+ * This allows circular references to work correctly - thunks are evaluated
+ * at validation time when all models' schemas are available.
+ *
  * @param schema - The schema object mapping model names to Model instances
  */
 export function hydrateSchemaNames(schema: Schema): void {
@@ -56,6 +60,8 @@ function hydrateModel(modelKey: string, model: Model<any>): void {
   for (const [relationKey, relation] of model["~"].relations) {
     hydrateRelation(relationKey, relation);
   }
+
+  model.buildSchemas();
 }
 
 /**
@@ -70,7 +76,10 @@ function hydrateField(fieldKey: string, field: Field): void {
 /**
  * Hydrate a single relation
  */
-function hydrateRelation(relationKey: string, relation: Relation<any, any, any>): void {
+function hydrateRelation(
+  relationKey: string,
+  relation: Relation<any, any, any>
+): void {
   const names = relation["~"].names as SchemaNames;
   names.ts = relationKey;
   // Relations don't have column mapping - sql name equals ts name
@@ -111,4 +120,3 @@ export function getFieldSqlName(field: Field): string {
   }
   return sqlName;
 }
-

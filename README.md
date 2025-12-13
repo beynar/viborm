@@ -70,9 +70,9 @@ Built-in validation system with support for Standard Schema V1 interface (Zod, V
 ```typescript
 // Custom field validation
 const user = s.model("user", {
-  email: s.string().validator(z.string().email()),
-  age: s.int().validator(z.number().min(0).max(120)),
-  username: s.string().validator(usernameSchema),
+  email: s.string().schema(z.string().email()),
+  age: s.int().schema(z.number().min(0).max(120)),
+  username: s.string().schema(usernameSchema),
 });
 
 // Schema-based JSON fields with automatic validation
@@ -131,9 +131,9 @@ import { z } from "zod";
 // Schema Definition with Validation (✅ Working)
 const user = s.model("user", {
   id: s.string().id().ulid(),
-  name: s.string().validator(z.string().min(1).max(100)),
-  email: s.string().unique().validator(z.string().email()),
-  age: s.int().nullable().validator(z.number().min(0).max(120)),
+  name: s.string().schema(z.string().min(1).max(100)),
+  email: s.string().unique().schema(z.string().email()),
+  age: s.int().nullable().schema(z.number().min(0).max(120)),
   posts: s.relation.oneToMany(() => post),
   profile: s.json(profileSchema), // Strongly typed JSON with validation
   createdAt: s.dateTime().now(),
@@ -141,7 +141,7 @@ const user = s.model("user", {
 
 const post = s.model("post", {
   id: s.string().id().ulid(),
-  title: s.string().validator(z.string().min(1).max(200)),
+  title: s.string().schema(z.string().min(1).max(200)),
   content: s.string().nullable(),
   author: s.relation.manyToOne(() => user),
   metadata: s.json(postMetadataSchema).nullable(),

@@ -3,7 +3,7 @@
 
 import { type, Type } from "arktype";
 import type { Model } from "../model";
-import type { Relation } from "../../relation/relation";
+import type { AnyRelation, Relation } from "../../relation/relation";
 import type {
   FieldRecord,
   ModelWhereInput,
@@ -17,9 +17,12 @@ import type {
 } from "../types";
 
 // =============================================================================
-// WHERE SCHEMA
+// WHERE SCHEMA (Two-Phase)
 // =============================================================================
 
+/**
+ * Helper to check if object is a to-one shorthand filter (has is/isNot key)
+ */
 const isToOneShorthand = (
   t?: unknown
 ): t is { is: unknown } | { isNot: unknown } => {
@@ -32,10 +35,89 @@ const isToOneShorthand = (
 };
 
 /**
- * Builds a where schema from model fields
- * All fields are optional in where clauses
- * Relation filters use lazy evaluation - actual schemas accessed via model["~"].schemas
- * which provides per-model caching (no module-level state needed)
+ * Phase 1: Builds a where schema with only scalar field filters.
+ * No cross-model dependencies - safe to build in Model constructor.
+ */
+export const buildWhereScalarSchema = <TFields extends FieldRecord>(
+  model: Model<any>
+): Type => {
+  const shape: Record<string, Type> = {};
+
+  // Add scalar field filters only
+  for (const [name, field] of model["~"].fieldMap) {
+    shape[name + "?"] = field["~"].schemas.filter;
+  }
+
+  return type(shape);
+};
+
+/**
+ * Placeholder type used when target model's schemas are being built.
+ * This allows circular references to work - the actual schema is resolved at validation time.
+ */
+const placeholderType = type("object");
+
+/**
+ * Builds a to-one relation filter schema.
+ * Supports explicit { is: {...}, isNot: {...} } forms.
+ * Uses lazy thunks to access target model's where schema.
+ * Returns placeholder during circular reference resolution.
+ * NOTE: Shorthand normalization (e.g., { author: { name: "Alice" } } -> { is: { name: "Alice" } })
+ * is handled at the query parser layer, not in the schema.
+ */
+export const buildToOneRelationFilter = <TFields extends FieldRecord>(
+  relation: AnyRelation,
+  getTargetModel: () => Model<any>
+): Type => {
+  const isOptional = relation["~"].isOptional ?? false;
+  // Return placeholder during building to handle circular refs
+
+  if (isOptional) {
+    // Optional to-one: is, isNot, or null
+    return type({
+      "is?": () => {
+        return getTargetModel()["~"].schemas?.where;
+      },
+      "isNot?": () => {
+        return getTargetModel()["~"].schemas?.where;
+      },
+    });
+  } else {
+    // Required to-one: is, isNot only
+    return type({
+      "is?": () => {
+        console.log("001", getTargetModel()["~"].schemas?.where);
+        return getTargetModel()["~"].schemas?.where;
+      },
+      "isNot?": () => {
+        console.log("001", getTargetModel()["~"].schemas?.where);
+        return getTargetModel()["~"].schemas?.where;
+      },
+    });
+  }
+};
+
+/**
+ * Builds a to-many relation filter schema with some/every/none operators.
+ * Uses lazy evaluation via thunks to handle circular references.
+ * Returns placeholder during circular reference resolution.
+ */
+export const buildToManyRelationFilter = (
+  getTargetModel: () => Model<any>
+): Type => {
+  // Return placeholder during building to handle circular refs
+
+  return type({
+    "some?": () => getTargetModel()["~"].schemas?.where,
+    "every?": () => getTargetModel()["~"].schemas?.where,
+    "none?": () => getTargetModel()["~"].schemas?.where,
+  });
+};
+
+/**
+ * Phase 2: Builds full where schema with scalar + relation filters.
+ * Builds the combined shape directly to avoid ArkType merge type issues.
+ * All relation filters are wrapped in thunks to prevent recursion during building.
  */
 export const buildWhereSchema = <TFields extends FieldRecord>(
   model: Model<any>
@@ -47,41 +129,27 @@ export const buildWhereSchema = <TFields extends FieldRecord>(
     shape[name + "?"] = field["~"].schemas.filter;
   }
 
-  // Add relation filters with lazy evaluation
-  // Lazy access to targetModel["~"].schemas.where ensures:
-  // 1. No recursion during build (thunk not called until validation)
-  // 2. Target model schemas cached at model level (not module level)
+  // Add relation filters - all wrapped in thunks to prevent recursion
   for (const [name, relation] of model["~"].relations) {
     const relationType = relation["~"].relationType;
     const getTargetModel = relation["~"].getter;
-    const targetWhere = getTargetModel()["~"].schemas.where;
-    const isOptional = relation["~"].isOptional ?? false;
 
     if (relationType === "oneToOne" || relationType === "manyToOne") {
-      // To-one relations: supports both explicit and shorthand forms
-      // Explicit: { author: { is: { name: "Alice" } } }
-      // Shorthand: { author: { name: "Alice" } } -> normalized to { is: { name: "Alice" } }
-      // Null shorthand (optional only): { author: null } -> normalized to { is: null }
-      //
-      // Uses type("object | null") + pipe to bypass ArkType morph/union limitation
-      // (can't use .or(targetWhere) because targetWhere contains field filters with morphs)
-      const relationFilterSchema = isOptional
-        ? type("object | null")
-        : type("object");
-
-      shape[name + "?"] = relationFilterSchema.pipe((t) => {
-        if (t === null)
-          return { is: null } as unknown as ModelWhereInput<TFields>;
-        if (isToOneShorthand(t)) return t as ModelWhereInput<TFields>;
-        return { is: t } as unknown as ModelWhereInput<TFields>;
-      });
+      // Wrap in thunk to defer .pipe() compilation until validation time
+      shape[name + "?"] = buildToOneRelationFilter<TFields>(
+        relation,
+        getTargetModel
+      );
+      // shape[name + "?"] = () => {
+      //   console.log(
+      //     "00",
+      //     buildToOneRelationFilter<TFields>(relation, getTargetModel)
+      //   );
+      //   return buildToOneRelationFilter<TFields>(relation, getTargetModel);
+      // };
     } else {
       // To-many relations: some, every, none filters
-      shape[name + "?"] = type({
-        "some?": () => targetWhere,
-        "every?": () => targetWhere,
-        "none?": () => targetWhere,
-      });
+      // shape[name + "?"] = buildToManyRelationFilter(getTargetModel);
     }
   }
 
@@ -195,7 +263,7 @@ export const buildWhereUniqueSchema = <TFields extends FieldRecord>(
 };
 
 // =============================================================================
-// RELATION CREATE SCHEMA (helper)
+// CREATE SCHEMA (Two-Phase)
 // =============================================================================
 
 /**
@@ -205,51 +273,105 @@ export const buildWhereUniqueSchema = <TFields extends FieldRecord>(
 const ensureArray = <T>(v: T | T[]): T[] => (Array.isArray(v) ? v : [v]);
 
 /**
- * Builds a relation create schema with lazy evaluation
+ * Phase 1: Builds a create schema with only scalar fields.
+ * No cross-model dependencies - safe to build in Model constructor.
  */
-const buildRelationCreateSchema = (
-  relation: Relation<any, any>,
+export const buildCreateScalarSchema = <TFields extends FieldRecord>(
+  model: Model<any>
+): Type => {
+  const shape: Record<string, Type> = {};
+
+  // Scalar fields - optional if hasDefault, autoGenerate, or nullable
+  for (const [name, field] of model["~"].fieldMap) {
+    const state = field["~"].state;
+    const isOptional =
+      state.hasDefault || state.autoGenerate !== undefined || state.nullable;
+    const key = isOptional ? name + "?" : name;
+    shape[key] = field["~"].schemas.create;
+  }
+
+  return type(shape);
+};
+
+/**
+ * Builds a to-one relation create schema (create, connect, connectOrCreate).
+ * Uses lazy evaluation via thunks for nested creates.
+ * Returns placeholder during circular reference resolution.
+ */
+export const buildToOneRelationCreateSchema = (
+  getTargetModel: () => Model<any>
+): Type => {
+  // Return placeholder during building to handle circular refs
+  const getCreate = () =>
+    getTargetModel()["~"].schemas?.create ?? placeholderType;
+  const getWhereUnique = () =>
+    getTargetModel()["~"].schemas?.whereUnique ?? placeholderType;
+
+  return type({
+    "create?": () => getCreate(),
+    "connect?": () => getWhereUnique(),
+    "connectOrCreate?": () =>
+      type({
+        where: () => getWhereUnique(),
+        create: () => getCreate(),
+      }),
+  });
+};
+
+/**
+ * Builds a to-many relation create schema with array normalization.
+ * Supports single object shorthand normalized to array.
+ * Returns placeholder during circular reference resolution.
+ */
+export const buildToManyRelationCreateSchema = (
+  getTargetModel: () => Model<any>
+): Type => {
+  // Return placeholder during building to handle circular refs
+  const getCreate = () =>
+    getTargetModel()["~"].schemas?.create ?? placeholderType;
+  const getWhereUnique = () =>
+    getTargetModel()["~"].schemas?.whereUnique ?? placeholderType;
+
+  return type({
+    "create?": () => {
+      const schema = getCreate();
+      return schema.or(schema.array()).pipe(ensureArray);
+    },
+    "connect?": () => {
+      const schema = getWhereUnique();
+      return schema.or(schema.array()).pipe(ensureArray);
+    },
+    "connectOrCreate?": () => {
+      const connectOrCreateSchema = type({
+        where: () => getWhereUnique(),
+        create: () => getCreate(),
+      });
+      return connectOrCreateSchema
+        .or(connectOrCreateSchema.array())
+        .pipe(ensureArray);
+    },
+  });
+};
+
+/**
+ * Builds a relation create schema based on relation type.
+ */
+export const buildRelationCreateSchema = (
+  relation: AnyRelation,
   getTargetModel: () => Model<any>
 ): Type => {
   const relationType = relation["~"].relationType;
 
   if (relationType === "oneToOne" || relationType === "manyToOne") {
-    // To-one: create, connect, connectOrCreate
-    return type({
-      "create?": () => getTargetModel()["~"].schemas.create,
-      "connect?": () => getTargetModel()["~"].schemas.whereUnique,
-      "connectOrCreate?": type({
-        where: () => getTargetModel()["~"].schemas.whereUnique,
-        create: () => getTargetModel()["~"].schemas.create,
-      }),
-    });
+    return buildToOneRelationCreateSchema(getTargetModel);
   } else {
-    // To-many: create/connect/connectOrCreate - shorthand single object normalized to array via pipe
-    // Pattern: schema.or(schema.array()).pipe(ensureArray) avoids ArkType morph/array conflict
-    const createSchema = type(() => getTargetModel()["~"].schemas.create);
-    const connectSchema = type(() => getTargetModel()["~"].schemas.whereUnique);
-    const connectOrCreateSchema = type({
-      where: () => getTargetModel()["~"].schemas.whereUnique,
-      create: () => getTargetModel()["~"].schemas.create,
-    });
-
-    return type({
-      "create?": createSchema.or(createSchema.array()).pipe(ensureArray),
-      "connect?": connectSchema.or(connectSchema.array()).pipe(ensureArray),
-      "connectOrCreate?": connectOrCreateSchema
-        .or(connectOrCreateSchema.array())
-        .pipe(ensureArray),
-    });
+    return buildToManyRelationCreateSchema(getTargetModel);
   }
 };
 
-// =============================================================================
-// CREATE SCHEMA
-// =============================================================================
-
 /**
- * Builds a create schema from model fields
- * Required fields are required, optional fields (with defaults/auto-generate/nullable) are optional
+ * Phase 2: Builds full create schema with scalar + relation fields.
+ * Builds the combined shape directly to avoid ArkType merge type issues.
  */
 export const buildCreateSchema = <TFields extends FieldRecord>(
   model: Model<any>
@@ -268,8 +390,7 @@ export const buildCreateSchema = <TFields extends FieldRecord>(
   // Relation fields (all optional in create) with lazy evaluation
   for (const [name, relation] of model["~"].relations) {
     const getTargetModel = relation["~"].getter;
-    shape[name + "?"] = () =>
-      buildRelationCreateSchema(relation, getTargetModel);
+    shape[name + "?"] = buildRelationCreateSchema(relation, getTargetModel);
   }
 
   return type(shape as Record<string, Type>) as unknown as Type<
@@ -309,88 +430,148 @@ export const buildCreateManySchema = <TFields extends FieldRecord>(
 };
 
 // =============================================================================
-// RELATION UPDATE SCHEMA (helper)
+// UPDATE SCHEMA (Two-Phase)
 // =============================================================================
 
 /**
- * Builds a relation update schema with lazy evaluation
+ * Phase 1: Builds an update schema with only scalar fields.
+ * No cross-model dependencies - safe to build in Model constructor.
  */
-const buildRelationUpdateSchema = (
-  relation: Relation<any, any>,
+export const buildUpdateScalarSchema = <TFields extends FieldRecord>(
+  model: Model<any>
+): Type => {
+  const shape: Record<string, Type> = {};
+
+  // Scalar fields - all optional in update operations
+  for (const [name, field] of model["~"].fieldMap) {
+    shape[name + "?"] = field["~"].schemas.update;
+  }
+
+  return type(shape);
+};
+
+/**
+ * Builds a to-one relation update schema.
+ * Includes create, connect, update, upsert, and optionally disconnect/delete.
+ * Returns placeholder during circular reference resolution.
+ */
+export const buildToOneRelationUpdateSchema = (
+  relation: AnyRelation,
+  getTargetModel: () => Model<any>
+): Type => {
+  const isOptional = relation["~"].isOptional ?? false;
+
+  // Return placeholder during building to handle circular refs
+  const getCreate = () =>
+    getTargetModel()["~"].schemas?.create ?? placeholderType;
+  const getWhereUnique = () =>
+    getTargetModel()["~"].schemas?.whereUnique ?? placeholderType;
+  const getUpdate = () =>
+    getTargetModel()["~"].schemas?.update ?? placeholderType;
+
+  const baseShape: Record<string, Type | (() => Type)> = {
+    "create?": () => getCreate(),
+    "connect?": () => getWhereUnique(),
+    "update?": () => getUpdate(),
+    "upsert?": () =>
+      type({
+        create: () => getCreate(),
+        update: () => getUpdate(),
+      }),
+  };
+
+  if (isOptional) {
+    baseShape["disconnect?"] = type("boolean");
+    baseShape["delete?"] = type("boolean");
+  }
+
+  return type(baseShape as Record<string, Type>);
+};
+
+/**
+ * Builds a to-many relation update schema.
+ * Includes array operations for create, connect, disconnect, set, delete, update, upsert.
+ * Returns placeholder during circular reference resolution.
+ */
+export const buildToManyRelationUpdateSchema = (
+  getTargetModel: () => Model<any>
+): Type => {
+  // Return placeholder during building to handle circular refs
+  const getCreate = () =>
+    getTargetModel()["~"].schemas?.create ?? placeholderType;
+  const getWhereUnique = () =>
+    getTargetModel()["~"].schemas?.whereUnique ?? placeholderType;
+  const getWhere = () =>
+    getTargetModel()["~"].schemas?.where ?? placeholderType;
+  const getUpdate = () =>
+    getTargetModel()["~"].schemas?.update ?? placeholderType;
+
+  return type({
+    // create/connect/disconnect/delete use whereUnique/create (no morphs) - shorthand supported
+    "create?": () => {
+      const schema = getCreate();
+      return schema.or(schema.array()).pipe(ensureArray);
+    },
+    "connect?": () => {
+      const schema = getWhereUnique();
+      return schema.or(schema.array()).pipe(ensureArray);
+    },
+    "disconnect?": () => {
+      const schema = getWhereUnique();
+      return schema.or(schema.array()).pipe(ensureArray);
+    },
+    "set?": () => getWhereUnique().array(),
+    "delete?": () => {
+      const schema = getWhereUnique();
+      return schema.or(schema.array()).pipe(ensureArray);
+    },
+    // Operations with update data (has morphs) - array only, no shorthand
+    "deleteMany?": () => getWhere().array(),
+    "update?": () =>
+      type({
+        where: () => getWhereUnique(),
+        data: () => getUpdate(),
+      }).array(),
+    "updateMany?": () =>
+      type({
+        where: () => getWhere(),
+        data: () => getUpdate(),
+      }).array(),
+    "upsert?": () =>
+      type({
+        where: () => getWhereUnique(),
+        create: () => getCreate(),
+        update: () => getUpdate(),
+      }).array(),
+  });
+};
+
+/**
+ * Builds a relation update schema based on relation type.
+ */
+export const buildRelationUpdateSchema = (
+  relation: AnyRelation,
   getTargetModel: () => Model<any>
 ): Type => {
   const relationType = relation["~"].relationType;
-  const isOptional = relation["~"].isOptional ?? false;
 
   if (relationType === "oneToOne" || relationType === "manyToOne") {
-    // To-one: create, connect, update, upsert, (disconnect/delete if optional)
-    const baseShape: Record<string, Type | (() => Type)> = {
-      "create?": () => getTargetModel()["~"].schemas.create,
-      "connect?": () => getTargetModel()["~"].schemas.whereUnique,
-      "update?": () => getTargetModel()["~"].schemas.update,
-      "upsert?": type({
-        create: () => getTargetModel()["~"].schemas.create,
-        update: () => getTargetModel()["~"].schemas.update,
-      }),
-    };
-
-    if (isOptional) {
-      baseShape["disconnect?"] = type("boolean");
-      baseShape["delete?"] = type("boolean");
-    }
-
-    return type(baseShape as Record<string, Type>);
+    return buildToOneRelationUpdateSchema(relation, getTargetModel);
   } else {
-    // To-many: array inputs for operations
-    // NOTE: Single-value shorthand not supported for operations using where schema (contains morphs)
-    // due to ArkType union/morph limitations
-    const createSchema = type(() => getTargetModel()["~"].schemas.create);
-    const connectSchema = type(() => getTargetModel()["~"].schemas.whereUnique);
-    const whereSchema = type(() => getTargetModel()["~"].schemas.where);
-    const updateSchema = type({
-      where: () => getTargetModel()["~"].schemas.whereUnique,
-      data: () => getTargetModel()["~"].schemas.update,
-    });
-    const updateManySchema = type({
-      where: () => getTargetModel()["~"].schemas.where,
-      data: () => getTargetModel()["~"].schemas.update,
-    });
-    const upsertSchema = type({
-      where: () => getTargetModel()["~"].schemas.whereUnique,
-      create: () => getTargetModel()["~"].schemas.create,
-      update: () => getTargetModel()["~"].schemas.update,
-    });
-
-    return type({
-      // create/connect/disconnect/delete use whereUnique/create (no morphs) - shorthand supported
-      "create?": createSchema.or(createSchema.array()).pipe(ensureArray),
-      "connect?": connectSchema.or(connectSchema.array()).pipe(ensureArray),
-      "disconnect?": connectSchema.or(connectSchema.array()).pipe(ensureArray),
-      "set?": connectSchema.array(),
-      "delete?": connectSchema.or(connectSchema.array()).pipe(ensureArray),
-      // Operations with update data (has morphs) - array only, no shorthand
-      "deleteMany?": whereSchema.array(),
-      "update?": updateSchema.array(),
-      "updateMany?": updateManySchema.array(),
-      "upsert?": upsertSchema.array(),
-    });
+    return buildToManyRelationUpdateSchema(getTargetModel);
   }
 };
 
-// =============================================================================
-// UPDATE SCHEMA
-// =============================================================================
-
 /**
- * Builds an update schema from model fields
- * All fields are optional in update operations
+ * Phase 2: Builds full update schema with scalar + relation fields.
+ * Builds the combined shape directly to avoid ArkType merge type issues.
  */
 export const buildUpdateSchema = <TFields extends FieldRecord>(
   model: Model<any>
 ): Type<ModelUpdateInput<TFields>> => {
   const shape: Record<string, Type | (() => Type)> = {};
 
-  // Scalar fields
+  // Scalar fields - all optional in update operations
   for (const [name, field] of model["~"].fieldMap) {
     shape[name + "?"] = field["~"].schemas.update;
   }

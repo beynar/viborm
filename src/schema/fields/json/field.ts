@@ -1,239 +1,70 @@
 // JSON Field
-// Standalone field class with State generic pattern
-// Supports both untyped (unknown) and typed (StandardSchema) JSON fields
+// Lean class delegating to schema factories
 
+import { object, string, type ZodMiniJSONSchemaInternals } from "zod/v4-mini";
 import type { StandardSchemaV1 } from "../../../standardSchema";
 import {
-  type FieldState,
   type UpdateState,
   type DefaultValue,
   type SchemaNames,
   createDefaultState,
+  FieldState,
+  isOptional,
 } from "../common";
 import type { NativeType } from "../native-types";
-import * as schemas from "./schemas";
-import * as schemaBuilders from "./schemas";
-import type {
-  JsonType,
-  JsonNullableType,
-  JsonFilterType,
-  JsonNullableFilterType,
-  JsonUpdateType,
-  JsonNullableUpdateType,
-  JsonOptionalType,
-  JsonOptionalNullableType,
-} from "./schemas";
+import { InferJsonInput, getFieldJsonSchemas, jsonSchemas } from "./schemas";
 
-// =============================================================================
-// JSON FIELD STATE (extends base with custom schema)
-// =============================================================================
+type JsonDefault<State extends FieldState<"json">> =
+  State["schema"] extends StandardSchemaV1
+    ? DefaultValue<
+        StandardSchemaV1.InferOutput<State["schema"]>,
+        false,
+        State["nullable"]
+      >
+    : DefaultValue<
+        ZodMiniJSONSchemaInternals["output"],
+        false,
+        State["nullable"]
+      >;
 
-interface JsonFieldState<
-  TSchema extends StandardSchemaV1 | undefined = undefined
-> extends FieldState<"json"> {
-  customSchema: TSchema;
-}
-
-// =============================================================================
-// JSON FIELD SCHEMA TYPE DERIVATION
-// =============================================================================
-
-/**
- * Derives the correct schema types based on field state and optional StandardSchema.
- * When TSchema is provided, uses typed schemas with proper inference.
- * When TSchema is undefined, falls back to untyped (unknown) schemas.
- */
-type JsonFieldSchemas<
-  TSchema extends StandardSchemaV1 | undefined,
-  State extends JsonFieldState<TSchema>
-> = TSchema extends StandardSchemaV1
-  ? {
-      // Typed JSON schemas using StandardSchema
-      base: State["nullable"] extends true
-        ? JsonNullableType<TSchema>
-        : JsonType<TSchema>;
-
-      filter: State["nullable"] extends true
-        ? JsonNullableFilterType<TSchema>
-        : JsonFilterType<TSchema>;
-
-      create: State["hasDefault"] extends true
-        ? State["nullable"] extends true
-          ? JsonOptionalNullableType<TSchema>
-          : JsonOptionalType<TSchema>
-        : State["nullable"] extends true
-        ? JsonNullableType<TSchema>
-        : JsonType<TSchema>;
-
-      update: State["nullable"] extends true
-        ? JsonNullableUpdateType<TSchema>
-        : JsonUpdateType<TSchema>;
-    }
-  : {
-      // Untyped JSON schemas (fallback to unknown)
-      base: State["nullable"] extends true
-        ? typeof schemas.jsonNullable
-        : typeof schemas.jsonBase;
-
-      filter: State["nullable"] extends true
-        ? typeof schemas.jsonNullableFilter
-        : typeof schemas.jsonFilter;
-
-      create: State["hasDefault"] extends true
-        ? State["nullable"] extends true
-          ? typeof schemas.jsonOptionalNullableCreate
-          : typeof schemas.jsonOptionalCreate
-        : State["nullable"] extends true
-        ? typeof schemas.jsonNullableCreate
-        : typeof schemas.jsonCreate;
-
-      update: State["nullable"] extends true
-        ? typeof schemas.jsonNullableUpdate
-        : typeof schemas.jsonUpdate;
-    };
-
-// =============================================================================
-// JSON FIELD CLASS
-// =============================================================================
-
-export class JsonField<
-  TSchema extends StandardSchemaV1 | undefined = undefined,
-  State extends JsonFieldState<TSchema> = JsonFieldState<TSchema>
-> {
-  /** Name slots hydrated by client at initialization */
+export class JsonField<State extends FieldState<"json">> {
   private _names: SchemaNames = {};
 
-  constructor(
-    private _customSchema: TSchema,
-    private state: State,
-    private _nativeType?: NativeType
-  ) {}
+  constructor(private state: State, private _nativeType?: NativeType) {}
 
-  // ===========================================================================
-  // CHAINABLE MODIFIERS
-  // ===========================================================================
-
-  nullable(): JsonField<
-    TSchema,
-    UpdateState<State, { nullable: true }> & JsonFieldState<TSchema>
-  > {
-    return new JsonField(this._customSchema, {
-      ...this.state,
-      nullable: true,
-    } as UpdateState<State, { nullable: true }> & JsonFieldState<TSchema>);
+  nullable(): JsonField<UpdateState<State, { nullable: true }>> {
+    return new JsonField({ ...this.state, nullable: true }, this._nativeType);
   }
 
   default(
-    value: TSchema extends StandardSchemaV1
-      ? DefaultValue<
-          StandardSchemaV1.InferOutput<TSchema>,
-          false,
-          State["nullable"]
-        >
-      : DefaultValue<unknown, false, State["nullable"]>
-  ): JsonField<
-    TSchema,
-    UpdateState<State, { hasDefault: true }> & JsonFieldState<TSchema>
-  > {
-    return new JsonField(this._customSchema, {
-      ...this.state,
-      hasDefault: true,
-      defaultValue: value,
-    } as UpdateState<State, { hasDefault: true }> & JsonFieldState<TSchema>);
-  }
-
-  /**
-   * Maps this field to a custom column name in the database
-   */
-  map(columnName: string): this {
-    return new JsonField(this._customSchema, {
-      ...this.state,
-      columnName,
-    }) as this;
-  }
-
-  // JSON fields don't support array(), id(), or unique()
-  array(): never {
-    throw new Error(
-      "JSON fields don't support array modifier - use a json schema array instead"
+    value: DefaultValue<JsonDefault<State>, false, State["nullable"]>
+  ): JsonField<UpdateState<State, { hasDefault: true }>> {
+    return new JsonField(
+      {
+        ...this.state,
+        hasDefault: true,
+        defaultValue: value,
+      } as UpdateState<State, { hasDefault: true }>,
+      this._nativeType
     );
   }
 
-  id(): never {
-    throw new Error("JSON fields cannot be used as IDs");
+  map(
+    columnName: string
+  ): JsonField<UpdateState<State, { columnName: string }>> {
+    return new JsonField({ ...this.state, columnName }, this._nativeType);
   }
 
-  unique(): never {
-    throw new Error("JSON fields cannot be unique");
-  }
-
-  // ===========================================================================
-  // SCHEMA GETTER
-  // ===========================================================================
-
-  get schemas(): JsonFieldSchemas<TSchema, State> {
-    const { nullable, hasDefault } = this.state;
-
-    if (this._customSchema) {
-      // Use typed schema builders when StandardSchema is provided
-      const schema = this._customSchema as StandardSchemaV1;
-
-      const base = nullable
-        ? schemaBuilders.createJsonNullable(schema)
-        : schemaBuilders.createJsonBase(schema);
-
-      const filter = nullable
-        ? schemaBuilders.createJsonNullableFilter(schema)
-        : schemaBuilders.createJsonFilter(schema);
-
-      const create = hasDefault
-        ? nullable
-          ? schemaBuilders.createJsonOptionalNullableCreate(schema)
-          : schemaBuilders.createJsonOptionalCreate(schema)
-        : nullable
-        ? schemaBuilders.createJsonNullable(schema)
-        : schemaBuilders.createJsonBase(schema);
-
-      const update = nullable
-        ? schemaBuilders.createJsonNullableUpdate(schema)
-        : schemaBuilders.createJsonUpdate(schema);
-
-      return { base, filter, create, update } as JsonFieldSchemas<
-        TSchema,
-        State
-      >;
-    } else {
-      // Fallback to untyped schemas
-      const base = nullable ? schemas.jsonNullable : schemas.jsonBase;
-
-      const filter = nullable ? schemas.jsonNullableFilter : schemas.jsonFilter;
-
-      const create = hasDefault
-        ? nullable
-          ? schemas.jsonOptionalNullableCreate
-          : schemas.jsonOptionalCreate
-        : nullable
-        ? schemas.jsonNullableCreate
-        : schemas.jsonCreate;
-
-      const update = nullable ? schemas.jsonNullableUpdate : schemas.jsonUpdate;
-
-      return { base, filter, create, update } as JsonFieldSchemas<
-        TSchema,
-        State
-      >;
-    }
-  }
-
-  // ===========================================================================
-  // ACCESSORS
-  // ===========================================================================
+  schema = <TSchema extends StandardSchemaV1>(
+    s: TSchema
+  ): JsonField<UpdateState<State, { schema: TSchema }>> => {
+    return new JsonField({ ...this.state, schema: s }, this._nativeType);
+  };
 
   get ["~"]() {
     return {
       state: this.state,
-      schemas: this.schemas,
-      customSchema: this._customSchema,
+      schemas: getFieldJsonSchemas<State>(this.state),
       nativeType: this._nativeType,
       names: this._names,
     };
@@ -244,49 +75,26 @@ export class JsonField<
 // FACTORY FUNCTIONS
 // =============================================================================
 
-/**
- * Creates an untyped JSON field (accepts any valid JSON value)
- */
-export function json(): JsonField<undefined>;
-
-/**
- * Creates a typed JSON field with StandardSchema validation
- * @param schema - Any StandardSchema-compatible validator (Zod, Valibot, ArkType, etc.)
- */
-export function json<TSchema extends StandardSchemaV1>(
-  schema: TSchema
-): JsonField<TSchema>;
-
-/**
- * Creates a JSON field with native database type override
- * @param nativeType - Native database type (e.g., PG.JSON.JSONB)
- */
-export function json(nativeType: NativeType): JsonField<undefined>;
-
-export function json<TSchema extends StandardSchemaV1 | undefined = undefined>(
-  schemaOrNativeType?: TSchema | NativeType
-): JsonField<TSchema> {
-  const baseState = createDefaultState("json") as JsonFieldState<TSchema>;
-
-  // Check if it's a native type
-  if (
-    schemaOrNativeType &&
-    typeof schemaOrNativeType === "object" &&
-    "db" in schemaOrNativeType &&
-    "type" in schemaOrNativeType
-  ) {
-    return new JsonField<TSchema, JsonFieldState<TSchema>>(
-      undefined as TSchema,
-      { ...baseState, customSchema: undefined as TSchema },
-      schemaOrNativeType as NativeType
-    );
-  }
-
-  return new JsonField<TSchema, JsonFieldState<TSchema>>(
-    schemaOrNativeType as TSchema,
-    {
-      ...baseState,
-      customSchema: schemaOrNativeType as TSchema,
-    }
-  );
+export function json(nativeType?: NativeType) {
+  return new JsonField(createDefaultState("json"), nativeType);
 }
+
+const test = json()
+  .schema(
+    object({
+      name: string(),
+      age: string(),
+    })
+  )
+  .nullable();
+
+const state = test["~"]["state"];
+
+const schema_test = test["~"]["schemas"];
+
+type Test = InferJsonInput<typeof state, "base">;
+type Test2 = InferJsonInput<typeof state, "create">;
+type Test3 = InferJsonInput<typeof state, "update">;
+type Test4 = InferJsonInput<typeof state, "filter">;
+
+const base = jsonSchemas(state).base;

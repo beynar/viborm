@@ -24,7 +24,7 @@ Validation ensures that data conforms to the schema before being persisted. Vali
 
 ### 2. Field Validation
 
-- Each field must support attaching one or more validators via `.validator(fn)` or `.regex(pattern)`.
+- Each field must support attaching one or more validators via `.schema(fn)` or `.regex(pattern)`.
 - Validators must be composable and support both sync and async validation.
 - Built-in validators (regex, min/max, enum) must be provided.
 
@@ -49,10 +49,10 @@ Validation ensures that data conforms to the schema before being persisted. Vali
 ```ts
 const user = s
   .model("user", {
-    email: s.string().validator(emailRegex),
-    age: s.int().validator((v) => v >= 0),
+    email: s.string().schema(emailRegex),
+    age: s.int().schema((v) => v >= 0),
   })
-  .validator((user) => user.email !== user.name);
+  .schema((user) => user.email !== user.name);
 ```
 
 ---

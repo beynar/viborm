@@ -1,66 +1,24 @@
 // String Field
 // Standalone field class with State generic pattern
 
-import type { StandardSchemaV1 } from "@standard-schema/spec";
+import type { StandardSchemaOf, StandardSchemaV1 } from "@standard-schema/spec";
 import {
   type FieldState,
   type UpdateState,
   type DefaultValue,
   type SchemaNames,
   createDefaultState,
+  DefaultValueInput,
 } from "../common";
 import type { NativeType } from "../native-types";
-import * as schemas from "./schemas";
-
-// =============================================================================
-// SCHEMA TYPE DERIVATION
-// =============================================================================
-
-/**
- * Derives the correct schema types based on field state.
- * Uses conditional types to compute the exact schema type.
- */
-type StringFieldSchemas<State extends FieldState<"string">> = {
-  base: State["array"] extends true
-    ? State["nullable"] extends true
-      ? typeof schemas.stringNullableArray
-      : typeof schemas.stringArray
-    : State["nullable"] extends true
-    ? typeof schemas.stringNullable
-    : typeof schemas.stringBase;
-
-  filter: State["array"] extends true
-    ? State["nullable"] extends true
-      ? typeof schemas.stringNullableListFilter
-      : typeof schemas.stringListFilter
-    : State["nullable"] extends true
-    ? typeof schemas.stringNullableFilter
-    : typeof schemas.stringFilter;
-
-  create: State["array"] extends true
-    ? State["hasDefault"] extends true
-      ? State["nullable"] extends true
-        ? typeof schemas.stringOptionalNullableArrayCreate
-        : typeof schemas.stringOptionalArrayCreate
-      : State["nullable"] extends true
-      ? typeof schemas.stringNullableArrayCreate
-      : typeof schemas.stringArrayCreate
-    : State["hasDefault"] extends true
-    ? State["nullable"] extends true
-      ? typeof schemas.stringOptionalNullableCreate
-      : typeof schemas.stringOptionalCreate
-    : State["nullable"] extends true
-    ? typeof schemas.stringNullableCreate
-    : typeof schemas.stringCreate;
-
-  update: State["array"] extends true
-    ? State["nullable"] extends true
-      ? typeof schemas.stringNullableArrayUpdate
-      : typeof schemas.stringArrayUpdate
-    : State["nullable"] extends true
-    ? typeof schemas.stringNullableUpdate
-    : typeof schemas.stringUpdate;
-};
+import { getFieldStringSchemas, stringBase } from "./schemas";
+import { StandardSchemaToZod, zodFromStandardSchema } from "..";
+import {
+  defaultCuid,
+  defaultNanoid,
+  defaultUlid,
+  defaultUuid,
+} from "./autogenerate";
 
 // =============================================================================
 // STRING FIELD CLASS
@@ -72,12 +30,16 @@ export class StringField<State extends FieldState<"string">> {
 
   constructor(private state: State, private _nativeType?: NativeType) {}
 
-  // ===========================================================================
-  // CHAINABLE MODIFIERS - Each returns properly typed new instance
-  // ===========================================================================
-
-  nullable(): StringField<UpdateState<State, { nullable: true }>> {
-    return new StringField({ ...this.state, nullable: true }, this._nativeType);
+  nullable(): StringField<
+    UpdateState<
+      State,
+      { nullable: true; hasDefault: true; defaultValue: DefaultValue<null> }
+    >
+  > {
+    return new StringField(
+      { ...this.state, nullable: true, hasDefault: true, defaultValue: null },
+      this._nativeType
+    );
   }
 
   array(): StringField<UpdateState<State, { array: true }>> {
@@ -95,9 +57,9 @@ export class StringField<State extends FieldState<"string">> {
     return new StringField({ ...this.state, isUnique: true }, this._nativeType);
   }
 
-  default(
-    value: DefaultValue<string, State["array"], State["nullable"]>
-  ): StringField<UpdateState<State, { hasDefault: true }>> {
+  default<V extends DefaultValueInput<State>>(
+    value: V
+  ): StringField<UpdateState<State, { hasDefault: true; defaultValue: V }>> {
     return new StringField(
       {
         ...this.state,
@@ -108,13 +70,16 @@ export class StringField<State extends FieldState<"string">> {
     );
   }
 
-  validator(
-    schema: StandardSchemaV1
-  ): StringField<UpdateState<State, { customValidator: StandardSchemaV1 }>> {
+  schema<S extends StandardSchemaOf<string>>(
+    schema: S
+  ): StringField<
+    UpdateState<State, { schema: S; base: StandardSchemaToZod<S> }>
+  > {
     return new StringField(
       {
         ...this.state,
-        customValidator: schema,
+        schema: schema,
+        base: zodFromStandardSchema(schema),
       },
       this._nativeType
     );
@@ -135,12 +100,20 @@ export class StringField<State extends FieldState<"string">> {
   // ===========================================================================
 
   uuid(): StringField<
-    UpdateState<State, { hasDefault: true; autoGenerate: "uuid" }>
+    UpdateState<
+      State,
+      {
+        hasDefault: true;
+        autoGenerate: "uuid";
+        defaultValue: DefaultValue<string>;
+      }
+    >
   > {
     return new StringField(
       {
         ...this.state,
         hasDefault: true,
+        defaultValue: defaultUuid,
         autoGenerate: "uuid",
       },
       this._nativeType
@@ -148,25 +121,41 @@ export class StringField<State extends FieldState<"string">> {
   }
 
   ulid(): StringField<
-    UpdateState<State, { hasDefault: true; autoGenerate: "ulid" }>
+    UpdateState<
+      State,
+      {
+        hasDefault: true;
+        autoGenerate: "ulid";
+        defaultValue: DefaultValue<string>;
+      }
+    >
   > {
     return new StringField(
       {
         ...this.state,
         hasDefault: true,
+        defaultValue: defaultUlid,
         autoGenerate: "ulid",
       },
       this._nativeType
     );
   }
 
-  nanoid(): StringField<
-    UpdateState<State, { hasDefault: true; autoGenerate: "nanoid" }>
+  nanoid(length?: number): StringField<
+    UpdateState<
+      State,
+      {
+        hasDefault: true;
+        autoGenerate: "nanoid";
+        defaultValue: DefaultValue<string>;
+      }
+    >
   > {
     return new StringField(
       {
         ...this.state,
         hasDefault: true,
+        defaultValue: defaultNanoid(length),
         autoGenerate: "nanoid",
       },
       this._nativeType
@@ -174,104 +163,35 @@ export class StringField<State extends FieldState<"string">> {
   }
 
   cuid(): StringField<
-    UpdateState<State, { hasDefault: true; autoGenerate: "cuid" }>
+    UpdateState<
+      State,
+      {
+        hasDefault: true;
+        autoGenerate: "cuid";
+        defaultValue: DefaultValue<string>;
+      }
+    >
   > {
     return new StringField(
       {
         ...this.state,
         hasDefault: true,
+        defaultValue: defaultCuid,
         autoGenerate: "cuid",
       },
       this._nativeType
     );
   }
 
-  // ===========================================================================
-  // SCHEMA GETTER
-  // ===========================================================================
-
-  /**
-   * Returns the ArkType schemas for this field based on current state.
-   * Type is derived from state generics for perfect inference.
-   */
-  get schemas(): StringFieldSchemas<State> {
-    const { nullable, array, hasDefault } = this.state;
-
-    // Runtime schema selection
-    const base = array
-      ? nullable
-        ? schemas.stringNullableArray
-        : schemas.stringArray
-      : nullable
-      ? schemas.stringNullable
-      : schemas.stringBase;
-
-    const filter = array
-      ? nullable
-        ? schemas.stringNullableListFilter
-        : schemas.stringListFilter
-      : nullable
-      ? schemas.stringNullableFilter
-      : schemas.stringFilter;
-
-    const create = array
-      ? hasDefault
-        ? nullable
-          ? schemas.stringOptionalNullableArrayCreate
-          : schemas.stringOptionalArrayCreate
-        : nullable
-        ? schemas.stringNullableArrayCreate
-        : schemas.stringArrayCreate
-      : hasDefault
-      ? nullable
-        ? schemas.stringOptionalNullableCreate
-        : schemas.stringOptionalCreate
-      : nullable
-      ? schemas.stringNullableCreate
-      : schemas.stringCreate;
-
-    const update = array
-      ? nullable
-        ? schemas.stringNullableArrayUpdate
-        : schemas.stringArrayUpdate
-      : nullable
-      ? schemas.stringNullableUpdate
-      : schemas.stringUpdate;
-
-    return { base, filter, create, update } as StringFieldSchemas<State>;
-  }
-
-  // ===========================================================================
-  // ACCESSORS
-  // ===========================================================================
-
   get ["~"]() {
     return {
       state: this.state,
-      schemas: this.schemas,
+      schemas: getFieldStringSchemas<State>(this.state),
       nativeType: this._nativeType,
       names: this._names,
     };
   }
 }
 
-// =============================================================================
-// FACTORY FUNCTION
-// =============================================================================
-
-/**
- * Creates a string field with optional native database type override
- *
- * @example
- * // Default string field
- * s.string()
- *
- * // With PostgreSQL native type
- * s.string(PG.STRING.VARCHAR(255))
- * s.string(PG.STRING.CITEXT)
- *
- * // With MySQL native type
- * s.string(MYSQL.STRING.TEXT)
- */
 export const string = (nativeType?: NativeType) =>
-  new StringField(createDefaultState("string"), nativeType);
+  new StringField(createDefaultState("string", stringBase), nativeType);

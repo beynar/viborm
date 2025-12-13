@@ -15,12 +15,12 @@ import { s } from "../src/schema/index.js";
 export const string = s.string();
 export const nullableString = s.string().nullable();
 export const stringWithDefault = s.string().default("default");
-export const stringWithValidation = s.string().validator(z.email());
+export const stringWithValidation = s.string().schema(z.email());
 
 export const number = s.int();
 export const nullableNumber = s.int().nullable();
 export const numberWithDefault = s.int().default(1);
-export const numberWithValidation = s.int().validator(z.number().min(1));
+export const numberWithValidation = s.int().schema(z.number().min(1));
 
 export const boolean = s.boolean();
 export const nullableBoolean = s.boolean().nullable();

@@ -1,176 +1,253 @@
 // String Field Schemas
-// Explicit ArkType schemas for all string field variants
+// Factory pattern for string field variants with optional custom schema support
 
-import { type } from "arktype";
+import {
+  array,
+  boolean,
+  literal,
+  nullable,
+  object,
+  optional,
+  partial,
+  string,
+  union,
+  type input as Input,
+  extend,
+  ZodMiniType,
+  ZodMiniArray,
+  ZodMiniNullable,
+} from "zod/v4-mini";
+
+import {
+  createWithDefault,
+  FieldState,
+  SchemaWithDefault,
+  shorthandFilter,
+  shorthandUpdate,
+} from "../common";
 
 // =============================================================================
 // BASE TYPES
 // =============================================================================
 
-export const stringBase = type.string;
-export const stringNullable = stringBase.or("null");
-export const stringArray = stringBase.array();
-export const stringNullableArray = stringArray.or("null");
+export const stringBase = string();
+export const stringNullable = nullable(stringBase);
+export const stringList = array(stringBase);
+export const stringListNullable = nullable(stringList);
 
 // =============================================================================
 // FILTER SCHEMAS
 // =============================================================================
 
 // Base filter object without `not` (used for recursive `not` definition)
-const stringFilterBase = type({
-  equals: stringBase,
-  in: stringBase.array(),
-  notIn: stringBase.array(),
-  // String-specific filters
-  contains: stringBase,
-  startsWith: stringBase,
-  endsWith: stringBase,
-  mode: "'default' | 'insensitive'",
-  // Comparable filters
-  lt: stringBase,
-  lte: stringBase,
-  gt: stringBase,
-  gte: stringBase,
-}).partial();
+const stringFilterBase = partial(
+  object({
+    equals: stringBase,
+    in: array(stringBase),
+    notIn: array(stringBase),
+    contains: stringBase,
+    startsWith: stringBase,
+    endsWith: stringBase,
+    mode: union([literal("default"), literal("insensitive")]),
+    lt: stringBase,
+    lte: stringBase,
+    gt: stringBase,
+    gte: stringBase,
+  })
+);
 
-const stringNullableFilterBase = type({
-  equals: stringNullable,
-  in: stringBase.array(),
-  notIn: stringBase.array(),
-  // String-specific filters
-  contains: stringBase,
-  startsWith: stringBase,
-  endsWith: stringBase,
-  mode: "'default' | 'insensitive'",
-  // Comparable filters
-  lt: stringNullable,
-  lte: stringNullable,
-  gt: stringNullable,
-  gte: stringNullable,
-}).partial();
+const stringNullableFilterBase = partial(
+  object({
+    equals: stringNullable,
+    in: array(stringBase),
+    notIn: array(stringBase),
+    contains: stringBase,
+    startsWith: stringBase,
+    endsWith: stringBase,
+    mode: union([literal("default"), literal("insensitive")]),
+    lt: stringNullable,
+    lte: stringNullable,
+    gt: stringNullable,
+    gte: stringNullable,
+  })
+);
 
-/**
- * String filter with shorthand support: { equals: "foo" } OR just "foo"
- * `not` accepts both direct value AND nested filter object
- * Shorthand is normalized to { equals: value } via pipe
- */
-export const stringFilter = stringFilterBase
-  .merge(type({ "not?": stringFilterBase.or(stringNullable) }))
-  .or(stringBase.pipe((v) => ({ equals: v })));
+const stringArrayFilterBase = partial(
+  object({
+    equals: stringList,
+    has: stringBase,
+    hasEvery: array(stringBase),
+    hasSome: array(stringBase),
+    isEmpty: boolean(),
+  })
+);
 
-/**
- * Nullable string filter with shorthand support
- * `not` accepts both direct value AND nested filter object
- * Shorthand is normalized to { equals: value } via pipe
- */
-export const stringNullableFilter = stringNullableFilterBase
-  .merge(type({ "not?": stringNullableFilterBase.or(stringNullable) }))
-  .or(stringNullable.pipe((v) => ({ equals: v })));
+const stringNullableListFilterBase = partial(
+  object({
+    equals: stringListNullable,
+    has: stringBase,
+    hasEvery: array(stringBase),
+    hasSome: array(stringBase),
+    isEmpty: boolean(),
+  })
+);
 
-/**
- * String list filter (for array fields)
- */
-export const stringListFilter = type({
-  equals: stringBase.array(),
-  has: stringBase,
-  hasEvery: stringBase.array(),
-  hasSome: stringBase.array(),
-  isEmpty: "boolean",
-}).partial();
+const stringFilter = union([
+  extend(stringFilterBase, {
+    not: optional(union([stringFilterBase, shorthandFilter(stringBase)])),
+  }),
+  shorthandFilter(stringBase),
+]);
 
-/**
- * Nullable string list filter (for string[] | null fields)
- */
-export const stringNullableListFilter = type({
-  equals: stringNullableArray,
-  has: stringBase,
-  hasEvery: stringArray,
-  hasSome: stringArray,
-  isEmpty: "boolean",
-}).partial();
+const stringNullableFilter = union([
+  extend(stringNullableFilterBase, {
+    not: optional(union([stringNullableFilterBase, stringNullable])),
+  }),
+  shorthandFilter(stringNullable),
+]);
 
-// =============================================================================
-// CREATE SCHEMAS
-// =============================================================================
+const stringListFilter = union([
+  extend(stringArrayFilterBase, {
+    not: optional(union([stringArrayFilterBase, shorthandFilter(stringList)])),
+  }),
+  shorthandFilter(stringList),
+]);
 
-export const stringCreate = stringBase;
-export const stringNullableCreate = stringNullable;
-export const stringOptionalCreate = stringBase.or("undefined");
-export const stringOptionalNullableCreate = stringNullable.or("undefined");
-
-// Array creates
-export const stringArrayCreate = stringArray;
-export const stringNullableArrayCreate = stringNullableArray;
-export const stringOptionalArrayCreate = stringArray.or("undefined");
-export const stringOptionalNullableArrayCreate =
-  stringNullableArray.or("undefined");
+const stringListNullableFilter = union([
+  extend(stringNullableListFilterBase, {
+    not: optional(
+      union([stringNullableListFilterBase, shorthandFilter(stringListNullable)])
+    ),
+  }),
+  shorthandFilter(stringListNullable),
+]);
 
 // =============================================================================
-// UPDATE SCHEMAS
+// UPDATE FACTORIES
 // =============================================================================
 
-/**
- * String update with shorthand support: { set: "foo" } OR just "foo"
- * Shorthand is normalized to { set: value } via pipe
- */
-export const stringUpdate = type({
-  set: stringBase,
-})
-  .partial()
-  .or(stringBase.pipe((v) => ({ set: v })));
+const stringUpdateFactory = <Z extends ZodMiniType>(base: Z) =>
+  union([object({ set: base }), shorthandUpdate(base)]);
 
-/**
- * Nullable string update with shorthand support
- * Shorthand is normalized to { set: value } via pipe
- */
-export const stringNullableUpdate = type({
-  set: stringNullable,
-})
-  .partial()
-  .or(stringNullable.pipe((v) => ({ set: v })));
+const stringNullableUpdateFactory = <Z extends ZodMiniType>(base: Z) =>
+  union([object({ set: nullable(base) }), shorthandUpdate(nullable(base))]);
 
-/**
- * String array update (no shorthand for arrays)
- */
-export const stringArrayUpdate = type({
-  set: stringBase.array(),
-  push: stringBase.or(stringBase.array()),
-  unshift: stringBase.or(stringBase.array()),
-}).partial();
+const stringListUpdateFactory = <Z extends ZodMiniType>(base: Z) =>
+  union([
+    partial(
+      object({
+        set: array(base),
+        push: union([base, array(base)]),
+        unshift: union([base, array(base)]),
+      })
+    ),
+    shorthandUpdate(array(base)),
+  ]);
 
-/**
- * Nullable string array update (array can be null, elements are strings)
- */
-export const stringNullableArrayUpdate = type({
-  set: stringNullableArray,
-  push: stringBase.or(stringArray),
-  unshift: stringBase.or(stringArray),
-}).partial();
+const stringListNullableUpdateFactory = <Z extends ZodMiniType>(base: Z) =>
+  union([
+    partial(
+      object({
+        set: nullable(array(base)),
+        push: union([base, array(base)]),
+        unshift: union([base, array(base)]),
+      })
+    ),
+    shorthandUpdate(nullable(array(base))),
+  ]);
 
 // =============================================================================
-// TYPE EXPORTS (derived from schemas)
-// Use inferIn for types with pipes (filters/updates) to get INPUT type, not output
+// SCHEMA BUILDERS (single FieldState generic)
 // =============================================================================
 
-export type StringBase = typeof stringBase.infer;
-export type StringNullable = typeof stringNullable.infer;
-export type StringArray = typeof stringArray.infer;
-export type StringNullableArray = typeof stringNullableArray.infer;
+export const stringSchemas = <const F extends FieldState<"string">>(f: F) => {
+  return {
+    base: f.base,
+    filter: stringFilter,
+    create: createWithDefault(f, f.base),
+    update: stringUpdateFactory(f.base),
+  } as unknown as StringSchemas<F>;
+};
 
-// Filters use inferIn because pipe transforms output but users input the shorthand
-export type StringFilter = typeof stringFilter.inferIn;
-export type StringNullableFilter = typeof stringNullableFilter.inferIn;
-export type StringListFilter = typeof stringListFilter.infer;
-export type StringNullableListFilter = typeof stringNullableListFilter.infer;
+type StringSchemas<F extends FieldState<"string">> = {
+  base: F["base"];
+  filter: typeof stringFilter;
+  create: SchemaWithDefault<F>;
+  update: ReturnType<typeof stringUpdateFactory<F["base"]>>;
+};
 
-export type StringCreate = typeof stringCreate.infer;
-export type StringNullableCreate = typeof stringNullableCreate.infer;
-export type StringOptionalCreate = typeof stringOptionalCreate.infer;
-export type StringOptionalNullableCreate =
-  typeof stringOptionalNullableCreate.infer;
+export const stringNullableSchemas = <F extends FieldState<"string">>(f: F) => {
+  return {
+    base: nullable(f.base),
+    filter: stringNullableFilter,
+    create: createWithDefault(f, nullable(f.base)),
+    update: stringNullableUpdateFactory(f.base),
+  } as unknown as StringNullableSchemas<F>;
+};
 
-// Updates use inferIn because pipe transforms output but users input the shorthand
-export type StringUpdate = typeof stringUpdate.inferIn;
-export type StringNullableUpdate = typeof stringNullableUpdate.inferIn;
-export type StringArrayUpdate = typeof stringArrayUpdate.infer;
-export type StringNullableArrayUpdate = typeof stringNullableArrayUpdate.infer;
+type StringNullableSchemas<F extends FieldState<"string">> = {
+  base: ZodMiniNullable<F["base"]>;
+  filter: typeof stringNullableFilter;
+  create: SchemaWithDefault<F>;
+  update: ReturnType<typeof stringNullableUpdateFactory<F["base"]>>;
+};
+
+export const stringListSchemas = <F extends FieldState<"string">>(f: F) => {
+  return {
+    base: array(f.base),
+    filter: stringListFilter,
+    create: createWithDefault(f, array(f.base)),
+    update: stringListUpdateFactory(f.base),
+  } as unknown as StringListSchemas<F>;
+};
+
+type StringListSchemas<F extends FieldState<"string">> = {
+  base: ZodMiniArray<F["base"]>;
+  filter: typeof stringListFilter;
+  create: SchemaWithDefault<F>;
+  update: ReturnType<typeof stringListUpdateFactory<F["base"]>>;
+};
+
+export const stringListNullableSchemas = <F extends FieldState<"string">>(
+  f: F
+) => {
+  return {
+    base: nullable(array(f.base)),
+    filter: stringListNullableFilter,
+    create: createWithDefault(f, nullable(array(f.base))),
+    update: stringListNullableUpdateFactory(f.base),
+  } as unknown as StringListNullableSchemas<F>;
+};
+
+type StringListNullableSchemas<F extends FieldState<"string">> = {
+  base: ZodMiniNullable<ZodMiniArray<F["base"]>>;
+  filter: typeof stringListNullableFilter;
+  create: SchemaWithDefault<F>;
+  update: ReturnType<typeof stringListNullableUpdateFactory<F["base"]>>;
+};
+
+export type InferStringSchemas<F extends FieldState<"string">> =
+  F["array"] extends true
+    ? F["nullable"] extends true
+      ? StringListNullableSchemas<F>
+      : StringListSchemas<F>
+    : F["nullable"] extends true
+    ? StringNullableSchemas<F>
+    : StringSchemas<F>;
+
+export const getFieldStringSchemas = <F extends FieldState<"string">>(f: F) => {
+  return (
+    f.array
+      ? f.nullable
+        ? stringListNullableSchemas(f)
+        : stringListSchemas(f)
+      : f.nullable
+      ? stringNullableSchemas(f)
+      : stringSchemas(f)
+  ) as InferStringSchemas<F>;
+};
+
+export type InferStringInput<
+  F extends FieldState<"string">,
+  Type extends "create" | "update" | "filter" | "base"
+> = Input<InferStringSchemas<F>[Type]>;

@@ -6,3 +6,6 @@ node_modules
 
 # TypeScript incremental build cache
 .tsbuildinfo
+
+docs/dist
+docs/.wrangler

@@ -243,8 +243,8 @@ If you were using the previous `validator()` methods:
 // This no longer works
 const field = s
   .string()
-  .validator(emailValidator)
-  .validator(minLengthValidator(5));
+  .schema(emailValidator)
+  .schema(minLengthValidator(5));
 
 const result = await field.validate("test@example.com");
 ```

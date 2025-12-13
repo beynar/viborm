@@ -147,13 +147,11 @@ export type ToOneWhereInput<
       | (ModelWhereInput<T> & {
           is?: ModelWhereInput<T> | null;
           isNot?: ModelWhereInput<T> | null;
-          caca: keyof FieldRecord;
         })
       | null
   : ModelWhereInput<T> & {
       is?: ModelWhereInput<T>;
       isNot?: ModelWhereInput<T>;
-      caca?: T;
     };
 
 // =============================================================================

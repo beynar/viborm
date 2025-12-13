@@ -54,10 +54,7 @@ export class VectorField<State extends VectorFieldState = VectorFieldState> {
   /** Name slots hydrated by client at initialization */
   private _names: SchemaNames = {};
 
-  constructor(
-    private state: State,
-    private _nativeType?: NativeType
-  ) {}
+  constructor(private state: State, private _nativeType?: NativeType) {}
 
   // ===========================================================================
   // CHAINABLE MODIFIERS
@@ -82,15 +79,15 @@ export class VectorField<State extends VectorFieldState = VectorFieldState> {
     } as UpdateState<State, { hasDefault: true }> & VectorFieldState);
   }
 
-  validator(
+  schema(
     schema: StandardSchemaV1
   ): VectorField<
-    UpdateState<State, { customValidator: StandardSchemaV1 }> & VectorFieldState
+    UpdateState<State, { schema: StandardSchemaV1 }> & VectorFieldState
   > {
     return new VectorField({
       ...this.state,
-      customValidator: schema,
-    } as UpdateState<State, { customValidator: StandardSchemaV1 }> & VectorFieldState);
+      schema: schema,
+    } as UpdateState<State, { schema: StandardSchemaV1 }> & VectorFieldState);
   }
 
   /**

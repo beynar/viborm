@@ -1,4 +1,4 @@
-import { type, scope } from "arktype";
+import { scope, type } from "arktype";
 
 const ensureObjectOrder = (t) => {
   if (typeof t === "object" && t !== null) {
@@ -10,7 +10,7 @@ const ensureObjectOrder = (t) => {
   };
 };
 
-export const $ = scope({
+export const genericsScope = scope({
   //  ========================
   // UTILITY TYPES
   // ========================
@@ -43,11 +43,13 @@ export const $ = scope({
     "notIn?": "number[]",
   },
   "HAVING_AGGREGATE_INPUT<NumericFields extends string, ScalarFields extends string>":
-    type.generic(
-      "<ScalarFields extends string>",
-      type("Record<ScalarFields| '_all', AGGREGATE_FILTER>")
-    ),
-
+    {
+      "_count?": "Record<ScalarFields| '_all', AGGREGATE_FILTER>",
+      "_avg?": "Record<NumericFields| '_all', AGGREGATE_FILTER>",
+      "_sum?": "Record<NumericFields| '_all', AGGREGATE_FILTER>",
+      "_min?": "Record<NumericFields| '_all', AGGREGATE_FILTER>",
+      "_max?": "Record<NumericFields| '_all', AGGREGATE_FILTER>",
+    },
   //  ========================
   // ORDER BY
   // ========================
@@ -66,9 +68,7 @@ export const $ = scope({
     email: "string",
     createdAt: "Date",
   },
-  TEST_2: "HAVING_AGGREGATE_INPUT<'numeric','scalar'>",
+  TEST_2: "HAVING_AGGREGATE_INPUT<KEYS<USER>,KEYS<USER>>",
 });
 
-const t2 = $.export("TEST_2").TEST_2.inferIn;
-
-// console.log(t2);
+const t2 = genericsScope.export("TEST_2").TEST_2.inferIn;

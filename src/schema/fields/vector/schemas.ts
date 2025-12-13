@@ -1,16 +1,24 @@
 // Vector Field Schemas
-// Explicit ArkType schemas for all vector field variants
+// Explicit Zod schemas for all vector field variants
 
-import { type, Type } from "arktype";
+import {
+  array,
+  nullable,
+  number,
+  object,
+  optional,
+  partial,
+  type Infer,
+} from "zod/v4-mini";
 
 // =============================================================================
 // BASE TYPES
 // =============================================================================
 
-export const vectorBase = type.number.array();
-export const vectorNullable = vectorBase.or("null");
-export const vectorArray = vectorBase.array();
-export const vectorNullableArray = vectorArray.or("null");
+export const vectorBase = array(number());
+export const vectorNullable = nullable(vectorBase);
+export const vectorArray = array(vectorBase);
+export const vectorNullableArray = nullable(vectorArray);
 
 // =============================================================================
 // DIMENSION-CONSTRAINED SCHEMAS
@@ -18,12 +26,11 @@ export const vectorNullableArray = vectorArray.or("null");
 
 /**
  * Creates a vector schema with a specific dimension constraint.
- * Note: ArkType doesn't support dynamic length constraints directly,
- * so this validates the array type and the dimension is checked at runtime.
+ * Note: length validation can be added with .length(dimension) if needed.
  */
-export const createVectorWithDimension = (dimension: number): Type<number[]> => {
+export const createVectorWithDimension = (dimension: number) => {
   // Return the base vector type - dimension validation happens at runtime
-  return vectorBase as Type<number[]>;
+  return vectorBase;
 };
 
 // =============================================================================
@@ -31,15 +38,19 @@ export const createVectorWithDimension = (dimension: number): Type<number[]> => 
 // =============================================================================
 
 // Vector filtering is typically for similarity search
-export const vectorFilter = type({
-  equals: vectorBase,
-  not: vectorNullable,
-}).partial();
+export const vectorFilter = partial(
+  object({
+    equals: vectorBase,
+    not: vectorNullable,
+  })
+);
 
-export const vectorNullableFilter = type({
-  equals: vectorNullable,
-  not: vectorNullable,
-}).partial();
+export const vectorNullableFilter = partial(
+  object({
+    equals: vectorNullable,
+    not: vectorNullable,
+  })
+);
 
 // =============================================================================
 // CREATE SCHEMAS
@@ -47,28 +58,32 @@ export const vectorNullableFilter = type({
 
 export const vectorCreate = vectorBase;
 export const vectorNullableCreate = vectorNullable;
-export const vectorOptionalCreate = vectorBase.or("undefined");
-export const vectorOptionalNullableCreate = vectorNullable.or("undefined");
+export const vectorOptionalCreate = optional(vectorBase);
+export const vectorOptionalNullableCreate = optional(vectorNullable);
 
 // =============================================================================
 // UPDATE SCHEMAS
 // =============================================================================
 
-export const vectorUpdate = type({
-  set: vectorBase,
-}).partial();
+export const vectorUpdate = partial(
+  object({
+    set: vectorBase,
+  })
+);
 
-export const vectorNullableUpdate = type({
-  set: vectorNullable,
-}).partial();
+export const vectorNullableUpdate = partial(
+  object({
+    set: vectorNullable,
+  })
+);
 
 // =============================================================================
 // TYPE EXPORTS
 // =============================================================================
 
-export type VectorBase = typeof vectorBase.infer;
-export type VectorNullable = typeof vectorNullable.infer;
-export type VectorFilter = typeof vectorFilter.infer;
-export type VectorNullableFilter = typeof vectorNullableFilter.infer;
-export type VectorUpdate = typeof vectorUpdate.infer;
-export type VectorNullableUpdate = typeof vectorNullableUpdate.infer;
+export type VectorBase = Infer<typeof vectorBase>;
+export type VectorNullable = Infer<typeof vectorNullable>;
+export type VectorFilter = Infer<typeof vectorFilter>;
+export type VectorNullableFilter = Infer<typeof vectorNullableFilter>;
+export type VectorUpdate = Infer<typeof vectorUpdate>;
+export type VectorNullableUpdate = Infer<typeof vectorNullableUpdate>;

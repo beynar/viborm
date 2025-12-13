@@ -46,7 +46,7 @@ import { s } from "viborm";
 const user = s.model("user", {
   id: s.string().id().auto.ulid(),
   name: s.string(),
-  email: s.string().validator(emailRegex),
+  email: s.string().schema(emailRegex),
   friends: s.relation.many(() => user),
 });
 

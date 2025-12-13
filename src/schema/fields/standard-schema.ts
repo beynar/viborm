@@ -1,51 +1,52 @@
-// StandardSchema to ArkType Bridge
+// StandardSchema to Zod Bridge
 // Allows using any StandardSchema (Zod, Valibot, etc.) as custom validators
 import type { StandardSchemaV1 } from "../../standardSchema";
-import { type, type Out, Type } from "arktype";
+import { core, type ZodMiniType, transform } from "zod/v4-mini";
 
 /**
- * Type helper that converts a StandardSchema type to an ArkType type
- * Preserves input/output type distinction for transforming schemas
+ * Type helper that converts a StandardSchema type to a Zod type.
+ * Preserves input/output type distinction for transforming schemas.
  */
-export type StandardSchemaToArkType<
-  schema extends StandardSchemaV1,
-  i = StandardSchemaV1.InferInput<schema>,
-  o = StandardSchemaV1.InferOutput<schema>
-> = [i, o] extends [o, i] ? Type<i> : Type<(In: i) => Out<o>>;
+export type StandardSchemaToZod<schema extends StandardSchemaV1> = ZodMiniType<
+  StandardSchemaV1.InferInput<schema>,
+  StandardSchemaV1.InferOutput<schema>,
+  core.$ZodTypeInternals<
+    StandardSchemaV1.InferOutput<schema>,
+    StandardSchemaV1.InferInput<schema>
+  >
+>;
 
 /**
- * Converts a StandardSchema validator to an ArkType validator
+ * Converts a StandardSchema validator to a Zod validator.
  * This allows using Zod, Valibot, or any StandardSchema-compliant library
- * as custom field validators while keeping ArkType as the core.
+ * as custom field validators.
  *
  * @example
  * ```ts
- * import z from "zod";
- * const emailType = typeFromStandardSchema(z.string().email());
+ * import { string } from "zod/v4-mini";
+ * const emailType = zodFromStandardSchema(myEmailStandardSchema);
  * ```
  */
-export const typeFromStandardSchema = <schema extends StandardSchemaV1>(
+
+export const zodFromStandardSchema = <schema extends StandardSchemaV1>(
   schema: schema
-): StandardSchemaToArkType<schema> =>
-  type.unknown.pipe((v, ctx) => {
+) =>
+  transform((v, ctx) => {
     const result = schema["~standard"].validate(
       v
     ) as StandardSchemaV1.Result<unknown>;
 
     if (result.issues) {
       for (const { message, path } of result.issues) {
-        if (path) {
-          ctx.error({
-            message: message,
-            path: path.map((k) => (typeof k === "object" ? k.key : k)),
-          });
-        } else {
-          ctx.error({
-            message,
-          });
-        }
+        ctx.issues.push({
+          code: "custom",
+          message,
+          input: v,
+        });
       }
-    } else {
-      return result.value;
+      // Return original value; issues will cause validation failure.
+      return v as unknown as StandardSchemaV1.InferOutput<schema>;
     }
-  }) as never;
+
+    return result.value as StandardSchemaV1.InferOutput<schema>;
+  }) as StandardSchemaToZod<schema>;

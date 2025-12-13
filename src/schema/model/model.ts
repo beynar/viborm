@@ -4,7 +4,12 @@
 import { isField, type Field } from "../fields/base";
 import { type SchemaNames } from "../fields/common";
 import { AnyRelation, Relation } from "../relation/relation";
-import { buildModelSchemas, type TypedModelSchemas } from "./runtime";
+import {
+  buildScalarSchemas,
+  buildFullSchemas,
+  type ScalarSchemas,
+  type TypedModelSchemas,
+} from "./runtime";
 import type {
   FieldRecord,
   ScalarFieldKeys as _ScalarFieldKeys,
@@ -108,7 +113,12 @@ export class Model<State extends AnyModelState = ModelState> {
   private _compoundId: State["compoundId"] = undefined as State["compoundId"];
   private _compoundUniques: State["compoundUniques"] =
     [] as unknown as State["compoundUniques"];
-  private _schemas?: TypedModelSchemas<State["fields"]>;
+  /** Phase 1 schemas - scalar only, built in constructor */
+  private _scalarSchemas: ScalarSchemas;
+  /** Phase 2 schemas - full with relations, built lazily */
+  private _fullSchemas?: TypedModelSchemas<State["fields"]>;
+  /** Flag to prevent recursive schema building */
+  private _isBuilding = false;
   /** Name slots hydrated by client at initialization */
   private _names: SchemaNames = {};
 
@@ -125,6 +135,9 @@ export class Model<State extends AnyModelState = ModelState> {
       this._compoundUniques = (options.compoundUniques ??
         []) as unknown as State["compoundUniques"];
     }
+    // Phase 1: Build scalar schemas immediately (no cross-model dependencies)
+    this._scalarSchemas = buildScalarSchemas(this);
+    console.log("scalarSchemas", Object.keys(this._scalarSchemas));
   }
 
   private separateFieldsAndRelations(definitions: State["fields"]): void {
@@ -139,6 +152,37 @@ export class Model<State extends AnyModelState = ModelState> {
         );
       }
     }
+  }
+
+  /**
+   * Phase 2: Build full schemas with relation support.
+   * Called lazily on first access to schemas.
+   * Uses _isBuilding flag to prevent infinite recursion with circular relations.
+   */
+  buildSchemas(): void {
+    this._fullSchemas = buildFullSchemas(this, this._scalarSchemas);
+  }
+
+  /**
+   * Get full schemas, building lazily if needed.
+   * Returns undefined if currently building (to prevent recursion).
+   * Thunks in schema builders use optional chaining to handle this.
+   */
+  private getFullSchemas(): TypedModelSchemas<State["fields"]> | undefined {
+    if (this._isBuilding) {
+      // Return undefined during building to prevent recursion
+      // Thunks that reference schemas use ?. to handle this case
+      return undefined;
+    }
+    if (!this._fullSchemas) {
+      this.buildSchemas();
+    }
+    return this._fullSchemas;
+  }
+
+  // Legacy getter for backward compatibility
+  get cachedSchema(): TypedModelSchemas<State["fields"]> | undefined {
+    return this._fullSchemas;
   }
 
   // ---------------------------------------------------------------------------
@@ -337,11 +381,12 @@ export class Model<State extends AnyModelState = ModelState> {
    * Internal namespace for ORM internals
    * Not part of the public API - may change without notice
    */
+
   get "~"() {
-    // Use a self reference for lazy schema access to avoid circular issues
+    // Use a self reference for lazy schema access
     const self = this;
 
-    return {
+    const value = {
       /** Field definitions as passed to the model constructor */
       fields: this._fieldDefinitions,
       /** Map of scalar field names to Field instances */
@@ -356,12 +401,12 @@ export class Model<State extends AnyModelState = ModelState> {
       compoundId: this._compoundId,
       /** Compound unique constraints (@@unique) - array of field name arrays */
       compoundUniques: this._compoundUniques,
-      /** ArkType schemas for validation (lazily computed) */
-      get schemas(): TypedModelSchemas<State["fields"]> {
-        if (!self._schemas) {
-          self._schemas = buildModelSchemas(self);
-        }
-        return self._schemas;
+      /** Phase 1 schemas - scalar only, always available after construction */
+      scalarSchemas: this._scalarSchemas,
+      /** Phase 2 schemas - full with relations, lazily built on first access.
+       * Returns undefined if currently building (to prevent recursion). */
+      get schemas(): TypedModelSchemas<State["fields"]> | undefined {
+        return self._fullSchemas;
       },
       /** Inferred TypeScript type for model records */
       get infer() {
@@ -370,6 +415,14 @@ export class Model<State extends AnyModelState = ModelState> {
       /** Name slots hydrated by client at initialization */
       names: this._names,
     };
+
+    Object.defineProperty(this, "~", {
+      value,
+      configurable: true,
+      writable: true,
+    });
+
+    return value;
   }
 }
 

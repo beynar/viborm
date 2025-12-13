@@ -335,15 +335,15 @@ import * as v from "valibot";
 // Use Zod for email validation
 const user = s.model({
   id: s.string().id().ulid(),
-  email: s.string().validator(
+  email: s.string().schema(
     z.string().email()
   ),
   // Or use Valibot
-  phone: s.string().validator(
+  phone: s.string().schema(
     v.pipe(v.string(), v.regex(/^\\+[0-9]{10,15}$/))
   ),
   // Or ArkType
-  age: s.int().validator(type("number > 0 & < 150")),
+  age: s.int().schema(type("number > 0 & < 150")),
 }).map("users");
 
 // Works with any Standard Schema compliant library

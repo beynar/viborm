@@ -1,5 +1,5 @@
 // Blob Field
-// Standalone field class with State generic pattern
+// Lean field class delegating schema selection to schema factory
 
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import {
@@ -10,79 +10,47 @@ import {
   createDefaultState,
 } from "../common";
 import type { NativeType } from "../native-types";
-import * as schemas from "./schemas";
-
-// =============================================================================
-// BLOB FIELD SCHEMA TYPE DERIVATION
-// =============================================================================
-
-type BlobFieldSchemas<State extends FieldState<"blob">> = {
-  base: State["nullable"] extends true
-    ? typeof schemas.blobNullable
-    : typeof schemas.blobBase;
-
-  filter: State["nullable"] extends true
-    ? typeof schemas.blobNullableFilter
-    : typeof schemas.blobFilter;
-
-  create: State["hasDefault"] extends true
-    ? State["nullable"] extends true
-      ? typeof schemas.blobOptionalNullableCreate
-      : typeof schemas.blobOptionalCreate
-    : State["nullable"] extends true
-      ? typeof schemas.blobNullableCreate
-      : typeof schemas.blobCreate;
-
-  update: State["nullable"] extends true
-    ? typeof schemas.blobNullableUpdate
-    : typeof schemas.blobUpdate;
-};
-
-// =============================================================================
-// BLOB FIELD CLASS
-// =============================================================================
+import { getFieldBlobSchemas } from "./schemas";
 
 export class BlobField<State extends FieldState<"blob">> {
-  /** Name slots hydrated by client at initialization */
   private _names: SchemaNames = {};
 
-  constructor(
-    private state: State,
-    private _nativeType?: NativeType
-  ) {}
-
-  // ===========================================================================
-  // CHAINABLE MODIFIERS
-  // ===========================================================================
+  constructor(private state: State, private _nativeType?: NativeType) {}
 
   nullable(): BlobField<UpdateState<State, { nullable: true }>> {
-    return new BlobField({ ...this.state, nullable: true });
+    return new BlobField({ ...this.state, nullable: true }, this._nativeType);
   }
 
   default(
     value: DefaultValue<Uint8Array, false, State["nullable"]>
   ): BlobField<UpdateState<State, { hasDefault: true }>> {
-    return new BlobField({
-      ...this.state,
-      hasDefault: true,
-      defaultValue: value,
-    });
+    return new BlobField(
+      {
+        ...this.state,
+        hasDefault: true,
+        defaultValue: value,
+      },
+      this._nativeType
+    );
   }
 
-  validator(
+  schema(
     schema: StandardSchemaV1
-  ): BlobField<UpdateState<State, { customValidator: StandardSchemaV1 }>> {
-    return new BlobField({
-      ...this.state,
-      customValidator: schema,
-    });
+  ): BlobField<UpdateState<State, { schema: StandardSchemaV1 }>> {
+    return new BlobField(
+      {
+        ...this.state,
+        schema: schema,
+      },
+      this._nativeType
+    );
   }
 
-  /**
-   * Maps this field to a custom column name in the database
-   */
   map(columnName: string): this {
-    return new BlobField({ ...this.state, columnName }) as this;
+    return new BlobField(
+      { ...this.state, columnName },
+      this._nativeType
+    ) as this;
   }
 
   // Blob fields don't support array(), id(), or unique()
@@ -98,51 +66,15 @@ export class BlobField<State extends FieldState<"blob">> {
     throw new Error("Blob fields cannot be unique");
   }
 
-  // ===========================================================================
-  // SCHEMA GETTER
-  // ===========================================================================
-
-  get schemas(): BlobFieldSchemas<State> {
-    const { nullable, hasDefault } = this.state;
-
-    const base = nullable ? schemas.blobNullable : schemas.blobBase;
-
-    const filter = nullable
-      ? schemas.blobNullableFilter
-      : schemas.blobFilter;
-
-    const create = hasDefault
-      ? nullable
-        ? schemas.blobOptionalNullableCreate
-        : schemas.blobOptionalCreate
-      : nullable
-        ? schemas.blobNullableCreate
-        : schemas.blobCreate;
-
-    const update = nullable
-      ? schemas.blobNullableUpdate
-      : schemas.blobUpdate;
-
-    return { base, filter, create, update } as BlobFieldSchemas<State>;
-  }
-
-  // ===========================================================================
-  // ACCESSORS
-  // ===========================================================================
-
   get ["~"]() {
     return {
       state: this.state,
-      schemas: this.schemas,
+      schemas: getFieldBlobSchemas(this.state),
       nativeType: this._nativeType,
       names: this._names,
     };
   }
 }
-
-// =============================================================================
-// FACTORY FUNCTION
-// =============================================================================
 
 export const blob = (nativeType?: NativeType) =>
   new BlobField(createDefaultState("blob"), nativeType);

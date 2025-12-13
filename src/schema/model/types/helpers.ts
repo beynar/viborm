@@ -3,12 +3,16 @@
 // IMPORTANT: Does NOT use ArkType's .infer to avoid deep type inference
 
 import type { Field, FieldState } from "../../fields/base";
-import type { Relation } from "../../relation/relation";
+import type {
+  Relation,
+  RelationState,
+  RelationType,
+} from "../../relation/relation";
 import type { StandardSchemaV1 } from "../../../standardSchema";
 import type { AnyRelation } from "../../relation/relation";
 
 // =============================================================================
-// CONSTRAINT HELPER - Replace verbose Record<string, Field | Relation<any, any>>
+// CONSTRAINT HELPER - Replace verbose Record<string, Field | AnyRelation>
 // =============================================================================
 
 /**
@@ -192,7 +196,7 @@ export type ScalarFieldKeys<T extends FieldRecord> = {
 
 /** Extracts relation keys */
 export type RelationKeys<T extends FieldRecord> = {
-  [K in keyof T]: T[K] extends Relation<any, any, any> ? K : never;
+  [K in keyof T]: T[K] extends AnyRelation ? K : never;
 }[keyof T];
 
 /** Extracts numeric field keys */
@@ -273,13 +277,19 @@ export type GetRelationFields<R extends AnyRelation> = GetterModelFields<
 >;
 
 /** Extract relation type (non-distributive) */
-export type GetRelationType<R> = [R] extends [Relation<any, infer T, any>]
+export type GetRelationType<R> = [R] extends [
+  Relation<any, any, infer T extends RelationType>
+]
   ? T
   : never;
 
 /** Extract relation optionality (non-distributive) */
-export type GetRelationOptional<R> = [R] extends [Relation<any, any, infer O>]
-  ? O
+export type GetRelationOptional<R> = [R] extends [
+  Relation<any, infer State extends RelationState, any>
+]
+  ? State["optional"] extends true
+    ? true
+    : false
   : false;
 
 // =============================================================================

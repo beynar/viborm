@@ -43,6 +43,7 @@ import {
 } from "./builders/relation-data-builder";
 import { buildFindUnique as buildFindUniqueQuery } from "./operations/find-unique";
 import { getPrimaryKeyField } from "./builders/correlation-utils";
+import { hydrateSchemaNames } from "@schema/hydration";
 
 /**
  * Query Engine class
@@ -174,7 +175,10 @@ export class QueryEngine {
         // Additional check: if any connect has multiple items, force transaction
         // (because we can only set one FK value per INSERT)
         const hasMultipleConnects = Object.values(relations).some(
-          (mutation) => mutation.connect && Array.isArray(mutation.connect) && mutation.connect.length > 1
+          (mutation) =>
+            mutation.connect &&
+            Array.isArray(mutation.connect) &&
+            mutation.connect.length > 1
         );
 
         if (canUseSubqueryOnly(relations) && !hasMultipleConnects) {
@@ -221,7 +225,10 @@ export class QueryEngine {
               select: args.select,
               include: args.include,
             };
-            const refetchSql = buildFindUniqueQuery(ctx, refetchArgs as { where: Record<string, unknown> });
+            const refetchSql = buildFindUniqueQuery(
+              ctx,
+              refetchArgs as { where: Record<string, unknown> }
+            );
             const refetchResult = await driver.execute(refetchSql);
             if (refetchResult.rows.length > 0) {
               return parseResult<T>(ctx, "findUnique", refetchResult.rows);
@@ -251,7 +258,9 @@ export class QueryEngine {
 
             // Get the updated record for FK operations
             const selectSql = buildFindUniqueQuery(ctx, { where });
-            const selectResult = await tx.execute<Record<string, unknown>>(selectSql);
+            const selectResult = await tx.execute<Record<string, unknown>>(
+              selectSql
+            );
             const updatedRecord = selectResult.rows[0];
 
             if (!updatedRecord) {
@@ -268,7 +277,9 @@ export class QueryEngine {
                 select: args.select as Record<string, unknown> | undefined,
                 include: args.include as Record<string, unknown> | undefined,
               } as { where: Record<string, unknown> });
-              const refetchResult = await tx.execute<Record<string, unknown>>(refetchSql);
+              const refetchResult = await tx.execute<Record<string, unknown>>(
+                refetchSql
+              );
               return parseResult<T>(ctx, "findUnique", refetchResult.rows);
             }
 
@@ -277,10 +288,13 @@ export class QueryEngine {
         }
 
         // Simple update without nested operations
-        const updateSql = buildUpdate(ctx, args as {
-          where: Record<string, unknown>;
-          data: Record<string, unknown>;
-        });
+        const updateSql = buildUpdate(
+          ctx,
+          args as {
+            where: Record<string, unknown>;
+            data: Record<string, unknown>;
+          }
+        );
         const result = await driver.execute(updateSql);
         return parseResult<T>(ctx, operation, result.rows);
       }
@@ -292,7 +306,9 @@ export class QueryEngine {
 
           // Check if record exists
           const selectSql = buildFindUniqueQuery(ctx, { where });
-          const selectResult = await tx.execute<Record<string, unknown>>(selectSql);
+          const selectResult = await tx.execute<Record<string, unknown>>(
+            selectSql
+          );
 
           if (selectResult.rows.length > 0) {
             // Record exists - do update
@@ -305,7 +321,9 @@ export class QueryEngine {
             }
 
             // Re-fetch
-            const refetchResult = await tx.execute<Record<string, unknown>>(selectSql);
+            const refetchResult = await tx.execute<Record<string, unknown>>(
+              selectSql
+            );
             return parseResult<T>(ctx, "findUnique", refetchResult.rows);
           } else {
             // Record doesn't exist - do create
@@ -423,12 +441,13 @@ export class QueryEngine {
 export function createModelRegistry(
   models: Record<string, Model<any>>
 ): ModelRegistry {
+  hydrateSchemaNames(models);
   const byName = new Map<string, Model<any>>();
   const byTableName = new Map<string, Model<any>>();
 
   for (const [name, model] of Object.entries(models)) {
     byName.set(name, model);
-    const tableName = model["~"].tableName ?? name;
+    const tableName = model["~"].names.sql ?? name;
     byTableName.set(tableName, model);
   }
 

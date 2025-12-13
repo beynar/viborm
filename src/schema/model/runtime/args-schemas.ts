@@ -210,7 +210,7 @@ export const buildFindManyArgsSchema = (
 ): Type => {
   const distinctSchema = buildDistinctSchema(model);
 
-  const shape: Record<string, Type | string> = {
+  return type({
     "where?": core.where,
     "orderBy?": core.orderBy.or(core.orderBy.array()),
     "cursor?": core.whereUnique,
@@ -219,9 +219,7 @@ export const buildFindManyArgsSchema = (
     "select?": core.selectNested,
     "include?": core.includeNested,
     "distinct?": distinctSchema,
-  };
-
-  return type(shape as Record<string, Type>);
+  });
 };
 
 /**
@@ -261,16 +259,14 @@ export const buildCountArgsSchema = (
   }
   const countSelectSchema = type(countSelectShape);
 
-  const shape: Record<string, Type | string> = {
+  return type({
     "where?": core.where,
     "orderBy?": core.orderBy.or(core.orderBy.array()),
     "cursor?": core.whereUnique,
     "take?": "number",
     "skip?": "number",
     "select?": countSelectSchema,
-  };
-
-  return type(shape);
+  });
 };
 
 /**
@@ -292,7 +288,7 @@ export const buildAggregateArgsSchema = (
   const numericSchema = buildNumericAggregateSchema(model);
   const minMaxSchema = buildMinMaxAggregateSchema(model);
 
-  const shape: Record<string, Type | string> = {
+  return type({
     "where?": core.where,
     "orderBy?": core.orderBy.or(core.orderBy.array()),
     "cursor?": core.whereUnique,
@@ -303,9 +299,7 @@ export const buildAggregateArgsSchema = (
     "_sum?": numericSchema,
     "_min?": minMaxSchema,
     "_max?": minMaxSchema,
-  };
-
-  return type(shape as Record<string, Type>);
+  });
 };
 
 /**
@@ -315,27 +309,19 @@ export const buildGroupByArgsSchema = (
   model: Model<any>,
   core: CoreSchemas
 ): Type => {
-  const bySchema = buildBySchema(model);
-  const countSchema = buildCountAggregateSchema(model);
-  const numericSchema = buildNumericAggregateSchema(model);
-  const minMaxSchema = buildMinMaxAggregateSchema(model);
-
   // Having with full aggregate filter support
-  const havingSchema = buildHavingSchema(model);
 
-  const shape: Record<string, Type | string> = {
+  return type({
     "where?": core.where,
     "orderBy?": core.orderBy.or(core.orderBy.array()),
-    by: bySchema,
-    "having?": havingSchema,
+    by: buildBySchema(model),
+    "having?": buildHavingSchema(model),
     "take?": "number",
     "skip?": "number",
-    "_count?": countSchema,
-    "_avg?": numericSchema,
-    "_sum?": numericSchema,
-    "_min?": minMaxSchema,
-    "_max?": minMaxSchema,
-  };
-
-  return type(shape as Record<string, Type>);
+    "_count?": buildCountAggregateSchema(model),
+    "_avg?": buildNumericAggregateSchema(model),
+    "_sum?": buildNumericAggregateSchema(model),
+    "_min?": buildMinMaxAggregateSchema(model),
+    "_max?": buildMinMaxAggregateSchema(model),
+  });
 };

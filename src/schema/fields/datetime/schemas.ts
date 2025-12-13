@@ -1,143 +1,299 @@
 // DateTime Field Schemas
-// Explicit ArkType schemas for all datetime field variants
+// Follows FIELD_IMPLEMENTATION_GUIDE and mirrors string/boolean schema structure
 
-import { type } from "arktype";
+import {
+  array,
+  boolean,
+  nullable,
+  object,
+  optional,
+  partial,
+  union,
+  type input as Input,
+  extend,
+  _default,
+  iso,
+} from "zod/v4-mini";
+import {
+  FieldState,
+  isOptional,
+  shorthandFilter,
+  shorthandUpdate,
+} from "../common";
 
 // =============================================================================
 // BASE TYPES
 // =============================================================================
 
-export const dateTimeBase = type.instanceOf(Date);
-export const dateTimeNullable = dateTimeBase.or("null");
-export const dateTimeArray = dateTimeBase.array();
-export const dateTimeNullableArray = dateTimeArray.or("null");
+export const datetimeBase = iso.datetime();
+export const datetimeNullable = nullable(datetimeBase);
+export const datetimeList = array(datetimeBase);
+export const datetimeListNullable = nullable(datetimeList);
 
-// Helper to validate ISO date string
-const isValidDateString = (s: string): boolean => !isNaN(new Date(s).getTime());
+// =============================================================================
+// FILTER BASE SCHEMAS (without `not` - used for recursion)
+// =============================================================================
 
-// Also accept ISO strings and convert to Date - validates string format
-export const dateTimeInput = type.instanceOf(Date).or(
-  type("string").narrow((s, ctx) => {
-    if (isValidDateString(s)) return true;
-    return ctx.mustBe("a valid ISO date string");
+const datetimeFilterBase = partial(
+  object({
+    equals: datetimeBase,
+    in: array(datetimeBase),
+    notIn: array(datetimeBase),
+    lt: datetimeBase,
+    lte: datetimeBase,
+    gt: datetimeBase,
+    gte: datetimeBase,
   })
 );
-export const dateTimeNullableInput = dateTimeInput.or("null");
-export const dateTimeInputArray = dateTimeInput.array();
-export const dateTimeNullableInputArray = dateTimeInputArray.or("null");
+
+const datetimeNullableFilterBase = partial(
+  object({
+    equals: datetimeNullable,
+    in: array(datetimeBase),
+    notIn: array(datetimeBase),
+    lt: datetimeNullable,
+    lte: datetimeNullable,
+    gt: datetimeNullable,
+    gte: datetimeNullable,
+  })
+);
+
+const datetimeListFilterBase = partial(
+  object({
+    equals: datetimeList,
+    has: datetimeBase,
+    hasEvery: array(datetimeBase),
+    hasSome: array(datetimeBase),
+    isEmpty: boolean(),
+  })
+);
+
+const datetimeListNullableFilterBase = partial(
+  object({
+    equals: datetimeListNullable,
+    has: datetimeBase,
+    hasEvery: array(datetimeBase),
+    hasSome: array(datetimeBase),
+    isEmpty: boolean(),
+  })
+);
 
 // =============================================================================
-// FILTER SCHEMAS - Shorthand normalized to { equals: value } via pipe
-// Pattern: union first, then pipe to normalize shorthand values
+// FILTER SCHEMAS (with `not` and shorthand normalization)
 // =============================================================================
 
-// Helper to check if value is a shorthand (Date or string, not an object with filter keys)
-const isDateTimeShorthand = (v: unknown): v is Date | string =>
-  v instanceof Date || (typeof v === "string" && !isNaN(new Date(v).getTime()));
+const datetimeFilter = union([
+  extend(datetimeFilterBase, {
+    not: optional(union([datetimeFilterBase, shorthandFilter(datetimeBase)])),
+  }),
+  shorthandFilter(datetimeBase),
+]);
 
-// Base filter objects without `not` (used for recursive `not` definition)
-const dateTimeFilterBase = type({
-  equals: dateTimeInput,
-  in: dateTimeInput.array(),
-  notIn: dateTimeInput.array(),
-  lt: dateTimeInput,
-  lte: dateTimeInput,
-  gt: dateTimeInput,
-  gte: dateTimeInput,
-}).partial();
+const datetimeNullableFilter = union([
+  extend(datetimeNullableFilterBase, {
+    not: optional(
+      union([datetimeNullableFilterBase, shorthandFilter(datetimeNullable)])
+    ),
+  }),
+  shorthandFilter(datetimeNullable),
+]);
 
-const dateTimeNullableFilterBase = type({
-  equals: dateTimeNullableInput,
-  in: dateTimeInput.array(),
-  notIn: dateTimeInput.array(),
-  lt: dateTimeNullableInput,
-  lte: dateTimeNullableInput,
-  gt: dateTimeNullableInput,
-  gte: dateTimeNullableInput,
-}).partial();
+const datetimeListFilter = union([
+  extend(datetimeListFilterBase, {
+    not: optional(
+      union([datetimeListFilterBase, shorthandFilter(datetimeList)])
+    ),
+  }),
+  shorthandFilter(datetimeList),
+]);
 
-// `not` accepts both direct value AND nested filter object
-export const dateTimeFilter = dateTimeFilterBase
-  .merge(type({ "not?": dateTimeFilterBase.or(dateTimeNullableInput) }))
-  .or(dateTimeInput)
-  .pipe((v) => (isDateTimeShorthand(v) ? { equals: v } : v));
-
-export const dateTimeNullableFilter = dateTimeNullableFilterBase
-  .merge(type({ "not?": dateTimeNullableFilterBase.or(dateTimeNullableInput) }))
-  .or(dateTimeNullableInput)
-  .pipe((v) => (isDateTimeShorthand(v) || v === null ? { equals: v } : v));
-
-export const dateTimeListFilter = type({
-  equals: dateTimeInput.array(),
-  has: dateTimeInput,
-  hasEvery: dateTimeInput.array(),
-  hasSome: dateTimeInput.array(),
-  isEmpty: "boolean",
-}).partial();
-
-export const dateTimeNullableListFilter = type({
-  equals: dateTimeNullableInputArray,
-  has: dateTimeInput,
-  hasEvery: dateTimeInputArray,
-  hasSome: dateTimeInputArray,
-  isEmpty: "boolean",
-}).partial();
+const datetimeListNullableFilter = union([
+  extend(datetimeListNullableFilterBase, {
+    not: optional(
+      union([
+        datetimeListNullableFilterBase,
+        shorthandFilter(datetimeListNullable),
+      ])
+    ),
+  }),
+  shorthandFilter(datetimeListNullable),
+]);
 
 // =============================================================================
 // CREATE SCHEMAS
 // =============================================================================
 
-export const dateTimeCreate = dateTimeInput;
-export const dateTimeNullableCreate = dateTimeNullableInput;
-export const dateTimeOptionalCreate = dateTimeInput.or("undefined");
-export const dateTimeOptionalNullableCreate =
-  dateTimeNullableInput.or("undefined");
-export const dateTimeArrayCreate = dateTimeInputArray;
-export const dateTimeNullableArrayCreate = dateTimeNullableInputArray;
-export const dateTimeOptionalArrayCreate = dateTimeInputArray.or("undefined");
-export const dateTimeOptionalNullableArrayCreate =
-  dateTimeNullableInputArray.or("undefined");
+export const datetimeCreate = datetimeBase;
+export const datetimeNullableCreate = _default(
+  optional(datetimeNullable),
+  null
+);
+export const datetimeOptionalCreate = optional(datetimeBase);
+export const datetimeOptionalNullableCreate = _default(
+  optional(datetimeNullable),
+  null
+);
+
+// List creates
+export const datetimeListCreate = datetimeList;
+export const datetimeListNullableCreate = _default(
+  optional(datetimeListNullable),
+  null
+);
+export const datetimeOptionalListCreate = optional(datetimeList);
+export const datetimeOptionalListNullableCreate = _default(
+  optional(datetimeListNullable),
+  null
+);
 
 // =============================================================================
-// UPDATE SCHEMAS - Shorthand normalized to { set: value } via pipe
+// UPDATE SCHEMAS
 // =============================================================================
 
-export const dateTimeUpdate = type({
-  set: dateTimeInput,
-})
-  .partial()
-  .or(dateTimeInput)
-  .pipe((v) => (isDateTimeShorthand(v) ? { set: v } : v));
+export const datetimeUpdate = union([
+  partial(object({ set: datetimeBase })),
+  shorthandUpdate(datetimeBase),
+]);
 
-export const dateTimeNullableUpdate = type({
-  set: dateTimeNullableInput,
-})
-  .partial()
-  .or(dateTimeNullableInput)
-  .pipe((v) => (isDateTimeShorthand(v) || v === null ? { set: v } : v));
+export const datetimeNullableUpdate = union([
+  partial(object({ set: datetimeNullable })),
+  shorthandUpdate(datetimeNullable),
+]);
 
-export const dateTimeArrayUpdate = type({
-  set: dateTimeInputArray,
-  push: dateTimeInput.or(dateTimeInputArray),
-  unshift: dateTimeInput.or(dateTimeInputArray),
-}).partial();
+export const datetimeListUpdate = union([
+  partial(
+    object({
+      set: array(datetimeBase),
+      push: union([datetimeBase, array(datetimeBase)]),
+      unshift: union([datetimeBase, array(datetimeBase)]),
+    })
+  ),
+  shorthandUpdate(datetimeList),
+]);
 
-export const dateTimeNullableArrayUpdate = type({
-  set: dateTimeNullableInputArray,
-  push: dateTimeInput.or(dateTimeInputArray),
-  unshift: dateTimeInput.or(dateTimeInputArray),
-}).partial();
+export const datetimeListNullableUpdate = union([
+  partial(
+    object({
+      set: datetimeListNullable,
+      push: union([datetimeBase, datetimeList]),
+      unshift: union([datetimeBase, datetimeList]),
+    })
+  ),
+  shorthandUpdate(datetimeListNullable),
+]);
 
 // =============================================================================
-// TYPE EXPORTS
-// Use inferIn for piped schemas to get INPUT type (includes shorthand)
+// SCHEMA FACTORY FUNCTIONS
 // =============================================================================
 
-export type DateTimeBase = typeof dateTimeBase.infer;
-export type DateTimeNullable = typeof dateTimeNullable.infer;
-export type DateTimeInput = typeof dateTimeInput.infer;
-export type DateTimeFilter = typeof dateTimeFilter.inferIn;
-export type DateTimeNullableFilter = typeof dateTimeNullableFilter.inferIn;
-export type DateTimeListFilter = typeof dateTimeListFilter.infer;
-export type DateTimeUpdate = typeof dateTimeUpdate.inferIn;
-export type DateTimeNullableUpdate = typeof dateTimeNullableUpdate.inferIn;
+export const datetimeSchemas = <Optional extends boolean>(o: Optional) => {
+  return {
+    base: datetimeBase,
+    filter: datetimeFilter,
+    create: (o === true
+      ? datetimeOptionalCreate
+      : datetimeCreate) as Optional extends true
+      ? typeof datetimeOptionalCreate
+      : typeof datetimeCreate,
+    update: datetimeUpdate,
+  };
+};
+
+export const datetimeNullableSchemas = <Optional extends boolean>(
+  o: Optional
+) => {
+  return {
+    base: datetimeNullable,
+    filter: datetimeNullableFilter,
+    create: (o === true
+      ? datetimeOptionalNullableCreate
+      : datetimeNullableCreate) as Optional extends true
+      ? typeof datetimeOptionalNullableCreate
+      : typeof datetimeNullableCreate,
+    update: datetimeNullableUpdate,
+  };
+};
+
+export const datetimeListSchemas = <Optional extends boolean>(o: Optional) => {
+  return {
+    base: datetimeList,
+    filter: datetimeListFilter,
+    create: (o === true
+      ? datetimeOptionalListCreate
+      : datetimeListCreate) as Optional extends true
+      ? typeof datetimeOptionalListCreate
+      : typeof datetimeListCreate,
+    update: datetimeListUpdate,
+  };
+};
+
+export const datetimeListNullableSchemas = <Optional extends boolean>(
+  o: Optional
+) => {
+  return {
+    base: datetimeListNullable,
+    filter: datetimeListNullableFilter,
+    create: (o === true
+      ? datetimeOptionalListNullableCreate
+      : datetimeListNullableCreate) as Optional extends true
+      ? typeof datetimeOptionalListNullableCreate
+      : typeof datetimeListNullableCreate,
+    update: datetimeListNullableUpdate,
+  };
+};
+
+// =============================================================================
+// TYPE HELPERS
+// =============================================================================
+
+export type DateTimeListNullableSchemas<Optional extends boolean = false> =
+  ReturnType<typeof datetimeListNullableSchemas<Optional>>;
+
+export type DateTimeListSchemas<Optional extends boolean = false> = ReturnType<
+  typeof datetimeListSchemas<Optional>
+>;
+
+export type DateTimeNullableSchemas<Optional extends boolean = false> =
+  ReturnType<typeof datetimeNullableSchemas<Optional>>;
+
+export type DateTimeSchemas<Optional extends boolean = false> = ReturnType<
+  typeof datetimeSchemas<Optional>
+>;
+
+export type InferDateTimeSchemas<F extends FieldState<"datetime">> =
+  F["array"] extends true
+    ? F["nullable"] extends true
+      ? DateTimeListNullableSchemas<isOptional<F>>
+      : DateTimeListSchemas<isOptional<F>>
+    : F["nullable"] extends true
+    ? DateTimeNullableSchemas<isOptional<F>>
+    : DateTimeSchemas<isOptional<F>>;
+
+// =============================================================================
+// MAIN SCHEMA GETTER
+// =============================================================================
+
+export const getFieldDateTimeSchemas = <F extends FieldState<"datetime">>(
+  f: F
+) => {
+  const isOpt = f.hasDefault || f.nullable;
+  const isArr = f.array;
+  return (
+    isArr
+      ? isOpt
+        ? datetimeListNullableSchemas(isOpt)
+        : datetimeListSchemas(isOpt)
+      : isOpt
+      ? datetimeNullableSchemas(isOpt)
+      : datetimeSchemas(isOpt)
+  ) as InferDateTimeSchemas<F>;
+};
+
+// =============================================================================
+// INPUT TYPE INFERENCE
+// =============================================================================
+
+export type InferDateTimeInput<
+  F extends FieldState<"datetime">,
+  Type extends "create" | "update" | "filter"
+> = Input<InferDateTimeSchemas<F>[Type]>;

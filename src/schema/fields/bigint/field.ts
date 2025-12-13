@@ -1,5 +1,5 @@
 // BigInt Field
-// Standalone field class with State generic pattern
+// Lean field class delegating schema selection to schema factory
 
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import {
@@ -10,194 +10,75 @@ import {
   createDefaultState,
 } from "../common";
 import type { NativeType } from "../native-types";
-import * as schemas from "./schemas";
-
-// =============================================================================
-// BIGINT FIELD SCHEMA TYPE DERIVATION
-// =============================================================================
-
-type BigIntFieldSchemas<State extends FieldState<"bigint">> = {
-  base: State["array"] extends true
-    ? State["nullable"] extends true
-      ? typeof schemas.bigIntNullableArray
-      : typeof schemas.bigIntArray
-    : State["nullable"] extends true
-      ? typeof schemas.bigIntNullable
-      : typeof schemas.bigIntBase;
-
-  filter: State["array"] extends true
-    ? State["nullable"] extends true
-      ? typeof schemas.bigIntNullableListFilter
-      : typeof schemas.bigIntListFilter
-    : State["nullable"] extends true
-      ? typeof schemas.bigIntNullableFilter
-      : typeof schemas.bigIntFilter;
-
-  create: State["array"] extends true
-    ? State["hasDefault"] extends true
-      ? State["nullable"] extends true
-        ? typeof schemas.bigIntOptionalNullableArrayCreate
-        : typeof schemas.bigIntOptionalArrayCreate
-      : State["nullable"] extends true
-        ? typeof schemas.bigIntNullableArrayCreate
-        : typeof schemas.bigIntArrayCreate
-    : State["hasDefault"] extends true
-      ? State["nullable"] extends true
-        ? typeof schemas.bigIntOptionalNullableCreate
-        : typeof schemas.bigIntOptionalCreate
-      : State["nullable"] extends true
-        ? typeof schemas.bigIntNullableCreate
-        : typeof schemas.bigIntCreate;
-
-  update: State["array"] extends true
-    ? State["nullable"] extends true
-      ? typeof schemas.bigIntNullableArrayUpdate
-      : typeof schemas.bigIntArrayUpdate
-    : State["nullable"] extends true
-      ? typeof schemas.bigIntNullableUpdate
-      : typeof schemas.bigIntUpdate;
-};
-
-// =============================================================================
-// BIGINT FIELD CLASS
-// =============================================================================
+import { getFieldBigIntSchemas } from "./schemas";
 
 export class BigIntField<State extends FieldState<"bigint">> {
-  /** Name slots hydrated by client at initialization */
   private _names: SchemaNames = {};
 
-  constructor(
-    private state: State,
-    private _nativeType?: NativeType
-  ) {}
-
-  // ===========================================================================
-  // CHAINABLE MODIFIERS
-  // ===========================================================================
+  constructor(private state: State, private _nativeType?: NativeType) {}
 
   nullable(): BigIntField<UpdateState<State, { nullable: true }>> {
-    return new BigIntField({ ...this.state, nullable: true });
+    return new BigIntField({ ...this.state, nullable: true }, this._nativeType);
   }
 
   array(): BigIntField<UpdateState<State, { array: true }>> {
-    return new BigIntField({ ...this.state, array: true });
-  }
-
-  id(): BigIntField<UpdateState<State, { isId: true; isUnique: true }>> {
-    return new BigIntField({ ...this.state, isId: true, isUnique: true });
-  }
-
-  unique(): BigIntField<UpdateState<State, { isUnique: true }>> {
-    return new BigIntField({ ...this.state, isUnique: true });
+    return new BigIntField({ ...this.state, array: true }, this._nativeType);
   }
 
   default(
     value: DefaultValue<bigint, State["array"], State["nullable"]>
   ): BigIntField<UpdateState<State, { hasDefault: true }>> {
-    return new BigIntField({
-      ...this.state,
-      hasDefault: true,
-      defaultValue: value,
-    });
+    return new BigIntField(
+      {
+        ...this.state,
+        hasDefault: true,
+        defaultValue: value,
+      },
+      this._nativeType
+    );
   }
 
-  validator(
+  schema(
     schema: StandardSchemaV1
-  ): BigIntField<UpdateState<State, { customValidator: StandardSchemaV1 }>> {
-    return new BigIntField({
-      ...this.state,
-      customValidator: schema,
-    });
+  ): BigIntField<UpdateState<State, { schema: StandardSchemaV1 }>> {
+    return new BigIntField(
+      {
+        ...this.state,
+        schema: schema,
+      },
+      this._nativeType
+    );
   }
 
-  /**
-   * Maps this field to a custom column name in the database
-   */
   map(columnName: string): this {
-    return new BigIntField({ ...this.state, columnName }) as this;
+    return new BigIntField(
+      { ...this.state, columnName },
+      this._nativeType
+    ) as this;
   }
-
-  // ===========================================================================
-  // AUTO-GENERATION
-  // ===========================================================================
 
   increment(): BigIntField<
     UpdateState<State, { hasDefault: true; autoGenerate: "increment" }>
   > {
-    return new BigIntField({
-      ...this.state,
-      hasDefault: true,
-      autoGenerate: "increment",
-    });
+    return new BigIntField(
+      {
+        ...this.state,
+        hasDefault: true,
+        autoGenerate: "increment",
+      },
+      this._nativeType
+    );
   }
-
-  // ===========================================================================
-  // SCHEMA GETTER
-  // ===========================================================================
-
-  get schemas(): BigIntFieldSchemas<State> {
-    const { nullable, array, hasDefault } = this.state;
-
-    const base = array
-      ? nullable
-        ? schemas.bigIntNullableArray
-        : schemas.bigIntArray
-      : nullable
-        ? schemas.bigIntNullable
-        : schemas.bigIntBase;
-
-    const filter = array
-      ? nullable
-        ? schemas.bigIntNullableListFilter
-        : schemas.bigIntListFilter
-      : nullable
-        ? schemas.bigIntNullableFilter
-        : schemas.bigIntFilter;
-
-    const create = array
-      ? hasDefault
-        ? nullable
-          ? schemas.bigIntOptionalNullableArrayCreate
-          : schemas.bigIntOptionalArrayCreate
-        : nullable
-          ? schemas.bigIntNullableArrayCreate
-          : schemas.bigIntArrayCreate
-      : hasDefault
-        ? nullable
-          ? schemas.bigIntOptionalNullableCreate
-          : schemas.bigIntOptionalCreate
-        : nullable
-          ? schemas.bigIntNullableCreate
-          : schemas.bigIntCreate;
-
-    const update = array
-      ? nullable
-        ? schemas.bigIntNullableArrayUpdate
-        : schemas.bigIntArrayUpdate
-      : nullable
-        ? schemas.bigIntNullableUpdate
-        : schemas.bigIntUpdate;
-
-    return { base, filter, create, update } as BigIntFieldSchemas<State>;
-  }
-
-  // ===========================================================================
-  // ACCESSORS
-  // ===========================================================================
 
   get ["~"]() {
     return {
       state: this.state,
-      schemas: this.schemas,
+      schemas: getFieldBigIntSchemas(this.state),
       nativeType: this._nativeType,
       names: this._names,
     };
   }
 }
-
-// =============================================================================
-// FACTORY FUNCTION
-// =============================================================================
 
 export const bigInt = (nativeType?: NativeType) =>
   new BigIntField(createDefaultState("bigint"), nativeType);

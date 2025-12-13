@@ -194,7 +194,7 @@ s.string()
   .unique()                // Add unique constraint
   .default("value")        // Static default value
   .default(() => value)    // Runtime default function
-  .validator(schema)       // Custom StandardSchema validator
+  .schema(schema)          // Custom StandardSchema validator
   .map("column_name")      // Custom database column name
 ```
 
@@ -252,8 +252,8 @@ Fields accept any [StandardSchema](https://standardschema.dev/) compliant valida
 ```ts
 import { z } from "zod";
 
-s.string().validator(z.string().email())
-s.string().validator(z.string().min(8).max(100))
+s.string().schema(z.string().email())
+s.string().schema(z.string().min(8).max(100))
 ```
 
 ### Field State
@@ -270,7 +270,7 @@ interface FieldState {
   isUnique: boolean;
   defaultValue: any;
   autoGenerate: AutoGenerateType | undefined;
-  customValidator: StandardSchemaV1 | undefined;
+  schema: StandardSchemaV1 | undefined;
   columnName: string | undefined;
 }
 ```

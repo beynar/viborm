@@ -1,287 +1,235 @@
 // JSON Field Schemas
-// Explicit ArkType schemas for all json field variants
-// Supports both untyped (unknown) and typed (StandardSchema) JSON fields
+// Factory pattern handling optional StandardSchema for typed validation
 
-import { type, Type } from "arktype";
+import { z, ZodJSONSchema } from "zod/v4";
+
+import {
+  array,
+  boolean,
+  nullable,
+  object,
+  optional,
+  partial,
+  string,
+  union,
+  _default,
+  extend,
+  json,
+  pipe,
+  type input as Input,
+  type output as Output,
+  ZodMiniType,
+  ZodMiniJSONSchema,
+  core,
+  ZodMiniNullable,
+  prefault,
+} from "zod/v4-mini";
 import type { StandardSchemaV1 } from "../../../standardSchema";
 import {
-  typeFromStandardSchema,
-  type StandardSchemaToArkType,
-} from "../standard-schema";
+  FieldState,
+  isOptional,
+  shorthandFilter,
+  shorthandUpdate,
+} from "../common";
+import { StandardSchemaToZod, zodFromStandardSchema } from "../standard-schema";
 
 // =============================================================================
-// UNTYPED BASE SCHEMAS (fallback when no StandardSchema is provided)
+// BASE BUILDERS
 // =============================================================================
 
-// JSON accepts any valid JSON value
-export const jsonBase = type("unknown");
-export const jsonNullable = jsonBase.or("null");
+export const jsonBase = <const S extends StandardSchemaV1 | undefined>(
+  schema: S
+) =>
+  !schema
+    ? json()
+    : (zodFromStandardSchema(schema) as S extends StandardSchemaV1
+        ? StandardSchemaToZod<S>
+        : ZodMiniJSONSchema);
 
-// =============================================================================
-// UNTYPED FILTER SCHEMAS - JSON accepts shorthand values directly
-// Note: Due to ArkType union limitations with morphs on unknown type,
-// JSON shorthand normalization cannot be done here
-// =============================================================================
-
-// JSON filtering is typically path-based or equality
-export const jsonFilter = type({
-  equals: jsonBase,
-  not: jsonNullable,
-  path: "string[]",
-  string_contains: "string",
-  string_starts_with: "string",
-  string_ends_with: "string",
-  array_contains: jsonBase,
-  array_starts_with: jsonBase,
-  array_ends_with: jsonBase,
-}).partial();
-
-// Helper to check if value is null (not a filter object)
-const isJsonNullShorthand = (v: unknown): v is null => v === null;
-
-export const jsonNullableFilter = type({
-  equals: jsonNullable,
-  not: jsonNullable,
-  path: "string[]",
-  string_contains: "string",
-  string_starts_with: "string",
-  string_ends_with: "string",
-  array_contains: jsonBase,
-  array_starts_with: jsonBase,
-  array_ends_with: jsonBase,
-})
-  .partial()
-  .or("null")
-  .pipe((v) => (isJsonNullShorthand(v) ? { equals: v } : v));
-
-// =============================================================================
-// UNTYPED CREATE SCHEMAS
-// =============================================================================
-
-export const jsonCreate = jsonBase;
-export const jsonNullableCreate = jsonNullable;
-export const jsonOptionalCreate = jsonBase.or("undefined");
-export const jsonOptionalNullableCreate = jsonNullable.or("undefined");
-
-// =============================================================================
-// UNTYPED UPDATE SCHEMAS - shorthand normalized to { set: value } via pipe
-// JSON accepts both direct value and { set: value } wrapper
-// =============================================================================
-
-// Helper to check if value is a shorthand (not a filter object with set key)
-const isJsonUpdateShorthand = (v: unknown): boolean =>
-  typeof v !== "object" || v === null || Array.isArray(v) || !("set" in v);
-
-export const jsonUpdate = type({
-  set: jsonBase,
-})
-  .partial()
-  .or(jsonBase)
-  .pipe((v) => (isJsonUpdateShorthand(v) ? { set: v } : v));
-
-export const jsonNullableUpdate = type({
-  set: jsonNullable,
-})
-  .partial()
-  .or(jsonNullable)
-  .pipe((v) => (isJsonUpdateShorthand(v) ? { set: v } : v));
-
-// =============================================================================
-// TYPE EXPORTS (untyped)
-// =============================================================================
-
-export type JsonBase = typeof jsonBase.infer;
-export type JsonNullable = typeof jsonNullable.infer;
-export type JsonFilter = typeof jsonFilter.infer;
-export type JsonNullableFilter = typeof jsonNullableFilter.infer;
-export type JsonUpdate = typeof jsonUpdate.infer;
-export type JsonNullableUpdate = typeof jsonNullableUpdate.infer;
-
-// =============================================================================
-// TYPED JSON TYPE HELPERS (when StandardSchema is provided)
-// =============================================================================
-
-/** Base typed JSON type derived from StandardSchema */
-export type JsonType<TSchema extends StandardSchemaV1> =
-  StandardSchemaToArkType<TSchema>;
-
-/** Nullable typed JSON type */
-export type JsonNullableType<TSchema extends StandardSchemaV1> = Type<
-  StandardSchemaV1.InferOutput<TSchema> | null,
-  {}
->;
-
-/** Typed JSON filter type */
-export type JsonFilterType<TSchema extends StandardSchemaV1> = Type<
-  | {
-      equals?: StandardSchemaV1.InferOutput<TSchema>;
-      not?: StandardSchemaV1.InferOutput<TSchema> | null;
-      path?: string[];
-      string_contains?: string;
-      string_starts_with?: string;
-      string_ends_with?: string;
-      array_contains?: StandardSchemaV1.InferOutput<TSchema>;
-      array_starts_with?: StandardSchemaV1.InferOutput<TSchema>;
-      array_ends_with?: StandardSchemaV1.InferOutput<TSchema>;
-    }
-  | StandardSchemaV1.InferOutput<TSchema>,
-  {}
->;
-
-/** Nullable typed JSON filter type */
-export type JsonNullableFilterType<TSchema extends StandardSchemaV1> = Type<
-  | {
-      equals?: StandardSchemaV1.InferOutput<TSchema> | null;
-      not?: StandardSchemaV1.InferOutput<TSchema> | null;
-      path?: string[];
-      string_contains?: string;
-      string_starts_with?: string;
-      string_ends_with?: string;
-      array_contains?: StandardSchemaV1.InferOutput<TSchema>;
-      array_starts_with?: StandardSchemaV1.InferOutput<TSchema>;
-      array_ends_with?: StandardSchemaV1.InferOutput<TSchema>;
-    }
-  | StandardSchemaV1.InferOutput<TSchema>
-  | null,
-  {}
->;
-
-/** Typed JSON update type - just the value, no set wrapper */
-export type JsonUpdateType<TSchema extends StandardSchemaV1> = Type<
-  StandardSchemaV1.InferInput<TSchema>,
-  {}
->;
-
-/** Nullable typed JSON update type - just the value or null, no set wrapper */
-export type JsonNullableUpdateType<TSchema extends StandardSchemaV1> = Type<
-  StandardSchemaV1.InferInput<TSchema> | null,
-  {}
->;
-
-/** Optional typed JSON create type */
-export type JsonOptionalType<TSchema extends StandardSchemaV1> = Type<
-  StandardSchemaV1.InferInput<TSchema> | undefined,
-  {}
->;
-
-/** Optional nullable typed JSON create type */
-export type JsonOptionalNullableType<TSchema extends StandardSchemaV1> = Type<
-  StandardSchemaV1.InferInput<TSchema> | null | undefined,
-  {}
->;
-
-// =============================================================================
-// TYPED SCHEMA BUILDERS (when StandardSchema is provided)
-// =============================================================================
-
-/**
- * Creates base typed JSON schema from StandardSchema
- */
-export const createJsonBase = <TSchema extends StandardSchemaV1>(
-  schema: TSchema
-): JsonType<TSchema> => {
-  return typeFromStandardSchema(schema) as JsonType<TSchema>;
+const jsonNullable = <S extends StandardSchemaV1 | undefined>(schema: S) => {
+  return nullable(jsonBase(schema)) as S extends StandardSchemaV1
+    ? ZodMiniNullable<StandardSchemaToZod<S>>
+    : ZodMiniNullable<ZodMiniJSONSchema>;
 };
 
-/**
- * Creates nullable typed JSON schema
- * Note: Returns unknown|null since morphs can't be unioned with null
- */
-export const createJsonNullable = <TSchema extends StandardSchemaV1>(
-  schema: TSchema
-): JsonNullableType<TSchema> => {
-  return type("unknown | null") as unknown as JsonNullableType<TSchema>;
+// =============================================================================
+// FILTER FACTORIES
+// =============================================================================
+
+const jsonFilterFactory = <const B extends ZodMiniType>(base: B) => {
+  const filterBase = partial(
+    object({
+      equals: base,
+      path: array(string()),
+      string_contains: string(),
+      string_starts_with: string(),
+      string_ends_with: string(),
+      array_contains: base,
+      array_starts_with: base,
+      array_ends_with: base,
+    })
+  );
+  return union([
+    extend(filterBase, {
+      not: optional(union([filterBase, shorthandFilter(base)])),
+    }),
+    shorthandFilter(base),
+  ]);
 };
 
-/**
- * Creates typed JSON filter schema
- * Note: Shorthand normalization is not supported for typed JSON due to ArkType limitations
- */
-export const createJsonFilter = <TSchema extends StandardSchemaV1>(
-  schema: TSchema
-): JsonFilterType<TSchema> => {
-  return type({
-    "equals?": "unknown",
-    "not?": type("unknown").or("null"),
-    "path?": "string[]",
-    "string_contains?": "string",
-    "string_starts_with?": "string",
-    "string_ends_with?": "string",
-    "array_contains?": "unknown",
-    "array_starts_with?": "unknown",
-    "array_ends_with?": "unknown",
-  }) as unknown as JsonFilterType<TSchema>;
+const jsonNullableFilterFactory = <B extends ZodMiniNullable>(base: B) => {
+  const filterBase = partial(
+    object({
+      equals: base,
+      path: array(string()),
+      string_contains: string(),
+      string_starts_with: string(),
+      string_ends_with: string(),
+      array_contains: base.def.innerType,
+      array_starts_with: base.def.innerType,
+      array_ends_with: base.def.innerType,
+    })
+  );
+  return union([
+    extend(filterBase, {
+      not: optional(union([filterBase, base])),
+    }),
+    shorthandFilter(base),
+  ]);
 };
 
-/**
- * Creates nullable typed JSON filter schema
- * Supports null shorthand: { field: null } normalized to { equals: null }
- */
-export const createJsonNullableFilter = <TSchema extends StandardSchemaV1>(
-  schema: TSchema
-): JsonNullableFilterType<TSchema> => {
-  return type({
-    "equals?": type("unknown").or("null"),
-    "not?": type("unknown").or("null"),
-    "path?": "string[]",
-    "string_contains?": "string",
-    "string_starts_with?": "string",
-    "string_ends_with?": "string",
-    "array_contains?": "unknown",
-    "array_starts_with?": "unknown",
-    "array_ends_with?": "unknown",
-  })
-    .or("null")
-    .pipe((v) => (v === null ? { equals: v } : v)) as unknown as JsonNullableFilterType<TSchema>;
+// =============================================================================
+// CREATE FACTORIES
+// =============================================================================
+
+const jsonCreate = <B extends ZodMiniType>(base: B) => base;
+
+const jsonOptionalCreate = <B extends ZodMiniType>(base: B) => optional(base);
+
+type NoUndefined<T> = T extends undefined ? never : T;
+
+const jsonOptionalNullableCreate = <B extends ZodMiniNullable>(base: B) => {
+  return _default(optional(base), null as NoUndefined<Output<B>>);
 };
 
-/**
- * Creates typed JSON update schema - accepts both direct value and { set: value }
- * Shorthand is normalized to { set: value } via pipe
- */
-export const createJsonUpdate = <TSchema extends StandardSchemaV1>(
-  schema: TSchema
-): JsonUpdateType<TSchema> => {
-  // Use unknown for flexible input, validation happens at typed schema level
-  return type({
-    "set?": "unknown",
-  })
-    .or("unknown")
-    .pipe((v) => (isJsonUpdateShorthand(v) ? { set: v } : v)) as unknown as JsonUpdateType<TSchema>;
+// =============================================================================
+// UPDATE FACTORIES
+// =============================================================================
+
+const jsonUpdateFactory = <B extends ZodMiniType>(base: B) => {
+  return union([partial(object({ set: base })), shorthandUpdate(base)]);
 };
 
-/**
- * Creates nullable typed JSON update schema - accepts value, null, or { set: value }
- * Shorthand is normalized to { set: value } via pipe
- */
-export const createJsonNullableUpdate = <TSchema extends StandardSchemaV1>(
-  schema: TSchema
-): JsonNullableUpdateType<TSchema> => {
-  return type({
-    "set?": type("unknown").or("null"),
-  })
-    .or(type("unknown").or("null"))
-    .pipe((v) => (isJsonUpdateShorthand(v) ? { set: v } : v)) as unknown as JsonNullableUpdateType<TSchema>;
+const jsonNullableUpdateFactory = <B extends ZodMiniType>(base: B) => {
+  return union([partial(object({ set: base })), shorthandUpdate(base)]);
 };
 
-/**
- * Creates optional typed JSON create schema
- * Note: Returns base type since morphs can't be unioned with undefined
- */
-export const createJsonOptionalCreate = <TSchema extends StandardSchemaV1>(
-  schema: TSchema
-): JsonOptionalType<TSchema> => {
-  // Use unknown with undefined since we can't union morph with undefined
-  return type("unknown | undefined") as unknown as JsonOptionalType<TSchema>;
+// =============================================================================
+// SCHEMA FACTORIES
+// =============================================================================
+
+export const jsonSchemas = <S extends FieldState<"json">>(state: S) => {
+  const base = jsonBase(state.schema);
+  return {
+    base,
+    filter: jsonFilterFactory(base),
+    create: jsonCreate(base),
+    update: jsonUpdateFactory(base),
+  } as unknown as JsonSchemas<S>;
 };
 
-/**
- * Creates optional nullable typed JSON create schema
- * Note: Returns base type since morphs can't be unioned with undefined/null
- */
-export const createJsonOptionalNullableCreate = <TSchema extends StandardSchemaV1>(
-  schema: TSchema
-): JsonOptionalNullableType<TSchema> => {
-  // Use unknown with null/undefined since we can't union morph with them
-  return type("unknown | null | undefined") as unknown as JsonOptionalNullableType<TSchema>;
+export const jsonNullableSchemas = <S extends FieldState<"json">>(state: S) => {
+  const base = jsonNullable(state.schema);
+  return {
+    base,
+    filter: jsonNullableFilterFactory(base),
+    create: jsonOptionalNullableCreate(base),
+    update: jsonNullableUpdateFactory(base),
+  } as unknown as JsonNullableSchemas<S>;
+};
+
+export type JsonSchemas<S extends FieldState<"json">> =
+  S["schema"] extends StandardSchemaV1
+    ? {
+        base: ZodMiniNullable<StandardSchemaToZod<S["schema"]>>;
+        filter: ReturnType<
+          typeof jsonNullableFilterFactory<
+            ZodMiniNullable<StandardSchemaToZod<S["schema"]>>
+          >
+        >;
+        create: isOptional<S> extends true
+          ? ReturnType<
+              typeof jsonOptionalCreate<
+                ZodMiniNullable<StandardSchemaToZod<S["schema"]>>
+              >
+            >
+          : ReturnType<
+              typeof jsonCreate<
+                ZodMiniNullable<StandardSchemaToZod<S["schema"]>>
+              >
+            >;
+        update: ReturnType<
+          typeof jsonNullableUpdateFactory<
+            ZodMiniNullable<StandardSchemaToZod<S["schema"]>>
+          >
+        >;
+      }
+    : {
+        base: ZodMiniNullable<ZodMiniJSONSchema>;
+        filter: ReturnType<
+          typeof jsonNullableFilterFactory<ZodMiniNullable<ZodMiniJSONSchema>>
+        >;
+        create: isOptional<S> extends true
+          ? ReturnType<
+              typeof jsonOptionalCreate<ZodMiniNullable<ZodMiniJSONSchema>>
+            >
+          : ReturnType<typeof jsonCreate<ZodMiniNullable<ZodMiniJSONSchema>>>;
+        update: ReturnType<
+          typeof jsonNullableUpdateFactory<ZodMiniNullable<ZodMiniJSONSchema>>
+        >;
+      };
+
+export type JsonNullableSchemas<S extends FieldState<"json">> =
+  S["schema"] extends StandardSchemaV1
+    ? {
+        base: StandardSchemaToZod<S["schema"]>;
+        filter: ReturnType<
+          typeof jsonFilterFactory<StandardSchemaToZod<S["schema"]>>
+        >;
+        create: ReturnType<
+          typeof jsonOptionalNullableCreate<
+            ZodMiniNullable<StandardSchemaToZod<S["schema"]>>
+          >
+        >;
+        update: ReturnType<
+          typeof jsonUpdateFactory<StandardSchemaToZod<S["schema"]>>
+        >;
+      }
+    : {
+        base: ZodMiniJSONSchema;
+        filter: ReturnType<typeof jsonFilterFactory<ZodMiniJSONSchema>>;
+        create: ReturnType<typeof jsonCreate<ZodMiniJSONSchema>>;
+        update: ReturnType<typeof jsonUpdateFactory<ZodMiniJSONSchema>>;
+      };
+
+// =============================================================================
+// TYPE HELPERS
+// =============================================================================
+
+export type InferJsonSchemas<F extends FieldState<"json">> =
+  F["nullable"] extends true ? JsonNullableSchemas<F> : JsonSchemas<F>;
+
+export type InferJsonInput<
+  F extends FieldState<"json">,
+  Type extends "create" | "update" | "filter" | "base"
+> = Input<InferJsonSchemas<F>[Type]>;
+
+// =============================================================================
+// MAIN SCHEMA GETTER
+// =============================================================================
+
+export const getFieldJsonSchemas = <S extends FieldState<"json">>(state: S) => {
+  return (
+    state.nullable ? jsonNullableSchemas(state) : jsonSchemas(state)
+  ) as InferJsonSchemas<S>;
 };

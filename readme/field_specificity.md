@@ -105,7 +105,7 @@ anyField
   .unique() // Adds unique constraint
   .id() // Marks as primary key
   .list() // Makes field an array
-  .validator(fn); // Adds custom validator
+  .schema(fn); // Adds custom validator
 ```
 
 ## Type Safety Benefits

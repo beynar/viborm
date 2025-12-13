@@ -7,7 +7,7 @@
 import type { Sql } from "@sql";
 import type { Model } from "@schema/model";
 import type { DatabaseAdapter } from "@adapters";
-import type { Relation } from "@schema/relation";
+import type { AnyRelation, Relation } from "@schema/relation";
 
 // Re-export Sql for convenience
 export { Sql } from "@sql";
@@ -60,7 +60,7 @@ export interface QueryContext {
  */
 export interface RelationInfo {
   name: string;
-  relation: Relation<any, any, any>;
+  relation: AnyRelation;
   targetModel: Model<any>;
   isToMany: boolean;
   isToOne: boolean;
@@ -279,6 +279,9 @@ export interface HavingInput {
   _sum?: Record<string, AggregateFilter>;
   _min?: Record<string, AggregateFilter>;
   _max?: Record<string, AggregateFilter>;
-  [field: string]: unknown | AggregateFilter | Record<string, AggregateFilter> | undefined;
+  [field: string]:
+    | unknown
+    | AggregateFilter
+    | Record<string, AggregateFilter>
+    | undefined;
 }
-

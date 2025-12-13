@@ -51,7 +51,7 @@ The Schema Builder is the foundation of our ORM. Its purpose is to allow users t
 - Example:
   ```ts
   id: s.string().id().auto.ulid();
-  email: s.string().validator(emailRegex);
+  email: s.string().schema(emailRegex);
   ```
 - All scalar types and helpers must be imported from `/types/scalars.ts`.
 
@@ -106,7 +106,7 @@ const user = s
   .model({
     id: s.string().id().auto.ulid(),
     name: s.string(),
-    email: s.string().validator(emailRegex),
+    email: s.string().schema(emailRegex),
     password: s.string(),
     friends: s.relation.many(() => user),
     lover: s.relation

@@ -77,7 +77,7 @@ import { s } from "./schema";
 const user = s.model("user", {
   id: s.string().id().auto.ulid(),
   name: s.string().minLength(2).maxLength(50),
-  email: s.string().unique().validator(emailRegex),
+  email: s.string().unique().schema(emailRegex),
   age: s.int().min(0).max(120),
   posts: s.relation.many(() => post),
 });

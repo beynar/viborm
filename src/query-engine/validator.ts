@@ -77,4 +77,3 @@ export function validateOptional<T>(
   }
   return validate<T>(model, operation, input);
 }
-

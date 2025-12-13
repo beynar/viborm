@@ -17,6 +17,21 @@ export type ReferentialAction = "cascade" | "setNull" | "restrict" | "noAction";
 // RELATION INTERNALS (exposed via ~)
 // =============================================================================
 
+type UpdateState<
+  State extends RelationState,
+  Update extends Partial<RelationState>
+> = State & Update;
+export interface RelationState {
+  fields?: string[];
+  references?: string[];
+  onDelete?: ReferentialAction;
+  onUpdate?: ReferentialAction;
+  optional: boolean;
+  through?: string;
+  throughA?: string;
+  throughB?: string;
+}
+
 export interface RelationInternals<
   G extends Getter,
   T extends RelationType,
@@ -54,107 +69,51 @@ export interface RelationInternals<
 // =============================================================================
 
 export abstract class Relation<
-  G extends Getter,
-  T extends RelationType,
-  TOptional extends boolean = false
+  const G extends Getter,
+  State extends RelationState = RelationState,
+  T extends RelationType = RelationType
 > {
-  protected _fields?: string[];
-  protected _references?: string[];
-  protected _onDelete?: ReferentialAction;
-  protected _onUpdate?: ReferentialAction;
+  private _getter: G;
+  private _state: State;
+  private _relationType: T;
   /** Name slots hydrated by client at initialization */
   private _names: SchemaNames = {};
 
-  constructor(
-    protected readonly _getter: G,
-    protected readonly _relationType: T
-  ) {}
-
-  /** FK field(s) on the current model */
-  fields(...fieldNames: string[]): this {
-    this._fields = fieldNames;
-    return this;
+  constructor(getter: G, state: State, relationType: T) {
+    this._getter = getter;
+    this._state = state;
+    this._relationType = relationType;
   }
 
-  /** Field(s) on the target model being referenced */
-  references(...fieldNames: string[]): this {
-    this._references = fieldNames;
-    return this;
-  }
-
-  /** Action when referenced row is deleted */
-  onDelete(action: ReferentialAction): this {
-    this._onDelete = action;
-    return this;
-  }
-
-  /** Action when referenced row is updated */
-  onUpdate(action: ReferentialAction): this {
-    this._onUpdate = action;
-    return this;
-  }
-
-  protected buildInternals(): RelationInternals<G, T, TOptional> {
-    const self = this;
+  get "~"(): State & { getter: G; relationType: T; names: SchemaNames } {
     return {
+      ...this._state,
       getter: this._getter,
       relationType: this._relationType,
-      get isToMany() {
-        return (
-          self._relationType === "oneToMany" ||
-          self._relationType === "manyToMany"
-        );
-      },
-      get isToOne() {
-        return (
-          self._relationType === "oneToOne" ||
-          self._relationType === "manyToOne"
-        );
-      },
-      isOptional: false as TOptional,
-      fields: this._fields,
-      references: this._references,
-      onDelete: this._onDelete,
-      onUpdate: this._onUpdate,
-      through: undefined,
-      throughA: undefined,
-      throughB: undefined,
       names: this._names,
-      infer: {} as any,
     };
   }
-
-  abstract get "~"(): RelationInternals<G, T, TOptional>;
 }
 
 // =============================================================================
 // TO-ONE RELATIONS (oneToOne, manyToOne) - can be optional
 // =============================================================================
 
-export class ToOneRelation<
+export class OneToOneRelation<
   const G extends Getter,
-  T extends "oneToOne" | "manyToOne",
-  TOptional extends boolean = false
-> extends Relation<G, T, TOptional> {
-  private _optional: boolean = false;
-
-  /** Mark relation as optional (allows null) */
-  optional(): ToOneRelation<G, T, true> {
-    const rel = new ToOneRelation<G, T, true>(this._getter, this._relationType);
-    if (this._fields) rel._fields = [...this._fields];
-    if (this._references) rel._references = [...this._references];
-    if (this._onDelete) rel._onDelete = this._onDelete;
-    if (this._onUpdate) rel._onUpdate = this._onUpdate;
-    rel._optional = true;
-    return rel;
+  State extends RelationState = RelationState
+> extends Relation<G, State, "oneToOne"> {
+  constructor(getter: G, state: State) {
+    super(getter, state, "oneToOne");
   }
+}
 
-  get "~"(): RelationInternals<G, T, TOptional> {
-    const base = this.buildInternals();
-    return {
-      ...base,
-      isOptional: this._optional as TOptional,
-    };
+export class ManyToOneRelation<
+  G extends Getter,
+  State extends RelationState = RelationState
+> extends Relation<G, State, "manyToOne"> {
+  constructor(getter: G, state: State) {
+    super(getter, state, "manyToOne");
   }
 }
 
@@ -162,17 +121,12 @@ export class ToOneRelation<
 // ONE-TO-MANY RELATION - no optional, no through
 // =============================================================================
 
-export class OneToManyRelation<G extends Getter> extends Relation<
-  G,
-  "oneToMany",
-  false
-> {
-  constructor(getter: G) {
-    super(getter, "oneToMany");
-  }
-
-  get "~"(): RelationInternals<G, "oneToMany", false> {
-    return this.buildInternals();
+export class OneToManyRelation<
+  G extends Getter,
+  State extends RelationState = RelationState
+> extends Relation<G, State, "oneToMany"> {
+  constructor(getter: G, state: State) {
+    super(getter, state, "oneToMany");
   }
 }
 
@@ -180,45 +134,12 @@ export class OneToManyRelation<G extends Getter> extends Relation<
 // MANY-TO-MANY RELATION - has through, A, B
 // =============================================================================
 
-export class ManyToManyRelation<G extends Getter> extends Relation<
-  G,
-  "manyToMany",
-  false
-> {
-  private _through?: string;
-  private _throughA?: string;
-  private _throughB?: string;
-
-  constructor(getter: G) {
-    super(getter, "manyToMany");
-  }
-
-  /** Junction table name */
-  through(tableName: string): this {
-    this._through = tableName;
-    return this;
-  }
-
-  /** Junction table FK column for source model */
-  A(fieldName: string): this {
-    this._throughA = fieldName;
-    return this;
-  }
-
-  /** Junction table FK column for target model */
-  B(fieldName: string): this {
-    this._throughB = fieldName;
-    return this;
-  }
-
-  get "~"(): RelationInternals<G, "manyToMany", false> {
-    const base = this.buildInternals();
-    return {
-      ...base,
-      through: this._through,
-      throughA: this._throughA,
-      throughB: this._throughB,
-    };
+export class ManyToManyRelation<
+  G extends Getter,
+  State extends RelationState = RelationState
+> extends Relation<G, State, "manyToMany"> {
+  constructor(getter: G, state: State) {
+    super(getter, state, "manyToMany");
   }
 }
 
@@ -244,127 +165,69 @@ export class ManyToManyRelation<G extends Getter> extends Relation<
  *   author: s.relation.fields("authorId").references("id").manyToOne(() => user),
  * });
  */
-export class RelationBuilderImpl {
-  private _fields?: string[];
-  private _references?: string[];
-  private _onDelete?: ReferentialAction;
-  private _onUpdate?: ReferentialAction;
-  private _optional: boolean = false;
-  // ManyToMany specific
-  private _through?: string;
-  private _throughA?: string;
-  private _throughB?: string;
+
+export class RelationBuilderImpl<State extends RelationState> {
+  private _state: State;
+  constructor(state: State) {
+    this._state = state;
+  }
 
   /** FK field(s) on the current model */
-  fields(...names: string[]): RelationBuilderImpl {
-    const builder = new RelationBuilderImpl();
-    builder._fields = names;
-    builder._references = this._references;
-    builder._onDelete = this._onDelete;
-    builder._onUpdate = this._onUpdate;
-    builder._optional = this._optional;
-    builder._through = this._through;
-    builder._throughA = this._throughA;
-    builder._throughB = this._throughB;
-    return builder;
+  fields(
+    ...names: string[]
+  ): RelationBuilderImpl<UpdateState<State, { fields: string[] }>> {
+    return new RelationBuilderImpl({ ...this._state, fields: names });
   }
 
   /** Field(s) on the target model being referenced */
-  references(...names: string[]): RelationBuilderImpl {
-    const builder = new RelationBuilderImpl();
-    builder._fields = this._fields;
-    builder._references = names;
-    builder._onDelete = this._onDelete;
-    builder._onUpdate = this._onUpdate;
-    builder._optional = this._optional;
-    builder._through = this._through;
-    builder._throughA = this._throughA;
-    builder._throughB = this._throughB;
+  references(
+    ...names: string[]
+  ): RelationBuilderImpl<UpdateState<State, { references: string[] }>> {
+    const builder = new RelationBuilderImpl({
+      ...this._state,
+      references: names,
+    });
     return builder;
   }
 
   /** Action when referenced row is deleted */
-  onDelete(action: ReferentialAction): RelationBuilderImpl {
-    const builder = new RelationBuilderImpl();
-    builder._fields = this._fields;
-    builder._references = this._references;
-    builder._onDelete = action;
-    builder._onUpdate = this._onUpdate;
-    builder._optional = this._optional;
-    builder._through = this._through;
-    builder._throughA = this._throughA;
-    builder._throughB = this._throughB;
-    return builder;
+  onDelete(
+    action: ReferentialAction
+  ): RelationBuilderImpl<UpdateState<State, { onDelete: ReferentialAction }>> {
+    return new RelationBuilderImpl({ ...this._state, onDelete: action });
   }
 
   /** Action when referenced row is updated */
-  onUpdate(action: ReferentialAction): RelationBuilderImpl {
-    const builder = new RelationBuilderImpl();
-    builder._fields = this._fields;
-    builder._references = this._references;
-    builder._onDelete = this._onDelete;
-    builder._onUpdate = action;
-    builder._optional = this._optional;
-    builder._through = this._through;
-    builder._throughA = this._throughA;
-    builder._throughB = this._throughB;
-    return builder;
+  onUpdate(
+    action: ReferentialAction
+  ): RelationBuilderImpl<UpdateState<State, { onUpdate: ReferentialAction }>> {
+    return new RelationBuilderImpl({ ...this._state, onUpdate: action });
   }
 
   /** Mark relation as optional (allows null) - only for to-one relations */
-  optional(): RelationBuilderImpl {
-    const builder = new RelationBuilderImpl();
-    builder._fields = this._fields;
-    builder._references = this._references;
-    builder._onDelete = this._onDelete;
-    builder._onUpdate = this._onUpdate;
-    builder._optional = true;
-    builder._through = this._through;
-    builder._throughA = this._throughA;
-    builder._throughB = this._throughB;
-    return builder;
+  optional(): RelationBuilderImpl<UpdateState<State, { optional: true }>> {
+    return new RelationBuilderImpl({ ...this._state, optional: true });
   }
 
   /** Junction table name (many-to-many only) */
-  through(tableName: string): RelationBuilderImpl {
-    const builder = new RelationBuilderImpl();
-    builder._fields = this._fields;
-    builder._references = this._references;
-    builder._onDelete = this._onDelete;
-    builder._onUpdate = this._onUpdate;
-    builder._optional = this._optional;
-    builder._through = tableName;
-    builder._throughA = this._throughA;
-    builder._throughB = this._throughB;
-    return builder;
+  through(
+    tableName: string
+  ): RelationBuilderImpl<UpdateState<State, { through: string }>> {
+    return new RelationBuilderImpl({ ...this._state, through: tableName });
   }
 
   /** Junction table FK column for source model (many-to-many only) */
-  A(fieldName: string): RelationBuilderImpl {
-    const builder = new RelationBuilderImpl();
-    builder._fields = this._fields;
-    builder._references = this._references;
-    builder._onDelete = this._onDelete;
-    builder._onUpdate = this._onUpdate;
-    builder._optional = this._optional;
-    builder._through = this._through;
-    builder._throughA = fieldName;
-    builder._throughB = this._throughB;
-    return builder;
+  A(
+    fieldName: string
+  ): RelationBuilderImpl<UpdateState<State, { throughA: string }>> {
+    return new RelationBuilderImpl({ ...this._state, throughA: fieldName });
   }
 
   /** Junction table FK column for target model (many-to-many only) */
-  B(fieldName: string): RelationBuilderImpl {
-    const builder = new RelationBuilderImpl();
-    builder._fields = this._fields;
-    builder._references = this._references;
-    builder._onDelete = this._onDelete;
-    builder._onUpdate = this._onUpdate;
-    builder._optional = this._optional;
-    builder._through = this._through;
-    builder._throughA = this._throughA;
-    builder._throughB = fieldName;
-    return builder;
+  B(
+    fieldName: string
+  ): RelationBuilderImpl<UpdateState<State, { throughB: string }>> {
+    return new RelationBuilderImpl({ ...this._state, throughB: fieldName });
   }
 
   // ===========================================================================
@@ -372,64 +235,23 @@ export class RelationBuilderImpl {
   // ===========================================================================
 
   /** Create a one-to-one relation */
-  oneToOne<G extends Getter>(
-    getter: G
-  ): ToOneRelation<
-    G,
-    "oneToOne",
-    typeof this._optional extends true ? true : false
-  > {
-    const rel = this._optional
-      ? new ToOneRelation<G, "oneToOne", true>(getter, "oneToOne")
-      : new ToOneRelation<G, "oneToOne", false>(getter, "oneToOne");
-    if (this._fields) rel._fields = this._fields;
-    if (this._references) rel._references = this._references;
-    if (this._onDelete) rel._onDelete = this._onDelete;
-    if (this._onUpdate) rel._onUpdate = this._onUpdate;
-    (rel as any)._optional = this._optional;
-    return rel as any;
+  oneToOne<G extends Getter>(getter: G): OneToOneRelation<G, State> {
+    return new OneToOneRelation<G, State>(getter, this._state);
   }
 
   /** Create a many-to-one relation */
-  manyToOne<G extends Getter>(
-    getter: G
-  ): ToOneRelation<
-    G,
-    "manyToOne",
-    typeof this._optional extends true ? true : false
-  > {
-    const rel = this._optional
-      ? new ToOneRelation<G, "manyToOne", true>(getter, "manyToOne")
-      : new ToOneRelation<G, "manyToOne", false>(getter, "manyToOne");
-    if (this._fields) rel._fields = this._fields;
-    if (this._references) rel._references = this._references;
-    if (this._onDelete) rel._onDelete = this._onDelete;
-    if (this._onUpdate) rel._onUpdate = this._onUpdate;
-    (rel as any)._optional = this._optional;
-    return rel as any;
+  manyToOne<G extends Getter>(getter: G): ManyToOneRelation<G, State> {
+    return new ManyToOneRelation<G, State>(getter, this._state);
   }
 
   /** Create a one-to-many relation */
-  oneToMany<G extends Getter>(getter: G): OneToManyRelation<G> {
-    const rel = new OneToManyRelation<G>(getter);
-    if (this._fields) rel._fields = this._fields;
-    if (this._references) rel._references = this._references;
-    if (this._onDelete) rel._onDelete = this._onDelete;
-    if (this._onUpdate) rel._onUpdate = this._onUpdate;
-    return rel;
+  oneToMany<G extends Getter>(getter: G): OneToManyRelation<G, State> {
+    return new OneToManyRelation<G, State>(getter, this._state);
   }
 
   /** Create a many-to-many relation */
   manyToMany<G extends Getter>(getter: G): ManyToManyRelation<G> {
-    const rel = new ManyToManyRelation<G>(getter);
-    if (this._fields) rel._fields = this._fields;
-    if (this._references) rel._references = this._references;
-    if (this._onDelete) rel._onDelete = this._onDelete;
-    if (this._onUpdate) rel._onUpdate = this._onUpdate;
-    if (this._through) (rel as any)._through = this._through;
-    if (this._throughA) (rel as any)._throughA = this._throughA;
-    if (this._throughB) (rel as any)._throughB = this._throughB;
-    return rel;
+    return new ManyToManyRelation<G, State>(getter, this._state);
   }
 }
 
@@ -450,10 +272,10 @@ export class RelationBuilderImpl {
  * // Many-to-many with junction
  * tags: s.relation.through("post_tags").A("postId").B("tagId").manyToMany(() => tag)
  */
-export const relation = new Proxy({} as RelationBuilderImpl, {
+export const relation = new Proxy({} as RelationBuilderImpl<RelationState>, {
   get(_target, prop) {
     // Always create a fresh builder for each property access
-    const builder = new RelationBuilderImpl();
+    const builder = new RelationBuilderImpl<RelationState>({} as RelationState);
     const value = (builder as any)[prop];
     if (typeof value === "function") {
       return value.bind(builder);
@@ -502,6 +324,7 @@ export function getJunctionFieldNames(
 }
 
 export type AnyRelation =
-  | ToOneRelation<any, any, any>
-  | OneToManyRelation<any>
-  | ManyToManyRelation<any>;
+  | OneToOneRelation<any, any>
+  | ManyToOneRelation<any, any>
+  | OneToManyRelation<any, any>
+  | ManyToManyRelation<any, any>;

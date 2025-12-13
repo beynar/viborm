@@ -20,17 +20,27 @@ export const buildUncheckedCreateSchema = <TFields extends FieldRecord>(
   model: Model<any>
 ): Type<ModelUncheckedCreateInput<TFields>> => {
   const shape: Record<string, Type | string> = {};
+  const scalarFieldNames = new Set<string>();
 
   // Scalar fields
   for (const [name, field] of model["~"].fieldMap) {
-    shape[name] = field["~"].schemas.create;
+    const state = field["~"].state;
+    const isOptional =
+      state.hasDefault || state.autoGenerate !== undefined || state.nullable;
+    const key = isOptional ? name + "?" : name;
+    shape[key] = field["~"].schemas.create;
+    scalarFieldNames.add(name);
   }
 
-  // FK fields from to-one relations (optional)
+  // FK fields from to-one relations (optional) - only if not already defined as scalar
   for (const [name, relation] of model["~"].relations) {
     const relationType = relation["~"].relationType;
     if (relationType === "manyToOne" || relationType === "oneToOne") {
-      shape[`${name}Id?`] = "string";
+      const fkFieldName = `${name}Id`;
+      // Skip if FK field is already defined as a scalar field
+      if (!scalarFieldNames.has(fkFieldName)) {
+        shape[`${fkFieldName}?`] = "string";
+      }
     }
   }
 
@@ -46,17 +56,23 @@ export const buildUncheckedUpdateSchema = <TFields extends FieldRecord>(
   model: Model<any>
 ): Type<ModelUncheckedUpdateInput<TFields>> => {
   const shape: Record<string, Type | string> = {};
+  const scalarFieldNames = new Set<string>();
 
   // Scalar fields (optional)
   for (const [name, field] of model["~"].fieldMap) {
     shape[name + "?"] = field["~"].schemas.update;
+    scalarFieldNames.add(name);
   }
 
-  // FK fields from to-one relations (optional, nullable for disconnect)
+  // FK fields from to-one relations (optional, nullable for disconnect) - only if not already defined as scalar
   for (const [name, relation] of model["~"].relations) {
     const relationType = relation["~"].relationType;
     if (relationType === "manyToOne" || relationType === "oneToOne") {
-      shape[`${name}Id?`] = type("string").or(type("null"));
+      const fkFieldName = `${name}Id`;
+      // Skip if FK field is already defined as a scalar field
+      if (!scalarFieldNames.has(fkFieldName)) {
+        shape[`${fkFieldName}?`] = type("string").or(type("null"));
+      }
     }
   }
 
@@ -64,5 +80,3 @@ export const buildUncheckedUpdateSchema = <TFields extends FieldRecord>(
     ModelUncheckedUpdateInput<TFields>
   >;
 };
-
-

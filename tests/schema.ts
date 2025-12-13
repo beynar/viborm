@@ -7,34 +7,34 @@ import {
 } from "../src/schema/index.js";
 import { createClient } from "../src/index.js";
 import { PrismaClient } from "../generated/prisma/client.js";
-import { FindFirstArgs } from "@types/index.js";
+import { FindFirstArgs } from "../src/types/index.js";
 
 export const string = s.string();
 export const nullableString = s.string().nullable();
 export const stringWithDefault = s.string().default("default");
-export const stringWithValidation = s.string().validator(z.email());
+export const stringWithValidation = s.string().schema(z.email());
 
 export const number = s.int();
 export const nullableNumber = s.int().nullable();
 export const numberWithDefault = s.int().default(1);
-export const numberWithValidation = s.int().validator(z.number().min(1));
+export const numberWithValidation = s.int().schema(z.number().min(1));
 
 export const boolean = s.boolean();
 export const nullableBoolean = s.boolean().nullable();
 export const booleanWithDefault = s.boolean().default(true);
-export const booleanWithValidation = s.boolean().validator(z.boolean());
+export const booleanWithValidation = s.boolean().schema(z.boolean());
 
 export const bigint = s.bigInt();
 export const nullableBigint = s.bigInt().nullable();
 export const bigintWithDefault = s.bigInt().default(BigInt(1));
 export const bigintWithValidation = s
   .bigInt()
-  .validator(z.bigint().min(BigInt(1)));
+  .schema(z.bigint().min(BigInt(1)));
 
 export const dateTime = s.dateTime();
 export const nullableDateTime = s.dateTime().nullable();
 export const dateTimeWithDefault = s.dateTime().default(new Date());
-export const dateTimeWithValidation = s.dateTime().validator(z.date());
+export const dateTimeWithValidation = s.dateTime().schema(z.date());
 
 export const simpleJson = z.object({
   name: z.string(),
@@ -49,14 +49,14 @@ export const jsonWithDefault = s
 export const blob = s.blob();
 export const nullableBlob = s.blob().nullable();
 export const blobWithDefault = s.blob().default(new Uint8Array([1, 2, 3]));
-export const blobWithValidation = s.blob().validator(z.instanceof(Uint8Array));
+export const blobWithValidation = s.blob().schema(z.instanceof(Uint8Array));
 
 export const enumField = s.enum(["a", "b"]);
 export const nullableEnumField = s.enum(["a", "b"]).nullable();
 export const enumFieldWithDefault = s.enum(["a", "b"]).default("a");
 export const enumFieldWithValidation = s
   .enum(["a", "b"])
-  .validator(z.enum(["a", "b"]));
+  .schema(z.enum(["a", "b"]));
 
 export const model = s.model({
   id: s.string().id().ulid(),
@@ -147,7 +147,7 @@ export const testUser = s.model({
     .fields("authorId")
     .references("id")
     .oneToMany(() => testPost),
-  // profile: s.relation.optional().oneToOne(() => testProfile),
+  profile: s.relation.optional().oneToOne(() => testProfile),
 });
 
 /**
@@ -198,6 +198,29 @@ const client = createClient({
   schema,
   adapter: {} as any,
   driver: {} as any,
+});
+const res = await client.user.findFirst({
+  select: {
+    id: true,
+    posts: {
+      where: {
+        id: "elkzezl",
+      },
+    },
+  },
+  where: {
+    profile: {
+      user: {
+        posts: {
+          some: {
+            author: {
+              age: 12,
+            },
+          },
+        },
+      },
+    },
+  },
 });
 
 // Test WhereUnique with different identifier types

@@ -1,0 +1,11 @@
+
+
+Default
+for nullable field that have default values as raw value, the raw value are only generated inside the ORM land 
+therefore there is now way to ensure that the output is not null.
+Types should reflect that and should annotate the base output as T | null
+But if the default is a SQL statement this would be in the database land
+therefore it is possible to certify the output is T
+
+On the other hand. Default defined as SQL statement won't be available in the ORM land
+Meaning that the output of the schema of a field with SQL statement as default will be of type T | undefined
