@@ -1,6 +1,6 @@
 // String Field Schemas
 // Explicit Zod schemas for all string field variants
-
+import * as v from "valibot";
 import { object, json, prefault, ZodJSONSchema, output } from "zod/v4";
 import {
   lazy,
@@ -20,6 +20,7 @@ import {
   input as Input,
   ZodMiniNullable,
   email,
+  extend,
 } from "zod/v4-mini";
 
 // =============================================================================
@@ -178,3 +179,77 @@ try {
 } catch (e) {
   console.log("Validation failed as expected:", (e as Error).message);
 }
+
+export const shorthandFilter = <Z extends ZodMiniType>(
+  schema: Z
+): ZodMiniType<{ equals: output<Z> }, Z["_zod"]["input"]> =>
+  pipe(
+    schema,
+    transform((v) => ({ equals: v }))
+  );
+
+const iterations = 10000;
+const time = performance.now();
+for (let i = 0; i < iterations; i++) {
+  const stringNullableFilter = lazy(() =>
+    union([
+      extend(stringNullableFilterBase, {
+        not: optional(union([stringNullableFilterBase, stringNullable])),
+      }),
+      shorthandFilter(stringNullable),
+    ])
+  );
+  stringNullableFilter.parse("test");
+}
+const endTime = performance.now();
+console.log(`ZOD Time taken: ${endTime - time} milliseconds`);
+console.log(
+  `ZOD Time per iteration: ${((endTime - time) / iterations).toFixed(
+    2
+  )} milliseconds`
+);
+
+const shorthandFilterValibot = <Z extends v.BaseSchema<any, any, any>>(
+  schema: Z
+) =>
+  v.pipe(
+    schema,
+    v.transform((v) => ({ equals: v }))
+  );
+
+const stringNullableFilterBaseValibot = v.object({
+  equals: v.nullable(v.string()),
+  in: v.array(v.string()),
+  notIn: v.array(v.string()),
+  contains: v.string(),
+  startsWith: v.string(),
+  endsWith: v.string(),
+  mode: v.union([v.literal("default"), v.literal("insensitive")]),
+  lt: v.nullable(v.string()),
+  lte: v.nullable(v.string()),
+  gt: v.nullable(v.string()),
+  gte: v.nullable(v.string()),
+});
+
+const time2 = performance.now();
+for (let i = 0; i < iterations; i++) {
+  const stringNullableFilter = v.union([
+    v.lazy(() =>
+      v.object({
+        ...stringNullableFilterBaseValibot.entries,
+        not: v.optional(
+          v.union([stringNullableFilterBaseValibot, v.nullable(v.string())])
+        ),
+      })
+    ),
+    v.lazy(() => shorthandFilterValibot(v.nullable(v.string()))),
+  ]);
+  v.parse(stringNullableFilter, "test");
+}
+const endTime2 = performance.now();
+console.log(`Valibot Time taken: ${endTime2 - time2} milliseconds`);
+console.log(
+  `Valibot Time per iteration: ${((endTime2 - time2) / iterations).toFixed(
+    2
+  )} milliseconds`
+);
