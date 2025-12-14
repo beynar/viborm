@@ -145,11 +145,13 @@ s.decimal(TYPES.SQLITE.DECIMAL.REAL) // REAL (no exact decimal)
 ## Examples
 
 ```ts
+import { pipe, number, minValue, maxValue } from "valibot";
+
 // Auto-incrementing ID
 const id = s.int().id().increment();
 
 // Age with validation
-const age = s.int().validator(z.number().min(0).max(150));
+const age = s.int().schema(pipe(number(), minValue(0), maxValue(150)));
 
 // Price with exact precision
 const price = s.decimal(TYPES.PG.DECIMAL.DECIMAL(10, 2));
@@ -157,7 +159,7 @@ const price = s.decimal(TYPES.PG.DECIMAL.DECIMAL(10, 2));
 // Rating between 1-5
 const rating = s.float()
   .nullable()
-  .validator(z.number().min(1).max(5));
+  .schema(pipe(number(), minValue(1), maxValue(5)));
 
 // View counter with default
 const views = s.int().default(0);

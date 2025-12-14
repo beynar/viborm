@@ -1,65 +1,84 @@
 // JSON Field
-// Lean class delegating to schema factories
+// Standalone field class with State generic pattern
 
-import { object, string, type ZodMiniJSONSchemaInternals } from "zod/v4-mini";
-import type { StandardSchemaV1 } from "../../../standardSchema";
+import type { StandardSchemaOf } from "@standard-schema/spec";
+import { InferOutput } from "valibot";
 import {
   type UpdateState,
   type DefaultValue,
   type SchemaNames,
   createDefaultState,
   FieldState,
-  isOptional,
+  DefaultValueInput,
+  json as jsonSchema,
 } from "../common";
 import type { NativeType } from "../native-types";
-import { InferJsonInput, getFieldJsonSchemas, jsonSchemas } from "./schemas";
+import { getFieldJsonSchemas } from "./schemas";
+import { schemaFromStandardSchema, StandardSchemaToSchema } from "..";
 
-type JsonDefault<State extends FieldState<"json">> =
-  State["schema"] extends StandardSchemaV1
-    ? DefaultValue<
-        StandardSchemaV1.InferOutput<State["schema"]>,
-        false,
-        State["nullable"]
-      >
-    : DefaultValue<
-        ZodMiniJSONSchemaInternals["output"],
-        false,
-        State["nullable"]
-      >;
+// =============================================================================
+// JSON FIELD CLASS
+// =============================================================================
 
-export class JsonField<State extends FieldState<"json">> {
+export class JsonField<State extends FieldState<"json"> = FieldState<"json">> {
   private _names: SchemaNames = {};
 
   constructor(private state: State, private _nativeType?: NativeType) {}
 
-  nullable(): JsonField<UpdateState<State, { nullable: true }>> {
-    return new JsonField({ ...this.state, nullable: true }, this._nativeType);
+  nullable(): JsonField<
+    UpdateState<
+      State,
+      { nullable: true; hasDefault: true; defaultValue: DefaultValue<null> }
+    >
+  > {
+    return new JsonField(
+      {
+        ...this.state,
+        nullable: true,
+        hasDefault: true,
+        defaultValue: null,
+      } as UpdateState<
+        State,
+        { nullable: true; hasDefault: true; defaultValue: DefaultValue<null> }
+      >,
+      this._nativeType
+    );
   }
 
-  default(
-    value: DefaultValue<JsonDefault<State>, false, State["nullable"]>
-  ): JsonField<UpdateState<State, { hasDefault: true }>> {
+  default<V extends DefaultValueInput<State>>(
+    value: V
+  ): JsonField<UpdateState<State, { hasDefault: true; defaultValue: V }>> {
     return new JsonField(
       {
         ...this.state,
         hasDefault: true,
         defaultValue: value,
-      } as UpdateState<State, { hasDefault: true }>,
+      } as UpdateState<State, { hasDefault: true; defaultValue: V }>,
       this._nativeType
     );
   }
 
-  map(
-    columnName: string
-  ): JsonField<UpdateState<State, { columnName: string }>> {
-    return new JsonField({ ...this.state, columnName }, this._nativeType);
+  schema<S extends StandardSchemaOf<InferOutput<State["base"]>>>(
+    schema: S
+  ): JsonField<
+    UpdateState<State, { schema: S; base: StandardSchemaToSchema<S> }>
+  > {
+    return new JsonField(
+      {
+        ...this.state,
+        schema: schema,
+        base: schemaFromStandardSchema(this.state.base, schema),
+      } as UpdateState<State, { schema: S; base: StandardSchemaToSchema<S> }>,
+      this._nativeType
+    );
   }
 
-  schema = <TSchema extends StandardSchemaV1>(
-    s: TSchema
-  ): JsonField<UpdateState<State, { schema: TSchema }>> => {
-    return new JsonField({ ...this.state, schema: s }, this._nativeType);
-  };
+  map(columnName: string): this {
+    return new JsonField(
+      { ...this.state, columnName },
+      this._nativeType
+    ) as this;
+  }
 
   get ["~"]() {
     return {
@@ -72,29 +91,8 @@ export class JsonField<State extends FieldState<"json">> {
 }
 
 // =============================================================================
-// FACTORY FUNCTIONS
+// FACTORY FUNCTION
 // =============================================================================
 
-export function json(nativeType?: NativeType) {
-  return new JsonField(createDefaultState("json"), nativeType);
-}
-
-const test = json()
-  .schema(
-    object({
-      name: string(),
-      age: string(),
-    })
-  )
-  .nullable();
-
-const state = test["~"]["state"];
-
-const schema_test = test["~"]["schemas"];
-
-type Test = InferJsonInput<typeof state, "base">;
-type Test2 = InferJsonInput<typeof state, "create">;
-type Test3 = InferJsonInput<typeof state, "update">;
-type Test4 = InferJsonInput<typeof state, "filter">;
-
-const base = jsonSchemas(state).base;
+export const json = (nativeType?: NativeType) =>
+  new JsonField(createDefaultState("json", jsonSchema), nativeType);

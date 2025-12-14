@@ -6,7 +6,7 @@ icon: Workflow
 
 # Normalization Pipeline
 
-VibORM uses ArkType's `.pipe()` to normalize user-friendly shorthand syntax into canonical forms. This simplifies the query engine by ensuring it always receives predictable data structures.
+VibORM uses Valibot's `pipe()` and `transform()` to normalize user-friendly shorthand syntax into canonical forms. This simplifies the query engine by ensuring it always receives predictable data structures.
 
 ## Pipeline Overview
 
@@ -17,7 +17,7 @@ flowchart LR
     end
 
     subgraph Validation["Schema Validation"]
-        AT[ArkType Schema]
+        VL[Valibot Schema]
         P[Pipe Transform]
     end
 
@@ -29,8 +29,8 @@ flowchart LR
         QE[SQL Builder]
     end
 
-    UI --> AT
-    AT --> P
+    UI --> VL
+    VL --> P
     P --> NO
     NO --> QE
 ```
@@ -41,13 +41,23 @@ flowchart LR
 
 ```typescript
 // Schema definition with pipe
-export const stringFilter = type({
-  equals: stringBase,
-  contains: stringBase,
-  // ... other operators
-})
-  .partial()
-  .or(stringBase.pipe((v) => ({ equals: v })));  // Shorthand → canonical
+import { union, object, partial, pipe, transform } from "valibot";
+
+export const stringFilter = union([
+  shorthandFilter(stringBase), // Shorthand: string -> { equals: string }
+  extend(
+    partial(
+      object({
+        equals: stringBase,
+        contains: stringBase,
+        // ... other operators
+      })
+    ),
+    {
+      not: optional(union([shorthandFilter(stringBase), stringFilterBase])),
+    }
+  ),
+]);
 ```
 
 ### How It Works
@@ -87,25 +97,28 @@ flowchart TB
 
 ### All Scalar Normalizations
 
-| Field Type | User Writes | Query Engine Receives |
-|------------|-------------|----------------------|
-| String | `"Alice"` | `{ equals: "Alice" }` |
-| Number | `42` | `{ equals: 42 }` |
-| Boolean | `true` | `{ equals: true }` |
-| DateTime | `new Date()` | `{ equals: Date }` |
-| BigInt | `BigInt(1)` | `{ equals: BigInt(1) }` |
-| Enum | `"A"` | `{ equals: "A" }` |
-| Blob | `Uint8Array` | `{ equals: Uint8Array }` |
-| Nullable | `null` | `{ equals: null }` |
+| Field Type | User Writes  | Query Engine Receives    |
+| ---------- | ------------ | ------------------------ |
+| String     | `"Alice"`    | `{ equals: "Alice" }`    |
+| Number     | `42`         | `{ equals: 42 }`         |
+| Boolean    | `true`       | `{ equals: true }`       |
+| DateTime   | `new Date()` | `{ equals: Date }`       |
+| BigInt     | `BigInt(1)`  | `{ equals: BigInt(1) }`  |
+| Enum       | `"A"`        | `{ equals: "A" }`        |
+| Blob       | `Uint8Array` | `{ equals: Uint8Array }` |
+| Nullable   | `null`       | `{ equals: null }`       |
 
 ## Scalar Update Normalization
 
 ### The Pattern
 
 ```typescript
-export const stringUpdate = type({ set: stringBase })
-  .partial()
-  .or(stringBase.pipe((v) => ({ set: v })));
+import { union, object, partial } from "valibot";
+
+export const stringUpdate = union([
+  shorthandUpdate(stringBase), // Shorthand: string -> { set: string }
+  partial(object({ set: stringBase })),
+]);
 ```
 
 ### Normalization Flow
@@ -127,13 +140,13 @@ flowchart LR
 
 ### All Update Normalizations
 
-| Field Type | User Writes | Query Engine Receives |
-|------------|-------------|----------------------|
-| String | `"value"` | `{ set: "value" }` |
-| Number | `42` | `{ set: 42 }` |
-| Boolean | `false` | `{ set: false }` |
-| Blob | `Uint8Array` | `{ set: Uint8Array }` |
-| JSON | `{ a: 1 }` | `{ set: { a: 1 } }` |
+| Field Type | User Writes  | Query Engine Receives |
+| ---------- | ------------ | --------------------- |
+| String     | `"value"`    | `{ set: "value" }`    |
+| Number     | `42`         | `{ set: 42 }`         |
+| Boolean    | `false`      | `{ set: false }`      |
+| Blob       | `Uint8Array` | `{ set: Uint8Array }` |
+| JSON       | `{ a: 1 }`   | `{ set: { a: 1 } }`   |
 
 ### Numeric Operations (No Normalization)
 
@@ -141,10 +154,18 @@ These are already in canonical form:
 
 ```typescript
 // Already canonical - no normalization needed
-{ increment: 5 }
-{ decrement: 3 }
-{ multiply: 2 }
-{ divide: 4 }
+{
+  increment: 5;
+}
+{
+  decrement: 3;
+}
+{
+  multiply: 2;
+}
+{
+  divide: 4;
+}
 ```
 
 ## To-One Relation Filter Normalization
@@ -152,17 +173,29 @@ These are already in canonical form:
 ### The Most Important Normalization
 
 ```typescript
-shape[name + "?"] = type("object | null").pipe((t) => {
-  if (t === null) return { is: null };
-  if (isToOneShorthand(t)) return t;  // Already has is/isNot
-  return { is: t };  // Wrap shorthand
-});
+import { union, nullable, object, pipe, transform } from "valibot";
+
+shape[name] = optional(
+  pipe(
+    union([
+      nullable(getTargetModel()["~"].schemas.whereUnique),
+      object({ is: nullable(getTargetModel()["~"].schemas.whereUnique) }),
+    ]),
+    transform((t) => {
+      if (t === null) return { is: null };
+      if (isToOneShorthand(t)) return t; // Already has is/isNot
+      return { is: t }; // Wrap shorthand
+    })
+  )
+);
 ```
 
 ### Detection Logic
 
 ```typescript
-const isToOneShorthand = (t?: unknown): t is { is: unknown } | { isNot: unknown } => {
+const isToOneShorthand = (
+  t?: unknown
+): t is { is: unknown } | { isNot: unknown } => {
   return (
     t !== undefined &&
     typeof t === "object" &&
@@ -214,18 +247,34 @@ flowchart TB
 
 ```typescript
 // User writes (shorthand)
-where: { author: { name: "Alice" } }
+where: {
+  author: {
+    name: "Alice";
+  }
+}
 
 // Query engine receives (canonical)
-where: { author: { is: { name: "Alice" } } }
+where: {
+  author: {
+    is: {
+      name: "Alice";
+    }
+  }
+}
 ```
 
 ```typescript
 // User writes (null shorthand for optional relation)
-where: { profile: null }
+where: {
+  profile: null;
+}
 
 // Query engine receives
-where: { profile: { is: null } }
+where: {
+  profile: {
+    is: null;
+  }
+}
 ```
 
 ```typescript
@@ -241,48 +290,63 @@ where: { author: { is: { name: "Alice" }, isNot: { role: "admin" } } }
 ### Array Normalization
 
 ```typescript
-const ensureArray = <T>(v: T | T[]): T[] => Array.isArray(v) ? v : [v];
+import { union, array, pipe, transform } from "valibot";
+
+const ensureArray = <T>(v: T | T[]): T[] => (Array.isArray(v) ? v : [v]);
 
 // Single-or-array operations
-shape["create?"] = createSchema.or(createSchema.array()).pipe(ensureArray);
-shape["connect?"] = connectSchema.or(connectSchema.array()).pipe(ensureArray);
+shape["create"] = optional(
+  pipe(union([createSchema, array(createSchema)]), transform(ensureArray))
+);
+shape["connect"] = optional(
+  pipe(union([connectSchema, array(connectSchema)]), transform(ensureArray))
+);
 ```
 
 ### Array-Only Operations
 
-Some operations don't support single-value shorthand (ArkType limitation):
+Some operations don't support single-value shorthand (Valibot limitation):
 
 ```typescript
+import { optional, array } from "valibot";
+
 // These always require arrays
-shape["deleteMany?"] = whereSchema.array();
-shape["updateMany?"] = updateManySchema.array();
-shape["upsert?"] = upsertSchema.array();
+shape["deleteMany"] = optional(array(whereSchema));
+shape["updateMany"] = optional(array(updateManySchema));
+shape["upsert"] = optional(array(upsertSchema));
 ```
 
 ### Normalization Summary
 
-| Operation | User Can Write | Query Engine Receives |
-|-----------|---------------|----------------------|
-| create | `{ title: "Post" }` | `[{ title: "Post" }]` |
-| create | `[{ title: "A" }, { title: "B" }]` | `[{ title: "A" }, { title: "B" }]` |
-| connect | `{ id: "123" }` | `[{ id: "123" }]` |
-| deleteMany | `[{ published: false }]` | `[{ published: false }]` |
-| updateMany | `[{ where: {...}, data: {...} }]` | `[{ where: {...}, data: {...} }]` |
+| Operation  | User Can Write                     | Query Engine Receives              |
+| ---------- | ---------------------------------- | ---------------------------------- |
+| create     | `{ title: "Post" }`                | `[{ title: "Post" }]`              |
+| create     | `[{ title: "A" }, { title: "B" }]` | `[{ title: "A" }, { title: "B" }]` |
+| connect    | `{ id: "123" }`                    | `[{ id: "123" }]`                  |
+| deleteMany | `[{ published: false }]`           | `[{ published: false }]`           |
+| updateMany | `[{ where: {...}, data: {...} }]`  | `[{ where: {...}, data: {...} }]`  |
 
 ## Nested `not` Filter
 
 The `not` operator accepts both direct values and nested filter objects:
 
 ```typescript
-const stringFilterBase = type({
-  equals: stringBase,
-  contains: stringBase,
-  // ...
-}).partial();
+import { union, object, partial, optional, extend } from "valibot";
 
-export const stringFilter = stringFilterBase
-  .merge(type({ "not?": stringFilterBase.or(stringNullable) }))
-  .or(stringBase.pipe((v) => ({ equals: v })));
+const stringFilterBase = partial(
+  object({
+    equals: stringBase,
+    contains: stringBase,
+    // ...
+  })
+);
+
+export const stringFilter = union([
+  shorthandFilter(stringBase),
+  extend(stringFilterBase, {
+    not: optional(union([shorthandFilter(stringBase), stringFilterBase])),
+  }),
+]);
 ```
 
 ### Examples
@@ -334,4 +398,3 @@ console.log(result); // { name: { equals: "Alice" } }
 const result2 = whereSchema({ author: { name: "Alice" } });
 console.log(result2); // { author: { is: { name: "Alice" } } }
 ```
-

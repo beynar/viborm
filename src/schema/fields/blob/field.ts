@@ -1,29 +1,41 @@
 // Blob Field
-// Lean field class delegating schema selection to schema factory
+// Standalone field class with State generic pattern
 
-import type { StandardSchemaV1 } from "@standard-schema/spec";
 import {
   type FieldState,
   type UpdateState,
   type DefaultValue,
   type SchemaNames,
   createDefaultState,
+  DefaultValueInput,
 } from "../common";
 import type { NativeType } from "../native-types";
-import { getFieldBlobSchemas } from "./schemas";
+import { getFieldBlobSchemas, blobBase } from "./schemas";
+
+// =============================================================================
+// BLOB FIELD CLASS
+// =============================================================================
 
 export class BlobField<State extends FieldState<"blob">> {
   private _names: SchemaNames = {};
 
   constructor(private state: State, private _nativeType?: NativeType) {}
 
-  nullable(): BlobField<UpdateState<State, { nullable: true }>> {
-    return new BlobField({ ...this.state, nullable: true }, this._nativeType);
+  nullable(): BlobField<
+    UpdateState<
+      State,
+      { nullable: true; hasDefault: true; defaultValue: DefaultValue<null> }
+    >
+  > {
+    return new BlobField(
+      { ...this.state, nullable: true, hasDefault: true, defaultValue: null },
+      this._nativeType
+    );
   }
 
-  default(
-    value: DefaultValue<Uint8Array, false, State["nullable"]>
-  ): BlobField<UpdateState<State, { hasDefault: true }>> {
+  default<V extends DefaultValueInput<State>>(
+    value: V
+  ): BlobField<UpdateState<State, { hasDefault: true; defaultValue: V }>> {
     return new BlobField(
       {
         ...this.state,
@@ -34,18 +46,9 @@ export class BlobField<State extends FieldState<"blob">> {
     );
   }
 
-  schema(
-    schema: StandardSchemaV1
-  ): BlobField<UpdateState<State, { schema: StandardSchemaV1 }>> {
-    return new BlobField(
-      {
-        ...this.state,
-        schema: schema,
-      },
-      this._nativeType
-    );
-  }
-
+  /**
+   * Maps this field to a custom column name in the database
+   */
   map(columnName: string): this {
     return new BlobField(
       { ...this.state, columnName },
@@ -69,7 +72,7 @@ export class BlobField<State extends FieldState<"blob">> {
   get ["~"]() {
     return {
       state: this.state,
-      schemas: getFieldBlobSchemas(this.state),
+      schemas: getFieldBlobSchemas<State>(this.state),
       nativeType: this._nativeType,
       names: this._names,
     };
@@ -77,4 +80,4 @@ export class BlobField<State extends FieldState<"blob">> {
 }
 
 export const blob = (nativeType?: NativeType) =>
-  new BlobField(createDefaultState("blob"), nativeType);
+  new BlobField(createDefaultState("blob", blobBase), nativeType);

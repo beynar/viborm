@@ -12,7 +12,7 @@ import {
 } from "../common";
 import type { NativeType } from "../native-types";
 import { getFieldStringSchemas, stringBase } from "./schemas";
-import { StandardSchemaToZod, zodFromStandardSchema } from "..";
+import { schemaFromStandardSchema, StandardSchemaToSchema } from "..";
 import {
   defaultCuid,
   defaultNanoid,
@@ -73,13 +73,13 @@ export class StringField<State extends FieldState<"string">> {
   schema<S extends StandardSchemaOf<string>>(
     schema: S
   ): StringField<
-    UpdateState<State, { schema: S; base: StandardSchemaToZod<S> }>
+    UpdateState<State, { schema: S; base: StandardSchemaToSchema<S> }>
   > {
     return new StringField(
       {
         ...this.state,
         schema: schema,
-        base: zodFromStandardSchema(schema),
+        base: schemaFromStandardSchema(this.state.base, schema),
       },
       this._nativeType
     );

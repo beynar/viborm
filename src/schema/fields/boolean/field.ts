@@ -1,16 +1,16 @@
 // Boolean Field
-// Standalone field class mirroring the string field pattern
+// Standalone field class with State generic pattern
 
-import type { StandardSchemaV1 } from "@standard-schema/spec";
 import {
   type FieldState,
   type UpdateState,
   type DefaultValue,
   type SchemaNames,
   createDefaultState,
+  DefaultValueInput,
 } from "../common";
 import type { NativeType } from "../native-types";
-import { getFieldBooleanSchemas } from "./schemas";
+import { getFieldBooleanSchemas, booleanBase } from "./schemas";
 
 // =============================================================================
 // BOOLEAN FIELD CLASS
@@ -22,13 +22,14 @@ export class BooleanField<State extends FieldState<"boolean">> {
 
   constructor(private state: State, private _nativeType?: NativeType) {}
 
-  // ===========================================================================
-  // CHAINABLE MODIFIERS
-  // ===========================================================================
-
-  nullable(): BooleanField<UpdateState<State, { nullable: true }>> {
+  nullable(): BooleanField<
+    UpdateState<
+      State,
+      { nullable: true; hasDefault: true; defaultValue: DefaultValue<null> }
+    >
+  > {
     return new BooleanField(
-      { ...this.state, nullable: true },
+      { ...this.state, nullable: true, hasDefault: true, defaultValue: null },
       this._nativeType
     );
   }
@@ -37,26 +38,14 @@ export class BooleanField<State extends FieldState<"boolean">> {
     return new BooleanField({ ...this.state, array: true }, this._nativeType);
   }
 
-  default(
-    value: DefaultValue<boolean, State["array"], State["nullable"]>
-  ): BooleanField<UpdateState<State, { hasDefault: true }>> {
+  default<V extends DefaultValueInput<State>>(
+    value: V
+  ): BooleanField<UpdateState<State, { hasDefault: true; defaultValue: V }>> {
     return new BooleanField(
       {
         ...this.state,
         hasDefault: true,
         defaultValue: value,
-      },
-      this._nativeType
-    );
-  }
-
-  schema(
-    schema: StandardSchemaV1
-  ): BooleanField<UpdateState<State, { schema: StandardSchemaV1 }>> {
-    return new BooleanField(
-      {
-        ...this.state,
-        schema: schema,
       },
       this._nativeType
     );
@@ -79,7 +68,7 @@ export class BooleanField<State extends FieldState<"boolean">> {
   get ["~"]() {
     return {
       state: this.state,
-      schemas: getFieldBooleanSchemas(this.state),
+      schemas: getFieldBooleanSchemas<State>(this.state),
       nativeType: this._nativeType,
       names: this._names,
     };
@@ -91,4 +80,4 @@ export class BooleanField<State extends FieldState<"boolean">> {
 // =============================================================================
 
 export const boolean = (nativeType?: NativeType) =>
-  new BooleanField(createDefaultState("boolean"), nativeType);
+  new BooleanField(createDefaultState("boolean", booleanBase), nativeType);

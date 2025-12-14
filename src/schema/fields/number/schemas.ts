@@ -1,5 +1,5 @@
 // Number Field Schemas (int, float, decimal)
-// Follows FIELD_IMPLEMENTATION_GUIDE and mirrors string/boolean patterns
+// Factory pattern for number field variants following the string/boolean/datetime schema structure
 
 import {
   array,
@@ -9,25 +9,28 @@ import {
   object,
   optional,
   partial,
-  refine,
   union,
-  _default,
-  extend,
-  type input as Input,
-  int,
-} from "zod/v4-mini";
+  InferInput,
+  NullableSchema,
+  ArraySchema,
+  pipe,
+  integer,
+} from "valibot";
 import {
+  AnySchema,
+  extend,
   FieldState,
-  isOptional,
+  SchemaWithDefault,
   shorthandFilter,
   shorthandUpdate,
+  createWithDefault,
 } from "../common";
 
 // =============================================================================
 // BASE TYPES
 // =============================================================================
 
-export const intBase = int();
+export const intBase = pipe(number(), integer());
 export const intNullable = nullable(intBase);
 export const intList = array(intBase);
 export const intListNullable = nullable(intList);
@@ -37,21 +40,21 @@ export const floatNullable = nullable(floatBase);
 export const floatList = array(floatBase);
 export const floatListNullable = nullable(floatList);
 
-// Decimal reuses float schemas
+// Decimal reuses float base (same runtime behavior)
 export const decimalBase = floatBase;
 export const decimalNullable = floatNullable;
 export const decimalList = floatList;
 export const decimalListNullable = floatListNullable;
 
 // =============================================================================
-// FILTER SCHEMAS
+// INT FILTER SCHEMAS
 // =============================================================================
 
 const intFilterBase = partial(
   object({
     equals: intBase,
-    in: array(intBase),
-    notIn: array(intBase),
+    in: intList,
+    notIn: intList,
     lt: intBase,
     lte: intBase,
     gt: intBase,
@@ -62,8 +65,8 @@ const intFilterBase = partial(
 const intNullableFilterBase = partial(
   object({
     equals: intNullable,
-    in: array(intBase),
-    notIn: array(intBase),
+    in: intList,
+    notIn: intList,
     lt: intNullable,
     lte: intNullable,
     gt: intNullable,
@@ -71,61 +74,65 @@ const intNullableFilterBase = partial(
   })
 );
 
-const intListFilterBase = partial(
+const intArrayFilterBase = partial(
   object({
     equals: intList,
     has: intBase,
-    hasEvery: array(intBase),
-    hasSome: array(intBase),
+    hasEvery: intList,
+    hasSome: intList,
     isEmpty: boolean(),
   })
 );
 
-const intListNullableFilterBase = partial(
+const intNullableListFilterBase = partial(
   object({
     equals: intListNullable,
     has: intBase,
-    hasEvery: array(intBase),
-    hasSome: array(intBase),
+    hasEvery: intList,
+    hasSome: intList,
     isEmpty: boolean(),
   })
 );
 
 const intFilter = union([
-  extend(intFilterBase, {
-    not: optional(union([intFilterBase, shorthandFilter(intBase)])),
-  }),
   shorthandFilter(intBase),
+  extend(intFilterBase, {
+    not: optional(union([shorthandFilter(intBase), intFilterBase])),
+  }),
 ]);
 
 const intNullableFilter = union([
-  extend(intNullableFilterBase, {
-    not: optional(union([intNullableFilterBase, intNullable])),
-  }),
   shorthandFilter(intNullable),
+  extend(intNullableFilterBase, {
+    not: optional(union([shorthandFilter(intNullable), intNullableFilterBase])),
+  }),
 ]);
 
 const intListFilter = union([
-  extend(intListFilterBase, {
-    not: optional(union([intListFilterBase, shorthandFilter(intList)])),
-  }),
   shorthandFilter(intList),
+  extend(intArrayFilterBase, {
+    not: optional(union([shorthandFilter(intList), intArrayFilterBase])),
+  }),
 ]);
 
 const intListNullableFilter = union([
-  extend(intListNullableFilterBase, {
+  shorthandFilter(intListNullable),
+  extend(intNullableListFilterBase, {
     not: optional(
-      union([intListNullableFilterBase, shorthandFilter(intListNullable)])
+      union([shorthandFilter(intListNullable), intNullableListFilterBase])
     ),
   }),
-  shorthandFilter(intListNullable),
 ]);
+
+// =============================================================================
+// FLOAT FILTER SCHEMAS
+// =============================================================================
 
 const floatFilterBase = partial(
   object({
     equals: floatBase,
-    in: array(floatBase),
-    notIn: array(floatBase),
+    in: floatList,
+    notIn: floatList,
     lt: floatBase,
     lte: floatBase,
     gt: floatBase,
@@ -136,8 +143,8 @@ const floatFilterBase = partial(
 const floatNullableFilterBase = partial(
   object({
     equals: floatNullable,
-    in: array(floatBase),
-    notIn: array(floatBase),
+    in: floatList,
+    notIn: floatList,
     lt: floatNullable,
     lte: floatNullable,
     gt: floatNullable,
@@ -145,54 +152,56 @@ const floatNullableFilterBase = partial(
   })
 );
 
-const floatListFilterBase = partial(
+const floatArrayFilterBase = partial(
   object({
     equals: floatList,
     has: floatBase,
-    hasEvery: array(floatBase),
-    hasSome: array(floatBase),
+    hasEvery: floatList,
+    hasSome: floatList,
     isEmpty: boolean(),
   })
 );
 
-const floatListNullableFilterBase = partial(
+const floatNullableListFilterBase = partial(
   object({
     equals: floatListNullable,
     has: floatBase,
-    hasEvery: array(floatBase),
-    hasSome: array(floatBase),
+    hasEvery: floatList,
+    hasSome: floatList,
     isEmpty: boolean(),
   })
 );
 
 const floatFilter = union([
-  extend(floatFilterBase, {
-    not: optional(union([floatFilterBase, shorthandFilter(floatBase)])),
-  }),
   shorthandFilter(floatBase),
+  extend(floatFilterBase, {
+    not: optional(union([shorthandFilter(floatBase), floatFilterBase])),
+  }),
 ]);
 
 const floatNullableFilter = union([
-  extend(floatNullableFilterBase, {
-    not: optional(union([floatNullableFilterBase, floatNullable])),
-  }),
   shorthandFilter(floatNullable),
+  extend(floatNullableFilterBase, {
+    not: optional(
+      union([shorthandFilter(floatNullable), floatNullableFilterBase])
+    ),
+  }),
 ]);
 
 const floatListFilter = union([
-  extend(floatListFilterBase, {
-    not: optional(union([floatListFilterBase, shorthandFilter(floatList)])),
-  }),
   shorthandFilter(floatList),
+  extend(floatArrayFilterBase, {
+    not: optional(union([shorthandFilter(floatList), floatArrayFilterBase])),
+  }),
 ]);
 
 const floatListNullableFilter = union([
-  extend(floatListNullableFilterBase, {
+  shorthandFilter(floatListNullable),
+  extend(floatNullableListFilterBase, {
     not: optional(
-      union([floatListNullableFilterBase, shorthandFilter(floatListNullable)])
+      union([shorthandFilter(floatListNullable), floatNullableListFilterBase])
     ),
   }),
-  shorthandFilter(floatListNullable),
 ]);
 
 // Decimal filters reuse float filters
@@ -202,373 +211,349 @@ const decimalListFilter = floatListFilter;
 const decimalListNullableFilter = floatListNullableFilter;
 
 // =============================================================================
-// CREATE SCHEMAS
+// INT UPDATE FACTORIES
 // =============================================================================
 
-export const intCreate = intBase;
-export const intNullableCreate = _default(optional(intNullable), null);
-export const intOptionalCreate = optional(intBase);
-export const intOptionalNullableCreate = _default(optional(intNullable), null);
-export const intListCreate = intList;
-export const intListNullableCreate = _default(optional(intListNullable), null);
-export const intOptionalListCreate = optional(intList);
-export const intOptionalListNullableCreate = _default(
-  optional(intListNullable),
-  null
-);
+const intUpdateFactory = <S extends AnySchema>(base: S) =>
+  union([
+    shorthandUpdate(base),
+    partial(
+      object({
+        set: base,
+        increment: base,
+        decrement: base,
+        multiply: base,
+        divide: base,
+      })
+    ),
+  ]);
 
-export const floatCreate = floatBase;
-export const floatNullableCreate = _default(optional(floatNullable), null);
-export const floatOptionalCreate = optional(floatBase);
-export const floatOptionalNullableCreate = _default(
-  optional(floatNullable),
-  null
-);
-export const floatListCreate = floatList;
-export const floatListNullableCreate = _default(
-  optional(floatListNullable),
-  null
-);
-export const floatOptionalListCreate = optional(floatList);
-export const floatOptionalListNullableCreate = _default(
-  optional(floatListNullable),
-  null
-);
+const intNullableUpdateFactory = <S extends AnySchema>(base: S) =>
+  union([
+    shorthandUpdate(nullable(base)),
+    partial(
+      object({
+        set: nullable(base),
+        increment: base,
+        decrement: base,
+        multiply: base,
+        divide: base,
+      })
+    ),
+  ]);
 
-// Decimal creates reuse float creates
-export const decimalCreate = floatCreate;
-export const decimalNullableCreate = floatNullableCreate;
-export const decimalOptionalCreate = floatOptionalCreate;
-export const decimalOptionalNullableCreate = floatOptionalNullableCreate;
-export const decimalListCreate = floatListCreate;
-export const decimalListNullableCreate = floatListNullableCreate;
-export const decimalOptionalListCreate = floatOptionalListCreate;
-export const decimalOptionalListNullableCreate =
-  floatOptionalListNullableCreate;
+const intListUpdateFactory = <S extends AnySchema>(base: S) =>
+  union([
+    shorthandUpdate(array(base)),
+    partial(
+      object({
+        set: array(base),
+        push: union([base, array(base)]),
+        unshift: union([base, array(base)]),
+      })
+    ),
+  ]);
 
-// =============================================================================
-// UPDATE SCHEMAS
-// =============================================================================
+const intListNullableUpdateFactory = <S extends AnySchema>(base: S) =>
+  union([
+    shorthandUpdate(nullable(array(base))),
+    partial(
+      object({
+        set: nullable(array(base)),
+        push: union([base, array(base)]),
+        unshift: union([base, array(base)]),
+      })
+    ),
+  ]);
 
-export const intUpdate = union([
-  partial(
-    object({
-      set: intBase,
-      increment: intBase,
-      decrement: intBase,
-      multiply: intBase,
-      divide: intBase,
-    })
-  ),
-  shorthandUpdate(intBase),
-]);
-
-export const intNullableUpdate = union([
-  partial(
-    object({
-      set: intNullable,
-      increment: intBase,
-      decrement: intBase,
-      multiply: intBase,
-      divide: intBase,
-    })
-  ),
-  shorthandUpdate(intNullable),
-]);
-
-export const intListUpdate = union([
-  partial(
-    object({
-      set: array(intBase),
-      push: union([intBase, array(intBase)]),
-      unshift: union([intBase, array(intBase)]),
-    })
-  ),
-  shorthandUpdate(intList),
-]);
-
-export const intListNullableUpdate = union([
-  partial(
-    object({
-      set: intListNullable,
-      push: union([intBase, intList]),
-      unshift: union([intBase, intList]),
-    })
-  ),
-  shorthandUpdate(intListNullable),
-]);
-
-export const floatUpdate = union([
-  partial(
-    object({
-      set: floatBase,
-      increment: floatBase,
-      decrement: floatBase,
-      multiply: floatBase,
-      divide: floatBase,
-    })
-  ),
-  shorthandUpdate(floatBase),
-]);
-
-export const floatNullableUpdate = union([
-  partial(
-    object({
-      set: floatNullable,
-      increment: floatBase,
-      decrement: floatBase,
-      multiply: floatBase,
-      divide: floatBase,
-    })
-  ),
-  shorthandUpdate(floatNullable),
-]);
-
-export const floatListUpdate = union([
-  partial(
-    object({
-      set: array(floatBase),
-      push: union([floatBase, array(floatBase)]),
-      unshift: union([floatBase, array(floatBase)]),
-    })
-  ),
-  shorthandUpdate(floatList),
-]);
-
-export const floatListNullableUpdate = union([
-  partial(
-    object({
-      set: floatListNullable,
-      push: union([floatBase, floatList]),
-      unshift: union([floatBase, floatList]),
-    })
-  ),
-  shorthandUpdate(floatListNullable),
-]);
-
-// Decimal updates reuse float updates
-export const decimalUpdate = floatUpdate;
-export const decimalNullableUpdate = floatNullableUpdate;
-export const decimalListUpdate = floatListUpdate;
-export const decimalListNullableUpdate = floatListNullableUpdate;
+// Float/Decimal update factories reuse int factories (same operations)
+const floatUpdateFactory = intUpdateFactory;
+const floatNullableUpdateFactory = intNullableUpdateFactory;
+const floatListUpdateFactory = intListUpdateFactory;
+const floatListNullableUpdateFactory = intListNullableUpdateFactory;
 
 // =============================================================================
-// SCHEMA FACTORIES
+// INT SCHEMA BUILDERS
 // =============================================================================
 
-export const intSchemas = <Optional extends boolean>(o: Optional) => {
+export const intSchemas = <const F extends FieldState<"int">>(f: F) => {
   return {
-    base: intBase,
+    base: f.base,
     filter: intFilter,
-    create: (o === true
-      ? intOptionalCreate
-      : intCreate) as Optional extends true
-      ? typeof intOptionalCreate
-      : typeof intCreate,
-    update: intUpdate,
-  };
+    create: createWithDefault(f, f.base),
+    update: intUpdateFactory(f.base),
+  } as unknown as IntSchemas<F>;
 };
 
-export const intNullableSchemas = <Optional extends boolean>(o: Optional) => {
+type IntSchemas<F extends FieldState<"int">> = {
+  base: F["base"];
+  filter: typeof intFilter;
+  create: SchemaWithDefault<F>;
+  update: ReturnType<typeof intUpdateFactory<F["base"]>>;
+};
+
+export const intNullableSchemas = <F extends FieldState<"int">>(f: F) => {
   return {
-    base: intNullable,
+    base: nullable(f.base),
     filter: intNullableFilter,
-    create: (o === true
-      ? intOptionalNullableCreate
-      : intNullableCreate) as Optional extends true
-      ? typeof intOptionalNullableCreate
-      : typeof intNullableCreate,
-    update: intNullableUpdate,
-  };
+    create: createWithDefault(f, nullable(f.base)),
+    update: intNullableUpdateFactory(f.base),
+  } as unknown as IntNullableSchemas<F>;
 };
 
-export const intListSchemas = <Optional extends boolean>(o: Optional) => {
+type IntNullableSchemas<F extends FieldState<"int">> = {
+  base: NullableSchema<F["base"], undefined>;
+  filter: typeof intNullableFilter;
+  create: SchemaWithDefault<F>;
+  update: ReturnType<typeof intNullableUpdateFactory<F["base"]>>;
+};
+
+export const intListSchemas = <F extends FieldState<"int">>(f: F) => {
   return {
-    base: intList,
+    base: array(f.base),
     filter: intListFilter,
-    create: (o === true
-      ? intOptionalListCreate
-      : intListCreate) as Optional extends true
-      ? typeof intOptionalListCreate
-      : typeof intListCreate,
-    update: intListUpdate,
-  };
+    create: createWithDefault(f, array(f.base)),
+    update: intListUpdateFactory(f.base),
+  } as unknown as IntListSchemas<F>;
 };
 
-export const intListNullableSchemas = <Optional extends boolean>(
-  o: Optional
-) => {
+type IntListSchemas<F extends FieldState<"int">> = {
+  base: ArraySchema<F["base"], undefined>;
+  filter: typeof intListFilter;
+  create: SchemaWithDefault<F>;
+  update: ReturnType<typeof intListUpdateFactory<F["base"]>>;
+};
+
+export const intListNullableSchemas = <F extends FieldState<"int">>(f: F) => {
   return {
-    base: intListNullable,
+    base: nullable(array(f.base)),
     filter: intListNullableFilter,
-    create: (o === true
-      ? intOptionalListNullableCreate
-      : intListNullableCreate) as Optional extends true
-      ? typeof intOptionalListNullableCreate
-      : typeof intListNullableCreate,
-    update: intListNullableUpdate,
-  };
+    create: createWithDefault(f, nullable(array(f.base))),
+    update: intListNullableUpdateFactory(f.base),
+  } as unknown as IntListNullableSchemas<F>;
 };
 
-export const floatSchemas = <Optional extends boolean>(o: Optional) => {
+type IntListNullableSchemas<F extends FieldState<"int">> = {
+  base: NullableSchema<ArraySchema<F["base"], undefined>, undefined>;
+  filter: typeof intListNullableFilter;
+  create: SchemaWithDefault<F>;
+  update: ReturnType<typeof intListNullableUpdateFactory<F["base"]>>;
+};
+
+// =============================================================================
+// FLOAT SCHEMA BUILDERS
+// =============================================================================
+
+export const floatSchemas = <const F extends FieldState<"float">>(f: F) => {
   return {
-    base: floatBase,
+    base: f.base,
     filter: floatFilter,
-    create: (o === true
-      ? floatOptionalCreate
-      : floatCreate) as Optional extends true
-      ? typeof floatOptionalCreate
-      : typeof floatCreate,
-    update: floatUpdate,
-  };
+    create: createWithDefault(f, f.base),
+    update: floatUpdateFactory(f.base),
+  } as unknown as FloatSchemas<F>;
 };
 
-export const floatNullableSchemas = <Optional extends boolean>(o: Optional) => {
+type FloatSchemas<F extends FieldState<"float">> = {
+  base: F["base"];
+  filter: typeof floatFilter;
+  create: SchemaWithDefault<F>;
+  update: ReturnType<typeof floatUpdateFactory<F["base"]>>;
+};
+
+export const floatNullableSchemas = <F extends FieldState<"float">>(f: F) => {
   return {
-    base: floatNullable,
+    base: nullable(f.base),
     filter: floatNullableFilter,
-    create: (o === true
-      ? floatOptionalNullableCreate
-      : floatNullableCreate) as Optional extends true
-      ? typeof floatOptionalNullableCreate
-      : typeof floatNullableCreate,
-    update: floatNullableUpdate,
-  };
+    create: createWithDefault(f, nullable(f.base)),
+    update: floatNullableUpdateFactory(f.base),
+  } as unknown as FloatNullableSchemas<F>;
 };
 
-export const floatListSchemas = <Optional extends boolean>(o: Optional) => {
+type FloatNullableSchemas<F extends FieldState<"float">> = {
+  base: NullableSchema<F["base"], undefined>;
+  filter: typeof floatNullableFilter;
+  create: SchemaWithDefault<F>;
+  update: ReturnType<typeof floatNullableUpdateFactory<F["base"]>>;
+};
+
+export const floatListSchemas = <F extends FieldState<"float">>(f: F) => {
   return {
-    base: floatList,
+    base: array(f.base),
     filter: floatListFilter,
-    create: (o === true
-      ? floatOptionalListCreate
-      : floatListCreate) as Optional extends true
-      ? typeof floatOptionalListCreate
-      : typeof floatListCreate,
-    update: floatListUpdate,
-  };
+    create: createWithDefault(f, array(f.base)),
+    update: floatListUpdateFactory(f.base),
+  } as unknown as FloatListSchemas<F>;
 };
 
-export const floatListNullableSchemas = <Optional extends boolean>(
-  o: Optional
+type FloatListSchemas<F extends FieldState<"float">> = {
+  base: ArraySchema<F["base"], undefined>;
+  filter: typeof floatListFilter;
+  create: SchemaWithDefault<F>;
+  update: ReturnType<typeof floatListUpdateFactory<F["base"]>>;
+};
+
+export const floatListNullableSchemas = <F extends FieldState<"float">>(
+  f: F
 ) => {
   return {
-    base: floatListNullable,
+    base: nullable(array(f.base)),
     filter: floatListNullableFilter,
-    create: (o === true
-      ? floatOptionalListNullableCreate
-      : floatListNullableCreate) as Optional extends true
-      ? typeof floatOptionalListNullableCreate
-      : typeof floatListNullableCreate,
-    update: floatListNullableUpdate,
-  };
+    create: createWithDefault(f, nullable(array(f.base))),
+    update: floatListNullableUpdateFactory(f.base),
+  } as unknown as FloatListNullableSchemas<F>;
 };
 
-// Decimal factories reuse float factories
-export const decimalSchemas = <Optional extends boolean>(o: Optional) =>
-  floatSchemas(o);
-export const decimalNullableSchemas = <Optional extends boolean>(o: Optional) =>
-  floatNullableSchemas(o);
-export const decimalListSchemas = <Optional extends boolean>(o: Optional) =>
-  floatListSchemas(o);
-export const decimalListNullableSchemas = <Optional extends boolean>(
-  o: Optional
-) => floatListNullableSchemas(o);
+type FloatListNullableSchemas<F extends FieldState<"float">> = {
+  base: NullableSchema<ArraySchema<F["base"], undefined>, undefined>;
+  filter: typeof floatListNullableFilter;
+  create: SchemaWithDefault<F>;
+  update: ReturnType<typeof floatListNullableUpdateFactory<F["base"]>>;
+};
 
 // =============================================================================
-// TYPE HELPERS
+// DECIMAL SCHEMA BUILDERS (reuse float with decimal field state)
 // =============================================================================
 
-export type IntListNullableSchemas<Optional extends boolean = false> =
-  ReturnType<typeof intListNullableSchemas<Optional>>;
-export type IntListSchemas<Optional extends boolean = false> = ReturnType<
-  typeof intListSchemas<Optional>
->;
-export type IntNullableSchemas<Optional extends boolean = false> = ReturnType<
-  typeof intNullableSchemas<Optional>
->;
-export type IntSchemas<Optional extends boolean = false> = ReturnType<
-  typeof intSchemas<Optional>
->;
+export const decimalSchemas = <const F extends FieldState<"decimal">>(f: F) => {
+  return {
+    base: f.base,
+    filter: decimalFilter,
+    create: createWithDefault(f, f.base),
+    update: floatUpdateFactory(f.base),
+  } as unknown as DecimalSchemas<F>;
+};
 
-export type FloatListNullableSchemas<Optional extends boolean = false> =
-  ReturnType<typeof floatListNullableSchemas<Optional>>;
-export type FloatListSchemas<Optional extends boolean = false> = ReturnType<
-  typeof floatListSchemas<Optional>
->;
-export type FloatNullableSchemas<Optional extends boolean = false> = ReturnType<
-  typeof floatNullableSchemas<Optional>
->;
-export type FloatSchemas<Optional extends boolean = false> = ReturnType<
-  typeof floatSchemas<Optional>
->;
+type DecimalSchemas<F extends FieldState<"decimal">> = {
+  base: F["base"];
+  filter: typeof decimalFilter;
+  create: SchemaWithDefault<F>;
+  update: ReturnType<typeof floatUpdateFactory<F["base"]>>;
+};
 
-export type DecimalListNullableSchemas<Optional extends boolean = false> =
-  ReturnType<typeof decimalListNullableSchemas<Optional>>;
-export type DecimalListSchemas<Optional extends boolean = false> = ReturnType<
-  typeof decimalListSchemas<Optional>
->;
-export type DecimalNullableSchemas<Optional extends boolean = false> =
-  ReturnType<typeof decimalNullableSchemas<Optional>>;
-export type DecimalSchemas<Optional extends boolean = false> = ReturnType<
-  typeof decimalSchemas<Optional>
->;
+export const decimalNullableSchemas = <F extends FieldState<"decimal">>(
+  f: F
+) => {
+  return {
+    base: nullable(f.base),
+    filter: decimalNullableFilter,
+    create: createWithDefault(f, nullable(f.base)),
+    update: floatNullableUpdateFactory(f.base),
+  } as unknown as DecimalNullableSchemas<F>;
+};
+
+type DecimalNullableSchemas<F extends FieldState<"decimal">> = {
+  base: NullableSchema<F["base"], undefined>;
+  filter: typeof decimalNullableFilter;
+  create: SchemaWithDefault<F>;
+  update: ReturnType<typeof floatNullableUpdateFactory<F["base"]>>;
+};
+
+export const decimalListSchemas = <F extends FieldState<"decimal">>(f: F) => {
+  return {
+    base: array(f.base),
+    filter: decimalListFilter,
+    create: createWithDefault(f, array(f.base)),
+    update: floatListUpdateFactory(f.base),
+  } as unknown as DecimalListSchemas<F>;
+};
+
+type DecimalListSchemas<F extends FieldState<"decimal">> = {
+  base: ArraySchema<F["base"], undefined>;
+  filter: typeof decimalListFilter;
+  create: SchemaWithDefault<F>;
+  update: ReturnType<typeof floatListUpdateFactory<F["base"]>>;
+};
+
+export const decimalListNullableSchemas = <F extends FieldState<"decimal">>(
+  f: F
+) => {
+  return {
+    base: nullable(array(f.base)),
+    filter: decimalListNullableFilter,
+    create: createWithDefault(f, nullable(array(f.base))),
+    update: floatListNullableUpdateFactory(f.base),
+  } as unknown as DecimalListNullableSchemas<F>;
+};
+
+type DecimalListNullableSchemas<F extends FieldState<"decimal">> = {
+  base: NullableSchema<ArraySchema<F["base"], undefined>, undefined>;
+  filter: typeof decimalListNullableFilter;
+  create: SchemaWithDefault<F>;
+  update: ReturnType<typeof floatListNullableUpdateFactory<F["base"]>>;
+};
+
+// =============================================================================
+// TYPE INFERENCE
+// =============================================================================
 
 export type InferIntSchemas<F extends FieldState<"int">> =
   F["array"] extends true
     ? F["nullable"] extends true
-      ? IntListNullableSchemas<isOptional<F>>
-      : IntListSchemas<isOptional<F>>
+      ? IntListNullableSchemas<F>
+      : IntListSchemas<F>
     : F["nullable"] extends true
-    ? IntNullableSchemas<isOptional<F>>
-    : IntSchemas<isOptional<F>>;
+    ? IntNullableSchemas<F>
+    : IntSchemas<F>;
 
 export type InferFloatSchemas<F extends FieldState<"float">> =
   F["array"] extends true
     ? F["nullable"] extends true
-      ? FloatListNullableSchemas<isOptional<F>>
-      : FloatListSchemas<isOptional<F>>
+      ? FloatListNullableSchemas<F>
+      : FloatListSchemas<F>
     : F["nullable"] extends true
-    ? FloatNullableSchemas<isOptional<F>>
-    : FloatSchemas<isOptional<F>>;
+    ? FloatNullableSchemas<F>
+    : FloatSchemas<F>;
 
 export type InferDecimalSchemas<F extends FieldState<"decimal">> =
-  InferFloatSchemas<F & FieldState<"float">>;
+  F["array"] extends true
+    ? F["nullable"] extends true
+      ? DecimalListNullableSchemas<F>
+      : DecimalListSchemas<F>
+    : F["nullable"] extends true
+    ? DecimalNullableSchemas<F>
+    : DecimalSchemas<F>;
 
 // =============================================================================
 // MAIN SCHEMA GETTERS
 // =============================================================================
 
 export const getFieldIntSchemas = <F extends FieldState<"int">>(f: F) => {
-  const isOpt = f.hasDefault || f.nullable;
-  const isArr = f.array;
   return (
-    isArr
-      ? isOpt
-        ? intListNullableSchemas(isOpt)
-        : intListSchemas(isOpt)
-      : isOpt
-      ? intNullableSchemas(isOpt)
-      : intSchemas(isOpt)
+    f.array
+      ? f.nullable
+        ? intListNullableSchemas(f)
+        : intListSchemas(f)
+      : f.nullable
+      ? intNullableSchemas(f)
+      : intSchemas(f)
   ) as InferIntSchemas<F>;
 };
 
 export const getFieldFloatSchemas = <F extends FieldState<"float">>(f: F) => {
-  const isOpt = f.hasDefault || f.nullable;
-  const isArr = f.array;
   return (
-    isArr
-      ? isOpt
-        ? floatListNullableSchemas(isOpt)
-        : floatListSchemas(isOpt)
-      : isOpt
-      ? floatNullableSchemas(isOpt)
-      : floatSchemas(isOpt)
+    f.array
+      ? f.nullable
+        ? floatListNullableSchemas(f)
+        : floatListSchemas(f)
+      : f.nullable
+      ? floatNullableSchemas(f)
+      : floatSchemas(f)
   ) as InferFloatSchemas<F>;
 };
 
-export const getFieldDecimalSchemas = <F extends FieldState<"decimal">>(f: F) =>
-  getFieldFloatSchemas(f as F & FieldState<"float">) as InferDecimalSchemas<F>;
+export const getFieldDecimalSchemas = <F extends FieldState<"decimal">>(
+  f: F
+) => {
+  return (
+    f.array
+      ? f.nullable
+        ? decimalListNullableSchemas(f)
+        : decimalListSchemas(f)
+      : f.nullable
+      ? decimalNullableSchemas(f)
+      : decimalSchemas(f)
+  ) as InferDecimalSchemas<F>;
+};
 
 // =============================================================================
 // INPUT TYPE INFERENCE
@@ -576,15 +561,15 @@ export const getFieldDecimalSchemas = <F extends FieldState<"decimal">>(f: F) =>
 
 export type InferIntInput<
   F extends FieldState<"int">,
-  Type extends "create" | "update" | "filter"
-> = Input<InferIntSchemas<F>[Type]>;
+  Type extends "create" | "update" | "filter" | "base"
+> = InferInput<InferIntSchemas<F>[Type]>;
 
 export type InferFloatInput<
   F extends FieldState<"float">,
-  Type extends "create" | "update" | "filter"
-> = Input<InferFloatSchemas<F>[Type]>;
+  Type extends "create" | "update" | "filter" | "base"
+> = InferInput<InferFloatSchemas<F>[Type]>;
 
 export type InferDecimalInput<
   F extends FieldState<"decimal">,
-  Type extends "create" | "update" | "filter"
-> = Input<InferDecimalSchemas<F>[Type]>;
+  Type extends "create" | "update" | "filter" | "base"
+> = InferInput<InferDecimalSchemas<F>[Type]>;

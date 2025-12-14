@@ -1,62 +1,36 @@
 // JSON Field Schemas
-// Factory pattern handling optional StandardSchema for typed validation
-
-import { z, ZodJSONSchema } from "zod/v4";
+// Factory pattern for JSON field variants following the established schema structure
 
 import {
   array,
-  boolean,
   nullable,
   object,
   optional,
   partial,
   string,
   union,
-  _default,
-  extend,
-  json,
-  pipe,
-  type input as Input,
-  type output as Output,
-  ZodMiniType,
-  ZodMiniJSONSchema,
-  core,
-  ZodMiniNullable,
-  prefault,
-} from "zod/v4-mini";
-import type { StandardSchemaV1 } from "../../../standardSchema";
+  InferInput,
+  NullableSchema,
+} from "valibot";
 import {
+  AnySchema,
+  extend,
   FieldState,
-  isOptional,
+  SchemaWithDefault,
   shorthandFilter,
   shorthandUpdate,
+  createWithDefault,
 } from "../common";
-import { StandardSchemaToZod, zodFromStandardSchema } from "../standard-schema";
-
-// =============================================================================
-// BASE BUILDERS
-// =============================================================================
-
-export const jsonBase = <const S extends StandardSchemaV1 | undefined>(
-  schema: S
-) =>
-  !schema
-    ? json()
-    : (zodFromStandardSchema(schema) as S extends StandardSchemaV1
-        ? StandardSchemaToZod<S>
-        : ZodMiniJSONSchema);
-
-const jsonNullable = <S extends StandardSchemaV1 | undefined>(schema: S) => {
-  return nullable(jsonBase(schema)) as S extends StandardSchemaV1
-    ? ZodMiniNullable<StandardSchemaToZod<S>>
-    : ZodMiniNullable<ZodMiniJSONSchema>;
-};
 
 // =============================================================================
 // FILTER FACTORIES
 // =============================================================================
 
-const jsonFilterFactory = <const B extends ZodMiniType>(base: B) => {
+// Note: JSON filters do NOT support shorthand because JSON values can be objects,
+// making it impossible to distinguish between a filter operation and a JSON value.
+// This matches Prisma's behavior where you always use { equals: value }.
+
+const jsonFilterFactory = <S extends AnySchema>(base: S) => {
   const filterBase = partial(
     object({
       equals: base,
@@ -69,167 +43,102 @@ const jsonFilterFactory = <const B extends ZodMiniType>(base: B) => {
       array_ends_with: base,
     })
   );
-  return union([
-    extend(filterBase, {
-      not: optional(union([filterBase, shorthandFilter(base)])),
-    }),
-    shorthandFilter(base),
-  ]);
+  return extend(filterBase, {
+    not: optional(filterBase),
+  });
 };
 
-const jsonNullableFilterFactory = <B extends ZodMiniNullable>(base: B) => {
+const jsonNullableFilterFactory = <S extends AnySchema>(base: S) => {
+  const nullableBase = nullable(base);
   const filterBase = partial(
     object({
-      equals: base,
+      equals: nullableBase,
       path: array(string()),
       string_contains: string(),
       string_starts_with: string(),
       string_ends_with: string(),
-      array_contains: base.def.innerType,
-      array_starts_with: base.def.innerType,
-      array_ends_with: base.def.innerType,
+      array_contains: base,
+      array_starts_with: base,
+      array_ends_with: base,
     })
   );
-  return union([
-    extend(filterBase, {
-      not: optional(union([filterBase, base])),
-    }),
-    shorthandFilter(base),
-  ]);
-};
-
-// =============================================================================
-// CREATE FACTORIES
-// =============================================================================
-
-const jsonCreate = <B extends ZodMiniType>(base: B) => base;
-
-const jsonOptionalCreate = <B extends ZodMiniType>(base: B) => optional(base);
-
-type NoUndefined<T> = T extends undefined ? never : T;
-
-const jsonOptionalNullableCreate = <B extends ZodMiniNullable>(base: B) => {
-  return _default(optional(base), null as NoUndefined<Output<B>>);
+  return extend(filterBase, {
+    not: optional(filterBase),
+  });
 };
 
 // =============================================================================
 // UPDATE FACTORIES
 // =============================================================================
 
-const jsonUpdateFactory = <B extends ZodMiniType>(base: B) => {
-  return union([partial(object({ set: base })), shorthandUpdate(base)]);
-};
+// Note: JSON updates do NOT support shorthand because JSON values can be objects,
+// making it impossible to distinguish between an update operation and a JSON value.
+// This matches Prisma's behavior where you always use { set: value }.
 
-const jsonNullableUpdateFactory = <B extends ZodMiniType>(base: B) => {
-  return union([partial(object({ set: base })), shorthandUpdate(base)]);
-};
+const jsonUpdateFactory = <S extends AnySchema>(base: S) =>
+  partial(object({ set: base }));
+
+const jsonNullableUpdateFactory = <S extends AnySchema>(base: S) =>
+  partial(object({ set: nullable(base) }));
 
 // =============================================================================
-// SCHEMA FACTORIES
+// SCHEMA BUILDERS
 // =============================================================================
 
-export const jsonSchemas = <S extends FieldState<"json">>(state: S) => {
-  const base = jsonBase(state.schema);
+export const jsonSchemas = <const F extends FieldState<"json">>(f: F) => {
   return {
-    base,
-    filter: jsonFilterFactory(base),
-    create: jsonCreate(base),
-    update: jsonUpdateFactory(base),
-  } as unknown as JsonSchemas<S>;
+    base: f.base,
+    filter: jsonFilterFactory(f.base),
+    create: createWithDefault(f, f.base),
+    update: jsonUpdateFactory(f.base),
+  } as unknown as JsonSchemas<F>;
 };
 
-export const jsonNullableSchemas = <S extends FieldState<"json">>(state: S) => {
-  const base = jsonNullable(state.schema);
+type JsonSchemas<F extends FieldState<"json">> = {
+  base: F["base"];
+  filter: ReturnType<typeof jsonFilterFactory<F["base"]>>;
+  create: SchemaWithDefault<F>;
+  update: ReturnType<typeof jsonUpdateFactory<F["base"]>>;
+};
+
+export const jsonNullableSchemas = <F extends FieldState<"json">>(f: F) => {
   return {
-    base,
-    filter: jsonNullableFilterFactory(base),
-    create: jsonOptionalNullableCreate(base),
-    update: jsonNullableUpdateFactory(base),
-  } as unknown as JsonNullableSchemas<S>;
+    base: nullable(f.base),
+    filter: jsonNullableFilterFactory(f.base),
+    create: createWithDefault(f, nullable(f.base)),
+    update: jsonNullableUpdateFactory(f.base),
+  } as unknown as JsonNullableSchemas<F>;
 };
 
-export type JsonSchemas<S extends FieldState<"json">> =
-  S["schema"] extends StandardSchemaV1
-    ? {
-        base: ZodMiniNullable<StandardSchemaToZod<S["schema"]>>;
-        filter: ReturnType<
-          typeof jsonNullableFilterFactory<
-            ZodMiniNullable<StandardSchemaToZod<S["schema"]>>
-          >
-        >;
-        create: isOptional<S> extends true
-          ? ReturnType<
-              typeof jsonOptionalCreate<
-                ZodMiniNullable<StandardSchemaToZod<S["schema"]>>
-              >
-            >
-          : ReturnType<
-              typeof jsonCreate<
-                ZodMiniNullable<StandardSchemaToZod<S["schema"]>>
-              >
-            >;
-        update: ReturnType<
-          typeof jsonNullableUpdateFactory<
-            ZodMiniNullable<StandardSchemaToZod<S["schema"]>>
-          >
-        >;
-      }
-    : {
-        base: ZodMiniNullable<ZodMiniJSONSchema>;
-        filter: ReturnType<
-          typeof jsonNullableFilterFactory<ZodMiniNullable<ZodMiniJSONSchema>>
-        >;
-        create: isOptional<S> extends true
-          ? ReturnType<
-              typeof jsonOptionalCreate<ZodMiniNullable<ZodMiniJSONSchema>>
-            >
-          : ReturnType<typeof jsonCreate<ZodMiniNullable<ZodMiniJSONSchema>>>;
-        update: ReturnType<
-          typeof jsonNullableUpdateFactory<ZodMiniNullable<ZodMiniJSONSchema>>
-        >;
-      };
-
-export type JsonNullableSchemas<S extends FieldState<"json">> =
-  S["schema"] extends StandardSchemaV1
-    ? {
-        base: StandardSchemaToZod<S["schema"]>;
-        filter: ReturnType<
-          typeof jsonFilterFactory<StandardSchemaToZod<S["schema"]>>
-        >;
-        create: ReturnType<
-          typeof jsonOptionalNullableCreate<
-            ZodMiniNullable<StandardSchemaToZod<S["schema"]>>
-          >
-        >;
-        update: ReturnType<
-          typeof jsonUpdateFactory<StandardSchemaToZod<S["schema"]>>
-        >;
-      }
-    : {
-        base: ZodMiniJSONSchema;
-        filter: ReturnType<typeof jsonFilterFactory<ZodMiniJSONSchema>>;
-        create: ReturnType<typeof jsonCreate<ZodMiniJSONSchema>>;
-        update: ReturnType<typeof jsonUpdateFactory<ZodMiniJSONSchema>>;
-      };
+type JsonNullableSchemas<F extends FieldState<"json">> = {
+  base: NullableSchema<F["base"], undefined>;
+  filter: ReturnType<typeof jsonNullableFilterFactory<F["base"]>>;
+  create: SchemaWithDefault<F>;
+  update: ReturnType<typeof jsonNullableUpdateFactory<F["base"]>>;
+};
 
 // =============================================================================
-// TYPE HELPERS
+// TYPE INFERENCE
 // =============================================================================
 
 export type InferJsonSchemas<F extends FieldState<"json">> =
   F["nullable"] extends true ? JsonNullableSchemas<F> : JsonSchemas<F>;
 
-export type InferJsonInput<
-  F extends FieldState<"json">,
-  Type extends "create" | "update" | "filter" | "base"
-> = Input<InferJsonSchemas<F>[Type]>;
-
 // =============================================================================
 // MAIN SCHEMA GETTER
 // =============================================================================
 
-export const getFieldJsonSchemas = <S extends FieldState<"json">>(state: S) => {
+export const getFieldJsonSchemas = <F extends FieldState<"json">>(f: F) => {
   return (
-    state.nullable ? jsonNullableSchemas(state) : jsonSchemas(state)
-  ) as InferJsonSchemas<S>;
+    f.nullable ? jsonNullableSchemas(f) : jsonSchemas(f)
+  ) as InferJsonSchemas<F>;
 };
+
+// =============================================================================
+// INPUT TYPE INFERENCE
+// =============================================================================
+
+export type InferJsonInput<
+  F extends FieldState<"json">,
+  Type extends "create" | "update" | "filter" | "base"
+> = InferInput<InferJsonSchemas<F>[Type]>;

@@ -3,21 +3,51 @@
 
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import {
-  transform,
-  output,
-  ZodMiniType,
-  pipe,
-  _default,
-  ZodMiniJSONSchemaInternals,
-  output as Output,
-  input as Input,
+  BaseSchema,
+  Default,
+  NullableSchema,
+  ArraySchema,
+  ObjectSchema,
+  InferInput,
+  InferOutput,
+  OptionalSchema,
+  lazy,
+  union,
+  LazySchema,
+  array,
   optional,
-  core,
-  ZodMiniArray,
-  ZodMiniNullable,
-  ZodMiniOptional,
-} from "zod/v4-mini";
+  record,
+  pipe,
+  transform,
+  object,
+  string,
+  null_,
+  boolean,
+  number,
+} from "valibot";
 
+// JSON value type matching Prisma's JsonValue
+type JsonValue =
+  | null
+  | boolean
+  | number
+  | string
+  | JsonValue[]
+  | { [key: string]: JsonValue };
+
+type JsonSchema = BaseSchema<JsonValue, JsonValue, any>;
+export const json: JsonSchema = lazy(() =>
+  union([
+    null_(),
+    boolean(),
+    number(),
+    string(),
+    array(json),
+    record(string(), json),
+  ])
+);
+
+export type AnySchema = BaseSchema<any, any, any>;
 // =============================================================================
 // SCHEMA NAMES (hydrated by client at initialization)
 // =============================================================================
@@ -81,7 +111,7 @@ export interface FieldState<T extends ScalarFieldType = ScalarFieldType> {
   defaultValue: DefaultValue<any> | undefined;
   autoGenerate: AutoGenerateType | undefined;
   schema: StandardSchemaV1 | undefined;
-  base: ZodMiniType;
+  base: BaseSchema<any, any, any>;
   /** Custom column name in the database (set via .map()) */
   columnName: string | undefined;
 }
@@ -122,14 +152,15 @@ export type MaybeArray<
   IsArray extends boolean = false
 > = IsArray extends true ? T[] : T;
 
-type MaybeZodArray<
-  T extends ZodMiniType,
+type MaybeArraySchema<
+  T extends AnySchema,
   S extends FieldState
-> = S["array"] extends true ? ZodMiniArray<T> : T;
-type MaybeZodNullable<
-  T extends ZodMiniType,
+> = S["array"] extends true ? ArraySchema<T, undefined> : T;
+
+type MaybeNullableSchema<
+  T extends AnySchema,
   S extends FieldState
-> = S["nullable"] extends true ? ZodMiniNullable<T> : T;
+> = S["nullable"] extends true ? NullableSchema<T, undefined> : T;
 
 /**
  * Type for default value - can be direct value or factory function
@@ -140,37 +171,24 @@ export type DefaultValueInput<S extends FieldState> = S["type"] extends "json"
   ? DefaultValue<
       S["schema"] extends StandardSchemaV1
         ? StandardSchemaV1.InferOutput<S["schema"]>
-        : ZodMiniJSONSchemaInternals["output"]
+        : InferOutput<typeof json>
     >
   : DefaultValue<
-      MaybeNullable<MaybeArray<S["base"]["_zod"]["output"], S["array"]>>
+      MaybeNullable<
+        MaybeArray<InferOutput<S["base"]>, S["array"]>,
+        S["nullable"]
+      >
     >;
-
-export const createWithDefault = <F extends FieldState, B extends ZodMiniType>(
-  f: F,
-  base: B
-) => {
-  if (f.hasDefault) {
-    return _default(optional(base), f.defaultValue);
-  }
-  return base;
-};
 
 export type SchemaWithDefault<F extends FieldState> =
   F["hasDefault"] extends true
     ? F["defaultValue"] extends DefaultValue<infer T>
-      ? ZodMiniOptional<
-          ZodMiniType<
-            T,
-            Input<MaybeZodNullable<MaybeZodArray<F["base"], F>, F>>,
-            core.$ZodTypeInternals<
-              T,
-              Input<MaybeZodNullable<MaybeZodArray<F["base"], F>, F>>
-            >
-          >
+      ? OptionalSchema<
+          MaybeNullableSchema<MaybeArraySchema<F["base"], F>, F>,
+          T
         >
-      : MaybeZodNullable<MaybeZodArray<F["base"], F>, F>
-    : MaybeZodNullable<MaybeZodArray<F["base"], F>, F>;
+      : MaybeNullableSchema<MaybeArraySchema<F["base"], F>, F>
+    : MaybeNullableSchema<MaybeArraySchema<F["base"], F>, F>;
 
 // =============================================================================
 // DEFAULT STATE FACTORY
@@ -181,7 +199,7 @@ export type SchemaWithDefault<F extends FieldState> =
  */
 export const createDefaultState = <
   T extends ScalarFieldType,
-  B extends ZodMiniType
+  B extends AnySchema
 >(
   type: T,
   base: B
@@ -231,24 +249,41 @@ export type InferCreateType<
   ? BaseType | null
   : BaseType;
 
-export const shorthandFilter = <Z extends ZodMiniType>(
-  schema: Z
-): ZodMiniType<{ equals: output<Z> }, Z["_zod"]["input"]> =>
+export const createWithDefault = <F extends FieldState, B extends AnySchema>(
+  f: F,
+  base: B
+) => {
+  if (f.hasDefault) {
+    return optional(base, f.defaultValue);
+  }
+  return base;
+};
+
+export const shorthandFilter = <Z extends AnySchema>(schema: Z) =>
   pipe(
     schema,
-    transform((v) => ({ equals: v }))
+    transform((v) => {
+      return { equals: v };
+    })
   );
 
-export const shorthandUpdate = <Z extends ZodMiniType>(
+export const shorthandUpdate = <Z extends AnySchema>(
   schema: Z
-): ZodMiniType<{ set: output<Z> }, Z["_zod"]["input"]> =>
+): BaseSchema<InferInput<Z>, { set: InferOutput<Z> }, any> =>
   pipe(
     schema,
     transform((v) => ({ set: v }))
   );
 
-export type isOptional<F extends FieldState> = F["hasDefault"] extends true
-  ? true
-  : F["nullable"] extends true
-  ? true
-  : false;
+export const extend = <
+  T extends ObjectSchema<any, any>,
+  U extends Record<string, AnySchema>
+>(
+  base: T,
+  extension: U
+) => {
+  return object({
+    ...base.entries,
+    ...extension,
+  });
+};

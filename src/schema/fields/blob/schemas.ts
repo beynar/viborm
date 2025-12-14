@@ -1,34 +1,35 @@
 // Blob Field Schemas
-// Follows FIELD_IMPLEMENTATION_GUIDE (limited ops, no arrays)
+// Factory pattern for blob field variants (no array support)
 
 import {
-  instanceof as zInstanceof,
+  instance,
   nullable,
   object,
   optional,
   partial,
   union,
-  _default,
-  extend,
-  type input as Input,
-} from "zod/v4-mini";
+  InferInput,
+  NullableSchema,
+} from "valibot";
 import {
+  AnySchema,
+  extend,
   FieldState,
-  isOptional,
+  SchemaWithDefault,
   shorthandFilter,
   shorthandUpdate,
+  createWithDefault,
 } from "../common";
 
 // =============================================================================
-// BASE TYPES (normalize to Uint8Array)
+// BASE TYPES (accepts both Uint8Array and Buffer for Prisma Bytes compatibility)
 // =============================================================================
 
-const blobRaw = union([zInstanceof(Uint8Array), zInstanceof(Buffer)]);
-export const blobBase = blobRaw;
+export const blobBase = union([instance(Uint8Array), instance(Buffer)]);
 export const blobNullable = nullable(blobBase);
 
 // =============================================================================
-// FILTER SCHEMAS (equality-only, with shorthand)
+// FILTER SCHEMAS (equality-only, like Prisma Bytes)
 // =============================================================================
 
 const blobFilterBase = partial(
@@ -44,107 +45,86 @@ const blobNullableFilterBase = partial(
 );
 
 const blobFilter = union([
-  extend(blobFilterBase, {
-    not: optional(union([blobFilterBase, shorthandFilter(blobBase)])),
-  }),
   shorthandFilter(blobBase),
+  extend(blobFilterBase, {
+    not: optional(union([shorthandFilter(blobBase), blobFilterBase])),
+  }),
 ]);
 
 const blobNullableFilter = union([
-  extend(blobNullableFilterBase, {
-    not: optional(union([blobNullableFilterBase, blobNullable])),
-  }),
   shorthandFilter(blobNullable),
+  extend(blobNullableFilterBase, {
+    not: optional(
+      union([shorthandFilter(blobNullable), blobNullableFilterBase])
+    ),
+  }),
 ]);
 
 // =============================================================================
-// CREATE SCHEMAS
+// UPDATE FACTORIES
 // =============================================================================
 
-export const blobCreate = blobBase;
-export const blobNullableCreate = _default(optional(blobNullable), null);
-export const blobOptionalCreate = optional(blobBase);
-export const blobOptionalNullableCreate = _default(
-  optional(blobNullable),
-  null
-);
+const blobUpdateFactory = <S extends AnySchema>(base: S) => {
+  return union([shorthandUpdate(base), object({ set: base })]);
+};
+
+const blobNullableUpdateFactory = <S extends AnySchema>(base: S) => {
+  return union([
+    shorthandUpdate(nullable(base)),
+    object({ set: nullable(base) }),
+  ]);
+};
 
 // =============================================================================
-// UPDATE SCHEMAS
+// SCHEMA BUILDERS (single FieldState generic)
 // =============================================================================
 
-export const blobUpdate = union([
-  partial(object({ set: blobBase })),
-  shorthandUpdate(blobBase),
-]);
-
-export const blobNullableUpdate = union([
-  partial(object({ set: blobNullable })),
-  shorthandUpdate(blobNullable),
-]);
-
-// =============================================================================
-// SCHEMA FACTORIES
-// =============================================================================
-
-export const blobSchemas = <Optional extends boolean>(o: Optional) => {
+export const blobSchemas = <const F extends FieldState<"blob">>(f: F) => {
   return {
-    base: blobBase,
+    base: f.base,
     filter: blobFilter,
-    create: (o === true
-      ? blobOptionalCreate
-      : blobCreate) as Optional extends true
-      ? typeof blobOptionalCreate
-      : typeof blobCreate,
-    update: blobUpdate,
-  };
+    create: createWithDefault(f, f.base),
+    update: blobUpdateFactory(f.base),
+  } as unknown as BlobSchemas<F>;
 };
 
-export const blobNullableSchemas = <Optional extends boolean>(o: Optional) => {
+type BlobSchemas<F extends FieldState<"blob">> = {
+  base: F["base"];
+  filter: typeof blobFilter;
+  create: SchemaWithDefault<F>;
+  update: ReturnType<typeof blobUpdateFactory<F["base"]>>;
+};
+
+export const blobNullableSchemas = <F extends FieldState<"blob">>(f: F) => {
   return {
-    base: blobNullable,
+    base: nullable(f.base),
     filter: blobNullableFilter,
-    create: (o === true
-      ? blobOptionalNullableCreate
-      : blobNullableCreate) as Optional extends true
-      ? typeof blobOptionalNullableCreate
-      : typeof blobNullableCreate,
-    update: blobNullableUpdate,
-  };
+    create: createWithDefault(f, nullable(f.base)),
+    update: blobNullableUpdateFactory(f.base),
+  } as unknown as BlobNullableSchemas<F>;
+};
+
+type BlobNullableSchemas<F extends FieldState<"blob">> = {
+  base: NullableSchema<F["base"], undefined>;
+  filter: typeof blobNullableFilter;
+  create: SchemaWithDefault<F>;
+  update: ReturnType<typeof blobNullableUpdateFactory<F["base"]>>;
 };
 
 // =============================================================================
-// TYPE HELPERS
+// TYPE INFERENCE
 // =============================================================================
-
-export type BlobNullableSchemas<Optional extends boolean = false> = ReturnType<
-  typeof blobNullableSchemas<Optional>
->;
-export type BlobSchemas<Optional extends boolean = false> = ReturnType<
-  typeof blobSchemas<Optional>
->;
 
 export type InferBlobSchemas<F extends FieldState<"blob">> =
-  F["nullable"] extends true
-    ? BlobNullableSchemas<isOptional<F>>
-    : BlobSchemas<isOptional<F>>;
-
-// =============================================================================
-// MAIN SCHEMA GETTER
-// =============================================================================
+  F["nullable"] extends true ? BlobNullableSchemas<F> : BlobSchemas<F>;
 
 export const getFieldBlobSchemas = <F extends FieldState<"blob">>(f: F) => {
-  const isOpt = f.hasDefault || f.nullable;
   return (
-    f.nullable ? blobNullableSchemas(isOpt) : blobSchemas(isOpt)
+    f.nullable ? blobNullableSchemas(f) : blobSchemas(f)
   ) as InferBlobSchemas<F>;
 };
 
-// =============================================================================
-// INPUT TYPE INFERENCE
-// =============================================================================
-
 export type InferBlobInput<
   F extends FieldState<"blob">,
-  Type extends "create" | "update" | "filter"
-> = Input<InferBlobSchemas<F>[Type]>;
+  Type extends "create" | "update" | "filter" | "base"
+> = InferInput<InferBlobSchemas<F>[Type]>;

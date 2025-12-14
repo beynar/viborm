@@ -1,5 +1,5 @@
 // Boolean Field Schemas
-// Follows FIELD_IMPLEMENTATION_GUIDE and mirrors string schema structure
+// Factory pattern for boolean field variants following the string schema structure
 
 import {
   array,
@@ -9,15 +9,18 @@ import {
   optional,
   partial,
   union,
-  type input as Input,
-  extend,
-  _default,
-} from "zod/v4-mini";
+  InferInput,
+  NullableSchema,
+  ArraySchema,
+} from "valibot";
 import {
+  AnySchema,
+  extend,
   FieldState,
-  isOptional,
+  SchemaWithDefault,
   shorthandFilter,
   shorthandUpdate,
+  createWithDefault,
 } from "../common";
 
 // =============================================================================
@@ -33,6 +36,7 @@ export const booleanListNullable = nullable(booleanList);
 // FILTER SCHEMAS
 // =============================================================================
 
+// Base filter object without `not` (used for recursive `not` definition)
 const booleanFilterBase = partial(
   object({
     equals: booleanBase,
@@ -45,230 +49,198 @@ const booleanNullableFilterBase = partial(
   })
 );
 
-const booleanListFilterBase = partial(
+const booleanArrayFilterBase = partial(
   object({
     equals: booleanList,
     has: booleanBase,
-    hasEvery: array(booleanBase),
-    hasSome: array(booleanBase),
+    hasEvery: booleanList,
+    hasSome: booleanList,
     isEmpty: boolean(),
   })
 );
 
-const booleanListNullableFilterBase = partial(
+const booleanNullableListFilterBase = partial(
   object({
     equals: booleanListNullable,
     has: booleanBase,
-    hasEvery: array(booleanBase),
-    hasSome: array(booleanBase),
+    hasEvery: booleanList,
+    hasSome: booleanList,
     isEmpty: boolean(),
   })
 );
 
 const booleanFilter = union([
-  extend(booleanFilterBase, {
-    not: optional(union([booleanFilterBase, shorthandFilter(booleanBase)])),
-  }),
   shorthandFilter(booleanBase),
+  extend(booleanFilterBase, {
+    not: optional(union([shorthandFilter(booleanBase), booleanFilterBase])),
+  }),
 ]);
 
 const booleanNullableFilter = union([
-  extend(booleanNullableFilterBase, {
-    not: optional(union([booleanNullableFilterBase, booleanNullable])),
-  }),
   shorthandFilter(booleanNullable),
+  extend(booleanNullableFilterBase, {
+    not: optional(
+      union([shorthandFilter(booleanNullable), booleanNullableFilterBase])
+    ),
+  }),
 ]);
 
 const booleanListFilter = union([
-  extend(booleanListFilterBase, {
-    not: optional(union([booleanListFilterBase, shorthandFilter(booleanList)])),
-  }),
   shorthandFilter(booleanList),
+  extend(booleanArrayFilterBase, {
+    not: optional(
+      union([shorthandFilter(booleanList), booleanArrayFilterBase])
+    ),
+  }),
 ]);
 
 const booleanListNullableFilter = union([
-  extend(booleanListNullableFilterBase, {
+  shorthandFilter(booleanListNullable),
+  extend(booleanNullableListFilterBase, {
     not: optional(
       union([
-        booleanListNullableFilterBase,
         shorthandFilter(booleanListNullable),
+        booleanNullableListFilterBase,
       ])
     ),
   }),
-  shorthandFilter(booleanListNullable),
 ]);
 
 // =============================================================================
-// CREATE SCHEMAS
+// UPDATE FACTORIES
 // =============================================================================
 
-export const booleanCreate = booleanBase;
-export const booleanNullableCreate = _default(optional(booleanNullable), null);
-export const booleanOptionalCreate = optional(booleanBase);
-export const booleanOptionalNullableCreate = _default(
-  optional(booleanNullable),
-  null
-);
-// List creates
-export const booleanListCreate = booleanList;
-export const booleanListNullableCreate = _default(
-  optional(booleanListNullable),
-  null
-);
-export const booleanOptionalListCreate = optional(booleanList);
-export const booleanOptionalListNullableCreate = _default(
-  optional(booleanListNullable),
-  null
-);
+const booleanUpdateFactory = <S extends AnySchema>(base: S) => {
+  return union([shorthandUpdate(base), object({ set: base })]);
+};
+
+const booleanNullableUpdateFactory = <S extends AnySchema>(base: S) => {
+  return union([
+    shorthandUpdate(nullable(base)),
+    object({ set: nullable(base) }),
+  ]);
+};
+
+const booleanListUpdateFactory = <S extends AnySchema>(base: S) =>
+  union([
+    shorthandUpdate(array(base)),
+    partial(
+      object({
+        set: array(base),
+        push: union([base, array(base)]),
+        unshift: union([base, array(base)]),
+      })
+    ),
+  ]);
+
+const booleanListNullableUpdateFactory = <S extends AnySchema>(base: S) =>
+  union([
+    shorthandUpdate(nullable(array(base))),
+    partial(
+      object({
+        set: nullable(array(base)),
+        push: union([base, array(base)]),
+        unshift: union([base, array(base)]),
+      })
+    ),
+  ]);
 
 // =============================================================================
-// UPDATE SCHEMAS
+// SCHEMA BUILDERS (single FieldState generic)
 // =============================================================================
 
-export const booleanUpdate = union([
-  partial(object({ set: booleanBase })),
-  shorthandUpdate(booleanBase),
-]);
-
-export const booleanNullableUpdate = union([
-  partial(object({ set: booleanNullable })),
-  shorthandUpdate(booleanNullable),
-]);
-
-export const booleanListUpdate = union([
-  partial(
-    object({
-      set: array(booleanBase),
-      push: union([booleanBase, array(booleanBase)]),
-      unshift: union([booleanBase, array(booleanBase)]),
-    })
-  ),
-  shorthandUpdate(booleanList),
-]);
-
-export const booleanListNullableUpdate = union([
-  partial(
-    object({
-      set: booleanListNullable,
-      push: union([booleanBase, booleanList]),
-      unshift: union([booleanBase, booleanList]),
-    })
-  ),
-  shorthandUpdate(booleanListNullable),
-]);
-
-// =============================================================================
-// SCHEMA FACTORIES
-// =============================================================================
-
-export const booleanSchemas = <Optional extends boolean>(o: Optional) => {
+export const booleanSchemas = <const F extends FieldState<"boolean">>(f: F) => {
   return {
-    base: booleanBase,
+    base: f.base,
     filter: booleanFilter,
-    create: (o === true
-      ? booleanOptionalCreate
-      : booleanCreate) as Optional extends true
-      ? typeof booleanOptionalCreate
-      : typeof booleanCreate,
-    update: booleanUpdate,
-  };
+    create: createWithDefault(f, f.base),
+    update: booleanUpdateFactory(f.base),
+  } as unknown as BooleanSchemas<F>;
 };
 
-export const booleanNullableSchemas = <Optional extends boolean>(
-  o: Optional
+type BooleanSchemas<F extends FieldState<"boolean">> = {
+  base: F["base"];
+  filter: typeof booleanFilter;
+  create: SchemaWithDefault<F>;
+  update: ReturnType<typeof booleanUpdateFactory<F["base"]>>;
+};
+
+export const booleanNullableSchemas = <F extends FieldState<"boolean">>(
+  f: F
 ) => {
   return {
-    base: booleanNullable,
+    base: nullable(f.base),
     filter: booleanNullableFilter,
-    create: (o === true
-      ? booleanOptionalNullableCreate
-      : booleanNullableCreate) as Optional extends true
-      ? typeof booleanOptionalNullableCreate
-      : typeof booleanNullableCreate,
-    update: booleanNullableUpdate,
-  };
+    create: createWithDefault(f, nullable(f.base)),
+    update: booleanNullableUpdateFactory(f.base),
+  } as unknown as BooleanNullableSchemas<F>;
 };
 
-export const booleanListSchemas = <Optional extends boolean>(o: Optional) => {
+type BooleanNullableSchemas<F extends FieldState<"boolean">> = {
+  base: NullableSchema<F["base"], undefined>;
+  filter: typeof booleanNullableFilter;
+  create: SchemaWithDefault<F>;
+  update: ReturnType<typeof booleanNullableUpdateFactory<F["base"]>>;
+};
+
+export const booleanListSchemas = <F extends FieldState<"boolean">>(f: F) => {
   return {
-    base: booleanList,
+    base: array(f.base),
     filter: booleanListFilter,
-    create: (o === true
-      ? booleanOptionalListCreate
-      : booleanListCreate) as Optional extends true
-      ? typeof booleanOptionalListCreate
-      : typeof booleanListCreate,
-    update: booleanListUpdate,
-  };
+    create: createWithDefault(f, array(f.base)),
+    update: booleanListUpdateFactory(f.base),
+  } as unknown as BooleanListSchemas<F>;
 };
 
-export const booleanListNullableSchemas = <Optional extends boolean>(
-  o: Optional
+type BooleanListSchemas<F extends FieldState<"boolean">> = {
+  base: ArraySchema<F["base"], undefined>;
+  filter: typeof booleanListFilter;
+  create: SchemaWithDefault<F>;
+  update: ReturnType<typeof booleanListUpdateFactory<F["base"]>>;
+};
+
+export const booleanListNullableSchemas = <F extends FieldState<"boolean">>(
+  f: F
 ) => {
   return {
-    base: booleanListNullable,
+    base: nullable(array(f.base)),
     filter: booleanListNullableFilter,
-    create: (o === true
-      ? booleanOptionalListNullableCreate
-      : booleanListNullableCreate) as Optional extends true
-      ? typeof booleanOptionalListNullableCreate
-      : typeof booleanListNullableCreate,
-    update: booleanListNullableUpdate,
-  };
+    create: createWithDefault(f, nullable(array(f.base))),
+    update: booleanListNullableUpdateFactory(f.base),
+  } as unknown as BooleanListNullableSchemas<F>;
 };
 
-// =============================================================================
-// TYPE HELPERS
-// =============================================================================
-
-export type BooleanListNullableSchemas<Optional extends boolean = false> =
-  ReturnType<typeof booleanListNullableSchemas<Optional>>;
-
-export type BooleanListSchemas<Optional extends boolean = false> = ReturnType<
-  typeof booleanListSchemas<Optional>
->;
-
-export type BooleanNullableSchemas<Optional extends boolean = false> =
-  ReturnType<typeof booleanNullableSchemas<Optional>>;
-
-export type BooleanSchemas<Optional extends boolean = false> = ReturnType<
-  typeof booleanSchemas<Optional>
->;
+type BooleanListNullableSchemas<F extends FieldState<"boolean">> = {
+  base: NullableSchema<ArraySchema<F["base"], undefined>, undefined>;
+  filter: typeof booleanListNullableFilter;
+  create: SchemaWithDefault<F>;
+  update: ReturnType<typeof booleanListNullableUpdateFactory<F["base"]>>;
+};
 
 export type InferBooleanSchemas<F extends FieldState<"boolean">> =
   F["array"] extends true
     ? F["nullable"] extends true
-      ? BooleanListNullableSchemas<isOptional<F>>
-      : BooleanListSchemas<isOptional<F>>
+      ? BooleanListNullableSchemas<F>
+      : BooleanListSchemas<F>
     : F["nullable"] extends true
-    ? BooleanNullableSchemas<isOptional<F>>
-    : BooleanSchemas<isOptional<F>>;
-
-// =============================================================================
-// MAIN SCHEMA GETTER
-// =============================================================================
+    ? BooleanNullableSchemas<F>
+    : BooleanSchemas<F>;
 
 export const getFieldBooleanSchemas = <F extends FieldState<"boolean">>(
   f: F
 ) => {
-  const isOptional = f.hasDefault || f.nullable;
-  const isArray = f.array;
   return (
-    isArray
-      ? isOptional
-        ? booleanListNullableSchemas(isOptional)
-        : booleanListSchemas(isOptional)
-      : isOptional
-      ? booleanNullableSchemas(isOptional)
-      : booleanSchemas(isOptional)
+    f.array
+      ? f.nullable
+        ? booleanListNullableSchemas(f)
+        : booleanListSchemas(f)
+      : f.nullable
+      ? booleanNullableSchemas(f)
+      : booleanSchemas(f)
   ) as InferBooleanSchemas<F>;
 };
 
-// =============================================================================
-// INPUT TYPE INFERENCE
-// =============================================================================
-
 export type InferBooleanInput<
   F extends FieldState<"boolean">,
-  Type extends "create" | "update" | "filter"
-> = Input<InferBooleanSchemas<F>[Type]>;
+  Type extends "create" | "update" | "filter" | "base"
+> = InferInput<InferBooleanSchemas<F>[Type]>;

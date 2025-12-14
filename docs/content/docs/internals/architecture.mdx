@@ -30,7 +30,7 @@ flowchart TB
     end
 
     subgraph Runtime["Runtime Layer"]
-        AS[ArkType Schemas]
+        VS[Valibot Schemas]
         NP[Normalization Pipes]
         V[Validation]
     end
@@ -55,24 +55,24 @@ flowchart TB
     SD --> M
     M --> F
     M --> R
-    
+
     F --> IT
     F --> OT
     R --> IT
     R --> OT
-    
-    F --> AS
-    R --> AS
-    AS --> NP
+
+    F --> VS
+    R --> VS
+    VS --> NP
     NP --> V
-    
+
     QC --> CL
     CL --> OP
     OP --> V
     V --> QB
     QB --> SB
     SB --> AD
-    
+
     AD --> PG
     AD --> MY
     AD --> SL
@@ -161,16 +161,16 @@ flowchart LR
 
 **Key insight**: The same field state produces different types for different operations:
 
-| Operation | nullable=false | nullable=true | hasDefault=true |
-|-----------|---------------|---------------|-----------------|
-| Base | `string` | `string \| null` | `string` |
-| Create | `string` (required) | `string \| null` | `string?` (optional) |
-| Update | `{ set?: string }` | `{ set?: string \| null }` | `{ set?: string }` |
-| Filter | `StringFilter` | `StringNullableFilter` | `StringFilter` |
+| Operation | nullable=false      | nullable=true              | hasDefault=true      |
+| --------- | ------------------- | -------------------------- | -------------------- |
+| Base      | `string`            | `string \| null`           | `string`             |
+| Create    | `string` (required) | `string \| null`           | `string?` (optional) |
+| Update    | `{ set?: string }`  | `{ set?: string \| null }` | `{ set?: string }`   |
+| Filter    | `StringFilter`      | `StringNullableFilter`     | `StringFilter`       |
 
 ### 3. Runtime Schema Layer
 
-ArkType schemas provide runtime validation with the same guarantees as the type system.
+Valibot schemas provide runtime validation with the same guarantees as the type system.
 
 ```mermaid
 flowchart TB
@@ -264,12 +264,12 @@ flowchart TB
     VA --> SB
     VA --> OB
     WB --> RB
-    
+
     WB --> SQL
     SB --> SQL
     OB --> SQL
     RB --> SQL
-    
+
     SQL --> P
 ```
 
@@ -345,7 +345,7 @@ src/
 │   │   │   ├── input-types.ts # Create/Update/Where types
 │   │   │   ├── result-types.ts# Query result types
 │   │   │   └── relation-types.ts
-│   │   └── runtime/           # ArkType schemas
+│   │   └── runtime/           # Valibot schemas
 │   │       ├── core-schemas.ts
 │   │       ├── args-schemas.ts
 │   │       ├── mutation-schemas.ts
@@ -353,7 +353,7 @@ src/
 │   ├── fields/
 │   │   ├── string/
 │   │   │   ├── field.ts       # StringField class
-│   │   │   └── schemas.ts     # ArkType schemas
+│   │   │   └── schemas.ts     # Valibot schemas
 │   │   ├── number/
 │   │   ├── boolean/
 │   │   └── ...
@@ -379,17 +379,17 @@ src/
 3. **Better IDE support** - Full autocomplete and refactoring
 4. **Simpler tooling** - No codegen to maintain
 
-### Why ArkType?
+### Why Valibot?
 
 1. **Runtime + Types** - Single definition for both
-2. **Morphs/Pipes** - Built-in transformation support
-3. **Performance** - Faster than Zod for validation
+2. **Pipes/Transforms** - Built-in transformation support
+3. **Performance** - Faster than Zod for validation with smaller bundle size
 4. **Type inference** - Excellent TypeScript integration
 
 ### Why Two-Phase Schema Building?
 
 Core schemas (where, create, update) are built first, then reused by operation-specific schemas. This:
+
 1. Prevents duplicate schema building
 2. Enables lazy evaluation for circular references
 3. Improves performance via caching
-

@@ -13,34 +13,35 @@ The JSON field type stores structured data as JSON. It can be untyped (`unknown`
 ```ts
 import { s } from "viborm";
 
-s.json()               // Required JSON (unknown type)
-s.json().nullable()    // JSON | null
+s.json(); // Required JSON (unknown type)
+s.json().nullable(); // JSON | null
 ```
 
 ## Typed JSON
 
-Provide a StandardSchema (Zod, Valibot, etc.) for type-safe JSON:
+Provide a StandardSchema (Valibot, Zod, etc.) for type-safe JSON using the `.schema()` method:
 
 ```ts
-import { z } from "zod";
+import { object, enum_, boolean, string } from "valibot";
 
-const settingsSchema = z.object({
-  theme: z.enum(["light", "dark"]),
-  notifications: z.boolean(),
-  language: z.string(),
+const settingsSchema = object({
+  theme: enum_(["light", "dark"]),
+  notifications: boolean(),
+  language: string(),
 });
 
-s.json(settingsSchema)  // Typed as { theme: "light" | "dark"; ... }
+s.json().schema(settingsSchema); // Typed as { theme: "light" | "dark"; ... }
 ```
 
 ## Chainable Methods
 
 ```ts
 s.json()
-  .nullable()           // Allow NULL
-  .default({})          // Static default
-  .default(() => ({}))  // Runtime default
-  .map("column_name")   // Custom column name
+  .nullable() // Allow NULL
+  .schema(schema) // Custom StandardSchema validator
+  .default({}) // Static default
+  .default(() => ({})) // Runtime default
+  .map("column_name"); // Custom column name
 ```
 
 ## Native Database Types
@@ -50,23 +51,26 @@ s.json()
 ```ts
 import { TYPES } from "viborm";
 
-s.json(TYPES.PG.JSON.JSON)   // JSON (text-based)
-s.json(TYPES.PG.JSON.JSONB)  // JSONB (binary, indexable, default)
-```
+s.json(TYPES.PG.JSON.JSON) // JSON (text-based)
+s.json(TYPES.PG.JSON.JSONB) // JSONB (binary, indexable, default)
+
+````
   </Tab>
   <Tab value="MySQL">
 ```ts
 import { TYPES } from "viborm";
 
 s.json(TYPES.MYSQL.JSON.JSON)  // JSON
-```
+````
+
   </Tab>
   <Tab value="SQLite">
 ```ts
 import { TYPES } from "viborm";
 
-s.json(TYPES.SQLITE.JSON.TEXT)  // TEXT (stored as string)
-```
+s.json(TYPES.SQLITE.JSON.TEXT) // TEXT (stored as string)
+
+````
   </Tab>
 </Tabs>
 
@@ -75,9 +79,10 @@ s.json(TYPES.SQLITE.JSON.TEXT)  // TEXT (stored as string)
 | Modifier | TypeScript | PostgreSQL | MySQL | SQLite |
 |----------|------------|------------|-------|--------|
 | `s.json()` | `unknown` | `JSONB` | `JSON` | `TEXT` |
-| `s.json(schema)` | Inferred | `JSONB` | `JSON` | `TEXT` |
+| `.schema(schema)` | Inferred | `JSONB` | `JSON` | `TEXT` |
 | `.nullable()` | `T \| null` | `JSONB NULL` | `JSON NULL` | `TEXT NULL` |
-| `.array()` | `T[]` | `JSONB[]` | `JSON` | `JSON` |
+
+**Note:** JSON fields do not support `.array()` modifier or shorthand syntax for updates/filters. You must use explicit operations like `{ set: value }` and `{ equals: value }`.
 
 ## Examples
 
@@ -86,65 +91,92 @@ s.json(TYPES.SQLITE.JSON.TEXT)  // TEXT (stored as string)
 ```ts
 const metadata = s.json().default({});
 const tags = s.json().default([]);
-```
+````
 
-### Typed with Zod
+### Typed with Valibot
 
 ```ts
-import { z } from "zod";
+import {
+  object,
+  enum_,
+  number,
+  boolean,
+  string,
+  array,
+  optional,
+  pipe,
+  minValue,
+  maxValue,
+} from "valibot";
 
 // User preferences
-const preferencesSchema = z.object({
-  theme: z.enum(["light", "dark", "system"]).default("system"),
-  fontSize: z.number().min(10).max(24).default(14),
-  notifications: z.object({
-    email: z.boolean().default(true),
-    push: z.boolean().default(false),
+const preferencesSchema = object({
+  theme: enum_(["light", "dark", "system"]),
+  fontSize: pipe(number(), minValue(10), maxValue(24)),
+  notifications: object({
+    email: boolean(),
+    push: boolean(),
   }),
 });
 
-const preferences = s.json(preferencesSchema).default({
-  theme: "system",
-  fontSize: 14,
-  notifications: { email: true, push: false },
-});
+const preferences = s
+  .json()
+  .schema(preferencesSchema)
+  .default({
+    theme: "system",
+    fontSize: 14,
+    notifications: { email: true, push: false },
+  });
 
 // Address structure
-const addressSchema = z.object({
-  street: z.string(),
-  city: z.string(),
-  country: z.string(),
-  postalCode: z.string(),
+const addressSchema = object({
+  street: string(),
+  city: string(),
+  country: string(),
+  postalCode: string(),
 });
 
-const address = s.json(addressSchema).nullable();
+const address = s.json().schema(addressSchema).nullable();
 ```
 
 ### Complex Nested Types
 
 ```ts
-const orderItemSchema = z.object({
-  productId: z.string(),
-  quantity: z.number().int().positive(),
-  price: z.number().positive(),
-  discount: z.number().min(0).max(1).optional(),
+import {
+  object,
+  string,
+  number,
+  array,
+  optional,
+  pipe,
+  minValue,
+  maxValue,
+  integer,
+  positive,
+} from "valibot";
+
+const orderItemSchema = object({
+  productId: string(),
+  quantity: pipe(integer(), positive()),
+  price: pipe(number(), positive()),
+  discount: optional(pipe(number(), minValue(0), maxValue(1))),
 });
 
-const orderSchema = z.object({
-  items: z.array(orderItemSchema),
+const orderSchema = object({
+  items: array(orderItemSchema),
   shipping: addressSchema,
-  notes: z.string().optional(),
+  notes: optional(string()),
 });
 
-const orderData = s.json(orderSchema);
+const orderData = s.json().schema(orderSchema);
 ```
 
 ## Querying JSON
 
-JSON fields support path-based filtering:
+JSON fields support path-based filtering. **Note:** JSON fields do not support shorthand syntax. You must use explicit operations:
 
 ```ts
-// Filter by nested value
+// Filter by nested value (must use { equals: value })
 await client.user.findMany({
   where: {
     preferences: {
@@ -171,24 +203,35 @@ await client.user.findMany({
     },
   },
 });
+
+// Updates must use { set: value }
+await client.user.update({
+  where: { id: "user_123" },
+  data: {
+    preferences: {
+      set: { theme: "dark", fontSize: 16 },
+    },
+  },
+});
 ```
 
 ## JSON vs Separate Fields
 
-| Approach | Pros | Cons |
-|----------|------|------|
-| JSON field | Flexible, no migrations | Harder to query, no constraints |
-| Separate fields | Type-safe queries, indexes | Schema changes need migrations |
-| Related table | Full SQL power | More complex queries |
+| Approach        | Pros                       | Cons                            |
+| --------------- | -------------------------- | ------------------------------- |
+| JSON field      | Flexible, no migrations    | Harder to query, no constraints |
+| Separate fields | Type-safe queries, indexes | Schema changes need migrations  |
+| Related table   | Full SQL power             | More complex queries            |
 
 Use JSON for:
+
 - User preferences
 - Metadata that varies per record
 - Third-party API responses
 - Audit logs
 
 Use separate fields for:
+
 - Data you need to filter/sort by
 - Data with strict validation
 - Data referenced in relations
-

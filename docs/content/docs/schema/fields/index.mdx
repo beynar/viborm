@@ -10,19 +10,19 @@ Fields represent scalar database columns. Each field type has specific chainable
 
 ## Field Types
 
-| Field | TypeScript | PostgreSQL | MySQL | SQLite |
-|-------|------------|------------|-------|--------|
-| `s.string()` | `string` | `TEXT` | `VARCHAR(191)` | `TEXT` |
-| `s.int()` | `number` | `INTEGER` | `INT` | `INTEGER` |
-| `s.float()` | `number` | `DOUBLE PRECISION` | `DOUBLE` | `REAL` |
-| `s.decimal()` | `number` | `DECIMAL(65,30)` | `DECIMAL(65,30)` | `REAL` |
-| `s.bigInt()` | `bigint` | `BIGINT` | `BIGINT` | `INTEGER` |
-| `s.boolean()` | `boolean` | `BOOLEAN` | `TINYINT(1)` | `INTEGER` |
-| `s.dateTime()` | `Date` | `TIMESTAMP` | `DATETIME` | `TEXT` |
-| `s.json()` | `unknown` / `T` | `JSONB` | `JSON` | `TEXT` |
-| `s.blob()` | `Uint8Array` | `BYTEA` | `BLOB` | `BLOB` |
-| `s.enum([...])` | Union type | `ENUM` | `ENUM` | `TEXT` |
-| `s.vector()` | `number[]` | `vector` | - | - |
+| Field           | TypeScript      | PostgreSQL         | MySQL            | SQLite    |
+| --------------- | --------------- | ------------------ | ---------------- | --------- |
+| `s.string()`    | `string`        | `TEXT`             | `VARCHAR(191)`   | `TEXT`    |
+| `s.int()`       | `number`        | `INTEGER`          | `INT`            | `INTEGER` |
+| `s.float()`     | `number`        | `DOUBLE PRECISION` | `DOUBLE`         | `REAL`    |
+| `s.decimal()`   | `number`        | `DECIMAL(65,30)`   | `DECIMAL(65,30)` | `REAL`    |
+| `s.bigInt()`    | `bigint`        | `BIGINT`           | `BIGINT`         | `INTEGER` |
+| `s.boolean()`   | `boolean`       | `BOOLEAN`          | `TINYINT(1)`     | `INTEGER` |
+| `s.dateTime()`  | `Date`          | `TIMESTAMP`        | `DATETIME`       | `TEXT`    |
+| `s.json()`      | `unknown` / `T` | `JSONB`            | `JSON`           | `TEXT`    |
+| `s.blob()`      | `Uint8Array`    | `BYTEA`            | `BLOB`           | `BLOB`    |
+| `s.enum([...])` | Union type      | `ENUM`             | `ENUM`           | `TEXT`    |
+| `s.vector()`    | `number[]`      | `vector`           | -                | -         |
 
 ## Common Modifiers
 
@@ -30,27 +30,27 @@ All field types support these chainable methods:
 
 ```ts
 s.string()
-  .nullable()              // Allow NULL values
-  .array()                 // Make it an array (native on PG, JSON on MySQL/SQLite)
-  .id()                    // Mark as primary key
-  .unique()                // Unique constraint
-  .default(value)          // Static default
-  .default(() => value)    // Runtime default function
-  .validator(schema)       // Custom StandardSchema validator
-  .map("column_name")      // Custom database column name
+  .nullable() // Allow NULL values
+  .array() // Make it an array (native on PG, JSON on MySQL/SQLite)
+  .id() // Mark as primary key
+  .unique() // Unique constraint
+  .default(value) // Static default
+  .default(() => value) // Runtime default function
+  .schema(schema) // Custom StandardSchema validator
+  .map("column_name"); // Custom database column name
 ```
 
 ## Modifier Reference
 
-| Method | Description | Affects Type |
-|--------|-------------|--------------|
-| `.nullable()` | Allow NULL | `T \| null` |
-| `.array()` | Array type | `T[]` |
-| `.id()` | Primary key | - |
-| `.unique()` | Unique constraint | - |
-| `.default(v)` | Default value | Optional in create |
-| `.validator(s)` | Custom validation | - |
-| `.map(name)` | Column name | - |
+| Method        | Description       | Affects Type       |
+| ------------- | ----------------- | ------------------ |
+| `.nullable()` | Allow NULL        | `T \| null`        |
+| `.array()`    | Array type        | `T[]`              |
+| `.id()`       | Primary key       | -                  |
+| `.unique()`   | Unique constraint | -                  |
+| `.default(v)` | Default value     | Optional in create |
+| `.schema(s)`  | Custom validation | -                  |
+| `.map(name)`  | Column name       | -                  |
 
 ## Field State
 
@@ -66,7 +66,8 @@ interface FieldState {
   isUnique: boolean;
   defaultValue: any;
   autoGenerate: AutoGenerateType | undefined;
-  customValidator: StandardSchemaV1 | undefined;
+  base: AnySchema; // Base Valibot schema for the field
+  schema: StandardSchemaV1 | undefined; // Custom StandardSchema validator
   columnName: string | undefined;
 }
 ```
@@ -84,4 +85,3 @@ interface FieldState {
   <Card title="Enum" href="/docs/schema/fields/enum" />
   <Card title="Vector" href="/docs/schema/fields/vector" />
 </Cards>
-

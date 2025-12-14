@@ -43,7 +43,7 @@ classDiagram
         +unique(): Field
         +array(): Field
         +map(columnName): Field
-        +validator(schema): Field
+        +schema(schema): Field
         +get ~(): FieldInternals
     }
 
@@ -56,6 +56,8 @@ classDiagram
         +isUnique: boolean
         +isArray: boolean
         +autoGenerate: AutoGenerate
+        +base: BaseSchema
+        +schema: StandardSchemaV1
         +columnName: string
     }
 
@@ -201,29 +203,32 @@ graph TB
 
 ### Field Schema Generation
 
-Each field generates multiple schemas based on its state:
+Each field generates multiple schemas based on its state. The `base` schema comes directly from `field.state.base`:
 
 ```typescript
-// StringField with state { nullable: false, hasDefault: false }
+// StringField with state { nullable: false, hasDefault: false, base: string() }
 get schemas() {
   return {
-    base: stringBase,           // string
-    filter: stringFilter,       // { equals?, contains?, ... } | string
-    create: stringCreate,       // string (required)
-    update: stringUpdate,       // { set?: string } | string
+    base: this.state.base,           // Valibot schema: string()
+    filter: stringFilter(this.state.base),       // { equals?, contains?, ... } | string
+    create: createWithDefault(this.state, this.state.base),       // string (required)
+    update: stringUpdate(this.state.base),       // { set?: string } | string
   };
 }
 
-// StringField with state { nullable: true, hasDefault: true }
+// StringField with state { nullable: true, hasDefault: true, base: string() }
 get schemas() {
+  const nullableBase = nullable(this.state.base);  // Wrap base with nullable()
   return {
-    base: stringNullable,              // string | null
-    filter: stringNullableFilter,      // { equals?, ... } | string | null
-    create: stringOptionalNullableCreate,  // string | null | undefined
-    update: stringNullableUpdate,      // { set?: string | null } | string | null
+    base: nullableBase,              // string | null
+    filter: stringNullableFilter(this.state.base),      // { equals?, ... } | string | null
+    create: createWithDefault(this.state, nullableBase),  // string | null | undefined
+    update: stringNullableUpdate(this.state.base),      // { set?: string | null } | string | null
   };
 }
 ```
+
+The `base` property in `FieldState` stores the core Valibot schema for the field type, which can be modified by `.schema()` to add custom validation or branded types.
 
 ## Relation System
 

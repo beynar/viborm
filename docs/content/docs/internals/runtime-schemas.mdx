@@ -1,12 +1,12 @@
 ---
 title: Runtime Schemas
-description: ArkType schema builders for runtime validation
+description: Valibot schema builders for runtime validation
 icon: Shield
 ---
 
 # Runtime Schemas
 
-VibORM uses [ArkType](https://arktype.io) for runtime validation. Each model generates schemas that mirror the TypeScript types.
+VibORM uses [Valibot](https://valibot.dev) for runtime validation. Each model generates schemas that mirror the TypeScript types.
 
 ## Schema Building Architecture
 
@@ -48,7 +48,7 @@ flowchart TB
     M --> Build
     FM --> Build
     RM --> Build
-    
+
     Build --> P1
     P1 --> Core
     Core --> P2
@@ -84,7 +84,7 @@ Args schemas receive `core` and reuse its schemas:
 return {
   ...core,
   findMany: buildFindManyArgsSchema(model, core),
-  findUnique: buildFindUniqueArgsSchema(core),  // Note: no model needed
+  findUnique: buildFindUniqueArgsSchema(core), // Note: no model needed
   findFirst: buildFindFirstArgsSchema(model, core),
   createArgs: buildCreateArgsSchema(core),
   updateArgs: buildUpdateArgsSchema(core),
@@ -120,41 +120,50 @@ graph TB
 
 ```typescript
 // src/schema/fields/string/schemas.ts
+import { string, union, object, partial, optional, array } from "valibot";
 
 // Base types
-export const stringBase = type.string;
-export const stringNullable = stringBase.or("null");
+export const stringBase = string();
+export const stringNullable = nullable(stringBase);
 
 // Filter with shorthand normalization
-const stringFilterBase = type({
-  equals: stringBase,
-  in: stringBase.array(),
-  notIn: stringBase.array(),
-  contains: stringBase,
-  startsWith: stringBase,
-  endsWith: stringBase,
-  // ...
-}).partial();
+const stringFilterBase = partial(
+  object({
+    equals: stringBase,
+    in: array(stringBase),
+    notIn: array(stringBase),
+    contains: stringBase,
+    startsWith: stringBase,
+    endsWith: stringBase,
+    // ...
+  })
+);
 
-export const stringFilter = stringFilterBase
-  .merge(type({ "not?": stringFilterBase.or(stringNullable) }))
-  .or(stringBase.pipe((v) => ({ equals: v })));  // Shorthand normalization
+export const stringFilter = union([
+  shorthandFilter(stringBase), // Shorthand: string -> { equals: string }
+  extend(stringFilterBase, {
+    not: optional(union([shorthandFilter(stringBase), stringFilterBase])),
+  }),
+]);
 
 // Update with shorthand normalization
-export const stringUpdate = type({ set: stringBase })
-  .partial()
-  .or(stringBase.pipe((v) => ({ set: v })));
+export const stringUpdate = union([
+  shorthandUpdate(stringBase), // Shorthand: string -> { set: string }
+  partial(object({ set: stringBase })),
+]);
 ```
 
 ## Where Schema Building
 
 ```typescript
-export const buildWhereSchema = (model: Model<any>): Type => {
-  const shape: Record<string, Type | (() => Type)> = {};
+import { object, optional, union, nullable } from "valibot";
+
+export const buildWhereSchema = (model: Model<any>): BaseSchema => {
+  const shape: Record<string, BaseSchema | (() => BaseSchema)> = {};
 
   // Scalar fields
   for (const [name, field] of model["~"].fieldMap) {
-    shape[name + "?"] = field["~"].schemas.filter;
+    shape[name] = optional(field["~"].schemas.filter);
   }
 
   // Relation fields (lazy for circular references)
@@ -164,22 +173,25 @@ export const buildWhereSchema = (model: Model<any>): Type => {
 
     if (relationType === "oneToOne" || relationType === "manyToOne") {
       // To-one with shorthand normalization
-      shape[name + "?"] = type("object | null").pipe((t) => {
-        if (t === null) return { is: null };
-        if (isToOneShorthand(t)) return t;
-        return { is: t };
-      });
+      shape[name] = optional(
+        union([
+          nullable(getTargetModel()["~"].schemas.whereUnique),
+          object({ is: nullable(getTargetModel()["~"].schemas.whereUnique) }),
+        ])
+      );
     } else {
       // To-many: some/every/none
-      shape[name + "?"] = type({
-        "some?": () => getTargetModel()["~"].schemas.where,
-        "every?": () => getTargetModel()["~"].schemas.where,
-        "none?": () => getTargetModel()["~"].schemas.where,
-      });
+      shape[name] = optional(
+        object({
+          some: optional(() => getTargetModel()["~"].schemas.where),
+          every: optional(() => getTargetModel()["~"].schemas.where),
+          none: optional(() => getTargetModel()["~"].schemas.where),
+        })
+      );
     }
   }
 
-  return type(shape);
+  return object(shape);
 };
 ```
 
@@ -208,7 +220,7 @@ sequenceDiagram
     P-->>U: Post schema ready
 
     Note over A,P: Thunks called during validation
-    
+
     U->>A: Validate { posts: { some: {...} } }
     A->>A: Call posts thunk
     A->>P: Get post where schema
@@ -219,13 +231,19 @@ sequenceDiagram
 ### Thunk Pattern
 
 ```typescript
+import { lazy } from "valibot";
+
 // Bad - causes infinite recursion
-shape["posts?"] = buildWhereSchema(postModel);
+shape["posts"] = buildWhereSchema(postModel);
 
 // Good - lazy evaluation
-shape["posts?"] = type({
-  "some?": () => getTargetModel()["~"].schemas.where,
-});
+shape["posts"] = optional(
+  object({
+    some: optional(lazy(() => getTargetModel()["~"].schemas.where)),
+    every: optional(lazy(() => getTargetModel()["~"].schemas.where)),
+    none: optional(lazy(() => getTargetModel()["~"].schemas.where)),
+  })
+);
 ```
 
 ## Model-Level Caching
@@ -244,7 +262,7 @@ class Model<State> {
           this._schemas = buildModelSchemas(this);
         }
         return this._schemas;
-      }
+      },
     };
   }
 }
@@ -255,15 +273,17 @@ class Model<State> {
 Handles single-field and compound unique identifiers:
 
 ```typescript
-export const buildWhereUniqueSchema = (model: Model<any>): Type => {
-  const shape: Record<string, Type> = {};
+import { object, optional, union, pipe, custom } from "valibot";
+
+export const buildWhereUniqueSchema = (model: Model<any>): BaseSchema => {
+  const shape: Record<string, BaseSchema> = {};
   const uniqueFieldNames: string[] = [];
   const compoundKeyNames: string[] = [];
 
   // Single-field uniques
   for (const [name, field] of model["~"].fieldMap) {
     if (field["~"].state.isId || field["~"].state.isUnique) {
-      shape[name + "?"] = field["~"].schemas.base;
+      shape[name] = optional(field["~"].schemas.base);
       uniqueFieldNames.push(name);
     }
   }
@@ -271,12 +291,14 @@ export const buildWhereUniqueSchema = (model: Model<any>): Type => {
   // Compound ID
   const compoundId = model["~"].compoundId;
   if (compoundId?.fields?.length > 0) {
-    const keyName = compoundId.name ?? generateCompoundKeyName(compoundId.fields);
-    const compoundShape = {};
+    const keyName =
+      compoundId.name ?? generateCompoundKeyName(compoundId.fields);
+    const compoundShape: Record<string, BaseSchema> = {};
     for (const fieldName of compoundId.fields) {
-      compoundShape[fieldName] = model["~"].fieldMap.get(fieldName)["~"].schemas.base;
+      compoundShape[fieldName] =
+        model["~"].fieldMap.get(fieldName)["~"].schemas.base;
     }
-    shape[keyName + "?"] = type(compoundShape);
+    shape[keyName] = optional(object(compoundShape));
     compoundKeyNames.push(keyName);
   }
 
@@ -284,14 +306,25 @@ export const buildWhereUniqueSchema = (model: Model<any>): Type => {
   // ...
 
   // Validation: at least one identifier required
-  return type(shape).narrow((data, ctx) => {
-    const allIdentifiers = [...uniqueFieldNames, ...compoundKeyNames];
-    const hasIdentifier = allIdentifiers.some(name => name in data);
-    if (!hasIdentifier) {
-      return ctx.mustBe(`an object with at least one of: ${allIdentifiers.join(", ")}`);
-    }
-    return true;
-  });
+  const allIdentifiers = [...uniqueFieldNames, ...compoundKeyNames];
+  return pipe(
+    object(shape),
+    custom((input) => {
+      const hasIdentifier = allIdentifiers.some((name) => name in input);
+      if (!hasIdentifier) {
+        return {
+          kind: "validation",
+          type: "custom",
+          input,
+          expected: `an object with at least one of: ${allIdentifiers.join(
+            ", "
+          )}`,
+          message: `Must provide at least one of: ${allIdentifiers.join(", ")}`,
+        };
+      }
+      return { output: input };
+    })
+  );
 };
 ```
 
@@ -300,14 +333,18 @@ export const buildWhereUniqueSchema = (model: Model<any>): Type => {
 ### To-One Create
 
 ```typescript
+import { object, optional, lazy } from "valibot";
+
 const buildRelationCreateSchema = (relation, getTargetModel) => {
-  return type({
-    "create?": () => getTargetModel()["~"].schemas.create,
-    "connect?": () => getTargetModel()["~"].schemas.whereUnique,
-    "connectOrCreate?": type({
-      where: () => getTargetModel()["~"].schemas.whereUnique,
-      create: () => getTargetModel()["~"].schemas.create,
-    }),
+  return object({
+    create: optional(lazy(() => getTargetModel()["~"].schemas.create)),
+    connect: optional(lazy(() => getTargetModel()["~"].schemas.whereUnique)),
+    connectOrCreate: optional(
+      object({
+        where: lazy(() => getTargetModel()["~"].schemas.whereUnique),
+        create: lazy(() => getTargetModel()["~"].schemas.create),
+      })
+    ),
   });
 };
 ```
@@ -315,47 +352,61 @@ const buildRelationCreateSchema = (relation, getTargetModel) => {
 ### To-Many Create
 
 ```typescript
-// Uses ensureArray helper for single-or-array normalization
-const ensureArray = <T>(v: T | T[]): T[] => Array.isArray(v) ? v : [v];
+import { array, union, pipe, transform } from "valibot";
 
-const createSchema = type(() => getTargetModel()["~"].schemas.create);
-return type({
-  "create?": createSchema.or(createSchema.array()).pipe(ensureArray),
-  "connect?": connectSchema.or(connectSchema.array()).pipe(ensureArray),
+// Uses ensureArray helper for single-or-array normalization
+const ensureArray = <T>(v: T | T[]): T[] => (Array.isArray(v) ? v : [v]);
+
+const createSchema = lazy(() => getTargetModel()["~"].schemas.create);
+return object({
+  create: optional(
+    pipe(union([createSchema, array(createSchema)]), transform(ensureArray))
+  ),
+  connect: optional(
+    pipe(union([connectSchema, array(connectSchema)]), transform(ensureArray))
+  ),
   // ...
 });
 ```
 
 ### To-Many Update (Array-Only Operations)
 
-Some operations only accept arrays due to ArkType limitations:
+Some operations only accept arrays:
 
 ```typescript
-return type({
+return object({
   // Single-or-array (normalized)
-  "create?": createSchema.or(createSchema.array()).pipe(ensureArray),
-  "connect?": connectSchema.or(connectSchema.array()).pipe(ensureArray),
-  
+  create: optional(
+    pipe(union([createSchema, array(createSchema)]), transform(ensureArray))
+  ),
+  connect: optional(
+    pipe(union([connectSchema, array(connectSchema)]), transform(ensureArray))
+  ),
+
   // Array-only (no single-value shorthand)
-  "deleteMany?": whereSchema.array(),
-  "updateMany?": updateManySchema.array(),
-  "upsert?": upsertSchema.array(),
+  deleteMany: optional(array(whereSchema)),
+  updateMany: optional(array(updateManySchema)),
+  upsert: optional(array(upsertSchema)),
 });
 ```
 
 ## Schema Type Exports
 
-ArkType schemas expose their types:
+Valibot schemas expose their types via `InferInput` and `InferOutput`:
 
 ```typescript
+import { InferInput, InferOutput } from "valibot";
+
 // Get input type (what user provides)
-type StringFilterInput = typeof stringFilter.inferIn;
+type StringFilterInput = InferInput<typeof stringFilter>;
 
 // Get output type (after normalization)
-type StringFilterOutput = typeof stringFilter.infer;
+type StringFilterOutput = InferOutput<typeof stringFilter>;
 ```
 
-For piped schemas, these differ:
-- `inferIn`: `string | { equals?: string, ... }`
-- `infer`: `{ equals: string } | { contains?: string, ... }`
+For union schemas with shorthand normalization, these differ:
 
+- `InferInput`: `string | { equals?: string, ... }`
+- `InferOutput`: `{ equals: string } | { contains?: string, ... }`
+
+The output type reflects the normalized form after shorthand transformation.

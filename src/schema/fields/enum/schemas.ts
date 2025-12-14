@@ -1,8 +1,7 @@
 // Enum Field Schemas
-// Value-driven factories without chained helpers (zod v4-mini style)
+// Factory pattern for enum field variants following the established schema structure
 
 import {
-  enum as _enum,
   array,
   boolean,
   nullable,
@@ -10,46 +9,25 @@ import {
   optional,
   partial,
   union,
-  _default,
-  extend,
-  type input as Input,
-} from "zod/v4-mini";
+  InferInput,
+  NullableSchema,
+  ArraySchema,
+} from "valibot";
 import {
+  AnySchema,
+  extend,
   FieldState,
-  isOptional,
+  SchemaWithDefault,
   shorthandFilter,
   shorthandUpdate,
+  createWithDefault,
 } from "../common";
-import { enumField } from "./field";
-// =============================================================================
-// STATE EXTENSION
-// =============================================================================
-
-export interface EnumFieldState<T extends string[] = string[]>
-  extends FieldState<"enum"> {
-  enumValues: T;
-}
-
-// =============================================================================
-// BASE BUILDERS
-// =============================================================================
-
-const enumBase = <T extends string[]>(values: T) => _enum(values);
-
-const enumNullable = <T extends string[]>(values: T) =>
-  nullable(enumBase(values));
-
-const enumList = <T extends string[]>(values: T) => array(enumBase(values));
-
-const enumListNullable = <T extends string[]>(values: T) =>
-  nullable(enumList(values));
 
 // =============================================================================
 // FILTER FACTORIES
 // =============================================================================
 
-const enumFilterFactory = <T extends string[]>(values: T) => {
-  const base = enumBase(values);
+const enumFilterFactory = <S extends AnySchema>(base: S) => {
   const filterBase = partial(
     object({
       equals: base,
@@ -58,33 +36,32 @@ const enumFilterFactory = <T extends string[]>(values: T) => {
     })
   );
   return union([
-    extend(filterBase, {
-      not: optional(union([filterBase, shorthandFilter(base)])),
-    }),
     shorthandFilter(base),
+    extend(filterBase, {
+      not: optional(union([shorthandFilter(base), filterBase])),
+    }),
   ]);
 };
 
-const enumNullableFilterFactory = <T extends string[]>(values: T) => {
-  const base = enumNullable(values);
+const enumNullableFilterFactory = <S extends AnySchema>(base: S) => {
+  const nullableBase = nullable(base);
   const filterBase = partial(
     object({
-      equals: base,
-      in: array(enumBase(values)),
-      notIn: array(enumBase(values)),
+      equals: nullableBase,
+      in: array(base),
+      notIn: array(base),
     })
   );
   return union([
+    shorthandFilter(nullableBase),
     extend(filterBase, {
-      not: optional(union([filterBase, base])),
+      not: optional(union([shorthandFilter(nullableBase), filterBase])),
     }),
-    shorthandFilter(base),
   ]);
 };
 
-const enumListFilterFactory = <T extends string[]>(values: T) => {
-  const base = enumBase(values);
-  const list = enumList(values);
+const enumListFilterFactory = <S extends AnySchema>(base: S) => {
+  const list = array(base);
   const listFilterBase = partial(
     object({
       equals: list,
@@ -95,16 +72,15 @@ const enumListFilterFactory = <T extends string[]>(values: T) => {
     })
   );
   return union([
-    extend(listFilterBase, {
-      not: optional(union([listFilterBase, shorthandFilter(list)])),
-    }),
     shorthandFilter(list),
+    extend(listFilterBase, {
+      not: optional(union([shorthandFilter(list), listFilterBase])),
+    }),
   ]);
 };
 
-const enumListNullableFilterFactory = <T extends string[]>(values: T) => {
-  const base = enumBase(values);
-  const listNullable = enumListNullable(values);
+const enumListNullableFilterFactory = <S extends AnySchema>(base: S) => {
+  const listNullable = nullable(array(base));
   const listFilterBase = partial(
     object({
       equals: listNullable,
@@ -115,204 +91,145 @@ const enumListNullableFilterFactory = <T extends string[]>(values: T) => {
     })
   );
   return union([
-    extend(listFilterBase, {
-      not: optional(union([listFilterBase, shorthandFilter(listNullable)])),
-    }),
     shorthandFilter(listNullable),
+    extend(listFilterBase, {
+      not: optional(union([shorthandFilter(listNullable), listFilterBase])),
+    }),
   ]);
 };
-
-// =============================================================================
-// CREATE FACTORIES
-// =============================================================================
-
-const enumCreate = <T extends string[]>(values: T) => enumBase(values);
-
-const enumNullableCreate = <T extends string[]>(values: T) =>
-  _default(optional(enumNullable(values)), null);
-
-const enumOptionalCreate = <T extends string[]>(values: T) =>
-  optional(enumBase(values));
-
-const enumOptionalNullableCreate = <T extends string[]>(values: T) =>
-  _default(optional(enumNullable(values)), null);
-
-const enumListCreate = <T extends string[]>(values: T) => enumList(values);
-
-const enumListNullableCreate = <T extends string[]>(values: T) =>
-  _default(optional(enumListNullable(values)), null);
-
-const enumOptionalListCreate = <T extends string[]>(values: T) =>
-  optional(enumList(values));
-
-const enumOptionalListNullableCreate = <T extends string[]>(values: T) =>
-  _default(optional(enumListNullable(values)), null);
 
 // =============================================================================
 // UPDATE FACTORIES
 // =============================================================================
 
-const enumUpdateFactory = <T extends string[]>(values: T) => {
-  const base = enumBase(values);
-  return union([partial(object({ set: base })), shorthandUpdate(base)]);
-};
+const enumUpdateFactory = <S extends AnySchema>(base: S) =>
+  union([shorthandUpdate(base), partial(object({ set: base }))]);
 
-const enumNullableUpdateFactory = <T extends string[]>(values: T) => {
-  const base = enumNullable(values);
-  return union([partial(object({ set: base })), shorthandUpdate(base)]);
-};
+const enumNullableUpdateFactory = <S extends AnySchema>(base: S) =>
+  union([
+    shorthandUpdate(nullable(base)),
+    partial(object({ set: nullable(base) })),
+  ]);
 
-const enumListUpdateFactory = <T extends string[]>(values: T) => {
-  const base = enumBase(values);
-  const list = enumList(values);
-  return union([
+const enumListUpdateFactory = <S extends AnySchema>(base: S) =>
+  union([
+    shorthandUpdate(array(base)),
     partial(
       object({
-        set: list,
+        set: array(base),
         push: union([base, array(base)]),
         unshift: union([base, array(base)]),
       })
     ),
-    shorthandUpdate(list),
   ]);
-};
 
-const enumListNullableUpdateFactory = <T extends string[]>(values: T) => {
-  const base = enumBase(values);
-  const listNullable = enumListNullable(values);
-  return union([
+const enumListNullableUpdateFactory = <S extends AnySchema>(base: S) =>
+  union([
+    shorthandUpdate(nullable(array(base))),
     partial(
       object({
-        set: listNullable,
-        push: union([base, enumList(values)]),
-        unshift: union([base, enumList(values)]),
+        set: nullable(array(base)),
+        push: union([base, array(base)]),
+        unshift: union([base, array(base)]),
       })
     ),
-    shorthandUpdate(listNullable),
   ]);
+
+// =============================================================================
+// SCHEMA BUILDERS
+// =============================================================================
+
+export const enumSchemas = <const F extends FieldState<"enum">>(f: F) => {
+  return {
+    base: f.base,
+    filter: enumFilterFactory(f.base),
+    create: createWithDefault(f, f.base),
+    update: enumUpdateFactory(f.base),
+  } as unknown as EnumSchemas<F>;
+};
+
+type EnumSchemas<F extends FieldState<"enum">> = {
+  base: F["base"];
+  filter: ReturnType<typeof enumFilterFactory<F["base"]>>;
+  create: SchemaWithDefault<F>;
+  update: ReturnType<typeof enumUpdateFactory<F["base"]>>;
+};
+
+export const enumNullableSchemas = <F extends FieldState<"enum">>(f: F) => {
+  return {
+    base: nullable(f.base),
+    filter: enumNullableFilterFactory(f.base),
+    create: createWithDefault(f, nullable(f.base)),
+    update: enumNullableUpdateFactory(f.base),
+  } as unknown as EnumNullableSchemas<F>;
+};
+
+type EnumNullableSchemas<F extends FieldState<"enum">> = {
+  base: NullableSchema<F["base"], undefined>;
+  filter: ReturnType<typeof enumNullableFilterFactory<F["base"]>>;
+  create: SchemaWithDefault<F>;
+  update: ReturnType<typeof enumNullableUpdateFactory<F["base"]>>;
+};
+
+export const enumListSchemas = <F extends FieldState<"enum">>(f: F) => {
+  return {
+    base: array(f.base),
+    filter: enumListFilterFactory(f.base),
+    create: createWithDefault(f, array(f.base)),
+    update: enumListUpdateFactory(f.base),
+  } as unknown as EnumListSchemas<F>;
+};
+
+type EnumListSchemas<F extends FieldState<"enum">> = {
+  base: ArraySchema<F["base"], undefined>;
+  filter: ReturnType<typeof enumListFilterFactory<F["base"]>>;
+  create: SchemaWithDefault<F>;
+  update: ReturnType<typeof enumListUpdateFactory<F["base"]>>;
+};
+
+export const enumListNullableSchemas = <F extends FieldState<"enum">>(f: F) => {
+  return {
+    base: nullable(array(f.base)),
+    filter: enumListNullableFilterFactory(f.base),
+    create: createWithDefault(f, nullable(array(f.base))),
+    update: enumListNullableUpdateFactory(f.base),
+  } as unknown as EnumListNullableSchemas<F>;
+};
+
+type EnumListNullableSchemas<F extends FieldState<"enum">> = {
+  base: NullableSchema<ArraySchema<F["base"], undefined>, undefined>;
+  filter: ReturnType<typeof enumListNullableFilterFactory<F["base"]>>;
+  create: SchemaWithDefault<F>;
+  update: ReturnType<typeof enumListNullableUpdateFactory<F["base"]>>;
 };
 
 // =============================================================================
-// SCHEMA FACTORIES
+// TYPE INFERENCE
 // =============================================================================
 
-export const enumSchemas = <T extends string[], Optional extends boolean>(
-  values: T,
-  o: Optional
-) => {
-  return {
-    base: enumBase(values),
-    filter: enumFilterFactory(values),
-    create: (o === true
-      ? enumOptionalCreate(values)
-      : enumCreate(values)) as Optional extends true
-      ? ReturnType<typeof enumOptionalCreate<T>>
-      : ReturnType<typeof enumCreate<T>>,
-    update: enumUpdateFactory(values),
-  };
-};
-
-export const enumNullableSchemas = <
-  T extends string[],
-  Optional extends boolean
->(
-  values: T,
-  o: Optional
-) => {
-  return {
-    base: enumNullable(values),
-    filter: enumNullableFilterFactory(values),
-    create: (o === true
-      ? enumOptionalNullableCreate(values)
-      : enumNullableCreate(values)) as Optional extends true
-      ? ReturnType<typeof enumOptionalNullableCreate<T>>
-      : ReturnType<typeof enumNullableCreate<T>>,
-    update: enumNullableUpdateFactory(values),
-  };
-};
-
-export const enumListSchemas = <T extends string[], Optional extends boolean>(
-  values: T,
-  o: Optional
-) => {
-  return {
-    base: enumList(values),
-    filter: enumListFilterFactory(values),
-    create: (o === true
-      ? enumOptionalListCreate(values)
-      : enumListCreate(values)) as Optional extends true
-      ? ReturnType<typeof enumOptionalListCreate<T>>
-      : ReturnType<typeof enumListCreate<T>>,
-    update: enumListUpdateFactory(values),
-  };
-};
-
-export const enumListNullableSchemas = <
-  T extends string[],
-  Optional extends boolean
->(
-  values: T,
-  o: Optional
-) => {
-  return {
-    base: enumListNullable(values),
-    filter: enumListNullableFilterFactory(values),
-    create: (o === true
-      ? enumOptionalListNullableCreate(values)
-      : enumListNullableCreate(values)) as Optional extends true
-      ? ReturnType<typeof enumOptionalListNullableCreate<T>>
-      : ReturnType<typeof enumListNullableCreate<T>>,
-    update: enumListNullableUpdateFactory(values),
-  };
-};
-
-// =============================================================================
-// TYPE HELPERS
-// =============================================================================
-
-export type EnumListNullableSchemas<
-  T extends string[],
-  Optional extends boolean = false
-> = ReturnType<typeof enumListNullableSchemas<T, Optional>>;
-
-export type EnumListSchemas<
-  T extends string[],
-  Optional extends boolean = false
-> = ReturnType<typeof enumListSchemas<T, Optional>>;
-
-export type EnumNullableSchemas<
-  T extends string[],
-  Optional extends boolean = false
-> = ReturnType<typeof enumNullableSchemas<T, Optional>>;
-
-export type EnumSchemas<
-  T extends string[],
-  Optional extends boolean = false
-> = ReturnType<typeof enumSchemas<T, Optional>>;
-
-export type InferEnumSchemas<F extends EnumFieldState> = F["array"] extends true
-  ? F["nullable"] extends true
-    ? EnumListNullableSchemas<F["enumValues"], isOptional<F>>
-    : EnumListSchemas<F["enumValues"], isOptional<F>>
-  : F["nullable"] extends true
-  ? EnumNullableSchemas<F["enumValues"], isOptional<F>>
-  : EnumSchemas<F["enumValues"], isOptional<F>>;
+export type InferEnumSchemas<F extends FieldState<"enum">> =
+  F["array"] extends true
+    ? F["nullable"] extends true
+      ? EnumListNullableSchemas<F>
+      : EnumListSchemas<F>
+    : F["nullable"] extends true
+    ? EnumNullableSchemas<F>
+    : EnumSchemas<F>;
 
 // =============================================================================
 // MAIN SCHEMA GETTER
 // =============================================================================
 
-export const getFieldEnumSchemas = <F extends EnumFieldState>(f: F) => {
-  const isOpt = f.hasDefault || f.nullable;
-  const isArr = f.array;
-  const values = f.enumValues;
-  return (isArr
-    ? isOpt
-      ? enumListNullableSchemas(values, isOpt)
-      : enumListSchemas(values, isOpt)
-    : isOpt
-    ? enumNullableSchemas(values, isOpt)
-    : enumSchemas(values, isOpt)) as unknown as InferEnumSchemas<F>;
+export const getFieldEnumSchemas = <F extends FieldState<"enum">>(f: F) => {
+  return (
+    f.array
+      ? f.nullable
+        ? enumListNullableSchemas(f)
+        : enumListSchemas(f)
+      : f.nullable
+      ? enumNullableSchemas(f)
+      : enumSchemas(f)
+  ) as InferEnumSchemas<F>;
 };
 
 // =============================================================================
@@ -320,6 +237,6 @@ export const getFieldEnumSchemas = <F extends EnumFieldState>(f: F) => {
 // =============================================================================
 
 export type InferEnumInput<
-  F extends EnumFieldState,
-  Type extends "create" | "update" | "filter"
-> = Input<InferEnumSchemas<F>[Type]>;
+  F extends FieldState<"enum">,
+  Type extends "create" | "update" | "filter" | "base"
+> = InferInput<InferEnumSchemas<F>[Type]>;

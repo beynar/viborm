@@ -47,11 +47,11 @@ s.string().id().cuid(); // CUID: "cjld2cjxh0000qzrmn831i7rn"
 ### Custom Validation
 
 ```ts
-import { z } from "zod";
+import { email, pipe, string, minLength, maxLength, regex } from "valibot";
 
-s.string().validator(z.string().email());
-s.string().validator(z.string().min(3).max(100));
-s.string().validator(z.string().regex(/^[a-z]+$/));
+s.string().schema(email());
+s.string().schema(pipe(string(), minLength(3), maxLength(100)));
+s.string().schema(pipe(string(), regex(/^[a-z]+$/)));
 ```
 
 ## Native Database Types
@@ -110,15 +110,17 @@ s.string(TYPES.SQLITE.STRING.TEXT) // TEXT (only option)
 ## Examples
 
 ```ts
+import { email, pipe, string, minLength, maxLength, regex } from "valibot";
+
 // Email with validation
 const email = s.string()
   .unique()
-  .validator(z.string().email());
+  .schema(email());
 
 // Username with constraints
 const username = s.string()
   .unique()
-  .validator(z.string().min(3).max(30).regex(/^[a-z0-9_]+$/));
+  .schema(pipe(string(), minLength(3), maxLength(30), regex(/^[a-z0-9_]+$/)));
 
 // Primary key with ULID
 const id = s.string().id().ulid();

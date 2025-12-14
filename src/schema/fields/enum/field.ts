@@ -1,95 +1,86 @@
 // Enum Field
-// Lean class delegating schema selection to schema factories
+// Standalone field class with State generic pattern
 
-import type { StandardSchemaV1 } from "@standard-schema/spec";
+import type { StandardSchemaOf } from "@standard-schema/spec";
+import { InferOutput, picklist } from "valibot";
 import {
+  type FieldState,
   type UpdateState,
   type DefaultValue,
   type SchemaNames,
   createDefaultState,
+  DefaultValueInput,
 } from "../common";
 import type { NativeType } from "../native-types";
-import { type EnumFieldState, getFieldEnumSchemas } from "./schemas";
+import { getFieldEnumSchemas } from "./schemas";
+import { schemaFromStandardSchema, StandardSchemaToSchema } from "..";
 
-export class EnumField<
-  TEnum extends string[] = string[],
-  State extends EnumFieldState<TEnum> = EnumFieldState<TEnum>
-> {
-  private enumValues: TEnum;
+// =============================================================================
+// ENUM FIELD CLASS
+// =============================================================================
+
+export class EnumField<State extends FieldState<"enum"> = FieldState<"enum">> {
   private _names: SchemaNames = {};
 
-  constructor(
-    enumValues: TEnum,
-    private state: State,
-    private _nativeType?: NativeType
-  ) {
-    this.enumValues = enumValues;
-  }
+  constructor(private state: State, private _nativeType?: NativeType) {}
 
   nullable(): EnumField<
-    TEnum,
-    UpdateState<State, { nullable: true }> & EnumFieldState<TEnum>
+    UpdateState<
+      State,
+      { nullable: true; hasDefault: true; defaultValue: DefaultValue<null> }
+    >
   > {
     return new EnumField(
-      this.enumValues,
-      { ...this.state, nullable: true } as UpdateState<
+      {
+        ...this.state,
+        nullable: true,
+        hasDefault: true,
+        defaultValue: null,
+      } as UpdateState<
         State,
-        { nullable: true }
-      > &
-        EnumFieldState<TEnum>,
+        { nullable: true; hasDefault: true; defaultValue: DefaultValue<null> }
+      >,
       this._nativeType
     );
   }
 
-  array(): EnumField<
-    TEnum,
-    UpdateState<State, { array: true }> & EnumFieldState<TEnum>
-  > {
+  array(): EnumField<UpdateState<State, { array: true }>> {
     return new EnumField(
-      this.enumValues,
-      { ...this.state, array: true } as UpdateState<State, { array: true }> &
-        EnumFieldState<TEnum>,
+      { ...this.state, array: true } as UpdateState<State, { array: true }>,
       this._nativeType
-    );
+    ) as EnumField<UpdateState<State, { array: true }>>;
   }
 
-  default(
-    value: DefaultValue<TEnum[number], State["array"], State["nullable"]>
-  ): EnumField<
-    TEnum,
-    UpdateState<State, { hasDefault: true }> & EnumFieldState<TEnum>
-  > {
+  default<V extends DefaultValueInput<State>>(
+    value: V
+  ): EnumField<UpdateState<State, { hasDefault: true; defaultValue: V }>> {
     return new EnumField(
-      this.enumValues,
       {
         ...this.state,
         hasDefault: true,
         defaultValue: value,
-      } as UpdateState<State, { hasDefault: true }> & EnumFieldState<TEnum>,
+      } as UpdateState<State, { hasDefault: true; defaultValue: V }>,
       this._nativeType
     );
   }
 
-  schema(
-    schema: StandardSchemaV1
+  schema<S extends StandardSchemaOf<InferOutput<State["base"]>>>(
+    schema: S
   ): EnumField<
-    TEnum,
-    UpdateState<State, { schema: StandardSchemaV1 }> & EnumFieldState<TEnum>
+    UpdateState<State, { schema: S; base: StandardSchemaToSchema<S> }>
   > {
     return new EnumField(
-      this.enumValues,
       {
         ...this.state,
         schema: schema,
-      } as UpdateState<State, { schema: StandardSchemaV1 }> &
-        EnumFieldState<TEnum>,
+        base: schemaFromStandardSchema(this.state.base, schema),
+      } as UpdateState<State, { schema: S; base: StandardSchemaToSchema<S> }>,
       this._nativeType
     );
   }
 
   map(columnName: string): this {
     return new EnumField(
-      this.enumValues,
       { ...this.state, columnName },
       this._nativeType
     ) as this;
@@ -98,22 +89,21 @@ export class EnumField<
   get ["~"]() {
     return {
       state: this.state,
-      schemas: getFieldEnumSchemas(this.state),
-      enumValues: this.enumValues,
+      schemas: getFieldEnumSchemas<State>(this.state),
       nativeType: this._nativeType,
       names: this._names,
     };
   }
 }
 
+// =============================================================================
+// FACTORY FUNCTION
+// =============================================================================
+
 export const enumField = <const T extends string[]>(
   values: T,
   nativeType?: NativeType
 ) => {
-  const baseState = createDefaultState("enum") as EnumFieldState<T>;
-  return new EnumField<T, EnumFieldState<T>>(
-    values,
-    { ...baseState, enumValues: values },
-    nativeType
-  );
+  const base = picklist(values);
+  return new EnumField(createDefaultState("enum", base), nativeType);
 };

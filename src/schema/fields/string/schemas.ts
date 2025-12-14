@@ -11,19 +11,18 @@ import {
   partial,
   string,
   union,
-  type input as Input,
-  extend,
-  ZodMiniType,
-  ZodMiniArray,
-  ZodMiniNullable,
-} from "zod/v4-mini";
-
+  InferInput,
+  NullableSchema,
+  ArraySchema,
+} from "valibot";
 import {
-  createWithDefault,
+  AnySchema,
+  extend,
   FieldState,
   SchemaWithDefault,
   shorthandFilter,
   shorthandUpdate,
+  createWithDefault,
 } from "../common";
 
 // =============================================================================
@@ -43,8 +42,8 @@ export const stringListNullable = nullable(stringList);
 const stringFilterBase = partial(
   object({
     equals: stringBase,
-    in: array(stringBase),
-    notIn: array(stringBase),
+    in: stringList,
+    notIn: stringList,
     contains: stringBase,
     startsWith: stringBase,
     endsWith: stringBase,
@@ -59,8 +58,8 @@ const stringFilterBase = partial(
 const stringNullableFilterBase = partial(
   object({
     equals: stringNullable,
-    in: array(stringBase),
-    notIn: array(stringBase),
+    in: stringList,
+    notIn: stringList,
     contains: stringBase,
     startsWith: stringBase,
     endsWith: stringBase,
@@ -76,8 +75,8 @@ const stringArrayFilterBase = partial(
   object({
     equals: stringList,
     has: stringBase,
-    hasEvery: array(stringBase),
-    hasSome: array(stringBase),
+    hasEvery: stringList,
+    hasSome: stringList,
     isEmpty: boolean(),
   })
 );
@@ -86,54 +85,62 @@ const stringNullableListFilterBase = partial(
   object({
     equals: stringListNullable,
     has: stringBase,
-    hasEvery: array(stringBase),
-    hasSome: array(stringBase),
+    hasEvery: stringList,
+    hasSome: stringList,
     isEmpty: boolean(),
   })
 );
 
 const stringFilter = union([
-  extend(stringFilterBase, {
-    not: optional(union([stringFilterBase, shorthandFilter(stringBase)])),
-  }),
   shorthandFilter(stringBase),
+  extend(stringFilterBase, {
+    not: optional(union([shorthandFilter(stringBase), stringFilterBase])),
+  }),
 ]);
 
 const stringNullableFilter = union([
-  extend(stringNullableFilterBase, {
-    not: optional(union([stringNullableFilterBase, stringNullable])),
-  }),
   shorthandFilter(stringNullable),
+  extend(stringNullableFilterBase, {
+    not: optional(
+      union([shorthandFilter(stringNullable), stringNullableFilterBase])
+    ),
+  }),
 ]);
 
 const stringListFilter = union([
-  extend(stringArrayFilterBase, {
-    not: optional(union([stringArrayFilterBase, shorthandFilter(stringList)])),
-  }),
   shorthandFilter(stringList),
+  extend(stringArrayFilterBase, {
+    not: optional(union([shorthandFilter(stringList), stringArrayFilterBase])),
+  }),
 ]);
 
 const stringListNullableFilter = union([
+  shorthandFilter(stringListNullable),
   extend(stringNullableListFilterBase, {
     not: optional(
-      union([stringNullableListFilterBase, shorthandFilter(stringListNullable)])
+      union([shorthandFilter(stringListNullable), stringNullableListFilterBase])
     ),
   }),
-  shorthandFilter(stringListNullable),
 ]);
 
 // =============================================================================
 // UPDATE FACTORIES
 // =============================================================================
 
-const stringUpdateFactory = <Z extends ZodMiniType>(base: Z) =>
-  union([object({ set: base }), shorthandUpdate(base)]);
+const stringUpdateFactory = <S extends AnySchema>(base: S) => {
+  return union([shorthandUpdate(base), object({ set: base })]);
+};
 
-const stringNullableUpdateFactory = <Z extends ZodMiniType>(base: Z) =>
-  union([object({ set: nullable(base) }), shorthandUpdate(nullable(base))]);
+const stringNullableUpdateFactory = <S extends AnySchema>(base: S) => {
+  return union([
+    shorthandUpdate(nullable(base)),
+    object({ set: nullable(base) }),
+  ]);
+};
 
-const stringListUpdateFactory = <Z extends ZodMiniType>(base: Z) =>
+const stringListUpdateFactory = <S extends AnySchema>(base: S) =>
   union([
+    shorthandUpdate(array(base)),
     partial(
       object({
         set: array(base),
@@ -141,11 +148,11 @@ const stringListUpdateFactory = <Z extends ZodMiniType>(base: Z) =>
         unshift: union([base, array(base)]),
       })
     ),
-    shorthandUpdate(array(base)),
   ]);
 
-const stringListNullableUpdateFactory = <Z extends ZodMiniType>(base: Z) =>
+const stringListNullableUpdateFactory = <S extends AnySchema>(base: S) =>
   union([
+    shorthandUpdate(nullable(array(base))),
     partial(
       object({
         set: nullable(array(base)),
@@ -153,7 +160,6 @@ const stringListNullableUpdateFactory = <Z extends ZodMiniType>(base: Z) =>
         unshift: union([base, array(base)]),
       })
     ),
-    shorthandUpdate(nullable(array(base))),
   ]);
 
 // =============================================================================
@@ -186,7 +192,7 @@ export const stringNullableSchemas = <F extends FieldState<"string">>(f: F) => {
 };
 
 type StringNullableSchemas<F extends FieldState<"string">> = {
-  base: ZodMiniNullable<F["base"]>;
+  base: NullableSchema<F["base"], undefined>;
   filter: typeof stringNullableFilter;
   create: SchemaWithDefault<F>;
   update: ReturnType<typeof stringNullableUpdateFactory<F["base"]>>;
@@ -202,7 +208,7 @@ export const stringListSchemas = <F extends FieldState<"string">>(f: F) => {
 };
 
 type StringListSchemas<F extends FieldState<"string">> = {
-  base: ZodMiniArray<F["base"]>;
+  base: ArraySchema<F["base"], undefined>;
   filter: typeof stringListFilter;
   create: SchemaWithDefault<F>;
   update: ReturnType<typeof stringListUpdateFactory<F["base"]>>;
@@ -220,7 +226,7 @@ export const stringListNullableSchemas = <F extends FieldState<"string">>(
 };
 
 type StringListNullableSchemas<F extends FieldState<"string">> = {
-  base: ZodMiniNullable<ZodMiniArray<F["base"]>>;
+  base: NullableSchema<ArraySchema<F["base"], undefined>, undefined>;
   filter: typeof stringListNullableFilter;
   create: SchemaWithDefault<F>;
   update: ReturnType<typeof stringListNullableUpdateFactory<F["base"]>>;
@@ -250,4 +256,4 @@ export const getFieldStringSchemas = <F extends FieldState<"string">>(f: F) => {
 export type InferStringInput<
   F extends FieldState<"string">,
   Type extends "create" | "update" | "filter" | "base"
-> = Input<InferStringSchemas<F>[Type]>;
+> = InferInput<InferStringSchemas<F>[Type]>;
