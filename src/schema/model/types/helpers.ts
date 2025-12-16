@@ -31,16 +31,31 @@ export type FieldRecord = Record<string, Field | AnyRelation>;
  * Represents a compound constraint (ID or unique) with fields and optional name.
  * The name is used for WhereUnique input keys; if undefined, auto-generated from fields.
  */
+
+type NameFromKeys<
+  TFields extends string[],
+  TName extends string = ""
+> = TFields extends readonly [
+  infer F extends string,
+  ...infer R extends string[]
+]
+  ? R extends []
+    ? `${TName}_${F}`
+    : NameFromKeys<R, TName extends "" ? F : `${TName}_${F}`>
+  : never;
+
+type T = NameFromKeys<["email", "test", "username"]>;
+
 export interface CompoundConstraint<
-  TFields extends readonly string[] = readonly string[],
+  TFields extends readonly string[],
   TName extends string | undefined = undefined
 > {
   fields: TFields;
-  name: TName;
+  name: TName extends undefined ? NameFromKeys<TFields> : TName;
 }
 
 /** Any compound constraint (for loose typing) */
-export type AnyCompoundConstraint = CompoundConstraint<any, any>;
+export type AnyCompoundConstraint = CompoundConstraint<string[]>;
 
 // =============================================================================
 // MODEL STATE TYPES (for single-generic Model pattern)

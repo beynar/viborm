@@ -1,4 +1,4 @@
-// Vector Field
+// Point Field
 // Standalone field class with State generic pattern
 
 import {
@@ -10,25 +10,25 @@ import {
   DefaultValueInput,
 } from "../common";
 import type { NativeType } from "../native-types";
-import { getFieldVectorSchemas, vectorBase } from "./schemas";
+import { getFieldPointSchemas, pointBase } from "./schemas";
 
 // =============================================================================
-// VECTOR FIELD CLASS
+// POINT FIELD CLASS
 // =============================================================================
 
-export class VectorField<State extends FieldState<"vector">> {
+export class PointField<State extends FieldState<"point">> {
   /** Name slots hydrated by client at initialization */
   private _names: SchemaNames = {};
 
   constructor(private state: State, private _nativeType?: NativeType) {}
 
-  nullable(): VectorField<
+  nullable(): PointField<
     UpdateState<
       State,
       { nullable: true; hasDefault: true; defaultValue: DefaultValue<null> }
     >
   > {
-    return new VectorField(
+    return new PointField(
       { ...this.state, nullable: true, hasDefault: true, defaultValue: null },
       this._nativeType
     );
@@ -36,8 +36,8 @@ export class VectorField<State extends FieldState<"vector">> {
 
   default<V extends DefaultValueInput<State>>(
     value: V
-  ): VectorField<UpdateState<State, { hasDefault: true; defaultValue: V }>> {
-    return new VectorField(
+  ): PointField<UpdateState<State, { hasDefault: true; defaultValue: V }>> {
+    return new PointField(
       {
         ...this.state,
         hasDefault: true,
@@ -47,34 +47,17 @@ export class VectorField<State extends FieldState<"vector">> {
     );
   }
 
-  /**
-   * Maps this field to a custom column name in the database
-   */
   map(columnName: string): this {
-    return new VectorField(
+    return new PointField(
       { ...this.state, columnName },
       this._nativeType
     ) as this;
   }
 
-  // ===========================================================================
-  // VECTOR-SPECIFIC METHODS
-  // ===========================================================================
-
-  dimension(dim: number): VectorField<State & { dimension: number }> {
-    return new VectorField(
-      {
-        ...this.state,
-        dimension: dim,
-      } as State & { dimension: number },
-      this._nativeType
-    );
-  }
-
   get ["~"]() {
     return {
       state: this.state,
-      schemas: getFieldVectorSchemas<State>(this.state),
+      schemas: getFieldPointSchemas<State>(this.state),
       nativeType: this._nativeType,
       names: this._names,
     };
@@ -85,5 +68,5 @@ export class VectorField<State extends FieldState<"vector">> {
 // FACTORY FUNCTION
 // =============================================================================
 
-export const vector = (nativeType?: NativeType) =>
-  new VectorField(createDefaultState("vector", vectorBase), nativeType);
+export const point = (nativeType?: NativeType) =>
+  new PointField(createDefaultState("point", pointBase), nativeType);

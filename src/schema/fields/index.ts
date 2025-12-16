@@ -44,10 +44,13 @@ export {
 export type { NumberField } from "./number/index";
 export { BooleanField, boolean } from "./boolean/field";
 export { DateTimeField, dateTime } from "./datetime/field";
+export { DateField, date } from "./datetime/date-field";
+export { TimeField, time } from "./datetime/time-field";
 export { BigIntField, bigInt } from "./bigint/field";
 export { JsonField, json } from "./json/field";
 export { VectorField, vector } from "./vector/field";
 export { BlobField, blob } from "./blob/field";
+export { PointField, point } from "./point/field";
 export { EnumField, enumField } from "./enum/field";
 
 // Schema exports (explicit ArkType schemas)
@@ -59,4 +62,5 @@ export * from "./bigint/schemas";
 export * from "./json/schemas";
 export * from "./vector/schemas";
 export * from "./blob/schemas";
+export * from "./point/schemas";
 export * from "./enum/schemas";

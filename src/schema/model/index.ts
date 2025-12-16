@@ -1,5 +1,5 @@
 // Model exports
-export { Model, model } from "./model";
+export { Model, model, type AnyModel } from "./model";
 export type {
   // State types
   ModelState,
@@ -29,5 +29,5 @@ export type { FieldRecord } from "./types/helpers";
 // Types exports
 export * from "./types";
 
-// Runtime exports
-export * from "./runtime";
+// Schema exports
+export { getModelSchemas } from "./schemas";

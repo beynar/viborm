@@ -6,10 +6,13 @@ import type { StringField } from "./string/field";
 import type { IntField, FloatField, DecimalField } from "./number/field";
 import type { BooleanField } from "./boolean/field";
 import type { DateTimeField } from "./datetime/field";
+import type { DateField } from "./datetime/date-field";
+import type { TimeField } from "./datetime/time-field";
 import type { BigIntField } from "./bigint/field";
 import type { JsonField } from "./json/field";
 import type { VectorField } from "./vector/field";
 import type { BlobField } from "./blob/field";
+import type { PointField } from "./point/field";
 import type { EnumField } from "./enum/field";
 
 // =============================================================================
@@ -32,10 +35,13 @@ export type Field =
   | DecimalField<any>
   | BooleanField<any>
   | DateTimeField<any>
+  | DateField<any>
+  | TimeField<any>
   | BigIntField<any>
   | JsonField<any, any>
   | VectorField<any>
   | BlobField<any>
+  | PointField<any>
   | EnumField<any, any>;
 
 /**

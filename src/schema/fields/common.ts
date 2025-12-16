@@ -78,10 +78,13 @@ export type ScalarFieldType =
   | "decimal"
   | "boolean"
   | "datetime"
+  | "date"
+  | "time"
   | "bigint"
   | "json"
   | "blob"
   | "vector"
+  | "point"
   | "enum";
 
 export type AutoGenerateType =
@@ -175,7 +178,7 @@ export type DefaultValueInput<S extends FieldState> = S["type"] extends "json"
     >
   : DefaultValue<
       MaybeNullable<
-        MaybeArray<InferOutput<S["base"]>, S["array"]>,
+        MaybeArray<InferInput<S["base"]>, S["array"]>,
         S["nullable"]
       >
     >;

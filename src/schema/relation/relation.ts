@@ -1,11 +1,11 @@
 // Relation Class Implementation
 // Clean class hierarchy for different relation types
 
-import { Model } from "../model";
+import { type AnyModel } from "../model";
 import { type SchemaNames } from "../fields/common";
-import { Simplify } from "../../types/utilities.js";
+import { getRelationSchemas } from "./schemas";
 
-export type Getter = () => Model<any>;
+export type Getter = () => AnyModel;
 export type RelationType =
   | "oneToOne"
   | "oneToMany"
@@ -18,79 +18,42 @@ export type ReferentialAction = "cascade" | "setNull" | "restrict" | "noAction";
 // =============================================================================
 
 type UpdateState<
-  State extends RelationState,
-  Update extends Partial<RelationState>
+  State extends BaseRelationState,
+  Update extends Partial<BaseRelationState>
 > = State & Update;
-export interface RelationState {
+export interface RelationState extends BaseRelationState {
+  type: RelationType;
+  getter: Getter;
+}
+export interface BaseRelationState {
   fields?: string[];
   references?: string[];
   onDelete?: ReferentialAction;
   onUpdate?: ReferentialAction;
-  optional: boolean;
+  optional?: boolean;
   through?: string;
   throughA?: string;
   throughB?: string;
-}
-
-export interface RelationInternals<
-  G extends Getter,
-  T extends RelationType,
-  TOptional extends boolean = false
-> {
-  readonly getter: G;
-  readonly relationType: T;
-  readonly isToMany: boolean;
-  readonly isToOne: boolean;
-  readonly isOptional: TOptional;
-  readonly fields?: string[] | undefined;
-  readonly references?: string[] | undefined;
-  readonly onDelete?: ReferentialAction | undefined;
-  readonly onUpdate?: ReferentialAction | undefined;
-  // ManyToMany only
-  readonly through?: string | undefined;
-  readonly throughA?: string | undefined;
-  readonly throughB?: string | undefined;
-  // Name slots hydrated by client at initialization
-  readonly names: SchemaNames;
-  // Type inference
-  readonly infer: G extends () => infer M
-    ? M extends Model<any>
-      ? T extends "oneToMany" | "manyToMany"
-        ? Simplify<M["~"]["infer"]>[]
-        : TOptional extends true
-        ? Simplify<M["~"]["infer"]> | null
-        : Simplify<M["~"]["infer"]>
-      : never
-    : never;
 }
 
 // =============================================================================
 // BASE RELATION (shared logic)
 // =============================================================================
 
-export abstract class Relation<
-  const G extends Getter,
-  State extends RelationState = RelationState,
-  T extends RelationType = RelationType
-> {
-  private _getter: G;
+export abstract class Relation<State extends RelationState> {
   private _state: State;
-  private _relationType: T;
   /** Name slots hydrated by client at initialization */
   private _names: SchemaNames = {};
 
-  constructor(getter: G, state: State, relationType: T) {
-    this._getter = getter;
+  constructor(state: State) {
     this._state = state;
-    this._relationType = relationType;
   }
 
-  get "~"(): State & { getter: G; relationType: T; names: SchemaNames } {
+  get "~"() {
     return {
-      ...this._state,
-      getter: this._getter,
-      relationType: this._relationType,
+      state: this._state,
       names: this._names,
+      schemas: getRelationSchemas(this._state),
     };
   }
 }
@@ -100,20 +63,18 @@ export abstract class Relation<
 // =============================================================================
 
 export class OneToOneRelation<
-  const G extends Getter,
-  State extends RelationState = RelationState
-> extends Relation<G, State, "oneToOne"> {
-  constructor(getter: G, state: State) {
-    super(getter, state, "oneToOne");
+  State extends RelationState & { type: "oneToOne" }
+> extends Relation<State> {
+  constructor(state: State) {
+    super(state);
   }
 }
 
 export class ManyToOneRelation<
-  G extends Getter,
-  State extends RelationState = RelationState
-> extends Relation<G, State, "manyToOne"> {
-  constructor(getter: G, state: State) {
-    super(getter, state, "manyToOne");
+  State extends RelationState & { type: "manyToOne" }
+> extends Relation<State> {
+  constructor(state: State) {
+    super(state);
   }
 }
 
@@ -122,11 +83,10 @@ export class ManyToOneRelation<
 // =============================================================================
 
 export class OneToManyRelation<
-  G extends Getter,
-  State extends RelationState = RelationState
-> extends Relation<G, State, "oneToMany"> {
-  constructor(getter: G, state: State) {
-    super(getter, state, "oneToMany");
+  State extends RelationState & { type: "oneToMany" }
+> extends Relation<State> {
+  constructor(state: State) {
+    super(state);
   }
 }
 
@@ -135,11 +95,10 @@ export class OneToManyRelation<
 // =============================================================================
 
 export class ManyToManyRelation<
-  G extends Getter,
-  State extends RelationState = RelationState
-> extends Relation<G, State, "manyToMany"> {
-  constructor(getter: G, state: State) {
-    super(getter, state, "manyToMany");
+  State extends RelationState & { type: "manyToMany" }
+> extends Relation<State> {
+  constructor(state: State) {
+    super(state);
   }
 }
 
@@ -166,7 +125,7 @@ export class ManyToManyRelation<
  * });
  */
 
-export class RelationBuilderImpl<State extends RelationState> {
+export class RelationBuilderImpl<State extends BaseRelationState> {
   private _state: State;
   constructor(state: State) {
     this._state = state;
@@ -235,23 +194,35 @@ export class RelationBuilderImpl<State extends RelationState> {
   // ===========================================================================
 
   /** Create a one-to-one relation */
-  oneToOne<G extends Getter>(getter: G): OneToOneRelation<G, State> {
-    return new OneToOneRelation<G, State>(getter, this._state);
+  oneToOne<G extends Getter>(
+    getter: G
+  ): OneToOneRelation<State & { type: "oneToOne"; getter: G }> {
+    return new OneToOneRelation({ ...this._state, type: "oneToOne", getter });
   }
 
   /** Create a many-to-one relation */
-  manyToOne<G extends Getter>(getter: G): ManyToOneRelation<G, State> {
-    return new ManyToOneRelation<G, State>(getter, this._state);
+  manyToOne<G extends Getter>(
+    getter: G
+  ): ManyToOneRelation<State & { type: "manyToOne"; getter: G }> {
+    return new ManyToOneRelation({ ...this._state, type: "manyToOne", getter });
   }
 
   /** Create a one-to-many relation */
-  oneToMany<G extends Getter>(getter: G): OneToManyRelation<G, State> {
-    return new OneToManyRelation<G, State>(getter, this._state);
+  oneToMany<G extends Getter>(
+    getter: G
+  ): OneToManyRelation<State & { type: "oneToMany"; getter: G }> {
+    return new OneToManyRelation({ ...this._state, type: "oneToMany", getter });
   }
 
   /** Create a many-to-many relation */
-  manyToMany<G extends Getter>(getter: G): ManyToManyRelation<G> {
-    return new ManyToManyRelation<G, State>(getter, this._state);
+  manyToMany<G extends Getter>(
+    getter: G
+  ): ManyToManyRelation<State & { type: "manyToMany"; getter: G }> {
+    return new ManyToManyRelation({
+      ...this._state,
+      type: "manyToMany",
+      getter,
+    });
   }
 }
 
@@ -301,30 +272,30 @@ export function generateJunctionFieldName(modelName: string): string {
 }
 
 export function getJunctionTableName(
-  relation: Relation<any, any, any>,
+  relation: Relation<RelationState>,
   sourceModelName: string,
   targetModelName: string
 ): string {
   return (
-    relation["~"].through ||
+    relation["~"].state.through ||
     generateJunctionTableName(sourceModelName, targetModelName)
   );
 }
 
 export function getJunctionFieldNames(
-  relation: Relation<any, any, any>,
+  relation: Relation<RelationState>,
   sourceModelName: string,
   targetModelName: string
 ): [string, string] {
   const sourceFieldName =
-    relation["~"].throughA || generateJunctionFieldName(sourceModelName);
+    relation["~"].state.throughA || generateJunctionFieldName(sourceModelName);
   const targetFieldName =
-    relation["~"].throughB || generateJunctionFieldName(targetModelName);
+    relation["~"].state.throughB || generateJunctionFieldName(targetModelName);
   return [sourceFieldName, targetFieldName];
 }
 
 export type AnyRelation =
-  | OneToOneRelation<any, any>
-  | ManyToOneRelation<any, any>
-  | OneToManyRelation<any, any>
-  | ManyToManyRelation<any, any>;
+  | OneToOneRelation<RelationState & { type: "oneToOne" }>
+  | ManyToOneRelation<RelationState & { type: "manyToOne" }>
+  | OneToManyRelation<RelationState & { type: "oneToMany" }>
+  | ManyToManyRelation<RelationState & { type: "manyToMany" }>;

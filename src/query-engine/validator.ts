@@ -5,30 +5,54 @@
  * Maps operation names to schema keys and validates input.
  */
 
-import { type } from "arktype";
+import { safeParse, type BaseSchema } from "valibot";
 import type { Model } from "@schema/model";
-import type { TypedModelSchemas } from "@schema/model/runtime";
 import { Operation, ValidationError } from "./types";
 
 /**
- * Map operation names to schema keys in TypedModelSchemas
+ * Get the appropriate schema for an operation
  */
-const schemaKeyMap: Record<Operation, keyof TypedModelSchemas<any>> = {
-  findFirst: "findFirst",
-  findMany: "findMany",
-  findUnique: "findUnique",
-  create: "createArgs",
-  createMany: "createArgs",
-  update: "updateArgs",
-  updateMany: "updateManyArgs",
-  delete: "deleteArgs",
-  deleteMany: "deleteManyArgs",
-  upsert: "upsertArgs",
-  count: "count",
-  aggregate: "aggregate",
-  groupBy: "groupBy",
-  exist: "exist",
-};
+function getOperationSchema(
+  model: Model<any>,
+  operation: Operation
+): BaseSchema<any, any, any> | undefined {
+  const schemas = model["~"].schemas;
+
+  // Map operations to their schema locations
+  switch (operation) {
+    case "findFirst":
+      return schemas.args?.findFirst;
+    case "findMany":
+      return schemas.args?.findMany;
+    case "findUnique":
+      return schemas.args?.findUnique;
+    case "create":
+      return schemas.args?.create;
+    case "createMany":
+      return schemas.args?.createMany;
+    case "update":
+      return schemas.args?.update;
+    case "updateMany":
+      return schemas.args?.updateMany;
+    case "delete":
+      return schemas.args?.delete;
+    case "deleteMany":
+      return schemas.args?.deleteMany;
+    case "upsert":
+      return schemas.args?.upsert;
+    case "count":
+      return schemas.args?.count;
+    case "aggregate":
+      return schemas.args?.aggregate;
+    case "groupBy":
+      return schemas.args?.groupBy;
+    case "exist":
+      // exist uses same schema as count but simpler
+      return schemas.args?.count;
+    default:
+      return undefined;
+  }
+}
 
 /**
  * Validate operation input against model schema
@@ -44,8 +68,7 @@ export function validate<T>(
   operation: Operation,
   input: unknown
 ): T {
-  const schemaKey = schemaKeyMap[operation];
-  const schema = model["~"].schemas[schemaKey];
+  const schema = getOperationSchema(model, operation);
 
   if (!schema) {
     throw new ValidationError(
@@ -54,14 +77,16 @@ export function validate<T>(
     );
   }
 
-  const result = schema(input);
+  const result = safeParse(schema, input);
 
-  // ArkType returns the data directly if valid, or a type.errors object if invalid
-  if (result instanceof type.errors) {
-    throw new ValidationError(operation, result.summary);
+  if (!result.success) {
+    const issues = result.issues
+      .map((issue) => `${issue.path?.map((p) => p.key).join(".") || "root"}: ${issue.message}`)
+      .join("; ");
+    throw new ValidationError(operation, issues);
   }
 
-  return result as T;
+  return result.output as T;
 }
 
 /**

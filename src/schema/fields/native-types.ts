@@ -116,6 +116,13 @@ export const PG = {
   BLOB: {
     BYTEA: { db: "pg", type: "bytea" } as const,
   },
+
+  // Spatial types (PostGIS)
+  POINT: {
+    POINT: { db: "pg", type: "point" } as const,
+    GEOMETRY_POINT: { db: "pg", type: "geometry(Point)" } as const,
+    GEOGRAPHY_POINT: { db: "pg", type: "geography(Point)" } as const,
+  },
 } as const;
 
 // =============================================================================
