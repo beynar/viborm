@@ -6,8 +6,6 @@ export {
   getUniqueFilter,
   getRelationFilter,
   // Key extractors (reusable)
-  type ScalarFieldKeys,
-  type RelationKeys,
   // Schema types
   type ScalarFilterSchema,
   type ScalarFilterInput,
@@ -35,4 +33,3 @@ export { getSelectSchema, getIncludeSchema } from "./select";
 
 // OrderBy exports
 export { getOrderBySchema, sortOrderSchema } from "./orderby";
-

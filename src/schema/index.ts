@@ -27,7 +27,14 @@ import {
   enumField,
   vector,
 } from "./fields";
-import { Relation, relation, type Getter } from "./relation";
+import {
+  Relation,
+  oneToOne,
+  manyToOne,
+  oneToMany,
+  manyToMany,
+  type Getter,
+} from "./relation";
 
 // =============================================================================
 // SCHEMA BUILDER API
@@ -82,7 +89,10 @@ export const s = {
   vector,
 
   // Relation builder (config-first, getter-last pattern)
-  relation,
+  oneToOne,
+  manyToOne,
+  oneToMany,
+  manyToMany,
 };
 
 // =============================================================================

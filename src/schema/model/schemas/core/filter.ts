@@ -9,33 +9,24 @@ import {
 } from "valibot";
 import { model, type ModelState } from "../../model";
 import type { SchemaEntries } from "../types";
-import type { Field } from "../../../fields/base";
+import { oneToOne } from "../../../relation/relation";
 import {
-  newRelation,
-  relation,
-  type AnyRelation,
-} from "../../../relation/relation";
-import { forEachScalarField, forEachRelation } from "../utils";
+  forEachScalarField,
+  forEachRelation,
+  forEachUniqueField,
+} from "../utils";
 import { string } from "@schema/fields";
 import {
-  FieldRecord,
   ScalarFields,
   RelationFields,
   UniqueFields,
+  RelationKeys,
 } from "@schema/model";
+import { ScalarFieldKeys } from "@schema/model/types/helpers";
 
 // =============================================================================
 // KEY EXTRACTORS (reusable across schema files)
 // =============================================================================
-
-export type ScalarFieldKeys<T extends FieldRecord> = {
-  [K in keyof T]: T[K] extends Field ? K : never;
-}[keyof T];
-
-/** Extract relation keys from ModelState */
-export type RelationKeys<T extends FieldRecord> = {
-  [K in keyof T]: T[K] extends AnyRelation ? K : never;
-}[keyof T];
 
 // =============================================================================
 // SCALAR FILTER
@@ -130,7 +121,7 @@ const otherModel = model({
 const modelTest = model({
   id: string().id(),
   name: string(),
-  other: relation.optional().oneToOne(() => otherModel),
+  other: oneToOne(() => otherModel, { optional: true }),
 });
 type Fields = (typeof modelTest)["~"]["state"]["fields"];
 type Scalars = ScalarFieldKeys<Fields>;
@@ -140,10 +131,4 @@ type RelationRecord = RelationFields<Fields>;
 type Relations = RelationKeys<Fields>;
 
 type TestFilter = ScalarFilterSchema<(typeof modelTest)["~"]["state"]>;
-type Test = InferInput<ScalarFilterSchema<(typeof modelTest)["~"]["state"]>>;
-function forEachUniqueField<T extends ModelState>(
-  state: T,
-  arg1: (name: any, unique: any) => void
-) {
-  throw new Error("Function not implemented.");
-}
+type Test = ScalarFilterSchema<(typeof modelTest)["~"]["state"]>;
