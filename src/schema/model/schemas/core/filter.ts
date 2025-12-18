@@ -1,54 +1,149 @@
 // Filter schema factories
 
-import { object, optional, type ObjectSchema } from "valibot";
-import type { ModelState } from "../../model";
+import {
+  object,
+  optional,
+  type ObjectSchema,
+  type InferInput,
+  type OptionalSchema,
+} from "valibot";
+import { model, type ModelState } from "../../model";
 import type { SchemaEntries } from "../types";
+import type { Field } from "../../../fields/base";
+import {
+  newRelation,
+  relation,
+  type AnyRelation,
+} from "../../../relation/relation";
 import { forEachScalarField, forEachRelation } from "../utils";
+import { string } from "@schema/fields";
+import {
+  FieldRecord,
+  ScalarFields,
+  RelationFields,
+  UniqueFields,
+} from "@schema/model";
 
-/**
- * Build scalar filter schema - combines all scalar field filters
- */
-export const getScalarFilter = <T extends ModelState>(
-  state: T
-): ObjectSchema<any, any> => {
+// =============================================================================
+// KEY EXTRACTORS (reusable across schema files)
+// =============================================================================
+
+export type ScalarFieldKeys<T extends FieldRecord> = {
+  [K in keyof T]: T[K] extends Field ? K : never;
+}[keyof T];
+
+/** Extract relation keys from ModelState */
+export type RelationKeys<T extends FieldRecord> = {
+  [K in keyof T]: T[K] extends AnyRelation ? K : never;
+}[keyof T];
+
+// =============================================================================
+// SCALAR FILTER
+// =============================================================================
+
+/** Scalar filter schema - each scalar field's filter, all optional */
+export type ScalarFilterSchema<T extends ModelState> = ObjectSchema<
+  {
+    [K in keyof T["scalars"]]: OptionalSchema<
+      T["scalars"][K]["~"]["schemas"]["filter"],
+      undefined
+    >;
+  },
+  undefined
+>;
+
+/** Input type for scalar filter */
+export type ScalarFilterInput<T extends ModelState> = InferInput<
+  ScalarFilterSchema<T>
+>;
+
+export const getScalarFilter = <T extends ModelState>(state: T) => {
   const entries: SchemaEntries = {};
-
   forEachScalarField(state, (name, field) => {
     entries[name] = optional(field["~"].schemas.filter);
   });
-
-  return object(entries);
+  return object(entries) as ScalarFilterSchema<T>;
 };
 
-/**
- * Build unique filter schema - only fields marked as id or unique
- */
-export const getUniqueFilter = <T extends ModelState>(
-  state: T
-): ObjectSchema<any, any> => {
+// =============================================================================
+// UNIQUE FILTER
+// =============================================================================
+
+/** Unique filter schema - only id/unique fields with base schema */
+export type UniqueFilterSchema<T extends ModelState> = ObjectSchema<
+  {
+    [K in keyof T["uniques"]]: OptionalSchema<
+      T["uniques"][K]["~"]["schemas"]["base"],
+      undefined
+    >;
+  },
+  undefined
+>;
+
+/** Input type for unique filter */
+export type UniqueFilterInput<T extends ModelState> = InferInput<
+  UniqueFilterSchema<T>
+>;
+
+export const getUniqueFilter = <T extends ModelState>(state: T) => {
   const entries: SchemaEntries = {};
-
-  forEachScalarField(state, (name, field) => {
-    const fieldState = field["~"].state;
-    if (fieldState.isId || fieldState.isUnique) {
-      entries[name] = optional(field["~"].schemas.base);
-    }
+  forEachUniqueField(state, (name, unique) => {
+    entries[name] = optional(unique["~"].schemas.base);
   });
-
-  return object(entries);
+  return object(entries) as UniqueFilterSchema<T>;
 };
 
-/**
- * Build relation filter schema - combines all relation filters
- */
+// =============================================================================
+// RELATION FILTER
+// =============================================================================
+
+/** Relation filter schema - each relation's filter, all optional */
+export type RelationFilterSchema<T extends ModelState> = ObjectSchema<
+  {
+    [K in keyof T["relations"]]: OptionalSchema<
+      T["relations"][K]["~"]["schemas"]["filter"],
+      undefined
+    >;
+  },
+  undefined
+>;
+
+/** Input type for relation filter */
+export type RelationFilterInput<T extends ModelState> = InferInput<
+  RelationFilterSchema<T>
+>;
+
 export const getRelationFilter = <T extends ModelState>(
   state: T
-): ObjectSchema<any, any> => {
+): RelationFilterSchema<T> => {
   const entries: SchemaEntries = {};
-
   forEachRelation(state, (name, relation) => {
     entries[name] = optional(relation["~"].schemas.filter);
   });
-
-  return object(entries);
+  return object(entries) as RelationFilterSchema<T>;
 };
+
+const otherModel = model({
+  id: string().id(),
+  name: string(),
+});
+const modelTest = model({
+  id: string().id(),
+  name: string(),
+  other: relation.optional().oneToOne(() => otherModel),
+});
+type Fields = (typeof modelTest)["~"]["state"]["fields"];
+type Scalars = ScalarFieldKeys<Fields>;
+type ScalarRecord = ScalarFields<Fields>;
+type UniqueRecord = UniqueFields<Fields>;
+type RelationRecord = RelationFields<Fields>;
+type Relations = RelationKeys<Fields>;
+
+type TestFilter = ScalarFilterSchema<(typeof modelTest)["~"]["state"]>;
+type Test = InferInput<ScalarFilterSchema<(typeof modelTest)["~"]["state"]>>;
+function forEachUniqueField<T extends ModelState>(
+  state: T,
+  arg1: (name: any, unique: any) => void
+) {
+  throw new Error("Function not implemented.");
+}

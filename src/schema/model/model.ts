@@ -5,17 +5,20 @@ import { isField, type Field } from "../fields/base";
 import { type SchemaNames } from "../fields/common";
 import { AnyRelation, Relation } from "../relation/relation";
 import { getModelSchemas } from "./schemas";
-import type {
-  FieldRecord,
-  ScalarFieldKeys as _ScalarFieldKeys,
-  AnyModelState,
-  DefaultModelState,
-  CompoundConstraint,
-  AnyCompoundConstraint,
-} from "./types/helpers";
+import type { FieldRecord, CompoundConstraint } from "./types/helpers";
 
 import { MergeDeep } from "type-fest";
-
+import {
+  ScalarFieldKeys,
+  RelationKeys,
+  UniqueFieldKeys,
+  ScalarFields,
+  extractScalarFields,
+  extractRelationFields,
+  extractUniqueFields,
+  RelationFields,
+  UniqueFields,
+} from "./helper";
 // Re-export types from helpers for external use
 export type {
   AnyModelState,
@@ -28,10 +31,6 @@ export type {
   EffectiveKeyName,
 } from "./types/helpers";
 
-// Re-export ScalarFieldKeys for convenience
-export type ScalarFieldKeys<T extends FieldRecord> = _ScalarFieldKeys<T> &
-  string;
-
 // =============================================================================
 // TYPE INFERENCE HELPER
 // =============================================================================
@@ -43,6 +42,9 @@ export interface ModelState {
   tableName: string | undefined;
   indexes: IndexDefinition[];
   omit: string[];
+  scalars: Record<string, Field>;
+  relations: Record<string, AnyRelation>;
+  uniques: Record<string, Field>;
 }
 
 export type IndexType = "btree" | "hash" | "gin" | "gist";
@@ -184,10 +186,23 @@ export class Model<State extends ModelState> {
 
   extends<ETFields extends FieldRecord>(
     fields: ETFields
-  ): Model<UpdateState<State, { fields: State["fields"] & ETFields }>> {
+  ): Model<
+    UpdateState<
+      State,
+      {
+        fields: State["fields"] & ETFields;
+        scalars: ScalarFields<State["fields"] & ETFields>;
+        relations: RelationFields<State["fields"] & ETFields>;
+        uniques: UniqueFields<State["fields"] & ETFields>;
+      }
+    >
+  > {
     return new Model({
       ...this.state,
       fields: { ...this.state.fields, ...fields },
+      scalars: extractScalarFields(fields),
+      relations: extractRelationFields(fields),
+      uniques: extractUniqueFields(fields),
     });
   }
 
@@ -200,9 +215,19 @@ export class Model<State extends ModelState> {
   }
 }
 
-export const model = <const TFields extends FieldRecord>(
+export const model = <TFields extends FieldRecord>(
   fields: TFields
-): Model<UpdateState<ModelState, { fields: TFields }>> =>
+): Model<
+  UpdateState<
+    ModelState,
+    {
+      fields: TFields;
+      scalars: ScalarFields<TFields>;
+      relations: RelationFields<TFields>;
+      uniques: UniqueFields<TFields>;
+    }
+  >
+> =>
   new Model({
     compoundId: undefined,
     compoundUniques: [],
@@ -210,6 +235,9 @@ export const model = <const TFields extends FieldRecord>(
     indexes: [],
     omit: [],
     fields,
+    scalars: extractScalarFields(fields),
+    relations: extractRelationFields(fields),
+    uniques: extractUniqueFields(fields),
   });
 
 export type AnyModel = Model<any>;

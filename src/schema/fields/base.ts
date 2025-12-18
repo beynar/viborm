@@ -28,6 +28,7 @@ import type { EnumField } from "./enum/field";
  * - TypeScript infers exact shape from actual implementations
  * - Adding new properties (like nativeType) automatically works
  */
+
 export type Field =
   | StringField<any>
   | IntField<any>
@@ -38,11 +39,11 @@ export type Field =
   | DateField<any>
   | TimeField<any>
   | BigIntField<any>
-  | JsonField<any, any>
+  | JsonField<any>
   | VectorField<any>
   | BlobField<any>
   | PointField<any>
-  | EnumField<any, any>;
+  | EnumField<any>;
 
 /**
  * Any field with any state (for loose typing).

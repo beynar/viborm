@@ -28,10 +28,8 @@ export const forEachScalarField = (
   state: ModelState,
   fn: (name: string, field: Field) => void
 ): void => {
-  for (const [name, fieldOrRelation] of Object.entries(state.fields)) {
-    if (isField(fieldOrRelation)) {
-      fn(name, fieldOrRelation);
-    }
+  for (const [name, field] of Object.entries(state.scalars)) {
+    fn(name, field);
   }
 };
 
@@ -42,10 +40,17 @@ export const forEachRelation = (
   state: ModelState,
   fn: (name: string, relation: AnyRelation) => void
 ): void => {
-  for (const [name, fieldOrRelation] of Object.entries(state.fields)) {
-    if (!isField(fieldOrRelation)) {
-      fn(name, fieldOrRelation as AnyRelation);
-    }
+  for (const [name, relation] of Object.entries(state.relations)) {
+    fn(name, relation);
+  }
+};
+
+export const forEachUniqueField = (
+  state: ModelState,
+  fn: (name: string, unique: Field) => void
+): void => {
+  for (const [name, unique] of Object.entries(state.uniques)) {
+    fn(name, unique);
   }
 };
 

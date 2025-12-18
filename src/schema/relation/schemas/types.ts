@@ -45,3 +45,4 @@ export type InferRelationInput<
   S extends RelationState,
   Type extends keyof RelationSchemas
 > = InferInput<InferRelationSchemas<S>[Type]>;
+

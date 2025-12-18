@@ -114,3 +114,4 @@ export const getGroupByArgs = <T extends ModelState>(
     _max: optional(aggSchemas.max),
   });
 };
+

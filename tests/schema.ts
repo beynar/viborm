@@ -22,7 +22,7 @@ export const numberWithValidation = s.int().schema(z.number().min(1));
 export const boolean = s.boolean();
 export const nullableBoolean = s.boolean().nullable();
 export const booleanWithDefault = s.boolean().default(true);
-export const booleanWithValidation = s.boolean().schema(z.boolean());
+export const booleanWithValidation = s.boolean();
 
 export const bigint = s.bigInt();
 export const nullableBigint = s.bigInt().nullable();
@@ -40,16 +40,17 @@ export const simpleJson = z.object({
   name: z.string(),
   age: z.number(),
 });
-export const json = s.json(simpleJson);
-export const nullableJson = s.json(simpleJson).nullable();
+export const json = s.json().schema(simpleJson);
+export const nullableJson = s.json().schema(simpleJson).nullable();
 export const jsonWithDefault = s
-  .json(simpleJson)
+  .json()
+  .schema(simpleJson)
   .default({ name: "John", age: 30 });
 
 export const blob = s.blob();
 export const nullableBlob = s.blob().nullable();
 export const blobWithDefault = s.blob().default(new Uint8Array([1, 2, 3]));
-export const blobWithValidation = s.blob().schema(z.instanceof(Uint8Array));
+export const blobWithValidation = s.blob();
 
 export const enumField = s.enum(["a", "b"]);
 export const nullableEnumField = s.enum(["a", "b"]).nullable();

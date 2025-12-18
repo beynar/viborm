@@ -21,3 +21,4 @@ export interface CoreSchemas {
   orderBy: ObjectSchema<any, any>;
   scalarCreate: ObjectSchema<any, any>;
 }
+

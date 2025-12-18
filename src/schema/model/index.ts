@@ -9,7 +9,7 @@ export type {
   ExtractFields,
   ExtractCompoundId,
   ExtractCompoundUniques,
-  ScalarFieldKeys,
+
   // Index types
   IndexType,
   IndexOptions,
@@ -19,6 +19,15 @@ export type {
   CompoundConstraint,
   EffectiveKeyName,
 } from "./model";
+
+export type {
+  ScalarFieldKeys,
+  RelationKeys,
+  UniqueFieldKeys,
+  ScalarFields,
+  RelationFields,
+  UniqueFields,
+} from "./helper";
 
 // Re-export AnyCompoundConstraint from helpers
 export type { AnyCompoundConstraint } from "./types/helpers";
