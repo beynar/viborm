@@ -11,6 +11,8 @@ import {
   type BaseSchema,
   type OptionalSchema,
   type InferInput,
+  UnionSchema,
+  ArraySchema,
 } from "valibot";
 import type { ModelState } from "../../model";
 import type { Field } from "../../../fields/base";
@@ -27,38 +29,26 @@ import { getCompoundConstraintFilter } from "./filter";
 // =============================================================================
 
 /** Where schema - scalar + relation filters + AND/OR/NOT */
-export type WhereSchema<T extends ModelState> = BaseSchema<
-  {
-    [K in keyof T["scalars"]]?: InferInput<
-      T["scalars"][K]["~"]["schemas"]["filter"]
-    >;
-  } & {
-    [K in keyof T["relations"]]?: InferInput<
-      T["relations"][K]["~"]["schemas"]["filter"]
-    >;
-  } & {
-    AND?: WhereInput<T> | WhereInput<T>[];
-    OR?: WhereInput<T>[];
-    NOT?: WhereInput<T> | WhereInput<T>[];
-  },
-  any,
-  any
+
+type BaseWhereSchema<T extends ModelState> = {
+  [K in keyof T["scalars"]]: OptionalSchema<
+    T["scalars"][K]["~"]["schemas"]["filter"],
+    undefined
+  >;
+} & {
+  [K in keyof T["relations"]]: OptionalSchema<
+    T["relations"][K]["~"]["schemas"]["filter"],
+    undefined
+  >;
+};
+
+export type WhereSchema<T extends ModelState> = ObjectSchema<
+  BaseWhereSchema<T>,
+  undefined
 >;
 
 /** Input type for where */
-export type WhereInput<T extends ModelState> = {
-  [K in keyof T["scalars"]]?: InferInput<
-    T["scalars"][K]["~"]["schemas"]["filter"]
-  >;
-} & {
-  [K in keyof T["relations"]]?: InferInput<
-    T["relations"][K]["~"]["schemas"]["filter"]
-  >;
-} & {
-  AND?: WhereInput<T> | WhereInput<T>[];
-  OR?: WhereInput<T>[];
-  NOT?: WhereInput<T> | WhereInput<T>[];
-};
+export type WhereInput<T extends ModelState> = InferInput<WhereSchema<T>>;
 
 /**
  * Build full where schema - scalar + relation filters + AND/OR/NOT

@@ -288,5 +288,5 @@ export const extend = <
   return object({
     ...base.entries,
     ...extension,
-  });
+  }) as ObjectSchema<T["entries"] & U, undefined>;
 };

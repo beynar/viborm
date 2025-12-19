@@ -2,6 +2,7 @@ import z from "zod/v4";
 import {
   AnyRelation,
   GetRelationFields,
+  InferStringInput,
   RelationGetter,
   s,
 } from "../src/schema/index.js";
@@ -166,7 +167,6 @@ export const testPost = s.model({
   //   )
   //   .nullable(),
 });
-type schemaWhere = InferInput<(typeof testPost)["~"]["schemas"]["where"]>;
 
 /**
  * Test profile model for client type tests
