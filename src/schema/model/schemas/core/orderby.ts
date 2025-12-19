@@ -6,6 +6,7 @@ import {
   union,
   literal,
   lazy,
+  strictObject,
   type ObjectSchema,
   type OptionalSchema,
   type InferInput,
@@ -76,5 +77,5 @@ export const getOrderBySchema = <T extends ModelState>(
     );
   });
 
-  return object(entries) as OrderBySchema<T>;
+  return strictObject(entries) as unknown as OrderBySchema<T>;
 };

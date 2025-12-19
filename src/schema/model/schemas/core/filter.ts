@@ -2,6 +2,7 @@
 import {
   object,
   optional,
+  strictObject,
   type ObjectSchema,
   type InferInput,
   type OptionalSchema,
@@ -42,7 +43,7 @@ export const getScalarFilter = <T extends ModelState>(state: T) => {
   forEachScalarField(state, (name, field) => {
     entries[name] = optional(field["~"].schemas.filter);
   });
-  return object(entries) as ScalarFilterSchema<T>;
+  return strictObject(entries) as unknown as ScalarFilterSchema<T>;
 };
 
 // =============================================================================
@@ -70,7 +71,7 @@ export const getUniqueFilter = <T extends ModelState>(state: T) => {
   forEachUniqueField(state, (name, unique) => {
     entries[name] = optional(unique["~"].schemas.base);
   });
-  return object(entries) as UniqueFilterSchema<T>;
+  return strictObject(entries) as unknown as UniqueFilterSchema<T>;
 };
 
 // =============================================================================
@@ -100,7 +101,7 @@ export const getRelationFilter = <T extends ModelState>(
   forEachRelation(state, (name, relation) => {
     entries[name] = optional(relation["~"].schemas.filter);
   });
-  return object(entries) as RelationFilterSchema<T>;
+  return strictObject(entries) as unknown as RelationFilterSchema<T>;
 };
 
 // =============================================================================

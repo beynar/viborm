@@ -4,6 +4,7 @@ import {
   object,
   optional,
   boolean,
+  strictObject,
   type ObjectSchema,
   type OptionalSchema,
   type BooleanSchema,
@@ -54,7 +55,7 @@ export const getSelectSchema = <T extends ModelState>(
     entries[name] = optional(relation["~"].schemas.select);
   });
 
-  return object(entries) as SelectSchema<T>;
+  return strictObject(entries) as unknown as SelectSchema<T>;
 };
 
 // =============================================================================
@@ -88,5 +89,5 @@ export const getIncludeSchema = <T extends ModelState>(
     entries[name] = optional(relation["~"].schemas.include);
   });
 
-  return object(entries) as IncludeSchema<T>;
+  return strictObject(entries) as unknown as IncludeSchema<T>;
 };

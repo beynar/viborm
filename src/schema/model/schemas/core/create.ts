@@ -3,6 +3,7 @@
 import {
   object,
   optional,
+  strictObject,
   type ObjectSchema,
   type OptionalSchema,
   type InferInput,
@@ -38,7 +39,7 @@ export const getScalarCreate = <T extends ModelState>(
   forEachScalarField(state, (name, field) => {
     entries[name] = field["~"].schemas.create;
   });
-  return object(entries) as ScalarCreateSchema<T>;
+  return strictObject(entries) as unknown as ScalarCreateSchema<T>;
 };
 
 // =============================================================================
@@ -71,7 +72,7 @@ export const getRelationCreate = <T extends ModelState>(
   forEachRelation(state, (name, relation) => {
     entries[name] = optional(relation["~"].schemas.create);
   });
-  return object(entries) as RelationCreateSchema<T>;
+  return strictObject(entries) as unknown as RelationCreateSchema<T>;
 };
 
 // =============================================================================
@@ -112,5 +113,5 @@ export const getCreateSchema = <T extends ModelState>(
     entries[name] = optional(relation["~"].schemas.create);
   });
 
-  return object(entries) as CreateSchema<T>;
+  return strictObject(entries) as unknown as CreateSchema<T>;
 };

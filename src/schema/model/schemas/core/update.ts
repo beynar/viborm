@@ -3,6 +3,7 @@
 import {
   object,
   optional,
+  strictObject,
   type ObjectSchema,
   type OptionalSchema,
   type InferInput,
@@ -43,7 +44,7 @@ export const getScalarUpdate = <T extends ModelState>(
     entries[name] = optional(field["~"].schemas.update);
   });
 
-  return object(entries) as ScalarUpdateSchema<T>;
+  return strictObject(entries) as unknown as ScalarUpdateSchema<T>;
 };
 
 // =============================================================================
@@ -78,7 +79,7 @@ export const getRelationUpdate = <T extends ModelState>(
     entries[name] = optional(relation["~"].schemas.update);
   });
 
-  return object(entries) as RelationUpdateSchema<T>;
+  return strictObject(entries) as unknown as RelationUpdateSchema<T>;
 };
 
 // =============================================================================
@@ -122,5 +123,5 @@ export const getUpdateSchema = <T extends ModelState>(
     entries[name] = optional(relation["~"].schemas.update);
   });
 
-  return object(entries) as UpdateSchema<T>;
+  return strictObject(entries) as unknown as UpdateSchema<T>;
 };

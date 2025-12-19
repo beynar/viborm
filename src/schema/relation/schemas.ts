@@ -16,6 +16,7 @@ import {
   nullable,
   number,
   string,
+  literal,
 } from "valibot";
 import type { Getter, RelationState, RelationType } from "./relation";
 
@@ -365,18 +366,17 @@ const toManyUpdateFactory = <S extends RelationState>(
 
   return partial(
     object({
-      // Single or array operations
+      // All operations accept single or array, normalized to array
       create: optional(singleOrArray(createSchema)),
       connect: optional(singleOrArray(whereUniqueSchema)),
       disconnect: optional(singleOrArray(whereUniqueSchema)),
       delete: optional(singleOrArray(whereUniqueSchema)),
       connectOrCreate: optional(singleOrArray(connectOrCreateSchema)),
-      // Array-only operations
-      set: optional(array(whereUniqueSchema)),
-      update: optional(array(updateWithWhereSchema)),
-      updateMany: optional(array(updateManyWithWhereSchema)),
-      deleteMany: optional(array(whereSchema)),
-      upsert: optional(array(upsertSchema)),
+      set: optional(singleOrArray(whereUniqueSchema)),
+      update: optional(singleOrArray(updateWithWhereSchema)),
+      updateMany: optional(singleOrArray(updateManyWithWhereSchema)),
+      deleteMany: optional(singleOrArray(whereSchema)),
+      upsert: optional(singleOrArray(upsertSchema)),
     })
   );
 };
