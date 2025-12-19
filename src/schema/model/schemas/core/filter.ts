@@ -1,5 +1,4 @@
 // Filter schema factories
-
 import {
   object,
   optional,
@@ -7,26 +6,16 @@ import {
   type InferInput,
   type OptionalSchema,
 } from "valibot";
-import { model, type ModelState } from "../../model";
+import type { ModelState } from "../../model";
 import type { SchemaEntries } from "../types";
-import { oneToOne } from "../../../relation/relation";
 import {
   forEachScalarField,
   forEachRelation,
   forEachUniqueField,
+  forEachCompoundConstraint,
+  forEachCompoundId,
 } from "../utils";
-import { string } from "@schema/fields";
-import {
-  ScalarFields,
-  RelationFields,
-  UniqueFields,
-  RelationKeys,
-} from "@schema/model";
-import { ScalarFieldKeys } from "@schema/model/types/helpers";
-
-// =============================================================================
-// KEY EXTRACTORS (reusable across schema files)
-// =============================================================================
+import type { Field } from "../../../fields/base";
 
 // =============================================================================
 // SCALAR FILTER
@@ -114,21 +103,110 @@ export const getRelationFilter = <T extends ModelState>(
   return object(entries) as RelationFilterSchema<T>;
 };
 
-const otherModel = model({
-  id: string().id(),
-  name: string(),
-});
-const modelTest = model({
-  id: string().id(),
-  name: string(),
-  other: oneToOne(() => otherModel, { optional: true }),
-});
-type Fields = (typeof modelTest)["~"]["state"]["fields"];
-type Scalars = ScalarFieldKeys<Fields>;
-type ScalarRecord = ScalarFields<Fields>;
-type UniqueRecord = UniqueFields<Fields>;
-type RelationRecord = RelationFields<Fields>;
-type Relations = RelationKeys<Fields>;
+// =============================================================================
+// COMPOUND CONSTRAINT FILTER
+// =============================================================================
 
-type TestFilter = ScalarFilterSchema<(typeof modelTest)["~"]["state"]>;
-type Test = ScalarFilterSchema<(typeof modelTest)["~"]["state"]>;
+/**
+ * Helper type to build the inner object schema for a compound constraint's fields
+ */
+type CompoundFieldsSchema<Fields extends Record<string, Field>> = ObjectSchema<
+  {
+    [K in keyof Fields]: Fields[K]["~"]["schemas"]["base"];
+  },
+  undefined
+>;
+
+/**
+ * Compound ID filter schema - maps compound key name to optional object of field base schemas
+ */
+export type CompoundIdFilterSchema<T extends ModelState> =
+  T["compoundId"] extends Record<string, Record<string, Field>>
+    ? ObjectSchema<
+        {
+          [K in keyof T["compoundId"]]: OptionalSchema<
+            CompoundFieldsSchema<T["compoundId"][K]>,
+            undefined
+          >;
+        },
+        undefined
+      >
+    : ObjectSchema<{}, undefined>;
+
+/**
+ * Combined compound constraint filter schema
+ */
+export type CompoundConstraintFilterSchema<T extends ModelState> = ObjectSchema<
+  (T["compoundId"] extends Record<string, Record<string, Field>>
+    ? {
+        [K in keyof T["compoundId"]]: OptionalSchema<
+          CompoundFieldsSchema<T["compoundId"][K]>,
+          undefined
+        >;
+      }
+    : {}) &
+    (T["compoundUniques"] extends Record<string, Record<string, Field>>
+      ? {
+          [K in keyof T["compoundUniques"]]: OptionalSchema<
+            CompoundFieldsSchema<T["compoundUniques"][K]>,
+            undefined
+          >;
+        }
+      : {}),
+  undefined
+>;
+
+/** Input type for compound constraint filter */
+export type CompoundConstraintFilterInput<T extends ModelState> =
+  (T["compoundId"] extends Record<string, Record<string, Field>>
+    ? {
+        [K in keyof T["compoundId"]]?: {
+          [F in keyof T["compoundId"][K]]?: InferInput<
+            T["compoundId"][K][F]["~"]["schemas"]["base"]
+          >;
+        };
+      }
+    : {}) &
+    (T["compoundUniques"] extends Record<string, Record<string, Field>>
+      ? {
+          [K in keyof T["compoundUniques"]]?: {
+            [F in keyof T["compoundUniques"][K]]?: InferInput<
+              T["compoundUniques"][K][F]["~"]["schemas"]["base"]
+            >;
+          };
+        }
+      : {});
+
+/**
+ * Build compound constraint filter schema
+ * Creates an object schema where each compound key maps to an optional object of field base schemas
+ */
+export const getCompoundConstraintFilter = <T extends ModelState>(
+  state: T
+): ObjectSchema<any, any> => {
+  const entries: SchemaEntries = {};
+
+  forEachCompoundConstraint(state, (keyName, fields) => {
+    const fieldSchemas: SchemaEntries = {};
+    for (const [fieldName, field] of Object.entries(fields)) {
+      fieldSchemas[fieldName] = field["~"].schemas.base;
+    }
+    entries[keyName] = optional(object(fieldSchemas));
+  });
+
+  return object(entries) as CompoundConstraintFilterSchema<T>;
+};
+
+export const getCompoundIdFilter = <T extends ModelState>(
+  state: T
+): CompoundIdFilterSchema<T> => {
+  const entries: SchemaEntries = {};
+  forEachCompoundId(state, (keyName, fields) => {
+    const fieldSchemas: SchemaEntries = {};
+    for (const [fieldName, field] of Object.entries(fields)) {
+      fieldSchemas[fieldName] = field["~"].schemas.base;
+    }
+    entries[keyName] = optional(object(fieldSchemas));
+  });
+  return object(entries) as CompoundIdFilterSchema<T>;
+};

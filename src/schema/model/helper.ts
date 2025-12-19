@@ -2,7 +2,30 @@ import { Field } from "@schema/fields/base";
 import { FieldRecord } from "@schema/model";
 import { AnyRelation, Relation } from "@schema/relation/relation";
 
-type ToString<T> = T extends
+export type NameFromKeys<
+  TFields extends string[],
+  TName extends string = ""
+> = TFields extends readonly [
+  infer F extends string,
+  ...infer R extends string[]
+]
+  ? R extends []
+    ? `${TName}_${F}`
+    : NameFromKeys<R, TName extends "" ? F : `${TName}_${F}`>
+  : never;
+
+export interface CompoundConstraint<
+  TFields extends string[],
+  TName extends string | undefined = undefined
+> {
+  fields: TFields;
+  name: TName extends undefined ? NameFromKeys<TFields> : TName;
+}
+
+/** Any compound constraint (for loose typing) */
+export type AnyCompoundConstraint = CompoundConstraint<string[]>;
+
+export type ToString<T> = T extends
   | string
   | number
   | bigint
@@ -11,6 +34,10 @@ type ToString<T> = T extends
   | undefined
   ? `${T}`
   : never;
+
+export type StringKeyOf<T extends Record<string, any>> = {
+  [K in keyof T]: K extends string ? K : never;
+}[keyof T];
 
 export type ScalarFieldKeys<T extends FieldRecord> = {
   [K in keyof T]: T[K] extends Field ? ToString<K> : never;
@@ -69,4 +96,17 @@ export const extractUniqueFields = <T extends FieldRecord>(fields: T) => {
     }
     return acc;
   }, {} as UniqueFields<T>);
+};
+
+export const getNameFromKeys = <
+  Name extends string | undefined,
+  TFields extends any[]
+>(
+  name: Name,
+  fields: TFields
+) => {
+  return (
+    name ??
+    (fields.join("_") as Name extends undefined ? NameFromKeys<TFields> : Name)
+  );
 };

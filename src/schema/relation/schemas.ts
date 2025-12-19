@@ -356,7 +356,7 @@ export type ToOneSchemas<S extends RelationState> = {
   include: ReturnType<typeof toOneIncludeFactory<S>>;
 };
 
-export type InferToManySchemas<S extends RelationState> = {
+export type ToManySchemas<S extends RelationState> = {
   filter: ReturnType<typeof toManyFilterFactory<S>>;
   create: ReturnType<typeof toManyCreateFactory<S>>;
   update: ReturnType<typeof toManyUpdateFactory<S>>;
@@ -367,8 +367,8 @@ export type InferToManySchemas<S extends RelationState> = {
 export type InferRelationSchemas<S extends RelationState> = S["type"] extends
   | "manyToMany"
   | "oneToMany"
-  ? InferToManySchemas<S>
-  : InferToOneSchemas<S>;
+  ? ToManySchemas<S>
+  : ToOneSchemas<S>;
 
 // =============================================================================
 // MAIN EXPORT

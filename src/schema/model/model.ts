@@ -1,35 +1,25 @@
 // Model Class Implementation
 // Defines database models with fields and relations
 
-import { isField, type Field } from "../fields/base";
+import { type Field } from "../fields/base";
 import { type SchemaNames } from "../fields/common";
-import { AnyRelation, Relation } from "../relation/relation";
-import { getModelSchemas } from "./schemas";
-import type { FieldRecord, CompoundConstraint } from "./types/helpers";
-
-import { MergeDeep } from "type-fest";
+import { AnyRelation } from "../relation/relation";
+import type { FieldRecord } from "./types/helpers";
 import {
   ScalarFieldKeys,
-  RelationKeys,
-  UniqueFieldKeys,
   ScalarFields,
   extractScalarFields,
   extractRelationFields,
   extractUniqueFields,
   RelationFields,
   UniqueFields,
+  CompoundConstraint,
+  NameFromKeys,
+  getNameFromKeys,
+  StringKeyOf,
+  ToString,
 } from "./helper";
 // Re-export types from helpers for external use
-export type {
-  AnyModelState,
-  DefaultModelState,
-  ExtractFields,
-  ExtractCompoundId,
-  ExtractCompoundUniques,
-  CompoundKeyName,
-  CompoundConstraint,
-  EffectiveKeyName,
-} from "./types/helpers";
 
 // =============================================================================
 // TYPE INFERENCE HELPER
@@ -37,8 +27,8 @@ export type {
 
 export interface ModelState {
   fields: FieldRecord;
-  compoundId: CompoundConstraint<string[], string | undefined> | undefined;
-  compoundUniques: CompoundConstraint<string[], string | undefined>[];
+  compoundId: Record<string, Record<string, Field>> | undefined;
+  compoundUniques: Record<string, Record<string, Field>> | undefined;
   tableName: string | undefined;
   indexes: IndexDefinition[];
   omit: string[];
@@ -79,24 +69,6 @@ export const mergeIndexDefinitions = <
   return [...state.indexes, index] as UpdateIndexDefinition<State, Index>;
 };
 
-export type UpdateCompoundUniques<
-  State extends ModelState,
-  CompoundUniques extends CompoundConstraint<string[], string | undefined>
-> = [...State["compoundUniques"], CompoundUniques];
-
-export const mergeCompoundUniques = <
-  State extends ModelState,
-  CompoundUniques extends CompoundConstraint<string[], string | undefined>
->(
-  state: State,
-  compoundUniques: CompoundUniques
-): UpdateCompoundUniques<State, CompoundUniques> => {
-  return [...state.compoundUniques, compoundUniques] as UpdateCompoundUniques<
-    State,
-    CompoundUniques
-  >;
-};
-
 export type UpdateState<
   State extends ModelState,
   Update extends Partial<ModelState>
@@ -115,7 +87,7 @@ export class Model<State extends ModelState> {
     return new Model({ ...this.state, tableName });
   }
 
-  omit<Keys extends ScalarFieldKeys<State["fields"]>[]>(
+  omit<Keys extends StringKeyOf<State["scalars"]>[]>(
     ...keys: [...State["omit"], ...Keys]
   ): Model<UpdateState<State, { omit: [...State["omit"], ...Keys] }>> {
     return new Model({
@@ -125,7 +97,7 @@ export class Model<State extends ModelState> {
   }
 
   index<
-    const Keys extends ScalarFieldKeys<State["fields"]>[],
+    const Keys extends StringKeyOf<State["scalars"]>[],
     O extends IndexOptions = IndexOptions
   >(
     fields: Keys,
@@ -143,23 +115,7 @@ export class Model<State extends ModelState> {
   }
 
   id<
-    Keys extends ScalarFieldKeys<State["fields"]>[],
-    Name extends string | undefined = undefined
-  >(
-    fields: Keys,
-    options?: { name?: Name }
-  ): Model<UpdateState<State, { compoundId: CompoundConstraint<Keys, Name> }>> {
-    return new Model({
-      ...this.state,
-      compoundId: { fields, name: options?.name } as CompoundConstraint<
-        Keys,
-        Name
-      >,
-    });
-  }
-
-  unique<
-    Keys extends ScalarFieldKeys<State["fields"]>[],
+    const Keys extends StringKeyOf<State["scalars"]>[],
     Name extends string | undefined = undefined
   >(
     fields: Keys,
@@ -168,20 +124,70 @@ export class Model<State extends ModelState> {
     UpdateState<
       State,
       {
-        compoundUniques: UpdateCompoundUniques<
-          State,
-          CompoundConstraint<Keys, Name>
-        >;
+        compoundId: {
+          [K in Name extends undefined ? NameFromKeys<Keys> : Name]: {
+            [K2 in Keys[number]]: State["scalars"][K2];
+          };
+        };
       }
     >
   > {
-    return new Model({
-      ...this.state,
-      compoundUniques: mergeCompoundUniques(this.state, {
-        fields,
-        name: options?.name ?? Object.keys(fields).join("_"),
-      }) as UpdateCompoundUniques<State, CompoundConstraint<Keys, Name>>,
-    });
+    const name = getNameFromKeys(options?.name, fields);
+    const fieldsRecord = fields.reduce((acc, fieldName) => {
+      const field =
+        fieldName in this.state.scalars
+          ? this.state.scalars[fieldName]
+          : undefined;
+      if (field) {
+        acc[fieldName] = field;
+      }
+      return acc;
+    }, {} as Record<string, Field>);
+
+    const compoundId = { [name]: fieldsRecord } as {
+      [K in Name extends undefined ? NameFromKeys<Keys> : Name]: {
+        [K2 in Keys[number]]: State["scalars"][K2];
+      };
+    };
+    return new Model({ ...this.state, compoundId });
+  }
+
+  unique<
+    const Keys extends StringKeyOf<State["scalars"]>[],
+    Name extends string | undefined = undefined
+  >(
+    fields: Keys,
+    options?: { name?: Name }
+  ): Model<
+    UpdateState<
+      State,
+      {
+        compoundUniques: {
+          [K in Name extends undefined ? NameFromKeys<Keys> : Name]: {
+            [K2 in Keys[number]]: State["scalars"][K2];
+          };
+        };
+      }
+    >
+  > {
+    const name = getNameFromKeys(options?.name, fields);
+    const fieldsRecord = fields.reduce((acc, fieldName) => {
+      const field =
+        fieldName in this.state.scalars
+          ? this.state.scalars[fieldName]
+          : undefined;
+      if (field) {
+        acc[fieldName] = field;
+      }
+      return acc;
+    }, {} as Record<string, Field>);
+
+    const compoundUniques = { [name]: fieldsRecord } as {
+      [K in Name extends undefined ? NameFromKeys<Keys> : Name]: {
+        [K2 in Keys[number]]: State["scalars"][K2];
+      };
+    };
+    return new Model({ ...this.state, compoundUniques });
   }
 
   extends<ETFields extends FieldRecord>(
@@ -209,7 +215,7 @@ export class Model<State extends ModelState> {
   get "~"() {
     return {
       state: this.state,
-      schemas: getModelSchemas(this.state),
+      // schemas: getModelSchemas(this.state),
       names: this._names,
     };
   }
@@ -230,7 +236,7 @@ export const model = <TFields extends FieldRecord>(
 > =>
   new Model({
     compoundId: undefined,
-    compoundUniques: [],
+    compoundUniques: undefined,
     tableName: undefined,
     indexes: [],
     omit: [],

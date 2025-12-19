@@ -1,72 +1,110 @@
 // Create schema factories
 
-import { object, optional, type ObjectSchema } from "valibot";
+import {
+  object,
+  optional,
+  type ObjectSchema,
+  type OptionalSchema,
+  type InferInput,
+} from "valibot";
 import type { ModelState } from "../../model";
 import type { SchemaEntries } from "../types";
 import { forEachScalarField, forEachRelation } from "../utils";
+
+// =============================================================================
+// SCALAR CREATE
+// =============================================================================
+
+/** Scalar create schema - each scalar field's create schema */
+export type ScalarCreateSchema<T extends ModelState> = ObjectSchema<
+  {
+    [K in keyof T["scalars"]]: T["scalars"][K]["~"]["schemas"]["create"];
+  },
+  undefined
+>;
+
+/** Input type for scalar create */
+export type ScalarCreateInput<T extends ModelState> = InferInput<
+  ScalarCreateSchema<T>
+>;
 
 /**
  * Build scalar create schema - all scalar fields for create input
  */
 export const getScalarCreate = <T extends ModelState>(
   state: T
-): ObjectSchema<any, any> => {
+): ScalarCreateSchema<T> => {
   const entries: SchemaEntries = {};
-
   forEachScalarField(state, (name, field) => {
-    const fieldState = field["~"].state;
-    // Fields with defaults, auto-generate, or nullable are optional
-    const isOptional =
-      fieldState.hasDefault ||
-      fieldState.autoGenerate !== undefined ||
-      fieldState.nullable;
-
-    if (isOptional) {
-      entries[name] = optional(field["~"].schemas.create);
-    } else {
-      entries[name] = field["~"].schemas.create;
-    }
+    entries[name] = field["~"].schemas.create;
   });
-
-  return object(entries);
+  return object(entries) as ScalarCreateSchema<T>;
 };
+
+// =============================================================================
+// RELATION CREATE
+// =============================================================================
+
+/** Relation create schema - each relation's create schema, all optional */
+export type RelationCreateSchema<T extends ModelState> = ObjectSchema<
+  {
+    [K in keyof T["relations"]]: OptionalSchema<
+      T["relations"][K]["~"]["schemas"]["create"],
+      undefined
+    >;
+  },
+  undefined
+>;
+
+/** Input type for relation create */
+export type RelationCreateInput<T extends ModelState> = InferInput<
+  RelationCreateSchema<T>
+>;
 
 /**
  * Build relation create schema - combines all relation create inputs
  */
 export const getRelationCreate = <T extends ModelState>(
   state: T
-): ObjectSchema<any, any> => {
+): RelationCreateSchema<T> => {
   const entries: SchemaEntries = {};
-
   forEachRelation(state, (name, relation) => {
     entries[name] = optional(relation["~"].schemas.create);
   });
-
-  return object(entries);
+  return object(entries) as RelationCreateSchema<T>;
 };
+
+// =============================================================================
+// FULL CREATE SCHEMA
+// =============================================================================
+
+/** Full create schema - scalar + relation creates */
+export type CreateSchema<T extends ModelState> = ObjectSchema<
+  {
+    [K in keyof T["scalars"]]: T["scalars"][K]["~"]["schemas"]["create"];
+  } & {
+    [K in keyof T["relations"]]: OptionalSchema<
+      T["relations"][K]["~"]["schemas"]["create"],
+      undefined
+    >;
+  },
+  undefined
+>;
+
+/** Input type for full create */
+export type CreateInput<T extends ModelState> = InferInput<CreateSchema<T>>;
 
 /**
  * Build full create schema - scalar + relation creates
  */
 export const getCreateSchema = <T extends ModelState>(
   state: T
-): ObjectSchema<any, any> => {
+): CreateSchema<T> => {
   const entries: SchemaEntries = {};
 
-  // Scalar fields
+  // Scalar fields - use their create schema directly
   forEachScalarField(state, (name, field) => {
-    const fieldState = field["~"].state;
-    const isOptional =
-      fieldState.hasDefault ||
-      fieldState.autoGenerate !== undefined ||
-      fieldState.nullable;
-
-    if (isOptional) {
-      entries[name] = optional(field["~"].schemas.create);
-    } else {
-      entries[name] = field["~"].schemas.create;
-    }
+    entries[name] = field["~"].schemas.create;
   });
 
   // Relation creates (all optional)
@@ -74,6 +112,5 @@ export const getCreateSchema = <T extends ModelState>(
     entries[name] = optional(relation["~"].schemas.create);
   });
 
-  return object(entries);
+  return object(entries) as CreateSchema<T>;
 };
-

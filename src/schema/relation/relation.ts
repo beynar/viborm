@@ -5,7 +5,8 @@ import { type AnyModel } from "../model";
 import { type SchemaNames } from "../fields/common";
 import { getRelationSchemas } from "./schemas";
 
-export type Getter = () => AnyModel;
+// Workaround to allow circular dependencies
+export type Getter = () => any;
 export type RelationType =
   | "oneToOne"
   | "oneToMany"
@@ -16,12 +17,6 @@ export type ReferentialAction = "cascade" | "setNull" | "restrict" | "noAction";
 // =============================================================================
 // RELATION INTERNALS (exposed via ~)
 // =============================================================================
-
-type UpdateState<
-  State extends RelationState,
-  Update extends Partial<RelationState>
-> = State & Update;
-
 export interface RelationState {
   type: RelationType;
   fields?: string[];
@@ -32,26 +27,24 @@ export interface RelationState {
   through?: string;
   A?: string;
   B?: string;
+  getter: Getter;
 }
 
 // =============================================================================
 // BASE RELATION (shared logic)
 // =============================================================================
 
-export class Relation<State extends RelationState, G extends Getter> {
+export class Relation<State extends RelationState> {
   private _state: State;
   /** Name slots hydrated by client at initialization */
   private _names: SchemaNames = {};
-  private _getter: G;
 
-  constructor(state: State, getter: G) {
+  constructor(state: State) {
     this._state = state;
-    this._getter = getter;
   }
 
   get "~"() {
     return {
-      getter: this._getter,
       state: this._state,
       names: this._names,
       schemas: getRelationSchemas(this._state),
@@ -76,7 +69,7 @@ export function generateJunctionFieldName(modelName: string): string {
 }
 
 export function getJunctionTableName(
-  relation: Relation<RelationState, Getter>,
+  relation: Relation<RelationState>,
   sourceModelName: string,
   targetModelName: string
 ): string {
@@ -87,7 +80,7 @@ export function getJunctionTableName(
 }
 
 export function getJunctionFieldNames(
-  relation: Relation<RelationState, Getter>,
+  relation: Relation<RelationState>,
   sourceModelName: string,
   targetModelName: string
 ): [string, string] {
@@ -98,39 +91,42 @@ export function getJunctionFieldNames(
   return [sourceFieldName, targetFieldName];
 }
 
-export type AnyRelation = Relation<RelationState, Getter>;
+export type AnyRelation = Relation<RelationState>;
 
-export const relationBase = <State extends RelationState, G extends Getter>(
+export const relationBase = <
+  G extends Getter,
+  State extends Omit<RelationState, "getter">
+>(
   getter: G,
   state: State
 ) => {
-  return new Relation<State, G>(state, getter);
+  return new Relation<State & { getter: G }>({ ...state, getter });
 };
 
 export const oneToOne = <G extends Getter>(
   getter: G,
-  state: Omit<RelationState, "type" | "through" | "throughA" | "throughB">
+  state?: Omit<RelationState, "type" | "through" | "A" | "B" | "getter">
 ) => {
   return relationBase(getter, { type: "oneToOne", ...state });
 };
 
 export const manyToOne = <G extends Getter>(
   getter: G,
-  state: Omit<RelationState, "type" | "through" | "throughA" | "throughB">
+  state?: Omit<RelationState, "type" | "through" | "A" | "B" | "getter">
 ) => {
   return relationBase(getter, { type: "manyToOne", ...state });
 };
 
 export const oneToMany = <G extends Getter>(
   getter: G,
-  state: Omit<RelationState, "type" | "through" | "throughA" | "throughB">
+  state?: Omit<RelationState, "type" | "through" | "A" | "B" | "getter">
 ) => {
   return relationBase(getter, { type: "oneToMany", ...state });
 };
 
 export const manyToMany = <G extends Getter>(
   getter: G,
-  state: Omit<RelationState, "type" | "through" | "throughA" | "throughB">
+  state?: Omit<RelationState, "type" | "getter">
 ) => {
   return relationBase(getter, { type: "manyToMany", ...state });
 };

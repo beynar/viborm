@@ -1,42 +1,92 @@
 // Select and include schema factories
 
-import { object, optional, boolean, type ObjectSchema } from "valibot";
+import {
+  object,
+  optional,
+  boolean,
+  type ObjectSchema,
+  type OptionalSchema,
+  type BooleanSchema,
+  type InferInput,
+} from "valibot";
 import type { ModelState } from "../../model";
 import type { SchemaEntries } from "../types";
 import { forEachScalarField, forEachRelation } from "../utils";
 
+// =============================================================================
+// SELECT SCHEMA
+// =============================================================================
+
+/** Select schema - boolean selection for each scalar field, nested select for relations */
+export type SelectSchema<T extends ModelState> = ObjectSchema<
+  {
+    [K in keyof T["scalars"]]: OptionalSchema<
+      BooleanSchema<undefined>,
+      undefined
+    >;
+  } & {
+    [K in keyof T["relations"]]: OptionalSchema<
+      T["relations"][K]["~"]["schemas"]["select"],
+      undefined
+    >;
+  },
+  undefined
+>;
+
+/** Input type for select */
+export type SelectInput<T extends ModelState> = InferInput<SelectSchema<T>>;
+
 /**
- * Build select schema - boolean selection for each scalar field
+ * Build select schema - boolean selection for each scalar field, nested select for relations
  */
 export const getSelectSchema = <T extends ModelState>(
   state: T
-): ObjectSchema<any, any> => {
+): SelectSchema<T> => {
   const entries: SchemaEntries = {};
 
+  // Scalar fields: simple boolean
   forEachScalarField(state, (name) => {
     entries[name] = optional(boolean());
   });
 
-  // Also add relations to select
-  forEachRelation(state, (name) => {
-    entries[name] = optional(boolean());
+  // Relations: use relation's select schema (supports boolean or nested)
+  forEachRelation(state, (name, relation) => {
+    entries[name] = optional(relation["~"].schemas.select);
   });
 
-  return object(entries);
+  return object(entries) as SelectSchema<T>;
 };
 
+// =============================================================================
+// INCLUDE SCHEMA
+// =============================================================================
+
+/** Include schema - nested include for each relation */
+export type IncludeSchema<T extends ModelState> = ObjectSchema<
+  {
+    [K in keyof T["relations"]]: OptionalSchema<
+      T["relations"][K]["~"]["schemas"]["include"],
+      undefined
+    >;
+  },
+  undefined
+>;
+
+/** Input type for include */
+export type IncludeInput<T extends ModelState> = InferInput<IncludeSchema<T>>;
+
 /**
- * Build include schema - boolean inclusion for each relation
+ * Build include schema - nested include for each relation
  */
 export const getIncludeSchema = <T extends ModelState>(
   state: T
-): ObjectSchema<any, any> => {
+): IncludeSchema<T> => {
   const entries: SchemaEntries = {};
 
-  forEachRelation(state, (name) => {
-    entries[name] = optional(boolean());
+  // Relations: use relation's include schema (supports boolean or nested with where/orderBy/etc.)
+  forEachRelation(state, (name, relation) => {
+    entries[name] = optional(relation["~"].schemas.include);
   });
 
-  return object(entries);
+  return object(entries) as IncludeSchema<T>;
 };
-
