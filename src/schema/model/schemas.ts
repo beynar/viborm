@@ -20,6 +20,7 @@ import {
   getSelectSchema,
   getIncludeSchema,
   getOrderBySchema,
+  getCompoundConstraintFilter,
 } from "./schemas/core";
 
 // Import args schema factories
@@ -38,6 +39,7 @@ import {
   getAggregateArgs,
   getGroupByArgs,
 } from "./schemas/args";
+import { getCompoundIdFilter } from "./schemas/core/filter";
 
 // =============================================================================
 // MAIN EXPORT - getModelSchemas
@@ -52,6 +54,8 @@ export const getModelSchemas = <T extends ModelState>(state: T) => {
   const scalarFilter = getScalarFilter(state);
   const uniqueFilter = getUniqueFilter(state);
   const relationFilter = getRelationFilter(state);
+  const compoundConstraintFilter = getCompoundConstraintFilter(state);
+  const compoundIdFilter = getCompoundIdFilter(state);
 
   const scalarCreate = getScalarCreate(state);
   const relationCreate = getRelationCreate(state);
@@ -88,6 +92,8 @@ export const getModelSchemas = <T extends ModelState>(state: T) => {
       scalar: scalarFilter,
       unique: uniqueFilter,
       relation: relationFilter,
+      compoundConstraint: compoundConstraintFilter,
+      compoundId: compoundIdFilter,
     },
     _create: {
       scalar: scalarCreate,

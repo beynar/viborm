@@ -5,13 +5,14 @@ import {
   optional,
   union,
   literal,
+  lazy,
   type ObjectSchema,
   type OptionalSchema,
   type InferInput,
 } from "valibot";
 import type { ModelState } from "../../model";
 import type { SchemaEntries } from "../types";
-import { forEachScalarField } from "../utils";
+import { forEachScalarField, forEachRelation } from "../utils";
 
 // =============================================================================
 // SORT ORDER
@@ -36,11 +37,16 @@ export type SortOrderInput = InferInput<typeof sortOrderSchema>;
 // ORDER BY SCHEMA
 // =============================================================================
 
-/** OrderBy schema - sort direction for each scalar field */
+/** OrderBy schema - sort direction for each scalar field and nested relation ordering */
 export type OrderBySchema<T extends ModelState> = ObjectSchema<
   {
     [K in keyof T["scalars"]]: OptionalSchema<
       typeof sortOrderSchema,
+      undefined
+    >;
+  } & {
+    [K in keyof T["relations"]]: OptionalSchema<
+      T["relations"][K]["~"]["schemas"]["orderBy"],
       undefined
     >;
   },
@@ -51,15 +57,23 @@ export type OrderBySchema<T extends ModelState> = ObjectSchema<
 export type OrderByInput<T extends ModelState> = InferInput<OrderBySchema<T>>;
 
 /**
- * Build orderBy schema - sort direction for each scalar field
+ * Build orderBy schema - sort direction for each scalar field and nested relation ordering
  */
 export const getOrderBySchema = <T extends ModelState>(
   state: T
 ): OrderBySchema<T> => {
   const entries: SchemaEntries = {};
 
+  // Scalar fields: simple sort order
   forEachScalarField(state, (name) => {
     entries[name] = optional(sortOrderSchema);
+  });
+
+  // Relations: nested orderBy from related model
+  forEachRelation(state, (name, relation) => {
+    entries[name] = optional(
+      lazy(() => relation["~"].schemas.orderBy)
+    );
   });
 
   return object(entries) as OrderBySchema<T>;

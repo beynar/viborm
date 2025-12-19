@@ -49,7 +49,11 @@ export {
 export {
   getWhereSchema,
   getWhereUniqueSchema,
-  generateCompoundKeyName,
+  // Schema types
+  type WhereSchema,
+  type WhereInput,
+  type WhereUniqueSchema,
+  type WhereUniqueInput,
 } from "./where";
 
 // Select/Include exports

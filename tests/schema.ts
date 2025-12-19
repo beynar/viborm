@@ -7,7 +7,8 @@ import {
 } from "../src/schema/index.js";
 import { createClient } from "../src/index.js";
 import { PrismaClient } from "../generated/prisma/client.js";
-import { FindFirstArgs } from "../src/types/index.js";
+import { FindFirstArgs } from "../src/schema/types.js";
+import { InferInput } from "valibot";
 
 export const string = s.string();
 export const nullableString = s.string().nullable();
@@ -92,45 +93,42 @@ export const model = s.model({
   enumFieldWithDefault,
   enumFieldWithValidation,
   nullableEnumField,
-  oneToOne: s.relation.oneToOne(() => oneToOne),
-  oneToMany: s.relation.oneToMany(() => oneToMany),
-  manyToMany: s.relation.manyToMany(() => manyToMany),
-  manyToOne: s.relation.manyToOne(() => manyToOne),
+  oneToOne: s.oneToOne(() => oneToOne),
+  oneToMany: s.oneToMany(() => oneToMany),
+  manyToMany: s.manyToMany(() => manyToMany),
+  manyToOne: s.manyToOne(() => manyToOne),
 });
 
 export const oneToOne = s.model({
   id: s.string().id().ulid(),
-  test: s.relation.oneToOne(() => oneToOne),
+  test: s.oneToOne(() => oneToOne),
 });
 
 export const oneToMany = s.model({
   id: s.string().id().ulid(),
-  test: s.relation.manyToOne(() => oneToOne),
+  test: s.manyToOne(() => oneToOne),
 });
 
 export const manyToMany = s.model({
   id: s.string().id().ulid(),
-  test: s.relation.manyToMany(() => oneToOne),
+  test: s.manyToMany(() => oneToOne),
 });
 
 export const manyToOne = s.model({
   id: s.string().id().ulid(),
-  test: s.relation.oneToMany(() => oneToOne),
+  test: s.oneToMany(() => oneToOne),
 });
 
 // ===== TEST MODELS FOR CLIENT TESTS =====
 
 const example = s.model({
   id: s.string().id().ulid(),
-  relation: s.relation.oneToMany(() => relation),
+  relation: s.oneToMany(() => relation),
 });
 
 const relation = s.model({
   id: s.string().id().ulid(),
-  example: s.relation
-    .fields("eeaz")
-    .references("id")
-    .oneToOne(() => example),
+  example: s.oneToOne(() => example),
 });
 /**
  * Test user model for client type tests
@@ -144,11 +142,8 @@ export const testUser = s.model({
   tags: s.string().array(),
   createdAt: s.dateTime().now(),
   updatedAt: s.dateTime().now(),
-  posts: s.relation
-    .fields("authorId")
-    .references("id")
-    .oneToMany(() => testPost),
-  profile: s.relation.optional().oneToOne(() => testProfile),
+  posts: s.oneToMany(() => testPost),
+  profile: s.oneToOne(() => testProfile),
 });
 
 /**
@@ -162,7 +157,7 @@ export const testPost = s.model({
   createdAt: s.dateTime().now(),
   updatedAt: s.dateTime().now(),
   authorId: s.string(),
-  author: s.relation.oneToOne(() => testUser),
+  author: s.oneToOne(() => testUser),
   // metadata: s
   //   .json(
   //     z.object({
@@ -171,6 +166,7 @@ export const testPost = s.model({
   //   )
   //   .nullable(),
 });
+type schemaWhere = InferInput<(typeof testPost)["~"]["schemas"]["where"]>;
 
 /**
  * Test profile model for client type tests
@@ -181,7 +177,7 @@ export const testProfile = s
     bio: s.string().nullable(),
     avatar: s.string().nullable(),
     userId: s.string().unique(),
-    user: s.relation.oneToOne(() => testUser),
+    user: s.oneToOne(() => testUser),
   })
   .map("Profile")
   .index(["avatar", "bio"], { name: "idx_profile_eaeaz", type: "gin" })

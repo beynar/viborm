@@ -31,6 +31,7 @@ export interface RelationSchemas {
   update: AnyRelationSchema;
   select: AnyRelationSchema;
   include: AnyRelationSchema;
+  orderBy: AnyRelationSchema;
 }
 
 // =============================================================================
@@ -93,34 +94,68 @@ const singleOrArray = (schema: AnyRelationSchema): AnyRelationSchema => {
 };
 
 // =============================================================================
-// SELECT & INCLUDE SCHEMAS (simple boolean)
+// SELECT & INCLUDE SCHEMAS
 // =============================================================================
 
-const selectSchema = <S extends RelationState>(
-  _state: S
-): AnyRelationSchema => {
-  return boolean();
-};
-
-const toOneIncludeFactory = <S extends RelationState>(
+/**
+ * To-one select: true or nested { select }
+ */
+const toOneSelectFactory = <S extends RelationState>(
   state: S
 ): AnyRelationSchema => {
-  // For to-one: true or nested select/include
   return union([
     boolean(),
     partial(
       object({
-        select: optional(lazy(() => state.getter()["~"].schemas?.select)), // Simplified - would need target model's select
+        select: optional(lazy(() => state.getter()["~"].schemas?.select)),
+      })
+    ),
+  ]);
+};
+
+/**
+ * To-many select: true or nested { where, orderBy, take, skip, select }
+ */
+const toManySelectFactory = <S extends RelationState>(
+  state: S
+): AnyRelationSchema => {
+  return union([
+    boolean(),
+    partial(
+      object({
+        where: optional(lazy(() => state.getter()["~"].schemas?.where)),
+        orderBy: optional(lazy(() => state.getter()["~"].schemas?.orderBy)),
+        take: optional(number()),
+        skip: optional(number()),
+        select: optional(lazy(() => state.getter()["~"].schemas?.select)),
+      })
+    ),
+  ]);
+};
+
+/**
+ * To-one include: true or nested { select, include }
+ */
+const toOneIncludeFactory = <S extends RelationState>(
+  state: S
+): AnyRelationSchema => {
+  return union([
+    boolean(),
+    partial(
+      object({
+        select: optional(lazy(() => state.getter()["~"].schemas?.select)),
         include: optional(lazy(() => state.getter()["~"].schemas?.include)),
       })
     ),
   ]);
 };
 
+/**
+ * To-many include: true or nested { where, orderBy, take, skip, cursor, select, include }
+ */
 const toManyIncludeFactory = <S extends RelationState>(
   state: S
 ): AnyRelationSchema => {
-  // For to-many: true or nested with where/orderBy/take/skip/cursor/select/include
   return union([
     boolean(),
     partial(
@@ -135,6 +170,32 @@ const toManyIncludeFactory = <S extends RelationState>(
       })
     ),
   ]);
+};
+
+// =============================================================================
+// ORDER BY SCHEMAS
+// =============================================================================
+
+/**
+ * To-one orderBy: nested orderBy from the related model's fields
+ * e.g., orderBy: { author: { name: 'asc' } }
+ */
+const toOneOrderByFactory = <S extends RelationState>(
+  state: S
+): AnyRelationSchema => {
+  return lazy(() => state.getter()["~"].schemas?.orderBy);
+};
+
+/**
+ * To-many orderBy: can order by _count aggregate
+ * e.g., orderBy: { posts: { _count: 'desc' } }
+ */
+const toManyOrderByFactory = <S extends RelationState>(
+  _state: S
+): AnyRelationSchema => {
+  return object({
+    _count: optional(union([literal("asc"), literal("desc")])),
+  });
 };
 
 // =============================================================================
@@ -329,8 +390,9 @@ const toOneSchemas = <S extends RelationState>(state: S): RelationSchemas => {
     filter: toOneFilterFactory(state),
     create: toOneCreateFactory(state),
     update: toOneUpdateFactory(state),
-    select: selectSchema(state),
+    select: toOneSelectFactory(state),
     include: toOneIncludeFactory(state),
+    orderBy: toOneOrderByFactory(state),
   } as unknown as ToOneSchemas<S>;
 };
 
@@ -339,8 +401,9 @@ const toManySchemas = <S extends RelationState>(state: S): RelationSchemas => {
     filter: toManyFilterFactory(state),
     create: toManyCreateFactory(state),
     update: toManyUpdateFactory(state),
-    select: selectSchema(state),
+    select: toManySelectFactory(state),
     include: toManyIncludeFactory(state),
+    orderBy: toManyOrderByFactory(state),
   };
 };
 
@@ -352,16 +415,18 @@ export type ToOneSchemas<S extends RelationState> = {
   filter: ReturnType<typeof toOneFilterFactory<S>>;
   create: ReturnType<typeof toOneCreateFactory<S>>;
   update: ReturnType<typeof toOneUpdateFactory<S>>;
-  select: ReturnType<typeof selectSchema<S>>;
+  select: ReturnType<typeof toOneSelectFactory<S>>;
   include: ReturnType<typeof toOneIncludeFactory<S>>;
+  orderBy: ReturnType<typeof toOneOrderByFactory<S>>;
 };
 
 export type ToManySchemas<S extends RelationState> = {
   filter: ReturnType<typeof toManyFilterFactory<S>>;
   create: ReturnType<typeof toManyCreateFactory<S>>;
   update: ReturnType<typeof toManyUpdateFactory<S>>;
-  select: ReturnType<typeof selectSchema<S>>;
+  select: ReturnType<typeof toManySelectFactory<S>>;
   include: ReturnType<typeof toManyIncludeFactory<S>>;
+  orderBy: ReturnType<typeof toManyOrderByFactory<S>>;
 };
 
 export type InferRelationSchemas<S extends RelationState> = S["type"] extends

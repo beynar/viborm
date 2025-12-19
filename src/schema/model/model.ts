@@ -19,6 +19,7 @@ import {
   StringKeyOf,
   ToString,
 } from "./helper";
+import { getModelSchemas } from "./schemas";
 // Re-export types from helpers for external use
 
 // =============================================================================
@@ -215,7 +216,7 @@ export class Model<State extends ModelState> {
   get "~"() {
     return {
       state: this.state,
-      // schemas: getModelSchemas(this.state),
+      schemas: getModelSchemas(this.state),
       names: this._names,
     };
   }
