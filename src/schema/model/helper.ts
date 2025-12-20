@@ -52,6 +52,8 @@ export type UniqueFieldKeys<T extends FieldRecord> = {
   [K in keyof T]: T[K] extends Field
     ? T[K]["~"]["state"]["isId"] extends true
       ? ToString<K>
+      : T[K]["~"]["state"]["isUnique"] extends true
+      ? ToString<K>
       : never
     : never;
 }[keyof T];
