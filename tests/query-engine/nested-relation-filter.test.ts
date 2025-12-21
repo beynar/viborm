@@ -12,12 +12,10 @@ describe("Nested Relation Filtering - SQL Output", () => {
     id: s.string().id(),
     name: s.string(),
     email: s.string(),
-    posts: s.relation
-      .fields("id")
-      .references("authorId")
-      .oneToMany(() => {
-        return Post;
-      }),
+    posts: s.manyToMany(() => Post, {
+      fields: ["id"],
+      references: ["authorId"],
+    }),
   });
 
   const Post = s.model({
@@ -26,13 +24,10 @@ describe("Nested Relation Filtering - SQL Output", () => {
     content: s.string(),
     published: s.boolean(),
     authorId: s.string(),
-    author: s.relation
-      .fields("authorId")
-      .references("id")
-      .manyToOne(() => {
-        console.log("User");
-        return User;
-      }),
+    author: s.manyToOne(() => User, {
+      fields: ["authorId"],
+      references: ["id"],
+    }),
   });
 
   console.log(User["~"].scalarSchemas);

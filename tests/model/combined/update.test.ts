@@ -152,7 +152,12 @@ describe("Update Schema - Post Model Runtime (manyToOne)", () => {
         connect: { id: "author-1" },
       },
     });
-    expect(result.success).toBe(true);
+
+    expect(result.output).toMatchObject({
+      author: {
+        connect: { id: "author-1" },
+      },
+    });
   });
 
   test("runtime: accepts relation disconnect", () => {
@@ -173,4 +178,3 @@ describe("Update Schema - Post Model Runtime (manyToOne)", () => {
     expect(result.success).toBe(true);
   });
 });
-

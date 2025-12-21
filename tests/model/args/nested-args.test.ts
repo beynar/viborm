@@ -70,7 +70,10 @@ describe("Deeply Nested Includes", () => {
       if (result.success) {
         expect(result.output.include?.posts).toBeDefined();
         expect(result.output.include?.posts?.take).toBe(5);
-        expect(result.output.include?.posts?.include?.author).toBe(true);
+        // Boolean `author: true` is transformed to { select: {...} }
+        expect(result.output.include?.posts?.include?.author).toHaveProperty(
+          "select"
+        );
       }
     });
   });
@@ -94,6 +97,7 @@ describe("Deeply Nested Includes", () => {
         take: 20,
         orderBy: { title: "desc" },
       });
+      console.dir(result, { depth: null });
       expect(result.success).toBe(true);
     });
 
@@ -111,6 +115,7 @@ describe("Deeply Nested Includes", () => {
         },
       });
       expect(result.success).toBe(true);
+      console.dir(result, { depth: null });
       if (result.success) {
         const nestedPosts = result.output.include?.author?.include?.posts;
         expect(nestedPosts?.take).toBe(5);
@@ -583,7 +588,10 @@ describe("Complex Combined Queries", () => {
           name: "Alice Updated",
           posts: {
             create: { id: "post-3", title: "Third", authorId: "author-1" },
-            update: { where: { id: "post-1" }, data: { title: "Updated First" } },
+            update: {
+              where: { id: "post-1" },
+              data: { title: "Updated First" },
+            },
           },
         },
       });
@@ -712,4 +720,3 @@ describe("Relation Filters in Where", () => {
     });
   });
 });
-

@@ -1,57 +1,109 @@
 // Relation Schema Factories
-// Main entry point for relation schema generation
+// Builds filter, create, update schemas for relations using Valibot
 
+import { type InferInput } from "valibot";
 import type { RelationState } from "../relation";
-import type { RelationSchemas } from "./types";
-import { toOneSchemas } from "./to-one";
-import { toManySchemas } from "./to-many";
 
-// Re-export types
-export type {
-  AnyRelationSchema,
-  RelationSchemas,
-  ToOneSchemas,
-  ToManySchemas,
-  InferRelationSchemas,
-  InferRelationInput,
-} from "./types";
-
-// Re-export common utilities (if needed externally)
+// Re-export helpers and types
 export {
+  type AnyRelationSchema,
+  type RelationSchemas,
   getTargetWhereSchema,
   getTargetWhereUniqueSchema,
   getTargetCreateSchema,
   getTargetUpdateSchema,
-  getTargetScalarCreateSchema,
-  getTargetSelectSchema,
-  getTargetIncludeSchema,
-  getTargetOrderBySchema,
-  ensureArray,
   singleOrArray,
-  selectSchema,
-} from "./common";
+} from "./helpers";
 
-// Re-export to-one factories
+// Re-export individual schema factories
 export {
-  toOneSchemas,
-  toOneFilterFactory,
-  toOneCreateFactory,
-  toOneUpdateFactory,
+  toOneSelectFactory,
+  toManySelectFactory,
   toOneIncludeFactory,
-} from "./to-one";
-
-// Re-export to-many factories
-export {
-  toManySchemas,
-  toManyFilterFactory,
-  toManyCreateFactory,
-  toManyUpdateFactory,
   toManyIncludeFactory,
-} from "./to-many";
+} from "./select-include";
+
+export { toOneOrderByFactory, toManyOrderByFactory } from "./order-by";
+
+export { toOneFilterFactory, toManyFilterFactory } from "./filter";
+
+export { toOneCreateFactory, toManyCreateFactory } from "./create";
+
+export { toOneUpdateFactory, toManyUpdateFactory } from "./update";
+
+// Import for internal use
+import { type RelationSchemas } from "./helpers";
+import {
+  toOneSelectFactory,
+  toManySelectFactory,
+  toOneIncludeFactory,
+  toManyIncludeFactory,
+} from "./select-include";
+import { toOneOrderByFactory, toManyOrderByFactory } from "./order-by";
+import { toOneFilterFactory, toManyFilterFactory } from "./filter";
+import { toOneCreateFactory, toManyCreateFactory } from "./create";
+import { toOneUpdateFactory, toManyUpdateFactory } from "./update";
+
+// =============================================================================
+// SCHEMA BUNDLES
+// =============================================================================
+
+const toOneSchemas = <S extends RelationState>(state: S): RelationSchemas => {
+  return {
+    filter: toOneFilterFactory(state),
+    create: toOneCreateFactory(state),
+    update: toOneUpdateFactory(state),
+    select: toOneSelectFactory(state),
+    include: toOneIncludeFactory(state),
+    orderBy: toOneOrderByFactory(state),
+  };
+};
+
+const toManySchemas = <S extends RelationState>(state: S): RelationSchemas => {
+  return {
+    filter: toManyFilterFactory(state),
+    create: toManyCreateFactory(state),
+    update: toManyUpdateFactory(state),
+    select: toManySelectFactory(state),
+    include: toManyIncludeFactory(state),
+    orderBy: toManyOrderByFactory(state),
+  };
+};
+
+// =============================================================================
+// TYPE INFERENCE
+// =============================================================================
+
+export type ToOneSchemas<S extends RelationState> = {
+  filter: ReturnType<typeof toOneFilterFactory<S>>;
+  create: ReturnType<typeof toOneCreateFactory<S>>;
+  update: ReturnType<typeof toOneUpdateFactory<S>>;
+  select: ReturnType<typeof toOneSelectFactory<S>>;
+  include: ReturnType<typeof toOneIncludeFactory<S>>;
+  orderBy: ReturnType<typeof toOneOrderByFactory<S>>;
+};
+
+export type ToManySchemas<S extends RelationState> = {
+  filter: ReturnType<typeof toManyFilterFactory<S>>;
+  create: ReturnType<typeof toManyCreateFactory<S>>;
+  update: ReturnType<typeof toManyUpdateFactory<S>>;
+  select: ReturnType<typeof toManySelectFactory<S>>;
+  include: ReturnType<typeof toManyIncludeFactory<S>>;
+  orderBy: ReturnType<typeof toManyOrderByFactory<S>>;
+};
+
+export type InferRelationSchemas<S extends RelationState> = S["type"] extends
+  | "manyToMany"
+  | "oneToMany"
+  ? ToManySchemas<S>
+  : ToOneSchemas<S>;
+
+// =============================================================================
+// MAIN EXPORT
+// =============================================================================
 
 /**
- * Get all schemas for a relation based on its type.
- * Automatically selects toOne or toMany factories based on relation type.
+ * Get all schemas for a relation based on its type
  */
 export const getRelationSchemas = <S extends RelationState>(
   state: S
@@ -59,3 +111,11 @@ export const getRelationSchemas = <S extends RelationState>(
   const isToMany = state.type === "manyToMany" || state.type === "oneToMany";
   return isToMany ? toManySchemas(state) : toOneSchemas(state);
 };
+
+/**
+ * Infer input type for a specific relation schema
+ */
+export type InferRelationInput<
+  S extends RelationState,
+  Type extends keyof RelationSchemas
+> = InferInput<InferRelationSchemas<S>[Type]>;

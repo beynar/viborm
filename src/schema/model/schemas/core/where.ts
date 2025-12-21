@@ -53,9 +53,7 @@ export type WhereInput<T extends ModelState> = InferInput<WhereSchema<T>>;
 /**
  * Build full where schema - scalar + relation filters + AND/OR/NOT
  */
-export const getWhereSchema = <T extends ModelState>(
-  state: T
-): WhereSchema<T> => {
+export const getWhereSchema = <T extends ModelState>(state: T) => {
   // Use lazy for recursive AND/OR/NOT
   const whereSchema: BaseSchema<any, any, any> = lazy(() => {
     const scalarEntries: SchemaEntries = {};

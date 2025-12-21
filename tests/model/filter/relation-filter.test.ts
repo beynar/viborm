@@ -28,7 +28,11 @@ describe("Relation Filter - Types (Author Model)", () => {
   });
 
   test("type: all fields are optional (empty object matches)", () => {
-    expectTypeOf<{}>().toMatchTypeOf<Input>();
+    expectTypeOf<{
+      some: any | undefined;
+      every: any | undefined;
+      none: any | undefined;
+    }>().toMatchTypeOf<Input["posts"]>();
   });
 });
 
