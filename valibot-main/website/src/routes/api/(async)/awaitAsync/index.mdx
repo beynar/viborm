@@ -1,0 +1,140 @@
+---
+title: awaitAsync
+description: Creates an await transformation action.
+source: /actions/await/awaitAsync.ts
+contributors:
+  - fabian-hiller
+  - EltonLobo07
+---
+
+import { ApiList, Property } from '~/components';
+import { properties } from './properties';
+
+# awaitAsync
+
+Creates an await transformation action.
+
+```ts
+const Action = v.awaitAsync<TInput>();
+```
+
+## Generics
+
+- `TInput` <Property {...properties.TInput} />
+
+### Explanation
+
+With `awaitAsync` you can transform a promise into its resolved value.
+
+## Returns
+
+- `Action` <Property {...properties.Action} />
+
+## Examples
+
+The following examples show how `awaitAsync` can be used.
+
+### Unique emails schema
+
+Schema to check a set of emails wrapped in a promise object.
+
+```ts
+const UniqueEmailsSchema = v.pipeAsync(
+  v.promise(),
+  v.awaitAsync(),
+  v.set(v.pipe(v.string(), v.email()))
+);
+```
+
+## Related
+
+The following APIs can be combined with `awaitAsync`.
+
+### Schemas
+
+<ApiList
+  items={[
+    'any',
+    'array',
+    'bigint',
+    'blob',
+    'boolean',
+    'custom',
+    'date',
+    'enum',
+    'exactOptional',
+    'file',
+    'function',
+    'instance',
+    'intersect',
+    'lazy',
+    'literal',
+    'looseObject',
+    'looseTuple',
+    'map',
+    'nan',
+    'never',
+    'nonNullable',
+    'nonNullish',
+    'nonOptional',
+    'null',
+    'nullable',
+    'nullish',
+    'number',
+    'object',
+    'objectWithRest',
+    'optional',
+    'picklist',
+    'promise',
+    'record',
+    'set',
+    'strictObject',
+    'strictTuple',
+    'string',
+    'symbol',
+    'tuple',
+    'tupleWithRest',
+    'undefined',
+    'undefinedable',
+    'union',
+    'unknown',
+    'variant',
+    'void',
+  ]}
+/>
+
+### Utils
+
+<ApiList items={['isOfKind', 'isOfType']} />
+
+### Async
+
+<ApiList
+  items={[
+    'arrayAsync',
+    'customAsync',
+    'exactOptionalAsync',
+    'intersectAsync',
+    'lazyAsync',
+    'looseObjectAsync',
+    'looseTupleAsync',
+    'mapAsync',
+    'nonNullableAsync',
+    'nonNullishAsync',
+    'nonOptionalAsync',
+    'nullableAsync',
+    'nullishAsync',
+    'objectAsync',
+    'objectWithRestAsync',
+    'optionalAsync',
+    'pipeAsync',
+    'recordAsync',
+    'setAsync',
+    'strictObjectAsync',
+    'strictTupleAsync',
+    'tupleAsync',
+    'tupleWithRestAsync',
+    'unionAsync',
+    'variantAsync',
+  ]}
+/>

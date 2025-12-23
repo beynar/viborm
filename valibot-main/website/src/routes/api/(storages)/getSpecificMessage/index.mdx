@@ -1,0 +1,27 @@
+---
+title: getSpecificMessage
+description: Returns a specific error message.
+source: /storages/specificMessage/specificMessage.ts
+contributors:
+  - fabian-hiller
+---
+
+import { Property } from '~/components';
+import { properties } from './properties';
+
+# getSpecificMessage
+
+Returns a specific error message.
+
+```ts
+const message = v.getSpecificMessage(reference, lang);
+```
+
+## Parameters
+
+- `reference` <Property {...properties.reference} />
+- `lang` <Property {...properties.lang} />
+
+## Returns
+
+- `message` <Property {...properties.message} />

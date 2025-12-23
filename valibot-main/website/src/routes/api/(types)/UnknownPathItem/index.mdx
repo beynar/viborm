@@ -1,0 +1,24 @@
+---
+title: UnknownPathItem
+description: Unknown path item interface.
+contributors:
+  - fabian-hiller
+---
+
+import { Property } from '~/components';
+import { properties } from './properties';
+
+# UnknownPathItem
+
+Unknown path item interface.
+
+## Definition
+
+- `UnknownPathItem`
+  - `type` <Property {...properties.type} />
+  - `origin` <Property {...properties.origin} />
+  - `input` <Property type="unknown" />
+  - `key` <Property type="unknown" />
+  - `value` <Property type="unknown" />
+
+The `input` of a path item may differ from the `input` of its issue. This is because path items are subsequently added by parent schemas and are related to their input. Transformations of child schemas are not taken into account.

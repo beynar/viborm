@@ -1,0 +1,132 @@
+---
+title: parse
+description: Parses an unknown input based on a schema.
+source: /methods/parse/parse.ts
+contributors:
+  - fabian-hiller
+---
+
+import { ApiList, Link, Property } from '~/components';
+import { properties } from './properties';
+
+# parse
+
+Parses an unknown input based on a schema.
+
+```ts
+const output = v.parse<TSchema>(schema, input, config);
+```
+
+## Generics
+
+- `TSchema` <Property {...properties.TSchema} />
+
+## Parameters
+
+- `schema` <Property {...properties.schema} />
+- `input` <Property {...properties.input} />
+- `config` <Property {...properties.config} />
+
+### Explanation
+
+`parse` will throw a <Link href="../ValiError/">`ValiError`</Link> if the `input` does not match the `schema`. Therefore you should use a try/catch block to catch errors. If the input matches the schema, it is valid and the `output` of the schema will be returned typed.
+
+## Returns
+
+- `output` <Property {...properties.output} />
+
+## Example
+
+The following example show how `parse` can be used.
+
+```ts
+try {
+  const EmailSchema = v.pipe(v.string(), v.email());
+  const email = v.parse(EmailSchema, 'jane@example.com');
+
+  // Handle errors if one occurs
+} catch (error) {
+  console.log(error);
+}
+```
+
+## Related
+
+The following APIs can be combined with `parse`.
+
+### Schemas
+
+<ApiList
+  items={[
+    'any',
+    'array',
+    'bigint',
+    'blob',
+    'boolean',
+    'custom',
+    'date',
+    'enum',
+    'exactOptional',
+    'file',
+    'function',
+    'instance',
+    'intersect',
+    'lazy',
+    'literal',
+    'looseObject',
+    'looseTuple',
+    'map',
+    'nan',
+    'never',
+    'nonNullable',
+    'nonNullish',
+    'nonOptional',
+    'null',
+    'nullable',
+    'nullish',
+    'number',
+    'object',
+    'objectWithRest',
+    'optional',
+    'picklist',
+    'promise',
+    'record',
+    'set',
+    'strictObject',
+    'strictTuple',
+    'string',
+    'symbol',
+    'tuple',
+    'tupleWithRest',
+    'undefined',
+    'undefinedable',
+    'union',
+    'unknown',
+    'variant',
+    'void',
+  ]}
+/>
+
+### Methods
+
+<ApiList
+  items={[
+    'assert',
+    'config',
+    'fallback',
+    'flatten',
+    'keyof',
+    'message',
+    'omit',
+    'partial',
+    'pick',
+    'pipe',
+    'required',
+    'summarize',
+    'unwrap',
+  ]}
+/>
+
+### Utils
+
+<ApiList items={['getDotPath', 'isValiError', 'ValiError']} />

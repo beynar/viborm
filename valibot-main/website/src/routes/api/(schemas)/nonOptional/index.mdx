@@ -1,0 +1,159 @@
+---
+title: nonOptional
+description: Creates a non optional schema.
+source: /schemas/nonOptional/nonOptional.ts
+contributors:
+  - fabian-hiller
+---
+
+import { ApiList, Link, Property } from '~/components';
+import { properties } from './properties';
+
+# nonOptional
+
+Creates a non optional schema.
+
+> This schema function can be used to override the behavior of <Link href="../optional/">`optional`</Link>.
+
+```ts
+const Schema = v.nonOptional<TWrapped, TMessage>(wrapped, message);
+```
+
+## Generics
+
+- `TWrapped` <Property {...properties.TWrapped} />
+- `TMessage` <Property {...properties.TMessage} />
+
+## Parameters
+
+- `wrapped` <Property {...properties.wrapped} />
+- `message` <Property {...properties.message} />
+
+### Explanation
+
+With `nonOptional` the validation of your schema will not pass `undefined` inputs. If the input is `undefined`, you can use `message` to customize the error message.
+
+## Returns
+
+- `Schema` <Property {...properties.Schema} />
+
+## Examples
+
+The following examples show how `nonOptional` can be used.
+
+### Non optional string
+
+Schema that does not accept `undefined`.
+
+```ts
+const NonOptionalStringSchema = v.nonOptional(v.optional(v.string()));
+```
+
+### Unwrap non optional
+
+Use <Link href="../unwrap/">`unwrap`</Link> to undo the effect of `nonOptional`.
+
+```ts
+const NonOptionalNumberSchema = v.nonOptional(v.optional(v.number()));
+const OptionalNumberSchema = v.unwrap(NonOptionalNumberSchema);
+```
+
+## Related
+
+The following APIs can be combined with `nonOptional`.
+
+### Schemas
+
+<ApiList
+  items={[
+    'any',
+    'array',
+    'bigint',
+    'blob',
+    'boolean',
+    'custom',
+    'date',
+    'enum',
+    'exactOptional',
+    'file',
+    'function',
+    'instance',
+    'intersect',
+    'lazy',
+    'literal',
+    'looseObject',
+    'looseTuple',
+    'map',
+    'nan',
+    'never',
+    'nonNullable',
+    'nonOptional',
+    'null',
+    'nullable',
+    'nullish',
+    'number',
+    'object',
+    'objectWithRest',
+    'optional',
+    'picklist',
+    'promise',
+    'record',
+    'set',
+    'strictObject',
+    'strictTuple',
+    'string',
+    'symbol',
+    'tuple',
+    'tupleWithRest',
+    'undefined',
+    'undefinedable',
+    'union',
+    'unknown',
+    'variant',
+    'void',
+  ]}
+/>
+
+### Methods
+
+<ApiList
+  items={[
+    'assert',
+    'config',
+    'fallback',
+    'getDefault',
+    'getDefaults',
+    'getFallback',
+    'getFallbacks',
+    'is',
+    'message',
+    'parse',
+    'parser',
+    'pipe',
+    'safeParse',
+    'safeParser',
+    'unwrap',
+  ]}
+/>
+
+### Actions
+
+<ApiList
+  items={[
+    'check',
+    'brand',
+    'description',
+    'flavor',
+    'metadata',
+    'partialCheck',
+    'rawCheck',
+    'rawTransform',
+    'readonly',
+    'title',
+    'transform',
+  ]}
+/>
+
+### Utils
+
+<ApiList items={['entriesFromList', 'isOfKind', 'isOfType']} />

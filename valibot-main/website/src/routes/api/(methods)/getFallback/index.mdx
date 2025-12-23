@@ -1,0 +1,155 @@
+---
+title: getFallback
+description: Returns the fallback value of the schema.
+source: /methods/getFallback/getFallback.ts
+contributors:
+  - fabian-hiller
+---
+
+import { ApiList, Property } from '~/components';
+import { properties } from './properties';
+
+# getFallback
+
+Returns the fallback value of the schema.
+
+```ts
+const value = v.getFallback<TSchema>(schema, dataset, config);
+```
+
+## Generics
+
+- `TSchema` <Property {...properties.TSchema} />
+
+## Parameters
+
+- `schema` <Property {...properties.schema} />
+- `dataset` <Property {...properties.dataset} />
+- `config` <Property {...properties.config} />
+
+## Returns
+
+- `value` <Property {...properties.value} />
+
+## Examples
+
+The following examples show how `getFallback` can be used.
+
+### Fallback string schema
+
+Get the fallback value of a string schema.
+
+```ts
+const FallbackStringSchema = v.fallback(v.string(), "I'm the fallback!");
+const fallbackValue = v.getFallback(FallbackStringSchema); // "I'm the fallback!"
+```
+
+## Related
+
+The following APIs can be combined with `getFallback`.
+
+### Schemas
+
+<ApiList
+  items={[
+    'any',
+    'array',
+    'bigint',
+    'blob',
+    'boolean',
+    'custom',
+    'date',
+    'enum',
+    'exactOptional',
+    'file',
+    'function',
+    'instance',
+    'intersect',
+    'lazy',
+    'literal',
+    'looseObject',
+    'looseTuple',
+    'map',
+    'nan',
+    'never',
+    'nonNullable',
+    'nonNullish',
+    'nonOptional',
+    'null',
+    'nullable',
+    'nullish',
+    'number',
+    'object',
+    'objectWithRest',
+    'optional',
+    'picklist',
+    'promise',
+    'record',
+    'set',
+    'strictObject',
+    'strictTuple',
+    'string',
+    'symbol',
+    'tuple',
+    'tupleWithRest',
+    'undefined',
+    'undefinedable',
+    'union',
+    'unknown',
+    'variant',
+    'void',
+  ]}
+/>
+
+### Methods
+
+<ApiList
+  items={[
+    'assert',
+    'config',
+    'fallback',
+    'keyof',
+    'message',
+    'omit',
+    'partial',
+    'pick',
+    'pipe',
+    'required',
+    'unwrap',
+  ]}
+/>
+
+### Async
+
+<ApiList
+  items={[
+    'arrayAsync',
+    'customAsync',
+    'exactOptionalAsync',
+    'fallbackAsync',
+    'intersectAsync',
+    'lazyAsync',
+    'looseObjectAsync',
+    'looseTupleAsync',
+    'mapAsync',
+    'nonNullableAsync',
+    'nonNullishAsync',
+    'nonOptionalAsync',
+    'nullableAsync',
+    'nullishAsync',
+    'objectAsync',
+    'objectWithRestAsync',
+    'optionalAsync',
+    'partialAsync',
+    'pipeAsync',
+    'recordAsync',
+    'requiredAsync',
+    'setAsync',
+    'strictObjectAsync',
+    'strictTupleAsync',
+    'tupleAsync',
+    'tupleWithRestAsync',
+    'unionAsync',
+    'variantAsync',
+  ]}
+/>

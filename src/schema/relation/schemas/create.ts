@@ -1,31 +1,27 @@
 // Relation Create Schemas
 
-import {
-  object,
-  optional,
-  partial,
-} from "valibot";
+import { object, optional, partial } from "valibot";
 import type { RelationState } from "../relation";
 import {
-  type AnyRelationSchema,
   getTargetCreateSchema,
   getTargetWhereUniqueSchema,
   singleOrArray,
 } from "./helpers";
 
 // =============================================================================
-// CREATE SCHEMAS
+// CREATE SCHEMA TYPES (exported for consumer use)
+// =============================================================================
+
+// =============================================================================
+// CREATE FACTORY IMPLEMENTATIONS
 // =============================================================================
 
 /**
  * To-one create: { create?, connect?, connectOrCreate? }
  */
-export const toOneCreateFactory = <S extends RelationState>(
-  state: S
-): AnyRelationSchema => {
+export const toOneCreateFactory = <S extends RelationState>(state: S) => {
   const createSchema = getTargetCreateSchema(state);
   const whereUniqueSchema = getTargetWhereUniqueSchema(state);
-
   return partial(
     object({
       create: optional(createSchema),
@@ -44,9 +40,7 @@ export const toOneCreateFactory = <S extends RelationState>(
  * To-many create: { create?, connect?, connectOrCreate? }
  * All accept single or array, normalized to array
  */
-export const toManyCreateFactory = <S extends RelationState>(
-  state: S
-): AnyRelationSchema => {
+export const toManyCreateFactory = <S extends RelationState>(state: S) => {
   const createSchema = getTargetCreateSchema(state);
   const whereUniqueSchema = getTargetWhereUniqueSchema(state);
 
@@ -63,4 +57,3 @@ export const toManyCreateFactory = <S extends RelationState>(
     })
   );
 };
-

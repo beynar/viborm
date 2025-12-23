@@ -1,0 +1,275 @@
+---
+title: pipe
+description: Adds a pipeline to a schema, that can validate and transform its input.
+source: /methods/pipe/pipe.ts
+contributors:
+  - fabian-hiller
+  - EltonLobo07
+  - muningis
+  - jasperteo
+  - morinokami
+---
+
+import { ApiList, Link, Property } from '~/components';
+import { properties } from './properties';
+
+# pipe
+
+Adds a pipeline to a schema, that can validate and transform its input.
+
+```ts
+const Schema = v.pipe<TSchema, TItems>(schema, ...items);
+```
+
+## Generics
+
+- `TSchema` <Property {...properties.TSchema} />
+- `TItems` <Property {...properties.TItems} />
+
+## Parameters
+
+- `schema` <Property {...properties.schema} />
+- `items` <Property {...properties.items} />
+
+### Explanation
+
+`pipe` creates a modified copy of the given `schema`, containing a pipeline for detailed validations and transformations. It passes the input data synchronously through the `items` in the order they are provided and each item can examine and modify it.
+
+> Since `pipe` returns a schema that can be used as the first argument of another pipeline, it is possible to nest multiple `pipe` calls to extend the validation and transformation further.
+
+The `pipe` aborts early and marks the output as untyped if issues were collected before attempting to execute a schema or transformation action as the next item in the pipeline, to prevent unexpected behavior.
+
+## Returns
+
+- `Schema` <Property {...properties.Schema} />
+
+## Examples
+
+The following examples show how `pipe` can be used. Please see the <Link href="/guides/pipelines/">pipeline guide</Link> for more examples and explanations.
+
+### Email schema
+
+Schema to validate an email.
+
+```ts
+const EmailSchema = v.pipe(
+  v.string(),
+  v.nonEmpty('Please enter your email.'),
+  v.email('The email is badly formatted.'),
+  v.maxLength(30, 'Your email is too long.')
+);
+```
+
+### String to number
+
+Schema to convert a string to a number.
+
+```ts
+const NumberSchema = v.pipe(v.string(), v.transform(Number), v.number());
+```
+
+## Related
+
+The following APIs can be combined with `pipe`.
+
+### Schemas
+
+<ApiList
+  items={[
+    'any',
+    'array',
+    'bigint',
+    'blob',
+    'boolean',
+    'custom',
+    'date',
+    'enum',
+    'exactOptional',
+    'file',
+    'function',
+    'instance',
+    'intersect',
+    'lazy',
+    'literal',
+    'looseObject',
+    'looseTuple',
+    'map',
+    'nan',
+    'never',
+    'nonNullable',
+    'nonNullish',
+    'nonOptional',
+    'null',
+    'nullable',
+    'nullish',
+    'number',
+    'object',
+    'objectWithRest',
+    'optional',
+    'picklist',
+    'promise',
+    'record',
+    'set',
+    'strictObject',
+    'strictTuple',
+    'string',
+    'symbol',
+    'tuple',
+    'tupleWithRest',
+    'undefined',
+    'undefinedable',
+    'union',
+    'unknown',
+    'variant',
+    'void',
+  ]}
+/>
+
+### Methods
+
+<ApiList
+  items={[
+    'assert',
+    'config',
+    'fallback',
+    'forward',
+    'getDefault',
+    'getDefaults',
+    'getFallback',
+    'getFallbacks',
+    'is',
+    'keyof',
+    'message',
+    'omit',
+    'parse',
+    'parser',
+    'partial',
+    'pick',
+    'required',
+    'safeParse',
+    'safeParser',
+    'unwrap',
+  ]}
+/>
+
+### Actions
+
+<ApiList
+  items={[
+    'args',
+    'base64',
+    'bic',
+    'brand',
+    'bytes',
+    'check',
+    'checkItems',
+    'creditCard',
+    'cuid2',
+    'decimal',
+    'description',
+    'digits',
+    'email',
+    'emoji',
+    'empty',
+    'endsWith',
+    'entries',
+    'everyItem',
+    'excludes',
+    'filterItems',
+    'findItem',
+    'finite',
+    'flavor',
+    'graphemes',
+    'gtValue',
+    'hash',
+    'hexadecimal',
+    'hexColor',
+    'imei',
+    'includes',
+    'integer',
+    'ip',
+    'ipv4',
+    'ipv6',
+    'isbn',
+    'isoDate',
+    'isoDateTime',
+    'isoTime',
+    'isoTimeSecond',
+    'isoTimestamp',
+    'isoWeek',
+    'length',
+    'ltValue',
+    'mac',
+    'mac48',
+    'mac64',
+    'mapItems',
+    'maxBytes',
+    'maxEntries',
+    'maxGraphemes',
+    'maxLength',
+    'maxSize',
+    'maxValue',
+    'maxWords',
+    'metadata',
+    'mimeType',
+    'minBytes',
+    'minEntries',
+    'minGraphemes',
+    'minLength',
+    'minSize',
+    'minValue',
+    'minWords',
+    'multipleOf',
+    'nanoid',
+    'nonEmpty',
+    'notBytes',
+    'notEntries',
+    'notGraphemes',
+    'notLength',
+    'notSize',
+    'notValue',
+    'notValues',
+    'notWords',
+    'octal',
+    'parseJson',
+    'partialCheck',
+    'rawCheck',
+    'rawTransform',
+    'readonly',
+    'reduceItems',
+    'regex',
+    'returns',
+    'rfcEmail',
+    'safeInteger',
+    'size',
+    'slug',
+    'someItem',
+    'sortItem',
+    'startsWith',
+    'stringifyJson',
+    'title',
+    'toBigint',
+    'toBoolean',
+    'toDate',
+    'toLowerCase',
+    'toMaxValue',
+    'toMinValue',
+    'toNumber',
+    'toString',
+    'toUpperCase',
+    'transform',
+    'trim',
+    'trimEnd',
+    'trimStart',
+    'ulid',
+    'url',
+    'uuid',
+    'value',
+    'values',
+    'words',
+  ]}
+/>
+
+### Utils
+
+<ApiList items={['isOfKind', 'isOfType']} />

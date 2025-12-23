@@ -1,0 +1,189 @@
+---
+title: nonNullableAsync
+description: Creates a non nullable schema.
+source: /schemas/nonNullable/nonNullableAsync.ts
+contributors:
+  - fabian-hiller
+  - EltonLobo07
+---
+
+import { ApiList, Link, Property } from '~/components';
+import { properties } from './properties';
+
+# nonNullableAsync
+
+Creates a non nullable schema.
+
+> This schema function can be used to override the behavior of <Link href="../nullableAsync/">`nullableAsync`</Link>.
+
+```ts
+const Schema = v.nonNullableAsync<TWrapped, TMessage>(wrapped, message);
+```
+
+## Generics
+
+- `TWrapped` <Property {...properties.TWrapped} />
+- `TMessage` <Property {...properties.TMessage} />
+
+## Parameters
+
+- `wrapped` <Property {...properties.wrapped} />
+- `message` <Property {...properties.message} />
+
+### Explanation
+
+With `nonNullableAsync` the validation of your schema will not pass `null` inputs. If the input is `null`, you can use `message` to customize the error message.
+
+## Returns
+
+- `Schema` <Property {...properties.Schema} />
+
+## Examples
+
+The following examples show how `nonNullableAsync` can be used.
+
+### Unique username schema
+
+Schema to validate a non-null unique username.
+
+```ts
+import { isUsernameUnique } from '~/api';
+
+const UniqueUsernameSchema = v.nonNullableAsync(
+  // Assume this schema is from a different file and reused here.
+  v.nullableAsync(
+    v.pipeAsync(
+      v.string(),
+      v.nonEmpty(),
+      v.checkAsync(isUsernameUnique, 'The username is not unique.')
+    )
+  )
+);
+```
+
+## Related
+
+The following APIs can be combined with `nonNullableAsync`.
+
+### Schemas
+
+<ApiList
+  items={[
+    'any',
+    'array',
+    'bigint',
+    'blob',
+    'boolean',
+    'custom',
+    'date',
+    'enum',
+    'exactOptional',
+    'file',
+    'function',
+    'instance',
+    'intersect',
+    'lazy',
+    'literal',
+    'looseObject',
+    'looseTuple',
+    'map',
+    'nan',
+    'never',
+    'nonNullable',
+    'nonNullish',
+    'nonOptional',
+    'null',
+    'nullable',
+    'nullish',
+    'number',
+    'object',
+    'objectWithRest',
+    'optional',
+    'picklist',
+    'promise',
+    'record',
+    'set',
+    'strictObject',
+    'strictTuple',
+    'string',
+    'symbol',
+    'tuple',
+    'tupleWithRest',
+    'undefined',
+    'undefinedable',
+    'union',
+    'unknown',
+    'variant',
+    'void',
+  ]}
+/>
+
+### Methods
+
+<ApiList items={['config', 'getDefault', 'getFallback', 'unwrap']} />
+
+### Actions
+
+<ApiList
+  items={[
+    'brand',
+    'check',
+    'description',
+    'flavor',
+    'metadata',
+    'partialCheck',
+    'rawCheck',
+    'rawTransform',
+    'readonly',
+    'title',
+    'transform',
+  ]}
+/>
+
+### Utils
+
+<ApiList items={['entriesFromList', 'isOfKind', 'isOfType']} />
+
+### Async
+
+<ApiList
+  items={[
+    'arrayAsync',
+    'awaitAsync',
+    'checkAsync',
+    'customAsync',
+    'exactOptionalAsync',
+    'fallbackAsync',
+    'getDefaultsAsync',
+    'getFallbacksAsync',
+    'intersectAsync',
+    'lazyAsync',
+    'looseObjectAsync',
+    'looseTupleAsync',
+    'mapAsync',
+    'nonNullishAsync',
+    'nonOptionalAsync',
+    'nullableAsync',
+    'nullishAsync',
+    'objectAsync',
+    'objectWithRestAsync',
+    'optionalAsync',
+    'parseAsync',
+    'parserAsync',
+    'partialCheckAsync',
+    'pipeAsync',
+    'rawCheckAsync',
+    'rawTransformAsync',
+    'recordAsync',
+    'safeParseAsync',
+    'safeParserAsync',
+    'setAsync',
+    'strictObjectAsync',
+    'strictTupleAsync',
+    'transformAsync',
+    'tupleAsync',
+    'tupleWithRestAsync',
+    'unionAsync',
+    'variantAsync',
+  ]}
+/>

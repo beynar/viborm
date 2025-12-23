@@ -1,0 +1,133 @@
+---
+title: getDefaults
+description: Returns the default values of the schema.
+source: /methods/getDefaults/getDefaults.ts
+contributors:
+  - fabian-hiller
+  - EltonLobo07
+---
+
+import { ApiList, Link, Property } from '~/components';
+import { properties } from './properties';
+
+# getDefaults
+
+Returns the default values of the schema.
+
+> The difference to <Link href='../getDefault/'>`getDefault`</Link> is that for object and tuple schemas this function recursively returns the default values of the subschemas instead of `undefined`.
+
+```ts
+const values = v.getDefaults<TSchema>(schema);
+```
+
+## Generics
+
+- `TSchema` <Property {...properties.TSchema} />
+
+## Parameters
+
+- `schema` <Property {...properties.schema} />
+
+## Returns
+
+- `values` <Property {...properties.values} />
+
+## Examples
+
+The following examples show how `getDefaults` can be used.
+
+### Object defaults
+
+Get the default values of an object schema.
+
+```ts
+const ObjectSchema = v.object({
+  key: v.optional(v.string(), "I'm the default!"),
+});
+
+const defaultValues = v.getDefaults(ObjectSchema); // { key: "I'm the default!" }
+```
+
+### Tuple defaults
+
+Get the default values of a tuple schema.
+
+```ts
+const TupleSchema = v.tuple([v.nullable(v.number(), 100)]);
+const defaultValues = v.getDefaults(TupleSchema); // [100]
+```
+
+## Related
+
+The following APIs can be combined with `getDefaults`.
+
+### Schemas
+
+<ApiList
+  items={[
+    'any',
+    'array',
+    'bigint',
+    'blob',
+    'boolean',
+    'custom',
+    'date',
+    'enum',
+    'exactOptional',
+    'file',
+    'function',
+    'instance',
+    'intersect',
+    'lazy',
+    'literal',
+    'looseObject',
+    'looseTuple',
+    'map',
+    'nan',
+    'never',
+    'nonNullable',
+    'nonNullish',
+    'nonOptional',
+    'null',
+    'nullable',
+    'nullish',
+    'number',
+    'object',
+    'objectWithRest',
+    'optional',
+    'picklist',
+    'promise',
+    'record',
+    'set',
+    'strictObject',
+    'strictTuple',
+    'string',
+    'symbol',
+    'tuple',
+    'tupleWithRest',
+    'undefined',
+    'undefinedable',
+    'union',
+    'unknown',
+    'variant',
+    'void',
+  ]}
+/>
+
+### Methods
+
+<ApiList
+  items={[
+    'assert',
+    'config',
+    'fallback',
+    'keyof',
+    'message',
+    'omit',
+    'partial',
+    'pick',
+    'pipe',
+    'required',
+    'unwrap',
+  ]}
+/>

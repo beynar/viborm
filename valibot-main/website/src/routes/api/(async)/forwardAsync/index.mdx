@@ -1,0 +1,155 @@
+---
+title: forwardAsync
+description: Forwards the issues of the passed validation action.
+source: /methods/forward/forwardAsync.ts
+contributors:
+  - fabian-hiller
+  - EltonLobo07
+---
+
+import { ApiList, Property } from '~/components';
+import { properties } from './properties';
+
+# forwardAsync
+
+Forwards the issues of the passed validation action.
+
+```ts
+const Action = v.forwardAsync<TInput, TIssue, TPath>(action, path);
+```
+
+## Generics
+
+- `TInput` <Property {...properties.TInput} />
+- `TIssue` <Property {...properties.TIssue} />
+- `TPath` <Property {...properties.TPath} />
+
+## Parameters
+
+- `action` <Property {...properties.action} />
+- `path` <Property {...properties.path} />
+
+### Explanation
+
+`forwardAsync` allows you to forward the issues of the passed validation `action` via `path` to a nested field of a schema.
+
+## Returns
+
+- `Action` <Property {...properties.Action} />
+
+## Examples
+
+The following examples show how `forwardAsync` can be used.
+
+### Allowed action schema
+
+Schema that checks if the user is allowed to complete an action.
+
+```ts
+import { isAllowedAction, isUsernamePresent } from '~/api';
+
+const AllowedActionSchema = v.pipeAsync(
+  v.objectAsync({
+    username: v.pipeAsync(
+      v.string(),
+      v.minLength(3),
+      v.checkAsync(isUsernamePresent, 'The username is not in the database.')
+    ),
+    action: v.picklist(['view', 'edit', 'delete']),
+  }),
+  v.forwardAsync(
+    v.checkAsync(
+      isAllowedAction,
+      'The user is not allowed to complete the action.'
+    ),
+    ['action']
+  )
+);
+```
+
+## Related
+
+The following APIs can be combined with `forwardAsync`.
+
+### Schemas
+
+<ApiList
+  items={[
+    'any',
+    'array',
+    'custom',
+    'looseObject',
+    'looseTuple',
+    'object',
+    'objectWithRest',
+    'record',
+    'strictObject',
+    'strictTuple',
+    'tuple',
+    'tupleWithRest',
+    'union',
+    'unknown',
+    'variant',
+  ]}
+/>
+
+### Methods
+
+<ApiList items={['omit', 'pick']} />
+
+### Actions
+
+<ApiList
+  items={[
+    'check',
+    'checkItems',
+    'empty',
+    'everyItem',
+    'excludes',
+    'filterItems',
+    'findItem',
+    'includes',
+    'length',
+    'mapItems',
+    'maxLength',
+    'metadata',
+    'minLength',
+    'nonEmpty',
+    'notLength',
+    'partialCheck',
+    'rawCheck',
+    'reduceItems',
+    'someItem',
+    'sortItems',
+  ]}
+/>
+
+### Utils
+
+<ApiList items={['isOfKind', 'isOfType']} />
+
+### Async
+
+<ApiList
+  items={[
+    'arrayAsync',
+    'awaitAsync',
+    'checkAsync',
+    'customAsync',
+    'looseObjectAsync',
+    'looseTupleAsync',
+    'objectAsync',
+    'objectWithRestAsync',
+    'partialAsync',
+    'partialCheckAsync',
+    'rawCheckAsync',
+    'recordAsync',
+    'requiredAsync',
+    'strictObjectAsync',
+    'strictTupleAsync',
+    'tupleAsync',
+    'tupleWithRestAsync',
+    'unionAsync',
+    'variantAsync',
+  ]}
+/>

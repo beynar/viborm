@@ -1,0 +1,26 @@
+---
+title: UnionSchema
+description: Union schema interface.
+contributors:
+  - fabian-hiller
+---
+
+import { Property } from '~/components';
+import { properties } from './properties';
+
+# UnionSchema
+
+Union schema interface.
+
+## Generics
+
+- `TOptions` <Property {...properties.TOptions} />
+- `TMessage` <Property {...properties.TMessage} />
+
+## Definition
+
+- `UnionSchema` <Property {...properties.BaseSchema} />
+  - `type` <Property {...properties.type} />
+  - `reference` <Property {...properties.reference} />
+  - `options` <Property {...properties.options} />
+  - `message` <Property {...properties.message} />

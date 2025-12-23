@@ -1,0 +1,312 @@
+---
+title: lazy
+description: Creates a lazy schema.
+source: /schemas/lazy/lazy.ts
+contributors:
+  - fabian-hiller
+  - EltonLobo07
+  - morinokami
+---
+
+import { ApiList, Link, Property } from '~/components';
+import { properties } from './properties';
+
+# lazy
+
+Creates a lazy schema.
+
+```ts
+const Schema = v.lazy<TWrapped>(getter);
+```
+
+## Generics
+
+- `TWrapped` <Property {...properties.TWrapped} />
+
+## Parameters
+
+- `getter` <Property {...properties.getter} />
+
+### Explanation
+
+The `getter` function is called lazily to retrieve the schema. This is necessary to be able to access the input through the first argument of the `getter` function and to avoid a circular dependency for recursive schemas.
+
+> Due to a TypeScript limitation, the input and output types of recursive schemas cannot be inferred automatically. Therefore, you must explicitly specify these types using <Link href="/api/GenericSchema/">`GenericSchema`</Link>. Please see the examples below.
+
+## Returns
+
+- `Schema` <Property {...properties.Schema} />
+
+## Examples
+
+The following examples show how `lazy` can be used.
+
+### Binary tree schema
+
+Recursive schema to validate a binary tree.
+
+```ts
+type BinaryTree = {
+  element: string;
+  left: BinaryTree | null;
+  right: BinaryTree | null;
+};
+
+const BinaryTreeSchema: v.GenericSchema<BinaryTree> = v.object({
+  element: v.string(),
+  left: v.nullable(v.lazy(() => BinaryTreeSchema)),
+  right: v.nullable(v.lazy(() => BinaryTreeSchema)),
+});
+```
+
+### JSON data schema
+
+Schema to validate all possible `JSON` values.
+
+```ts
+import * as v from 'valibot';
+
+type JsonData =
+  | string
+  | number
+  | boolean
+  | null
+  | { [key: string]: JsonData }
+  | JsonData[];
+
+const JsonSchema: v.GenericSchema<JsonData> = v.lazy(() =>
+  v.union([
+    v.string(),
+    v.number(),
+    v.boolean(),
+    v.null(),
+    v.record(v.string(), JsonSchema),
+    v.array(JsonSchema),
+  ])
+);
+```
+
+### Lazy union schema
+
+Schema to validate a discriminated union of objects.
+
+> In most cases, <Link href="/api/union/">`union`</Link> and <Link href="/api/variant/">`variant`</Link> are the better choices for creating such a schema. I recommend using `lazy` only in special cases.
+
+```ts
+const LazyUnionSchema = v.lazy((input) => {
+  if (input && typeof input === 'object' && 'type' in input) {
+    switch (input.type) {
+      case 'email':
+        return v.object({
+          type: v.literal('email'),
+          email: v.pipe(v.string(), v.email()),
+        });
+      case 'url':
+        return v.object({
+          type: v.literal('url'),
+          url: v.pipe(v.string(), v.url()),
+        });
+      case 'date':
+        return v.object({
+          type: v.literal('date'),
+          date: v.pipe(v.string(), v.isoDate()),
+        });
+    }
+  }
+  return v.never();
+});
+```
+
+## Related
+
+The following APIs can be combined with `lazy`.
+
+### Schemas
+
+<ApiList
+  items={[
+    'any',
+    'array',
+    'bigint',
+    'blob',
+    'boolean',
+    'custom',
+    'date',
+    'enum',
+    'exactOptional',
+    'file',
+    'function',
+    'instance',
+    'intersect',
+    'literal',
+    'looseObject',
+    'looseTuple',
+    'map',
+    'nan',
+    'never',
+    'nonNullable',
+    'nonNullish',
+    'nonOptional',
+    'null',
+    'nullable',
+    'nullish',
+    'number',
+    'object',
+    'objectWithRest',
+    'optional',
+    'picklist',
+    'promise',
+    'record',
+    'set',
+    'strictObject',
+    'strictTuple',
+    'string',
+    'symbol',
+    'tuple',
+    'undefined',
+    'union',
+    'unionWithRest',
+    'undefinedable',
+    'unknown',
+    'variant',
+    'void',
+  ]}
+/>
+
+### Methods
+
+<ApiList
+  items={[
+    'assert',
+    'config',
+    'fallback',
+    'getDefault',
+    'getDefaults',
+    'getFallback',
+    'getFallbacks',
+    'is',
+    'message',
+    'parse',
+    'parser',
+    'pipe',
+    'safeParse',
+    'safeParser',
+  ]}
+/>
+
+### Actions
+
+<ApiList
+  items={[
+    'args',
+    'base64',
+    'bic',
+    'brand',
+    'bytes',
+    'check',
+    'checkItems',
+    'creditCard',
+    'cuid2',
+    'decimal',
+    'description',
+    'digits',
+    'email',
+    'emoji',
+    'empty',
+    'endsWith',
+    'entries',
+    'everyItem',
+    'excludes',
+    'filterItems',
+    'findItem',
+    'finite',
+    'flavor',
+    'graphemes',
+    'gtValue',
+    'hash',
+    'hexadecimal',
+    'hexColor',
+    'imei',
+    'includes',
+    'integer',
+    'ip',
+    'ipv4',
+    'ipv6',
+    'isbn',
+    'isoDate',
+    'isoDateTime',
+    'isoTime',
+    'isoTimeSecond',
+    'isoTimestamp',
+    'isoWeek',
+    'length',
+    'ltValue',
+    'mac',
+    'mac48',
+    'mac64',
+    'mapItems',
+    'maxBytes',
+    'maxEntries',
+    'maxGraphemes',
+    'maxLength',
+    'maxSize',
+    'maxValue',
+    'maxWords',
+    'metadata',
+    'mimeType',
+    'minBytes',
+    'minEntries',
+    'minGraphemes',
+    'minLength',
+    'minSize',
+    'minValue',
+    'minWords',
+    'multipleOf',
+    'nanoid',
+    'nonEmpty',
+    'notBytes',
+    'notEntries',
+    'notGraphemes',
+    'notLength',
+    'notSize',
+    'notValue',
+    'notValues',
+    'notWords',
+    'octal',
+    'parseJson',
+    'partialCheck',
+    'rawCheck',
+    'rawTransform',
+    'readonly',
+    'reduceItems',
+    'regex',
+    'returns',
+    'rfcEmail',
+    'safeInteger',
+    'size',
+    'slug',
+    'someItem',
+    'sortItem',
+    'startsWith',
+    'stringifyJson',
+    'title',
+    'toLowerCase',
+    'toMaxValue',
+    'toMinValue',
+    'toUpperCase',
+    'transform',
+    'trim',
+    'trimEnd',
+    'trimStart',
+    'ulid',
+    'url',
+    'uuid',
+    'value',
+    'values',
+    'words',
+  ]}
+/>
+
+### Utils
+
+<ApiList items={['entriesFromList', 'isOfKind', 'isOfType']} />

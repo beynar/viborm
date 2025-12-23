@@ -1,0 +1,295 @@
+---
+title: intersectAsync
+description: Creates an intersect schema.
+source: /schemas/intersect/intersectAsync.ts
+contributors:
+  - fabian-hiller
+  - EltonLobo07
+---
+
+import { ApiList, Link, Property } from '~/components';
+import { properties } from './properties';
+
+# intersectAsync
+
+Creates an intersect schema.
+
+> I recommend to read the <Link href="/guides/intersections/">intersections guide</Link> before using this schema function.
+
+```ts
+const Schema = v.intersectAsync<TOptions, TMessage>(options, message);
+```
+
+## Generics
+
+- `TOptions` <Property {...properties.TOptions} />
+- `TMessage` <Property {...properties.TMessage} />
+
+## Parameters
+
+- `options` <Property {...properties.options} />
+- `message` <Property {...properties.message} />
+
+### Explanation
+
+With `intersectAsync` you can validate if the input matches each of the given `options`. If the output of the intersection cannot be successfully merged, you can use `message` to customize the error message.
+
+## Returns
+
+- `Schema` <Property {...properties.Schema} />
+
+## Examples
+
+The following examples show how `intersectAsync` can be used.
+
+### Donation schema
+
+Schema that combines objects to validate donation details.
+
+```ts
+import { isOrganizationPresent } from '~/api';
+
+const DonationSchema = v.intersectAsync([
+  v.objectAsync({
+    organizationId: v.pipeAsync(
+      v.string(),
+      v.uuid(),
+      v.checkAsync(
+        isOrganizationPresent,
+        'The organization is not in the database.'
+      )
+    ),
+  }),
+  // Assume the schemas below are from different files and are reused here
+  v.object({
+    amount: v.pipe(v.number(), v.minValue(100)),
+    message: v.pipe(v.string(), v.nonEmpty()),
+  }),
+  v.object({
+    amount: v.pipe(v.number(), v.maxValue(1_000_000)),
+    message: v.pipe(v.string(), v.maxLength(500)),
+  }),
+]);
+```
+
+## Related
+
+The following APIs can be combined with `intersectAsync`.
+
+### Schemas
+
+<ApiList
+  items={[
+    'any',
+    'array',
+    'bigint',
+    'blob',
+    'boolean',
+    'custom',
+    'date',
+    'enum',
+    'exactOptional',
+    'file',
+    'function',
+    'instance',
+    'intersect',
+    'lazy',
+    'literal',
+    'looseObject',
+    'looseTuple',
+    'map',
+    'nan',
+    'never',
+    'nonNullable',
+    'nonNullish',
+    'nonOptional',
+    'null',
+    'nullable',
+    'nullish',
+    'number',
+    'object',
+    'objectWithRest',
+    'optional',
+    'picklist',
+    'promise',
+    'record',
+    'set',
+    'strictObject',
+    'strictTuple',
+    'string',
+    'symbol',
+    'tuple',
+    'tupleWithRest',
+    'undefined',
+    'undefinedable',
+    'union',
+    'unknown',
+    'variant',
+    'void',
+  ]}
+/>
+
+### Methods
+
+<ApiList items={['config', 'getDefault', 'getFallback']} />
+
+### Actions
+
+<ApiList
+  items={[
+    'args',
+    'base64',
+    'bic',
+    'brand',
+    'bytes',
+    'check',
+    'checkItems',
+    'creditCard',
+    'cuid2',
+    'decimal',
+    'description',
+    'digits',
+    'email',
+    'emoji',
+    'empty',
+    'endsWith',
+    'entries',
+    'everyItem',
+    'excludes',
+    'filterItems',
+    'findItem',
+    'finite',
+    'flavor',
+    'graphemes',
+    'gtValue',
+    'hash',
+    'hexColor',
+    'hexadecimal',
+    'imei',
+    'includes',
+    'integer',
+    'ip',
+    'ipv4',
+    'ipv6',
+    'isbn',
+    'isoDate',
+    'isoDateTime',
+    'isoTime',
+    'isoTimeSecond',
+    'isoTimestamp',
+    'isoWeek',
+    'length',
+    'ltValue',
+    'mac',
+    'mac48',
+    'mac64',
+    'mapItems',
+    'maxBytes',
+    'maxEntries',
+    'maxGraphemes',
+    'maxLength',
+    'maxSize',
+    'maxValue',
+    'maxWords',
+    'metadata',
+    'mimeType',
+    'minBytes',
+    'minEntries',
+    'minGraphemes',
+    'minLength',
+    'minSize',
+    'minValue',
+    'minWords',
+    'multipleOf',
+    'nanoid',
+    'nonEmpty',
+    'notBytes',
+    'notEntries',
+    'notGraphemes',
+    'notLength',
+    'notSize',
+    'notValue',
+    'notValues',
+    'notWords',
+    'octal',
+    'parseJson',
+    'partialCheck',
+    'rawCheck',
+    'rawTransform',
+    'readonly',
+    'reduceItems',
+    'regex',
+    'returns',
+    'rfcEmail',
+    'safeInteger',
+    'size',
+    'slug',
+    'someItem',
+    'sortItem',
+    'startsWith',
+    'stringifyJson',
+    'title',
+    'toLowerCase',
+    'toMaxValue',
+    'toMinValue',
+    'toUpperCase',
+    'transform',
+    'trim',
+    'trimEnd',
+    'trimStart',
+    'ulid',
+    'url',
+    'uuid',
+    'value',
+    'values',
+    'words',
+  ]}
+/>
+
+### Utils
+
+<ApiList items={['entriesFromList', 'isOfKind', 'isOfType']} />
+
+### Async
+
+<ApiList
+  items={[
+    'arrayAsync',
+    'awaitAsync',
+    'checkAsync',
+    'customAsync',
+    'exactOptionalAsync',
+    'fallbackAsync',
+    'getDefaultsAsync',
+    'getFallbacksAsync',
+    'lazyAsync',
+    'looseObjectAsync',
+    'looseTupleAsync',
+    'mapAsync',
+    'nonNullableAsync',
+    'nonNullishAsync',
+    'nonOptionalAsync',
+    'nullableAsync',
+    'nullishAsync',
+    'objectAsync',
+    'objectWithRestAsync',
+    'optionalAsync',
+    'parseAsync',
+    'parserAsync',
+    'partialCheckAsync',
+    'pipeAsync',
+    'rawCheckAsync',
+    'rawTransformAsync',
+    'recordAsync',
+    'safeParseAsync',
+    'safeParserAsync',
+    'setAsync',
+    'strictObjectAsync',
+    'strictTupleAsync',
+    'transformAsync',
+    'tupleAsync',
+    'tupleWithRestAsync',
+    'unionAsync',
+    'variantAsync',
+  ]}
+/>

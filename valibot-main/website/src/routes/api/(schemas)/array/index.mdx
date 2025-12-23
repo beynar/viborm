@@ -1,0 +1,198 @@
+---
+title: array
+description: Creates an array schema.
+source: /schemas/array/array.ts
+contributors:
+  - fabian-hiller
+  - kazizi55
+---
+
+import { ApiList, Link, Property } from '~/components';
+import { properties } from './properties';
+
+# array
+
+Creates an array schema.
+
+```ts
+const Schema = v.array<TItem, TMessage>(item, message);
+```
+
+## Generics
+
+- `TItem` <Property {...properties.TItem} />
+- `TMessage` <Property {...properties.TMessage} />
+
+## Parameters
+
+- `item` <Property {...properties.item} />
+- `message` <Property {...properties.message} />
+
+### Explanation
+
+With `array` you can validate the data type of the input. If the input is not an array, you can use `message` to customize the error message.
+
+> If your array has a fixed length, consider using <Link href="../tuple/">`tuple`</Link> for a more precise typing.
+
+## Returns
+
+- `Schema` <Property {...properties.Schema} />
+
+## Examples
+
+The following examples show how `array` can be used.
+
+### String array schema
+
+Schema to validate an array of strings.
+
+```ts
+const StringArraySchema = v.array(v.string(), 'An array is required.');
+```
+
+### Object array schema
+
+Schema to validate an array of objects.
+
+```ts
+const ObjectArraySchema = v.array(v.object({ key: v.string() }));
+```
+
+### Validate length
+
+Schema that validates the length of an array.
+
+```ts
+const ArrayLengthSchema = v.pipe(
+  v.array(v.number()),
+  v.minLength(1),
+  v.maxLength(3)
+);
+```
+
+### Validate content
+
+Schema that validates the content of an array.
+
+```ts
+const ArrayContentSchema = v.pipe(
+  v.array(v.string()),
+  v.includes('foo'),
+  v.excludes('bar')
+);
+```
+
+## Related
+
+The following APIs can be combined with `array`.
+
+### Schemas
+
+<ApiList
+  items={[
+    'any',
+    'bigint',
+    'blob',
+    'boolean',
+    'custom',
+    'date',
+    'enum',
+    'exactOptional',
+    'file',
+    'function',
+    'instance',
+    'intersect',
+    'lazy',
+    'literal',
+    'looseObject',
+    'looseTuple',
+    'map',
+    'nan',
+    'never',
+    'nonNullable',
+    'nonNullish',
+    'nonOptional',
+    'null',
+    'nullable',
+    'nullish',
+    'number',
+    'object',
+    'objectWithRest',
+    'optional',
+    'picklist',
+    'promise',
+    'record',
+    'set',
+    'strictObject',
+    'strictTuple',
+    'string',
+    'symbol',
+    'tuple',
+    'tupleWithRest',
+    'undefined',
+    'undefinedable',
+    'union',
+    'unknown',
+    'variant',
+    'void',
+  ]}
+/>
+
+### Methods
+
+<ApiList
+  items={[
+    'assert',
+    'config',
+    'fallback',
+    'getDefault',
+    'getDefaults',
+    'getFallback',
+    'getFallbacks',
+    'is',
+    'message',
+    'parse',
+    'parser',
+    'pipe',
+    'safeParse',
+    'safeParser',
+  ]}
+/>
+
+### Actions
+
+<ApiList
+  items={[
+    'check',
+    'checkItems',
+    'brand',
+    'description',
+    'empty',
+    'everyItem',
+    'excludes',
+    'filterItems',
+    'findItem',
+    'flavor',
+    'includes',
+    'length',
+    'mapItems',
+    'maxLength',
+    'metadata',
+    'minLength',
+    'nonEmpty',
+    'notLength',
+    'partialCheck',
+    'rawCheck',
+    'rawTransform',
+    'readonly',
+    'reduceItems',
+    'someItem',
+    'sortItems',
+    'title',
+    'transform',
+  ]}
+/>
+
+### Utils
+
+<ApiList items={['entriesFromList', 'isOfKind', 'isOfType']} />

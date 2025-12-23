@@ -1,0 +1,172 @@
+---
+title: Migrate from Zod
+description: >-
+  Migrating from Zod to Valibot is very easy in most cases since both APIs have
+  a lot of similarities.
+contributors:
+  - fabian-hiller
+  - EltonLobo07
+  - valerii15298
+  - morinokami
+---
+
+import { Link } from '~/components';
+import { CodemodEditor } from './CodemodEditor';
+
+# Migrate from Zod
+
+Migrating from [Zod](https://zod.dev/) to Valibot is very easy in most cases since both APIs have a lot of similarities. The following guide will help you migrate step by step and also point out important differences.
+
+## Official codemod
+
+To make the migration as smoth as possible, we have created an official codemod that automatically migrates your Zod schemas to Valibot. Just copy your schemas into this editor and click play.
+
+> The codemod is still in beta and may not cover all edge cases. If you encounter any problems or unexpected behaviour, please create an [issue](https://github.com/open-circle/valibot/issues/new). Alternatively, you can try to fix any issues yourself and create a [pull request](https://github.com/open-circle/valibot/pulls). You can find the source code [here](https://github.com/open-circle/valibot/tree/main/codemod/zod-to-valibot).
+
+<CodemodEditor />
+
+You can also run the codemod locally to migrate your entire codebase at once:
+
+```bash
+// Preview changes (no writes)
+npx @valibot/zod-to-valibot src/**/* --dry
+
+// Apply changes
+npx @valibot/zod-to-valibot src/**/*
+```
+
+## Replace imports
+
+The first thing to do after <Link href="../installation/">installing</Link> Valibot is to update your imports. Just change your Zod imports to Valibot's and replace all occurrences of `z.` with `v.`.
+
+```ts
+// Change this
+import { z } from 'zod';
+const Schema = z.object({ key: z.string() });
+
+// To this
+import * as v from 'valibot';
+const Schema = v.object({ key: v.string() });
+```
+
+## Restructure code
+
+One of the biggest differences between Zod and Valibot is the way you further validate a given type. In Zod, you chain methods like `.email` and `.endsWith`. In Valibot you use <Link href="../pipelines/">pipelines</Link> to do the same thing. This is a function that starts with a schema and is followed by up to 19 validation or transformation actions.
+
+```ts
+// Change this
+const Schema = z.string().email().endsWith('@example.com');
+
+// To this
+const Schema = v.pipe(v.string(), v.email(), v.endsWith('@example.com'));
+```
+
+Due to the modular design of Valibot, also all other methods like `.parse` or `.safeParse` have to be used a little bit differently. Instead of chaining them, you usually pass the schema as the first argument and move any existing arguments one position to the right.
+
+```ts
+// Change this
+const value = z.string().parse('foo');
+
+// To this
+const value = v.parse(v.string(), 'foo');
+```
+
+We recommend that you read our <Link href="../mental-model/">mental model</Link> guide to understand how the individual functions of Valibot's modular API work together.
+
+## Change names
+
+Most of the names are the same as in Zod. However, there are some exceptions. The following table shows all names that have changed.
+
+| Zod                  | Valibot                                                                                                                                     |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `and`                | <Link href="/api/intersect/">`intersect`</Link>                                                                                             |
+| `catch`              | <Link href="/api/fallback/">`fallback`</Link>                                                                                               |
+| `catchall`           | <Link href="/api/objectWithRest/">`objectWithRest`</Link>                                                                                   |
+| `coerce`             | <Link href="/api/pipe/">`pipe`</Link>, <Link href="/api/unknown/">`unknown`</Link> and <Link href="/api/transform/">`transform`</Link>      |
+| `datetime`           | <Link href="/api/isoDate/">`isoDate`</Link>, <Link href="/api/isoDateTime/">`isoDateTime`</Link>                                            |
+| `default`            | <Link href="/api/optional/">`optional`</Link>                                                                                               |
+| `discriminatedUnion` | <Link href="/api/variant/">`variant`</Link>                                                                                                 |
+| `element`            | `item`                                                                                                                                      |
+| `enum`               | <Link href="/api/picklist/">`picklist`</Link>                                                                                               |
+| `extend`             | <Link href="../intersections/#merge-objects">Object merging</Link>                                                                          |
+| `gt`                 | <Link href="/api/gtValue/">`gtValue`</Link>                                                                                                 |
+| `gte`                | <Link href="/api/minValue/">`minValue`</Link>                                                                                               |
+| `infer`              | <Link href="/api/InferOutput/">`InferOutput`</Link>                                                                                         |
+| `int`                | <Link href="/api/integer/">`integer`</Link>                                                                                                 |
+| `input`              | <Link href="/api/InferInput/">`InferInput`</Link>                                                                                           |
+| `instanceof`         | <Link href="/api/instance/">`instance`</Link>                                                                                               |
+| `intersection`       | <Link href="/api/intersect/">`intersect`</Link>                                                                                             |
+| `lt`                 | <Link href="/api/ltValue/">`ltValue`</Link>                                                                                                 |
+| `lte`                | <Link href="/api/maxValue/">`maxValue`</Link>                                                                                               |
+| `max`                | <Link href="/api/maxLength/">`maxLength`</Link>, <Link href="/api/maxSize/">`maxSize`</Link>, <Link href="/api/maxValue/">`maxValue`</Link> |
+| `min`                | <Link href="/api/minLength/">`minLength`</Link>, <Link href="/api/minSize/">`minSize`</Link>, <Link href="/api/minValue/">`minValue`</Link> |
+| `nativeEnum`         | <Link href="/api/enum/">`enum`</Link>                                                                                                       |
+| `negative`           | <Link href="/api/maxValue/">`maxValue`</Link>                                                                                               |
+| `nonnegative`        | <Link href="/api/minValue/">`minValue`</Link>                                                                                               |
+| `nonpositive`        | <Link href="/api/maxValue/">`maxValue`</Link>                                                                                               |
+| `or`                 | <Link href="/api/union/">`union`</Link>                                                                                                     |
+| `output`             | <Link href="/api/InferOutput/">`InferOutput`</Link>                                                                                         |
+| `passthrough`        | <Link href="/api/looseObject/">`looseObject`</Link>                                                                                         |
+| `positive`           | <Link href="/api/minValue/">`minValue`</Link>                                                                                               |
+| `refine`             | <Link href="/api/check/">`check`</Link>, <Link href="/api/forward/">`forward`</Link>                                                        |
+| `rest`               | <Link href="/api/tuple/">`tuple`</Link>                                                                                                     |
+| `safe`               | <Link href="/api/safeInteger/">`safeInteger`</Link>                                                                                         |
+| `shape`              | `entries`                                                                                                                                   |
+| `strict`             | <Link href="/api/strictObject/">`strictObject`</Link>                                                                                       |
+| `strip`              | <Link href="/api/object/">`object`</Link>                                                                                                   |
+| `superRefine`        | <Link href="/api/rawCheck/">`rawCheck`</Link>, <Link href="/api/rawTransform/">`rawTransform`</Link>                                        |
+
+## Other details
+
+Below are some more details that may be helpful when migrating from Zod to Valibot.
+
+### Object and tuple
+
+To specify whether objects or tuples should allow or prevent unknown values, Valibot uses different schema functions. Zod uses the methods `.passthrough`, `.strict`, `.strip`, `.catchall` and `.rest` instead. See the <Link href="../objects/">objects</Link> and <Link href="../arrays/">arrays</Link> guide for more details.
+
+```ts
+// Change this
+const ObjectSchema = z.object({ key: z.string() }).strict();
+
+// To this
+const ObjectSchema = v.strictObject({ key: v.string() });
+```
+
+### Error messages
+
+For individual error messages, you can pass a string or an object to Zod. It also allows you to differentiate between an error message for "required" and "invalid_type". With Valibot you just pass a single string instead.
+
+```ts
+// Change this
+const StringSchema = z
+  .string({ invalid_type_error: 'Not a string' })
+  .min(5, { message: 'Too short' });
+
+// To this
+const StringSchema = v.pipe(
+  v.string('Not a string'),
+  v.minLength(5, 'Too short')
+);
+```
+
+### Coerce type
+
+To enforce primitive values, you can use a method of the `coerce` object in Zod. There is no such object or function in Valibot. Instead, you use a pipeline with a <Link href="/api/transform/">`transform`</Link> action as the second argument. This forces you to explicitly define the input, resulting in safer code.
+
+```ts
+// Change this
+const NumberSchema = z.coerce.number();
+
+// To this
+const NumberSchema = v.pipe(v.unknown(), v.transform(Number));
+```
+
+Instead of <Link href="/api/unknown/">`unknown`</Link> as in the previous example, we usually recommend using a specific schema such as <Link href="/api/string/">`string`</Link> to improve type safety. This allows you, for example, to validate the formatting of the string with <Link href="/api/decimal/">`decimal`</Link> before transforming it to a number.
+
+```ts
+const NumberSchema = v.pipe(v.string(), v.decimal(), v.transform(Number));
+```
+
+### Async validation
+
+Similar to Zod, Valibot supports synchronous and asynchronous validation. However, the API is a little bit different. See the <Link href="../async-validation/">async guide</Link> for more details.

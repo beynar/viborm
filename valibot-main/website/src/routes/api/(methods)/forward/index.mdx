@@ -1,0 +1,132 @@
+---
+title: forward
+description: Forwards the issues of the passed validation action.
+source: /methods/forward/forward.ts
+contributors:
+  - fabian-hiller
+---
+
+import { ApiList, Property } from '~/components';
+import { properties } from './properties';
+
+# forward
+
+Forwards the issues of the passed validation action.
+
+```ts
+const Action = v.forward<TInput, TIssue, TPath>(action, path);
+```
+
+## Generics
+
+- `TInput` <Property {...properties.TInput} />
+- `TIssue` <Property {...properties.TIssue} />
+- `TPath` <Property {...properties.TPath} />
+
+## Parameters
+
+- `action` <Property {...properties.action} />
+- `path` <Property {...properties.path} />
+
+### Explanation
+
+`forward` allows you to forward the issues of the passed validation `action` via `path` to a nested field of a schema.
+
+## Returns
+
+- `Action` <Property {...properties.Action} />
+
+## Examples
+
+The following examples show how `forward` can be used.
+
+### Register schema
+
+Schema that ensures that the two passwords match.
+
+```ts
+const RegisterSchema = v.pipe(
+  v.object({
+    email: v.pipe(
+      v.string(),
+      v.nonEmpty('Please enter your email.'),
+      v.email('The email address is badly formatted.')
+    ),
+    password1: v.pipe(
+      v.string(),
+      v.nonEmpty('Please enter your password.'),
+      v.minLength(8, 'Your password must have 8 characters or more.')
+    ),
+    password2: v.string(),
+  }),
+  v.forward(
+    v.partialCheck(
+      [['password1'], ['password2']],
+      (input) => input.password1 === input.password2,
+      'The two passwords do not match.'
+    ),
+    ['password2']
+  )
+);
+```
+
+## Related
+
+The following APIs can be combined with `forward`.
+
+### Schemas
+
+<ApiList
+  items={[
+    'any',
+    'array',
+    'custom',
+    'looseObject',
+    'looseTuple',
+    'object',
+    'objectWithRest',
+    'record',
+    'strictObject',
+    'strictTuple',
+    'tuple',
+    'tupleWithRest',
+    'union',
+    'unknown',
+    'variant',
+  ]}
+/>
+
+### Methods
+
+<ApiList items={['omit', 'partial', 'pick', 'pipe', 'required']} />
+
+### Actions
+
+<ApiList
+  items={[
+    'check',
+    'checkItems',
+    'empty',
+    'everyItem',
+    'excludes',
+    'filterItems',
+    'findItem',
+    'includes',
+    'length',
+    'mapItems',
+    'maxLength',
+    'metadata',
+    'minLength',
+    'nonEmpty',
+    'notLength',
+    'partialCheck',
+    'rawCheck',
+    'reduceItems',
+    'someItem',
+    'sortItems',
+  ]}
+/>
+
+### Utils
+
+<ApiList items={['isOfKind', 'isOfType']} />

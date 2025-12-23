@@ -1,0 +1,27 @@
+---
+title: OptionalSchemaAsync
+description: Optional schema async interface.
+contributors:
+  - fabian-hiller
+---
+
+import { Property } from '~/components';
+import { properties } from './properties';
+
+# OptionalSchemaAsync
+
+Optional schema async interface.
+
+## Generics
+
+- `TWrapped` <Property {...properties.TWrapped} />
+- `TDefault` <Property {...properties.TDefault} />
+
+## Definition
+
+- `OptionalSchemaAsync` <Property {...properties.BaseSchemaAsync} />
+  - `type` <Property {...properties.type} />
+  - `reference` <Property {...properties.reference} />
+  - `expects` <Property {...properties.expects} />
+  - `wrapped` <Property {...properties.wrapped} />
+  - `default` <Property {...properties.default} />

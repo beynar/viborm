@@ -1,0 +1,28 @@
+---
+title: ObjectSchemaAsync
+description: Object schema async interface.
+contributors:
+  - fabian-hiller
+  - EltonLobo07
+---
+
+import { Property } from '~/components';
+import { properties } from './properties';
+
+# ObjectSchemaAsync
+
+Object schema async interface.
+
+## Generics
+
+- `TEntries` <Property {...properties.TEntries} />
+- `TMessage` <Property {...properties.TMessage} />
+
+## Definition
+
+- `ObjectSchemaAsync` <Property {...properties.BaseSchemaAsync} />
+  - `type` <Property {...properties.type} />
+  - `reference` <Property {...properties.reference} />
+  - `expects` <Property {...properties.expects} />
+  - `entries` <Property {...properties.entries} />
+  - `message` <Property {...properties.message} />

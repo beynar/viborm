@@ -1,0 +1,27 @@
+---
+title: DigitsIssue
+description: Digits issue interface.
+contributors:
+  - fabian-hiller
+  - andrew-3kb
+---
+
+import { Property } from '~/components';
+import { properties } from './properties';
+
+# DigitsIssue
+
+Digits issue interface.
+
+## Generics
+
+- `TInput` <Property {...properties.TInput} />
+
+## Definition
+
+- `DigitsIssue` <Property {...properties.BaseIssue} />
+  - `kind` <Property {...properties.kind} />
+  - `type` <Property {...properties.type} />
+  - `expected` <Property {...properties.expected} />
+  - `received` <Property {...properties.received} />
+  - `requirement` <Property {...properties.requirement} />

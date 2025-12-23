@@ -8,8 +8,11 @@
  * - authorModel/postModel: OneToMany/ManyToOne relation pair
  */
 
+import { InferTargetSchema } from "@schema/relation/schemas/helpers";
 import { s } from "../../src/schema";
 import { getModelSchemas } from "../../src/schema/model/schemas";
+import { InferInput, InferOutput, safeParse } from "valibot";
+import { StandardSchemaV1 } from "@standard-schema";
 
 // =============================================================================
 // SIMPLE MODEL (single field ID)
@@ -80,3 +83,13 @@ export const authorSchemas = getModelSchemas(authorModel["~"].state);
 export const postSchemas = getModelSchemas(postModel["~"].state);
 export type AuthorState = (typeof authorModel)["~"]["state"];
 export type PostState = (typeof postModel)["~"]["state"];
+
+// RAW TESTS
+type AuthorRelation = AuthorState["fields"]["posts"];
+type Schemas = AuthorRelation["~"]["schemas"];
+const selectSchema = postModel["~"].state.relations.author["~"].schemas.select;
+// type T = InferInput<Schemas["select"]>;
+type TT = InferTargetSchema<
+  AuthorState["fields"]["posts"]["~"]["state"],
+  "where"
+>;

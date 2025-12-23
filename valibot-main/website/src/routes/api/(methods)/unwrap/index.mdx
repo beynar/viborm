@@ -1,0 +1,97 @@
+---
+title: unwrap
+description: Unwraps the wrapped schema.
+source: /methods/unwrap/unwrap.ts
+contributors:
+  - fabian-hiller
+---
+
+import { ApiList, Property } from '~/components';
+import { properties } from './properties';
+
+# unwrap
+
+Unwraps the wrapped schema.
+
+```ts
+const Schema = v.unwrap<TSchema>(schema);
+```
+
+## Generics
+
+- `TSchema` <Property {...properties.TSchema} />
+
+## Parameters
+
+- `schema` <Property {...properties.schema} />
+
+## Returns
+
+- `Schema` <Property {...properties.Schema} />
+
+## Examples
+
+The following examples show how `unwrap` can be used.
+
+### Unwrap string schema
+
+Unwraps the wrapped string schema.
+
+```ts
+const OptionalStringSchema = v.optional(v.string());
+const StringSchema = v.unwrap(OptionalStringSchema);
+```
+
+## Related
+
+The following APIs can be combined with `unwrap`.
+
+### Schemas
+
+<ApiList
+  items={[
+    'exactOptional',
+    'nonNullable',
+    'nonNullish',
+    'nonOptional',
+    'nullable',
+    'nullish',
+    'optional',
+    'undefinedable',
+  ]}
+/>
+
+### Methods
+
+<ApiList
+  items={[
+    'assert',
+    'config',
+    'fallback',
+    'is',
+    'message',
+    'parse',
+    'parser',
+    'pipe',
+    'safeParse',
+  ]}
+/>
+
+### Utils
+
+<ApiList items={['isOfKind', 'isOfType']} />
+
+### Async
+
+<ApiList
+  items={[
+    'exactOptionalAsync',
+    'nonNullableAsync',
+    'nonNullishAsync',
+    'nonOptionalAsync',
+    'nullableAsync',
+    'nullishAsync',
+    'optionalAsync',
+    'undefinedableAsync',
+  ]}
+/>

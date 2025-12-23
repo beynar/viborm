@@ -1,7 +1,6 @@
 // Relation Select & Include Schemas
 
 import {
-  lazy,
   object,
   optional,
   boolean,
@@ -11,18 +10,34 @@ import {
   string,
   transform,
   pipe,
+  type ObjectSchema,
+  type OptionalSchema,
+  type UnionSchema,
+  type SchemaWithPipe,
+  type TransformAction,
+  type NumberSchema,
+  type StringSchema,
 } from "valibot";
 import type { RelationState } from "../relation";
-import { type AnyRelationSchema } from "./helpers";
+import {
+  type InferTargetSchema,
+  type BooleanToSelectPipe,
+  getTargetSelectSchema,
+  getTargetIncludeSchema,
+  getTargetWhereSchema,
+  getTargetOrderBySchema,
+} from "./helpers";
 import { ModelState } from "@schema/model";
 
 // =============================================================================
-// SELECT SCHEMAS
+// TRANSFORM HELPERS
 // =============================================================================
 
-const buildSelectionFromState = <S extends RelationState>(relationState: S) => {
+const buildSelectionFromState = <S extends RelationState>(
+  relationState: S
+): Record<string, true> => {
   const state = relationState.getter()["~"].state as ModelState;
-  let select = {};
+  const select: Record<string, true> = {};
   const omits = new Set<string>(state.omit);
   Object.keys(state.scalars).forEach((field) => {
     if (!omits.has(field)) {
@@ -34,97 +49,171 @@ const buildSelectionFromState = <S extends RelationState>(relationState: S) => {
 
 const booleanToField =
   <S extends RelationState>(relationState: S) =>
-  (value: boolean) => {
+  (value: boolean): { select: Record<string, true> | false } => {
     if (value) {
-      const select = buildSelectionFromState(relationState);
-      return {
-        select,
-      };
-    } else {
-      return {
-        select: false,
-      };
+      return { select: buildSelectionFromState(relationState) };
     }
+    return { select: false };
   };
 
 const includeToField =
   <S extends RelationState>(relationState: S) =>
-  <V extends Record<string, any>>(value: V) => {
-    const hasSelect = "select" in value && value.select !== false;
-    const hasInclude = "include" in value && value.include !== false;
-
-    if (hasSelect) {
+  <V extends Record<string, any>>(
+    value: V
+  ): V & { select?: Record<string, true> } => {
+    if ("select" in value && value.select !== false) {
       return value;
     }
-    if (hasInclude) {
-      let select = buildSelectionFromState(relationState);
-      return {
-        ...value,
-        select,
-      };
-    }
-
-    if (!hasSelect && !hasInclude) {
-      const select = buildSelectionFromState(relationState);
-      return {
-        ...value,
-        select,
-      };
-    }
+    return {
+      ...value,
+      select: buildSelectionFromState(relationState),
+    };
   };
+
+// =============================================================================
+// SELECT SCHEMA TYPES (exported for consumer use)
+// =============================================================================
+
+/** To-one select object schema */
+export type ToOneSelectObjectSchema<S extends RelationState> = ObjectSchema<
+  {
+    select: OptionalSchema<InferTargetSchema<S, "select">, undefined>;
+  },
+  undefined
+>;
+
+/** To-one select schema: boolean or nested select object */
+export type ToOneSelectSchema<S extends RelationState> = UnionSchema<
+  [BooleanToSelectPipe, ToOneSelectObjectSchema<S>],
+  undefined
+>;
+
+/** To-many select object schema with filtering and pagination */
+export type ToManySelectObjectSchema<S extends RelationState> = ObjectSchema<
+  {
+    where: OptionalSchema<InferTargetSchema<S, "where">, undefined>;
+    orderBy: OptionalSchema<InferTargetSchema<S, "orderBy">, undefined>;
+    take: OptionalSchema<NumberSchema<undefined>, undefined>;
+    skip: OptionalSchema<NumberSchema<undefined>, undefined>;
+    select: OptionalSchema<InferTargetSchema<S, "select">, undefined>;
+  },
+  undefined
+>;
+
+/** To-many select schema: boolean or nested select object with options */
+export type ToManySelectSchema<S extends RelationState> = UnionSchema<
+  [BooleanToSelectPipe, ToManySelectObjectSchema<S>],
+  undefined
+>;
+
+// =============================================================================
+// INCLUDE SCHEMA TYPES (exported for consumer use)
+// =============================================================================
+
+/** To-one include object schema */
+export type ToOneIncludeObjectSchema<S extends RelationState> = ObjectSchema<
+  {
+    select: OptionalSchema<InferTargetSchema<S, "select">, undefined>;
+    include: OptionalSchema<InferTargetSchema<S, "include">, undefined>;
+  },
+  undefined
+>;
+
+/** Include object with transform pipe */
+export type IncludeObjectWithPipe<S extends RelationState> = SchemaWithPipe<
+  readonly [ToOneIncludeObjectSchema<S>, TransformAction<any, any>]
+>;
+
+/** To-one include schema: boolean or nested include object */
+export type ToOneIncludeSchema<S extends RelationState> = UnionSchema<
+  [BooleanToSelectPipe, IncludeObjectWithPipe<S>],
+  undefined
+>;
+
+/** To-many include object schema with full pagination support */
+export type ToManyIncludeObjectSchema<S extends RelationState> = ObjectSchema<
+  {
+    where: OptionalSchema<InferTargetSchema<S, "where">, undefined>;
+    orderBy: OptionalSchema<InferTargetSchema<S, "orderBy">, undefined>;
+    take: OptionalSchema<NumberSchema<undefined>, undefined>;
+    skip: OptionalSchema<NumberSchema<undefined>, undefined>;
+    cursor: OptionalSchema<StringSchema<undefined>, undefined>;
+    select: OptionalSchema<InferTargetSchema<S, "select">, undefined>;
+    include: OptionalSchema<InferTargetSchema<S, "include">, undefined>;
+  },
+  undefined
+>;
+
+/** To-many include object with transform pipe */
+export type ToManyIncludeObjectWithPipe<S extends RelationState> =
+  SchemaWithPipe<
+    readonly [ToManyIncludeObjectSchema<S>, TransformAction<any, any>]
+  >;
+
+/** To-many include schema: boolean or nested include object with options */
+export type ToManyIncludeSchema<S extends RelationState> = UnionSchema<
+  [BooleanToSelectPipe, ToManyIncludeObjectWithPipe<S>],
+  undefined
+>;
+
+// =============================================================================
+// SELECT FACTORY IMPLEMENTATIONS
+// =============================================================================
+
 /**
  * To-one select: true or nested { select }
  */
-export const toOneSelectFactory = <S extends RelationState>(
-  state: S
-): AnyRelationSchema => {
+export const toOneSelectFactory = <S extends RelationState>(state: S) => {
+  const selectSchema = getTargetSelectSchema(state);
+
   return union([
     pipe(boolean(), transform(booleanToField(state))),
-    partial(
-      object({
-        select: optional(lazy(() => state.getter()["~"].schemas?.select)),
-      })
-    ),
+    object({
+      select: optional(selectSchema),
+    }),
   ]);
 };
 
 /**
  * To-many select: true or nested { where, orderBy, take, skip, select }
  */
-export const toManySelectFactory = <S extends RelationState>(
-  state: S
-): AnyRelationSchema => {
+export const toManySelectFactory = <S extends RelationState>(state: S) => {
+  const whereSchema = getTargetWhereSchema(state);
+  const orderBySchema = getTargetOrderBySchema(state);
+  const selectSchema = getTargetSelectSchema(state);
+
   return union([
     pipe(boolean(), transform(booleanToField(state))),
     partial(
       object({
-        where: optional(lazy(() => state.getter()["~"].schemas?.where)),
-        orderBy: optional(lazy(() => state.getter()["~"].schemas?.orderBy)),
+        where: optional(whereSchema),
+        orderBy: optional(orderBySchema),
         take: optional(number()),
         skip: optional(number()),
-        select: optional(lazy(() => state.getter()["~"].schemas?.select)),
+        select: optional(selectSchema),
       })
     ),
   ]);
 };
 
 // =============================================================================
-// INCLUDE SCHEMAS
+// INCLUDE FACTORY IMPLEMENTATIONS
 // =============================================================================
 
 /**
  * To-one include: true or nested { select, include }
  */
-export const toOneIncludeFactory = <S extends RelationState>(
-  state: S
-): AnyRelationSchema => {
+export const toOneIncludeFactory = <S extends RelationState>(state: S) => {
+  const selectSchema = getTargetSelectSchema(state);
+  const includeSchema = getTargetIncludeSchema(state);
+
   return union([
     pipe(boolean(), transform(booleanToField(state))),
     pipe(
       partial(
         object({
-          select: optional(lazy(() => state.getter()["~"].schemas?.select)),
-          include: optional(lazy(() => state.getter()["~"].schemas?.include)),
+          select: optional(selectSchema),
+          include: optional(includeSchema),
         })
       ),
       transform(includeToField(state))
@@ -135,21 +224,24 @@ export const toOneIncludeFactory = <S extends RelationState>(
 /**
  * To-many include: true or nested { where, orderBy, take, skip, cursor, select, include }
  */
-export const toManyIncludeFactory = <S extends RelationState>(
-  state: S
-): AnyRelationSchema => {
+export const toManyIncludeFactory = <S extends RelationState>(state: S) => {
+  const whereSchema = getTargetWhereSchema(state);
+  const orderBySchema = getTargetOrderBySchema(state);
+  const selectSchema = getTargetSelectSchema(state);
+  const includeSchema = getTargetIncludeSchema(state);
+
   return union([
     pipe(boolean(), transform(booleanToField(state))),
     pipe(
       partial(
         object({
-          where: optional(lazy(() => state.getter()["~"].schemas?.where)),
-          orderBy: optional(lazy(() => state.getter()["~"].schemas?.orderBy)),
+          where: optional(whereSchema),
+          orderBy: optional(orderBySchema),
           take: optional(number()),
           skip: optional(number()),
           cursor: optional(string()),
-          select: optional(lazy(() => state.getter()["~"].schemas?.select)),
-          include: optional(lazy(() => state.getter()["~"].schemas?.include)),
+          select: optional(selectSchema),
+          include: optional(includeSchema),
         })
       ),
       transform(includeToField(state))

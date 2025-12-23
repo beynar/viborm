@@ -1,0 +1,30 @@
+---
+title: BaseValidation
+description: Base action interface.
+contributors:
+  - fabian-hiller
+---
+
+import { Property } from '~/components';
+import { properties } from './properties';
+
+# BaseValidation
+
+Base action interface.
+
+## Generics
+
+- `TInput` <Property {...properties.TInput} />
+- `TOutput` <Property {...properties.TOutput} />
+- `TIssue` <Property {...properties.TIssue} />
+
+## Definition
+
+- `BaseValidation`
+  - `kind` <Property {...properties.kind} />
+  - `type` <Property {...properties.type} />
+  - `reference` <Property {...properties.reference} />
+  - `expects` <Property {...properties.expects} />
+  - `async` <Property {...properties.async} />
+  - `~run` <Property {...properties['~run']} />
+  - `~types` <Property {...properties['~types']} />

@@ -1,0 +1,28 @@
+---
+title: ObjectSchema
+description: Object schema interface.
+contributors:
+  - fabian-hiller
+  - kazizi55
+---
+
+import { Property } from '~/components';
+import { properties } from './properties';
+
+# ObjectSchema
+
+Object schema interface.
+
+## Generics
+
+- `TEntries` <Property {...properties.TEntries} />
+- `TMessage` <Property {...properties.TMessage} />
+
+## Definition
+
+- `ObjectSchema` <Property {...properties.BaseSchema} />
+  - `type` <Property {...properties.type} />
+  - `reference` <Property {...properties.reference} />
+  - `expects` <Property {...properties.expects} />
+  - `entries` <Property {...properties.entries} />
+  - `message` <Property {...properties.message} />

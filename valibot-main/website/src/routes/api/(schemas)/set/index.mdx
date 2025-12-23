@@ -1,0 +1,158 @@
+---
+title: set
+description: Creates a set schema.
+source: /schemas/set/set.ts
+contributors:
+  - fabian-hiller
+---
+
+import { ApiList, Property } from '~/components';
+import { properties } from './properties';
+
+# set
+
+Creates a set schema.
+
+```ts
+const Schema = v.set<TValue, TMessage>(value, message);
+```
+
+## Generics
+
+- `TValue` <Property {...properties.TValue} />
+- `TMessage` <Property {...properties.TMessage} />
+
+## Parameters
+
+- `value` <Property {...properties.value} />
+- `message` <Property {...properties.message} />
+
+### Explanation
+
+With `set` you can validate the data type of the input and whether the content matches `value`. If the input is not a set, you can use `message` to customize the error message.
+
+## Returns
+
+- `Schema` <Property {...properties.Schema} />
+
+## Examples
+
+The following examples show how `set` can be used.
+
+### String set schema
+
+Schema to validate a set with string values.
+
+```ts
+const StringSetSchema = v.set(v.string());
+```
+
+### Object set schema
+
+Schema to validate a set with object values.
+
+```ts
+const ObjectSetSchema = v.set(v.object({ key: v.string() }));
+```
+
+## Related
+
+The following APIs can be combined with `set`.
+
+### Schemas
+
+<ApiList
+  items={[
+    'any',
+    'array',
+    'bigint',
+    'blob',
+    'boolean',
+    'custom',
+    'date',
+    'enum',
+    'exactOptional',
+    'file',
+    'function',
+    'instance',
+    'intersect',
+    'lazy',
+    'literal',
+    'looseObject',
+    'looseTuple',
+    'map',
+    'nan',
+    'never',
+    'nonNullable',
+    'nonNullish',
+    'nonOptional',
+    'null',
+    'nullable',
+    'nullish',
+    'number',
+    'object',
+    'objectWithRest',
+    'optional',
+    'picklist',
+    'promise',
+    'record',
+    'strictObject',
+    'strictTuple',
+    'string',
+    'symbol',
+    'tuple',
+    'tupleWithRest',
+    'undefined',
+    'undefinedable',
+    'union',
+    'unknown',
+    'variant',
+    'void',
+  ]}
+/>
+
+### Methods
+
+<ApiList
+  items={[
+    'assert',
+    'config',
+    'fallback',
+    'getDefault',
+    'getDefaults',
+    'getFallback',
+    'getFallbacks',
+    'is',
+    'message',
+    'parse',
+    'parser',
+    'pipe',
+    'safeParse',
+    'safeParser',
+  ]}
+/>
+
+### Actions
+
+<ApiList
+  items={[
+    'check',
+    'brand',
+    'description',
+    'flavor',
+    'maxSize',
+    'metadata',
+    'minSize',
+    'notSize',
+    'rawCheck',
+    'rawTransform',
+    'readonly',
+    'size',
+    'title',
+    'transform',
+  ]}
+/>
+
+### Utils
+
+<ApiList items={['entriesFromList', 'isOfKind', 'isOfType']} />

@@ -1,0 +1,28 @@
+---
+title: NullishSchema
+description: Nullish schema interface.
+contributors:
+  - fabian-hiller
+  - sqmasep
+---
+
+import { Property } from '~/components';
+import { properties } from './properties';
+
+# NullishSchema
+
+Nullish schema interface.
+
+## Generics
+
+- `TWrapped` <Property {...properties.TWrapped} />
+- `TDefault` <Property {...properties.TDefault} />
+
+## Definition
+
+- `Nullish` <Property {...properties.BaseSchema} />
+  - `type` <Property {...properties.type} />
+  - `reference` <Property {...properties.reference} />
+  - `expects` <Property {...properties.expects} />
+  - `wrapped` <Property {...properties.wrapped} />
+  - `default` <Property {...properties.default} />

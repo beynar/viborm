@@ -1,0 +1,26 @@
+---
+title: getSchemaMessage
+description: Returns a schema error message.
+source: /storages/schemaMessage/schemaMessage.ts
+contributors:
+  - fabian-hiller
+---
+
+import { Property } from '~/components';
+import { properties } from './properties';
+
+# getSchemaMessage
+
+Returns a schema error message.
+
+```ts
+const message = v.getSchemaMessage(lang);
+```
+
+## Parameters
+
+- `lang` <Property {...properties.lang} />
+
+## Returns
+
+- `message` <Property {...properties.message} />

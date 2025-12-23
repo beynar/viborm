@@ -1,0 +1,27 @@
+---
+title: NonNullableSchema
+description: Non nullable schema interface.
+contributors:
+  - fabian-hiller
+---
+
+import { Property } from '~/components';
+import { properties } from './properties';
+
+# NonNullableSchema
+
+Non nullable schema interface.
+
+## Generics
+
+- `TWrapped` <Property {...properties.TWrapped} />
+- `TMessage` <Property {...properties.TMessage} />
+
+## Definition
+
+- `NonNullableSchema` <Property {...properties.BaseSchema} />
+  - `type` <Property {...properties.type} />
+  - `reference` <Property {...properties.reference} />
+  - `expects` <Property {...properties.expects} />
+  - `wrapped` <Property {...properties.wrapped} />
+  - `message` <Property {...properties.message} />

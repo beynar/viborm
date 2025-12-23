@@ -1,0 +1,32 @@
+---
+title: BaseSchema
+description: Base schema interface.
+contributors:
+  - fabian-hiller
+  - kazizi55
+---
+
+import { Property } from '~/components';
+import { properties } from './properties';
+
+# BaseSchema
+
+Base schema interface.
+
+## Generics
+
+- `TInput` <Property {...properties.TInput} />
+- `TOutput` <Property {...properties.TOutput} />
+- `TIssue` <Property {...properties.TIssue} />
+
+## Definition
+
+- `BaseSchema`
+  - `kind` <Property {...properties.kind} />
+  - `type` <Property {...properties.type} />
+  - `reference` <Property {...properties.reference} />
+  - `expects` <Property {...properties.expects} />
+  - `async` <Property {...properties.async} />
+  - `~standard` <Property {...properties['~standard']} />
+  - `~run` <Property {...properties['~run']} />
+  - `~types` <Property {...properties['~types']} />

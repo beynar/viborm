@@ -1,0 +1,208 @@
+---
+title: requiredAsync
+description: >-
+  Creates a modified copy of an object schema that marks all or only the
+  selected entries as required.
+source: /methods/required/requiredAsync.ts
+contributors:
+  - fabian-hiller
+  - EltonLobo07
+---
+
+import { ApiList, Link, Property } from '~/components';
+import { properties } from './properties';
+
+# requiredAsync
+
+Creates a modified copy of an object schema that marks all or only the selected entries as required.
+
+```ts
+const AllKeysSchema = v.requiredAsync<TSchema, TMessage>(schema, message);
+const SelectedKeysSchema = v.requiredAsync<TSchema, TKeys, TMessage>(
+  schema,
+  keys,
+  message
+);
+```
+
+## Generics
+
+- `TSchema` <Property {...properties.TSchema} />
+- `TKeys` <Property {...properties.TKeys} />
+- `TMessage` <Property {...properties.TMessage} />
+
+## Parameters
+
+- `schema` <Property {...properties.schema} />
+- `keys` <Property {...properties.keys} />
+- `message` <Property {...properties.message} />
+
+### Explanation
+
+`requiredAsync` creates a modified copy of the given object `schema` where all or only the selected `keys` are required. It is similar to TypeScript's [`Required`](https://www.typescriptlang.org/docs/handbook/utility-types.html#requiredtype) utility type.
+
+> Because `requiredAsync` changes the data type of the input and output, it is not allowed to pass a schema that has been modified by the <Link href='../pipeAsync/'>`pipeAsync`</Link> method, as this may cause runtime errors. Please use the <Link href='../pipeAsync/'>`pipeAsync`</Link> method after you have modified the schema with `requiredAsync`.
+
+## Returns
+
+- `AllKeysSchema` <Property {...properties.AllKeysSchema} />
+- `SelectedKeysSchema` <Property {...properties.SelectedKeysSchema} />
+
+## Examples
+
+The following examples show how `requiredAsync` can be used.
+
+### New task schema
+
+Schema to validate an object containing task details.
+
+```ts
+import { isOwnerPresent } from '~/api';
+
+const UpdateTaskSchema = v.objectAsync({
+  owner: v.optionalAsync(
+    v.pipeAsync(
+      v.string(),
+      v.email(),
+      v.checkAsync(isOwnerPresent, 'The owner is not in the database.')
+    )
+  ),
+  title: v.optional(v.pipe(v.string(), v.nonEmpty(), v.maxLength(255))),
+  description: v.optional(v.pipe(v.string(), v.nonEmpty())),
+});
+
+const NewTaskSchema = v.requiredAsync(UpdateTaskSchema);
+
+/*
+  {
+    owner: string;
+    title: string;
+    description: string;
+  }
+*/
+```
+
+## Related
+
+The following APIs can be combined with `requiredAsync`.
+
+### Schemas
+
+<ApiList
+  items={[
+    'array',
+    'exactOptional',
+    'intersect',
+    'lazy',
+    'looseObject',
+    'looseTuple',
+    'map',
+    'nonNullable',
+    'nonNullish',
+    'nonOptional',
+    'nullable',
+    'nullish',
+    'object',
+    'objectWithRest',
+    'optional',
+    'record',
+    'set',
+    'strictObject',
+    'strictTuple',
+    'tuple',
+    'tupleWithRest',
+    'undefinedable',
+    'union',
+  ]}
+/>
+
+### Methods
+
+<ApiList
+  items={[
+    'assert',
+    'config',
+    'fallback',
+    'forward',
+    'getDefault',
+    'getDefaults',
+    'getFallback',
+    'getFallbacks',
+    'keyof',
+    'message',
+    'omit',
+    'partial',
+    'pick',
+    'unwrap',
+  ]}
+/>
+
+### Actions
+
+<ApiList
+  items={[
+    'brand',
+    'check',
+    'description',
+    'entries',
+    'flavor',
+    'maxEntries',
+    'metadata',
+    'minEntries',
+    'notEntries',
+    'partialCheck',
+    'rawCheck',
+    'rawTransform',
+    'readonly',
+    'title',
+    'transform',
+  ]}
+/>
+
+### Utils
+
+<ApiList items={['isOfKind', 'isOfType']} />
+
+### Async
+
+<ApiList
+  items={[
+    'arrayAsync',
+    'checkAsync',
+    'exactOptionalAsync',
+    'fallbackAsync',
+    'forwardAsync',
+    'getDefaultsAsync',
+    'getFallbacksAsync',
+    'intersectAsync',
+    'lazyAsync',
+    'looseObjectAsync',
+    'looseTupleAsync',
+    'mapAsync',
+    'nonNullableAsync',
+    'nonNullishAsync',
+    'nonOptionalAsync',
+    'nullableAsync',
+    'nullishAsync',
+    'objectAsync',
+    'objectWithRestAsync',
+    'optionalAsync',
+    'parseAsync',
+    'parserAsync',
+    'partialAsync',
+    'partialCheckAsync',
+    'rawCheckAsync',
+    'rawTransformAsync',
+    'recordAsync',
+    'safeParseAsync',
+    'safeParserAsync',
+    'setAsync',
+    'strictObjectAsync',
+    'strictTupleAsync',
+    'transformAsync',
+    'tupleAsync',
+    'tupleWithRestAsync',
+    'undefinedableAsync',
+    'unionAsync',
+  ]}
+/>

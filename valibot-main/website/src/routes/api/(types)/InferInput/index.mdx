@@ -1,0 +1,36 @@
+---
+title: InferInput
+description: Infer input type.
+contributors:
+  - fabian-hiller
+---
+
+import { Property } from '~/components';
+import { properties } from './properties';
+
+# InferInput
+
+Infer input type.
+
+## Generics
+
+- `TItem` <Property {...properties.TItem} />
+
+## Definition
+
+- `InferInput` <Property {...properties.InferInput} />
+
+## Example
+
+```ts
+// Create object schema
+const ObjectSchema = v.object({
+  key: v.pipe(
+    v.string(),
+    v.transform((input) => input.length)
+  ),
+});
+
+// Infer object input type
+type ObjectInput = v.InferInput<typeof ObjectSchema>; // { key: string }
+```

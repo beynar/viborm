@@ -9,6 +9,7 @@ import {
   type OptionalSchema,
   type BooleanSchema,
   type InferInput,
+  type LazySchema,
 } from "valibot";
 import type { ModelState } from "../../model";
 import type { SchemaEntries } from "../types";

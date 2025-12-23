@@ -1,0 +1,25 @@
+---
+title: UndefinedSchema
+description: Undefined schema interface.
+contributors:
+  - fabian-hiller
+---
+
+import { Property } from '~/components';
+import { properties } from './properties';
+
+# UndefinedSchema
+
+Undefined schema interface.
+
+## Generics
+
+- `TMessage` <Property {...properties.TMessage} />
+
+## Definition
+
+- `UndefinedSchema` <Property {...properties.BaseSchema} />
+  - `type` <Property {...properties.type} />
+  - `reference` <Property {...properties.reference} />
+  - `expects` <Property {...properties.expects} />
+  - `message` <Property {...properties.message} />

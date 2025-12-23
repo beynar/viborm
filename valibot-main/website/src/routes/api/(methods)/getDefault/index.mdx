@@ -1,0 +1,155 @@
+---
+title: getDefault
+description: Returns the default value of the schema.
+source: /methods/getDefault/getDefault.ts
+contributors:
+  - fabian-hiller
+---
+
+import { ApiList, Property } from '~/components';
+import { properties } from './properties';
+
+# getDefault
+
+Returns the default value of the schema.
+
+```ts
+const value = v.getDefault<TSchema>(schema, dataset, config);
+```
+
+## Generics
+
+- `TSchema` <Property {...properties.TSchema} />
+
+## Parameters
+
+- `schema` <Property {...properties.schema} />
+- `dataset` <Property {...properties.dataset} />
+- `config` <Property {...properties.config} />
+
+## Returns
+
+- `value` <Property {...properties.value} />
+
+## Examples
+
+The following examples show how `getDefault` can be used.
+
+### Optional string schema
+
+Get the default value of an optional string schema.
+
+```ts
+const OptionalStringSchema = v.optional(v.string(), "I'm the default!");
+const defaultValue = v.getDefault(OptionalStringSchema); // "I'm the default!"
+```
+
+## Related
+
+The following APIs can be combined with `getDefault`.
+
+### Schemas
+
+<ApiList
+  items={[
+    'any',
+    'array',
+    'bigint',
+    'blob',
+    'boolean',
+    'custom',
+    'date',
+    'enum',
+    'exactOptional',
+    'file',
+    'function',
+    'instance',
+    'intersect',
+    'lazy',
+    'literal',
+    'looseObject',
+    'looseTuple',
+    'map',
+    'nan',
+    'never',
+    'nonNullable',
+    'nonNullish',
+    'nonOptional',
+    'null',
+    'nullable',
+    'nullish',
+    'number',
+    'object',
+    'objectWithRest',
+    'optional',
+    'picklist',
+    'promise',
+    'record',
+    'set',
+    'strictObject',
+    'strictTuple',
+    'string',
+    'symbol',
+    'tuple',
+    'tupleWithRest',
+    'undefined',
+    'undefinedable',
+    'union',
+    'unknown',
+    'variant',
+    'void',
+  ]}
+/>
+
+### Methods
+
+<ApiList
+  items={[
+    'assert',
+    'config',
+    'fallback',
+    'keyof',
+    'message',
+    'omit',
+    'partial',
+    'pick',
+    'pipe',
+    'required',
+    'unwrap',
+  ]}
+/>
+
+### Async
+
+<ApiList
+  items={[
+    'arrayAsync',
+    'customAsync',
+    'exactOptionalAsync',
+    'fallbackAsync',
+    'intersectAsync',
+    'lazyAsync',
+    'looseObjectAsync',
+    'looseTupleAsync',
+    'mapAsync',
+    'nonNullableAsync',
+    'nonNullishAsync',
+    'nonOptionalAsync',
+    'nullableAsync',
+    'nullishAsync',
+    'objectAsync',
+    'objectWithRestAsync',
+    'optionalAsync',
+    'partialAsync',
+    'pipeAsync',
+    'recordAsync',
+    'requiredAsync',
+    'setAsync',
+    'strictObjectAsync',
+    'strictTupleAsync',
+    'tupleAsync',
+    'tupleWithRestAsync',
+    'unionAsync',
+    'variantAsync',
+  ]}
+/>

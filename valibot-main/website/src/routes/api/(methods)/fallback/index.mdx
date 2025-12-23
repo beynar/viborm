@@ -1,0 +1,266 @@
+---
+title: fallback
+description: Returns a fallback value as output if the input does not match the schema.
+source: /methods/fallback/fallback.ts
+contributors:
+  - fabian-hiller
+  - EltonLobo07
+  - morinokami
+  - sqmasep
+  - FlorianDevPhynix
+---
+
+import { ApiList, Link, Property } from '~/components';
+import { properties } from './properties';
+
+# fallback
+
+Returns a fallback value as output if the input does not match the schema.
+
+```ts
+const Schema = v.fallback<TSchema, TFallback>(schema, fallback);
+```
+
+## Generics
+
+- `TSchema` <Property {...properties.TSchema} />
+- `TFallback` <Property {...properties.TFallback} />
+
+## Parameters
+
+- `schema` <Property {...properties.schema} />
+- `fallback` <Property {...properties.fallback} />
+
+### Explanation
+
+`fallback` allows you to define a fallback value for the output that will be used if the validation of the input fails. This means that no issues will be returned when using `fallback` and the schema will always return an output.
+
+> If you only want to set a default value for `null` or `undefined` inputs, you should use <Link href="../optional/">`optional`</Link>, <Link href="../nullable/">`nullable`</Link> or <Link href="../nullish/">`nullish`</Link> instead.
+
+> The fallback value is not validated. Make sure that the fallback value matches your schema.
+
+## Returns
+
+- `Schema` <Property {...properties.Schema} />
+
+## Examples
+
+The following examples show how `fallback` can be used.
+
+### Fallback string schema
+
+Schema that will always return a string output.
+
+```ts
+const FallbackStringSchema = v.fallback(v.string(), "I'm the fallback!");
+```
+
+### Fallback date schema
+
+Schema that will always return a [`Date`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date) output.
+
+> By using a function as the `fallback` parameter, the schema will return a new [`Date`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date) instance each time the input does not match the schema.
+
+```ts
+const FallbackDateSchema = v.fallback(v.date(), () => new Date());
+```
+
+## Related
+
+The following APIs can be combined with `fallback`.
+
+### Schemas
+
+<ApiList
+  items={[
+    'any',
+    'array',
+    'bigint',
+    'blob',
+    'boolean',
+    'custom',
+    'date',
+    'enum',
+    'exactOptional',
+    'file',
+    'function',
+    'instance',
+    'intersect',
+    'lazy',
+    'literal',
+    'looseObject',
+    'looseTuple',
+    'map',
+    'nan',
+    'never',
+    'nonNullable',
+    'nonNullish',
+    'nonOptional',
+    'null',
+    'nullable',
+    'nullish',
+    'number',
+    'object',
+    'objectWithRest',
+    'optional',
+    'picklist',
+    'promise',
+    'record',
+    'set',
+    'strictObject',
+    'strictTuple',
+    'string',
+    'symbol',
+    'tuple',
+    'tupleWithRest',
+    'undefined',
+    'undefinedable',
+    'union',
+    'unknown',
+    'variant',
+    'void',
+  ]}
+/>
+
+### Methods
+
+<ApiList
+  items={[
+    'assert',
+    'config',
+    'getDefault',
+    'getDefaults',
+    'getFallback',
+    'getFallbacks',
+    'is',
+    'keyof',
+    'message',
+    'omit',
+    'parse',
+    'parser',
+    'partial',
+    'pick',
+    'pipe',
+    'required',
+    'safeParse',
+    'safeParser',
+    'unwrap',
+  ]}
+/>
+
+### Actions
+
+<ApiList
+  items={[
+    'args',
+    'base64',
+    'bic',
+    'brand',
+    'bytes',
+    'check',
+    'checkItems',
+    'creditCard',
+    'cuid2',
+    'decimal',
+    'description',
+    'digits',
+    'email',
+    'emoji',
+    'empty',
+    'endsWith',
+    'entries',
+    'everyItem',
+    'excludes',
+    'filterItems',
+    'findItem',
+    'finite',
+    'flavor',
+    'graphemes',
+    'gtValue',
+    'hash',
+    'hexadecimal',
+    'hexColor',
+    'imei',
+    'includes',
+    'integer',
+    'ip',
+    'ipv4',
+    'ipv6',
+    'isbn',
+    'isoDate',
+    'isoDateTime',
+    'isoTime',
+    'isoTimeSecond',
+    'isoTimestamp',
+    'isoWeek',
+    'length',
+    'ltValue',
+    'mac',
+    'mac48',
+    'mac64',
+    'mapItems',
+    'maxBytes',
+    'maxEntries',
+    'maxGraphemes',
+    'maxLength',
+    'maxSize',
+    'maxValue',
+    'maxWords',
+    'metadata',
+    'mimeType',
+    'minBytes',
+    'minEntries',
+    'minGraphemes',
+    'minLength',
+    'minSize',
+    'minValue',
+    'minWords',
+    'multipleOf',
+    'nanoid',
+    'nonEmpty',
+    'notBytes',
+    'notEntries',
+    'notGraphemes',
+    'notLength',
+    'notSize',
+    'notValue',
+    'notValues',
+    'notWords',
+    'octal',
+    'parseJson',
+    'partialCheck',
+    'rawCheck',
+    'rawTransform',
+    'readonly',
+    'reduceItems',
+    'regex',
+    'returns',
+    'rfcEmail',
+    'safeInteger',
+    'size',
+    'slug',
+    'someItem',
+    'sortItem',
+    'startsWith',
+    'stringifyJson',
+    'title',
+    'toLowerCase',
+    'toMaxValue',
+    'toMinValue',
+    'toUpperCase',
+    'transform',
+    'trim',
+    'trimEnd',
+    'trimStart',
+    'ulid',
+    'url',
+    'uuid',
+    'value',
+    'values',
+    'words',
+  ]}
+/>
+
+### Utils
+
+<ApiList items={['isOfKind', 'isOfType']} />

@@ -111,10 +111,11 @@ export interface FieldState<T extends ScalarFieldType = ScalarFieldType> {
   hasDefault: boolean;
   isId: boolean;
   isUnique: boolean;
-  defaultValue: DefaultValue<any> | undefined;
+  default: DefaultValue<any> | undefined;
   autoGenerate: AutoGenerateType | undefined;
   schema: StandardSchemaV1 | undefined;
   base: BaseSchema<any, any, any>;
+  optional: boolean;
   /** Custom column name in the database (set via .map()) */
   columnName: string | undefined;
 }
@@ -155,12 +156,12 @@ export type MaybeArray<
   IsArray extends boolean = false
 > = IsArray extends true ? T[] : T;
 
-type MaybeArraySchema<
+export type MaybeArraySchema<
   T extends AnySchema,
   S extends FieldState
 > = S["array"] extends true ? ArraySchema<T, undefined> : T;
 
-type MaybeNullableSchema<
+export type MaybeNullableSchema<
   T extends AnySchema,
   S extends FieldState
 > = S["nullable"] extends true ? NullableSchema<T, undefined> : T;
@@ -185,7 +186,7 @@ export type DefaultValueInput<S extends FieldState> = S["type"] extends "json"
 
 export type SchemaWithDefault<F extends FieldState> =
   F["hasDefault"] extends true
-    ? F["defaultValue"] extends DefaultValue<infer T>
+    ? F["default"] extends DefaultValue<infer T>
       ? OptionalSchema<
           MaybeNullableSchema<MaybeArraySchema<F["base"], F>, F>,
           T
@@ -213,10 +214,11 @@ export const createDefaultState = <
   hasDefault: false,
   isId: false,
   isUnique: false,
-  defaultValue: undefined,
+  default: undefined,
   autoGenerate: undefined,
   schema: undefined,
   columnName: undefined,
+  optional: false,
   base,
 });
 
@@ -257,7 +259,7 @@ export const createWithDefault = <F extends FieldState, B extends AnySchema>(
   base: B
 ) => {
   if (f.hasDefault) {
-    return optional(base, f.defaultValue);
+    return optional(base, f.default);
   }
   return base;
 };

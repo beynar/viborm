@@ -1,0 +1,180 @@
+---
+title: nullable
+description: Creates a nullable schema.
+source: /schemas/nullable/nullable.ts
+contributors:
+  - fabian-hiller
+  - sqmasep
+---
+
+import { ApiList, Link, Property } from '~/components';
+import { properties } from './properties';
+
+# nullable
+
+Creates a nullable schema.
+
+```ts
+const Schema = v.nullable<TWrapped, TDefault>(wrapped, default_);
+```
+
+## Generics
+
+- `TWrapped` <Property {...properties.TWrapped} />
+- `TDefault` <Property {...properties.TDefault} />
+
+## Parameters
+
+- `wrapped` <Property {...properties.wrapped} />
+- `default_` {/* prettier-ignore */}<Property {...properties.default_} />
+
+### Explanation
+
+With `nullable` the validation of your schema will pass `null` inputs, and if you specify a `default_` input value, the schema will use it if the input is `null`. For this reason, the output type may differ from the input type of the schema.
+
+> Note that `nullable` does not accept `undefined` as an input. If you want to accept `undefined` inputs, use <Link href="../optional/">`optional`</Link>, and if you want to accept `null` and `undefined` inputs, use <Link href="../nullish/">`nullish`</Link> instead. Also, if you want to set a default output value for any invalid input, you should use <Link href="../fallback/">`fallback`</Link> instead.
+
+## Returns
+
+- `Schema` <Property {...properties.Schema} />
+
+## Examples
+
+The following examples show how `nullable` can be used.
+
+### Nullable string schema
+
+Schema that accepts `string` and `null`.
+
+```ts
+const NullableStringSchema = v.nullable(v.string(), "I'm the default!");
+```
+
+### Nullable date schema
+
+Schema that accepts [`Date`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date) and `null`.
+
+> By using a function as the `default_` parameter, the schema will return a new [`Date`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date) instance each time the input is `null`.
+
+```ts
+const NullableDateSchema = v.nullable(v.date(), () => new Date());
+```
+
+### Nullable entry schema
+
+Object schema with a nullable entry.
+
+```ts
+const NullableEntrySchema = v.object({
+  key: v.nullable(v.string()),
+});
+```
+
+### Unwrap nullable schema
+
+Use <Link href="../unwrap/">`unwrap`</Link> to undo the effect of `nullable`.
+
+```ts
+const NullableNumberSchema = v.nullable(v.number());
+const NumberSchema = v.unwrap(NullableNumberSchema);
+```
+
+## Related
+
+The following APIs can be combined with `nullable`.
+
+### Schemas
+
+<ApiList
+  items={[
+    'any',
+    'array',
+    'bigint',
+    'blob',
+    'boolean',
+    'custom',
+    'date',
+    'enum',
+    'exactOptional',
+    'file',
+    'function',
+    'instance',
+    'intersect',
+    'lazy',
+    'literal',
+    'looseObject',
+    'looseTuple',
+    'map',
+    'nan',
+    'never',
+    'nonNullable',
+    'nonNullish',
+    'nonOptional',
+    'null',
+    'nullish',
+    'number',
+    'object',
+    'objectWithRest',
+    'optional',
+    'picklist',
+    'promise',
+    'record',
+    'set',
+    'strictObject',
+    'strictTuple',
+    'string',
+    'symbol',
+    'tuple',
+    'tupleWithRest',
+    'undefined',
+    'undefinedable',
+    'union',
+    'unknown',
+    'variant',
+    'void',
+  ]}
+/>
+
+### Methods
+
+<ApiList
+  items={[
+    'assert',
+    'config',
+    'fallback',
+    'getDefault',
+    'getDefaults',
+    'getFallback',
+    'getFallbacks',
+    'is',
+    'message',
+    'parse',
+    'parser',
+    'pipe',
+    'safeParse',
+    'safeParser',
+    'unwrap',
+  ]}
+/>
+
+### Actions
+
+<ApiList
+  items={[
+    'check',
+    'brand',
+    'description',
+    'flavor',
+    'metadata',
+    'partialCheck',
+    'rawCheck',
+    'rawTransform',
+    'readonly',
+    'title',
+    'transform',
+  ]}
+/>
+
+### Utils
+
+<ApiList items={['entriesFromList', 'isOfKind', 'isOfType']} />

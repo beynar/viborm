@@ -1,0 +1,119 @@
+---
+title: title
+description: Creates a title metadata action.
+source: /actions/title/title.ts
+contributors:
+  - fabian-hiller
+---
+
+import { ApiList, Property } from '~/components';
+import { properties } from './properties';
+
+# title
+
+Creates a title metadata action.
+
+```ts
+const Action = v.title<TInput, TTitle>(title_);
+```
+
+## Generics
+
+- `TInput` <Property {...properties.TInput} />
+- `TTitle` <Property {...properties.TTitle} />
+
+## Parameters
+
+- `title_` <Property {...properties['title_']} />
+
+### Explanation
+
+With `title` you can give a title to a schema. This can be useful when working with AI tools or for documentation purposes.
+
+## Returns
+
+- `Action` <Property {...properties.Action} />
+
+## Examples
+
+The following examples show how `title` can be used.
+
+### Username schema
+
+Schema to validate a user name.
+
+```ts
+const UsernameSchema = v.pipe(
+  v.string(),
+  v.regex(/^[a-z0-9_-]{4,16}$/iu),
+  v.title('Username'),
+  v.description(
+    'A username must be between 4 and 16 characters long and can only contain letters, numbers, underscores and hyphens.'
+  )
+);
+```
+
+## Related
+
+The following APIs can be combined with `title`.
+
+### Schemas
+
+<ApiList
+  items={[
+    'any',
+    'array',
+    'bigint',
+    'blob',
+    'boolean',
+    'custom',
+    'date',
+    'enum',
+    'exactOptional',
+    'file',
+    'function',
+    'instance',
+    'intersect',
+    'lazy',
+    'literal',
+    'looseObject',
+    'looseTuple',
+    'map',
+    'nan',
+    'never',
+    'nonNullable',
+    'nonNullish',
+    'nonOptional',
+    'null',
+    'nullable',
+    'nullish',
+    'number',
+    'object',
+    'objectWithRest',
+    'optional',
+    'picklist',
+    'promise',
+    'record',
+    'set',
+    'strictObject',
+    'strictTuple',
+    'string',
+    'symbol',
+    'tuple',
+    'tupleWithRest',
+    'undefined',
+    'undefinedable',
+    'union',
+    'unknown',
+    'variant',
+    'void',
+  ]}
+/>
+
+### Methods
+
+<ApiList items={['getTitle', 'pipe']} />
+
+### Utils
+
+<ApiList items={['isOfKind', 'isOfType']} />

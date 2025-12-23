@@ -1,0 +1,24 @@
+---
+title: SchemaWithPipe
+description: Schema with pipe type.
+contributors:
+  - fabian-hiller
+---
+
+import { Property } from '~/components';
+import { properties } from './properties';
+
+# SchemaWithPipe
+
+Schema with pipe type.
+
+## Generics
+
+- `TPipe` <Property {...properties.TPipe} />
+
+## Definition
+
+- `SchemaWithPipe` <Property {...properties.SchemaWithPipe} />
+  - `pipe` <Property {...properties.pipe} />
+  - `~types` <Property {...properties['~types']} />
+  - `~run` <Property {...properties['~run']} />

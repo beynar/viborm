@@ -1,0 +1,167 @@
+---
+title: required
+description: >-
+  Creates a modified copy of an object schema that marks all or only the
+  selected entries as required.
+source: /methods/required/required.ts
+contributors:
+  - fabian-hiller
+  - EltonLobo07
+---
+
+import { ApiList, Link, Property } from '~/components';
+import { properties } from './properties';
+
+# required
+
+Creates a modified copy of an object schema that marks all or only the selected entries as required.
+
+```ts
+const AllKeysSchema = v.required<TSchema, TMessage>(schema, message);
+const SelectedKeysSchema = v.required<TSchema, TKeys, TMessage>(
+  schema,
+  keys,
+  message
+);
+```
+
+## Generics
+
+- `TSchema` <Property {...properties.TSchema} />
+- `TKeys` <Property {...properties.TKeys} />
+- `TMessage` <Property {...properties.TMessage} />
+
+## Parameters
+
+- `schema` <Property {...properties.schema} />
+- `keys` <Property {...properties.keys} />
+- `message` <Property {...properties.message} />
+
+### Explanation
+
+`required` creates a modified copy of the given object `schema` where all or only the selected `keys` are required. It is similar to TypeScript's [`Required`](https://www.typescriptlang.org/docs/handbook/utility-types.html#requiredtype) utility type.
+
+> Because `required` changes the data type of the input and output, it is not allowed to pass a schema that has been modified by the <Link href='../pipe/'>`pipe`</Link> method, as this may cause runtime errors. Please use the <Link href='../pipe/'>`pipe`</Link> method after you have modified the schema with `required`.
+
+## Returns
+
+- `AllKeysSchema` <Property {...properties.AllKeysSchema} />
+- `SelectedKeysSchema` <Property {...properties.SelectedKeysSchema} />
+
+## Examples
+
+The following examples show how `required` can be used.
+
+### Required object schema
+
+Schema to validate an object with required entries.
+
+```ts
+const RequiredSchema = v.required(
+  v.object({
+    key1: v.optional(v.string()),
+    key2: v.optional(v.number()),
+  })
+); // { key1: string; key2: number }
+```
+
+### With only specific keys
+
+Schema to validate an object with only specific entries marked as required.
+
+```ts
+const RequiredSchema = v.required(
+  v.object({
+    key1: v.optional(v.string()),
+    key2: v.optional(v.number()),
+    key3: v.optional(v.boolean()),
+  }),
+  ['key1', 'key3']
+); // { key1: string; key2?: number; key3: boolean }
+```
+
+## Related
+
+The following APIs can be combined with `required`.
+
+### Schemas
+
+<ApiList
+  items={[
+    'array',
+    'exactOptional',
+    'intersect',
+    'lazy',
+    'looseObject',
+    'looseTuple',
+    'map',
+    'nonNullable',
+    'nonNullish',
+    'nonOptional',
+    'nullable',
+    'nullish',
+    'object',
+    'objectWithRest',
+    'optional',
+    'record',
+    'set',
+    'strictObject',
+    'strictTuple',
+    'tuple',
+    'tupleWithRest',
+    'undefinedable',
+    'union',
+  ]}
+/>
+
+### Methods
+
+<ApiList
+  items={[
+    'assert',
+    'config',
+    'fallback',
+    'forward',
+    'getDefault',
+    'getDefaults',
+    'getFallback',
+    'getFallbacks',
+    'is',
+    'keyof',
+    'message',
+    'omit',
+    'parse',
+    'parser',
+    'partial',
+    'pick',
+    'safeParse',
+    'safeParser',
+    'unwrap',
+  ]}
+/>
+
+### Actions
+
+<ApiList
+  items={[
+    'brand',
+    'check',
+    'description',
+    'entries',
+    'flavor',
+    'maxEntries',
+    'metadata',
+    'minEntries',
+    'notEntries',
+    'partialCheck',
+    'rawCheck',
+    'rawTransform',
+    'readonly',
+    'title',
+    'transform',
+  ]}
+/>
+
+### Utils
+
+<ApiList items={['isOfKind', 'isOfType']} />

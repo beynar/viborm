@@ -1,0 +1,28 @@
+---
+title: setSpecificMessage
+description: Sets a specific error message.
+source: /storages/specificMessage/specificMessage.ts
+contributors:
+  - fabian-hiller
+---
+
+import { Property } from '~/components';
+import { properties } from './properties';
+
+# setSpecificMessage
+
+Sets a specific error message.
+
+```ts
+v.setSpecificMessage<TReference>(reference, message, lang);
+```
+
+## Generics
+
+- `TReference` <Property {...properties.TReference} />
+
+## Parameters
+
+- `reference` <Property {...properties.reference} />
+- `message` <Property {...properties.message} />
+- `lang` <Property {...properties.lang} />

@@ -97,7 +97,7 @@ describe("Deeply Nested Includes", () => {
         take: 20,
         orderBy: { title: "desc" },
       });
-      console.dir(result, { depth: null });
+
       expect(result.success).toBe(true);
     });
 
@@ -115,7 +115,7 @@ describe("Deeply Nested Includes", () => {
         },
       });
       expect(result.success).toBe(true);
-      console.dir(result, { depth: null });
+
       if (result.success) {
         const nestedPosts = result.output.include?.author?.include?.posts;
         expect(nestedPosts?.take).toBe(5);

@@ -1,0 +1,25 @@
+---
+title: BaseMetadata
+description: Base metadata interface.
+contributors:
+  - fabian-hiller
+---
+
+import { Property } from '~/components';
+import { properties } from './properties';
+
+# BaseMetadata
+
+Base metadata interface.
+
+## Generics
+
+- `TInput` <Property {...properties.TInput} />
+
+## Definition
+
+- `BaseMetadata`
+  - `kind` <Property {...properties.kind} />
+  - `type` <Property {...properties.type} />
+  - `reference` <Property {...properties.reference} />
+  - `~types` <Property {...properties['~types']} />

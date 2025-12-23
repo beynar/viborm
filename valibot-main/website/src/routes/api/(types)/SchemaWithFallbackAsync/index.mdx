@@ -1,0 +1,26 @@
+---
+title: SchemaWithFallbackAsync
+description: Schema with fallback async type.
+contributors:
+  - fabian-hiller
+  - EltonLobo07
+---
+
+import { Property } from '~/components';
+import { properties } from './properties';
+
+# SchemaWithFallbackAsync
+
+Schema with fallback async type.
+
+## Generics
+
+- `TSchema` <Property {...properties.TSchema} />
+- `TFallback` <Property {...properties.TFallback} />
+
+## Definition
+
+- `SchemaWithFallbackAsync` <Property {...properties.ModifiedBaseSchemaOrAsync} />
+  - `fallback` <Property {...properties.fallback} />
+  - `async` <Property {...properties.async} />
+  - `~run` <Property {...properties['~run']} />

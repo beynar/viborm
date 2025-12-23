@@ -7,7 +7,6 @@ import type { RelationState } from "../relation";
 // Re-export helpers and types
 export {
   type AnyRelationSchema,
-  type RelationSchemas,
   getTargetWhereSchema,
   getTargetWhereUniqueSchema,
   getTargetCreateSchema,
@@ -32,7 +31,6 @@ export { toOneCreateFactory, toManyCreateFactory } from "./create";
 export { toOneUpdateFactory, toManyUpdateFactory } from "./update";
 
 // Import for internal use
-import { type RelationSchemas } from "./helpers";
 import {
   toOneSelectFactory,
   toManySelectFactory,
@@ -48,7 +46,7 @@ import { toOneUpdateFactory, toManyUpdateFactory } from "./update";
 // SCHEMA BUNDLES
 // =============================================================================
 
-const toOneSchemas = <S extends RelationState>(state: S): RelationSchemas => {
+const toOneSchemas = <S extends RelationState>(state: S): ToOneSchemas<S> => {
   return {
     filter: toOneFilterFactory(state),
     create: toOneCreateFactory(state),
@@ -59,7 +57,7 @@ const toOneSchemas = <S extends RelationState>(state: S): RelationSchemas => {
   };
 };
 
-const toManySchemas = <S extends RelationState>(state: S): RelationSchemas => {
+const toManySchemas = <S extends RelationState>(state: S): ToManySchemas<S> => {
   return {
     filter: toManyFilterFactory(state),
     create: toManyCreateFactory(state),
@@ -105,11 +103,12 @@ export type InferRelationSchemas<S extends RelationState> = S["type"] extends
 /**
  * Get all schemas for a relation based on its type
  */
-export const getRelationSchemas = <S extends RelationState>(
-  state: S
-): RelationSchemas => {
+
+export const getRelationSchemas = <S extends RelationState>(state: S) => {
   const isToMany = state.type === "manyToMany" || state.type === "oneToMany";
-  return isToMany ? toManySchemas(state) : toOneSchemas(state);
+  return (
+    isToMany ? toManySchemas(state) : toOneSchemas(state)
+  ) as InferRelationSchemas<S>;
 };
 
 /**
@@ -117,5 +116,5 @@ export const getRelationSchemas = <S extends RelationState>(
  */
 export type InferRelationInput<
   S extends RelationState,
-  Type extends keyof RelationSchemas
-> = InferInput<InferRelationSchemas<S>[Type]>;
+  Type extends "filter" | "create" | "update" | "select" | "include" | "orderBy"
+> = InferRelationSchemas<S>[Type];

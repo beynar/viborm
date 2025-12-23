@@ -19,6 +19,7 @@ import {
   defaultUlid,
   defaultUuid,
 } from "./autogenerate";
+import v from "../../../validation";
 
 // =============================================================================
 // STRING FIELD CLASS
@@ -59,12 +60,15 @@ export class StringField<State extends FieldState<"string">> {
 
   default<V extends DefaultValueInput<State>>(
     value: V
-  ): StringField<UpdateState<State, { hasDefault: true; defaultValue: V }>> {
+  ): StringField<
+    UpdateState<State, { hasDefault: true; default: V; optional: true }>
+  > {
     return new StringField(
       {
         ...this.state,
         hasDefault: true,
-        defaultValue: value,
+        default: value,
+        optional: true,
       },
       this._nativeType
     );
@@ -105,7 +109,8 @@ export class StringField<State extends FieldState<"string">> {
       {
         hasDefault: true;
         autoGenerate: "uuid";
-        defaultValue: DefaultValue<string>;
+        default: DefaultValue<string>;
+        optional: true;
       }
     >
   > {
@@ -113,8 +118,9 @@ export class StringField<State extends FieldState<"string">> {
       {
         ...this.state,
         hasDefault: true,
-        defaultValue: defaultUuid,
+        default: defaultUuid,
         autoGenerate: "uuid",
+        optional: true,
       },
       this._nativeType
     );
@@ -126,7 +132,8 @@ export class StringField<State extends FieldState<"string">> {
       {
         hasDefault: true;
         autoGenerate: "ulid";
-        defaultValue: DefaultValue<string>;
+        default: DefaultValue<string>;
+        optional: true;
       }
     >
   > {
@@ -134,8 +141,9 @@ export class StringField<State extends FieldState<"string">> {
       {
         ...this.state,
         hasDefault: true,
-        defaultValue: defaultUlid,
+        default: defaultUlid,
         autoGenerate: "ulid",
+        optional: true,
       },
       this._nativeType
     );
@@ -147,7 +155,8 @@ export class StringField<State extends FieldState<"string">> {
       {
         hasDefault: true;
         autoGenerate: "nanoid";
-        defaultValue: DefaultValue<string>;
+        default: DefaultValue<string>;
+        optional: true;
       }
     >
   > {
@@ -155,8 +164,9 @@ export class StringField<State extends FieldState<"string">> {
       {
         ...this.state,
         hasDefault: true,
-        defaultValue: defaultNanoid(length),
+        default: defaultNanoid(length),
         autoGenerate: "nanoid",
+        optional: true,
       },
       this._nativeType
     );
@@ -168,7 +178,8 @@ export class StringField<State extends FieldState<"string">> {
       {
         hasDefault: true;
         autoGenerate: "cuid";
-        defaultValue: DefaultValue<string>;
+        default: DefaultValue<string>;
+        optional: true;
       }
     >
   > {
@@ -176,8 +187,9 @@ export class StringField<State extends FieldState<"string">> {
       {
         ...this.state,
         hasDefault: true,
-        defaultValue: defaultCuid,
+        default: defaultCuid,
         autoGenerate: "cuid",
+        optional: true,
       },
       this._nativeType
     );
@@ -195,3 +207,13 @@ export class StringField<State extends FieldState<"string">> {
 
 export const string = (nativeType?: NativeType) =>
   new StringField(createDefaultState("string", stringBase), nativeType);
+
+const test = string().nullable().default("test");
+
+const user = v.object({
+  name: v.string(test["~"]["state"]),
+  age: v.number(),
+  friends: () => user,
+});
+type UserInput = StandardSchemaV1.InferInput<typeof user>["name"];
+type UserOutput = StandardSchemaV1.InferOutput<typeof user>["name"];
