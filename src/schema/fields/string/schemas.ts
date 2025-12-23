@@ -8,7 +8,6 @@ import {
   nullable,
   object,
   optional,
-  partial,
   string,
   union,
   InferInput,
@@ -39,58 +38,48 @@ export const stringListNullable = nullable(stringList);
 // =============================================================================
 
 // Base filter object without `not` (used for recursive `not` definition)
-const stringFilterBase = partial(
-  object({
-    equals: stringBase,
-    in: stringList,
-    notIn: stringList,
-    contains: stringBase,
-    startsWith: stringBase,
-    endsWith: stringBase,
-    mode: union([literal("default"), literal("insensitive")]),
-    lt: stringBase,
-    lte: stringBase,
-    gt: stringBase,
-    gte: stringBase,
-  })
-);
+const stringFilterBase = object({
+  equals: optional(stringBase),
+  in: optional(stringList),
+  notIn: optional(stringList),
+  contains: optional(stringBase),
+  startsWith: optional(stringBase),
+  endsWith: optional(stringBase),
+  mode: optional(union([literal("default"), literal("insensitive")])),
+  lt: optional(stringBase),
+  lte: optional(stringBase),
+  gt: optional(stringBase),
+  gte: optional(stringBase),
+});
 
-const stringNullableFilterBase = partial(
-  object({
-    equals: stringNullable,
-    in: stringList,
-    notIn: stringList,
-    contains: stringBase,
-    startsWith: stringBase,
-    endsWith: stringBase,
-    mode: union([literal("default"), literal("insensitive")]),
-    lt: stringNullable,
-    lte: stringNullable,
-    gt: stringNullable,
-    gte: stringNullable,
-  })
-);
+const stringNullableFilterBase = object({
+  equals: optional(stringNullable),
+  in: optional(stringList),
+  notIn: optional(stringList),
+  contains: optional(stringBase),
+  startsWith: optional(stringBase),
+  endsWith: optional(stringBase),
+  mode: optional(union([literal("default"), literal("insensitive")])),
+  lt: optional(stringNullable),
+  lte: optional(stringNullable),
+  gt: optional(stringNullable),
+  gte: optional(stringNullable),
+});
 
-const stringArrayFilterBase = partial(
-  object({
-    equals: stringList,
-    has: stringBase,
-    hasEvery: stringList,
-    hasSome: stringList,
-    isEmpty: boolean(),
-  })
-);
-
-const stringNullableListFilterBase = partial(
-  object({
-    equals: stringListNullable,
-    has: stringBase,
-    hasEvery: stringList,
-    hasSome: stringList,
-    isEmpty: boolean(),
-  })
-);
-
+const stringArrayFilterBase = object({
+  equals: optional(stringList),
+  has: optional(stringBase),
+  hasEvery: optional(stringList),
+  hasSome: optional(stringList),
+  isEmpty: optional(boolean()),
+});
+const stringNullableListFilterBase = object({
+  equals: optional(stringListNullable),
+  has: optional(stringBase),
+  hasEvery: optional(stringList),
+  hasSome: optional(stringList),
+  isEmpty: optional(boolean()),
+});
 const stringFilter = union([
   shorthandFilter(stringBase),
   extend(stringFilterBase, {
@@ -141,25 +130,22 @@ const stringNullableUpdateFactory = <S extends AnySchema>(base: S) => {
 const stringListUpdateFactory = <S extends AnySchema>(base: S) =>
   union([
     shorthandUpdate(array(base)),
-    partial(
-      object({
-        set: array(base),
-        push: union([base, array(base)]),
-        unshift: union([base, array(base)]),
-      })
-    ),
+
+    object({
+      set: optional(array(base)),
+      push: optional(union([base, array(base)])),
+      unshift: optional(union([base, array(base)])),
+    }),
   ]);
 
 const stringListNullableUpdateFactory = <S extends AnySchema>(base: S) =>
   union([
     shorthandUpdate(nullable(array(base))),
-    partial(
-      object({
-        set: nullable(array(base)),
-        push: union([base, array(base)]),
-        unshift: union([base, array(base)]),
-      })
-    ),
+    object({
+      set: optional(nullable(array(base))),
+      push: optional(union([base, array(base)])),
+      unshift: optional(union([base, array(base)])),
+    }),
   ]);
 
 // =============================================================================
