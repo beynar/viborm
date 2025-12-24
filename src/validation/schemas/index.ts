@@ -58,6 +58,16 @@ export type { NullableSchema } from "./nullable";
 export { optional } from "./optional";
 export type { OptionalSchema } from "./optional";
 
+// Negative schemas (narrowing wrappers)
+export { nonNullable } from "./nonNullable";
+export type { NonNullableSchema } from "./nonNullable";
+
+export { nonOptional, required } from "./nonOptional";
+export type { NonOptionalSchema } from "./nonOptional";
+
+export { nonArray, element } from "./nonArray";
+export type { NonArraySchema } from "./nonArray";
+
 // Object schemas
 export { object } from "./object";
 export type { ObjectSchema, ObjectEntries, ObjectOptions } from "./object";
@@ -69,8 +79,11 @@ export type { UnionSchema } from "./union";
 // Note: lazy() removed - use thunks directly in object entries: () => schema
 // This is simpler and handles circular references automatically
 
-export { pipe, transform } from "./pipe";
+export { pipe, transform as transformAction } from "./pipe";
 export type { PipeSchema, TransformAction, PipeAction } from "./pipe";
+
+export { coerce, map } from "./transform";
+export type { TransformSchema } from "./transform";
 
 export { record } from "./record";
 export type { RecordSchema } from "./record";

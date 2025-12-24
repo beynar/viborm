@@ -35,7 +35,7 @@ export function ok<T>(value: T): ValidationResult<T> {
 export function getDefault<T>(
   options: ScalarOptions<T, any> | undefined
 ): T | undefined {
-  if (!options?.default) return undefined;
+  if (options?.default === undefined) return undefined;
   return typeof options.default === "function"
     ? (options.default as () => T)()
     : options.default;
@@ -75,44 +75,60 @@ export function applyOptions<T, TOut, TSchemaOut = T>(
     return fail(`Expected ${typeName}, received null`);
   }
 
-  // Handle array option
+  // Handle array option - single pass optimization
   if (options?.array) {
     if (!Array.isArray(value)) {
       return fail(`Expected array of ${typeName}, received ${typeof value}`);
     }
-    const results: TSchemaOut[] = [];
-    for (let i = 0; i < value.length; i++) {
-      const itemResult = baseValidate(value[i]);
+    
+    const len = value.length;
+    const hasSchema = options.schema !== undefined;
+    const hasTransform = options.transform !== undefined;
+    const schemaValidate = hasSchema ? options.schema!["~standard"].validate : null;
+    const transformFn = hasTransform ? options.transform! : null;
+    
+    // Pre-allocate result array (avoids push overhead)
+    const results = new Array<TOut>(len);
+    
+    for (let i = 0; i < len; i++) {
+      const item = value[i];
+      
+      // Base validation
+      const itemResult = baseValidate(item);
       if (itemResult.issues) {
         const issue = itemResult.issues[0]!;
-        const newPath: PropertyKey[] = [i, ...(issue.path || [])];
-        return fail(issue.message, newPath);
+        // Use concat instead of spread for better performance
+        return fail(
+          issue.message,
+          issue.path ? ([i] as PropertyKey[]).concat(issue.path) : [i]
+        );
       }
-      // Apply schema validation per item if present
-      let itemOutput = (itemResult as { value: T })
-        .value as unknown as TSchemaOut;
-      if (options.schema) {
-        const schemaResult = options.schema["~standard"].validate(itemOutput);
+      
+      let output = (itemResult as { value: T }).value;
+      
+      // Schema validation (if present)
+      if (schemaValidate) {
+        const schemaResult = schemaValidate(output);
         if ("then" in schemaResult) {
-          return fail(`Async schemas are not supported`);
+          return fail("Async schemas are not supported", [i]);
         }
         if (schemaResult.issues) {
-          const schemaIssue = schemaResult.issues[0]!;
-          const path: PropertyKey[] = [
-            i,
-            ...((schemaIssue.path as PropertyKey[]) || []),
-          ];
-          return fail(schemaIssue.message as string, path);
+          const issue = schemaResult.issues[0]!;
+          // Use concat instead of spread for better performance
+          return fail(
+            issue.message as string,
+            issue.path
+              ? ([i] as PropertyKey[]).concat(issue.path as PropertyKey[])
+              : [i]
+          );
         }
-        itemOutput = schemaResult.value as TSchemaOut;
+        output = (schemaResult as unknown as { value: T }).value;
       }
-      results.push(itemOutput);
+      
+      // Transform + assign in single step (avoids second array allocation)
+      results[i] = (transformFn ? transformFn(output as unknown as TSchemaOut) : output) as TOut;
     }
-    // Apply transform to each item if present
-    if (options.transform) {
-      const transformed = results.map((item) => options.transform!(item));
-      return ok(transformed as unknown as TOut);
-    }
+    
     return ok(results as unknown as TOut);
   }
 
@@ -122,27 +138,28 @@ export function applyOptions<T, TOut, TSchemaOut = T>(
     return result as ValidationResult<TOut>;
   }
 
-  let baseValue = (result as { value: T }).value;
-  let schemaOutput: TSchemaOut = baseValue as unknown as TSchemaOut;
+  let output = (result as { value: T }).value;
 
   // Apply additional schema validation (T → TSchemaOut)
-  if (options?.schema) {
-    const schemaResult = options.schema["~standard"].validate(baseValue);
+  // Hoist check outside to avoid repeated property access
+  const schemaValidate = options?.schema?.["~standard"].validate;
+  if (schemaValidate) {
+    const schemaResult = schemaValidate(output);
     if ("then" in schemaResult) {
-      return fail(`Async schemas are not supported`);
+      return fail("Async schemas are not supported");
     }
     if (schemaResult.issues) {
       return { issues: schemaResult.issues as readonly ValidationIssue[] };
     }
-    schemaOutput = schemaResult.value as TSchemaOut;
+    output = (schemaResult as unknown as { value: T }).value;
   }
 
-  // Apply transform (TSchemaOut → TOut)
-  if (options?.transform) {
-    return ok(options.transform(schemaOutput) as TOut);
-  }
-
-  return ok(schemaOutput as unknown as TOut);
+  // Apply transform (TSchemaOut → TOut) - single return path
+  return ok(
+    (options?.transform 
+      ? options.transform(output as unknown as TSchemaOut) 
+      : output) as TOut
+  );
 }
 
 /**
@@ -184,5 +201,5 @@ export function validateSchema<T>(
   if (result.issues) {
     return { issues: result.issues as readonly ValidationIssue[] };
   }
-  return ok(result.value as T);
+  return ok((result as { value: T }).value);
 }

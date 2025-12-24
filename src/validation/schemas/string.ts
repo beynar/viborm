@@ -11,6 +11,11 @@ export interface StringSchema<TInput = string, TOutput = string>
   readonly type: "string";
 }
 
+// Pre-computed error for fast path (avoid allocation on error)
+const STRING_ERROR = Object.freeze({ 
+  issues: Object.freeze([Object.freeze({ message: "Expected string" })]) 
+});
+
 /**
  * Validate that a value is a string.
  */
@@ -34,6 +39,23 @@ export function string<
 >(
   options?: Opts
 ): StringSchema<ComputeInput<string, Opts>, ComputeOutput<string, Opts>> {
+  // Fast path: no options = inline validation (avoids function call overhead)
+  if (options === undefined) {
+    return {
+      type: "string",
+      "~standard": {
+        version: 1 as const,
+        vendor: "viborm" as const,
+        validate(value: unknown) {
+          return typeof value === "string" 
+            ? { value } 
+            : STRING_ERROR;
+        },
+      },
+    } as StringSchema<ComputeInput<string, Opts>, ComputeOutput<string, Opts>>;
+  }
+  
+  // Slow path: has options, use full applyOptions
   return createSchema("string", (value) =>
     applyOptions(value, validateString, options, "string")
   ) as StringSchema<ComputeInput<string, Opts>, ComputeOutput<string, Opts>>;
@@ -41,4 +63,5 @@ export function string<
 
 // Export the validate function for reuse
 export { validateString };
+
 

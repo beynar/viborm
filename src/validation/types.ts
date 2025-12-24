@@ -60,7 +60,7 @@ export interface ScalarOptions<T, TOut = T, TSchemaOut = TOut> {
   optional?: boolean;
   nullable?: boolean;
   array?: boolean;
-  default?: T | (() => T);
+  default?: any | (() => any) | undefined;
   /** Transform function applied AFTER schema validation */
   transform?: (value: TSchemaOut) => TOut;
   /** Additional StandardSchema for extra validation. Its output flows to transform. */

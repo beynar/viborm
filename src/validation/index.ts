@@ -69,13 +69,22 @@ export {
   array,
   nullable,
   optional,
+  // Negative wrappers (narrowing)
+  nonNullable,
+  nonOptional,
+  required,
+  nonArray,
+  element,
   // Objects
   object,
   // Composition
   union,
   pipe,
-  transform,
+  transformAction,
   record,
+  // Transform wrapper
+  coerce,
+  map,
   // Validators (for reuse)
   validateString,
   validateNumber,
@@ -116,6 +125,10 @@ export type {
   ArraySchema,
   NullableSchema,
   OptionalSchema,
+  // Negative wrapper types
+  NonNullableSchema,
+  NonOptionalSchema,
+  NonArraySchema,
   // Object types
   ObjectSchema,
   ObjectEntries,
@@ -127,6 +140,8 @@ export type {
   TransformAction,
   PipeAction,
   RecordSchema,
+  // Transform wrapper type
+  TransformSchema,
 } from "./schemas";
 
 import { StandardSchemaV1 } from "@standard-schema";
@@ -152,11 +167,18 @@ import {
   array as arrayFn,
   nullable as nullableFn,
   optional as optionalFn,
+  nonNullable as nonNullableFn,
+  nonOptional as nonOptionalFn,
+  required as requiredFn,
+  nonArray as nonArrayFn,
+  element as elementFn,
   object as objectFn,
   union as unionFn,
   pipe as pipeFn,
-  transform as transformFn,
+  transformAction as transformActionFn,
   record as recordFn,
+  coerce as coerceFn,
+  map as mapFn,
 } from "./schemas";
 import { Prettify } from "./types";
 
@@ -202,21 +224,27 @@ export const v = {
   array: arrayFn,
   nullable: nullableFn,
   optional: optionalFn,
+  // Negative wrappers (narrowing)
+  nonNullable: nonNullableFn,
+  nonOptional: nonOptionalFn,
+  required: requiredFn,
+  nonArray: nonArrayFn,
+  element: elementFn,
   // Objects
   object: objectFn,
   // Composition
   union: unionFn,
   pipe: pipeFn,
-  transform: transformFn,
+  transformAction: transformActionFn,
   record: recordFn,
+  // Transform wrappers
+  coerce: coerceFn,
+  map: mapFn,
 } as const;
 
 // Default export for convenience
 export default v;
 
-const user = v.object({
-  name: v.string(),
-  age: v.number(),
-  friends: () => user,
-});
-type User = StandardSchemaV1.InferOutput<typeof user>;
+export const safeParse = <T>(schema: T, value) => {
+  return schema["~standard"].validate(value);
+};

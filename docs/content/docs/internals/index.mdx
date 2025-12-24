@@ -13,7 +13,8 @@ This section documents VibORM's internal architecture for contributors and advan
 - **[Architecture](/docs/internals/architecture)** - High-level system design and component relationships
 - **[Schema System](/docs/internals/schema-system)** - How models, fields, and relations are defined
 - **[Type System](/docs/internals/type-system)** - TypeScript type inference and derivation
-- **[Runtime Schemas](/docs/internals/runtime-schemas)** - Valibot schema builders for validation
+- **[Validation](/docs/internals/validation)** - Custom StandardSchema-compliant validation library
+- **[Runtime Schemas](/docs/internals/runtime-schemas)** - Schema builders for model validation
 - **[Normalization](/docs/internals/normalization)** - Input transformation pipeline
 - **[Contract](/docs/internals/contract)** - Guarantees between types and runtime
 
@@ -41,7 +42,7 @@ type UserFields = (typeof user)["~"]["fields"];
 Every operation is validated twice:
 
 1. **Compile-time** - TypeScript catches type errors
-2. **Runtime** - Valibot schemas validate actual data
+2. **Runtime** - VibORM's [validation library](/docs/internals/validation) validates actual data
 
 ### 3. Normalization Pipeline
 
@@ -57,7 +58,7 @@ User-friendly shorthand syntax is normalized to canonical forms before reaching 
         │                       │                       │
         ▼                       ▼                       ▼
    Type System            Type Guards           SQL Generation
-   Valibot Schemas        Validation            Database Adapters
+   VibORM Validation      Validation            Database Adapters
 ```
 
 ## Quick Architecture Overview
@@ -78,9 +79,9 @@ graph TB
     end
 
     subgraph "Runtime Schemas"
-        FS --> AS[ArkType Schemas]
-        RS --> ARS[Relation Schemas]
-        AS --> VS[Validation + Normalization]
+        FS --> VS[VibORM Schemas]
+        RS --> VRS[Relation Schemas]
+        VS --> VN[Validation + Normalization]
     end
 
     subgraph "Query Engine"
@@ -97,7 +98,8 @@ graph TB
 | Field classes    | `src/schema/fields/*/field.ts`    | Field type definitions        |
 | Relation classes | `src/schema/relation/relation.ts` | Relationship definitions      |
 | Type helpers     | `src/schema/model/types/`         | TypeScript type derivation    |
-| Runtime schemas  | `src/schema/model/runtime/`       | Valibot schema builders       |
+| Validation lib   | `src/validation/`                 | StandardSchema validation     |
+| Runtime schemas  | `src/schema/model/runtime/`       | Model schema builders         |
 | Client           | `src/client/`                     | Operation execution           |
 | Query Engine     | `src/query-engine/`               | SQL generation                |
 

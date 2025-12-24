@@ -51,8 +51,11 @@ export function record<
 
         const valueResult = validateSchema(value, v);
         if (valueResult.issues) {
-          const issue = valueResult.issues[0];
-          const newPath: PropertyKey[] = [k, ...(issue.path || [])];
+          const issue = valueResult.issues[0]!;
+          // Use concat instead of spread for better performance
+          const newPath = issue.path
+            ? ([k] as PropertyKey[]).concat(issue.path)
+            : [k];
           return fail(issue.message, newPath);
         }
 

@@ -11,6 +11,11 @@ export interface BooleanSchema<TInput = boolean, TOutput = boolean>
   readonly type: "boolean";
 }
 
+// Pre-computed error for fast path
+const BOOLEAN_ERROR = Object.freeze({ 
+  issues: Object.freeze([Object.freeze({ message: "Expected boolean" })]) 
+});
+
 /**
  * Validate that a value is a boolean.
  */
@@ -33,6 +38,23 @@ export function boolean<
 >(
   options?: Opts
 ): BooleanSchema<ComputeInput<boolean, Opts>, ComputeOutput<boolean, Opts>> {
+  // Fast path: no options = inline validation
+  if (options === undefined) {
+    return {
+      type: "boolean",
+      "~standard": {
+        version: 1 as const,
+        vendor: "viborm" as const,
+        validate(value: unknown) {
+          return typeof value === "boolean"
+            ? { value }
+            : BOOLEAN_ERROR;
+        },
+      },
+    } as BooleanSchema<ComputeInput<boolean, Opts>, ComputeOutput<boolean, Opts>>;
+  }
+  
+  // Slow path: has options
   return createSchema("boolean", (value) =>
     applyOptions(value, validateBoolean, options, "boolean")
   ) as BooleanSchema<ComputeInput<boolean, Opts>, ComputeOutput<boolean, Opts>>;
@@ -40,4 +62,5 @@ export function boolean<
 
 // Export the validate function for reuse
 export { validateBoolean };
+
 

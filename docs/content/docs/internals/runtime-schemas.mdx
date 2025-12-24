@@ -1,12 +1,16 @@
 ---
 title: Runtime Schemas
-description: Valibot schema builders for runtime validation
+description: Model schema builders for runtime validation
 icon: Shield
 ---
 
 # Runtime Schemas
 
-VibORM uses [Valibot](https://valibot.dev) for runtime validation. Each model generates schemas that mirror the TypeScript types.
+VibORM uses its [custom validation library](/docs/internals/validation) for runtime validation. Each model generates schemas that mirror the TypeScript types.
+
+<Callout type="info">
+  VibORM's validation library is a lightweight, StandardSchema-compliant alternative to Valibot/Zod, optimized for ORM use cases with recursive types and edge environments.
+</Callout>
 
 ## Schema Building Architecture
 
@@ -120,78 +124,72 @@ graph TB
 
 ```typescript
 // src/schema/fields/string/schemas.ts
-import { string, union, object, partial, optional, array } from "valibot";
+import { v } from "viborm";
 
 // Base types
-export const stringBase = string();
-export const stringNullable = nullable(stringBase);
+export const stringBase = v.string();
+export const stringNullable = v.nullable(v.string());
 
 // Filter with shorthand normalization
-const stringFilterBase = partial(
-  object({
-    equals: stringBase,
-    in: array(stringBase),
-    notIn: array(stringBase),
-    contains: stringBase,
-    startsWith: stringBase,
-    endsWith: stringBase,
-    // ...
-  })
-);
-
-export const stringFilter = union([
-  shorthandFilter(stringBase), // Shorthand: string -> { equals: string }
-  extend(stringFilterBase, {
-    not: optional(union([shorthandFilter(stringBase), stringFilterBase])),
+export const stringFilter = v.union([
+  v.string(),  // Shorthand: "foo" → { equals: "foo" }
+  v.object({
+    equals: v.string({ optional: true }),
+    in: v.string({ array: true, optional: true }),
+    notIn: v.string({ array: true, optional: true }),
+    contains: v.string({ optional: true }),
+    startsWith: v.string({ optional: true }),
+    endsWith: v.string({ optional: true }),
+    not: v.union([v.string(), /* nested filter */], { optional: true }),
   }),
 ]);
 
 // Update with shorthand normalization
-export const stringUpdate = union([
-  shorthandUpdate(stringBase), // Shorthand: string -> { set: string }
-  partial(object({ set: stringBase })),
+export const stringUpdate = v.union([
+  v.string(),  // Shorthand: "foo" → { set: "foo" }
+  v.object({
+    set: v.string({ optional: true }),
+  }),
 ]);
 ```
 
 ## Where Schema Building
 
 ```typescript
-import { object, optional, union, nullable } from "valibot";
+import { v } from "viborm";
 
-export const buildWhereSchema = (model: Model<any>): BaseSchema => {
-  const shape: Record<string, BaseSchema | (() => BaseSchema)> = {};
+export const buildWhereSchema = (model: Model<any>) => {
+  const shape: Record<string, any> = {};
 
   // Scalar fields
   for (const [name, field] of model["~"].fieldMap) {
-    shape[name] = optional(field["~"].schemas.filter);
+    shape[name] = field["~"].schemas.filter;  // Already optional
   }
 
-  // Relation fields (lazy for circular references)
+  // Relation fields (thunks for circular references)
   for (const [name, relation] of model["~"].relations) {
     const relationType = relation["~"].relationType;
     const getTargetModel = relation["~"].getter;
 
     if (relationType === "oneToOne" || relationType === "manyToOne") {
       // To-one with shorthand normalization
-      shape[name] = optional(
-        union([
-          nullable(getTargetModel()["~"].schemas.whereUnique),
-          object({ is: nullable(getTargetModel()["~"].schemas.whereUnique) }),
-        ])
-      );
+      shape[name] = v.union([
+        v.nullable(getTargetModel()["~"].schemas.whereUnique),
+        v.object({ 
+          is: v.nullable(getTargetModel()["~"].schemas.whereUnique) 
+        }),
+      ], { optional: true });
     } else {
-      // To-many: some/every/none
-      shape[name] = optional(
-        object({
-          some: optional(() => getTargetModel()["~"].schemas.where),
-          every: optional(() => getTargetModel()["~"].schemas.where),
-          none: optional(() => getTargetModel()["~"].schemas.where),
-        })
-      );
+      // To-many: some/every/none (thunks for circular refs)
+      shape[name] = v.object({
+        some: () => getTargetModel()["~"].schemas.where,
+        every: () => getTargetModel()["~"].schemas.where,
+        none: () => getTargetModel()["~"].schemas.where,
+      }, { optional: true });
     }
   }
 
-  return object(shape);
+  return v.object(shape);
 };
 ```
 
@@ -231,20 +229,20 @@ sequenceDiagram
 ### Thunk Pattern
 
 ```typescript
-import { lazy } from "valibot";
+import { v } from "viborm";
 
 // Bad - causes infinite recursion
 shape["posts"] = buildWhereSchema(postModel);
 
-// Good - lazy evaluation
-shape["posts"] = optional(
-  object({
-    some: optional(lazy(() => getTargetModel()["~"].schemas.where)),
-    every: optional(lazy(() => getTargetModel()["~"].schemas.where)),
-    none: optional(lazy(() => getTargetModel()["~"].schemas.where)),
-  })
-);
+// Good - thunks for lazy evaluation
+shape["posts"] = v.object({
+  some: () => getTargetModel()["~"].schemas.where,  // Thunk
+  every: () => getTargetModel()["~"].schemas.where,
+  none: () => getTargetModel()["~"].schemas.where,
+}, { optional: true });
 ```
+
+Unlike Valibot's `lazy()`, VibORM's thunks preserve full type inference for circular references.
 
 ## Model-Level Caching
 
@@ -273,17 +271,17 @@ class Model<State> {
 Handles single-field and compound unique identifiers:
 
 ```typescript
-import { object, optional, union, pipe, custom } from "valibot";
+import { v } from "viborm";
 
-export const buildWhereUniqueSchema = (model: Model<any>): BaseSchema => {
-  const shape: Record<string, BaseSchema> = {};
+export const buildWhereUniqueSchema = (model: Model<any>) => {
+  const shape: Record<string, any> = {};
   const uniqueFieldNames: string[] = [];
   const compoundKeyNames: string[] = [];
 
   // Single-field uniques
   for (const [name, field] of model["~"].fieldMap) {
     if (field["~"].state.isId || field["~"].state.isUnique) {
-      shape[name] = optional(field["~"].schemas.base);
+      shape[name] = field["~"].schemas.base;  // Optional by default
       uniqueFieldNames.push(name);
     }
   }
@@ -291,14 +289,13 @@ export const buildWhereUniqueSchema = (model: Model<any>): BaseSchema => {
   // Compound ID
   const compoundId = model["~"].compoundId;
   if (compoundId?.fields?.length > 0) {
-    const keyName =
-      compoundId.name ?? generateCompoundKeyName(compoundId.fields);
-    const compoundShape: Record<string, BaseSchema> = {};
+    const keyName = compoundId.name ?? generateCompoundKeyName(compoundId.fields);
+    const compoundShape: Record<string, any> = {};
     for (const fieldName of compoundId.fields) {
-      compoundShape[fieldName] =
+      compoundShape[fieldName] = 
         model["~"].fieldMap.get(fieldName)["~"].schemas.base;
     }
-    shape[keyName] = optional(object(compoundShape));
+    shape[keyName] = v.object(compoundShape, { optional: true });
     compoundKeyNames.push(keyName);
   }
 
@@ -307,22 +304,15 @@ export const buildWhereUniqueSchema = (model: Model<any>): BaseSchema => {
 
   // Validation: at least one identifier required
   const allIdentifiers = [...uniqueFieldNames, ...compoundKeyNames];
-  return pipe(
-    object(shape),
-    custom((input) => {
+  
+  return v.pipe(
+    v.object(shape),
+    v.transform((input) => {
       const hasIdentifier = allIdentifiers.some((name) => name in input);
       if (!hasIdentifier) {
-        return {
-          kind: "validation",
-          type: "custom",
-          input,
-          expected: `an object with at least one of: ${allIdentifiers.join(
-            ", "
-          )}`,
-          message: `Must provide at least one of: ${allIdentifiers.join(", ")}`,
-        };
+        throw new Error(`Must provide at least one of: ${allIdentifiers.join(", ")}`);
       }
-      return { output: input };
+      return input;
     })
   );
 };
@@ -333,18 +323,16 @@ export const buildWhereUniqueSchema = (model: Model<any>): BaseSchema => {
 ### To-One Create
 
 ```typescript
-import { object, optional, lazy } from "valibot";
+import { v } from "viborm";
 
 const buildRelationCreateSchema = (relation, getTargetModel) => {
-  return object({
-    create: optional(lazy(() => getTargetModel()["~"].schemas.create)),
-    connect: optional(lazy(() => getTargetModel()["~"].schemas.whereUnique)),
-    connectOrCreate: optional(
-      object({
-        where: lazy(() => getTargetModel()["~"].schemas.whereUnique),
-        create: lazy(() => getTargetModel()["~"].schemas.create),
-      })
-    ),
+  return v.object({
+    create: () => getTargetModel()["~"].schemas.create,  // Thunk
+    connect: () => getTargetModel()["~"].schemas.whereUnique,
+    connectOrCreate: v.object({
+      where: () => getTargetModel()["~"].schemas.whereUnique,
+      create: () => getTargetModel()["~"].schemas.create,
+    }, { optional: true }),
   });
 };
 ```
@@ -352,21 +340,29 @@ const buildRelationCreateSchema = (relation, getTargetModel) => {
 ### To-Many Create
 
 ```typescript
-import { array, union, pipe, transform } from "valibot";
+import { v } from "viborm";
 
 // Uses ensureArray helper for single-or-array normalization
-const ensureArray = <T>(v: T | T[]): T[] => (Array.isArray(v) ? v : [v]);
+const ensureArray = <T>(x: T | T[]): T[] => (Array.isArray(x) ? x : [x]);
 
-const createSchema = lazy(() => getTargetModel()["~"].schemas.create);
-return object({
-  create: optional(
-    pipe(union([createSchema, array(createSchema)]), transform(ensureArray))
-  ),
-  connect: optional(
-    pipe(union([connectSchema, array(connectSchema)]), transform(ensureArray))
-  ),
-  // ...
-});
+const buildToManyCreate = (getTargetModel) => {
+  return v.object({
+    create: v.union([
+      () => getTargetModel()["~"].schemas.create,
+      v.array(() => getTargetModel()["~"].schemas.create),
+    ], { 
+      optional: true, 
+      transform: ensureArray 
+    }),
+    connect: v.union([
+      () => getTargetModel()["~"].schemas.whereUnique,
+      v.array(() => getTargetModel()["~"].schemas.whereUnique),
+    ], { 
+      optional: true, 
+      transform: ensureArray 
+    }),
+  });
+};
 ```
 
 ### To-Many Update (Array-Only Operations)
@@ -374,34 +370,30 @@ return object({
 Some operations only accept arrays:
 
 ```typescript
-return object({
+return v.object({
   // Single-or-array (normalized)
-  create: optional(
-    pipe(union([createSchema, array(createSchema)]), transform(ensureArray))
-  ),
-  connect: optional(
-    pipe(union([connectSchema, array(connectSchema)]), transform(ensureArray))
-  ),
+  create: v.array(() => createSchema, { optional: true }),
+  connect: v.array(() => connectSchema, { optional: true }),
 
   // Array-only (no single-value shorthand)
-  deleteMany: optional(array(whereSchema)),
-  updateMany: optional(array(updateManySchema)),
-  upsert: optional(array(upsertSchema)),
+  deleteMany: v.array(() => whereSchema, { optional: true }),
+  updateMany: v.array(() => updateManySchema, { optional: true }),
+  upsert: v.array(() => upsertSchema, { optional: true }),
 });
 ```
 
 ## Schema Type Exports
 
-Valibot schemas expose their types via `InferInput` and `InferOutput`:
+VibORM schemas implement `StandardSchemaV1`, so types are accessed via the standard interface:
 
 ```typescript
-import { InferInput, InferOutput } from "valibot";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 
 // Get input type (what user provides)
-type StringFilterInput = InferInput<typeof stringFilter>;
+type StringFilterInput = StandardSchemaV1.InferInput<typeof stringFilter>;
 
 // Get output type (after normalization)
-type StringFilterOutput = InferOutput<typeof stringFilter>;
+type StringFilterOutput = StandardSchemaV1.InferOutput<typeof stringFilter>;
 ```
 
 For union schemas with shorthand normalization, these differ:
@@ -410,3 +402,5 @@ For union schemas with shorthand normalization, these differ:
 - `InferOutput`: `{ equals: string } | { contains?: string, ... }`
 
 The output type reflects the normalized form after shorthand transformation.
+
+See the [Validation Library](/docs/internals/validation) documentation for more details on the type system and recursive type support.

@@ -47,3 +47,4 @@ export interface LooseCoreSchemas {
   orderBy: ObjectSchema<any, any>;
   scalarCreate: ObjectSchema<any, any>;
 }
+

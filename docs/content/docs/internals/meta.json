@@ -5,6 +5,7 @@
     "architecture",
     "schema-system",
     "type-system",
+    "validation",
     "runtime-schemas",
     "normalization",
     "contract"

@@ -59,7 +59,10 @@ export function array<TItem extends VibSchema<any, any> | ThunkCast<any, any>>(
         const itemResult = validateSchema(resolvedItem, value[i]);
         if (itemResult.issues) {
           const issue = itemResult.issues[0]!;
-          const newPath: PropertyKey[] = [i, ...(issue.path || [])];
+          // Use concat instead of spread for better performance
+          const newPath = issue.path
+            ? ([i] as PropertyKey[]).concat(issue.path)
+            : [i];
           return fail(issue.message, newPath);
         }
         results.push((itemResult as { value: InferOutput<TItem> }).value);

@@ -26,7 +26,7 @@ export type ObjectEntries = Record<
  * Options for object schemas.
  */
 export interface ObjectOptions<T = unknown> {
-  /** Make all fields optional (default: false) */
+  /** Make all fields optional (default: true) */
   partial?: boolean;
   /** Reject unknown keys (default: true) */
   strict?: boolean;
@@ -44,17 +44,19 @@ export interface ObjectOptions<T = unknown> {
 
 /**
  * Compute input type based on partial option.
+ * Default is partial: true, so only non-partial when explicitly { partial: false }
  */
-type ComputeObjectInput<TEntries, TOpts> = TOpts extends { partial: true }
-  ? Partial<InferInputShape<TEntries>>
-  : InferInputShape<TEntries>;
+type ComputeObjectInput<TEntries, TOpts> = TOpts extends { partial: false }
+  ? InferInputShape<TEntries>
+  : Partial<InferInputShape<TEntries>>;
 
 /**
  * Compute output type based on partial option.
+ * Default is partial: true, so only non-partial when explicitly { partial: false }
  */
-type ComputeObjectOutput<TEntries, TOpts> = TOpts extends { partial: true }
-  ? Partial<InferOutputShape<TEntries>>
-  : InferOutputShape<TEntries>;
+type ComputeObjectOutput<TEntries, TOpts> = TOpts extends { partial: false }
+  ? InferOutputShape<TEntries>
+  : Partial<InferOutputShape<TEntries>>;
 
 /**
  * Apply wrapper options (optional, nullable, array) to object type.
@@ -93,79 +95,102 @@ export interface ObjectSchema<
 // Object Schema Implementation
 // =============================================================================
 
+// Pre-computed error for fast path
+const OBJECT_TYPE_ERROR = Object.freeze({
+  issues: Object.freeze([Object.freeze({ message: "Expected object" })]),
+});
+
 /**
  * Resolve a schema entry (handles thunks for circular references).
  */
 function resolveEntry(
   entry: VibSchema<any, any> | ThunkCast<any, any>
 ): VibSchema<any, any> {
-  if (typeof entry === "function") {
-    return entry() as VibSchema<any, any>;
-  }
-  return entry;
+  return typeof entry === "function" ? (entry() as VibSchema<any, any>) : entry;
 }
 
 /**
- * Core object validation logic.
+ * Create an optimized validator for an object schema.
+ * Pre-computes keys and caches resolved schemas for performance.
  */
-function validateObject(
+function createObjectValidator(
   entries: ObjectEntries,
-  value: unknown,
   options: ObjectOptions = {}
 ) {
-  const { partial = false, strict = true } = options;
+  const { partial = true, strict = true } = options;
+  const keys = Object.keys(entries);
+  const keyCount = keys.length;
 
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return fail(
-      `Expected object, received ${
-        Array.isArray(value) ? "array" : typeof value
-      }`
-    );
-  }
+  // Cache for resolved schemas (lazy resolution for circular refs)
+  let resolvedSchemas: VibSchema<any, any>[] | null = null;
 
-  const input = value as Record<string, unknown>;
-  const output: Record<string, unknown> = {};
-
-  // Check for unknown keys first if strict (fail-fast)
-  if (strict) {
-    for (const key in input) {
-      if (!(key in entries)) {
-        return fail(`Unknown key: ${key}`, [key]);
+  const getResolvedSchemas = () => {
+    if (resolvedSchemas === null) {
+      resolvedSchemas = new Array(keyCount);
+      for (let i = 0; i < keyCount; i++) {
+        resolvedSchemas[i] = resolveEntry(entries[keys[i]!]!);
       }
     }
-  }
+    return resolvedSchemas;
+  };
 
-  // Validate each entry
-  for (const key in entries) {
-    const entrySchema = resolveEntry(entries[key]!);
-    const entryValue = input[key];
+  // Pre-create key set for O(1) lookup
+  const keySet = new Set(keys);
 
-    // Check if field is present
-    if (!(key in input)) {
-      // If partial mode or schema accepts undefined (optional)
-      if (partial || entrySchema.type === "optional") {
-        const defaultVal = (entrySchema as any).default;
-        if (defaultVal !== undefined) {
-          output[key] =
-            typeof defaultVal === "function" ? defaultVal() : defaultVal;
-        } else {
-          output[key] = undefined;
+  return (value: unknown) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return OBJECT_TYPE_ERROR;
+    }
+
+    const input = value as Record<string, unknown>;
+    const output: Record<string, unknown> = Object.create(null);
+    const schemas = getResolvedSchemas();
+
+    // Check for unknown keys first if strict (fail-fast)
+    if (strict) {
+      for (const key in input) {
+        if (!keySet.has(key)) {
+          return fail(`Unknown key: ${key}`, [key]);
         }
-        continue;
       }
-      return fail(`Missing required field: ${key}`, [key]);
     }
 
-    const result = validateSchema(entrySchema, entryValue);
-    if (result.issues) {
-      const issue = result.issues[0]!;
-      const newPath: PropertyKey[] = [key, ...(issue.path || [])];
-      return fail(issue.message, newPath);
-    }
-    output[key] = (result as { value: unknown }).value;
-  }
+    // Validate each entry using indexed access (faster than for...in)
+    for (let i = 0; i < keyCount; i++) {
+      const key = keys[i]!;
+      const entrySchema = schemas[i]!;
 
-  return ok(output);
+      // Check if field is present
+      if (!(key in input)) {
+        // Try validating undefined - if schema accepts it, use result
+        const undefinedResult = validateSchema(entrySchema, undefined);
+        if (!undefinedResult.issues) {
+          output[key] = (undefinedResult as { value: unknown }).value;
+          continue;
+        }
+
+        // If partial mode, allow undefined
+        if (partial) {
+          output[key] = undefined;
+          continue;
+        }
+
+        return fail(`Missing required field: ${key}`, [key]);
+      }
+
+      const result = validateSchema(entrySchema, input[key]);
+      if (result.issues) {
+        const issue = result.issues[0]!;
+        const newPath = issue.path
+          ? ([key] as PropertyKey[]).concat(issue.path)
+          : [key];
+        return fail(issue.message, newPath);
+      }
+      output[key] = (result as { value: unknown }).value;
+    }
+
+    return ok(output);
+  };
 }
 
 /**
@@ -177,7 +202,7 @@ function validateObject(
  * @param entries - Object field definitions
  * @param options - Schema options
  *   - `strict` (default: true) - Reject unknown keys
- *   - `partial` (default: false) - Make all fields optional
+ *   - `partial` (default: true) - Make all fields optional
  *   - `optional` - Allow undefined
  *   - `nullable` - Allow null
  *   - `array` - Validate as array of objects
@@ -204,72 +229,89 @@ export function object<
 >(entries: TEntries, options?: TOpts): R extends infer _ ? _ : never {
   type BaseOutput = ComputeObjectOutput<TEntries, TOpts>;
 
-  const validate = (value: unknown) => {
-    // Handle optional
-    if (options?.optional && value === undefined) {
-      if (options.default !== undefined) {
-        const defaultVal =
-          typeof options.default === "function"
-            ? (options.default as () => BaseOutput)()
-            : options.default;
-        return ok(defaultVal);
-      }
-      return ok(undefined);
-    }
+  // Pre-create the optimized object validator (caches keys and schemas)
+  const validateObj = createObjectValidator(entries as ObjectEntries, options);
 
-    // Handle nullable
-    if (options?.nullable && value === null) {
-      if (options.default !== undefined) {
-        const defaultVal =
-          typeof options.default === "function"
-            ? (options.default as () => BaseOutput)()
-            : options.default;
-        return ok(defaultVal);
-      }
-      return ok(null);
-    }
+  // Check if we have wrapper options (optional/nullable/array)
+  const hasOptional = options?.optional === true;
+  const hasNullable = options?.nullable === true;
+  const hasArray = options?.array === true;
+  const hasTransform = options?.transform !== undefined;
+  const hasDefault = options?.default !== undefined;
 
-    // Handle array
-    if (options?.array) {
-      if (!Array.isArray(value)) {
-        return fail(`Expected array of objects, received ${typeof value}`);
-      }
+  // Fast path: no wrapper options (most common case)
+  const needsWrapper =
+    hasOptional || hasNullable || hasArray || hasTransform || hasDefault;
 
-      const results: BaseOutput[] = [];
-      for (let i = 0; i < value.length; i++) {
-        const itemResult = validateObject(
-          entries as ObjectEntries,
-          value[i],
-          options
-        );
-        if (itemResult.issues) {
-          const issue = itemResult.issues[0]!;
-          const newPath: PropertyKey[] = [i, ...(issue.path || [])];
-          return fail(issue.message, newPath);
+  let validate: (value: unknown) => any;
+
+  if (!needsWrapper) {
+    // Fast path: direct object validation
+    validate = validateObj;
+  } else {
+    // Slow path: handle wrapper options
+    validate = (value: unknown) => {
+      // Handle optional
+      if (hasOptional && value === undefined) {
+        if (hasDefault) {
+          const defaultVal =
+            typeof options!.default === "function"
+              ? (options!.default as () => BaseOutput)()
+              : options!.default;
+          return ok(defaultVal);
         }
-        results.push((itemResult as { value: BaseOutput }).value);
+        return ok(undefined);
       }
 
-      let output: any = results;
-      if (options.transform) {
-        output = output.map(options.transform);
+      // Handle nullable
+      if (hasNullable && value === null) {
+        if (hasDefault) {
+          const defaultVal =
+            typeof options!.default === "function"
+              ? (options!.default as () => BaseOutput)()
+              : options!.default;
+          return ok(defaultVal);
+        }
+        return ok(null);
       }
-      return ok(output);
-    }
 
-    // Single object validation
-    const result = validateObject(entries as ObjectEntries, value, options);
-    if (result.issues) {
-      return result;
-    }
+      // Handle array
+      if (hasArray) {
+        if (!Array.isArray(value)) {
+          return fail(`Expected array of objects, received ${typeof value}`);
+        }
 
-    let output = result.value as BaseOutput;
-    if (options?.transform) {
-      // @ts-expect-error - transform type is complex with options generics
-      output = options.transform(output);
-    }
-    return ok(output);
-  };
+        const len = value.length;
+        const results = new Array<BaseOutput>(len);
+
+        for (let i = 0; i < len; i++) {
+          const itemResult = validateObj(value[i]);
+          if (itemResult.issues) {
+            const issue = itemResult.issues[0]!;
+            const newPath = issue.path
+              ? ([i] as PropertyKey[]).concat(issue.path)
+              : [i];
+            return fail(issue.message, newPath);
+          }
+          results[i] = hasTransform
+            ? options!.transform!(itemResult.value)
+            : itemResult.value;
+        }
+        return ok(results);
+      }
+
+      // Single object validation
+      const result = validateObj(value);
+      if (result.issues) {
+        return result;
+      }
+
+      return hasTransform
+        ? // @ts-expect-error - transform type is complex with options generics
+          ok(options!.transform!(result.value))
+        : result;
+    };
+  }
 
   const schema = createSchema("object", validate) as ObjectSchema<
     TEntries,

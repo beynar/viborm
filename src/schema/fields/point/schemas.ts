@@ -153,3 +153,4 @@ export type InferPointInput<
   F extends FieldState<"point">,
   Type extends "create" | "update" | "filter" | "base"
 > = InferInput<InferPointSchemas<F>[Type]>;
+

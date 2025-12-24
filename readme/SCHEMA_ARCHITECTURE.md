@@ -2,6 +2,24 @@
 
 VibORM uses a **config-based, type-safe schema system** where field definitions are immutable and chainable.
 
+## Validation Library
+
+VibORM includes a custom StandardSchema-compliant validation library. We built it because existing libraries don't meet ORM requirements:
+
+| Library | Issue |
+|---------|-------|
+| **ArkType** | Great thunk-based recursive types, but thunks are evaluated eagerly (not lazy) |
+| **Valibot** | Has `lazy()` for deferred evaluation, but type inference breaks for circular refs |
+| **Zod** | Heavy schema instantiation (71-262x slower), requires JIT/eval for performance |
+
+Our solution combines:
+- **Thunks with lazy evaluation** - Like Valibot's `lazy()`, but with ArkType's type preservation
+- **Dynamic schema creation** - 71-262x faster instantiation than Zod (critical for per-model schemas)
+- **Fail-fast validation** - 49x faster error paths than Zod
+- **Edge-compatible** - Works in Cloudflare Workers (no JIT/eval required)
+
+See [Validation Library docs](/docs/internals/validation) for implementation details.
+
 ## Core Concepts
 
 ```mermaid
@@ -67,7 +85,7 @@ email.config.isOptional  // true
 
 // Internals (type-level + validators)
 email["~"].infer         // string | null (TypeScript type)
-email["~"].createValidator.parse("test@example.com")  // Zod validation
+email["~"].schemas.base["~standard"].validate("test@example.com")  // Validation
 ```
 
 ## Chainable API Flow

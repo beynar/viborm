@@ -20,6 +20,7 @@ import {
   defaultUuid,
 } from "./autogenerate";
 import v from "../../../validation";
+import { InferInput } from "valibot";
 
 // =============================================================================
 // STRING FIELD CLASS
@@ -208,12 +209,26 @@ export class StringField<State extends FieldState<"string">> {
 export const string = (nativeType?: NativeType) =>
   new StringField(createDefaultState("string", stringBase), nativeType);
 
-const test = string().nullable().default("test");
+const test = string().nullable().array().default(["test"]);
 
 const user = v.object({
   name: v.string(test["~"]["state"]),
   age: v.number(),
   friends: () => user,
 });
+
 type UserInput = StandardSchemaV1.InferInput<typeof user>["name"];
 type UserOutput = StandardSchemaV1.InferOutput<typeof user>["name"];
+
+type BaseNow = InferInput<(typeof test)["~"]["schemas"]["base"]>;
+
+const createBase = <S extends FieldState<"string">>(state: S) => {
+  return v.string<S>(state);
+};
+const baseAfter = createBase(test["~"]["state"]);
+const nn = v.nonNullable(baseAfter);
+const no = v.nonOptional(baseAfter);
+// type BaseAfter = StandardSchemaV1.InferInput<typeof nn>;
+type BaseAfter = StandardSchemaV1.InferInput<typeof nn>;
+type BaseAfterNo = StandardSchemaV1.InferInput<typeof no>;
+type BaseAfterNoOut = StandardSchemaV1.InferOutput<typeof no>;

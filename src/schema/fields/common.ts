@@ -113,7 +113,7 @@ export interface FieldState<T extends ScalarFieldType = ScalarFieldType> {
   isUnique: boolean;
   default: DefaultValue<any> | undefined;
   autoGenerate: AutoGenerateType | undefined;
-  schema: StandardSchemaV1 | undefined;
+  schema: StandardSchemaV1<any, any> | undefined;
   base: BaseSchema<any, any, any>;
   optional: boolean;
   /** Custom column name in the database (set via .map()) */

@@ -23,6 +23,7 @@ import {
   shorthandUpdate,
   createWithDefault,
 } from "../common";
+import v from "../../../validation";
 
 // =============================================================================
 // BASE TYPES
@@ -130,7 +131,6 @@ const stringNullableUpdateFactory = <S extends AnySchema>(base: S) => {
 const stringListUpdateFactory = <S extends AnySchema>(base: S) =>
   union([
     shorthandUpdate(array(base)),
-
     object({
       set: optional(array(base)),
       push: optional(union([base, array(base)])),
@@ -243,3 +243,7 @@ export type InferStringInput<
   F extends FieldState<"string">,
   Type extends "create" | "update" | "filter" | "base"
 > = InferInput<InferStringSchemas<F>[Type]>;
+
+const stringSchemasNew = <F extends FieldState<"string">>(f: F) => {
+  const base = v.string(f);
+};
