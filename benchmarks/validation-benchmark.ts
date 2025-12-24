@@ -30,15 +30,25 @@ function validateStandard<T>(
 // Benchmark Utilities
 // =============================================================================
 
+const WARMUP_ITERATIONS = 1000;
+const BENCHMARK_RUNS = 5;
+
 function benchmark(name: string, fn: () => void, iterations = 10000): number {
-  // Warmup
-  for (let i = 0; i < 100; i++) fn();
+  // Extended warmup to stabilize JIT
+  for (let i = 0; i < WARMUP_ITERATIONS; i++) fn();
 
-  const start = performance.now();
-  for (let i = 0; i < iterations; i++) fn();
-  const end = performance.now();
+  // Run multiple times and take the median for stability
+  const times: number[] = [];
+  for (let run = 0; run < BENCHMARK_RUNS; run++) {
+    const start = performance.now();
+    for (let i = 0; i < iterations; i++) fn();
+    const end = performance.now();
+    times.push(end - start);
+  }
 
-  return end - start;
+  // Return median (more stable than mean)
+  times.sort((a, b) => a - b);
+  return times[Math.floor(times.length / 2)]!;
 }
 
 function formatMs(ms: number): string {
