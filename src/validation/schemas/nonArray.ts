@@ -45,34 +45,31 @@ export function nonArray<I, O>(
 export function nonArray<I, O>(
   schema: StandardSchemaV1<I, O>
 ): NonArraySchema<ElementOf<I>, ElementOf<O>> {
-  return createSchema(
-    "nonArray",
-    (value): ValidationResult<ElementOf<O>> => {
-      // If value is an array, validate first element
-      // If not, validate directly
-      const toValidate = Array.isArray(value) ? value[0] : value;
+  return createSchema("nonArray", (value): ValidationResult<ElementOf<O>> => {
+    // If value is an array, validate first element
+    // If not, validate directly
+    const toValidate = Array.isArray(value) ? value[0] : value;
 
-      // For array schemas, wrap in array for validation then unwrap
-      const result = schema["~standard"].validate([toValidate] as unknown as I);
-      if ("then" in result) {
-        return fail("Async schemas are not supported");
-      }
-      if (result.issues) {
-        const issue = result.issues[0];
-        return fail(issue?.message ?? "Validation failed");
-      }
-
-      // Unwrap the array result
-      const output = (result as { value: O }).value;
-      const arrayResult = output as unknown as O[];
-      if (Array.isArray(arrayResult) && arrayResult.length > 0) {
-        return ok(arrayResult[0] as ElementOf<O>);
-      }
-
-      // Fallback: maybe the schema doesn't actually require array
-      return ok(output as unknown as ElementOf<O>);
+    // For array schemas, wrap in array for validation then unwrap
+    const result = schema["~standard"].validate([toValidate] as unknown as I);
+    if ("then" in result) {
+      return fail("Async schemas are not supported");
     }
-  ) as NonArraySchema<ElementOf<I>, ElementOf<O>>;
+    if (result.issues) {
+      const issue = result.issues[0];
+      return fail(issue?.message ?? "Validation failed");
+    }
+
+    // Unwrap the array result
+    const output = (result as { value: O }).value;
+    const arrayResult = output as unknown as O[];
+    if (Array.isArray(arrayResult) && arrayResult.length > 0) {
+      return ok(arrayResult[0] as ElementOf<O>);
+    }
+
+    // Fallback: maybe the schema doesn't actually require array
+    return ok(output as unknown as ElementOf<O>);
+  }) as NonArraySchema<ElementOf<I>, ElementOf<O>>;
 }
 
 /**
@@ -80,4 +77,3 @@ export function nonArray<I, O>(
  * Extracts the element schema from an array schema.
  */
 export const element = nonArray;
-

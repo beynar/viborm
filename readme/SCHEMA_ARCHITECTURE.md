@@ -4,19 +4,22 @@ VibORM uses a **config-based, type-safe schema system** where field definitions 
 
 ## Validation Library
 
-VibORM includes a custom StandardSchema-compliant validation library. We built it because existing libraries don't meet ORM requirements:
+VibORM includes a custom StandardSchema-compliant validation library. We built it because:
+
+1. **Schema types = client types** - No separate generic type system to maintain
+2. **Dynamic schema creation** - Validation schemas are built at runtime for each query based on the model definition and constraints. This requires **microsecond-level instantiation**, not milliseconds.
 
 | Library | Issue |
 |---------|-------|
-| **ArkType** | Great thunk-based recursive types, but thunks are evaluated eagerly (not lazy) |
+| **ArkType** | Great recursive types, but heavy type system (slow IDE), eager thunk evaluation, 65-100x slower instantiation |
 | **Valibot** | Has `lazy()` for deferred evaluation, but type inference breaks for circular refs |
-| **Zod** | Heavy schema instantiation (71-262x slower), requires JIT/eval for performance |
+| **Zod** | Extremely heavy: 85-795x slower instantiation, heavy compile-time types, poor recursive handling |
 
-Our solution combines:
-- **Thunks with lazy evaluation** - Like Valibot's `lazy()`, but with ArkType's type preservation
-- **Dynamic schema creation** - 71-262x faster instantiation than Zod (critical for per-model schemas)
-- **Fail-fast validation** - 49x faster error paths than Zod
-- **Edge-compatible** - Works in Cloudflare Workers (no JIT/eval required)
+Our solution:
+- **Microsecond instantiation** - 85-795x faster than Zod, 65-100x faster than ArkType
+- **Lightweight type system** - Fast TypeScript compilation and IDE responsiveness
+- **Thunks with lazy evaluation** - Like Valibot's `lazy()`, but with correct type preservation
+- **Fail-fast validation** - 114x faster error paths than Zod
 
 See [Validation Library docs](/docs/internals/validation) for implementation details.
 

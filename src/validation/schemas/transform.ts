@@ -47,27 +47,36 @@ export interface TransformSchema<TInput, TOutput>
 export function coerce<I, O, TOut>(
   schema: StandardSchemaV1<I, O>,
   fn: (value: O) => TOut
-): TransformSchema<I, TOut> {
-  return createSchema("transform", (value): ValidationResult<TOut> => {
-    const result = schema["~standard"].validate(value);
-    if ("then" in result) {
-      return fail("Async schemas are not supported");
+): TransformSchema<I, TOut> & { wrapped: StandardSchemaV1<I, O> } {
+  const transformSchema = createSchema(
+    "transform",
+    (value): ValidationResult<TOut> => {
+      const result = schema["~standard"].validate(value);
+      if ("then" in result) {
+        return fail("Async schemas are not supported");
+      }
+      if (result.issues) {
+        const issue = result.issues[0];
+        return fail(issue?.message ?? "Validation failed");
+      }
+      try {
+        const output = (result as { value: O }).value;
+        return ok(fn(output));
+      } catch (e) {
+        return fail(
+          `Transform failed: ${e instanceof Error ? e.message : String(e)}`
+        );
+      }
     }
-    if (result.issues) {
-      const issue = result.issues[0];
-      return fail(issue?.message ?? "Validation failed");
-    }
-    try {
-      const output = (result as { value: O }).value;
-      return ok(fn(output));
-    } catch (e) {
-      return fail(`Transform failed: ${e instanceof Error ? e.message : String(e)}`);
-    }
-  }) as TransformSchema<I, TOut>;
+  ) as TransformSchema<I, TOut> & { wrapped: StandardSchemaV1<I, O> };
+
+  // Store the wrapped schema for JSON Schema conversion
+  (transformSchema as any).wrapped = schema;
+
+  return transformSchema;
 }
 
 /**
  * Alias for coerce - transform wrapper.
  */
 export const map = coerce;
-

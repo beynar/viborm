@@ -1,6 +1,10 @@
-import { inferred } from "../inferred";
-import type { VibSchema, ScalarOptions, ComputeInput, ComputeOutput } from "../types";
-import { applyOptions, fail, ok, createSchema } from "../helpers";
+import type {
+  VibSchema,
+  ScalarOptions,
+  ComputeInput,
+  ComputeOutput,
+} from "../types";
+import { buildSchema, ok } from "../helpers";
 
 // =============================================================================
 // Date Schema (JavaScript Date objects)
@@ -11,22 +15,26 @@ export interface DateSchema<TInput = Date, TOutput = Date>
   readonly type: "date";
 }
 
+// Pre-computed errors for fast path
+const NOT_DATE_ERROR = Object.freeze({
+  issues: Object.freeze([Object.freeze({ message: "Expected Date" })]),
+});
+const INVALID_DATE_ERROR = Object.freeze({
+  issues: Object.freeze([Object.freeze({ message: "Expected valid Date" })]),
+});
+
 /**
  * Validate that a value is a JavaScript Date object.
  */
 function validateDate(value: unknown) {
-  if (!(value instanceof Date)) {
-    return fail(`Expected Date, received ${typeof value}`);
-  }
-  if (Number.isNaN(value.getTime())) {
-    return fail(`Expected valid Date, received Invalid Date`);
-  }
+  if (!(value instanceof Date)) return NOT_DATE_ERROR;
+  if (Number.isNaN(value.getTime())) return INVALID_DATE_ERROR;
   return ok(value);
 }
 
 /**
  * Create a date schema for JavaScript Date objects.
- * 
+ *
  * @example
  * const createdAt = v.date();
  * const optionalDate = v.date({ optional: true });
@@ -36,12 +44,11 @@ export function date<
 >(
   options?: Opts
 ): DateSchema<ComputeInput<Date, Opts>, ComputeOutput<Date, Opts>> {
-  return createSchema("date", (value) =>
-    applyOptions(value, validateDate, options, "Date")
-  ) as DateSchema<ComputeInput<Date, Opts>, ComputeOutput<Date, Opts>>;
+  return buildSchema("date", validateDate, options) as DateSchema<
+    ComputeInput<Date, Opts>,
+    ComputeOutput<Date, Opts>
+  >;
 }
 
 // Export the validate function for reuse
 export { validateDate };
-
-

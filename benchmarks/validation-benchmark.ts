@@ -1,18 +1,22 @@
 /**
  * Validation Library Benchmark
- * Compares VibORM, Valibot, and Zod performance on ORM-like schemas
+ * Compares VibORM, Valibot, Zod, and ArkType performance on ORM-like schemas
  *
  * All libraries are tested using their StandardSchema (~standard.validate) interface
  * for a fair comparison.
  *
- * Zod JIT is DISABLED to simulate Cloudflare Workers environment
- * (where eval/new Function is not allowed)
+ * Zod JIT is DISABLED for fair comparison - Zod v4 is the only library that uses
+ * JIT compilation (eval/new Function). Disabling it levels the playing field
+ * and also simulates edge environments like Cloudflare Workers.
  */
 
 import { v } from "../src/validation";
 import * as valibot from "valibot";
 import { z } from "zod";
+import { type } from "arktype";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
+import { configure } from "arktype/config";
+configure({ jitless: true });
 
 // IMPORTANT: Disable Zod JIT compilation BEFORE any schemas are defined
 // This simulates Cloudflare Workers / edge environments where eval is forbidden
@@ -67,6 +71,7 @@ interface BenchmarkResult {
   viborm: number;
   valibot: number;
   zod: number;
+  arktype: number;
   iterations: number;
 }
 
@@ -75,6 +80,7 @@ function runBenchmark(
   vibormFn: () => void,
   valibotFn: () => void,
   zodFn: () => void,
+  arktypeFn: () => void,
   iterations = 10000
 ): BenchmarkResult {
   return {
@@ -82,23 +88,25 @@ function runBenchmark(
     viborm: benchmark("viborm", vibormFn, iterations),
     valibot: benchmark("valibot", valibotFn, iterations),
     zod: benchmark("zod", zodFn, iterations),
+    arktype: benchmark("arktype", arktypeFn, iterations),
     iterations,
   };
 }
 
 function printResults(results: BenchmarkResult[]) {
   console.log("\n" + "=".repeat(80));
-  console.log("VALIDATION BENCHMARK RESULTS");
+  console.log("VALIDATION BENCHMARK RESULTS (Zod JIT disabled)");
   console.log("=".repeat(80) + "\n");
 
   for (const r of results) {
-    const fastest = Math.min(r.viborm, r.valibot, r.zod);
+    const fastest = Math.min(r.viborm, r.valibot, r.zod, r.arktype);
     const vibormRatio = (r.viborm / fastest).toFixed(2);
     const valibotRatio = (r.valibot / fastest).toFixed(2);
     const zodRatio = (r.zod / fastest).toFixed(2);
+    const arktypeRatio = (r.arktype / fastest).toFixed(2);
 
     console.log(`📊 ${r.name} (${r.iterations.toLocaleString()} iterations)`);
-    console.log("-".repeat(60));
+    console.log("-".repeat(70));
     console.log(
       `  VibORM:  ${formatMs(r.viborm).padEnd(12)} ${formatOpsPerSec(
         r.viborm,
@@ -123,6 +131,14 @@ function printResults(results: BenchmarkResult[]) {
         zodRatio === "1.00" ? "🏆 fastest" : `${zodRatio}x slower`
       }`
     );
+    console.log(
+      `  ArkType: ${formatMs(r.arktype).padEnd(12)} ${formatOpsPerSec(
+        r.arktype,
+        r.iterations
+      ).padEnd(15)} ${
+        arktypeRatio === "1.00" ? "🏆 fastest" : `${arktypeRatio}x slower`
+      }`
+    );
     console.log();
   }
 
@@ -133,17 +149,20 @@ function printResults(results: BenchmarkResult[]) {
 
   let vibormWins = 0,
     valibotWins = 0,
-    zodWins = 0;
+    zodWins = 0,
+    arktypeWins = 0;
   for (const r of results) {
-    const fastest = Math.min(r.viborm, r.valibot, r.zod);
+    const fastest = Math.min(r.viborm, r.valibot, r.zod, r.arktype);
     if (r.viborm === fastest) vibormWins++;
     if (r.valibot === fastest) valibotWins++;
     if (r.zod === fastest) zodWins++;
+    if (r.arktype === fastest) arktypeWins++;
   }
 
   console.log(`  VibORM wins:  ${vibormWins}/${results.length}`);
   console.log(`  Valibot wins: ${valibotWins}/${results.length}`);
   console.log(`  Zod wins:     ${zodWins}/${results.length}`);
+  console.log(`  ArkType wins: ${arktypeWins}/${results.length}`);
 }
 
 // =============================================================================
@@ -153,22 +172,27 @@ function printResults(results: BenchmarkResult[]) {
 const vibormString = v.string();
 const valibotString = valibot.string();
 const zodString = z.string();
+const arktypeString = type("string");
 
 const vibormNumber = v.number();
 const valibotNumber = valibot.number();
 const zodNumber = z.number();
+const arktypeNumber = type("number");
 
 const vibormBoolean = v.boolean();
 const valibotBoolean = valibot.boolean();
 const zodBoolean = z.boolean();
+const arktypeBoolean = type("boolean");
 
 const vibormBigint = v.bigint();
 const valibotBigint = valibot.bigint();
 const zodBigint = z.bigint();
+const arktypeBigint = type("bigint");
 
 const vibormLiteral = v.literal("admin");
 const valibotLiteral = valibot.literal("admin");
 const zodLiteral = z.literal("admin");
+const arktypeLiteral = type("'admin'");
 
 // Simple Object (4 fields)
 const vibormSimpleUser = v.object(
@@ -193,6 +217,13 @@ const zodSimpleUser = z.object({
   name: z.string(),
   age: z.number(),
   active: z.boolean(),
+});
+
+const arktypeSimpleUser = type({
+  id: "string",
+  name: "string",
+  age: "number",
+  active: "boolean",
 });
 
 // Complex Object (nested, unions, arrays)
@@ -264,6 +295,24 @@ const zodComplexUser = z.object({
     .partial(),
 });
 
+const arktypeComplexUser = type({
+  id: "string",
+  email: "string",
+  name: "string",
+  "age?": "number",
+  role: "'admin' | 'user' | 'guest'",
+  tags: "string[]",
+  metadata: {
+    createdAt: "string",
+    updatedAt: "string",
+    version: "number",
+  },
+  settings: {
+    "theme?": "'light'",
+    "notifications?": "boolean",
+  },
+});
+
 // Array schemas
 const vibormPost = v.object(
   {
@@ -295,10 +344,20 @@ const zodPost = z.object({
 });
 const zodPosts = z.array(zodPost);
 
+const arktypePost = type({
+  id: "string",
+  title: "string",
+  content: "string",
+  published: "boolean",
+  likes: "number",
+});
+const arktypePosts = arktypePost.array();
+
 // Large array of strings
 const vibormStringArray = v.array(v.string());
 const valibotStringArray = valibot.array(valibot.string());
 const zodStringArray = z.array(z.string());
+const arktypeStringArray = type("string[]");
 
 // Union schema
 const vibormUnion = v.union([v.string(), v.number(), v.boolean()]);
@@ -308,6 +367,7 @@ const valibotUnion = valibot.union([
   valibot.boolean(),
 ]);
 const zodUnion = z.union([z.string(), z.number(), z.boolean()]);
+const arktypeUnion = type("string | number | boolean");
 
 // Nullable/Optional
 const vibormNullableOptional = v.object({
@@ -329,6 +389,13 @@ const zodNullableOptional = z.object({
   optional: z.string().optional(),
   nullable: z.string().nullable(),
   both: z.string().optional().nullable(),
+});
+
+const arktypeNullableOptional = type({
+  required: "string",
+  "optional?": "string",
+  nullable: "string | null",
+  "both?": "string | null",
 });
 
 // =============================================================================
@@ -398,57 +465,62 @@ console.log("Starting benchmarks...\n");
 const results: BenchmarkResult[] = [];
 
 // ==================== PRIMITIVE VALIDATION ====================
-console.log("Testing primitive validation...");
+// console.log("Testing primitive validation...");
 
-results.push(
-  runBenchmark(
-    "String validation",
-    () => validateStandard(vibormString, validString),
-    () => validateStandard(valibotString, validString),
-    () => validateStandard(zodString, validString),
-    100000
-  )
-);
+// results.push(
+//   runBenchmark(
+//     "String validation",
+//     () => validateStandard(vibormString, validString),
+//     () => validateStandard(valibotString, validString),
+//     () => validateStandard(zodString, validString),
+//     () => validateStandard(arktypeString, validString),
+//     100000
+//   )
+// );
 
-results.push(
-  runBenchmark(
-    "Number validation",
-    () => validateStandard(vibormNumber, validNumber),
-    () => validateStandard(valibotNumber, validNumber),
-    () => validateStandard(zodNumber, validNumber),
-    100000
-  )
-);
+// results.push(
+//   runBenchmark(
+//     "Number validation",
+//     () => validateStandard(vibormNumber, validNumber),
+//     () => validateStandard(valibotNumber, validNumber),
+//     () => validateStandard(zodNumber, validNumber),
+//     () => validateStandard(arktypeNumber, validNumber),
+//     100000
+//   )
+// );
 
-results.push(
-  runBenchmark(
-    "Boolean validation",
-    () => validateStandard(vibormBoolean, validBoolean),
-    () => validateStandard(valibotBoolean, validBoolean),
-    () => validateStandard(zodBoolean, validBoolean),
-    100000
-  )
-);
+// results.push(
+//   runBenchmark(
+//     "Boolean validation",
+//     () => validateStandard(vibormBoolean, validBoolean),
+//     () => validateStandard(valibotBoolean, validBoolean),
+//     () => validateStandard(zodBoolean, validBoolean),
+//     () => validateStandard(arktypeBoolean, validBoolean),
+//     100000
+//   )
+// );
 
-results.push(
-  runBenchmark(
-    "BigInt validation",
-    () => validateStandard(vibormBigint, validBigint),
-    () => validateStandard(valibotBigint, validBigint),
-    () => validateStandard(zodBigint, validBigint),
-    100000
-  )
-);
+// results.push(
+//   runBenchmark(
+//     "BigInt validation",
+//     () => validateStandard(vibormBigint, validBigint),
+//     () => validateStandard(valibotBigint, validBigint),
+//     () => validateStandard(zodBigint, validBigint),
+//     () => validateStandard(arktypeBigint, validBigint),
+//     100000
+//   )
+// );
 
-results.push(
-  runBenchmark(
-    "Literal validation",
-    () => validateStandard(vibormLiteral, "admin"),
-    () => validateStandard(valibotLiteral, "admin"),
-    () => validateStandard(zodLiteral, "admin"),
-    100000
-  )
-);
+// results.push(
+//   runBenchmark(
+//     "Literal validation",
+//     () => validateStandard(vibormLiteral, "admin"),
+//     () => validateStandard(valibotLiteral, "admin"),
+//     () => validateStandard(zodLiteral, "admin"),
+//     () => validateStandard(arktypeLiteral, "admin"),
+//     100000
+//   )
+// );
 
 // ==================== OBJECT VALIDATION ====================
 console.log("Testing object validation...");
@@ -459,6 +531,7 @@ results.push(
     () => validateStandard(vibormSimpleUser, validSimpleUser),
     () => validateStandard(valibotSimpleUser, validSimpleUser),
     () => validateStandard(zodSimpleUser, validSimpleUser),
+    () => validateStandard(arktypeSimpleUser, validSimpleUser),
     50000
   )
 );
@@ -469,6 +542,7 @@ results.push(
     () => validateStandard(vibormComplexUser, validComplexUser),
     () => validateStandard(valibotComplexUser, validComplexUser),
     () => validateStandard(zodComplexUser, validComplexUser),
+    () => validateStandard(arktypeComplexUser, validComplexUser),
     20000
   )
 );
@@ -479,6 +553,7 @@ results.push(
     () => validateStandard(vibormNullableOptional, validNullableOptional),
     () => validateStandard(valibotNullableOptional, validNullableOptional),
     () => validateStandard(zodNullableOptional, validNullableOptional),
+    () => validateStandard(arktypeNullableOptional, validNullableOptional),
     50000
   )
 );
@@ -492,6 +567,7 @@ results.push(
     () => validateStandard(vibormPosts, validPosts),
     () => validateStandard(valibotPosts, validPosts),
     () => validateStandard(zodPosts, validPosts),
+    () => validateStandard(arktypePosts, validPosts),
     10000
   )
 );
@@ -502,6 +578,7 @@ results.push(
     () => validateStandard(vibormStringArray, validStringArray100),
     () => validateStandard(valibotStringArray, validStringArray100),
     () => validateStandard(zodStringArray, validStringArray100),
+    () => validateStandard(arktypeStringArray, validStringArray100),
     10000
   )
 );
@@ -515,6 +592,7 @@ results.push(
     () => validateStandard(vibormUnion, "hello"),
     () => validateStandard(valibotUnion, "hello"),
     () => validateStandard(zodUnion, "hello"),
+    () => validateStandard(arktypeUnion, "hello"),
     100000
   )
 );
@@ -525,6 +603,7 @@ results.push(
     () => validateStandard(vibormUnion, true),
     () => validateStandard(valibotUnion, true),
     () => validateStandard(zodUnion, true),
+    () => validateStandard(arktypeUnion, true),
     100000
   )
 );
@@ -538,6 +617,7 @@ results.push(
     () => validateStandard(vibormSimpleUser, invalidSimpleUser),
     () => validateStandard(valibotSimpleUser, invalidSimpleUser),
     () => validateStandard(zodSimpleUser, invalidSimpleUser),
+    () => validateStandard(arktypeSimpleUser, invalidSimpleUser),
     50000
   )
 );
@@ -551,6 +631,7 @@ results.push(
     () => v.string(),
     () => valibot.string(),
     () => z.string(),
+    () => type("string"),
     100000
   )
 );
@@ -570,6 +651,7 @@ results.push(
         age: valibot.number(),
       }),
     () => z.object({ id: z.string(), name: z.string(), age: z.number() }),
+    () => type({ id: "string", name: "string", age: "number" }),
     20000
   )
 );
@@ -580,8 +662,217 @@ results.push(
     () => v.string({ array: true }),
     () => valibot.array(valibot.string()),
     () => z.array(z.string()),
+    () => type("string[]"),
     50000
   )
 );
 
 printResults(results);
+
+// ============================================================================
+// VibORM SYNTAX COMPARISON: Options vs Wrappers
+// ============================================================================
+console.log("\n" + "=".repeat(80));
+console.log("VibORM SYNTAX COMPARISON: Options vs Wrappers");
+console.log("=".repeat(80) + "\n");
+
+interface SyntaxResult {
+  name: string;
+  options: number;
+  wrappers: number;
+  iterations: number;
+}
+
+function benchmarkSyntax(
+  name: string,
+  optionsFn: () => void,
+  wrappersFn: () => void,
+  iterations = 100000
+): SyntaxResult {
+  return {
+    name,
+    options: benchmark("options", optionsFn, iterations),
+    wrappers: benchmark("wrappers", wrappersFn, iterations),
+    iterations,
+  };
+}
+
+function formatOps(ops: number): string {
+  if (ops > 1_000_000) return (ops / 1_000_000).toFixed(2) + "M ops/s";
+  if (ops > 1_000) return (ops / 1_000).toFixed(2) + "K ops/s";
+  return ops.toFixed(2) + " ops/s";
+}
+
+function printSyntaxResults(results: SyntaxResult[]) {
+  for (const r of results) {
+    const optionsOps = (r.iterations / r.options) * 1000;
+    const wrappersOps = (r.iterations / r.wrappers) * 1000;
+    const faster = r.options < r.wrappers ? "options" : "wrappers";
+    const ratio =
+      r.options < r.wrappers ? r.wrappers / r.options : r.options / r.wrappers;
+
+    console.log(`📊 ${r.name} (${r.iterations.toLocaleString()} iterations)`);
+    console.log("-".repeat(70));
+    console.log(
+      `  Options:  ${r.options.toFixed(2)}ms`.padEnd(25) +
+        `${formatOps(optionsOps)}`.padEnd(18) +
+        (faster === "options" ? "🏆 faster" : `${ratio.toFixed(2)}x slower`)
+    );
+    console.log(
+      `  Wrappers: ${r.wrappers.toFixed(2)}ms`.padEnd(25) +
+        `${formatOps(wrappersOps)}`.padEnd(18) +
+        (faster === "wrappers" ? "🏆 faster" : `${ratio.toFixed(2)}x slower`)
+    );
+    console.log();
+  }
+}
+
+const syntaxResults: SyntaxResult[] = [];
+
+// Schema creation comparisons
+console.log("Testing schema CREATION speed...\n");
+
+syntaxResults.push(
+  benchmarkSyntax(
+    "Create: nullable string",
+    () => v.string({ nullable: true }),
+    () => v.nullable(v.string()),
+    100000
+  )
+);
+
+syntaxResults.push(
+  benchmarkSyntax(
+    "Create: optional string",
+    () => v.string({ optional: true }),
+    () => v.optional(v.string()),
+    100000
+  )
+);
+
+syntaxResults.push(
+  benchmarkSyntax(
+    "Create: array of strings",
+    () => v.string({ array: true }),
+    () => v.array(v.string()),
+    100000
+  )
+);
+
+syntaxResults.push(
+  benchmarkSyntax(
+    "Create: nullable array of strings",
+    () => v.string({ array: true, nullable: true }),
+    () => v.nullable(v.array(v.string())),
+    100000
+  )
+);
+
+syntaxResults.push(
+  benchmarkSyntax(
+    "Create: optional nullable array",
+    () => v.string({ array: true, nullable: true, optional: true }),
+    () => v.optional(v.nullable(v.array(v.string()))),
+    100000
+  )
+);
+
+syntaxResults.push(
+  benchmarkSyntax(
+    "Create: with default value",
+    () => v.string({ default: "hello" }),
+    () => v.optional(v.string(), "hello"),
+    100000
+  )
+);
+
+printSyntaxResults(syntaxResults);
+
+// Validation comparisons
+console.log("Testing VALIDATION speed...\n");
+
+const validationSyntaxResults: SyntaxResult[] = [];
+
+// Pre-create schemas for validation benchmarks
+const optionsNullableStr = v.string({ nullable: true });
+const wrappersNullableStr = v.nullable(v.string());
+
+const optionsArrayStr = v.string({ array: true });
+const wrappersArrayStr = v.array(v.string());
+
+const optionsNullableArrayStr = v.string({ array: true, nullable: true });
+const wrappersNullableArrayStr = v.nullable(v.array(v.string()));
+
+const optionsFullCombo = v.string({
+  array: true,
+  nullable: true,
+  optional: true,
+});
+const wrappersFullCombo = v.optional(v.nullable(v.array(v.string())));
+
+validationSyntaxResults.push(
+  benchmarkSyntax(
+    "Validate: nullable string (valid)",
+    () => validateStandard(optionsNullableStr, "hello"),
+    () => validateStandard(wrappersNullableStr, "hello"),
+    100000
+  )
+);
+
+validationSyntaxResults.push(
+  benchmarkSyntax(
+    "Validate: nullable string (null)",
+    () => validateStandard(optionsNullableStr, null),
+    () => validateStandard(wrappersNullableStr, null),
+    100000
+  )
+);
+
+validationSyntaxResults.push(
+  benchmarkSyntax(
+    "Validate: array of strings",
+    () => validateStandard(optionsArrayStr, ["a", "b", "c"]),
+    () => validateStandard(wrappersArrayStr, ["a", "b", "c"]),
+    50000
+  )
+);
+
+validationSyntaxResults.push(
+  benchmarkSyntax(
+    "Validate: nullable array (valid array)",
+    () => validateStandard(optionsNullableArrayStr, ["a", "b"]),
+    () => validateStandard(wrappersNullableArrayStr, ["a", "b"]),
+    50000
+  )
+);
+
+validationSyntaxResults.push(
+  benchmarkSyntax(
+    "Validate: nullable array (null)",
+    () => validateStandard(optionsNullableArrayStr, null),
+    () => validateStandard(wrappersNullableArrayStr, null),
+    100000
+  )
+);
+
+validationSyntaxResults.push(
+  benchmarkSyntax(
+    "Validate: full combo (undefined)",
+    () => validateStandard(optionsFullCombo, undefined),
+    () => validateStandard(wrappersFullCombo, undefined),
+    100000
+  )
+);
+
+printSyntaxResults(validationSyntaxResults);
+
+// Summary
+const allSyntax = [...syntaxResults, ...validationSyntaxResults];
+const optionsWins = allSyntax.filter((r) => r.options < r.wrappers).length;
+const wrappersWins = allSyntax.filter((r) => r.wrappers < r.options).length;
+
+console.log("=".repeat(80));
+console.log("SYNTAX SUMMARY");
+console.log("=".repeat(80));
+console.log(`  Options syntax wins:  ${optionsWins}/${allSyntax.length}`);
+console.log(`  Wrappers syntax wins: ${wrappersWins}/${allSyntax.length}`);

@@ -1,13 +1,17 @@
-import { inferred } from "../inferred";
-import type { VibSchema, InferInput, InferOutput, ThunkCast } from "../types";
-import { ok, createSchema, validateSchema } from "../helpers";
+import type {
+  VibSchema,
+  InferInput,
+  InferOutput,
+  ValidationResult,
+} from "../types";
+import { ok, createSchema } from "../helpers";
 
 // =============================================================================
 // Optional Schema
 // =============================================================================
 
 export interface OptionalSchema<
-  TWrapped extends VibSchema<any, any> | ThunkCast<any, any>,
+  TWrapped extends VibSchema<any, any>,
   TDefault = undefined,
   TInput = InferInput<TWrapped> | undefined,
   TOutput = TDefault extends undefined
@@ -19,30 +23,24 @@ export interface OptionalSchema<
   readonly default: TDefault;
 }
 
-/**
- * Resolve a thunk or return the schema directly.
- */
-function resolveWrapped<T extends VibSchema<any, any> | ThunkCast<any, any>>(
-  wrapped: T
-): VibSchema<any, any> {
-  if (typeof wrapped === "function") {
-    return wrapped() as VibSchema<any, any>;
-  }
-  return wrapped;
-}
+// Compute output type based on default
+type OptionalOutput<
+  TWrapped extends VibSchema<any, any>,
+  TDefault
+> = TDefault extends undefined
+  ? InferOutput<TWrapped> | undefined
+  : InferOutput<TWrapped>;
 
 /**
  * Create an optional schema that allows undefined values.
  * Optionally provide a default value for when undefined is received.
- * Supports thunks for circular references.
  *
  * @example
  * const optionalName = v.optional(v.string());
  * const nameWithDefault = v.optional(v.string(), "Unknown");
- * const optionalSelf = v.optional(() => selfSchema); // Thunk
  */
 export function optional<
-  TWrapped extends VibSchema<any, any> | ThunkCast<any, any>,
+  TWrapped extends VibSchema<any, any>,
   TDefault extends
     | InferOutput<TWrapped>
     | (() => InferOutput<TWrapped>)
@@ -51,30 +49,34 @@ export function optional<
   wrapped: TWrapped,
   defaultValue?: TDefault
 ): OptionalSchema<TWrapped, TDefault> {
-  // Cache resolved schema
-  let resolvedWrapped: VibSchema<any, any> | undefined;
+  // Cache validate function directly
+  const validate = wrapped["~standard"].validate;
 
-  const schema = createSchema("optional", (value) => {
-    // Handle undefined
-    if (value === undefined) {
-      if (defaultValue !== undefined) {
-        const resolved =
-          typeof defaultValue === "function"
-            ? (defaultValue as () => InferOutput<TWrapped>)()
-            : defaultValue;
-        return ok(resolved);
+  const schema = createSchema(
+    "optional",
+    (value): ValidationResult<OptionalOutput<TWrapped, TDefault>> => {
+      // Handle undefined - fast path
+      if (value === undefined) {
+        if (defaultValue !== undefined) {
+          const resolved =
+            typeof defaultValue === "function"
+              ? (defaultValue as () => InferOutput<TWrapped>)()
+              : defaultValue;
+          return ok(resolved) as ValidationResult<
+            OptionalOutput<TWrapped, TDefault>
+          >;
+        }
+        return ok(undefined) as ValidationResult<
+          OptionalOutput<TWrapped, TDefault>
+        >;
       }
-      return ok(undefined);
-    }
 
-    // Resolve thunk on first use
-    if (!resolvedWrapped) {
-      resolvedWrapped = resolveWrapped(wrapped);
+      // Delegate to wrapped schema (cast to our result type)
+      return validate(value) as ValidationResult<
+        OptionalOutput<TWrapped, TDefault>
+      >;
     }
-
-    // Delegate to wrapped schema
-    return validateSchema(resolvedWrapped, value);
-  }) as OptionalSchema<TWrapped, TDefault>;
+  ) as OptionalSchema<TWrapped, TDefault>;
 
   // Add references
   (schema as any).wrapped = wrapped;

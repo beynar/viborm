@@ -12,7 +12,34 @@ VibORM includes a custom validation library built specifically for ORM use cases
 
 ORMs have unique validation requirements that existing libraries don't fully address. We evaluated the major options:
 
-### ArkType: Great Types, Eager Thunks
+### Our Core Requirements
+
+**1. Schema types as the single source of truth.** We don't want to maintain a separate generic type system alongside the schema—that's duplicated work and a maintenance burden.
+
+**2. Extremely fast schema instantiation.** This is critical because VibORM creates validation schemas **dynamically at runtime**:
+
+```typescript
+// When you call orm.user.findMany({ where: { ... } })
+// VibORM dynamically builds validation schemas based on:
+// - The model definition (fields, relations)
+// - The query constraints (where, select, include)
+// - Operation-specific rules (create vs update vs filter)
+
+const whereSchema = buildWhereSchema(userModel);  // Created per query
+const selectSchema = buildSelectSchema(userModel);
+const argsSchema = buildFindManyArgsSchema(userModel, { whereSchema, selectSchema });
+
+// These schemas parse and validate user input
+argsSchema["~standard"].validate(userQuery);
+```
+
+Every query triggers schema creation. With Zod's 70-750x slower instantiation, this would be a massive bottleneck. VibORM's schemas create in **microseconds**, not milliseconds.
+
+**3. Lightweight type inference.** Heavy type computation slows down IDE responsiveness. Simple inference patterns, not complex conditional type gymnastics.
+
+**4. Recursive-friendly.** ORM models reference each other; types must handle this elegantly.
+
+### ArkType: Great Recursion, Heavy Types
 
 ArkType has excellent thunk-based recursive type inference:
 
@@ -27,7 +54,10 @@ type User = typeof user.infer;
 // { name: string; friend: ... } ✓ Works!
 ```
 
-**The problem**: ArkType evaluates thunks eagerly at schema creation time. For an ORM that dynamically creates validation schemas for every model operation, this causes performance issues and doesn't allow truly lazy reference resolution.
+**The problems**:
+1. **Heavy type system** - ArkType's type inference is complex and slow to compile, impacting IDE performance
+2. **Eager thunk evaluation** - Thunks are evaluated at schema creation time, not lazily when needed
+3. **Slow schema instantiation** - 70x slower than VibORM for object schema creation
 
 ### Valibot: Lazy Evaluation, Broken Types
 
@@ -47,12 +77,9 @@ type User = InferOutput<typeof user>;
 
 **The problem**: Valibot's `lazy()` wrapper doesn't preserve type information across circular boundaries, resulting in `any` types. This defeats the purpose of a type-safe ORM.
 
-### Zod: Heavy Instantiation, JIT Dependency
-
-Zod v4 achieves fast object parsing through JIT compilation:
+### Zod: Heavy Everything
 
 ```typescript
-// Zod creates optimized parsing functions at schema creation
 const user = z.object({
   id: z.string(),
   name: z.string(),
@@ -60,28 +87,33 @@ const user = z.object({
 ```
 
 **The problems**:
-1. **Schema instantiation is slow** - Zod is 71-262x slower than VibORM at creating schemas. For an ORM that dynamically creates schemas for every model, this overhead is unacceptable.
-2. **JIT requires `eval`** - Cloudflare Workers and other edge environments forbid `eval`/`new Function`. Without JIT, Zod loses its performance advantage.
-3. **`lazy()` also breaks types** - Same issue as Valibot for circular references.
+1. **Extremely slow schema instantiation** - Zod is 70-750x slower than VibORM at creating schemas. For an ORM that dynamically creates schemas for every model, this overhead is unacceptable.
+2. **Heavy compile-time type system** - Complex generic chains slow down TypeScript compilation and IDE responsiveness
+3. **Poor recursive handling** - `z.lazy()` breaks type inference similar to Valibot
+4. **JIT compilation** - Zod v4 uses `eval`/`new Function` for fast object parsing. We disable this in benchmarks for fair comparison (and because edge environments like Cloudflare Workers forbid it).
 
-### Our Solution: Best of All Worlds
+<Callout type="info">
+  **Note on JIT**: None of the libraries (Valibot, ArkType) use JIT compilation except Zod v4. We benchmark with Zod's JIT disabled (`z.config({ jitless: true })`) for fair comparison across all libraries.
+</Callout>
 
-We built a validation library that combines:
+### Our Solution: Lightweight Types, Fast Runtime
+
+We built a validation library optimized for ORM use cases:
 
 | Feature | ArkType | Valibot | Zod | VibORM |
 |---------|---------|---------|-----|--------|
-| Thunk-based recursive types | ✓ | ✗ | ✗ | ✓ |
+| Recursive type inference | ✓ | ✗ | ✗ | ✓ |
 | Lazy thunk evaluation | ✗ | ✓ | ✓ | ✓ |
-| Correct type inference | ✓ | ✗ | ✗ | ✓ |
-| Fast schema instantiation | ? | ✓ | ✗ | ✓ |
-| Edge-compatible (no JIT) | ✓ | ✓ | ✗ | ✓ |
+| Lightweight type system | ✗ | ✓ | ✗ | ✓ |
+| Fast schema instantiation | ✗ | ✓ | ✗ | ✓ |
 | Fail-fast validation | ✗ | ✗ | ✗ | ✓ |
 
 The key innovations:
-1. **Thunks with lazy evaluation** - Like Valibot's `lazy()`, but with ArkType's type preservation
-2. **Identity conditional types** - `R extends infer _ ? _ : never` defers TypeScript evaluation
-3. **Unconstrained generics** - No `extends` constraint on entry types allows circular resolution
-4. **Inlined fast paths** - Zero overhead for simple schemas without options
+1. **Minimal type complexity** - Simple inference patterns that don't slow down the compiler
+2. **Thunks with lazy evaluation** - Like Valibot's `lazy()`, but with correct type preservation
+3. **Identity conditional types** - `R extends infer _ ? _ : never` defers TypeScript evaluation
+4. **Unconstrained generics** - No `extends` constraint on entry types allows circular resolution
+5. **Inlined fast paths** - Zero overhead for simple schemas without options
 
 ## Architecture
 
@@ -150,20 +182,46 @@ This works because:
 
 ## Performance Optimizations
 
-### Benchmark Results (Cloudflare Workers Mode)
+### Benchmark Results
 
-With JIT disabled (simulating edge environments):
+All libraries tested via `~standard.validate()` interface. Zod JIT disabled for fair comparison.
 
-| Category | VibORM | Zod | Improvement |
-|----------|--------|-----|-------------|
-| Primitives | 🏆 | - | 2-7x faster |
-| Objects | 🏆 | - | 1.6-1.8x faster |
-| Arrays | 🏆 | - | 1.1-1.7x faster |
-| Unions | 🏆 | - | 1.5-3x faster |
-| Error path | 🏆 | - | **49x faster** |
-| Schema creation | 🏆 | - | **71-262x faster** |
+| Category | Winner | VibORM vs Others |
+|----------|--------|------------------|
+| **Primitives (5 tests)** | VibORM 🏆 (5/5) | 2-8x faster than Valibot/ArkType |
+| **Simple Objects** | ArkType | 2.6x slower (ArkType optimizes for this) |
+| **Complex Objects** | ArkType | 7.4x slower (ArkType's strength) |
+| **Nullable/Optional** | VibORM 🏆 | 1.4x faster than Valibot |
+| **Arrays** | ArkType | 9-22x slower (ArkType's strength) |
+| **Unions** | VibORM 🏆 (first match) | 3.6x faster |
+| **Error path** | VibORM 🏆 | **112x faster than Zod**, 92x faster than ArkType |
+| **Schema creation** | VibORM 🏆 | **83-771x faster than Zod**, 79-105x faster than ArkType |
 
-**VibORM wins 14/16 benchmarks** against Zod and Valibot.
+**Final Score: VibORM 11/16, ArkType 5/16, Zod 0/16, Valibot 0/16**
+
+<Callout type="info">
+  **Why VibORM wins for ORMs**: ArkType is fastest for validation, but **79-105x slower** at schema creation. Since VibORM creates schemas dynamically per query, instantiation speed is critical.
+</Callout>
+
+### Options vs Wrappers Syntax
+
+VibORM supports two ways to define modifiers:
+
+```typescript
+// Options syntax - single object
+v.string({ array: true, nullable: true, optional: true })
+
+// Wrapper syntax - nested calls  
+v.optional(v.nullable(v.array(v.string())))
+```
+
+| Scenario | Winner | Difference |
+|----------|--------|------------|
+| **Schema Creation** | Options 🏆 | 1.1-3x faster (fewer object allocations) |
+| **Validate null/undefined** | Wrappers 🏆 | 2.7-3x faster (early short-circuit) |
+| **Validate valid data** | Options 🏆 | 1.1-1.6x faster (less call overhead) |
+
+**Recommendation**: Use **options syntax** for dynamic schemas (ORMs) where creation speed matters. Use **wrappers** when validating lots of null/undefined values.
 
 ### Optimization Techniques
 

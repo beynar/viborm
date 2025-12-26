@@ -4,10 +4,11 @@ import { v, object, string, array, optional } from "../../src/validation";
 
 describe("circular references with thunks", () => {
   describe("self-reference", () => {
-    test("works with optional self-reference", () => {
+    test("works with optional self-reference (thunk at key level)", () => {
+      // Thunk at key level returns optional(schema)
       const selfRef = object({
         name: string(),
-        self: optional(() => selfRef),
+        self: () => optional(selfRef),
       });
 
       const result = selfRef["~standard"].validate({
@@ -51,9 +52,10 @@ describe("circular references with thunks", () => {
 
   describe("mutual references", () => {
     test("forward and back references work", () => {
+      // Thunk at key level returns array(schema)
       const user = object({
         name: string(),
-        posts: array(() => post),
+        posts: () => array(post),
       });
 
       const post = object({
@@ -74,9 +76,10 @@ describe("circular references with thunks", () => {
     });
 
     test("deep nesting works", () => {
+      // Thunk at key level returns array(schema)
       const node = object({
         value: string(),
-        children: array(() => node),
+        children: () => array(node),
       });
 
       const result = node["~standard"].validate({
@@ -95,9 +98,10 @@ describe("circular references with thunks", () => {
 
   describe("type inference with circular references", () => {
     test("nested access works", () => {
+      // Thunk at key level returns optional(schema)
       const user = object({
         name: string(),
-        bestFriend: optional(() => user),
+        bestFriend: () => optional(user),
       });
 
       type UserOutput = StandardSchemaV1.InferOutput<typeof user>;

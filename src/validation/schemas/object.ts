@@ -1,4 +1,3 @@
-import { inferred } from "../inferred";
 import type {
   VibSchema,
   InferOutputShape,
@@ -8,7 +7,10 @@ import type {
   InferInput,
   Prettify,
 } from "../types";
-import { fail, ok, createSchema, validateSchema } from "../helpers";
+import { fail, ok } from "../helpers";
+import { createJsonSchemaConverter } from "../json-schema/factory";
+import { StandardSchemaV1 } from "@standard-schema";
+import { string } from "./string";
 
 // =============================================================================
 // Object Schema Types
@@ -40,6 +42,10 @@ export interface ObjectOptions<T = unknown> {
   default?: T | (() => T);
   /** Transform output */
   transform?: (value: T) => T;
+  /** Object name for circular references in json schema*/
+  name?: string;
+  /** Object description for json schema*/
+  description?: string;
 }
 
 /**
@@ -89,6 +95,24 @@ export interface ObjectSchema<
   readonly type: "object";
   readonly entries: TEntries;
   readonly options: TOpts;
+  readonly parse: (
+    value: unknown
+  ) => StandardSchemaV1.SuccessResult<TOutput> | StandardSchemaV1.FailureResult;
+  /** Extend this schema with additional entries */
+  extend<TNewEntries extends ObjectEntries>(
+    newEntries: TNewEntries
+  ): ObjectSchema<
+    Prettify<TEntries & TNewEntries>,
+    TOpts,
+    ApplyObjectOptions<
+      ComputeObjectInput<Prettify<TEntries & TNewEntries>, TOpts>,
+      TOpts
+    >,
+    ApplyObjectOptions<
+      ComputeObjectOutput<Prettify<TEntries & TNewEntries>, TOpts>,
+      TOpts
+    >
+  >;
 }
 
 // =============================================================================
@@ -96,22 +120,22 @@ export interface ObjectSchema<
 // =============================================================================
 
 // Pre-computed error for fast path
-const OBJECT_TYPE_ERROR = Object.freeze({
-  issues: Object.freeze([Object.freeze({ message: "Expected object" })]),
-});
+const OBJECT_TYPE_ERROR = { issues: [{ message: "Expected object" }] };
 
 /**
- * Resolve a schema entry (handles thunks for circular references).
+ * Field descriptor - pre-computed at schema creation time.
  */
-function resolveEntry(
-  entry: VibSchema<any, any> | ThunkCast<any, any>
-): VibSchema<any, any> {
-  return typeof entry === "function" ? (entry() as VibSchema<any, any>) : entry;
+interface FieldDescriptor {
+  readonly key: string;
+  readonly keyPath: PropertyKey[];
+  readonly validate: (value: unknown) => any;
+  readonly acceptsUndefined: boolean;
+  readonly missingError: { issues: { message: string; path: PropertyKey[] }[] };
 }
 
 /**
  * Create an optimized validator for an object schema.
- * Pre-computes keys and caches resolved schemas for performance.
+ * Minimal overhead, Valibot-style simplicity.
  */
 function createObjectValidator(
   entries: ObjectEntries,
@@ -120,76 +144,105 @@ function createObjectValidator(
   const { partial = true, strict = true } = options;
   const keys = Object.keys(entries);
   const keyCount = keys.length;
-
-  // Cache for resolved schemas (lazy resolution for circular refs)
-  let resolvedSchemas: VibSchema<any, any>[] | null = null;
-
-  const getResolvedSchemas = () => {
-    if (resolvedSchemas === null) {
-      resolvedSchemas = new Array(keyCount);
-      for (let i = 0; i < keyCount; i++) {
-        resolvedSchemas[i] = resolveEntry(entries[keys[i]!]!);
-      }
-    }
-    return resolvedSchemas;
-  };
-
-  // Pre-create key set for O(1) lookup
   const keySet = new Set(keys);
 
+  // Lazy resolution flag - for circular refs
+  let resolved = false;
+  // Direct arrays for maximum access speed (no object property lookup)
+  const validates: ((v: unknown) => any)[] = new Array(keyCount);
+  const acceptsUndefined: boolean[] = new Array(keyCount);
+  const keyPaths: PropertyKey[][] = new Array(keyCount);
+  const missingErrors: {
+    issues: { message: string; path: PropertyKey[] }[];
+  }[] = new Array(keyCount);
+
+  // Pre-compute key paths and error messages (these don't need lazy resolution)
+  for (let i = 0; i < keyCount; i++) {
+    const key = keys[i]!;
+    keyPaths[i] = [key];
+    missingErrors[i] = {
+      issues: [{ message: `Missing required field: ${key}`, path: [key] }],
+    };
+  }
+
+  // Resolve validators lazily (for circular refs)
+  const resolve = () => {
+    if (resolved) return;
+    resolved = true;
+    for (let i = 0; i < keyCount; i++) {
+      const key = keys[i]!;
+      const entry = entries[key]!;
+      const schema =
+        typeof entry === "function"
+          ? (entry as () => VibSchema<any, any>)()
+          : entry;
+      const validate = schema["~standard"].validate;
+      validates[i] = validate;
+      const undefinedResult = validate(undefined);
+      acceptsUndefined[i] =
+        !("then" in undefinedResult) && !undefinedResult.issues;
+    }
+  };
+
   return (value: unknown) => {
+    // Type check
     if (!value || typeof value !== "object" || Array.isArray(value)) {
       return OBJECT_TYPE_ERROR;
     }
 
     const input = value as Record<string, unknown>;
-    const output: Record<string, unknown> = Object.create(null);
-    const schemas = getResolvedSchemas();
+    resolve(); // Inline the resolution check
+    const output: Record<string, unknown> = {};
 
-    // Check for unknown keys first if strict (fail-fast)
+    // Strict mode: check for extra keys first (fail-fast)
     if (strict) {
       for (const key in input) {
         if (!keySet.has(key)) {
-          return fail(`Unknown key: ${key}`, [key]);
+          return { issues: [{ message: `Unknown key: ${key}`, path: [key] }] };
         }
       }
     }
 
-    // Validate each entry using indexed access (faster than for...in)
+    // Validate each field - direct array access, no object property lookup
     for (let i = 0; i < keyCount; i++) {
       const key = keys[i]!;
-      const entrySchema = schemas[i]!;
 
-      // Check if field is present
+      // Handle missing key
       if (!(key in input)) {
-        // Try validating undefined - if schema accepts it, use result
-        const undefinedResult = validateSchema(entrySchema, undefined);
-        if (!undefinedResult.issues) {
-          output[key] = (undefinedResult as { value: unknown }).value;
-          continue;
-        }
-
-        // If partial mode, allow undefined
-        if (partial) {
+        if (partial || acceptsUndefined[i]) {
           output[key] = undefined;
           continue;
         }
-
-        return fail(`Missing required field: ${key}`, [key]);
+        return missingErrors[i];
       }
 
-      const result = validateSchema(entrySchema, input[key]);
+      // Validate field - direct function call
+      const result = validates[i]!(input[key]);
+
+      // Handle validation error (most common unhappy path)
       if (result.issues) {
         const issue = result.issues[0]!;
-        const newPath = issue.path
-          ? ([key] as PropertyKey[]).concat(issue.path)
-          : [key];
-        return fail(issue.message, newPath);
+        return {
+          issues: [
+            {
+              message: issue.message,
+              path: issue.path ? keyPaths[i]!.concat(issue.path) : keyPaths[i],
+            },
+          ],
+        };
       }
-      output[key] = (result as { value: unknown }).value;
+
+      // Handle async (rare)
+      if ("then" in result) {
+        return {
+          issues: [{ message: "Async not supported", path: keyPaths[i] }],
+        };
+      }
+
+      output[key] = result.value;
     }
 
-    return ok(output);
+    return { value: output };
   };
 }
 
@@ -285,41 +338,71 @@ export function object<
         const results = new Array<BaseOutput>(len);
 
         for (let i = 0; i < len; i++) {
-          const itemResult = validateObj(value[i]);
+          const itemResult = validateObj(value[i])!;
           if (itemResult.issues) {
-            const issue = itemResult.issues[0]!;
+            const issue = itemResult.issues[0] as {
+              message: string;
+              path?: PropertyKey[];
+            };
             const newPath = issue.path
               ? ([i] as PropertyKey[]).concat(issue.path)
               : [i];
             return fail(issue.message, newPath);
           }
           results[i] = hasTransform
-            ? options!.transform!(itemResult.value)
-            : itemResult.value;
+            ? (options!.transform!(
+                (itemResult as { value: any }).value
+              ) as BaseOutput)
+            : ((itemResult as { value: any }).value as BaseOutput);
         }
         return ok(results);
       }
 
       // Single object validation
-      const result = validateObj(value);
+      const result = validateObj(value)!;
       if (result.issues) {
         return result;
       }
 
       return hasTransform
-        ? // @ts-expect-error - transform type is complex with options generics
-          ok(options!.transform!(result.value))
+        ? ok(
+            options!.transform!((result as { value: any }).value as BaseOutput)
+          )
         : result;
     };
   }
 
-  const schema = createSchema("object", validate) as ObjectSchema<
-    TEntries,
-    TOpts
-  >;
+  const schema = {
+    type: "object" as const,
+    entries,
+    options,
+    parse: (value: unknown) => {
+      return validate(value) as
+        | StandardSchemaV1.SuccessResult<BaseOutput>
+        | StandardSchemaV1.FailureResult;
+    },
 
-  (schema as any).entries = entries;
-  (schema as any).options = options;
+    "~standard": {
+      version: 1 as const,
+      vendor: "viborm" as const,
+      validate,
+      // Lazy jsonSchema - converter is created when first accessed
+      get jsonSchema() {
+        const converter = createJsonSchemaConverter(
+          schema as unknown as VibSchema<unknown, unknown>
+        );
+        // Replace getter with static value for subsequent access
+        Object.defineProperty(this, "jsonSchema", {
+          value: converter,
+          writable: false,
+          enumerable: true,
+        });
+        return converter;
+      },
+    },
+    extend: (newEntries: ObjectEntries) =>
+      object({ ...entries, ...newEntries } as any, options),
+  };
 
   return schema as R extends infer _ ? _ : never;
 }

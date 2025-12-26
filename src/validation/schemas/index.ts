@@ -18,6 +18,12 @@ export type { BigIntSchema } from "./bigint";
 export { literal } from "./literal";
 export type { LiteralSchema, LiteralValue } from "./literal";
 
+export { enum_ } from "./enum";
+export type { EnumSchema } from "./enum";
+
+export { json, validateJson, isJsonValue } from "./json";
+export type { JsonSchema, JsonValue } from "./json";
+
 // Date schemas
 export { date, validateDate } from "./date";
 export type { DateSchema } from "./date";

@@ -1,6 +1,10 @@
-import { inferred } from "../inferred";
-import type { VibSchema, ScalarOptions, ComputeInput, ComputeOutput } from "../types";
-import { applyOptions, fail, ok, createSchema } from "../helpers";
+import type {
+  VibSchema,
+  ScalarOptions,
+  ComputeInput,
+  ComputeOutput,
+} from "../types";
+import { buildSchema, ok } from "../helpers";
 
 // =============================================================================
 // Instance Schema (for class instances like Uint8Array, Buffer, etc.)
@@ -12,34 +16,20 @@ export interface InstanceSchema<
   TOutput = InstanceType<TClass>
 > extends VibSchema<TInput, TOutput> {
   readonly type: "instance";
-  readonly class: TClass;
-}
-
-/**
- * Create a validator for class instances.
- */
-function createInstanceValidator<TClass extends abstract new (...args: any) => any>(
-  classConstructor: TClass
-) {
-  return (value: unknown) => {
-    if (!(value instanceof classConstructor)) {
-      const expected = classConstructor.name || "instance";
-      return fail(`Expected ${expected}, received ${typeof value}`);
-    }
-    return ok(value as InstanceType<TClass>);
-  };
 }
 
 /**
  * Create an instance schema for validating class instances.
- * 
+ *
  * @example
  * const buffer = v.instance(Uint8Array);
  * const blob = v.union([v.instance(Uint8Array), v.instance(Buffer)]);
  */
 export function instance<
   TClass extends abstract new (...args: any) => any,
-  const Opts extends ScalarOptions<InstanceType<TClass>, any> | undefined = undefined
+  const Opts extends
+    | ScalarOptions<InstanceType<TClass>, any>
+    | undefined = undefined
 >(
   classConstructor: TClass,
   options?: Opts
@@ -48,19 +38,21 @@ export function instance<
   ComputeInput<InstanceType<TClass>, Opts>,
   ComputeOutput<InstanceType<TClass>, Opts>
 > {
-  const validate = createInstanceValidator(classConstructor);
-  const schema = createSchema("instance", (value) =>
-    applyOptions(value, validate, options, classConstructor.name || "instance")
-  ) as InstanceSchema<
+  // Pre-compute error for fast path
+  const typeName = classConstructor.name || "instance";
+  const errorResult = Object.freeze({
+    issues: Object.freeze([Object.freeze({ message: `Expected ${typeName}` })]),
+  });
+
+  // Create base validator
+  const baseValidate = (value: unknown) =>
+    value instanceof classConstructor
+      ? ok(value as InstanceType<TClass>)
+      : errorResult;
+
+  return buildSchema("instance", baseValidate, options) as InstanceSchema<
     TClass,
     ComputeInput<InstanceType<TClass>, Opts>,
     ComputeOutput<InstanceType<TClass>, Opts>
   >;
-
-  // Add class reference
-  (schema as any).class = classConstructor;
-
-  return schema;
 }
-
-

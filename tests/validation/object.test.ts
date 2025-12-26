@@ -12,7 +12,9 @@ describe("object schema", () => {
     test("validates objects", () => {
       const result = schema["~standard"].validate({ name: "Alice", age: 30 });
       expect(result.issues).toBeUndefined();
-      expect((result as { value: { name: string; age: number } }).value).toEqual({
+      expect(
+        (result as { value: { name: string; age: number } }).value
+      ).toEqual({
         name: "Alice",
         age: 30,
       });
@@ -59,7 +61,9 @@ describe("object schema", () => {
         extra: true,
       });
       expect(result.issues).toBeUndefined();
-      expect((result as { value: { name: string; age: number } }).value).toEqual({
+      expect(
+        (result as { value: { name: string; age: number } }).value
+      ).toEqual({
         name: "Alice",
         age: 30,
       });
@@ -74,7 +78,9 @@ describe("object schema", () => {
       });
       const result = schema["~standard"].validate({ name: "Alice" });
       expect(result.issues).toBeUndefined();
-      expect((result as { value: { name?: string; age?: number } }).value).toEqual({
+      expect(
+        (result as { value: { name?: string; age?: number } }).value
+      ).toEqual({
         name: "Alice",
         age: undefined,
       });
@@ -111,7 +117,9 @@ describe("object schema", () => {
       });
       const result = schema["~standard"].validate({ name: "Alice" });
       expect(result.issues).toBeUndefined();
-      expect((result as { value: { name: string; age?: number } }).value).toEqual({
+      expect(
+        (result as { value: { name: string; age?: number } }).value
+      ).toEqual({
         name: "Alice",
         age: undefined,
       });
@@ -131,7 +139,9 @@ describe("object schema", () => {
     test("optional object", () => {
       const schema = object({ name: string() }, { optional: true });
       expect(schema["~standard"].validate(undefined).issues).toBeUndefined();
-      expect(schema["~standard"].validate({ name: "A" }).issues).toBeUndefined();
+      expect(
+        schema["~standard"].validate({ name: "A" }).issues
+      ).toBeUndefined();
     });
 
     test("nullable object", () => {
@@ -141,7 +151,10 @@ describe("object schema", () => {
 
     test("array of objects", () => {
       const schema = object({ name: string() }, { array: true });
-      const result = schema["~standard"].validate([{ name: "A" }, { name: "B" }]);
+      const result = schema["~standard"].validate([
+        { name: "A" },
+        { name: "B" },
+      ]);
       expect(result.issues).toBeUndefined();
       expect((result as { value: { name: string }[] }).value).toEqual([
         { name: "A" },
@@ -155,7 +168,9 @@ describe("object schema", () => {
         { optional: true, default: { name: "Unknown" } }
       );
       const result = schema["~standard"].validate(undefined);
-      expect((result as { value: { name: string } }).value).toEqual({ name: "Unknown" });
+      expect((result as { value: { name: string } }).value).toEqual({
+        name: "Unknown",
+      });
     });
 
     test("object with transform", () => {
@@ -164,7 +179,9 @@ describe("object schema", () => {
         { transform: (u) => ({ ...u, name: u.name.toUpperCase() }) }
       );
       const result = schema["~standard"].validate({ name: "alice" });
-      expect((result as { value: { name: string } }).value).toEqual({ name: "ALICE" });
+      expect((result as { value: { name: string } }).value).toEqual({
+        name: "ALICE",
+      });
     });
   });
 
@@ -219,5 +236,160 @@ describe("object schema", () => {
       expect(result.issues![0].path).toEqual(["age"]);
     });
   });
-});
 
+  describe("extend method", () => {
+    const baseSchema = object({
+      name: string(),
+    });
+
+    test("creates extended schema with new fields", () => {
+      const extendedSchema = baseSchema.extend({
+        age: number(),
+      });
+
+      const result = extendedSchema["~standard"].validate({
+        name: "Alice",
+        age: 30,
+      });
+      expect(result.issues).toBeUndefined();
+      expect((result as { value: any }).value).toEqual({
+        name: "Alice",
+        age: 30,
+      });
+    });
+
+    test("extended schema validates new fields", () => {
+      const extendedSchema = baseSchema.extend({
+        age: number(),
+      });
+
+      // Should fail if age is wrong type
+      const result = extendedSchema["~standard"].validate({
+        name: "Alice",
+        age: "30",
+      });
+      expect(result.issues).toBeDefined();
+    });
+
+    test("extended schema type inference", () => {
+      const extendedSchema = baseSchema.extend({
+        age: number(),
+      });
+
+      type Output = StandardSchemaV1.InferOutput<typeof extendedSchema>;
+      expectTypeOf<Output>().toEqualTypeOf<{ name?: string; age?: number }>();
+    });
+
+    test("original schema is unchanged", () => {
+      baseSchema.extend({ age: number() });
+
+      // Original should not have age field validation
+      const result = baseSchema["~standard"].validate({ name: "Alice" });
+      expect(result.issues).toBeUndefined();
+    });
+
+    test("chaining multiple extends", () => {
+      const step1 = baseSchema.extend({ age: number() });
+      const step2 = step1.extend({ email: string() });
+
+      const result = step2["~standard"].validate({
+        name: "Alice",
+        age: 30,
+        email: "alice@test.com",
+      });
+      expect(result.issues).toBeUndefined();
+      expect((result as { value: any }).value).toEqual({
+        name: "Alice",
+        age: 30,
+        email: "alice@test.com",
+      });
+
+      // Type inference for chained extends
+      type Output = StandardSchemaV1.InferOutput<typeof step2>;
+      expectTypeOf<Output>().toEqualTypeOf<{
+        name?: string;
+        age?: number;
+        email?: string;
+      }>();
+    });
+
+    test("overriding existing fields", () => {
+      // Override name from string to number
+      const overridden = baseSchema.extend({
+        name: number(),
+      });
+
+      // Should now accept number for name
+      const result = overridden["~standard"].validate({ name: 123 });
+      expect(result.issues).toBeUndefined();
+      expect((result as { value: any }).value).toEqual({ name: 123 });
+
+      // Should reject string for name now
+      const invalidResult = overridden["~standard"].validate({ name: "Alice" });
+      expect(invalidResult.issues).toBeDefined();
+    });
+
+    test("preserves options from parent schema", () => {
+      const strictSchema = object(
+        { name: string() },
+        { strict: true, partial: false }
+      );
+
+      const extended = strictSchema.extend({ age: number() });
+
+      // Should still reject unknown keys (strict: true preserved)
+      const result = extended["~standard"].validate({
+        name: "Alice",
+        age: 30,
+        extra: true,
+      });
+      expect(result.issues).toBeDefined();
+      expect(result.issues![0].message).toContain("Unknown key");
+    });
+
+    test("extending with optional fields", () => {
+      const extended = baseSchema.extend({
+        nickname: optional(string()),
+      });
+
+      // Should work without nickname
+      const result1 = extended["~standard"].validate({ name: "Alice" });
+      expect(result1.issues).toBeUndefined();
+
+      // Should work with nickname
+      const result2 = extended["~standard"].validate({
+        name: "Alice",
+        nickname: "Ali",
+      });
+      expect(result2.issues).toBeUndefined();
+    });
+
+    test("extending with nested objects", () => {
+      const address = object({
+        city: string(),
+        zip: string(),
+      });
+
+      const extended = baseSchema.extend({
+        address: address,
+      });
+
+      const result = extended["~standard"].validate({
+        name: "Alice",
+        address: { city: "NYC", zip: "10001" },
+      });
+      expect(result.issues).toBeUndefined();
+      expect((result as { value: any }).value).toEqual({
+        name: "Alice",
+        address: { city: "NYC", zip: "10001" },
+      });
+    });
+
+    test("extended schema has correct entries property", () => {
+      const extended = baseSchema.extend({ age: number() });
+
+      expect(extended.entries).toHaveProperty("name");
+      expect(extended.entries).toHaveProperty("age");
+    });
+  });
+});

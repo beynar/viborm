@@ -1,5 +1,6 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { inferred } from "./inferred";
+import type { JsonSchemaConverter } from "./json-schema/types";
 
 // =============================================================================
 // Core Type Utilities
@@ -31,7 +32,7 @@ export interface ThunkCast<TInput = unknown, TOutput = TInput> {
 }
 
 /**
- * Base schema interface implementing StandardSchemaV1.
+ * Base schema interface implementing StandardSchemaV1 and StandardJSONSchemaV1.
  * All VibORM schemas extend this interface.
  */
 export interface VibSchema<TInput = unknown, TOutput = TInput>
@@ -46,6 +47,17 @@ export interface VibSchema<TInput = unknown, TOutput = TInput>
    * Schema type identifier for runtime checks.
    */
   readonly type: string;
+
+  /**
+   * Standard properties extended with JSON Schema converter.
+   */
+  readonly "~standard": StandardSchemaV1<TInput, TOutput>["~standard"] & {
+    /**
+     * JSON Schema converter methods.
+     * Implements StandardJSONSchemaV1 specification.
+     */
+    readonly jsonSchema: JsonSchemaConverter;
+  };
 }
 
 // =============================================================================
@@ -62,7 +74,7 @@ export interface ScalarOptions<T, TOut = T, TSchemaOut = TOut> {
   array?: boolean;
   default?: any | (() => any) | undefined;
   /** Transform function applied AFTER schema validation */
-  transform?: (value: TSchemaOut) => TOut;
+  transform?: ((value: TSchemaOut) => TOut) | undefined;
   /** Additional StandardSchema for extra validation. Its output flows to transform. */
   schema?: StandardSchemaV1<T, TSchemaOut> | undefined;
 }

@@ -1,11 +1,10 @@
-import { inferred } from "../inferred";
 import type {
   VibSchema,
   ScalarOptions,
   ComputeInput,
   ComputeOutput,
 } from "../types";
-import { applyOptions, fail, ok, createSchema } from "../helpers";
+import { buildSchema, ok } from "../helpers";
 
 // =============================================================================
 // ISO Format Validators
@@ -21,6 +20,11 @@ const ISO_DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 // ISO time regex: 10:30:00 or 10:30:00.000
 const ISO_TIME_REGEX = /^\d{2}:\d{2}:\d{2}(\.\d{1,3})?$/;
 
+// Pre-computed errors
+const NOT_STRING_ERROR = Object.freeze({
+  issues: Object.freeze([Object.freeze({ message: "Expected string" })]),
+});
+
 // =============================================================================
 // ISO Timestamp Schema
 // =============================================================================
@@ -30,23 +34,28 @@ export interface IsoTimestampSchema<TInput = string, TOutput = string>
   readonly type: "iso_timestamp";
 }
 
+// Pre-computed errors
+const INVALID_TIMESTAMP_FORMAT = Object.freeze({
+  issues: Object.freeze([
+    Object.freeze({
+      message: "Expected ISO timestamp format (YYYY-MM-DDTHH:mm:ss.sssZ)",
+    }),
+  ]),
+});
+const INVALID_TIMESTAMP_DATE = Object.freeze({
+  issues: Object.freeze([
+    Object.freeze({ message: "Invalid date in ISO timestamp" }),
+  ]),
+});
+
 /**
  * Validate ISO timestamp format.
  */
 function validateIsoTimestamp(value: unknown) {
-  if (typeof value !== "string") {
-    return fail(`Expected ISO timestamp string, received ${typeof value}`);
-  }
-  if (!ISO_TIMESTAMP_REGEX.test(value)) {
-    return fail(
-      `Expected ISO timestamp format (YYYY-MM-DDTHH:mm:ss.sssZ), received "${value}"`
-    );
-  }
-  // Validate it's a real date
+  if (typeof value !== "string") return NOT_STRING_ERROR;
+  if (!ISO_TIMESTAMP_REGEX.test(value)) return INVALID_TIMESTAMP_FORMAT;
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return fail(`Invalid date in ISO timestamp: ${value}`);
-  }
+  if (Number.isNaN(date.getTime())) return INVALID_TIMESTAMP_DATE;
   return ok(value);
 }
 
@@ -62,8 +71,10 @@ export function isoTimestamp<
 >(
   options?: Opts
 ): IsoTimestampSchema<ComputeInput<string, Opts>, ComputeOutput<string, Opts>> {
-  return createSchema("iso_timestamp", (value) =>
-    applyOptions(value, validateIsoTimestamp, options, "ISO timestamp")
+  return buildSchema(
+    "iso_timestamp",
+    validateIsoTimestamp,
+    options
   ) as IsoTimestampSchema<
     ComputeInput<string, Opts>,
     ComputeOutput<string, Opts>
@@ -79,21 +90,26 @@ export interface IsoDateSchema<TInput = string, TOutput = string>
   readonly type: "iso_date";
 }
 
+// Pre-computed errors
+const INVALID_DATE_FORMAT = Object.freeze({
+  issues: Object.freeze([
+    Object.freeze({
+      message: "Expected ISO date format (YYYY-MM-DD)",
+    }),
+  ]),
+});
+const INVALID_DATE = Object.freeze({
+  issues: Object.freeze([Object.freeze({ message: "Invalid date" })]),
+});
+
 /**
  * Validate ISO date format.
  */
 function validateIsoDate(value: unknown) {
-  if (typeof value !== "string") {
-    return fail(`Expected ISO date string, received ${typeof value}`);
-  }
-  if (!ISO_DATE_REGEX.test(value)) {
-    return fail(`Expected ISO date format (YYYY-MM-DD), received "${value}"`);
-  }
-  // Validate it's a real date
+  if (typeof value !== "string") return NOT_STRING_ERROR;
+  if (!ISO_DATE_REGEX.test(value)) return INVALID_DATE_FORMAT;
   const date = new Date(value + "T00:00:00Z");
-  if (Number.isNaN(date.getTime())) {
-    return fail(`Invalid date: ${value}`);
-  }
+  if (Number.isNaN(date.getTime())) return INVALID_DATE;
   return ok(value);
 }
 
@@ -109,9 +125,10 @@ export function isoDate<
 >(
   options?: Opts
 ): IsoDateSchema<ComputeInput<string, Opts>, ComputeOutput<string, Opts>> {
-  return createSchema("iso_date", (value) =>
-    applyOptions(value, validateIsoDate, options, "ISO date")
-  ) as IsoDateSchema<ComputeInput<string, Opts>, ComputeOutput<string, Opts>>;
+  return buildSchema("iso_date", validateIsoDate, options) as IsoDateSchema<
+    ComputeInput<string, Opts>,
+    ComputeOutput<string, Opts>
+  >;
 }
 
 // =============================================================================
@@ -123,21 +140,30 @@ export interface IsoTimeSchema<TInput = string, TOutput = string>
   readonly type: "iso_time";
 }
 
+// Pre-computed errors
+const INVALID_TIME_FORMAT = Object.freeze({
+  issues: Object.freeze([
+    Object.freeze({
+      message: "Expected ISO time format (HH:mm:ss)",
+    }),
+  ]),
+});
+const INVALID_TIME = Object.freeze({
+  issues: Object.freeze([Object.freeze({ message: "Invalid time" })]),
+});
+
 /**
  * Validate ISO time format.
  */
 function validateIsoTime(value: unknown) {
-  if (typeof value !== "string") {
-    return fail(`Expected ISO time string, received ${typeof value}`);
-  }
-  if (!ISO_TIME_REGEX.test(value)) {
-    return fail(`Expected ISO time format (HH:mm:ss), received "${value}"`);
-  }
-  // Validate time components are valid
+  if (typeof value !== "string") return NOT_STRING_ERROR;
+  if (!ISO_TIME_REGEX.test(value)) return INVALID_TIME_FORMAT;
+
   const parts = value.split(":").map(Number);
   const hours = parts[0] ?? 0;
   const minutes = parts[1] ?? 0;
   const seconds = parts[2] ?? 0;
+
   if (
     hours < 0 ||
     hours > 23 ||
@@ -146,7 +172,7 @@ function validateIsoTime(value: unknown) {
     seconds < 0 ||
     seconds > 59
   ) {
-    return fail(`Invalid time: ${value}`);
+    return INVALID_TIME;
   }
   return ok(value);
 }
@@ -163,9 +189,10 @@ export function isoTime<
 >(
   options?: Opts
 ): IsoTimeSchema<ComputeInput<string, Opts>, ComputeOutput<string, Opts>> {
-  return createSchema("iso_time", (value) =>
-    applyOptions(value, validateIsoTime, options, "ISO time")
-  ) as IsoTimeSchema<ComputeInput<string, Opts>, ComputeOutput<string, Opts>>;
+  return buildSchema("iso_time", validateIsoTime, options) as IsoTimeSchema<
+    ComputeInput<string, Opts>,
+    ComputeOutput<string, Opts>
+  >;
 }
 
 // Export validators for reuse

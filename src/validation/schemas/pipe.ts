@@ -16,7 +16,7 @@ export interface TransformAction<TIn, TOut> {
 
 /**
  * Create a transform action for use with pipe.
- * 
+ *
  * @example
  * const upperCase = v.pipe(v.string(), v.transform(s => s.toUpperCase()));
  */
@@ -59,16 +59,16 @@ type InferPipeOutput<
 > = TActions extends readonly []
   ? InferOutput<TSchema>
   : TActions extends readonly [PipeAction<any, infer TOut>]
-    ? TOut
-    : TActions extends readonly [PipeAction<any, infer TMid>, ...infer TRest]
-      ? TRest extends readonly PipeAction<any, any>[]
-        ? InferPipeOutput<VibSchema<TMid, TMid>, TRest>
-        : TMid
-      : InferOutput<TSchema>;
+  ? TOut
+  : TActions extends readonly [PipeAction<any, infer TMid>, ...infer TRest]
+  ? TRest extends readonly PipeAction<any, any>[]
+    ? InferPipeOutput<VibSchema<TMid, TMid>, TRest>
+    : TMid
+  : InferOutput<TSchema>;
 
 /**
  * Create a pipe schema that chains a base schema with transform actions.
- * 
+ *
  * @example
  * const trimmedString = v.pipe(v.string(), v.transform(s => s.trim()));
  * const isoDate = v.pipe(v.date(), v.transform(d => d.toISOString()));
@@ -79,29 +79,41 @@ export function pipe<
 >(
   schema: TSchema,
   ...actions: TActions
-): PipeSchema<TSchema, TActions, InferInput<TSchema>, InferPipeOutput<TSchema, TActions>> {
-  const pipeSchema = createSchema<InferInput<TSchema>, InferPipeOutput<TSchema, TActions>>(
-    "pipe",
-    (value) => {
-      const result = validateSchema(schema, value);
-      if (result.issues) {
-        return result as any;
-      }
+): PipeSchema<
+  TSchema,
+  TActions,
+  InferInput<TSchema>,
+  InferPipeOutput<TSchema, TActions>
+> {
+  const pipeSchema = createSchema<
+    InferInput<TSchema>,
+    InferPipeOutput<TSchema, TActions>
+  >("pipe", (value) => {
+    const result = validateSchema(schema, value);
+    if (result.issues) {
+      return result as any;
+    }
 
-      let current: unknown = (result as { value: unknown }).value;
-      for (const action of actions) {
-        if (action.type === "transform") {
-          try {
-            current = action.transform(current);
-          } catch (e) {
-            return fail(`Transform failed: ${e instanceof Error ? e.message : String(e)}`);
-          }
+    let current: unknown = (result as { value: unknown }).value;
+    for (const action of actions) {
+      if (action.type === "transform") {
+        try {
+          current = action.transform(current);
+        } catch (e) {
+          return fail(
+            `Transform failed: ${e instanceof Error ? e.message : String(e)}`
+          );
         }
       }
-
-      return ok(current as InferPipeOutput<TSchema, TActions>);
     }
-  ) as PipeSchema<TSchema, TActions, InferInput<TSchema>, InferPipeOutput<TSchema, TActions>>;
+
+    return ok(current as InferPipeOutput<TSchema, TActions>);
+  }) as PipeSchema<
+    TSchema,
+    TActions,
+    InferInput<TSchema>,
+    InferPipeOutput<TSchema, TActions>
+  >;
 
   (pipeSchema as any).schema = schema;
   (pipeSchema as any).actions = actions;

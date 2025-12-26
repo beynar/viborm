@@ -1,11 +1,10 @@
-import { inferred } from "../inferred";
 import type {
   VibSchema,
   ScalarOptions,
   ComputeInput,
   ComputeOutput,
 } from "../types";
-import { applyOptions, fail, ok, createSchema } from "../helpers";
+import { buildSchema, ok } from "../helpers";
 
 // =============================================================================
 // Blob Schema (Uint8Array / Buffer)
@@ -16,14 +15,20 @@ export interface BlobSchema<TInput = Uint8Array, TOutput = Uint8Array>
   readonly type: "blob";
 }
 
+// Pre-computed error for fast path
+const BLOB_ERROR = Object.freeze({
+  issues: Object.freeze([
+    Object.freeze({ message: "Expected Uint8Array or Buffer" }),
+  ]),
+});
+
 /**
  * Validate that a value is a Uint8Array or Buffer.
  */
 export function validateBlob(value: unknown) {
-  if (value instanceof Uint8Array || Buffer.isBuffer(value)) {
-    return ok(value as Uint8Array);
-  }
-  return fail(`Expected Uint8Array or Buffer, received ${typeof value}`);
+  return value instanceof Uint8Array || Buffer.isBuffer(value)
+    ? ok(value as Uint8Array)
+    : BLOB_ERROR;
 }
 
 /**
@@ -35,19 +40,12 @@ export function validateBlob(value: unknown) {
  * const nullableBlob = v.blob({ nullable: true });
  */
 export function blob<
-  const Opts extends ScalarOptions<Uint8Array, any> | undefined = undefined,
+  const Opts extends ScalarOptions<Uint8Array, any> | undefined = undefined
 >(
   options?: Opts
-): BlobSchema<
-  ComputeInput<Uint8Array, Opts>,
-  ComputeOutput<Uint8Array, Opts>
-> {
-  return createSchema("blob", (value) =>
-    applyOptions(value, validateBlob, options, "blob")
-  ) as BlobSchema<
+): BlobSchema<ComputeInput<Uint8Array, Opts>, ComputeOutput<Uint8Array, Opts>> {
+  return buildSchema("blob", validateBlob, options) as BlobSchema<
     ComputeInput<Uint8Array, Opts>,
     ComputeOutput<Uint8Array, Opts>
   >;
 }
-
-

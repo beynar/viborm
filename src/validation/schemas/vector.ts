@@ -1,11 +1,10 @@
-import { inferred } from "../inferred";
 import type {
   VibSchema,
   ScalarOptions,
   ComputeInput,
   ComputeOutput,
 } from "../types";
-import { applyOptions, fail, ok, createSchema } from "../helpers";
+import { buildSchema, fail, ok } from "../helpers";
 
 // =============================================================================
 // Vector Schema (array of numbers for embeddings/ML)
@@ -14,30 +13,43 @@ import { applyOptions, fail, ok, createSchema } from "../helpers";
 export interface VectorSchema<TInput = number[], TOutput = number[]>
   extends VibSchema<TInput, TOutput> {
   readonly type: "vector";
-  readonly dimensions?: number;
 }
+
+// Pre-computed error for fast path
+const NOT_ARRAY_ERROR = Object.freeze({
+  issues: Object.freeze([
+    Object.freeze({ message: "Expected array of numbers" }),
+  ]),
+});
 
 /**
  * Validate that a value is a vector (array of numbers).
  * Optionally check for specific dimensions.
  */
 function createVectorValidator(dimensions?: number) {
-  return (value: unknown) => {
-    if (!Array.isArray(value)) {
-      return fail(`Expected array of numbers, received ${typeof value}`);
-    }
+  // Pre-compute dimension error if applicable
+  const dimensionError =
+    dimensions !== undefined
+      ? Object.freeze({
+          issues: Object.freeze([
+            Object.freeze({
+              message: `Expected vector of ${dimensions} dimensions`,
+            }),
+          ]),
+        })
+      : null;
 
-    for (let i = 0; i < value.length; i++) {
+  return (value: unknown) => {
+    if (!Array.isArray(value)) return NOT_ARRAY_ERROR;
+
+    const len = value.length;
+    for (let i = 0; i < len; i++) {
       if (typeof value[i] !== "number" || Number.isNaN(value[i])) {
-        return fail(`Expected number at index ${i}, received ${typeof value[i]}`);
+        return fail(`Expected number at index ${i}`);
       }
     }
 
-    if (dimensions !== undefined && value.length !== dimensions) {
-      return fail(
-        `Expected vector of ${dimensions} dimensions, received ${value.length}`
-      );
-    }
+    if (dimensionError && len !== dimensions) return dimensionError;
 
     return ok(value as number[]);
   };
@@ -55,27 +67,21 @@ function createVectorValidator(dimensions?: number) {
  * const optionalVector = v.vector(undefined, { optional: true });
  */
 export function vector<
-  const Opts extends ScalarOptions<number[], any> | undefined = undefined,
+  const Opts extends ScalarOptions<number[], any> | undefined = undefined
 >(
   dimensions?: number,
   options?: Opts
-): VectorSchema<ComputeInput<number[], Opts>, ComputeOutput<number[], Opts>> {
-  const validateVector = createVectorValidator(dimensions);
-
-  const schema = createSchema("vector", (value) =>
-    applyOptions(value, validateVector, options, "vector")
-  ) as VectorSchema<
+): VectorSchema<ComputeInput<number[], Opts>, ComputeOutput<number[], Opts>> & {
+  dimensions?: number;
+} {
+  const baseValidate = createVectorValidator(dimensions);
+  return buildSchema("vector", baseValidate, options, {
+    dimensions,
+  }) as VectorSchema<
     ComputeInput<number[], Opts>,
     ComputeOutput<number[], Opts>
-  >;
-
-  // Store dimensions on schema for introspection
-  (schema as any).dimensions = dimensions;
-
-  return schema;
+  > & { dimensions?: number };
 }
 
 // Export validator for reuse
 export { createVectorValidator as validateVector };
-
-

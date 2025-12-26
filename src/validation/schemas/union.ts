@@ -20,7 +20,7 @@ export interface UnionSchema<
 /**
  * Create a union schema that validates against multiple options.
  * Returns the result of the first matching schema.
- * 
+ *
  * @example
  * const stringOrNumber = v.union([v.string(), v.number()]);
  */
@@ -30,22 +30,21 @@ export function union<const TOptions extends readonly VibSchema<any, any>[]>(
   const schema = createSchema<
     InferInput<TOptions[number]>,
     InferOutput<TOptions[number]>
-  >(
-    "union",
-    (value) => {
-      const errors: string[] = [];
+  >("union", (value) => {
+    const errors: string[] = [];
 
-      for (const option of options) {
-        const result = validateSchema(option, value);
-        if (!result.issues) {
-          return ok((result as { value: unknown }).value as InferOutput<TOptions[number]>);
-        }
-        errors.push(result.issues[0].message);
+    for (const option of options) {
+      const result = validateSchema(option, value);
+      if (!result.issues) {
+        return ok(
+          (result as { value: unknown }).value as InferOutput<TOptions[number]>
+        );
       }
-
-      return fail(`Value did not match any union member: ${errors.join(", ")}`);
+      errors.push(result.issues[0]!.message);
     }
-  ) as UnionSchema<TOptions>;
+
+    return fail(`Value did not match any union member: ${errors.join(", ")}`);
+  }) as UnionSchema<TOptions>;
 
   (schema as any).options = options;
 

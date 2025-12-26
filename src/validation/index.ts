@@ -40,10 +40,20 @@ export {
   fail,
   ok,
   getDefault,
-  applyOptions,
+  buildValidator,
   createSchema,
   validateSchema,
 } from "./helpers";
+
+// JSON Schema conversion (StandardJSONSchemaV1)
+export type {
+  JsonSchema as JSONSchemaOutput,
+  JsonSchemaTarget,
+  JsonSchemaOptions,
+  JsonSchemaConverter,
+} from "./json-schema";
+
+export { toJsonSchema, createJsonSchemaConverter } from "./json-schema";
 
 // All schemas
 export {
@@ -54,6 +64,8 @@ export {
   boolean,
   bigint,
   literal,
+  enum_,
+  json,
   // Date & Time
   date,
   isoTimestamp,
@@ -98,6 +110,8 @@ export {
   validateBlob,
   validateVector,
   validatePoint,
+  validateJson,
+  isJsonValue,
 } from "./schemas";
 
 export type {
@@ -109,6 +123,9 @@ export type {
   BigIntSchema,
   LiteralSchema,
   LiteralValue,
+  EnumSchema,
+  JsonSchema,
+  JsonValue,
   // Date types
   DateSchema,
   IsoTimestampSchema,
@@ -156,6 +173,8 @@ import {
   boolean as booleanFn,
   bigint as bigintFn,
   literal as literalFn,
+  enum_ as enumFn,
+  json as jsonFn,
   date as dateFn,
   isoTimestamp as isoTimestampFn,
   isoDate as isoDateFn,
@@ -209,6 +228,8 @@ export const v = {
   boolean: booleanFn,
   bigint: bigintFn,
   literal: literalFn,
+  enum: enumFn,
+  json: jsonFn,
   // Date & Time
   date: dateFn,
   isoTimestamp: isoTimestampFn,

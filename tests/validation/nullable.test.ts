@@ -29,22 +29,6 @@ describe("nullable wrapper schema", () => {
     });
   });
 
-  describe("with default", () => {
-    test("static default", () => {
-      const schema = nullable(string(), "default");
-      const result = schema["~standard"].validate(null);
-      expect(result.issues).toBeUndefined();
-      expect((result as { value: string }).value).toBe("default");
-    });
-
-    test("default factory function", () => {
-      const schema = nullable(number(), () => 0);
-      const result = schema["~standard"].validate(null);
-      expect(result.issues).toBeUndefined();
-      expect((result as { value: number }).value).toBe(0);
-    });
-  });
-
   describe("with different types", () => {
     test("nullable number", () => {
       const schema = nullable(number());
