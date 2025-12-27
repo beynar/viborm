@@ -242,7 +242,7 @@ shape["posts"] = v.object({
 }, { optional: true });
 ```
 
-Unlike Valibot's `lazy()`, VibORM's thunks preserve full type inference for circular references.
+Unlike Valibot's `lazy()`, VibORM's thunks preserve full type inference for circular references. See [Validation Library - Thunk-Based Circular References](/docs/internals/validation#thunk-based-circular-references) for the technical details.
 
 ## Model-Level Caching
 
@@ -346,17 +346,21 @@ import { v } from "viborm";
 const ensureArray = <T>(x: T | T[]): T[] => (Array.isArray(x) ? x : [x]);
 
 const buildToManyCreate = (getTargetModel) => {
+  // Get target schemas (thunks resolved at build time)
+  const targetCreate = getTargetModel()["~"].schemas.create;
+  const targetWhereUnique = getTargetModel()["~"].schemas.whereUnique;
+
   return v.object({
     create: v.union([
-      () => getTargetModel()["~"].schemas.create,
-      v.array(() => getTargetModel()["~"].schemas.create),
+      targetCreate,
+      v.array(targetCreate),
     ], { 
       optional: true, 
       transform: ensureArray 
     }),
     connect: v.union([
-      () => getTargetModel()["~"].schemas.whereUnique,
-      v.array(() => getTargetModel()["~"].schemas.whereUnique),
+      targetWhereUnique,
+      v.array(targetWhereUnique),
     ], { 
       optional: true, 
       transform: ensureArray 
@@ -365,20 +369,29 @@ const buildToManyCreate = (getTargetModel) => {
 };
 ```
 
+<Callout type="warning">
+  Thunks are only supported at object key level, not inside wrappers like `array()` or `union()`. Resolve target schemas at build time as shown above.
+</Callout>
+
 ### To-Many Update (Array-Only Operations)
 
 Some operations only accept arrays:
 
 ```typescript
+// Schemas resolved at build time
+const createSchema = getTargetModel()["~"].schemas.create;
+const connectSchema = getTargetModel()["~"].schemas.whereUnique;
+const whereSchema = getTargetModel()["~"].schemas.where;
+
 return v.object({
   // Single-or-array (normalized)
-  create: v.array(() => createSchema, { optional: true }),
-  connect: v.array(() => connectSchema, { optional: true }),
+  create: v.array(createSchema, { optional: true }),
+  connect: v.array(connectSchema, { optional: true }),
 
   // Array-only (no single-value shorthand)
-  deleteMany: v.array(() => whereSchema, { optional: true }),
-  updateMany: v.array(() => updateManySchema, { optional: true }),
-  upsert: v.array(() => upsertSchema, { optional: true }),
+  deleteMany: v.array(whereSchema, { optional: true }),
+  updateMany: v.array(updateManySchema, { optional: true }),
+  upsert: v.array(upsertSchema, { optional: true }),
 });
 ```
 
@@ -402,5 +415,22 @@ For union schemas with shorthand normalization, these differ:
 - `InferOutput`: `{ equals: string } | { contains?: string, ... }`
 
 The output type reflects the normalized form after shorthand transformation.
+
+## JSON Schema Conversion
+
+Model schemas can be converted to JSON Schema for API documentation and OpenAPI specs:
+
+```typescript
+const userWhereSchema = model["~"].schemas.where;
+
+// Convert to JSON Schema
+const jsonSchema = userWhereSchema["~standard"].jsonSchema.output({
+  target: "draft-07",
+});
+```
+
+Named schemas automatically use `$ref` for circular references, and multiple references to the same schema share a single `$defs` entry.
+
+See the [Validation Library - JSON Schema](/docs/internals/validation#json-schema-conversion) documentation for full details on conversion targets, type mappings, and `$ref` handling.
 
 See the [Validation Library](/docs/internals/validation) documentation for more details on the type system and recursive type support.

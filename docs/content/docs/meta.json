@@ -24,6 +24,7 @@
     "---Internals---",
     "internals/index",
     "internals/architecture",
+    "internals/validation",
     "internals/schema-system",
     "internals/type-system",
     "internals/runtime-schemas",

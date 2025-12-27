@@ -10,7 +10,7 @@ export type UnionOptions<T extends readonly VibSchema<any, any>[]> = T;
 
 export interface UnionSchema<
   TOptions extends readonly VibSchema<any, any>[],
-  TInput = InferInput<TOptions[number]>,
+  TInput = TOptions[number][" vibInferred"]["0"],
   TOutput = InferOutput<TOptions[number]>
 > extends VibSchema<TInput, TOutput> {
   readonly type: "union";

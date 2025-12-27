@@ -1,7 +1,10 @@
-import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { inferred } from "../inferred";
-import type { VibSchema, ValidationResult } from "../types";
-import { createSchema, fail, ok } from "../helpers";
+import type {
+  VibSchema,
+  ValidationResult,
+  InferInput,
+  InferOutput,
+} from "../types";
+import { createSchema, fail, ok, validateSchema } from "../helpers";
 
 // =============================================================================
 // Transform Schema Wrapper
@@ -44,33 +47,27 @@ export interface TransformSchema<TInput, TOutput>
  * );
  * type Out = InferOutput<typeof getName>; // string
  */
-export function coerce<I, O, TOut>(
-  schema: StandardSchemaV1<I, O>,
-  fn: (value: O) => TOut
-): TransformSchema<I, TOut> & { wrapped: StandardSchemaV1<I, O> } {
-  const transformSchema = createSchema(
+export function coerce<S extends VibSchema<any, any>, TOut>(
+  schema: S,
+  fn: (value: InferOutput<S>) => TOut
+): TransformSchema<InferInput<S>, TOut> & { wrapped: S } {
+  const transformSchema = createSchema<InferInput<S>, TOut>(
     "transform",
     (value): ValidationResult<TOut> => {
-      const result = schema["~standard"].validate(value);
-      if ("then" in result) {
-        return fail("Async schemas are not supported");
-      }
+      const result = validateSchema(schema, value);
       if (result.issues) {
-        const issue = result.issues[0];
-        return fail(issue?.message ?? "Validation failed");
+        return fail(result.issues[0]?.message ?? "Validation failed");
       }
       try {
-        const output = (result as { value: O }).value;
-        return ok(fn(output));
+        return ok(fn((result as { value: InferOutput<S> }).value));
       } catch (e) {
         return fail(
           `Transform failed: ${e instanceof Error ? e.message : String(e)}`
         );
       }
     }
-  ) as TransformSchema<I, TOut> & { wrapped: StandardSchemaV1<I, O> };
+  ) as TransformSchema<InferInput<S>, TOut> & { wrapped: S };
 
-  // Store the wrapped schema for JSON Schema conversion
   (transformSchema as any).wrapped = schema;
 
   return transformSchema;

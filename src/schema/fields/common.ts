@@ -114,7 +114,6 @@ export interface FieldState<T extends ScalarFieldType = ScalarFieldType> {
   default: DefaultValue<any> | undefined;
   autoGenerate: AutoGenerateType | undefined;
   schema: StandardSchemaV1<any, any> | undefined;
-  base: BaseSchema<any, any, any>;
   optional: boolean;
   /** Custom column name in the database (set via .map()) */
   columnName: string | undefined;
@@ -201,13 +200,7 @@ export type SchemaWithDefault<F extends FieldState> =
 /**
  * Creates a default initial state for a field type
  */
-export const createDefaultState = <
-  T extends ScalarFieldType,
-  B extends AnySchema
->(
-  type: T,
-  base: B
-) => ({
+export const createDefaultState = <T extends ScalarFieldType>(type: T) => ({
   type,
   nullable: false,
   array: false,
@@ -219,7 +212,6 @@ export const createDefaultState = <
   schema: undefined,
   columnName: undefined,
   optional: false,
-  base,
 });
 
 // =============================================================================

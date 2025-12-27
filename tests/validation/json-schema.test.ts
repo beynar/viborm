@@ -480,12 +480,41 @@ describe("JSON Schema conversion", () => {
       });
     });
 
-    test("instance schema throws (not JSON representable)", () => {
+    test("instance schema with Date uses date-time format", () => {
       const schema = instance(Date);
+      const jsonSchema = schema["~standard"].jsonSchema.output({
+        target: "draft-07",
+      }) as JsonSchema;
 
-      expect(() =>
-        schema["~standard"].jsonSchema.output({ target: "draft-07" })
-      ).toThrow("Cannot convert");
+      expect(jsonSchema).toMatchObject({
+        type: "string",
+        format: "date-time",
+      });
+    });
+
+    test("instance schema with Uint8Array uses base64 encoding", () => {
+      const schema = instance(Uint8Array);
+      const jsonSchema = schema["~standard"].jsonSchema.output({
+        target: "draft-07",
+      }) as JsonSchema;
+
+      expect(jsonSchema).toMatchObject({
+        type: "string",
+        contentEncoding: "base64",
+      });
+    });
+
+    test("instance schema with custom class uses object with x-instance", () => {
+      class MyCustomClass {}
+      const schema = instance(MyCustomClass);
+      const jsonSchema = schema["~standard"].jsonSchema.output({
+        target: "draft-07",
+      }) as JsonSchema;
+
+      expect(jsonSchema).toMatchObject({
+        type: "object",
+      });
+      expect((jsonSchema as any)["x-instance"]).toBe("MyCustomClass");
     });
   });
 

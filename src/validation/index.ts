@@ -117,6 +117,7 @@ export {
 export type {
   // Scalar types
   StringSchema,
+  BaseStringSchema,
   NumberSchema,
   IntegerSchema,
   BooleanSchema,

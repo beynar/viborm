@@ -50,7 +50,9 @@ export function instance<
       ? ok(value as InstanceType<TClass>)
       : errorResult;
 
-  return buildSchema("instance", baseValidate, options) as InstanceSchema<
+  return buildSchema("instance", baseValidate, options, {
+    ctor: classConstructor,
+  }) as InstanceSchema<
     TClass,
     ComputeInput<InstanceType<TClass>, Opts>,
     ComputeOutput<InstanceType<TClass>, Opts>

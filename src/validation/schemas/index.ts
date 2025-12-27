@@ -4,7 +4,7 @@
 
 // Scalar schemas
 export { string, validateString } from "./string";
-export type { StringSchema } from "./string";
+export type { StringSchema, BaseStringSchema } from "./string";
 
 export { number, integer, validateNumber, validateInteger } from "./number";
 export type { NumberSchema, IntegerSchema } from "./number";

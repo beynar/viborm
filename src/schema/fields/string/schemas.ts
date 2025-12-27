@@ -1,249 +1,114 @@
-// String Field Schemas
-// Factory pattern for string field variants with optional custom schema support
-
-import {
-  array,
-  boolean,
-  literal,
-  nullable,
-  object,
-  optional,
-  string,
-  union,
-  InferInput,
-  NullableSchema,
-  ArraySchema,
-} from "valibot";
-import {
-  AnySchema,
-  extend,
-  FieldState,
-  SchemaWithDefault,
-  shorthandFilter,
-  shorthandUpdate,
-  createWithDefault,
-} from "../common";
-import v from "../../../validation";
+import { FieldState } from "../common";
+import v, { BaseStringSchema, VibSchema } from "../../../validation";
 
 // =============================================================================
 // BASE TYPES
 // =============================================================================
 
-export const stringBase = string();
-export const stringNullable = nullable(stringBase);
-export const stringList = array(stringBase);
-export const stringListNullable = nullable(stringList);
+export const stringBase = v.string();
+export const stringNullable = v.string({ nullable: true });
+export const stringList = v.string({ array: true });
+export const stringListNullable = v.string({ array: true, nullable: true });
 
 // =============================================================================
 // FILTER SCHEMAS
 // =============================================================================
 
 // Base filter object without `not` (used for recursive `not` definition)
-const stringFilterBase = object({
-  equals: optional(stringBase),
-  in: optional(stringList),
-  notIn: optional(stringList),
-  contains: optional(stringBase),
-  startsWith: optional(stringBase),
-  endsWith: optional(stringBase),
-  mode: optional(union([literal("default"), literal("insensitive")])),
-  lt: optional(stringBase),
-  lte: optional(stringBase),
-  gt: optional(stringBase),
-  gte: optional(stringBase),
+
+// Shared filters for any non list string field
+
+export const shorthandUpdate = <Z extends VibSchema>(schema: Z) =>
+  v.coerce(schema, (v: Z[" vibInferred"]["0"]) => ({ set: v }));
+
+const shorthandFilter = <Z extends VibSchema>(schema: Z) =>
+  v.coerce(schema, (v: Z[" vibInferred"]["0"]) => ({ equals: v }));
+
+const stringFilterBase = v.object({
+  in: stringList,
+  notIn: stringList,
+  contains: stringBase,
+  startsWith: stringBase,
+  endsWith: stringBase,
+  mode: v.enum(["default", "insensitive"]),
 });
 
-const stringNullableFilterBase = object({
-  equals: optional(stringNullable),
-  in: optional(stringList),
-  notIn: optional(stringList),
-  contains: optional(stringBase),
-  startsWith: optional(stringBase),
-  endsWith: optional(stringBase),
-  mode: optional(union([literal("default"), literal("insensitive")])),
-  lt: optional(stringNullable),
-  lte: optional(stringNullable),
-  gt: optional(stringNullable),
-  gte: optional(stringNullable),
-});
-
-const stringArrayFilterBase = object({
-  equals: optional(stringList),
-  has: optional(stringBase),
-  hasEvery: optional(stringList),
-  hasSome: optional(stringList),
-  isEmpty: optional(boolean()),
-});
-const stringNullableListFilterBase = object({
-  equals: optional(stringListNullable),
-  has: optional(stringBase),
-  hasEvery: optional(stringList),
-  hasSome: optional(stringList),
-  isEmpty: optional(boolean()),
-});
-const stringFilter = union([
-  shorthandFilter(stringBase),
-  extend(stringFilterBase, {
-    not: optional(union([shorthandFilter(stringBase), stringFilterBase])),
-  }),
-]);
-
-const stringNullableFilter = union([
-  shorthandFilter(stringNullable),
-  extend(stringNullableFilterBase, {
-    not: optional(
-      union([shorthandFilter(stringNullable), stringNullableFilterBase])
-    ),
-  }),
-]);
-
-const stringListFilter = union([
-  shorthandFilter(stringList),
-  extend(stringArrayFilterBase, {
-    not: optional(union([shorthandFilter(stringList), stringArrayFilterBase])),
-  }),
-]);
-
-const stringListNullableFilter = union([
-  shorthandFilter(stringListNullable),
-  extend(stringNullableListFilterBase, {
-    not: optional(
-      union([shorthandFilter(stringListNullable), stringNullableListFilterBase])
-    ),
-  }),
-]);
-
-// =============================================================================
-// UPDATE FACTORIES
-// =============================================================================
-
-const stringUpdateFactory = <S extends AnySchema>(base: S) => {
-  return union([shorthandUpdate(base), object({ set: base })]);
-};
-
-const stringNullableUpdateFactory = <S extends AnySchema>(base: S) => {
-  return union([
-    shorthandUpdate(nullable(base)),
-    object({ set: nullable(base) }),
+const buildStringFilterSchema = <S extends VibSchema>(schema: S) => {
+  return v.union([
+    shorthandFilter(schema),
+    stringFilterBase.extend({
+      equal: schema,
+      lt: schema,
+      lte: schema,
+      gt: schema,
+      gte: schema,
+    }),
   ]);
 };
 
-const stringListUpdateFactory = <S extends AnySchema>(base: S) =>
-  union([
-    shorthandUpdate(array(base)),
-    object({
-      set: optional(array(base)),
-      push: optional(union([base, array(base)])),
-      unshift: optional(union([base, array(base)])),
+const stringListFilterBase = v.object({
+  has: stringBase,
+  hasEvery: stringList,
+  hasSome: stringList,
+  isEmpty: v.boolean(),
+});
+const buildStringListFilterSchema = <S extends VibSchema>(schema: S) => {
+  return v.union([
+    shorthandFilter(schema),
+    stringListFilterBase.extend({
+      equals: schema,
+    }),
+  ]);
+};
+
+const buildStringUpdateSchema = <S extends VibSchema>(schema: S) =>
+  v.union([
+    shorthandUpdate(schema),
+    v.object(
+      {
+        set: schema,
+      },
+      { partial: false }
+    ),
+  ]);
+
+const buildStringListUpdateSchema = <S extends VibSchema>(schema: S) =>
+  v.union([
+    shorthandUpdate(schema),
+    v.object({
+      set: schema,
+      push: stringList,
+      unshift: stringList,
     }),
   ]);
 
-const stringListNullableUpdateFactory = <S extends AnySchema>(base: S) =>
-  union([
-    shorthandUpdate(nullable(array(base))),
-    object({
-      set: optional(nullable(array(base))),
-      push: optional(union([base, array(base)])),
-      unshift: optional(union([base, array(base)])),
-    }),
-  ]);
+export const buildStringSchema = <F extends FieldState<"string">>(state: F) => {
+  const create = v.string(state);
+  const base = v.string<Pick<F, "array" | "nullable" | "schema">>({
+    array: state.array,
+    nullable: state.nullable,
+    schema: state.schema,
+  });
 
-// =============================================================================
-// SCHEMA BUILDERS (single FieldState generic)
-// =============================================================================
-
-export const stringSchemas = <const F extends FieldState<"string">>(f: F) => {
   return {
-    base: f.base,
-    filter: stringFilter,
-    create: createWithDefault(f, f.base),
-    update: stringUpdateFactory(f.base),
-  } as unknown as StringSchemas<F>;
+    create,
+    update: state.array
+      ? buildStringListUpdateSchema(base)
+      : buildStringUpdateSchema(base),
+    filter: state.array
+      ? buildStringListFilterSchema(base)
+      : buildStringFilterSchema(base),
+  } as VibStringSchemas<F, typeof base>;
 };
-
-type StringSchemas<F extends FieldState<"string">> = {
-  base: F["base"];
-  filter: typeof stringFilter;
-  create: SchemaWithDefault<F>;
-  update: ReturnType<typeof stringUpdateFactory<F["base"]>>;
-};
-
-export const stringNullableSchemas = <F extends FieldState<"string">>(f: F) => {
-  return {
-    base: nullable(f.base),
-    filter: stringNullableFilter,
-    create: createWithDefault(f, nullable(f.base)),
-    update: stringNullableUpdateFactory(f.base),
-  } as unknown as StringNullableSchemas<F>;
-};
-
-type StringNullableSchemas<F extends FieldState<"string">> = {
-  base: NullableSchema<F["base"], undefined>;
-  filter: typeof stringNullableFilter;
-  create: SchemaWithDefault<F>;
-  update: ReturnType<typeof stringNullableUpdateFactory<F["base"]>>;
-};
-
-export const stringListSchemas = <F extends FieldState<"string">>(f: F) => {
-  return {
-    base: array(f.base),
-    filter: stringListFilter,
-    create: createWithDefault(f, array(f.base)),
-    update: stringListUpdateFactory(f.base),
-  } as unknown as StringListSchemas<F>;
-};
-
-type StringListSchemas<F extends FieldState<"string">> = {
-  base: ArraySchema<F["base"], undefined>;
-  filter: typeof stringListFilter;
-  create: SchemaWithDefault<F>;
-  update: ReturnType<typeof stringListUpdateFactory<F["base"]>>;
-};
-
-export const stringListNullableSchemas = <F extends FieldState<"string">>(
-  f: F
-) => {
-  return {
-    base: nullable(array(f.base)),
-    filter: stringListNullableFilter,
-    create: createWithDefault(f, nullable(array(f.base))),
-    update: stringListNullableUpdateFactory(f.base),
-  } as unknown as StringListNullableSchemas<F>;
-};
-
-type StringListNullableSchemas<F extends FieldState<"string">> = {
-  base: NullableSchema<ArraySchema<F["base"], undefined>, undefined>;
-  filter: typeof stringListNullableFilter;
-  create: SchemaWithDefault<F>;
-  update: ReturnType<typeof stringListNullableUpdateFactory<F["base"]>>;
-};
-
-export type InferStringSchemas<F extends FieldState<"string">> =
-  F["array"] extends true
-    ? F["nullable"] extends true
-      ? StringListNullableSchemas<F>
-      : StringListSchemas<F>
-    : F["nullable"] extends true
-    ? StringNullableSchemas<F>
-    : StringSchemas<F>;
-
-export const getFieldStringSchemas = <F extends FieldState<"string">>(f: F) => {
-  return (
-    f.array
-      ? f.nullable
-        ? stringListNullableSchemas(f)
-        : stringListSchemas(f)
-      : f.nullable
-      ? stringNullableSchemas(f)
-      : stringSchemas(f)
-  ) as InferStringSchemas<F>;
-};
-
-export type InferStringInput<
+type VibStringSchemas<
   F extends FieldState<"string">,
-  Type extends "create" | "update" | "filter" | "base"
-> = InferInput<InferStringSchemas<F>[Type]>;
-
-const stringSchemasNew = <F extends FieldState<"string">>(f: F) => {
-  const base = v.string(f);
+  Base extends VibSchema
+> = {
+  create: BaseStringSchema<F>;
+  update: F["array"] extends true
+    ? ReturnType<typeof buildStringListUpdateSchema<Base>>
+    : ReturnType<typeof buildStringUpdateSchema<Base>>;
+  filter: F["array"] extends true
+    ? ReturnType<typeof buildStringListFilterSchema<Base>>
+    : ReturnType<typeof buildStringFilterSchema<Base>>;
 };

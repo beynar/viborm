@@ -9,6 +9,9 @@ import { buildSchema, ok } from "../helpers";
 // =============================================================================
 // String Schema
 // =============================================================================
+export interface BaseStringSchema<
+  Opts extends ScalarOptions<string, any> | undefined = undefined
+> extends VibSchema<ComputeInput<string, Opts>, ComputeOutput<string, Opts>> {}
 
 export interface StringSchema<TInput = string, TOutput = string>
   extends VibSchema<TInput, TOutput> {

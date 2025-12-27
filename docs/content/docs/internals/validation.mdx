@@ -535,3 +535,93 @@ if (result.issues) {
 const value = result.value;
 ```
 
+## JSON Schema Conversion
+
+VibORM schemas implement `StandardJSONSchemaV1`, enabling conversion to JSON Schema for API documentation, OpenAPI specs, and AI tool definitions.
+
+### Basic Usage
+
+```typescript
+const userSchema = v.object({
+  name: v.string(),
+  email: v.string(),
+  age: v.number({ optional: true }),
+}, { name: "User", partial: false });
+
+// Convert to JSON Schema
+const jsonSchema = userSchema["~standard"].jsonSchema.output({
+  target: "draft-07",  // or "draft-2020-12", "openapi-3.0"
+});
+```
+
+### Supported Targets
+
+| Target | Description |
+|--------|-------------|
+| `draft-07` | JSON Schema Draft 7 (widely used) |
+| `draft-2020-12` | JSON Schema Draft 2020-12 (latest) |
+| `openapi-3.0` | OpenAPI 3.0 compatible |
+
+### Circular References with $ref
+
+Named object schemas automatically use `$ref` for reusability:
+
+```typescript
+const author = v.object({
+  name: v.string(),
+  posts: () => v.array(post),
+}, { name: "Author" });
+
+const post = v.object({
+  title: v.string(),
+  author: () => author,
+}, { name: "Post" });
+
+// Converts to:
+// {
+//   "properties": {
+//     "posts": { "type": "array", "items": { "$ref": "#/$defs/Post" } }
+//   },
+//   "$defs": {
+//     "Post": { "properties": { "author": { "$ref": "#/$defs/Author" } } }
+//   }
+// }
+```
+
+<Callout type="info">
+  Only named schemas (with `name` option) generate `$ref` entries. Unnamed schemas are inlined. Multiple references to the same named schema share a single `$defs` entry.
+</Callout>
+
+### Schema Type Mappings
+
+| VibORM Schema | JSON Schema |
+|---------------|-------------|
+| `string` | `{ type: "string" }` |
+| `number` | `{ type: "number" }` |
+| `integer` | `{ type: "integer" }` |
+| `boolean` | `{ type: "boolean" }` |
+| `bigint` | `{ type: "integer" }` |
+| `literal(x)` | `{ const: x }` |
+| `enum_(values)` | `{ enum: values }` |
+| `nullable(x)` | `{ anyOf: [schema, { type: "null" }] }` |
+| `array(x)` | `{ type: "array", items: schema }` |
+| `union([...])` | `{ anyOf: [...] }` |
+| `record(k, v)` | `{ type: "object", additionalProperties: valueSchema }` |
+| `date` | `{ type: "string", format: "date-time" }` |
+| `isoDate` | `{ type: "string", format: "date" }` |
+| `blob` | `{ type: "string", contentEncoding: "base64" }` |
+| `vector(n)` | `{ type: "array", items: { type: "number" }, minItems: n, maxItems: n }` |
+| `instance(Date)` | `{ type: "string", format: "date-time" }` |
+| `instance(Custom)` | `{ type: "object", "x-instance": "Custom" }` |
+
+### Lazy Instantiation
+
+The converter is lazily created on first access to avoid impacting schema creation performance:
+
+```typescript
+// Schema creation - no overhead
+const schema = v.object({ name: v.string() });
+
+// Converter created only when accessed, then cached
+const json = schema["~standard"].jsonSchema.output({ target: "draft-07" });
+```

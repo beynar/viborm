@@ -1,5 +1,5 @@
 import { StandardSchemaV1 } from "@standard-schema/spec";
-import { v, safeParse, Prettify } from "./src/validation";
+import { v, safeParse, Prettify, object, string } from "./src/validation";
 
 const user = v.object(
   {
@@ -11,18 +11,19 @@ const user = v.object(
       age: () => v.number(),
       nested: v.object({
         name: v.string(),
+        friends: () => user,
         age: () => {
           console.log("computed");
           return v.number();
         },
       }),
     }),
-  },
-  { partial: true, strict: false }
+  }
+  // { partial: true, strict: false }
 );
 
-type Output = StandardSchemaV1.InferOutput<typeof user>;
-type Input = StandardSchemaV1.InferInput<typeof user>;
+type Output = Prettify<StandardSchemaV1.InferOutput<typeof user>>;
+type Input = Prettify<StandardSchemaV1.InferInput<typeof user>>;
 
 const x: Input = {
   age: 20,
@@ -46,7 +47,7 @@ type Result = StandardSchemaV1.Result<Output>;
 //   console.log("Success:", result.value);
 // }
 
-const result = user["~standard"].validate({
+const result = await user.parse({
   name: "John",
   age: 30,
   nested: {
@@ -61,5 +62,18 @@ const result = user["~standard"].validate({
 if (result.issues) {
   console.log("Issues:", result.issues);
 } else {
+  type Result = Prettify<typeof result>;
   console.log("Success:", result.value);
 }
+
+const selfReference = object(
+  {
+    self: () => selfReference,
+    string: string(),
+  },
+  {
+    partial: false,
+  }
+);
+
+type I = Prettify<StandardSchemaV1.InferInput<typeof selfReference>>["self"];

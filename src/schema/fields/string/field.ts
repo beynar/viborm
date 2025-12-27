@@ -11,15 +11,14 @@ import {
   DefaultValueInput,
 } from "../common";
 import type { NativeType } from "../native-types";
-import { getFieldStringSchemas, stringBase } from "./schemas";
-import { schemaFromStandardSchema, StandardSchemaToSchema } from "..";
+import { buildStringSchema } from "./schemas";
 import {
   defaultCuid,
   defaultNanoid,
   defaultUlid,
   defaultUuid,
 } from "./autogenerate";
-import v from "../../../validation";
+import v, { Prettify } from "../../../validation";
 import { InferInput } from "valibot";
 
 // =============================================================================
@@ -35,11 +34,22 @@ export class StringField<State extends FieldState<"string">> {
   nullable(): StringField<
     UpdateState<
       State,
-      { nullable: true; hasDefault: true; defaultValue: DefaultValue<null> }
+      {
+        nullable: true;
+        hasDefault: true;
+        defaultValue: DefaultValue<null>;
+        optional: true;
+      }
     >
   > {
     return new StringField(
-      { ...this.state, nullable: true, hasDefault: true, defaultValue: null },
+      {
+        ...this.state,
+        nullable: true,
+        hasDefault: true,
+        defaultValue: null,
+        optional: true,
+      },
       this._nativeType
     );
   }
@@ -77,14 +87,11 @@ export class StringField<State extends FieldState<"string">> {
 
   schema<S extends StandardSchemaOf<string>>(
     schema: S
-  ): StringField<
-    UpdateState<State, { schema: S; base: StandardSchemaToSchema<S> }>
-  > {
+  ): StringField<UpdateState<State, { schema: S }>> {
     return new StringField(
       {
         ...this.state,
         schema: schema,
-        base: schemaFromStandardSchema(this.state.base, schema),
       },
       this._nativeType
     );
@@ -199,7 +206,7 @@ export class StringField<State extends FieldState<"string">> {
   get ["~"]() {
     return {
       state: this.state,
-      schemas: getFieldStringSchemas<State>(this.state),
+      schemas: buildStringSchema(this.state),
       nativeType: this._nativeType,
       names: this._names,
     };
@@ -207,28 +214,14 @@ export class StringField<State extends FieldState<"string">> {
 }
 
 export const string = (nativeType?: NativeType) =>
-  new StringField(createDefaultState("string", stringBase), nativeType);
+  new StringField(createDefaultState("string"), nativeType);
 
-const test = string().nullable().array().default(["test"]);
+const stringTest = string().array().nullable();
 
-const user = v.object({
-  name: v.string(test["~"]["state"]),
-  age: v.number(),
-  friends: () => user,
-});
-
-type UserInput = StandardSchemaV1.InferInput<typeof user>["name"];
-type UserOutput = StandardSchemaV1.InferOutput<typeof user>["name"];
-
-type BaseNow = InferInput<(typeof test)["~"]["schemas"]["base"]>;
-
-const createBase = <S extends FieldState<"string">>(state: S) => {
-  return v.string<S>(state);
-};
-const baseAfter = createBase(test["~"]["state"]);
-const nn = v.nonNullable(baseAfter);
-const no = v.nonOptional(baseAfter);
-// type BaseAfter = StandardSchemaV1.InferInput<typeof nn>;
-type BaseAfter = StandardSchemaV1.InferInput<typeof nn>;
-type BaseAfterNo = StandardSchemaV1.InferInput<typeof no>;
-type BaseAfterNoOut = StandardSchemaV1.InferOutput<typeof no>;
+type Schemas = (typeof stringTest)["~"]["schemas"];
+type CreateInput = Prettify<Schemas["create"][" vibInferred"]["0"]>;
+type CreateOutput = Prettify<Schemas["create"][" vibInferred"]["1"]>;
+type UpdateInput = Prettify<Schemas["update"][" vibInferred"]["0"]>;
+type UpdateOutput = Prettify<Schemas["update"][" vibInferred"]["1"]>;
+type FilterInput = Prettify<Schemas["filter"][" vibInferred"]["0"]>;
+type FilterOutput = Prettify<Schemas["filter"][" vibInferred"]["1"]>;

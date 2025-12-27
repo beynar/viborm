@@ -8,9 +8,14 @@ import type { JsonSchemaConverter } from "./json-schema/types";
 
 /**
  * Prettify forces TypeScript to fully evaluate the type.
+ * Recursively prettifies nested objects for cleaner type display.
  * Use sparingly - mapped types are expensive!
  */
-export type Prettify<T> = { [K in keyof T]: T[K] } & {};
+export type Prettify<T> = T extends (...args: any[]) => any
+  ? T // Preserve functions as-is
+  : T extends object
+  ? { [K in keyof T]: Prettify<T[K]> } & {}
+  : T;
 
 // =============================================================================
 // Schema Interfaces (using interface for caching)

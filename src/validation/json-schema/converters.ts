@@ -293,10 +293,31 @@ export function convertSchema(
       jsonSchema.additionalProperties = false;
       break;
 
-    case "instance":
-      throw new Error(
-        `Cannot convert "instance" schema to JSON Schema: class instances are not JSON-representable`
-      );
+    case "instance": {
+      // Instance schemas validate class instances - represent as object
+      // with a custom property to indicate the expected type
+      const ctor = (schema as any).ctor as new (...args: any[]) => unknown;
+      const className = ctor?.name ?? "Instance";
+
+      // Special handling for common types
+      if (className === "Date") {
+        jsonSchema.type = "string";
+        jsonSchema.format = "date-time";
+      } else if (
+        className === "Uint8Array" ||
+        className === "Buffer" ||
+        className === "ArrayBuffer"
+      ) {
+        jsonSchema.type = "string";
+        jsonSchema.contentEncoding = "base64";
+      } else {
+        // Generic object representation with instance hint
+        jsonSchema.type = "object";
+        // Use x- prefix for vendor extension (valid in JSON Schema)
+        (jsonSchema as any)["x-instance"] = className;
+      }
+      break;
+    }
 
     case "transform": {
       // Transform wraps another schema - use the wrapped schema for JSON representation

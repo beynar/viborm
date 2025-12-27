@@ -79,8 +79,12 @@ describe("nullable option vs wrapper comparison", () => {
     });
 
     test("both reject undefined", () => {
-      expect(optionsSchema["~standard"].validate(undefined).issues).toBeDefined();
-      expect(wrapperSchema["~standard"].validate(undefined).issues).toBeDefined();
+      expect(
+        optionsSchema["~standard"].validate(undefined).issues
+      ).toBeDefined();
+      expect(
+        wrapperSchema["~standard"].validate(undefined).issues
+      ).toBeDefined();
     });
 
     test("both reject invalid types", () => {
@@ -149,4 +153,3 @@ describe("nullable option vs wrapper comparison", () => {
     });
   });
 });
-

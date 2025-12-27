@@ -3,14 +3,10 @@ import type {
   InferOutputShape,
   InferInputShape,
   ThunkCast,
-  InferOutput,
-  InferInput,
-  Prettify,
 } from "../types";
 import { fail, ok } from "../helpers";
 import { createJsonSchemaConverter } from "../json-schema/factory";
 import { StandardSchemaV1 } from "@standard-schema";
-import { string } from "./string";
 
 // =============================================================================
 // Object Schema Types
@@ -88,31 +84,18 @@ type ApplyObjectOptions<TBase, TOpts> = TOpts extends { array: true }
  */
 export interface ObjectSchema<
   TEntries,
-  TOpts = undefined,
+  TOpts extends ObjectOptions | undefined = undefined,
   TInput = ApplyObjectOptions<ComputeObjectInput<TEntries, TOpts>, TOpts>,
   TOutput = ApplyObjectOptions<ComputeObjectOutput<TEntries, TOpts>, TOpts>
 > extends VibSchema<TInput, TOutput> {
   readonly type: "object";
   readonly entries: TEntries;
   readonly options: TOpts;
-  readonly parse: (
-    value: unknown
-  ) => StandardSchemaV1.SuccessResult<TOutput> | StandardSchemaV1.FailureResult;
+  readonly parse: VibSchema<TInput, TOutput>["~standard"]["validate"];
   /** Extend this schema with additional entries */
   extend<TNewEntries extends ObjectEntries>(
     newEntries: TNewEntries
-  ): ObjectSchema<
-    Prettify<TEntries & TNewEntries>,
-    TOpts,
-    ApplyObjectOptions<
-      ComputeObjectInput<Prettify<TEntries & TNewEntries>, TOpts>,
-      TOpts
-    >,
-    ApplyObjectOptions<
-      ComputeObjectOutput<Prettify<TEntries & TNewEntries>, TOpts>,
-      TOpts
-    >
-  >;
+  ): ObjectSchema<TEntries & TNewEntries, TOpts>;
 }
 
 // =============================================================================
@@ -121,17 +104,6 @@ export interface ObjectSchema<
 
 // Pre-computed error for fast path
 const OBJECT_TYPE_ERROR = { issues: [{ message: "Expected object" }] };
-
-/**
- * Field descriptor - pre-computed at schema creation time.
- */
-interface FieldDescriptor {
-  readonly key: string;
-  readonly keyPath: PropertyKey[];
-  readonly validate: (value: unknown) => any;
-  readonly acceptsUndefined: boolean;
-  readonly missingError: { issues: { message: string; path: PropertyKey[] }[] };
-}
 
 /**
  * Create an optimized validator for an object schema.
@@ -386,6 +358,11 @@ export function object<
       version: 1 as const,
       vendor: "viborm" as const,
       validate,
+      parse: (value: unknown) => {
+        return validate(value) as
+          | StandardSchemaV1.SuccessResult<BaseOutput>
+          | StandardSchemaV1.FailureResult;
+      },
       // Lazy jsonSchema - converter is created when first accessed
       get jsonSchema() {
         const converter = createJsonSchemaConverter(
