@@ -1,13 +1,11 @@
 // Relation Create Schemas
-
-import { object, optional, partial } from "valibot";
 import type { RelationState } from "../relation";
 import {
   getTargetCreateSchema,
   getTargetWhereUniqueSchema,
   singleOrArray,
 } from "./helpers";
-
+import { v } from "../../../validation";
 // =============================================================================
 // CREATE SCHEMA TYPES (exported for consumer use)
 // =============================================================================
@@ -22,18 +20,14 @@ import {
 export const toOneCreateFactory = <S extends RelationState>(state: S) => {
   const createSchema = getTargetCreateSchema(state);
   const whereUniqueSchema = getTargetWhereUniqueSchema(state);
-  return partial(
-    object({
-      create: optional(createSchema),
-      connect: optional(whereUniqueSchema),
-      connectOrCreate: optional(
-        object({
-          where: whereUniqueSchema,
-          create: createSchema,
-        })
-      ),
-    })
-  );
+  return v.object({
+    create: createSchema,
+    connect: whereUniqueSchema,
+    connectOrCreate: v.object({
+      where: whereUniqueSchema,
+      create: createSchema,
+    }),
+  });
 };
 
 /**
@@ -44,16 +38,15 @@ export const toManyCreateFactory = <S extends RelationState>(state: S) => {
   const createSchema = getTargetCreateSchema(state);
   const whereUniqueSchema = getTargetWhereUniqueSchema(state);
 
-  const connectOrCreateSchema = object({
-    where: whereUniqueSchema,
-    create: createSchema,
+  return v.object({
+    create: () => singleOrArray(createSchema()),
+    connect: () => singleOrArray(whereUniqueSchema()),
+    connectOrCreate: () =>
+      singleOrArray(
+        v.object({
+          where: whereUniqueSchema(),
+          create: createSchema(),
+        })
+      ),
   });
-
-  return partial(
-    object({
-      create: optional(singleOrArray(createSchema)),
-      connect: optional(singleOrArray(whereUniqueSchema)),
-      connectOrCreate: optional(singleOrArray(connectOrCreateSchema)),
-    })
-  );
 };

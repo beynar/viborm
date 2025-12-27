@@ -10,7 +10,8 @@ import {
   DefaultValueInput,
 } from "../common";
 import type { NativeType } from "../native-types";
-import { getFieldBlobSchemas, blobBase } from "./schemas";
+import { buildBlobSchema, blobBase } from "./schemas";
+import v, { BaseBlobSchema } from "../../../validation";
 
 // =============================================================================
 // BLOB FIELD CLASS
@@ -24,23 +25,45 @@ export class BlobField<State extends FieldState<"blob">> {
   nullable(): BlobField<
     UpdateState<
       State,
-      { nullable: true; hasDefault: true; defaultValue: DefaultValue<null> }
+      {
+        nullable: true;
+        hasDefault: true;
+        default: DefaultValue<null>;
+        optional: true;
+        base: BaseBlobSchema<{
+          nullable: true;
+        }>;
+      }
     >
   > {
     return new BlobField(
-      { ...this.state, nullable: true, hasDefault: true, defaultValue: null },
+      {
+        ...this.state,
+        nullable: true,
+        hasDefault: true,
+        default: null,
+        optional: true,
+        base: v.blob<{
+          nullable: true;
+        }>({
+          nullable: true,
+        }),
+      },
       this._nativeType
     );
   }
 
   default<V extends DefaultValueInput<State>>(
     value: V
-  ): BlobField<UpdateState<State, { hasDefault: true; defaultValue: V }>> {
+  ): BlobField<
+    UpdateState<State, { hasDefault: true; default: V; optional: true }>
+  > {
     return new BlobField(
       {
         ...this.state,
         hasDefault: true,
-        defaultValue: value,
+        default: value,
+        optional: true,
       },
       this._nativeType
     );
@@ -69,10 +92,16 @@ export class BlobField<State extends FieldState<"blob">> {
     throw new Error("Blob fields cannot be unique");
   }
 
+  // ===========================================================================
+  // ACCESSORS
+  // ===========================================================================
+
+  #cached_schemas: ReturnType<typeof buildBlobSchema<State>> | undefined;
+
   get ["~"]() {
     return {
       state: this.state,
-      schemas: getFieldBlobSchemas<State>(this.state),
+      schemas: (this.#cached_schemas ??= buildBlobSchema(this.state)),
       nativeType: this._nativeType,
       names: this._names,
     };

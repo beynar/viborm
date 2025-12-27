@@ -1,278 +1,119 @@
-// BigInt Field Schemas
-// Factory pattern for bigint field variants following the number schema structure
-
 import {
-  array,
-  bigint,
-  boolean,
-  nullable,
-  object,
-  optional,
-  partial,
-  union,
-  InferInput,
-  NullableSchema,
-  ArraySchema,
-} from "valibot";
-import {
-  AnySchema,
-  extend,
   FieldState,
-  SchemaWithDefault,
   shorthandFilter,
   shorthandUpdate,
-  createWithDefault,
+  shorthandArray,
 } from "../common";
+import v, {
+  BaseBigIntSchema,
+  InferInput,
+  InferOutput,
+  VibSchema,
+} from "../../../validation";
 
 // =============================================================================
 // BASE TYPES
 // =============================================================================
 
-export const bigIntBase = bigint();
-export const bigIntNullable = nullable(bigIntBase);
-export const bigIntList = array(bigIntBase);
-export const bigIntListNullable = nullable(bigIntList);
+export const bigIntBase = v.bigint();
+export const bigIntNullable = v.bigint({ nullable: true });
+export const bigIntList = v.bigint({ array: true });
+export const bigIntListNullable = v.bigint({ array: true, nullable: true });
 
 // =============================================================================
 // FILTER SCHEMAS
 // =============================================================================
 
-const bigIntFilterBase = partial(
-  object({
-    equals: bigIntBase,
-    in: bigIntList,
-    notIn: bigIntList,
-    lt: bigIntBase,
-    lte: bigIntBase,
-    gt: bigIntBase,
-    gte: bigIntBase,
-  })
-);
+const bigIntFilterBase = v.object({
+  in: bigIntList,
+  notIn: bigIntList,
+  lt: bigIntBase,
+  lte: bigIntBase,
+  gt: bigIntBase,
+  gte: bigIntBase,
+});
 
-const bigIntNullableFilterBase = partial(
-  object({
-    equals: bigIntNullable,
-    in: bigIntList,
-    notIn: bigIntList,
-    lt: bigIntNullable,
-    lte: bigIntNullable,
-    gt: bigIntNullable,
-    gte: bigIntNullable,
-  })
-);
+const buildBigIntFilterSchema = <S extends VibSchema>(schema: S) => {
+  const filter = bigIntFilterBase.extend({
+    equals: schema,
+  });
+  return v.union([
+    shorthandFilter(schema),
+    filter.extend({
+      not: v.union([shorthandFilter(schema), filter]),
+    }),
+  ]);
+};
 
-const bigIntArrayFilterBase = partial(
-  object({
-    equals: bigIntList,
-    has: bigIntBase,
-    hasEvery: bigIntList,
-    hasSome: bigIntList,
-    isEmpty: boolean(),
-  })
-);
+const bigIntListFilterBase = v.object({
+  has: bigIntBase,
+  hasEvery: bigIntList,
+  hasSome: bigIntList,
+  isEmpty: v.boolean(),
+});
 
-const bigIntNullableListFilterBase = partial(
-  object({
-    equals: bigIntListNullable,
-    has: bigIntBase,
-    hasEvery: bigIntList,
-    hasSome: bigIntList,
-    isEmpty: boolean(),
-  })
-);
+const buildBigIntListFilterSchema = <S extends VibSchema>(schema: S) => {
+  const filter = bigIntListFilterBase.extend({
+    equals: schema,
+  });
+  return v.union([
+    shorthandFilter(schema),
+    filter.extend({ not: v.union([shorthandFilter(schema), filter]) }),
+  ]);
+};
 
-const bigIntFilter = union([
-  shorthandFilter(bigIntBase),
-  extend(bigIntFilterBase, {
-    not: optional(union([shorthandFilter(bigIntBase), bigIntFilterBase])),
-  }),
-]);
-
-const bigIntNullableFilter = union([
-  shorthandFilter(bigIntNullable),
-  extend(bigIntNullableFilterBase, {
-    not: optional(
-      union([shorthandFilter(bigIntNullable), bigIntNullableFilterBase])
-    ),
-  }),
-]);
-
-const bigIntListFilter = union([
-  shorthandFilter(bigIntList),
-  extend(bigIntArrayFilterBase, {
-    not: optional(union([shorthandFilter(bigIntList), bigIntArrayFilterBase])),
-  }),
-]);
-
-const bigIntListNullableFilter = union([
-  shorthandFilter(bigIntListNullable),
-  extend(bigIntNullableListFilterBase, {
-    not: optional(
-      union([shorthandFilter(bigIntListNullable), bigIntNullableListFilterBase])
-    ),
-  }),
-]);
-
-// =============================================================================
-// UPDATE FACTORIES
-// =============================================================================
-
-const bigIntUpdateFactory = <S extends AnySchema>(base: S) =>
-  union([
-    shorthandUpdate(base),
-    partial(
-      object({
-        set: base,
-        increment: base,
-        decrement: base,
-        multiply: base,
-        divide: base,
-      })
-    ),
+const buildBigIntUpdateSchema = <S extends VibSchema>(schema: S) =>
+  v.union([
+    shorthandUpdate(schema),
+    v.object({
+      set: schema,
+      increment: bigIntBase,
+      decrement: bigIntBase,
+      multiply: bigIntBase,
+      divide: bigIntBase,
+    }),
   ]);
 
-const bigIntNullableUpdateFactory = <S extends AnySchema>(base: S) =>
-  union([
-    shorthandUpdate(nullable(base)),
-    partial(
-      object({
-        set: nullable(base),
-        increment: base,
-        decrement: base,
-        multiply: base,
-        divide: base,
-      })
-    ),
+const buildBigIntListUpdateSchema = <S extends VibSchema>(schema: S) =>
+  v.union([
+    shorthandUpdate(schema),
+    v.object({
+      set: schema,
+      push: v.union([shorthandArray(bigIntBase), bigIntList]),
+      unshift: v.union([shorthandArray(bigIntBase), bigIntList]),
+    }),
   ]);
 
-const bigIntListUpdateFactory = <S extends AnySchema>(base: S) =>
-  union([
-    shorthandUpdate(array(base)),
-    partial(
-      object({
-        set: array(base),
-        push: union([base, array(base)]),
-        unshift: union([base, array(base)]),
-      })
-    ),
-  ]);
-
-const bigIntListNullableUpdateFactory = <S extends AnySchema>(base: S) =>
-  union([
-    shorthandUpdate(nullable(array(base))),
-    partial(
-      object({
-        set: nullable(array(base)),
-        push: union([base, array(base)]),
-        unshift: union([base, array(base)]),
-      })
-    ),
-  ]);
-
-// =============================================================================
-// SCHEMA BUILDERS
-// =============================================================================
-
-export const bigIntSchemas = <const F extends FieldState<"bigint">>(f: F) => {
+export const buildBigIntSchema = <F extends FieldState<"bigint">>(state: F) => {
   return {
-    base: f.base,
-    filter: bigIntFilter,
-    create: createWithDefault(f, f.base),
-    update: bigIntUpdateFactory(f.base),
-  } as unknown as BigIntSchemas<F>;
+    base: state.base,
+    create: v.bigint(state),
+    update: state.array
+      ? buildBigIntListUpdateSchema(state.base)
+      : buildBigIntUpdateSchema(state.base),
+    filter: state.array
+      ? buildBigIntListFilterSchema(state.base)
+      : buildBigIntFilterSchema(state.base),
+  } as BigIntSchemas<F>;
 };
 
 type BigIntSchemas<F extends FieldState<"bigint">> = {
   base: F["base"];
-  filter: typeof bigIntFilter;
-  create: SchemaWithDefault<F>;
-  update: ReturnType<typeof bigIntUpdateFactory<F["base"]>>;
+  create: BaseBigIntSchema<F>;
+  update: F["array"] extends true
+    ? ReturnType<typeof buildBigIntListUpdateSchema<F["base"]>>
+    : ReturnType<typeof buildBigIntUpdateSchema<F["base"]>>;
+  filter: F["array"] extends true
+    ? ReturnType<typeof buildBigIntListFilterSchema<F["base"]>>
+    : ReturnType<typeof buildBigIntFilterSchema<F["base"]>>;
 };
-
-export const bigIntNullableSchemas = <F extends FieldState<"bigint">>(f: F) => {
-  return {
-    base: nullable(f.base),
-    filter: bigIntNullableFilter,
-    create: createWithDefault(f, nullable(f.base)),
-    update: bigIntNullableUpdateFactory(f.base),
-  } as unknown as BigIntNullableSchemas<F>;
-};
-
-type BigIntNullableSchemas<F extends FieldState<"bigint">> = {
-  base: NullableSchema<F["base"], undefined>;
-  filter: typeof bigIntNullableFilter;
-  create: SchemaWithDefault<F>;
-  update: ReturnType<typeof bigIntNullableUpdateFactory<F["base"]>>;
-};
-
-export const bigIntListSchemas = <F extends FieldState<"bigint">>(f: F) => {
-  return {
-    base: array(f.base),
-    filter: bigIntListFilter,
-    create: createWithDefault(f, array(f.base)),
-    update: bigIntListUpdateFactory(f.base),
-  } as unknown as BigIntListSchemas<F>;
-};
-
-type BigIntListSchemas<F extends FieldState<"bigint">> = {
-  base: ArraySchema<F["base"], undefined>;
-  filter: typeof bigIntListFilter;
-  create: SchemaWithDefault<F>;
-  update: ReturnType<typeof bigIntListUpdateFactory<F["base"]>>;
-};
-
-export const bigIntListNullableSchemas = <F extends FieldState<"bigint">>(
-  f: F
-) => {
-  return {
-    base: nullable(array(f.base)),
-    filter: bigIntListNullableFilter,
-    create: createWithDefault(f, nullable(array(f.base))),
-    update: bigIntListNullableUpdateFactory(f.base),
-  } as unknown as BigIntListNullableSchemas<F>;
-};
-
-type BigIntListNullableSchemas<F extends FieldState<"bigint">> = {
-  base: NullableSchema<ArraySchema<F["base"], undefined>, undefined>;
-  filter: typeof bigIntListNullableFilter;
-  create: SchemaWithDefault<F>;
-  update: ReturnType<typeof bigIntListNullableUpdateFactory<F["base"]>>;
-};
-
-// =============================================================================
-// TYPE INFERENCE
-// =============================================================================
-
-export type InferBigIntSchemas<F extends FieldState<"bigint">> =
-  F["array"] extends true
-    ? F["nullable"] extends true
-      ? BigIntListNullableSchemas<F>
-      : BigIntListSchemas<F>
-    : F["nullable"] extends true
-    ? BigIntNullableSchemas<F>
-    : BigIntSchemas<F>;
-
-// =============================================================================
-// MAIN SCHEMA GETTER
-// =============================================================================
-
-export const getFieldBigIntSchemas = <F extends FieldState<"bigint">>(f: F) => {
-  return (
-    f.array
-      ? f.nullable
-        ? bigIntListNullableSchemas(f)
-        : bigIntListSchemas(f)
-      : f.nullable
-      ? bigIntNullableSchemas(f)
-      : bigIntSchemas(f)
-  ) as InferBigIntSchemas<F>;
-};
-
-// =============================================================================
-// INPUT TYPE INFERENCE
-// =============================================================================
 
 export type InferBigIntInput<
   F extends FieldState<"bigint">,
   Type extends "create" | "update" | "filter" | "base"
-> = InferInput<InferBigIntSchemas<F>[Type]>;
+> = InferInput<BigIntSchemas<F>[Type]>;
+
+export type InferBigIntOutput<
+  F extends FieldState<"bigint">,
+  Type extends "create" | "update" | "filter" | "base"
+> = InferOutput<BigIntSchemas<F>[Type]>;

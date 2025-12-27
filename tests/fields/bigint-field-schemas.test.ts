@@ -16,15 +16,14 @@
 
 import { describe, test, expect, expectTypeOf } from "vitest";
 import {
-  parse,
   pipe,
   bigint,
   minValue,
   maxValue,
   brand,
-  InferOutput,
   Brand,
 } from "valibot";
+import { parse, InferOutput } from "../../src/validation";
 import { bigInt } from "../../src/schema/fields/bigint/field";
 import type { InferBigIntInput } from "../../src/schema/fields/bigint/schemas";
 
@@ -44,24 +43,34 @@ describe("Raw BigInt Field", () => {
     });
 
     test("runtime: parses bigint", () => {
-      expect(parse(schemas.base, 42n)).toBe(42n);
-      expect(parse(schemas.base, 0n)).toBe(0n);
-      expect(parse(schemas.base, -100n)).toBe(-100n);
+      const r1 = parse(schemas.base, 42n);
+      if (r1.issues) throw new Error("Expected success");
+      expect(r1.value).toBe(42n);
+
+      const r2 = parse(schemas.base, 0n);
+      if (r2.issues) throw new Error("Expected success");
+      expect(r2.value).toBe(0n);
+
+      const r3 = parse(schemas.base, -100n);
+      if (r3.issues) throw new Error("Expected success");
+      expect(r3.value).toBe(-100n);
     });
 
     test("runtime: parses large bigint", () => {
       const largeValue = 9007199254740993n; // Larger than Number.MAX_SAFE_INTEGER
-      expect(parse(schemas.base, largeValue)).toBe(largeValue);
+      const result = parse(schemas.base, largeValue);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(largeValue);
     });
 
     test("runtime: rejects number", () => {
-      expect(() => parse(schemas.base, 42)).toThrow();
+      expect(parse(schemas.base, 42).issues).toBeDefined();
     });
 
     test("runtime: rejects non-bigint", () => {
-      expect(() => parse(schemas.base, "42")).toThrow();
-      expect(() => parse(schemas.base, null)).toThrow();
-      expect(() => parse(schemas.base, true)).toThrow();
+      expect(parse(schemas.base, "42").issues).toBeDefined();
+      expect(parse(schemas.base, null).issues).toBeDefined();
+      expect(parse(schemas.base, true).issues).toBeDefined();
     });
   });
 
@@ -72,15 +81,17 @@ describe("Raw BigInt Field", () => {
     });
 
     test("runtime: accepts bigint", () => {
-      expect(parse(schemas.create, 123n)).toBe(123n);
+      const result = parse(schemas.create, 123n);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(123n);
     });
 
     test("runtime: rejects undefined (required)", () => {
-      expect(() => parse(schemas.create, undefined)).toThrow();
+      expect(parse(schemas.create, undefined).issues).toBeDefined();
     });
 
     test("runtime: rejects null", () => {
-      expect(() => parse(schemas.create, null)).toThrow();
+      expect(parse(schemas.create, null).issues).toBeDefined();
     });
   });
 
@@ -100,33 +111,47 @@ describe("Raw BigInt Field", () => {
     });
 
     test("runtime: shorthand transforms to { set: value }", () => {
-      expect(parse(schemas.update, 99n)).toEqual({ set: 99n });
-      expect(parse(schemas.update, 0n)).toEqual({ set: 0n });
-      expect(parse(schemas.update, -5n)).toEqual({ set: -5n });
+      const r1 = parse(schemas.update, 99n);
+      if (r1.issues) throw new Error("Expected success");
+      expect(r1.value).toEqual({ set: 99n });
+
+      const r2 = parse(schemas.update, 0n);
+      if (r2.issues) throw new Error("Expected success");
+      expect(r2.value).toEqual({ set: 0n });
+
+      const r3 = parse(schemas.update, -5n);
+      if (r3.issues) throw new Error("Expected success");
+      expect(r3.value).toEqual({ set: -5n });
     });
 
     test("runtime: set operation passes through", () => {
-      expect(parse(schemas.update, { set: 42n })).toEqual({ set: 42n });
+      const result = parse(schemas.update, { set: 42n });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ set: 42n });
     });
 
     test("runtime: increment operation passes through", () => {
-      expect(parse(schemas.update, { increment: 5n })).toEqual({
-        increment: 5n,
-      });
+      const result = parse(schemas.update, { increment: 5n });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ increment: 5n });
     });
 
     test("runtime: decrement operation passes through", () => {
-      expect(parse(schemas.update, { decrement: 3n })).toEqual({
-        decrement: 3n,
-      });
+      const result = parse(schemas.update, { decrement: 3n });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ decrement: 3n });
     });
 
     test("runtime: multiply operation passes through", () => {
-      expect(parse(schemas.update, { multiply: 2n })).toEqual({ multiply: 2n });
+      const result = parse(schemas.update, { multiply: 2n });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ multiply: 2n });
     });
 
     test("runtime: divide operation passes through", () => {
-      expect(parse(schemas.update, { divide: 4n })).toEqual({ divide: 4n });
+      const result = parse(schemas.update, { divide: 4n });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ divide: 4n });
     });
   });
 
@@ -148,43 +173,61 @@ describe("Raw BigInt Field", () => {
     });
 
     test("runtime: shorthand transforms to { equals: value }", () => {
-      expect(parse(schemas.filter, 50n)).toEqual({ equals: 50n });
-      expect(parse(schemas.filter, 0n)).toEqual({ equals: 0n });
+      const r1 = parse(schemas.filter, 50n);
+      if (r1.issues) throw new Error("Expected success");
+      expect(r1.value).toEqual({ equals: 50n });
+
+      const r2 = parse(schemas.filter, 0n);
+      if (r2.issues) throw new Error("Expected success");
+      expect(r2.value).toEqual({ equals: 0n });
     });
 
     test("runtime: equals filter passes through", () => {
-      expect(parse(schemas.filter, { equals: 42n })).toEqual({ equals: 42n });
+      const result = parse(schemas.filter, { equals: 42n });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ equals: 42n });
     });
 
     test("runtime: in filter passes through", () => {
-      expect(parse(schemas.filter, { in: [1n, 2n, 3n] })).toEqual({
-        in: [1n, 2n, 3n],
-      });
+      const result = parse(schemas.filter, { in: [1n, 2n, 3n] });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ in: [1n, 2n, 3n] });
     });
 
     test("runtime: notIn filter passes through", () => {
-      expect(parse(schemas.filter, { notIn: [4n, 5n, 6n] })).toEqual({
-        notIn: [4n, 5n, 6n],
-      });
+      const result = parse(schemas.filter, { notIn: [4n, 5n, 6n] });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ notIn: [4n, 5n, 6n] });
     });
 
     test("runtime: comparison filters pass through", () => {
-      expect(parse(schemas.filter, { lt: 100n })).toEqual({ lt: 100n });
-      expect(parse(schemas.filter, { lte: 100n })).toEqual({ lte: 100n });
-      expect(parse(schemas.filter, { gt: 0n })).toEqual({ gt: 0n });
-      expect(parse(schemas.filter, { gte: 0n })).toEqual({ gte: 0n });
+      const r1 = parse(schemas.filter, { lt: 100n });
+      if (r1.issues) throw new Error("Expected success");
+      expect(r1.value).toEqual({ lt: 100n });
+
+      const r2 = parse(schemas.filter, { lte: 100n });
+      if (r2.issues) throw new Error("Expected success");
+      expect(r2.value).toEqual({ lte: 100n });
+
+      const r3 = parse(schemas.filter, { gt: 0n });
+      if (r3.issues) throw new Error("Expected success");
+      expect(r3.value).toEqual({ gt: 0n });
+
+      const r4 = parse(schemas.filter, { gte: 0n });
+      if (r4.issues) throw new Error("Expected success");
+      expect(r4.value).toEqual({ gte: 0n });
     });
 
     test("runtime: not filter with shorthand", () => {
-      expect(parse(schemas.filter, { not: 42n })).toEqual({
-        not: { equals: 42n },
-      });
+      const result = parse(schemas.filter, { not: 42n });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ not: { equals: 42n } });
     });
 
     test("runtime: not filter with object", () => {
-      expect(parse(schemas.filter, { not: { gt: 10n } })).toEqual({
-        not: { gt: 10n },
-      });
+      const result = parse(schemas.filter, { not: { gt: 10n } });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ not: { gt: 10n } });
     });
   });
 });
@@ -205,11 +248,15 @@ describe("Nullable BigInt Field", () => {
     });
 
     test("runtime: parses bigint", () => {
-      expect(parse(schemas.base, 42n)).toBe(42n);
+      const result = parse(schemas.base, 42n);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(42n);
     });
 
     test("runtime: parses null", () => {
-      expect(parse(schemas.base, null)).toBe(null);
+      const result = parse(schemas.base, null);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(null);
     });
   });
 
@@ -220,15 +267,21 @@ describe("Nullable BigInt Field", () => {
     });
 
     test("runtime: accepts bigint", () => {
-      expect(parse(schemas.create, 123n)).toBe(123n);
+      const result = parse(schemas.create, 123n);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(123n);
     });
 
     test("runtime: accepts null", () => {
-      expect(parse(schemas.create, null)).toBe(null);
+      const result = parse(schemas.create, null);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(null);
     });
 
     test("runtime: undefined defaults to null", () => {
-      expect(parse(schemas.create, undefined)).toBe(null);
+      const result = parse(schemas.create, undefined);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(null);
     });
   });
 
@@ -240,16 +293,19 @@ describe("Nullable BigInt Field", () => {
     });
 
     test("runtime: shorthand null transforms to { set: null }", () => {
-      expect(parse(schemas.update, null)).toEqual({ set: null });
+      const result = parse(schemas.update, null);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ set: null });
     });
 
     test("runtime: arithmetic operations still use non-null base", () => {
-      expect(parse(schemas.update, { increment: 5n })).toEqual({
-        increment: 5n,
-      });
-      expect(parse(schemas.update, { decrement: 3n })).toEqual({
-        decrement: 3n,
-      });
+      const r1 = parse(schemas.update, { increment: 5n });
+      if (r1.issues) throw new Error("Expected success");
+      expect(r1.value).toEqual({ increment: 5n });
+
+      const r2 = parse(schemas.update, { decrement: 3n });
+      if (r2.issues) throw new Error("Expected success");
+      expect(r2.value).toEqual({ decrement: 3n });
     });
   });
 
@@ -261,7 +317,9 @@ describe("Nullable BigInt Field", () => {
     });
 
     test("runtime: shorthand null transforms to { equals: null }", () => {
-      expect(parse(schemas.filter, null)).toEqual({ equals: null });
+      const result = parse(schemas.filter, null);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ equals: null });
     });
   });
 });
@@ -282,16 +340,20 @@ describe("List BigInt Field", () => {
     });
 
     test("runtime: parses array of bigints", () => {
-      expect(parse(schemas.base, [1n, 2n, 3n])).toEqual([1n, 2n, 3n]);
+      const result = parse(schemas.base, [1n, 2n, 3n]);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual([1n, 2n, 3n]);
     });
 
     test("runtime: parses empty array", () => {
-      expect(parse(schemas.base, [])).toEqual([]);
+      const result = parse(schemas.base, []);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual([]);
     });
 
     test("runtime: rejects non-array", () => {
-      expect(() => parse(schemas.base, 42n)).toThrow();
-      expect(() => parse(schemas.base, null)).toThrow();
+      expect(parse(schemas.base, 42n).issues).toBeDefined();
+      expect(parse(schemas.base, null).issues).toBeDefined();
     });
   });
 
@@ -302,11 +364,13 @@ describe("List BigInt Field", () => {
     });
 
     test("runtime: accepts array", () => {
-      expect(parse(schemas.create, [1n, 2n, 3n])).toEqual([1n, 2n, 3n]);
+      const result = parse(schemas.create, [1n, 2n, 3n]);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual([1n, 2n, 3n]);
     });
 
     test("runtime: rejects undefined (required)", () => {
-      expect(() => parse(schemas.create, undefined)).toThrow();
+      expect(parse(schemas.create, undefined).issues).toBeDefined();
     });
   });
 
@@ -320,29 +384,33 @@ describe("List BigInt Field", () => {
     });
 
     test("runtime: shorthand array transforms to { set: value }", () => {
-      expect(parse(schemas.update, [1n, 2n, 3n])).toEqual({
-        set: [1n, 2n, 3n],
-      });
+      const result = parse(schemas.update, [1n, 2n, 3n]);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ set: [1n, 2n, 3n] });
     });
 
     test("runtime: set operation passes through", () => {
-      expect(parse(schemas.update, { set: [4n, 5n, 6n] })).toEqual({
-        set: [4n, 5n, 6n],
-      });
+      const result = parse(schemas.update, { set: [4n, 5n, 6n] });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ set: [4n, 5n, 6n] });
     });
 
-    test("runtime: push single element", () => {
-      expect(parse(schemas.update, { push: 7n })).toEqual({ push: 7n });
+    test("runtime: push single element (coerced to array)", () => {
+      const result = parse(schemas.update, { push: 7n });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toMatchObject({ push: [7n] });
     });
 
     test("runtime: push array of elements", () => {
-      expect(parse(schemas.update, { push: [8n, 9n] })).toEqual({
-        push: [8n, 9n],
-      });
+      const result = parse(schemas.update, { push: [8n, 9n] });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toMatchObject({ push: [8n, 9n] });
     });
 
-    test("runtime: unshift operation", () => {
-      expect(parse(schemas.update, { unshift: 0n })).toEqual({ unshift: 0n });
+    test("runtime: unshift operation (coerced to array)", () => {
+      const result = parse(schemas.update, { unshift: 0n });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toMatchObject({ unshift: [0n] });
     });
   });
 
@@ -357,31 +425,33 @@ describe("List BigInt Field", () => {
     });
 
     test("runtime: shorthand array transforms to { equals: value }", () => {
-      expect(parse(schemas.filter, [1n, 2n, 3n])).toEqual({
-        equals: [1n, 2n, 3n],
-      });
+      const result = parse(schemas.filter, [1n, 2n, 3n]);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ equals: [1n, 2n, 3n] });
     });
 
     test("runtime: has filter passes through", () => {
-      expect(parse(schemas.filter, { has: 5n })).toEqual({ has: 5n });
+      const result = parse(schemas.filter, { has: 5n });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ has: 5n });
     });
 
     test("runtime: hasEvery filter passes through", () => {
-      expect(parse(schemas.filter, { hasEvery: [1n, 2n] })).toEqual({
-        hasEvery: [1n, 2n],
-      });
+      const result = parse(schemas.filter, { hasEvery: [1n, 2n] });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ hasEvery: [1n, 2n] });
     });
 
     test("runtime: hasSome filter passes through", () => {
-      expect(parse(schemas.filter, { hasSome: [3n, 4n] })).toEqual({
-        hasSome: [3n, 4n],
-      });
+      const result = parse(schemas.filter, { hasSome: [3n, 4n] });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ hasSome: [3n, 4n] });
     });
 
     test("runtime: isEmpty filter passes through", () => {
-      expect(parse(schemas.filter, { isEmpty: true })).toEqual({
-        isEmpty: true,
-      });
+      const result = parse(schemas.filter, { isEmpty: true });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ isEmpty: true });
     });
   });
 });
@@ -402,11 +472,15 @@ describe("Nullable List BigInt Field", () => {
     });
 
     test("runtime: parses array of bigints", () => {
-      expect(parse(schemas.base, [1n, 2n, 3n])).toEqual([1n, 2n, 3n]);
+      const result = parse(schemas.base, [1n, 2n, 3n]);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual([1n, 2n, 3n]);
     });
 
     test("runtime: parses null", () => {
-      expect(parse(schemas.base, null)).toBe(null);
+      const result = parse(schemas.base, null);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(null);
     });
   });
 
@@ -417,15 +491,21 @@ describe("Nullable List BigInt Field", () => {
     });
 
     test("runtime: accepts array", () => {
-      expect(parse(schemas.create, [1n, 2n, 3n])).toEqual([1n, 2n, 3n]);
+      const result = parse(schemas.create, [1n, 2n, 3n]);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual([1n, 2n, 3n]);
     });
 
     test("runtime: accepts null", () => {
-      expect(parse(schemas.create, null)).toBe(null);
+      const result = parse(schemas.create, null);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(null);
     });
 
     test("runtime: undefined defaults to null", () => {
-      expect(parse(schemas.create, undefined)).toBe(null);
+      const result = parse(schemas.create, undefined);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(null);
     });
   });
 
@@ -437,17 +517,21 @@ describe("Nullable List BigInt Field", () => {
     });
 
     test("runtime: shorthand array transforms to { set: value }", () => {
-      expect(parse(schemas.update, [1n, 2n, 3n])).toEqual({
-        set: [1n, 2n, 3n],
-      });
+      const result = parse(schemas.update, [1n, 2n, 3n]);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ set: [1n, 2n, 3n] });
     });
 
     test("runtime: shorthand null transforms to { set: null }", () => {
-      expect(parse(schemas.update, null)).toEqual({ set: null });
+      const result = parse(schemas.update, null);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ set: null });
     });
 
     test("runtime: set null passes through", () => {
-      expect(parse(schemas.update, { set: null })).toEqual({ set: null });
+      const result = parse(schemas.update, { set: null });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ set: null });
     });
   });
 
@@ -459,7 +543,9 @@ describe("Nullable List BigInt Field", () => {
     });
 
     test("runtime: shorthand null transforms to { equals: null }", () => {
-      expect(parse(schemas.filter, null)).toEqual({ equals: null });
+      const result = parse(schemas.filter, null);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ equals: null });
     });
   });
 });
@@ -487,11 +573,15 @@ describe("Increment BigInt Field", () => {
   });
 
   test("runtime: undefined uses default", () => {
-    expect(parse(schemas.create, undefined)).toBe(0n);
+    const result = parse(schemas.create, undefined);
+    if (result.issues) throw new Error("Expected success");
+    expect(result.value).toBe(0n);
   });
 
   test("runtime: accepts explicit value", () => {
-    expect(parse(schemas.create, 100n)).toBe(100n);
+    const result = parse(schemas.create, 100n);
+    if (result.issues) throw new Error("Expected success");
+    expect(result.value).toBe(100n);
   });
 });
 
@@ -511,11 +601,15 @@ describe("Default Value Behavior", () => {
     });
 
     test("runtime: accepts value", () => {
-      expect(parse(schemas.create, 100n)).toBe(100n);
+      const result = parse(schemas.create, 100n);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(100n);
     });
 
     test("runtime: undefined uses default", () => {
-      expect(parse(schemas.create, undefined)).toBe(42n);
+      const result = parse(schemas.create, undefined);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(42n);
     });
   });
 
@@ -530,7 +624,8 @@ describe("Default Value Behavior", () => {
     test("runtime: undefined calls default function", () => {
       const before = callCount;
       const result = parse(schemas.create, undefined);
-      expect(result).toBe((before + 1n) * 10n);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe((before + 1n) * 10n);
     });
   });
 });
@@ -546,30 +641,44 @@ describe("Custom Schema Validation", () => {
     const schemas = field["~"].schemas;
 
     test("runtime: accepts valid value in range", () => {
-      expect(parse(schemas.base, 50n)).toBe(50n);
-      expect(parse(schemas.base, 1n)).toBe(1n);
-      expect(parse(schemas.base, 1000n)).toBe(1000n);
+      const r1 = parse(schemas.base, 50n);
+      if (r1.issues) throw new Error("Expected success");
+      expect(r1.value).toBe(50n);
+
+      const r2 = parse(schemas.base, 1n);
+      if (r2.issues) throw new Error("Expected success");
+      expect(r2.value).toBe(1n);
+
+      const r3 = parse(schemas.base, 1000n);
+      if (r3.issues) throw new Error("Expected success");
+      expect(r3.value).toBe(1000n);
     });
 
     test("runtime: rejects value below min", () => {
-      expect(() => parse(schemas.base, 0n)).toThrow();
-      expect(() => parse(schemas.base, -5n)).toThrow();
+      expect(parse(schemas.base, 0n).issues).toBeDefined();
+      expect(parse(schemas.base, -5n).issues).toBeDefined();
     });
 
     test("runtime: rejects value above max", () => {
-      expect(() => parse(schemas.base, 1001n)).toThrow();
-      expect(() => parse(schemas.base, 10000n)).toThrow();
+      expect(parse(schemas.base, 1001n).issues).toBeDefined();
+      expect(parse(schemas.base, 10000n).issues).toBeDefined();
     });
 
     test("runtime: create validates against custom schema", () => {
-      expect(parse(schemas.create, 50n)).toBe(50n);
-      expect(() => parse(schemas.create, 0n)).toThrow();
-      expect(() => parse(schemas.create, 1001n)).toThrow();
+      const r1 = parse(schemas.create, 50n);
+      if (r1.issues) throw new Error("Expected success");
+      expect(r1.value).toBe(50n);
+
+      expect(parse(schemas.create, 0n).issues).toBeDefined();
+      expect(parse(schemas.create, 1001n).issues).toBeDefined();
     });
 
     test("runtime: update validates against custom schema", () => {
-      expect(parse(schemas.update, 50n)).toEqual({ set: 50n });
-      expect(() => parse(schemas.update, 0n)).toThrow();
+      const r1 = parse(schemas.update, 50n);
+      if (r1.issues) throw new Error("Expected success");
+      expect(r1.value).toEqual({ set: 50n });
+
+      expect(parse(schemas.update, 0n).issues).toBeDefined();
     });
   });
 
@@ -585,8 +694,8 @@ describe("Custom Schema Validation", () => {
 
     test("runtime: validates and returns branded value", () => {
       const result = parse(field["~"].schemas.base, 123n);
-      expect(result).toBe(123n);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(123n);
     });
   });
 });
-

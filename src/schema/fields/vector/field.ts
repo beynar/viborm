@@ -10,7 +10,8 @@ import {
   DefaultValueInput,
 } from "../common";
 import type { NativeType } from "../native-types";
-import { getFieldVectorSchemas, vectorBase } from "./schemas";
+import { buildVectorSchema, vectorBase } from "./schemas";
+import v, { BaseVectorSchema } from "../../../validation";
 
 // =============================================================================
 // VECTOR FIELD CLASS
@@ -25,23 +26,45 @@ export class VectorField<State extends FieldState<"vector">> {
   nullable(): VectorField<
     UpdateState<
       State,
-      { nullable: true; hasDefault: true; defaultValue: DefaultValue<null> }
+      {
+        nullable: true;
+        hasDefault: true;
+        default: DefaultValue<null>;
+        optional: true;
+        base: BaseVectorSchema<{
+          nullable: true;
+        }>;
+      }
     >
   > {
     return new VectorField(
-      { ...this.state, nullable: true, hasDefault: true, defaultValue: null },
+      {
+        ...this.state,
+        nullable: true,
+        hasDefault: true,
+        default: null,
+        optional: true,
+        base: v.vector<{
+          nullable: true;
+        }>(undefined, {
+          nullable: true,
+        }),
+      },
       this._nativeType
     );
   }
 
   default<V extends DefaultValueInput<State>>(
     value: V
-  ): VectorField<UpdateState<State, { hasDefault: true; defaultValue: V }>> {
+  ): VectorField<
+    UpdateState<State, { hasDefault: true; default: V; optional: true }>
+  > {
     return new VectorField(
       {
         ...this.state,
         hasDefault: true,
-        defaultValue: value,
+        default: value,
+        optional: true,
       },
       this._nativeType
     );
@@ -71,10 +94,16 @@ export class VectorField<State extends FieldState<"vector">> {
     );
   }
 
+  // ===========================================================================
+  // ACCESSORS
+  // ===========================================================================
+
+  #cached_schemas: ReturnType<typeof buildVectorSchema<State>> | undefined;
+
   get ["~"]() {
     return {
       state: this.state,
-      schemas: getFieldVectorSchemas<State>(this.state),
+      schemas: (this.#cached_schemas ??= buildVectorSchema(this.state)),
       nativeType: this._nativeType,
       names: this._names,
     };

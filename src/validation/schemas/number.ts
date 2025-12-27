@@ -10,6 +10,10 @@ import { buildSchema, ok } from "../helpers";
 // Number Schema
 // =============================================================================
 
+export interface BaseNumberSchema<
+  Opts extends ScalarOptions<number, any> | undefined = undefined
+> extends VibSchema<ComputeInput<number, Opts>, ComputeOutput<number, Opts>> {}
+
 export interface NumberSchema<TInput = number, TOutput = number>
   extends VibSchema<TInput, TOutput> {
   readonly type: "number";
@@ -51,6 +55,10 @@ export function number<
 // =============================================================================
 // Integer Schema (number with integer constraint)
 // =============================================================================
+
+export interface BaseIntegerSchema<
+  Opts extends ScalarOptions<number, any> | undefined = undefined
+> extends VibSchema<ComputeInput<number, Opts>, ComputeOutput<number, Opts>> {}
 
 export interface IntegerSchema<TInput = number, TOutput = number>
   extends VibSchema<TInput, TOutput> {

@@ -10,6 +10,10 @@ import { buildSchema, ok } from "../helpers";
 // Date Schema (JavaScript Date objects)
 // =============================================================================
 
+export interface BaseDateSchema<
+  Opts extends ScalarOptions<Date, any> | undefined = undefined
+> extends VibSchema<ComputeInput<Date, Opts>, ComputeOutput<Date, Opts>> {}
+
 export interface DateSchema<TInput = Date, TOutput = Date>
   extends VibSchema<TInput, TOutput> {
   readonly type: "date";

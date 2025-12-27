@@ -15,7 +15,7 @@
  */
 
 import { describe, test, expect, expectTypeOf } from "vitest";
-import { parse } from "valibot";
+import { parse } from "../../src/validation";
 import { blob } from "../../src/schema/fields/blob/field";
 import type { InferBlobInput } from "../../src/schema/fields/blob/schemas";
 
@@ -43,27 +43,30 @@ describe("Raw Blob Field", () => {
 
     test("runtime: parses Uint8Array", () => {
       const result = parse(schemas.base, testData1);
-      expect(result).toBeInstanceOf(Uint8Array);
-      expect(result).toEqual(testData1);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBeInstanceOf(Uint8Array);
+      expect(result.value).toEqual(testData1);
     });
 
     test("runtime: parses Buffer", () => {
       const result = parse(schemas.base, testBuffer);
-      expect(result).toBeInstanceOf(Buffer);
-      expect(result).toEqual(testBuffer);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBeInstanceOf(Buffer);
+      expect(result.value).toEqual(testBuffer);
     });
 
     test("runtime: parses empty Uint8Array", () => {
       const result = parse(schemas.base, emptyData);
-      expect(result).toBeInstanceOf(Uint8Array);
-      expect(result.length).toBe(0);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBeInstanceOf(Uint8Array);
+      expect(result.value.length).toBe(0);
     });
 
     test("runtime: rejects non-binary", () => {
-      expect(() => parse(schemas.base, "hello")).toThrow();
-      expect(() => parse(schemas.base, 123)).toThrow();
-      expect(() => parse(schemas.base, null)).toThrow();
-      expect(() => parse(schemas.base, [1, 2, 3])).toThrow();
+      expect(parse(schemas.base, "hello").issues).toBeDefined();
+      expect(parse(schemas.base, 123).issues).toBeDefined();
+      expect(parse(schemas.base, null).issues).toBeDefined();
+      expect(parse(schemas.base, [1, 2, 3]).issues).toBeDefined();
     });
   });
 
@@ -76,25 +79,30 @@ describe("Raw Blob Field", () => {
 
     test("runtime: accepts Uint8Array", () => {
       const result = parse(schemas.create, testData1);
-      expect(result).toEqual(testData1);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual(testData1);
     });
 
     test("runtime: accepts Buffer", () => {
       const result = parse(schemas.create, testBuffer);
-      expect(result).toEqual(testBuffer);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual(testBuffer);
     });
 
     test("runtime: accepts empty Uint8Array", () => {
       const result = parse(schemas.create, emptyData);
-      expect(result.length).toBe(0);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value.length).toBe(0);
     });
 
     test("runtime: rejects undefined (required)", () => {
-      expect(() => parse(schemas.create, undefined)).toThrow();
+      const result = parse(schemas.create, undefined);
+      expect(result.issues).toBeDefined();
     });
 
     test("runtime: rejects null", () => {
-      expect(() => parse(schemas.create, null)).toThrow();
+      const result = parse(schemas.create, null);
+      expect(result.issues).toBeDefined();
     });
   });
 
@@ -109,21 +117,24 @@ describe("Raw Blob Field", () => {
 
     test("runtime: shorthand Uint8Array transforms to { set: value }", () => {
       const result = parse(schemas.update, testData1);
-      expect(result).toEqual({ set: testData1 });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ set: testData1 });
     });
 
     test("runtime: shorthand Buffer transforms to { set: value }", () => {
       const result = parse(schemas.update, testBuffer);
-      expect(result).toEqual({ set: testBuffer });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ set: testBuffer });
     });
 
     test("runtime: object form passes through", () => {
-      expect(parse(schemas.update, { set: testData1 })).toEqual({
-        set: testData1,
-      });
-      expect(parse(schemas.update, { set: testBuffer })).toEqual({
-        set: testBuffer,
-      });
+      const result1 = parse(schemas.update, { set: testData1 });
+      if (result1.issues) throw new Error("Expected success");
+      expect(result1.value).toEqual({ set: testData1 });
+
+      const result2 = parse(schemas.update, { set: testBuffer });
+      if (result2.issues) throw new Error("Expected success");
+      expect(result2.value).toEqual({ set: testBuffer });
     });
   });
 
@@ -142,30 +153,34 @@ describe("Raw Blob Field", () => {
 
     test("runtime: shorthand Uint8Array transforms to { equals: value }", () => {
       const result = parse(schemas.filter, testData1);
-      expect(result).toEqual({ equals: testData1 });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ equals: testData1 });
     });
 
     test("runtime: shorthand Buffer transforms to { equals: value }", () => {
       const result = parse(schemas.filter, testBuffer);
-      expect(result).toEqual({ equals: testBuffer });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ equals: testBuffer });
     });
 
     test("runtime: object form passes through", () => {
-      expect(parse(schemas.filter, { equals: testData1 })).toEqual({
-        equals: testData1,
-      });
-      expect(parse(schemas.filter, { equals: testBuffer })).toEqual({
-        equals: testBuffer,
-      });
+      const result1 = parse(schemas.filter, { equals: testData1 });
+      if (result1.issues) throw new Error("Expected success");
+      expect(result1.value).toEqual({ equals: testData1 });
+
+      const result2 = parse(schemas.filter, { equals: testBuffer });
+      if (result2.issues) throw new Error("Expected success");
+      expect(result2.value).toEqual({ equals: testBuffer });
     });
 
     test("runtime: not filter passes through", () => {
-      expect(parse(schemas.filter, { not: testData1 })).toEqual({
-        not: { equals: testData1 },
-      });
-      expect(parse(schemas.filter, { not: { equals: testBuffer } })).toEqual({
-        not: { equals: testBuffer },
-      });
+      const result1 = parse(schemas.filter, { not: testData1 });
+      if (result1.issues) throw new Error("Expected success");
+      expect(result1.value).toEqual({ not: { equals: testData1 } });
+
+      const result2 = parse(schemas.filter, { not: { equals: testBuffer } });
+      if (result2.issues) throw new Error("Expected success");
+      expect(result2.value).toEqual({ not: { equals: testBuffer } });
     });
   });
 });
@@ -189,16 +204,20 @@ describe("Nullable Blob Field", () => {
 
     test("runtime: parses Uint8Array", () => {
       const result = parse(schemas.base, testData1);
-      expect(result).toEqual(testData1);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual(testData1);
     });
 
     test("runtime: parses Buffer", () => {
       const result = parse(schemas.base, testBuffer);
-      expect(result).toEqual(testBuffer);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual(testBuffer);
     });
 
     test("runtime: parses null", () => {
-      expect(parse(schemas.base, null)).toBe(null);
+      const result = parse(schemas.base, null);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(null);
     });
   });
 
@@ -212,19 +231,27 @@ describe("Nullable Blob Field", () => {
     });
 
     test("runtime: accepts Uint8Array", () => {
-      expect(parse(schemas.create, testData1)).toEqual(testData1);
+      const result = parse(schemas.create, testData1);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual(testData1);
     });
 
     test("runtime: accepts Buffer", () => {
-      expect(parse(schemas.create, testBuffer)).toEqual(testBuffer);
+      const result = parse(schemas.create, testBuffer);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual(testBuffer);
     });
 
     test("runtime: accepts null", () => {
-      expect(parse(schemas.create, null)).toBe(null);
+      const result = parse(schemas.create, null);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(null);
     });
 
     test("runtime: undefined defaults to null", () => {
-      expect(parse(schemas.create, undefined)).toBe(null);
+      const result = parse(schemas.create, undefined);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(null);
     });
   });
 
@@ -241,22 +268,31 @@ describe("Nullable Blob Field", () => {
     });
 
     test("runtime: shorthand Uint8Array transforms to { set: value }", () => {
-      expect(parse(schemas.update, testData1)).toEqual({ set: testData1 });
+      const result = parse(schemas.update, testData1);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ set: testData1 });
     });
 
     test("runtime: shorthand Buffer transforms to { set: value }", () => {
-      expect(parse(schemas.update, testBuffer)).toEqual({ set: testBuffer });
+      const result = parse(schemas.update, testBuffer);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ set: testBuffer });
     });
 
     test("runtime: shorthand null transforms to { set: null }", () => {
-      expect(parse(schemas.update, null)).toEqual({ set: null });
+      const result = parse(schemas.update, null);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ set: null });
     });
 
     test("runtime: object form passes through", () => {
-      expect(parse(schemas.update, { set: testData1 })).toEqual({
-        set: testData1,
-      });
-      expect(parse(schemas.update, { set: null })).toEqual({ set: null });
+      const result1 = parse(schemas.update, { set: testData1 });
+      if (result1.issues) throw new Error("Expected success");
+      expect(result1.value).toEqual({ set: testData1 });
+
+      const result2 = parse(schemas.update, { set: null });
+      if (result2.issues) throw new Error("Expected success");
+      expect(result2.value).toEqual({ set: null });
     });
   });
 
@@ -268,17 +304,21 @@ describe("Nullable Blob Field", () => {
     });
 
     test("runtime: shorthand null transforms to { equals: null }", () => {
-      expect(parse(schemas.filter, null)).toEqual({ equals: null });
+      const result = parse(schemas.filter, null);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ equals: null });
     });
 
     test("runtime: object form with null passes through", () => {
-      expect(parse(schemas.filter, { equals: null })).toEqual({ equals: null });
+      const result = parse(schemas.filter, { equals: null });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ equals: null });
     });
 
     test("runtime: not filter with null", () => {
-      expect(parse(schemas.filter, { not: null })).toEqual({
-        not: { equals: null },
-      });
+      const result = parse(schemas.filter, { not: null });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ not: { equals: null } });
     });
   });
 });
@@ -301,11 +341,15 @@ describe("Default Value Behavior", () => {
     });
 
     test("runtime: accepts value", () => {
-      expect(parse(schemas.create, testData2)).toEqual(testData2);
+      const result = parse(schemas.create, testData2);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual(testData2);
     });
 
     test("runtime: undefined uses default", () => {
-      expect(parse(schemas.create, undefined)).toEqual(defaultData);
+      const result = parse(schemas.create, undefined);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual(defaultData);
     });
   });
 
@@ -327,7 +371,8 @@ describe("Default Value Behavior", () => {
     test("runtime: undefined calls default function", () => {
       const before = callCount;
       const result = parse(schemas.create, undefined);
-      expect(result).toEqual(new Uint8Array([before + 1]));
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual(new Uint8Array([before + 1]));
     });
   });
 });

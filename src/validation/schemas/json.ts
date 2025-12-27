@@ -22,6 +22,13 @@ export type JsonValue =
   | JsonValue[]
   | { [key: string]: JsonValue };
 
+export interface BaseJsonSchema<
+  Opts extends ScalarOptions<JsonValue, any> | undefined = undefined
+> extends VibSchema<
+    ComputeInput<JsonValue, Opts>,
+    ComputeOutput<JsonValue, Opts>
+  > {}
+
 export interface JsonSchema<TInput = JsonValue, TOutput = JsonValue>
   extends VibSchema<TInput, TOutput> {
   readonly type: "json";
@@ -108,6 +115,7 @@ export function json<
 >(
   options?: Opts
 ): JsonSchema<ComputeInput<JsonValue, Opts>, ComputeOutput<JsonValue, Opts>> {
+  console.log("json", options);
   return buildSchema("json", validateJson, options) as JsonSchema<
     ComputeInput<JsonValue, Opts>,
     ComputeOutput<JsonValue, Opts>

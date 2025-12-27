@@ -2,52 +2,9 @@
 // Shared types and helpers for all field classes
 
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import {
-  BaseSchema,
-  Default,
-  NullableSchema,
-  ArraySchema,
-  ObjectSchema,
-  InferInput,
-  InferOutput,
-  OptionalSchema,
-  lazy,
-  union,
-  LazySchema,
-  array,
-  optional,
-  record,
-  pipe,
-  transform,
-  object,
-  string,
-  null_,
-  boolean,
-  number,
-} from "valibot";
+import v, { VibSchema, InferInput, InferOutput } from "../../validation";
+import { AnyEnumSchema } from "../../validation/schemas/enum";
 
-// JSON value type matching Prisma's JsonValue
-type JsonValue =
-  | null
-  | boolean
-  | number
-  | string
-  | JsonValue[]
-  | { [key: string]: JsonValue };
-
-type JsonSchema = BaseSchema<JsonValue, JsonValue, any>;
-export const json: JsonSchema = lazy(() =>
-  union([
-    null_(),
-    boolean(),
-    number(),
-    string(),
-    array(json),
-    record(string(), json),
-  ])
-);
-
-export type AnySchema = BaseSchema<any, any, any>;
 // =============================================================================
 // SCHEMA NAMES (hydrated by client at initialization)
 // =============================================================================
@@ -117,6 +74,7 @@ export interface FieldState<T extends ScalarFieldType = ScalarFieldType> {
   optional: boolean;
   /** Custom column name in the database (set via .map()) */
   columnName: string | undefined;
+  base: VibSchema;
 }
 
 // =============================================================================
@@ -134,6 +92,16 @@ export type UpdateState<
   State extends FieldState,
   Update extends Partial<FieldState>
 > = Omit<State, keyof Update> & Update;
+
+export const updateState = <
+  State extends FieldState,
+  Update extends Partial<FieldState>
+>(
+  state: State,
+  update: Update
+) => {
+  return { ...state, ...update } as UpdateState<State, Update>;
+};
 
 // =============================================================================
 // TYPE HELPERS
@@ -155,43 +123,14 @@ export type MaybeArray<
   IsArray extends boolean = false
 > = IsArray extends true ? T[] : T;
 
-export type MaybeArraySchema<
-  T extends AnySchema,
-  S extends FieldState
-> = S["array"] extends true ? ArraySchema<T, undefined> : T;
-
-export type MaybeNullableSchema<
-  T extends AnySchema,
-  S extends FieldState
-> = S["nullable"] extends true ? NullableSchema<T, undefined> : T;
-
 /**
  * Type for default value - can be direct value or factory function
  */
 export type DefaultValue<T> = T | (() => T);
 
-export type DefaultValueInput<S extends FieldState> = S["type"] extends "json"
-  ? DefaultValue<
-      S["schema"] extends StandardSchemaV1
-        ? StandardSchemaV1.InferOutput<S["schema"]>
-        : InferOutput<typeof json>
-    >
-  : DefaultValue<
-      MaybeNullable<
-        MaybeArray<InferInput<S["base"]>, S["array"]>,
-        S["nullable"]
-      >
-    >;
-
-export type SchemaWithDefault<F extends FieldState> =
-  F["hasDefault"] extends true
-    ? F["default"] extends DefaultValue<infer T>
-      ? OptionalSchema<
-          MaybeNullableSchema<MaybeArraySchema<F["base"], F>, F>,
-          T
-        >
-      : MaybeNullableSchema<MaybeArraySchema<F["base"], F>, F>
-    : MaybeNullableSchema<MaybeArraySchema<F["base"], F>, F>;
+export type DefaultValueInput<S extends FieldState> = DefaultValue<
+  MaybeNullable<MaybeArray<InferInput<S["base"]>, S["array"]>, S["nullable"]>
+>;
 
 // =============================================================================
 // DEFAULT STATE FACTORY
@@ -200,7 +139,13 @@ export type SchemaWithDefault<F extends FieldState> =
 /**
  * Creates a default initial state for a field type
  */
-export const createDefaultState = <T extends ScalarFieldType>(type: T) => ({
+export const createDefaultState = <
+  T extends ScalarFieldType,
+  B extends VibSchema
+>(
+  type: T,
+  base: B
+) => ({
   type,
   nullable: false,
   array: false,
@@ -212,6 +157,7 @@ export const createDefaultState = <T extends ScalarFieldType>(type: T) => ({
   schema: undefined,
   columnName: undefined,
   optional: false,
+  base,
 });
 
 // =============================================================================
@@ -246,41 +192,27 @@ export type InferCreateType<
   ? BaseType | null
   : BaseType;
 
-export const createWithDefault = <F extends FieldState, B extends AnySchema>(
-  f: F,
-  base: B
-) => {
-  if (f.hasDefault) {
-    return optional(base, f.default);
-  }
-  return base;
-};
+// =============================================================================
+// SCHEMA SHORTHANDS
+// =============================================================================
 
-export const shorthandFilter = <Z extends AnySchema>(schema: Z) =>
-  pipe(
-    schema,
-    transform((v) => {
-      return { equals: v };
-    })
-  );
+/**
+ * Coerces a value to a filter object with `equals` key.
+ * Used for shorthand filter syntax: `"value"` -> `{ equals: "value" }`
+ */
+export const shorthandFilter = <S extends VibSchema>(schema: S) =>
+  v.coerce(schema, (val: S[" vibInferred"]["0"]) => ({ equals: val }));
 
-export const shorthandUpdate = <Z extends AnySchema>(
-  schema: Z
-): BaseSchema<InferInput<Z>, { set: InferOutput<Z> }, any> =>
-  pipe(
-    schema,
-    transform((v) => ({ set: v }))
-  );
+/**
+ * Coerces a value to an update object with `set` key.
+ * Used for shorthand update syntax: `"value"` -> `{ set: "value" }`
+ */
+export const shorthandUpdate = <S extends VibSchema>(schema: S) =>
+  v.coerce(schema, (val: S[" vibInferred"]["0"]) => ({ set: val }));
 
-export const extend = <
-  T extends ObjectSchema<any, any>,
-  U extends Record<string, AnySchema>
->(
-  base: T,
-  extension: U
-) => {
-  return object({
-    ...base.entries,
-    ...extension,
-  }) as ObjectSchema<T["entries"] & U, undefined>;
-};
+/**
+ * Coerces a single value to an array.
+ * Used for shorthand array syntax: `"value"` -> `["value"]`
+ */
+export const shorthandArray = <S extends VibSchema>(schema: S) =>
+  v.coerce(schema, (val: S[" vibInferred"]["0"]) => [val]);

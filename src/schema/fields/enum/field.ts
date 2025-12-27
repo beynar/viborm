@@ -1,95 +1,155 @@
 // Enum Field
 // Standalone field class with State generic pattern
-
-import type { StandardSchemaOf } from "@standard-schema/spec";
-import { InferOutput, picklist } from "valibot";
 import {
   type FieldState,
-  type UpdateState,
   type DefaultValue,
   type SchemaNames,
   createDefaultState,
   DefaultValueInput,
+  UpdateState,
 } from "../common";
 import type { NativeType } from "../native-types";
-import { getFieldEnumSchemas } from "./schemas";
-import { schemaFromStandardSchema, StandardSchemaToSchema } from "..";
+import { buildEnumSchema, EnumSchemas } from "./schemas";
+import v, {
+  BaseEnumSchema,
+  InferInput,
+  InferOutput,
+  Prettify,
+} from "../../../validation";
+import { AnyEnumSchema } from "../../../validation/schemas/enum";
 
 // =============================================================================
 // ENUM FIELD CLASS
 // =============================================================================
 
-export class EnumField<State extends FieldState<"enum"> = FieldState<"enum">> {
+export class EnumField<
+  Values extends string[],
+  State extends FieldState<"enum"> = FieldState<"enum">
+> {
   private _names: SchemaNames = {};
 
-  constructor(private state: State, private _nativeType?: NativeType) {}
+  constructor(
+    public values: Values,
+    private state: State,
+    private _nativeType?: NativeType
+  ) {}
 
   nullable(): EnumField<
+    Values,
     UpdateState<
       State,
-      { nullable: true; hasDefault: true; defaultValue: DefaultValue<null> }
+      {
+        nullable: true;
+        hasDefault: true;
+        default: DefaultValue<null>;
+        optional: true;
+        base: BaseEnumSchema<
+          Values,
+          {
+            nullable: true;
+            array: State["array"];
+          }
+        >;
+      }
     >
   > {
     return new EnumField(
+      this.values,
       {
         ...this.state,
         nullable: true,
         hasDefault: true,
-        defaultValue: null,
-      } as UpdateState<
-        State,
-        { nullable: true; hasDefault: true; defaultValue: DefaultValue<null> }
-      >,
+        default: null,
+        optional: true,
+        base: v.enum<
+          Values,
+          {
+            nullable: true;
+            array: State["array"];
+          }
+        >(this.values, {
+          nullable: true,
+          array: this.state.array,
+        }),
+      },
       this._nativeType
     );
   }
 
-  array(): EnumField<UpdateState<State, { array: true }>> {
+  array(): EnumField<
+    Values,
+    UpdateState<
+      State,
+      {
+        array: true;
+        base: BaseEnumSchema<
+          Values,
+          {
+            nullable: State["nullable"];
+            array: true;
+          }
+        >;
+      }
+    >
+  > {
     return new EnumField(
-      { ...this.state, array: true } as UpdateState<State, { array: true }>,
+      this.values,
+      {
+        ...this.state,
+        array: true,
+        base: v.enum<
+          Values,
+          {
+            nullable: State["nullable"];
+            array: true;
+          }
+        >(this.values, {
+          nullable: this.state.nullable,
+          array: true,
+        }),
+      },
       this._nativeType
-    ) as EnumField<UpdateState<State, { array: true }>>;
+    );
   }
 
   default<V extends DefaultValueInput<State>>(
     value: V
-  ): EnumField<UpdateState<State, { hasDefault: true; defaultValue: V }>> {
+  ): EnumField<
+    Values,
+    UpdateState<State, { hasDefault: true; default: V; optional: true }>
+  > {
     return new EnumField(
+      this.values,
       {
         ...this.state,
         hasDefault: true,
-        defaultValue: value,
-      } as UpdateState<State, { hasDefault: true; defaultValue: V }>,
-      this._nativeType
-    );
-  }
-
-  schema<S extends StandardSchemaOf<InferOutput<State["base"]>>>(
-    schema: S
-  ): EnumField<
-    UpdateState<State, { schema: S; base: StandardSchemaToSchema<S> }>
-  > {
-    return new EnumField(
-      {
-        ...this.state,
-        schema: schema,
-        base: schemaFromStandardSchema(this.state.base, schema),
-      } as UpdateState<State, { schema: S; base: StandardSchemaToSchema<S> }>,
+        default: value,
+        optional: true,
+      },
       this._nativeType
     );
   }
 
   map(columnName: string): this {
     return new EnumField(
+      this.values,
       { ...this.state, columnName },
       this._nativeType
     ) as this;
   }
 
+  // ===========================================================================
+  // ACCESSORS
+  // ===========================================================================
+
+  #cached_schemas:
+    | ReturnType<typeof buildEnumSchema<Values, State>>
+    | undefined;
+
   get ["~"]() {
     return {
       state: this.state,
-      schemas: getFieldEnumSchemas<State>(this.state),
+      schemas: buildEnumSchema(this.values, this.state),
       nativeType: this._nativeType,
       names: this._names,
     };
@@ -104,6 +164,26 @@ export const enumField = <const T extends string[]>(
   values: T,
   nativeType?: NativeType
 ) => {
-  const base = picklist(values);
-  return new EnumField(createDefaultState("enum", base), nativeType);
+  const base = v.enum(values);
+  return new EnumField(values, createDefaultState("enum", base), nativeType);
 };
+
+const test = enumField(["a", "b", "c"]).nullable();
+
+const base = test["~"].schemas.base;
+
+type In = (typeof base)[" vibInferred"]["0"];
+
+const e = v.enum(["a", "b", "c"]);
+const s = v.string();
+type In2 = Prettify<InferInput<typeof e>>;
+type In3 = Prettify<InferInput<typeof s>>;
+type Test = typeof e extends AnyEnumSchema ? true : false;
+type Test2 = typeof e extends BaseEnumSchema<["a", "b", "c"], any>
+  ? true
+  : false;
+
+type Test3 = typeof base extends BaseEnumSchema<["a", "b", "c"], any>
+  ? true
+  : false;
+type Test4 = typeof base extends AnyEnumSchema ? true : false;

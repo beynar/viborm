@@ -15,7 +15,7 @@
  */
 
 import { describe, test, expect, expectTypeOf } from "vitest";
-import { parse } from "valibot";
+import { parse } from "../../src/validation";
 import { dateTime } from "../../src/schema/fields/datetime/field";
 import type { InferDateTimeInput } from "../../src/schema/fields/datetime/schemas";
 
@@ -44,21 +44,25 @@ describe("Raw DateTime Field", () => {
     });
 
     test("runtime: parses valid ISO datetime string", () => {
-      expect(parse(schemas.base, validDatetime)).toBe(validDatetime);
+      const result = parse(schemas.base, validDatetime);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(validDatetime);
     });
 
     test("runtime: transforms Date object to ISO string", () => {
-      expect(parse(schemas.base, validDate)).toBe(validDatetime);
+      const result = parse(schemas.base, validDate);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(validDatetime);
     });
 
     test("runtime: rejects invalid datetime string", () => {
-      expect(() => parse(schemas.base, invalidDatetime)).toThrow();
-      expect(() => parse(schemas.base, invalidFormat)).toThrow();
+      expect(parse(schemas.base, invalidDatetime).issues).toBeDefined();
+      expect(parse(schemas.base, invalidFormat).issues).toBeDefined();
     });
 
     test("runtime: rejects non-date/string", () => {
-      expect(() => parse(schemas.base, 123)).toThrow();
-      expect(() => parse(schemas.base, null)).toThrow();
+      expect(parse(schemas.base, 123).issues).toBeDefined();
+      expect(parse(schemas.base, null).issues).toBeDefined();
     });
   });
 
@@ -70,19 +74,23 @@ describe("Raw DateTime Field", () => {
     });
 
     test("runtime: accepts valid ISO datetime string", () => {
-      expect(parse(schemas.create, validDatetime)).toBe(validDatetime);
+      const result = parse(schemas.create, validDatetime);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(validDatetime);
     });
 
     test("runtime: accepts Date object and transforms to string", () => {
-      expect(parse(schemas.create, validDate)).toBe(validDatetime);
+      const result = parse(schemas.create, validDate);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(validDatetime);
     });
 
     test("runtime: rejects undefined (required)", () => {
-      expect(() => parse(schemas.create, undefined)).toThrow();
+      expect(parse(schemas.create, undefined).issues).toBeDefined();
     });
 
     test("runtime: rejects null", () => {
-      expect(() => parse(schemas.create, null)).toThrow();
+      expect(parse(schemas.create, null).issues).toBeDefined();
     });
   });
 
@@ -96,27 +104,27 @@ describe("Raw DateTime Field", () => {
     });
 
     test("runtime: shorthand string transforms to { set: value }", () => {
-      expect(parse(schemas.update, validDatetime)).toEqual({
-        set: validDatetime,
-      });
+      const result = parse(schemas.update, validDatetime);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ set: validDatetime });
     });
 
     test("runtime: shorthand Date transforms to { set: isoString }", () => {
-      expect(parse(schemas.update, validDate)).toEqual({
-        set: validDatetime,
-      });
+      const result = parse(schemas.update, validDate);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ set: validDatetime });
     });
 
     test("runtime: object form passes through", () => {
-      expect(parse(schemas.update, { set: validDatetime })).toEqual({
-        set: validDatetime,
-      });
+      const result = parse(schemas.update, { set: validDatetime });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ set: validDatetime });
     });
 
     test("runtime: object form with Date transforms value", () => {
-      expect(parse(schemas.update, { set: validDate })).toEqual({
-        set: validDatetime,
-      });
+      const result = parse(schemas.update, { set: validDate });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ set: validDatetime });
     });
   });
 
@@ -146,40 +154,41 @@ describe("Raw DateTime Field", () => {
     });
 
     test("runtime: shorthand transforms to { equals: value }", () => {
-      expect(parse(schemas.filter, validDatetime)).toEqual({
-        equals: validDatetime,
-      });
+      const result = parse(schemas.filter, validDatetime);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ equals: validDatetime });
     });
 
     test("runtime: object form passes through", () => {
-      expect(parse(schemas.filter, { equals: validDatetime })).toEqual({
-        equals: validDatetime,
-      });
-      expect(parse(schemas.filter, { lt: validDatetime })).toEqual({
-        lt: validDatetime,
-      });
-      expect(parse(schemas.filter, { gte: validDatetime })).toEqual({
-        gte: validDatetime,
-      });
+      const r1 = parse(schemas.filter, { equals: validDatetime });
+      if (r1.issues) throw new Error("Expected success");
+      expect(r1.value).toEqual({ equals: validDatetime });
+
+      const r2 = parse(schemas.filter, { lt: validDatetime });
+      if (r2.issues) throw new Error("Expected success");
+      expect(r2.value).toEqual({ lt: validDatetime });
+
+      const r3 = parse(schemas.filter, { gte: validDatetime });
+      if (r3.issues) throw new Error("Expected success");
+      expect(r3.value).toEqual({ gte: validDatetime });
     });
 
     test("runtime: in/notIn filters pass through", () => {
-      expect(
-        parse(schemas.filter, { in: [validDatetime, validDatetime2] })
-      ).toEqual({
+      const result = parse(schemas.filter, {
         in: [validDatetime, validDatetime2],
       });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ in: [validDatetime, validDatetime2] });
     });
 
     test("runtime: not filter passes through", () => {
-      expect(parse(schemas.filter, { not: validDatetime })).toEqual({
-        not: { equals: validDatetime },
-      });
-      expect(parse(schemas.filter, { not: { equals: validDatetime } })).toEqual(
-        {
-          not: { equals: validDatetime },
-        }
-      );
+      const r1 = parse(schemas.filter, { not: validDatetime });
+      if (r1.issues) throw new Error("Expected success");
+      expect(r1.value).toEqual({ not: { equals: validDatetime } });
+
+      const r2 = parse(schemas.filter, { not: { equals: validDatetime } });
+      if (r2.issues) throw new Error("Expected success");
+      expect(r2.value).toEqual({ not: { equals: validDatetime } });
     });
   });
 });
@@ -202,15 +211,21 @@ describe("Nullable DateTime Field", () => {
     });
 
     test("runtime: parses valid ISO datetime string", () => {
-      expect(parse(schemas.base, validDatetime)).toBe(validDatetime);
+      const result = parse(schemas.base, validDatetime);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(validDatetime);
     });
 
     test("runtime: transforms Date to ISO string", () => {
-      expect(parse(schemas.base, validDate)).toBe(validDatetime);
+      const result = parse(schemas.base, validDate);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(validDatetime);
     });
 
     test("runtime: parses null", () => {
-      expect(parse(schemas.base, null)).toBe(null);
+      const result = parse(schemas.base, null);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(null);
     });
   });
 
@@ -222,19 +237,27 @@ describe("Nullable DateTime Field", () => {
     });
 
     test("runtime: accepts valid datetime string", () => {
-      expect(parse(schemas.create, validDatetime)).toBe(validDatetime);
+      const result = parse(schemas.create, validDatetime);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(validDatetime);
     });
 
     test("runtime: accepts Date object", () => {
-      expect(parse(schemas.create, validDate)).toBe(validDatetime);
+      const result = parse(schemas.create, validDate);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(validDatetime);
     });
 
     test("runtime: accepts null", () => {
-      expect(parse(schemas.create, null)).toBe(null);
+      const result = parse(schemas.create, null);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(null);
     });
 
     test("runtime: undefined defaults to null", () => {
-      expect(parse(schemas.create, undefined)).toBe(null);
+      const result = parse(schemas.create, undefined);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(null);
     });
   });
 
@@ -249,26 +272,31 @@ describe("Nullable DateTime Field", () => {
     });
 
     test("runtime: shorthand string transforms to { set: value }", () => {
-      expect(parse(schemas.update, validDatetime)).toEqual({
-        set: validDatetime,
-      });
+      const result = parse(schemas.update, validDatetime);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ set: validDatetime });
     });
 
     test("runtime: shorthand Date transforms to { set: isoString }", () => {
-      expect(parse(schemas.update, validDate)).toEqual({
-        set: validDatetime,
-      });
+      const result = parse(schemas.update, validDate);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ set: validDatetime });
     });
 
     test("runtime: shorthand null transforms to { set: null }", () => {
-      expect(parse(schemas.update, null)).toEqual({ set: null });
+      const result = parse(schemas.update, null);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ set: null });
     });
 
     test("runtime: object form passes through", () => {
-      expect(parse(schemas.update, { set: validDatetime })).toEqual({
-        set: validDatetime,
-      });
-      expect(parse(schemas.update, { set: null })).toEqual({ set: null });
+      const r1 = parse(schemas.update, { set: validDatetime });
+      if (r1.issues) throw new Error("Expected success");
+      expect(r1.value).toEqual({ set: validDatetime });
+
+      const r2 = parse(schemas.update, { set: null });
+      if (r2.issues) throw new Error("Expected success");
+      expect(r2.value).toEqual({ set: null });
     });
   });
 
@@ -280,11 +308,15 @@ describe("Nullable DateTime Field", () => {
     });
 
     test("runtime: shorthand null transforms to { equals: null }", () => {
-      expect(parse(schemas.filter, null)).toEqual({ equals: null });
+      const result = parse(schemas.filter, null);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ equals: null });
     });
 
     test("runtime: object form with null passes through", () => {
-      expect(parse(schemas.filter, { equals: null })).toEqual({ equals: null });
+      const result = parse(schemas.filter, { equals: null });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ equals: null });
     });
   });
 });
@@ -307,39 +339,38 @@ describe("List DateTime Field", () => {
     });
 
     test("runtime: parses array of ISO datetime strings", () => {
-      expect(parse(schemas.base, [validDatetime, validDatetime2])).toEqual([
-        validDatetime,
-        validDatetime2,
-      ]);
+      const result = parse(schemas.base, [validDatetime, validDatetime2]);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual([validDatetime, validDatetime2]);
     });
 
     test("runtime: transforms array of Date objects to ISO strings", () => {
-      expect(parse(schemas.base, [validDate, validDate2])).toEqual([
-        validDatetime,
-        validDatetime2,
-      ]);
+      const result = parse(schemas.base, [validDate, validDate2]);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual([validDatetime, validDatetime2]);
     });
 
     test("runtime: transforms mixed array (Date + string)", () => {
-      expect(parse(schemas.base, [validDate, validDatetime2])).toEqual([
-        validDatetime,
-        validDatetime2,
-      ]);
+      const result = parse(schemas.base, [validDate, validDatetime2]);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual([validDatetime, validDatetime2]);
     });
 
     test("runtime: parses empty array", () => {
-      expect(parse(schemas.base, [])).toEqual([]);
+      const result = parse(schemas.base, []);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual([]);
     });
 
     test("runtime: rejects non-array", () => {
-      expect(() => parse(schemas.base, validDatetime)).toThrow();
-      expect(() => parse(schemas.base, null)).toThrow();
+      expect(parse(schemas.base, validDatetime).issues).toBeDefined();
+      expect(parse(schemas.base, null).issues).toBeDefined();
     });
 
     test("runtime: rejects array with invalid datetime", () => {
-      expect(() =>
-        parse(schemas.base, [validDatetime, invalidDatetime])
-      ).toThrow();
+      expect(
+        parse(schemas.base, [validDatetime, invalidDatetime]).issues
+      ).toBeDefined();
     });
   });
 
@@ -351,21 +382,19 @@ describe("List DateTime Field", () => {
     });
 
     test("runtime: accepts array of strings", () => {
-      expect(parse(schemas.create, [validDatetime, validDatetime2])).toEqual([
-        validDatetime,
-        validDatetime2,
-      ]);
+      const result = parse(schemas.create, [validDatetime, validDatetime2]);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual([validDatetime, validDatetime2]);
     });
 
     test("runtime: accepts array of Dates", () => {
-      expect(parse(schemas.create, [validDate, validDate2])).toEqual([
-        validDatetime,
-        validDatetime2,
-      ]);
+      const result = parse(schemas.create, [validDate, validDate2]);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual([validDatetime, validDatetime2]);
     });
 
     test("runtime: rejects undefined (required)", () => {
-      expect(() => parse(schemas.create, undefined)).toThrow();
+      expect(parse(schemas.create, undefined).issues).toBeDefined();
     });
   });
 
@@ -381,49 +410,51 @@ describe("List DateTime Field", () => {
     });
 
     test("runtime: shorthand string array transforms to { set: value }", () => {
-      expect(parse(schemas.update, [validDatetime, validDatetime2])).toEqual({
-        set: [validDatetime, validDatetime2],
-      });
+      const result = parse(schemas.update, [validDatetime, validDatetime2]);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ set: [validDatetime, validDatetime2] });
     });
 
     test("runtime: shorthand Date array transforms to { set: isoStrings }", () => {
-      expect(parse(schemas.update, [validDate, validDate2])).toEqual({
-        set: [validDatetime, validDatetime2],
-      });
+      const result = parse(schemas.update, [validDate, validDate2]);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ set: [validDatetime, validDatetime2] });
     });
 
     test("runtime: set operation passes through", () => {
-      expect(
-        parse(schemas.update, { set: [validDatetime, validDatetime2] })
-      ).toEqual({
+      const result = parse(schemas.update, {
         set: [validDatetime, validDatetime2],
       });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ set: [validDatetime, validDatetime2] });
     });
 
-    test("runtime: push single element (string)", () => {
-      expect(parse(schemas.update, { push: validDatetime })).toEqual({
-        push: validDatetime,
-      });
+    test("runtime: push single element (string, coerced to array)", () => {
+      const result = parse(schemas.update, { push: validDatetime });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toMatchObject({ push: [validDatetime] });
     });
 
-    test("runtime: push single element (Date)", () => {
-      expect(parse(schemas.update, { push: validDate })).toEqual({
-        push: validDatetime,
-      });
+    test("runtime: push single element (Date, coerced to array)", () => {
+      const result = parse(schemas.update, { push: validDate });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toMatchObject({ push: [validDatetime] });
     });
 
     test("runtime: push array of elements", () => {
-      expect(
-        parse(schemas.update, { push: [validDatetime, validDatetime2] })
-      ).toEqual({
+      const result = parse(schemas.update, {
+        push: [validDatetime, validDatetime2],
+      });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toMatchObject({
         push: [validDatetime, validDatetime2],
       });
     });
 
-    test("runtime: unshift operation", () => {
-      expect(parse(schemas.update, { unshift: validDatetime })).toEqual({
-        unshift: validDatetime,
-      });
+    test("runtime: unshift operation (coerced to array)", () => {
+      const result = parse(schemas.update, { unshift: validDatetime });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toMatchObject({ unshift: [validDatetime] });
     });
   });
 
@@ -438,29 +469,31 @@ describe("List DateTime Field", () => {
     });
 
     test("runtime: shorthand array transforms to { equals: value }", () => {
-      expect(parse(schemas.filter, [validDatetime, validDatetime2])).toEqual({
-        equals: [validDatetime, validDatetime2],
-      });
+      const result = parse(schemas.filter, [validDatetime, validDatetime2]);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ equals: [validDatetime, validDatetime2] });
     });
 
     test("runtime: has filter passes through", () => {
-      expect(parse(schemas.filter, { has: validDatetime })).toEqual({
-        has: validDatetime,
-      });
+      const result = parse(schemas.filter, { has: validDatetime });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ has: validDatetime });
     });
 
     test("runtime: hasEvery filter passes through", () => {
-      expect(
-        parse(schemas.filter, { hasEvery: [validDatetime, validDatetime2] })
-      ).toEqual({
+      const result = parse(schemas.filter, {
+        hasEvery: [validDatetime, validDatetime2],
+      });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({
         hasEvery: [validDatetime, validDatetime2],
       });
     });
 
     test("runtime: isEmpty filter passes through", () => {
-      expect(parse(schemas.filter, { isEmpty: true })).toEqual({
-        isEmpty: true,
-      });
+      const result = parse(schemas.filter, { isEmpty: true });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ isEmpty: true });
     });
   });
 });
@@ -483,21 +516,21 @@ describe("Nullable List DateTime Field", () => {
     });
 
     test("runtime: parses array of datetime strings", () => {
-      expect(parse(schemas.base, [validDatetime, validDatetime2])).toEqual([
-        validDatetime,
-        validDatetime2,
-      ]);
+      const result = parse(schemas.base, [validDatetime, validDatetime2]);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual([validDatetime, validDatetime2]);
     });
 
     test("runtime: transforms array of Dates", () => {
-      expect(parse(schemas.base, [validDate, validDate2])).toEqual([
-        validDatetime,
-        validDatetime2,
-      ]);
+      const result = parse(schemas.base, [validDate, validDate2]);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual([validDatetime, validDatetime2]);
     });
 
     test("runtime: parses null", () => {
-      expect(parse(schemas.base, null)).toBe(null);
+      const result = parse(schemas.base, null);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(null);
     });
   });
 
@@ -509,25 +542,27 @@ describe("Nullable List DateTime Field", () => {
     });
 
     test("runtime: accepts string array", () => {
-      expect(parse(schemas.create, [validDatetime, validDatetime2])).toEqual([
-        validDatetime,
-        validDatetime2,
-      ]);
+      const result = parse(schemas.create, [validDatetime, validDatetime2]);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual([validDatetime, validDatetime2]);
     });
 
     test("runtime: accepts Date array", () => {
-      expect(parse(schemas.create, [validDate, validDate2])).toEqual([
-        validDatetime,
-        validDatetime2,
-      ]);
+      const result = parse(schemas.create, [validDate, validDate2]);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual([validDatetime, validDatetime2]);
     });
 
     test("runtime: accepts null", () => {
-      expect(parse(schemas.create, null)).toBe(null);
+      const result = parse(schemas.create, null);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(null);
     });
 
     test("runtime: undefined defaults to null", () => {
-      expect(parse(schemas.create, undefined)).toBe(null);
+      const result = parse(schemas.create, undefined);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(null);
     });
   });
 
@@ -541,35 +576,39 @@ describe("Nullable List DateTime Field", () => {
     });
 
     test("runtime: shorthand string array transforms to { set: value }", () => {
-      expect(parse(schemas.update, [validDatetime, validDatetime2])).toEqual({
-        set: [validDatetime, validDatetime2],
-      });
+      const result = parse(schemas.update, [validDatetime, validDatetime2]);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ set: [validDatetime, validDatetime2] });
     });
 
     test("runtime: shorthand Date array transforms to { set: isoStrings }", () => {
-      expect(parse(schemas.update, [validDate, validDate2])).toEqual({
-        set: [validDatetime, validDatetime2],
-      });
+      const result = parse(schemas.update, [validDate, validDate2]);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ set: [validDatetime, validDatetime2] });
     });
 
     test("runtime: shorthand null transforms to { set: null }", () => {
-      expect(parse(schemas.update, null)).toEqual({ set: null });
+      const result = parse(schemas.update, null);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ set: null });
     });
 
     test("runtime: set null passes through", () => {
-      expect(parse(schemas.update, { set: null })).toEqual({ set: null });
+      const result = parse(schemas.update, { set: null });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ set: null });
     });
 
-    test("runtime: push operation with string", () => {
-      expect(parse(schemas.update, { push: validDatetime })).toEqual({
-        push: validDatetime,
-      });
+    test("runtime: push operation with string (coerced to array)", () => {
+      const result = parse(schemas.update, { push: validDatetime });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toMatchObject({ push: [validDatetime] });
     });
 
-    test("runtime: push operation with Date", () => {
-      expect(parse(schemas.update, { push: validDate })).toEqual({
-        push: validDatetime,
-      });
+    test("runtime: push operation with Date (coerced to array)", () => {
+      const result = parse(schemas.update, { push: validDate });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toMatchObject({ push: [validDatetime] });
     });
   });
 
@@ -581,17 +620,21 @@ describe("Nullable List DateTime Field", () => {
     });
 
     test("runtime: shorthand array transforms to { equals: value }", () => {
-      expect(parse(schemas.filter, [validDatetime, validDatetime2])).toEqual({
-        equals: [validDatetime, validDatetime2],
-      });
+      const result = parse(schemas.filter, [validDatetime, validDatetime2]);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ equals: [validDatetime, validDatetime2] });
     });
 
     test("runtime: shorthand null transforms to { equals: null }", () => {
-      expect(parse(schemas.filter, null)).toEqual({ equals: null });
+      const result = parse(schemas.filter, null);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ equals: null });
     });
 
     test("runtime: equals null passes through", () => {
-      expect(parse(schemas.filter, { equals: null })).toEqual({ equals: null });
+      const result = parse(schemas.filter, { equals: null });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ equals: null });
     });
   });
 });
@@ -613,15 +656,21 @@ describe("Default Value Behavior", () => {
     });
 
     test("runtime: accepts string value", () => {
-      expect(parse(schemas.create, validDatetime2)).toBe(validDatetime2);
+      const result = parse(schemas.create, validDatetime2);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(validDatetime2);
     });
 
     test("runtime: accepts Date value", () => {
-      expect(parse(schemas.create, validDate2)).toBe(validDatetime2);
+      const result = parse(schemas.create, validDate2);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(validDatetime2);
     });
 
     test("runtime: undefined uses default", () => {
-      expect(parse(schemas.create, undefined)).toBe(validDatetime);
+      const result = parse(schemas.create, undefined);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(validDatetime);
     });
   });
 
@@ -643,7 +692,8 @@ describe("Default Value Behavior", () => {
     test("runtime: undefined calls default function", () => {
       const before = callCount;
       const result = parse(schemas.create, undefined);
-      expect(result).toBe(
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(
         `2024-01-${String(before + 1).padStart(2, "0")}T00:00:00.000Z`
       );
     });
@@ -659,9 +709,10 @@ describe("Default Value Behavior", () => {
 
       const schemas = field["~"].schemas;
       const result = parse(schemas.create, undefined);
-      expect(typeof result).toBe("string");
+      if (result.issues) throw new Error("Expected success");
+      expect(typeof result.value).toBe("string");
       // Should be a valid ISO datetime
-      expect(() => new Date(result as string).toISOString()).not.toThrow();
+      expect(() => new Date(result.value as string).toISOString()).not.toThrow();
     });
 
     test("updatedAt(): type is optional, runtime uses generator", () => {
@@ -673,9 +724,10 @@ describe("Default Value Behavior", () => {
 
       const schemas = field["~"].schemas;
       const result = parse(schemas.create, undefined);
-      expect(typeof result).toBe("string");
+      if (result.issues) throw new Error("Expected success");
+      expect(typeof result.value).toBe("string");
       // Should be a valid ISO datetime
-      expect(() => new Date(result as string).toISOString()).not.toThrow();
+      expect(() => new Date(result.value as string).toISOString()).not.toThrow();
     });
   });
 });

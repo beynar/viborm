@@ -119,25 +119,38 @@ export type {
   StringSchema,
   BaseStringSchema,
   NumberSchema,
+  BaseNumberSchema,
   IntegerSchema,
+  BaseIntegerSchema,
   BooleanSchema,
+  BaseBooleanSchema,
   BigIntSchema,
+  BaseBigIntSchema,
   LiteralSchema,
   LiteralValue,
   EnumSchema,
+  BaseEnumSchema,
   JsonSchema,
+  BaseJsonSchema,
   JsonValue,
   // Date types
   DateSchema,
+  BaseDateSchema,
   IsoTimestampSchema,
+  BaseIsoTimestampSchema,
   IsoDateSchema,
+  BaseIsoDateSchema,
   IsoTimeSchema,
+  BaseIsoTimeSchema,
   // Instance type
   InstanceSchema,
   // Blob, Vector, Point types
   BlobSchema,
+  BaseBlobSchema,
   VectorSchema,
+  BaseVectorSchema,
   PointSchema,
+  BasePointSchema,
   Point,
   // Wrapper types
   ArraySchema,
@@ -200,7 +213,7 @@ import {
   coerce as coerceFn,
   map as mapFn,
 } from "./schemas";
-import { Prettify } from "./types";
+import { Prettify, VibSchema } from "./types";
 
 /**
  * VibORM validation namespace.
@@ -267,6 +280,8 @@ export const v = {
 // Default export for convenience
 export default v;
 
-export const safeParse = <T>(schema: T, value) => {
-  return schema["~standard"].validate(value);
+export const parse = <const S extends VibSchema>(schema: S, value: unknown) => {
+  return schema["~standard"].validate(value) as Awaited<
+    ReturnType<(typeof schema)["~standard"]["validate"]>
+  >;
 };

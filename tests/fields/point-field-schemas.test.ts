@@ -15,7 +15,7 @@
  */
 
 import { describe, test, expect, expectTypeOf } from "vitest";
-import { parse } from "valibot";
+import { parse } from "../../src/validation";
 import { point } from "../../src/schema/fields/point/field";
 import type { InferPointInput } from "../../src/schema/fields/point/schemas";
 
@@ -35,33 +35,38 @@ describe("Raw Point Field", () => {
     });
 
     test("runtime: parses point object", () => {
-      expect(parse(schemas.base, { x: 10, y: 20 })).toEqual({ x: 10, y: 20 });
-      expect(parse(schemas.base, { x: 0.5, y: -0.3 })).toEqual({
-        x: 0.5,
-        y: -0.3,
-      });
-      expect(parse(schemas.base, { x: 0, y: 0 })).toEqual({ x: 0, y: 0 });
+      const result1 = parse(schemas.base, { x: 10, y: 20 });
+      if (result1.issues) throw new Error("Expected success");
+      expect(result1.value).toEqual({ x: 10, y: 20 });
+
+      const result2 = parse(schemas.base, { x: 0.5, y: -0.3 });
+      if (result2.issues) throw new Error("Expected success");
+      expect(result2.value).toEqual({ x: 0.5, y: -0.3 });
+
+      const result3 = parse(schemas.base, { x: 0, y: 0 });
+      if (result3.issues) throw new Error("Expected success");
+      expect(result3.value).toEqual({ x: 0, y: 0 });
     });
 
     test("runtime: rejects non-object", () => {
-      expect(() => parse(schemas.base, 42)).toThrow();
-      expect(() => parse(schemas.base, "point")).toThrow();
-      expect(() => parse(schemas.base, null)).toThrow();
-      expect(() => parse(schemas.base, true)).toThrow();
-      expect(() => parse(schemas.base, [10, 20])).toThrow();
+      expect(parse(schemas.base, 42).issues).toBeDefined();
+      expect(parse(schemas.base, "point").issues).toBeDefined();
+      expect(parse(schemas.base, null).issues).toBeDefined();
+      expect(parse(schemas.base, true).issues).toBeDefined();
+      expect(parse(schemas.base, [10, 20]).issues).toBeDefined();
     });
 
     test("runtime: rejects object missing x or y", () => {
-      expect(() => parse(schemas.base, { x: 10 })).toThrow();
-      expect(() => parse(schemas.base, { y: 20 })).toThrow();
-      expect(() => parse(schemas.base, {})).toThrow();
+      expect(parse(schemas.base, { x: 10 }).issues).toBeDefined();
+      expect(parse(schemas.base, { y: 20 }).issues).toBeDefined();
+      expect(parse(schemas.base, {}).issues).toBeDefined();
     });
 
     test("runtime: rejects object with non-number x or y", () => {
-      expect(() => parse(schemas.base, { x: "10", y: 20 })).toThrow();
-      expect(() => parse(schemas.base, { x: 10, y: "20" })).toThrow();
-      expect(() => parse(schemas.base, { x: null, y: 20 })).toThrow();
-      expect(() => parse(schemas.base, { x: 10, y: undefined })).toThrow();
+      expect(parse(schemas.base, { x: "10", y: 20 }).issues).toBeDefined();
+      expect(parse(schemas.base, { x: 10, y: "20" }).issues).toBeDefined();
+      expect(parse(schemas.base, { x: null, y: 20 }).issues).toBeDefined();
+      expect(parse(schemas.base, { x: 10, y: undefined }).issues).toBeDefined();
     });
   });
 
@@ -72,19 +77,23 @@ describe("Raw Point Field", () => {
     });
 
     test("runtime: accepts point object", () => {
-      expect(parse(schemas.create, { x: 10, y: 20 })).toEqual({ x: 10, y: 20 });
-      expect(parse(schemas.create, { x: -180, y: 90 })).toEqual({
-        x: -180,
-        y: 90,
-      });
+      const result1 = parse(schemas.create, { x: 10, y: 20 });
+      if (result1.issues) throw new Error("Expected success");
+      expect(result1.value).toEqual({ x: 10, y: 20 });
+
+      const result2 = parse(schemas.create, { x: -180, y: 90 });
+      if (result2.issues) throw new Error("Expected success");
+      expect(result2.value).toEqual({ x: -180, y: 90 });
     });
 
     test("runtime: rejects undefined (required)", () => {
-      expect(() => parse(schemas.create, undefined)).toThrow();
+      const result = parse(schemas.create, undefined);
+      expect(result.issues).toBeDefined();
     });
 
     test("runtime: rejects null", () => {
-      expect(() => parse(schemas.create, null)).toThrow();
+      const result = parse(schemas.create, null);
+      expect(result.issues).toBeDefined();
     });
   });
 
@@ -100,18 +109,19 @@ describe("Raw Point Field", () => {
     });
 
     test("runtime: shorthand transforms to { set: value }", () => {
-      expect(parse(schemas.update, { x: 10, y: 20 })).toEqual({
-        set: { x: 10, y: 20 },
-      });
-      expect(parse(schemas.update, { x: 0.5, y: -0.3 })).toEqual({
-        set: { x: 0.5, y: -0.3 },
-      });
+      const result1 = parse(schemas.update, { x: 10, y: 20 });
+      if (result1.issues) throw new Error("Expected success");
+      expect(result1.value).toEqual({ set: { x: 10, y: 20 } });
+
+      const result2 = parse(schemas.update, { x: 0.5, y: -0.3 });
+      if (result2.issues) throw new Error("Expected success");
+      expect(result2.value).toEqual({ set: { x: 0.5, y: -0.3 } });
     });
 
     test("runtime: set operation passes through", () => {
-      expect(parse(schemas.update, { set: { x: 4, y: 5 } })).toEqual({
-        set: { x: 4, y: 5 },
-      });
+      const result = parse(schemas.update, { set: { x: 4, y: 5 } });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ set: { x: 4, y: 5 } });
     });
   });
 
@@ -147,63 +157,69 @@ describe("Raw Point Field", () => {
     });
 
     test("runtime: shorthand transforms to { equals: value }", () => {
-      expect(parse(schemas.filter, { x: 10, y: 20 })).toEqual({
-        equals: { x: 10, y: 20 },
-      });
+      const result = parse(schemas.filter, { x: 10, y: 20 });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ equals: { x: 10, y: 20 } });
     });
 
     test("runtime: equals filter passes through", () => {
-      expect(parse(schemas.filter, { equals: { x: 1, y: 2 } })).toEqual({
-        equals: { x: 1, y: 2 },
-      });
+      const result = parse(schemas.filter, { equals: { x: 1, y: 2 } });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ equals: { x: 1, y: 2 } });
     });
 
     test("runtime: spatial filters pass through", () => {
-      expect(parse(schemas.filter, { intersects: { x: 10, y: 20 } })).toEqual({
-        intersects: { x: 10, y: 20 },
-      });
-      expect(parse(schemas.filter, { contains: { x: 5, y: 5 } })).toEqual({
-        contains: { x: 5, y: 5 },
-      });
-      expect(parse(schemas.filter, { within: { x: 15, y: 25 } })).toEqual({
-        within: { x: 15, y: 25 },
-      });
-      expect(parse(schemas.filter, { crosses: { x: 0, y: 0 } })).toEqual({
-        crosses: { x: 0, y: 0 },
-      });
-      expect(parse(schemas.filter, { overlaps: { x: 1, y: 1 } })).toEqual({
-        overlaps: { x: 1, y: 1 },
-      });
-      expect(parse(schemas.filter, { touches: { x: 2, y: 2 } })).toEqual({
-        touches: { x: 2, y: 2 },
-      });
-      expect(parse(schemas.filter, { covers: { x: 3, y: 3 } })).toEqual({
-        covers: { x: 3, y: 3 },
-      });
+      const r1 = parse(schemas.filter, { intersects: { x: 10, y: 20 } });
+      if (r1.issues) throw new Error("Expected success");
+      expect(r1.value).toEqual({ intersects: { x: 10, y: 20 } });
+
+      const r2 = parse(schemas.filter, { contains: { x: 5, y: 5 } });
+      if (r2.issues) throw new Error("Expected success");
+      expect(r2.value).toEqual({ contains: { x: 5, y: 5 } });
+
+      const r3 = parse(schemas.filter, { within: { x: 15, y: 25 } });
+      if (r3.issues) throw new Error("Expected success");
+      expect(r3.value).toEqual({ within: { x: 15, y: 25 } });
+
+      const r4 = parse(schemas.filter, { crosses: { x: 0, y: 0 } });
+      if (r4.issues) throw new Error("Expected success");
+      expect(r4.value).toEqual({ crosses: { x: 0, y: 0 } });
+
+      const r5 = parse(schemas.filter, { overlaps: { x: 1, y: 1 } });
+      if (r5.issues) throw new Error("Expected success");
+      expect(r5.value).toEqual({ overlaps: { x: 1, y: 1 } });
+
+      const r6 = parse(schemas.filter, { touches: { x: 2, y: 2 } });
+      if (r6.issues) throw new Error("Expected success");
+      expect(r6.value).toEqual({ touches: { x: 2, y: 2 } });
+
+      const r7 = parse(schemas.filter, { covers: { x: 3, y: 3 } });
+      if (r7.issues) throw new Error("Expected success");
+      expect(r7.value).toEqual({ covers: { x: 3, y: 3 } });
     });
 
     test("runtime: dWithin filter passes through", () => {
-      expect(
-        parse(schemas.filter, {
-          dWithin: { geometry: { x: 10, y: 20 }, distance: 1000 },
-        })
-      ).toEqual({
+      const result = parse(schemas.filter, {
+        dWithin: { geometry: { x: 10, y: 20 }, distance: 1000 },
+      });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({
         dWithin: { geometry: { x: 10, y: 20 }, distance: 1000 },
       });
     });
 
     test("runtime: not filter with shorthand", () => {
-      expect(parse(schemas.filter, { not: { x: 10, y: 20 } })).toEqual({
-        not: { equals: { x: 10, y: 20 } },
-      });
+      const result = parse(schemas.filter, { not: { x: 10, y: 20 } });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ not: { equals: { x: 10, y: 20 } } });
     });
 
     test("runtime: not filter with object", () => {
-      expect(
-        parse(schemas.filter, { not: { intersects: { x: 5, y: 5 } } })
-      ).toEqual({
+      const result = parse(schemas.filter, {
         not: { intersects: { x: 5, y: 5 } },
       });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ not: { intersects: { x: 5, y: 5 } } });
     });
   });
 });
@@ -224,11 +240,15 @@ describe("Nullable Point Field", () => {
     });
 
     test("runtime: parses point object", () => {
-      expect(parse(schemas.base, { x: 10, y: 20 })).toEqual({ x: 10, y: 20 });
+      const result = parse(schemas.base, { x: 10, y: 20 });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ x: 10, y: 20 });
     });
 
     test("runtime: parses null", () => {
-      expect(parse(schemas.base, null)).toBe(null);
+      const result = parse(schemas.base, null);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(null);
     });
   });
 
@@ -241,15 +261,21 @@ describe("Nullable Point Field", () => {
     });
 
     test("runtime: accepts point object", () => {
-      expect(parse(schemas.create, { x: 10, y: 20 })).toEqual({ x: 10, y: 20 });
+      const result = parse(schemas.create, { x: 10, y: 20 });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ x: 10, y: 20 });
     });
 
     test("runtime: accepts null", () => {
-      expect(parse(schemas.create, null)).toBe(null);
+      const result = parse(schemas.create, null);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(null);
     });
 
     test("runtime: undefined defaults to null", () => {
-      expect(parse(schemas.create, undefined)).toBe(null);
+      const result = parse(schemas.create, undefined);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(null);
     });
   });
 
@@ -263,23 +289,27 @@ describe("Nullable Point Field", () => {
     });
 
     test("runtime: shorthand null transforms to { set: null }", () => {
-      expect(parse(schemas.update, null)).toEqual({ set: null });
+      const result = parse(schemas.update, null);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ set: null });
     });
 
     test("runtime: shorthand point transforms to { set: value }", () => {
-      expect(parse(schemas.update, { x: 10, y: 20 })).toEqual({
-        set: { x: 10, y: 20 },
-      });
+      const result = parse(schemas.update, { x: 10, y: 20 });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ set: { x: 10, y: 20 } });
     });
 
     test("runtime: set null passes through", () => {
-      expect(parse(schemas.update, { set: null })).toEqual({ set: null });
+      const result = parse(schemas.update, { set: null });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ set: null });
     });
 
     test("runtime: set point passes through", () => {
-      expect(parse(schemas.update, { set: { x: 4, y: 5 } })).toEqual({
-        set: { x: 4, y: 5 },
-      });
+      const result = parse(schemas.update, { set: { x: 4, y: 5 } });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ set: { x: 4, y: 5 } });
     });
   });
 
@@ -291,11 +321,15 @@ describe("Nullable Point Field", () => {
     });
 
     test("runtime: shorthand null transforms to { equals: null }", () => {
-      expect(parse(schemas.filter, null)).toEqual({ equals: null });
+      const result = parse(schemas.filter, null);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ equals: null });
     });
 
     test("runtime: equals null passes through", () => {
-      expect(parse(schemas.filter, { equals: null })).toEqual({ equals: null });
+      const result = parse(schemas.filter, { equals: null });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ equals: null });
     });
   });
 });
@@ -316,11 +350,15 @@ describe("Default Value Behavior", () => {
     });
 
     test("runtime: accepts value", () => {
-      expect(parse(schemas.create, { x: 10, y: 20 })).toEqual({ x: 10, y: 20 });
+      const result = parse(schemas.create, { x: 10, y: 20 });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ x: 10, y: 20 });
     });
 
     test("runtime: undefined uses default", () => {
-      expect(parse(schemas.create, undefined)).toEqual({ x: 0, y: 0 });
+      const result = parse(schemas.create, undefined);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ x: 0, y: 0 });
     });
   });
 
@@ -335,7 +373,8 @@ describe("Default Value Behavior", () => {
     test("runtime: undefined calls default function", () => {
       const before = callCount;
       const result = parse(schemas.create, undefined);
-      expect(result).toEqual({
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({
         x: (before + 1) * 10,
         y: (before + 1) * 20,
       });

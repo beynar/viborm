@@ -10,6 +10,10 @@ import { buildSchema, ok } from "../helpers";
 // BigInt Schema
 // =============================================================================
 
+export interface BaseBigIntSchema<
+  Opts extends ScalarOptions<bigint, any> | undefined = undefined
+> extends VibSchema<ComputeInput<bigint, Opts>, ComputeOutput<bigint, Opts>> {}
+
 export interface BigIntSchema<TInput = bigint, TOutput = bigint>
   extends VibSchema<TInput, TOutput> {
   readonly type: "bigint";

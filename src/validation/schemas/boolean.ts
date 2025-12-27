@@ -10,6 +10,10 @@ import { buildSchema, ok } from "../helpers";
 // Boolean Schema
 // =============================================================================
 
+export interface BaseBooleanSchema<
+  Opts extends ScalarOptions<boolean, any> | undefined = undefined
+> extends VibSchema<ComputeInput<boolean, Opts>, ComputeOutput<boolean, Opts>> {}
+
 export interface BooleanSchema<TInput = boolean, TOutput = boolean>
   extends VibSchema<TInput, TOutput> {
   readonly type: "boolean";

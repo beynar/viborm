@@ -15,7 +15,7 @@
  */
 
 import { describe, test, expect, expectTypeOf } from "vitest";
-import { parse } from "valibot";
+import { parse } from "../../src/validation";
 import { boolean } from "../../src/schema/fields/boolean/field";
 import type { InferBooleanInput } from "../../src/schema/fields/boolean/schemas";
 
@@ -35,17 +35,21 @@ describe("Raw Boolean Field", () => {
     });
 
     test("runtime: parses true", () => {
-      expect(parse(schemas.base, true)).toBe(true);
+      const result = parse(schemas.base, true);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(true);
     });
 
     test("runtime: parses false", () => {
-      expect(parse(schemas.base, false)).toBe(false);
+      const result = parse(schemas.base, false);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(false);
     });
 
     test("runtime: rejects non-boolean", () => {
-      expect(() => parse(schemas.base, "true")).toThrow();
-      expect(() => parse(schemas.base, 1)).toThrow();
-      expect(() => parse(schemas.base, null)).toThrow();
+      expect(parse(schemas.base, "true").issues).toBeDefined();
+      expect(parse(schemas.base, 1).issues).toBeDefined();
+      expect(parse(schemas.base, null).issues).toBeDefined();
     });
   });
 
@@ -56,19 +60,25 @@ describe("Raw Boolean Field", () => {
     });
 
     test("runtime: accepts true", () => {
-      expect(parse(schemas.create, true)).toBe(true);
+      const result = parse(schemas.create, true);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(true);
     });
 
     test("runtime: accepts false", () => {
-      expect(parse(schemas.create, false)).toBe(false);
+      const result = parse(schemas.create, false);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(false);
     });
 
     test("runtime: rejects undefined (required)", () => {
-      expect(() => parse(schemas.create, undefined)).toThrow();
+      const result = parse(schemas.create, undefined);
+      expect(result.issues).toBeDefined();
     });
 
     test("runtime: rejects null", () => {
-      expect(() => parse(schemas.create, null)).toThrow();
+      const result = parse(schemas.create, null);
+      expect(result.issues).toBeDefined();
     });
   });
 
@@ -80,13 +90,23 @@ describe("Raw Boolean Field", () => {
     });
 
     test("runtime: shorthand transforms to { set: value }", () => {
-      expect(parse(schemas.update, true)).toEqual({ set: true });
-      expect(parse(schemas.update, false)).toEqual({ set: false });
+      const result1 = parse(schemas.update, true);
+      if (result1.issues) throw new Error("Expected success");
+      expect(result1.value).toEqual({ set: true });
+
+      const result2 = parse(schemas.update, false);
+      if (result2.issues) throw new Error("Expected success");
+      expect(result2.value).toEqual({ set: false });
     });
 
     test("runtime: object form passes through", () => {
-      expect(parse(schemas.update, { set: true })).toEqual({ set: true });
-      expect(parse(schemas.update, { set: false })).toEqual({ set: false });
+      const result1 = parse(schemas.update, { set: true });
+      if (result1.issues) throw new Error("Expected success");
+      expect(result1.value).toEqual({ set: true });
+
+      const result2 = parse(schemas.update, { set: false });
+      if (result2.issues) throw new Error("Expected success");
+      expect(result2.value).toEqual({ set: false });
     });
   });
 
@@ -102,24 +122,33 @@ describe("Raw Boolean Field", () => {
     });
 
     test("runtime: shorthand transforms to { equals: value }", () => {
-      expect(parse(schemas.filter, true)).toEqual({ equals: true });
-      expect(parse(schemas.filter, false)).toEqual({ equals: false });
+      const result1 = parse(schemas.filter, true);
+      if (result1.issues) throw new Error("Expected success");
+      expect(result1.value).toEqual({ equals: true });
+
+      const result2 = parse(schemas.filter, false);
+      if (result2.issues) throw new Error("Expected success");
+      expect(result2.value).toEqual({ equals: false });
     });
 
     test("runtime: object form passes through", () => {
-      expect(parse(schemas.filter, { equals: true })).toEqual({ equals: true });
-      expect(parse(schemas.filter, { equals: false })).toEqual({
-        equals: false,
-      });
+      const result1 = parse(schemas.filter, { equals: true });
+      if (result1.issues) throw new Error("Expected success");
+      expect(result1.value).toEqual({ equals: true });
+
+      const result2 = parse(schemas.filter, { equals: false });
+      if (result2.issues) throw new Error("Expected success");
+      expect(result2.value).toEqual({ equals: false });
     });
 
     test("runtime: not filter passes through", () => {
-      expect(parse(schemas.filter, { not: true })).toEqual({
-        not: { equals: true },
-      });
-      expect(parse(schemas.filter, { not: { equals: false } })).toEqual({
-        not: { equals: false },
-      });
+      const result1 = parse(schemas.filter, { not: true });
+      if (result1.issues) throw new Error("Expected success");
+      expect(result1.value).toEqual({ not: { equals: true } });
+
+      const result2 = parse(schemas.filter, { not: { equals: false } });
+      if (result2.issues) throw new Error("Expected success");
+      expect(result2.value).toEqual({ not: { equals: false } });
     });
   });
 });
@@ -140,15 +169,21 @@ describe("Nullable Boolean Field", () => {
     });
 
     test("runtime: parses true", () => {
-      expect(parse(schemas.base, true)).toBe(true);
+      const result = parse(schemas.base, true);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(true);
     });
 
     test("runtime: parses false", () => {
-      expect(parse(schemas.base, false)).toBe(false);
+      const result = parse(schemas.base, false);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(false);
     });
 
     test("runtime: parses null", () => {
-      expect(parse(schemas.base, null)).toBe(null);
+      const result = parse(schemas.base, null);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(null);
     });
   });
 
@@ -159,19 +194,27 @@ describe("Nullable Boolean Field", () => {
     });
 
     test("runtime: accepts true", () => {
-      expect(parse(schemas.create, true)).toBe(true);
+      const result = parse(schemas.create, true);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(true);
     });
 
     test("runtime: accepts false", () => {
-      expect(parse(schemas.create, false)).toBe(false);
+      const result = parse(schemas.create, false);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(false);
     });
 
     test("runtime: accepts null", () => {
-      expect(parse(schemas.create, null)).toBe(null);
+      const result = parse(schemas.create, null);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(null);
     });
 
     test("runtime: undefined defaults to null", () => {
-      expect(parse(schemas.create, undefined)).toBe(null);
+      const result = parse(schemas.create, undefined);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(null);
     });
   });
 
@@ -184,17 +227,29 @@ describe("Nullable Boolean Field", () => {
     });
 
     test("runtime: shorthand boolean transforms to { set: value }", () => {
-      expect(parse(schemas.update, true)).toEqual({ set: true });
-      expect(parse(schemas.update, false)).toEqual({ set: false });
+      const result1 = parse(schemas.update, true);
+      if (result1.issues) throw new Error("Expected success");
+      expect(result1.value).toEqual({ set: true });
+
+      const result2 = parse(schemas.update, false);
+      if (result2.issues) throw new Error("Expected success");
+      expect(result2.value).toEqual({ set: false });
     });
 
     test("runtime: shorthand null transforms to { set: null }", () => {
-      expect(parse(schemas.update, null)).toEqual({ set: null });
+      const result = parse(schemas.update, null);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ set: null });
     });
 
     test("runtime: object form passes through", () => {
-      expect(parse(schemas.update, { set: true })).toEqual({ set: true });
-      expect(parse(schemas.update, { set: null })).toEqual({ set: null });
+      const result1 = parse(schemas.update, { set: true });
+      if (result1.issues) throw new Error("Expected success");
+      expect(result1.value).toEqual({ set: true });
+
+      const result2 = parse(schemas.update, { set: null });
+      if (result2.issues) throw new Error("Expected success");
+      expect(result2.value).toEqual({ set: null });
     });
   });
 
@@ -206,11 +261,15 @@ describe("Nullable Boolean Field", () => {
     });
 
     test("runtime: shorthand null transforms to { equals: null }", () => {
-      expect(parse(schemas.filter, null)).toEqual({ equals: null });
+      const result = parse(schemas.filter, null);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ equals: null });
     });
 
     test("runtime: object form with null passes through", () => {
-      expect(parse(schemas.filter, { equals: null })).toEqual({ equals: null });
+      const result = parse(schemas.filter, { equals: null });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ equals: null });
     });
   });
 });
@@ -231,20 +290,20 @@ describe("List Boolean Field", () => {
     });
 
     test("runtime: parses array of booleans", () => {
-      expect(parse(schemas.base, [true, false, true])).toEqual([
-        true,
-        false,
-        true,
-      ]);
+      const result = parse(schemas.base, [true, false, true]);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual([true, false, true]);
     });
 
     test("runtime: parses empty array", () => {
-      expect(parse(schemas.base, [])).toEqual([]);
+      const result = parse(schemas.base, []);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual([]);
     });
 
     test("runtime: rejects non-array", () => {
-      expect(() => parse(schemas.base, true)).toThrow();
-      expect(() => parse(schemas.base, null)).toThrow();
+      expect(parse(schemas.base, true).issues).toBeDefined();
+      expect(parse(schemas.base, null).issues).toBeDefined();
     });
   });
 
@@ -255,11 +314,14 @@ describe("List Boolean Field", () => {
     });
 
     test("runtime: accepts array", () => {
-      expect(parse(schemas.create, [true, false])).toEqual([true, false]);
+      const result = parse(schemas.create, [true, false]);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual([true, false]);
     });
 
     test("runtime: rejects undefined (required)", () => {
-      expect(() => parse(schemas.create, undefined)).toThrow();
+      const result = parse(schemas.create, undefined);
+      expect(result.issues).toBeDefined();
     });
   });
 
@@ -273,31 +335,33 @@ describe("List Boolean Field", () => {
     });
 
     test("runtime: shorthand array transforms to { set: value }", () => {
-      expect(parse(schemas.update, [true, false])).toEqual({
-        set: [true, false],
-      });
+      const result = parse(schemas.update, [true, false]);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ set: [true, false] });
     });
 
     test("runtime: set operation passes through", () => {
-      expect(parse(schemas.update, { set: [true, false] })).toEqual({
-        set: [true, false],
-      });
+      const result = parse(schemas.update, { set: [true, false] });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ set: [true, false] });
     });
 
-    test("runtime: push single element", () => {
-      expect(parse(schemas.update, { push: true })).toEqual({ push: true });
+    test("runtime: push single element (coerced to array)", () => {
+      const result = parse(schemas.update, { push: true });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toMatchObject({ push: [true] });
     });
 
     test("runtime: push array of elements", () => {
-      expect(parse(schemas.update, { push: [true, false] })).toEqual({
-        push: [true, false],
-      });
+      const result = parse(schemas.update, { push: [true, false] });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toMatchObject({ push: [true, false] });
     });
 
-    test("runtime: unshift operation", () => {
-      expect(parse(schemas.update, { unshift: false })).toEqual({
-        unshift: false,
-      });
+    test("runtime: unshift operation (coerced to array)", () => {
+      const result = parse(schemas.update, { unshift: false });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toMatchObject({ unshift: [false] });
     });
   });
 
@@ -312,25 +376,27 @@ describe("List Boolean Field", () => {
     });
 
     test("runtime: shorthand array transforms to { equals: value }", () => {
-      expect(parse(schemas.filter, [true, false])).toEqual({
-        equals: [true, false],
-      });
+      const result = parse(schemas.filter, [true, false]);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ equals: [true, false] });
     });
 
     test("runtime: has filter passes through", () => {
-      expect(parse(schemas.filter, { has: true })).toEqual({ has: true });
+      const result = parse(schemas.filter, { has: true });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ has: true });
     });
 
     test("runtime: hasEvery filter passes through", () => {
-      expect(parse(schemas.filter, { hasEvery: [true, false] })).toEqual({
-        hasEvery: [true, false],
-      });
+      const result = parse(schemas.filter, { hasEvery: [true, false] });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ hasEvery: [true, false] });
     });
 
     test("runtime: isEmpty filter passes through", () => {
-      expect(parse(schemas.filter, { isEmpty: true })).toEqual({
-        isEmpty: true,
-      });
+      const result = parse(schemas.filter, { isEmpty: true });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ isEmpty: true });
     });
   });
 });
@@ -351,11 +417,15 @@ describe("Nullable List Boolean Field", () => {
     });
 
     test("runtime: parses array of booleans", () => {
-      expect(parse(schemas.base, [true, false])).toEqual([true, false]);
+      const result = parse(schemas.base, [true, false]);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual([true, false]);
     });
 
     test("runtime: parses null", () => {
-      expect(parse(schemas.base, null)).toBe(null);
+      const result = parse(schemas.base, null);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(null);
     });
   });
 
@@ -366,15 +436,21 @@ describe("Nullable List Boolean Field", () => {
     });
 
     test("runtime: accepts array", () => {
-      expect(parse(schemas.create, [true, false])).toEqual([true, false]);
+      const result = parse(schemas.create, [true, false]);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual([true, false]);
     });
 
     test("runtime: accepts null", () => {
-      expect(parse(schemas.create, null)).toBe(null);
+      const result = parse(schemas.create, null);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(null);
     });
 
     test("runtime: undefined defaults to null", () => {
-      expect(parse(schemas.create, undefined)).toBe(null);
+      const result = parse(schemas.create, undefined);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(null);
     });
   });
 
@@ -386,21 +462,27 @@ describe("Nullable List Boolean Field", () => {
     });
 
     test("runtime: shorthand array transforms to { set: value }", () => {
-      expect(parse(schemas.update, [true, false])).toEqual({
-        set: [true, false],
-      });
+      const result = parse(schemas.update, [true, false]);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ set: [true, false] });
     });
 
     test("runtime: shorthand null transforms to { set: null }", () => {
-      expect(parse(schemas.update, null)).toEqual({ set: null });
+      const result = parse(schemas.update, null);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ set: null });
     });
 
     test("runtime: set null passes through", () => {
-      expect(parse(schemas.update, { set: null })).toEqual({ set: null });
+      const result = parse(schemas.update, { set: null });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ set: null });
     });
 
-    test("runtime: push operation", () => {
-      expect(parse(schemas.update, { push: true })).toEqual({ push: true });
+    test("runtime: push operation (coerced to array)", () => {
+      const result = parse(schemas.update, { push: true });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toMatchObject({ push: [true] });
     });
   });
 
@@ -412,14 +494,19 @@ describe("Nullable List Boolean Field", () => {
     });
 
     test("runtime: shorthand null transforms to { equals: null }", () => {
-      expect(parse(schemas.filter, [true, false])).toEqual({
-        equals: [true, false],
-      });
-      expect(parse(schemas.filter, null)).toEqual({ equals: null });
+      const result1 = parse(schemas.filter, [true, false]);
+      if (result1.issues) throw new Error("Expected success");
+      expect(result1.value).toEqual({ equals: [true, false] });
+
+      const result2 = parse(schemas.filter, null);
+      if (result2.issues) throw new Error("Expected success");
+      expect(result2.value).toEqual({ equals: null });
     });
 
     test("runtime: equals null passes through", () => {
-      expect(parse(schemas.filter, { equals: null })).toEqual({ equals: null });
+      const result = parse(schemas.filter, { equals: null });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ equals: null });
     });
   });
 });
@@ -440,11 +527,15 @@ describe("Default Value Behavior", () => {
     });
 
     test("runtime: accepts value", () => {
-      expect(parse(schemas.create, false)).toBe(false);
+      const result = parse(schemas.create, false);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(false);
     });
 
     test("runtime: undefined uses default", () => {
-      expect(parse(schemas.create, undefined)).toBe(true);
+      const result = parse(schemas.create, undefined);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(true);
     });
   });
 
@@ -465,7 +556,8 @@ describe("Default Value Behavior", () => {
     test("runtime: undefined calls default function", () => {
       const before = callCount;
       const result = parse(schemas.create, undefined);
-      expect(result).toBe((before + 1) % 2 === 0);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe((before + 1) % 2 === 0);
     });
   });
 });

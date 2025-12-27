@@ -1,5 +1,15 @@
-import { FieldState } from "../common";
-import v, { BaseStringSchema, VibSchema } from "../../../validation";
+import {
+  FieldState,
+  shorthandFilter,
+  shorthandUpdate,
+  shorthandArray,
+} from "../common";
+import v, {
+  BaseStringSchema,
+  InferInput,
+  InferOutput,
+  VibSchema,
+} from "../../../validation";
 
 // =============================================================================
 // BASE TYPES
@@ -14,16 +24,6 @@ export const stringListNullable = v.string({ array: true, nullable: true });
 // FILTER SCHEMAS
 // =============================================================================
 
-// Base filter object without `not` (used for recursive `not` definition)
-
-// Shared filters for any non list string field
-
-export const shorthandUpdate = <Z extends VibSchema>(schema: Z) =>
-  v.coerce(schema, (v: Z[" vibInferred"]["0"]) => ({ set: v }));
-
-const shorthandFilter = <Z extends VibSchema>(schema: Z) =>
-  v.coerce(schema, (v: Z[" vibInferred"]["0"]) => ({ equals: v }));
-
 const stringFilterBase = v.object({
   in: stringList,
   notIn: stringList,
@@ -34,14 +34,17 @@ const stringFilterBase = v.object({
 });
 
 const buildStringFilterSchema = <S extends VibSchema>(schema: S) => {
+  const filter = stringFilterBase.extend({
+    equals: schema,
+    lt: schema,
+    lte: schema,
+    gt: schema,
+    gte: schema,
+  });
   return v.union([
     shorthandFilter(schema),
-    stringFilterBase.extend({
-      equal: schema,
-      lt: schema,
-      lte: schema,
-      gt: schema,
-      gte: schema,
+    filter.extend({
+      not: v.union([shorthandFilter(schema), filter]),
     }),
   ]);
 };
@@ -53,11 +56,12 @@ const stringListFilterBase = v.object({
   isEmpty: v.boolean(),
 });
 const buildStringListFilterSchema = <S extends VibSchema>(schema: S) => {
+  const filter = stringListFilterBase.extend({
+    equals: schema,
+  });
   return v.union([
     shorthandFilter(schema),
-    stringListFilterBase.extend({
-      equals: schema,
-    }),
+    filter.extend({ not: v.union([shorthandFilter(schema), filter]) }),
   ]);
 };
 
@@ -77,38 +81,41 @@ const buildStringListUpdateSchema = <S extends VibSchema>(schema: S) =>
     shorthandUpdate(schema),
     v.object({
       set: schema,
-      push: stringList,
-      unshift: stringList,
+      push: v.union([shorthandArray(stringBase), stringList]),
+      unshift: v.union([shorthandArray(stringBase), stringList]),
     }),
   ]);
 
 export const buildStringSchema = <F extends FieldState<"string">>(state: F) => {
-  const create = v.string(state);
-  const base = v.string<Pick<F, "array" | "nullable" | "schema">>({
-    array: state.array,
-    nullable: state.nullable,
-    schema: state.schema,
-  });
-
   return {
-    create,
+    base: state.base,
+    create: v.string(state),
     update: state.array
-      ? buildStringListUpdateSchema(base)
-      : buildStringUpdateSchema(base),
+      ? buildStringListUpdateSchema(state.base)
+      : buildStringUpdateSchema(state.base),
     filter: state.array
-      ? buildStringListFilterSchema(base)
-      : buildStringFilterSchema(base),
-  } as VibStringSchemas<F, typeof base>;
+      ? buildStringListFilterSchema(state.base)
+      : buildStringFilterSchema(state.base),
+  } as StringSchemas<F>;
 };
-type VibStringSchemas<
-  F extends FieldState<"string">,
-  Base extends VibSchema
-> = {
+
+type StringSchemas<F extends FieldState<"string">> = {
+  base: F["base"];
   create: BaseStringSchema<F>;
   update: F["array"] extends true
-    ? ReturnType<typeof buildStringListUpdateSchema<Base>>
-    : ReturnType<typeof buildStringUpdateSchema<Base>>;
+    ? ReturnType<typeof buildStringListUpdateSchema<F["base"]>>
+    : ReturnType<typeof buildStringUpdateSchema<F["base"]>>;
   filter: F["array"] extends true
-    ? ReturnType<typeof buildStringListFilterSchema<Base>>
-    : ReturnType<typeof buildStringFilterSchema<Base>>;
+    ? ReturnType<typeof buildStringListFilterSchema<F["base"]>>
+    : ReturnType<typeof buildStringFilterSchema<F["base"]>>;
 };
+
+export type InferStringInput<
+  F extends FieldState<"string">,
+  Type extends "create" | "update" | "filter" | "base"
+> = InferInput<StringSchemas<F>[Type]>;
+
+export type InferStringOutput<
+  F extends FieldState<"string">,
+  Type extends "create" | "update" | "filter" | "base"
+> = InferOutput<StringSchemas<F>[Type]>;

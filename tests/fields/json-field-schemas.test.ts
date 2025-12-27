@@ -17,7 +17,8 @@
  */
 
 import { describe, test, expect, expectTypeOf } from "vitest";
-import { parse, object, string, number, array, InferOutput } from "valibot";
+import { object, string, number, array, InferOutput } from "valibot";
+import { parse } from "../../src/validation";
 import { json } from "../../src/schema/fields/json/field";
 import type { InferJsonInput } from "../../src/schema/fields/json/schemas";
 
@@ -49,34 +50,56 @@ describe("Raw JSON Field", () => {
     });
 
     test("runtime: parses null", () => {
-      expect(parse(schemas.base, null)).toBe(null);
+      const result = parse(schemas.base, null);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(null);
     });
 
     test("runtime: parses boolean", () => {
-      expect(parse(schemas.base, true)).toBe(true);
-      expect(parse(schemas.base, false)).toBe(false);
+      const r1 = parse(schemas.base, true);
+      if (r1.issues) throw new Error("Expected success");
+      expect(r1.value).toBe(true);
+
+      const r2 = parse(schemas.base, false);
+      if (r2.issues) throw new Error("Expected success");
+      expect(r2.value).toBe(false);
     });
 
     test("runtime: parses number", () => {
-      expect(parse(schemas.base, 42)).toBe(42);
-      expect(parse(schemas.base, 3.14)).toBe(3.14);
+      const r1 = parse(schemas.base, 42);
+      if (r1.issues) throw new Error("Expected success");
+      expect(r1.value).toBe(42);
+
+      const r2 = parse(schemas.base, 3.14);
+      if (r2.issues) throw new Error("Expected success");
+      expect(r2.value).toBe(3.14);
     });
 
     test("runtime: parses string", () => {
-      expect(parse(schemas.base, "hello")).toBe("hello");
+      const result = parse(schemas.base, "hello");
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe("hello");
     });
 
     test("runtime: parses array", () => {
-      expect(parse(schemas.base, [1, 2, 3])).toEqual([1, 2, 3]);
-      expect(parse(schemas.base, ["a", "b"])).toEqual(["a", "b"]);
-      expect(parse(schemas.base, [{ nested: true }])).toEqual([
-        { nested: true },
-      ]);
+      const r1 = parse(schemas.base, [1, 2, 3]);
+      if (r1.issues) throw new Error("Expected success");
+      expect(r1.value).toEqual([1, 2, 3]);
+
+      const r2 = parse(schemas.base, ["a", "b"]);
+      if (r2.issues) throw new Error("Expected success");
+      expect(r2.value).toEqual(["a", "b"]);
+
+      const r3 = parse(schemas.base, [{ nested: true }]);
+      if (r3.issues) throw new Error("Expected success");
+      expect(r3.value).toEqual([{ nested: true }]);
     });
 
     test("runtime: parses object", () => {
       const obj = { name: "test", value: 123 };
-      expect(parse(schemas.base, obj)).toEqual(obj);
+      const result = parse(schemas.base, obj);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual(obj);
     });
 
     test("runtime: parses deeply nested structure", () => {
@@ -87,11 +110,14 @@ describe("Raw JSON Field", () => {
           },
         },
       };
-      expect(parse(schemas.base, nested)).toEqual(nested);
+      const result = parse(schemas.base, nested);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual(nested);
     });
 
     test("runtime: rejects undefined", () => {
-      expect(() => parse(schemas.base, undefined)).toThrow();
+      const result = parse(schemas.base, undefined);
+      expect(result.issues).toBeDefined();
     });
   });
 
@@ -102,11 +128,14 @@ describe("Raw JSON Field", () => {
     });
 
     test("runtime: accepts valid JSON", () => {
-      expect(parse(schemas.create, { data: "test" })).toEqual({ data: "test" });
+      const result = parse(schemas.create, { data: "test" });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ data: "test" });
     });
 
     test("runtime: rejects undefined (required)", () => {
-      expect(() => parse(schemas.create, undefined)).toThrow();
+      const result = parse(schemas.create, undefined);
+      expect(result.issues).toBeDefined();
     });
   });
 
@@ -119,19 +148,29 @@ describe("Raw JSON Field", () => {
 
     test("runtime: set operation passes through", () => {
       const data = { name: "test" };
-      expect(parse(schemas.update, { set: data })).toEqual({ set: data });
+      const result = parse(schemas.update, { set: data });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ set: data });
     });
 
     test("runtime: set with primitive", () => {
-      expect(parse(schemas.update, { set: 42 })).toEqual({ set: 42 });
-      expect(parse(schemas.update, { set: "hello" })).toEqual({ set: "hello" });
-      expect(parse(schemas.update, { set: null })).toEqual({ set: null });
+      const r1 = parse(schemas.update, { set: 42 });
+      if (r1.issues) throw new Error("Expected success");
+      expect(r1.value).toEqual({ set: 42 });
+
+      const r2 = parse(schemas.update, { set: "hello" });
+      if (r2.issues) throw new Error("Expected success");
+      expect(r2.value).toEqual({ set: "hello" });
+
+      const r3 = parse(schemas.update, { set: null });
+      if (r3.issues) throw new Error("Expected success");
+      expect(r3.value).toEqual({ set: null });
     });
 
     test("runtime: set with array", () => {
-      expect(parse(schemas.update, { set: [1, 2, 3] })).toEqual({
-        set: [1, 2, 3],
-      });
+      const result = parse(schemas.update, { set: [1, 2, 3] });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ set: [1, 2, 3] });
     });
   });
 
@@ -152,66 +191,68 @@ describe("Raw JSON Field", () => {
 
     test("runtime: equals filter passes through", () => {
       const data = { name: "test" };
-      expect(parse(schemas.filter, { equals: data })).toEqual({ equals: data });
+      const result = parse(schemas.filter, { equals: data });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ equals: data });
     });
 
     test("runtime: path filter passes through", () => {
-      expect(parse(schemas.filter, { path: ["user", "name"] })).toEqual({
-        path: ["user", "name"],
-      });
+      const result = parse(schemas.filter, { path: ["user", "name"] });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ path: ["user", "name"] });
     });
 
     test("runtime: string_contains filter passes through", () => {
-      expect(parse(schemas.filter, { string_contains: "test" })).toEqual({
-        string_contains: "test",
-      });
+      const result = parse(schemas.filter, { string_contains: "test" });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ string_contains: "test" });
     });
 
     test("runtime: string_starts_with filter passes through", () => {
-      expect(parse(schemas.filter, { string_starts_with: "pre" })).toEqual({
-        string_starts_with: "pre",
-      });
+      const result = parse(schemas.filter, { string_starts_with: "pre" });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ string_starts_with: "pre" });
     });
 
     test("runtime: string_ends_with filter passes through", () => {
-      expect(parse(schemas.filter, { string_ends_with: "suf" })).toEqual({
-        string_ends_with: "suf",
-      });
+      const result = parse(schemas.filter, { string_ends_with: "suf" });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ string_ends_with: "suf" });
     });
 
     test("runtime: array_contains filter passes through", () => {
-      expect(parse(schemas.filter, { array_contains: { id: 1 } })).toEqual({
-        array_contains: { id: 1 },
-      });
+      const result = parse(schemas.filter, { array_contains: { id: 1 } });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ array_contains: { id: 1 } });
     });
 
     test("runtime: array_starts_with filter passes through", () => {
-      expect(parse(schemas.filter, { array_starts_with: [1, 2] })).toEqual({
-        array_starts_with: [1, 2],
-      });
+      const result = parse(schemas.filter, { array_starts_with: [1, 2] });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ array_starts_with: [1, 2] });
     });
 
     test("runtime: array_ends_with filter passes through", () => {
-      expect(parse(schemas.filter, { array_ends_with: "last" })).toEqual({
-        array_ends_with: "last",
-      });
+      const result = parse(schemas.filter, { array_ends_with: "last" });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ array_ends_with: "last" });
     });
 
     test("runtime: not filter with equals", () => {
-      expect(parse(schemas.filter, { not: { equals: { value: 42 } } })).toEqual(
-        {
-          not: { equals: { value: 42 } },
-        }
-      );
+      const result = parse(schemas.filter, {
+        not: { equals: { value: 42 } },
+      });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ not: { equals: { value: 42 } } });
     });
 
     test("runtime: combined filters", () => {
-      expect(
-        parse(schemas.filter, {
-          path: ["user"],
-          string_contains: "test",
-        })
-      ).toEqual({
+      const result = parse(schemas.filter, {
+        path: ["user"],
+        string_contains: "test",
+      });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({
         path: ["user"],
         string_contains: "test",
       });
@@ -236,11 +277,15 @@ describe("Nullable JSON Field", () => {
     });
 
     test("runtime: parses valid JSON", () => {
-      expect(parse(schemas.base, { data: "test" })).toEqual({ data: "test" });
+      const result = parse(schemas.base, { data: "test" });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ data: "test" });
     });
 
     test("runtime: parses null", () => {
-      expect(parse(schemas.base, null)).toBe(null);
+      const result = parse(schemas.base, null);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(null);
     });
   });
 
@@ -251,15 +296,21 @@ describe("Nullable JSON Field", () => {
     });
 
     test("runtime: accepts valid JSON", () => {
-      expect(parse(schemas.create, { data: "test" })).toEqual({ data: "test" });
+      const result = parse(schemas.create, { data: "test" });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ data: "test" });
     });
 
     test("runtime: accepts null", () => {
-      expect(parse(schemas.create, null)).toBe(null);
+      const result = parse(schemas.create, null);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(null);
     });
 
     test("runtime: undefined defaults to null", () => {
-      expect(parse(schemas.create, undefined)).toBe(null);
+      const result = parse(schemas.create, undefined);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(null);
     });
   });
 
@@ -271,13 +322,15 @@ describe("Nullable JSON Field", () => {
     });
 
     test("runtime: set null passes through", () => {
-      expect(parse(schemas.update, { set: null })).toEqual({ set: null });
+      const result = parse(schemas.update, { set: null });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ set: null });
     });
 
     test("runtime: set object passes through", () => {
-      expect(parse(schemas.update, { set: { data: "test" } })).toEqual({
-        set: { data: "test" },
-      });
+      const result = parse(schemas.update, { set: { data: "test" } });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ set: { data: "test" } });
     });
   });
 
@@ -288,7 +341,9 @@ describe("Nullable JSON Field", () => {
     });
 
     test("runtime: equals null passes through", () => {
-      expect(parse(schemas.filter, { equals: null })).toEqual({ equals: null });
+      const result = parse(schemas.filter, { equals: null });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ equals: null });
     });
   });
 });
@@ -318,17 +373,24 @@ describe("Custom Schema JSON Field", () => {
     });
 
     test("runtime: parses valid user", () => {
-      expect(parse(schemas.base, validUser)).toEqual(validUser);
+      const result = parse(schemas.base, validUser);
+
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual(validUser);
     });
 
     test("runtime: rejects invalid user (missing field)", () => {
-      expect(() => parse(schemas.base, { name: "Bob" })).toThrow();
+      const result = parse(schemas.base, { name: "Bob" });
+      expect(result.issues).toBeDefined();
     });
 
     test("runtime: rejects invalid user (wrong type)", () => {
-      expect(() =>
-        parse(schemas.base, { name: "Bob", age: "thirty", tags: [] })
-      ).toThrow();
+      const result = parse(schemas.base, {
+        name: "Bob",
+        age: "thirty",
+        tags: [],
+      });
+      expect(result.issues).toBeDefined();
     });
   });
 
@@ -339,11 +401,14 @@ describe("Custom Schema JSON Field", () => {
     });
 
     test("runtime: accepts valid user", () => {
-      expect(parse(schemas.create, validUser)).toEqual(validUser);
+      const result = parse(schemas.create, validUser);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual(validUser);
     });
 
     test("runtime: rejects undefined (required)", () => {
-      expect(() => parse(schemas.create, undefined)).toThrow();
+      const result = parse(schemas.create, undefined);
+      expect(result.issues).toBeDefined();
     });
   });
 
@@ -354,15 +419,14 @@ describe("Custom Schema JSON Field", () => {
     });
 
     test("runtime: set valid user passes through", () => {
-      expect(parse(schemas.update, { set: validUser })).toEqual({
-        set: validUser,
-      });
+      const result = parse(schemas.update, { set: validUser });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ set: validUser });
     });
 
     test("runtime: validates against custom schema", () => {
-      expect(() =>
-        parse(schemas.update, { set: { name: "Invalid" } })
-      ).toThrow();
+      const result = parse(schemas.update, { set: { name: "Invalid" } });
+      expect(result.issues).toBeDefined();
     });
   });
 
@@ -373,15 +437,15 @@ describe("Custom Schema JSON Field", () => {
     });
 
     test("runtime: equals valid user passes through", () => {
-      expect(parse(schemas.filter, { equals: validUser })).toEqual({
-        equals: validUser,
-      });
+      const result = parse(schemas.filter, { equals: validUser });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ equals: validUser });
     });
 
     test("runtime: JSON filters still work", () => {
-      expect(parse(schemas.filter, { path: ["name"] })).toEqual({
-        path: ["name"],
-      });
+      const result = parse(schemas.filter, { path: ["name"] });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ path: ["name"] });
     });
   });
 });
@@ -416,11 +480,15 @@ describe("Nullable Custom Schema JSON Field", () => {
     });
 
     test("runtime: parses valid config", () => {
-      expect(parse(schemas.base, validConfig)).toEqual(validConfig);
+      const result = parse(schemas.base, validConfig);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual(validConfig);
     });
 
     test("runtime: parses null", () => {
-      expect(parse(schemas.base, null)).toBe(null);
+      const result = parse(schemas.base, null);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(null);
     });
   });
 
@@ -431,7 +499,9 @@ describe("Nullable Custom Schema JSON Field", () => {
     });
 
     test("runtime: undefined defaults to null", () => {
-      expect(parse(schemas.create, undefined)).toBe(null);
+      const result = parse(schemas.create, undefined);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(null);
     });
   });
 });
@@ -454,11 +524,15 @@ describe("Default Value Behavior", () => {
 
     test("runtime: accepts value", () => {
       const customData = { custom: true };
-      expect(parse(schemas.create, customData)).toEqual(customData);
+      const result = parse(schemas.create, customData);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual(customData);
     });
 
     test("runtime: undefined uses default", () => {
-      expect(parse(schemas.create, undefined)).toEqual(defaultData);
+      const result = parse(schemas.create, undefined);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual(defaultData);
     });
   });
 
@@ -473,8 +547,8 @@ describe("Default Value Behavior", () => {
     test("runtime: undefined calls default function", () => {
       const before = callCount;
       const result = parse(schemas.create, undefined);
-      expect(result).toEqual({ callNumber: before + 1 });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ callNumber: before + 1 });
     });
   });
 });
-

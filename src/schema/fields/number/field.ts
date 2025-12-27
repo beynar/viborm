@@ -12,14 +12,14 @@ import {
 } from "../common";
 import type { NativeType } from "../native-types";
 import {
-  getFieldIntSchemas,
-  getFieldFloatSchemas,
-  getFieldDecimalSchemas,
+  buildIntSchema,
+  buildFloatSchema,
+  buildDecimalSchema,
   intBase,
   floatBase,
   decimalBase,
 } from "./schemas";
-import { schemaFromStandardSchema, StandardSchemaToSchema } from "..";
+import v, { BaseIntegerSchema, BaseNumberSchema } from "../../../validation";
 
 // =============================================================================
 // INT FIELD CLASS
@@ -33,17 +33,63 @@ export class IntField<State extends FieldState<"int">> {
   nullable(): IntField<
     UpdateState<
       State,
-      { nullable: true; hasDefault: true; defaultValue: DefaultValue<null> }
+      {
+        nullable: true;
+        hasDefault: true;
+        default: DefaultValue<null>;
+        optional: true;
+        base: BaseIntegerSchema<{
+          nullable: true;
+          array: State["array"];
+        }>;
+      }
     >
   > {
     return new IntField(
-      { ...this.state, nullable: true, hasDefault: true, defaultValue: null },
+      {
+        ...this.state,
+        nullable: true,
+        hasDefault: true,
+        default: null,
+        optional: true,
+        base: v.integer<{
+          nullable: true;
+          array: State["array"];
+        }>({
+          nullable: true,
+          array: this.state.array,
+        }),
+      },
       this._nativeType
     );
   }
 
-  array(): IntField<UpdateState<State, { array: true }>> {
-    return new IntField({ ...this.state, array: true }, this._nativeType);
+  array(): IntField<
+    UpdateState<
+      State,
+      {
+        array: true;
+        base: BaseIntegerSchema<{
+          nullable: State["nullable"];
+          array: true;
+        }>;
+      }
+    >
+  > {
+    return new IntField(
+      {
+        ...this.state,
+        array: true,
+        base: v.integer<{
+          nullable: State["nullable"];
+          array: true;
+        }>({
+          nullable: this.state.nullable,
+          array: true,
+        }),
+      },
+      this._nativeType
+    );
   }
 
   id(): IntField<UpdateState<State, { isId: true; isUnique: true }>> {
@@ -59,12 +105,15 @@ export class IntField<State extends FieldState<"int">> {
 
   default<V extends DefaultValueInput<State>>(
     value: V
-  ): IntField<UpdateState<State, { hasDefault: true; defaultValue: V }>> {
+  ): IntField<
+    UpdateState<State, { hasDefault: true; default: V; optional: true }>
+  > {
     return new IntField(
       {
         ...this.state,
         hasDefault: true,
-        defaultValue: value,
+        default: value,
+        optional: true,
       },
       this._nativeType
     );
@@ -73,13 +122,31 @@ export class IntField<State extends FieldState<"int">> {
   schema<S extends StandardSchemaOf<number>>(
     schema: S
   ): IntField<
-    UpdateState<State, { schema: S; base: StandardSchemaToSchema<S> }>
+    UpdateState<
+      State,
+      {
+        schema: S;
+        base: BaseIntegerSchema<{
+          nullable: State["nullable"];
+          array: State["array"];
+          schema: S;
+        }>;
+      }
+    >
   > {
     return new IntField(
       {
         ...this.state,
         schema: schema,
-        base: schemaFromStandardSchema(this.state.base, schema),
+        base: v.integer<{
+          nullable: State["nullable"];
+          array: State["array"];
+          schema: S;
+        }>({
+          nullable: this.state.nullable,
+          array: this.state.array,
+          schema: schema,
+        }),
       },
       this._nativeType
     );
@@ -98,7 +165,8 @@ export class IntField<State extends FieldState<"int">> {
       {
         hasDefault: true;
         autoGenerate: "increment";
-        defaultValue: DefaultValue<number>;
+        default: DefaultValue<number>;
+        optional: true;
       }
     >
   > {
@@ -107,16 +175,19 @@ export class IntField<State extends FieldState<"int">> {
         ...this.state,
         hasDefault: true,
         autoGenerate: "increment",
-        defaultValue: 0, // Placeholder, actual value set by DB
+        default: 0, // Placeholder, actual value set by DB
+        optional: true,
       },
       this._nativeType
     );
   }
 
+  #cached_schemas: ReturnType<typeof buildIntSchema<State>> | undefined;
+
   get ["~"]() {
     return {
       state: this.state,
-      schemas: getFieldIntSchemas<State>(this.state),
+      schemas: (this.#cached_schemas ??= buildIntSchema(this.state)),
       nativeType: this._nativeType,
       names: this._names,
     };
@@ -135,17 +206,63 @@ export class FloatField<State extends FieldState<"float">> {
   nullable(): FloatField<
     UpdateState<
       State,
-      { nullable: true; hasDefault: true; defaultValue: DefaultValue<null> }
+      {
+        nullable: true;
+        hasDefault: true;
+        default: DefaultValue<null>;
+        optional: true;
+        base: BaseNumberSchema<{
+          nullable: true;
+          array: State["array"];
+        }>;
+      }
     >
   > {
     return new FloatField(
-      { ...this.state, nullable: true, hasDefault: true, defaultValue: null },
+      {
+        ...this.state,
+        nullable: true,
+        hasDefault: true,
+        default: null,
+        optional: true,
+        base: v.number<{
+          nullable: true;
+          array: State["array"];
+        }>({
+          nullable: true,
+          array: this.state.array,
+        }),
+      },
       this._nativeType
     );
   }
 
-  array(): FloatField<UpdateState<State, { array: true }>> {
-    return new FloatField({ ...this.state, array: true }, this._nativeType);
+  array(): FloatField<
+    UpdateState<
+      State,
+      {
+        array: true;
+        base: BaseNumberSchema<{
+          nullable: State["nullable"];
+          array: true;
+        }>;
+      }
+    >
+  > {
+    return new FloatField(
+      {
+        ...this.state,
+        array: true,
+        base: v.number<{
+          nullable: State["nullable"];
+          array: true;
+        }>({
+          nullable: this.state.nullable,
+          array: true,
+        }),
+      },
+      this._nativeType
+    );
   }
 
   id(): FloatField<UpdateState<State, { isId: true; isUnique: true }>> {
@@ -161,12 +278,15 @@ export class FloatField<State extends FieldState<"float">> {
 
   default<V extends DefaultValueInput<State>>(
     value: V
-  ): FloatField<UpdateState<State, { hasDefault: true; defaultValue: V }>> {
+  ): FloatField<
+    UpdateState<State, { hasDefault: true; default: V; optional: true }>
+  > {
     return new FloatField(
       {
         ...this.state,
         hasDefault: true,
-        defaultValue: value,
+        default: value,
+        optional: true,
       },
       this._nativeType
     );
@@ -175,13 +295,31 @@ export class FloatField<State extends FieldState<"float">> {
   schema<S extends StandardSchemaOf<number>>(
     schema: S
   ): FloatField<
-    UpdateState<State, { schema: S; base: StandardSchemaToSchema<S> }>
+    UpdateState<
+      State,
+      {
+        schema: S;
+        base: BaseNumberSchema<{
+          nullable: State["nullable"];
+          array: State["array"];
+          schema: S;
+        }>;
+      }
+    >
   > {
     return new FloatField(
       {
         ...this.state,
         schema: schema,
-        base: schemaFromStandardSchema(this.state.base, schema),
+        base: v.number<{
+          nullable: State["nullable"];
+          array: State["array"];
+          schema: S;
+        }>({
+          nullable: this.state.nullable,
+          array: this.state.array,
+          schema: schema,
+        }),
       },
       this._nativeType
     );
@@ -194,10 +332,12 @@ export class FloatField<State extends FieldState<"float">> {
     ) as this;
   }
 
+  #cached_schemas: ReturnType<typeof buildFloatSchema<State>> | undefined;
+
   get ["~"]() {
     return {
       state: this.state,
-      schemas: getFieldFloatSchemas<State>(this.state),
+      schemas: (this.#cached_schemas ??= buildFloatSchema(this.state)),
       nativeType: this._nativeType,
       names: this._names,
     };
@@ -216,17 +356,63 @@ export class DecimalField<State extends FieldState<"decimal">> {
   nullable(): DecimalField<
     UpdateState<
       State,
-      { nullable: true; hasDefault: true; defaultValue: DefaultValue<null> }
+      {
+        nullable: true;
+        hasDefault: true;
+        default: DefaultValue<null>;
+        optional: true;
+        base: BaseNumberSchema<{
+          nullable: true;
+          array: State["array"];
+        }>;
+      }
     >
   > {
     return new DecimalField(
-      { ...this.state, nullable: true, hasDefault: true, defaultValue: null },
+      {
+        ...this.state,
+        nullable: true,
+        hasDefault: true,
+        default: null,
+        optional: true,
+        base: v.number<{
+          nullable: true;
+          array: State["array"];
+        }>({
+          nullable: true,
+          array: this.state.array,
+        }),
+      },
       this._nativeType
     );
   }
 
-  array(): DecimalField<UpdateState<State, { array: true }>> {
-    return new DecimalField({ ...this.state, array: true }, this._nativeType);
+  array(): DecimalField<
+    UpdateState<
+      State,
+      {
+        array: true;
+        base: BaseNumberSchema<{
+          nullable: State["nullable"];
+          array: true;
+        }>;
+      }
+    >
+  > {
+    return new DecimalField(
+      {
+        ...this.state,
+        array: true,
+        base: v.number<{
+          nullable: State["nullable"];
+          array: true;
+        }>({
+          nullable: this.state.nullable,
+          array: true,
+        }),
+      },
+      this._nativeType
+    );
   }
 
   id(): DecimalField<UpdateState<State, { isId: true; isUnique: true }>> {
@@ -245,12 +431,15 @@ export class DecimalField<State extends FieldState<"decimal">> {
 
   default<V extends DefaultValueInput<State>>(
     value: V
-  ): DecimalField<UpdateState<State, { hasDefault: true; defaultValue: V }>> {
+  ): DecimalField<
+    UpdateState<State, { hasDefault: true; default: V; optional: true }>
+  > {
     return new DecimalField(
       {
         ...this.state,
         hasDefault: true,
-        defaultValue: value,
+        default: value,
+        optional: true,
       },
       this._nativeType
     );
@@ -259,13 +448,31 @@ export class DecimalField<State extends FieldState<"decimal">> {
   schema<S extends StandardSchemaOf<number>>(
     schema: S
   ): DecimalField<
-    UpdateState<State, { schema: S; base: StandardSchemaToSchema<S> }>
+    UpdateState<
+      State,
+      {
+        schema: S;
+        base: BaseNumberSchema<{
+          nullable: State["nullable"];
+          array: State["array"];
+          schema: S;
+        }>;
+      }
+    >
   > {
     return new DecimalField(
       {
         ...this.state,
         schema: schema,
-        base: schemaFromStandardSchema(this.state.base, schema),
+        base: v.number<{
+          nullable: State["nullable"];
+          array: State["array"];
+          schema: S;
+        }>({
+          nullable: this.state.nullable,
+          array: this.state.array,
+          schema: schema,
+        }),
       },
       this._nativeType
     );
@@ -278,10 +485,12 @@ export class DecimalField<State extends FieldState<"decimal">> {
     ) as this;
   }
 
+  #cached_schemas: ReturnType<typeof buildDecimalSchema<State>> | undefined;
+
   get ["~"]() {
     return {
       state: this.state,
-      schemas: getFieldDecimalSchemas<State>(this.state),
+      schemas: (this.#cached_schemas ??= buildDecimalSchema(this.state)),
       nativeType: this._nativeType,
       names: this._names,
     };

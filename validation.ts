@@ -1,5 +1,5 @@
 import { StandardSchemaV1 } from "@standard-schema/spec";
-import { v, safeParse, Prettify, object, string } from "./src/validation";
+import { v, Prettify, object, string } from "./src/validation";
 
 const user = v.object(
   {
@@ -66,9 +66,12 @@ if (result.issues) {
   console.log("Success:", result.value);
 }
 
+const reference = () => {
+  return selfReference;
+};
 const selfReference = object(
   {
-    self: () => selfReference,
+    self: () => reference(),
     string: string(),
   },
   {

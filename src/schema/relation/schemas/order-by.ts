@@ -12,6 +12,7 @@ import {
 } from "valibot";
 import type { RelationState } from "../relation";
 import { type InferTargetSchema, getTargetOrderBySchema } from "./helpers";
+import v from "../../../validation";
 
 // =============================================================================
 // ORDER BY SCHEMA TYPES (exported for consumer use)
@@ -34,7 +35,7 @@ export const toOneOrderByFactory = <S extends RelationState>(state: S) => {
  * e.g., orderBy: { posts: { _count: 'desc' } }
  */
 export const toManyOrderByFactory = <S extends RelationState>(_state: S) => {
-  return object({
-    _count: optional(union([literal("asc"), literal("desc")])),
+  return v.object({
+    _count: v.enum(["asc", "desc"]),
   });
 };

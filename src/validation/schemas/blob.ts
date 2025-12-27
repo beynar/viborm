@@ -10,6 +10,13 @@ import { buildSchema, ok } from "../helpers";
 // Blob Schema (Uint8Array / Buffer)
 // =============================================================================
 
+export interface BaseBlobSchema<
+  Opts extends ScalarOptions<Uint8Array, any> | undefined = undefined
+> extends VibSchema<
+    ComputeInput<Uint8Array, Opts>,
+    ComputeOutput<Uint8Array, Opts>
+  > {}
+
 export interface BlobSchema<TInput = Uint8Array, TOutput = Uint8Array>
   extends VibSchema<TInput, TOutput> {
   readonly type: "blob";

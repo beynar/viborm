@@ -18,6 +18,10 @@ export interface Point {
   y: number;
 }
 
+export interface BasePointSchema<
+  Opts extends ScalarOptions<Point, any> | undefined = undefined
+> extends VibSchema<ComputeInput<Point, Opts>, ComputeOutput<Point, Opts>> {}
+
 export interface PointSchema<TInput = Point, TOutput = Point>
   extends VibSchema<TInput, TOutput> {
   readonly type: "point";

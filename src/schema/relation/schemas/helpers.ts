@@ -21,6 +21,7 @@ import {
 } from "valibot";
 import type { RelationState } from "../relation";
 import { AnyModel } from "@schema/model";
+import v, { VibSchema } from "../../../validation";
 
 // =============================================================================
 // BASE TYPE HELPERS
@@ -94,10 +95,10 @@ const getTargetSchemas = <
   state: S,
   key: K
 ) => {
-  return lazy(() => {
+  return () => {
     const targetModel = state.getter() as AnyModel;
     return targetModel["~"].schemas[key] as InferTargetSchema<S, K>;
-  });
+  };
 };
 
 // =============================================================================
@@ -168,14 +169,11 @@ export type SingleOrArraySchema<S extends AnyRelationSchema> = SchemaWithPipe<
   readonly [UnionSchema<[S, ArraySchema<S, undefined>], undefined>, ...any[]]
 >;
 
-/**
- * Schema that accepts single or array, normalizes to array
- */
-export const singleOrArray = <S extends AnyRelationSchema>(
-  schema: S
-): SingleOrArraySchema<S> => {
-  return pipe(
-    union([schema, array(schema)]),
-    transform(ensureArray)
-  ) as unknown as SingleOrArraySchema<S>;
+export const singleOrArray = <S extends VibSchema>(schema: S) => {
+  return v.pipe(
+    v.union([
+      v.coerce(schema, (v: S[" vibInferred"]["0"]) => [v]),
+      v.array(schema),
+    ])
+  );
 };

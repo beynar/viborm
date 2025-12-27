@@ -11,8 +11,8 @@ import {
   DefaultValueInput,
 } from "../common";
 import type { NativeType } from "../native-types";
-import { schemaFromStandardSchema, StandardSchemaToSchema } from "..";
-import { getFieldDateTimeSchemas, datetimeBase } from "./schemas";
+import { buildDateTimeSchema, datetimeBase } from "./schemas";
+import v, { BaseIsoTimestampSchema } from "../../../validation";
 
 // =============================================================================
 // AUTO-GENERATION DEFAULT VALUE FACTORIES
@@ -34,17 +34,63 @@ export class DateTimeField<State extends FieldState<"datetime">> {
   nullable(): DateTimeField<
     UpdateState<
       State,
-      { nullable: true; hasDefault: true; defaultValue: DefaultValue<null> }
+      {
+        nullable: true;
+        hasDefault: true;
+        default: DefaultValue<null>;
+        optional: true;
+        base: BaseIsoTimestampSchema<{
+          nullable: true;
+          array: State["array"];
+        }>;
+      }
     >
   > {
     return new DateTimeField(
-      { ...this.state, nullable: true, hasDefault: true, defaultValue: null },
+      {
+        ...this.state,
+        nullable: true,
+        hasDefault: true,
+        default: null,
+        optional: true,
+        base: v.isoTimestamp<{
+          nullable: true;
+          array: State["array"];
+        }>({
+          nullable: true,
+          array: this.state.array,
+        }),
+      },
       this._nativeType
     );
   }
 
-  array(): DateTimeField<UpdateState<State, { array: true }>> {
-    return new DateTimeField({ ...this.state, array: true }, this._nativeType);
+  array(): DateTimeField<
+    UpdateState<
+      State,
+      {
+        array: true;
+        base: BaseIsoTimestampSchema<{
+          nullable: State["nullable"];
+          array: true;
+        }>;
+      }
+    >
+  > {
+    return new DateTimeField(
+      {
+        ...this.state,
+        array: true,
+        base: v.isoTimestamp<{
+          nullable: State["nullable"];
+          array: true;
+        }>({
+          nullable: this.state.nullable,
+          array: true,
+        }),
+      },
+      this._nativeType
+    );
   }
 
   id(): DateTimeField<UpdateState<State, { isId: true; isUnique: true }>> {
@@ -61,16 +107,34 @@ export class DateTimeField<State extends FieldState<"datetime">> {
     );
   }
 
-  schema<S extends StandardSchemaOf<string | Date>>(
+  schema<S extends StandardSchemaOf<string>>(
     schema: S
   ): DateTimeField<
-    UpdateState<State, { schema: S; base: StandardSchemaToSchema<S> }>
+    UpdateState<
+      State,
+      {
+        schema: S;
+        base: BaseIsoTimestampSchema<{
+          nullable: State["nullable"];
+          array: State["array"];
+          schema: S;
+        }>;
+      }
+    >
   > {
     return new DateTimeField(
       {
         ...this.state,
         schema: schema,
-        base: schemaFromStandardSchema(this.state.base, schema),
+        base: v.isoTimestamp<{
+          nullable: State["nullable"];
+          array: State["array"];
+          schema: S;
+        }>({
+          nullable: this.state.nullable,
+          array: this.state.array,
+          schema: schema,
+        }),
       },
       this._nativeType
     );
@@ -78,12 +142,15 @@ export class DateTimeField<State extends FieldState<"datetime">> {
 
   default<V extends DefaultValueInput<State>>(
     value: V
-  ): DateTimeField<UpdateState<State, { hasDefault: true; defaultValue: V }>> {
+  ): DateTimeField<
+    UpdateState<State, { hasDefault: true; default: V; optional: true }>
+  > {
     return new DateTimeField(
       {
         ...this.state,
         hasDefault: true,
-        defaultValue: value,
+        default: value,
+        optional: true,
       },
       this._nativeType
     );
@@ -109,7 +176,8 @@ export class DateTimeField<State extends FieldState<"datetime">> {
       {
         hasDefault: true;
         autoGenerate: "now";
-        defaultValue: DefaultValue<string>;
+        default: DefaultValue<string>;
+        optional: true;
       }
     >
   > {
@@ -118,7 +186,8 @@ export class DateTimeField<State extends FieldState<"datetime">> {
         ...this.state,
         hasDefault: true,
         autoGenerate: "now",
-        defaultValue: defaultNow,
+        default: defaultNow,
+        optional: true,
       },
       this._nativeType
     );
@@ -130,7 +199,8 @@ export class DateTimeField<State extends FieldState<"datetime">> {
       {
         hasDefault: true;
         autoGenerate: "updatedAt";
-        defaultValue: DefaultValue<string>;
+        default: DefaultValue<string>;
+        optional: true;
       }
     >
   > {
@@ -139,16 +209,23 @@ export class DateTimeField<State extends FieldState<"datetime">> {
         ...this.state,
         hasDefault: true,
         autoGenerate: "updatedAt",
-        defaultValue: defaultUpdatedAt,
+        default: defaultUpdatedAt,
+        optional: true,
       },
       this._nativeType
     );
   }
 
+  // ===========================================================================
+  // ACCESSORS
+  // ===========================================================================
+
+  #cached_schemas: ReturnType<typeof buildDateTimeSchema<State>> | undefined;
+
   get ["~"]() {
     return {
       state: this.state,
-      schemas: getFieldDateTimeSchemas<State>(this.state),
+      schemas: (this.#cached_schemas ??= buildDateTimeSchema(this.state)),
       nativeType: this._nativeType,
       names: this._names,
     };

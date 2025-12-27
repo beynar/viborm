@@ -1,131 +1,67 @@
-// Vector Field Schemas
-// Factory pattern for vector field variants (no array support, like blob)
-
-import {
-  array,
-  nullable,
-  number,
-  object,
-  optional,
-  partial,
-  union,
+import { FieldState, shorthandFilter, shorthandUpdate } from "../common";
+import v, {
+  BaseVectorSchema,
   InferInput,
-  NullableSchema,
-} from "valibot";
-import {
-  AnySchema,
-  extend,
-  FieldState,
-  SchemaWithDefault,
-  shorthandFilter,
-  shorthandUpdate,
-  createWithDefault,
-} from "../common";
+  InferOutput,
+  VibSchema,
+} from "../../../validation";
 
 // =============================================================================
 // BASE TYPES
 // =============================================================================
 
-export const vectorBase = array(number());
-export const vectorNullable = nullable(vectorBase);
+export const vectorBase = v.vector();
+export const vectorNullable = v.vector(undefined, { nullable: true });
 
 // =============================================================================
 // FILTER SCHEMAS
 // =============================================================================
 
-const vectorFilterBase = partial(
-  object({
-    equals: vectorBase,
-  })
-);
-
-const vectorNullableFilterBase = partial(
-  object({
-    equals: vectorNullable,
-  })
-);
-
-const vectorFilter = union([
-  shorthandFilter(vectorBase),
-  extend(vectorFilterBase, {
-    not: optional(union([shorthandFilter(vectorBase), vectorFilterBase])),
-  }),
-]);
-
-const vectorNullableFilter = union([
-  shorthandFilter(vectorNullable),
-  extend(vectorNullableFilterBase, {
-    not: optional(
-      union([shorthandFilter(vectorNullable), vectorNullableFilterBase])
-    ),
-  }),
-]);
-
-// =============================================================================
-// UPDATE FACTORIES
-// =============================================================================
-
-const vectorUpdateFactory = <S extends AnySchema>(base: S) => {
-  return union([shorthandUpdate(base), object({ set: base })]);
-};
-
-const vectorNullableUpdateFactory = <S extends AnySchema>(base: S) => {
-  return union([
-    shorthandUpdate(nullable(base)),
-    object({ set: nullable(base) }),
+const buildVectorFilterSchema = <S extends VibSchema>(schema: S) => {
+  const filter = v.object({
+    equals: schema,
+  });
+  return v.union([
+    shorthandFilter(schema),
+    filter.extend({
+      not: v.union([shorthandFilter(schema), filter]),
+    }),
   ]);
 };
 
-// =============================================================================
-// SCHEMA BUILDERS (single FieldState generic)
-// =============================================================================
+const buildVectorUpdateSchema = <S extends VibSchema>(schema: S) =>
+  v.union([
+    shorthandUpdate(schema),
+    v.object(
+      {
+        set: schema,
+      },
+      { partial: false }
+    ),
+  ]);
 
-export const vectorSchemas = <const F extends FieldState<"vector">>(f: F) => {
+export const buildVectorSchema = <F extends FieldState<"vector">>(state: F) => {
   return {
-    base: f.base,
-    filter: vectorFilter,
-    create: createWithDefault(f, f.base),
-    update: vectorUpdateFactory(f.base),
-  } as unknown as VectorSchemas<F>;
+    base: state.base,
+    create: v.vector(undefined, state),
+    update: buildVectorUpdateSchema(state.base),
+    filter: buildVectorFilterSchema(state.base),
+  } as VectorSchemas<F>;
 };
 
 type VectorSchemas<F extends FieldState<"vector">> = {
   base: F["base"];
-  filter: typeof vectorFilter;
-  create: SchemaWithDefault<F>;
-  update: ReturnType<typeof vectorUpdateFactory<F["base"]>>;
-};
-
-export const vectorNullableSchemas = <F extends FieldState<"vector">>(f: F) => {
-  return {
-    base: nullable(f.base),
-    filter: vectorNullableFilter,
-    create: createWithDefault(f, nullable(f.base)),
-    update: vectorNullableUpdateFactory(f.base),
-  } as unknown as VectorNullableSchemas<F>;
-};
-
-type VectorNullableSchemas<F extends FieldState<"vector">> = {
-  base: NullableSchema<F["base"], undefined>;
-  filter: typeof vectorNullableFilter;
-  create: SchemaWithDefault<F>;
-  update: ReturnType<typeof vectorNullableUpdateFactory<F["base"]>>;
-};
-
-// =============================================================================
-// TYPE INFERENCE
-// =============================================================================
-
-export type InferVectorSchemas<F extends FieldState<"vector">> =
-  F["nullable"] extends true ? VectorNullableSchemas<F> : VectorSchemas<F>;
-
-export const getFieldVectorSchemas = <F extends FieldState<"vector">>(f: F) => {
-  return (
-    f.nullable ? vectorNullableSchemas(f) : vectorSchemas(f)
-  ) as InferVectorSchemas<F>;
+  create: BaseVectorSchema<F>;
+  update: ReturnType<typeof buildVectorUpdateSchema<F["base"]>>;
+  filter: ReturnType<typeof buildVectorFilterSchema<F["base"]>>;
 };
 
 export type InferVectorInput<
   F extends FieldState<"vector">,
   Type extends "create" | "update" | "filter" | "base"
-> = InferInput<InferVectorSchemas<F>[Type]>;
+> = InferInput<VectorSchemas<F>[Type]>;
+
+export type InferVectorOutput<
+  F extends FieldState<"vector">,
+  Type extends "create" | "update" | "filter" | "base"
+> = InferOutput<VectorSchemas<F>[Type]>;

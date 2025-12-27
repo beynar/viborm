@@ -11,8 +11,8 @@ import {
   DefaultValueInput,
 } from "../common";
 import type { NativeType } from "../native-types";
-import { schemaFromStandardSchema, StandardSchemaToSchema } from "..";
-import { getFieldTimeSchemas, timeBase } from "./schemas";
+import { buildTimeSchema, timeBase } from "./schemas";
+import v, { BaseIsoTimeSchema } from "../../../validation";
 
 // =============================================================================
 // AUTO-GENERATION DEFAULT VALUE FACTORIES
@@ -40,17 +40,63 @@ export class TimeField<State extends FieldState<"time">> {
   nullable(): TimeField<
     UpdateState<
       State,
-      { nullable: true; hasDefault: true; defaultValue: DefaultValue<null> }
+      {
+        nullable: true;
+        hasDefault: true;
+        default: DefaultValue<null>;
+        optional: true;
+        base: BaseIsoTimeSchema<{
+          nullable: true;
+          array: State["array"];
+        }>;
+      }
     >
   > {
     return new TimeField(
-      { ...this.state, nullable: true, hasDefault: true, defaultValue: null },
+      {
+        ...this.state,
+        nullable: true,
+        hasDefault: true,
+        default: null,
+        optional: true,
+        base: v.isoTime<{
+          nullable: true;
+          array: State["array"];
+        }>({
+          nullable: true,
+          array: this.state.array,
+        }),
+      },
       this._nativeType
     );
   }
 
-  array(): TimeField<UpdateState<State, { array: true }>> {
-    return new TimeField({ ...this.state, array: true }, this._nativeType);
+  array(): TimeField<
+    UpdateState<
+      State,
+      {
+        array: true;
+        base: BaseIsoTimeSchema<{
+          nullable: State["nullable"];
+          array: true;
+        }>;
+      }
+    >
+  > {
+    return new TimeField(
+      {
+        ...this.state,
+        array: true,
+        base: v.isoTime<{
+          nullable: State["nullable"];
+          array: true;
+        }>({
+          nullable: this.state.nullable,
+          array: true,
+        }),
+      },
+      this._nativeType
+    );
   }
 
   id(): TimeField<UpdateState<State, { isId: true; isUnique: true }>> {
@@ -67,13 +113,31 @@ export class TimeField<State extends FieldState<"time">> {
   schema<S extends StandardSchemaOf<string>>(
     schema: S
   ): TimeField<
-    UpdateState<State, { schema: S; base: StandardSchemaToSchema<S> }>
+    UpdateState<
+      State,
+      {
+        schema: S;
+        base: BaseIsoTimeSchema<{
+          nullable: State["nullable"];
+          array: State["array"];
+          schema: S;
+        }>;
+      }
+    >
   > {
     return new TimeField(
       {
         ...this.state,
         schema: schema,
-        base: schemaFromStandardSchema(this.state.base, schema),
+        base: v.isoTime<{
+          nullable: State["nullable"];
+          array: State["array"];
+          schema: S;
+        }>({
+          nullable: this.state.nullable,
+          array: this.state.array,
+          schema: schema,
+        }),
       },
       this._nativeType
     );
@@ -81,12 +145,15 @@ export class TimeField<State extends FieldState<"time">> {
 
   default<V extends DefaultValueInput<State>>(
     value: V
-  ): TimeField<UpdateState<State, { hasDefault: true; defaultValue: V }>> {
+  ): TimeField<
+    UpdateState<State, { hasDefault: true; default: V; optional: true }>
+  > {
     return new TimeField(
       {
         ...this.state,
         hasDefault: true,
-        defaultValue: value,
+        default: value,
+        optional: true,
       },
       this._nativeType
     );
@@ -112,7 +179,8 @@ export class TimeField<State extends FieldState<"time">> {
       {
         hasDefault: true;
         autoGenerate: "now";
-        defaultValue: DefaultValue<string>;
+        default: DefaultValue<string>;
+        optional: true;
       }
     >
   > {
@@ -121,7 +189,8 @@ export class TimeField<State extends FieldState<"time">> {
         ...this.state,
         hasDefault: true,
         autoGenerate: "now",
-        defaultValue: defaultNow,
+        default: defaultNow,
+        optional: true,
       },
       this._nativeType
     );
@@ -133,7 +202,8 @@ export class TimeField<State extends FieldState<"time">> {
       {
         hasDefault: true;
         autoGenerate: "updatedAt";
-        defaultValue: DefaultValue<string>;
+        default: DefaultValue<string>;
+        optional: true;
       }
     >
   > {
@@ -142,16 +212,23 @@ export class TimeField<State extends FieldState<"time">> {
         ...this.state,
         hasDefault: true,
         autoGenerate: "updatedAt",
-        defaultValue: defaultUpdatedAt,
+        default: defaultUpdatedAt,
+        optional: true,
       },
       this._nativeType
     );
   }
 
+  // ===========================================================================
+  // ACCESSORS
+  // ===========================================================================
+
+  #cached_schemas: ReturnType<typeof buildTimeSchema<State>> | undefined;
+
   get ["~"]() {
     return {
       state: this.state,
-      schemas: getFieldTimeSchemas<State>(this.state),
+      schemas: (this.#cached_schemas ??= buildTimeSchema(this.state)),
       nativeType: this._nativeType,
       names: this._names,
     };

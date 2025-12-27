@@ -12,6 +12,7 @@ import {
 import type { RelationState } from "../relation";
 import { type InferTargetSchema, getTargetWhereSchema } from "./helpers";
 import { AnySchema } from "@schema/fields/common";
+import { v } from "../../../validation";
 
 // =============================================================================
 // FILTER SCHEMA TYPES (exported for consumer use)
@@ -44,14 +45,10 @@ export type ToOneFilterSchema<S extends RelationState> = ObjectSchema<
 export const toOneFilterFactory = <S extends RelationState>(state: S) => {
   const whereSchema = getTargetWhereSchema(state);
 
-  const schema = partial(
-    object({
-      is: state.optional
-        ? optional(nullable(whereSchema))
-        : optional(whereSchema),
-      isNot: optional(whereSchema),
-    })
-  );
+  const schema = v.object({
+    is: () => (state.optional ? nullable(whereSchema) : whereSchema),
+    isNot: () => optional(whereSchema),
+  });
 
   return schema as ToOneFilterSchema<S>;
 };
@@ -63,11 +60,9 @@ export const toManyFilterFactory = <S extends RelationState>(state: S) => {
   const whereSchema = getTargetWhereSchema(state);
 
   // Type flows through from getTargetWhereSchema
-  return partial(
-    object({
-      some: optional(whereSchema),
-      every: optional(whereSchema),
-      none: optional(whereSchema),
-    })
-  );
+  return v.object({
+    some: () => whereSchema,
+    every: () => whereSchema,
+    none: () => whereSchema,
+  });
 };

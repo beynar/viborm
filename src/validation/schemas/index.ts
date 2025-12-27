@@ -7,26 +7,31 @@ export { string, validateString } from "./string";
 export type { StringSchema, BaseStringSchema } from "./string";
 
 export { number, integer, validateNumber, validateInteger } from "./number";
-export type { NumberSchema, IntegerSchema } from "./number";
+export type {
+  NumberSchema,
+  BaseNumberSchema,
+  IntegerSchema,
+  BaseIntegerSchema,
+} from "./number";
 
 export { boolean, validateBoolean } from "./boolean";
-export type { BooleanSchema } from "./boolean";
+export type { BooleanSchema, BaseBooleanSchema } from "./boolean";
 
 export { bigint, validateBigInt } from "./bigint";
-export type { BigIntSchema } from "./bigint";
+export type { BigIntSchema, BaseBigIntSchema } from "./bigint";
 
 export { literal } from "./literal";
 export type { LiteralSchema, LiteralValue } from "./literal";
 
 export { enum_ } from "./enum";
-export type { EnumSchema } from "./enum";
+export type { EnumSchema, BaseEnumSchema } from "./enum";
 
 export { json, validateJson, isJsonValue } from "./json";
-export type { JsonSchema, JsonValue } from "./json";
+export type { JsonSchema, BaseJsonSchema, JsonValue } from "./json";
 
 // Date schemas
 export { date, validateDate } from "./date";
-export type { DateSchema } from "./date";
+export type { DateSchema, BaseDateSchema } from "./date";
 
 export {
   isoTimestamp,
@@ -36,7 +41,14 @@ export {
   validateIsoDate,
   validateIsoTime,
 } from "./iso";
-export type { IsoTimestampSchema, IsoDateSchema, IsoTimeSchema } from "./iso";
+export type {
+  IsoTimestampSchema,
+  BaseIsoTimestampSchema,
+  IsoDateSchema,
+  BaseIsoDateSchema,
+  IsoTimeSchema,
+  BaseIsoTimeSchema,
+} from "./iso";
 
 // Instance schema (for Uint8Array, Buffer, etc.)
 export { instance } from "./instance";
@@ -44,15 +56,15 @@ export type { InstanceSchema } from "./instance";
 
 // Blob schema (Uint8Array/Buffer)
 export { blob, validateBlob } from "./blob";
-export type { BlobSchema } from "./blob";
+export type { BlobSchema, BaseBlobSchema } from "./blob";
 
 // Vector schema (array of numbers for embeddings)
 export { vector, validateVector } from "./vector";
-export type { VectorSchema } from "./vector";
+export type { VectorSchema, BaseVectorSchema } from "./vector";
 
 // Point schema ({ x, y } coordinates)
 export { point, validatePoint } from "./point";
-export type { PointSchema, Point } from "./point";
+export type { PointSchema, BasePointSchema, Point } from "./point";
 
 // Wrapper schemas
 export { array } from "./array";

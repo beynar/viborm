@@ -3,15 +3,32 @@ import type {
   ScalarOptions,
   ComputeInput,
   ComputeOutput,
+  InferInput,
 } from "../types";
 import { buildSchema, ok, fail } from "../helpers";
 
 // =============================================================================
 // Enum Schema
 // =============================================================================
+export type EnumValues<S extends VibSchema> = S extends EnumSchema<
+  infer TValues,
+  any,
+  any
+>
+  ? TValues
+  : never;
+export type AnyEnumSchema = EnumSchema<string[], any, any>;
+export type BaseEnumSchema<
+  TValues extends string[],
+  Opts extends ScalarOptions<TValues[number], any> | undefined = undefined
+> = EnumSchema<
+  TValues,
+  ComputeInput<TValues[number], Opts>,
+  ComputeOutput<TValues[number], Opts>
+>;
 
 export interface EnumSchema<
-  TValues extends readonly (string | number)[],
+  TValues extends string[],
   TInput = TValues[number],
   TOutput = TValues[number]
 > extends VibSchema<TInput, TOutput> {
@@ -32,7 +49,7 @@ export interface EnumSchema<
  */
 // @__NO_SIDE_EFFECTS__
 export function enum_<
-  const TValues extends readonly (string | number)[],
+  const TValues extends string[],
   const Opts extends ScalarOptions<TValues[number], any> | undefined = undefined
 >(
   values: TValues,
@@ -43,27 +60,20 @@ export function enum_<
   ComputeOutput<TValues[number], Opts>
 > {
   // Create a Set for O(1) lookup
-  const valueSet = new Set<string | number>(values);
-
-  // Pre-compute error message
-  const expectedStr = values.map((v) => JSON.stringify(v)).join(" | ");
-  const errorResult = Object.freeze({
-    issues: Object.freeze([
-      Object.freeze({
-        message: `Expected one of: ${expectedStr}`,
-      }),
-    ]),
-  });
+  const valueSet = new Set<TValues[number]>(values);
 
   // Create base validator
   const baseValidate = (value: unknown) => {
-    if (
-      (typeof value === "string" || typeof value === "number") &&
-      valueSet.has(value)
-    ) {
+    if (typeof value === "string" && valueSet.has(value)) {
       return ok(value as TValues[number]);
     }
-    return errorResult;
+    return {
+      issues: [
+        {
+          message: `Expected one of: ${values.join(" | ")}`,
+        },
+      ],
+    };
   };
 
   const schema = buildSchema("enum", baseValidate, options, {
@@ -76,3 +86,6 @@ export function enum_<
 
   return schema;
 }
+
+const test = enum_(["a", "b", "c"]);
+type In = InferInput<typeof test>;

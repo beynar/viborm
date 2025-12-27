@@ -10,6 +10,13 @@ import { buildSchema, fail, ok } from "../helpers";
 // Vector Schema (array of numbers for embeddings/ML)
 // =============================================================================
 
+export interface BaseVectorSchema<
+  Opts extends ScalarOptions<number[], any> | undefined = undefined
+> extends VibSchema<
+    ComputeInput<number[], Opts>,
+    ComputeOutput<number[], Opts>
+  > {}
+
 export interface VectorSchema<TInput = number[], TOutput = number[]>
   extends VibSchema<TInput, TOutput> {
   readonly type: "vector";

@@ -11,8 +11,8 @@ import {
   DefaultValueInput,
 } from "../common";
 import type { NativeType } from "../native-types";
-import { getFieldBigIntSchemas, bigIntBase } from "./schemas";
-import { schemaFromStandardSchema, StandardSchemaToSchema } from "..";
+import { buildBigIntSchema, bigIntBase } from "./schemas";
+import v, { BaseBigIntSchema } from "../../../validation";
 
 // =============================================================================
 // BIGINT FIELD CLASS
@@ -26,17 +26,63 @@ export class BigIntField<State extends FieldState<"bigint">> {
   nullable(): BigIntField<
     UpdateState<
       State,
-      { nullable: true; hasDefault: true; defaultValue: DefaultValue<null> }
+      {
+        nullable: true;
+        hasDefault: true;
+        default: DefaultValue<null>;
+        optional: true;
+        base: BaseBigIntSchema<{
+          nullable: true;
+          array: State["array"];
+        }>;
+      }
     >
   > {
     return new BigIntField(
-      { ...this.state, nullable: true, hasDefault: true, defaultValue: null },
+      {
+        ...this.state,
+        nullable: true,
+        hasDefault: true,
+        default: null,
+        optional: true,
+        base: v.bigint<{
+          nullable: true;
+          array: State["array"];
+        }>({
+          nullable: true,
+          array: this.state.array,
+        }),
+      },
       this._nativeType
     );
   }
 
-  array(): BigIntField<UpdateState<State, { array: true }>> {
-    return new BigIntField({ ...this.state, array: true }, this._nativeType);
+  array(): BigIntField<
+    UpdateState<
+      State,
+      {
+        array: true;
+        base: BaseBigIntSchema<{
+          nullable: State["nullable"];
+          array: true;
+        }>;
+      }
+    >
+  > {
+    return new BigIntField(
+      {
+        ...this.state,
+        array: true,
+        base: v.bigint<{
+          nullable: State["nullable"];
+          array: true;
+        }>({
+          nullable: this.state.nullable,
+          array: true,
+        }),
+      },
+      this._nativeType
+    );
   }
 
   id(): BigIntField<UpdateState<State, { isId: true; isUnique: true }>> {
@@ -52,12 +98,15 @@ export class BigIntField<State extends FieldState<"bigint">> {
 
   default<V extends DefaultValueInput<State>>(
     value: V
-  ): BigIntField<UpdateState<State, { hasDefault: true; defaultValue: V }>> {
+  ): BigIntField<
+    UpdateState<State, { hasDefault: true; default: V; optional: true }>
+  > {
     return new BigIntField(
       {
         ...this.state,
         hasDefault: true,
-        defaultValue: value,
+        default: value,
+        optional: true,
       },
       this._nativeType
     );
@@ -66,13 +115,31 @@ export class BigIntField<State extends FieldState<"bigint">> {
   schema<S extends StandardSchemaOf<bigint>>(
     schema: S
   ): BigIntField<
-    UpdateState<State, { schema: S; base: StandardSchemaToSchema<S> }>
+    UpdateState<
+      State,
+      {
+        schema: S;
+        base: BaseBigIntSchema<{
+          nullable: State["nullable"];
+          array: State["array"];
+          schema: S;
+        }>;
+      }
+    >
   > {
     return new BigIntField(
       {
         ...this.state,
         schema: schema,
-        base: schemaFromStandardSchema(this.state.base, schema),
+        base: v.bigint<{
+          nullable: State["nullable"];
+          array: State["array"];
+          schema: S;
+        }>({
+          nullable: this.state.nullable,
+          array: this.state.array,
+          schema: schema,
+        }),
       },
       this._nativeType
     );
@@ -91,7 +158,8 @@ export class BigIntField<State extends FieldState<"bigint">> {
       {
         hasDefault: true;
         autoGenerate: "increment";
-        defaultValue: DefaultValue<bigint>;
+        default: DefaultValue<bigint>;
+        optional: true;
       }
     >
   > {
@@ -100,16 +168,23 @@ export class BigIntField<State extends FieldState<"bigint">> {
         ...this.state,
         hasDefault: true,
         autoGenerate: "increment",
-        defaultValue: 0n, // Placeholder, actual value set by DB
+        default: 0n, // Placeholder, actual value set by DB
+        optional: true,
       },
       this._nativeType
     );
   }
 
+  // ===========================================================================
+  // ACCESSORS
+  // ===========================================================================
+
+  #cached_schemas: ReturnType<typeof buildBigIntSchema<State>> | undefined;
+
   get ["~"]() {
     return {
       state: this.state,
-      schemas: getFieldBigIntSchemas<State>(this.state),
+      schemas: (this.#cached_schemas ??= buildBigIntSchema(this.state)),
       nativeType: this._nativeType,
       names: this._names,
     };

@@ -15,7 +15,7 @@
  */
 
 import { describe, test, expect, expectTypeOf } from "vitest";
-import { parse } from "valibot";
+import { parse } from "../../src/validation";
 import { vector } from "../../src/schema/fields/vector/field";
 import type { InferVectorInput } from "../../src/schema/fields/vector/schemas";
 
@@ -35,27 +35,37 @@ describe("Raw Vector Field", () => {
     });
 
     test("runtime: parses array of numbers", () => {
-      expect(parse(schemas.base, [1, 2, 3])).toEqual([1, 2, 3]);
-      expect(parse(schemas.base, [0.1, 0.2, 0.3])).toEqual([0.1, 0.2, 0.3]);
-      expect(parse(schemas.base, [])).toEqual([]);
+      const result1 = parse(schemas.base, [1, 2, 3]);
+      if (result1.issues) throw new Error("Expected success");
+      expect(result1.value).toEqual([1, 2, 3]);
+
+      const result2 = parse(schemas.base, [0.1, 0.2, 0.3]);
+      if (result2.issues) throw new Error("Expected success");
+      expect(result2.value).toEqual([0.1, 0.2, 0.3]);
+
+      const result3 = parse(schemas.base, []);
+      if (result3.issues) throw new Error("Expected success");
+      expect(result3.value).toEqual([]);
     });
 
     test("runtime: parses large arrays", () => {
       const largeArray = Array.from({ length: 384 }, (_, i) => i);
-      expect(parse(schemas.base, largeArray)).toEqual(largeArray);
+      const result = parse(schemas.base, largeArray);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual(largeArray);
     });
 
     test("runtime: rejects non-array", () => {
-      expect(() => parse(schemas.base, 42)).toThrow();
-      expect(() => parse(schemas.base, "array")).toThrow();
-      expect(() => parse(schemas.base, null)).toThrow();
-      expect(() => parse(schemas.base, true)).toThrow();
+      expect(parse(schemas.base, 42).issues).toBeDefined();
+      expect(parse(schemas.base, "array").issues).toBeDefined();
+      expect(parse(schemas.base, null).issues).toBeDefined();
+      expect(parse(schemas.base, true).issues).toBeDefined();
     });
 
     test("runtime: rejects array with non-numbers", () => {
-      expect(() => parse(schemas.base, [1, "2", 3])).toThrow();
-      expect(() => parse(schemas.base, [1, null, 3])).toThrow();
-      expect(() => parse(schemas.base, [1, undefined, 3])).toThrow();
+      expect(parse(schemas.base, [1, "2", 3]).issues).toBeDefined();
+      expect(parse(schemas.base, [1, null, 3]).issues).toBeDefined();
+      expect(parse(schemas.base, [1, undefined, 3]).issues).toBeDefined();
     });
   });
 
@@ -66,16 +76,23 @@ describe("Raw Vector Field", () => {
     });
 
     test("runtime: accepts number array", () => {
-      expect(parse(schemas.create, [1, 2, 3])).toEqual([1, 2, 3]);
-      expect(parse(schemas.create, [0.5, 1.5, 2.5])).toEqual([0.5, 1.5, 2.5]);
+      const result1 = parse(schemas.create, [1, 2, 3]);
+      if (result1.issues) throw new Error("Expected success");
+      expect(result1.value).toEqual([1, 2, 3]);
+
+      const result2 = parse(schemas.create, [0.5, 1.5, 2.5]);
+      if (result2.issues) throw new Error("Expected success");
+      expect(result2.value).toEqual([0.5, 1.5, 2.5]);
     });
 
     test("runtime: rejects undefined (required)", () => {
-      expect(() => parse(schemas.create, undefined)).toThrow();
+      const result = parse(schemas.create, undefined);
+      expect(result.issues).toBeDefined();
     });
 
     test("runtime: rejects null", () => {
-      expect(() => parse(schemas.create, null)).toThrow();
+      const result = parse(schemas.create, null);
+      expect(result.issues).toBeDefined();
     });
   });
 
@@ -91,20 +108,27 @@ describe("Raw Vector Field", () => {
     });
 
     test("runtime: shorthand transforms to { set: value }", () => {
-      expect(parse(schemas.update, [1, 2, 3])).toEqual({ set: [1, 2, 3] });
-      expect(parse(schemas.update, [0.1, 0.2])).toEqual({
-        set: [0.1, 0.2],
-      });
-      expect(parse(schemas.update, [])).toEqual({ set: [] });
+      const result1 = parse(schemas.update, [1, 2, 3]);
+      if (result1.issues) throw new Error("Expected success");
+      expect(result1.value).toEqual({ set: [1, 2, 3] });
+
+      const result2 = parse(schemas.update, [0.1, 0.2]);
+      if (result2.issues) throw new Error("Expected success");
+      expect(result2.value).toEqual({ set: [0.1, 0.2] });
+
+      const result3 = parse(schemas.update, []);
+      if (result3.issues) throw new Error("Expected success");
+      expect(result3.value).toEqual({ set: [] });
     });
 
     test("runtime: set operation passes through", () => {
-      expect(parse(schemas.update, { set: [4, 5, 6] })).toEqual({
-        set: [4, 5, 6],
-      });
-      expect(parse(schemas.update, { set: [0.9, 0.8, 0.7] })).toEqual({
-        set: [0.9, 0.8, 0.7],
-      });
+      const result1 = parse(schemas.update, { set: [4, 5, 6] });
+      if (result1.issues) throw new Error("Expected success");
+      expect(result1.value).toEqual({ set: [4, 5, 6] });
+
+      const result2 = parse(schemas.update, { set: [0.9, 0.8, 0.7] });
+      if (result2.issues) throw new Error("Expected success");
+      expect(result2.value).toEqual({ set: [0.9, 0.8, 0.7] });
     });
   });
 
@@ -120,33 +144,35 @@ describe("Raw Vector Field", () => {
     });
 
     test("runtime: shorthand transforms to { equals: value }", () => {
-      expect(parse(schemas.filter, [1, 2, 3])).toEqual({
-        equals: [1, 2, 3],
-      });
-      expect(parse(schemas.filter, [0.5, 0.6])).toEqual({
-        equals: [0.5, 0.6],
-      });
+      const result1 = parse(schemas.filter, [1, 2, 3]);
+      if (result1.issues) throw new Error("Expected success");
+      expect(result1.value).toEqual({ equals: [1, 2, 3] });
+
+      const result2 = parse(schemas.filter, [0.5, 0.6]);
+      if (result2.issues) throw new Error("Expected success");
+      expect(result2.value).toEqual({ equals: [0.5, 0.6] });
     });
 
     test("runtime: equals filter passes through", () => {
-      expect(parse(schemas.filter, { equals: [1, 2, 3] })).toEqual({
-        equals: [1, 2, 3],
-      });
-      expect(parse(schemas.filter, { equals: [0.1, 0.2, 0.3] })).toEqual({
-        equals: [0.1, 0.2, 0.3],
-      });
+      const result1 = parse(schemas.filter, { equals: [1, 2, 3] });
+      if (result1.issues) throw new Error("Expected success");
+      expect(result1.value).toEqual({ equals: [1, 2, 3] });
+
+      const result2 = parse(schemas.filter, { equals: [0.1, 0.2, 0.3] });
+      if (result2.issues) throw new Error("Expected success");
+      expect(result2.value).toEqual({ equals: [0.1, 0.2, 0.3] });
     });
 
     test("runtime: not filter with shorthand", () => {
-      expect(parse(schemas.filter, { not: [1, 2, 3] })).toEqual({
-        not: { equals: [1, 2, 3] },
-      });
+      const result = parse(schemas.filter, { not: [1, 2, 3] });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ not: { equals: [1, 2, 3] } });
     });
 
     test("runtime: not filter with object", () => {
-      expect(parse(schemas.filter, { not: { equals: [4, 5, 6] } })).toEqual({
-        not: { equals: [4, 5, 6] },
-      });
+      const result = parse(schemas.filter, { not: { equals: [4, 5, 6] } });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ not: { equals: [4, 5, 6] } });
     });
   });
 });
@@ -167,12 +193,19 @@ describe("Nullable Vector Field", () => {
     });
 
     test("runtime: parses number array", () => {
-      expect(parse(schemas.base, [1, 2, 3])).toEqual([1, 2, 3]);
-      expect(parse(schemas.base, [0.1, 0.2])).toEqual([0.1, 0.2]);
+      const result1 = parse(schemas.base, [1, 2, 3]);
+      if (result1.issues) throw new Error("Expected success");
+      expect(result1.value).toEqual([1, 2, 3]);
+
+      const result2 = parse(schemas.base, [0.1, 0.2]);
+      if (result2.issues) throw new Error("Expected success");
+      expect(result2.value).toEqual([0.1, 0.2]);
     });
 
     test("runtime: parses null", () => {
-      expect(parse(schemas.base, null)).toBe(null);
+      const result = parse(schemas.base, null);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(null);
     });
   });
 
@@ -183,15 +216,21 @@ describe("Nullable Vector Field", () => {
     });
 
     test("runtime: accepts number array", () => {
-      expect(parse(schemas.create, [1, 2, 3])).toEqual([1, 2, 3]);
+      const result = parse(schemas.create, [1, 2, 3]);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual([1, 2, 3]);
     });
 
     test("runtime: accepts null", () => {
-      expect(parse(schemas.create, null)).toBe(null);
+      const result = parse(schemas.create, null);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(null);
     });
 
     test("runtime: undefined defaults to null", () => {
-      expect(parse(schemas.create, undefined)).toBe(null);
+      const result = parse(schemas.create, undefined);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toBe(null);
     });
   });
 
@@ -203,21 +242,27 @@ describe("Nullable Vector Field", () => {
     });
 
     test("runtime: shorthand null transforms to { set: null }", () => {
-      expect(parse(schemas.update, null)).toEqual({ set: null });
+      const result = parse(schemas.update, null);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ set: null });
     });
 
     test("runtime: shorthand array transforms to { set: value }", () => {
-      expect(parse(schemas.update, [1, 2, 3])).toEqual({ set: [1, 2, 3] });
+      const result = parse(schemas.update, [1, 2, 3]);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ set: [1, 2, 3] });
     });
 
     test("runtime: set null passes through", () => {
-      expect(parse(schemas.update, { set: null })).toEqual({ set: null });
+      const result = parse(schemas.update, { set: null });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ set: null });
     });
 
     test("runtime: set array passes through", () => {
-      expect(parse(schemas.update, { set: [4, 5, 6] })).toEqual({
-        set: [4, 5, 6],
-      });
+      const result = parse(schemas.update, { set: [4, 5, 6] });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ set: [4, 5, 6] });
     });
   });
 
@@ -229,13 +274,15 @@ describe("Nullable Vector Field", () => {
     });
 
     test("runtime: shorthand null transforms to { equals: null }", () => {
-      expect(parse(schemas.filter, null)).toEqual({ equals: null });
+      const result = parse(schemas.filter, null);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ equals: null });
     });
 
     test("runtime: equals null passes through", () => {
-      expect(parse(schemas.filter, { equals: null })).toEqual({
-        equals: null,
-      });
+      const result = parse(schemas.filter, { equals: null });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ equals: null });
     });
   });
 });
@@ -292,11 +339,15 @@ describe("Default Value Behavior", () => {
     });
 
     test("runtime: accepts value", () => {
-      expect(parse(schemas.create, [1, 2, 3])).toEqual([1, 2, 3]);
+      const result = parse(schemas.create, [1, 2, 3]);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual([1, 2, 3]);
     });
 
     test("runtime: undefined uses default", () => {
-      expect(parse(schemas.create, undefined)).toEqual([0.1, 0.2, 0.3]);
+      const result = parse(schemas.create, undefined);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual([0.1, 0.2, 0.3]);
     });
   });
 
@@ -311,7 +362,8 @@ describe("Default Value Behavior", () => {
     test("runtime: undefined calls default function", () => {
       const before = callCount;
       const result = parse(schemas.create, undefined);
-      expect(result).toEqual([
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual([
         (before + 1) * 1,
         (before + 1) * 2,
         (before + 1) * 3,
@@ -327,8 +379,9 @@ describe("Default Value Behavior", () => {
 
     test("runtime: default function can use dimension", () => {
       const result = parse(schemas.create, undefined);
-      expect(result).toHaveLength(128);
-      expect(result.every((v) => v === 0)).toBe(true);
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toHaveLength(128);
+      expect(result.value.every((v) => v === 0)).toBe(true);
     });
   });
 });

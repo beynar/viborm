@@ -10,7 +10,8 @@ import {
   DefaultValueInput,
 } from "../common";
 import type { NativeType } from "../native-types";
-import { getFieldPointSchemas, pointBase } from "./schemas";
+import { buildPointSchema, pointBase } from "./schemas";
+import v, { BasePointSchema } from "../../../validation";
 
 // =============================================================================
 // POINT FIELD CLASS
@@ -25,23 +26,45 @@ export class PointField<State extends FieldState<"point">> {
   nullable(): PointField<
     UpdateState<
       State,
-      { nullable: true; hasDefault: true; defaultValue: DefaultValue<null> }
+      {
+        nullable: true;
+        hasDefault: true;
+        default: DefaultValue<null>;
+        optional: true;
+        base: BasePointSchema<{
+          nullable: true;
+        }>;
+      }
     >
   > {
     return new PointField(
-      { ...this.state, nullable: true, hasDefault: true, defaultValue: null },
+      {
+        ...this.state,
+        nullable: true,
+        hasDefault: true,
+        default: null,
+        optional: true,
+        base: v.point<{
+          nullable: true;
+        }>({
+          nullable: true,
+        }),
+      },
       this._nativeType
     );
   }
 
   default<V extends DefaultValueInput<State>>(
     value: V
-  ): PointField<UpdateState<State, { hasDefault: true; defaultValue: V }>> {
+  ): PointField<
+    UpdateState<State, { hasDefault: true; default: V; optional: true }>
+  > {
     return new PointField(
       {
         ...this.state,
         hasDefault: true,
-        defaultValue: value,
+        default: value,
+        optional: true,
       },
       this._nativeType
     );
@@ -54,10 +77,16 @@ export class PointField<State extends FieldState<"point">> {
     ) as this;
   }
 
+  // ===========================================================================
+  // ACCESSORS
+  // ===========================================================================
+
+  #cached_schemas: ReturnType<typeof buildPointSchema<State>> | undefined;
+
   get ["~"]() {
     return {
       state: this.state,
-      schemas: getFieldPointSchemas<State>(this.state),
+      schemas: (this.#cached_schemas ??= buildPointSchema(this.state)),
       nativeType: this._nativeType,
       names: this._names,
     };
