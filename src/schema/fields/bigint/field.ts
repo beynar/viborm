@@ -11,15 +11,12 @@ import {
   DefaultValueInput,
 } from "../common";
 import type { NativeType } from "../native-types";
-import { buildBigIntSchema, bigIntBase } from "./schemas";
+import { buildBigIntSchema, bigIntBase, BigIntSchemas } from "./schemas";
 import v, { BaseBigIntSchema } from "../../../validation";
-
-// =============================================================================
-// BIGINT FIELD CLASS
-// =============================================================================
 
 export class BigIntField<State extends FieldState<"bigint">> {
   private _names: SchemaNames = {};
+  private _schemas: BigIntSchemas<State> | undefined;
 
   constructor(private state: State, private _nativeType?: NativeType) {}
 
@@ -175,25 +172,15 @@ export class BigIntField<State extends FieldState<"bigint">> {
     );
   }
 
-  // ===========================================================================
-  // ACCESSORS
-  // ===========================================================================
-
-  #cached_schemas: ReturnType<typeof buildBigIntSchema<State>> | undefined;
-
   get ["~"]() {
     return {
       state: this.state,
-      schemas: (this.#cached_schemas ??= buildBigIntSchema(this.state)),
+      schemas: (this._schemas ??= buildBigIntSchema(this.state)),
       nativeType: this._nativeType,
       names: this._names,
     };
   }
 }
-
-// =============================================================================
-// FACTORY FUNCTION
-// =============================================================================
 
 export const bigInt = (nativeType?: NativeType) =>
   new BigIntField(createDefaultState("bigint", bigIntBase), nativeType);

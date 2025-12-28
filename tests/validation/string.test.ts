@@ -127,8 +127,12 @@ describe("string schema", () => {
     test("default factory function", () => {
       let counter = 0;
       const schema = string({ default: () => `value-${++counter}` });
-      expect((schema["~standard"].validate(undefined) as { value: string }).value).toBe("value-1");
-      expect((schema["~standard"].validate(undefined) as { value: string }).value).toBe("value-2");
+      expect(
+        (schema["~standard"].validate(undefined) as { value: string }).value
+      ).toBe("value-1");
+      expect(
+        (schema["~standard"].validate(undefined) as { value: string }).value
+      ).toBe("value-2");
     });
 
     test("default not used when value provided", () => {
@@ -253,4 +257,3 @@ describe("string schema", () => {
     });
   });
 });
-

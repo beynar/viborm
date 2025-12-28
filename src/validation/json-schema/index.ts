@@ -19,4 +19,3 @@ export { convertSchema, toJsonSchema } from "./converters";
 
 // Factory
 export { createJsonSchemaConverter } from "./factory";
-

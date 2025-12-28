@@ -134,4 +134,3 @@ export function createContext(target: JsonSchemaTarget): ConversionContext {
     target,
   };
 }
-

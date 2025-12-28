@@ -49,7 +49,7 @@ export const buildVectorSchema = <F extends FieldState<"vector">>(state: F) => {
   } as VectorSchemas<F>;
 };
 
-type VectorSchemas<F extends FieldState<"vector">> = {
+export type VectorSchemas<F extends FieldState<"vector">> = {
   base: F["base"];
   create: BaseVectorSchema<F>;
   update: ReturnType<typeof buildVectorUpdateSchema<F["base"]>>;

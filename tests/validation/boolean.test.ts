@@ -97,7 +97,11 @@ describe("boolean schema", () => {
     test("validates array of booleans", () => {
       const result = schema["~standard"].validate([true, false, true]);
       expect(result.issues).toBeUndefined();
-      expect((result as { value: boolean[] }).value).toEqual([true, false, true]);
+      expect((result as { value: boolean[] }).value).toEqual([
+        true,
+        false,
+        true,
+      ]);
     });
 
     test("validates empty array", () => {
@@ -134,8 +138,12 @@ describe("boolean schema", () => {
     test("default factory function", () => {
       let toggle = false;
       const schema = boolean({ default: () => (toggle = !toggle) });
-      expect((schema["~standard"].validate(undefined) as { value: boolean }).value).toBe(true);
-      expect((schema["~standard"].validate(undefined) as { value: boolean }).value).toBe(false);
+      expect(
+        (schema["~standard"].validate(undefined) as { value: boolean }).value
+      ).toBe(true);
+      expect(
+        (schema["~standard"].validate(undefined) as { value: boolean }).value
+      ).toBe(false);
     });
   });
 
@@ -164,4 +172,3 @@ describe("boolean schema", () => {
     });
   });
 });
-

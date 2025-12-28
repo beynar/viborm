@@ -712,7 +712,9 @@ describe("Default Value Behavior", () => {
       if (result.issues) throw new Error("Expected success");
       expect(typeof result.value).toBe("string");
       // Should be a valid ISO datetime
-      expect(() => new Date(result.value as string).toISOString()).not.toThrow();
+      expect(() =>
+        new Date(result.value as string).toISOString()
+      ).not.toThrow();
     });
 
     test("updatedAt(): type is optional, runtime uses generator", () => {
@@ -727,7 +729,9 @@ describe("Default Value Behavior", () => {
       if (result.issues) throw new Error("Expected success");
       expect(typeof result.value).toBe("string");
       // Should be a valid ISO datetime
-      expect(() => new Date(result.value as string).toISOString()).not.toThrow();
+      expect(() =>
+        new Date(result.value as string).toISOString()
+      ).not.toThrow();
     });
   });
 });

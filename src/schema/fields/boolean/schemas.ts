@@ -93,7 +93,7 @@ export const buildBooleanSchema = <F extends FieldState<"boolean">>(
   } as BooleanSchemas<F>;
 };
 
-type BooleanSchemas<F extends FieldState<"boolean">> = {
+export type BooleanSchemas<F extends FieldState<"boolean">> = {
   base: F["base"];
   create: BaseBooleanSchema<F>;
   update: F["array"] extends true

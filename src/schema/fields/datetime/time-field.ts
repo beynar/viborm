@@ -11,12 +11,8 @@ import {
   DefaultValueInput,
 } from "../common";
 import type { NativeType } from "../native-types";
-import { buildTimeSchema, timeBase } from "./schemas";
+import { buildTimeSchema, timeBase, TimeSchemas } from "./schemas";
 import v, { BaseIsoTimeSchema } from "../../../validation";
-
-// =============================================================================
-// AUTO-GENERATION DEFAULT VALUE FACTORIES
-// =============================================================================
 
 const defaultNow = () => {
   const now = new Date();
@@ -27,13 +23,10 @@ const defaultUpdatedAt = () => {
   return now.toISOString().split("T")[1]?.split(".")[0] ?? ""; // "HH:MM:SS"
 };
 
-// =============================================================================
-// TIME FIELD CLASS
-// =============================================================================
-
 export class TimeField<State extends FieldState<"time">> {
   /** Name slots hydrated by client at initialization */
   private _names: SchemaNames = {};
+  private _schemas: TimeSchemas<State> | undefined;
 
   constructor(private state: State, private _nativeType?: NativeType) {}
 
@@ -169,10 +162,6 @@ export class TimeField<State extends FieldState<"time">> {
     ) as this;
   }
 
-  // ===========================================================================
-  // AUTO-GENERATION METHODS
-  // ===========================================================================
-
   now(): TimeField<
     UpdateState<
       State,
@@ -219,25 +208,15 @@ export class TimeField<State extends FieldState<"time">> {
     );
   }
 
-  // ===========================================================================
-  // ACCESSORS
-  // ===========================================================================
-
-  #cached_schemas: ReturnType<typeof buildTimeSchema<State>> | undefined;
-
   get ["~"]() {
     return {
       state: this.state,
-      schemas: (this.#cached_schemas ??= buildTimeSchema(this.state)),
+      schemas: (this._schemas ??= buildTimeSchema(this.state)),
       nativeType: this._nativeType,
       names: this._names,
     };
   }
 }
-
-// =============================================================================
-// FACTORY FUNCTION
-// =============================================================================
 
 export const time = (nativeType?: NativeType) =>
   new TimeField(createDefaultState("time", timeBase), nativeType);

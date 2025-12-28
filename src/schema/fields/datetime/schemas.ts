@@ -116,7 +116,7 @@ export const buildDateTimeSchema = <F extends FieldState<"datetime">>(
   } as DateTimeSchemas<F>;
 };
 
-type DateTimeSchemas<F extends FieldState<"datetime">> = {
+export type DateTimeSchemas<F extends FieldState<"datetime">> = {
   base: F["base"];
   create: BaseIsoTimestampSchema<F>;
   update: F["array"] extends true
@@ -213,7 +213,7 @@ export const buildDateSchema = <F extends FieldState<"date">>(state: F) => {
   } as DateSchemas<F>;
 };
 
-type DateSchemas<F extends FieldState<"date">> = {
+export type DateSchemas<F extends FieldState<"date">> = {
   base: F["base"];
   create: BaseIsoDateSchema<F>;
   update: F["array"] extends true
@@ -310,7 +310,7 @@ export const buildTimeSchema = <F extends FieldState<"time">>(state: F) => {
   } as TimeSchemas<F>;
 };
 
-type TimeSchemas<F extends FieldState<"time">> = {
+export type TimeSchemas<F extends FieldState<"time">> = {
   base: F["base"];
   create: BaseIsoTimeSchema<F>;
   update: F["array"] extends true

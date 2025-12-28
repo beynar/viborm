@@ -21,7 +21,9 @@ describe("instance schema", () => {
     });
 
     test("rejects instances of different class", () => {
-      expect(schema["~standard"].validate(new Int8Array([1, 2, 3])).issues).toBeDefined();
+      expect(
+        schema["~standard"].validate(new Int8Array([1, 2, 3])).issues
+      ).toBeDefined();
     });
 
     test("type inference", () => {
@@ -91,9 +93,11 @@ describe("instance schema", () => {
     });
 
     test("rejects array with non-instances", () => {
-      const result = schema["~standard"].validate([new Uint8Array([1]), [2, 3]]);
+      const result = schema["~standard"].validate([
+        new Uint8Array([1]),
+        [2, 3],
+      ]);
       expect(result.issues).toBeDefined();
     });
   });
 });
-

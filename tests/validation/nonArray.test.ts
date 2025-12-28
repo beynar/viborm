@@ -54,4 +54,3 @@ describe("nonArray wrapper schema", () => {
     });
   });
 });
-

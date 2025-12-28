@@ -5,7 +5,7 @@
  * Handles simple assignments, increment/decrement, and array operations.
  */
 
-import { Sql } from "@sql";
+import { Sql, sql } from "@sql";
 import type { QueryContext } from "../types";
 import { getScalarFieldNames, isRelation, getColumnName } from "../context";
 
@@ -66,7 +66,9 @@ function buildAssignment(
 
   // Schema validation guarantees value is always an operation object
   if (typeof value !== "object" || value === null) {
-    throw new Error("Update value must be an operation object (schema validation should have normalized this)");
+    throw new Error(
+      "Update value must be an operation object (schema validation should have normalized this)"
+    );
   }
 
   const op = value as Record<string, unknown>;

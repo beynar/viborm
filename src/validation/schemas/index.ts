@@ -105,3 +105,10 @@ export type { TransformSchema } from "./transform";
 
 export { record } from "./record";
 export type { RecordSchema } from "./record";
+
+export { fromObject } from "./from-object";
+export type {
+  FromObjectSchema,
+  FromObjectOptions,
+  AllPathsToSchemas,
+} from "./from-object";

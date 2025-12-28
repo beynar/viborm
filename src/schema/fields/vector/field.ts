@@ -10,16 +10,13 @@ import {
   DefaultValueInput,
 } from "../common";
 import type { NativeType } from "../native-types";
-import { buildVectorSchema, vectorBase } from "./schemas";
+import { buildVectorSchema, vectorBase, VectorSchemas } from "./schemas";
 import v, { BaseVectorSchema } from "../../../validation";
-
-// =============================================================================
-// VECTOR FIELD CLASS
-// =============================================================================
 
 export class VectorField<State extends FieldState<"vector">> {
   /** Name slots hydrated by client at initialization */
   private _names: SchemaNames = {};
+  private _schemas: VectorSchemas<State> | undefined;
 
   constructor(private state: State, private _nativeType?: NativeType) {}
 
@@ -80,10 +77,6 @@ export class VectorField<State extends FieldState<"vector">> {
     ) as this;
   }
 
-  // ===========================================================================
-  // VECTOR-SPECIFIC METHODS
-  // ===========================================================================
-
   dimension(dim: number): VectorField<State & { dimension: number }> {
     return new VectorField(
       {
@@ -94,25 +87,15 @@ export class VectorField<State extends FieldState<"vector">> {
     );
   }
 
-  // ===========================================================================
-  // ACCESSORS
-  // ===========================================================================
-
-  #cached_schemas: ReturnType<typeof buildVectorSchema<State>> | undefined;
-
   get ["~"]() {
     return {
       state: this.state,
-      schemas: (this.#cached_schemas ??= buildVectorSchema(this.state)),
+      schemas: (this._schemas ??= buildVectorSchema(this.state)),
       nativeType: this._nativeType,
       names: this._names,
     };
   }
 }
-
-// =============================================================================
-// FACTORY FUNCTION
-// =============================================================================
 
 export const vector = (nativeType?: NativeType) =>
   new VectorField(createDefaultState("vector", vectorBase), nativeType);

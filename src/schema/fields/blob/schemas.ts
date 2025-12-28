@@ -49,7 +49,7 @@ export const buildBlobSchema = <F extends FieldState<"blob">>(state: F) => {
   } as BlobSchemas<F>;
 };
 
-type BlobSchemas<F extends FieldState<"blob">> = {
+export type BlobSchemas<F extends FieldState<"blob">> = {
   base: F["base"];
   create: BaseBlobSchema<F>;
   update: ReturnType<typeof buildBlobUpdateSchema<F["base"]>>;

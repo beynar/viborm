@@ -97,7 +97,7 @@ export const buildBigIntSchema = <F extends FieldState<"bigint">>(state: F) => {
   } as BigIntSchemas<F>;
 };
 
-type BigIntSchemas<F extends FieldState<"bigint">> = {
+export type BigIntSchemas<F extends FieldState<"bigint">> = {
   base: F["base"];
   create: BaseBigIntSchema<F>;
   update: F["array"] extends true

@@ -9,7 +9,10 @@ describe("record schema", () => {
     test("validates records", () => {
       const result = schema["~standard"].validate({ a: 1, b: 2 });
       expect(result.issues).toBeUndefined();
-      expect((result as { value: Record<string, number> }).value).toEqual({ a: 1, b: 2 });
+      expect((result as { value: Record<string, number> }).value).toEqual({
+        a: 1,
+        b: 2,
+      });
     });
 
     test("validates empty record", () => {
@@ -42,7 +45,10 @@ describe("record schema", () => {
       const schema = record(string(), string());
       const result = schema["~standard"].validate({ a: "1", b: "2" });
       expect(result.issues).toBeUndefined();
-      expect((result as { value: Record<string, string> }).value).toEqual({ a: "1", b: "2" });
+      expect((result as { value: Record<string, string> }).value).toEqual({
+        a: "1",
+        b: "2",
+      });
     });
 
     test("literal keys", () => {
@@ -75,4 +81,3 @@ describe("record schema", () => {
     });
   });
 });
-

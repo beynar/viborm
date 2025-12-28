@@ -17,10 +17,6 @@ export const jsonNullable = v.json({ nullable: true });
 // FILTER SCHEMAS
 // =============================================================================
 
-// Note: JSON filters do NOT support shorthand because JSON values can be objects,
-// making it impossible to distinguish between a filter operation and a JSON value.
-// This matches Prisma's behavior where you always use { equals: value }.
-
 const buildJsonFilterSchema = <S extends VibSchema>(schema: S) => {
   const filter = v.object({
     equals: schema,
@@ -37,13 +33,11 @@ const buildJsonFilterSchema = <S extends VibSchema>(schema: S) => {
   });
 };
 
-// Note: JSON updates do NOT support shorthand because JSON values can be objects,
-// making it impossible to distinguish between an update operation and a JSON value.
-// This matches Prisma's behavior where you always use { set: value }.
-
 const buildJsonUpdateSchema = <S extends VibSchema>(schema: S) =>
-  v.object({
-    set: schema,
+  v.coerce(schema, (value: S[" vibInferred"]["0"]) => {
+    return {
+      set: value,
+    };
   });
 
 export const buildJsonSchema = <F extends FieldState<"json">>(state: F) => {
@@ -55,7 +49,7 @@ export const buildJsonSchema = <F extends FieldState<"json">>(state: F) => {
   } as JsonSchemas<F>;
 };
 
-type JsonSchemas<F extends FieldState<"json">> = {
+export type JsonSchemas<F extends FieldState<"json">> = {
   base: F["base"];
   create: BaseJsonSchema<F>;
   update: ReturnType<typeof buildJsonUpdateSchema<F["base"]>>;

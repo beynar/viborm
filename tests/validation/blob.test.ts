@@ -58,8 +58,9 @@ describe("blob schema", () => {
       const blobs = [new Uint8Array([1]), Buffer.from([2])];
       const result = schema["~standard"].validate(blobs);
       expect(result.issues).toBeUndefined();
-      expect((result as { value: (Uint8Array | Buffer)[] }).value).toEqual(blobs);
+      expect((result as { value: (Uint8Array | Buffer)[] }).value).toEqual(
+        blobs
+      );
     });
   });
 });
-

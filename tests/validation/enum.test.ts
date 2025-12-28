@@ -41,40 +41,6 @@ describe("enum_ schema", () => {
     });
   });
 
-  describe("number enum", () => {
-    const level = v.enum([1, 2, 3]);
-
-    test("accepts valid number", () => {
-      const result = level["~standard"].validate(2);
-      expect(result.issues).toBeUndefined();
-      expect((result as { value: number }).value).toBe(2);
-    });
-
-    test("rejects invalid number", () => {
-      const result = level["~standard"].validate(4);
-      expect(result.issues).toBeDefined();
-    });
-
-    test("rejects string", () => {
-      const result = level["~standard"].validate("1");
-      expect(result.issues).toBeDefined();
-    });
-  });
-
-  describe("mixed enum", () => {
-    const mixed = v.enum(["a", 1, "b", 2] as const);
-
-    test("accepts string value", () => {
-      const result = mixed["~standard"].validate("a");
-      expect(result.issues).toBeUndefined();
-    });
-
-    test("accepts number value", () => {
-      const result = mixed["~standard"].validate(1);
-      expect(result.issues).toBeUndefined();
-    });
-  });
-
   describe("with options", () => {
     test("optional enum", () => {
       const schema = v.enum(["a", "b"], { optional: true });
@@ -109,15 +75,7 @@ describe("enum_ schema", () => {
     test("infers correct type", () => {
       const status = v.enum(["active", "inactive", "pending"] as const);
       type Status = StandardSchemaV1.InferOutput<typeof status>;
-      expectTypeOf<Status>().toEqualTypeOf<
-        "active" | "inactive" | "pending"
-      >();
-    });
-
-    test("infers number type", () => {
-      const level = v.enum([1, 2, 3] as const);
-      type Level = StandardSchemaV1.InferOutput<typeof level>;
-      expectTypeOf<Level>().toEqualTypeOf<1 | 2 | 3>();
+      expectTypeOf<Status>().toEqualTypeOf<"active" | "inactive" | "pending">();
     });
   });
 
@@ -134,4 +92,3 @@ describe("enum_ schema", () => {
     });
   });
 });
-

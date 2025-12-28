@@ -18,15 +18,15 @@ import {
   intBase,
   floatBase,
   decimalBase,
+  IntSchemas,
+  FloatSchemas,
+  DecimalSchemas,
 } from "./schemas";
 import v, { BaseIntegerSchema, BaseNumberSchema } from "../../../validation";
 
-// =============================================================================
-// INT FIELD CLASS
-// =============================================================================
-
 export class IntField<State extends FieldState<"int">> {
   private _names: SchemaNames = {};
+  private _schemas: IntSchemas<State> | undefined;
 
   constructor(private state: State, private _nativeType?: NativeType) {}
 
@@ -182,24 +182,19 @@ export class IntField<State extends FieldState<"int">> {
     );
   }
 
-  #cached_schemas: ReturnType<typeof buildIntSchema<State>> | undefined;
-
   get ["~"]() {
     return {
       state: this.state,
-      schemas: (this.#cached_schemas ??= buildIntSchema(this.state)),
+      schemas: (this._schemas ??= buildIntSchema(this.state)),
       nativeType: this._nativeType,
       names: this._names,
     };
   }
 }
 
-// =============================================================================
-// FLOAT FIELD CLASS
-// =============================================================================
-
 export class FloatField<State extends FieldState<"float">> {
   private _names: SchemaNames = {};
+  private _schemas: FloatSchemas<State> | undefined;
 
   constructor(private state: State, private _nativeType?: NativeType) {}
 
@@ -332,24 +327,19 @@ export class FloatField<State extends FieldState<"float">> {
     ) as this;
   }
 
-  #cached_schemas: ReturnType<typeof buildFloatSchema<State>> | undefined;
-
   get ["~"]() {
     return {
       state: this.state,
-      schemas: (this.#cached_schemas ??= buildFloatSchema(this.state)),
+      schemas: (this._schemas ??= buildFloatSchema(this.state)),
       nativeType: this._nativeType,
       names: this._names,
     };
   }
 }
 
-// =============================================================================
-// DECIMAL FIELD CLASS
-// =============================================================================
-
 export class DecimalField<State extends FieldState<"decimal">> {
   private _names: SchemaNames = {};
+  private _schemas: DecimalSchemas<State> | undefined;
 
   constructor(private state: State, private _nativeType?: NativeType) {}
 
@@ -485,21 +475,15 @@ export class DecimalField<State extends FieldState<"decimal">> {
     ) as this;
   }
 
-  #cached_schemas: ReturnType<typeof buildDecimalSchema<State>> | undefined;
-
   get ["~"]() {
     return {
       state: this.state,
-      schemas: (this.#cached_schemas ??= buildDecimalSchema(this.state)),
+      schemas: (this._schemas ??= buildDecimalSchema(this.state)),
       nativeType: this._nativeType,
       names: this._names,
     };
   }
 }
-
-// =============================================================================
-// FACTORY FUNCTIONS
-// =============================================================================
 
 export const int = (nativeType?: NativeType) =>
   new IntField(createDefaultState("int", intBase), nativeType);

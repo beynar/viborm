@@ -11,6 +11,7 @@ import {
 import type { ModelState } from "../../model";
 import type { SchemaEntries } from "../types";
 import { forEachScalarField, forEachRelation } from "../utils";
+import v from "../../../../validation";
 
 // =============================================================================
 // SCALAR CREATE
@@ -101,7 +102,11 @@ export type CreateInput<T extends ModelState> = InferInput<CreateSchema<T>>;
 export const getCreateSchema = <T extends ModelState>(
   state: T
 ): CreateSchema<T> => {
-  const entries: SchemaEntries = {};
+  const entries: {
+    [K in keyof T["scalars"]]: T["scalars"][K]["~"]["schemas"]["create"];
+  } & {
+    [K in keyof T["relations"]]: T["relations"][K]["~"]["schemas"]["create"];
+  } = {};
 
   // Scalar fields - use their create schema directly
   forEachScalarField(state, (name, field) => {
@@ -110,8 +115,8 @@ export const getCreateSchema = <T extends ModelState>(
 
   // Relation creates (all optional)
   forEachRelation(state, (name, relation) => {
-    entries[name] = optional(relation["~"].schemas.create);
+    entries[name] = relation["~"].schemas.create;
   });
 
-  return strictObject(entries) as unknown as CreateSchema<T>;
+  return v.object(entries) as unknown as CreateSchema<T>;
 };

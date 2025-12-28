@@ -10,15 +10,12 @@ import {
   DefaultValueInput,
 } from "../common";
 import type { NativeType } from "../native-types";
-import { buildBlobSchema, blobBase } from "./schemas";
+import { buildBlobSchema, blobBase, BlobSchemas } from "./schemas";
 import v, { BaseBlobSchema } from "../../../validation";
-
-// =============================================================================
-// BLOB FIELD CLASS
-// =============================================================================
 
 export class BlobField<State extends FieldState<"blob">> {
   private _names: SchemaNames = {};
+  private _schemas: BlobSchemas<State> | undefined;
 
   constructor(private state: State, private _nativeType?: NativeType) {}
 
@@ -92,16 +89,10 @@ export class BlobField<State extends FieldState<"blob">> {
     throw new Error("Blob fields cannot be unique");
   }
 
-  // ===========================================================================
-  // ACCESSORS
-  // ===========================================================================
-
-  #cached_schemas: ReturnType<typeof buildBlobSchema<State>> | undefined;
-
   get ["~"]() {
     return {
       state: this.state,
-      schemas: (this.#cached_schemas ??= buildBlobSchema(this.state)),
+      schemas: (this._schemas ??= buildBlobSchema(this.state)),
       nativeType: this._nativeType,
       names: this._names,
     };

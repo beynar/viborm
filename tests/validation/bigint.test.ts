@@ -105,9 +105,17 @@ describe("bigint schema", () => {
     const schema = bigint({ array: true });
 
     test("validates array of bigints", () => {
-      const result = schema["~standard"].validate([BigInt(1), BigInt(2), BigInt(3)]);
+      const result = schema["~standard"].validate([
+        BigInt(1),
+        BigInt(2),
+        BigInt(3),
+      ]);
       expect(result.issues).toBeUndefined();
-      expect((result as { value: bigint[] }).value).toEqual([BigInt(1), BigInt(2), BigInt(3)]);
+      expect((result as { value: bigint[] }).value).toEqual([
+        BigInt(1),
+        BigInt(2),
+        BigInt(3),
+      ]);
     });
 
     test("rejects array with numbers", () => {
@@ -147,4 +155,3 @@ describe("bigint schema", () => {
     });
   });
 });
-

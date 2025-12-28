@@ -1,6 +1,13 @@
 import { describe, test, expect, expectTypeOf } from "vitest";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { v, union, string, number, literal, boolean } from "../../src/validation";
+import {
+  v,
+  union,
+  string,
+  number,
+  literal,
+  boolean,
+} from "../../src/validation";
 
 describe("union schema", () => {
   describe("basic validation", () => {
@@ -79,4 +86,3 @@ describe("union schema", () => {
     });
   });
 });
-

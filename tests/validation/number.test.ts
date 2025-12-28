@@ -155,8 +155,12 @@ describe("number schema", () => {
     test("default factory function", () => {
       let counter = 0;
       const schema = number({ default: () => ++counter });
-      expect((schema["~standard"].validate(undefined) as { value: number }).value).toBe(1);
-      expect((schema["~standard"].validate(undefined) as { value: number }).value).toBe(2);
+      expect(
+        (schema["~standard"].validate(undefined) as { value: number }).value
+      ).toBe(1);
+      expect(
+        (schema["~standard"].validate(undefined) as { value: number }).value
+      ).toBe(2);
     });
   });
 
@@ -303,4 +307,3 @@ describe("integer schema", () => {
     });
   });
 });
-

@@ -1,6 +1,3 @@
-// JSON Field
-// Standalone field class with State generic pattern
-
 import type { StandardSchemaOf } from "@standard-schema/spec";
 import {
   type UpdateState,
@@ -11,16 +8,12 @@ import {
   DefaultValueInput,
 } from "../common";
 import type { NativeType } from "../native-types";
-import { buildJsonSchema, jsonBase } from "./schemas";
-import v, { BaseJsonSchema, InferOutput, JsonValue } from "../../../validation";
-
-// =============================================================================
-// JSON FIELD CLASS
-// =============================================================================
+import { buildJsonSchema, jsonBase, JsonSchemas } from "./schemas";
+import v, { BaseJsonSchema, JsonValue } from "../../../validation";
 
 export class JsonField<State extends FieldState<"json"> = FieldState<"json">> {
   private _names: SchemaNames = {};
-
+  private _schemas: JsonSchemas<State> | undefined;
   constructor(private state: State, private _nativeType?: NativeType) {}
 
   nullable(): JsonField<
@@ -110,25 +103,15 @@ export class JsonField<State extends FieldState<"json"> = FieldState<"json">> {
     ) as this;
   }
 
-  // ===========================================================================
-  // ACCESSORS
-  // ===========================================================================
-
-  #cached_schemas: ReturnType<typeof buildJsonSchema<State>> | undefined;
-
   get ["~"]() {
     return {
       state: this.state,
-      schemas: (this.#cached_schemas ??= buildJsonSchema(this.state)),
+      schemas: (this._schemas ??= buildJsonSchema(this.state)),
       nativeType: this._nativeType,
       names: this._names,
     };
   }
 }
-
-// =============================================================================
-// FACTORY FUNCTION
-// =============================================================================
 
 export const json = (nativeType?: NativeType) =>
   new JsonField(createDefaultState("json", jsonBase), nativeType);

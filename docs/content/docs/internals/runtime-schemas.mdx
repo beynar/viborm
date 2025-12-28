@@ -9,7 +9,9 @@ icon: Shield
 VibORM uses its [custom validation library](/docs/internals/validation) for runtime validation. Each model generates schemas that mirror the TypeScript types.
 
 <Callout type="info">
-  VibORM's validation library is a lightweight, StandardSchema-compliant alternative to Valibot/Zod, optimized for ORM use cases with recursive types and edge environments.
+  VibORM's validation library is a lightweight, StandardSchema-compliant
+  alternative to Valibot/Zod, optimized for ORM use cases with recursive types
+  and edge environments.
 </Callout>
 
 ## Schema Building Architecture
@@ -132,7 +134,7 @@ export const stringNullable = v.nullable(v.string());
 
 // Filter with shorthand normalization
 export const stringFilter = v.union([
-  v.string(),  // Shorthand: "foo" → { equals: "foo" }
+  v.string(), // Shorthand: "foo" → { equals: "foo" }
   v.object({
     equals: v.string({ optional: true }),
     in: v.string({ array: true, optional: true }),
@@ -140,13 +142,13 @@ export const stringFilter = v.union([
     contains: v.string({ optional: true }),
     startsWith: v.string({ optional: true }),
     endsWith: v.string({ optional: true }),
-    not: v.union([v.string(), /* nested filter */], { optional: true }),
+    not: v.union([v.string() /* nested filter */], { optional: true }),
   }),
 ]);
 
 // Update with shorthand normalization
 export const stringUpdate = v.union([
-  v.string(),  // Shorthand: "foo" → { set: "foo" }
+  v.string(), // Shorthand: "foo" → { set: "foo" }
   v.object({
     set: v.string({ optional: true }),
   }),
@@ -163,7 +165,7 @@ export const buildWhereSchema = (model: Model<any>) => {
 
   // Scalar fields
   for (const [name, field] of model["~"].fieldMap) {
-    shape[name] = field["~"].schemas.filter;  // Already optional
+    shape[name] = field["~"].schemas.filter; // Already optional
   }
 
   // Relation fields (thunks for circular references)
@@ -173,19 +175,25 @@ export const buildWhereSchema = (model: Model<any>) => {
 
     if (relationType === "oneToOne" || relationType === "manyToOne") {
       // To-one with shorthand normalization
-      shape[name] = v.union([
-        v.nullable(getTargetModel()["~"].schemas.whereUnique),
-        v.object({ 
-          is: v.nullable(getTargetModel()["~"].schemas.whereUnique) 
-        }),
-      ], { optional: true });
+      shape[name] = v.union(
+        [
+          v.nullable(getTargetModel()["~"].schemas.whereUnique),
+          v.object({
+            is: v.nullable(getTargetModel()["~"].schemas.whereUnique),
+          }),
+        ],
+        { optional: true }
+      );
     } else {
       // To-many: some/every/none (thunks for circular refs)
-      shape[name] = v.object({
-        some: () => getTargetModel()["~"].schemas.where,
-        every: () => getTargetModel()["~"].schemas.where,
-        none: () => getTargetModel()["~"].schemas.where,
-      }, { optional: true });
+      shape[name] = v.object(
+        {
+          some: () => getTargetModel()["~"].schemas.where,
+          every: () => getTargetModel()["~"].schemas.where,
+          none: () => getTargetModel()["~"].schemas.where,
+        },
+        { optional: true }
+      );
     }
   }
 
@@ -235,11 +243,14 @@ import { v } from "viborm";
 shape["posts"] = buildWhereSchema(postModel);
 
 // Good - thunks for lazy evaluation
-shape["posts"] = v.object({
-  some: () => getTargetModel()["~"].schemas.where,  // Thunk
-  every: () => getTargetModel()["~"].schemas.where,
-  none: () => getTargetModel()["~"].schemas.where,
-}, { optional: true });
+shape["posts"] = v.object(
+  {
+    some: () => getTargetModel()["~"].schemas.where, // Thunk
+    every: () => getTargetModel()["~"].schemas.where,
+    none: () => getTargetModel()["~"].schemas.where,
+  },
+  { optional: true }
+);
 ```
 
 Unlike Valibot's `lazy()`, VibORM's thunks preserve full type inference for circular references. See [Validation Library - Thunk-Based Circular References](/docs/internals/validation#thunk-based-circular-references) for the technical details.
@@ -281,7 +292,7 @@ export const buildWhereUniqueSchema = (model: Model<any>) => {
   // Single-field uniques
   for (const [name, field] of model["~"].fieldMap) {
     if (field["~"].state.isId || field["~"].state.isUnique) {
-      shape[name] = field["~"].schemas.base;  // Optional by default
+      shape[name] = field["~"].schemas.base; // Optional by default
       uniqueFieldNames.push(name);
     }
   }
@@ -289,10 +300,11 @@ export const buildWhereUniqueSchema = (model: Model<any>) => {
   // Compound ID
   const compoundId = model["~"].compoundId;
   if (compoundId?.fields?.length > 0) {
-    const keyName = compoundId.name ?? generateCompoundKeyName(compoundId.fields);
+    const keyName =
+      compoundId.name ?? generateCompoundKeyName(compoundId.fields);
     const compoundShape: Record<string, any> = {};
     for (const fieldName of compoundId.fields) {
-      compoundShape[fieldName] = 
+      compoundShape[fieldName] =
         model["~"].fieldMap.get(fieldName)["~"].schemas.base;
     }
     shape[keyName] = v.object(compoundShape, { optional: true });
@@ -304,13 +316,15 @@ export const buildWhereUniqueSchema = (model: Model<any>) => {
 
   // Validation: at least one identifier required
   const allIdentifiers = [...uniqueFieldNames, ...compoundKeyNames];
-  
+
   return v.pipe(
     v.object(shape),
     v.transform((input) => {
       const hasIdentifier = allIdentifiers.some((name) => name in input);
       if (!hasIdentifier) {
-        throw new Error(`Must provide at least one of: ${allIdentifiers.join(", ")}`);
+        throw new Error(
+          `Must provide at least one of: ${allIdentifiers.join(", ")}`
+        );
       }
       return input;
     })
@@ -327,12 +341,15 @@ import { v } from "viborm";
 
 const buildRelationCreateSchema = (relation, getTargetModel) => {
   return v.object({
-    create: () => getTargetModel()["~"].schemas.create,  // Thunk
+    create: () => getTargetModel()["~"].schemas.create, // Thunk
     connect: () => getTargetModel()["~"].schemas.whereUnique,
-    connectOrCreate: v.object({
-      where: () => getTargetModel()["~"].schemas.whereUnique,
-      create: () => getTargetModel()["~"].schemas.create,
-    }, { optional: true }),
+    connectOrCreate: v.object(
+      {
+        where: () => getTargetModel()["~"].schemas.whereUnique,
+        create: () => getTargetModel()["~"].schemas.create,
+      },
+      { optional: true }
+    ),
   });
 };
 ```
@@ -351,26 +368,21 @@ const buildToManyCreate = (getTargetModel) => {
   const targetWhereUnique = getTargetModel()["~"].schemas.whereUnique;
 
   return v.object({
-    create: v.union([
-      targetCreate,
-      v.array(targetCreate),
-    ], { 
-      optional: true, 
-      transform: ensureArray 
+    create: v.union([targetCreate, v.array(targetCreate)], {
+      optional: true,
+      transform: ensureArray,
     }),
-    connect: v.union([
-      targetWhereUnique,
-      v.array(targetWhereUnique),
-    ], { 
-      optional: true, 
-      transform: ensureArray 
+    connect: v.union([targetWhereUnique, v.array(targetWhereUnique)], {
+      optional: true,
+      transform: ensureArray,
     }),
   });
 };
 ```
 
 <Callout type="warning">
-  Thunks are only supported at object key level, not inside wrappers like `array()` or `union()`. Resolve target schemas at build time as shown above.
+  Thunks are only supported at object key level, not inside wrappers like
+  `array()` or `union()`. Resolve target schemas at build time as shown above.
 </Callout>
 
 ### To-Many Update (Array-Only Operations)

@@ -141,16 +141,25 @@ export type InferInputShape<Defs> = {
 type BoolKey<T, K extends keyof T> = T[K] extends true ? "t" : "f";
 
 /**
+ * Extract the effective input type considering schema.
+ * If a schema is provided, use its input type; otherwise use base type.
+ */
+type EffectiveInput<
+  T,
+  Opts extends ScalarOptions<any, any, any>
+> = Opts["schema"] extends StandardSchemaV1<infer I, any> ? I : T;
+
+/**
  * Compute input type using lookup pattern (fewer conditionals).
  */
 export type ComputeInput<
   T,
   Opts extends ScalarOptions<any, any, any> | undefined
 > = Opts extends ScalarOptions<any, any, any>
-  ? ComputeInputLookup<T, Opts>[`${BoolKey<Opts, "array">}${BoolKey<
+  ? ComputeInputLookup<EffectiveInput<T, Opts>, Opts>[`${BoolKey<
       Opts,
-      "nullable"
-    >}${BoolKey<Opts, "optional">}`]
+      "array"
+    >}${BoolKey<Opts, "nullable">}${BoolKey<Opts, "optional">}`]
   : T;
 
 interface ComputeInputLookup<T, Opts extends ScalarOptions<any, any, any>> {

@@ -55,7 +55,10 @@ describe("json schema", () => {
     });
 
     test("nested array", () => {
-      const result = schema["~standard"].validate([[1, 2], [3, [4, 5]]]);
+      const result = schema["~standard"].validate([
+        [1, 2],
+        [3, [4, 5]],
+      ]);
       expect(result.issues).toBeUndefined();
     });
 
@@ -234,4 +237,3 @@ describe("json schema", () => {
     });
   });
 });
-

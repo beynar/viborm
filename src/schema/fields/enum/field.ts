@@ -18,15 +18,12 @@ import v, {
 } from "../../../validation";
 import { AnyEnumSchema } from "../../../validation/schemas/enum";
 
-// =============================================================================
-// ENUM FIELD CLASS
-// =============================================================================
-
 export class EnumField<
   Values extends string[],
   State extends FieldState<"enum"> = FieldState<"enum">
 > {
   private _names: SchemaNames = {};
+  private _schemas: EnumSchemas<Values, State> | undefined;
 
   constructor(
     public values: Values,
@@ -138,27 +135,15 @@ export class EnumField<
     ) as this;
   }
 
-  // ===========================================================================
-  // ACCESSORS
-  // ===========================================================================
-
-  #cached_schemas:
-    | ReturnType<typeof buildEnumSchema<Values, State>>
-    | undefined;
-
   get ["~"]() {
     return {
       state: this.state,
-      schemas: buildEnumSchema(this.values, this.state),
+      schemas: (this._schemas ??= buildEnumSchema(this.values, this.state)),
       nativeType: this._nativeType,
       names: this._names,
     };
   }
 }
-
-// =============================================================================
-// FACTORY FUNCTION
-// =============================================================================
 
 export const enumField = <const T extends string[]>(
   values: T,
@@ -167,23 +152,3 @@ export const enumField = <const T extends string[]>(
   const base = v.enum(values);
   return new EnumField(values, createDefaultState("enum", base), nativeType);
 };
-
-const test = enumField(["a", "b", "c"]).nullable();
-
-const base = test["~"].schemas.base;
-
-type In = (typeof base)[" vibInferred"]["0"];
-
-const e = v.enum(["a", "b", "c"]);
-const s = v.string();
-type In2 = Prettify<InferInput<typeof e>>;
-type In3 = Prettify<InferInput<typeof s>>;
-type Test = typeof e extends AnyEnumSchema ? true : false;
-type Test2 = typeof e extends BaseEnumSchema<["a", "b", "c"], any>
-  ? true
-  : false;
-
-type Test3 = typeof base extends BaseEnumSchema<["a", "b", "c"], any>
-  ? true
-  : false;
-type Test4 = typeof base extends AnyEnumSchema ? true : false;

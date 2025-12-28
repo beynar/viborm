@@ -23,7 +23,10 @@ describe("nonOptional wrapper schema", () => {
     });
 
     test("rejects undefined output from wrapped schema", () => {
-      const optionalSchema: StandardSchemaV1<string | undefined, string | undefined> = {
+      const optionalSchema: StandardSchemaV1<
+        string | undefined,
+        string | undefined
+      > = {
         "~standard": {
           version: 1,
           vendor: "test",
@@ -72,4 +75,3 @@ describe("nonOptional wrapper schema", () => {
     });
   });
 });
-

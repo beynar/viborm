@@ -11,7 +11,7 @@ import {
   DefaultValueInput,
 } from "../common";
 import type { NativeType } from "../native-types";
-import { buildStringSchema, stringBase } from "./schemas";
+import { buildStringSchema, stringBase, StringSchemas } from "./schemas";
 import {
   defaultCuid,
   defaultNanoid,
@@ -20,13 +20,10 @@ import {
 } from "./autogenerate";
 import v, { BaseStringSchema, Prettify } from "../../../validation";
 
-// =============================================================================
-// STRING FIELD CLASS
-// =============================================================================
-
 export class StringField<State extends FieldState<"string">> {
   /** Name slots hydrated by client at initialization */
   private _names: SchemaNames = {};
+  private _schemas: StringSchemas<State> | undefined;
 
   constructor(private state: State, private _nativeType?: NativeType) {}
 
@@ -168,10 +165,6 @@ export class StringField<State extends FieldState<"string">> {
     ) as this;
   }
 
-  // ===========================================================================
-  // AUTO-GENERATION METHODS
-  // ===========================================================================
-
   uuid(): StringField<
     UpdateState<
       State,
@@ -264,12 +257,10 @@ export class StringField<State extends FieldState<"string">> {
     );
   }
 
-  #cached_schemas: ReturnType<typeof buildStringSchema<State>> | undefined;
-
   get ["~"]() {
     return {
       state: this.state,
-      schemas: (this.#cached_schemas ??= buildStringSchema(this.state)),
+      schemas: (this._schemas ??= buildStringSchema(this.state)),
       nativeType: this._nativeType,
       names: this._names,
     };

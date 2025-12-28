@@ -25,9 +25,12 @@ ORMs have unique validation requirements that existing libraries don't fully add
 // - The query constraints (where, select, include)
 // - Operation-specific rules (create vs update vs filter)
 
-const whereSchema = buildWhereSchema(userModel);  // Created per query
+const whereSchema = buildWhereSchema(userModel); // Created per query
 const selectSchema = buildSelectSchema(userModel);
-const argsSchema = buildFindManyArgsSchema(userModel, { whereSchema, selectSchema });
+const argsSchema = buildFindManyArgsSchema(userModel, {
+  whereSchema,
+  selectSchema,
+});
 
 // These schemas parse and validate user input
 argsSchema["~standard"].validate(userQuery);
@@ -47,7 +50,7 @@ ArkType has excellent thunk-based recursive type inference:
 // ArkType's approach - types infer correctly
 const user = type({
   name: "string",
-  friend: () => user,  // Thunk for circular reference
+  friend: () => user, // Thunk for circular reference
 });
 
 type User = typeof user.infer;
@@ -55,6 +58,7 @@ type User = typeof user.infer;
 ```
 
 **The problems**:
+
 1. **Heavy type system** - ArkType's type inference is complex and slow to compile, impacting IDE performance
 2. **Eager thunk evaluation** - Thunks are evaluated at schema creation time, not lazily when needed
 3. **Slow schema instantiation** - 70x slower than VibORM for object schema creation
@@ -68,7 +72,7 @@ import { lazy, object, string } from "valibot";
 
 const user = object({
   name: string(),
-  friend: lazy(() => user),  // Deferred evaluation
+  friend: lazy(() => user), // Deferred evaluation
 });
 
 type User = InferOutput<typeof user>;
@@ -87,6 +91,7 @@ const user = z.object({
 ```
 
 **The problems**:
+
 1. **Extremely slow schema instantiation** - Zod is 70-750x slower than VibORM at creating schemas. For an ORM that dynamically creates schemas for every model, this overhead is unacceptable.
 2. **Heavy compile-time type system** - Complex generic chains slow down TypeScript compilation and IDE responsiveness
 3. **Poor recursive handling** - `z.lazy()` breaks type inference similar to Valibot
@@ -100,15 +105,16 @@ const user = z.object({
 
 We built a validation library optimized for ORM use cases:
 
-| Feature | ArkType | Valibot | Zod | VibORM |
-|---------|---------|---------|-----|--------|
-| Recursive type inference | ✓ | ✗ | ✗ | ✓ |
-| Lazy thunk evaluation | ✗ | ✓ | ✓ | ✓ |
-| Lightweight type system | ✗ | ✓ | ✗ | ✓ |
-| Fast schema instantiation | ✗ | ✓ | ✗ | ✓ |
-| Fail-fast validation | ✗ | ✗ | ✗ | ✓ |
+| Feature                   | ArkType | Valibot | Zod | VibORM |
+| ------------------------- | ------- | ------- | --- | ------ |
+| Recursive type inference  | ✓       | ✗       | ✗   | ✓      |
+| Lazy thunk evaluation     | ✗       | ✓       | ✓   | ✓      |
+| Lightweight type system   | ✗       | ✓       | ✗   | ✓      |
+| Fast schema instantiation | ✗       | ✓       | ✗   | ✓      |
+| Fail-fast validation      | ✗       | ✗       | ✗   | ✓      |
 
 The key innovations:
+
 1. **Minimal type complexity** - Simple inference patterns that don't slow down the compiler
 2. **Thunks with lazy evaluation** - Like Valibot's `lazy()`, but with correct type preservation
 3. **Identity conditional types** - `R extends infer _ ? _ : never` defers TypeScript evaluation
@@ -151,9 +157,9 @@ interface VibSchema<TInput, TOutput> {
   };
 }
 
-type ValidationResult<T> = 
-  | { value: T }                    // Success
-  | { issues: ValidationIssue[] };  // Failure
+type ValidationResult<T> =
+  | { value: T } // Success
+  | { issues: ValidationIssue[] }; // Failure
 ```
 
 ### Thunk-Based Circular References
@@ -186,21 +192,23 @@ This works because:
 
 All libraries tested via `~standard.validate()` interface. Zod JIT disabled for fair comparison.
 
-| Category | Winner | VibORM vs Others |
-|----------|--------|------------------|
-| **Primitives (5 tests)** | VibORM 🏆 (5/5) | 2-8x faster than Valibot/ArkType |
-| **Simple Objects** | ArkType | 2.6x slower (ArkType optimizes for this) |
-| **Complex Objects** | ArkType | 7.4x slower (ArkType's strength) |
-| **Nullable/Optional** | VibORM 🏆 | 1.4x faster than Valibot |
-| **Arrays** | ArkType | 9-22x slower (ArkType's strength) |
-| **Unions** | VibORM 🏆 (first match) | 3.6x faster |
-| **Error path** | VibORM 🏆 | **112x faster than Zod**, 92x faster than ArkType |
-| **Schema creation** | VibORM 🏆 | **83-771x faster than Zod**, 79-105x faster than ArkType |
+| Category                 | Winner                  | VibORM vs Others                                         |
+| ------------------------ | ----------------------- | -------------------------------------------------------- |
+| **Primitives (5 tests)** | VibORM 🏆 (5/5)         | 2-8x faster than Valibot/ArkType                         |
+| **Simple Objects**       | ArkType                 | 2.6x slower (ArkType optimizes for this)                 |
+| **Complex Objects**      | ArkType                 | 7.4x slower (ArkType's strength)                         |
+| **Nullable/Optional**    | VibORM 🏆               | 1.4x faster than Valibot                                 |
+| **Arrays**               | ArkType                 | 9-22x slower (ArkType's strength)                        |
+| **Unions**               | VibORM 🏆 (first match) | 3.6x faster                                              |
+| **Error path**           | VibORM 🏆               | **112x faster than Zod**, 92x faster than ArkType        |
+| **Schema creation**      | VibORM 🏆               | **83-771x faster than Zod**, 79-105x faster than ArkType |
 
 **Final Score: VibORM 11/16, ArkType 5/16, Zod 0/16, Valibot 0/16**
 
 <Callout type="info">
-  **Why VibORM wins for ORMs**: ArkType is fastest for validation, but **79-105x slower** at schema creation. Since VibORM creates schemas dynamically per query, instantiation speed is critical.
+  **Why VibORM wins for ORMs**: ArkType is fastest for validation, but **79-105x
+  slower** at schema creation. Since VibORM creates schemas dynamically per
+  query, instantiation speed is critical.
 </Callout>
 
 ### Options vs Wrappers Syntax
@@ -209,17 +217,17 @@ VibORM supports two ways to define modifiers:
 
 ```typescript
 // Options syntax - single object
-v.string({ array: true, nullable: true, optional: true })
+v.string({ array: true, nullable: true, optional: true });
 
-// Wrapper syntax - nested calls  
-v.optional(v.nullable(v.array(v.string())))
+// Wrapper syntax - nested calls
+v.optional(v.nullable(v.array(v.string())));
 ```
 
-| Scenario | Winner | Difference |
-|----------|--------|------------|
-| **Schema Creation** | Options 🏆 | 1.1-3x faster (fewer object allocations) |
-| **Validate null/undefined** | Wrappers 🏆 | 2.7-3x faster (early short-circuit) |
-| **Validate valid data** | Options 🏆 | 1.1-1.6x faster (less call overhead) |
+| Scenario                    | Winner      | Difference                               |
+| --------------------------- | ----------- | ---------------------------------------- |
+| **Schema Creation**         | Options 🏆  | 1.1-3x faster (fewer object allocations) |
+| **Validate null/undefined** | Wrappers 🏆 | 2.7-3x faster (early short-circuit)      |
+| **Validate valid data**     | Options 🏆  | 1.1-1.6x faster (less call overhead)     |
 
 **Recommendation**: Use **options syntax** for dynamic schemas (ORMs) where creation speed matters. Use **wrappers** when validating lots of null/undefined values.
 
@@ -238,9 +246,7 @@ if (options === undefined) {
       version: 1,
       vendor: "viborm",
       validate(value) {
-        return typeof value === "string" 
-          ? { value } 
-          : STRING_ERROR;
+        return typeof value === "string" ? { value } : STRING_ERROR;
       },
     },
   };
@@ -252,10 +258,8 @@ if (options === undefined) {
 Errors are frozen singletons to avoid allocation:
 
 ```typescript
-const STRING_ERROR = Object.freeze({ 
-  issues: Object.freeze([
-    Object.freeze({ message: "Expected string" })
-  ]) 
+const STRING_ERROR = Object.freeze({
+  issues: Object.freeze([Object.freeze({ message: "Expected string" })]),
 });
 ```
 
@@ -266,13 +270,13 @@ function createObjectValidator(entries, options) {
   // Pre-extract keys once at schema creation
   const keys = Object.keys(entries);
   const keyCount = keys.length;
-  
+
   // Pre-create Set for O(1) unknown key checking
   const keySet = new Set(keys);
-  
+
   // Cache resolved schemas (lazy for circular refs)
   let resolvedSchemas = null;
-  
+
   return (value) => {
     // Indexed iteration (faster than for...in)
     for (let i = 0; i < keyCount; i++) {
@@ -299,16 +303,16 @@ const newPath = issue.path
 ```typescript
 import { v } from "viborm";
 
-v.string()              // string
-v.number()              // finite number (rejects Infinity)
-v.boolean()             // boolean
-v.bigint()              // bigint
-v.literal("admin")      // exact literal value
-v.date()                // Date instance
-v.isoTimestamp()        // ISO 8601 timestamp string
-v.blob()                // Blob/ArrayBuffer
-v.vector(1536)          // number[] with fixed dimensions
-v.point()               // { x: number, y: number }
+v.string(); // string
+v.number(); // finite number (rejects Infinity)
+v.boolean(); // boolean
+v.bigint(); // bigint
+v.literal("admin"); // exact literal value
+v.date(); // Date instance
+v.isoTimestamp(); // ISO 8601 timestamp string
+v.blob(); // Blob/ArrayBuffer
+v.vector(1536); // number[] with fixed dimensions
+v.point(); // { x: number, y: number }
 ```
 
 ### Schema Options
@@ -317,47 +321,50 @@ All scalars accept an options object:
 
 ```typescript
 v.string({
-  optional: true,           // Allow undefined
-  nullable: true,           // Allow null
-  array: true,              // Validate as array
-  default: "unknown",       // Default value
+  optional: true, // Allow undefined
+  nullable: true, // Allow null
+  array: true, // Validate as array
+  default: "unknown", // Default value
   transform: (s) => s.trim(), // Transform output
-  schema: customValidator,  // Additional StandardSchema
+  schema: customValidator, // Additional StandardSchema
 });
 ```
 
 ### Object Schemas
 
 ```typescript
-v.object({
-  id: v.string(),
-  name: v.string(),
-  age: v.number({ optional: true }),
-}, {
-  partial: true,   // All fields optional (default: true)
-  strict: true,    // Reject unknown keys (default: true)
-  optional: true,  // Object itself can be undefined
-  nullable: true,  // Object itself can be null
-  array: true,     // Validate as array of objects
-});
+v.object(
+  {
+    id: v.string(),
+    name: v.string(),
+    age: v.number({ optional: true }),
+  },
+  {
+    partial: true, // All fields optional (default: true)
+    strict: true, // Reject unknown keys (default: true)
+    optional: true, // Object itself can be undefined
+    nullable: true, // Object itself can be null
+    array: true, // Validate as array of objects
+  }
+);
 ```
 
 ### Wrapper Schemas
 
 ```typescript
-v.array(v.string())              // string[]
-v.nullable(v.string())           // string | null
-v.optional(v.string())           // string | undefined
-v.union([v.string(), v.number()]) // string | number
-v.record(v.string(), v.number()) // Record<string, number>
+v.array(v.string()); // string[]
+v.nullable(v.string()); // string | null
+v.optional(v.string()); // string | undefined
+v.union([v.string(), v.number()]); // string | number
+v.record(v.string(), v.number()); // Record<string, number>
 
 // Negative wrappers
-v.nonNullable(schema)  // Remove null from type
-v.nonOptional(schema)  // Remove undefined from type
-v.nonArray(schema)     // Extract element type
+v.nonNullable(schema); // Remove null from type
+v.nonOptional(schema); // Remove undefined from type
+v.nonArray(schema); // Extract element type
 
 // Transform wrapper
-v.transform(v.string(), (s) => s.toUpperCase())
+v.transform(v.string(), (s) => s.toUpperCase());
 ```
 
 ## Integration with ORM
@@ -371,7 +378,7 @@ Each field type exposes validation schemas:
 export const stringFieldSchemas = {
   base: v.string(),
   filter: v.union([
-    v.string(),  // Shorthand: "foo" → { equals: "foo" }
+    v.string(), // Shorthand: "foo" → { equals: "foo" }
     v.object({
       equals: v.string({ optional: true }),
       in: v.string({ array: true, optional: true }),
@@ -427,11 +434,14 @@ const post = s.model("post", {
 const userWhereSchema = v.object({
   id: v.string({ optional: true }),
   name: v.string({ optional: true }),
-  posts: v.object({
-    some: () => postWhereSchema,  // Thunk
-    every: () => postWhereSchema,
-    none: () => postWhereSchema,
-  }, { optional: true }),
+  posts: v.object(
+    {
+      some: () => postWhereSchema, // Thunk
+      every: () => postWhereSchema,
+      none: () => postWhereSchema,
+    },
+    { optional: true }
+  ),
 });
 ```
 
@@ -440,8 +450,8 @@ const userWhereSchema = v.object({
 ### Input vs Output Types
 
 ```typescript
-const schema = v.string({ 
-  transform: (s) => s.length 
+const schema = v.string({
+  transform: (s) => s.length,
 });
 
 type Input = StandardSchemaV1.InferInput<typeof schema>;
@@ -542,40 +552,49 @@ VibORM schemas implement `StandardJSONSchemaV1`, enabling conversion to JSON Sch
 ### Basic Usage
 
 ```typescript
-const userSchema = v.object({
-  name: v.string(),
-  email: v.string(),
-  age: v.number({ optional: true }),
-}, { name: "User", partial: false });
+const userSchema = v.object(
+  {
+    name: v.string(),
+    email: v.string(),
+    age: v.number({ optional: true }),
+  },
+  { name: "User", partial: false }
+);
 
 // Convert to JSON Schema
 const jsonSchema = userSchema["~standard"].jsonSchema.output({
-  target: "draft-07",  // or "draft-2020-12", "openapi-3.0"
+  target: "draft-07", // or "draft-2020-12", "openapi-3.0"
 });
 ```
 
 ### Supported Targets
 
-| Target | Description |
-|--------|-------------|
-| `draft-07` | JSON Schema Draft 7 (widely used) |
+| Target          | Description                        |
+| --------------- | ---------------------------------- |
+| `draft-07`      | JSON Schema Draft 7 (widely used)  |
 | `draft-2020-12` | JSON Schema Draft 2020-12 (latest) |
-| `openapi-3.0` | OpenAPI 3.0 compatible |
+| `openapi-3.0`   | OpenAPI 3.0 compatible             |
 
 ### Circular References with $ref
 
 Named object schemas automatically use `$ref` for reusability:
 
 ```typescript
-const author = v.object({
-  name: v.string(),
-  posts: () => v.array(post),
-}, { name: "Author" });
+const author = v.object(
+  {
+    name: v.string(),
+    posts: () => v.array(post),
+  },
+  { name: "Author" }
+);
 
-const post = v.object({
-  title: v.string(),
-  author: () => author,
-}, { name: "Post" });
+const post = v.object(
+  {
+    title: v.string(),
+    author: () => author,
+  },
+  { name: "Post" }
+);
 
 // Converts to:
 // {
@@ -589,30 +608,32 @@ const post = v.object({
 ```
 
 <Callout type="info">
-  Only named schemas (with `name` option) generate `$ref` entries. Unnamed schemas are inlined. Multiple references to the same named schema share a single `$defs` entry.
+  Only named schemas (with `name` option) generate `$ref` entries. Unnamed
+  schemas are inlined. Multiple references to the same named schema share a
+  single `$defs` entry.
 </Callout>
 
 ### Schema Type Mappings
 
-| VibORM Schema | JSON Schema |
-|---------------|-------------|
-| `string` | `{ type: "string" }` |
-| `number` | `{ type: "number" }` |
-| `integer` | `{ type: "integer" }` |
-| `boolean` | `{ type: "boolean" }` |
-| `bigint` | `{ type: "integer" }` |
-| `literal(x)` | `{ const: x }` |
-| `enum_(values)` | `{ enum: values }` |
-| `nullable(x)` | `{ anyOf: [schema, { type: "null" }] }` |
-| `array(x)` | `{ type: "array", items: schema }` |
-| `union([...])` | `{ anyOf: [...] }` |
-| `record(k, v)` | `{ type: "object", additionalProperties: valueSchema }` |
-| `date` | `{ type: "string", format: "date-time" }` |
-| `isoDate` | `{ type: "string", format: "date" }` |
-| `blob` | `{ type: "string", contentEncoding: "base64" }` |
-| `vector(n)` | `{ type: "array", items: { type: "number" }, minItems: n, maxItems: n }` |
-| `instance(Date)` | `{ type: "string", format: "date-time" }` |
-| `instance(Custom)` | `{ type: "object", "x-instance": "Custom" }` |
+| VibORM Schema      | JSON Schema                                                              |
+| ------------------ | ------------------------------------------------------------------------ |
+| `string`           | `{ type: "string" }`                                                     |
+| `number`           | `{ type: "number" }`                                                     |
+| `integer`          | `{ type: "integer" }`                                                    |
+| `boolean`          | `{ type: "boolean" }`                                                    |
+| `bigint`           | `{ type: "integer" }`                                                    |
+| `literal(x)`       | `{ const: x }`                                                           |
+| `enum_(values)`    | `{ enum: values }`                                                       |
+| `nullable(x)`      | `{ anyOf: [schema, { type: "null" }] }`                                  |
+| `array(x)`         | `{ type: "array", items: schema }`                                       |
+| `union([...])`     | `{ anyOf: [...] }`                                                       |
+| `record(k, v)`     | `{ type: "object", additionalProperties: valueSchema }`                  |
+| `date`             | `{ type: "string", format: "date-time" }`                                |
+| `isoDate`          | `{ type: "string", format: "date" }`                                     |
+| `blob`             | `{ type: "string", contentEncoding: "base64" }`                          |
+| `vector(n)`        | `{ type: "array", items: { type: "number" }, minItems: n, maxItems: n }` |
+| `instance(Date)`   | `{ type: "string", format: "date-time" }`                                |
+| `instance(Custom)` | `{ type: "object", "x-instance": "Custom" }`                             |
 
 ### Lazy Instantiation
 

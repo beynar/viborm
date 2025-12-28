@@ -13,14 +13,10 @@ import v, {
 } from "../../../validation";
 import { EnumValues } from "../../../validation/schemas/enum";
 
-export const enumBase = <Values extends string[]>(values: Values) =>
-  v.enum(values);
-export const enumNullable = <Values extends string[]>(values: Values) =>
-  v.enum(values, { nullable: true });
-export const enumList = <Values extends string[]>(values: Values) =>
+const enumBase = <Values extends string[]>(values: Values) => v.enum(values);
+
+const enumList = <Values extends string[]>(values: Values) =>
   v.enum(values, { array: true });
-export const enumListNullable = <Values extends string[]>(values: Values) =>
-  v.enum(values, { array: true, nullable: true });
 
 const buildEnumFilterSchema = <S extends VibSchema, Values extends string[]>(
   schema: S,

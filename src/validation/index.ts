@@ -89,6 +89,7 @@ export {
   element,
   // Objects
   object,
+  fromObject,
   // Composition
   union,
   pipe,
@@ -164,6 +165,9 @@ export type {
   ObjectSchema,
   ObjectEntries,
   ObjectOptions,
+  FromObjectSchema,
+  FromObjectOptions,
+  AllPathsToSchemas,
 
   // Composition types
   UnionSchema,
@@ -206,6 +210,7 @@ import {
   nonArray as nonArrayFn,
   element as elementFn,
   object as objectFn,
+  fromObject as fromObjectFn,
   union as unionFn,
   pipe as pipeFn,
   transformAction as transformActionFn,
@@ -267,6 +272,7 @@ export const v = {
   element: elementFn,
   // Objects
   object: objectFn,
+  fromObject: fromObjectFn,
   // Composition
   union: unionFn,
   pipe: pipeFn,

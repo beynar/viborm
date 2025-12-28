@@ -33,7 +33,10 @@ const NOT_STRING_OR_DATE_ERROR = Object.freeze({
 
 export interface BaseIsoTimestampSchema<
   Opts extends ScalarOptions<string, any> | undefined = undefined
-> extends VibSchema<ComputeInput<string | Date, Opts>, ComputeOutput<string, Opts>> {}
+> extends VibSchema<
+    ComputeInput<string | Date, Opts>,
+    ComputeOutput<string, Opts>
+  > {}
 
 export interface IsoTimestampSchema<TInput = string | Date, TOutput = string>
   extends VibSchema<TInput, TOutput> {
@@ -105,7 +108,10 @@ export function isoTimestamp<
 
 export interface BaseIsoDateSchema<
   Opts extends ScalarOptions<string, any> | undefined = undefined
-> extends VibSchema<ComputeInput<string | Date, Opts>, ComputeOutput<string, Opts>> {}
+> extends VibSchema<
+    ComputeInput<string | Date, Opts>,
+    ComputeOutput<string, Opts>
+  > {}
 
 export interface IsoDateSchema<TInput = string | Date, TOutput = string>
   extends VibSchema<TInput, TOutput> {
@@ -155,7 +161,10 @@ export function isoDate<
   const Opts extends ScalarOptions<string, any> | undefined = undefined
 >(
   options?: Opts
-): IsoDateSchema<ComputeInput<string | Date, Opts>, ComputeOutput<string, Opts>> {
+): IsoDateSchema<
+  ComputeInput<string | Date, Opts>,
+  ComputeOutput<string, Opts>
+> {
   return buildSchema("iso_date", validateIsoDate, options) as IsoDateSchema<
     ComputeInput<string | Date, Opts>,
     ComputeOutput<string, Opts>
@@ -168,7 +177,10 @@ export function isoDate<
 
 export interface BaseIsoTimeSchema<
   Opts extends ScalarOptions<string, any> | undefined = undefined
-> extends VibSchema<ComputeInput<string | Date, Opts>, ComputeOutput<string, Opts>> {}
+> extends VibSchema<
+    ComputeInput<string | Date, Opts>,
+    ComputeOutput<string, Opts>
+  > {}
 
 export interface IsoTimeSchema<TInput = string | Date, TOutput = string>
   extends VibSchema<TInput, TOutput> {
@@ -235,7 +247,10 @@ export function isoTime<
   const Opts extends ScalarOptions<string, any> | undefined = undefined
 >(
   options?: Opts
-): IsoTimeSchema<ComputeInput<string | Date, Opts>, ComputeOutput<string, Opts>> {
+): IsoTimeSchema<
+  ComputeInput<string | Date, Opts>,
+  ComputeOutput<string, Opts>
+> {
   return buildSchema("iso_time", validateIsoTime, options) as IsoTimeSchema<
     ComputeInput<string | Date, Opts>,
     ComputeOutput<string, Opts>

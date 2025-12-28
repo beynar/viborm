@@ -4,7 +4,11 @@
  */
 
 import type { VibSchema } from "../types";
-import type { JsonSchemaConverter, JsonSchemaOptions, SUPPORTED_TARGETS } from "./types";
+import type {
+  JsonSchemaConverter,
+  JsonSchemaOptions,
+  SUPPORTED_TARGETS,
+} from "./types";
 import { toJsonSchema } from "./converters";
 
 /**
@@ -40,4 +44,3 @@ export function createJsonSchemaConverter(
     },
   };
 }
-

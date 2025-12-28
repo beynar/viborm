@@ -77,9 +77,11 @@ describe("vector schema", () => {
     const schema = vector(undefined, { array: true });
 
     test("validates array of vectors", () => {
-      const result = schema["~standard"].validate([[1, 2], [3, 4]]);
+      const result = schema["~standard"].validate([
+        [1, 2],
+        [3, 4],
+      ]);
       expect(result.issues).toBeUndefined();
     });
   });
 });
-

@@ -60,7 +60,7 @@ export const buildPointSchema = <F extends FieldState<"point">>(state: F) => {
   } as PointSchemas<F>;
 };
 
-type PointSchemas<F extends FieldState<"point">> = {
+export type PointSchemas<F extends FieldState<"point">> = {
   base: F["base"];
   create: BasePointSchema<F>;
   update: ReturnType<typeof buildPointUpdateSchema<F["base"]>>;

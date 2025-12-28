@@ -10,16 +10,13 @@ import {
   DefaultValueInput,
 } from "../common";
 import type { NativeType } from "../native-types";
-import { buildBooleanSchema, booleanBase } from "./schemas";
+import { buildBooleanSchema, booleanBase, BooleanSchemas } from "./schemas";
 import v, { BaseBooleanSchema } from "../../../validation";
-
-// =============================================================================
-// BOOLEAN FIELD CLASS
-// =============================================================================
 
 export class BooleanField<State extends FieldState<"boolean">> {
   /** Name slots hydrated by client at initialization */
   private _names: SchemaNames = {};
+  private _schemas: BooleanSchemas<State> | undefined;
 
   constructor(private state: State, private _nativeType?: NativeType) {}
 
@@ -111,25 +108,15 @@ export class BooleanField<State extends FieldState<"boolean">> {
     ) as this;
   }
 
-  // ===========================================================================
-  // ACCESSORS
-  // ===========================================================================
-
-  #cached_schemas: ReturnType<typeof buildBooleanSchema<State>> | undefined;
-
   get ["~"]() {
     return {
       state: this.state,
-      schemas: (this.#cached_schemas ??= buildBooleanSchema(this.state)),
+      schemas: (this._schemas ??= buildBooleanSchema(this.state)),
       nativeType: this._nativeType,
       names: this._names,
     };
   }
 }
-
-// =============================================================================
-// FACTORY FUNCTION
-// =============================================================================
 
 export const boolean = (nativeType?: NativeType) =>
   new BooleanField(createDefaultState("boolean", booleanBase), nativeType);

@@ -9,11 +9,11 @@
  * For each variant, tests:
  * - base: The element/field type
  * - create: Input type for creation + runtime validation
- * - update: Input type for updates (no shorthand - must use { set: value })
+ * - update: Input type for updates (shorthand - accepts raw value, coerces to { set: value })
  * - filter: Input type for filtering (no shorthand - must use { equals: value })
  *
- * Note: JSON fields do NOT support shorthand syntax because JSON values can be objects,
- * making it impossible to distinguish between operations and values. This matches Prisma's behavior.
+ * Note: JSON update fields support shorthand syntax - raw values are automatically coerced to { set: value }.
+ * This allows convenient updates like: update({ data: { foo: "bar" } }) instead of update({ data: { set: { foo: "bar" } } }).
  */
 
 import { describe, test, expect, expectTypeOf } from "vitest";
@@ -140,35 +140,38 @@ describe("Raw JSON Field", () => {
   });
 
   describe("update", () => {
-    // JSON does NOT support shorthand - must use { set: value }
-    test("type: update accepts set operation", () => {
+    // JSON update supports shorthand - raw values are coerced to { set: value }
+    test("type: update accepts raw value (shorthand)", () => {
       type Update = InferJsonInput<State, "update">;
-      expectTypeOf<{ set: { foo: string } }>().toExtend<Update>();
+      expectTypeOf<{ foo: string }>().toExtend<Update>();
+      expectTypeOf<number>().toExtend<Update>();
+      expectTypeOf<string>().toExtend<Update>();
+      expectTypeOf<null>().toExtend<Update>();
     });
 
-    test("runtime: set operation passes through", () => {
+    test("runtime: raw object value coerces to set", () => {
       const data = { name: "test" };
-      const result = parse(schemas.update, { set: data });
+      const result = parse(schemas.update, data);
       if (result.issues) throw new Error("Expected success");
       expect(result.value).toEqual({ set: data });
     });
 
-    test("runtime: set with primitive", () => {
-      const r1 = parse(schemas.update, { set: 42 });
+    test("runtime: raw primitive values coerce to set", () => {
+      const r1 = parse(schemas.update, 42);
       if (r1.issues) throw new Error("Expected success");
       expect(r1.value).toEqual({ set: 42 });
 
-      const r2 = parse(schemas.update, { set: "hello" });
+      const r2 = parse(schemas.update, "hello");
       if (r2.issues) throw new Error("Expected success");
       expect(r2.value).toEqual({ set: "hello" });
 
-      const r3 = parse(schemas.update, { set: null });
+      const r3 = parse(schemas.update, null);
       if (r3.issues) throw new Error("Expected success");
       expect(r3.value).toEqual({ set: null });
     });
 
-    test("runtime: set with array", () => {
-      const result = parse(schemas.update, { set: [1, 2, 3] });
+    test("runtime: raw array value coerces to set", () => {
+      const result = parse(schemas.update, [1, 2, 3]);
       if (result.issues) throw new Error("Expected success");
       expect(result.value).toEqual({ set: [1, 2, 3] });
     });
@@ -315,20 +318,20 @@ describe("Nullable JSON Field", () => {
   });
 
   describe("update", () => {
-    test("type: update accepts null in set", () => {
+    test("type: update accepts raw value (shorthand)", () => {
       type Update = InferJsonInput<State, "update">;
-      expectTypeOf<{ set: null }>().toExtend<Update>();
-      expectTypeOf<{ set: { foo: string } | null }>().toExtend<Update>();
+      expectTypeOf<null>().toExtend<Update>();
+      expectTypeOf<{ foo: string }>().toExtend<Update>();
     });
 
-    test("runtime: set null passes through", () => {
-      const result = parse(schemas.update, { set: null });
+    test("runtime: raw null value coerces to set", () => {
+      const result = parse(schemas.update, null);
       if (result.issues) throw new Error("Expected success");
       expect(result.value).toEqual({ set: null });
     });
 
-    test("runtime: set object passes through", () => {
-      const result = parse(schemas.update, { set: { data: "test" } });
+    test("runtime: raw object value coerces to set", () => {
+      const result = parse(schemas.update, { data: "test" });
       if (result.issues) throw new Error("Expected success");
       expect(result.value).toEqual({ set: { data: "test" } });
     });
@@ -413,19 +416,19 @@ describe("Custom Schema JSON Field", () => {
   });
 
   describe("update", () => {
-    test("type: update accepts User in set", () => {
+    test("type: update accepts raw User value (shorthand)", () => {
       type Update = InferJsonInput<State, "update">;
-      expectTypeOf<{ set: User }>().toExtend<Update>();
+      expectTypeOf<User>().toExtend<Update>();
     });
 
-    test("runtime: set valid user passes through", () => {
-      const result = parse(schemas.update, { set: validUser });
+    test("runtime: raw valid user value coerces to set", () => {
+      const result = parse(schemas.update, validUser);
       if (result.issues) throw new Error("Expected success");
       expect(result.value).toEqual({ set: validUser });
     });
 
     test("runtime: validates against custom schema", () => {
-      const result = parse(schemas.update, { set: { name: "Invalid" } });
+      const result = parse(schemas.update, { name: "Invalid" });
       expect(result.issues).toBeDefined();
     });
   });

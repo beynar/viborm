@@ -45,7 +45,9 @@ describe("circular references with thunks", () => {
       const _check: _CheckNotAny = true;
 
       // Should be able to access nested properties
-      type FriendName = UserOutput["friend"] extends { name: infer N } ? N : never;
+      type FriendName = UserOutput["friend"] extends { name: infer N }
+        ? N
+        : never;
       expectTypeOf<FriendName>().toEqualTypeOf<string>();
     });
   });
@@ -119,10 +121,13 @@ describe("circular references with thunks", () => {
       type UserOutput = StandardSchemaV1.InferOutput<typeof user>;
       type Friend = UserOutput["friend"];
       type FriendFriend = Friend extends { friend: infer F } ? F : never;
-      type FriendFriendFriend = FriendFriend extends { friend: infer F } ? F : never;
-      type DeepFriendName = FriendFriendFriend extends { name: infer N } ? N : never;
+      type FriendFriendFriend = FriendFriend extends { friend: infer F }
+        ? F
+        : never;
+      type DeepFriendName = FriendFriendFriend extends { name: infer N }
+        ? N
+        : never;
       expectTypeOf<DeepFriendName>().toEqualTypeOf<string>();
     });
   });
 });
-

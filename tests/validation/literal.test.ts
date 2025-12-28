@@ -96,7 +96,10 @@ describe("literal schema", () => {
     test("validates array of literals", () => {
       const result = schema["~standard"].validate(["admin", "admin"]);
       expect(result.issues).toBeUndefined();
-      expect((result as { value: "admin"[] }).value).toEqual(["admin", "admin"]);
+      expect((result as { value: "admin"[] }).value).toEqual([
+        "admin",
+        "admin",
+      ]);
     });
 
     test("rejects array with non-matching items", () => {
@@ -115,4 +118,3 @@ describe("literal schema", () => {
     });
   });
 });
-

@@ -11,23 +11,16 @@ import {
   DefaultValueInput,
 } from "../common";
 import type { NativeType } from "../native-types";
-import { buildDateSchema, dateBase } from "./schemas";
+import { buildDateSchema, dateBase, DateSchemas } from "./schemas";
 import v, { BaseIsoDateSchema } from "../../../validation";
-
-// =============================================================================
-// AUTO-GENERATION DEFAULT VALUE FACTORIES
-// =============================================================================
 
 const defaultNow = () => new Date().toISOString().split("T")[0]!;
 const defaultUpdatedAt = () => new Date().toISOString().split("T")[0]!;
 
-// =============================================================================
-// DATE FIELD CLASS
-// =============================================================================
-
 export class DateField<State extends FieldState<"date">> {
   /** Name slots hydrated by client at initialization */
   private _names: SchemaNames = {};
+  private _schemas: DateSchemas<State> | undefined;
 
   constructor(private state: State, private _nativeType?: NativeType) {}
 
@@ -163,10 +156,6 @@ export class DateField<State extends FieldState<"date">> {
     ) as this;
   }
 
-  // ===========================================================================
-  // AUTO-GENERATION METHODS
-  // ===========================================================================
-
   now(): DateField<
     UpdateState<
       State,
@@ -213,25 +202,15 @@ export class DateField<State extends FieldState<"date">> {
     );
   }
 
-  // ===========================================================================
-  // ACCESSORS
-  // ===========================================================================
-
-  #cached_schemas: ReturnType<typeof buildDateSchema<State>> | undefined;
-
   get ["~"]() {
     return {
       state: this.state,
-      schemas: (this.#cached_schemas ??= buildDateSchema(this.state)),
+      schemas: (this._schemas ??= buildDateSchema(this.state)),
       nativeType: this._nativeType,
       names: this._names,
     };
   }
 }
-
-// =============================================================================
-// FACTORY FUNCTION
-// =============================================================================
 
 export const date = (nativeType?: NativeType) =>
   new DateField(createDefaultState("date", dateBase), nativeType);

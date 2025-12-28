@@ -183,7 +183,7 @@ export const buildIntSchema = <F extends FieldState<"int">>(state: F) => {
   } as IntSchemas<F>;
 };
 
-type IntSchemas<F extends FieldState<"int">> = {
+export type IntSchemas<F extends FieldState<"int">> = {
   base: F["base"];
   create: BaseIntegerSchema<F>;
   update: F["array"] extends true
@@ -221,7 +221,7 @@ export const buildFloatSchema = <F extends FieldState<"float">>(state: F) => {
   } as FloatSchemas<F>;
 };
 
-type FloatSchemas<F extends FieldState<"float">> = {
+export type FloatSchemas<F extends FieldState<"float">> = {
   base: F["base"];
   create: BaseNumberSchema<F>;
   update: F["array"] extends true
@@ -261,7 +261,7 @@ export const buildDecimalSchema = <F extends FieldState<"decimal">>(
   } as DecimalSchemas<F>;
 };
 
-type DecimalSchemas<F extends FieldState<"decimal">> = {
+export type DecimalSchemas<F extends FieldState<"decimal">> = {
   base: F["base"];
   create: BaseNumberSchema<F>;
   update: F["array"] extends true

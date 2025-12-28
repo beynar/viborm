@@ -83,7 +83,10 @@ describe("date schema", () => {
     });
 
     test("rejects array with invalid dates", () => {
-      const result = schema["~standard"].validate([new Date(), new Date("invalid")]);
+      const result = schema["~standard"].validate([
+        new Date(),
+        new Date("invalid"),
+      ]);
       expect(result.issues).toBeDefined();
     });
   });
@@ -114,4 +117,3 @@ describe("date schema", () => {
     });
   });
 });
-
