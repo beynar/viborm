@@ -62,6 +62,8 @@ export interface RelationInfo {
   name: string;
   relation: AnyRelation;
   targetModel: Model<any>;
+  /** Relation type: oneToOne, oneToMany, manyToOne, manyToMany */
+  type: "oneToOne" | "oneToMany" | "manyToOne" | "manyToMany";
   isToMany: boolean;
   isToOne: boolean;
   isOptional: boolean;
@@ -77,7 +79,7 @@ export interface RelationInfo {
 export class ValidationError extends Error {
   constructor(
     public readonly operation: Operation,
-    public readonly details: string
+    public readonly details: string,
   ) {
     super(`Validation failed for ${operation}: ${details}`);
     this.name = "ValidationError";
@@ -102,7 +104,7 @@ export class NestedWriteError extends QueryEngineError {
   constructor(
     message: string,
     public readonly relation: string,
-    public readonly cause?: Error
+    public readonly cause?: Error,
   ) {
     super(message);
     this.name = "NestedWriteError";

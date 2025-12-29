@@ -8,7 +8,12 @@
 
 import { sql, Sql } from "@sql";
 import type { QueryContext } from "../types";
-import { isScalarField, isRelation, getRelationInfo, getColumnName } from "../context";
+import {
+  isScalarField,
+  isRelation,
+  getRelationInfo,
+  getColumnName,
+} from "../context";
 import { buildRelationFilter } from "./relation-filter-builder";
 
 /**
@@ -22,7 +27,7 @@ import { buildRelationFilter } from "./relation-filter-builder";
 export function buildWhere(
   ctx: QueryContext,
   where: Record<string, unknown> | undefined,
-  alias: string
+  alias: string,
 ): Sql | undefined {
   if (!where || Object.keys(where).length === 0) {
     return undefined;
@@ -67,7 +72,7 @@ export function buildWhere(
           ctx,
           relationInfo,
           value as Record<string, unknown>,
-          alias
+          alias,
         );
         if (relationCondition) conditions.push(relationCondition);
       }
@@ -88,7 +93,7 @@ export function buildWhere(
 function buildLogicalAnd(
   ctx: QueryContext,
   value: unknown,
-  alias: string
+  alias: string,
 ): Sql | undefined {
   const items = Array.isArray(value) ? value : [value];
   const conditions: Sql[] = [];
@@ -108,7 +113,7 @@ function buildLogicalAnd(
 function buildLogicalOr(
   ctx: QueryContext,
   value: unknown,
-  alias: string
+  alias: string,
 ): Sql | undefined {
   if (!Array.isArray(value)) return undefined;
 
@@ -129,7 +134,7 @@ function buildLogicalOr(
 function buildLogicalNot(
   ctx: QueryContext,
   value: unknown,
-  alias: string
+  alias: string,
 ): Sql | undefined {
   const items = Array.isArray(value) ? value : [value];
   const conditions: Sql[] = [];
@@ -159,7 +164,7 @@ function buildScalarFilter(
   ctx: QueryContext,
   fieldName: string,
   value: unknown,
-  alias: string
+  alias: string,
 ): Sql | undefined {
   // Resolve field name to actual column name (handles .map() overrides)
   const columnName = getColumnName(ctx.model, fieldName);
@@ -168,7 +173,7 @@ function buildScalarFilter(
   // Schema validation guarantees value is always a filter object
   if (typeof value !== "object" || value === null) {
     throw new Error(
-      `Filter for '${fieldName}' must be a filter object (schema validation should have normalized this)`
+      `Filter for '${fieldName}' must be a filter object (schema validation should have normalized this)`,
     );
   }
 
@@ -177,7 +182,8 @@ function buildScalarFilter(
   const conditions: Sql[] = [];
 
   // Extract mode for case-insensitive operations
-  const mode: FilterMode = filter.mode === "insensitive" ? "insensitive" : "default";
+  const mode: FilterMode =
+    filter.mode === "insensitive" ? "insensitive" : "default";
 
   for (const [op, opValue] of Object.entries(filter)) {
     if (opValue === undefined) continue;
@@ -205,7 +211,7 @@ function buildFilterOperation(
   column: Sql,
   operation: string,
   value: unknown,
-  mode: FilterMode = "default"
+  mode: FilterMode = "default",
 ): Sql | undefined {
   const { adapter } = ctx;
   const lit = (v: unknown) => adapter.literals.value(v);
@@ -221,7 +227,12 @@ function buildFilterOperation(
       if (value === null) return adapter.operators.isNotNull(column);
       if (typeof value === "object" && value !== null) {
         // Nested filter: { not: { contains: "foo" } }
-        const nested = buildScalarFilterObject(ctx, column, value as Record<string, unknown>, mode);
+        const nested = buildScalarFilterObject(
+          ctx,
+          column,
+          value as Record<string, unknown>,
+          mode,
+        );
         return nested ? adapter.operators.not(nested) : undefined;
       }
       return adapter.operators.neq(column, lit(value));
@@ -248,7 +259,10 @@ function buildFilterOperation(
     case "notIn":
       if (!Array.isArray(value) || value.length === 0) return undefined;
       const notInValues = value.map((v) => lit(v));
-      return adapter.operators.notIn(column, adapter.literals.list(notInValues));
+      return adapter.operators.notIn(
+        column,
+        adapter.literals.list(notInValues),
+      );
 
     // String operations (respect case sensitivity mode)
     case "contains": {
@@ -278,14 +292,22 @@ function buildFilterOperation(
 
     case "hasEvery":
       if (!Array.isArray(value)) return undefined;
-      return adapter.arrays.hasEvery(column, adapter.arrays.literal(value.map(lit)));
+      return adapter.arrays.hasEvery(
+        column,
+        adapter.arrays.literal(value.map(lit)),
+      );
 
     case "hasSome":
       if (!Array.isArray(value)) return undefined;
-      return adapter.arrays.hasSome(column, adapter.arrays.literal(value.map(lit)));
+      return adapter.arrays.hasSome(
+        column,
+        adapter.arrays.literal(value.map(lit)),
+      );
 
     case "isEmpty":
-      return value ? adapter.arrays.isEmpty(column) : adapter.operators.not(adapter.arrays.isEmpty(column));
+      return value
+        ? adapter.arrays.isEmpty(column)
+        : adapter.operators.not(adapter.arrays.isEmpty(column));
 
     default:
       // Unknown operation, skip
@@ -300,12 +322,13 @@ function buildScalarFilterObject(
   ctx: QueryContext,
   column: Sql,
   filter: Record<string, unknown>,
-  mode: FilterMode = "default"
+  mode: FilterMode = "default",
 ): Sql | undefined {
   const conditions: Sql[] = [];
 
   // Nested filter may also have mode
-  const nestedMode: FilterMode = filter.mode === "insensitive" ? "insensitive" : mode;
+  const nestedMode: FilterMode =
+    filter.mode === "insensitive" ? "insensitive" : mode;
 
   for (const [op, value] of Object.entries(filter)) {
     if (value === undefined) continue;
@@ -330,7 +353,7 @@ function buildScalarFilterObject(
 export function buildWhereUnique(
   ctx: QueryContext,
   where: Record<string, unknown>,
-  alias: string
+  alias: string,
 ): Sql | undefined {
   const conditions: Sql[] = [];
 
@@ -347,7 +370,10 @@ export function buildWhereUnique(
         const columnName = getColumnName(ctx.model, fieldName);
         const column = ctx.adapter.identifiers.column(alias, columnName);
         conditions.push(
-          ctx.adapter.operators.eq(column, ctx.adapter.literals.value(fieldValue))
+          ctx.adapter.operators.eq(
+            column,
+            ctx.adapter.literals.value(fieldValue),
+          ),
         );
       }
     } else {
@@ -356,7 +382,7 @@ export function buildWhereUnique(
       const columnName = getColumnName(ctx.model, key);
       const column = ctx.adapter.identifiers.column(alias, columnName);
       conditions.push(
-        ctx.adapter.operators.eq(column, ctx.adapter.literals.value(value))
+        ctx.adapter.operators.eq(column, ctx.adapter.literals.value(value)),
       );
     }
   }
@@ -364,4 +390,3 @@ export function buildWhereUnique(
   if (conditions.length === 0) return undefined;
   return ctx.adapter.operators.and(...conditions);
 }
-

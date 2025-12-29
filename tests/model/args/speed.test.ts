@@ -308,6 +308,7 @@ describe("Validation Speed (Pre-built Schema)", () => {
       );
 
       logResult(result);
+      expect(result.issues).toBeUndefined();
       expect(result.avgMs).toBeLessThan(15);
     });
   });

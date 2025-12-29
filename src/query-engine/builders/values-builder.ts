@@ -24,7 +24,7 @@ interface ValuesResult {
  */
 export function buildValues(
   ctx: QueryContext,
-  data: Record<string, unknown> | Record<string, unknown>[]
+  data: Record<string, unknown> | Record<string, unknown>[],
 ): ValuesResult {
   const records = Array.isArray(data) ? data : [data];
 
@@ -50,9 +50,9 @@ export function buildValues(
 
   // Check for auto-generated fields that weren't provided
   for (const fieldName of scalarFields) {
-    const field = ctx.model["~"].fieldMap.get(fieldName);
+    const field = ctx.model["~"].state.scalars[fieldName];
     if (field) {
-      const state = (field["~"] as any).state;
+      const state = field["~"].state;
       // Throw if field has auto-generate (uuid, ulid, cuid, etc.) but wasn't provided
       // and doesn't have a database default
       if (state?.autoGenerate && !fieldsSet.has(fieldName)) {
@@ -61,7 +61,7 @@ export function buildValues(
         if (genType !== "autoincrement") {
           throw new QueryEngineError(
             `Auto-generated value '${genType}' for field '${fieldName}' must be provided explicitly or ` +
-              `handled by the database. Application-level ID generation (uuid, ulid, cuid) is not yet implemented.`
+              `handled by the database. Application-level ID generation (uuid, ulid, cuid) is not yet implemented.`,
           );
         }
       }
@@ -72,7 +72,7 @@ export function buildValues(
   const fieldNames = Array.from(fieldsSet);
   // Map field names to actual column names (handles .map() overrides)
   const columns = fieldNames.map((fieldName) =>
-    getColumnName(ctx.model, fieldName)
+    getColumnName(ctx.model, fieldName),
   );
 
   // Build values for each record
@@ -98,7 +98,7 @@ export function buildValues(
 function buildFieldValue(
   ctx: QueryContext,
   fieldName: string,
-  value: unknown
+  value: unknown,
 ): Sql {
   if (value === undefined || value === null) {
     return ctx.adapter.literals.null();
@@ -110,8 +110,8 @@ function buildFieldValue(
   }
 
   // Get field type if available
-  const field = ctx.model["~"].fieldMap.get(fieldName);
-  const fieldType = (field?.["~"] as any)?.state?.type;
+  const field = ctx.model["~"].state.scalars[fieldName];
+  const fieldType = field?.["~"]?.state?.type;
 
   // Handle JSON fields - adapter handles dialect-specific serialization
   if (fieldType === "json" && typeof value === "object") {
@@ -141,7 +141,7 @@ function isSql(value: unknown): value is Sql {
 export function buildInsert(
   ctx: QueryContext,
   tableName: string,
-  data: Record<string, unknown>
+  data: Record<string, unknown>,
 ): Sql {
   const { columns, values } = buildValues(ctx, data);
 
@@ -160,7 +160,7 @@ export function buildInsert(
 export function buildInsertMany(
   ctx: QueryContext,
   tableName: string,
-  data: Record<string, unknown>[]
+  data: Record<string, unknown>[],
 ): Sql {
   const { columns, values } = buildValues(ctx, data);
 

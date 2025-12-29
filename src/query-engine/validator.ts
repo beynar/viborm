@@ -5,7 +5,7 @@
  * Maps operation names to schema keys and validates input.
  */
 
-import { safeParse, type BaseSchema } from "valibot";
+import { parse, type VibSchema } from "../validation";
 import type { Model } from "@schema/model";
 import { Operation, ValidationError } from "./types";
 
@@ -14,8 +14,8 @@ import { Operation, ValidationError } from "./types";
  */
 function getOperationSchema(
   model: Model<any>,
-  operation: Operation
-): BaseSchema<any, any, any> | undefined {
+  operation: Operation,
+): VibSchema | undefined {
   const schemas = model["~"].schemas;
 
   // Map operations to their schema locations
@@ -66,27 +66,30 @@ function getOperationSchema(
 export function validate<T>(
   model: Model<any>,
   operation: Operation,
-  input: unknown
+  input: unknown,
 ): T {
   const schema = getOperationSchema(model, operation);
 
   if (!schema) {
     throw new ValidationError(
       operation,
-      `Schema not found for operation: ${operation}`
+      `Schema not found for operation: ${operation}`,
     );
   }
 
-  const result = safeParse(schema, input);
+  const result = parse(schema, input);
 
-  if (!result.success) {
+  if (result.issues) {
     const issues = result.issues
-      .map((issue) => `${issue.path?.map((p) => p.key).join(".") || "root"}: ${issue.message}`)
+      .map(
+        (issue) =>
+          `${issue.path?.map((p: any) => p.key).join(".") || "root"}: ${issue.message}`,
+      )
       .join("; ");
     throw new ValidationError(operation, issues);
   }
 
-  return result.output as T;
+  return result.value as T;
 }
 
 /**
@@ -95,7 +98,7 @@ export function validate<T>(
 export function validateOptional<T>(
   model: Model<any>,
   operation: Operation,
-  input: unknown
+  input: unknown,
 ): T | undefined {
   if (input === undefined || input === null) {
     return undefined;
