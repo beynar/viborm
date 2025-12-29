@@ -7,14 +7,14 @@
  *
  * Covers:
  * - Type inference with expectTypeOf
- * - Runtime validation with safeParse
+ * - Runtime validation with parse
  * - Output verification
  * - Nested field ordering
  * - Aggregate count ordering
  */
 
 import { describe, test, expect, expectTypeOf } from "vitest";
-import { safeParse, type InferInput } from "valibot";
+import { parse, type InferInput } from "../../src/validation";
 import {
   requiredManyToOneSchemas,
   requiredOneToManySchemas,
@@ -46,19 +46,19 @@ describe("ToOne OrderBy (Post.author)", () => {
   describe("runtime", () => {
     test("runtime: accepts nested orderBy on related model fields", () => {
       const input = { name: "asc" };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.output.name).toBe("asc");
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(result.value.name).toBe("asc");
       }
     });
 
     test("runtime: accepts nested orderBy with desc", () => {
       const input = { id: "desc" };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.output.id).toBe("desc");
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(result.value.id).toBe("desc");
       }
     });
 
@@ -67,25 +67,25 @@ describe("ToOne OrderBy (Post.author)", () => {
         name: "asc",
         email: "desc",
       };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.output.name).toBe("asc");
-        expect(result.output.email).toBe("desc");
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(result.value.name).toBe("asc");
+        expect(result.value.email).toBe("desc");
       }
     });
 
     test("runtime: accepts empty object", () => {
-      const result = safeParse(schema, {});
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.output).toEqual({});
+      const result = parse(schema, {});
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(result.value).toEqual({});
       }
     });
 
     test("runtime: rejects invalid order value", () => {
-      const result = safeParse(schema, { name: "invalid" });
-      expect(result.success).toBe(false);
+      const result = parse(schema, { name: "invalid" });
+      expect(result.issues).toBeDefined();
     });
   });
 });
@@ -107,33 +107,33 @@ describe("ToMany OrderBy (Author.posts)", () => {
   describe("runtime", () => {
     test("runtime: accepts _count ascending", () => {
       const input = { _count: "asc" };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.output._count).toBe("asc");
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(result.value._count).toBe("asc");
       }
     });
 
     test("runtime: accepts _count descending", () => {
       const input = { _count: "desc" };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.output._count).toBe("desc");
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(result.value._count).toBe("desc");
       }
     });
 
     test("runtime: accepts empty object", () => {
-      const result = safeParse(schema, {});
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.output).toEqual({});
+      const result = parse(schema, {});
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(result.value).toEqual({});
       }
     });
 
     test("runtime: rejects invalid _count value", () => {
-      const result = safeParse(schema, { _count: "invalid" });
-      expect(result.success).toBe(false);
+      const result = parse(schema, { _count: "invalid" });
+      expect(result.issues).toBeDefined();
     });
   });
 });
@@ -148,10 +148,10 @@ describe("Optional ToOne OrderBy (Profile.user)", () => {
   describe("runtime", () => {
     test("runtime: accepts nested field ordering for optional relation", () => {
       const input = { username: "asc" };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.output.username).toBe("asc");
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(result.value.username).toBe("asc");
       }
     });
 
@@ -160,11 +160,11 @@ describe("Optional ToOne OrderBy (Profile.user)", () => {
         id: "desc",
         username: "asc",
       };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.output.id).toBe("desc");
-        expect(result.output.username).toBe("asc");
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(result.value.id).toBe("desc");
+        expect(result.value.username).toBe("asc");
       }
     });
   });
@@ -180,19 +180,19 @@ describe("Self-Referential OrderBy (User.subordinates)", () => {
   describe("runtime", () => {
     test("runtime: accepts _count for self-referential relation", () => {
       const input = { _count: "asc" };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.output._count).toBe("asc");
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(result.value._count).toBe("asc");
       }
     });
 
     test("runtime: accepts _count descending", () => {
       const input = { _count: "desc" };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.output._count).toBe("desc");
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(result.value._count).toBe("desc");
       }
     });
   });

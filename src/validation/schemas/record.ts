@@ -1,8 +1,15 @@
-import type { VibSchema, InferInput, InferOutput } from "../types";
+import type {
+  VibSchema,
+  InferInput,
+  InferOutput,
+  ThunkCast,
+  Cast,
+} from "../types";
 import { fail, ok, createSchema, validateSchema } from "../helpers";
+import { object, ObjectSchema, ObjectOptions } from "./object";
 
 // =============================================================================
-// Record Schema
+// Record Schema (dynamic keys)
 // =============================================================================
 
 export interface RecordSchema<
@@ -69,4 +76,95 @@ export function record<
   (schema as any).value = value;
 
   return schema;
+}
+
+// =============================================================================
+// FromKeys Schema (static keys with same value schema)
+// =============================================================================
+
+/**
+ * Schema entry type - VibSchema or ThunkCast for circular references.
+ */
+type SchemaEntry =
+  | VibSchema<any, any>
+  | ThunkCast<any, any>
+  | (() => Cast<any, any>);
+
+/**
+ * Normalize a schema entry to VibSchema for type extraction.
+ */
+type NormalizeEntry<T> = T extends VibSchema<infer I, infer O>
+  ? VibSchema<I, O>
+  : T extends ThunkCast<infer I, infer O>
+  ? VibSchema<I, O>
+  : T extends () => Cast<infer I, infer O>
+  ? VibSchema<I, O>
+  : never;
+
+/**
+ * Compute entries from a tuple of keys and a schema.
+ */
+type ComputeEntriesFromKeys<
+  TKeys extends readonly string[],
+  TSchema extends SchemaEntry
+> = {
+  [K in TKeys[number]]: NormalizeEntry<TSchema>;
+};
+
+/**
+ * Options for fromKeys (same as ObjectOptions).
+ */
+export type FromKeysOptions<T = unknown> = ObjectOptions<T>;
+
+/**
+ * Creates an object schema from an array of keys, all mapping to the same schema.
+ * This is a convenient wrapper around `object()` for creating uniform schemas.
+ *
+ * @param keys - Array of key names (use `as const` for type inference)
+ * @param schema - Schema to use for all keys (can be a thunk for circular refs)
+ * @param options - Schema options (same as object schema)
+ *
+ * @example
+ * // All keys have the same string schema
+ * const schema = v.fromKeys(["name", "email", "bio"] as const, v.string());
+ * // → ObjectSchema<{ name: string, email: string, bio: string }>
+ *
+ * @example
+ * // With options
+ * const optionalSchema = v.fromKeys(
+ *   ["user", "post"] as const,
+ *   v.number(),
+ *   { partial: false }
+ * );
+ * // → ObjectSchema<{ user: number, post: number }> (all required)
+ *
+ * @example
+ * // With thunks for circular references
+ * const nodeSchema: VibSchema<any, any> = v.object({ value: v.string() });
+ * const schema = v.fromKeys(
+ *   ["left", "right"] as const,
+ *   () => nodeSchema,
+ *   { optional: true }
+ * );
+ */
+export function fromKeys<
+  const TKeys extends readonly string[],
+  TSchema extends SchemaEntry,
+  const TOpts extends FromKeysOptions | undefined = undefined
+>(
+  keys: TKeys,
+  schema: TSchema,
+  options?: TOpts
+): ObjectSchema<ComputeEntriesFromKeys<TKeys, TSchema>, TOpts> {
+  // Build entries object from keys
+  const entries: Record<string, SchemaEntry> = {};
+  for (const key of keys) {
+    entries[key] = schema;
+  }
+
+  // Delegate to the existing object schema builder
+  return object(entries, options) as ObjectSchema<
+    ComputeEntriesFromKeys<TKeys, TSchema>,
+    TOpts
+  >;
 }

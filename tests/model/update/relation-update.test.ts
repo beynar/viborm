@@ -6,7 +6,7 @@
  */
 
 import { describe, test, expect, expectTypeOf } from "vitest";
-import { parse, safeParse } from "valibot";
+import { parse, InferInput } from "../../../src/validation";
 import {
   authorSchemas,
   postSchemas,
@@ -14,14 +14,13 @@ import {
   type AuthorState,
   type PostState,
 } from "../fixtures";
-import type { RelationUpdateInput } from "../../../src/schema/model/schemas/core";
 
 // =============================================================================
 // TYPE TESTS - Author Model (has oneToMany)
 // =============================================================================
 
 describe("Relation Update - Types (Author Model)", () => {
-  type Input = RelationUpdateInput<AuthorState>;
+  type Input = InferInput<typeof authorSchemas._update.relation>;
 
   test("type: includes relation field", () => {
     expectTypeOf<Input>().toHaveProperty("posts");
@@ -37,7 +36,7 @@ describe("Relation Update - Types (Author Model)", () => {
 // =============================================================================
 
 describe("Relation Update - Types (Post Model)", () => {
-  type Input = RelationUpdateInput<PostState>;
+  type Input = InferInput<typeof postSchemas._update.relation>;
 
   test("type: includes relation field", () => {
     expectTypeOf<Input>().toHaveProperty("author");
@@ -52,48 +51,48 @@ describe("Relation Update - Author Model Runtime (oneToMany)", () => {
   const schema = authorSchemas._update.relation;
 
   test("runtime: accepts empty object", () => {
-    const result = safeParse(schema, {});
-    expect(result.success).toBe(true);
+    const result = parse(schema, {});
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts create nested write", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         create: { id: "post-1", title: "Hello", authorId: "author-1" },
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts connect nested write", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         connect: { id: "existing-post-id" },
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts disconnect nested write", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         disconnect: { id: "post-to-disconnect" },
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts delete nested write", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         delete: { id: "post-to-delete" },
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts update nested write (single object)", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         update: {
           where: { id: "post-1" },
@@ -101,15 +100,15 @@ describe("Relation Update - Author Model Runtime (oneToMany)", () => {
         },
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
     // Single object should be normalized to array
-    if (result.success) {
-      expect(Array.isArray(result.output.posts?.update)).toBe(true);
+    if (!result.issues) {
+      expect(Array.isArray(result.value.posts?.update)).toBe(true);
     }
   });
 
   test("runtime: accepts update nested write (array)", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         update: [
           {
@@ -119,11 +118,11 @@ describe("Relation Update - Author Model Runtime (oneToMany)", () => {
         ],
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts updateMany nested write (single object)", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         updateMany: {
           where: { published: false },
@@ -131,33 +130,33 @@ describe("Relation Update - Author Model Runtime (oneToMany)", () => {
         },
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
     // Single object should be normalized to array
-    if (result.success) {
-      expect(Array.isArray(result.output.posts?.updateMany)).toBe(true);
+    if (!result.issues) {
+      expect(Array.isArray(result.value.posts?.updateMany)).toBe(true);
     }
   });
 
   test("runtime: accepts deleteMany nested write (single object)", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         deleteMany: { published: false },
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
     // Single object should be normalized to array
-    if (result.success) {
-      expect(Array.isArray(result.output.posts?.deleteMany)).toBe(true);
+    if (!result.issues) {
+      expect(Array.isArray(result.value.posts?.deleteMany)).toBe(true);
     }
   });
 
   test("runtime: accepts set to replace all", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         set: [{ id: "post-1" }, { id: "post-2" }],
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 });
 
@@ -169,44 +168,44 @@ describe("Relation Update - Post Model Runtime (manyToOne)", () => {
   const schema = postSchemas._update.relation;
 
   test("runtime: accepts empty object", () => {
-    const result = safeParse(schema, {});
-    expect(result.success).toBe(true);
+    const result = parse(schema, {});
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts connect nested write", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       author: {
         connect: { id: "author-id" },
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts disconnect for optional relation", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       author: {
         disconnect: true,
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts update nested write", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       author: {
         update: { name: "Updated Name" },
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts create nested write", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       author: {
         create: { id: "new-author", name: "New Author" },
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 });
 
@@ -218,14 +217,13 @@ describe("Relation Update - Simple Model Runtime (no relations)", () => {
   const schema = simpleSchemas._update.relation;
 
   test("runtime: accepts empty object", () => {
-    const result = safeParse(schema, {});
-    expect(result.success).toBe(true);
+    const result = parse(schema, {});
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: rejects unknown relation key (strict schema)", () => {
     // Schema is strict to prevent invalid SQL from extra keys
-    const result = safeParse(schema, { anyRelation: {} });
-    expect(result.success).toBe(false);
+    const result = parse(schema, { anyRelation: {} });
+    expect(result.issues).toBeDefined();
   });
 });
-

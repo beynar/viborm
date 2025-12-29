@@ -7,14 +7,14 @@
  *
  * Covers:
  * - Type inference with expectTypeOf
- * - Runtime validation with safeParse
+ * - Runtime validation with parse
  * - Output verification
  * - Array normalization for to-many relations
  * - Nested creation scenarios
  */
 
 import { describe, test, expect, expectTypeOf } from "vitest";
-import { safeParse, type InferInput } from "valibot";
+import { parse, type InferInput } from "../../src/validation";
 import {
   requiredManyToOneSchemas,
   requiredOneToManySchemas,
@@ -58,10 +58,10 @@ describe("ToOne Create - Required (Post.author)", () => {
           email: "alice@example.com",
         },
       };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.output.create).toEqual({
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(result.value.create).toEqual({
           id: "author-1",
           name: "Alice",
           email: "alice@example.com",
@@ -71,10 +71,10 @@ describe("ToOne Create - Required (Post.author)", () => {
 
     test("runtime: accepts connect with unique identifier", () => {
       const input = { connect: { id: "author-1" } };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.output.connect).toEqual({ id: "author-1" });
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(result.value.connect).toEqual({ id: "author-1" });
       }
     });
 
@@ -89,11 +89,11 @@ describe("ToOne Create - Required (Post.author)", () => {
           },
         },
       };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.output.connectOrCreate?.where).toEqual({ id: "author-1" });
-        expect(result.output.connectOrCreate?.create).toEqual({
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(result.value.connectOrCreate?.where).toEqual({ id: "author-1" });
+        expect(result.value.connectOrCreate?.create).toEqual({
           id: "author-1",
           name: "Alice",
           email: "alice@example.com",
@@ -102,20 +102,20 @@ describe("ToOne Create - Required (Post.author)", () => {
     });
 
     test("runtime: rejects create with missing required field", () => {
-      const result = safeParse(schema, {
+      const result = parse(schema, {
         create: {
           id: "author-1",
           // missing name and email
         },
       });
-      expect(result.success).toBe(false);
+      expect(result.issues).toBeDefined();
     });
 
     test("runtime: accepts empty object (all properties optional)", () => {
-      const result = safeParse(schema, {});
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.output).toEqual({});
+      const result = parse(schema, {});
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(result.value).toEqual({});
       }
     });
   });
@@ -136,29 +136,29 @@ describe("ToOne Create - Optional (Profile.user)", () => {
           username: "alice",
         },
       };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
         // Check the expected properties are preserved
-        expect(result.output.create?.id).toBe("user-1");
-        expect(result.output.create?.username).toBe("alice");
+        expect(result.value.create?.id).toBe("user-1");
+        expect(result.value.create?.username).toBe("alice");
       }
     });
 
     test("runtime: accepts connect for optional relation", () => {
       const input = { connect: { id: "user-1" } };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.output.connect).toEqual({ id: "user-1" });
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(result.value.connect).toEqual({ id: "user-1" });
       }
     });
 
     test("runtime: accepts empty object (relation remains unset)", () => {
-      const result = safeParse(schema, {});
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.output).toEqual({});
+      const result = parse(schema, {});
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(result.value).toEqual({});
       }
     });
   });
@@ -204,16 +204,16 @@ describe("ToMany Create - Required (Author.posts)", () => {
           authorId: "author-1",
         },
       };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
         // Single create is normalized to array
-        expect(Array.isArray(result.output.create)).toBe(true);
+        expect(Array.isArray(result.value.create)).toBe(true);
         // Verify expected properties are preserved
-        expect(result.output.create?.[0].id).toBe("post-1");
-        expect(result.output.create?.[0].title).toBe("Hello World");
-        expect(result.output.create?.[0].content).toBe("Content");
-        expect(result.output.create?.[0].authorId).toBe("author-1");
+        expect(result.value.create?.[0].id).toBe("post-1");
+        expect(result.value.create?.[0].title).toBe("Hello World");
+        expect(result.value.create?.[0].content).toBe("Content");
+        expect(result.value.create?.[0].authorId).toBe("author-1");
       }
     });
 
@@ -224,23 +224,23 @@ describe("ToMany Create - Required (Author.posts)", () => {
           { id: "post-2", title: "Post 2", content: "Content 2", authorId: "a1" },
         ],
       };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.output.create).toHaveLength(2);
-        expect(result.output.create?.[0].title).toBe("Post 1");
-        expect(result.output.create?.[1].title).toBe("Post 2");
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(result.value.create).toHaveLength(2);
+        expect(result.value.create?.[0].title).toBe("Post 1");
+        expect(result.value.create?.[1].title).toBe("Post 2");
       }
     });
 
     test("runtime: accepts single connect object", () => {
       const input = { connect: { id: "post-1" } };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
         // Single connect is normalized to array
-        expect(Array.isArray(result.output.connect)).toBe(true);
-        expect(result.output.connect?.[0]).toEqual({ id: "post-1" });
+        expect(Array.isArray(result.value.connect)).toBe(true);
+        expect(result.value.connect?.[0]).toEqual({ id: "post-1" });
       }
     });
 
@@ -248,12 +248,12 @@ describe("ToMany Create - Required (Author.posts)", () => {
       const input = {
         connect: [{ id: "post-1" }, { id: "post-2" }],
       };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
         // Verify connect array is present
-        expect(Array.isArray(result.output.connect)).toBe(true);
-        expect(result.output.connect?.length).toBeGreaterThanOrEqual(1);
+        expect(Array.isArray(result.value.connect)).toBe(true);
+        expect(result.value.connect?.length).toBeGreaterThanOrEqual(1);
       }
     });
 
@@ -269,13 +269,13 @@ describe("ToMany Create - Required (Author.posts)", () => {
           },
         },
       };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
         // Single connectOrCreate is normalized to array
-        expect(Array.isArray(result.output.connectOrCreate)).toBe(true);
-        expect(result.output.connectOrCreate?.[0].where).toEqual({ id: "post-1" });
-        expect(result.output.connectOrCreate?.[0].create.title).toBe("Hello");
+        expect(Array.isArray(result.value.connectOrCreate)).toBe(true);
+        expect(result.value.connectOrCreate?.[0].where).toEqual({ id: "post-1" });
+        expect(result.value.connectOrCreate?.[0].create.title).toBe("Hello");
       }
     });
 
@@ -292,12 +292,12 @@ describe("ToMany Create - Required (Author.posts)", () => {
           },
         ],
       };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.output.connectOrCreate).toHaveLength(2);
-        expect(result.output.connectOrCreate?.[0].create.title).toBe("P1");
-        expect(result.output.connectOrCreate?.[1].create.title).toBe("P2");
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(result.value.connectOrCreate).toHaveLength(2);
+        expect(result.value.connectOrCreate?.[0].create.title).toBe("P1");
+        expect(result.value.connectOrCreate?.[1].create.title).toBe("P2");
       }
     });
 
@@ -306,62 +306,62 @@ describe("ToMany Create - Required (Author.posts)", () => {
         create: { id: "post-1", title: "New", content: "Post", authorId: "a1" },
         connect: { id: "existing-post" },
       };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.output.create?.[0].title).toBe("New");
-        expect(result.output.connect?.[0]).toEqual({ id: "existing-post" });
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(result.value.create?.[0].title).toBe("New");
+        expect(result.value.connect?.[0]).toEqual({ id: "existing-post" });
       }
     });
   });
 
   describe("output normalization", () => {
     test("output: normalizes single create to array", () => {
-      const result = safeParse(schema, {
+      const result = parse(schema, {
         create: { id: "post-1", title: "Hello", content: "World", authorId: "a1" },
       });
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(Array.isArray(result.output.create)).toBe(true);
-        expect(result.output.create).toHaveLength(1);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(Array.isArray(result.value.create)).toBe(true);
+        expect(result.value.create).toHaveLength(1);
       }
     });
 
     test("output: normalizes single connect to array", () => {
-      const result = safeParse(schema, {
+      const result = parse(schema, {
         connect: { id: "post-1" },
       });
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(Array.isArray(result.output.connect)).toBe(true);
-        expect(result.output.connect).toHaveLength(1);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(Array.isArray(result.value.connect)).toBe(true);
+        expect(result.value.connect).toHaveLength(1);
       }
     });
 
     test("output: normalizes single connectOrCreate to array", () => {
-      const result = safeParse(schema, {
+      const result = parse(schema, {
         connectOrCreate: {
           where: { id: "post-1" },
           create: { id: "post-1", title: "T", content: "C", authorId: "a1" },
         },
       });
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(Array.isArray(result.output.connectOrCreate)).toBe(true);
-        expect(result.output.connectOrCreate).toHaveLength(1);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(Array.isArray(result.value.connectOrCreate)).toBe(true);
+        expect(result.value.connectOrCreate).toHaveLength(1);
       }
     });
 
     test("output: preserves array create as-is", () => {
-      const result = safeParse(schema, {
+      const result = parse(schema, {
         create: [
           { id: "post-1", title: "P1", content: "C1", authorId: "a1" },
           { id: "post-2", title: "P2", content: "C2", authorId: "a1" },
         ],
       });
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.output.create).toHaveLength(2);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(result.value.create).toHaveLength(2);
       }
     });
   });
@@ -382,14 +382,14 @@ describe("ToMany Create - Self-Referential (User.subordinates)", () => {
           username: "subordinate",
         },
       };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
         // Single create is normalized to array
-        expect(Array.isArray(result.output.create)).toBe(true);
+        expect(Array.isArray(result.value.create)).toBe(true);
         // Verify expected properties are preserved
-        expect(result.output.create?.[0].id).toBe("user-2");
-        expect(result.output.create?.[0].username).toBe("subordinate");
+        expect(result.value.create?.[0].id).toBe("user-2");
+        expect(result.value.create?.[0].username).toBe("subordinate");
       }
     });
 
@@ -406,12 +406,12 @@ describe("ToMany Create - Self-Referential (User.subordinates)", () => {
           },
         },
       };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.output.create?.[0].username).toBe("subordinate");
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(result.value.create?.[0].username).toBe("subordinate");
         // Check nested relation
-        const nestedCreate = result.output.create?.[0].subordinates?.create;
+        const nestedCreate = result.value.create?.[0].subordinates?.create;
         expect(Array.isArray(nestedCreate)).toBe(true);
         expect(nestedCreate?.[0].username).toBe("sub-subordinate");
       }

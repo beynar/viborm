@@ -49,3 +49,28 @@ export function nullable<TWrapped extends VibSchema<any, any>>(
 
   return schema;
 }
+
+/**
+ * Conditionally wrap a schema in nullable based on a boolean flag.
+ * Useful for building schemas dynamically where nullability is determined at compile time.
+ *
+ * @example
+ * const schema = v.maybeNullable(v.string(), true);  // NullableSchema<StringSchema>
+ * const schema2 = v.maybeNullable(v.string(), false); // StringSchema
+ */
+export function maybeNullable<
+  TWrapped extends VibSchema<any, any>,
+  TIsNullable extends boolean
+>(
+  wrapped: TWrapped,
+  isNullable: TIsNullable
+): TIsNullable extends true ? NullableSchema<TWrapped> : TWrapped {
+  if (isNullable) {
+    return nullable(wrapped) as TIsNullable extends true
+      ? NullableSchema<TWrapped>
+      : TWrapped;
+  }
+  return wrapped as TIsNullable extends true
+    ? NullableSchema<TWrapped>
+    : TWrapped;
+}

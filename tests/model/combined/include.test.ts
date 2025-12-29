@@ -6,7 +6,7 @@
  */
 
 import { describe, test, expect, expectTypeOf } from "vitest";
-import { parse, safeParse } from "valibot";
+import { parse, InferInput } from "../../../src/validation";
 import {
   simpleSchemas,
   authorSchemas,
@@ -14,14 +14,13 @@ import {
   type SimpleState,
   type AuthorState,
 } from "../fixtures";
-import type { IncludeInput } from "../../../src/schema/model/schemas/core";
 
 // =============================================================================
 // TYPE TESTS - Simple Model (no relations)
 // =============================================================================
 
 describe("Include Schema - Types (Simple Model)", () => {
-  type Input = IncludeInput<SimpleState>;
+  type Input = InferInput<typeof simpleSchemas.include>;
 
   test("type: empty object matches (no relations)", () => {
     expectTypeOf<{}>().toMatchTypeOf<Input>();
@@ -33,7 +32,7 @@ describe("Include Schema - Types (Simple Model)", () => {
 // =============================================================================
 
 describe("Include Schema - Types (Author Model)", () => {
-  type Input = IncludeInput<AuthorState>;
+  type Input = InferInput<typeof authorSchemas.include>;
 
   test("type: includes relation fields", () => {
     expectTypeOf<Input>().toHaveProperty("posts");
@@ -48,14 +47,14 @@ describe("Include Schema - Simple Model Runtime", () => {
   const schema = simpleSchemas.include;
 
   test("runtime: accepts empty object", () => {
-    const result = safeParse(schema, {});
-    expect(result.success).toBe(true);
+    const result = parse(schema, {});
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: rejects unknown key (strict schema)", () => {
     // Schema is strict to prevent invalid SQL from extra keys
-    const result = safeParse(schema, { anyRelation: true });
-    expect(result.success).toBe(false);
+    const result = parse(schema, { anyRelation: true });
+    expect(result.issues).toBeDefined();
   });
 });
 
@@ -67,53 +66,53 @@ describe("Include Schema - Author Model Runtime (oneToMany)", () => {
   const schema = authorSchemas.include;
 
   test("runtime: accepts empty object", () => {
-    const result = safeParse(schema, {});
-    expect(result.success).toBe(true);
+    const result = parse(schema, {});
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts boolean include", () => {
-    const result = safeParse(schema, { posts: true });
-    expect(result.success).toBe(true);
+    const result = parse(schema, { posts: true });
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts nested include with where", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         where: { published: true },
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts nested include with orderBy", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         orderBy: { title: "asc" },
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts nested include with take", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         take: 10,
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts nested include with skip", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         skip: 5,
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts nested include with all options", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         where: { published: true },
         orderBy: { title: "desc" },
@@ -121,11 +120,11 @@ describe("Include Schema - Author Model Runtime (oneToMany)", () => {
         skip: 0,
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts nested select within include", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         select: {
           id: true,
@@ -133,7 +132,7 @@ describe("Include Schema - Author Model Runtime (oneToMany)", () => {
         },
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 });
 
@@ -145,12 +144,12 @@ describe("Include Schema - Post Model Runtime (manyToOne)", () => {
   const schema = postSchemas.include;
 
   test("runtime: accepts boolean include for toOne", () => {
-    const result = safeParse(schema, { author: true });
-    expect(result.success).toBe(true);
+    const result = parse(schema, { author: true });
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts nested select for toOne", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       author: {
         select: {
           id: true,
@@ -158,7 +157,6 @@ describe("Include Schema - Post Model Runtime (manyToOne)", () => {
         },
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 });
-

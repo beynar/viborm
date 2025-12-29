@@ -70,7 +70,7 @@ export type { PointSchema, BasePointSchema, Point } from "./point";
 export { array } from "./array";
 export type { ArraySchema } from "./array";
 
-export { nullable } from "./nullable";
+export { nullable, maybeNullable } from "./nullable";
 export type { NullableSchema } from "./nullable";
 
 export { optional } from "./optional";
@@ -103,8 +103,8 @@ export type { PipeSchema, TransformAction, PipeAction } from "./pipe";
 export { coerce, map } from "./transform";
 export type { TransformSchema } from "./transform";
 
-export { record } from "./record";
-export type { RecordSchema } from "./record";
+export { record, fromKeys } from "./record";
+export type { RecordSchema, FromKeysOptions } from "./record";
 
 export { fromObject } from "./from-object";
 export type {

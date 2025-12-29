@@ -9,7 +9,7 @@
  */
 
 import { describe, test, expect } from "vitest";
-import { safeParse } from "valibot";
+import { parse } from "../../../src/validation";
 import { authorSchemas, postSchemas } from "../fixtures";
 
 // =============================================================================
@@ -21,7 +21,7 @@ describe("Deeply Nested Includes", () => {
     const schema = authorSchemas.args.findUnique;
 
     test("runtime: accepts 2-level nested include", () => {
-      const result = safeParse(schema, {
+      const result = parse(schema, {
         where: { id: "author-1" },
         include: {
           posts: {
@@ -31,11 +31,11 @@ describe("Deeply Nested Includes", () => {
           },
         },
       });
-      expect(result.success).toBe(true);
+      expect(result.issues).toBeUndefined();
     });
 
     test("runtime: accepts 3-level nested include with filters", () => {
-      const result = safeParse(schema, {
+      const result = parse(schema, {
         where: { id: "author-1" },
         include: {
           posts: {
@@ -50,11 +50,11 @@ describe("Deeply Nested Includes", () => {
           },
         },
       });
-      expect(result.success).toBe(true);
+      expect(result.issues).toBeUndefined();
     });
 
     test("output: preserves deeply nested include structure", () => {
-      const result = safeParse(schema, {
+      const result = parse(schema, {
         where: { id: "author-1" },
         include: {
           posts: {
@@ -66,12 +66,12 @@ describe("Deeply Nested Includes", () => {
           },
         },
       });
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.output.include?.posts).toBeDefined();
-        expect(result.output.include?.posts?.take).toBe(5);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(result.value.include?.posts).toBeDefined();
+        expect(result.value.include?.posts?.take).toBe(5);
         // Boolean `author: true` is transformed to { select: {...} }
-        expect(result.output.include?.posts?.include?.author).toHaveProperty(
+        expect(result.value.include?.posts?.include?.author).toHaveProperty(
           "select"
         );
       }
@@ -82,7 +82,7 @@ describe("Deeply Nested Includes", () => {
     const schema = postSchemas.args.findMany;
 
     test("runtime: accepts nested include with pagination and orderBy", () => {
-      const result = safeParse(schema, {
+      const result = parse(schema, {
         where: { published: true },
         include: {
           author: {
@@ -98,11 +98,11 @@ describe("Deeply Nested Includes", () => {
         orderBy: { title: "desc" },
       });
 
-      expect(result.success).toBe(true);
+      expect(result.issues).toBeUndefined();
     });
 
     test("output: preserves nested pagination values", () => {
-      const result = safeParse(schema, {
+      const result = parse(schema, {
         include: {
           author: {
             include: {
@@ -114,10 +114,10 @@ describe("Deeply Nested Includes", () => {
           },
         },
       });
-      expect(result.success).toBe(true);
+      expect(result.issues).toBeUndefined();
 
-      if (result.success) {
-        const nestedPosts = result.output.include?.author?.include?.posts;
+      if (!result.issues) {
+        const nestedPosts = result.value.include?.author?.include?.posts;
         expect(nestedPosts?.take).toBe(5);
         expect(nestedPosts?.skip).toBe(2);
       }
@@ -134,7 +134,7 @@ describe("Deeply Nested Selects", () => {
     const schema = authorSchemas.args.findUnique;
 
     test("runtime: accepts nested select within include", () => {
-      const result = safeParse(schema, {
+      const result = parse(schema, {
         where: { id: "author-1" },
         include: {
           posts: {
@@ -151,11 +151,11 @@ describe("Deeply Nested Selects", () => {
           },
         },
       });
-      expect(result.success).toBe(true);
+      expect(result.issues).toBeUndefined();
     });
 
     test("runtime: accepts top-level select with nested relations", () => {
-      const result = safeParse(schema, {
+      const result = parse(schema, {
         where: { id: "author-1" },
         select: {
           id: true,
@@ -168,11 +168,11 @@ describe("Deeply Nested Selects", () => {
           },
         },
       });
-      expect(result.success).toBe(true);
+      expect(result.issues).toBeUndefined();
     });
 
     test("output: preserves nested select structure", () => {
-      const result = safeParse(schema, {
+      const result = parse(schema, {
         where: { id: "author-1" },
         select: {
           id: true,
@@ -183,10 +183,10 @@ describe("Deeply Nested Selects", () => {
           },
         },
       });
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.output.select?.id).toBe(true);
-        expect(result.output.select?.posts?.select?.title).toBe(true);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(result.value.select?.id).toBe(true);
+        expect(result.value.select?.posts?.select?.title).toBe(true);
       }
     });
   });
@@ -201,7 +201,7 @@ describe("Deeply Nested Creates", () => {
     const schema = authorSchemas.args.create;
 
     test("runtime: accepts single nested create", () => {
-      const result = safeParse(schema, {
+      const result = parse(schema, {
         data: {
           id: "author-1",
           name: "Alice",
@@ -214,11 +214,11 @@ describe("Deeply Nested Creates", () => {
           },
         },
       });
-      expect(result.success).toBe(true);
+      expect(result.issues).toBeUndefined();
     });
 
     test("runtime: accepts array of nested creates", () => {
-      const result = safeParse(schema, {
+      const result = parse(schema, {
         data: {
           id: "author-1",
           name: "Alice",
@@ -231,11 +231,11 @@ describe("Deeply Nested Creates", () => {
           },
         },
       });
-      expect(result.success).toBe(true);
+      expect(result.issues).toBeUndefined();
     });
 
     test("output: normalizes single create to array", () => {
-      const result = safeParse(schema, {
+      const result = parse(schema, {
         data: {
           id: "author-1",
           name: "Alice",
@@ -248,15 +248,15 @@ describe("Deeply Nested Creates", () => {
           },
         },
       });
-      expect(result.success).toBe(true);
-      if (result.success) {
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
         // Single object should be normalized to array
-        expect(Array.isArray(result.output.data.posts?.create)).toBe(true);
+        expect(Array.isArray(result.value.data.posts?.create)).toBe(true);
       }
     });
 
     test("runtime: accepts connectOrCreate with nested data", () => {
-      const result = safeParse(schema, {
+      const result = parse(schema, {
         data: {
           id: "author-1",
           name: "Alice",
@@ -272,11 +272,11 @@ describe("Deeply Nested Creates", () => {
           },
         },
       });
-      expect(result.success).toBe(true);
+      expect(result.issues).toBeUndefined();
     });
 
     test("output: normalizes connectOrCreate to array", () => {
-      const result = safeParse(schema, {
+      const result = parse(schema, {
         data: {
           id: "author-1",
           name: "Alice",
@@ -292,9 +292,9 @@ describe("Deeply Nested Creates", () => {
           },
         },
       });
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(Array.isArray(result.output.data.posts?.connectOrCreate)).toBe(
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(Array.isArray(result.value.data.posts?.connectOrCreate)).toBe(
           true
         );
       }
@@ -305,7 +305,7 @@ describe("Deeply Nested Creates", () => {
     const schema = postSchemas.args.create;
 
     test("runtime: accepts nested connectOrCreate on manyToOne", () => {
-      const result = safeParse(schema, {
+      const result = parse(schema, {
         data: {
           id: "post-1",
           title: "Hello World",
@@ -321,7 +321,7 @@ describe("Deeply Nested Creates", () => {
           },
         },
       });
-      expect(result.success).toBe(true);
+      expect(result.issues).toBeUndefined();
     });
   });
 });
@@ -335,7 +335,7 @@ describe("Deeply Nested Updates", () => {
     const schema = authorSchemas.args.update;
 
     test("runtime: accepts nested update operation", () => {
-      const result = safeParse(schema, {
+      const result = parse(schema, {
         where: { id: "author-1" },
         data: {
           name: "Updated Alice",
@@ -347,11 +347,11 @@ describe("Deeply Nested Updates", () => {
           },
         },
       });
-      expect(result.success).toBe(true);
+      expect(result.issues).toBeUndefined();
     });
 
     test("runtime: accepts multiple nested update operations", () => {
-      const result = safeParse(schema, {
+      const result = parse(schema, {
         where: { id: "author-1" },
         data: {
           posts: {
@@ -362,11 +362,11 @@ describe("Deeply Nested Updates", () => {
           },
         },
       });
-      expect(result.success).toBe(true);
+      expect(result.issues).toBeUndefined();
     });
 
     test("output: normalizes single update to array", () => {
-      const result = safeParse(schema, {
+      const result = parse(schema, {
         where: { id: "author-1" },
         data: {
           posts: {
@@ -377,14 +377,14 @@ describe("Deeply Nested Updates", () => {
           },
         },
       });
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(Array.isArray(result.output.data.posts?.update)).toBe(true);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(Array.isArray(result.value.data.posts?.update)).toBe(true);
       }
     });
 
     test("runtime: accepts updateMany with filter", () => {
-      const result = safeParse(schema, {
+      const result = parse(schema, {
         where: { id: "author-1" },
         data: {
           posts: {
@@ -395,11 +395,11 @@ describe("Deeply Nested Updates", () => {
           },
         },
       });
-      expect(result.success).toBe(true);
+      expect(result.issues).toBeUndefined();
     });
 
     test("output: normalizes updateMany to array", () => {
-      const result = safeParse(schema, {
+      const result = parse(schema, {
         where: { id: "author-1" },
         data: {
           posts: {
@@ -410,14 +410,14 @@ describe("Deeply Nested Updates", () => {
           },
         },
       });
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(Array.isArray(result.output.data.posts?.updateMany)).toBe(true);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(Array.isArray(result.value.data.posts?.updateMany)).toBe(true);
       }
     });
 
     test("runtime: accepts upsert operation", () => {
-      const result = safeParse(schema, {
+      const result = parse(schema, {
         where: { id: "author-1" },
         data: {
           posts: {
@@ -429,11 +429,11 @@ describe("Deeply Nested Updates", () => {
           },
         },
       });
-      expect(result.success).toBe(true);
+      expect(result.issues).toBeUndefined();
     });
 
     test("output: normalizes upsert to array", () => {
-      const result = safeParse(schema, {
+      const result = parse(schema, {
         where: { id: "author-1" },
         data: {
           posts: {
@@ -445,14 +445,14 @@ describe("Deeply Nested Updates", () => {
           },
         },
       });
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(Array.isArray(result.output.data.posts?.upsert)).toBe(true);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(Array.isArray(result.value.data.posts?.upsert)).toBe(true);
       }
     });
 
     test("runtime: accepts deleteMany operation", () => {
-      const result = safeParse(schema, {
+      const result = parse(schema, {
         where: { id: "author-1" },
         data: {
           posts: {
@@ -460,11 +460,11 @@ describe("Deeply Nested Updates", () => {
           },
         },
       });
-      expect(result.success).toBe(true);
+      expect(result.issues).toBeUndefined();
     });
 
     test("output: normalizes deleteMany to array", () => {
-      const result = safeParse(schema, {
+      const result = parse(schema, {
         where: { id: "author-1" },
         data: {
           posts: {
@@ -472,14 +472,14 @@ describe("Deeply Nested Updates", () => {
           },
         },
       });
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(Array.isArray(result.output.data.posts?.deleteMany)).toBe(true);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(Array.isArray(result.value.data.posts?.deleteMany)).toBe(true);
       }
     });
 
     test("runtime: accepts combined nested operations", () => {
-      const result = safeParse(schema, {
+      const result = parse(schema, {
         where: { id: "author-1" },
         data: {
           name: "Alice Updated",
@@ -490,11 +490,11 @@ describe("Deeply Nested Updates", () => {
           },
         },
       });
-      expect(result.success).toBe(true);
+      expect(result.issues).toBeUndefined();
     });
 
     test("output: preserves combined operations structure", () => {
-      const result = safeParse(schema, {
+      const result = parse(schema, {
         where: { id: "author-1" },
         data: {
           posts: {
@@ -504,11 +504,11 @@ describe("Deeply Nested Updates", () => {
           },
         },
       });
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(Array.isArray(result.output.data.posts?.create)).toBe(true);
-        expect(Array.isArray(result.output.data.posts?.connect)).toBe(true);
-        expect(Array.isArray(result.output.data.posts?.disconnect)).toBe(true);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(Array.isArray(result.value.data.posts?.create)).toBe(true);
+        expect(Array.isArray(result.value.data.posts?.connect)).toBe(true);
+        expect(Array.isArray(result.value.data.posts?.disconnect)).toBe(true);
       }
     });
   });
@@ -523,7 +523,7 @@ describe("Complex Combined Queries", () => {
     const schema = authorSchemas.args.findMany;
 
     test("runtime: accepts complex findMany with all options", () => {
-      const result = safeParse(schema, {
+      const result = parse(schema, {
         where: {
           name: { startsWith: "A" },
           posts: {
@@ -544,11 +544,11 @@ describe("Complex Combined Queries", () => {
         take: 20,
         skip: 0,
       });
-      expect(result.success).toBe(true);
+      expect(result.issues).toBeUndefined();
     });
 
     test("output: preserves complex nested structure", () => {
-      const result = safeParse(schema, {
+      const result = parse(schema, {
         where: { name: { contains: "test" } },
         include: {
           posts: {
@@ -559,11 +559,11 @@ describe("Complex Combined Queries", () => {
         },
         take: 10,
       });
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.output.take).toBe(10);
-        expect(result.output.include?.posts?.take).toBe(3);
-        expect(result.output.include?.posts?.orderBy).toEqual({ title: "asc" });
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(result.value.take).toBe(10);
+        expect(result.value.include?.posts?.take).toBe(3);
+        expect(result.value.include?.posts?.orderBy).toEqual({ title: "asc" });
       }
     });
   });
@@ -572,7 +572,7 @@ describe("Complex Combined Queries", () => {
     const schema = authorSchemas.args.upsert;
 
     test("runtime: accepts upsert with nested creates in both branches", () => {
-      const result = safeParse(schema, {
+      const result = parse(schema, {
         where: { id: "author-1" },
         create: {
           id: "author-1",
@@ -595,11 +595,11 @@ describe("Complex Combined Queries", () => {
           },
         },
       });
-      expect(result.success).toBe(true);
+      expect(result.issues).toBeUndefined();
     });
 
     test("output: preserves upsert nested create arrays", () => {
-      const result = safeParse(schema, {
+      const result = parse(schema, {
         where: { id: "author-1" },
         create: {
           id: "author-1",
@@ -614,11 +614,11 @@ describe("Complex Combined Queries", () => {
           },
         },
       });
-      expect(result.success).toBe(true);
-      if (result.success) {
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
         // Both should be normalized to arrays
-        expect(Array.isArray(result.output.create.posts?.create)).toBe(true);
-        expect(Array.isArray(result.output.update.posts?.create)).toBe(true);
+        expect(Array.isArray(result.value.create.posts?.create)).toBe(true);
+        expect(Array.isArray(result.value.update.posts?.create)).toBe(true);
       }
     });
   });
@@ -633,40 +633,40 @@ describe("Relation Filters in Where", () => {
     const schema = authorSchemas.args.findMany;
 
     test("runtime: accepts some relation filter", () => {
-      const result = safeParse(schema, {
+      const result = parse(schema, {
         where: {
           posts: {
             some: { published: true },
           },
         },
       });
-      expect(result.success).toBe(true);
+      expect(result.issues).toBeUndefined();
     });
 
     test("runtime: accepts every relation filter", () => {
-      const result = safeParse(schema, {
+      const result = parse(schema, {
         where: {
           posts: {
             every: { published: true },
           },
         },
       });
-      expect(result.success).toBe(true);
+      expect(result.issues).toBeUndefined();
     });
 
     test("runtime: accepts none relation filter", () => {
-      const result = safeParse(schema, {
+      const result = parse(schema, {
         where: {
           posts: {
             none: { published: false },
           },
         },
       });
-      expect(result.success).toBe(true);
+      expect(result.issues).toBeUndefined();
     });
 
     test("runtime: accepts nested relation filters", () => {
-      const result = safeParse(schema, {
+      const result = parse(schema, {
         where: {
           posts: {
             some: {
@@ -677,11 +677,11 @@ describe("Relation Filters in Where", () => {
           },
         },
       });
-      expect(result.success).toBe(true);
+      expect(result.issues).toBeUndefined();
     });
 
     test("runtime: accepts combined AND/OR with relation filters", () => {
-      const result = safeParse(schema, {
+      const result = parse(schema, {
         where: {
           OR: [
             { posts: { some: { published: true } } },
@@ -690,7 +690,7 @@ describe("Relation Filters in Where", () => {
           AND: [{ posts: { none: { title: { contains: "draft" } } } }],
         },
       });
-      expect(result.success).toBe(true);
+      expect(result.issues).toBeUndefined();
     });
   });
 
@@ -698,25 +698,25 @@ describe("Relation Filters in Where", () => {
     const schema = postSchemas.args.findMany;
 
     test("runtime: accepts manyToOne is filter", () => {
-      const result = safeParse(schema, {
+      const result = parse(schema, {
         where: {
           author: {
             is: { name: "Alice" },
           },
         },
       });
-      expect(result.success).toBe(true);
+      expect(result.issues).toBeUndefined();
     });
 
     test("runtime: accepts manyToOne isNot filter", () => {
-      const result = safeParse(schema, {
+      const result = parse(schema, {
         where: {
           author: {
             isNot: { name: "Bob" },
           },
         },
       });
-      expect(result.success).toBe(true);
+      expect(result.issues).toBeUndefined();
     });
   });
 });

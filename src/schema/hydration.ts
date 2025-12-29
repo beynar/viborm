@@ -12,6 +12,7 @@ import type { Model } from "./model";
 import type { Field } from "./fields/base";
 import type { Relation } from "./relation/relation";
 import type { SchemaNames } from "./fields/common";
+import type { AnyRelation } from "./relation/relation";
 
 /**
  * Schema type - record of model names to Model instances
@@ -46,22 +47,28 @@ export function hydrateSchemaNames(schema: Schema): void {
  */
 function hydrateModel(modelKey: string, model: Model<any>): void {
   const names = model["~"].names as SchemaNames;
+  const state = model["~"].state;
 
   // Set model names
   names.ts = modelKey;
-  names.sql = model["~"].tableName ?? modelKey;
+  names.sql = state.tableName ?? modelKey;
 
-  // Hydrate fields
-  for (const [fieldKey, field] of model["~"].fieldMap) {
+  // Hydrate scalar fields
+  for (const [fieldKey, field] of Object.entries(
+    state.scalars as Record<string, Field>
+  )) {
     hydrateField(fieldKey, field);
   }
 
   // Hydrate relations
-  for (const [relationKey, relation] of model["~"].relations) {
+  for (const [relationKey, relation] of Object.entries(
+    state.relations as Record<string, AnyRelation>
+  )) {
     hydrateRelation(relationKey, relation);
   }
 
-  model.buildSchemas();
+  // Note: Schemas are built lazily on first access to model["~"].schemas
+  // No explicit buildSchemas() call needed
 }
 
 /**
@@ -76,10 +83,7 @@ function hydrateField(fieldKey: string, field: Field): void {
 /**
  * Hydrate a single relation
  */
-function hydrateRelation(
-  relationKey: string,
-  relation: Relation<any, any, any>
-): void {
+function hydrateRelation(relationKey: string, relation: AnyRelation): void {
   const names = relation["~"].names as SchemaNames;
   names.ts = relationKey;
   // Relations don't have column mapping - sql name equals ts name

@@ -105,7 +105,7 @@ describe("fromObject", () => {
 
   test("works with recursive thunks (circular references)", () => {
     // Define a recursive schema using thunks
-    const nodeSchema = v.object({
+    const nodeSchema: VibSchema<any, any> = v.object({
       value: v.string(),
       child: () => nodeSchema, // Thunk for circular reference
     });
@@ -118,7 +118,6 @@ describe("fromObject", () => {
     const schema = v.fromObject(models, "schema");
 
     // Type should properly infer both tree and forest schemas
-
     type O = InferOutput<typeof schema>;
     expectTypeOf<O>().toExtend<{
       tree?: any;
@@ -141,7 +140,7 @@ describe("fromObject", () => {
     // A more complex recursive structure
     type Node = { id: string; children?: Node[] };
 
-    const nodeSchema: VibSchema<any, any> = v.object({
+    const nodeSchema = v.object({
       id: v.string(),
       children: () => v.object({ items: nodeSchema }, { array: true }),
     });

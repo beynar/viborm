@@ -6,7 +6,7 @@
  */
 
 import { describe, test, expect, expectTypeOf } from "vitest";
-import { parse, safeParse } from "valibot";
+import { parse, InferInput } from "../../../src/validation";
 import {
   simpleSchemas,
   compoundIdSchemas,
@@ -14,14 +14,13 @@ import {
   type SimpleState,
   type CompoundIdState,
 } from "../fixtures";
-import type { UniqueFilterInput } from "../../../src/schema/model/schemas/core";
 
 // =============================================================================
 // TYPE TESTS - Simple Model
 // =============================================================================
 
 describe("Unique Filter - Types (Simple Model)", () => {
-  type Input = UniqueFilterInput<SimpleState>;
+  type Input = InferInput<typeof simpleSchemas._filter.unique>;
 
   test("type: includes id field", () => {
     expectTypeOf<Input>().toHaveProperty("id");
@@ -49,18 +48,20 @@ describe("Unique Filter - Simple Model Runtime", () => {
   const schema = simpleSchemas._filter.unique;
 
   test("runtime: accepts empty object", () => {
-    const result = safeParse(schema, {});
-    expect(result.success).toBe(true);
+    const result = parse(schema, {});
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts id value", () => {
     const result = parse(schema, { id: "user-123" });
-    expect(result.id).toBe("user-123");
+    if (result.issues) throw new Error("Expected success");
+    expect(result.value.id).toBe("user-123");
   });
 
   test("runtime: accepts unique field value", () => {
     const result = parse(schema, { email: "alice@example.com" });
-    expect(result.email).toBe("alice@example.com");
+    if (result.issues) throw new Error("Expected success");
+    expect(result.value.email).toBe("alice@example.com");
   });
 
   test("runtime: accepts both id and unique field", () => {
@@ -68,14 +69,15 @@ describe("Unique Filter - Simple Model Runtime", () => {
       id: "user-123",
       email: "alice@example.com",
     });
-    expect(result.id).toBe("user-123");
-    expect(result.email).toBe("alice@example.com");
+    if (result.issues) throw new Error("Expected success");
+    expect(result.value.id).toBe("user-123");
+    expect(result.value.email).toBe("alice@example.com");
   });
 
   test("runtime: rejects non-unique field (strict schema)", () => {
     // Schema is strict to prevent invalid SQL from extra keys
-    const result = safeParse(schema, { name: "Alice" });
-    expect(result.success).toBe(false);
+    const result = parse(schema, { name: "Alice" });
+    expect(result.issues).toBeDefined();
   });
 });
 
@@ -84,7 +86,7 @@ describe("Unique Filter - Simple Model Runtime", () => {
 // =============================================================================
 
 describe("Unique Filter - Compound ID Model Runtime", () => {
-  type Input = UniqueFilterInput<CompoundIdState>;
+  type Input = InferInput<typeof compoundIdSchemas._filter.unique>;
   const schema = compoundIdSchemas._filter.unique;
 
   test("type: does not have single field id (compound id)", () => {
@@ -93,8 +95,8 @@ describe("Unique Filter - Compound ID Model Runtime", () => {
   });
 
   test("runtime: accepts empty object (no single-field uniques)", () => {
-    const result = safeParse(schema, {});
-    expect(result.success).toBe(true);
+    const result = parse(schema, {});
+    expect(result.issues).toBeUndefined();
   });
 });
 
@@ -107,13 +109,14 @@ describe("Unique Filter - Compound Unique Model Runtime", () => {
 
   test("runtime: accepts id field", () => {
     const result = parse(schema, { id: "record-123" });
-    expect(result.id).toBe("record-123");
+    if (result.issues) throw new Error("Expected success");
+    expect(result.value.id).toBe("record-123");
   });
 
   test("runtime: rejects compound unique fields as single fields (strict schema)", () => {
     // Schema is strict to prevent invalid SQL from extra keys
     // email and tenantId are part of a compound unique, not single uniques
-    const result = safeParse(schema, { email: "a@b.com" });
-    expect(result.success).toBe(false);
+    const result = parse(schema, { email: "a@b.com" });
+    expect(result.issues).toBeDefined();
   });
 });

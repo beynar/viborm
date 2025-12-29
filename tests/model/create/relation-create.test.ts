@@ -6,7 +6,7 @@
  */
 
 import { describe, test, expect, expectTypeOf } from "vitest";
-import { parse, safeParse } from "valibot";
+import { parse, InferInput } from "../../../src/validation";
 import {
   authorSchemas,
   postSchemas,
@@ -14,14 +14,13 @@ import {
   type AuthorState,
   type PostState,
 } from "../fixtures";
-import type { RelationCreateInput } from "../../../src/schema/model/schemas/core";
 
 // =============================================================================
 // TYPE TESTS - Author Model (has oneToMany)
 // =============================================================================
 
 describe("Relation Create - Types (Author Model)", () => {
-  type Input = RelationCreateInput<AuthorState>;
+  type Input = InferInput<typeof authorSchemas._create.relation>;
 
   test("type: includes relation field", () => {
     expectTypeOf<Input>().toHaveProperty("posts");
@@ -37,7 +36,7 @@ describe("Relation Create - Types (Author Model)", () => {
 // =============================================================================
 
 describe("Relation Create - Types (Post Model)", () => {
-  type Input = RelationCreateInput<PostState>;
+  type Input = InferInput<typeof postSchemas._create.relation>;
 
   test("type: includes relation field", () => {
     expectTypeOf<Input>().toHaveProperty("author");
@@ -52,21 +51,21 @@ describe("Relation Create - Author Model Runtime (oneToMany)", () => {
   const schema = authorSchemas._create.relation;
 
   test("runtime: accepts empty object", () => {
-    const result = safeParse(schema, {});
-    expect(result.success).toBe(true);
+    const result = parse(schema, {});
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts create nested write", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         create: { id: "post-1", title: "Hello", authorId: "author-1" },
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts createMany nested write", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         createMany: {
           data: [
@@ -76,25 +75,25 @@ describe("Relation Create - Author Model Runtime (oneToMany)", () => {
         },
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts connect nested write", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         connect: { id: "existing-post-id" },
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts connect array for toMany", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         connect: [{ id: "post-1" }, { id: "post-2" }],
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 });
 
@@ -106,30 +105,30 @@ describe("Relation Create - Post Model Runtime (manyToOne)", () => {
   const schema = postSchemas._create.relation;
 
   test("runtime: accepts empty object", () => {
-    const result = safeParse(schema, {});
-    expect(result.success).toBe(true);
+    const result = parse(schema, {});
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts create nested write", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       author: {
         create: { id: "author-1", name: "Alice" },
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts connect nested write", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       author: {
         connect: { id: "existing-author-id" },
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts connectOrCreate nested write", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       author: {
         connectOrCreate: {
           where: { id: "author-1" },
@@ -137,7 +136,7 @@ describe("Relation Create - Post Model Runtime (manyToOne)", () => {
         },
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 });
 
@@ -149,14 +148,13 @@ describe("Relation Create - Simple Model Runtime (no relations)", () => {
   const schema = simpleSchemas._create.relation;
 
   test("runtime: accepts empty object", () => {
-    const result = safeParse(schema, {});
-    expect(result.success).toBe(true);
+    const result = parse(schema, {});
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: rejects unknown relation key (strict schema)", () => {
     // Schema is strict to prevent invalid SQL from extra keys
-    const result = safeParse(schema, { anyRelation: {} });
-    expect(result.success).toBe(false);
+    const result = parse(schema, { anyRelation: {} });
+    expect(result.issues).toBeDefined();
   });
 });
-

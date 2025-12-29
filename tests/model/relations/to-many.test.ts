@@ -10,7 +10,7 @@
  */
 
 import { describe, test, expect } from "vitest";
-import { safeParse } from "valibot";
+import { parse } from "../../../src/validation";
 import { authorSchemas } from "../fixtures";
 
 // =============================================================================
@@ -21,43 +21,43 @@ describe("ToMany Filter - Author.posts (oneToMany)", () => {
   const schema = authorSchemas._filter.relation;
 
   test("accepts 'some' filter", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         some: { published: true },
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("accepts 'every' filter", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         every: { published: true },
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("accepts 'none' filter", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         none: { published: false },
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("accepts empty object for 'some' (any records exist)", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         some: {},
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("accepts nested filter operators in some", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         some: {
           title: { contains: "hello" },
@@ -65,11 +65,11 @@ describe("ToMany Filter - Author.posts (oneToMany)", () => {
         },
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("accepts deeply nested relation in filter", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         some: {
           author: {
@@ -78,24 +78,24 @@ describe("ToMany Filter - Author.posts (oneToMany)", () => {
         },
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("accepts combined some/every/none in AND", () => {
-    const result = safeParse(authorSchemas.where, {
+    const result = parse(authorSchemas.where, {
       AND: [
         { posts: { some: { published: true } } },
         { posts: { none: { title: { contains: "draft" } } } },
       ],
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("rejects unknown relation key (strict)", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       unknownRelation: { some: {} },
     });
-    expect(result.success).toBe(false);
+    expect(result.issues).toBeDefined();
   });
 });
 
@@ -107,7 +107,7 @@ describe("ToMany Create - Author.posts (oneToMany)", () => {
   const schema = authorSchemas._create.relation;
 
   test("accepts single 'create' object", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         create: {
           id: "post-1",
@@ -116,11 +116,11 @@ describe("ToMany Create - Author.posts (oneToMany)", () => {
         },
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("accepts array of 'create' objects", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         create: [
           { id: "post-1", title: "First", authorId: "author-1" },
@@ -128,29 +128,29 @@ describe("ToMany Create - Author.posts (oneToMany)", () => {
         ],
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("accepts single 'connect' object", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         connect: { id: "post-1" },
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("accepts array of 'connect' objects", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         connect: [{ id: "post-1" }, { id: "post-2" }],
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("accepts single 'connectOrCreate' object", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         connectOrCreate: {
           where: { id: "post-1" },
@@ -158,11 +158,11 @@ describe("ToMany Create - Author.posts (oneToMany)", () => {
         },
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("accepts array of 'connectOrCreate' objects", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         connectOrCreate: [
           {
@@ -176,51 +176,51 @@ describe("ToMany Create - Author.posts (oneToMany)", () => {
         ],
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("accepts combined create and connect", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         create: { id: "new-post", title: "New", authorId: "author-1" },
         connect: { id: "existing-post" },
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("output: normalizes single create to array", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         create: { id: "post-1", title: "Hello", authorId: "author-1" },
       },
     });
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(Array.isArray(result.output.posts?.create)).toBe(true);
-      expect(result.output.posts?.create).toHaveLength(1);
+    expect(result.issues).toBeUndefined();
+    if (!result.issues) {
+      expect(Array.isArray(result.value.posts?.create)).toBe(true);
+      expect(result.value.posts?.create).toHaveLength(1);
     }
   });
 
   test("output: normalizes single connect to array", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         connect: { id: "post-1" },
       },
     });
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(Array.isArray(result.output.posts?.connect)).toBe(true);
+    expect(result.issues).toBeUndefined();
+    if (!result.issues) {
+      expect(Array.isArray(result.value.posts?.connect)).toBe(true);
     }
   });
 
   test("rejects create with missing required field", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         create: { id: "post-1" }, // missing title, authorId
       },
     });
-    expect(result.success).toBe(false);
+    expect(result.issues).toBeDefined();
   });
 });
 
@@ -233,16 +233,16 @@ describe("ToMany Update - Author.posts (oneToMany)", () => {
 
   // Create operations
   test("accepts single 'create'", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         create: { id: "post-1", title: "New", authorId: "author-1" },
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("accepts array 'create'", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         create: [
           { id: "post-1", title: "First", authorId: "author-1" },
@@ -250,97 +250,97 @@ describe("ToMany Update - Author.posts (oneToMany)", () => {
         ],
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   // Connect operations
   test("accepts single 'connect'", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         connect: { id: "post-1" },
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("accepts array 'connect'", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         connect: [{ id: "post-1" }, { id: "post-2" }],
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   // Disconnect operations
   test("accepts single 'disconnect'", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         disconnect: { id: "post-1" },
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("accepts array 'disconnect'", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         disconnect: [{ id: "post-1" }, { id: "post-2" }],
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   // Set operations (replace all)
   test("accepts single 'set'", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         set: { id: "post-1" },
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("accepts array 'set'", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         set: [{ id: "post-1" }, { id: "post-2" }],
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("accepts empty array 'set' (unlink all)", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         set: [],
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   // Delete operations
   test("accepts single 'delete'", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         delete: { id: "post-1" },
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("accepts array 'delete'", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         delete: [{ id: "post-1" }, { id: "post-2" }],
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   // Update operations
   test("accepts single 'update' with where and data", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         update: {
           where: { id: "post-1" },
@@ -348,11 +348,11 @@ describe("ToMany Update - Author.posts (oneToMany)", () => {
         },
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("accepts array 'update'", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         update: [
           { where: { id: "post-1" }, data: { title: "First Updated" } },
@@ -360,12 +360,12 @@ describe("ToMany Update - Author.posts (oneToMany)", () => {
         ],
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   // UpdateMany operations
   test("accepts single 'updateMany' with filter", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         updateMany: {
           where: { published: false },
@@ -373,11 +373,11 @@ describe("ToMany Update - Author.posts (oneToMany)", () => {
         },
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("accepts array 'updateMany'", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         updateMany: [
           { where: { published: false }, data: { published: true } },
@@ -385,40 +385,40 @@ describe("ToMany Update - Author.posts (oneToMany)", () => {
         ],
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   // DeleteMany operations
   test("accepts single 'deleteMany' with filter", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         deleteMany: { published: false },
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("accepts array 'deleteMany'", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         deleteMany: [{ published: false }, { title: { contains: "temp" } }],
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("accepts empty 'deleteMany' (delete all)", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         deleteMany: {},
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   // Upsert operations
   test("accepts single 'upsert'", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         upsert: {
           where: { id: "post-1" },
@@ -427,11 +427,11 @@ describe("ToMany Update - Author.posts (oneToMany)", () => {
         },
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("accepts array 'upsert'", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         upsert: [
           {
@@ -447,12 +447,12 @@ describe("ToMany Update - Author.posts (oneToMany)", () => {
         ],
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   // Combined operations
   test("accepts combined operations in single update", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         create: { id: "new-post", title: "New", authorId: "author-1" },
         connect: { id: "existing-post" },
@@ -461,48 +461,48 @@ describe("ToMany Update - Author.posts (oneToMany)", () => {
         deleteMany: { published: false },
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   // Output normalization tests
   test("output: normalizes single 'update' to array", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         update: { where: { id: "post-1" }, data: { title: "Updated" } },
       },
     });
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(Array.isArray(result.output.posts?.update)).toBe(true);
+    expect(result.issues).toBeUndefined();
+    if (!result.issues) {
+      expect(Array.isArray(result.value.posts?.update)).toBe(true);
     }
   });
 
   test("output: normalizes single 'updateMany' to array", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         updateMany: { where: { published: false }, data: { published: true } },
       },
     });
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(Array.isArray(result.output.posts?.updateMany)).toBe(true);
+    expect(result.issues).toBeUndefined();
+    if (!result.issues) {
+      expect(Array.isArray(result.value.posts?.updateMany)).toBe(true);
     }
   });
 
   test("output: normalizes single 'deleteMany' to array", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         deleteMany: { published: false },
       },
     });
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(Array.isArray(result.output.posts?.deleteMany)).toBe(true);
+    expect(result.issues).toBeUndefined();
+    if (!result.issues) {
+      expect(Array.isArray(result.value.posts?.deleteMany)).toBe(true);
     }
   });
 
   test("output: normalizes single 'upsert' to array", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         upsert: {
           where: { id: "post-1" },
@@ -511,21 +511,21 @@ describe("ToMany Update - Author.posts (oneToMany)", () => {
         },
       },
     });
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(Array.isArray(result.output.posts?.upsert)).toBe(true);
+    expect(result.issues).toBeUndefined();
+    if (!result.issues) {
+      expect(Array.isArray(result.value.posts?.upsert)).toBe(true);
     }
   });
 
   test("output: normalizes single 'set' to array", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         set: { id: "post-1" },
       },
     });
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(Array.isArray(result.output.posts?.set)).toBe(true);
+    expect(result.issues).toBeUndefined();
+    if (!result.issues) {
+      expect(Array.isArray(result.value.posts?.set)).toBe(true);
     }
   });
 });
@@ -538,15 +538,15 @@ describe("ToMany Select - Author.posts (oneToMany)", () => {
   const schema = authorSchemas.select;
 
   test("accepts boolean true", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       id: true,
       posts: true,
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("accepts nested select object", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       id: true,
       posts: {
         select: {
@@ -555,42 +555,42 @@ describe("ToMany Select - Author.posts (oneToMany)", () => {
         },
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("accepts select with where filter", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         where: { published: true },
         select: { id: true, title: true },
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("accepts select with pagination", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         take: 5,
         skip: 0,
         select: { id: true },
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("accepts select with orderBy", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         orderBy: { title: "asc" },
         select: { title: true },
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("output: preserves select with all options", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         where: { published: true },
         orderBy: { title: "asc" },
@@ -599,12 +599,12 @@ describe("ToMany Select - Author.posts (oneToMany)", () => {
         select: { id: true, title: true },
       },
     });
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.output.posts?.take).toBe(10);
-      expect(result.output.posts?.skip).toBe(5);
-      expect(result.output.posts?.orderBy).toEqual({ title: "asc" });
-      expect(result.output.posts?.select?.id).toBe(true);
+    expect(result.issues).toBeUndefined();
+    if (!result.issues) {
+      expect(result.value.posts?.take).toBe(10);
+      expect(result.value.posts?.skip).toBe(5);
+      expect(result.value.posts?.orderBy).toEqual({ title: "asc" });
+      expect(result.value.posts?.select?.id).toBe(true);
     }
   });
 });
@@ -617,53 +617,53 @@ describe("ToMany Include - Author.posts (oneToMany)", () => {
   const schema = authorSchemas.include;
 
   test("accepts boolean true", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: true,
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("accepts with where filter", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         where: { published: true },
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("accepts with pagination", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         take: 10,
         skip: 0,
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("accepts with orderBy", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         orderBy: { title: "desc" },
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("accepts with nested include", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         include: {
           author: true,
         },
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("accepts with all options combined", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         where: { published: true },
         orderBy: { title: "asc" },
@@ -674,19 +674,19 @@ describe("ToMany Include - Author.posts (oneToMany)", () => {
         },
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("output: preserves all include options", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         where: { published: true },
         take: 5,
       },
     });
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.output.posts?.take).toBe(5);
+    expect(result.issues).toBeUndefined();
+    if (!result.issues) {
+      expect(result.value.posts?.take).toBe(5);
     }
   });
 });
@@ -699,32 +699,30 @@ describe("ToMany OrderBy - Author.posts (oneToMany)", () => {
   const schema = authorSchemas.orderBy;
 
   test("accepts _count ascending", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         _count: "asc",
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("accepts _count descending", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: {
         _count: "desc",
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("output: preserves _count order", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: { _count: "desc" },
     });
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.output.posts?._count).toBe("desc");
+    expect(result.issues).toBeUndefined();
+    if (!result.issues) {
+      expect(result.value.posts?._count).toBe("desc");
     }
   });
 });
-
-

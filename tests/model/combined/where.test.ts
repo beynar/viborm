@@ -6,7 +6,7 @@
  */
 
 import { describe, test, expect, expectTypeOf } from "vitest";
-import { parse, safeParse } from "valibot";
+import { parse, InferInput } from "../../../src/validation";
 import {
   simpleSchemas,
   authorSchemas,
@@ -14,14 +14,13 @@ import {
   type SimpleState,
   type AuthorState,
 } from "../fixtures";
-import type { WhereInput } from "../../../src/schema/model/schemas/core";
 
 // =============================================================================
 // TYPE TESTS - Simple Model
 // =============================================================================
 
 describe("Where Schema - Types (Simple Model)", () => {
-  type Input = WhereInput<SimpleState>;
+  type Input = InferInput<typeof simpleSchemas.where>;
 
   test("type: includes scalar fields", () => {
     expectTypeOf<Input>().toHaveProperty("id");
@@ -47,7 +46,7 @@ describe("Where Schema - Types (Simple Model)", () => {
 // =============================================================================
 
 describe("Where Schema - Types (Author Model)", () => {
-  type Input = WhereInput<AuthorState>;
+  type Input = InferInput<typeof authorSchemas.where>;
 
   test("type: includes relation fields", () => {
     expectTypeOf<Input>().toHaveProperty("posts");
@@ -62,67 +61,67 @@ describe("Where Schema - Simple Model Runtime", () => {
   const schema = simpleSchemas.where;
 
   test("runtime: accepts empty object", () => {
-    const result = safeParse(schema, {});
-    expect(result.success).toBe(true);
+    const result = parse(schema, {});
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts scalar filter", () => {
-    const result = safeParse(schema, { name: "Alice" });
-    expect(result.success).toBe(true);
+    const result = parse(schema, { name: "Alice" });
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts AND operator with array", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       AND: [{ name: "Alice" }, { active: true }],
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts AND operator with single object", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       AND: { name: "Alice" },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts OR operator", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       OR: [{ name: "Alice" }, { name: "Bob" }],
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts NOT operator with single object", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       NOT: { active: false },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts NOT operator with array", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       NOT: [{ name: "Admin" }, { name: "System" }],
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts nested AND/OR/NOT", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       AND: [
         { OR: [{ name: "Alice" }, { name: "Bob" }] },
         { NOT: { active: false } },
       ],
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts complex filter with operators", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       name: { startsWith: "A" },
       age: { gte: 18 },
       AND: [{ active: true }],
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 });
 
@@ -134,39 +133,39 @@ describe("Where Schema - Author Model Runtime (with relations)", () => {
   const schema = authorSchemas.where;
 
   test("runtime: accepts relation filter (some)", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: { some: { title: "Hello" } },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts relation filter (every)", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: { every: { published: true } },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts relation filter (none)", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: { none: { published: false } },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts combined scalar and relation filter", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       name: "Alice",
       posts: { some: { published: true } },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts relation filter in AND", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       AND: [{ name: "Alice" }, { posts: { some: { title: "Hello" } } }],
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 });
 
@@ -178,18 +177,16 @@ describe("Where Schema - Post Model Runtime (manyToOne)", () => {
   const schema = postSchemas.where;
 
   test("runtime: accepts toOne relation filter (is)", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       author: { is: { name: "Alice" } },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts toOne relation filter (isNot)", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       author: { isNot: { name: "Admin" } },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 });
-
-

@@ -8,7 +8,7 @@
  */
 
 import { describe, test, expect, expectTypeOf } from "vitest";
-import { parse, safeParse } from "valibot";
+import { parse, InferInput } from "../../../src/validation";
 import {
   simpleSchemas,
   authorSchemas,
@@ -16,18 +16,13 @@ import {
   type SimpleState,
   type AuthorState,
 } from "../fixtures";
-import type {
-  FindUniqueArgsInput,
-  FindFirstArgsInput,
-  FindManyArgsInput,
-} from "../../../src/schema/model/schemas/args";
 
 // =============================================================================
 // FIND UNIQUE ARGS
 // =============================================================================
 
 describe("FindUnique Args - Types", () => {
-  type Input = FindUniqueArgsInput<SimpleState>;
+  type Input = InferInput<typeof simpleSchemas.args.findUnique>;
 
   test("type: has required where", () => {
     expectTypeOf<Input>().toHaveProperty("where");
@@ -46,72 +41,73 @@ describe("FindUnique Args - Simple Model Runtime", () => {
   const schema = simpleSchemas.args.findUnique;
 
   test("runtime: accepts where with id", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       where: { id: "user-123" },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts where with unique field", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       where: { email: "alice@example.com" },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts with select", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       where: { id: "user-123" },
       select: { id: true, name: true },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: rejects missing where", () => {
-    const result = safeParse(schema, {});
-    expect(result.success).toBe(false);
+    const result = parse(schema, {});
+    expect(result.issues).toBeDefined();
   });
 
-  test("runtime: ignores non-unique field in where (Valibot allows extra keys)", () => {
-    // Valibot's partial/object allows extra keys by default
-    const result = safeParse(schema, {
-      where: { name: "Alice" }, // name is not unique but allowed
+  test("runtime: rejects non-unique field in where (strict schema)", () => {
+    // Schema is strict - only unique fields are valid in whereUnique
+    const result = parse(schema, {
+      where: { name: "Alice" }, // name is not unique
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeDefined();
   });
 
   test("output: preserves where values correctly", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       where: { id: "user-123" },
     });
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.output.where).toEqual({ id: "user-123" });
+    expect(result.issues).toBeUndefined();
+    if (!result.issues) {
+      expect(result.value.where).toEqual({ id: "user-123" });
     }
   });
 
   test("output: preserves select values correctly", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       where: { id: "user-123" },
       select: { id: true, name: true },
     });
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.output.select).toEqual({ id: true, name: true });
+    expect(result.issues).toBeUndefined();
+    if (!result.issues) {
+      expect(result.value.select).toEqual({ id: true, name: true });
     }
   });
 });
 
 describe("FindUnique Args - Compound ID Model Runtime", () => {
   const schema = compoundIdSchemas.args.findUnique;
+  console.log(compoundIdSchemas.args.findUnique);
 
   test("runtime: accepts compound id in where", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       where: {
         orgId_memberId: { orgId: "org-1", memberId: "member-1" },
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 });
 
@@ -119,15 +115,15 @@ describe("FindUnique Args - Author Model Runtime (with relations)", () => {
   const schema = authorSchemas.args.findUnique;
 
   test("runtime: accepts with include", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       where: { id: "author-1" },
       include: { posts: true },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts with nested include", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       where: { id: "author-1" },
       include: {
         posts: {
@@ -136,7 +132,7 @@ describe("FindUnique Args - Author Model Runtime (with relations)", () => {
         },
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 });
 
@@ -145,7 +141,7 @@ describe("FindUnique Args - Author Model Runtime (with relations)", () => {
 // =============================================================================
 
 describe("FindFirst Args - Types", () => {
-  type Input = FindFirstArgsInput<SimpleState>;
+  type Input = InferInput<typeof simpleSchemas.args.findFirst>;
 
   test("type: has optional where", () => {
     expectTypeOf<Input>().toHaveProperty("where");
@@ -160,38 +156,38 @@ describe("FindFirst Args - Simple Model Runtime", () => {
   const schema = simpleSchemas.args.findFirst;
 
   test("runtime: accepts empty object", () => {
-    const result = safeParse(schema, {});
-    expect(result.success).toBe(true);
+    const result = parse(schema, {});
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts with where", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       where: { active: true },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts with orderBy", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       orderBy: { name: "asc" },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts with select", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       select: { id: true, name: true },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts all options", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       where: { active: true },
       orderBy: { name: "asc" },
       select: { id: true, name: true },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("output: preserves all fields correctly (with filter normalization)", () => {
@@ -200,13 +196,13 @@ describe("FindFirst Args - Simple Model Runtime", () => {
       orderBy: { name: "asc" },
       select: { id: true, name: true },
     };
-    const result = safeParse(schema, input);
-    expect(result.success).toBe(true);
-    if (result.success) {
+    const result = parse(schema, input);
+    expect(result.issues).toBeUndefined();
+    if (!result.issues) {
       // Filter values are normalized to { equals: value }
-      expect(result.output.where).toEqual({ active: { equals: true } });
-      expect(result.output.orderBy).toEqual({ name: "asc" });
-      expect(result.output.select).toEqual({ id: true, name: true });
+      expect(result.value.where).toEqual({ active: { equals: true } });
+      expect(result.value.orderBy).toEqual({ name: "asc" });
+      expect(result.value.select).toEqual({ id: true, name: true });
     }
   });
 });
@@ -216,7 +212,7 @@ describe("FindFirst Args - Simple Model Runtime", () => {
 // =============================================================================
 
 describe("FindMany Args - Types", () => {
-  type Input = FindManyArgsInput<SimpleState>;
+  type Input = InferInput<typeof simpleSchemas.args.findMany>;
 
   test("type: has optional where", () => {
     expectTypeOf<Input>().toHaveProperty("where");
@@ -239,48 +235,48 @@ describe("FindMany Args - Simple Model Runtime", () => {
   const schema = simpleSchemas.args.findMany;
 
   test("runtime: accepts empty object", () => {
-    const result = safeParse(schema, {});
-    expect(result.success).toBe(true);
+    const result = parse(schema, {});
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts with where", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       where: { active: true },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts with take and skip", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       take: 10,
       skip: 0,
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts with cursor", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       cursor: { id: "last-seen-id" },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts with orderBy array", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       orderBy: [{ name: "asc" }, { age: "desc" }],
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts with distinct", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       distinct: ["name"],
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts all options combined", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       where: { active: true },
       orderBy: { name: "asc" },
       take: 20,
@@ -288,48 +284,48 @@ describe("FindMany Args - Simple Model Runtime", () => {
       cursor: { id: "cursor-id" },
       select: { id: true, name: true },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("output: preserves take and skip as numbers", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       take: 20,
       skip: 10,
     });
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.output.take).toBe(20);
-      expect(result.output.skip).toBe(10);
+    expect(result.issues).toBeUndefined();
+    if (!result.issues) {
+      expect(result.value.take).toBe(20);
+      expect(result.value.skip).toBe(10);
     }
   });
 
   test("output: preserves cursor correctly", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       cursor: { id: "cursor-id" },
     });
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.output.cursor).toEqual({ id: "cursor-id" });
+    expect(result.issues).toBeUndefined();
+    if (!result.issues) {
+      expect(result.value.cursor).toEqual({ id: "cursor-id" });
     }
   });
 
   test("output: preserves distinct array", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       distinct: ["name", "email"],
     });
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.output.distinct).toEqual(["name", "email"]);
+    expect(result.issues).toBeUndefined();
+    if (!result.issues) {
+      expect(result.value.distinct).toEqual(["name", "email"]);
     }
   });
 
   test("output: preserves orderBy array", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       orderBy: [{ name: "asc" }, { age: "desc" }],
     });
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.output.orderBy).toEqual([{ name: "asc" }, { age: "desc" }]);
+    expect(result.issues).toBeUndefined();
+    if (!result.issues) {
+      expect(result.value.orderBy).toEqual([{ name: "asc" }, { age: "desc" }]);
     }
   });
 });
@@ -338,7 +334,7 @@ describe("FindMany Args - Author Model Runtime (with relations)", () => {
   const schema = authorSchemas.args.findMany;
 
   test("runtime: accepts with include and take/skip", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       where: { name: { startsWith: "A" } },
       include: {
         posts: {
@@ -348,6 +344,6 @@ describe("FindMany Args - Author Model Runtime (with relations)", () => {
       },
       take: 10,
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 });

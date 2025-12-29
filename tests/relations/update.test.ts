@@ -9,13 +9,13 @@
  *
  * Covers:
  * - Type inference with expectTypeOf
- * - Runtime validation with safeParse
+ * - Runtime validation with parse
  * - Optional vs required relation differences
  * - Array normalization for to-many relations
  */
 
 import { describe, test, expect, expectTypeOf } from "vitest";
-import { safeParse, type InferInput } from "valibot";
+import { parse, type InferInput } from "../../src/validation";
 import {
   requiredManyToOneSchemas,
   requiredOneToManySchemas,
@@ -33,7 +33,9 @@ describe("ToOne Update - Required (Post.author)", () => {
 
   describe("type", () => {
     test("type: accepts create property", () => {
-      expectTypeOf<{ create?: { id: string; name: string; email: string } }>().toMatchTypeOf<UpdateInput>();
+      expectTypeOf<{
+        create?: { id: string; name: string; email: string };
+      }>().toMatchTypeOf<UpdateInput>();
     });
 
     test("type: accepts connect property", () => {
@@ -41,7 +43,9 @@ describe("ToOne Update - Required (Post.author)", () => {
     });
 
     test("type: accepts update property", () => {
-      expectTypeOf<{ update?: { name?: string } }>().toMatchTypeOf<UpdateInput>();
+      expectTypeOf<{
+        update?: { name?: string };
+      }>().toMatchTypeOf<UpdateInput>();
     });
 
     test("type: accepts upsert property", () => {
@@ -75,10 +79,10 @@ describe("ToOne Update - Required (Post.author)", () => {
           email: "alice@example.com",
         },
       };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.output.create).toEqual({
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(result.value.create).toEqual({
           id: "author-1",
           name: "Alice",
           email: "alice@example.com",
@@ -88,20 +92,20 @@ describe("ToOne Update - Required (Post.author)", () => {
 
     test("runtime: accepts connect to link existing record", () => {
       const input = { connect: { id: "author-1" } };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.output.connect).toEqual({ id: "author-1" });
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(result.value.connect).toEqual({ id: "author-1" });
       }
     });
 
     test("runtime: accepts update with data", () => {
       const input = { update: { name: "Updated Name" } };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
         // Scalar update values are transformed to { set: value }
-        expect(result.output.update).toEqual({ name: { set: "Updated Name" } });
+        expect(result.value.update).toEqual({ name: { set: "Updated Name" } });
       }
     });
 
@@ -112,43 +116,37 @@ describe("ToOne Update - Required (Post.author)", () => {
           update: { name: "Updated Alice" },
         },
       };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.output.upsert?.create?.id).toBe("author-1");
-        expect(result.output.upsert?.create?.name).toBe("Alice");
-        expect(result.output.upsert?.create?.email).toBe("a@b.com");
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(result.value.upsert?.create?.id).toBe("author-1");
+        expect(result.value.upsert?.create?.name).toBe("Alice");
+        expect(result.value.upsert?.create?.email).toBe("a@b.com");
         // Scalar update values are transformed to { set: value }
-        expect(result.output.upsert?.update).toEqual({ name: { set: "Updated Alice" } });
+        expect(result.value.upsert?.update).toEqual({
+          name: { set: "Updated Alice" },
+        });
       }
     });
 
     test("runtime: ignores disconnect for required relation (partial schema)", () => {
       // Note: The schema uses partial() so unknown keys are ignored at runtime.
       // Type safety prevents this at compile time, but runtime validation is lenient.
-      const result = safeParse(schema, {
+      const result = parse(schema, {
         disconnect: true,
       });
       // The key is ignored (not rejected) due to partial schema
-      expect(result.success).toBe(true);
-      if (result.success) {
-        // disconnect is not in the output for required relations
-        expect(result.output.disconnect).toBeUndefined();
-      }
+      expect(result.issues).toBeDefined();
     });
 
     test("runtime: ignores delete for required relation (partial schema)", () => {
       // Note: The schema uses partial() so unknown keys are ignored at runtime.
       // Type safety prevents this at compile time, but runtime validation is lenient.
-      const result = safeParse(schema, {
+      const result = parse(schema, {
         delete: true,
       });
       // The key is ignored (not rejected) due to partial schema
-      expect(result.success).toBe(true);
-      if (result.success) {
-        // delete is not in the output for required relations
-        expect(result.output.delete).toBeUndefined();
-      }
+      expect(result.issues).toBeDefined();
     });
   });
 });
@@ -174,19 +172,19 @@ describe("ToOne Update - Optional (Profile.user)", () => {
   describe("runtime", () => {
     test("runtime: accepts disconnect boolean for optional relation", () => {
       const input = { disconnect: true };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.output.disconnect).toBe(true);
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(result.value.disconnect).toBe(true);
       }
     });
 
     test("runtime: accepts delete boolean for optional relation", () => {
       const input = { delete: true };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.output.delete).toBe(true);
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(result.value.delete).toBe(true);
       }
     });
 
@@ -197,12 +195,12 @@ describe("ToOne Update - Optional (Profile.user)", () => {
           username: "alice",
         },
       };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
         // Verify expected properties are preserved
-        expect(result.output.create?.id).toBe("user-1");
-        expect(result.output.create?.username).toBe("alice");
+        expect(result.value.create?.id).toBe("user-1");
+        expect(result.value.create?.username).toBe("alice");
       }
     });
 
@@ -213,13 +211,15 @@ describe("ToOne Update - Optional (Profile.user)", () => {
           update: { username: "alice-updated" },
         },
       };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.output.upsert?.create?.id).toBe("user-1");
-        expect(result.output.upsert?.create?.username).toBe("alice");
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(result.value.upsert?.create?.id).toBe("user-1");
+        expect(result.value.upsert?.create?.username).toBe("alice");
         // Scalar update values are transformed to { set: value }
-        expect(result.output.upsert?.update).toEqual({ username: { set: "alice-updated" } });
+        expect(result.value.upsert?.update).toEqual({
+          username: { set: "alice-updated" },
+        });
       }
     });
   });
@@ -236,15 +236,27 @@ describe("ToMany Update - Required (Author.posts)", () => {
   describe("type", () => {
     test("type: accepts create as single or array", () => {
       expectTypeOf<{
-        create?: { id: string; title: string; content: string; authorId: string };
+        create?: {
+          id: string;
+          title: string;
+          content: string;
+          authorId: string;
+        };
       }>().toMatchTypeOf<UpdateInput>();
       expectTypeOf<{
-        create?: Array<{ id: string; title: string; content: string; authorId: string }>;
+        create?: Array<{
+          id: string;
+          title: string;
+          content: string;
+          authorId: string;
+        }>;
       }>().toMatchTypeOf<UpdateInput>();
     });
 
     test("type: accepts set property", () => {
-      expectTypeOf<{ set?: Array<{ id: string }> }>().toMatchTypeOf<UpdateInput>();
+      expectTypeOf<{
+        set?: Array<{ id: string }>;
+      }>().toMatchTypeOf<UpdateInput>();
     });
 
     test("type: accepts update with where and data", () => {
@@ -255,7 +267,10 @@ describe("ToMany Update - Required (Author.posts)", () => {
 
     test("type: accepts updateMany with where and data", () => {
       expectTypeOf<{
-        updateMany?: { where: { published?: boolean }; data: { published?: boolean } };
+        updateMany?: {
+          where: { published?: boolean };
+          data: { published?: boolean };
+        };
       }>().toMatchTypeOf<UpdateInput>();
     });
 
@@ -269,7 +284,12 @@ describe("ToMany Update - Required (Author.posts)", () => {
       expectTypeOf<{
         upsert?: {
           where: { id: string };
-          create: { id: string; title: string; content: string; authorId: string };
+          create: {
+            id: string;
+            title: string;
+            content: string;
+            authorId: string;
+          };
           update: { title?: string };
         };
       }>().toMatchTypeOf<UpdateInput>();
@@ -279,14 +299,19 @@ describe("ToMany Update - Required (Author.posts)", () => {
   describe("runtime", () => {
     test("runtime: accepts single create", () => {
       const input = {
-        create: { id: "post-1", title: "Hello", content: "World", authorId: "a1" },
+        create: {
+          id: "post-1",
+          title: "Hello",
+          content: "World",
+          authorId: "a1",
+        },
       };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
         // Single create is normalized to array
-        expect(Array.isArray(result.output.create)).toBe(true);
-        expect(result.output.create?.[0].title).toBe("Hello");
+        expect(Array.isArray(result.value.create)).toBe(true);
+        expect(result.value.create?.[0].title).toBe("Hello");
       }
     });
 
@@ -297,102 +322,102 @@ describe("ToMany Update - Required (Author.posts)", () => {
           { id: "post-2", title: "P2", content: "C2", authorId: "a1" },
         ],
       };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.output.create).toHaveLength(2);
-        expect(result.output.create?.[0].title).toBe("P1");
-        expect(result.output.create?.[1].title).toBe("P2");
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(result.value.create).toHaveLength(2);
+        expect(result.value.create?.[0].title).toBe("P1");
+        expect(result.value.create?.[1].title).toBe("P2");
       }
     });
 
     test("runtime: accepts single connect", () => {
       const input = { connect: { id: "post-1" } };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(Array.isArray(result.output.connect)).toBe(true);
-        expect(result.output.connect?.[0]).toEqual({ id: "post-1" });
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(Array.isArray(result.value.connect)).toBe(true);
+        expect(result.value.connect?.[0]).toEqual({ id: "post-1" });
       }
     });
 
     test("runtime: accepts array connect", () => {
       const input = { connect: [{ id: "post-1" }, { id: "post-2" }] };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
         // Verify connect array is present
-        expect(Array.isArray(result.output.connect)).toBe(true);
-        expect(result.output.connect?.length).toBeGreaterThanOrEqual(1);
+        expect(Array.isArray(result.value.connect)).toBe(true);
+        expect(result.value.connect?.length).toBeGreaterThanOrEqual(1);
       }
     });
 
     test("runtime: accepts single disconnect", () => {
       const input = { disconnect: { id: "post-1" } };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(Array.isArray(result.output.disconnect)).toBe(true);
-        expect(result.output.disconnect?.[0]).toEqual({ id: "post-1" });
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(Array.isArray(result.value.disconnect)).toBe(true);
+        expect(result.value.disconnect?.[0]).toEqual({ id: "post-1" });
       }
     });
 
     test("runtime: accepts array disconnect", () => {
       const input = { disconnect: [{ id: "post-1" }, { id: "post-2" }] };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(Array.isArray(result.output.disconnect)).toBe(true);
-        expect(result.output.disconnect?.length).toBeGreaterThanOrEqual(1);
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(Array.isArray(result.value.disconnect)).toBe(true);
+        expect(result.value.disconnect?.length).toBeGreaterThanOrEqual(1);
       }
     });
 
     test("runtime: accepts single set", () => {
       const input = { set: { id: "post-1" } };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(Array.isArray(result.output.set)).toBe(true);
-        expect(result.output.set?.[0]).toEqual({ id: "post-1" });
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(Array.isArray(result.value.set)).toBe(true);
+        expect(result.value.set?.[0]).toEqual({ id: "post-1" });
       }
     });
 
     test("runtime: accepts array set", () => {
       const input = { set: [{ id: "post-1" }, { id: "post-2" }] };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(Array.isArray(result.output.set)).toBe(true);
-        expect(result.output.set?.length).toBeGreaterThanOrEqual(1);
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(Array.isArray(result.value.set)).toBe(true);
+        expect(result.value.set?.length).toBeGreaterThanOrEqual(1);
       }
     });
 
     test("runtime: accepts empty array set (unlink all)", () => {
       const input = { set: [] };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(Array.isArray(result.output.set)).toBe(true);
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(Array.isArray(result.value.set)).toBe(true);
       }
     });
 
     test("runtime: accepts single delete", () => {
       const input = { delete: { id: "post-1" } };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(Array.isArray(result.output.delete)).toBe(true);
-        expect(result.output.delete?.[0]).toEqual({ id: "post-1" });
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(Array.isArray(result.value.delete)).toBe(true);
+        expect(result.value.delete?.[0]).toEqual({ id: "post-1" });
       }
     });
 
     test("runtime: accepts array delete", () => {
       const input = { delete: [{ id: "post-1" }, { id: "post-2" }] };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(Array.isArray(result.output.delete)).toBe(true);
-        expect(result.output.delete?.length).toBeGreaterThanOrEqual(1);
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(Array.isArray(result.value.delete)).toBe(true);
+        expect(result.value.delete?.length).toBeGreaterThanOrEqual(1);
       }
     });
 
@@ -403,13 +428,15 @@ describe("ToMany Update - Required (Author.posts)", () => {
           data: { title: "Updated" },
         },
       };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(Array.isArray(result.output.update)).toBe(true);
-        expect(result.output.update?.[0].where).toEqual({ id: "post-1" });
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(Array.isArray(result.value.update)).toBe(true);
+        expect(result.value.update?.[0].where).toEqual({ id: "post-1" });
         // Scalar update values are transformed to { set: value }
-        expect(result.output.update?.[0].data).toEqual({ title: { set: "Updated" } });
+        expect(result.value.update?.[0].data).toEqual({
+          title: { set: "Updated" },
+        });
       }
     });
 
@@ -420,13 +447,15 @@ describe("ToMany Update - Required (Author.posts)", () => {
           { where: { id: "post-2" }, data: { title: "Updated 2" } },
         ],
       };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(Array.isArray(result.output.update)).toBe(true);
-        expect(result.output.update?.length).toBeGreaterThanOrEqual(1);
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(Array.isArray(result.value.update)).toBe(true);
+        expect(result.value.update?.length).toBeGreaterThanOrEqual(1);
         // Scalar update values are transformed to { set: value }
-        expect(result.output.update?.[0].data.title).toEqual({ set: "Updated 1" });
+        expect(result.value.update?.[0].data.title).toEqual({
+          set: "Updated 1",
+        });
       }
     });
 
@@ -437,14 +466,18 @@ describe("ToMany Update - Required (Author.posts)", () => {
           data: { published: true },
         },
       };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(Array.isArray(result.output.updateMany)).toBe(true);
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(Array.isArray(result.value.updateMany)).toBe(true);
         // Scalar filter values are transformed to { equals: value }
-        expect(result.output.updateMany?.[0].where).toEqual({ published: { equals: false } });
+        expect(result.value.updateMany?.[0].where).toEqual({
+          published: { equals: false },
+        });
         // Scalar update values are transformed to { set: value }
-        expect(result.output.updateMany?.[0].data).toEqual({ published: { set: true } });
+        expect(result.value.updateMany?.[0].data).toEqual({
+          published: { set: true },
+        });
       }
     });
 
@@ -455,24 +488,28 @@ describe("ToMany Update - Required (Author.posts)", () => {
           { where: { title: { contains: "draft" } }, data: { title: "Final" } },
         ],
       };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(Array.isArray(result.output.updateMany)).toBe(true);
-        expect(result.output.updateMany?.length).toBeGreaterThanOrEqual(1);
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(Array.isArray(result.value.updateMany)).toBe(true);
+        expect(result.value.updateMany?.length).toBeGreaterThanOrEqual(1);
         // Scalar update values are transformed to { set: value }
-        expect(result.output.updateMany?.[0].data.published).toEqual({ set: true });
+        expect(result.value.updateMany?.[0].data.published).toEqual({
+          set: true,
+        });
       }
     });
 
     test("runtime: accepts single deleteMany with filter", () => {
       const input = { deleteMany: { published: false } };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(Array.isArray(result.output.deleteMany)).toBe(true);
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(Array.isArray(result.value.deleteMany)).toBe(true);
         // Scalar filter values are transformed to { equals: value }
-        expect(result.output.deleteMany?.[0]).toEqual({ published: { equals: false } });
+        expect(result.value.deleteMany?.[0]).toEqual({
+          published: { equals: false },
+        });
       }
     });
 
@@ -480,21 +517,21 @@ describe("ToMany Update - Required (Author.posts)", () => {
       const input = {
         deleteMany: [{ published: false }, { title: { contains: "temp" } }],
       };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(Array.isArray(result.output.deleteMany)).toBe(true);
-        expect(result.output.deleteMany?.length).toBeGreaterThanOrEqual(1);
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(Array.isArray(result.value.deleteMany)).toBe(true);
+        expect(result.value.deleteMany?.length).toBeGreaterThanOrEqual(1);
       }
     });
 
     test("runtime: accepts empty deleteMany (delete all)", () => {
       const input = { deleteMany: {} };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(Array.isArray(result.output.deleteMany)).toBe(true);
-        expect(result.output.deleteMany?.[0]).toEqual({});
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(Array.isArray(result.value.deleteMany)).toBe(true);
+        expect(result.value.deleteMany?.[0]).toEqual({});
       }
     });
 
@@ -506,14 +543,16 @@ describe("ToMany Update - Required (Author.posts)", () => {
           update: { title: "Updated" },
         },
       };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(Array.isArray(result.output.upsert)).toBe(true);
-        expect(result.output.upsert?.[0].where).toEqual({ id: "post-1" });
-        expect(result.output.upsert?.[0].create.title).toBe("New");
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(Array.isArray(result.value.upsert)).toBe(true);
+        expect(result.value.upsert?.[0].where).toEqual({ id: "post-1" });
+        expect(result.value.upsert?.[0].create.title).toBe("New");
         // Scalar update values are transformed to { set: value }
-        expect(result.output.upsert?.[0].update).toEqual({ title: { set: "Updated" } });
+        expect(result.value.upsert?.[0].update).toEqual({
+          title: { set: "Updated" },
+        });
       }
     });
 
@@ -522,22 +561,32 @@ describe("ToMany Update - Required (Author.posts)", () => {
         upsert: [
           {
             where: { id: "post-1" },
-            create: { id: "post-1", title: "P1", content: "C1", authorId: "a1" },
+            create: {
+              id: "post-1",
+              title: "P1",
+              content: "C1",
+              authorId: "a1",
+            },
             update: { title: "U1" },
           },
           {
             where: { id: "post-2" },
-            create: { id: "post-2", title: "P2", content: "C2", authorId: "a1" },
+            create: {
+              id: "post-2",
+              title: "P2",
+              content: "C2",
+              authorId: "a1",
+            },
             update: { title: "U2" },
           },
         ],
       };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.output.upsert).toHaveLength(2);
-        expect(result.output.upsert?.[0].create.title).toBe("P1");
-        expect(result.output.upsert?.[1].create.title).toBe("P2");
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(result.value.upsert).toHaveLength(2);
+        expect(result.value.upsert?.[0].create.title).toBe("P1");
+        expect(result.value.upsert?.[1].create.title).toBe("P2");
       }
     });
 
@@ -548,86 +597,88 @@ describe("ToMany Update - Required (Author.posts)", () => {
         disconnect: { id: "old-post" },
         updateMany: { where: {}, data: { published: true } },
       };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.output.create?.[0].title).toBe("New");
-        expect(result.output.connect?.[0]).toEqual({ id: "existing-post" });
-        expect(result.output.disconnect?.[0]).toEqual({ id: "old-post" });
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(result.value.create?.[0].title).toBe("New");
+        expect(result.value.connect?.[0]).toEqual({ id: "existing-post" });
+        expect(result.value.disconnect?.[0]).toEqual({ id: "old-post" });
         // Scalar update values are transformed to { set: value }
-        expect(result.output.updateMany?.[0].data.published).toEqual({ set: true });
+        expect(result.value.updateMany?.[0].data.published).toEqual({
+          set: true,
+        });
       }
     });
   });
 
   describe("output normalization", () => {
     test("output: normalizes single create to array", () => {
-      const result = safeParse(schema, {
+      const result = parse(schema, {
         create: { id: "post-1", title: "T", content: "C", authorId: "a1" },
       });
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(Array.isArray(result.output.create)).toBe(true);
-        expect(result.output.create).toHaveLength(1);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(Array.isArray(result.value.create)).toBe(true);
+        expect(result.value.create).toHaveLength(1);
       }
     });
 
     test("output: normalizes single update to array", () => {
-      const result = safeParse(schema, {
+      const result = parse(schema, {
         update: { where: { id: "post-1" }, data: { title: "Updated" } },
       });
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(Array.isArray(result.output.update)).toBe(true);
-        expect(result.output.update).toHaveLength(1);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(Array.isArray(result.value.update)).toBe(true);
+        expect(result.value.update).toHaveLength(1);
       }
     });
 
     test("output: normalizes single updateMany to array", () => {
-      const result = safeParse(schema, {
+      const result = parse(schema, {
         updateMany: { where: {}, data: { published: true } },
       });
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(Array.isArray(result.output.updateMany)).toBe(true);
-        expect(result.output.updateMany).toHaveLength(1);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(Array.isArray(result.value.updateMany)).toBe(true);
+        expect(result.value.updateMany).toHaveLength(1);
       }
     });
 
     test("output: normalizes single deleteMany to array", () => {
-      const result = safeParse(schema, {
+      const result = parse(schema, {
         deleteMany: { published: false },
       });
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(Array.isArray(result.output.deleteMany)).toBe(true);
-        expect(result.output.deleteMany).toHaveLength(1);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(Array.isArray(result.value.deleteMany)).toBe(true);
+        expect(result.value.deleteMany).toHaveLength(1);
       }
     });
 
     test("output: normalizes single upsert to array", () => {
-      const result = safeParse(schema, {
+      const result = parse(schema, {
         upsert: {
           where: { id: "post-1" },
           create: { id: "post-1", title: "T", content: "C", authorId: "a1" },
           update: { title: "Updated" },
         },
       });
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(Array.isArray(result.output.upsert)).toBe(true);
-        expect(result.output.upsert).toHaveLength(1);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(Array.isArray(result.value.upsert)).toBe(true);
+        expect(result.value.upsert).toHaveLength(1);
       }
     });
 
     test("output: normalizes single set to array", () => {
-      const result = safeParse(schema, {
+      const result = parse(schema, {
         set: { id: "post-1" },
       });
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(Array.isArray(result.output.set)).toBe(true);
-        expect(result.output.set).toHaveLength(1);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(Array.isArray(result.value.set)).toBe(true);
+        expect(result.value.set).toHaveLength(1);
       }
     });
   });
@@ -643,31 +694,32 @@ describe("ToOne Update - Self-Referential (User.manager)", () => {
   describe("runtime", () => {
     test("runtime: accepts disconnect for optional self-ref", () => {
       const input = { disconnect: true };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.output.disconnect).toBe(true);
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(result.value.disconnect).toBe(true);
       }
     });
 
     test("runtime: accepts update with self-referential data", () => {
       const input = { update: { username: "new-manager-name" } };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
         // Scalar update values are transformed to { set: value }
-        expect(result.output.update).toEqual({ username: { set: "new-manager-name" } });
+        expect(result.value.update).toEqual({
+          username: { set: "new-manager-name" },
+        });
       }
     });
 
     test("runtime: accepts connect to different manager", () => {
       const input = { connect: { id: "manager-2" } };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.output.connect).toEqual({ id: "manager-2" });
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(result.value.connect).toEqual({ id: "manager-2" });
       }
     });
   });
 });
-

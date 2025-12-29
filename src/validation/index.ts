@@ -80,6 +80,7 @@ export {
   // Wrappers
   array,
   nullable,
+  maybeNullable,
   optional,
   // Negative wrappers (narrowing)
   nonNullable,
@@ -95,6 +96,7 @@ export {
   pipe,
   transformAction,
   record,
+  fromKeys,
   // Transform wrapper
   coerce,
   map,
@@ -175,6 +177,7 @@ export type {
   TransformAction,
   PipeAction,
   RecordSchema,
+  FromKeysOptions,
   // Transform wrapper type
   TransformSchema,
 } from "./schemas";
@@ -203,6 +206,7 @@ import {
   point as pointFn,
   array as arrayFn,
   nullable as nullableFn,
+  maybeNullable as maybeNullableFn,
   optional as optionalFn,
   nonNullable as nonNullableFn,
   nonOptional as nonOptionalFn,
@@ -215,6 +219,7 @@ import {
   pipe as pipeFn,
   transformAction as transformActionFn,
   record as recordFn,
+  fromKeys as fromKeysFn,
   coerce as coerceFn,
   map as mapFn,
 } from "./schemas";
@@ -263,6 +268,7 @@ export const v = {
   // Wrappers
   array: arrayFn,
   nullable: nullableFn,
+  maybeNullable: maybeNullableFn,
   optional: optionalFn,
   // Negative wrappers (narrowing)
   nonNullable: nonNullableFn,
@@ -278,6 +284,7 @@ export const v = {
   pipe: pipeFn,
   transformAction: transformActionFn,
   record: recordFn,
+  fromKeys: fromKeysFn,
   // Transform wrappers
   coerce: coerceFn,
   map: mapFn,

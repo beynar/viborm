@@ -6,7 +6,7 @@
  */
 
 import { describe, test, expect, expectTypeOf } from "vitest";
-import { parse, safeParse } from "valibot";
+import { parse, InferInput } from "../../../src/validation";
 import {
   simpleSchemas,
   compoundIdSchemas,
@@ -15,14 +15,13 @@ import {
   type CompoundIdState,
   type CompoundUniqueState,
 } from "../fixtures";
-import type { WhereUniqueInput } from "../../../src/schema/model/schemas/core";
 
 // =============================================================================
 // TYPE TESTS - Simple Model
 // =============================================================================
 
 describe("Where Unique Schema - Types (Simple Model)", () => {
-  type Input = WhereUniqueInput<SimpleState>;
+  type Input = InferInput<typeof simpleSchemas.whereUnique>;
 
   test("type: includes id field", () => {
     expectTypeOf<Input>().toHaveProperty("id");
@@ -45,27 +44,27 @@ describe("Where Unique Schema - Simple Model Runtime", () => {
   const schema = simpleSchemas.whereUnique;
 
   test("runtime: accepts id value", () => {
-    const result = safeParse(schema, { id: "user-123" });
-    expect(result.success).toBe(true);
+    const result = parse(schema, { id: "user-123" });
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts unique field value", () => {
-    const result = safeParse(schema, { email: "alice@example.com" });
-    expect(result.success).toBe(true);
+    const result = parse(schema, { email: "alice@example.com" });
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts both id and unique field", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       id: "user-123",
       email: "alice@example.com",
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
-  test("runtime: ignores non-unique field (Valibot allows extra keys)", () => {
-    // Valibot's partial/object allows extra keys by default
-    const result = safeParse(schema, { name: "Alice" });
-    expect(result.success).toBe(true);
+  test("runtime: rejects non-unique field (strict schema)", () => {
+    // Schema is strict to prevent invalid SQL from extra keys
+    const result = parse(schema, { name: "Alice" });
+    expect(result.issues).toBeDefined();
   });
 });
 
@@ -77,24 +76,23 @@ describe("Where Unique Schema - Compound ID Model Runtime", () => {
   const schema = compoundIdSchemas.whereUnique;
 
   test("runtime: accepts compound id key", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       orgId_memberId: { orgId: "org-1", memberId: "member-1" },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
-  test("runtime: ignores individual compound id fields (Valibot allows extra keys)", () => {
-    // Valibot's partial/object allows extra keys by default
-    // Individual fields are not recognized as unique constraints
-    const result = safeParse(schema, { orgId: "org-1" });
-    expect(result.success).toBe(true);
+  test("runtime: rejects individual compound id fields (strict schema)", () => {
+    // Schema is strict - only compound key names are valid
+    const result = parse(schema, { orgId: "org-1" });
+    expect(result.issues).toBeDefined();
   });
 
   test("runtime: compound key requires all fields", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       orgId_memberId: { orgId: "org-1" }, // missing memberId
     });
-    expect(result.success).toBe(false);
+    expect(result.issues).toBeDefined();
   });
 });
 
@@ -106,29 +104,28 @@ describe("Where Unique Schema - Compound Unique Model Runtime", () => {
   const schema = compoundUniqueSchemas.whereUnique;
 
   test("runtime: accepts id field", () => {
-    const result = safeParse(schema, { id: "record-123" });
-    expect(result.success).toBe(true);
+    const result = parse(schema, { id: "record-123" });
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts compound unique key", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       email_tenantId: { email: "a@b.com", tenantId: "tenant-1" },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts both id and compound unique", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       id: "record-123",
       email_tenantId: { email: "a@b.com", tenantId: "tenant-1" },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
-  test("runtime: ignores individual compound unique fields (Valibot allows extra keys)", () => {
-    // Valibot's partial/object allows extra keys by default
-    const result = safeParse(schema, { email: "a@b.com" });
-    expect(result.success).toBe(true);
+  test("runtime: rejects individual compound unique fields (strict schema)", () => {
+    // Schema is strict - only compound key names and id are valid
+    const result = parse(schema, { email: "a@b.com" });
+    expect(result.issues).toBeDefined();
   });
 });
-

@@ -6,7 +6,7 @@
  */
 
 import { describe, test, expect, expectTypeOf } from "vitest";
-import { parse, safeParse } from "valibot";
+import { parse, InferInput } from "../../../src/validation";
 import {
   simpleSchemas,
   authorSchemas,
@@ -14,14 +14,13 @@ import {
   type SimpleState,
   type AuthorState,
 } from "../fixtures";
-import type { CreateInput } from "../../../src/schema/model/schemas/core";
 
 // =============================================================================
 // TYPE TESTS - Simple Model
 // =============================================================================
 
 describe("Create Schema - Types (Simple Model)", () => {
-  type Input = CreateInput<SimpleState>;
+  type Input = InferInput<typeof simpleSchemas.create>;
 
   test("type: includes all scalar fields", () => {
     expectTypeOf<Input>().toHaveProperty("id");
@@ -37,7 +36,7 @@ describe("Create Schema - Types (Simple Model)", () => {
 // =============================================================================
 
 describe("Create Schema - Types (Author Model)", () => {
-  type Input = CreateInput<AuthorState>;
+  type Input = InferInput<typeof authorSchemas.create>;
 
   test("type: includes relation fields", () => {
     expectTypeOf<Input>().toHaveProperty("posts");
@@ -52,31 +51,32 @@ describe("Create Schema - Simple Model Runtime", () => {
   const schema = simpleSchemas.create;
 
   test("runtime: accepts valid input with required fields", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       id: "user-123",
       name: "Alice",
       email: "alice@example.com",
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts all fields", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       id: "user-123",
       name: "Alice",
       email: "alice@example.com",
       age: 25,
       active: true,
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: rejects missing required field", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       id: "user-123",
       // missing name and email
     });
-    expect(result.success).toBe(false);
+    console.dir(result, { depth: null });
+    expect(result.issues).toBeDefined();
   });
 });
 
@@ -88,33 +88,33 @@ describe("Create Schema - Author Model Runtime (with relations)", () => {
   const schema = authorSchemas.create;
 
   test("runtime: accepts without relations", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       id: "author-1",
       name: "Alice",
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts with relation create", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       id: "author-1",
       name: "Alice",
       posts: {
         create: { id: "post-1", title: "Hello", authorId: "author-1" },
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts with relation connect", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       id: "author-1",
       name: "Alice",
       posts: {
         connect: [{ id: "post-1" }],
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 });
 
@@ -126,7 +126,7 @@ describe("Create Schema - Post Model Runtime (manyToOne)", () => {
   const schema = postSchemas.create;
 
   test("runtime: accepts with author connect", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       id: "post-1",
       title: "Hello World",
       authorId: "author-1",
@@ -134,11 +134,11 @@ describe("Create Schema - Post Model Runtime (manyToOne)", () => {
         connect: { id: "author-1" },
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts with author create", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       id: "post-1",
       title: "Hello World",
       authorId: "author-1",
@@ -146,8 +146,6 @@ describe("Create Schema - Post Model Runtime (manyToOne)", () => {
         create: { id: "author-1", name: "Alice" },
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 });
-
-

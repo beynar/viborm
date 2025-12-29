@@ -6,7 +6,7 @@
  */
 
 import { describe, test, expect, expectTypeOf } from "vitest";
-import { parse, safeParse } from "valibot";
+import { parse, InferInput } from "../../../src/validation";
 import {
   simpleSchemas,
   authorSchemas,
@@ -14,14 +14,13 @@ import {
   type SimpleState,
   type AuthorState,
 } from "../fixtures";
-import type { OrderByInput } from "../../../src/schema/model/schemas/core";
 
 // =============================================================================
 // TYPE TESTS - Simple Model
 // =============================================================================
 
 describe("OrderBy Schema - Types (Simple Model)", () => {
-  type Input = OrderByInput<SimpleState>;
+  type Input = InferInput<typeof simpleSchemas.orderBy>;
 
   test("type: includes scalar fields", () => {
     expectTypeOf<Input>().toHaveProperty("id");
@@ -41,7 +40,7 @@ describe("OrderBy Schema - Types (Simple Model)", () => {
 // =============================================================================
 
 describe("OrderBy Schema - Types (Author Model)", () => {
-  type Input = OrderByInput<AuthorState>;
+  type Input = InferInput<typeof authorSchemas.orderBy>;
 
   test("type: includes relation fields", () => {
     expectTypeOf<Input>().toHaveProperty("posts");
@@ -56,37 +55,37 @@ describe("OrderBy Schema - Simple Model Runtime", () => {
   const schema = simpleSchemas.orderBy;
 
   test("runtime: accepts empty object", () => {
-    const result = safeParse(schema, {});
-    expect(result.success).toBe(true);
+    const result = parse(schema, {});
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts asc order", () => {
-    const result = safeParse(schema, { name: "asc" });
-    expect(result.success).toBe(true);
+    const result = parse(schema, { name: "asc" });
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts desc order", () => {
-    const result = safeParse(schema, { name: "desc" });
-    expect(result.success).toBe(true);
+    const result = parse(schema, { name: "desc" });
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts multiple fields", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       name: "asc",
       age: "desc",
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: rejects invalid order value", () => {
-    const result = safeParse(schema, { name: "ascending" });
-    expect(result.success).toBe(false);
+    const result = parse(schema, { name: "ascending" });
+    expect(result.issues).toBeDefined();
   });
 
   test("runtime: rejects unknown field (strict schema)", () => {
     // Schema is strict to prevent invalid SQL from extra keys
-    const result = safeParse(schema, { unknownField: "asc" });
-    expect(result.success).toBe(false);
+    const result = parse(schema, { unknownField: "asc" });
+    expect(result.issues).toBeDefined();
   });
 });
 
@@ -98,23 +97,23 @@ describe("OrderBy Schema - Author Model Runtime (with relations)", () => {
   const schema = authorSchemas.orderBy;
 
   test("runtime: accepts scalar ordering", () => {
-    const result = safeParse(schema, { name: "asc" });
-    expect(result.success).toBe(true);
+    const result = parse(schema, { name: "asc" });
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts relation count ordering", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: { _count: "desc" },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts combined scalar and relation ordering", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       name: "asc",
       posts: { _count: "desc" },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 });
 
@@ -126,15 +125,14 @@ describe("OrderBy Schema - Post Model Runtime (manyToOne)", () => {
   const schema = postSchemas.orderBy;
 
   test("runtime: accepts scalar ordering", () => {
-    const result = safeParse(schema, { title: "asc" });
-    expect(result.success).toBe(true);
+    const result = parse(schema, { title: "asc" });
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts nested ordering on toOne relation", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       author: { name: "asc" },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 });
-

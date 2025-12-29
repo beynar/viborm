@@ -1,31 +1,21 @@
 // Relation Update Schemas
 
-import {
-  object,
-  optional,
-  boolean,
-  partial,
-  type ObjectSchema,
-  type OptionalSchema,
-  type BooleanSchema,
-} from "valibot";
 import type { RelationState } from "../relation";
 import {
-  type InferTargetSchema,
-  type SingleOrArraySchema,
   getTargetCreateSchema,
   getTargetUpdateSchema,
   getTargetWhereSchema,
   getTargetWhereUniqueSchema,
   singleOrArray,
 } from "./helpers";
+import v from "../../../validation";
 
 // =============================================================================
 // UPDATE FACTORY IMPLEMENTATIONS
 // =============================================================================
 
 /**
- * To-one update: { create?, connect?, update?, upsert?, disconnect?, delete? }
+ * To-one update: { create?, connect?, connectOrCreate?, update?, upsert?, disconnect?, delete? }
  * disconnect and delete only available for optional relations
  */
 export const toOneUpdateFactory = <S extends RelationState>(state: S) => {
@@ -33,28 +23,31 @@ export const toOneUpdateFactory = <S extends RelationState>(state: S) => {
   const updateSchema = getTargetUpdateSchema(state);
   const whereUniqueSchema = getTargetWhereUniqueSchema(state);
 
-  const baseEntries = {
-    create: optional(createSchema),
-    connect: optional(whereUniqueSchema),
-    update: optional(updateSchema),
-    upsert: optional(
-      object({
-        create: createSchema,
-        update: updateSchema,
-      })
-    ),
-  };
+  // connectOrCreate schema for connecting or creating if not exists
+  const connectOrCreateSchema = v.object({
+    where: whereUniqueSchema,
+    create: createSchema,
+  });
 
-  // Optional relations can disconnect/delete
-  if (state.optional) {
-    return object({
-      ...baseEntries,
-      disconnect: optional(boolean()),
-      delete: optional(boolean()),
-    });
-  }
+  const baseEntries = v.object({
+    create: createSchema,
+    connect: whereUniqueSchema,
+    connectOrCreate: connectOrCreateSchema,
+    update: updateSchema,
+    upsert: v.object({
+      create: createSchema,
+      update: updateSchema,
+    }),
+  });
 
-  return object(baseEntries);
+  const optionalEntries = baseEntries.extend({
+    disconnect: v.boolean(),
+    delete: v.boolean(),
+  });
+
+  return (
+    state.optional ? optionalEntries : baseEntries
+  ) as S["optional"] extends true ? typeof optionalEntries : typeof baseEntries;
 };
 
 /**
@@ -67,37 +60,38 @@ export const toManyUpdateFactory = <S extends RelationState>(state: S) => {
   const whereSchema = getTargetWhereSchema(state);
   const whereUniqueSchema = getTargetWhereUniqueSchema(state);
 
-  const updateWithWhereSchema = object({
+  const updateWithWhereSchema = v.object({
     where: whereUniqueSchema,
     data: updateSchema,
   });
 
-  const updateManyWithWhereSchema = object({
+  const updateManyWithWhereSchema = v.object({
     where: whereSchema,
     data: updateSchema,
   });
 
-  const upsertSchema = object({
+  const upsertSchema = v.object({
     where: whereUniqueSchema,
     create: createSchema,
     update: updateSchema,
   });
 
-  const connectOrCreateSchema = object({
+  const connectOrCreateSchema = v.object({
     where: whereUniqueSchema,
     create: createSchema,
   });
 
-  return object({
-    create: optional(singleOrArray(createSchema)),
-    connect: optional(singleOrArray(whereUniqueSchema)),
-    disconnect: optional(singleOrArray(whereUniqueSchema)),
-    delete: optional(singleOrArray(whereUniqueSchema)),
-    connectOrCreate: optional(singleOrArray(connectOrCreateSchema)),
-    set: optional(singleOrArray(whereUniqueSchema)),
-    update: optional(singleOrArray(updateWithWhereSchema)),
-    updateMany: optional(singleOrArray(updateManyWithWhereSchema)),
-    deleteMany: optional(singleOrArray(whereSchema)),
-    upsert: optional(singleOrArray(upsertSchema)),
+  return v.object({
+    create: () => singleOrArray(createSchema()),
+    connect: () => singleOrArray(whereUniqueSchema()),
+    disconnect: () =>
+      v.union([v.boolean(), singleOrArray(whereUniqueSchema())]),
+    delete: () => singleOrArray(whereUniqueSchema()),
+    connectOrCreate: singleOrArray(connectOrCreateSchema),
+    set: () => singleOrArray(whereUniqueSchema()),
+    update: singleOrArray(updateWithWhereSchema),
+    updateMany: singleOrArray(updateManyWithWhereSchema),
+    deleteMany: () => singleOrArray(whereSchema()),
+    upsert: singleOrArray(upsertSchema),
   });
 };

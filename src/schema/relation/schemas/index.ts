@@ -1,7 +1,5 @@
 // Relation Schema Factories
 // Builds filter, create, update schemas for relations using Valibot
-
-import { type InferInput } from "valibot";
 import type { RelationState } from "../relation";
 
 // Re-export helpers and types

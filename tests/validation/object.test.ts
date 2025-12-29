@@ -1,6 +1,13 @@
 import { describe, test, expect, expectTypeOf } from "vitest";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { v, object, string, number, optional } from "../../src/validation";
+import {
+  v,
+  object,
+  string,
+  number,
+  optional,
+  Prettify,
+} from "../../src/validation";
 
 describe("object schema", () => {
   describe("basic validation", () => {
@@ -390,6 +397,216 @@ describe("object schema", () => {
 
       expect(extended.entries).toHaveProperty("name");
       expect(extended.entries).toHaveProperty("age");
+    });
+  });
+
+  describe("non-partial with optional fields and defaults", () => {
+    test("applies defaults for optional fields not provided in input", () => {
+      const schema = object(
+        {
+          name: string(),
+          age: number({ optional: true, default: 18 }),
+          active: v.boolean({ optional: true, default: true }),
+        },
+        { partial: false }
+      );
+
+      // Provide only required field, optional fields should get defaults
+      const result = schema["~standard"].validate({ name: "Alice" });
+      expect(result.issues).toBeUndefined();
+      expect((result as { value: any }).value).toEqual({
+        name: "Alice",
+        age: 18,
+        active: true,
+      });
+    });
+
+    test("uses provided values over defaults", () => {
+      const schema = object(
+        {
+          name: string(),
+          age: number({ optional: true, default: 18 }),
+          active: v.boolean({ optional: true, default: true }),
+        },
+        { partial: false }
+      );
+
+      const result = schema["~standard"].validate({
+        name: "Bob",
+        age: 25,
+        active: false,
+      });
+      expect(result.issues).toBeUndefined();
+      expect((result as { value: any }).value).toEqual({
+        name: "Bob",
+        age: 25,
+        active: false,
+      });
+    });
+
+    test("applies function defaults", () => {
+      let callCount = 0;
+      const schema = object(
+        {
+          name: string(),
+          createdAt: string({
+            optional: true,
+            default: () => {
+              callCount++;
+              return "2024-01-01";
+            },
+          }),
+        },
+        { partial: false }
+      );
+
+      const result = schema["~standard"].validate({ name: "Test" });
+      expect(result.issues).toBeUndefined();
+      expect((result as { value: any }).value).toEqual({
+        name: "Test",
+        createdAt: "2024-01-01",
+      });
+      expect(callCount).toBe(1);
+    });
+
+    test("rejects missing required field even with optional fields having defaults", () => {
+      const schema = object(
+        {
+          name: string(),
+          age: number({ optional: true, default: 18 }),
+        },
+        { partial: false }
+      );
+
+      // Missing required 'name' field
+      const result = schema["~standard"].validate({ age: 25 });
+      expect(result.issues).toBeDefined();
+      expect(result.issues![0].message).toContain("name");
+    });
+
+    test("type inference includes defaults in output type", () => {
+      const schema = object(
+        {
+          name: string(),
+          age: number({ optional: true, default: 18 }),
+        },
+        { partial: false }
+      );
+
+      type Output = StandardSchemaV1.InferOutput<typeof schema>;
+      // With partial: false, all fields should be required in output
+      expectTypeOf<Output>().toEqualTypeOf<{ name: string; age: number }>();
+    });
+  });
+
+  describe("atLeast option", () => {
+    test("requires only specified keys in partial object", () => {
+      const schema = object(
+        {
+          id: string(),
+          name: string(),
+          email: string(),
+          age: number(),
+        },
+        { atLeast: ["id", "name"] }
+      );
+
+      // Valid: has required keys, missing optional keys
+      const result = schema["~standard"].validate({ id: "1", name: "Alice" });
+      expect(result.issues).toBeUndefined();
+      expect((result as { value: any }).value).toEqual({
+        id: "1",
+        name: "Alice",
+        email: undefined,
+        age: undefined,
+      });
+    });
+
+    test("accepts all fields when provided", () => {
+      const schema = object(
+        {
+          id: string(),
+          name: string(),
+          email: string(),
+        },
+        { atLeast: ["id"] }
+      );
+
+      const result = schema["~standard"].validate({
+        id: "1",
+        name: "Alice",
+        email: "alice@test.com",
+      });
+      expect(result.issues).toBeUndefined();
+      expect((result as { value: any }).value).toEqual({
+        id: "1",
+        name: "Alice",
+        email: "alice@test.com",
+      });
+    });
+
+    test("rejects when atLeast key is missing", () => {
+      const schema = object(
+        {
+          id: string(),
+          name: string(),
+          email: string(),
+        },
+        { atLeast: ["id", "name"] }
+      );
+
+      // Missing required 'id' key
+      const result = schema["~standard"].validate({ name: "Alice" });
+      expect(result.issues).toBeDefined();
+      expect(result.issues![0].message).toContain("id");
+    });
+
+    test("type inference makes atLeast keys required", () => {
+      const schema = object(
+        {
+          id: string(),
+          name: string(),
+          email: string(),
+        },
+        { atLeast: ["id", "name"] as const }
+      );
+
+      type Output = Prettify<StandardSchemaV1.InferOutput<typeof schema>>;
+      // id and name should be required, email should be optional
+      expectTypeOf<Output>().toEqualTypeOf<{
+        id: string;
+        name: string;
+        email?: string;
+      }>();
+    });
+
+    test("atLeast with empty array behaves like partial", () => {
+      const schema = object(
+        {
+          name: string(),
+          age: number(),
+        },
+        { atLeast: [] }
+      );
+
+      const result = schema["~standard"].validate({});
+      expect(result.issues).toBeUndefined();
+    });
+
+    test("atLeast overridden by partial: false", () => {
+      // When partial: false, all fields are required regardless of atLeast
+      const schema = object(
+        {
+          id: string(),
+          name: string(),
+          email: string(),
+        },
+        { partial: false, atLeast: ["id"] }
+      );
+
+      // Should fail because all fields are required with partial: false
+      const result = schema["~standard"].validate({ id: "1" });
+      expect(result.issues).toBeDefined();
     });
   });
 });

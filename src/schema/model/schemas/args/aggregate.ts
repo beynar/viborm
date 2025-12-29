@@ -1,73 +1,46 @@
 // Aggregate operation args schema factories
 
-import {
-  object,
-  optional,
-  boolean,
-  number,
-  array,
-  union,
-  literal,
-  string,
-  type ObjectSchema,
-  type OptionalSchema,
-  type NumberSchema,
-  type ArraySchema,
-  type UnionSchema,
-  type LiteralSchema,
-  type StringSchema,
-  type BooleanSchema,
-  type InferInput,
-} from "valibot";
 import type { ModelState } from "../../model";
-import type { CoreSchemas, SchemaEntries } from "../types";
+import type { CoreSchemas } from "../types";
+import type { StringKeyOf } from "@schema/model/helper";
+import v from "../../../../validation";
 import { forEachScalarField } from "../utils";
-import type { WhereSchema, WhereUniqueSchema, OrderBySchema } from "../core";
 
 // =============================================================================
 // AGGREGATE FIELD SCHEMAS
 // =============================================================================
 
-/** Aggregate field schemas for _count, _avg, _sum, _min, _max */
-export interface AggregateFieldSchemas {
-  count: ObjectSchema<any, any>;
-  avg: ObjectSchema<any, any>;
-  sum: ObjectSchema<any, any>;
-  min: ObjectSchema<any, any>;
-  max: ObjectSchema<any, any>;
-}
-
 /**
  * Build aggregate field schemas (for _count, _avg, _sum, _min, _max)
  */
-export const getAggregateFieldSchemas = <T extends ModelState>(
-  state: T
-): AggregateFieldSchemas => {
-  const countEntries: SchemaEntries = { _all: optional(boolean()) };
-  const numericEntries: SchemaEntries = {};
-  const minMaxEntries: SchemaEntries = {};
+export const getAggregateFieldSchemas = <T extends ModelState>(state: T) => {
+  const countKeys: string[] = ["_all"];
+  const numericKeys: string[] = [];
+  const minMaxKeys: string[] = [];
 
   forEachScalarField(state, (name, field) => {
     const fieldType = field["~"].state.type;
 
     // Count can include all fields
-    countEntries[name] = optional(boolean());
+    countKeys.push(name);
 
     // Avg/Sum only for numeric types
     if (["int", "float", "decimal", "bigint"].includes(fieldType)) {
-      numericEntries[name] = optional(boolean());
+      numericKeys.push(name);
     }
 
     // Min/Max for all comparable types
-    minMaxEntries[name] = optional(boolean());
+    minMaxKeys.push(name);
   });
 
+  const booleanOptional = v.boolean({ optional: true });
+
   return {
-    count: object(countEntries),
-    avg: object(numericEntries),
-    sum: object(numericEntries),
-    min: object(minMaxEntries),
-    max: object(minMaxEntries),
+    count: v.fromKeys(countKeys, booleanOptional),
+    avg: v.fromKeys(numericKeys, booleanOptional),
+    sum: v.fromKeys(numericKeys, booleanOptional),
+    min: v.fromKeys(minMaxKeys, booleanOptional),
+    max: v.fromKeys(minMaxKeys, booleanOptional),
   };
 };
 
@@ -75,171 +48,84 @@ export const getAggregateFieldSchemas = <T extends ModelState>(
 // COUNT ARGS
 // =============================================================================
 
-/** Count args schema: { where?, cursor?, take?, skip? } */
-export type CountArgsSchema<T extends ModelState> = ObjectSchema<
-  {
-    where: OptionalSchema<WhereSchema<T>, undefined>;
-    cursor: OptionalSchema<WhereUniqueSchema<T>, undefined>;
-    take: OptionalSchema<NumberSchema<undefined>, undefined>;
-    skip: OptionalSchema<NumberSchema<undefined>, undefined>;
-  },
-  undefined
->;
-
-/** Input type for count args */
-export type CountArgsInput<T extends ModelState> = InferInput<
-  CountArgsSchema<T>
->;
-
 /**
  * Count args: { where?, cursor?, take?, skip? }
  */
-export const getCountArgs = <T extends ModelState>(
-  core: CoreSchemas<T>
-): CountArgsSchema<T> => {
-  return object({
-    where: optional(core.where),
-    cursor: optional(core.whereUnique),
-    take: optional(number()),
-    skip: optional(number()),
-  }) as CountArgsSchema<T>;
+export const getCountArgs = <T extends ModelState>(core: CoreSchemas<T>) => {
+  return v.object(
+    {
+      where: v.optional(core.where),
+      cursor: v.optional(core.whereUnique),
+      take: v.number({ optional: true }),
+      skip: v.number({ optional: true }),
+    },
+    { partial: false }
+  );
 };
 
 // =============================================================================
 // AGGREGATE ARGS
 // =============================================================================
 
-/** Aggregate args schema: { where?, orderBy?, cursor?, take?, skip?, _count?, _avg?, _sum?, _min?, _max? } */
-export type AggregateArgsSchema<T extends ModelState> = ObjectSchema<
-  {
-    where: OptionalSchema<WhereSchema<T>, undefined>;
-    orderBy: OptionalSchema<
-      UnionSchema<
-        [OrderBySchema<T>, ArraySchema<OrderBySchema<T>, undefined>],
-        undefined
-      >,
-      undefined
-    >;
-    cursor: OptionalSchema<WhereUniqueSchema<T>, undefined>;
-    take: OptionalSchema<NumberSchema<undefined>, undefined>;
-    skip: OptionalSchema<NumberSchema<undefined>, undefined>;
-    _count: OptionalSchema<
-      UnionSchema<
-        [LiteralSchema<true, undefined>, ObjectSchema<any, any>],
-        undefined
-      >,
-      undefined
-    >;
-    _avg: OptionalSchema<ObjectSchema<any, any>, undefined>;
-    _sum: OptionalSchema<ObjectSchema<any, any>, undefined>;
-    _min: OptionalSchema<ObjectSchema<any, any>, undefined>;
-    _max: OptionalSchema<ObjectSchema<any, any>, undefined>;
-  },
-  undefined
->;
-
-/** Input type for aggregate args */
-export type AggregateArgsInput<T extends ModelState> = InferInput<
-  AggregateArgsSchema<T>
->;
-
 /**
- * Aggregate args: { where?, _count?, _avg?, _sum?, _min?, _max? }
+ * Aggregate args: { where?, orderBy?, cursor?, take?, skip?, _count?, _avg?, _sum?, _min?, _max? }
  */
 export const getAggregateArgs = <T extends ModelState>(
   state: T,
   core: CoreSchemas<T>
-): AggregateArgsSchema<T> => {
+) => {
   const aggSchemas = getAggregateFieldSchemas(state);
 
-  return object({
-    where: optional(core.where),
-    orderBy: optional(union([core.orderBy, array(core.orderBy)])),
-    cursor: optional(core.whereUnique),
-    take: optional(number()),
-    skip: optional(number()),
-    _count: optional(union([literal(true), aggSchemas.count])),
-    _avg: optional(aggSchemas.avg),
-    _sum: optional(aggSchemas.sum),
-    _min: optional(aggSchemas.min),
-    _max: optional(aggSchemas.max),
-  }) as AggregateArgsSchema<T>;
+  return v.object(
+    {
+      where: v.optional(core.where),
+      orderBy: v.optional(v.union([core.orderBy, v.array(core.orderBy)])),
+      cursor: v.optional(core.whereUnique),
+      take: v.number({ optional: true }),
+      skip: v.number({ optional: true }),
+      _count: v.optional(v.union([v.literal(true), aggSchemas.count])),
+      _avg: v.optional(aggSchemas.avg),
+      _sum: v.optional(aggSchemas.sum),
+      _min: v.optional(aggSchemas.min),
+      _max: v.optional(aggSchemas.max),
+    },
+    { partial: false }
+  );
 };
 
 // =============================================================================
 // GROUP BY ARGS
 // =============================================================================
 
-/** GroupBy args schema: { by, where?, having?, orderBy?, take?, skip?, _count?, _avg?, _sum?, _min?, _max? } */
-export type GroupByArgsSchema<T extends ModelState> = ObjectSchema<
-  {
-    by: UnionSchema<
-      [
-        StringSchema<undefined>,
-        ArraySchema<StringSchema<undefined>, undefined>
-      ],
-      undefined
-    >;
-    where: OptionalSchema<WhereSchema<T>, undefined>;
-    having: OptionalSchema<WhereSchema<T>, undefined>;
-    orderBy: OptionalSchema<
-      UnionSchema<
-        [OrderBySchema<T>, ArraySchema<OrderBySchema<T>, undefined>],
-        undefined
-      >,
-      undefined
-    >;
-    take: OptionalSchema<NumberSchema<undefined>, undefined>;
-    skip: OptionalSchema<NumberSchema<undefined>, undefined>;
-    _count: OptionalSchema<
-      UnionSchema<
-        [LiteralSchema<true, undefined>, ObjectSchema<any, any>],
-        undefined
-      >,
-      undefined
-    >;
-    _avg: OptionalSchema<ObjectSchema<any, any>, undefined>;
-    _sum: OptionalSchema<ObjectSchema<any, any>, undefined>;
-    _min: OptionalSchema<ObjectSchema<any, any>, undefined>;
-    _max: OptionalSchema<ObjectSchema<any, any>, undefined>;
-  },
-  undefined
->;
-
-/** Input type for groupBy args */
-export type GroupByArgsInput<T extends ModelState> = InferInput<
-  GroupByArgsSchema<T>
->;
-
 /**
- * GroupBy args: { by, where?, having?, orderBy?, take?, skip? }
+ * GroupBy args: { by, where?, having?, orderBy?, take?, skip?, _count?, _avg?, _sum?, _min?, _max? }
  */
 export const getGroupByArgs = <T extends ModelState>(
   state: T,
   core: CoreSchemas<T>
-): GroupByArgsSchema<T> => {
+) => {
   // Build "by" schema - array of scalar field names or single field
-  const fieldNames: string[] = [];
-  forEachScalarField(state, (name) => {
-    fieldNames.push(name);
-  });
+  const scalarKeys = Object.keys(state.scalars) as StringKeyOf<T["scalars"]>[];
 
-  // Use string for runtime - field names are validated at type level
-  const fieldSchema = string();
+  // Use enum for field names for proper type inference
+  const fieldSchema = v.enum(scalarKeys);
 
   const aggSchemas = getAggregateFieldSchemas(state);
 
-  return object({
-    by: union([fieldSchema, array(fieldSchema)]),
-    where: optional(core.where),
-    having: optional(core.where), // Simplified - could be more specific
-    orderBy: optional(union([core.orderBy, array(core.orderBy)])),
-    take: optional(number()),
-    skip: optional(number()),
-    _count: optional(union([literal(true), aggSchemas.count])),
-    _avg: optional(aggSchemas.avg),
-    _sum: optional(aggSchemas.sum),
-    _min: optional(aggSchemas.min),
-    _max: optional(aggSchemas.max),
-  }) as GroupByArgsSchema<T>;
+  return v.object(
+    {
+      by: v.union([fieldSchema, v.array(fieldSchema)]),
+      where: v.optional(core.where),
+      having: v.optional(core.where), // Simplified - could be more specific
+      orderBy: v.optional(v.union([core.orderBy, v.array(core.orderBy)])),
+      take: v.number({ optional: true }),
+      skip: v.number({ optional: true }),
+      _count: v.optional(v.union([v.literal(true), aggSchemas.count])),
+      _avg: v.optional(aggSchemas.avg),
+      _sum: v.optional(aggSchemas.sum),
+      _min: v.optional(aggSchemas.min),
+      _max: v.optional(aggSchemas.max),
+    },
+    { partial: false }
+  );
 };

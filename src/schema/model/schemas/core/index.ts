@@ -6,73 +6,77 @@ export {
   getUniqueFilter,
   getRelationFilter,
   getCompoundConstraintFilter,
-  // Schema types
-  type ScalarFilterSchema,
-  type ScalarFilterInput,
-  type UniqueFilterSchema,
-  type UniqueFilterInput,
-  type RelationFilterSchema,
-  type RelationFilterInput,
-  type CompoundConstraintFilterSchema,
-  type CompoundConstraintFilterInput,
+  getCompoundIdFilter,
 } from "./filter";
 
 // Create exports
-export {
-  getScalarCreate,
-  getRelationCreate,
-  getCreateSchema,
-  // Schema types
-  type ScalarCreateSchema,
-  type ScalarCreateInput,
-  type RelationCreateSchema,
-  type RelationCreateInput,
-  type CreateSchema,
-  type CreateInput,
-} from "./create";
+export { getScalarCreate, getRelationCreate, getCreateSchema } from "./create";
 
 // Update exports
-export {
-  getScalarUpdate,
-  getRelationUpdate,
-  getUpdateSchema,
-  // Schema types
-  type ScalarUpdateSchema,
-  type ScalarUpdateInput,
-  type RelationUpdateSchema,
-  type RelationUpdateInput,
-  type UpdateSchema,
-  type UpdateInput,
-} from "./update";
+export { getScalarUpdate, getRelationUpdate, getUpdateSchema } from "./update";
 
 // Where exports
-export {
-  getWhereSchema,
-  getWhereUniqueSchema,
-  // Schema types
-  type WhereSchema,
-  type WhereInput,
-  type WhereUniqueSchema,
-  type WhereUniqueInput,
-} from "./where";
+export { getWhereSchema, getWhereUniqueSchema } from "./where";
 
 // Select/Include exports
-export {
-  getSelectSchema,
-  getIncludeSchema,
-  // Schema types
-  type SelectSchema,
-  type SelectInput,
-  type IncludeSchema,
-  type IncludeInput,
-} from "./select";
+export { getSelectSchema, getIncludeSchema } from "./select";
 
 // OrderBy exports
-export {
-  getOrderBySchema,
-  sortOrderSchema,
-  // Schema types
-  type OrderBySchema,
-  type OrderByInput,
-  type SortOrderInput,
-} from "./orderby";
+export { getOrderBySchema, sortOrderSchema } from "./orderby";
+
+// =============================================================================
+// INFERRED TYPE EXPORTS
+// =============================================================================
+// These types are inferred from the return types of the factory functions
+// rather than being explicitly defined
+
+import type { ModelState } from "../../model";
+
+// Core schema types (inferred from factory return types)
+export type SelectSchema<T extends ModelState> = ReturnType<
+  typeof import("./select").getSelectSchema<T>
+>;
+export type IncludeSchema<T extends ModelState> = ReturnType<
+  typeof import("./select").getIncludeSchema<T>
+>;
+
+export type UpdateSchema<T extends ModelState> = ReturnType<
+  typeof import("./update").getUpdateSchema<T>
+>;
+export type ScalarUpdateSchema<T extends ModelState> = ReturnType<
+  typeof import("./update").getScalarUpdate<T>
+>;
+export type RelationUpdateSchema<T extends ModelState> = ReturnType<
+  typeof import("./update").getRelationUpdate<T>
+>;
+
+export type WhereSchema<T extends ModelState> = ReturnType<
+  typeof import("./where").getWhereSchema<T>
+>;
+export type WhereUniqueSchema<T extends ModelState> = ReturnType<
+  typeof import("./where").getWhereUniqueSchema<T>
+>;
+
+export type CreateSchema<T extends ModelState> = ReturnType<
+  typeof import("./create").getCreateSchema<T>
+>;
+export type ScalarCreateSchema<T extends ModelState> = ReturnType<
+  typeof import("./create").getScalarCreate<T>
+>;
+export type RelationCreateSchema<T extends ModelState> = ReturnType<
+  typeof import("./create").getRelationCreate<T>
+>;
+
+export type ScalarFilterSchema<T extends ModelState> = ReturnType<
+  typeof import("./filter").getScalarFilter<T>
+>;
+export type UniqueFilterSchema<T extends ModelState> = ReturnType<
+  typeof import("./filter").getUniqueFilter<T>
+>;
+export type RelationFilterSchema<T extends ModelState> = ReturnType<
+  typeof import("./filter").getRelationFilter<T>
+>;
+
+export type OrderBySchema<T extends ModelState> = ReturnType<
+  typeof import("./orderby").getOrderBySchema<T>
+>;

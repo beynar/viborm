@@ -6,7 +6,7 @@
  */
 
 import { describe, test, expect, expectTypeOf } from "vitest";
-import { parse, safeParse } from "valibot";
+import { parse, InferInput } from "../../../src/validation";
 import {
   simpleSchemas,
   authorSchemas,
@@ -14,14 +14,13 @@ import {
   type SimpleState,
   type AuthorState,
 } from "../fixtures";
-import type { SelectInput } from "../../../src/schema/model/schemas/core";
 
 // =============================================================================
 // TYPE TESTS - Simple Model
 // =============================================================================
 
 describe("Select Schema - Types (Simple Model)", () => {
-  type Input = SelectInput<SimpleState>;
+  type Input = InferInput<typeof simpleSchemas.select>;
 
   test("type: includes scalar fields", () => {
     expectTypeOf<Input>().toHaveProperty("id");
@@ -41,7 +40,7 @@ describe("Select Schema - Types (Simple Model)", () => {
 // =============================================================================
 
 describe("Select Schema - Types (Author Model)", () => {
-  type Input = SelectInput<AuthorState>;
+  type Input = InferInput<typeof authorSchemas.select>;
 
   test("type: includes relation fields", () => {
     expectTypeOf<Input>().toHaveProperty("posts");
@@ -56,51 +55,51 @@ describe("Select Schema - Simple Model Runtime", () => {
   const schema = simpleSchemas.select;
 
   test("runtime: accepts empty object", () => {
-    const result = safeParse(schema, {});
-    expect(result.success).toBe(true);
+    const result = parse(schema, {});
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts boolean selection", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       id: true,
       name: true,
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts false to exclude fields", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       id: true,
       email: false, // exclude email
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts all fields selected", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       id: true,
       name: true,
       email: true,
       age: true,
       active: true,
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: rejects unknown field (strict schema)", () => {
     // Schema is strict to prevent invalid SQL from extra keys
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       id: true,
       unknownField: true,
     });
-    expect(result.success).toBe(false);
+    expect(result.issues).toBeDefined();
   });
 
   test("runtime: rejects non-boolean value", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       id: "true", // string instead of boolean
     });
-    expect(result.success).toBe(false);
+    expect(result.issues).toBeDefined();
   });
 });
 
@@ -112,15 +111,15 @@ describe("Select Schema - Author Model Runtime (with relations)", () => {
   const schema = authorSchemas.select;
 
   test("runtime: accepts boolean for relation", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       id: true,
       posts: true,
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts nested select for relation", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       id: true,
       posts: {
         select: {
@@ -129,11 +128,11 @@ describe("Select Schema - Author Model Runtime (with relations)", () => {
         },
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts combined scalar and relation select", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       id: true,
       name: true,
       posts: {
@@ -143,7 +142,7 @@ describe("Select Schema - Author Model Runtime (with relations)", () => {
         },
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 });
 
@@ -155,16 +154,16 @@ describe("Select Schema - Post Model Runtime (manyToOne)", () => {
   const schema = postSchemas.select;
 
   test("runtime: accepts boolean for toOne relation", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       id: true,
       title: true,
       author: true,
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts nested select for toOne relation", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       id: true,
       title: true,
       author: {
@@ -174,7 +173,6 @@ describe("Select Schema - Post Model Runtime (manyToOne)", () => {
         },
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 });
-

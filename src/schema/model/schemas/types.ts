@@ -1,7 +1,5 @@
 // Shared types for model schemas
 
-import type { ObjectSchema, BaseSchema } from "valibot";
-import type { AnySchema } from "../../fields/common";
 import type { ModelState } from "../model";
 import type {
   WhereSchema,
@@ -13,11 +11,12 @@ import type {
   OrderBySchema,
   ScalarCreateSchema,
 } from "./core";
+import { VibSchema } from "../../../validation";
 
 /**
  * Schema entries record type
  */
-export type SchemaEntries = Record<string, AnySchema>;
+export type SchemaEntries = Record<string, VibSchema>;
 
 /**
  * Core schemas bundle passed to args factories
@@ -38,13 +37,12 @@ export interface CoreSchemas<T extends ModelState = ModelState> {
  * Loose CoreSchemas for runtime (without generics)
  */
 export interface LooseCoreSchemas {
-  where: BaseSchema<any, any, any>;
-  whereUnique: ObjectSchema<any, any>;
-  create: ObjectSchema<any, any>;
-  update: ObjectSchema<any, any>;
-  select: ObjectSchema<any, any>;
-  include: ObjectSchema<any, any>;
-  orderBy: ObjectSchema<any, any>;
-  scalarCreate: ObjectSchema<any, any>;
+  where: VibSchema<any, any>;
+  whereUnique: VibSchema<any, any>;
+  create: VibSchema<any, any>;
+  update: VibSchema<any, any>;
+  select: VibSchema<any, any>;
+  include: VibSchema<any, any>;
+  orderBy: VibSchema<any, any>;
+  scalarCreate: VibSchema<any, any>;
 }
-

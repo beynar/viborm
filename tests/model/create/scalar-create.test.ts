@@ -6,21 +6,20 @@
  */
 
 import { describe, test, expect, expectTypeOf } from "vitest";
-import { parse, safeParse } from "valibot";
+import { parse, InferInput } from "../../../src/validation";
 import {
   simpleSchemas,
   compoundIdSchemas,
   type SimpleState,
   type CompoundIdState,
 } from "../fixtures";
-import type { ScalarCreateInput } from "../../../src/schema/model/schemas/core";
 
 // =============================================================================
 // TYPE TESTS - Simple Model
 // =============================================================================
 
 describe("Scalar Create - Types (Simple Model)", () => {
-  type Input = ScalarCreateInput<SimpleState>;
+  type Input = InferInput<typeof simpleSchemas._create.scalar>;
 
   test("type: includes all scalar fields", () => {
     expectTypeOf<Input>().toHaveProperty("id");
@@ -45,12 +44,12 @@ describe("Scalar Create - Simple Model Runtime", () => {
   const schema = simpleSchemas._create.scalar;
 
   test("runtime: accepts valid input with all required fields", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       id: "user-123",
       name: "Alice",
       email: "alice@example.com",
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts optional field (age nullable)", () => {
@@ -60,7 +59,8 @@ describe("Scalar Create - Simple Model Runtime", () => {
       email: "alice@example.com",
       age: 25,
     });
-    expect(result.age).toBe(25);
+    if (result.issues) throw new Error("Expected success");
+    expect(result.value.age).toBe(25);
   });
 
   test("runtime: accepts null for nullable field", () => {
@@ -70,34 +70,36 @@ describe("Scalar Create - Simple Model Runtime", () => {
       email: "alice@example.com",
       age: null,
     });
-    expect(result.age).toBe(null);
+    if (result.issues) throw new Error("Expected success");
+    expect(result.value.age).toBe(null);
   });
 
   test("runtime: field with default can be omitted", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       id: "user-123",
       name: "Alice",
       email: "alice@example.com",
       // active has default(true), so it can be omitted
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: rejects missing required field", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       id: "user-123",
       // missing name and email
     });
-    expect(result.success).toBe(false);
+    console.dir(schema, { depth: null });
+    expect(result.issues).toBeDefined();
   });
 
   test("runtime: rejects wrong type", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       id: "user-123",
       name: 123, // should be string
       email: "alice@example.com",
     });
-    expect(result.success).toBe(false);
+    expect(result.issues).toBeDefined();
   });
 });
 
@@ -109,21 +111,19 @@ describe("Scalar Create - Compound ID Model Runtime", () => {
   const schema = compoundIdSchemas._create.scalar;
 
   test("runtime: accepts all fields", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       orgId: "org-1",
       memberId: "member-1",
       role: "admin",
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: rejects missing compound id fields", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       orgId: "org-1",
       // missing memberId and role
     });
-    expect(result.success).toBe(false);
+    expect(result.issues).toBeDefined();
   });
 });
-
-

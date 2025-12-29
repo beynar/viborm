@@ -7,14 +7,14 @@
  *
  * Covers:
  * - Type inference with expectTypeOf
- * - Runtime validation with safeParse
+ * - Runtime validation with parse
  * - Output verification
  * - Optional vs required relation differences
  * - Nested filtering
  */
 
 import { describe, test, expect, expectTypeOf } from "vitest";
-import { safeParse, type InferInput } from "valibot";
+import { parse, type InferInput } from "../../src/validation";
 import {
   requiredManyToOneSchemas,
   requiredOneToManySchemas,
@@ -48,21 +48,21 @@ describe("ToOne Filter - Required (Post.author)", () => {
   describe("runtime", () => {
     test("runtime: accepts is with scalar conditions", () => {
       const input = { is: { name: "Alice" } };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
         // Scalar values are transformed to { equals: value }
-        expect(result.output.is).toEqual({ name: { equals: "Alice" } });
+        expect(result.value.is).toEqual({ name: { equals: "Alice" } });
       }
     });
 
     test("runtime: accepts isNot with scalar conditions", () => {
       const input = { isNot: { name: "Bob" } };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
         // Scalar values are transformed to { equals: value }
-        expect(result.output.isNot).toEqual({ name: { equals: "Bob" } });
+        expect(result.value.isNot).toEqual({ name: { equals: "Bob" } });
       }
     });
 
@@ -73,20 +73,20 @@ describe("ToOne Filter - Required (Post.author)", () => {
           email: { contains: "@example.com" },
         },
       };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.output.is?.name).toEqual({ startsWith: "A" });
-        expect(result.output.is?.email).toEqual({ contains: "@example.com" });
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(result.value.is?.name).toEqual({ startsWith: "A" });
+        expect(result.value.is?.email).toEqual({ contains: "@example.com" });
       }
     });
 
     test("runtime: accepts empty is object", () => {
       const input = { is: {} };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.output.is).toEqual({});
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(result.value.is).toEqual({});
       }
     });
 
@@ -95,18 +95,18 @@ describe("ToOne Filter - Required (Post.author)", () => {
         is: { name: "Alice" },
         isNot: { email: "bob@example.com" },
       };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
         // Scalar values are transformed to { equals: value }
-        expect(result.output.is).toEqual({ name: { equals: "Alice" } });
-        expect(result.output.isNot).toEqual({ email: { equals: "bob@example.com" } });
+        expect(result.value.is).toEqual({ name: { equals: "Alice" } });
+        expect(result.value.isNot).toEqual({ email: { equals: "bob@example.com" } });
       }
     });
 
     test("runtime: rejects is with null (required relation)", () => {
-      const result = safeParse(schema, { is: null });
-      expect(result.success).toBe(false);
+      const result = parse(schema, { is: null });
+      expect(result.issues).toBeDefined();
     });
 
     test("runtime: accepts deeply nested relation filter", () => {
@@ -117,11 +117,11 @@ describe("ToOne Filter - Required (Post.author)", () => {
           },
         },
       };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
         // Scalar values are transformed to { equals: value }
-        expect(result.output.is?.posts?.some).toEqual({ published: { equals: true } });
+        expect(result.value.is?.posts?.some).toEqual({ published: { equals: true } });
       }
     });
   });
@@ -148,30 +148,30 @@ describe("ToOne Filter - Optional (Profile.user)", () => {
   describe("runtime", () => {
     test("runtime: accepts is with null (optional relation)", () => {
       const input = { is: null };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.output.is).toBeNull();
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(result.value.is).toBeNull();
       }
     });
 
     test("runtime: accepts is with scalar conditions", () => {
       const input = { is: { username: "alice" } };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
         // Scalar values are transformed to { equals: value }
-        expect(result.output.is).toEqual({ username: { equals: "alice" } });
+        expect(result.value.is).toEqual({ username: { equals: "alice" } });
       }
     });
 
     test("runtime: accepts isNot with scalar conditions", () => {
       const input = { isNot: { username: "bob" } };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
         // Scalar values are transformed to { equals: value }
-        expect(result.output.isNot).toEqual({ username: { equals: "bob" } });
+        expect(result.value.isNot).toEqual({ username: { equals: "bob" } });
       }
     });
   });
@@ -202,40 +202,40 @@ describe("ToMany Filter - Required (Author.posts)", () => {
   describe("runtime", () => {
     test("runtime: accepts some filter", () => {
       const input = { some: { published: true } };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
         // Scalar values are transformed to { equals: value }
-        expect(result.output.some).toEqual({ published: { equals: true } });
+        expect(result.value.some).toEqual({ published: { equals: true } });
       }
     });
 
     test("runtime: accepts every filter", () => {
       const input = { every: { published: true } };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
         // Scalar values are transformed to { equals: value }
-        expect(result.output.every).toEqual({ published: { equals: true } });
+        expect(result.value.every).toEqual({ published: { equals: true } });
       }
     });
 
     test("runtime: accepts none filter", () => {
       const input = { none: { published: false } };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
         // Scalar values are transformed to { equals: value }
-        expect(result.output.none).toEqual({ published: { equals: false } });
+        expect(result.value.none).toEqual({ published: { equals: false } });
       }
     });
 
     test("runtime: accepts empty some object (any records exist)", () => {
       const input = { some: {} };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.output.some).toEqual({});
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(result.value.some).toEqual({});
       }
     });
 
@@ -246,12 +246,12 @@ describe("ToMany Filter - Required (Author.posts)", () => {
           published: true,
         },
       };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.output.some?.title).toEqual({ contains: "hello" });
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(result.value.some?.title).toEqual({ contains: "hello" });
         // Scalar values are transformed to { equals: value }
-        expect(result.output.some?.published).toEqual({ equals: true });
+        expect(result.value.some?.published).toEqual({ equals: true });
       }
     });
 
@@ -261,13 +261,13 @@ describe("ToMany Filter - Required (Author.posts)", () => {
         every: { title: { startsWith: "Post" } },
         none: { content: { contains: "draft" } },
       };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
         // Scalar values are transformed to { equals: value }
-        expect(result.output.some).toEqual({ published: { equals: true } });
-        expect(result.output.every?.title).toEqual({ startsWith: "Post" });
-        expect(result.output.none?.content).toEqual({ contains: "draft" });
+        expect(result.value.some).toEqual({ published: { equals: true } });
+        expect(result.value.every?.title).toEqual({ startsWith: "Post" });
+        expect(result.value.none?.content).toEqual({ contains: "draft" });
       }
     });
 
@@ -279,11 +279,11 @@ describe("ToMany Filter - Required (Author.posts)", () => {
           },
         },
       };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
         // Scalar values are transformed to { equals: value }
-        expect(result.output.some?.author?.is).toEqual({ name: { equals: "Alice" } });
+        expect(result.value.some?.author?.is).toEqual({ name: { equals: "Alice" } });
       }
     });
   });
@@ -299,10 +299,10 @@ describe("ToMany Filter - Self-Referential (User.manager)", () => {
   describe("runtime", () => {
     test("runtime: accepts is with null (optional self-ref)", () => {
       const input = { is: null };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.output.is).toBeNull();
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(result.value.is).toBeNull();
       }
     });
 
@@ -315,12 +315,12 @@ describe("ToMany Filter - Self-Referential (User.manager)", () => {
           },
         },
       };
-      const result = safeParse(schema, input);
-      expect(result.success).toBe(true);
-      if (result.success) {
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
         // Scalar values are transformed to { equals: value }
-        expect(result.output.is?.username).toEqual({ equals: "manager" });
-        expect(result.output.is?.manager?.is).toBeNull();
+        expect(result.value.is?.username).toEqual({ equals: "manager" });
+        expect(result.value.is?.manager?.is).toBeNull();
       }
     });
   });

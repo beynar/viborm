@@ -20,6 +20,7 @@ import {
   ToString,
 } from "./helper";
 import { getModelSchemas } from "./schemas";
+import v, { ObjectSchema, VibSchema } from "../../validation";
 // Re-export types from helpers for external use
 
 // =============================================================================
@@ -28,8 +29,12 @@ import { getModelSchemas } from "./schemas";
 
 export interface ModelState {
   fields: FieldRecord;
-  compoundId: Record<string, Record<string, Field>> | undefined;
-  compoundUniques: Record<string, Record<string, Field>> | undefined;
+  compoundId:
+    | Record<string, ObjectSchema<Record<string, VibSchema>>>
+    | undefined;
+  compoundUniques:
+    | Record<string, ObjectSchema<Record<string, VibSchema>>>
+    | undefined;
   tableName: string | undefined;
   indexes: IndexDefinition[];
   omit: string[];
@@ -126,9 +131,11 @@ export class Model<State extends ModelState> {
       State,
       {
         compoundId: {
-          [K in Name extends undefined ? NameFromKeys<Keys> : Name]: {
-            [K2 in Keys[number]]: State["scalars"][K2];
-          };
+          [K in Name extends undefined
+            ? NameFromKeys<Keys>
+            : Name]: ObjectSchema<{
+            [K2 in Keys[number]]: State["scalars"][K2]["~"]["schemas"]["base"];
+          }>;
         };
       }
     >
@@ -140,16 +147,14 @@ export class Model<State extends ModelState> {
           ? this.state.scalars[fieldName]
           : undefined;
       if (field) {
-        acc[fieldName] = field;
+        acc[fieldName] = field["~"].schemas.base;
       }
       return acc;
-    }, {} as Record<string, Field>);
+    }, {} as Record<string, VibSchema>);
 
-    const compoundId = { [name]: fieldsRecord } as {
-      [K in Name extends undefined ? NameFromKeys<Keys> : Name]: {
-        [K2 in Keys[number]]: State["scalars"][K2];
-      };
-    };
+    const compoundId = {
+      [name]: v.object(fieldsRecord, { partial: false }),
+    } as any;
     return new Model({ ...this.state, compoundId });
   }
 
@@ -164,9 +169,11 @@ export class Model<State extends ModelState> {
       State,
       {
         compoundUniques: {
-          [K in Name extends undefined ? NameFromKeys<Keys> : Name]: {
-            [K2 in Keys[number]]: State["scalars"][K2];
-          };
+          [K in Name extends undefined
+            ? NameFromKeys<Keys>
+            : Name]: ObjectSchema<{
+            [K2 in Keys[number]]: State["scalars"][K2]["~"]["schemas"]["base"];
+          }>;
         };
       }
     >
@@ -178,16 +185,14 @@ export class Model<State extends ModelState> {
           ? this.state.scalars[fieldName]
           : undefined;
       if (field) {
-        acc[fieldName] = field;
+        acc[fieldName] = field["~"].schemas.base;
       }
       return acc;
-    }, {} as Record<string, Field>);
+    }, {} as Record<string, VibSchema>);
 
-    const compoundUniques = { [name]: fieldsRecord } as {
-      [K in Name extends undefined ? NameFromKeys<Keys> : Name]: {
-        [K2 in Keys[number]]: State["scalars"][K2];
-      };
-    };
+    const compoundUniques = {
+      [name]: v.object(fieldsRecord, { partial: false }),
+    } as any;
     return new Model({ ...this.state, compoundUniques });
   }
 

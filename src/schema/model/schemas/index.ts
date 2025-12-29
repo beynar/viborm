@@ -1,5 +1,5 @@
 // Model Schema Factories
-// Main entry point - builds all model schemas by composing field-level Valibot schemas
+// Main entry point - builds all model schemas by composing field-level schemas
 
 import type { ModelState } from "../model";
 
@@ -45,7 +45,7 @@ import type { CoreSchemas } from "./types";
 export type { CoreSchemas, SchemaEntries } from "./types";
 
 // Re-export utilities (if needed externally)
-export { forEachScalarField, forEachRelation, isToOne, merge } from "./utils";
+export { forEachScalarField, forEachRelation, isToOne } from "./utils";
 
 // Re-export core schemas
 export * from "./core";

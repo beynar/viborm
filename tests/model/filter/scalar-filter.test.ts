@@ -6,21 +6,20 @@
  */
 
 import { describe, test, expect, expectTypeOf } from "vitest";
-import { parse, safeParse } from "valibot";
+import { parse, InferInput } from "../../../src/validation";
 import {
   simpleModel,
   simpleSchemas,
   compoundIdSchemas,
   type SimpleState,
 } from "../fixtures";
-import type { ScalarFilterInput } from "../../../src/schema/model/schemas/core";
 
 // =============================================================================
 // TYPE TESTS
 // =============================================================================
 
 describe("Scalar Filter - Types", () => {
-  type Input = ScalarFilterInput<SimpleState>;
+  type Input = InferInput<typeof simpleSchemas._filter.scalar>;
 
   test("type: includes all scalar fields", () => {
     expectTypeOf<Input>().toHaveProperty("id");
@@ -55,13 +54,14 @@ describe("Scalar Filter - Simple Model Runtime", () => {
   const schema = simpleSchemas._filter.scalar;
 
   test("runtime: accepts empty object", () => {
-    const result = safeParse(schema, {});
-    expect(result.success).toBe(true);
+    const result = parse(schema, {});
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts single field shorthand", () => {
     const result = parse(schema, { name: "Alice" });
-    expect(result.name).toEqual({ equals: "Alice" });
+    if (result.issues) throw new Error("Expected success");
+    expect(result.value.name).toEqual({ equals: "Alice" });
   });
 
   test("runtime: accepts multiple field filters", () => {
@@ -69,47 +69,53 @@ describe("Scalar Filter - Simple Model Runtime", () => {
       name: "Alice",
       active: true,
     });
-    expect(result.name).toEqual({ equals: "Alice" });
-    expect(result.active).toEqual({ equals: true });
+    if (result.issues) throw new Error("Expected success");
+    expect(result.value.name).toEqual({ equals: "Alice" });
+    expect(result.value.active).toEqual({ equals: true });
   });
 
   test("runtime: accepts complex filter object", () => {
     const result = parse(schema, {
       age: { gte: 18, lte: 65 },
     });
-    expect(result.age).toEqual({ gte: 18, lte: 65 });
+    if (result.issues) throw new Error("Expected success");
+    expect(result.value.age).toEqual({ gte: 18, lte: 65 });
   });
 
   test("runtime: accepts string filter with operators", () => {
     const result = parse(schema, {
       name: { startsWith: "A", endsWith: "e" },
     });
-    expect(result.name).toEqual({ startsWith: "A", endsWith: "e" });
+    if (result.issues) throw new Error("Expected success");
+    expect(result.value.name).toEqual({ startsWith: "A", endsWith: "e" });
   });
 
   test("runtime: accepts nullable field filter", () => {
     const result = parse(schema, { age: null });
-    expect(result.age).toEqual({ equals: null });
+    if (result.issues) throw new Error("Expected success");
+    expect(result.value.age).toEqual({ equals: null });
   });
 
   test("runtime: accepts 'in' array filter", () => {
     const result = parse(schema, {
       name: { in: ["Alice", "Bob"] },
     });
-    expect(result.name).toEqual({ in: ["Alice", "Bob"] });
+    if (result.issues) throw new Error("Expected success");
+    expect(result.value.name).toEqual({ in: ["Alice", "Bob"] });
   });
 
   test("runtime: accepts NOT filter", () => {
     const result = parse(schema, {
       name: { not: "Admin" },
     });
-    expect(result.name).toEqual({ not: { equals: "Admin" } });
+    if (result.issues) throw new Error("Expected success");
+    expect(result.value.name).toEqual({ not: { equals: "Admin" } });
   });
 
   test("runtime: rejects unknown field (strict schema)", () => {
     // Schema is strict to prevent invalid SQL from extra keys
-    const result = safeParse(schema, { unknownField: "value" });
-    expect(result.success).toBe(false);
+    const result = parse(schema, { unknownField: "value" });
+    expect(result.issues).toBeDefined();
   });
 });
 
@@ -126,8 +132,9 @@ describe("Scalar Filter - Compound ID Model Runtime", () => {
       memberId: "member-1",
       role: "admin",
     });
-    expect(result.orgId).toEqual({ equals: "org-1" });
-    expect(result.memberId).toEqual({ equals: "member-1" });
-    expect(result.role).toEqual({ equals: "admin" });
+    if (result.issues) throw new Error("Expected success");
+    expect(result.value.orgId).toEqual({ equals: "org-1" });
+    expect(result.value.memberId).toEqual({ equals: "member-1" });
+    expect(result.value.role).toEqual({ equals: "admin" });
   });
 });

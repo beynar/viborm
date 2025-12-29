@@ -6,7 +6,7 @@
  */
 
 import { describe, test, expect, expectTypeOf } from "vitest";
-import { parse, safeParse } from "valibot";
+import { parse, InferInput } from "../../../src/validation";
 import {
   authorSchemas,
   postSchemas,
@@ -14,14 +14,13 @@ import {
   type AuthorState,
   type PostState,
 } from "../fixtures";
-import type { RelationFilterInput } from "../../../src/schema/model/schemas/core";
 
 // =============================================================================
 // TYPE TESTS - Author Model (has oneToMany)
 // =============================================================================
 
 describe("Relation Filter - Types (Author Model)", () => {
-  type Input = RelationFilterInput<AuthorState>;
+  type Input = InferInput<typeof authorSchemas._filter.relation>;
 
   test("type: includes relation field", () => {
     expectTypeOf<Input>().toHaveProperty("posts");
@@ -41,7 +40,7 @@ describe("Relation Filter - Types (Author Model)", () => {
 // =============================================================================
 
 describe("Relation Filter - Types (Post Model)", () => {
-  type Input = RelationFilterInput<PostState>;
+  type Input = InferInput<typeof postSchemas._filter.relation>;
 
   test("type: includes relation field", () => {
     expectTypeOf<Input>().toHaveProperty("author");
@@ -56,29 +55,29 @@ describe("Relation Filter - Author Model Runtime (oneToMany)", () => {
   const schema = authorSchemas._filter.relation;
 
   test("runtime: accepts empty object", () => {
-    const result = safeParse(schema, {});
-    expect(result.success).toBe(true);
+    const result = parse(schema, {});
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts 'some' filter", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: { some: { title: "Hello" } },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts 'every' filter", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: { every: { published: true } },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts 'none' filter", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       posts: { none: { title: "Draft" } },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 });
 
@@ -90,22 +89,22 @@ describe("Relation Filter - Post Model Runtime (manyToOne)", () => {
   const schema = postSchemas._filter.relation;
 
   test("runtime: accepts empty object", () => {
-    const result = safeParse(schema, {});
-    expect(result.success).toBe(true);
+    const result = parse(schema, {});
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts 'is' filter", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       author: { is: { name: "Alice" } },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts 'isNot' filter", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       author: { isNot: { name: "Admin" } },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 });
 
@@ -117,13 +116,13 @@ describe("Relation Filter - Simple Model Runtime (no relations)", () => {
   const schema = simpleSchemas._filter.relation;
 
   test("runtime: accepts empty object", () => {
-    const result = safeParse(schema, {});
-    expect(result.success).toBe(true);
+    const result = parse(schema, {});
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: rejects unknown relation key (strict schema)", () => {
     // Schema is strict to prevent invalid SQL from extra keys
-    const result = safeParse(schema, { anyRelation: {} });
-    expect(result.success).toBe(false);
+    const result = parse(schema, { anyRelation: {} });
+    expect(result.issues).toBeDefined();
   });
 });

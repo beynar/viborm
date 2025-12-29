@@ -1,81 +1,30 @@
-// OrderBy schema factories
-
-import {
-  object,
-  optional,
-  union,
-  literal,
-  lazy,
-  strictObject,
-  type ObjectSchema,
-  type OptionalSchema,
-  type InferInput,
-} from "valibot";
 import type { ModelState } from "../../model";
-import type { SchemaEntries } from "../types";
-import { forEachScalarField, forEachRelation } from "../utils";
+import v from "../../../../validation";
+import { StringKeyOf } from "@schema/model/helper";
 
-// =============================================================================
-// SORT ORDER
-// =============================================================================
-
-/**
- * Sort order schema for orderBy
- */
-export const sortOrderSchema = union([
-  literal("asc"),
-  literal("desc"),
-  object({
-    sort: union([literal("asc"), literal("desc")]),
-    nulls: optional(union([literal("first"), literal("last")])),
-  }),
+const orderEnum = v.enum(["asc", "desc"]);
+export const sortOrderSchema = v.union([
+  orderEnum,
+  v.object(
+    {
+      sort: orderEnum,
+      nulls: v.enum(["first", "last"], { optional: true }),
+    },
+    { partial: false }
+  ),
 ]);
-
-/** Sort order type */
-export type SortOrderInput = InferInput<typeof sortOrderSchema>;
-
-// =============================================================================
-// ORDER BY SCHEMA
-// =============================================================================
-
-/** OrderBy schema - sort direction for each scalar field and nested relation ordering */
-export type OrderBySchema<T extends ModelState> = ObjectSchema<
-  {
-    [K in keyof T["scalars"]]: OptionalSchema<
-      typeof sortOrderSchema,
-      undefined
-    >;
-  } & {
-    [K in keyof T["relations"]]: OptionalSchema<
-      T["relations"][K]["~"]["schemas"]["orderBy"],
-      undefined
-    >;
-  },
-  undefined
->;
-
-/** Input type for orderBy */
-export type OrderByInput<T extends ModelState> = InferInput<OrderBySchema<T>>;
 
 /**
  * Build orderBy schema - sort direction for each scalar field and nested relation ordering
  */
-export const getOrderBySchema = <T extends ModelState>(
-  state: T
-): OrderBySchema<T> => {
-  const entries: SchemaEntries = {};
+export const getOrderBySchema = <T extends ModelState>(state: T) => {
+  const scalarKeys = Object.keys(state.scalars) as StringKeyOf<T["scalars"]>[];
+  const scalarEntries = v.fromKeys(scalarKeys, sortOrderSchema);
 
-  // Scalar fields: simple sort order
-  forEachScalarField(state, (name) => {
-    entries[name] = optional(sortOrderSchema);
+  const relationEntries = v.fromObject(state.relations, "~.schemas.orderBy");
+
+  return v.object({
+    ...scalarEntries.entries,
+    ...relationEntries.entries,
   });
-
-  // Relations: nested orderBy from related model
-  forEachRelation(state, (name, relation) => {
-    entries[name] = optional(
-      lazy(() => relation["~"].schemas.orderBy)
-    );
-  });
-
-  return strictObject(entries) as unknown as OrderBySchema<T>;
 };

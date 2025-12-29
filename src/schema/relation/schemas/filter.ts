@@ -1,68 +1,37 @@
 // Relation Filter Schemas
-
-import {
-  object,
-  optional,
-  partial,
-  nullable,
-  type ObjectSchema,
-  type OptionalSchema,
-  type NullableSchema,
-} from "valibot";
 import type { RelationState } from "../relation";
-import { type InferTargetSchema, getTargetWhereSchema } from "./helpers";
-import { AnySchema } from "@schema/fields/common";
+import { getTargetWhereSchema } from "./helpers";
 import { v } from "../../../validation";
-
-// =============================================================================
-// FILTER SCHEMA TYPES (exported for consumer use)
-// =============================================================================
-
-type MaybeNullableSchema<
-  T extends AnySchema,
-  S extends RelationState
-> = S["optional"] extends true ? NullableSchema<T, undefined> : T;
-
-export type ToOneFilterSchema<S extends RelationState> = ObjectSchema<
-  {
-    is: OptionalSchema<
-      MaybeNullableSchema<InferTargetSchema<S, "where">, S>,
-      undefined
-    >;
-    isNot: OptionalSchema<InferTargetSchema<S, "where">, undefined>;
-  },
-  undefined
->;
-
-// =============================================================================
-// FILTER FACTORY IMPLEMENTATIONS
-// =============================================================================
 
 /**
  * To-one filter: { is?, isNot? }
  * For optional relations, `is` can also be null
+ * Uses thunks for lazy evaluation to avoid circular reference issues
  */
 export const toOneFilterFactory = <S extends RelationState>(state: S) => {
-  const whereSchema = getTargetWhereSchema(state);
-
-  const schema = v.object({
-    is: () => (state.optional ? nullable(whereSchema) : whereSchema),
-    isNot: () => optional(whereSchema),
+  return v.object({
+    is: () =>
+      v.maybeNullable(
+        getTargetWhereSchema(state)(),
+        (state.optional || false) as S["optional"] extends true ? true : false
+      ),
+    isNot: () =>
+      v.maybeNullable(
+        getTargetWhereSchema(state)(),
+        (state.optional || false) as S["optional"] extends true ? true : false
+      ),
   });
-
-  return schema as ToOneFilterSchema<S>;
 };
 
 /**
  * To-many filter: { some?, every?, none? }
+ * Uses thunks for lazy evaluation - getTargetWhereSchema already returns thunk
  */
 export const toManyFilterFactory = <S extends RelationState>(state: S) => {
-  const whereSchema = getTargetWhereSchema(state);
-
-  // Type flows through from getTargetWhereSchema
+  // getTargetWhereSchema returns a thunk, so we return it directly as the entry value
   return v.object({
-    some: () => whereSchema,
-    every: () => whereSchema,
-    none: () => whereSchema,
+    some: getTargetWhereSchema(state),
+    every: getTargetWhereSchema(state),
+    none: getTargetWhereSchema(state),
   });
 };

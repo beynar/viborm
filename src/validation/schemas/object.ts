@@ -23,7 +23,7 @@ export type ObjectEntries = Record<
 /**
  * Options for object schemas.
  */
-export interface ObjectOptions<T = unknown> {
+export interface ObjectOptions<T = unknown, TKeys extends string = string> {
   /** Make all fields optional (default: true) */
   partial?: boolean;
   /** Reject unknown keys (default: true) */
@@ -42,23 +42,37 @@ export interface ObjectOptions<T = unknown> {
   name?: string;
   /** Object description for json schema*/
   description?: string;
+  /** Require at least these specific keys (works with partial: true) */
+  atLeast?: TKeys[];
 }
 
 /**
  * Compute input type based on partial option.
  * Default is partial: true, so only non-partial when explicitly { partial: false }
+ * If atLeast is specified, those keys are required even when partial: true
  */
 type ComputeObjectInput<TEntries, TOpts> = TOpts extends { partial: false }
   ? InferInputShape<TEntries>
+  : TOpts extends { atLeast: infer Keys extends readonly string[] }
+  ? RequireKeys<Partial<InferInputShape<TEntries>>, Keys[number]>
   : Partial<InferInputShape<TEntries>>;
 
 /**
  * Compute output type based on partial option.
  * Default is partial: true, so only non-partial when explicitly { partial: false }
+ * If atLeast is specified, those keys are required even when partial: true
  */
 type ComputeObjectOutput<TEntries, TOpts> = TOpts extends { partial: false }
   ? InferOutputShape<TEntries>
+  : TOpts extends { atLeast: infer Keys extends readonly string[] }
+  ? RequireKeys<Partial<InferOutputShape<TEntries>>, Keys[number]>
   : Partial<InferOutputShape<TEntries>>;
+
+/**
+ * Make specific keys required in an otherwise partial object.
+ */
+type RequireKeys<T, K extends string> = Omit<T, K> &
+  Required<Pick<T, K & keyof T>>;
 
 /**
  * Apply wrapper options (optional, nullable, array) to object type.
@@ -113,28 +127,34 @@ function createObjectValidator(
   entries: ObjectEntries,
   options: ObjectOptions = {}
 ) {
-  const { partial = true, strict = true } = options;
+  const { partial = true, strict = true, atLeast } = options;
   const keys = Object.keys(entries);
   const keyCount = keys.length;
   const keySet = new Set(keys);
+
+  // Pre-compute which keys are required via atLeast
+  const atLeastSet = atLeast ? new Set(atLeast) : null;
 
   // Lazy resolution flag - for circular refs
   let resolved = false;
   // Direct arrays for maximum access speed (no object property lookup)
   const validates: ((v: unknown) => any)[] = new Array(keyCount);
   const acceptsUndefined: boolean[] = new Array(keyCount);
+  const isRequired: boolean[] = new Array(keyCount);
   const keyPaths: PropertyKey[][] = new Array(keyCount);
   const missingErrors: {
     issues: { message: string; path: PropertyKey[] }[];
   }[] = new Array(keyCount);
 
-  // Pre-compute key paths and error messages (these don't need lazy resolution)
+  // Pre-compute key paths, error messages, and required flags
   for (let i = 0; i < keyCount; i++) {
     const key = keys[i]!;
     keyPaths[i] = [key];
     missingErrors[i] = {
       issues: [{ message: `Missing required field: ${key}`, path: [key] }],
     };
+    // Key is required if: not partial, OR key is in atLeast list
+    isRequired[i] = !partial || (atLeastSet !== null && atLeastSet.has(key));
   }
 
   // Resolve validators lazily (for circular refs)
@@ -146,13 +166,43 @@ function createObjectValidator(
       const entry = entries[key]!;
       const schema =
         typeof entry === "function"
-          ? (entry as () => VibSchema<any, any>)()
+          ? (entry as () => VibSchema<any, any> | undefined)()
           : entry;
+
+      // Defensive null check: if schema is undefined or invalid, create a failing validator
+      if (!schema || !schema["~standard"]) {
+        console.warn(
+          `[VibORM] Schema for key "${key}" is undefined or invalid`
+        );
+        validates[i] = () => ({
+          issues: [{ message: `Schema error: "${key}" schema is undefined` }],
+        });
+        acceptsUndefined[i] = true;
+        continue;
+      }
+
       const validate = schema["~standard"].validate;
       validates[i] = validate;
-      const undefinedResult = validate(undefined);
-      acceptsUndefined[i] =
-        !("then" in undefinedResult) && !undefinedResult.issues;
+      
+      // Check if schema accepts undefined by inspecting schema properties
+      // This avoids calling the validator (which would trigger default functions)
+      const schemaAny = schema as {
+        type?: string;
+        options?: { optional?: boolean; default?: unknown };
+        default?: unknown;
+      };
+      
+      // Schema accepts undefined if:
+      // 1. It's an optional wrapper (type: "optional")
+      // 2. It has options.optional: true (like string({ optional: true }))
+      // 3. It has options.default (like number({ default: 18 }))
+      // 4. It has a default property directly (optional wrapper with default)
+      const isOptionalWrapper = schemaAny.type === "optional";
+      const hasOptionalOption = schemaAny.options?.optional === true;
+      const hasDefaultOption = schemaAny.options?.default !== undefined;
+      const hasDefaultProp = schemaAny.default !== undefined;
+      
+      acceptsUndefined[i] = isOptionalWrapper || hasOptionalOption || hasDefaultOption || hasDefaultProp;
     }
   };
 
@@ -181,11 +231,30 @@ function createObjectValidator(
 
       // Handle missing key
       if (!(key in input)) {
-        if (partial || acceptsUndefined[i]) {
-          output[key] = undefined;
-          continue;
+        // Key is required (partial: false OR in atLeast) and schema doesn't accept undefined
+        if (isRequired[i] && !acceptsUndefined[i]) {
+          return missingErrors[i];
         }
-        return missingErrors[i];
+        
+        // If schema accepts undefined, run validator to apply defaults
+        if (acceptsUndefined[i]) {
+          const result = validates[i]!(undefined);
+          if (result.issues) {
+            // Should not happen if acceptsUndefined is correct, but handle it
+            return missingErrors[i];
+          }
+          if ("then" in result) {
+            return {
+              issues: [{ message: "Async not supported", path: keyPaths[i] }],
+            };
+          }
+          output[key] = result.value;
+        } else {
+          // Field is optional (partial: true, not in atLeast) but schema doesn't have defaults
+          // Just set to undefined without running validator
+          output[key] = undefined;
+        }
+        continue;
       }
 
       // Validate field - direct function call

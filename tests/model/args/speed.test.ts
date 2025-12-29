@@ -3,7 +3,7 @@
  *
  * Measures performance for serverless environments where each request:
  * 1. Creates model schemas (getModelSchemas)
- * 2. Validates input data (safeParse)
+ * 2. Validates input data (parse)
  *
  * Tests various query complexities:
  * - Simple queries (findUnique with ID)
@@ -14,7 +14,7 @@
  */
 
 import { describe, test, expect, beforeAll } from "vitest";
-import { safeParse } from "valibot";
+import { parse } from "../../../src/validation";
 import { s } from "../../../src/schema";
 import { getModelSchemas } from "../../../src/schema/model/schemas";
 
@@ -192,7 +192,7 @@ describe("Validation Speed (Pre-built Schema)", () => {
   describe("Simple Queries", () => {
     test("findUnique - simple ID lookup", () => {
       const result = benchmark("findUnique (simple)", ITERATIONS, () => {
-        safeParse(authorSchemas.args.findUnique, {
+        parse(authorSchemas.args.findUnique, {
           where: { id: "author-1" },
         });
       });
@@ -203,7 +203,7 @@ describe("Validation Speed (Pre-built Schema)", () => {
 
     test("findFirst - with simple filter", () => {
       const result = benchmark("findFirst (simple filter)", ITERATIONS, () => {
-        safeParse(authorSchemas.args.findFirst, {
+        parse(authorSchemas.args.findFirst, {
           where: { name: "Alice" },
         });
       });
@@ -216,7 +216,7 @@ describe("Validation Speed (Pre-built Schema)", () => {
   describe("Filtered Queries", () => {
     test("findMany - with complex where", () => {
       const result = benchmark("findMany (complex where)", ITERATIONS, () => {
-        safeParse(postSchemas.args.findMany, {
+        parse(postSchemas.args.findMany, {
           where: {
             published: true,
             title: { contains: "hello" },
@@ -237,7 +237,7 @@ describe("Validation Speed (Pre-built Schema)", () => {
 
     test("findMany - with OR/AND filters", () => {
       const result = benchmark("findMany (OR/AND)", ITERATIONS, () => {
-        safeParse(postSchemas.args.findMany, {
+        parse(postSchemas.args.findMany, {
           where: {
             OR: [
               { title: { contains: "news" } },
@@ -256,7 +256,7 @@ describe("Validation Speed (Pre-built Schema)", () => {
   describe("Nested Includes", () => {
     test("1-level include", () => {
       const result = benchmark("Include (1-level)", ITERATIONS, () => {
-        safeParse(authorSchemas.args.findUnique, {
+        parse(authorSchemas.args.findUnique, {
           where: { id: "author-1" },
           include: { posts: true },
         });
@@ -268,7 +268,7 @@ describe("Validation Speed (Pre-built Schema)", () => {
 
     test("2-level include", () => {
       const result = benchmark("Include (2-level)", ITERATIONS, () => {
-        safeParse(authorSchemas.args.findUnique, {
+        parse(authorSchemas.args.findUnique, {
           where: { id: "author-1" },
           include: {
             posts: {
@@ -287,7 +287,7 @@ describe("Validation Speed (Pre-built Schema)", () => {
         "Include (3-level + filters)",
         ITERATIONS,
         () => {
-          safeParse(authorSchemas.args.findUnique, {
+          parse(authorSchemas.args.findUnique, {
             where: { id: "author-1" },
             include: {
               posts: {
@@ -315,7 +315,7 @@ describe("Validation Speed (Pre-built Schema)", () => {
   describe("Create Operations", () => {
     test("simple create", () => {
       const result = benchmark("Create (simple)", ITERATIONS, () => {
-        safeParse(authorSchemas.args.create, {
+        parse(authorSchemas.args.create, {
           data: {
             id: "author-new",
             name: "New Author",
@@ -330,7 +330,7 @@ describe("Validation Speed (Pre-built Schema)", () => {
 
     test("create with nested relation", () => {
       const result = benchmark("Create (nested)", ITERATIONS, () => {
-        safeParse(authorSchemas.args.create, {
+        parse(authorSchemas.args.create, {
           data: {
             id: "author-new",
             name: "New Author",
@@ -360,7 +360,7 @@ describe("Validation Speed (Pre-built Schema)", () => {
   describe("Update Operations", () => {
     test("simple update", () => {
       const result = benchmark("Update (simple)", ITERATIONS, () => {
-        safeParse(authorSchemas.args.update, {
+        parse(authorSchemas.args.update, {
           where: { id: "author-1" },
           data: { name: "Updated Name" },
         });
@@ -372,7 +372,7 @@ describe("Validation Speed (Pre-built Schema)", () => {
 
     test("update with nested operations", () => {
       const result = benchmark("Update (nested)", ITERATIONS, () => {
-        safeParse(authorSchemas.args.update, {
+        parse(authorSchemas.args.update, {
           where: { id: "author-1" },
           data: {
             name: "Updated Author",
@@ -408,7 +408,7 @@ describe("Serverless Request Simulation (Schema Build + Validate)", () => {
       const result = benchmark("findUnique (full)", ITERATIONS, () => {
         // Simulate serverless: build schema + validate
         const schemas = getModelSchemas(Author["~"].state);
-        safeParse(schemas.args.findUnique, {
+        parse(schemas.args.findUnique, {
           where: { id: "author-1" },
         });
       });
@@ -420,7 +420,7 @@ describe("Serverless Request Simulation (Schema Build + Validate)", () => {
     test("findMany with filters - full request", () => {
       const result = benchmark("findMany filtered (full)", ITERATIONS, () => {
         const schemas = getModelSchemas(Author["~"].state);
-        safeParse(schemas.args.findMany, {
+        parse(schemas.args.findMany, {
           where: { name: { contains: "Alice" } },
           take: 10,
           orderBy: { name: "asc" },
@@ -434,7 +434,7 @@ describe("Serverless Request Simulation (Schema Build + Validate)", () => {
     test("findMany with nested include - full request", () => {
       const result = benchmark("findMany + include (full)", ITERATIONS, () => {
         const schemas = getModelSchemas(Author["~"].state);
-        safeParse(schemas.args.findMany, {
+        parse(schemas.args.findMany, {
           where: { name: { startsWith: "A" } },
           include: {
             posts: {
@@ -454,7 +454,7 @@ describe("Serverless Request Simulation (Schema Build + Validate)", () => {
     test("create with nested - full request", () => {
       const result = benchmark("create nested (full)", ITERATIONS, () => {
         const schemas = getModelSchemas(Author["~"].state);
-        safeParse(schemas.args.create, {
+        parse(schemas.args.create, {
           data: {
             id: "author-new",
             name: "New Author",
@@ -476,7 +476,7 @@ describe("Serverless Request Simulation (Schema Build + Validate)", () => {
     test("update with complex operations - full request", () => {
       const result = benchmark("update complex (full)", ITERATIONS, () => {
         const schemas = getModelSchemas(Author["~"].state);
-        safeParse(schemas.args.update, {
+        parse(schemas.args.update, {
           where: { id: "author-1" },
           data: {
             name: "Updated",
@@ -501,7 +501,7 @@ describe("Serverless Request Simulation (Schema Build + Validate)", () => {
         ITERATIONS,
         () => {
           const schemas = getModelSchemas(Post["~"].state);
-          safeParse(schemas.args.findMany, {
+          parse(schemas.args.findMany, {
             where: { published: true },
             include: {
               author: {
@@ -548,11 +548,11 @@ describe("Performance Summary", () => {
     // Pre-built validation
     const authorSchemas = getModelSchemas(Author["~"].state);
     const simpleQueryResult = benchmark("Validate: Simple Query", 50, () => {
-      safeParse(authorSchemas.args.findUnique, { where: { id: "1" } });
+      parse(authorSchemas.args.findUnique, { where: { id: "1" } });
     });
 
     const complexQueryResult = benchmark("Validate: Complex Query", 50, () => {
-      safeParse(authorSchemas.args.findMany, {
+      parse(authorSchemas.args.findMany, {
         where: { name: { contains: "A" } },
         include: { posts: { include: { comments: true } } },
         take: 10,
@@ -562,12 +562,12 @@ describe("Performance Summary", () => {
     // Full request
     const fullSimpleResult = benchmark("Full Request: Simple", 50, () => {
       const schemas = getModelSchemas(Author["~"].state);
-      safeParse(schemas.args.findUnique, { where: { id: "1" } });
+      parse(schemas.args.findUnique, { where: { id: "1" } });
     });
 
     const fullComplexResult = benchmark("Full Request: Complex", 50, () => {
       const schemas = getModelSchemas(Author["~"].state);
-      safeParse(schemas.args.findMany, {
+      parse(schemas.args.findMany, {
         where: { name: { contains: "A" } },
         include: { posts: { include: { comments: true } } },
         take: 10,

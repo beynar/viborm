@@ -1,26 +1,9 @@
 // Utility functions for model schema factories
 
-import { object, type ObjectSchema } from "valibot";
 import type { ModelState } from "../model";
-import { isField, type Field } from "../../fields/base";
+import type { Field } from "../../fields/base";
 import type { AnyRelation } from "../../relation/relation";
-import { CompoundConstraint } from "../helper";
-
-/**
- * Merge two object schemas into one
- */
-export const merge = <
-  A extends ObjectSchema<any, any>,
-  B extends ObjectSchema<any, any>
->(
-  a: A,
-  b: B
-): ObjectSchema<A["entries"] & B["entries"], any> => {
-  return object({
-    ...a.entries,
-    ...b.entries,
-  });
-};
+import type { ObjectSchema, VibSchema } from "../../../validation";
 
 /**
  * Iterate over scalar fields only (excludes relations)
@@ -57,41 +40,41 @@ export const forEachUniqueField = (
 
 /**
  * Iterate over compound ID constraint (if it exists)
- * Calls fn with the compound key name and the record of fields
+ * Calls fn with the compound key name and the object schema
  */
 export const forEachCompoundId = (
   state: ModelState,
-  fn: (keyName: string, fields: Record<string, Field>) => void
+  fn: (keyName: string, schema: ObjectSchema<Record<string, VibSchema>>) => void
 ): void => {
   if (state.compoundId) {
-    for (const [keyName, fields] of Object.entries(state.compoundId)) {
-      fn(keyName, fields);
+    for (const [keyName, schema] of Object.entries(state.compoundId)) {
+      fn(keyName, schema);
     }
   }
 };
 
 /**
  * Iterate over compound unique constraints (if they exist)
- * Calls fn with each compound key name and its record of fields
+ * Calls fn with each compound key name and its object schema
  */
 export const forEachCompoundUnique = (
   state: ModelState,
-  fn: (keyName: string, fields: Record<string, Field>) => void
+  fn: (keyName: string, schema: ObjectSchema<Record<string, VibSchema>>) => void
 ): void => {
   if (state.compoundUniques) {
-    for (const [keyName, fields] of Object.entries(state.compoundUniques)) {
-      fn(keyName, fields);
+    for (const [keyName, schema] of Object.entries(state.compoundUniques)) {
+      fn(keyName, schema);
     }
   }
 };
 
 /**
  * Iterate over all compound constraints (both ID and uniques)
- * Calls fn with each compound key name and its record of fields
+ * Calls fn with each compound key name and its object schema
  */
 export const forEachCompoundConstraint = (
   state: ModelState,
-  fn: (keyName: string, fields: Record<string, Field>) => void
+  fn: (keyName: string, schema: ObjectSchema<Record<string, VibSchema>>) => void
 ): void => {
   forEachCompoundId(state, fn);
   forEachCompoundUnique(state, fn);

@@ -6,7 +6,7 @@
  */
 
 import { describe, test, expect, expectTypeOf } from "vitest";
-import { parse, safeParse } from "valibot";
+import { parse } from "../../../src/validation";
 import {
   compoundIdSchemas,
   simpleSchemas,
@@ -35,22 +35,22 @@ describe("Compound ID Filter - Compound ID Model Runtime", () => {
   const schema = compoundIdSchemas._filter.compoundId;
 
   test("runtime: accepts empty object", () => {
-    const result = safeParse(schema, {});
-    expect(result.success).toBe(true);
+    const result = parse(schema, {});
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts compound key object", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       orgId_memberId: { orgId: "org-1", memberId: "member-1" },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: compound key requires all fields", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       orgId_memberId: { orgId: "org-1" }, // missing memberId
     });
-    expect(result.success).toBe(false);
+    expect(result.issues).toBeDefined();
   });
 });
 
@@ -62,14 +62,14 @@ describe("Compound ID Filter - Simple Model Runtime (no compound id)", () => {
   const schema = simpleSchemas._filter.compoundId;
 
   test("runtime: accepts empty object", () => {
-    const result = safeParse(schema, {});
-    expect(result.success).toBe(true);
+    const result = parse(schema, {});
+    expect(result.issues).toBeUndefined();
   });
 
-  test("runtime: ignores unknown key (Valibot allows extra keys)", () => {
-    // Valibot's partial/object allows extra keys by default
-    const result = safeParse(schema, { anyKey: {} });
-    expect(result.success).toBe(true);
+  test("runtime: rejects unknown key (strict schema)", () => {
+    // Schema is strict to prevent invalid SQL from extra keys
+    const result = parse(schema, { anyKey: {} });
+    expect(result.issues).toBeDefined();
   });
 });
 
@@ -81,17 +81,15 @@ describe("Compound ID Filter - Compound Unique Model Runtime", () => {
   const schema = compoundUniqueSchemas._filter.compoundId;
 
   test("runtime: accepts empty object (no compound ID)", () => {
-    const result = safeParse(schema, {});
-    expect(result.success).toBe(true);
+    const result = parse(schema, {});
+    expect(result.issues).toBeUndefined();
   });
 
-  test("runtime: ignores compound unique key (Valibot allows extra keys)", () => {
-    // Valibot's partial/object allows extra keys by default
-    // This filter is only for compound ID, but compound unique key passes through
-    const result = safeParse(schema, {
+  test("runtime: rejects compound unique key (strict schema)", () => {
+    // Schema is strict - only compound ID keys are valid here
+    const result = parse(schema, {
       email_tenantId: { email: "a@b.com", tenantId: "t1" },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeDefined();
   });
 });
-

@@ -9,7 +9,7 @@
  */
 
 import { describe, test, expect, expectTypeOf } from "vitest";
-import { parse, safeParse } from "valibot";
+import { parse, InferInput } from "../../../src/validation";
 import {
   simpleSchemas,
   authorSchemas,
@@ -17,22 +17,13 @@ import {
   type SimpleState,
   type AuthorState,
 } from "../fixtures";
-import type {
-  CreateArgsInput,
-  CreateManyArgsInput,
-  UpdateArgsInput,
-  UpdateManyArgsInput,
-  DeleteArgsInput,
-  DeleteManyArgsInput,
-  UpsertArgsInput,
-} from "../../../src/schema/model/schemas/args";
 
 // =============================================================================
 // CREATE ARGS
 // =============================================================================
 
 describe("Create Args - Types", () => {
-  type Input = CreateArgsInput<SimpleState>;
+  type Input = InferInput<typeof simpleSchemas.args.create>;
 
   test("type: has required data", () => {
     expectTypeOf<Input>().toHaveProperty("data");
@@ -51,18 +42,18 @@ describe("Create Args - Simple Model Runtime", () => {
   const schema = simpleSchemas.args.create;
 
   test("runtime: accepts valid data", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       data: {
         id: "user-123",
         name: "Alice",
         email: "alice@example.com",
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts with select", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       data: {
         id: "user-123",
         name: "Alice",
@@ -70,19 +61,19 @@ describe("Create Args - Simple Model Runtime", () => {
       },
       select: { id: true, name: true },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: rejects missing data", () => {
-    const result = safeParse(schema, {});
-    expect(result.success).toBe(false);
+    const result = parse(schema, {});
+    expect(result.issues).toBeDefined();
   });
 
   test("runtime: rejects missing required field in data", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       data: { id: "user-123" }, // missing name, email
     });
-    expect(result.success).toBe(false);
+    expect(result.issues).toBeDefined();
   });
 
   test("output: preserves data correctly (with defaults)", () => {
@@ -93,21 +84,26 @@ describe("Create Args - Simple Model Runtime", () => {
         email: "alice@example.com",
       },
     };
-    const result = safeParse(schema, input);
-    expect(result.success).toBe(true);
-    if (result.success) {
+    const result = parse(schema, input);
+    console.dir(result, { depth: null });
+    const age = schema.entries.data.entries.age;
+    const resultAge = parse(age, undefined);
+    console.dir(resultAge, { depth: null });
+    console.dir(schema.entries.data.entries.age, { depth: null });
+    expect(result.issues).toBeUndefined();
+    if (!result.issues) {
       // Schema injects defaults for optional fields with defaults
-      expect(result.output.data.id).toBe("user-123");
-      expect(result.output.data.name).toBe("Alice");
-      expect(result.output.data.email).toBe("alice@example.com");
+      expect(result.value.data.id).toBe("user-123");
+      expect(result.value.data.name).toBe("Alice");
+      expect(result.value.data.email).toBe("alice@example.com");
       // age has .nullable() so defaults to null, active has .default(true)
-      expect(result.output.data.age).toBe(null);
-      expect(result.output.data.active).toBe(true);
+      expect(result.value.data.age).toBe(null);
+      expect(result.value.data.active).toBe(true);
     }
   });
 
   test("output: preserves select correctly", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       data: {
         id: "user-123",
         name: "Alice",
@@ -115,9 +111,9 @@ describe("Create Args - Simple Model Runtime", () => {
       },
       select: { id: true, name: true },
     });
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.output.select).toEqual({ id: true, name: true });
+    expect(result.issues).toBeUndefined();
+    if (!result.issues) {
+      expect(result.value.select).toEqual({ id: true, name: true });
     }
   });
 });
@@ -126,7 +122,7 @@ describe("Create Args - Author Model Runtime (with relations)", () => {
   const schema = authorSchemas.args.create;
 
   test("runtime: accepts with nested relation create", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       data: {
         id: "author-1",
         name: "Alice",
@@ -135,18 +131,18 @@ describe("Create Args - Author Model Runtime (with relations)", () => {
         },
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts with include", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       data: {
         id: "author-1",
         name: "Alice",
       },
       include: { posts: true },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 });
 
@@ -158,26 +154,26 @@ describe("CreateMany Args - Simple Model Runtime", () => {
   const schema = simpleSchemas.args.createMany;
 
   test("runtime: accepts data array", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       data: [
         { id: "user-1", name: "Alice", email: "alice@example.com" },
         { id: "user-2", name: "Bob", email: "bob@example.com" },
       ],
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts with skipDuplicates", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       data: [{ id: "user-1", name: "Alice", email: "alice@example.com" }],
       skipDuplicates: true,
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: rejects missing data", () => {
-    const result = safeParse(schema, {});
-    expect(result.success).toBe(false);
+    const result = parse(schema, {});
+    expect(result.issues).toBeDefined();
   });
 
   test("output: preserves data array correctly (with defaults)", () => {
@@ -185,28 +181,28 @@ describe("CreateMany Args - Simple Model Runtime", () => {
       { id: "user-1", name: "Alice", email: "alice@example.com" },
       { id: "user-2", name: "Bob", email: "bob@example.com" },
     ];
-    const result = safeParse(schema, { data });
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(Array.isArray(result.output.data)).toBe(true);
-      expect(result.output.data).toHaveLength(2);
+    const result = parse(schema, { data });
+    expect(result.issues).toBeUndefined();
+    if (!result.issues) {
+      expect(Array.isArray(result.value.data)).toBe(true);
+      expect(result.value.data).toHaveLength(2);
       // Schema injects defaults for optional fields with defaults
-      expect(result.output.data[0].id).toBe("user-1");
-      expect(result.output.data[0].name).toBe("Alice");
-      expect(result.output.data[0].active).toBe(true);
-      expect(result.output.data[1].id).toBe("user-2");
-      expect(result.output.data[1].name).toBe("Bob");
+      expect(result.value.data[0].id).toBe("user-1");
+      expect(result.value.data[0].name).toBe("Alice");
+      expect(result.value.data[0].active).toBe(true);
+      expect(result.value.data[1].id).toBe("user-2");
+      expect(result.value.data[1].name).toBe("Bob");
     }
   });
 
   test("output: preserves skipDuplicates boolean", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       data: [{ id: "user-1", name: "Alice", email: "alice@example.com" }],
       skipDuplicates: true,
     });
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.output.skipDuplicates).toBe(true);
+    expect(result.issues).toBeUndefined();
+    if (!result.issues) {
+      expect(result.value.skipDuplicates).toBe(true);
     }
   });
 });
@@ -216,7 +212,7 @@ describe("CreateMany Args - Simple Model Runtime", () => {
 // =============================================================================
 
 describe("Update Args - Types", () => {
-  type Input = UpdateArgsInput<SimpleState>;
+  type Input = InferInput<typeof simpleSchemas.args.update>;
 
   test("type: has required where", () => {
     expectTypeOf<Input>().toHaveProperty("where");
@@ -231,46 +227,46 @@ describe("Update Args - Simple Model Runtime", () => {
   const schema = simpleSchemas.args.update;
 
   test("runtime: accepts where and data", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       where: { id: "user-123" },
       data: { name: "Updated Name" },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts with select", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       where: { id: "user-123" },
       data: { name: "Updated Name" },
       select: { id: true, name: true },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: rejects missing where", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       data: { name: "Updated Name" },
     });
-    expect(result.success).toBe(false);
+    expect(result.issues).toBeDefined();
   });
 
   test("runtime: rejects missing data", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       where: { id: "user-123" },
     });
-    expect(result.success).toBe(false);
+    expect(result.issues).toBeDefined();
   });
 
   test("output: preserves where and data correctly (with normalization)", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       where: { id: "user-123" },
       data: { name: "Updated Name" },
     });
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.output.where).toEqual({ id: "user-123" });
+    expect(result.issues).toBeUndefined();
+    if (!result.issues) {
+      expect(result.value.where).toEqual({ id: "user-123" });
       // Update values are normalized to { set: value }
-      expect(result.output.data).toEqual({ name: { set: "Updated Name" } });
+      expect(result.value.data).toEqual({ name: { set: "Updated Name" } });
     }
   });
 });
@@ -279,7 +275,7 @@ describe("Update Args - Author Model Runtime (with relations)", () => {
   const schema = authorSchemas.args.update;
 
   test("runtime: accepts with nested relation update", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       where: { id: "author-1" },
       data: {
         name: "Updated Name",
@@ -288,7 +284,7 @@ describe("Update Args - Author Model Runtime (with relations)", () => {
         },
       },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 });
 
@@ -300,32 +296,32 @@ describe("UpdateMany Args - Simple Model Runtime", () => {
   const schema = simpleSchemas.args.updateMany;
 
   test("runtime: accepts where and data", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       where: { active: false },
       data: { active: true },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts empty where (update all)", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       where: {},
       data: { active: true },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("output: preserves where and data correctly (with normalization)", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       where: { active: false },
       data: { active: true },
     });
-    expect(result.success).toBe(true);
-    if (result.success) {
+    expect(result.issues).toBeUndefined();
+    if (!result.issues) {
       // Filter values are normalized to { equals: value }
-      expect(result.output.where).toEqual({ active: { equals: false } });
+      expect(result.value.where).toEqual({ active: { equals: false } });
       // Update values are normalized to { set: value }
-      expect(result.output.data).toEqual({ active: { set: true } });
+      expect(result.value.data).toEqual({ active: { set: true } });
     }
   });
 });
@@ -335,7 +331,7 @@ describe("UpdateMany Args - Simple Model Runtime", () => {
 // =============================================================================
 
 describe("Delete Args - Types", () => {
-  type Input = DeleteArgsInput<SimpleState>;
+  type Input = InferInput<typeof simpleSchemas.args.delete>;
 
   test("type: has required where", () => {
     expectTypeOf<Input>().toHaveProperty("where");
@@ -346,32 +342,32 @@ describe("Delete Args - Simple Model Runtime", () => {
   const schema = simpleSchemas.args.delete;
 
   test("runtime: accepts where with unique", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       where: { id: "user-123" },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: rejects missing where", () => {
-    const result = safeParse(schema, {});
-    expect(result.success).toBe(false);
+    const result = parse(schema, {});
+    expect(result.issues).toBeDefined();
   });
 
-  test("runtime: ignores non-unique field in where (Valibot allows extra keys)", () => {
-    // Valibot's partial/object allows extra keys by default
-    const result = safeParse(schema, {
+  test("runtime: rejects non-unique field in where (strict schema)", () => {
+    // Schema is strict - only unique fields are valid in whereUnique
+    const result = parse(schema, {
       where: { name: "Alice" },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeDefined();
   });
 
   test("output: preserves where correctly", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       where: { id: "user-123" },
     });
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.output.where).toEqual({ id: "user-123" });
+    expect(result.issues).toBeUndefined();
+    if (!result.issues) {
+      expect(result.value.where).toEqual({ id: "user-123" });
     }
   });
 });
@@ -384,32 +380,32 @@ describe("DeleteMany Args - Simple Model Runtime", () => {
   const schema = simpleSchemas.args.deleteMany;
 
   test("runtime: accepts with where", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       where: { active: false },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts empty where (delete all)", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       where: {},
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts without where", () => {
-    const result = safeParse(schema, {});
-    expect(result.success).toBe(true);
+    const result = parse(schema, {});
+    expect(result.issues).toBeUndefined();
   });
 
   test("output: preserves where correctly (with normalization)", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       where: { active: false },
     });
-    expect(result.success).toBe(true);
-    if (result.success) {
+    expect(result.issues).toBeUndefined();
+    if (!result.issues) {
       // Filter values are normalized to { equals: value }
-      expect(result.output.where).toEqual({ active: { equals: false } });
+      expect(result.value.where).toEqual({ active: { equals: false } });
     }
   });
 });
@@ -419,7 +415,7 @@ describe("DeleteMany Args - Simple Model Runtime", () => {
 // =============================================================================
 
 describe("Upsert Args - Types", () => {
-  type Input = UpsertArgsInput<SimpleState>;
+  type Input = InferInput<typeof simpleSchemas.args.upsert>;
 
   test("type: has required where", () => {
     expectTypeOf<Input>().toHaveProperty("where");
@@ -438,7 +434,7 @@ describe("Upsert Args - Simple Model Runtime", () => {
   const schema = simpleSchemas.args.upsert;
 
   test("runtime: accepts all required fields", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       where: { id: "user-123" },
       create: {
         id: "user-123",
@@ -447,11 +443,11 @@ describe("Upsert Args - Simple Model Runtime", () => {
       },
       update: { name: "Updated Alice" },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: accepts with select", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       where: { id: "user-123" },
       create: {
         id: "user-123",
@@ -461,19 +457,19 @@ describe("Upsert Args - Simple Model Runtime", () => {
       update: { name: "Updated Alice" },
       select: { id: true, name: true },
     });
-    expect(result.success).toBe(true);
+    expect(result.issues).toBeUndefined();
   });
 
   test("runtime: rejects missing create", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       where: { id: "user-123" },
       update: { name: "Updated Alice" },
     });
-    expect(result.success).toBe(false);
+    expect(result.issues).toBeDefined();
   });
 
   test("runtime: rejects missing update", () => {
-    const result = safeParse(schema, {
+    const result = parse(schema, {
       where: { id: "user-123" },
       create: {
         id: "user-123",
@@ -481,7 +477,7 @@ describe("Upsert Args - Simple Model Runtime", () => {
         email: "alice@example.com",
       },
     });
-    expect(result.success).toBe(false);
+    expect(result.issues).toBeDefined();
   });
 
   test("output: preserves all upsert fields correctly (with normalization)", () => {
@@ -494,18 +490,17 @@ describe("Upsert Args - Simple Model Runtime", () => {
       },
       update: { name: "Updated Alice" },
     };
-    const result = safeParse(schema, input);
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.output.where).toEqual({ id: "user-123" });
+    const result = parse(schema, input);
+    expect(result.issues).toBeUndefined();
+    if (!result.issues) {
+      expect(result.value.where).toEqual({ id: "user-123" });
       // Create gets defaults injected
-      expect(result.output.create.id).toBe("user-123");
-      expect(result.output.create.name).toBe("Alice");
-      expect(result.output.create.email).toBe("alice@example.com");
-      expect(result.output.create.active).toBe(true);
+      expect(result.value.create.id).toBe("user-123");
+      expect(result.value.create.name).toBe("Alice");
+      expect(result.value.create.email).toBe("alice@example.com");
+      expect(result.value.create.active).toBe(true);
       // Update values are normalized to { set: value }
-      expect(result.output.update).toEqual({ name: { set: "Updated Alice" } });
+      expect(result.value.update).toEqual({ name: { set: "Updated Alice" } });
     }
   });
 });
-

@@ -160,8 +160,6 @@ export const getTargetOrderBySchema = <S extends RelationState>(state: S) => {
 // HELPER: Normalize single value to array
 // =============================================================================
 
-const ensureArray = <T>(v: T | T[]): T[] => (Array.isArray(v) ? v : [v]);
-
 /**
  * Type for schema that accepts single or array, normalizes to array
  */
@@ -170,10 +168,8 @@ export type SingleOrArraySchema<S extends AnyRelationSchema> = SchemaWithPipe<
 >;
 
 export const singleOrArray = <S extends VibSchema>(schema: S) => {
-  return v.pipe(
-    v.union([
-      v.coerce(schema, (v: S[" vibInferred"]["0"]) => [v]),
-      v.array(schema),
-    ])
-  );
+  return v.union([
+    v.coerce(schema, (v: S[" vibInferred"]["0"]) => [v]),
+    v.array(schema),
+  ]);
 };
