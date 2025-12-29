@@ -31,6 +31,7 @@ export { getOrderBySchema, sortOrderSchema } from "./orderby";
 // rather than being explicitly defined
 
 import type { ModelState } from "../../model";
+import { getWhereSchema } from "./where";
 
 // Core schema types (inferred from factory return types)
 export type SelectSchema<T extends ModelState> = ReturnType<
@@ -51,7 +52,7 @@ export type RelationUpdateSchema<T extends ModelState> = ReturnType<
 >;
 
 export type WhereSchema<T extends ModelState> = ReturnType<
-  typeof import("./where").getWhereSchema<T>
+  typeof getWhereSchema<T>
 >;
 export type WhereUniqueSchema<T extends ModelState> = ReturnType<
   typeof import("./where").getWhereUniqueSchema<T>

@@ -11,7 +11,10 @@ import v from "../../../../validation";
  * Build scalar update schema - all scalar fields for update input (all optional)
  */
 export const getScalarUpdate = <T extends ModelState>(state: T) => {
-  return v.fromObject(state.scalars, "~.schemas.update");
+  return v.fromObject<T["scalars"], "~.schemas.update">(
+    state.scalars,
+    "~.schemas.update"
+  );
 };
 
 // =============================================================================
@@ -22,7 +25,10 @@ export const getScalarUpdate = <T extends ModelState>(state: T) => {
  * Build relation update schema - combines all relation update inputs
  */
 export const getRelationUpdate = <T extends ModelState>(state: T) => {
-  return v.fromObject(state.relations, "~.schemas.update");
+  return v.fromObject<T["relations"], "~.schemas.update">(
+    state.relations,
+    "~.schemas.update"
+  );
 };
 
 // =============================================================================
@@ -33,7 +39,13 @@ export const getRelationUpdate = <T extends ModelState>(state: T) => {
  * Build full update schema - scalar + relation updates (all optional)
  */
 export const getUpdateSchema = <T extends ModelState>(state: T) => {
-  const scalarUpdate = v.fromObject(state.scalars, "~.schemas.update");
-  const relationUpdate = v.fromObject(state.relations, "~.schemas.update");
+  const scalarUpdate = v.fromObject<T["scalars"], "~.schemas.update">(
+    state.scalars,
+    "~.schemas.update"
+  );
+  const relationUpdate = v.fromObject<T["relations"], "~.schemas.update">(
+    state.relations,
+    "~.schemas.update"
+  );
   return scalarUpdate.extend(relationUpdate.entries);
 };

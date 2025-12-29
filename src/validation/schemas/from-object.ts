@@ -37,7 +37,7 @@ type PathValue<T, P extends string> = P extends `${infer Key}.${infer Rest}`
  * Limited to 5 levels of nesting to avoid infinite recursion.
  */
 type PathsToSchemas<
-  T,
+  T extends string,
   Prefix extends string = "",
   Depth extends readonly unknown[] = []
 > = Depth["length"] extends 5
@@ -89,7 +89,7 @@ type SchemaAtPath<
  * Extracts all valid paths that lead to schemas from all keys in the object.
  */
 export type AllPathsToSchemas<TObject extends Record<string, any>> = {
-  [K in keyof TObject]: PathsToSchemas<TObject[K]>;
+  [K in keyof TObject]: K extends string ? PathsToSchemas<TObject[K]> : never;
 }[keyof TObject];
 
 // =============================================================================
@@ -191,7 +191,8 @@ function extractEntries<TObject extends Record<string, any>>(
  */
 export function fromObject<
   TObject extends Record<string, any>,
-  TPath extends AllPathsToSchemas<TObject>,
+  TPath extends string,
+  // TPath extends AllPathsToSchemas<TObject>,
   const TOpts extends FromObjectOptions | undefined = undefined
 >(
   sourceObject: TObject,

@@ -19,9 +19,15 @@ export const sortOrderSchema = v.union([
  */
 export const getOrderBySchema = <T extends ModelState>(state: T) => {
   const scalarKeys = Object.keys(state.scalars) as StringKeyOf<T["scalars"]>[];
-  const scalarEntries = v.fromKeys(scalarKeys, sortOrderSchema);
+  const scalarEntries = v.fromKeys<
+    StringKeyOf<T["scalars"]>[],
+    typeof sortOrderSchema
+  >(scalarKeys, sortOrderSchema);
 
-  const relationEntries = v.fromObject(state.relations, "~.schemas.orderBy");
+  const relationEntries = v.fromObject<T["relations"], "~.schemas.orderBy">(
+    state.relations,
+    "~.schemas.orderBy"
+  );
 
   return v.object({
     ...scalarEntries.entries,

@@ -14,10 +14,18 @@ import v from "../../../../validation";
 export const getSelectSchema = <T extends ModelState>(state: T) => {
   // Scalar fields: simple boolean selection
   const scalarKeys = Object.keys(state.scalars) as StringKeyOf<T["scalars"]>[];
-  const scalarEntries = v.fromKeys(scalarKeys, v.boolean({ optional: true }));
+  const optionalBoolean = v.boolean({ optional: true });
+  const scalarEntries = v.fromKeys<
+    StringKeyOf<T["scalars"]>[],
+    typeof optionalBoolean
+  >(scalarKeys, optionalBoolean);
 
   // Relations: use relation's select schema (supports boolean or nested)
-  const relationEntries = v.fromObject(state.relations, "~.schemas.select", {
+  const relationEntries = v.fromObject<
+    T["relations"],
+    "~.schemas.select",
+    { optional: true }
+  >(state.relations, "~.schemas.select", {
     optional: true,
   });
 
@@ -36,7 +44,11 @@ export const getSelectSchema = <T extends ModelState>(state: T) => {
  */
 export const getIncludeSchema = <T extends ModelState>(state: T) => {
   // Relations: use relation's include schema (supports boolean or nested with where/orderBy/etc.)
-  const relationEntries = v.fromObject(state.relations, "~.schemas.include", {
+  const relationEntries = v.fromObject<
+    T["relations"],
+    "~.schemas.include",
+    { optional: true }
+  >(state.relations, "~.schemas.include", {
     optional: true,
   });
 
