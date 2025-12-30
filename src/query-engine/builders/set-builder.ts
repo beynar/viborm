@@ -51,6 +51,20 @@ export function buildSet(
 }
 
 /**
+ * Check if a value is a Sql object
+ */
+function isSql(value: unknown): value is Sql {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    "strings" in value &&
+    "values" in value &&
+    Array.isArray((value as Sql).strings) &&
+    Array.isArray((value as Sql).values)
+  );
+}
+
+/**
  * Build a single assignment expression
  *
  * Schema validation normalizes all values to operation objects:
@@ -64,8 +78,18 @@ function buildAssignment(
 ): Sql | undefined {
   const { adapter } = ctx;
 
+  // Handle Sql values directly (from connect subqueries)
+  if (isSql(value)) {
+    return adapter.set.assign(column, value);
+  }
+
+  // Handle null values
+  if (value === null) {
+    return adapter.set.assign(column, adapter.literals.null());
+  }
+
   // Schema validation guarantees value is always an operation object
-  if (typeof value !== "object" || value === null) {
+  if (typeof value !== "object") {
     throw new Error(
       "Update value must be an operation object (schema validation should have normalized this)"
     );

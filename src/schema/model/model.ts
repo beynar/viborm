@@ -94,11 +94,11 @@ export class Model<State extends ModelState> {
   }
 
   omit<Keys extends StringKeyOf<State["scalars"]>[]>(
-    ...keys: [...State["omit"], ...Keys]
-  ): Model<UpdateState<State, { omit: [...State["omit"], ...Keys] }>> {
+    ...keys: Keys
+  ): Model<UpdateState<State, { omit: Keys }>> {
     return new Model({
       ...this.state,
-      omit: this.state.omit.concat(keys) as [...State["omit"], ...Keys],
+      omit: keys as Keys,
     });
   }
 
@@ -209,12 +209,14 @@ export class Model<State extends ModelState> {
       }
     >
   > {
+    const newFields = { ...this.state.fields, ...fields } as State["fields"] &
+      ETFields;
     return new Model({
       ...this.state,
-      fields: { ...this.state.fields, ...fields },
-      scalars: extractScalarFields(fields),
-      relations: extractRelationFields(fields),
-      uniques: extractUniqueFields(fields),
+      fields: newFields,
+      scalars: extractScalarFields(newFields),
+      relations: extractRelationFields(newFields),
+      uniques: extractUniqueFields(newFields),
     });
   }
 

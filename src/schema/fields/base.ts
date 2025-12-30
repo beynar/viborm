@@ -52,16 +52,6 @@ export type Field =
 export type AnyField = Field;
 
 // =============================================================================
-// LEGACY ALIASES (for backward compatibility)
-// =============================================================================
-
-/** @deprecated Use Field instead */
-export type FieldLike<_State extends FieldState = FieldState> = AnyField;
-
-/** @deprecated Use Field instead */
-export type BaseField = AnyField;
-
-// =============================================================================
 // TYPE GUARD
 // =============================================================================
 

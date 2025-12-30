@@ -4,10 +4,10 @@ import { AnyRelation, Relation } from "@schema/relation/relation";
 
 export type NameFromKeys<
   TFields extends string[],
-  TName extends string = ""
+  TName extends string = "",
 > = TFields extends readonly [
   infer F extends string,
-  ...infer R extends string[]
+  ...infer R extends string[],
 ]
   ? R extends []
     ? `${TName}_${F}`
@@ -16,7 +16,7 @@ export type NameFromKeys<
 
 export interface CompoundConstraint<
   TFields extends string[],
-  TName extends string | undefined = undefined
+  TName extends string | undefined = undefined,
 > {
   fields: TFields;
   name: TName extends undefined ? NameFromKeys<TFields> : TName;
@@ -48,13 +48,26 @@ export type RelationKeys<T extends FieldRecord> = {
   [K in keyof T]: T[K] extends AnyRelation ? ToString<K> : never;
 }[keyof T];
 
+const x = {
+  a: "b",
+  b: "c",
+};
+
+export type RequiredFieldKeys<T extends FieldRecord> = {
+  [K in keyof T]: T[K] extends Field
+    ? T[K]["~"]["state"]["optional"] extends true
+      ? never
+      : ToString<K>
+    : never;
+}[keyof T];
+
 export type UniqueFieldKeys<T extends FieldRecord> = {
   [K in keyof T]: T[K] extends Field
     ? T[K]["~"]["state"]["isId"] extends true
       ? ToString<K>
       : T[K]["~"]["state"]["isUnique"] extends true
-      ? ToString<K>
-      : never
+        ? ToString<K>
+        : never
     : never;
 }[keyof T];
 
@@ -102,10 +115,10 @@ export const extractUniqueFields = <T extends FieldRecord>(fields: T) => {
 
 export const getNameFromKeys = <
   Name extends string | undefined,
-  TFields extends any[]
+  TFields extends any[],
 >(
   name: Name,
-  fields: TFields
+  fields: TFields,
 ) => {
   return (
     name ??

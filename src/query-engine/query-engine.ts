@@ -44,6 +44,7 @@ import {
 import { buildFindUnique as buildFindUniqueQuery } from "./operations/find-unique";
 import { getPrimaryKeyField } from "./builders/correlation-utils";
 import { hydrateSchemaNames } from "@schema/hydration";
+import { buildCreateWithNested } from "./builders/nested-create-builder";
 
 /**
  * Query Engine class
@@ -76,8 +77,103 @@ export class QueryEngine {
     // Create context
     const ctx = createQueryContext(this.adapter, model, this.registry);
 
+    // For create operations, check for nested creates and use CTE-based builder
+    if (operation === "create" && validated.data) {
+      const data = validated.data as Record<string, unknown>;
+      const { relations } = separateData(ctx, data);
+
+      // Check for nested creates
+      const hasNestedCreates = Object.values(relations).some((m) => m.create);
+
+      if (hasNestedCreates) {
+        // Use CTE-based nested create builder
+        const result = buildCreateWithNested(
+          ctx,
+          data,
+          validated.select as Record<string, unknown> | undefined,
+          validated.include as Record<string, unknown> | undefined
+        );
+        return result.sql;
+      }
+
+      // No nested creates - process connect operations and use standard builder
+      const processedArgs = this.processConnectOperations(
+        ctx,
+        operation,
+        validated
+      );
+      return this.buildOperation(ctx, operation, processedArgs);
+    }
+
+    // For update operations, process connect operations to inline FK values
+    if (operation === "update") {
+      const processedArgs = this.processConnectOperations(
+        ctx,
+        operation,
+        validated
+      );
+      return this.buildOperation(ctx, operation, processedArgs);
+    }
+
     // Build SQL
     return this.buildOperation(ctx, operation, validated);
+  }
+
+  /**
+   * Process connect operations in data to inline FK values
+   * This allows build() to generate correct SQL for simple connect cases
+   * without needing a transaction.
+   */
+  private processConnectOperations(
+    ctx: QueryContext,
+    operation: Operation,
+    args: Record<string, unknown>
+  ): Record<string, unknown> {
+    const data =
+      operation === "create" || operation === "update"
+        ? (args.data as Record<string, unknown>)
+        : undefined;
+
+    if (!data) return args;
+
+    const { scalar, relations } = separateData(ctx, data);
+
+    // Check if any relations need processing
+    if (Object.keys(relations).length === 0) {
+      return args;
+    }
+
+    // Process connect operations where current model holds FK
+    const processedData = { ...scalar };
+
+    for (const [, mutation] of Object.entries(relations)) {
+      // Handle connect: inline FK value or subquery
+      if (mutation.connect && mutation.relationInfo.fields?.length) {
+        // For subquery approach, we only handle single connect
+        const connectInput = Array.isArray(mutation.connect)
+          ? mutation.connect[0]
+          : mutation.connect;
+
+        if (connectInput) {
+          const fkValues = buildConnectFkValues(
+            ctx,
+            mutation.relationInfo,
+            connectInput
+          );
+          // Add FK values to processed data
+          Object.assign(processedData, fkValues);
+        }
+      }
+
+      // Handle disconnect: set FK to NULL
+      if (mutation.disconnect && mutation.relationInfo.fields?.length) {
+        for (const fkField of mutation.relationInfo.fields) {
+          processedData[fkField] = null;
+        }
+      }
+    }
+
+    return { ...args, data: processedData };
   }
 
   /**
@@ -204,8 +300,8 @@ export class QueryEngine {
           // Build and execute single INSERT with subqueries
           const sqlQuery = buildCreate(ctx, {
             data: dataWithFks,
-            select: args.select as Record<string, unknown> | undefined,
-            include: args.include as Record<string, unknown> | undefined,
+            select: args.select as Record<string, unknown>,
+            include: args.include as Record<string, unknown>,
           });
           const result = await driver.execute(sqlQuery);
           return parseResult<T>(ctx, operation, result.rows);

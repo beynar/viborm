@@ -28,6 +28,8 @@ export { toOneCreateFactory, toManyCreateFactory } from "./create";
 
 export { toOneUpdateFactory, toManyUpdateFactory } from "./update";
 
+export { countFilterFactory } from "./count-filter";
+
 // Import for internal use
 import {
   toOneSelectFactory,
@@ -39,6 +41,7 @@ import { toOneOrderByFactory, toManyOrderByFactory } from "./order-by";
 import { toOneFilterFactory, toManyFilterFactory } from "./filter";
 import { toOneCreateFactory, toManyCreateFactory } from "./create";
 import { toOneUpdateFactory, toManyUpdateFactory } from "./update";
+import { countFilterFactory } from "./count-filter";
 
 // =============================================================================
 // SCHEMA BUNDLES
@@ -52,6 +55,7 @@ const toOneSchemas = <S extends RelationState>(state: S): ToOneSchemas<S> => {
     select: toOneSelectFactory(state),
     include: toOneIncludeFactory(state),
     orderBy: toOneOrderByFactory(state),
+    countFilter: countFilterFactory(state),
   };
 };
 
@@ -63,6 +67,7 @@ const toManySchemas = <S extends RelationState>(state: S): ToManySchemas<S> => {
     select: toManySelectFactory(state),
     include: toManyIncludeFactory(state),
     orderBy: toManyOrderByFactory(state),
+    countFilter: countFilterFactory(state),
   };
 };
 
@@ -77,6 +82,7 @@ export type ToOneSchemas<S extends RelationState> = {
   select: ReturnType<typeof toOneSelectFactory<S>>;
   include: ReturnType<typeof toOneIncludeFactory<S>>;
   orderBy: ReturnType<typeof toOneOrderByFactory<S>>;
+  countFilter: ReturnType<typeof countFilterFactory<S>>;
 };
 
 export type ToManySchemas<S extends RelationState> = {
@@ -86,6 +92,7 @@ export type ToManySchemas<S extends RelationState> = {
   select: ReturnType<typeof toManySelectFactory<S>>;
   include: ReturnType<typeof toManyIncludeFactory<S>>;
   orderBy: ReturnType<typeof toManyOrderByFactory<S>>;
+  countFilter: ReturnType<typeof countFilterFactory<S>>;
 };
 
 export type InferRelationSchemas<S extends RelationState> = S["type"] extends
@@ -114,5 +121,12 @@ export const getRelationSchemas = <S extends RelationState>(state: S) => {
  */
 export type InferRelationInput<
   S extends RelationState,
-  Type extends "filter" | "create" | "update" | "select" | "include" | "orderBy"
+  Type extends
+    | "filter"
+    | "create"
+    | "update"
+    | "select"
+    | "include"
+    | "orderBy"
+    | "countFilter"
 > = InferRelationSchemas<S>[Type];

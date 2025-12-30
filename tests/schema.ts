@@ -9,7 +9,7 @@ import {
 import { createClient } from "../src/index.js";
 import { PrismaClient } from "../generated/prisma/client.js";
 import { FindFirstArgs } from "../src/schema/types.js";
-import { InferInput } from "valibot";
+import { InferInput, Prettify } from "../src/validation/types.js";
 
 export const string = s.string();
 export const nullableString = s.string().nullable();
@@ -150,24 +150,26 @@ export const testUser = s.model({
 /**
  * Test post model for client type tests
  */
-export const testPost = s.model({
-  id: s.string().id().ulid(),
-  title: s.string(),
-  content: s.string().nullable(),
-  published: s.boolean().default(false),
-  createdAt: s.dateTime().now(),
-  updatedAt: s.dateTime().now(),
-  authorId: s.string(),
-  author: s.oneToOne(() => testUser),
-  // metadata: s
-  //   .json(
-  //     z.object({
-  //       tags: z.array(z.string()),
-  //     })
-  //   )
-  //   .nullable(),
-});
-
+export const testPost = s
+  .model({
+    id: s.string().id().ulid(),
+    title: s.string(),
+    content: s.string().nullable(),
+    published: s.boolean().default(false),
+    createdAt: s.dateTime().now(),
+    updatedAt: s.dateTime().now(),
+    authorId: s.string(),
+    author: s.oneToOne(() => testUser),
+    // metadata: s
+    //   .json(
+    //     z.object({
+    //       tags: z.array(z.string()),
+    //     })
+    //   )
+    //   .nullable(),
+  })
+  .omit("title");
+const x = testPost["state"]["omit"];
 /**
  * Test profile model for client type tests
  */
@@ -196,8 +198,37 @@ const client = createClient({
   adapter: {} as any,
   driver: {} as any,
 });
+
+type Input = Prettify<
+  InferInput<(typeof testUser)["~"]["schemas"]["args"]["findFirst"]>
+>["where"]["age"];
 const res = await client.user.findFirst({
+  where: {
+    AND: [
+      {
+        age: "lez",
+      },
+      {
+        id: "ezlk",
+      },
+    ],
+  },
   select: {
-    id: true,
+    age: true,
+    posts: {
+      where: {
+        AND: [
+          {
+            author: {
+              is: {
+                age: {
+                  gt: 120,
+                },
+              },
+            },
+          },
+        ],
+      },
+    },
   },
 });

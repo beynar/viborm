@@ -33,3 +33,4 @@ export type {
   ConnectOrCreateInput,
   FkDirection,
 } from "./relation-data-builder";
+export { buildCreateWithNested } from "./nested-create-builder";

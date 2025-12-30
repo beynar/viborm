@@ -28,18 +28,18 @@ interface DeleteManyArgs {
  * @returns SQL statement (DELETE with optional RETURNING)
  */
 export function buildDelete(ctx: QueryContext, args: DeleteArgs): Sql {
-  const { adapter, rootAlias } = ctx;
+  const { adapter } = ctx;
   const tableName = getTableName(ctx.model);
 
-  // Build WHERE from unique input
-  const whereSql = buildWhereUnique(ctx, args.where, rootAlias);
+  // Build WHERE from unique input (no alias for DELETE statements)
+  const whereSql = buildWhereUnique(ctx, args.where, "");
 
   // Build DELETE
   const table = adapter.identifiers.escape(tableName);
   const deleteSql = adapter.mutations.delete(table, whereSql);
 
-  // Build RETURNING clause if supported
-  const returningCols = buildSelect(ctx, args.select, args.include, rootAlias);
+  // Build RETURNING clause if supported (no alias for DELETE RETURNING)
+  const returningCols = buildSelect(ctx, args.select, args.include, "");
   const returningSql = adapter.mutations.returning(returningCols);
 
   // Combine DELETE with RETURNING
@@ -59,11 +59,11 @@ export function buildDelete(ctx: QueryContext, args: DeleteArgs): Sql {
  * @returns SQL statement
  */
 export function buildDeleteMany(ctx: QueryContext, args: DeleteManyArgs): Sql {
-  const { adapter, rootAlias } = ctx;
+  const { adapter } = ctx;
   const tableName = getTableName(ctx.model);
 
-  // Build WHERE (optional for deleteMany)
-  const whereSql = buildWhere(ctx, args.where, rootAlias);
+  // Build WHERE (optional for deleteMany, no alias for DELETE statements)
+  const whereSql = buildWhere(ctx, args.where, "");
 
   // Build DELETE
   const table = adapter.identifiers.escape(tableName);

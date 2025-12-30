@@ -25,7 +25,7 @@ interface CreateArgs {
  * @returns SQL statement (INSERT with optional RETURNING)
  */
 export function buildCreate(ctx: QueryContext, args: CreateArgs): Sql {
-  const { adapter, rootAlias } = ctx;
+  const { adapter } = ctx;
   const tableName = getTableName(ctx.model);
 
   // Build VALUES
@@ -39,9 +39,9 @@ export function buildCreate(ctx: QueryContext, args: CreateArgs): Sql {
   const table = adapter.identifiers.escape(tableName);
   const insertSql = adapter.mutations.insert(table, columns, values);
 
-  // Build RETURNING clause if supported
+  // Build RETURNING clause if supported (no alias for INSERT RETURNING)
   // Note: MySQL doesn't support RETURNING, so this will be empty
-  const returningCols = buildSelect(ctx, args.select, args.include, rootAlias);
+  const returningCols = buildSelect(ctx, args.select, args.include, "");
   const returningSql = adapter.mutations.returning(returningCols);
 
   // Combine INSERT with RETURNING

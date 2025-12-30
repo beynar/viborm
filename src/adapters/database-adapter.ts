@@ -146,6 +146,8 @@ export interface DatabaseAdapter {
     object: (pairs: [string, Sql][]) => Sql;
     /** Build JSON array from items */
     array: (items: Sql[]) => Sql;
+    /** Empty JSON array literal: '[]'::json (PG), JSON_ARRAY() (MySQL), '[]' (SQLite) */
+    emptyArray: () => Sql;
     /** Aggregate rows into JSON array */
     agg: (expr: Sql) => Sql;
     /** Convert row to JSON object (PG only - use objectFromColumns for MySQL/SQLite) */
@@ -306,6 +308,19 @@ export interface DatabaseAdapter {
   };
 
   /**
+   * CAPABILITIES
+   * Database feature flags for conditional query building
+   */
+  capabilities: {
+    /** Whether database supports RETURNING clause (PG, SQLite 3.35+) */
+    supportsReturning: boolean;
+    /** Whether database supports CTEs with data-modifying statements (PG, SQLite) */
+    supportsCteWithMutations: boolean;
+    /** Whether database supports FULL OUTER JOIN */
+    supportsFullOuterJoin: boolean;
+  };
+
+  /**
    * JOINS
    * Join operations
    */
@@ -315,6 +330,21 @@ export interface DatabaseAdapter {
     right: (table: Sql, condition: Sql) => Sql;
     full: (table: Sql, condition: Sql) => Sql;
     cross: (table: Sql) => Sql;
+  };
+
+  /**
+   * SET OPERATIONS
+   * UNION, INTERSECT, EXCEPT operations
+   */
+  setOperations: {
+    /** UNION (removes duplicates) */
+    union: (...queries: Sql[]) => Sql;
+    /** UNION ALL (keeps duplicates) */
+    unionAll: (...queries: Sql[]) => Sql;
+    /** INTERSECT */
+    intersect: (...queries: Sql[]) => Sql;
+    /** EXCEPT / MINUS */
+    except: (left: Sql, right: Sql) => Sql;
   };
 }
 

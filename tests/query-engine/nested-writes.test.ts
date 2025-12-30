@@ -35,10 +35,10 @@ const Post = s
     content: s.string().nullable(),
     published: s.boolean().default(false),
     authorId: s.string(),
-    author: s.relation
-      .fields("authorId")
-      .references("id")
-      .manyToOne(() => User),
+    author: s.manyToOne(() => User, {
+      fields: ["authorId"],
+      references: ["id"],
+    }),
   })
   .map("posts");
 
@@ -47,10 +47,10 @@ const UserWithPosts = s.model({
   id: s.string().id().ulid(),
   name: s.string(),
   email: s.string().unique(),
-  posts: s.relation
-    .fields("id")
-    .references("authorId")
-    .oneToMany(() => Post),
+  posts: s.oneToMany(() => Post, {
+    fields: ["id"],
+    references: ["authorId"],
+  }),
 });
 
 // Model with compound ID
@@ -66,7 +66,7 @@ const CompoundUser = s
 // TEST SETUP
 // =============================================================================
 
-const adapter = PostgresAdapter;
+const adapter = new PostgresAdapter();
 const registry = createModelRegistry({
   User,
   Post,

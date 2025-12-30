@@ -11,18 +11,20 @@ import { NestedWriteError, QueryEngineError } from "./types";
 /**
  * Get model name from model or context
  */
-function getModelName(modelOrCtx: Model<any> | QueryContext | undefined): string {
+function getModelName(
+  modelOrCtx: Model<any> | QueryContext | undefined,
+): string {
   if (!modelOrCtx) return "unknown";
 
   // Check if it's a QueryContext
   if ("model" in modelOrCtx && "adapter" in modelOrCtx) {
     const ctx = modelOrCtx as QueryContext;
-    return ctx.model.name ?? "unknown";
+    return ctx.model["~"]["names"]["ts"] ?? "unknown";
   }
 
   // It's a Model
   const model = modelOrCtx as Model<any>;
-  return model.name ?? "unknown";
+  return model["~"]["names"]["ts"] ?? "unknown";
 }
 
 /**
@@ -38,7 +40,7 @@ export function createNestedWriteError(
   message: string,
   relation: string,
   modelOrCtx?: Model<any> | QueryContext,
-  cause?: Error
+  cause?: Error,
 ): NestedWriteError {
   const modelName = getModelName(modelOrCtx);
   const fullMessage = `[${modelName}.${relation}] ${message}`;
@@ -54,7 +56,7 @@ export function createNestedWriteError(
  */
 export function createQueryError(
   message: string,
-  modelOrCtx?: Model<any> | QueryContext
+  modelOrCtx?: Model<any> | QueryContext,
 ): QueryEngineError {
   const modelName = getModelName(modelOrCtx);
   if (modelName !== "unknown") {
@@ -69,11 +71,11 @@ export function createQueryError(
 export function createMissingFieldError(
   fieldName: string,
   operation: string,
-  modelOrCtx?: Model<any> | QueryContext
+  modelOrCtx?: Model<any> | QueryContext,
 ): QueryEngineError {
   const modelName = getModelName(modelOrCtx);
   return new QueryEngineError(
-    `[${modelName}] Missing required field '${fieldName}' for ${operation} operation`
+    `[${modelName}] Missing required field '${fieldName}' for ${operation} operation`,
   );
 }
 
@@ -84,12 +86,11 @@ export function createInvalidRelationError(
   relation: string,
   operation: string,
   reason: string,
-  modelOrCtx?: Model<any> | QueryContext
+  modelOrCtx?: Model<any> | QueryContext,
 ): NestedWriteError {
   const modelName = getModelName(modelOrCtx);
   return new NestedWriteError(
     `[${modelName}.${relation}] Invalid '${operation}' operation: ${reason}`,
-    relation
+    relation,
   );
 }
-

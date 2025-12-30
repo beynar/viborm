@@ -1,26 +1,16 @@
-import { Model, ExtractFields } from "@schema/model";
+import { Field } from "@schema/fields";
+import { Model, ExtractFields, ModelState } from "@schema/model";
 import type {
-  ModelFindManyArgs,
-  ModelFindFirstArgs,
-  ModelFindUniqueArgs,
-  ModelCreateArgs,
-  ModelUpdateArgs,
-  ModelDeleteArgs,
-  ModelDeleteManyArgs,
-  ModelUpsertArgs,
-  ModelCountArgs,
-  ModelAggregateArgs,
-  ModelGroupByArgs,
-  CreateManyEnvelope,
-  ModelUpdateManyArgs,
-  ModelExistArgs,
   InferResult,
   BatchPayload,
   CountResultType,
   AggregateResultType,
   GroupByResultType,
   FieldRecord,
+  Simplify,
 } from "@schema/model/types";
+import { InferOutput } from "../validation";
+import { AnyRelation } from "@schema/relation";
 
 export type Schema = Record<string, Model<any>>;
 
@@ -50,37 +40,37 @@ export type OperationPayload<
   O extends Operations,
   M extends Model<any>
 > = O extends "findMany"
-  ? ModelFindManyArgs<M>
+  ? M["~"]["schemas"]["args"]["findMany"][" vibInferred"]["0"]
   : O extends "findUnique"
-  ? ModelFindUniqueArgs<M>
+  ? M["~"]["schemas"]["args"]["findUnique"][" vibInferred"]["0"]
   : O extends "findFirst"
-  ? ModelFindFirstArgs<M>
+  ? M["~"]["schemas"]["args"]["findFirst"][" vibInferred"]["0"]
   : O extends "create"
-  ? ModelCreateArgs<M>
+  ? M["~"]["schemas"]["args"]["create"][" vibInferred"]["0"]
   : O extends "update"
-  ? ModelUpdateArgs<M>
+  ? M["~"]["schemas"]["args"]["update"][" vibInferred"]["0"]
   : O extends "delete"
-  ? ModelDeleteArgs<M>
+  ? M["~"]["schemas"]["args"]["delete"][" vibInferred"]["0"]
   : O extends "deleteMany"
-  ? ModelDeleteManyArgs<M>
+  ? M["~"]["schemas"]["args"]["deleteMany"][" vibInferred"]["0"]
   : O extends "upsert"
-  ? ModelUpsertArgs<M>
+  ? M["~"]["schemas"]["args"]["upsert"][" vibInferred"]["0"]
   : O extends "findUniqueOrThrow"
-  ? ModelFindUniqueArgs<M>
+  ? M["~"]["schemas"]["args"]["findUnique"][" vibInferred"]["0"]
   : O extends "findFirstOrThrow"
-  ? ModelFindFirstArgs<M>
+  ? M["~"]["schemas"]["args"]["findFirst"][" vibInferred"]["0"]
   : O extends "count"
-  ? ModelCountArgs<M>
+  ? M["~"]["schemas"]["args"]["count"][" vibInferred"]["0"]
   : O extends "aggregate"
-  ? ModelAggregateArgs<M>
+  ? M["~"]["schemas"]["args"]["aggregate"][" vibInferred"]["0"]
   : O extends "groupBy"
-  ? ModelGroupByArgs<M>
+  ? M["~"]["schemas"]["args"]["groupBy"][" vibInferred"]["0"]
   : O extends "createMany"
-  ? CreateManyEnvelope<ExtractFields<M>>
+  ? M["~"]["schemas"]["args"]["createMany"][" vibInferred"]["0"]
   : O extends "updateMany"
-  ? ModelUpdateManyArgs<M>
+  ? M["~"]["schemas"]["args"]["updateMany"][" vibInferred"]["0"]
   : O extends "exist"
-  ? ModelExistArgs<M>
+  ? M["~"]["schemas"]["where"][" vibInferred"]["0"]
   : never;
 
 /**
@@ -91,24 +81,31 @@ export type OperationResult<
   O extends Operations,
   M extends Model<any>,
   Args
-> = O extends "findFirst" | "findUnique"
-  ? InferResult<ExtractFields<M>, Args> | null
-  : O extends "findFirstOrThrow" | "findUniqueOrThrow"
-  ? InferResult<ExtractFields<M>, Args>
-  : O extends "findMany"
-  ? InferResult<ExtractFields<M>, Args>[]
-  : O extends "create" | "update" | "delete" | "upsert"
-  ? InferResult<ExtractFields<M>, Args>
-  : O extends "createMany" | "updateMany" | "deleteMany"
-  ? BatchPayload
-  : O extends "count"
-  ? CountResultType<Args>
-  : O extends "exist"
-  ? boolean
-  : O extends "aggregate"
-  ? AggregateResultType<ExtractFields<M>, Args>
-  : O extends "groupBy"
-  ? GroupByResultType<ExtractFields<M>, Args>[]
+> = M extends Model<infer S>
+  ? O extends "findFirst" | "findUnique"
+    ? InferResult2<
+        S,
+        Args extends { select: infer Selection extends Record<any, any> }
+          ? Selection
+          : undefined
+      > | null
+    : O extends "findFirstOrThrow" | "findUniqueOrThrow"
+    ? InferResult<ExtractFields<M>, Args>
+    : O extends "findMany"
+    ? InferResult<ExtractFields<M>, Args>[]
+    : O extends "create" | "update" | "delete" | "upsert"
+    ? InferResult<ExtractFields<M>, Args>
+    : O extends "createMany" | "updateMany" | "deleteMany"
+    ? BatchPayload
+    : O extends "count"
+    ? CountResultType<Args>
+    : O extends "exist"
+    ? boolean
+    : O extends "aggregate"
+    ? AggregateResultType<ExtractFields<M>, Args>
+    : O extends "groupBy"
+    ? GroupByResultType<ExtractFields<M>, Args>[]
+    : never
   : never;
 
 /**
@@ -122,3 +119,46 @@ export type Client<S extends Schema> = {
     ) => Promise<OperationResult<O, S[K], P>>;
   };
 };
+
+type InferResult2<
+  S extends ModelState,
+  Selection extends Record<any, any> | undefined
+> = Simplify<{
+  [K in keyof Selection]: K extends keyof S["fields"]
+    ? Selection[K] extends true
+      ? S["fields"][K] extends Field
+        ? S["fields"][K]["~"]["schemas"]["base"][" vibInferred"]["1"]
+        : S["fields"][K] extends AnyRelation
+        ? InferRelationOutput<S["fields"][K]>
+        : never
+      : Selection[K] extends object
+      ? S["fields"][K] extends AnyRelation
+        ? Selection[K] extends {
+            select: infer Selection2 extends Record<any, any>;
+          }
+          ? InferResult2<GetTargetModelState<S["fields"][K]>, Selection2>
+          : InferRelationOutput<S["fields"][K]>
+        : never
+      : never
+    : never;
+}>;
+
+type GetTargetModelState<R extends AnyRelation> =
+  R["~"]["state"]["getter"] extends () => infer T
+    ? T extends Model<infer S>
+      ? S extends ModelState
+        ? S
+        : never
+      : never
+    : never;
+
+type InferRelationOutput<R extends AnyRelation> = InferModelOutput<
+  GetTargetModelState<R>
+>;
+
+type InferModelOutput<S extends ModelState> = Simplify<{
+  [K in Exclude<
+    keyof S["scalars"],
+    S["omit"][number]
+  >]: S["scalars"][K]["~"]["schemas"]["base"][" vibInferred"]["1"];
+}>;

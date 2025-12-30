@@ -30,7 +30,7 @@ export class PostgresAdapter implements DatabaseAdapter {
     escape: (name: string): Sql => sql.raw`"${name}"`,
 
     column: (alias: string, field: string): Sql =>
-      sql.raw`"${alias}"."${field}"`,
+      alias ? sql.raw`"${alias}"."${field}"` : sql.raw`"${field}"`,
 
     table: (tableName: string, alias: string): Sql =>
       sql.raw`"${tableName}" AS "${alias}"`,
@@ -149,7 +149,8 @@ export class PostgresAdapter implements DatabaseAdapter {
   // ============================================================
 
   aggregates = {
-    count: (expr?: Sql): Sql => (expr ? sql`COUNT(${expr})` : sql.raw`COUNT(*)`),
+    count: (expr?: Sql): Sql =>
+      expr ? sql`COUNT(${expr})` : sql.raw`COUNT(*)`,
     countDistinct: (expr: Sql): Sql => sql`COUNT(DISTINCT ${expr})`,
     sum: (expr: Sql): Sql => sql`SUM(${expr})`,
     avg: (expr: Sql): Sql => sql`AVG(${expr})`,
@@ -172,6 +173,8 @@ export class PostgresAdapter implements DatabaseAdapter {
       if (items.length === 0) return sql.raw`'[]'::json`;
       return sql`json_build_array(${sql.join(items, ", ")})`;
     },
+
+    emptyArray: (): Sql => sql.raw`'[]'::json`,
 
     agg: (expr: Sql): Sql => sql`COALESCE(json_agg(${expr}), '[]'::json)`,
 
@@ -262,9 +265,11 @@ export class PostgresAdapter implements DatabaseAdapter {
   set = {
     assign: (column: Sql, value: Sql): Sql => sql`${column} = ${value}`,
 
-    increment: (column: Sql, by: Sql): Sql => sql`${column} = ${column} + ${by}`,
+    increment: (column: Sql, by: Sql): Sql =>
+      sql`${column} = ${column} + ${by}`,
 
-    decrement: (column: Sql, by: Sql): Sql => sql`${column} = ${column} - ${by}`,
+    decrement: (column: Sql, by: Sql): Sql =>
+      sql`${column} = ${column} - ${by}`,
 
     multiply: (column: Sql, by: Sql): Sql => sql`${column} = ${column} * ${by}`,
 
@@ -384,7 +389,10 @@ export class PostgresAdapter implements DatabaseAdapter {
     insert: (table: Sql, columns: string[], values: Sql[][]): Sql => {
       const cols = columns.map((c) => sql.raw`"${c}"`);
       const rows = values.map((row) => sql`(${sql.join(row, ", ")})`);
-      return sql`INSERT INTO ${table} (${sql.join(cols, ", ")}) VALUES ${sql.join(rows, ", ")}`;
+      return sql`INSERT INTO ${table} (${sql.join(
+        cols,
+        ", "
+      )}) VALUES ${sql.join(rows, ", ")}`;
     },
 
     update: (table: Sql, sets: Sql, where?: Sql): Sql => {
@@ -429,6 +437,30 @@ export class PostgresAdapter implements DatabaseAdapter {
       sql`FULL OUTER JOIN ${table} ON ${condition}`,
 
     cross: (table: Sql): Sql => sql`CROSS JOIN ${table}`,
+  };
+
+  // ============================================================
+  // SET OPERATIONS
+  // ============================================================
+
+  setOperations = {
+    union: (...queries: Sql[]): Sql => sql.join(queries, " UNION "),
+
+    unionAll: (...queries: Sql[]): Sql => sql.join(queries, " UNION ALL "),
+
+    intersect: (...queries: Sql[]): Sql => sql.join(queries, " INTERSECT "),
+
+    except: (left: Sql, right: Sql): Sql => sql`${left} EXCEPT ${right}`,
+  };
+
+  // ============================================================
+  // CAPABILITIES
+  // ============================================================
+
+  capabilities = {
+    supportsReturning: true,
+    supportsCteWithMutations: true,
+    supportsFullOuterJoin: true,
   };
 }
 

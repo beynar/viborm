@@ -10,6 +10,7 @@
 
 import { s } from "../../src/schema";
 import { getModelSchemas } from "../../src/schema/model/schemas";
+import { InferInput, Prettify } from "../../src/validation";
 
 // =============================================================================
 // SIMPLE MODEL (single field ID)
@@ -35,7 +36,6 @@ export const getSimpleSchemas = () => {
 };
 // Legacy export for backward compatibility
 export const simpleSchemas = getModelSchemas(simpleModel["~"].state);
-export type SimpleState = (typeof simpleModel)["~"]["state"];
 
 // =============================================================================
 // COMPOUND ID MODEL
@@ -94,6 +94,12 @@ let _authorSchemas: ReturnType<
 >;
 let _postSchemas: ReturnType<
   typeof getModelSchemas<(typeof postModel)["~"]["state"]>
+>;
+
+type Include = Prettify<InferInput<(typeof _authorSchemas)["include"]>>;
+
+type InputFindUnique = Prettify<
+  InferInput<(typeof _authorSchemas)["args"]["findUnique"]>
 >;
 
 export const getAuthorSchemas = () => {

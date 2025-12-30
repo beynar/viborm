@@ -30,7 +30,7 @@ export class MySQLAdapter implements DatabaseAdapter {
     escape: (name: string): Sql => sql.raw`\`${name}\``,
 
     column: (alias: string, field: string): Sql =>
-      sql.raw`\`${alias}\`.\`${field}\``,
+      alias ? sql.raw`\`${alias}\`.\`${field}\`` : sql.raw`\`${field}\``,
 
     table: (tableName: string, alias: string): Sql =>
       sql.raw`\`${tableName}\` AS \`${alias}\``,
@@ -176,6 +176,8 @@ export class MySQLAdapter implements DatabaseAdapter {
       if (items.length === 0) return sql.raw`JSON_ARRAY()`;
       return sql`JSON_ARRAY(${sql.join(items, ", ")})`;
     },
+
+    emptyArray: (): Sql => sql.raw`JSON_ARRAY()`,
 
     agg: (expr: Sql): Sql =>
       sql`COALESCE(JSON_ARRAYAGG(${expr}), JSON_ARRAY())`,
@@ -531,6 +533,31 @@ export class MySQLAdapter implements DatabaseAdapter {
       sql`LEFT JOIN ${table} ON ${condition}`,
 
     cross: (table: Sql): Sql => sql`CROSS JOIN ${table}`,
+  };
+
+  // ============================================================
+  // SET OPERATIONS
+  // ============================================================
+
+  setOperations = {
+    union: (...queries: Sql[]): Sql => sql.join(queries, " UNION "),
+
+    unionAll: (...queries: Sql[]): Sql => sql.join(queries, " UNION ALL "),
+
+    intersect: (...queries: Sql[]): Sql => sql.join(queries, " INTERSECT "),
+
+    // MySQL uses EXCEPT in 8.0.31+, older versions need workaround
+    except: (left: Sql, right: Sql): Sql => sql`${left} EXCEPT ${right}`,
+  };
+
+  // ============================================================
+  // CAPABILITIES
+  // ============================================================
+
+  capabilities = {
+    supportsReturning: false,
+    supportsCteWithMutations: false, // MySQL CTEs are read-only
+    supportsFullOuterJoin: false,
   };
 }
 

@@ -6,15 +6,24 @@
  */
 
 import { sql, Sql } from "@sql";
-import type { QueryContext } from "../types";
+import type { QueryContext, RelationInfo } from "../types";
 import { QueryEngineError } from "../types";
 import {
   getScalarFieldNames,
   isRelation,
   getRelationInfo,
   getColumnName,
+  createChildContext,
+  getTableName,
 } from "../context";
 import { buildInclude } from "./include-builder";
+import { buildWhere } from "./where-builder";
+import { buildCorrelation, getPrimaryKeyField } from "./correlation-utils";
+import {
+  getJunctionTableName,
+  getJunctionFieldNames,
+} from "@schema/relation/relation";
+import { parse } from "../../validation";
 
 /**
  * Options for buildSelect
@@ -50,7 +59,7 @@ export function buildSelect(
   select: Record<string, unknown> | undefined,
   include: Record<string, unknown> | undefined,
   alias: string,
-  options: BuildSelectOptions = {}
+  options: BuildSelectOptions = {},
 ): Sql {
   // Build field/expression pairs
   const pairs = buildSelectPairs(ctx, select, include, alias);
@@ -62,7 +71,7 @@ export function buildSelect(
 
   // Convert pairs to aliased columns
   const columns = pairs.map(([name, expr]) =>
-    ctx.adapter.identifiers.aliased(expr, name)
+    ctx.adapter.identifiers.aliased(expr, name),
   );
 
   return sql.join(columns, ", ");
@@ -75,7 +84,7 @@ function buildSelectPairs(
   ctx: QueryContext,
   select: Record<string, unknown> | undefined,
   include: Record<string, unknown> | undefined,
-  alias: string
+  alias: string,
 ): [string, Sql][] {
   const pairs: [string, Sql][] = [];
   const scalarFields = getScalarFieldNames(ctx.model);
@@ -103,7 +112,7 @@ function buildSelectPairs(
             ctx,
             relationInfo,
             value as Record<string, unknown>,
-            alias
+            alias,
           );
           pairs.push([key, relationSql]);
         }
@@ -120,17 +129,28 @@ function buildSelectPairs(
     }
   }
 
+  // Handle _count in select
+  if (select && "_count" in select && select._count) {
+    const countInput = select._count as { select: Record<string, unknown> };
+    if (countInput.select) {
+      const countPairs = buildCountPairs(ctx, countInput.select, alias);
+      pairs.push(...countPairs);
+    }
+  }
+
   // Handle include (adds relations on top of scalars)
   if (include) {
     for (const [key, value] of Object.entries(include)) {
       if (value === undefined || value === false) continue;
 
-      // Check for _count aggregate - not implemented yet
+      // Handle _count in include
       if (key === "_count") {
-        throw new QueryEngineError(
-          `'_count' relation aggregation is not implemented. ` +
-            `Use a separate count query or groupBy with _count instead.`
-        );
+        const countInput = value as { select: Record<string, unknown> };
+        if (countInput.select) {
+          const countPairs = buildCountPairs(ctx, countInput.select, alias);
+          pairs.push(...countPairs);
+        }
+        continue;
       }
 
       if (isRelation(ctx.model, key)) {
@@ -142,7 +162,7 @@ function buildSelectPairs(
             ctx,
             relationInfo,
             includeValue,
-            alias
+            alias,
           );
           pairs.push([key, relationSql]);
         }
@@ -180,7 +200,7 @@ export function buildSelectWithAliases(
   select: Record<string, unknown> | undefined,
   include: Record<string, unknown> | undefined,
   alias: string,
-  options: BuildSelectOptions = {}
+  options: BuildSelectOptions = {},
 ): SelectResult {
   // Build field/expression pairs
   const pairs = buildSelectPairs(ctx, select, include, alias);
@@ -194,7 +214,7 @@ export function buildSelectWithAliases(
     sqlResult = ctx.adapter.json.objectFromColumns(pairs);
   } else {
     const columns = pairs.map(([name, expr]) =>
-      ctx.adapter.identifiers.aliased(expr, name)
+      ctx.adapter.identifiers.aliased(expr, name),
     );
     sqlResult = sql.join(columns, ", ");
   }
@@ -212,4 +232,178 @@ export function buildSelectAll(ctx: QueryContext, alias: string): Sql {
     return ctx.adapter.identifiers.column(alias, columnName);
   });
   return sql.join(columns, ", ");
+}
+
+/**
+ * Build count pairs for _count aggregation
+ *
+ * @param ctx - Query context
+ * @param countSelect - Object mapping relation names to true or { where: ... }
+ * @param parentAlias - Parent table alias
+ * @returns Array of [fieldName, countExpression] pairs
+ */
+function buildCountPairs(
+  ctx: QueryContext,
+  countSelect: Record<string, unknown>,
+  parentAlias: string,
+): [string, Sql][] {
+  const pairs: [string, Sql][] = [];
+
+  for (const [relationName, config] of Object.entries(countSelect)) {
+    if (config === undefined || config === false) continue;
+
+    const relationInfo = getRelationInfo(ctx, relationName);
+    if (!relationInfo) continue;
+
+    const countSql = buildRelationCount(ctx, relationInfo, config, parentAlias);
+    pairs.push([`_count_${relationName}`, countSql]);
+  }
+
+  return pairs;
+}
+
+/**
+ * Build a COUNT subquery for a relation
+ *
+ * @param ctx - Query context
+ * @param relationInfo - Relation metadata
+ * @param config - true or { where: ... }
+ * @param parentAlias - Parent table alias
+ * @returns SQL for COUNT subquery
+ */
+function buildRelationCount(
+  ctx: QueryContext,
+  relationInfo: RelationInfo,
+  config: unknown,
+  parentAlias: string,
+): Sql {
+  const { adapter } = ctx;
+
+  // Handle manyToMany specially
+  if (relationInfo.type === "manyToMany") {
+    return buildManyToManyCount(ctx, relationInfo, config, parentAlias);
+  }
+
+  const targetAlias = ctx.nextAlias();
+  const targetTableName = getTableName(relationInfo.targetModel);
+  const targetTable = adapter.identifiers.table(targetTableName, targetAlias);
+
+  // Build correlation
+  const correlation = buildCorrelation(
+    ctx,
+    relationInfo,
+    parentAlias,
+    targetAlias,
+  );
+
+  // Build inner where if provided
+  let whereCondition = correlation;
+  
+  if (typeof config === "object" && config !== null && "where" in config) {
+    const childCtx = createChildContext(
+      ctx,
+      relationInfo.targetModel,
+      targetAlias,
+    );
+    // Use the raw where clause directly - it's already validated by the parent schema
+    const rawWhere = (config as { where: Record<string, unknown> }).where;
+    const innerWhere = buildWhere(childCtx, rawWhere, targetAlias);
+    if (innerWhere) {
+      whereCondition = adapter.operators.and(correlation, innerWhere);
+    }
+  }
+
+  // Build COUNT subquery
+  return adapter.subqueries.scalar(
+    sql`SELECT COUNT(*) FROM ${targetTable} WHERE ${whereCondition}`,
+  );
+}
+
+/**
+ * Build a COUNT subquery for manyToMany relation through junction table
+ */
+function buildManyToManyCount(
+  ctx: QueryContext,
+  relationInfo: RelationInfo,
+  config: unknown,
+  parentAlias: string,
+): Sql {
+  const { adapter } = ctx;
+
+  // Get model names for junction table resolution
+  const sourceModelName = ctx.model["~"].names.ts ?? "unknown";
+  const targetModelName = relationInfo.targetModel["~"].names.ts ?? "unknown";
+
+  // Get junction table info
+  const junctionTableName = getJunctionTableName(
+    relationInfo.relation,
+    sourceModelName,
+    targetModelName,
+  );
+  const [sourceFieldName, targetFieldName] = getJunctionFieldNames(
+    relationInfo.relation,
+    sourceModelName,
+    targetModelName,
+  );
+
+  // Get primary key fields
+  const sourcePkField = getPrimaryKeyField(ctx.model);
+  const targetPkField = getPrimaryKeyField(relationInfo.targetModel);
+
+  // Create aliases
+  const junctionAlias = ctx.nextAlias();
+  const targetAlias = ctx.nextAlias();
+  const targetTableName = getTableName(relationInfo.targetModel);
+
+  // Build conditions:
+  // 1. Correlation: jt.sourceId = parent.id
+  const junctionSourceCol = adapter.identifiers.column(
+    junctionAlias,
+    sourceFieldName,
+  );
+  const parentPkCol = adapter.identifiers.column(parentAlias, sourcePkField);
+  const correlationCondition = adapter.operators.eq(
+    junctionSourceCol,
+    parentPkCol,
+  );
+
+  // 2. Junction to target join: t.id = jt.targetId
+  const targetPkCol = adapter.identifiers.column(targetAlias, targetPkField);
+  const junctionTargetCol = adapter.identifiers.column(
+    junctionAlias,
+    targetFieldName,
+  );
+  const joinCondition = adapter.operators.eq(targetPkCol, junctionTargetCol);
+
+  // Combine conditions
+  const conditions: Sql[] = [correlationCondition, joinCondition];
+
+  // Add inner where if provided
+  if (typeof config === "object" && config !== null && "where" in config) {
+    const childCtx = createChildContext(
+      ctx,
+      relationInfo.targetModel,
+      targetAlias,
+    );
+    // Normalize the where clause through the target model's where schema
+    const rawWhere = (config as { where: Record<string, unknown> }).where;
+    const whereSchema = relationInfo.targetModel["~"].schemas.where;
+    const normalizedWhere = whereSchema
+      ? (parse(whereSchema, rawWhere).value as Record<string, unknown>)
+      : rawWhere;
+    const innerWhere = buildWhere(childCtx, normalizedWhere, targetAlias);
+    if (innerWhere) {
+      conditions.push(innerWhere);
+    }
+  }
+
+  const whereCondition = adapter.operators.and(...conditions);
+
+  // Build FROM clause with both tables
+  const fromClause = sql`${adapter.identifiers.table(junctionTableName, junctionAlias)}, ${adapter.identifiers.table(targetTableName, targetAlias)}`;
+
+  // Build COUNT subquery
+  return adapter.subqueries.scalar(
+    sql`SELECT COUNT(*) FROM ${fromClause} WHERE ${whereCondition}`,
+  );
 }

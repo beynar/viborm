@@ -29,9 +29,26 @@ export const getSelectSchema = <T extends ModelState>(state: T) => {
     optional: true,
   });
 
+  // _count entries: use a schema that accepts true or { where: ... }
+  // This is different from the relation's select schema - we only need the filter capability
+  const countSelectEntries = v.fromObject<
+    T["relations"],
+    "~.schemas.countFilter",
+    { optional: true }
+  >(state.relations, "~.schemas.countFilter", {
+    optional: true,
+  });
+  const countSchema = v.object(
+    {
+      select: v.object(countSelectEntries.entries),
+    },
+    { optional: true }
+  );
+
   return v.object({
     ...scalarEntries.entries,
     ...relationEntries.entries,
+    _count: countSchema,
   });
 };
 

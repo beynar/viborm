@@ -93,6 +93,8 @@ export type AnyModelState = ModelState<any, any, any>;
 
 // Import Model for type extraction
 import type { Model } from "../model";
+import { InferStringOutput } from "@schema/fields";
+import { InferOutput } from "../../../validation";
 
 /**
  * Extract field definitions from any Model
@@ -370,16 +372,10 @@ type GetFieldInputType<F, S extends FieldState> = [S["type"]] extends ["json"]
  * Key: Uses infer to extract the actual state type, preserving literal types
  * For JSON fields with custom schemas, infers from StandardSchemaV1
  */
-export type InferFieldBase<F> = F extends Field
-  ? ExtractFieldState<F> extends infer S
-    ? S extends FieldState
-      ? ApplyArray<
-          ApplyNullable<GetFieldResultType<F, S>, S["nullable"]>,
-          S["array"]
-        >
-      : unknown
-    : unknown
-  : unknown;
+export type InferFieldBase<F extends Field> =
+  ExtractFieldState<F> extends infer S extends FieldState
+    ? InferOutput<S["base"]>
+    : never;
 
 /**
  * Infers the INPUT TypeScript type for a field (what you can pass to queries)

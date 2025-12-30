@@ -191,14 +191,14 @@ function findInverseFkFields(
   relationName: string
 ): string[] {
   // Look through target model's relations for one pointing back to current
-  const targetRelations = targetModel["~"].relations;
+  const targetRelations = targetModel["~"].state.relations;
   if (targetRelations) {
-    for (const [, rel] of targetRelations) {
+    for (const [, rel] of Object.entries(targetRelations)) {
       const relInternals = rel["~"];
       // Check if this relation points back to current model
-      const relTarget = relInternals.getter?.();
-      if (relTarget === currentModel && relInternals.fields?.length) {
-        return relInternals.fields;
+      const relTarget = relInternals.state?.getter?.();
+      if (relTarget === currentModel && relInternals.state?.fields?.length) {
+        return relInternals.state.fields;
       }
     }
   }
@@ -318,7 +318,9 @@ export function buildConnectSubquery(
   const pkSql = adapter.identifiers.column(subAlias, pkColumn);
   const tableSql = adapter.identifiers.escape(targetTable);
 
-  return sql`(SELECT ${pkSql} FROM ${tableSql} ${sql.raw(subAlias)} WHERE ${whereClause})`;
+  return sql`(SELECT ${pkSql} FROM ${tableSql} ${sql.raw(
+    subAlias
+  )} WHERE ${whereClause})`;
 }
 
 /**
@@ -358,7 +360,9 @@ export function buildConnectFkValues(
   const result: Record<string, Sql> = {};
 
   // Check if all PK values are directly provided in the connect input
-  const allPkValuesProvided = pkFields.every((pkField) => pkField in connectInput);
+  const allPkValuesProvided = pkFields.every(
+    (pkField) => pkField in connectInput
+  );
 
   if (allPkValuesProvided) {
     // Simple case: all PK values provided directly - no subqueries needed
@@ -422,7 +426,9 @@ function buildConnectSubqueryForField(
   const fieldSql = adapter.identifiers.column(subAlias, fieldColumn);
   const tableSql = adapter.identifiers.escape(targetTable);
 
-  return sql`(SELECT ${fieldSql} FROM ${tableSql} ${sql.raw(subAlias)} WHERE ${whereClause})`;
+  return sql`(SELECT ${fieldSql} FROM ${tableSql} ${sql.raw(
+    subAlias
+  )} WHERE ${whereClause})`;
 }
 
 // ============================================================
@@ -491,7 +497,9 @@ function currentHoldsFK(relationInfo: RelationInfo): boolean {
  * NOT needed for:
  * - connect when current model holds FK (use subquery)
  */
-export function needsTransaction(relations: Record<string, RelationMutation>): boolean {
+export function needsTransaction(
+  relations: Record<string, RelationMutation>
+): boolean {
   for (const mutation of Object.values(relations)) {
     // Create always needs transaction to get generated ID
     if (mutation.create) return true;
@@ -522,7 +530,9 @@ export function needsTransaction(relations: Record<string, RelationMutation>): b
 /**
  * Check if relation mutations can be handled with subqueries only
  */
-export function canUseSubqueryOnly(relations: Record<string, RelationMutation>): boolean {
+export function canUseSubqueryOnly(
+  relations: Record<string, RelationMutation>
+): boolean {
   return !needsTransaction(relations);
 }
 
@@ -533,7 +543,8 @@ export function getSubqueryConnects(
   ctx: QueryContext,
   relations: Record<string, RelationMutation>
 ): Array<{ relationName: string; mutation: RelationMutation }> {
-  const result: Array<{ relationName: string; mutation: RelationMutation }> = [];
+  const result: Array<{ relationName: string; mutation: RelationMutation }> =
+    [];
 
   for (const [relationName, mutation] of Object.entries(relations)) {
     if (!mutation.connect) continue;
@@ -546,5 +557,3 @@ export function getSubqueryConnects(
 
   return result;
 }
-
-
