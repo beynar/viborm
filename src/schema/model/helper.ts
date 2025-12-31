@@ -1,6 +1,11 @@
 import { Field } from "@schema/fields/base";
-import { FieldRecord } from "@schema/model";
 import { AnyRelation, Relation } from "@schema/relation/relation";
+
+/**
+ * Record of model fields - the canonical type for field definitions.
+ * Supports both scalar Field types and relation types.
+ */
+export type FieldRecord = Record<string, Field | AnyRelation>;
 
 export type NameFromKeys<
   TFields extends string[],
@@ -47,11 +52,6 @@ export type ScalarFieldKeys<T extends FieldRecord> = {
 export type RelationKeys<T extends FieldRecord> = {
   [K in keyof T]: T[K] extends AnyRelation ? ToString<K> : never;
 }[keyof T];
-
-const x = {
-  a: "b",
-  b: "c",
-};
 
 export type RequiredFieldKeys<T extends FieldRecord> = {
   [K in keyof T]: T[K] extends Field

@@ -321,6 +321,17 @@ export interface DatabaseAdapter {
   };
 
   /**
+   * LAST INSERT ID
+   * Returns SQL for getting the last auto-generated ID.
+   * Used in multi-statement nested creates to reference parent's ID in child inserts.
+   *
+   * PostgreSQL: lastval() - returns last value from any sequence in session
+   * SQLite: last_insert_rowid() - returns last ROWID inserted
+   * MySQL: LAST_INSERT_ID() - returns last AUTO_INCREMENT value
+   */
+  lastInsertId: () => Sql;
+
+  /**
    * JOINS
    * Join operations
    */

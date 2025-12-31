@@ -100,7 +100,7 @@ export const buildStringSchema = <F extends FieldState<"string">>(state: F) => {
 };
 
 export type StringSchemas<F extends FieldState<"string">> = {
-  base: F["base"] as F["base"];
+  base: F["base"];
   create: BaseStringSchema<F>;
   update: F["array"] extends true
     ? ReturnType<typeof buildStringListUpdateSchema<F["base"]>>

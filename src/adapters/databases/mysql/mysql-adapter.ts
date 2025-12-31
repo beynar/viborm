@@ -559,6 +559,8 @@ export class MySQLAdapter implements DatabaseAdapter {
     supportsCteWithMutations: false, // MySQL CTEs are read-only
     supportsFullOuterJoin: false,
   };
+
+  lastInsertId = (): Sql => sql.raw`LAST_INSERT_ID()`;
 }
 
 // Export singleton instance

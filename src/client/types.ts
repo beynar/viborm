@@ -1,16 +1,21 @@
-import { Field } from "@schema/fields";
-import { Model, ExtractFields, ModelState } from "@schema/model";
-import type {
-  InferResult,
+/**
+ * Client Types
+ *
+ * Provides the typed Client interface for ORM operations.
+ * All input types are inferred from schema validation.
+ * All result types are inferred from result-types.ts.
+ */
+
+import { Model } from "@schema/model";
+import { FieldRecord } from "@schema/model/helper";
+import { Prettify } from "../validation";
+import {
+  InferSelectInclude,
   BatchPayload,
   CountResultType,
   AggregateResultType,
   GroupByResultType,
-  FieldRecord,
-  Simplify,
-} from "@schema/model/types";
-import { InferOutput } from "../validation";
-import { AnyRelation } from "@schema/relation";
+} from "./result-types";
 
 export type Schema = Record<string, Model<any>>;
 
@@ -33,8 +38,19 @@ export type Operations =
   | "exist";
 
 /**
+ * Extract fields from a Model - works with Model<any>
+ */
+type ExtractFields<M> = M extends Model<infer S>
+  ? S extends { fields: infer F }
+    ? F extends FieldRecord
+      ? F
+      : FieldRecord
+    : FieldRecord
+  : FieldRecord;
+
+/**
  * Operation payload type - passes Model directly to args types
- * Each args type extracts what it needs internally
+ * Each args type extracts what it needs internally from schema inference
  */
 export type OperationPayload<
   O extends Operations,
@@ -83,18 +99,13 @@ export type OperationResult<
   Args
 > = M extends Model<infer S>
   ? O extends "findFirst" | "findUnique"
-    ? InferResult2<
-        S,
-        Args extends { select: infer Selection extends Record<any, any> }
-          ? Selection
-          : undefined
-      > | null
+    ? Prettify<InferSelectInclude<S, Args>> | null
     : O extends "findFirstOrThrow" | "findUniqueOrThrow"
-    ? InferResult<ExtractFields<M>, Args>
+    ? Prettify<InferSelectInclude<S, Args>>
     : O extends "findMany"
-    ? InferResult<ExtractFields<M>, Args>[]
+    ? Prettify<InferSelectInclude<S, Args>>[]
     : O extends "create" | "update" | "delete" | "upsert"
-    ? InferResult<ExtractFields<M>, Args>
+    ? Prettify<InferSelectInclude<S, Args>>
     : O extends "createMany" | "updateMany" | "deleteMany"
     ? BatchPayload
     : O extends "count"
@@ -114,51 +125,8 @@ export type OperationResult<
  */
 export type Client<S extends Schema> = {
   [K in keyof S]: {
-    [O in Operations]: <P extends OperationPayload<O, S[K]>>(
-      args: P
-    ) => Promise<OperationResult<O, S[K], P>>;
+    [O in Operations]: <Args extends OperationPayload<O, S[K]>>(
+      args: Args
+    ) => Promise<OperationResult<O, S[K], Args>>;
   };
 };
-
-type InferResult2<
-  S extends ModelState,
-  Selection extends Record<any, any> | undefined
-> = Simplify<{
-  [K in keyof Selection]: K extends keyof S["fields"]
-    ? Selection[K] extends true
-      ? S["fields"][K] extends Field
-        ? S["fields"][K]["~"]["schemas"]["base"][" vibInferred"]["1"]
-        : S["fields"][K] extends AnyRelation
-        ? InferRelationOutput<S["fields"][K]>
-        : never
-      : Selection[K] extends object
-      ? S["fields"][K] extends AnyRelation
-        ? Selection[K] extends {
-            select: infer Selection2 extends Record<any, any>;
-          }
-          ? InferResult2<GetTargetModelState<S["fields"][K]>, Selection2>
-          : InferRelationOutput<S["fields"][K]>
-        : never
-      : never
-    : never;
-}>;
-
-type GetTargetModelState<R extends AnyRelation> =
-  R["~"]["state"]["getter"] extends () => infer T
-    ? T extends Model<infer S>
-      ? S extends ModelState
-        ? S
-        : never
-      : never
-    : never;
-
-type InferRelationOutput<R extends AnyRelation> = InferModelOutput<
-  GetTargetModelState<R>
->;
-
-type InferModelOutput<S extends ModelState> = Simplify<{
-  [K in Exclude<
-    keyof S["scalars"],
-    S["omit"][number]
-  >]: S["scalars"][K]["~"]["schemas"]["base"][" vibInferred"]["1"];
-}>;

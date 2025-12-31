@@ -224,7 +224,7 @@ import {
   map as mapFn,
 } from "./schemas";
 import { Prettify, VibSchema } from "./types";
-
+export type { Prettify as Simplify };
 /**
  * VibORM validation namespace.
  *

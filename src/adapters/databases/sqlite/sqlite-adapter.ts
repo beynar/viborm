@@ -563,6 +563,8 @@ export class SQLiteAdapter implements DatabaseAdapter {
     supportsCteWithMutations: true,
     supportsFullOuterJoin: false,
   };
+
+  lastInsertId = (): Sql => sql.raw`last_insert_rowid()`;
 }
 
 // Export singleton instance

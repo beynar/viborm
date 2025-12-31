@@ -2,6 +2,7 @@
 import type { RelationState } from "../relation";
 import {
   getTargetCreateSchema,
+  getTargetScalarCreateSchema,
   getTargetWhereUniqueSchema,
   singleOrArray,
 } from "./helpers";
@@ -35,13 +36,17 @@ export const toOneCreateFactory = <S extends RelationState>(state: S) => {
  * To-many create: { create?, createMany?, connect?, connectOrCreate? }
  * All accept single or array, normalized to array
  * Uses thunks for lazy evaluation to avoid circular reference issues
+ *
+ * Note: createMany uses scalarCreate (no nested relations) because
+ * nested creates within createMany are not supported.
  */
 export const toManyCreateFactory = <S extends RelationState>(state: S) => {
   return v.object(
     {
       create: () => singleOrArray(getTargetCreateSchema(state)()),
+      // createMany only accepts scalar fields - no nested relation mutations
       createMany: v.object({
-        data: () => v.array(getTargetCreateSchema(state)()),
+        data: () => v.array(getTargetScalarCreateSchema(state)()),
         skipDuplicates: v.boolean({ optional: true }),
       }),
       connect: () => singleOrArray(getTargetWhereUniqueSchema(state)()),

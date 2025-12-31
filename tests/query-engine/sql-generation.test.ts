@@ -637,11 +637,14 @@ describe("Nested Writes", () => {
       });
       console.log("create with nested create and return nested:", statement, values);
 
-      // Should contain CTE for parent and children
-      expect(statement).toContain("WITH");
-      expect(statement).toContain("new_parent");
-      expect(statement).toContain("new_posts");
-      // Should contain JSON aggregation for posts
+      // Should contain multi-statement with semicolons
+      expect(statement).toContain(";");
+      // Should have parent INSERT
+      expect(statement).toContain('INSERT INTO "Author"');
+      // Should have child INSERTs
+      expect(statement).toContain('INSERT INTO "posts"');
+      // Should have final SELECT with JSON aggregation for posts
+      expect(statement).toContain("SELECT");
       expect(statement).toContain("json_agg");
       expect(statement).toContain('"posts"');
     });

@@ -1,14 +1,8 @@
 import z from "zod/v4";
-import {
-  AnyRelation,
-  GetRelationFields,
-  InferStringInput,
-  RelationGetter,
-  s,
-} from "../src/schema/index.js";
+import { AnyRelation, InferStringInput, s } from "../src/schema/index.js";
 import { createClient } from "../src/index.js";
 import { PrismaClient } from "../generated/prisma/client.js";
-import { FindFirstArgs } from "../src/schema/types.js";
+
 import { InferInput, Prettify } from "../src/validation/types.js";
 
 export const string = s.string();
@@ -36,7 +30,7 @@ export const bigintWithValidation = s
 export const dateTime = s.dateTime();
 export const nullableDateTime = s.dateTime().nullable();
 export const dateTimeWithDefault = s.dateTime().default(new Date());
-export const dateTimeWithValidation = s.dateTime().schema(z.date());
+export const dateTimeWithValidation = s.dateTime();
 
 export const simpleJson = z.object({
   name: z.string(),
@@ -57,9 +51,7 @@ export const blobWithValidation = s.blob();
 export const enumField = s.enum(["a", "b"]);
 export const nullableEnumField = s.enum(["a", "b"]).nullable();
 export const enumFieldWithDefault = s.enum(["a", "b"]).default("a");
-export const enumFieldWithValidation = s
-  .enum(["a", "b"])
-  .schema(z.enum(["a", "b"]));
+export const enumFieldWithValidation = s.enum(["a", "b"]);
 
 export const model = s.model({
   id: s.string().id().ulid(),
@@ -168,7 +160,10 @@ export const testPost = s
     //   )
     //   .nullable(),
   })
-  .omit("title");
+  .omit({
+    title: true,
+    content: true,
+  });
 const x = testPost["state"]["omit"];
 /**
  * Test profile model for client type tests
@@ -199,36 +194,48 @@ const client = createClient({
   driver: {} as any,
 });
 
+type OmitUser = (typeof testUser)["~"]["state"]["omit"];
+
 type Input = Prettify<
   InferInput<(typeof testUser)["~"]["schemas"]["args"]["findFirst"]>
->["where"]["age"];
+>["where"];
 const res = await client.user.findFirst({
   where: {
     AND: [
       {
-        age: "lez",
+        age: 12,
+        createdAt: new Date("2025-01-01"),
+        email: {
+          equals: "ezk",
+        },
       },
       {
-        id: "ezlk",
+        bio: "ezlk",
       },
     ],
   },
-  select: {
-    age: true,
-    posts: {
-      where: {
-        AND: [
-          {
-            author: {
-              is: {
-                age: {
-                  gt: 120,
-                },
-              },
-            },
-          },
-        ],
-      },
-    },
+  include: {
+    posts: true,
   },
+  // select: {
+  //   age: true,
+  //   posts: {
+  //     select: {
+  //       authorId: true,
+  //     },
+  //     where: {
+  //       AND: [
+  //         {
+  //           author: {
+  //             is: {
+  //               age: {
+  //                 gt: 120,
+  //               },
+  //             },
+  //           },
+  //         },
+  //       ],
+  //     },
+  //   },
+  // },
 });

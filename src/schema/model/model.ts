@@ -4,8 +4,8 @@
 import { type Field } from "../fields/base";
 import { type SchemaNames } from "../fields/common";
 import { AnyRelation } from "../relation/relation";
-import type { FieldRecord } from "./types/helpers";
 import {
+  FieldRecord,
   ScalarFieldKeys,
   ScalarFields,
   extractScalarFields,
@@ -37,7 +37,7 @@ export interface ModelState {
     | undefined;
   tableName: string | undefined;
   indexes: IndexDefinition[];
-  omit: string[];
+  omit: Record<string, true> | undefined;
   scalars: Record<string, Field>;
   relations: Record<string, AnyRelation>;
   uniques: Record<string, Field>;
@@ -93,12 +93,12 @@ export class Model<State extends ModelState> {
     return new Model({ ...this.state, tableName });
   }
 
-  omit<Keys extends StringKeyOf<State["scalars"]>[]>(
-    ...keys: Keys
-  ): Model<UpdateState<State, { omit: Keys }>> {
+  omit<OmitItems extends Record<string, true>>(
+    items: OmitItems
+  ): Model<UpdateState<State, { omit: OmitItems }>> {
     return new Model({
       ...this.state,
-      omit: keys as Keys,
+      omit: items,
     });
   }
 
@@ -239,6 +239,7 @@ export const model = <TFields extends FieldRecord>(
       scalars: ScalarFields<TFields>;
       relations: RelationFields<TFields>;
       uniques: UniqueFields<TFields>;
+      omit: undefined;
     }
   >
 > =>
@@ -247,7 +248,7 @@ export const model = <TFields extends FieldRecord>(
     compoundUniques: undefined,
     tableName: undefined,
     indexes: [],
-    omit: [],
+    omit: undefined,
     fields,
     scalars: extractScalarFields(fields),
     relations: extractRelationFields(fields),

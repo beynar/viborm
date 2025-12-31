@@ -86,7 +86,7 @@ export class QueryEngine {
       const hasNestedCreates = Object.values(relations).some((m) => m.create);
 
       if (hasNestedCreates) {
-        // Use CTE-based nested create builder
+        // Use multi-statement nested create builder
         const result = buildCreateWithNested(
           ctx,
           data,

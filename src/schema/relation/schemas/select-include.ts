@@ -18,7 +18,7 @@ const buildSelectionFromState = <S extends RelationState>(
 ): Record<string, true> => {
   const state = relationState.getter()["~"].state as ModelState;
   const select: Record<string, true> = {};
-  const omits = new Set<string>(state.omit);
+  const omits = new Set<string>(Object.keys(state.omit || {}));
   Object.keys(state.scalars).forEach((field) => {
     if (!omits.has(field)) {
       select[field] = true;

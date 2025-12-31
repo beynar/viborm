@@ -1,7 +1,5 @@
-// Where schema factories
-
+import v from "../../../../validation";
 import type { ModelState } from "../../model";
-import v, { AllPathsToSchemas, VibSchema } from "../../../../validation";
 import { getCompoundConstraintFilter } from "./filter";
 
 // =============================================================================

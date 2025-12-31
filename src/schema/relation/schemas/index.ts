@@ -4,7 +4,6 @@ import type { RelationState } from "../relation";
 
 // Re-export helpers and types
 export {
-  type AnyRelationSchema,
   getTargetWhereSchema,
   getTargetWhereUniqueSchema,
   getTargetCreateSchema,

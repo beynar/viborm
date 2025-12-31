@@ -7,6 +7,13 @@ import type { JsonSchemaConverter } from "./json-schema/types";
 // =============================================================================
 
 /**
+ * Simplify flattens intersection types into a single object type.
+ * Forces TypeScript to compute and cache the result once.
+ * Non-recursive - use for shallow flattening.
+ */
+export type Simplify<T> = { [K in keyof T]: T[K] } & {};
+
+/**
  * Prettify forces TypeScript to fully evaluate the type.
  * Recursively prettifies nested objects for cleaner type display.
  * Use sparingly - mapped types are expensive!
@@ -14,7 +21,9 @@ import type { JsonSchemaConverter } from "./json-schema/types";
 export type Prettify<T> = T extends (...args: any[]) => any
   ? T // Preserve functions as-is
   : T extends object
-  ? { [K in keyof T]: Prettify<T[K]> } & {}
+  ? T extends Date
+    ? T
+    : { [K in keyof T]: Prettify<T[K]> } & {}
   : T;
 
 // =============================================================================

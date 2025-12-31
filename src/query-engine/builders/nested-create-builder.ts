@@ -1,18 +1,22 @@
 /**
  * Nested Create Builder
  *
- * Builds CTE-based SQL for nested create operations.
- * Allows creating parent and child records in a single SQL statement.
+ * Builds multi-statement SQL for nested create operations.
+ * Uses a unified approach that works across all databases.
  *
- * Example output:
- * WITH "new_author" AS (
- *   INSERT INTO "Author" ("id", "name", "email")
- *   VALUES ($1, $2, $3)
- *   RETURNING *
- * )
- * INSERT INTO "posts" ("id", "title", "authorId")
- * SELECT $4, $5, "new_author"."id" FROM "new_author"
- * RETURNING ...
+ * ID Handling:
+ * - App-generated IDs (UUID, ULID): literal value is used directly
+ * - Auto-increment IDs: uses lastval() / last_insert_rowid() / LAST_INSERT_ID()
+ *
+ * Example output with app-generated ID:
+ *   INSERT INTO "Author" ("id", "name") VALUES ($1, $2);
+ *   INSERT INTO "posts" ("id", "title", "authorId") VALUES ($3, $4, $1);
+ *   SELECT ... FROM "Author" WHERE "id" = $1;
+ *
+ * Example output with auto-increment (PostgreSQL):
+ *   INSERT INTO "Author" ("name") VALUES ($1);
+ *   INSERT INTO "posts" ("id", "title", "authorId") VALUES ($2, $3, lastval());
+ *   SELECT ... FROM "Author" WHERE "id" = lastval();
  */
 
 import { sql, Sql } from "@sql";
@@ -39,68 +43,26 @@ import { getPrimaryKeyField } from "./correlation-utils";
 
 /**
  * Result of building a nested create operation.
- *
- * For databases that support CTE with mutations (PostgreSQL, SQLite):
- *   - Returns a single SQL statement with CTEs
- *
- * For databases without CTE mutation support (MySQL):
- *   - Returns a batch of statements to execute sequentially
+ * Always returns a single SQL with multiple statements joined by semicolons.
  */
-interface NestedCreateResult {
-  /** Strategy used: 'single' for CTE-based, 'batch' for sequential */
-  strategy: "single" | "batch";
-  /** The generated SQL (for single strategy) */
+export interface NestedCreateResult {
+  /** The generated SQL (multiple statements joined by ';') */
   sql: Sql;
-  /** Batch of statements (for batch strategy - MySQL) */
-  batch?: NestedCreateBatch;
   /** Whether nested creates were processed */
   hasNestedCreates: boolean;
+  /** Number of statements (for result extraction in MySQL) */
+  statementCount: number;
 }
 
 /**
- * Batch of statements for databases that don't support CTE mutations.
- * The executor should run these in order within a transaction.
+ * Info about a child create for aggregation in final SELECT
  */
-export interface NestedCreateBatch {
-  /** Parent INSERT statement */
-  parentInsert: Sql;
-  /** Primary key field name */
-  parentPkField: string;
-  /**
-   * How to get the parent's PK after insert:
-   * - 'auto': Use LAST_INSERT_ID() (for AUTO_INCREMENT)
-   * - 'provided': PK is in the INSERT data (for UUID, ULID, etc.)
-   */
-  pkStrategy: "auto" | "provided";
-  /** The provided PK value (when pkStrategy is 'provided') */
-  providedPkValue?: unknown;
-  /** Child INSERT statements */
-  childInserts: {
-    /** The SQL statement */
-    sql: Sql;
-    /** Field name where parent ID is set */
-    fkField: string;
-    /** Relation name for result mapping */
-    relationName: string;
-  }[];
-  /** Final SELECT to retrieve the created data */
-  finalSelect: Sql;
-}
-
-interface CteDefinition {
-  name: string;
-  query: Sql;
-  model: Model<any>;
-}
-
-/**
- * Tracks child CTEs for a relation (for aggregating in final SELECT)
- */
-interface RelationCteInfo {
+interface ChildCreateInfo {
   relationName: string;
-  cteNames: string[];
-  model: Model<any>;
   relationInfo: RelationInfo;
+  model: Model<any>;
+  /** Number of child records created */
+  count: number;
 }
 
 // ============================================================
@@ -110,15 +72,16 @@ interface RelationCteInfo {
 /**
  * Build a create operation that may include nested creates.
  *
- * For simple creates: returns standard INSERT
- * For nested creates with CTE support (PostgreSQL, SQLite): returns CTE-based multi-INSERT
- * For nested creates without CTE support (MySQL): returns batch of statements
+ * Uses a unified multi-statement approach for all databases:
+ * 1. INSERT parent record
+ * 2. INSERT child records (using lastInsertId() or literal for FK)
+ * 3. SELECT to return the created data
  *
  * @param ctx - Query context
  * @param data - Create data (may include nested creates)
  * @param select - Optional select
  * @param include - Optional include
- * @returns Result with SQL and strategy info
+ * @returns Result with SQL and metadata
  */
 export function buildCreateWithNested(
   ctx: QueryContext,
@@ -135,41 +98,20 @@ export function buildCreateWithNested(
   );
 
   if (nestedCreates.length === 0) {
-    // No nested creates - return simple INSERT
+    // No nested creates - return simple INSERT with RETURNING
     return {
-      strategy: "single",
       sql: buildSimpleInsert(ctx, scalar, select, include),
       hasNestedCreates: false,
+      statementCount: 1,
     };
   }
 
-  // Check adapter capabilities
-  if (adapter.capabilities.supportsCteWithMutations) {
-    // PostgreSQL/SQLite: Use CTE-based approach
-    return {
-      strategy: "single",
-      sql: buildCteNestedCreate(ctx, scalar, nestedCreates, select, include),
-      hasNestedCreates: true,
-    };
-  } else {
-    // MySQL: Use batch approach (multiple statements)
-    return {
-      strategy: "batch",
-      sql: sql.empty, // Not used for batch strategy
-      batch: buildBatchNestedCreate(
-        ctx,
-        scalar,
-        nestedCreates,
-        select,
-        include
-      ),
-      hasNestedCreates: true,
-    };
-  }
+  // Build multi-statement nested create
+  return buildMultiStatementCreate(ctx, scalar, nestedCreates, select, include);
 }
 
 // ============================================================
-// SIMPLE INSERT
+// SIMPLE INSERT (no nested creates)
 // ============================================================
 
 /**
@@ -181,7 +123,7 @@ function buildSimpleInsert(
   select?: Record<string, unknown>,
   include?: Record<string, unknown>
 ): Sql {
-  const { adapter, rootAlias } = ctx;
+  const { adapter } = ctx;
   const tableName = getTableName(ctx.model);
 
   // Build VALUES
@@ -195,15 +137,16 @@ function buildSimpleInsert(
   const table = adapter.identifiers.escape(tableName);
   const insertSql = adapter.mutations.insert(table, columns, values);
 
-  // Build RETURNING (use empty alias for mutations)
-  const returningCols = buildReturningColumns(ctx, select, include, "");
-  const returningSql = adapter.mutations.returning(returningCols);
-
-  if (returningSql.strings.join("").trim() === "") {
-    return insertSql;
+  // Build RETURNING (if supported)
+  if (adapter.capabilities.supportsReturning) {
+    const returningCols = buildReturningColumns(ctx, select, "");
+    const returningSql = adapter.mutations.returning(returningCols);
+    if (returningSql.strings.join("").trim() !== "") {
+      return sql`${insertSql} ${returningSql}`;
+    }
   }
 
-  return sql`${insertSql} ${returningSql}`;
+  return insertSql;
 }
 
 /**
@@ -212,7 +155,6 @@ function buildSimpleInsert(
 function buildReturningColumns(
   ctx: QueryContext,
   select: Record<string, unknown> | undefined,
-  include: Record<string, unknown> | undefined,
   alias: string
 ): Sql {
   const scalarFields = getScalarFieldNames(ctx.model);
@@ -232,14 +174,12 @@ function buildReturningColumns(
       });
 
     if (columns.length === 0) {
-      // Fallback to all scalars
       return buildAllScalarColumns(ctx, alias);
     }
 
     return sql.join(columns, ", ");
   }
 
-  // Default: return all scalar fields
   return buildAllScalarColumns(ctx, alias);
 }
 
@@ -261,30 +201,44 @@ function buildAllScalarColumns(ctx: QueryContext, alias: string): Sql {
 }
 
 // ============================================================
-// CTE-BASED NESTED CREATE
+// MULTI-STATEMENT NESTED CREATE
 // ============================================================
 
 /**
- * Build CTE-based nested create
+ * Build multi-statement nested create.
  *
  * Strategy:
  * 1. Determine creation order based on FK direction
- * 2. Build CTEs for each INSERT in dependency order
- * 3. Final query selects from parent CTE with nested data (including newly created children)
+ * 2. Build INSERT statements in dependency order
+ * 3. Final SELECT to retrieve all data
+ *
+ * All statements are joined with ';' for multi-statement execution.
  */
-function buildCteNestedCreate(
+function buildMultiStatementCreate(
   ctx: QueryContext,
   parentScalar: Record<string, unknown>,
   nestedCreates: [string, RelationMutation][],
   select?: Record<string, unknown>,
   include?: Record<string, unknown>
-): Sql {
+): NestedCreateResult {
   const { adapter } = ctx;
-  const cteDefinitions: CteDefinition[] = [];
-  const parentCteName = "new_parent";
+  const statements: Sql[] = [];
+  const childCreateInfos: ChildCreateInfo[] = [];
 
-  // Track child CTEs by relation name for final SELECT
-  const relationCtes: RelationCteInfo[] = [];
+  // Get parent's PK field and check if it's provided
+  const parentPkField = getPrimaryKeyField(ctx.model);
+  const providedPkValue = parentScalar[parentPkField];
+
+  // Helper to get parent ID reference for child FKs
+  const getParentIdRef = (): Sql => {
+    if (providedPkValue !== undefined) {
+      // App-generated ID (UUID, ULID) - use literal
+      return adapter.literals.value(providedPkValue);
+    } else {
+      // Auto-increment - use lastInsertId()
+      return adapter.lastInsertId();
+    }
+  };
 
   // Analyze FK directions to determine creation order
   const childFirstCreates: [string, RelationMutation][] = [];
@@ -302,215 +256,145 @@ function buildCteNestedCreate(
     }
   }
 
-  // Process child-first creates (parent holds FK)
-  // These need CTEs for the child, then parent references them
+  // ---- Handle child-first creates (parent holds FK) ----
+  // These are rare (e.g., to-one where parent references child)
+  // We need to INSERT child first, then reference its ID in parent
   let parentDataWithFks = { ...parentScalar };
 
   for (const [relationName, mutation] of childFirstCreates) {
     const childDataArray = Array.isArray(mutation.create)
       ? mutation.create
       : [mutation.create];
-    const cteNames: string[] = [];
+    const { targetModel } = mutation.relationInfo;
+    const childCtx = createChildContext(ctx, targetModel, "");
+    const childTableName = getTableName(targetModel);
+    const childTable = adapter.identifiers.escape(childTableName);
+    const fkDir = getFkDirection(ctx, mutation.relationInfo);
 
+    // Insert child first
     for (let i = 0; i < childDataArray.length; i++) {
       const childData = childDataArray[i];
       if (!childData) continue;
 
-      const childCteName =
-        childDataArray.length === 1
-          ? `new_${relationName}`
-          : `new_${relationName}_${i}`;
-      const childCte = buildChildFirstCte(
-        ctx,
-        mutation.relationInfo,
-        childData as Record<string, unknown>,
-        childCteName
+      const { columns, values } = buildValues(
+        childCtx,
+        childData as Record<string, unknown>
       );
-      cteDefinitions.push(childCte);
-      cteNames.push(childCteName);
+      statements.push(adapter.mutations.insert(childTable, columns, values));
     }
 
-    // Add FK reference from parent to first child CTE (for to-one relations)
-    if (cteNames.length > 0) {
-      const fkDir = getFkDirection(ctx, mutation.relationInfo);
+    // Set FK on parent to reference child (using lastInsertId of child)
+    // This only works for single child creates; arrays would need special handling
+    if (childDataArray.length === 1) {
       for (let i = 0; i < fkDir.fkFields.length; i++) {
         const fkField = fkDir.fkFields[i]!;
-        const pkField = fkDir.pkFields[i]!;
-        parentDataWithFks[fkField] = sql`(SELECT ${adapter.identifiers.escape(
-          pkField
-        )} FROM ${adapter.identifiers.escape(cteNames[0]!)})`;
-      }
+        // Check if child provided its own ID
+        const childData = childDataArray[0] as Record<string, unknown>;
+        const childPkField = getPrimaryKeyField(targetModel);
+        const childPkValue = childData?.[childPkField];
 
-      relationCtes.push({
-        relationName,
-        cteNames,
-        model: mutation.relationInfo.targetModel,
-        relationInfo: mutation.relationInfo,
-      });
+        if (childPkValue !== undefined) {
+          parentDataWithFks[fkField] = childPkValue;
+        } else {
+          parentDataWithFks[fkField] = adapter.lastInsertId();
+        }
+      }
     }
+
+    childCreateInfos.push({
+      relationName,
+      relationInfo: mutation.relationInfo,
+      model: targetModel,
+      count: childDataArray.filter(Boolean).length,
+    });
   }
 
-  // Build parent CTE
-  const parentCte = buildParentCte(ctx, parentDataWithFks, parentCteName);
-  cteDefinitions.push(parentCte);
+  // ---- Insert parent ----
+  const parentTableName = getTableName(ctx.model);
+  const parentTable = adapter.identifiers.escape(parentTableName);
+  const { columns: parentColumns, values: parentValues } = buildValues(
+    ctx,
+    parentDataWithFks
+  );
+  statements.push(
+    adapter.mutations.insert(parentTable, parentColumns, parentValues)
+  );
 
-  // Process parent-first creates (child holds FK)
-  // Build child INSERT statements that reference parent CTE
+  // ---- Handle parent-first creates (child holds FK) ----
+  // Most common case: child has FK to parent
   for (const [relationName, mutation] of parentFirstCreates) {
     const childDataArray = Array.isArray(mutation.create)
       ? mutation.create
       : [mutation.create];
-    const cteNames: string[] = [];
+    const { targetModel } = mutation.relationInfo;
+    const childCtx = createChildContext(ctx, targetModel, "");
+    const childTableName = getTableName(targetModel);
+    const childTable = adapter.identifiers.escape(childTableName);
+    const fkDir = getFkDirection(ctx, mutation.relationInfo);
 
-    for (let i = 0; i < childDataArray.length; i++) {
-      const childData = childDataArray[i];
+    // Group all children of this relation into a single multi-row INSERT
+    const allChildRows: Sql[][] = [];
+
+    for (const childData of childDataArray) {
       if (!childData) continue;
 
-      const childCteName = `new_${relationName}_${i}`;
-      const childCte = buildParentFirstCte(
-        ctx,
-        mutation.relationInfo,
-        childData as Record<string, unknown>,
-        parentCteName,
-        childCteName
-      );
-      cteDefinitions.push(childCte);
-      cteNames.push(childCteName);
+      // Add FK to child data
+      const childDataWithFk = { ...(childData as Record<string, unknown>) };
+      const fkField = fkDir.fkFields[0]!;
+      childDataWithFk[fkField] = getParentIdRef();
+
+      const { columns, values } = buildValues(childCtx, childDataWithFk);
+
+      // For multi-row INSERT, we need consistent columns
+      // Just add each as a separate INSERT for simplicity
+      // (Could optimize to single multi-row INSERT later)
+      statements.push(adapter.mutations.insert(childTable, columns, values));
     }
 
-    if (cteNames.length > 0) {
-      relationCtes.push({
-        relationName,
-        cteNames,
-        model: mutation.relationInfo.targetModel,
-        relationInfo: mutation.relationInfo,
-      });
-    }
+    childCreateInfos.push({
+      relationName,
+      relationInfo: mutation.relationInfo,
+      model: targetModel,
+      count: childDataArray.filter(Boolean).length,
+    });
   }
 
-  // Build the final WITH clause
-  const withClause = adapter.cte.with(
-    cteDefinitions.map((cte) => ({ name: cte.name, query: cte.query }))
-  );
-
-  // Build final SELECT from parent CTE (with nested relation data if requested)
+  // ---- Build final SELECT ----
   const finalSelect = buildFinalSelect(
     ctx,
-    parentCteName,
-    relationCtes,
+    getParentIdRef(),
+    childCreateInfos,
     select,
     include
   );
+  statements.push(finalSelect);
 
-  return sql`${withClause} ${finalSelect}`;
-}
-
-/**
- * Build CTE for child-first creation (when parent holds FK)
- * Creates the child record and parent will reference it
- */
-function buildChildFirstCte(
-  ctx: QueryContext,
-  relationInfo: RelationInfo,
-  childData: Record<string, unknown>,
-  cteName: string
-): CteDefinition {
-  const { adapter } = ctx;
-  const { targetModel } = relationInfo;
-
-  const childCtx = createChildContext(ctx, targetModel, "");
-  const tableName = getTableName(targetModel);
-
-  // Build child INSERT
-  const { columns, values } = buildValues(childCtx, childData);
-  const table = adapter.identifiers.escape(tableName);
-  const insertSql = adapter.mutations.insert(table, columns, values);
-
-  // Add RETURNING *
-  const query = sql`${insertSql} RETURNING *`;
-
-  return { name: cteName, query, model: targetModel };
-}
-
-/**
- * Build CTE for parent record
- */
-function buildParentCte(
-  ctx: QueryContext,
-  parentData: Record<string, unknown>,
-  cteName: string
-): CteDefinition {
-  const { adapter } = ctx;
-  const tableName = getTableName(ctx.model);
-
-  // Build parent INSERT
-  const { columns, values } = buildValues(ctx, parentData);
-  const table = adapter.identifiers.escape(tableName);
-  const insertSql = adapter.mutations.insert(table, columns, values);
-
-  // Add RETURNING *
-  const query = sql`${insertSql} RETURNING *`;
-
-  return { name: cteName, query, model: ctx.model };
-}
-
-/**
- * Build CTE for parent-first creation (when child holds FK)
- * Creates the child record with FK referencing parent CTE
- */
-function buildParentFirstCte(
-  ctx: QueryContext,
-  relationInfo: RelationInfo,
-  childData: Record<string, unknown>,
-  parentCteName: string,
-  cteName: string
-): CteDefinition {
-  const { adapter } = ctx;
-  const { targetModel } = relationInfo;
-  const fkDir = getFkDirection(ctx, relationInfo);
-
-  const childCtx = createChildContext(ctx, targetModel, "");
-  const tableName = getTableName(targetModel);
-
-  // Build child data with FK from parent CTE
-  const childDataWithFk = { ...childData };
-
-  // Add FK fields referencing parent CTE
-  for (let i = 0; i < fkDir.fkFields.length; i++) {
-    const fkField = fkDir.fkFields[i]!;
-    const pkField = fkDir.pkFields[i]!;
-    // Reference the parent CTE's PK
-    childDataWithFk[fkField] = sql`(SELECT ${adapter.identifiers.escape(
-      pkField
-    )} FROM ${adapter.identifiers.escape(parentCteName)})`;
-  }
-
-  // Build child INSERT
-  const { columns, values } = buildValues(childCtx, childDataWithFk);
-  const table = adapter.identifiers.escape(tableName);
-  const insertSql = adapter.mutations.insert(table, columns, values);
-
-  // Add RETURNING *
-  const query = sql`${insertSql} RETURNING *`;
-
-  return { name: cteName, query, model: targetModel };
+  return {
+    sql: sql.join(statements, "; "),
+    hasNestedCreates: true,
+    statementCount: statements.length,
+  };
 }
 
 /**
  * Build the final SELECT statement that returns the created parent record
- * and optionally includes newly created child records
+ * with relation counts or data if requested
  */
 function buildFinalSelect(
   ctx: QueryContext,
-  parentCteName: string,
-  relationCtes: RelationCteInfo[],
+  parentIdRef: Sql,
+  childCreateInfos: ChildCreateInfo[],
   select?: Record<string, unknown>,
   include?: Record<string, unknown>
 ): Sql {
   const { adapter } = ctx;
-  const scalarFields = getScalarFieldNames(ctx.model);
+  const tableName = getTableName(ctx.model);
+  const parentTable = adapter.identifiers.escape(tableName);
+  const parentPkField = getPrimaryKeyField(ctx.model);
+  const parentPkColumn = getColumnName(ctx.model, parentPkField);
 
-  // Build scalar column selection
+  // Build scalar columns
+  const scalarFields = getScalarFieldNames(ctx.model);
   let columns: Sql[];
 
   if (select) {
@@ -519,7 +403,7 @@ function buildFinalSelect(
       .map((field) => {
         const columnName = getColumnName(ctx.model, field);
         return adapter.identifiers.aliased(
-          adapter.identifiers.column(parentCteName, columnName),
+          adapter.identifiers.escape(columnName),
           field
         );
       });
@@ -528,7 +412,7 @@ function buildFinalSelect(
       columns = scalarFields.map((field) => {
         const columnName = getColumnName(ctx.model, field);
         return adapter.identifiers.aliased(
-          adapter.identifiers.column(parentCteName, columnName),
+          adapter.identifiers.escape(columnName),
           field
         );
       });
@@ -537,30 +421,37 @@ function buildFinalSelect(
     columns = scalarFields.map((field) => {
       const columnName = getColumnName(ctx.model, field);
       return adapter.identifiers.aliased(
-        adapter.identifiers.column(parentCteName, columnName),
+        adapter.identifiers.escape(columnName),
         field
       );
     });
   }
 
-  // Check if any nested relations should be included in the result
+  // Check if relations should be included
   const requestedRelations = getRequestedRelations(select, include);
 
-  // Add relation columns for newly created children
-  for (const relCte of relationCtes) {
-    const relationConfig = requestedRelations[relCte.relationName];
+  // Add relation subqueries for included relations
+  for (const childInfo of childCreateInfos) {
+    const relationConfig = requestedRelations[childInfo.relationName];
     if (relationConfig) {
-      const relationColumn = buildRelationFromCtes(ctx, relCte, relationConfig);
+      const relationSubquery = buildRelationSubquery(
+        ctx,
+        childInfo,
+        relationConfig,
+        parentIdRef
+      );
       columns.push(
-        adapter.identifiers.aliased(relationColumn, relCte.relationName)
+        adapter.identifiers.aliased(relationSubquery, childInfo.relationName)
       );
     }
   }
 
   const columnsSql = sql.join(columns, ", ");
-  const fromTable = adapter.identifiers.escape(parentCteName);
+  const whereSql = sql`${adapter.identifiers.escape(
+    parentPkColumn
+  )} = ${parentIdRef}`;
 
-  return sql`SELECT ${columnsSql} FROM ${fromTable}`;
+  return sql`SELECT ${columnsSql} FROM ${parentTable} WHERE ${whereSql}`;
 }
 
 /**
@@ -572,20 +463,16 @@ function getRequestedRelations(
 ): Record<string, unknown> {
   const result: Record<string, unknown> = {};
 
-  // From select: relation: true or relation: { select: ... }
   if (select) {
     for (const [key, value] of Object.entries(select)) {
       if (value && typeof value === "object" && "select" in value) {
-        // Nested select on relation
         result[key] = value;
       } else if (value === true) {
-        // Simple boolean select on relation (might be a relation)
         result[key] = true;
       }
     }
   }
 
-  // From include: relation: true or relation: { ... }
   if (include) {
     for (const [key, value] of Object.entries(include)) {
       if (value) {
@@ -598,21 +485,27 @@ function getRequestedRelations(
 }
 
 /**
- * Build a JSON aggregation column from child CTEs
+ * Build a subquery to fetch the newly created related records
  */
-function buildRelationFromCtes(
+function buildRelationSubquery(
   ctx: QueryContext,
-  relCte: RelationCteInfo,
-  config: unknown
+  childInfo: ChildCreateInfo,
+  config: unknown,
+  parentIdRef: Sql
 ): Sql {
   const { adapter } = ctx;
-  const { cteNames, model, relationInfo } = relCte;
+  const { model, relationInfo } = childInfo;
 
-  // Get fields to select from the child model
+  // Get the FK direction to know how to correlate
+  const fkDir = getFkDirection(ctx, relationInfo);
+  const childTableName = getTableName(model);
+  const childTable = adapter.identifiers.escape(childTableName);
+  const childAlias = "_child";
+
+  // Get fields to select
   const childScalarFields = getScalarFieldNames(model);
-
-  // Determine which fields to include
   let fieldsToSelect: string[];
+
   if (typeof config === "object" && config !== null && "select" in config) {
     const selectConfig = (config as { select: Record<string, boolean> }).select;
     fieldsToSelect = childScalarFields.filter((f) => selectConfig[f] === true);
@@ -623,174 +516,34 @@ function buildRelationFromCtes(
     fieldsToSelect = childScalarFields;
   }
 
-  // Build JSON object pairs for each field
+  // Build JSON object pairs
   const jsonPairs: [string, Sql][] = fieldsToSelect.map((field) => {
     const columnName = getColumnName(model, field);
-    return [field, adapter.identifiers.column("_cte", columnName)];
+    return [field, adapter.identifiers.column(childAlias, columnName)];
   });
 
-  // Build the subquery that unions all child CTEs
-  if (cteNames.length === 1) {
-    // Single CTE - simple subquery
-    const cteName = cteNames[0]!;
-    const jsonObj = adapter.json.object(jsonPairs);
+  const jsonObj = adapter.json.object(jsonPairs);
 
-    // For to-one relations, return single object; for to-many, return array
-    if (relationInfo.isToMany) {
-      // json.agg already includes COALESCE with empty array fallback
-      return sql`(SELECT ${adapter.json.agg(
-        jsonObj
-      )} FROM ${adapter.identifiers.escape(cteName)} AS "_cte")`;
-    } else {
-      return sql`(SELECT ${jsonObj} FROM ${adapter.identifiers.escape(
-        cteName
-      )} AS "_cte" LIMIT 1)`;
-    }
-  } else {
-    // Multiple CTEs - union them together using adapter's setOperations
-    const unionParts = cteNames.map(
-      (cteName) => sql`SELECT * FROM ${adapter.identifiers.escape(cteName)}`
-    );
-    const unionQuery = adapter.setOperations.unionAll(...unionParts);
-    const jsonObj = adapter.json.object(jsonPairs);
+  // Build correlation condition
+  const fkField = fkDir.fkFields[0]!;
+  const fkColumn = getColumnName(model, fkField);
+  const correlation = sql`${adapter.identifiers.column(
+    childAlias,
+    fkColumn
+  )} = ${parentIdRef}`;
 
-    // json.agg already includes COALESCE with empty array fallback
-    return sql`(SELECT ${adapter.json.agg(
+  // Build subquery
+  if (relationInfo.isToMany) {
+    // Return array
+    return sql`(SELECT COALESCE(${adapter.json.agg(
       jsonObj
-    )} FROM (${unionQuery}) AS "_cte")`;
+    )}, ${adapter.json.emptyArray()}) FROM ${childTable} AS ${adapter.identifiers.escape(
+      childAlias
+    )} WHERE ${correlation})`;
+  } else {
+    // Return single object
+    return sql`(SELECT ${jsonObj} FROM ${childTable} AS ${adapter.identifiers.escape(
+      childAlias
+    )} WHERE ${correlation} LIMIT 1)`;
   }
-}
-
-// ============================================================
-// BATCH STRATEGY (MySQL)
-// ============================================================
-
-/**
- * Build a batch of statements for MySQL nested creates.
- *
- * Since MySQL doesn't support CTEs with mutations, we generate:
- * 1. Parent INSERT statement
- * 2. Child INSERT statements with placeholder for parent ID
- * 3. Final SELECT to retrieve all data
- *
- * The executor runs these in a transaction, substituting LAST_INSERT_ID()
- * for the parent ID placeholder.
- */
-function buildBatchNestedCreate(
-  ctx: QueryContext,
-  parentScalar: Record<string, unknown>,
-  nestedCreates: [string, RelationMutation][],
-  select?: Record<string, unknown>,
-  include?: Record<string, unknown>
-): NestedCreateBatch {
-  const { adapter } = ctx;
-  const tableName = getTableName(ctx.model);
-  const parentPkField = getPrimaryKeyField(ctx.model);
-
-  // 1. Build parent INSERT
-  const { columns: parentColumns, values: parentValues } = buildValues(
-    ctx,
-    parentScalar
-  );
-  const parentTable = adapter.identifiers.escape(tableName);
-  const parentInsert = adapter.mutations.insert(
-    parentTable,
-    parentColumns,
-    parentValues
-  );
-
-  // Determine PK strategy: is the PK provided in the data or auto-generated?
-  const providedPkValue = parentScalar[parentPkField];
-  const pkStrategy = providedPkValue !== undefined ? "provided" : "auto";
-
-  // Helper to get the FK value for child INSERTs
-  const getFkValue = (): Sql => {
-    if (pkStrategy === "provided") {
-      // Use the provided PK value directly
-      return adapter.literals.value(providedPkValue);
-    } else {
-      // Use LAST_INSERT_ID() for auto-increment
-      return sql.raw`LAST_INSERT_ID()`;
-    }
-  };
-
-  // 2. Build child INSERTs
-  const childInserts: NestedCreateBatch["childInserts"] = [];
-
-  for (const [relationName, mutation] of nestedCreates) {
-    const fkDir = getFkDirection(ctx, mutation.relationInfo);
-
-    // Only handle parent-first creates (child holds FK)
-    // For child-first creates (parent holds FK), the parent INSERT already has the FK
-    if (!fkDir.holdsFK) {
-      const childDataArray = Array.isArray(mutation.create)
-        ? mutation.create
-        : [mutation.create];
-      const { targetModel } = mutation.relationInfo;
-      const childCtx = createChildContext(ctx, targetModel, "");
-      const childTableName = getTableName(targetModel);
-      const childTable = adapter.identifiers.escape(childTableName);
-
-      for (const childData of childDataArray) {
-        if (!childData) continue;
-
-        // Build child data with the FK value
-        const childDataWithFk = { ...(childData as Record<string, unknown>) };
-        const fkField = fkDir.fkFields[0]!;
-
-        // Set FK to either the provided PK value or LAST_INSERT_ID()
-        childDataWithFk[fkField] = getFkValue();
-
-        const { columns: childColumns, values: childValues } = buildValues(
-          childCtx,
-          childDataWithFk
-        );
-        const childSql = adapter.mutations.insert(
-          childTable,
-          childColumns,
-          childValues
-        );
-
-        childInserts.push({
-          sql: childSql,
-          fkField,
-          relationName,
-        });
-      }
-    }
-  }
-
-  // 3. Build final SELECT to retrieve all created data
-  // For MySQL, we need to query back the data since there's no RETURNING
-  const parentPkColumn = getColumnName(ctx.model, parentPkField);
-  const scalarFields = getScalarFieldNames(ctx.model);
-  const selectCols = scalarFields.map((field) => {
-    const columnName = getColumnName(ctx.model, field);
-    return adapter.identifiers.aliased(
-      adapter.identifiers.escape(columnName),
-      field
-    );
-  });
-
-  // Use provided PK or LAST_INSERT_ID() in final SELECT
-  const pkCondition =
-    pkStrategy === "provided"
-      ? sql`${adapter.identifiers.escape(
-          parentPkColumn
-        )} = ${adapter.literals.value(providedPkValue)}`
-      : sql`${adapter.identifiers.escape(parentPkColumn)} = LAST_INSERT_ID()`;
-
-  const finalSelect = sql`SELECT ${sql.join(
-    selectCols,
-    ", "
-  )} FROM ${parentTable} WHERE ${pkCondition}`;
-
-  return {
-    parentInsert,
-    parentPkField,
-    pkStrategy,
-    providedPkValue: pkStrategy === "provided" ? providedPkValue : undefined,
-    childInserts,
-    finalSelect,
-  };
 }
