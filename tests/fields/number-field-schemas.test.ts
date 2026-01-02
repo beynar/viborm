@@ -29,13 +29,13 @@ import {
   integer,
   Brand,
 } from "valibot";
-import { parse, InferOutput } from "../../src/validation";
-import { int, float, decimal } from "../../src/schema/fields/number/field";
+import { parse, InferOutput } from "@validation";
+import { int, float, decimal } from "@schema/fields/number/field";
 import type {
   InferIntInput,
   InferFloatInput,
   InferDecimalInput,
-} from "../../src/schema/fields/number/schemas";
+} from "@schema/fields/number/schemas";
 
 // =============================================================================
 // INT FIELD TESTS

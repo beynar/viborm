@@ -15,7 +15,7 @@
  */
 
 import { describe, test, expect, expectTypeOf } from "vitest";
-import { parse, type InferInput } from "../../src/validation";
+import { parse, type InferInput } from "@validation";
 import {
   requiredManyToOneSchemas,
   requiredOneToManySchemas,

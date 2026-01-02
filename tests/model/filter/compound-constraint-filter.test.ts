@@ -6,7 +6,7 @@
  */
 
 import { describe, test, expect, expectTypeOf } from "vitest";
-import { parse } from "../../../src/validation";
+import { parse } from "@validation";
 import {
   compoundIdSchemas,
   compoundUniqueSchemas,

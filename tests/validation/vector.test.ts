@@ -1,6 +1,6 @@
 import { describe, test, expect, expectTypeOf } from "vitest";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { v, vector } from "../../src/validation";
+import { v, vector } from "@validation";
 
 describe("vector schema", () => {
   describe("basic validation", () => {

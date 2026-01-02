@@ -8,7 +8,7 @@ import {
   getTargetWhereUniqueSchema,
   singleOrArray,
 } from "./helpers";
-import v from "../../../validation";
+import v from "@validation";
 
 // =============================================================================
 // UPDATE FACTORY IMPLEMENTATIONS

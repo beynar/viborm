@@ -2,8 +2,8 @@
 // Shared types and helpers for all field classes
 
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import v, { VibSchema, InferInput, InferOutput } from "../../validation";
-import { AnyEnumSchema } from "../../validation/schemas/enum";
+import v, { VibSchema, InferInput, InferOutput } from "@validation";
+import { AnyEnumSchema } from "@validation/schemas/enum";
 
 // =============================================================================
 // SCHEMA NAMES (hydrated by client at initialization)

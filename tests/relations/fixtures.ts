@@ -8,9 +8,9 @@
  * - Self-referential relation (for circular reference testing)
  */
 
-import { s } from "../../src/schema";
-import { getRelationSchemas } from "../../src/schema/relation/schemas";
-import type { RelationState } from "../../src/schema/relation/relation";
+import { s } from "@schema";
+import { getRelationSchemas } from "@schema/relation/schemas";
+import type { RelationState } from "@schema/relation/relation";
 
 // =============================================================================
 // BASE MODELS

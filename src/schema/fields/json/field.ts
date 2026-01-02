@@ -9,7 +9,7 @@ import {
 } from "../common";
 import type { NativeType } from "../native-types";
 import { buildJsonSchema, jsonBase, JsonSchemas } from "./schemas";
-import v, { BaseJsonSchema, JsonValue } from "../../../validation";
+import v, { BaseJsonSchema, JsonValue } from "@validation";
 
 export class JsonField<State extends FieldState<"json"> = FieldState<"json">> {
   private _names: SchemaNames = {};

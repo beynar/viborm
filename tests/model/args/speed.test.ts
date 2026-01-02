@@ -14,9 +14,9 @@
  */
 
 import { describe, test, expect, beforeAll } from "vitest";
-import { parse } from "../../../src/validation";
-import { s } from "../../../src/schema";
-import { getModelSchemas } from "../../../src/schema/model/schemas";
+import { parse } from "@validation";
+import { s } from "@schema";
+import { getModelSchemas } from "@schema/model/schemas";
 
 // =============================================================================
 // TEST MODELS - Various complexity levels

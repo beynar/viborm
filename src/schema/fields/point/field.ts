@@ -11,7 +11,7 @@ import {
 } from "../common";
 import type { NativeType } from "../native-types";
 import { buildPointSchema, pointBase, PointSchemas } from "./schemas";
-import v, { BasePointSchema } from "../../../validation";
+import v, { BasePointSchema } from "@validation";
 
 export class PointField<State extends FieldState<"point">> {
   /** Name slots hydrated by client at initialization */

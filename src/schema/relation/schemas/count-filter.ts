@@ -3,7 +3,7 @@
 
 import type { RelationState } from "../relation";
 import { getTargetWhereSchema } from "./helpers";
-import v from "../../../validation";
+import v from "@validation";
 
 /**
  * Count filter schema: true or { where: <filter> }

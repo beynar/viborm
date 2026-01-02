@@ -23,7 +23,7 @@ import {
   getJunctionTableName,
   getJunctionFieldNames,
 } from "@schema/relation/relation";
-import { parse } from "../../validation";
+import { parse } from "@validation";
 
 /**
  * Options for buildSelect

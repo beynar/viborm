@@ -23,9 +23,9 @@ import {
   brand,
   Brand,
 } from "valibot";
-import { parse, InferOutput } from "../../src/validation";
-import { bigInt } from "../../src/schema/fields/bigint/field";
-import type { InferBigIntInput } from "../../src/schema/fields/bigint/schemas";
+import { parse, InferOutput } from "@validation";
+import { bigInt } from "@schema/fields/bigint/field";
+import type { InferBigIntInput } from "@schema/fields/bigint/schemas";
 
 // =============================================================================
 // RAW BIGINT FIELD (required, no modifiers)

@@ -8,7 +8,7 @@
 import { Field, FieldState, ScalarFieldType } from "@schema/fields";
 import { Model, ModelState } from "@schema/model";
 import { AnyRelation } from "@schema/relation";
-import { Simplify, InferOutput } from "../validation";
+import { Simplify, InferOutput } from "@validation";
 import { FieldRecord } from "@schema/model/helper";
 import { StandardSchemaV1 } from "@standard-schema/spec";
 

@@ -2,7 +2,7 @@
 
 import type { ModelState } from "../../model";
 import type { StringKeyOf } from "@schema/model/helper";
-import v from "../../../../validation";
+import v from "@validation";
 
 // =============================================================================
 // SELECT SCHEMA

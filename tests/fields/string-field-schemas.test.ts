@@ -24,9 +24,9 @@ import {
   pipe,
   string as stringValibot,
 } from "valibot";
-import { string } from "../../src/schema/fields/string/field";
-import type { InferStringInput } from "../../src/schema/fields/string/schemas";
-import { InferOutput, parse, Prettify } from "../../src/validation";
+import { string } from "@schema/fields/string/field";
+import type { InferStringInput } from "@schema/fields/string/schemas";
+import { InferOutput, parse, Prettify } from "@validation";
 
 // =============================================================================
 // RAW STRING FIELD (required, no modifiers)

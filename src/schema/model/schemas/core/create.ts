@@ -1,5 +1,5 @@
 import type { ModelState } from "../../model";
-import v from "../../../../validation";
+import v from "@validation";
 import type { RequiredFieldKeys, StringKeyOf } from "@schema/model/helper";
 
 // =============================================================================
@@ -63,9 +63,7 @@ export const getCreateSchema = <T extends ModelState>(state: T) => {
   const fkFields = getFkFields(state);
 
   // Get required scalar field names (non-FK fields without defaults or optional)
-  const requiredScalars = (
-    Object.keys(state.scalars) as StringKeyOf<T["scalars"]>[]
-  ).filter((key) => {
+  const requiredScalars = Object.keys(state.scalars).filter((key) => {
     // FK fields are optional (can use connect instead)
     if (fkFields.has(key)) return false;
     // Check if field has default or is optional
@@ -81,12 +79,10 @@ export const getCreateSchema = <T extends ModelState>(state: T) => {
     {
       partial: true;
       atLeast: RequiredFieldKeys<T["fields"]>[];
-      name: "create";
     }
   >(state.scalars, "~.schemas.create", {
     partial: true,
     atLeast: requiredScalars,
-    name: "create",
   });
 
   // Relation create is optional (you don't have to use connect/create)
@@ -95,5 +91,7 @@ export const getCreateSchema = <T extends ModelState>(state: T) => {
     "~.schemas.create"
   );
 
-  return scalarCreate.extend(relationCreate.entries);
+  return scalarCreate.extend(relationCreate.entries, {
+    name: `${state.tableName}_create`,
+  });
 };

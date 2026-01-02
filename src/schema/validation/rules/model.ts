@@ -1,7 +1,13 @@
 // Model & Field Validation Rules
 
 import type { Model } from "../../model";
+import type { Field } from "../../fields/base";
 import type { ValidationError, Schema } from "../types";
+
+/** Helper to get typed scalar field entries */
+function getScalars(model: Model<any>): [string, Field][] {
+  return Object.entries(model["~"].state.scalars) as [string, Field][];
+}
 
 const RESERVED = new Set([
   "model",
@@ -67,7 +73,7 @@ export function modelHasFields(
   name: string,
   model: Model<any>
 ): ValidationError[] {
-  if (model["~"].fieldMap.size === 0) {
+  if (Object.keys(model["~"].state.scalars).length === 0) {
     return [
       {
         code: "M002",
@@ -145,10 +151,34 @@ export function modelNameNotReserved(
 // FIELD RULES (F001-F008) - SINGLE PASS
 // =============================================================================
 
+/** Helper: Get compound ID field names from state */
+function getCompoundIdFields(model: Model<any>): string[] {
+  const compoundId = model["~"].state.compoundId;
+  if (!compoundId) return [];
+  // compoundId is Record<string, ObjectSchema> - extract field names from first entry
+  const firstKey = Object.keys(compoundId)[0];
+  if (!firstKey) return [];
+  const schema = compoundId[firstKey];
+  const entries = (schema as any)["~"]?.state?.entries;
+  return entries ? Object.keys(entries) : [];
+}
+
+/** Helper: Get compound unique constraints from state */
+function getCompoundUniques(
+  model: Model<any>
+): Array<{ name: string; fields: string[] }> {
+  const compoundUniques = model["~"].state.compoundUniques;
+  if (!compoundUniques) return [];
+  return Object.entries(compoundUniques).map(([name, schema]) => {
+    const entries = (schema as any)["~"]?.state?.entries;
+    return { name, fields: entries ? Object.keys(entries) : [] };
+  });
+}
+
 /**
  * Single-pass field validation
  * Combines: F001, F002, F003, F004, F006, F007, F008
- * Iterates fieldMap once instead of 7 separate passes
+ * Iterates scalars once instead of 7 separate passes
  */
 export function validateFieldsSinglePass(
   _s: Schema,
@@ -161,7 +191,7 @@ export function validateFieldsSinglePass(
   let idCount = 0;
   const columnToFields = new Map<string, string[]>();
 
-  for (const [fname, field] of model["~"].fieldMap) {
+  for (const [fname, field] of getScalars(model)) {
     const st = field["~"].state;
 
     // F001: Field name valid
@@ -235,10 +265,8 @@ export function validateFieldsSinglePass(
   }
 
   // Check for compound ID
-  const hasCompoundId =
-    model["~"].compoundId !== undefined &&
-    model["~"].compoundId.fields &&
-    model["~"].compoundId.fields.length > 0;
+  const compoundIdFields = getCompoundIdFields(model);
+  const hasCompoundId = compoundIdFields.length > 0;
 
   // M001: No ID field (allow if compound ID exists)
   if (idCount === 0 && !hasCompoundId) {
@@ -288,8 +316,8 @@ export function indexFieldsExist(
   model: Model<any>
 ): ValidationError[] {
   const errors: ValidationError[] = [];
-  const fields = new Set(model["~"].fieldMap.keys());
-  for (const idx of model["~"].indexes) {
+  const fields = new Set(Object.keys(model["~"].state.scalars));
+  for (const idx of model["~"].state.indexes) {
     for (const f of idx.fields) {
       if (!fields.has(f)) {
         errors.push({
@@ -312,7 +340,7 @@ export function indexNameUnique(
   model: Model<any>
 ): ValidationError[] {
   const names = new Map<string, number>();
-  for (const idx of model["~"].indexes) {
+  for (const idx of model["~"].state.indexes) {
     if (idx.options.name) {
       names.set(idx.options.name, (names.get(idx.options.name) ?? 0) + 1);
     }
@@ -338,39 +366,34 @@ export function compoundFieldsExist(
   model: Model<any>
 ): ValidationError[] {
   const errors: ValidationError[] = [];
-  const fields = new Set(model["~"].fieldMap.keys());
+  const fields = new Set(Object.keys(model["~"].state.scalars));
 
-  // Check compound ID fields (now uses CompoundConstraint with fields property)
-  const compoundId = model["~"].compoundId;
-  if (compoundId && compoundId.fields) {
-    for (const f of compoundId.fields) {
+  // Check compound ID fields
+  const compoundIdFields = getCompoundIdFields(model);
+  for (const f of compoundIdFields) {
+    if (!fields.has(f)) {
+      errors.push({
+        code: "I003",
+        message: `Compound ID field '${f}' not in '${name}'`,
+        severity: "error",
+        model: name,
+        field: f,
+      });
+    }
+  }
+
+  // Check compound unique fields
+  const compoundUniques = getCompoundUniques(model);
+  for (const constraint of compoundUniques) {
+    for (const f of constraint.fields) {
       if (!fields.has(f)) {
         errors.push({
           code: "I003",
-          message: `Compound ID field '${f}' not in '${name}'`,
+          message: `Compound unique field '${f}' not in '${name}'`,
           severity: "error",
           model: name,
           field: f,
         });
-      }
-    }
-  }
-
-  // Check compound unique fields (now uses CompoundConstraint with fields property)
-  const compoundUniques = model["~"].compoundUniques;
-  if (compoundUniques) {
-    for (const constraint of compoundUniques) {
-      if (!constraint.fields) continue;
-      for (const f of constraint.fields) {
-        if (!fields.has(f)) {
-          errors.push({
-            code: "I003",
-            message: `Compound unique field '${f}' not in '${name}'`,
-            severity: "error",
-            model: name,
-            field: f,
-          });
-        }
       }
     }
   }

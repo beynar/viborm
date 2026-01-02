@@ -12,7 +12,7 @@ import {
 } from "../common";
 import type { NativeType } from "../native-types";
 import { buildBigIntSchema, bigIntBase, BigIntSchemas } from "./schemas";
-import v, { BaseBigIntSchema } from "../../../validation";
+import v, { BaseBigIntSchema } from "@validation";
 
 export class BigIntField<State extends FieldState<"bigint">> {
   private _names: SchemaNames = {};

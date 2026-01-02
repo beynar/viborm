@@ -3,7 +3,7 @@
 import type { ModelState } from "../model";
 import type { Field } from "../../fields/base";
 import type { AnyRelation } from "../../relation/relation";
-import type { ObjectSchema, VibSchema } from "../../../validation";
+import type { ObjectSchema, VibSchema } from "@validation";
 
 /**
  * Iterate over scalar fields only (excludes relations)

@@ -22,7 +22,7 @@ import {
   FloatSchemas,
   DecimalSchemas,
 } from "./schemas";
-import v, { BaseIntegerSchema, BaseNumberSchema } from "../../../validation";
+import v, { BaseIntegerSchema, BaseNumberSchema } from "@validation";
 
 export class IntField<State extends FieldState<"int">> {
   private _names: SchemaNames = {};

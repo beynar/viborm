@@ -7,7 +7,7 @@ import {
   number,
   optional,
   Prettify,
-} from "../../src/validation";
+} from "@validation";
 
 describe("object schema", () => {
   describe("basic validation", () => {

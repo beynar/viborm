@@ -5,12 +5,12 @@
  * Uses QueryEngine.build() to generate SQL without executing.
  */
 import { describe, test, expect, beforeAll } from "vitest";
-import { s } from "../../src/schema/index.js";
+import { s } from "@schema";
 import {
   QueryEngine,
   createModelRegistry,
-} from "../../src/query-engine/query-engine.js";
-import { PostgresAdapter } from "../../src/adapters/databases/postgres/postgres-adapter.js";
+} from "@query-engine/query-engine";
+import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 
 // =============================================================================
 // TEST MODELS

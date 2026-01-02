@@ -1,7 +1,8 @@
 // Relation Validation Rules
 
 import type { Model } from "../../model";
-import type { RelationType } from "../../relation";
+import type { RelationType, AnyRelation } from "../../relation";
+import type { Field } from "../../fields/base";
 import type { ValidationError, Schema, ValidationContext } from "../types";
 // ValidationContext is used for O(1) model lookups
 
@@ -13,6 +14,26 @@ const INVERSE: Record<RelationType, RelationType> = {
 };
 
 const VALID_ID = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+
+/** Helper to check if a relation type is "to-one" */
+function isToOne(type: RelationType): boolean {
+  return type === "oneToOne" || type === "manyToOne";
+}
+
+/** Helper to get typed relation entries */
+function getRelations(model: Model<any>): [string, AnyRelation][] {
+  return getRelations(model) as [string, AnyRelation][];
+}
+
+/** Helper to get typed relation values */
+function getRelationValues(model: Model<any>): AnyRelation[] {
+  return getRelationValues(model) as AnyRelation[];
+}
+
+/** Helper to get typed scalar field entries */
+function getScalars(model: Model<any>): [string, Field][] {
+  return getScalars(model) as [string, Field][];
+}
 
 // =============================================================================
 // RELATION RULES (R001-R007)
@@ -26,8 +47,8 @@ export function relationTargetExists(
   ctx?: ValidationContext
 ): ValidationError[] {
   const errors: ValidationError[] = [];
-  for (const [rname, rel] of model["~"].relations) {
-    const target = rel["~"].getter();
+  for (const [rname, rel] of getRelations(model)) {
+    const target = rel["~"].state.getter();
     if (!findModel(schema, target, ctx)) {
       errors.push({
         code: "R006",
@@ -49,9 +70,9 @@ export function relationHasInverse(
   ctx?: ValidationContext
 ): ValidationError[] {
   const errors: ValidationError[] = [];
-  for (const [rname, rel] of model["~"].relations) {
-    const type = rel["~"].relationType;
-    const target = rel["~"].getter();
+  for (const [rname, rel] of getRelations(model)) {
+    const type = rel["~"].state.type;
+    const target = rel["~"].state.getter();
     const targetName = findModel(schema, target, ctx);
     if (!targetName) continue;
 
@@ -85,8 +106,8 @@ export function relationNameUnique(
   ctx?: ValidationContext
 ): ValidationError[] {
   const pairs = new Map<string, string[]>();
-  for (const [rname, rel] of model["~"].relations) {
-    const target = findModel(schema, rel["~"].getter(), ctx);
+  for (const [rname, rel] of getRelations(model)) {
+    const target = findModel(schema, rel["~"].state.getter(), ctx);
     if (!target) continue;
     const key = `${name}->${target}`;
     if (!pairs.has(key)) pairs.set(key, []);
@@ -120,8 +141,8 @@ export function junctionTableUnique(
 ): ValidationError[] {
   const tables = new Map<string, string[]>();
   for (const [mname, m] of schema) {
-    for (const [rname, rel] of m["~"].relations) {
-      const through = rel["~"].through;
+    for (const [rname, rel] of getRelations(m)) {
+      const through = rel["~"].state.through;
       if (through) {
         const key = `${mname}.${rname}`;
         if (!tables.has(through)) tables.set(through, []);
@@ -149,9 +170,9 @@ export function junctionFieldsValid(
   model: Model<any>
 ): ValidationError[] {
   const errors: ValidationError[] = [];
-  for (const [rname, rel] of model["~"].relations) {
-    const a = rel["~"].throughA;
-    const b = rel["~"].throughB;
+  for (const [rname, rel] of getRelations(model)) {
+    const a = rel["~"].state.A;
+    const b = rel["~"].state.B;
     if (a && !VALID_ID.test(a)) {
       errors.push({
         code: "JT002",
@@ -181,9 +202,9 @@ export function junctionFieldsDistinct(
   model: Model<any>
 ): ValidationError[] {
   const errors: ValidationError[] = [];
-  for (const [rname, rel] of model["~"].relations) {
-    const a = rel["~"].throughA;
-    const b = rel["~"].throughB;
+  for (const [rname, rel] of getRelations(model)) {
+    const a = rel["~"].state.A;
+    const b = rel["~"].state.B;
     if (a && b && a === b) {
       errors.push({
         code: "JT003",
@@ -205,15 +226,15 @@ export function selfRefJunctionOrder(
   ctx?: ValidationContext
 ): ValidationError[] {
   const errors: ValidationError[] = [];
-  for (const [rname, rel] of model["~"].relations) {
-    if (rel["~"].relationType !== "manyToMany") continue;
+  for (const [rname, rel] of getRelations(model)) {
+    if (rel["~"].state.type !== "manyToMany") continue;
 
-    const target = rel["~"].getter();
+    const target = rel["~"].state.getter();
     const targetName = findModel(schema, target, ctx);
     if (targetName !== name) continue; // Not self-ref
 
-    const a = rel["~"].throughA;
-    const b = rel["~"].throughB;
+    const a = rel["~"].state.A;
+    const b = rel["~"].state.B;
 
     // If both A and B are set, warn if they're not clearly ordered
     if (a && b) {
@@ -239,8 +260,8 @@ export function throughOnlyManyToMany(
   model: Model<any>
 ): ValidationError[] {
   const errors: ValidationError[] = [];
-  for (const [rname, rel] of model["~"].relations) {
-    if (rel["~"].through && rel["~"].relationType !== "manyToMany") {
+  for (const [rname, rel] of getRelations(model)) {
+    if (rel["~"].state.through && rel["~"].state.type !== "manyToMany") {
       errors.push({
         code: "JT005",
         message: `.through() on '${rname}' requires manyToMany`,
@@ -265,17 +286,17 @@ export function selfRefValidInverse(
   ctx?: ValidationContext
 ): ValidationError[] {
   const errors: ValidationError[] = [];
-  for (const [rname, rel] of model["~"].relations) {
-    const target = rel["~"].getter();
+  for (const [rname, rel] of getRelations(model)) {
+    const target = rel["~"].state.getter();
     const targetName = findModel(schema, target, ctx);
     if (targetName !== name) continue; // not self-ref
 
-    const type = rel["~"].relationType;
+    const type = rel["~"].state.type;
     const expected = INVERSE[type];
     let found = false;
-    for (const [otherName, otherRel] of model["~"].relations) {
-      if (otherName !== rname && otherRel["~"].relationType === expected) {
-        const otherTarget = findModel(schema, otherRel["~"].getter(), ctx);
+    for (const [otherName, otherRel] of getRelations(model)) {
+      if (otherName !== rname && otherRel["~"].state.type === expected) {
+        const otherTarget = findModel(schema, otherRel["~"].state.getter(), ctx);
         if (otherTarget === name) {
           found = true;
           break;
@@ -303,8 +324,8 @@ export function selfRefDistinctNames(
   ctx?: ValidationContext
 ): ValidationError[] {
   const selfRels: string[] = [];
-  for (const [rname, rel] of model["~"].relations) {
-    const target = findModel(schema, rel["~"].getter(), ctx);
+  for (const [rname, rel] of getRelations(model)) {
+    const target = findModel(schema, rel["~"].state.getter(), ctx);
     if (target === name) selfRels.push(rname);
   }
   if (selfRels.length > 1) {
@@ -335,12 +356,13 @@ export function noOrphanFkFields(
 ): ValidationError[] {
   const errors: ValidationError[] = [];
   const fkFields = new Set<string>();
-  for (const rel of model["~"].relations.values()) {
-    if (rel["~"].fields) {
-      for (const f of rel["~"].fields) fkFields.add(f);
+  for (const rel of getRelationValues(model)) {
+    const fields = rel["~"].state.fields;
+    if (fields) {
+      for (const f of fields) fkFields.add(f);
     }
   }
-  for (const [fname, field] of model["~"].fieldMap) {
+  for (const [fname, field] of getScalars(model)) {
     // Heuristic: field ending in "Id" might be FK
     if (
       fname.endsWith("Id") &&
@@ -367,19 +389,23 @@ export function relationPairFkSingleSide(
   ctx?: ValidationContext
 ): ValidationError[] {
   const errors: ValidationError[] = [];
-  for (const [rname, rel] of model["~"].relations) {
-    if (rel["~"].relationType !== "oneToOne") continue;
-    if (!rel["~"].fields) continue;
+  for (const [rname, rel] of getRelations(model)) {
+    if (rel["~"].state.type !== "oneToOne") continue;
+    if (!rel["~"].state.fields) continue;
 
-    const target = rel["~"].getter();
+    const target = rel["~"].state.getter();
     const targetName = findModel(schema, target, ctx);
     if (!targetName) continue;
 
     // Check if target also has FK to us
-    for (const [, targetRel] of target["~"].relations) {
-      if (targetRel["~"].relationType !== "oneToOne") continue;
-      const targetTarget = findModel(schema, targetRel["~"].getter(), ctx);
-      if (targetTarget === name && targetRel["~"].fields) {
+    for (const targetRel of getRelationValues(target)) {
+      if (targetRel["~"].state.type !== "oneToOne") continue;
+      const targetTarget = findModel(
+        schema,
+        targetRel["~"].state.getter(),
+        ctx
+      );
+      if (targetTarget === name && targetRel["~"].state.fields) {
         errors.push({
           code: "CM003",
           message: `1:1 between '${name}' and '${targetName}' has FK on both sides`,
@@ -419,7 +445,7 @@ export function polymorphicRelationWarning(
   model: Model<any>
 ): ValidationError[] {
   const errors: ValidationError[] = [];
-  const fieldNames = Array.from(model["~"].fieldMap.keys());
+  const fieldNames = Object.keys(model["~"].state.scalars);
 
   // Find *_type fields and check for matching *_id
   for (const fname of fieldNames) {
@@ -434,8 +460,8 @@ export function polymorphicRelationWarning(
     if (idField) {
       // Check if there's a relation using this field
       let hasRelation = false;
-      for (const rel of model["~"].relations.values()) {
-        const fks = rel["~"].fields;
+      for (const rel of getRelationValues(model)) {
+        const fks = rel["~"].state.fields;
         if (fks?.includes(idField)) {
           hasRelation = true;
           break;
@@ -467,10 +493,10 @@ export function noCircularRequiredChain(
   const graph = new Map<string, string[]>();
   for (const [mname, m] of schema) {
     const edges: string[] = [];
-    for (const rel of m["~"].relations.values()) {
+    for (const rel of getRelationValues(m)) {
       // Only required to-one relations create insert dependencies
-      if (rel["~"].isToOne && !rel["~"].isOptional) {
-        const target = findModel(schema, rel["~"].getter(), ctx);
+      if (isToOne(rel["~"].state.type) && !rel["~"].state.optional) {
+        const target = findModel(schema, rel["~"].state.getter(), ctx);
         if (target) edges.push(target);
       }
     }
@@ -550,9 +576,9 @@ function hasInverse(
   expectedType: RelationType,
   ctx?: ValidationContext
 ): boolean {
-  for (const rel of target["~"].relations.values()) {
-    const t = findModel(schema, rel["~"].getter(), ctx);
-    if (t === sourceName && rel["~"].relationType === expectedType) return true;
+  for (const rel of getRelationValues(target)) {
+    const t = findModel(schema, rel["~"].state.getter(), ctx);
+    if (t === sourceName && rel["~"].state.type === expectedType) return true;
   }
   return false;
 }

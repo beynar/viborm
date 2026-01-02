@@ -15,8 +15,8 @@ import v, {
   InferInput,
   InferOutput,
   Prettify,
-} from "../../../validation";
-import { AnyEnumSchema } from "../../../validation/schemas/enum";
+} from "@validation";
+import { AnyEnumSchema } from "@validation/schemas/enum";
 
 export class EnumField<
   Values extends string[],

@@ -6,7 +6,7 @@
  */
 
 import z from "zod/v4";
-import { s } from "../src/schema/index.js";
+import { s } from "@schema";
 
 // =============================================================================
 // FIELD EXPORTS (for field type inference tests)

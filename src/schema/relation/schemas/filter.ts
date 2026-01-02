@@ -1,7 +1,7 @@
 // Relation Filter Schemas
 import type { RelationState } from "../relation";
 import { getTargetWhereSchema } from "./helpers";
-import { v } from "../../../validation";
+import { v } from "@validation";
 
 /**
  * To-one filter: { is?, isNot? }

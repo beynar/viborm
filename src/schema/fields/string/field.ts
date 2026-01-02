@@ -18,7 +18,7 @@ import {
   defaultUlid,
   defaultUuid,
 } from "./autogenerate";
-import v, { BaseStringSchema, Prettify } from "../../../validation";
+import v, { BaseStringSchema, Prettify } from "@validation";
 
 export class StringField<State extends FieldState<"string">> {
   /** Name slots hydrated by client at initialization */

@@ -7,7 +7,7 @@ import {
   getTargetOrderBySchema,
 } from "./helpers";
 import { ModelState } from "@schema/model";
-import v from "../../../validation";
+import v from "@validation";
 
 // =============================================================================
 // TRANSFORM HELPERS

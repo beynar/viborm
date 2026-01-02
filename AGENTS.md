@@ -144,6 +144,28 @@ test("validates input", () => {
 5. **Use cached schemas** - `model["~"].schemas.where` not `buildWhereSchema()`
 6. **No module-level state** - breaks serverless (Cloudflare Workers)
 7. **Never cast with `as`** - only natural inference
+8. **Query engine must be database-agnostic** - never hardcode SQL in `src/query-engine/`
+
+## Query Engine / Adapter Separation
+
+**Critical Rule:** The query engine (`src/query-engine/`) must NEVER contain database-specific SQL. All SQL generation must be delegated to database adapters (`src/adapters/`).
+
+```ts
+// ❌ BAD: Hardcoded SQL in query-engine
+function buildJsonAgg(ctx: QueryContext, subquery: Sql): Sql {
+  return sql`COALESCE(json_agg(${subquery}), '[]')`;  // PostgreSQL-specific!
+}
+
+// ✅ GOOD: Delegate to adapter
+function buildJsonAgg(ctx: QueryContext, subquery: Sql): Sql {
+  return ctx.adapter.jsonAggregate(subquery);  // Adapter handles dialect
+}
+```
+
+**Why this matters:**
+- Query engine handles query structure and logic (what to query)
+- Adapters handle SQL dialect differences (how to express it)
+- This separation enables PostgreSQL, MySQL, and SQLite support from same codebase
 
 ## Cursor Rules
 

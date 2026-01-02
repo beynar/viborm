@@ -1,7 +1,7 @@
 // Update schema factories
 
 import type { ModelState } from "../../model";
-import v from "../../../../validation";
+import v from "@validation";
 
 // =============================================================================
 // SCALAR UPDATE

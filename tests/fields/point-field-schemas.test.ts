@@ -15,9 +15,9 @@
  */
 
 import { describe, test, expect, expectTypeOf } from "vitest";
-import { parse } from "../../src/validation";
-import { point } from "../../src/schema/fields/point/field";
-import type { InferPointInput } from "../../src/schema/fields/point/schemas";
+import { parse } from "@validation";
+import { point } from "@schema/fields/point/field";
+import type { InferPointInput } from "@schema/fields/point/schemas";
 
 // =============================================================================
 // RAW POINT FIELD (required, no modifiers)

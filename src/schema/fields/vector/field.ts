@@ -11,7 +11,7 @@ import {
 } from "../common";
 import type { NativeType } from "../native-types";
 import { buildVectorSchema, vectorBase, VectorSchemas } from "./schemas";
-import v, { BaseVectorSchema } from "../../../validation";
+import v, { BaseVectorSchema } from "@validation";
 
 export class VectorField<State extends FieldState<"vector">> {
   /** Name slots hydrated by client at initialization */

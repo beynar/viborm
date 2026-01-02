@@ -583,6 +583,40 @@ For each layer, answer:
 - Builder functions that take context and return SQL fragments
 - Context objects that carry state through the build process
 - Composition of SQL fragments using the sql template tag
+- **Always call `ctx.adapter.*` for any SQL that might differ between databases**
+
+**⚠️ CRITICAL: Database-Agnostic Query Engine**
+
+The query engine must NEVER contain hardcoded SQL or database-specific syntax. All SQL generation must be delegated to the database adapter via `ctx.adapter.*` methods.
+
+```typescript
+// ❌ BAD: Hardcoded SQL in query-engine builder
+function buildIncludeSubquery(ctx: QueryContext, relation: RelationInfo): Sql {
+  // PostgreSQL-specific syntax!
+  return sql`COALESCE(json_agg(row_to_json(${alias}.*)), '[]')`;
+}
+
+// ❌ BAD: Conditional SQL based on dialect in query-engine
+function buildIncludeSubquery(ctx: QueryContext, relation: RelationInfo): Sql {
+  if (ctx.adapter.dialect === "postgres") {
+    return sql`json_agg(...)`;
+  } else if (ctx.adapter.dialect === "mysql") {
+    return sql`JSON_ARRAYAGG(...)`;
+  }
+}
+
+// ✅ GOOD: Delegate to adapter
+function buildIncludeSubquery(ctx: QueryContext, relation: RelationInfo): Sql {
+  const subquery = buildRelationQuery(ctx, relation);
+  return ctx.adapter.jsonAggregate(subquery, { coalesce: true });
+}
+```
+
+**Why this separation matters:**
+- Query engine handles **query logic** (what to query, how to structure)
+- Adapters handle **SQL dialect** (how to express it in each database)
+- This enables multi-database support from the same query engine code
+- Database-specific features (JSON functions, array operators, etc.) belong in adapters
 
 **Decision: SQL vs Application-Side Processing**
 
@@ -619,11 +653,42 @@ When a feature requires data transformation, consider where the logic should liv
 - Feature has database-specific SQL requirements
 - Feature uses functions that differ between databases
 - Feature is only supported on certain databases
+- **Query engine needs a new SQL operation that varies by database**
 
 **Key questions:**
-- Does this work identically on PostgreSQL and MySQL?
+- Does this work identically on PostgreSQL, MySQL, and SQLite?
 - What functions or syntax differ between databases?
 - Should unsupported features throw or degrade gracefully?
+
+**⚠️ CRITICAL: This is WHERE SQL Lives**
+
+All database-specific SQL generation belongs here, NOT in the query engine. When adding new SQL capabilities:
+
+1. **Add method to `DatabaseAdapter` interface** (`src/adapters/types.ts`)
+2. **Implement in each adapter** (`postgres.ts`, `mysql.ts`, `sqlite.ts`)
+3. **Call from query engine** via `ctx.adapter.methodName()`
+
+```typescript
+// src/adapters/types.ts
+interface DatabaseAdapter {
+  // ... existing methods ...
+  
+  // Add new method for database-specific SQL
+  jsonAggregate(subquery: Sql, options?: { coalesce?: boolean }): Sql;
+}
+
+// src/adapters/databases/postgres.ts
+jsonAggregate(subquery: Sql, options?: { coalesce?: boolean }): Sql {
+  const agg = sql`json_agg(${subquery})`;
+  return options?.coalesce ? sql`COALESCE(${agg}, '[]')` : agg;
+}
+
+// src/adapters/databases/mysql.ts
+jsonAggregate(subquery: Sql, options?: { coalesce?: boolean }): Sql {
+  const agg = sql`JSON_ARRAYAGG(${subquery})`;
+  return options?.coalesce ? sql`COALESCE(${agg}, JSON_ARRAY())` : agg;
+}
+```
 
 **When NOT to modify:**
 - Standard SQL that works on all supported databases
@@ -907,16 +972,16 @@ export function uuidVersionRequired(
 }
 ```
 
-### Example 5: SQL Builder Modifications
+### Example 5: SQL Builder Modifications (Database-Agnostic)
 
-When modifying query engine builders:
+When modifying query engine builders, **always delegate database-specific SQL to adapters**:
 
 ```typescript
 // ─────────────────────────────────────────────────────────────────────
 // src/query-engine/builders/where-builder.ts — Add new operator
 // ─────────────────────────────────────────────────────────────────────
 
-// Pattern: Switch on field type to handle type-specific SQL
+// Pattern: Switch on operator, delegate SQL generation to adapter
 function buildFieldCondition(
   ctx: QueryContext,
   field: Field,
@@ -924,31 +989,46 @@ function buildFieldCondition(
   value: unknown,
   alias: string
 ): Sql {
-  const column = sql`${sql.identifier(alias)}.${sql.identifier(field.columnName)}`;
+  const column = ctx.adapter.qualifyColumn(alias, field.columnName);
   
   switch (operator) {
     case "equals":
-      return sql`${column} = ${value}`;
+      return ctx.adapter.equals(column, value);
     case "contains":
-      // String-specific
-      return sql`${column} LIKE ${'%' + value + '%'}`;
+      // Delegate to adapter - handles LIKE vs ILIKE, escaping, etc.
+      return ctx.adapter.contains(column, value as string);
     case "uuidVersion":
-      // UUID-specific — new operator
-      return buildUuidVersionCheck(ctx, column, value);
+      // Delegate database-specific UUID handling to adapter
+      return ctx.adapter.uuidVersionCheck(column, value as number);
     default:
       throw new QueryError(`Unknown operator: ${operator}`);
   }
 }
 
-// Database-specific implementation
-function buildUuidVersionCheck(ctx: QueryContext, column: Sql, version: number): Sql {
-  if (ctx.adapter.dialect === "postgres") {
-    return sql`get_byte(${column}::bytea, 6) >> 4 = ${version}`;
-  } else {
-    return sql`SUBSTRING(${column}, 15, 1) = ${version.toString(16)}`;
-  }
+// ─────────────────────────────────────────────────────────────────────
+// src/adapters/types.ts — Define adapter interface
+// ─────────────────────────────────────────────────────────────────────
+interface DatabaseAdapter {
+  uuidVersionCheck(column: Sql, version: number): Sql;
+  // ...
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// src/adapters/databases/postgres.ts — PostgreSQL implementation
+// ─────────────────────────────────────────────────────────────────────
+uuidVersionCheck(column: Sql, version: number): Sql {
+  return sql`get_byte(${column}::bytea, 6) >> 4 = ${version}`;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// src/adapters/databases/mysql.ts — MySQL implementation
+// ─────────────────────────────────────────────────────────────────────
+uuidVersionCheck(column: Sql, version: number): Sql {
+  return sql`SUBSTRING(${column}, 15, 1) = ${version.toString(16)}`;
 }
 ```
+
+**Key principle:** Query engine code should read like pseudocode describing WHAT to do, while adapters contain the actual SQL for HOW to do it on each database.
 
 ---
 

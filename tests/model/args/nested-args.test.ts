@@ -9,7 +9,7 @@
  */
 
 import { describe, test, expect } from "vitest";
-import { parse } from "../../../src/validation";
+import { parse } from "@validation";
 import { authorSchemas, postSchemas } from "../fixtures";
 
 // =============================================================================

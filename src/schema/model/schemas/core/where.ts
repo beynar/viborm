@@ -1,4 +1,4 @@
-import v from "../../../../validation";
+import v from "@validation";
 import type { ModelState } from "../../model";
 import { getCompoundConstraintFilter } from "./filter";
 

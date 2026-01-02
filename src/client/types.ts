@@ -8,7 +8,7 @@
 
 import { Model } from "@schema/model";
 import { FieldRecord } from "@schema/model/helper";
-import { Prettify } from "../validation";
+import { Prettify } from "@validation";
 import {
   InferSelectInclude,
   BatchPayload,

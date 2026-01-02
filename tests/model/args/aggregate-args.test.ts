@@ -13,8 +13,8 @@ import type {
   CountArgsInput,
   AggregateArgsInput,
   GroupByArgsInput,
-} from "../../../src/schema/model/schemas/args";
-import { parse } from "../../../src/validation";
+} from "@schema/model/schemas/args";
+import { parse } from "@validation";
 
 // =============================================================================
 // COUNT ARGS

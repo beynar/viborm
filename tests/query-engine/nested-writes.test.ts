@@ -4,17 +4,17 @@
  * Tests for the relation-data-builder and nested-writes functionality.
  */
 import { describe, it, expect } from "vitest";
-import { s } from "../../src/schema/index.js";
+import { s } from "@schema";
 import {
   separateData,
   needsTransaction,
   canUseSubqueryOnly,
-} from "../../src/query-engine/builders/relation-data-builder.js";
+} from "@query-engine/builders/relation-data-builder";
 import {
   createQueryContext,
   createModelRegistry,
-} from "../../src/query-engine/index.js";
-import { PostgresAdapter } from "../../src/adapters/databases/postgres/postgres-adapter.js";
+} from "@query-engine";
+import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 
 // =============================================================================
 // TEST MODELS

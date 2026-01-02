@@ -20,7 +20,7 @@ import {
   ToString,
 } from "./helper";
 import { getModelSchemas } from "./schemas";
-import v, { ObjectSchema, VibSchema } from "../../validation";
+import v, { ObjectSchema, VibSchema } from "@validation";
 // Re-export types from helpers for external use
 
 // =============================================================================

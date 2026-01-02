@@ -3,7 +3,7 @@
  * Tests that select/include properly infer result shapes
  */
 import { describe, test, expectTypeOf } from "vitest";
-import type { OperationResult } from "../../src/client/types.js";
+import type { OperationResult } from "@client/types";
 import type { testUser } from "../schema.js";
 
 // Test types directly using OperationResult

@@ -15,9 +15,9 @@
  */
 
 import { describe, test, expect, expectTypeOf } from "vitest";
-import { parse } from "../../src/validation";
-import { dateTime } from "../../src/schema/fields/datetime/field";
-import type { InferDateTimeInput } from "../../src/schema/fields/datetime/schemas";
+import { parse } from "@validation";
+import { dateTime } from "@schema/fields/datetime/field";
+import type { InferDateTimeInput } from "@schema/fields/datetime/schemas";
 
 // Test data - valid ISO datetime strings and Date objects
 const validDatetime = "2024-01-15T10:30:00.000Z";

@@ -11,7 +11,7 @@ import {
 } from "../common";
 import type { NativeType } from "../native-types";
 import { buildBooleanSchema, booleanBase, BooleanSchemas } from "./schemas";
-import v, { BaseBooleanSchema } from "../../../validation";
+import v, { BaseBooleanSchema } from "@validation";
 
 export class BooleanField<State extends FieldState<"boolean">> {
   /** Name slots hydrated by client at initialization */

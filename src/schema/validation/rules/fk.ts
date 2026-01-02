@@ -1,7 +1,19 @@
 // Foreign Key & Referential Action Validation Rules
 
 import type { Model } from "../../model";
+import type { AnyRelation } from "../../relation";
+import type { Field } from "../../fields/base";
 import type { ValidationError, Schema, ValidationContext } from "../types";
+
+/** Helper to get typed relation entries */
+function getRelations(model: Model<any>): [string, AnyRelation][] {
+  return Object.entries(model["~"].state.relations) as [string, AnyRelation][];
+}
+
+/** Helper to get a scalar field by name */
+function getScalar(model: Model<any>, name: string): Field | undefined {
+  return model["~"].state.scalars[name] as Field | undefined;
+}
 
 // =============================================================================
 // FK RULES (FK001-FK007)
@@ -14,9 +26,9 @@ export function fkFieldExists(
   model: Model<any>
 ): ValidationError[] {
   const errors: ValidationError[] = [];
-  const fields = new Set(model["~"].fieldMap.keys());
-  for (const [rname, rel] of model["~"].relations) {
-    const fks = rel["~"].fields;
+  const fields = new Set(Object.keys(model["~"].state.scalars));
+  for (const [rname, rel] of getRelations(model)) {
+    const fks = rel["~"].state.fields;
     if (!fks) continue;
     for (const fk of fks) {
       if (!fields.has(fk)) {
@@ -42,13 +54,13 @@ export function fkReferenceExists(
   ctx?: ValidationContext
 ): ValidationError[] {
   const errors: ValidationError[] = [];
-  for (const [rname, rel] of model["~"].relations) {
-    const refs = rel["~"].references;
+  for (const [rname, rel] of getRelations(model)) {
+    const refs = rel["~"].state.references;
     if (!refs) continue;
-    const target = rel["~"].getter();
+    const target = rel["~"].state.getter();
     const targetName = findModel(schema, target, ctx);
     if (!targetName) continue;
-    const targetFields = new Set(target["~"].fieldMap.keys());
+    const targetFields = new Set(Object.keys(target["~"].state.scalars));
     for (const ref of refs) {
       if (!targetFields.has(ref)) {
         errors.push({
@@ -73,20 +85,20 @@ export function fkTypeMatch(
   ctx?: ValidationContext
 ): ValidationError[] {
   const errors: ValidationError[] = [];
-  for (const [rname, rel] of model["~"].relations) {
-    const fks = rel["~"].fields;
-    const refs = rel["~"].references;
+  for (const [rname, rel] of getRelations(model)) {
+    const fks = rel["~"].state.fields;
+    const refs = rel["~"].state.references;
     if (!fks || !refs) continue;
 
-    const target = rel["~"].getter();
+    const target = rel["~"].state.getter();
     const targetName = findModel(schema, target, ctx) ?? "?";
 
     const len = Math.min(fks.length, refs.length);
     for (let i = 0; i < len; i++) {
       const fkName = fks[i]!;
       const refName = refs[i]!;
-      const local = model["~"].fieldMap.get(fkName);
-      const remote = target["~"].fieldMap.get(refName);
+      const local = getScalar(model, fkName);
+      const remote = getScalar(target, refName);
       if (!local || !remote) continue;
 
       const localType = local["~"].state.type;
@@ -112,9 +124,9 @@ export function fkRequiredForOwning(
   model: Model<any>
 ): ValidationError[] {
   const errors: ValidationError[] = [];
-  for (const [rname, rel] of model["~"].relations) {
-    const type = rel["~"].relationType;
-    if (type === "manyToOne" && !rel["~"].fields) {
+  for (const [rname, rel] of getRelations(model)) {
+    const type = rel["~"].state.type;
+    if (type === "manyToOne" && !rel["~"].state.fields) {
       errors.push({
         code: "FK004",
         message: `ManyToOne '${rname}' in '${name}' should define .fields()`,
@@ -135,15 +147,15 @@ export function fkReferencesUnique(
   ctx?: ValidationContext
 ): ValidationError[] {
   const errors: ValidationError[] = [];
-  for (const [rname, rel] of model["~"].relations) {
-    const refs = rel["~"].references;
+  for (const [rname, rel] of getRelations(model)) {
+    const refs = rel["~"].state.references;
     if (!refs) continue;
 
-    const target = rel["~"].getter();
+    const target = rel["~"].state.getter();
     const targetName = findModel(schema, target, ctx) ?? "?";
 
     for (const ref of refs) {
-      const field = target["~"].fieldMap.get(ref);
+      const field = getScalar(target, ref);
       if (!field) continue;
       const st = field["~"].state;
       if (!st.isId && !st.isUnique) {
@@ -167,9 +179,9 @@ export function fkFieldNotRelation(
   model: Model<any>
 ): ValidationError[] {
   const errors: ValidationError[] = [];
-  const relNames = new Set(model["~"].relations.keys());
-  for (const [rname, rel] of model["~"].relations) {
-    const fks = rel["~"].fields;
+  const relNames = new Set(Object.keys(model["~"].state.relations));
+  for (const [rname, rel] of getRelations(model)) {
+    const fks = rel["~"].state.fields;
     if (!fks) continue;
     for (const fk of fks) {
       if (relNames.has(fk)) {
@@ -193,9 +205,9 @@ export function fkCardinalityMatch(
   model: Model<any>
 ): ValidationError[] {
   const errors: ValidationError[] = [];
-  for (const [rname, rel] of model["~"].relations) {
-    const fks = rel["~"].fields;
-    const refs = rel["~"].references;
+  for (const [rname, rel] of getRelations(model)) {
+    const fks = rel["~"].state.fields;
+    const refs = rel["~"].state.references;
 
     // Only check if both are defined
     if (!fks || !refs) continue;
@@ -226,8 +238,8 @@ export function onDeleteValid(
   model: Model<any>
 ): ValidationError[] {
   const errors: ValidationError[] = [];
-  for (const [rname, rel] of model["~"].relations) {
-    const action = rel["~"].onDelete;
+  for (const [rname, rel] of getRelations(model)) {
+    const action = rel["~"].state.onDelete;
     if (action && !VALID_ACTIONS.has(action)) {
       errors.push({
         code: "RA001",
@@ -248,8 +260,8 @@ export function onUpdateValid(
   model: Model<any>
 ): ValidationError[] {
   const errors: ValidationError[] = [];
-  for (const [rname, rel] of model["~"].relations) {
-    const action = rel["~"].onUpdate;
+  for (const [rname, rel] of getRelations(model)) {
+    const action = rel["~"].state.onUpdate;
     if (action && !VALID_ACTIONS.has(action)) {
       errors.push({
         code: "RA002",
@@ -270,8 +282,8 @@ export function cascadeOnRequiredWarning(
   model: Model<any>
 ): ValidationError[] {
   const errors: ValidationError[] = [];
-  for (const [rname, rel] of model["~"].relations) {
-    if (rel["~"].onDelete === "cascade" && !rel["~"].isOptional) {
+  for (const [rname, rel] of getRelations(model)) {
+    if (rel["~"].state.onDelete === "cascade" && !rel["~"].state.optional) {
       errors.push({
         code: "RA003",
         message: `CASCADE on required '${rname}' may cause data loss`,
@@ -291,12 +303,12 @@ export function setNullRequiresNullable(
   model: Model<any>
 ): ValidationError[] {
   const errors: ValidationError[] = [];
-  for (const [rname, rel] of model["~"].relations) {
-    const action = rel["~"].onDelete;
-    const fks = rel["~"].fields;
+  for (const [rname, rel] of getRelations(model)) {
+    const action = rel["~"].state.onDelete;
+    const fks = rel["~"].state.fields;
     if (action === "setNull" && fks) {
       for (const fk of fks) {
-        const field = model["~"].fieldMap.get(fk);
+        const field = getScalar(model, fk);
         if (field && !field["~"].state.nullable) {
           errors.push({
             code: "RA004",

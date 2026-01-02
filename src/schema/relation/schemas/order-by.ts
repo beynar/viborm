@@ -4,7 +4,7 @@ import v, {
   createSchema,
   type VibSchema,
   type ValidationResult,
-} from "../../../validation";
+} from "@validation";
 
 /**
  * To-one orderBy: nested orderBy from the related model's fields

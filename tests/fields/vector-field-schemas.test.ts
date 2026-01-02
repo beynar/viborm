@@ -15,9 +15,9 @@
  */
 
 import { describe, test, expect, expectTypeOf } from "vitest";
-import { parse } from "../../src/validation";
-import { vector } from "../../src/schema/fields/vector/field";
-import type { InferVectorInput } from "../../src/schema/fields/vector/schemas";
+import { parse } from "@validation";
+import { vector } from "@schema/fields/vector/field";
+import type { InferVectorInput } from "@schema/fields/vector/schemas";
 
 // =============================================================================
 // RAW VECTOR FIELD (required, no modifiers)

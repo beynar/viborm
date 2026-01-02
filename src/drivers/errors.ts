@@ -8,10 +8,13 @@
  * Base driver error
  */
 export class DriverError extends Error {
-  readonly cause?: Error;
-  readonly code?: string;
+  readonly cause?: Error | undefined;
+  readonly code?: string | undefined;
 
-  constructor(message: string, options?: { cause?: Error; code?: string }) {
+  constructor(
+    message: string,
+    options?: { cause?: Error | undefined; code?: string | undefined }
+  ) {
     super(message);
     this.name = "DriverError";
     this.cause = options?.cause;
@@ -23,7 +26,10 @@ export class DriverError extends Error {
  * Connection failed
  */
 export class ConnectionError extends DriverError {
-  constructor(message: string, options?: { cause?: Error; code?: string }) {
+  constructor(
+    message: string,
+    options?: { cause?: Error | undefined; code?: string | undefined }
+  ) {
     super(message, options);
     this.name = "ConnectionError";
   }
@@ -33,17 +39,25 @@ export class ConnectionError extends DriverError {
  * Query execution failed
  */
 export class QueryError extends DriverError {
-  readonly query?: string;
-  readonly params?: unknown[];
+  readonly query?: string | undefined;
+  readonly params?: unknown[] | undefined;
 
   constructor(
     message: string,
-    options?: { cause?: Error; code?: string; query?: string; params?: unknown[] }
+    options?: {
+      cause?: Error;
+      code?: string;
+      query?: string;
+      params?: unknown[];
+    }
   ) {
-    super(message, { cause: options?.cause, code: options?.code });
+    super(message, {
+      cause: options?.cause ?? undefined,
+      code: options?.code ?? undefined,
+    });
     this.name = "QueryError";
-    this.query = options?.query;
-    this.params = options?.params;
+    this.query = options?.query ?? undefined;
+    this.params = options?.params ?? undefined;
   }
 }
 
@@ -51,9 +65,9 @@ export class QueryError extends DriverError {
  * Unique constraint violation
  */
 export class UniqueConstraintError extends QueryError {
-  readonly constraint?: string;
-  readonly table?: string;
-  readonly columns?: string[];
+  readonly constraint?: string | undefined;
+  readonly table?: string | undefined;
+  readonly columns?: string[] | undefined;
 
   constructor(
     message: string,
@@ -79,7 +93,7 @@ export class UniqueConstraintError extends QueryError {
  * Foreign key constraint violation
  */
 export class ForeignKeyError extends QueryError {
-  readonly constraint?: string;
+  readonly constraint?: string | undefined;
 
   constructor(
     message: string,

@@ -10,8 +10,8 @@ import v, {
   InferInput,
   InferOutput,
   VibSchema,
-} from "../../../validation";
-import { EnumValues } from "../../../validation/schemas/enum";
+} from "@validation";
+import { EnumValues } from "@validation/schemas/enum";
 
 const enumBase = <Values extends string[]>(values: Values) => v.enum(values);
 

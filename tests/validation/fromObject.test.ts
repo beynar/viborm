@@ -1,10 +1,10 @@
 import { describe, test, expect, expectTypeOf } from "vitest";
-import v from "../../src/validation/index";
+import v from "@validation";
 import type {
   VibSchema,
   ValidationResult,
   InferOutput,
-} from "../../src/validation/types";
+} from "@validation/types";
 
 // Helper to get sync result from parse (parse is always sync in these tests)
 function parse<T>(

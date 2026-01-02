@@ -7,7 +7,7 @@ import {
   number,
   literal,
   boolean,
-} from "../../src/validation";
+} from "@validation";
 
 describe("union schema", () => {
   describe("basic validation", () => {

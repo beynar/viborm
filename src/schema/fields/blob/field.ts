@@ -11,7 +11,7 @@ import {
 } from "../common";
 import type { NativeType } from "../native-types";
 import { buildBlobSchema, blobBase, BlobSchemas } from "./schemas";
-import v, { BaseBlobSchema } from "../../../validation";
+import v, { BaseBlobSchema } from "@validation";
 
 export class BlobField<State extends FieldState<"blob">> {
   private _names: SchemaNames = {};

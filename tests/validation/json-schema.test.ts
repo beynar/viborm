@@ -25,8 +25,8 @@ import {
   coerce,
   pipe,
   integer,
-} from "../../src/validation";
-import type { JsonSchema } from "../../src/validation/json-schema";
+} from "@validation";
+import type { JsonSchema } from "@validation/json-schema";
 
 describe("JSON Schema conversion", () => {
   describe("primitive schemas", () => {

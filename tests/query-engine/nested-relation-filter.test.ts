@@ -3,7 +3,7 @@ import { s } from "@schema";
 import {
   createModelRegistry,
   QueryEngine,
-} from "../../src/query-engine/query-engine";
+} from "@query-engine/query-engine";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 
 describe("Nested Relation Filtering - SQL Output", () => {

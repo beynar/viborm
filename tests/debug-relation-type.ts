@@ -1,4 +1,4 @@
-import { s } from "../src/schema";
+import { s } from "@schema";
 
 // Simple model - no circular refs
 const SimpleModel = s.model({

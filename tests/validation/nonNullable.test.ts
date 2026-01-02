@@ -1,6 +1,6 @@
 import { describe, test, expect, expectTypeOf } from "vitest";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { v, nonNullable, string, number } from "../../src/validation";
+import { v, nonNullable, string, number } from "@validation";
 
 describe("nonNullable wrapper schema", () => {
   describe("basic validation", () => {

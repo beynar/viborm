@@ -15,9 +15,9 @@
  */
 
 import { describe, test, expect, expectTypeOf } from "vitest";
-import { parse } from "../../src/validation";
-import { blob } from "../../src/schema/fields/blob/field";
-import type { InferBlobInput } from "../../src/schema/fields/blob/schemas";
+import { parse } from "@validation";
+import { blob } from "@schema/fields/blob/field";
+import type { InferBlobInput } from "@schema/fields/blob/schemas";
 
 // Test data
 const testData1 = new Uint8Array([1, 2, 3, 4]);

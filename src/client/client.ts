@@ -1,8 +1,8 @@
-import { DatabaseAdapter } from "../adapters/database-adapter";
+import { DatabaseAdapter } from "@adapters/database-adapter";
 import { Sql } from "@sql";
 import { Client, Operations, Schema } from "./types";
-import { Driver, QueryResult, TransactionOptions } from "../drivers";
-import { hydrateSchemaNames } from "../schema/hydration";
+import { Driver, QueryResult, TransactionOptions } from "@drivers";
+import { hydrateSchemaNames } from "@schema/hydration";
 
 /**
  * Create a recursive proxy for model operations

@@ -12,7 +12,7 @@ import {
 } from "../common";
 import type { NativeType } from "../native-types";
 import { buildDateTimeSchema, datetimeBase, DateTimeSchemas } from "./schemas";
-import v, { BaseIsoTimestampSchema } from "../../../validation";
+import v, { BaseIsoTimestampSchema } from "@validation";
 
 const defaultNow = () => new Date().toISOString();
 const defaultUpdatedAt = () => new Date().toISOString();

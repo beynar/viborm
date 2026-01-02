@@ -1,7 +1,13 @@
 // Database-Specific & Value Validation Rules
 
 import type { Model } from "../../model";
+import type { Field } from "../../fields/base";
 import type { ValidationError, Schema } from "../types";
+
+/** Helper to get typed scalar field entries */
+function getScalars(model: Model<any>): [string, Field][] {
+  return Object.entries(model["~"].state.scalars) as [string, Field][];
+}
 
 export type DatabaseType = "mysql" | "postgres" | "sqlite";
 
@@ -31,7 +37,7 @@ export function mysqlNoArrayFields(
 ): ValidationError[] {
   if (db !== "mysql") return [];
   const errors: ValidationError[] = [];
-  for (const [fname, field] of model["~"].fieldMap) {
+  for (const [fname, field] of getScalars(model)) {
     if (field["~"].state.array) {
       errors.push({
         code: "DB001",
@@ -68,7 +74,7 @@ export function sqliteNoEnum(
 ): ValidationError[] {
   if (db !== "sqlite") return [];
   const errors: ValidationError[] = [];
-  for (const [fname, field] of model["~"].fieldMap) {
+  for (const [fname, field] of getScalars(model)) {
     if (field["~"].state.type === "enum") {
       errors.push({
         code: "DB002",
@@ -95,7 +101,7 @@ export function enumValueValid(
   model: Model<any>
 ): ValidationError[] {
   const errors: ValidationError[] = [];
-  for (const [_fname, field] of model["~"].fieldMap) {
+  for (const [_fname, field] of getScalars(model)) {
     const st = field["~"].state;
     if (st.type !== "enum") continue;
     // Note: enum values would need to be extracted from field definition

@@ -16,9 +16,9 @@
 
 import { describe, test, expect, expectTypeOf } from "vitest";
 import { pipe, picklist, brand, Brand } from "valibot";
-import { parse, InferOutput, Prettify } from "../../src/validation";
-import { enumField } from "../../src/schema/fields/enum/field";
-import type { InferEnumInput } from "../../src/schema/fields/enum/schemas";
+import { parse, InferOutput, Prettify } from "@validation";
+import { enumField } from "@schema/fields/enum/field";
+import type { InferEnumInput } from "@schema/fields/enum/schemas";
 
 // Test enum values
 const Status = ["pending", "active", "completed"] as const;

@@ -11,7 +11,7 @@ import type {
   OrderBySchema,
   ScalarCreateSchema,
 } from "./core";
-import { VibSchema } from "../../../validation";
+import { VibSchema } from "@validation";
 
 /**
  * Schema entries record type

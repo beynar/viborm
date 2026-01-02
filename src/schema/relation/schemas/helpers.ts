@@ -2,7 +2,7 @@
 // Common utilities and type helpers for relation schemas
 import type { RelationState } from "../relation";
 import { AnyModel } from "@schema/model";
-import v, { VibSchema } from "../../../validation";
+import v, { VibSchema } from "@validation";
 
 type TargetModel<S extends RelationState> = S["getter"] extends () => infer T
   ? T extends AnyModel

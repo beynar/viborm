@@ -12,7 +12,7 @@ import {
 } from "../common";
 import type { NativeType } from "../native-types";
 import { buildTimeSchema, timeBase, TimeSchemas } from "./schemas";
-import v, { BaseIsoTimeSchema } from "../../../validation";
+import v, { BaseIsoTimeSchema } from "@validation";
 
 const defaultNow = () => {
   const now = new Date();

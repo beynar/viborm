@@ -1,6 +1,6 @@
 import type { ModelState } from "../../model";
 import type { Field } from "../../../fields/base";
-import v, { ObjectSchema } from "../../../../validation";
+import v, { ObjectSchema } from "@validation";
 
 export const getScalarFilter = <T extends ModelState>(state: T) => {
   return v.fromObject(state.scalars, "~.schemas.filter");

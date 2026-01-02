@@ -1,6 +1,6 @@
 import type { ModelState } from "../../model";
 import type { CoreSchemas } from "../types";
-import v from "../../../../validation";
+import v from "@validation";
 import { StringKeyOf } from "@schema/model/helper";
 
 /**

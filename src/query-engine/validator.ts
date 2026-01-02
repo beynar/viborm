@@ -5,7 +5,7 @@
  * Maps operation names to schema keys and validates input.
  */
 
-import { parse, type VibSchema } from "../validation";
+import { parse, type VibSchema } from "@validation";
 import type { Model } from "@schema/model";
 import { Operation, ValidationError } from "./types";
 

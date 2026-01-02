@@ -18,9 +18,9 @@
 
 import { describe, test, expect, expectTypeOf } from "vitest";
 import { object, string, number, array, InferOutput } from "valibot";
-import { parse } from "../../src/validation";
-import { json } from "../../src/schema/fields/json/field";
-import type { InferJsonInput } from "../../src/schema/fields/json/schemas";
+import { parse } from "@validation";
+import { json } from "@schema/fields/json/field";
+import type { InferJsonInput } from "@schema/fields/json/schemas";
 
 // JSON value type
 type JsonValue =

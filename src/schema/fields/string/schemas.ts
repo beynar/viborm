@@ -9,7 +9,7 @@ import v, {
   InferInput,
   InferOutput,
   VibSchema,
-} from "../../../validation";
+} from "@validation";
 
 // =============================================================================
 // BASE TYPES

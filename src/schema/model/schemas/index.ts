@@ -81,7 +81,7 @@ export const getModelSchemas = <T extends ModelState>(state: T) => {
   const update = getUpdateSchema(state);
 
   // Core schemas bundle for args factories
-  const core: CoreSchemas = {
+  const core = {
     where,
     whereUnique,
     create,

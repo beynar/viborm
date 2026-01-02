@@ -1,6 +1,6 @@
 import { describe, test, expect, expectTypeOf } from "vitest";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { v, nonOptional, required, string, number } from "../../src/validation";
+import { v, nonOptional, required, string, number } from "@validation";
 
 describe("nonOptional wrapper schema", () => {
   describe("basic validation", () => {

@@ -6,7 +6,7 @@ import {
   getTargetWhereUniqueSchema,
   singleOrArray,
 } from "./helpers";
-import { v } from "../../../validation";
+import { v } from "@validation";
 // =============================================================================
 // CREATE SCHEMA TYPES (exported for consumer use)
 // =============================================================================

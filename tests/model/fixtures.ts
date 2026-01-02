@@ -8,9 +8,9 @@
  * - authorModel/postModel: OneToMany/ManyToOne relation pair
  */
 
-import { s } from "../../src/schema";
-import { getModelSchemas } from "../../src/schema/model/schemas";
-import { InferInput, Prettify } from "../../src/validation";
+import { s } from "@schema";
+import { getModelSchemas } from "@schema/model/schemas";
+import { InferInput, Prettify } from "@validation";
 
 // =============================================================================
 // SIMPLE MODEL (single field ID)

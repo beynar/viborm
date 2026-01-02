@@ -1,7 +1,7 @@
 // Field Types and Configurations
 // Types for the field system (Zod-backed)
 
-import type { StandardSchemaV1 } from "../../standardSchema";
+import type { StandardSchemaV1 } from "@standard-schema";
 
 // =============================================================================
 // SCALAR FIELD TYPES

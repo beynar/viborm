@@ -17,7 +17,7 @@ function buildContext(schema: Schema): ValidationContext {
 
   for (const [name, model] of schema) {
     modelToName.set(model, name);
-    const tableName = model["~"].tableName ?? name;
+    const tableName = model["~"].state.tableName ?? name;
     if (!tableToModels.has(tableName)) {
       tableToModels.set(tableName, []);
     }

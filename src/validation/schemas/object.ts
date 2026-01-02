@@ -107,9 +107,13 @@ export interface ObjectSchema<
   readonly options: TOpts;
   readonly parse: VibSchema<TInput, TOutput>["~standard"]["validate"];
   /** Extend this schema with additional entries */
-  extend<TNewEntries extends ObjectEntries>(
-    newEntries: TNewEntries
-  ): ObjectSchema<TEntries & TNewEntries, TOpts>;
+  extend<
+    TNewEntries extends ObjectEntries,
+    TNewTOpts extends ObjectOptions | undefined = undefined
+  >(
+    newEntries: TNewEntries,
+    options?: TNewTOpts
+  ): ObjectSchema<TEntries & TNewEntries, TOpts & TNewTOpts>;
 }
 
 // =============================================================================
@@ -183,7 +187,7 @@ function createObjectValidator(
 
       const validate = schema["~standard"].validate;
       validates[i] = validate;
-      
+
       // Check if schema accepts undefined by inspecting schema properties
       // This avoids calling the validator (which would trigger default functions)
       const schemaAny = schema as {
@@ -191,7 +195,7 @@ function createObjectValidator(
         options?: { optional?: boolean; default?: unknown };
         default?: unknown;
       };
-      
+
       // Schema accepts undefined if:
       // 1. It's an optional wrapper (type: "optional")
       // 2. It has options.optional: true (like string({ optional: true }))
@@ -201,8 +205,12 @@ function createObjectValidator(
       const hasOptionalOption = schemaAny.options?.optional === true;
       const hasDefaultOption = schemaAny.options?.default !== undefined;
       const hasDefaultProp = schemaAny.default !== undefined;
-      
-      acceptsUndefined[i] = isOptionalWrapper || hasOptionalOption || hasDefaultOption || hasDefaultProp;
+
+      acceptsUndefined[i] =
+        isOptionalWrapper ||
+        hasOptionalOption ||
+        hasDefaultOption ||
+        hasDefaultProp;
     }
   };
 
@@ -235,7 +243,7 @@ function createObjectValidator(
         if (isRequired[i] && !acceptsUndefined[i]) {
           return missingErrors[i];
         }
-        
+
         // If schema accepts undefined, run validator to apply defaults
         if (acceptsUndefined[i]) {
           const result = validates[i]!(undefined);
