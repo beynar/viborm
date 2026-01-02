@@ -52,15 +52,12 @@ export const getAggregateFieldSchemas = <T extends ModelState>(state: T) => {
  * Count args: { where?, cursor?, take?, skip? }
  */
 export const getCountArgs = <T extends ModelState>(core: CoreSchemas<T>) => {
-  return v.object(
-    {
-      where: v.optional(core.where),
-      cursor: v.optional(core.whereUnique),
-      take: v.number({ optional: true }),
-      skip: v.number({ optional: true }),
-    },
-    { partial: false }
-  );
+  return v.object({
+    where: v.optional(core.where),
+    cursor: v.optional(core.whereUnique),
+    take: v.number({ optional: true }),
+    skip: v.number({ optional: true }),
+  });
 };
 
 // =============================================================================
@@ -76,21 +73,18 @@ export const getAggregateArgs = <T extends ModelState>(
 ) => {
   const aggSchemas = getAggregateFieldSchemas(state);
 
-  return v.object(
-    {
-      where: v.optional(core.where),
-      orderBy: v.optional(v.union([core.orderBy, v.array(core.orderBy)])),
-      cursor: v.optional(core.whereUnique),
-      take: v.number({ optional: true }),
-      skip: v.number({ optional: true }),
-      _count: v.optional(v.union([v.literal(true), aggSchemas.count])),
-      _avg: v.optional(aggSchemas.avg),
-      _sum: v.optional(aggSchemas.sum),
-      _min: v.optional(aggSchemas.min),
-      _max: v.optional(aggSchemas.max),
-    },
-    { partial: false }
-  );
+  return v.object({
+    where: v.optional(core.where),
+    orderBy: v.optional(v.union([core.orderBy, v.array(core.orderBy)])),
+    cursor: v.optional(core.whereUnique),
+    take: v.number({ optional: true }),
+    skip: v.number({ optional: true }),
+    _count: v.optional(v.union([v.literal(true), aggSchemas.count])),
+    _avg: v.optional(aggSchemas.avg),
+    _sum: v.optional(aggSchemas.sum),
+    _min: v.optional(aggSchemas.min),
+    _max: v.optional(aggSchemas.max),
+  });
 };
 
 // =============================================================================
@@ -126,6 +120,8 @@ export const getGroupByArgs = <T extends ModelState>(
       _min: v.optional(aggSchemas.min),
       _max: v.optional(aggSchemas.max),
     },
-    { partial: false }
+    {
+      atLeast: ["by"],
+    }
   );
 };

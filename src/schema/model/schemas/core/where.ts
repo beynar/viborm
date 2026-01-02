@@ -24,12 +24,17 @@ export const getWhereSchema = <T extends ModelState>(state: T) => {
 
   // Create the recursive where schema with AND/OR/NOT using thunks
   const whereSchema = v
-    .object({
-      // Recursive AND/OR/NOT using thunks
-      AND: () => v.optional(v.union([whereSchema, v.array(whereSchema)])),
-      OR: () => v.optional(v.array(whereSchema)),
-      NOT: () => v.optional(v.union([whereSchema, v.array(whereSchema)])),
-    })
+    .object(
+      {
+        // Recursive AND/OR/NOT using thunks
+        AND: () => v.optional(v.union([whereSchema, v.array(whereSchema)])),
+        OR: () => v.optional(v.array(whereSchema)),
+        NOT: () => v.optional(v.union([whereSchema, v.array(whereSchema)])),
+      },
+      {
+        name: `${state.tableName}_where`,
+      }
+    )
     .extend(scalarFilter.entries)
     .extend(relationFilter.entries);
 

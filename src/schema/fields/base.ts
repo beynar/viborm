@@ -52,33 +52,6 @@ export type Field =
 export type AnyField = Field;
 
 // =============================================================================
-// TYPE GUARD
-// =============================================================================
-
-/**
- * Type guard to check if a value is a Field.
- * Checks for the presence of the "~" accessor with schemas property.
- * This distinguishes Fields from Relations which also have "~".
- */
-export const isField = (value: unknown): value is AnyField => {
-  if (
-    typeof value === "object" &&
-    value !== null &&
-    "~" in value &&
-    typeof (value as Record<string, unknown>)["~"] === "object"
-  ) {
-    const internal = (value as Record<string, Record<string, unknown>>)["~"];
-    // Fields have a 'schemas' property, Relations have 'relationType' etc.
-    return (
-      internal !== undefined &&
-      "schemas" in internal &&
-      typeof internal["schemas"] === "object"
-    );
-  }
-  return false;
-};
-
-// =============================================================================
 // RE-EXPORTS FROM COMMON
 // =============================================================================
 

@@ -194,7 +194,15 @@ const client = createClient({
   driver: {} as any,
 });
 
-type OmitUser = (typeof testUser)["~"]["state"]["omit"];
+const res1 = client.user.groupBy({
+  by: ["age"],
+  where: {
+    age: {
+      gt: 12,
+    },
+  },
+});
+
 
 type Input = Prettify<
   InferInput<(typeof testUser)["~"]["schemas"]["args"]["findFirst"]>

@@ -2,7 +2,6 @@
 // Types for the field system (Zod-backed)
 
 import type { StandardSchemaV1 } from "../../standardSchema";
-import type { ZodType } from "zod/v4-mini";
 
 // =============================================================================
 // SCALAR FIELD TYPES
@@ -117,25 +116,6 @@ export interface EnumFieldConfig<TEnum extends string | string[] = string[]>
 export interface VectorFieldConfig extends BaseFieldConfig<number[]> {
   fieldType: "vector";
   dimension?: number | undefined;
-}
-
-// =============================================================================
-// FIELD SCHEMAS INTERFACE
-// =============================================================================
-
-/**
- * Common interface for field schemas
- * Each field exposes these schemas for validation (Zod types)
- */
-export interface FieldSchemas {
-  /** Base type schema */
-  base: ZodType;
-  /** Filter schema for where clauses */
-  filter: ZodType;
-  /** Create input schema */
-  create: ZodType;
-  /** Update input schema */
-  update: ZodType;
 }
 
 // =============================================================================

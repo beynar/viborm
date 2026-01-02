@@ -13,7 +13,7 @@ export const getScalarCreate = <T extends ModelState>(state: T) => {
   return v.fromObject<T["scalars"], "~.schemas.create", { partial: false }>(
     state.scalars,
     "~.schemas.create",
-    { partial: false },
+    { partial: false }
   );
 };
 
@@ -23,7 +23,7 @@ export const getScalarCreate = <T extends ModelState>(state: T) => {
 export const getRelationCreate = <T extends ModelState>(state: T) => {
   return v.fromObject<T["relations"], "~.schemas.create">(
     state.relations,
-    "~.schemas.create",
+    "~.schemas.create"
   );
 };
 
@@ -81,16 +81,18 @@ export const getCreateSchema = <T extends ModelState>(state: T) => {
     {
       partial: true;
       atLeast: RequiredFieldKeys<T["fields"]>[];
+      name: "create";
     }
   >(state.scalars, "~.schemas.create", {
     partial: true,
     atLeast: requiredScalars,
+    name: "create",
   });
 
   // Relation create is optional (you don't have to use connect/create)
   const relationCreate = v.fromObject<T["relations"], "~.schemas.create">(
     state.relations,
-    "~.schemas.create",
+    "~.schemas.create"
   );
 
   return scalarCreate.extend(relationCreate.entries);

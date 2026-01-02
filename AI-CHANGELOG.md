@@ -1,5 +1,97 @@
 # AI Changelog
 
+## 2024-12-31: Implementation Guide for AI Systems (v3)
+
+### Summary
+
+Comprehensive implementation guide for AI systems working on VibORM — supports features, bug fixes, and refactoring.
+
+### Document
+
+**`FEATURE_IMPLEMENTATION_TEMPLATE.md`** (root directory)
+
+### Key Sections
+
+1. **What is VibORM?**
+   - Comparison table: Prisma vs Drizzle vs VibORM
+   - Explains the validation-driven type system
+   - Diagram showing the type flow from schema → state → validation → inference
+
+2. **Work Type Identification**
+   - New feature → Feature Implementation path
+   - Bug fix → Bug Fix Process
+   - Refactoring → Feature Implementation (subset)
+
+3. **Bug Fix Process**
+   - Symptom documentation template
+   - Root cause analysis with per-layer investigation checklist
+   - Fix implementation steps (test first)
+   - Bug fix documentation template
+
+2. **The Golden Rule**
+   - Natural TypeScript inference over type assertions
+   - Examples of ❌ BAD (casting) vs ✅ GOOD (inference) patterns
+
+3. **9-Layer Architecture**
+   - Each layer with folder paths and key files
+   - Quick reference table
+
+4. **Code Examples** (5 proof patterns)
+   - Adding a new field type
+   - Adding query schema support
+   - Type-safe generic factories
+   - Validation rules
+   - SQL builder modifications
+
+5. **Common Patterns**
+   - Lazy evaluation (thunks)
+   - Schema path access (`model["~"].schemas.where`)
+   - Type extraction from lazy getters
+   - Discriminated unions
+   - Mapped types for object transformation
+
+6. **DRY Checklist** (5 phases)
+   - Analysis → Type System → Implementation → Testing → Documentation
+
+### The 9 Layers
+
+| # | Layer | Location |
+|---|-------|----------|
+| 1 | User API | `src/index.ts` |
+| 2 | Schema Definition | `src/schema/` |
+| 3 | Query Schema | `src/schema/*/schemas/` |
+| 4 | Validation Library | `src/validation/` |
+| 5 | Schema Validation | `src/schema/validation/` |
+| 6 | Query Engine | `src/query-engine/` |
+| 7 | Database Adapters | `src/adapters/` |
+| 8 | Driver Layer | `src/drivers/` |
+| 9 | Client Layer | `src/client/` |
+
+---
+
+## 2024-12-31: Polymorphic Relations Design Document
+
+### Summary
+
+Created comprehensive design documentation for polymorphic relations.
+
+### Document Created
+
+**`readme/polymorphic-relations.md`** (~2400 lines)
+- Complete design specification for Active Record-style polymorphic relations
+- Adapted for TypeScript with full type inference
+- Covers API design, type system, schema layer, query engine, validation, and more
+
+### Key Decisions
+
+- **API**: `s.relation.polymorphic(() => ({ post: Post, video: Video }))`
+- **Lazy getter pattern**: Outer arrow function for circular deps, direct models inside
+- **Return type**: Discriminated union `{ type: "post", data: Post } | { type: "video", data: Video }`
+- **Inverse inference**: Automatic when unambiguous, explicit `name` only for disambiguation
+- **Selective includes**: Per-type nested includes supported
+
+---
+
 ## 2024-12-31: InferScalarOutput Helper for Correct DB Result Types
 
 ### Summary
