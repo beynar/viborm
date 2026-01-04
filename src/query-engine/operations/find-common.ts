@@ -5,13 +5,16 @@
  * Handles cursor-based pagination and distinct.
  */
 
-import { sql, Sql } from "@sql";
+import { type Sql, sql } from "@sql";
+import { buildOrderBy } from "../builders/orderby-builder";
+import {
+  buildSelect,
+  buildSelectWithAliases,
+} from "../builders/select-builder";
+import { buildWhere } from "../builders/where-builder";
+import { getColumnName, getScalarFieldNames, getTableName } from "../context";
 import type { QueryContext } from "../types";
 import { QueryEngineError } from "../types";
-import { getTableName, getScalarFieldNames, getColumnName } from "../context";
-import { buildSelect, buildSelectWithAliases } from "../builders/select-builder";
-import { buildWhere } from "../builders/where-builder";
-import { buildOrderBy } from "../builders/orderby-builder";
 
 /**
  * Common find arguments
@@ -42,7 +45,11 @@ export interface FindOptions {
  * @param options - Find options
  * @returns SQL statement
  */
-export function buildFind(ctx: QueryContext, args: FindArgs, options: FindOptions = {}): Sql {
+export function buildFind(
+  ctx: QueryContext,
+  args: FindArgs,
+  options: FindOptions = {}
+): Sql {
   const { adapter, rootAlias } = ctx;
   const tableName = getTableName(ctx.model);
 
@@ -52,7 +59,12 @@ export function buildFind(ctx: QueryContext, args: FindArgs, options: FindOption
   let columnAliases: string[] | undefined;
 
   if (args.distinct && args.distinct.length > 0) {
-    const selectResult = buildSelectWithAliases(ctx, args.select, args.include, rootAlias);
+    const selectResult = buildSelectWithAliases(
+      ctx,
+      args.select,
+      args.include,
+      rootAlias
+    );
     columns = selectResult.sql;
     columnAliases = selectResult.aliases;
   } else {
@@ -67,7 +79,12 @@ export function buildFind(ctx: QueryContext, args: FindArgs, options: FindOption
 
   // Add cursor condition if specified
   if (args.cursor) {
-    const cursorCondition = buildCursorCondition(ctx, args.cursor, args.orderBy, rootAlias);
+    const cursorCondition = buildCursorCondition(
+      ctx,
+      args.cursor,
+      args.orderBy,
+      rootAlias
+    );
     if (cursorCondition) {
       where = where
         ? adapter.operators.and(where, cursorCondition)
@@ -79,13 +96,19 @@ export function buildFind(ctx: QueryContext, args: FindArgs, options: FindOption
   const orderBy = buildOrderBy(ctx, args.orderBy, rootAlias);
 
   // Build LIMIT
-  const limit = options.limit !== undefined ? adapter.literals.value(options.limit) : undefined;
+  const limit =
+    options.limit !== undefined
+      ? adapter.literals.value(options.limit)
+      : undefined;
 
   // Build OFFSET (skip)
-  const offset = args.skip !== undefined ? adapter.literals.value(args.skip) : undefined;
+  const offset =
+    args.skip !== undefined ? adapter.literals.value(args.skip) : undefined;
 
   // Handle DISTINCT
-  const distinct = args.distinct ? buildDistinct(ctx, args.distinct, rootAlias) : undefined;
+  const distinct = args.distinct
+    ? buildDistinct(ctx, args.distinct, rootAlias)
+    : undefined;
 
   // Assemble query parts
   const parts: Parameters<typeof adapter.assemble.select>[0] = {
@@ -136,7 +159,7 @@ function buildCursorCondition(
     if (value === null || value === undefined) {
       throw new QueryEngineError(
         `Cursor field '${field}' cannot be null or undefined. ` +
-        `Cursor must point to a specific record.`
+          "Cursor must point to a specific record."
       );
     }
   }
@@ -144,7 +167,13 @@ function buildCursorCondition(
   // Single field cursor (most common case)
   if (cursorEntries.length === 1) {
     const [cursorField, cursorValue] = cursorEntries[0]!;
-    return buildSingleFieldCursor(ctx, cursorField, cursorValue, orderBy, alias);
+    return buildSingleFieldCursor(
+      ctx,
+      cursorField,
+      cursorValue,
+      orderBy,
+      alias
+    );
   }
 
   // Compound cursor - validate and build
@@ -176,9 +205,8 @@ function buildSingleFieldCursor(
   // - For descending order, we want records <= cursor
   if (direction === "desc") {
     return adapter.operators.lte(column, value);
-  } else {
-    return adapter.operators.gte(column, value);
   }
+  return adapter.operators.gte(column, value);
 }
 
 /**
@@ -199,14 +227,16 @@ function buildCompoundCursor(
   const entries = Object.entries(cursor);
 
   // Validate all fields have same direction
-  const directions = entries.map(([field]) => getFieldDirection(field, orderBy));
+  const directions = entries.map(([field]) =>
+    getFieldDirection(field, orderBy)
+  );
   const firstDirection = directions[0];
-  const hasMixedDirections = directions.some(d => d !== firstDirection);
+  const hasMixedDirections = directions.some((d) => d !== firstDirection);
 
   if (hasMixedDirections) {
     throw new QueryEngineError(
       "Compound cursor with mixed sort directions (asc/desc) is not supported. " +
-      "Either use a single-field cursor or ensure all orderBy fields use the same direction."
+        "Either use a single-field cursor or ensure all orderBy fields use the same direction."
     );
   }
 
@@ -217,9 +247,7 @@ function buildCompoundCursor(
   });
 
   // Build value tuple
-  const values = entries.map(([, value]) =>
-    adapter.literals.value(value)
-  );
+  const values = entries.map(([, value]) => adapter.literals.value(value));
 
   // Build: (col1, col2, ...) >= (val1, val2, ...) or <= for desc
   // Prisma includes cursor record by default
@@ -228,9 +256,8 @@ function buildCompoundCursor(
 
   if (firstDirection === "desc") {
     return sql`${columnTuple} <= ${valueTuple}`;
-  } else {
-    return sql`${columnTuple} >= ${valueTuple}`;
   }
+  return sql`${columnTuple} >= ${valueTuple}`;
 }
 
 /**
@@ -304,7 +331,7 @@ function buildDistinct(
   for (const field of distinct) {
     if (!scalarFields.includes(field)) {
       throw new QueryEngineError(
-        `Distinct field '${field}' not found on model '${ctx.model.name}'`
+        `Distinct field '${field}' not found on model '${ctx.model["~"].state.name}'`
       );
     }
   }

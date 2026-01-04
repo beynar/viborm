@@ -1,9 +1,9 @@
 // Aggregate operation args schema factories
 
-import type { ModelState } from "../../model";
-import type { CoreSchemas } from "../types";
 import type { StringKeyOf } from "@schema/model/helper";
 import v from "@validation";
+import type { ModelState } from "../../model";
+import type { CoreSchemas } from "../types";
 import { forEachScalarField } from "../utils";
 
 // =============================================================================

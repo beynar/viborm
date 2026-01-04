@@ -125,7 +125,9 @@ export class TransactionError extends DriverError {
  * Check if error is retryable (deadlock, serialization failure)
  */
 export function isRetryableError(error: unknown): boolean {
-  if (!(error instanceof DriverError)) return false;
+  if (!(error instanceof DriverError)) {
+    return false;
+  }
   const retryableCodes = ["40001", "40P01", "SQLITE_BUSY"];
   return error.code ? retryableCodes.includes(error.code) : false;
 }

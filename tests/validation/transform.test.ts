@@ -1,6 +1,6 @@
-import { describe, test, expect, expectTypeOf } from "vitest";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { v, coerce, map, string, number, date } from "@validation";
+import { coerce, date, map, number, string, v } from "@validation";
+import { describe, expect, expectTypeOf, test } from "vitest";
 
 describe("coerce schema", () => {
   describe("basic validation", () => {
@@ -12,7 +12,7 @@ describe("coerce schema", () => {
     });
 
     test("transforms string to number", () => {
-      const schema = coerce(string(), (s) => parseInt(s, 10));
+      const schema = coerce(string(), (s) => Number.parseInt(s, 10));
       const result = schema["~standard"].validate("42");
       expect(result.issues).toBeUndefined();
       expect((result as { value: number }).value).toBe(42);
@@ -25,7 +25,7 @@ describe("coerce schema", () => {
     });
 
     test("type inference", () => {
-      const schema = coerce(string(), (s) => parseInt(s, 10));
+      const schema = coerce(string(), (s) => Number.parseInt(s, 10));
       type Output = StandardSchemaV1.InferOutput<typeof schema>;
       expectTypeOf<Output>().toEqualTypeOf<number>();
     });

@@ -19,23 +19,23 @@
  * - filter: Input type for filtering + shorthand transforms
  */
 
-import { describe, test, expect, expectTypeOf } from "vitest";
+import { decimal, float, int } from "@schema/fields/number/field";
+import type {
+  InferDecimalInput,
+  InferFloatInput,
+  InferIntInput,
+} from "@schema/fields/number/schemas";
+import { type InferOutput, parse } from "@validation";
 import {
-  pipe,
-  number,
-  minValue,
-  maxValue,
+  type Brand,
   brand,
   integer,
-  Brand,
+  maxValue,
+  minValue,
+  number,
+  pipe,
 } from "valibot";
-import { parse, InferOutput } from "@validation";
-import { int, float, decimal } from "@schema/fields/number/field";
-import type {
-  InferIntInput,
-  InferFloatInput,
-  InferDecimalInput,
-} from "@schema/fields/number/schemas";
+import { describe, expect, expectTypeOf, test } from "vitest";
 
 // =============================================================================
 // INT FIELD TESTS
@@ -773,9 +773,9 @@ describe("Float Field", () => {
       });
 
       test("runtime: accepts float", () => {
-        const result = parse(schemas.create, 3.14159);
+        const result = parse(schemas.create, 3.141_59);
         if (result.issues) throw new Error("Expected success");
-        expect(result.value).toBe(3.14159);
+        expect(result.value).toBe(3.141_59);
       });
 
       test("runtime: rejects undefined (required)", () => {

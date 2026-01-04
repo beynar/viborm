@@ -5,8 +5,7 @@
  */
 
 export {
-  parseResult,
   parseCountResult,
   parseMutationCount,
+  parseResult,
 } from "./result-parser";
-

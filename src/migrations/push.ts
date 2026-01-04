@@ -9,18 +9,22 @@
  * 5. Generate and execute DDL
  */
 
-import type { Driver } from "../drivers/driver";
 import type { DatabaseAdapter } from "../adapters/database-adapter";
+import type { Driver } from "../drivers/driver";
 import type { AnyModel } from "../schema/model";
-import { serializeModels } from "./serializer";
-import { diff, hasDestructiveOperations, getDestructiveOperationDescriptions } from "./differ";
-import { applyResolutions, strictResolver } from "./resolver";
 import {
-  DiffOperation,
-  PushResult,
-  Resolver,
+  diff,
+  getDestructiveOperationDescriptions,
+  hasDestructiveOperations,
+} from "./differ";
+import { applyResolutions, strictResolver } from "./resolver";
+import { serializeModels } from "./serializer";
+import {
+  type DiffOperation,
   MigrationError,
-  SchemaSnapshot,
+  type PushResult,
+  type Resolver,
+  type SchemaSnapshot,
 } from "./types";
 
 // =============================================================================
@@ -96,7 +100,10 @@ export async function push(
 
   if (diffResult.ambiguousChanges.length > 0) {
     const resolutions = await resolver(diffResult.ambiguousChanges);
-    const resolvedOps = applyResolutions(diffResult.ambiguousChanges, resolutions);
+    const resolvedOps = applyResolutions(
+      diffResult.ambiguousChanges,
+      resolutions
+    );
     finalOperations.push(...resolvedOps);
 
     // For table renames that were resolved as addAndDrop, we need to add the createTable
@@ -105,7 +112,9 @@ export async function push(
         const resolution = resolutions.get(change);
         if (resolution?.type === "addAndDrop") {
           // Find the table definition from desired schema
-          const newTable = desired.tables.find((t) => t.name === change.addedTable);
+          const newTable = desired.tables.find(
+            (t) => t.name === change.addedTable
+          );
           if (newTable) {
             finalOperations.push({ type: "createTable", table: newTable });
           }
@@ -268,11 +277,13 @@ export function formatOperation(op: DiffOperation): string {
       return `+ Create enum "${op.enumDef.name}" with values [${op.enumDef.values.join(", ")}]`;
     case "dropEnum":
       return `- Drop enum "${op.enumName}"`;
-    case "alterEnum":
+    case "alterEnum": {
       const parts: string[] = [];
       if (op.addValues?.length) parts.push(`add: ${op.addValues.join(", ")}`);
-      if (op.removeValues?.length) parts.push(`remove: ${op.removeValues.join(", ")}`);
+      if (op.removeValues?.length)
+        parts.push(`remove: ${op.removeValues.join(", ")}`);
       return `~ Alter enum "${op.enumName}" (${parts.join("; ")})`;
+    }
     default:
       return `Unknown operation: ${(op as any).type}`;
   }

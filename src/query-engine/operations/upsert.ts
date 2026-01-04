@@ -5,12 +5,12 @@
  * Inserts a new record or updates existing one on conflict.
  */
 
-import { sql, Sql } from "@sql";
-import type { QueryContext } from "../types";
-import { getTableName, getScalarFieldNames, getColumnName } from "../context";
-import { buildValues } from "../builders/values-builder";
-import { buildSet } from "../builders/set-builder";
+import { type Sql, sql } from "@sql";
 import { buildSelect } from "../builders/select-builder";
+import { buildSet } from "../builders/set-builder";
+import { buildValues } from "../builders/values-builder";
+import { getColumnName, getTableName } from "../context";
+import type { QueryContext } from "../types";
 
 interface UpsertArgs {
   where: Record<string, unknown>;
@@ -98,4 +98,3 @@ function buildConflictTarget(
 
   return sql.join(fields, ", ");
 }
-

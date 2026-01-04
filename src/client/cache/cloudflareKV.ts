@@ -1,11 +1,14 @@
-import { CacheDriver, CacheOptions } from "./types";
-import { KVNamespace } from "@cloudflare/workers-types";
+import type { KVNamespace } from "@cloudflare/workers-types";
+import type { CacheDriver, CacheOptions } from "./types";
 
 export class CloudflareKVCache implements CacheDriver {
-  constructor(private readonly kv: KVNamespace) {}
+  private readonly kv: KVNamespace;
+  constructor(kv: KVNamespace) {
+    this.kv = kv;
+  }
 
   async get(key: string): Promise<unknown> {
-    return this.kv.get(key);
+    return await this.kv.get(key);
   }
   async set(key: string, value: unknown, options: CacheOptions): Promise<void> {
     await this.kv.put(key, JSON.stringify(value), {

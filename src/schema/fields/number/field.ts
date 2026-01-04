@@ -2,33 +2,38 @@
 // Standalone field classes with State generic pattern
 
 import type { StandardSchemaOf } from "@standard-schema/spec";
+import v, { type BaseIntegerSchema, type BaseNumberSchema } from "@validation";
 import {
-  type FieldState,
-  type UpdateState,
-  type DefaultValue,
-  type SchemaNames,
   createDefaultState,
-  DefaultValueInput,
+  type DefaultValue,
+  type DefaultValueInput,
+  type FieldState,
+  type SchemaNames,
+  type UpdateState,
 } from "../common";
 import type { NativeType } from "../native-types";
 import {
-  buildIntSchema,
-  buildFloatSchema,
   buildDecimalSchema,
-  intBase,
-  floatBase,
+  buildFloatSchema,
+  buildIntSchema,
+  type DecimalSchemas,
   decimalBase,
-  IntSchemas,
-  FloatSchemas,
-  DecimalSchemas,
+  type FloatSchemas,
+  floatBase,
+  type IntSchemas,
+  intBase,
 } from "./schemas";
-import v, { BaseIntegerSchema, BaseNumberSchema } from "@validation";
 
 export class IntField<State extends FieldState<"int">> {
+  // biome-ignore lint/style/useReadonlyClassProperties: <it is reassigned when hydrating schemas>
   private _names: SchemaNames = {};
   private _schemas: IntSchemas<State> | undefined;
-
-  constructor(private state: State, private _nativeType?: NativeType) {}
+  private readonly state: State;
+  private readonly _nativeType?: NativeType | undefined;
+  constructor(state: State, _nativeType?: NativeType) {
+    this.state = state;
+    this._nativeType = _nativeType;
+  }
 
   nullable(): IntField<
     UpdateState<
@@ -137,7 +142,7 @@ export class IntField<State extends FieldState<"int">> {
     return new IntField(
       {
         ...this.state,
-        schema: schema,
+        schema,
         base: v.integer<{
           nullable: State["nullable"];
           array: State["array"];
@@ -145,7 +150,7 @@ export class IntField<State extends FieldState<"int">> {
         }>({
           nullable: this.state.nullable,
           array: this.state.array,
-          schema: schema,
+          schema,
         }),
       },
       this._nativeType
@@ -193,10 +198,16 @@ export class IntField<State extends FieldState<"int">> {
 }
 
 export class FloatField<State extends FieldState<"float">> {
+  // biome-ignore lint/style/useReadonlyClassProperties: <it is reassigned when hydrating schemas>
   private _names: SchemaNames = {};
+  private readonly state: State;
+  private readonly _nativeType?: NativeType | undefined;
   private _schemas: FloatSchemas<State> | undefined;
 
-  constructor(private state: State, private _nativeType?: NativeType) {}
+  constructor(state: State, _nativeType?: NativeType) {
+    this.state = state;
+    this._nativeType = _nativeType;
+  }
 
   nullable(): FloatField<
     UpdateState<
@@ -305,7 +316,7 @@ export class FloatField<State extends FieldState<"float">> {
     return new FloatField(
       {
         ...this.state,
-        schema: schema,
+        schema,
         base: v.number<{
           nullable: State["nullable"];
           array: State["array"];
@@ -313,7 +324,7 @@ export class FloatField<State extends FieldState<"float">> {
         }>({
           nullable: this.state.nullable,
           array: this.state.array,
-          schema: schema,
+          schema,
         }),
       },
       this._nativeType
@@ -338,10 +349,16 @@ export class FloatField<State extends FieldState<"float">> {
 }
 
 export class DecimalField<State extends FieldState<"decimal">> {
+  // biome-ignore lint/style/useReadonlyClassProperties: <it is reassigned when hydrating schemas>
   private _names: SchemaNames = {};
+  private readonly state: State;
+  private readonly _nativeType?: NativeType | undefined;
   private _schemas: DecimalSchemas<State> | undefined;
 
-  constructor(private state: State, private _nativeType?: NativeType) {}
+  constructor(state: State, _nativeType?: NativeType) {
+    this.state = state;
+    this._nativeType = _nativeType;
+  }
 
   nullable(): DecimalField<
     UpdateState<
@@ -453,7 +470,7 @@ export class DecimalField<State extends FieldState<"decimal">> {
     return new DecimalField(
       {
         ...this.state,
-        schema: schema,
+        schema,
         base: v.number<{
           nullable: State["nullable"];
           array: State["array"];
@@ -461,7 +478,7 @@ export class DecimalField<State extends FieldState<"decimal">> {
         }>({
           nullable: this.state.nullable,
           array: this.state.array,
-          schema: schema,
+          schema,
         }),
       },
       this._nativeType

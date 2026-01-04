@@ -1,17 +1,17 @@
+import { buildSchema, ok } from "../helpers";
 import type {
-  VibSchema,
-  ScalarOptions,
   ComputeInput,
   ComputeOutput,
+  ScalarOptions,
+  VibSchema,
 } from "../types";
-import { buildSchema, ok } from "../helpers";
 
 // =============================================================================
 // Number Schema
 // =============================================================================
 
 export interface BaseNumberSchema<
-  Opts extends ScalarOptions<number, any> | undefined = undefined
+  Opts extends ScalarOptions<number, any> | undefined = undefined,
 > extends VibSchema<ComputeInput<number, Opts>, ComputeOutput<number, Opts>> {}
 
 export interface NumberSchema<TInput = number, TOutput = number>
@@ -42,7 +42,7 @@ function validateNumber(value: unknown) {
  * const scores = v.number({ array: true });
  */
 export function number<
-  const Opts extends ScalarOptions<number, any> | undefined = undefined
+  const Opts extends ScalarOptions<number, any> | undefined = undefined,
 >(
   options?: Opts
 ): NumberSchema<ComputeInput<number, Opts>, ComputeOutput<number, Opts>> {
@@ -57,7 +57,7 @@ export function number<
 // =============================================================================
 
 export interface BaseIntegerSchema<
-  Opts extends ScalarOptions<number, any> | undefined = undefined
+  Opts extends ScalarOptions<number, any> | undefined = undefined,
 > extends VibSchema<ComputeInput<number, Opts>, ComputeOutput<number, Opts>> {}
 
 export interface IntegerSchema<TInput = number, TOutput = number>
@@ -86,7 +86,7 @@ function validateInteger(value: unknown) {
  * const count = v.integer();
  */
 export function integer<
-  const Opts extends ScalarOptions<number, any> | undefined = undefined
+  const Opts extends ScalarOptions<number, any> | undefined = undefined,
 >(
   options?: Opts
 ): IntegerSchema<ComputeInput<number, Opts>, ComputeOutput<number, Opts>> {

@@ -145,7 +145,7 @@ export interface DiffResult {
 
 /** Callback to resolve ambiguous changes (used by CLI or programmatic API) */
 export type Resolver = (
-  changes: AmbiguousChange[],
+  changes: AmbiguousChange[]
 ) => Promise<Map<AmbiguousChange, ChangeResolution>>;
 
 // =============================================================================
@@ -168,7 +168,7 @@ export interface PushResult {
 export class MigrationError extends Error {
   constructor(
     message: string,
-    public readonly code?: string,
+    public readonly code?: string
   ) {
     super(message);
     this.name = "MigrationError";

@@ -16,11 +16,11 @@
  * This allows convenient updates like: update({ data: { foo: "bar" } }) instead of update({ data: { set: { foo: "bar" } } }).
  */
 
-import { describe, test, expect, expectTypeOf } from "vitest";
-import { object, string, number, array, InferOutput } from "valibot";
-import { parse } from "@validation";
 import { json } from "@schema/fields/json/field";
 import type { InferJsonInput } from "@schema/fields/json/schemas";
+import { parse } from "@validation";
+import { array, type InferOutput, number, object, string } from "valibot";
+import { describe, expect, expectTypeOf, test } from "vitest";
 
 // JSON value type
 type JsonValue =

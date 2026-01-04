@@ -8,16 +8,16 @@
  * - drizzle-kit push
  */
 
-import { Command } from "commander";
 import * as p from "@clack/prompts";
+import { Command } from "commander";
 import { push } from "../../migrations/push";
-import { loadConfig } from "../utils";
 import {
-  interactiveResolver,
   confirmDestructiveChanges,
   displayOperations,
   displaySQL,
+  interactiveResolver,
 } from "../prompts";
+import { loadConfig } from "../utils";
 
 export const pushCommand = new Command("push")
   .description("Push schema changes directly to database")
@@ -25,17 +25,17 @@ export const pushCommand = new Command("push")
   .option(
     "--accept-data-loss",
     "Ignore data loss warnings (required for destructive changes)",
-    false,
+    false
   )
   .option(
     "--force-reset",
     "Reset the database before pushing (drops all tables)",
-    false,
+    false
   )
   .option(
     "--strict",
     "Always ask for approval before executing SQL statements",
-    false,
+    false
   )
   .option("--verbose", "Print all SQL statements prior to execution", false)
   .option("--dry-run", "Preview SQL without executing", false)

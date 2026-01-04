@@ -1,6 +1,6 @@
-import { Schema } from "@client/types";
-import { QueryContext } from "@query-engine/types";
-import { Sql } from "@sql";
+import type { Schema } from "@client/types";
+import type { QueryContext } from "@query-engine/types";
+import type { Sql } from "@sql";
 
 export interface ProviderAdapter {
   schema: Schema;

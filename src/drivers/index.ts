@@ -4,27 +4,25 @@
  * Single Driver interface for all database adapters.
  */
 
+export type { Driver } from "./driver";
 // Main interface
 export { isDriver } from "./driver";
-export type { Driver } from "./driver";
-
+// Errors
+export {
+  ConnectionError,
+  DriverError,
+  ForeignKeyError,
+  isRetryableError,
+  isUniqueConstraintError,
+  QueryError,
+  TransactionError,
+  UniqueConstraintError,
+} from "./errors";
 // Types
 export type {
   Dialect,
-  QueryResult,
   IsolationLevel,
-  TransactionOptions,
   LogFunction,
+  QueryResult,
+  TransactionOptions,
 } from "./types";
-
-// Errors
-export {
-  DriverError,
-  ConnectionError,
-  QueryError,
-  UniqueConstraintError,
-  ForeignKeyError,
-  TransactionError,
-  isRetryableError,
-  isUniqueConstraintError,
-} from "./errors";

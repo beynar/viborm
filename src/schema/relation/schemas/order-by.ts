@@ -1,10 +1,10 @@
-import type { RelationState } from "../relation";
-import { getTargetOrderBySchema } from "./helpers";
 import v, {
   createSchema,
-  type VibSchema,
   type ValidationResult,
+  type VibSchema,
 } from "@validation";
+import type { RelationState } from "../relation";
+import { getTargetOrderBySchema } from "./helpers";
 
 /**
  * To-one orderBy: nested orderBy from the related model's fields
@@ -22,7 +22,7 @@ export const toOneOrderByFactory = <S extends RelationState>(state: S) => {
     "lazy",
     (value): ValidationResult<unknown> => {
       const targetOrderBySchema = getTargetOrderBy() as VibSchema | undefined;
-      if (!targetOrderBySchema || !targetOrderBySchema["~standard"]) {
+      if (!(targetOrderBySchema && targetOrderBySchema["~standard"])) {
         return { issues: [{ message: "OrderBy schema not available" }] };
       }
       const result = targetOrderBySchema["~standard"].validate(value);

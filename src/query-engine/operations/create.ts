@@ -5,11 +5,11 @@
  * Returns the created record.
  */
 
-import { sql, Sql } from "@sql";
-import type { QueryContext } from "../types";
-import { getTableName } from "../context";
-import { buildValues } from "../builders/values-builder";
+import { type Sql, sql } from "@sql";
 import { buildSelect } from "../builders/select-builder";
+import { buildValues } from "../builders/values-builder";
+import { getTableName } from "../context";
+import type { QueryContext } from "../types";
 
 interface CreateArgs {
   data: Record<string, unknown>;
@@ -64,7 +64,7 @@ export function buildCreate(ctx: QueryContext, args: CreateArgs): Sql {
 export function buildCreateMany(
   ctx: QueryContext,
   data: Record<string, unknown>[],
-  skipDuplicates: boolean = false
+  skipDuplicates = false
 ): Sql {
   const { adapter } = ctx;
   const tableName = getTableName(ctx.model);
@@ -88,4 +88,3 @@ export function buildCreateMany(
 
   return insertSql;
 }
-

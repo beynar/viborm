@@ -5,14 +5,14 @@
  * Used by: select-builder, relation-filter-builder, include-builder
  */
 
-import { sql, Sql } from "@sql";
-import type { QueryContext, RelationInfo } from "../types";
-import { getTableName } from "../context";
-import { getPrimaryKeyField } from "./correlation-utils";
 import {
-  getJunctionTableName,
   getJunctionFieldNames,
+  getJunctionTableName,
 } from "@schema/relation/relation";
+import { type Sql, sql } from "@sql";
+import { getTableName } from "../context";
+import type { QueryContext, RelationInfo } from "../types";
+import { getPrimaryKeyField } from "./correlation-utils";
 
 /**
  * Junction table metadata for a many-to-many relation
@@ -113,4 +113,3 @@ export function buildManyToManyJoinParts(
 
   return { correlationCondition, joinCondition, fromClause };
 }
-

@@ -1,8 +1,9 @@
 // Relation Schema Helpers
 // Common utilities and type helpers for relation schemas
+
+import type { AnyModel } from "@schema/model";
+import v, { type VibSchema } from "@validation";
 import type { RelationState } from "../relation";
-import { AnyModel } from "@schema/model";
-import v, { VibSchema } from "@validation";
 
 type TargetModel<S extends RelationState> = S["getter"] extends () => infer T
   ? T extends AnyModel
@@ -20,7 +21,7 @@ export type InferTargetSchema<
     | "update"
     | "select"
     | "include"
-    | "orderBy"
+    | "orderBy",
 > = TargetModel<S>["~"]["schemas"][K];
 
 const getTargetSchemas = <
@@ -32,7 +33,7 @@ const getTargetSchemas = <
     | "update"
     | "select"
     | "include"
-    | "orderBy"
+    | "orderBy",
 >(
   state: S,
   key: K

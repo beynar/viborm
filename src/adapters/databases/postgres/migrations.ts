@@ -4,19 +4,19 @@
  * Implements database introspection and DDL generation for PostgreSQL.
  */
 
-import type { MigrationAdapter } from "../../database-adapter";
 import type {
+  ColumnDef,
+  DiffOperation,
+  EnumDef,
+  ForeignKeyDef,
+  IndexDef,
+  PrimaryKeyDef,
+  ReferentialAction,
   SchemaSnapshot,
   TableDef,
-  ColumnDef,
-  IndexDef,
-  ForeignKeyDef,
   UniqueConstraintDef,
-  PrimaryKeyDef,
-  EnumDef,
-  DiffOperation,
-  ReferentialAction,
 } from "../../../migrations/types";
+import type { MigrationAdapter } from "../../database-adapter";
 
 // =============================================================================
 // INTROSPECTION QUERY TYPES
@@ -513,7 +513,9 @@ function generateDDL(operation: DiffOperation): string {
 
       // Add primary key constraint
       if (table.primaryKey) {
-        const pkCols = table.primaryKey.columns.map(escapeIdentifier).join(", ");
+        const pkCols = table.primaryKey.columns
+          .map(escapeIdentifier)
+          .join(", ");
         const pkName = table.primaryKey.name
           ? `CONSTRAINT ${escapeIdentifier(table.primaryKey.name)} `
           : "";
@@ -534,11 +536,19 @@ function generateDDL(operation: DiffOperation): string {
       const statements = [sql];
 
       for (const idx of table.indexes) {
-        statements.push(generateDDL({ type: "createIndex", tableName: table.name, index: idx }));
+        statements.push(
+          generateDDL({
+            type: "createIndex",
+            tableName: table.name,
+            index: idx,
+          })
+        );
       }
 
       for (const fk of table.foreignKeys) {
-        statements.push(generateDDL({ type: "addForeignKey", tableName: table.name, fk }));
+        statements.push(
+          generateDDL({ type: "addForeignKey", tableName: table.name, fk })
+        );
       }
 
       return statements.join(";\n");
@@ -577,16 +587,22 @@ function generateDDL(operation: DiffOperation): string {
       // Nullable change
       if (from.nullable !== to.nullable) {
         if (to.nullable) {
-          statements.push(`ALTER TABLE ${table} ALTER COLUMN ${col} DROP NOT NULL`);
+          statements.push(
+            `ALTER TABLE ${table} ALTER COLUMN ${col} DROP NOT NULL`
+          );
         } else {
-          statements.push(`ALTER TABLE ${table} ALTER COLUMN ${col} SET NOT NULL`);
+          statements.push(
+            `ALTER TABLE ${table} ALTER COLUMN ${col} SET NOT NULL`
+          );
         }
       }
 
       // Default change
       if (from.default !== to.default) {
         if (to.default === undefined) {
-          statements.push(`ALTER TABLE ${table} ALTER COLUMN ${col} DROP DEFAULT`);
+          statements.push(
+            `ALTER TABLE ${table} ALTER COLUMN ${col} DROP DEFAULT`
+          );
         } else {
           statements.push(
             `ALTER TABLE ${table} ALTER COLUMN ${col} SET DEFAULT ${to.default}`
@@ -613,8 +629,12 @@ function generateDDL(operation: DiffOperation): string {
       const { tableName, fk } = operation;
       const cols = fk.columns.map(escapeIdentifier).join(", ");
       const refCols = fk.referencedColumns.map(escapeIdentifier).join(", ");
-      const onDelete = fk.onDelete ? ` ON DELETE ${formatReferentialAction(fk.onDelete)}` : "";
-      const onUpdate = fk.onUpdate ? ` ON UPDATE ${formatReferentialAction(fk.onUpdate)}` : "";
+      const onDelete = fk.onDelete
+        ? ` ON DELETE ${formatReferentialAction(fk.onDelete)}`
+        : "";
+      const onUpdate = fk.onUpdate
+        ? ` ON UPDATE ${formatReferentialAction(fk.onUpdate)}`
+        : "";
       return `ALTER TABLE ${escapeIdentifier(tableName)} ADD CONSTRAINT ${escapeIdentifier(fk.name)} FOREIGN KEY (${cols}) REFERENCES ${escapeIdentifier(fk.referencedTable)} (${refCols})${onDelete}${onUpdate}`;
     }
 
@@ -633,7 +653,9 @@ function generateDDL(operation: DiffOperation): string {
     case "addPrimaryKey": {
       const { tableName, primaryKey } = operation;
       const cols = primaryKey.columns.map(escapeIdentifier).join(", ");
-      const name = primaryKey.name ? escapeIdentifier(primaryKey.name) : escapeIdentifier(`${tableName}_pkey`);
+      const name = primaryKey.name
+        ? escapeIdentifier(primaryKey.name)
+        : escapeIdentifier(`${tableName}_pkey`);
       return `ALTER TABLE ${escapeIdentifier(tableName)} ADD CONSTRAINT ${name} PRIMARY KEY (${cols})`;
     }
 

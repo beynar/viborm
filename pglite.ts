@@ -1,6 +1,7 @@
 import { PGlite } from "@electric-sql/pglite";
-import { s } from "./src/schema/index.ts";
 import { push } from "./src/migrations/push.ts";
+import { s } from "./src/schema/index.ts";
+
 const db = new PGlite();
 
 const user = s.model({

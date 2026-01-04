@@ -19,23 +19,23 @@
  *   SELECT ... FROM "Author" WHERE "id" = lastval();
  */
 
-import { sql, Sql } from "@sql";
 import type { Model } from "@schema/model";
+import { type Sql, sql } from "@sql";
+import {
+  createChildContext,
+  getColumnName,
+  getScalarFieldNames,
+  getTableName,
+} from "../context";
 import type { QueryContext, RelationInfo } from "../types";
 import { QueryEngineError } from "../types";
+import { getPrimaryKeyField } from "./correlation-utils";
 import {
-  getTableName,
-  getScalarFieldNames,
-  getColumnName,
-  createChildContext,
-} from "../context";
-import {
-  separateData,
-  RelationMutation,
   getFkDirection,
+  type RelationMutation,
+  separateData,
 } from "./relation-data-builder";
 import { buildValues } from "./values-builder";
-import { getPrimaryKeyField } from "./correlation-utils";
 
 // ============================================================
 // TYPES
@@ -89,7 +89,6 @@ export function buildCreateWithNested(
   select?: Record<string, unknown>,
   include?: Record<string, unknown>
 ): NestedCreateResult {
-  const { adapter } = ctx;
   const { scalar, relations } = separateData(ctx, data);
 
   // Find nested creates (relations where create is specified)
@@ -234,10 +233,9 @@ function buildMultiStatementCreate(
     if (providedPkValue !== undefined) {
       // App-generated ID (UUID, ULID) - use literal
       return adapter.literals.value(providedPkValue);
-    } else {
-      // Auto-increment - use lastInsertId()
-      return adapter.lastInsertId();
     }
+    // Auto-increment - use lastInsertId()
+    return adapter.lastInsertId();
   };
 
   // Analyze FK directions to determine creation order
@@ -259,7 +257,7 @@ function buildMultiStatementCreate(
   // ---- Handle child-first creates (parent holds FK) ----
   // These are rare (e.g., to-one where parent references child)
   // We need to INSERT child first, then reference its ID in parent
-  let parentDataWithFks = { ...parentScalar };
+  const parentDataWithFks = { ...parentScalar };
 
   for (const [relationName, mutation] of childFirstCreates) {
     const childDataArray = Array.isArray(mutation.create)
@@ -540,10 +538,9 @@ function buildRelationSubquery(
     )}, ${adapter.json.emptyArray()}) FROM ${childTable} AS ${adapter.identifiers.escape(
       childAlias
     )} WHERE ${correlation})`;
-  } else {
-    // Return single object
-    return sql`(SELECT ${jsonObj} FROM ${childTable} AS ${adapter.identifiers.escape(
-      childAlias
-    )} WHERE ${correlation} LIMIT 1)`;
   }
+  // Return single object
+  return sql`(SELECT ${jsonObj} FROM ${childTable} AS ${adapter.identifiers.escape(
+    childAlias
+  )} WHERE ${correlation} LIMIT 1)`;
 }

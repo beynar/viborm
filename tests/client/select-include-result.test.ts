@@ -2,8 +2,9 @@
  * Type tests for InferSelectInclude result types
  * Tests that select/include properly infer result shapes
  */
-import { describe, test, expectTypeOf } from "vitest";
+
 import type { OperationResult } from "@client/types";
+import { describe, expectTypeOf, test } from "vitest";
 import type { testUser } from "../schema.js";
 
 // Test types directly using OperationResult

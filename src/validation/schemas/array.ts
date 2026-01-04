@@ -1,5 +1,5 @@
-import type { VibSchema, InferInput, InferOutput } from "../types";
 import { createSchema, validateArrayItems } from "../helpers";
+import type { InferInput, InferOutput, VibSchema } from "../types";
 
 // =============================================================================
 // Array Schema
@@ -8,7 +8,7 @@ import { createSchema, validateArrayItems } from "../helpers";
 export interface ArraySchema<
   TItem extends VibSchema<any, any>,
   TInput = InferInput<TItem>[],
-  TOutput = InferOutput<TItem>[]
+  TOutput = InferOutput<TItem>[],
 > extends VibSchema<TInput, TOutput> {
   readonly type: "array";
   readonly item: TItem;

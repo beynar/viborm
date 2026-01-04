@@ -1,5 +1,5 @@
-import type { VibSchema, ThunkCast, Cast } from "../types";
-import { object, ObjectSchema, ObjectOptions } from "./object";
+import type { Cast, ThunkCast, VibSchema } from "../types";
+import { type ObjectOptions, type ObjectSchema, object } from "./object";
 
 // =============================================================================
 // Path Utilities for Nested Object Access
@@ -9,13 +9,14 @@ import { object, ObjectSchema, ObjectOptions } from "./object";
  * Check if T is a valid schema entry (VibSchema or ThunkCast).
  * This matches ObjectEntries which allows both.
  */
-type IsSchemaEntry<T> = T extends VibSchema<any, any>
-  ? true
-  : T extends ThunkCast<any, any>
-  ? true
-  : T extends () => Cast<any, any>
-  ? true
-  : false;
+type IsSchemaEntry<T> =
+  T extends VibSchema<any, any>
+    ? true
+    : T extends ThunkCast<any, any>
+      ? true
+      : T extends () => Cast<any, any>
+        ? true
+        : false;
 
 /**
  * Gets the value at a dot path in an object type.
@@ -28,8 +29,8 @@ type PathValue<T, P extends string> = P extends `${infer Key}.${infer Rest}`
       : never
     : never
   : P extends keyof T
-  ? T[P]
-  : never;
+    ? T[P]
+    : never;
 
 /**
  * Recursively extracts all dot paths that lead to VibSchema or ThunkCast instances.
@@ -39,41 +40,42 @@ type PathValue<T, P extends string> = P extends `${infer Key}.${infer Rest}`
 type PathsToSchemas<
   T extends string,
   Prefix extends string = "",
-  Depth extends readonly unknown[] = []
+  Depth extends readonly unknown[] = [],
 > = Depth["length"] extends 5
   ? never
   : // Check if T is a VibSchema
-  T extends VibSchema<any, any>
-  ? Prefix
-  : // Check if T is a ThunkCast (function returning Cast)
-  T extends ThunkCast<any, any>
-  ? Prefix
-  : T extends () => Cast<any, any>
-  ? Prefix
-  : // Otherwise recurse into object properties
-  T extends Record<string, any>
-  ? {
-      [K in keyof T]: K extends string
-        ? PathsToSchemas<
-            T[K],
-            Prefix extends "" ? K : `${Prefix}.${K}`,
-            [...Depth, unknown]
-          >
-        : never;
-    }[keyof T]
-  : never;
+    T extends VibSchema<any, any>
+    ? Prefix
+    : // Check if T is a ThunkCast (function returning Cast)
+      T extends ThunkCast<any, any>
+      ? Prefix
+      : T extends () => Cast<any, any>
+        ? Prefix
+        : // Otherwise recurse into object properties
+          T extends Record<string, any>
+          ? {
+              [K in keyof T]: K extends string
+                ? PathsToSchemas<
+                    T[K],
+                    Prefix extends "" ? K : `${Prefix}.${K}`,
+                    [...Depth, unknown]
+                  >
+                : never;
+            }[keyof T]
+          : never;
 
 /**
  * Normalize a schema entry to VibSchema.
  * Handles both direct VibSchema and ThunkCast (unwrapping the thunk's return type).
  */
-type NormalizeSchemaEntry<T> = T extends VibSchema<infer I, infer O>
-  ? VibSchema<I, O>
-  : T extends ThunkCast<infer I, infer O>
-  ? VibSchema<I, O>
-  : T extends () => Cast<infer I, infer O>
-  ? VibSchema<I, O>
-  : never;
+type NormalizeSchemaEntry<T> =
+  T extends VibSchema<infer I, infer O>
+    ? VibSchema<I, O>
+    : T extends ThunkCast<infer I, infer O>
+      ? VibSchema<I, O>
+      : T extends () => Cast<infer I, infer O>
+        ? VibSchema<I, O>
+        : never;
 
 /**
  * Gets the schema type at a specific path for a specific key.
@@ -82,7 +84,7 @@ type NormalizeSchemaEntry<T> = T extends VibSchema<infer I, infer O>
 type SchemaAtPath<
   TObject extends Record<string, any>,
   TPath extends string,
-  K extends keyof TObject
+  K extends keyof TObject,
 > = NormalizeSchemaEntry<PathValue<TObject[K], TPath>>;
 
 /**
@@ -106,7 +108,7 @@ export type FromObjectOptions<T = unknown> = ObjectOptions<T>;
  */
 type ComputeEntries<
   TObject extends Record<string, any>,
-  TPath extends string
+  TPath extends string,
 > = {
   [K in keyof TObject]: SchemaAtPath<TObject, TPath, K>;
 };
@@ -118,7 +120,7 @@ export type FromObjectSchema<
   TEntries,
   TOpts extends FromObjectOptions | undefined = undefined,
   TInput = unknown,
-  TOutput = unknown
+  TOutput = unknown,
 > = ObjectSchema<TEntries, TOpts>;
 
 // =============================================================================
@@ -193,7 +195,7 @@ export function fromObject<
   TObject extends Record<string, any>,
   TPath extends string,
   // TPath extends AllPathsToSchemas<TObject>,
-  const TOpts extends FromObjectOptions | undefined = undefined
+  const TOpts extends FromObjectOptions | undefined = undefined,
 >(
   sourceObject: TObject,
   path: TPath,

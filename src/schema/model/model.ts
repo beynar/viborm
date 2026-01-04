@@ -1,26 +1,23 @@
 // Model Class Implementation
 // Defines database models with fields and relations
 
-import { type Field } from "../fields/base";
-import { type SchemaNames } from "../fields/common";
-import { AnyRelation } from "../relation/relation";
+import v, { type ObjectSchema, type VibSchema } from "@validation";
+import type { Field } from "../fields/base";
+import type { SchemaNames } from "../fields/common";
+import type { AnyRelation } from "../relation/relation";
 import {
-  FieldRecord,
-  ScalarFieldKeys,
-  ScalarFields,
-  extractScalarFields,
   extractRelationFields,
+  extractScalarFields,
   extractUniqueFields,
-  RelationFields,
-  UniqueFields,
-  CompoundConstraint,
-  NameFromKeys,
+  type FieldRecord,
   getNameFromKeys,
-  StringKeyOf,
-  ToString,
+  type NameFromKeys,
+  type RelationFields,
+  type ScalarFields,
+  type StringKeyOf,
+  type UniqueFields,
 } from "./helper";
 import { getModelSchemas } from "./schemas";
-import v, { ObjectSchema, VibSchema } from "@validation";
 // Re-export types from helpers for external use
 
 // =============================================================================
@@ -54,7 +51,7 @@ export interface IndexOptions {
 
 export interface IndexDefinition<
   Keys extends string[] = string[],
-  O extends IndexOptions = IndexOptions
+  O extends IndexOptions = IndexOptions,
 > {
   fields: Keys;
   options: O;
@@ -62,12 +59,12 @@ export interface IndexDefinition<
 
 export type UpdateIndexDefinition<
   State extends ModelState,
-  Index extends IndexDefinition
+  Index extends IndexDefinition,
 > = [...State["indexes"], Index];
 
 export const mergeIndexDefinitions = <
   State extends ModelState,
-  Index extends IndexDefinition
+  Index extends IndexDefinition,
 >(
   state: State,
   index: Index
@@ -77,12 +74,16 @@ export const mergeIndexDefinitions = <
 
 export type UpdateState<
   State extends ModelState,
-  Update extends Partial<ModelState>
+  Update extends Partial<ModelState>,
 > = Omit<State, keyof Update> & Update;
 
 export class Model<State extends ModelState> {
+  // biome-ignore lint/style/useReadonlyClassProperties: <it is reassigned when hydrating schemas>
   private _names: SchemaNames = {};
-  constructor(private state: State) {}
+  private readonly state: State;
+  constructor(state: State) {
+    this.state = state;
+  }
 
   /**
    * Maps the model to a specific database table name
@@ -104,7 +105,7 @@ export class Model<State extends ModelState> {
 
   index<
     const Keys extends StringKeyOf<State["scalars"]>[],
-    O extends IndexOptions = IndexOptions
+    O extends IndexOptions = IndexOptions,
   >(
     fields: Keys,
     options: O = {} as O
@@ -122,7 +123,7 @@ export class Model<State extends ModelState> {
 
   id<
     const Keys extends StringKeyOf<State["scalars"]>[],
-    Name extends string | undefined = undefined
+    Name extends string | undefined = undefined,
   >(
     fields: Keys,
     options?: { name?: Name }
@@ -141,16 +142,19 @@ export class Model<State extends ModelState> {
     >
   > {
     const name = getNameFromKeys(options?.name, fields);
-    const fieldsRecord = fields.reduce((acc, fieldName) => {
-      const field =
-        fieldName in this.state.scalars
-          ? this.state.scalars[fieldName]
-          : undefined;
-      if (field) {
-        acc[fieldName] = field["~"].schemas.base;
-      }
-      return acc;
-    }, {} as Record<string, VibSchema>);
+    const fieldsRecord = fields.reduce(
+      (acc, fieldName) => {
+        const field =
+          fieldName in this.state.scalars
+            ? this.state.scalars[fieldName]
+            : undefined;
+        if (field) {
+          acc[fieldName] = field["~"].schemas.base;
+        }
+        return acc;
+      },
+      {} as Record<string, VibSchema>
+    );
 
     const compoundId = {
       [name]: v.object(fieldsRecord, { partial: false }),
@@ -160,7 +164,7 @@ export class Model<State extends ModelState> {
 
   unique<
     const Keys extends StringKeyOf<State["scalars"]>[],
-    Name extends string | undefined = undefined
+    Name extends string | undefined = undefined,
   >(
     fields: Keys,
     options?: { name?: Name }
@@ -179,16 +183,19 @@ export class Model<State extends ModelState> {
     >
   > {
     const name = getNameFromKeys(options?.name, fields);
-    const fieldsRecord = fields.reduce((acc, fieldName) => {
-      const field =
-        fieldName in this.state.scalars
-          ? this.state.scalars[fieldName]
-          : undefined;
-      if (field) {
-        acc[fieldName] = field["~"].schemas.base;
-      }
-      return acc;
-    }, {} as Record<string, VibSchema>);
+    const fieldsRecord = fields.reduce(
+      (acc, fieldName) => {
+        const field =
+          fieldName in this.state.scalars
+            ? this.state.scalars[fieldName]
+            : undefined;
+        if (field) {
+          acc[fieldName] = field["~"].schemas.base;
+        }
+        return acc;
+      },
+      {} as Record<string, VibSchema>
+    );
 
     const compoundUniques = {
       [name]: v.object(fieldsRecord, { partial: false }),

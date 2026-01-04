@@ -1,6 +1,6 @@
-import { describe, test, expect, expectTypeOf } from "vitest";
-import { v } from "@validation";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
+import { v } from "@validation";
+import { describe, expect, expectTypeOf, test } from "vitest";
 
 describe("enum_ schema", () => {
   describe("basic validation", () => {

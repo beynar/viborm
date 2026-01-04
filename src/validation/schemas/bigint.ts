@@ -1,17 +1,17 @@
+import { buildSchema, ok } from "../helpers";
 import type {
-  VibSchema,
-  ScalarOptions,
   ComputeInput,
   ComputeOutput,
+  ScalarOptions,
+  VibSchema,
 } from "../types";
-import { buildSchema, ok } from "../helpers";
 
 // =============================================================================
 // BigInt Schema
 // =============================================================================
 
 export interface BaseBigIntSchema<
-  Opts extends ScalarOptions<bigint, any> | undefined = undefined
+  Opts extends ScalarOptions<bigint, any> | undefined = undefined,
 > extends VibSchema<ComputeInput<bigint, Opts>, ComputeOutput<bigint, Opts>> {}
 
 export interface BigIntSchema<TInput = bigint, TOutput = bigint>
@@ -39,7 +39,7 @@ function validateBigInt(value: unknown) {
  * const optionalId = v.bigint({ optional: true });
  */
 export function bigint<
-  const Opts extends ScalarOptions<bigint, any> | undefined = undefined
+  const Opts extends ScalarOptions<bigint, any> | undefined = undefined,
 >(
   options?: Opts
 ): BigIntSchema<ComputeInput<bigint, Opts>, ComputeOutput<bigint, Opts>> {

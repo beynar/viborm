@@ -1,12 +1,12 @@
+import { createSchema, fail, ok, validateSchema } from "../helpers";
 import type {
-  VibSchema,
+  Cast,
   InferInput,
   InferOutput,
   ThunkCast,
-  Cast,
+  VibSchema,
 } from "../types";
-import { fail, ok, createSchema, validateSchema } from "../helpers";
-import { object, ObjectSchema, ObjectOptions } from "./object";
+import { type ObjectOptions, type ObjectSchema, object } from "./object";
 
 // =============================================================================
 // Record Schema (dynamic keys)
@@ -16,7 +16,7 @@ export interface RecordSchema<
   TKey extends VibSchema<string, string>,
   TValue extends VibSchema<any, any>,
   TInput = Record<InferInput<TKey>, InferInput<TValue>>,
-  TOutput = Record<InferOutput<TKey>, InferOutput<TValue>>
+  TOutput = Record<InferOutput<TKey>, InferOutput<TValue>>,
 > extends VibSchema<TInput, TOutput> {
   readonly type: "record";
   readonly key: TKey;
@@ -32,7 +32,7 @@ export interface RecordSchema<
  */
 export function record<
   TKey extends VibSchema<string, string>,
-  TValue extends VibSchema<any, any>
+  TValue extends VibSchema<any, any>,
 >(key: TKey, value: TValue): RecordSchema<TKey, TValue> {
   const schema = createSchema<
     Record<InferInput<TKey>, InferInput<TValue>>,
@@ -93,20 +93,21 @@ type SchemaEntry =
 /**
  * Normalize a schema entry to VibSchema for type extraction.
  */
-type NormalizeEntry<T> = T extends VibSchema<infer I, infer O>
-  ? VibSchema<I, O>
-  : T extends ThunkCast<infer I, infer O>
-  ? VibSchema<I, O>
-  : T extends () => Cast<infer I, infer O>
-  ? VibSchema<I, O>
-  : never;
+type NormalizeEntry<T> =
+  T extends VibSchema<infer I, infer O>
+    ? VibSchema<I, O>
+    : T extends ThunkCast<infer I, infer O>
+      ? VibSchema<I, O>
+      : T extends () => Cast<infer I, infer O>
+        ? VibSchema<I, O>
+        : never;
 
 /**
  * Compute entries from a tuple of keys and a schema.
  */
 type ComputeEntriesFromKeys<
   TKeys extends readonly string[],
-  TSchema extends SchemaEntry
+  TSchema extends SchemaEntry,
 > = {
   [K in TKeys[number]]: NormalizeEntry<TSchema>;
 };
@@ -150,7 +151,7 @@ export type FromKeysOptions<T = unknown> = ObjectOptions<T>;
 export function fromKeys<
   const TKeys extends readonly string[],
   TSchema extends SchemaEntry,
-  const TOpts extends FromKeysOptions | undefined = undefined
+  const TOpts extends FromKeysOptions | undefined = undefined,
 >(
   keys: TKeys,
   schema: TSchema,

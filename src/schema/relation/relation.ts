@@ -1,8 +1,7 @@
 // Relation Class Implementation
 // Clean class hierarchy for different relation types
 
-import { type AnyModel } from "../model";
-import { type SchemaNames } from "../fields/common";
+import type { SchemaNames } from "../fields/common";
 import { getRelationSchemas } from "./schemas";
 
 // Workaround to allow circular dependencies
@@ -95,7 +94,7 @@ export type AnyRelation = Relation<RelationState>;
 
 export const relationBase = <
   G extends Getter,
-  State extends Omit<RelationState, "getter">
+  State extends Omit<RelationState, "getter">,
 >(
   getter: G,
   state: State

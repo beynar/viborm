@@ -2,23 +2,29 @@
 // Standalone field class with State generic pattern
 
 import type { StandardSchemaOf } from "@standard-schema/spec";
+import v, { type BaseBigIntSchema } from "@validation";
 import {
-  type FieldState,
-  type UpdateState,
-  type DefaultValue,
-  type SchemaNames,
   createDefaultState,
-  DefaultValueInput,
+  type DefaultValue,
+  type DefaultValueInput,
+  type FieldState,
+  type SchemaNames,
+  type UpdateState,
 } from "../common";
 import type { NativeType } from "../native-types";
-import { buildBigIntSchema, bigIntBase, BigIntSchemas } from "./schemas";
-import v, { BaseBigIntSchema } from "@validation";
+import { type BigIntSchemas, bigIntBase, buildBigIntSchema } from "./schemas";
 
 export class BigIntField<State extends FieldState<"bigint">> {
+  // biome-ignore lint/style/useReadonlyClassProperties: <it is reassigned when hydrating schemas>
   private _names: SchemaNames = {};
   private _schemas: BigIntSchemas<State> | undefined;
+  private readonly state: State;
+  private readonly _nativeType?: NativeType | undefined;
 
-  constructor(private state: State, private _nativeType?: NativeType) {}
+  constructor(state: State, _nativeType?: NativeType) {
+    this.state = state;
+    this._nativeType = _nativeType;
+  }
 
   nullable(): BigIntField<
     UpdateState<
@@ -127,7 +133,7 @@ export class BigIntField<State extends FieldState<"bigint">> {
     return new BigIntField(
       {
         ...this.state,
-        schema: schema,
+        schema,
         base: v.bigint<{
           nullable: State["nullable"];
           array: State["array"];
@@ -135,7 +141,7 @@ export class BigIntField<State extends FieldState<"bigint">> {
         }>({
           nullable: this.state.nullable,
           array: this.state.array,
-          schema: schema,
+          schema,
         }),
       },
       this._nativeType

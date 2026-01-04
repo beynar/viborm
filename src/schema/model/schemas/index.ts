@@ -2,56 +2,48 @@
 // Main entry point - builds all model schemas by composing field-level schemas
 
 import type { ModelState } from "../model";
-
+// Args schema factories
+import {
+  getAggregateArgs,
+  getCountArgs,
+  getCreateArgs,
+  getCreateManyArgs,
+  getDeleteArgs,
+  getDeleteManyArgs,
+  getFindFirstArgs,
+  getFindManyArgs,
+  getFindUniqueArgs,
+  getGroupByArgs,
+  getUpdateArgs,
+  getUpdateManyArgs,
+  getUpsertArgs,
+} from "./args";
 // Core schema factories
 import {
-  getScalarFilter,
-  getUniqueFilter,
-  getRelationFilter,
-  getScalarCreate,
-  getRelationCreate,
   getCreateSchema,
-  getScalarUpdate,
+  getIncludeSchema,
+  getOrderBySchema,
+  getRelationCreate,
+  getRelationFilter,
   getRelationUpdate,
+  getScalarCreate,
+  getScalarFilter,
+  getScalarUpdate,
+  getSelectSchema,
+  getUniqueFilter,
   getUpdateSchema,
   getWhereSchema,
   getWhereUniqueSchema,
-  getSelectSchema,
-  getIncludeSchema,
-  getOrderBySchema,
 } from "./core";
-
-// Args schema factories
-import {
-  getFindUniqueArgs,
-  getFindFirstArgs,
-  getFindManyArgs,
-  getCreateArgs,
-  getCreateManyArgs,
-  getUpdateArgs,
-  getUpdateManyArgs,
-  getDeleteArgs,
-  getDeleteManyArgs,
-  getUpsertArgs,
-  getCountArgs,
-  getAggregateArgs,
-  getGroupByArgs,
-} from "./args";
-
-// Types
-import type { CoreSchemas } from "./types";
-
-// Re-export types
-export type { CoreSchemas, SchemaEntries } from "./types";
-
-// Re-export utilities (if needed externally)
-export { forEachScalarField, forEachRelation, isToOne } from "./utils";
-
-// Re-export core schemas
-export * from "./core";
 
 // Re-export args schemas
 export * from "./args";
+// Re-export core schemas
+export * from "./core";
+// Re-export types
+export type { CoreSchemas, SchemaEntries } from "./types";
+// Re-export utilities (if needed externally)
+export { forEachRelation, forEachScalarField, isToOne } from "./utils";
 
 /**
  * Build all schemas for a model.

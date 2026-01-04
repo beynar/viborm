@@ -6,14 +6,13 @@
 
 export { AliasGenerator, createAliasGenerator } from "./alias-generator";
 export {
-  createQueryContext,
   createChildContext,
-  getRelationInfo,
-  getTableName,
-  getScalarFieldNames,
-  getRelationNames,
-  isScalarField,
-  isRelation,
+  createQueryContext,
   getColumnName,
+  getRelationInfo,
+  getRelationNames,
+  getScalarFieldNames,
+  getTableName,
+  isRelation,
+  isScalarField,
 } from "./query-context";
-

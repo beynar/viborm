@@ -1,15 +1,15 @@
+import v, {
+  type BaseBooleanSchema,
+  type InferInput,
+  type InferOutput,
+  type VibSchema,
+} from "@validation";
 import {
-  FieldState,
+  type FieldState,
+  shorthandArray,
   shorthandFilter,
   shorthandUpdate,
-  shorthandArray,
 } from "../common";
-import v, {
-  BaseBooleanSchema,
-  InferInput,
-  InferOutput,
-  VibSchema,
-} from "@validation";
 
 // =============================================================================
 // BASE TYPES
@@ -106,10 +106,10 @@ export type BooleanSchemas<F extends FieldState<"boolean">> = {
 
 export type InferBooleanInput<
   F extends FieldState<"boolean">,
-  Type extends "create" | "update" | "filter" | "base"
+  Type extends "create" | "update" | "filter" | "base",
 > = InferInput<BooleanSchemas<F>[Type]>;
 
 export type InferBooleanOutput<
   F extends FieldState<"boolean">,
-  Type extends "create" | "update" | "filter" | "base"
+  Type extends "create" | "update" | "filter" | "base",
 > = InferOutput<BooleanSchemas<F>[Type]>;

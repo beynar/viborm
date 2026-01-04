@@ -1,13 +1,13 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
+import { createJsonSchemaConverter } from "./json-schema/factory";
 import type {
-  ScalarOptions,
-  ValidationResult,
-  ValidationIssue,
-  VibSchema,
   ComputeInput,
   ComputeOutput,
+  ScalarOptions,
+  ValidationIssue,
+  ValidationResult,
+  VibSchema,
 } from "./types";
-import { createJsonSchemaConverter } from "./json-schema/factory";
 
 // =============================================================================
 // Core Validation Primitives
@@ -94,22 +94,22 @@ const FACTORIES: ValidatorFactory[] = [
   (v) => (val) => validateArray(val, v),
 
   // 010: optional only
-  (v) => (val) => val === undefined ? OK_UNDEFINED : v(val),
+  (v) => (val) => (val === undefined ? OK_UNDEFINED : v(val)),
 
   // 011: optional + array
-  (v) => (val) => val === undefined ? OK_UNDEFINED : validateArray(val, v),
+  (v) => (val) => (val === undefined ? OK_UNDEFINED : validateArray(val, v)),
 
   // 100: nullable only
-  (v) => (val) => val === null ? OK_NULL : v(val),
+  (v) => (val) => (val === null ? OK_NULL : v(val)),
 
   // 101: nullable + array
-  (v) => (val) => val === null ? OK_NULL : validateArray(val, v),
+  (v) => (val) => (val === null ? OK_NULL : validateArray(val, v)),
 
   // 110: nullable + optional (use == null for both!)
-  (v) => (val) => val == null ? ok(val) : v(val),
+  (v) => (val) => (val == null ? ok(val) : v(val)),
 
   // 111: nullable + optional + array
-  (v) => (val) => val == null ? ok(val) : validateArray(val, v),
+  (v) => (val) => (val == null ? ok(val) : validateArray(val, v)),
 ];
 
 /**
@@ -306,7 +306,7 @@ export function buildValidator<T, TOut, TSchemaOut = T>(
 export function buildSchema<
   T,
   const Opts extends ScalarOptions<T, any> | undefined,
-  TExtras extends Record<string, unknown> = {}
+  TExtras extends Record<string, unknown> = {},
 >(
   type: string,
   baseValidate: ValidatorFn<T>,

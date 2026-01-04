@@ -36,4 +36,3 @@ export type ValidationRule = (
   model: Model<any>,
   ctx?: ValidationContext
 ) => ValidationError[];
-

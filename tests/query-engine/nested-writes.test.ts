@@ -3,18 +3,16 @@
  *
  * Tests for the relation-data-builder and nested-writes functionality.
  */
-import { describe, it, expect } from "vitest";
-import { s } from "@schema";
-import {
-  separateData,
-  needsTransaction,
-  canUseSubqueryOnly,
-} from "@query-engine/builders/relation-data-builder";
-import {
-  createQueryContext,
-  createModelRegistry,
-} from "@query-engine";
+
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
+import { createModelRegistry, createQueryContext } from "@query-engine";
+import {
+  canUseSubqueryOnly,
+  needsTransaction,
+  separateData,
+} from "@query-engine/builders/relation-data-builder";
+import { s } from "@schema";
+import { describe, expect, it } from "vitest";
 
 // =============================================================================
 // TEST MODELS

@@ -1,18 +1,21 @@
+import { buildSchema, ok } from "../helpers";
 import type {
-  VibSchema,
-  ScalarOptions,
   ComputeInput,
   ComputeOutput,
+  ScalarOptions,
+  VibSchema,
 } from "../types";
-import { buildSchema, ok } from "../helpers";
 
 // =============================================================================
 // Boolean Schema
 // =============================================================================
 
 export interface BaseBooleanSchema<
-  Opts extends ScalarOptions<boolean, any> | undefined = undefined
-> extends VibSchema<ComputeInput<boolean, Opts>, ComputeOutput<boolean, Opts>> {}
+  Opts extends ScalarOptions<boolean, any> | undefined = undefined,
+> extends VibSchema<
+    ComputeInput<boolean, Opts>,
+    ComputeOutput<boolean, Opts>
+  > {}
 
 export interface BooleanSchema<TInput = boolean, TOutput = boolean>
   extends VibSchema<TInput, TOutput> {
@@ -39,7 +42,7 @@ function validateBoolean(value: unknown) {
  * const optionalFlag = v.boolean({ optional: true });
  */
 export function boolean<
-  const Opts extends ScalarOptions<boolean, any> | undefined = undefined
+  const Opts extends ScalarOptions<boolean, any> | undefined = undefined,
 >(
   options?: Opts
 ): BooleanSchema<ComputeInput<boolean, Opts>, ComputeOutput<boolean, Opts>> {

@@ -1,17 +1,17 @@
+import { buildSchema, ok } from "../helpers";
 import type {
-  VibSchema,
-  ScalarOptions,
   ComputeInput,
   ComputeOutput,
+  ScalarOptions,
+  VibSchema,
 } from "../types";
-import { buildSchema, ok } from "../helpers";
 
 // =============================================================================
 // Blob Schema (Uint8Array / Buffer)
 // =============================================================================
 
 export interface BaseBlobSchema<
-  Opts extends ScalarOptions<Uint8Array, any> | undefined = undefined
+  Opts extends ScalarOptions<Uint8Array, any> | undefined = undefined,
 > extends VibSchema<
     ComputeInput<Uint8Array, Opts>,
     ComputeOutput<Uint8Array, Opts>
@@ -47,7 +47,7 @@ export function validateBlob(value: unknown) {
  * const nullableBlob = v.blob({ nullable: true });
  */
 export function blob<
-  const Opts extends ScalarOptions<Uint8Array, any> | undefined = undefined
+  const Opts extends ScalarOptions<Uint8Array, any> | undefined = undefined,
 >(
   options?: Opts
 ): BlobSchema<ComputeInput<Uint8Array, Opts>, ComputeOutput<Uint8Array, Opts>> {

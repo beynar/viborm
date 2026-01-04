@@ -8,9 +8,9 @@
  * - prisma (uses schema.prisma but we use TS)
  */
 
-import { pathToFileURL } from "url";
-import { resolve } from "path";
-import { existsSync } from "fs";
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import type { Driver } from "../drivers/driver";
 import type { AnyModel } from "../schema/model";
 
@@ -88,7 +88,7 @@ function findFile(cwd: string, candidates: string[]): string | null {
  * - schema: Object containing model definitions
  */
 export async function loadConfig(
-  options: LoadConfigOptions = {},
+  options: LoadConfigOptions = {}
 ): Promise<LoadedConfig> {
   const cwd = process.cwd();
 
@@ -97,20 +97,20 @@ export async function loadConfig(
     ? resolve(cwd, options.config)
     : findFile(cwd, CONFIG_FILES);
 
-  if (!configPath || !existsSync(configPath)) {
+  if (!(configPath && existsSync(configPath))) {
     const searchedPaths = options.config ? [options.config] : CONFIG_FILES;
 
     throw new Error(
-      `Could not find VibORM configuration file.\n\n` +
+      "Could not find VibORM configuration file.\n\n" +
         `Searched for:\n${searchedPaths.map((f) => `  - ${f}`).join("\n")}\n\n` +
-        `Create a viborm.config.ts file:\n\n` +
+        "Create a viborm.config.ts file:\n\n" +
         `  import { defineConfig } from "viborm/config";\n` +
         `  import { driver } from "./src/db";\n` +
         `  import * as schema from "./src/schema";\n\n` +
-        `  export default defineConfig({\n` +
-        `    driver,\n` +
-        `    schema,\n` +
-        `  });\n`,
+        "  export default defineConfig({\n" +
+        "    driver,\n" +
+        "    schema,\n" +
+        "  });\n"
     );
   }
 
@@ -125,23 +125,23 @@ export async function loadConfig(
   if (!config.driver) {
     throw new Error(
       `Missing "driver" in ${configPath}.\n\n` +
-        `Your config should include a database driver:\n\n` +
-        `  export default defineConfig({\n` +
-        `    driver: yourDriver,\n` +
-        `    schema: { ... },\n` +
-        `  });\n`,
+        "Your config should include a database driver:\n\n" +
+        "  export default defineConfig({\n" +
+        "    driver: yourDriver,\n" +
+        "    schema: { ... },\n" +
+        "  });\n"
     );
   }
 
   if (!config.schema || typeof config.schema !== "object") {
     throw new Error(
       `Missing "schema" in ${configPath}.\n\n` +
-        `Your config should include schema models:\n\n` +
+        "Your config should include schema models:\n\n" +
         `  import * as schema from "./src/schema";\n\n` +
-        `  export default defineConfig({\n` +
-        `    driver,\n` +
-        `    schema,\n` +
-        `  });\n`,
+        "  export default defineConfig({\n" +
+        "    driver,\n" +
+        "    schema,\n" +
+        "  });\n"
     );
   }
 
@@ -151,13 +151,13 @@ export async function loadConfig(
   if (Object.keys(models).length === 0) {
     throw new Error(
       `No models found in schema from ${configPath}.\n\n` +
-        `Make sure your schema exports VibORM models:\n\n` +
-        `  // src/schema.ts\n` +
+        "Make sure your schema exports VibORM models:\n\n" +
+        "  // src/schema.ts\n" +
         `  import { model, string, int } from "viborm";\n\n` +
-        `  export const user = model({\n` +
-        `    id: string().id(),\n` +
-        `    name: string(),\n` +
-        `  });\n`,
+        "  export const user = model({\n" +
+        "    id: string().id(),\n" +
+        "    name: string(),\n" +
+        "  });\n"
     );
   }
 
@@ -179,12 +179,12 @@ async function importModule(filePath: string): Promise<any> {
       throw new Error(
         `Failed to load ${filePath}.\n\n` +
           `Make sure you're running with a TypeScript loader:\n\n` +
-          `  # Using bun (recommended)\n` +
-          `  bun viborm push\n\n` +
-          `  # Using tsx\n` +
-          `  npx tsx node_modules/.bin/viborm push\n\n` +
-          `  # Using ts-node\n` +
-          `  npx ts-node --esm node_modules/.bin/viborm push\n`,
+          "  # Using bun (recommended)\n" +
+          "  bun viborm push\n\n" +
+          "  # Using tsx\n" +
+          "  npx tsx node_modules/.bin/viborm push\n\n" +
+          "  # Using ts-node\n" +
+          "  npx ts-node --esm node_modules/.bin/viborm push\n"
       );
     }
     throw e;
@@ -195,7 +195,7 @@ async function importModule(filePath: string): Promise<any> {
  * Extracts model objects from a module by checking for Model instances.
  */
 function extractModels(
-  schema: Record<string, unknown>,
+  schema: Record<string, unknown>
 ): Record<string, AnyModel> {
   const models: Record<string, AnyModel> = {};
 
@@ -254,18 +254,24 @@ export function defineConfig(config: VibORMConfig): VibORMConfig {
  * Formats bytes into human-readable size.
  */
 export function formatBytes(bytes: number): string {
-  if (bytes === 0) return "0 B";
+  if (bytes === 0) {
+    return "0 B";
+  }
   const k = 1024;
   const sizes = ["B", "KB", "MB", "GB"];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
+  return `${Number.parseFloat((bytes / k ** i).toFixed(1))} ${sizes[i]}`;
 }
 
 /**
  * Formats milliseconds into human-readable duration.
  */
 export function formatDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
-  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
-  return `${(ms / 60000).toFixed(1)}m`;
+  if (ms < 1000) {
+    return `${ms}ms`;
+  }
+  if (ms < 60_000) {
+    return `${(ms / 1000).toFixed(1)}s`;
+  }
+  return `${(ms / 60_000).toFixed(1)}m`;
 }

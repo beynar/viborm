@@ -1,4 +1,4 @@
-import { Sql } from "@sql";
+import type { Sql } from "@sql";
 
 /**
  * DatabaseAdapter Interface

@@ -1,14 +1,14 @@
 // Schema Validator
 
 import type { Model } from "../model";
-import type {
-  ValidationResult,
-  ValidationError,
-  Schema,
-  ValidationRule,
-  ValidationContext,
-} from "./types";
 import { allRules } from "./rules";
+import type {
+  Schema,
+  ValidationContext,
+  ValidationError,
+  ValidationResult,
+  ValidationRule,
+} from "./types";
 
 /** Build context once, use everywhere */
 function buildContext(schema: Schema): ValidationContext {
@@ -28,7 +28,7 @@ function buildContext(schema: Schema): ValidationContext {
 }
 
 export class SchemaValidator {
-  private schema: Schema = new Map();
+  private readonly schema: Schema = new Map();
 
   /** Register a model with a name */
   register(name: string, model: Model<any>): this {
@@ -109,4 +109,3 @@ export function validateSchemaOrThrow(
 ): void {
   new SchemaValidator().registerAll(models).validateOrThrow(rules);
 }
-

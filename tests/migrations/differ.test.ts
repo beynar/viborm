@@ -2,15 +2,23 @@
  * Schema Differ Tests
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { diff, hasDestructiveOperations } from "../../src/migrations/differ";
-import type { SchemaSnapshot, TableDef, ColumnDef } from "../../src/migrations/types";
+import type {
+  ColumnDef,
+  SchemaSnapshot,
+  TableDef,
+} from "../../src/migrations/types";
 
 // =============================================================================
 // HELPERS
 // =============================================================================
 
-function makeTable(name: string, columns: ColumnDef[], overrides?: Partial<TableDef>): TableDef {
+function makeTable(
+  name: string,
+  columns: ColumnDef[],
+  overrides?: Partial<TableDef>
+): TableDef {
   return {
     name,
     columns,
@@ -21,7 +29,11 @@ function makeTable(name: string, columns: ColumnDef[], overrides?: Partial<Table
   };
 }
 
-function makeColumn(name: string, type: string, overrides?: Partial<ColumnDef>): ColumnDef {
+function makeColumn(
+  name: string,
+  type: string,
+  overrides?: Partial<ColumnDef>
+): ColumnDef {
   return {
     name,
     type,
@@ -43,7 +55,10 @@ describe("diff", () => {
     it("should detect new tables", () => {
       const current = makeSnapshot([]);
       const desired = makeSnapshot([
-        makeTable("users", [makeColumn("id", "integer"), makeColumn("name", "text")]),
+        makeTable("users", [
+          makeColumn("id", "integer"),
+          makeColumn("name", "text"),
+        ]),
       ]);
 
       const result = diff(current, desired);
@@ -208,7 +223,9 @@ describe("diff", () => {
         makeTable("users", [makeColumn("status", "text")]),
       ]);
       const desired = makeSnapshot([
-        makeTable("users", [makeColumn("status", "text", { default: "'active'" })]),
+        makeTable("users", [
+          makeColumn("status", "text", { default: "'active'" }),
+        ]),
       ]);
 
       const result = diff(current, desired);
@@ -275,20 +292,21 @@ describe("diff", () => {
         ]),
       ]);
       const desired = makeSnapshot([
-        makeTable("posts", [
-          makeColumn("id", "integer"),
-          makeColumn("user_id", "integer"),
-        ], {
-          foreignKeys: [
-            {
-              name: "fk_posts_user",
-              columns: ["user_id"],
-              referencedTable: "users",
-              referencedColumns: ["id"],
-              onDelete: "cascade",
-            },
-          ],
-        }),
+        makeTable(
+          "posts",
+          [makeColumn("id", "integer"), makeColumn("user_id", "integer")],
+          {
+            foreignKeys: [
+              {
+                name: "fk_posts_user",
+                columns: ["user_id"],
+                referencedTable: "users",
+                referencedColumns: ["id"],
+                onDelete: "cascade",
+              },
+            ],
+          }
+        ),
       ]);
 
       const result = diff(current, desired);
@@ -303,19 +321,20 @@ describe("diff", () => {
 
     it("should detect dropped foreign keys", () => {
       const current = makeSnapshot([
-        makeTable("posts", [
-          makeColumn("id", "integer"),
-          makeColumn("user_id", "integer"),
-        ], {
-          foreignKeys: [
-            {
-              name: "fk_posts_user",
-              columns: ["user_id"],
-              referencedTable: "users",
-              referencedColumns: ["id"],
-            },
-          ],
-        }),
+        makeTable(
+          "posts",
+          [makeColumn("id", "integer"), makeColumn("user_id", "integer")],
+          {
+            foreignKeys: [
+              {
+                name: "fk_posts_user",
+                columns: ["user_id"],
+                referencedTable: "users",
+                referencedColumns: ["id"],
+              },
+            ],
+          }
+        ),
       ]);
       const desired = makeSnapshot([
         makeTable("posts", [
@@ -341,9 +360,7 @@ describe("diff", () => {
       ]);
       const desired = makeSnapshot([
         makeTable("users", [makeColumn("email", "text")], {
-          uniqueConstraints: [
-            { name: "uq_users_email", columns: ["email"] },
-          ],
+          uniqueConstraints: [{ name: "uq_users_email", columns: ["email"] }],
         }),
       ]);
 
@@ -365,12 +382,13 @@ describe("diff", () => {
         }),
       ]);
       const desired = makeSnapshot([
-        makeTable("users", [
-          makeColumn("id", "integer"),
-          makeColumn("tenant_id", "integer"),
-        ], {
-          primaryKey: { columns: ["id", "tenant_id"], name: "users_pkey" },
-        }),
+        makeTable(
+          "users",
+          [makeColumn("id", "integer"), makeColumn("tenant_id", "integer")],
+          {
+            primaryKey: { columns: ["id", "tenant_id"], name: "users_pkey" },
+          }
+        ),
       ]);
 
       const result = diff(current, desired);

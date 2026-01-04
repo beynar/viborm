@@ -1,5 +1,5 @@
-import { Field } from "@schema/fields/base";
-import { AnyRelation, Relation } from "@schema/relation/relation";
+import type { Field } from "@schema/fields/base";
+import { type AnyRelation, Relation } from "@schema/relation/relation";
 
 /**
  * Record of model fields - the canonical type for field definitions.
@@ -84,33 +84,42 @@ export type UniqueFields<T extends FieldRecord> = {
 };
 
 export const extractScalarFields = <T extends FieldRecord>(fields: T) => {
-  return Object.entries(fields).reduce((acc, [key, value]) => {
-    if (!(value instanceof Relation)) {
-      acc[key] = value;
-    }
-    return acc;
-  }, {} as ScalarFields<T>);
+  return Object.entries(fields).reduce(
+    (acc, [key, value]) => {
+      if (!(value instanceof Relation)) {
+        acc[key] = value;
+      }
+      return acc;
+    },
+    {} as ScalarFields<T>
+  );
 };
 
 export const extractRelationFields = <T extends FieldRecord>(fields: T) => {
-  return Object.entries(fields).reduce((acc, [key, value]) => {
-    if (value instanceof Relation) {
-      acc[key] = value;
-    }
-    return acc;
-  }, {} as RelationFields<T>);
+  return Object.entries(fields).reduce(
+    (acc, [key, value]) => {
+      if (value instanceof Relation) {
+        acc[key] = value;
+      }
+      return acc;
+    },
+    {} as RelationFields<T>
+  );
 };
 
 export const extractUniqueFields = <T extends FieldRecord>(fields: T) => {
-  return Object.entries(fields).reduce((acc, [key, value]) => {
-    if (
-      (!(value instanceof Relation) && value["~"].state.isUnique) ||
-      value["~"].state.isId
-    ) {
-      acc[key] = value;
-    }
-    return acc;
-  }, {} as UniqueFields<T>);
+  return Object.entries(fields).reduce(
+    (acc, [key, value]) => {
+      if (
+        (!(value instanceof Relation) && value["~"].state.isUnique) ||
+        value["~"].state.isId
+      ) {
+        acc[key] = value;
+      }
+      return acc;
+    },
+    {} as UniqueFields<T>
+  );
 };
 
 export const getNameFromKeys = <
@@ -118,7 +127,7 @@ export const getNameFromKeys = <
   TFields extends any[],
 >(
   name: Name,
-  fields: TFields,
+  fields: TFields
 ) => {
   return (
     name ??

@@ -5,10 +5,8 @@
  * Provides utilities for converting user resolutions into concrete operations.
  */
 
-import {
+import type {
   AmbiguousChange,
-  AmbiguousColumnChange,
-  AmbiguousTableChange,
   ChangeResolution,
   DiffOperation,
   Resolver,
@@ -154,9 +152,8 @@ export const strictResolver: Resolver = async (changes) => {
     const descriptions = changes.map((change) => {
       if (change.type === "ambiguousColumn") {
         return `Column "${change.droppedColumn.name}" was removed and "${change.addedColumn.name}" was added in table "${change.tableName}"`;
-      } else {
-        return `Table "${change.droppedTable}" was removed and "${change.addedTable}" was added`;
       }
+      return `Table "${change.droppedTable}" was removed and "${change.addedTable}" was added`;
     });
 
     throw new Error(
@@ -175,7 +172,9 @@ export const strictResolver: Resolver = async (changes) => {
  * Creates a resolver from a simple decision function
  */
 export function createResolver(
-  decide: (change: AmbiguousChange) => "rename" | "addAndDrop" | Promise<"rename" | "addAndDrop">
+  decide: (
+    change: AmbiguousChange
+  ) => "rename" | "addAndDrop" | Promise<"rename" | "addAndDrop">
 ): Resolver {
   return async (changes) => {
     const resolutions = new Map<AmbiguousChange, ChangeResolution>();
@@ -210,7 +209,8 @@ export function createPredefinedResolver(
             p.to === change.addedColumn.name &&
             (!p.tableName || p.tableName === change.tableName)
           );
-        } else if (change.type === "ambiguousTable" && p.type === "table") {
+        }
+        if (change.type === "ambiguousTable" && p.type === "table") {
           return p.from === change.droppedTable && p.to === change.addedTable;
         }
         return false;
@@ -235,12 +235,11 @@ export function formatAmbiguousChange(change: AmbiguousChange): string {
       `Column rename detected in table "${change.tableName}":\n` +
       `  "${change.droppedColumn.name}" (${change.droppedColumn.type}) → "${change.addedColumn.name}" (${change.addedColumn.type})`
     );
-  } else {
-    return (
-      `Table rename detected:\n` +
-      `  "${change.droppedTable}" → "${change.addedTable}"`
-    );
   }
+  return (
+    "Table rename detected:\n" +
+    `  "${change.droppedTable}" → "${change.addedTable}"`
+  );
 }
 
 /**

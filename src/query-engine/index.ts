@@ -4,110 +4,109 @@
  * Exports the query engine and all related utilities.
  */
 
-// Main exports
-export {
-  QueryEngine,
-  createQueryEngine,
-  createModelRegistry,
-} from "./query-engine";
-
-// Types
 export type {
-  Operation,
-  QueryContext,
-  ModelRegistry,
-  RelationInfo,
-} from "./types";
-export { ValidationError, QueryEngineError, NestedWriteError, Sql } from "./types";
-
-// Error utilities
-export {
-  createNestedWriteError,
-  createQueryError,
-  createMissingFieldError,
-  createInvalidRelationError,
-} from "./errors";
-
-// Validator
-export { validate, validateOptional } from "./validator";
-
-// Context utilities
-export {
-  createQueryContext,
-  createChildContext,
-  getRelationInfo,
-  getTableName,
-  getScalarFieldNames,
-  getRelationNames,
-  isScalarField,
-  isRelation,
-  AliasGenerator,
-  createAliasGenerator,
-} from "./context";
-
+  BuildSelectOptions,
+  ConnectOrCreateInput,
+  FkDirection,
+  RelationMutation,
+  SeparatedData,
+} from "./builders";
 // Builders (for advanced usage)
 export {
-  buildWhere,
-  buildWhereUnique,
+  buildConnectFkValues,
+  buildConnectSubquery,
+  buildCorrelation,
+  buildDisconnectFkNulls,
+  buildInclude,
+  buildInsert,
+  buildInsertMany,
+  buildOrderBy,
   buildRelationFilter,
   buildSelect,
   buildSelectAll,
-  buildInclude,
-  buildOrderBy,
-  buildValues,
-  buildInsert,
-  buildInsertMany,
   buildSet,
-  buildCorrelation,
+  buildValues,
+  buildWhere,
+  buildWhereUnique,
+  canUseSubqueryOnly,
+  getFkDirection,
   getPrimaryKeyField,
   getPrimaryKeyFields,
+  getSubqueryConnects,
+  needsTransaction,
   // Relation data builders
   separateData,
-  getFkDirection,
-  buildConnectSubquery,
-  buildConnectFkValues,
-  buildDisconnectFkNulls,
-  needsTransaction,
-  canUseSubqueryOnly,
-  getSubqueryConnects,
 } from "./builders";
-export type {
-  BuildSelectOptions,
-  SeparatedData,
-  RelationMutation,
-  ConnectOrCreateInput,
-  FkDirection,
-} from "./builders";
+// Context utilities
+export {
+  AliasGenerator,
+  createAliasGenerator,
+  createChildContext,
+  createQueryContext,
+  getRelationInfo,
+  getRelationNames,
+  getScalarFieldNames,
+  getTableName,
+  isRelation,
+  isScalarField,
+} from "./context";
 
+// Error utilities
+export {
+  createInvalidRelationError,
+  createMissingFieldError,
+  createNestedWriteError,
+  createQueryError,
+} from "./errors";
+export type {
+  AggregateArgs,
+  FindArgs,
+  FindFirstArgs,
+  FindManyArgs,
+  FindOptions,
+  GroupByArgs,
+  NestedCreateResult,
+  TransactionContext,
+  TransactionStep,
+} from "./operations";
 // Operations (for advanced usage)
 export {
+  buildAggregate,
+  buildCount,
+  buildCreate,
+  buildCreateMany,
+  buildDelete,
+  buildDeleteMany,
+  buildFind,
   buildFindFirst,
   buildFindMany,
   buildFindUnique,
-  buildFind,
-  buildCreate,
-  buildCreateMany,
+  buildGroupBy,
   buildUpdate,
   buildUpdateMany,
-  buildDelete,
-  buildDeleteMany,
   buildUpsert,
-  buildCount,
-  buildAggregate,
-  buildGroupBy,
   executeNestedCreate,
 } from "./operations";
-export type {
-  FindArgs,
-  FindOptions,
-  FindFirstArgs,
-  FindManyArgs,
-  AggregateArgs,
-  GroupByArgs,
-  NestedCreateResult,
-  TransactionStep,
-  TransactionContext,
-} from "./operations";
-
+// Main exports
+export {
+  createModelRegistry,
+  createQueryEngine,
+  QueryEngine,
+} from "./query-engine";
 // Result parsing
-export { parseResult, parseCountResult, parseMutationCount } from "./result";
+export { parseCountResult, parseMutationCount, parseResult } from "./result";
+// Types
+export type {
+  ModelRegistry,
+  Operation,
+  QueryContext,
+  RelationInfo,
+} from "./types";
+export {
+  NestedWriteError,
+  QueryEngineError,
+  Sql,
+  ValidationError,
+} from "./types";
+// Validator
+export { validate, validateOptional } from "./validator";

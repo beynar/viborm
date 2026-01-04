@@ -1,4 +1,4 @@
-import { Schema } from "@client/types";
+import type { Schema } from "@client/types";
 
 type SchemaProxy<S extends Schema> = {
   [K in keyof S]: S[K]["~"]["schemas"];
@@ -16,7 +16,9 @@ export const getSchemas = <S extends Schema>(schema: S): SchemaProxy<S> => {
 
     return new Proxy(target as object, {
       get(proxyTarget, key) {
-        if (typeof key !== "string") return undefined;
+        if (typeof key !== "string") {
+          throw new Error("Key must be a string");
+        }
         const value = (proxyTarget as Record<string, unknown>)[key];
         return createRecursiveProxy(value);
       },
@@ -25,9 +27,13 @@ export const getSchemas = <S extends Schema>(schema: S): SchemaProxy<S> => {
 
   return new Proxy({} as SchemaProxy<S>, {
     get(_target, modelName) {
-      if (typeof modelName !== "string") return undefined;
+      if (typeof modelName !== "string") {
+        throw new Error("Model name must be a string");
+      }
       const model = schema[modelName];
-      if (!model) return undefined;
+      if (!model) {
+        throw new Error(`Model "${modelName}" not found in schema`);
+      }
       return createRecursiveProxy(model["~"].schemas);
     },
   });

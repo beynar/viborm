@@ -8,8 +8,8 @@ import * as p from "@clack/prompts";
 import type {
   AmbiguousChange,
   ChangeResolution,
-  Resolver,
   DiffOperation,
+  Resolver,
 } from "../migrations/types";
 
 // =============================================================================
@@ -35,7 +35,7 @@ export const interactiveResolver: Resolver = async (changes) => {
           },
           {
             value: "addAndDrop",
-            label: `Add + Drop: Create new column, delete old one`,
+            label: "Add + Drop: Create new column, delete old one",
             hint: "Data in old column will be LOST",
           },
         ],
@@ -60,7 +60,7 @@ export const interactiveResolver: Resolver = async (changes) => {
           },
           {
             value: "addAndDrop",
-            label: `Add + Drop: Create new table, delete old one`,
+            label: "Add + Drop: Create new table, delete old one",
             hint: "ALL DATA in old table will be LOST",
           },
         ],
@@ -141,7 +141,11 @@ export function displayOperations(operations: DiffOperation[]): void {
   const enumOps: DiffOperation[] = [];
 
   for (const op of operations) {
-    if (op.type === "createTable" || op.type === "dropTable" || op.type === "renameTable") {
+    if (
+      op.type === "createTable" ||
+      op.type === "dropTable" ||
+      op.type === "renameTable"
+    ) {
       tableOps.push(op);
     } else if (
       op.type === "createEnum" ||
@@ -237,20 +241,21 @@ function formatOp(op: DiffOperation): string {
     case "dropUniqueConstraint":
       return `- Drop unique constraint: ${op.constraintName}`;
     case "addPrimaryKey":
-      return `+ Add primary key`;
+      return "+ Add primary key";
     case "dropPrimaryKey":
       return `- Drop primary key: ${op.constraintName}`;
     case "createEnum":
       return `✓ Create enum "${op.enumDef.name}"`;
     case "dropEnum":
       return `✗ Drop enum "${op.enumName}"`;
-    case "alterEnum":
+    case "alterEnum": {
       const parts: string[] = [];
       if (op.addValues?.length) parts.push(`+${op.addValues.join(", ")}`);
       if (op.removeValues?.length) parts.push(`-${op.removeValues.join(", ")}`);
       return `~ Alter enum "${op.enumName}": ${parts.join(" ")}`;
+    }
     default:
-      return `Unknown operation`;
+      return "Unknown operation";
   }
 }
 

@@ -6,17 +6,17 @@
  * - To-many: scalar subquery returning JSON array
  */
 
-import { sql, Sql } from "@sql";
-import type { QueryContext, RelationInfo } from "../types";
+import { type Sql, sql } from "@sql";
 import { createChildContext, getTableName } from "../context";
-import { buildSelect } from "./select-builder";
-import { buildWhere } from "./where-builder";
-import { buildOrderBy } from "./orderby-builder";
+import type { QueryContext, RelationInfo } from "../types";
 import { buildCorrelation } from "./correlation-utils";
 import {
-  getManyToManyJoinInfo,
   buildManyToManyJoinParts,
+  getManyToManyJoinInfo,
 } from "./many-to-many-utils";
+import { buildOrderBy } from "./orderby-builder";
+import { buildSelect } from "./select-builder";
+import { buildWhere } from "./where-builder";
 
 /**
  * Build an include (relation subquery with JSON aggregation)
@@ -31,7 +31,7 @@ export function buildInclude(
   ctx: QueryContext,
   relationInfo: RelationInfo,
   includeValue: Record<string, unknown>,
-  parentAlias: string,
+  parentAlias: string
 ): Sql {
   // Handle manyToMany specially - requires junction table
   if (relationInfo.type === "manyToMany") {
@@ -42,7 +42,7 @@ export function buildInclude(
   const childCtx = createChildContext(
     ctx,
     relationInfo.targetModel,
-    relatedAlias,
+    relatedAlias
   );
 
   // Extract include options
@@ -65,7 +65,7 @@ export function buildInclude(
     ctx,
     relationInfo,
     parentAlias,
-    relatedAlias,
+    relatedAlias
   );
   const innerWhere = buildWhere(childCtx, where, relatedAlias);
 
@@ -80,7 +80,7 @@ export function buildInclude(
   const relatedTableName = getTableName(relationInfo.targetModel);
   const fromTable = ctx.adapter.identifiers.table(
     relatedTableName,
-    relatedAlias,
+    relatedAlias
   );
 
   if (relationInfo.isToMany) {
@@ -92,12 +92,11 @@ export function buildInclude(
       whereCondition,
       orderBySql,
       take,
-      skip,
+      skip
     );
-  } else {
-    // To-one: single JSON object or null
-    return buildToOneSubquery(ctx, jsonExpr, fromTable, whereCondition);
   }
+  // To-one: single JSON object or null
+  return buildToOneSubquery(ctx, jsonExpr, fromTable, whereCondition);
 }
 
 /**
@@ -110,7 +109,7 @@ function buildToManySubquery(
   where: Sql,
   orderBy: Sql | undefined,
   take: number | undefined,
-  skip: number | undefined,
+  skip: number | undefined
 ): Sql {
   const { adapter } = ctx;
 
@@ -138,7 +137,7 @@ function buildToManySubquery(
   // Wrap with aggregation: SELECT COALESCE(json_agg(alias), '[]') FROM (innerQuery) alias
   const subAlias = ctx.nextAlias();
   return adapter.subqueries.scalar(
-    sql`SELECT ${adapter.json.agg(adapter.identifiers.escape(subAlias))} FROM (${innerQuery}) ${adapter.identifiers.escape(subAlias)}`,
+    sql`SELECT ${adapter.json.agg(adapter.identifiers.escape(subAlias))} FROM (${innerQuery}) ${adapter.identifiers.escape(subAlias)}`
   );
 }
 
@@ -149,7 +148,7 @@ function buildToOneSubquery(
   ctx: QueryContext,
   jsonExpr: Sql,
   fromTable: Sql,
-  where: Sql,
+  where: Sql
 ): Sql {
   const { adapter } = ctx;
 
@@ -176,7 +175,7 @@ function buildManyToManyInclude(
   ctx: QueryContext,
   relationInfo: RelationInfo,
   includeValue: Record<string, unknown>,
-  parentAlias: string,
+  parentAlias: string
 ): Sql {
   const { adapter } = ctx;
 
@@ -190,14 +189,14 @@ function buildManyToManyInclude(
       joinInfo,
       parentAlias,
       junctionAlias,
-      targetAlias,
+      targetAlias
     );
 
   // Create child context for target
   const childCtx = createChildContext(
     ctx,
     relationInfo.targetModel,
-    targetAlias,
+    targetAlias
   );
 
   // Extract include options
@@ -252,6 +251,6 @@ function buildManyToManyInclude(
   // Wrap with aggregation
   const subAlias = ctx.nextAlias();
   return adapter.subqueries.scalar(
-    sql`SELECT ${adapter.json.agg(adapter.identifiers.escape(subAlias))} FROM (${innerQuery}) ${adapter.identifiers.escape(subAlias)}`,
+    sql`SELECT ${adapter.json.agg(adapter.identifiers.escape(subAlias))} FROM (${innerQuery}) ${adapter.identifiers.escape(subAlias)}`
   );
 }

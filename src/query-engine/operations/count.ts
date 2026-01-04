@@ -5,10 +5,10 @@
  * Returns the number of records matching the criteria.
  */
 
-import { sql, Sql } from "@sql";
-import type { QueryContext } from "../types";
-import { getTableName, getColumnName } from "../context";
+import { type Sql, sql } from "@sql";
 import { buildWhere } from "../builders/where-builder";
+import { getColumnName, getTableName } from "../context";
+import type { QueryContext } from "../types";
 
 interface CountArgs {
   where?: Record<string, unknown>;
@@ -39,10 +39,12 @@ export function buildCount(ctx: QueryContext, args: CountArgs): Sql {
   const where = buildWhere(ctx, args.where, rootAlias);
 
   // Build LIMIT (take)
-  const limit = args.take !== undefined ? adapter.literals.value(args.take) : undefined;
+  const limit =
+    args.take !== undefined ? adapter.literals.value(args.take) : undefined;
 
   // Build OFFSET (skip)
-  const offset = args.skip !== undefined ? adapter.literals.value(args.skip) : undefined;
+  const offset =
+    args.skip !== undefined ? adapter.literals.value(args.skip) : undefined;
 
   // Assemble query parts
   const parts: Parameters<typeof adapter.assemble.select>[0] = {
@@ -95,4 +97,3 @@ function buildCountColumns(
 
   return sql.join(counts, ", ");
 }
-

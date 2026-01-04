@@ -1,10 +1,10 @@
+import { createSchema, ok } from "../helpers";
 import type {
-  VibSchema,
   InferInput,
   InferOutput,
   ValidationResult,
+  VibSchema,
 } from "../types";
-import { ok, createSchema } from "../helpers";
 
 // =============================================================================
 // Nullable Schema
@@ -13,7 +13,7 @@ import { ok, createSchema } from "../helpers";
 export interface NullableSchema<
   TWrapped extends VibSchema<any, any>,
   TInput = InferInput<TWrapped> | null,
-  TOutput = InferOutput<TWrapped> | null
+  TOutput = InferOutput<TWrapped> | null,
 > extends VibSchema<TInput, TOutput> {
   readonly type: "nullable";
   readonly wrapped: TWrapped;
@@ -60,7 +60,7 @@ export function nullable<TWrapped extends VibSchema<any, any>>(
  */
 export function maybeNullable<
   TWrapped extends VibSchema<any, any>,
-  TIsNullable extends boolean
+  TIsNullable extends boolean,
 >(
   wrapped: TWrapped,
   isNullable: TIsNullable

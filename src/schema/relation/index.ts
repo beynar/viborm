@@ -1,15 +1,16 @@
 // Relation exports
+
+export type { Getter, ReferentialAction, RelationType } from "./relation";
 export {
-  Relation,
-  oneToOne,
+  type AnyRelation,
+  generateJunctionFieldName,
+  generateJunctionTableName,
+  getJunctionFieldNames,
+  getJunctionTableName,
+  manyToMany,
   manyToOne,
   oneToMany,
-  manyToMany,
-  generateJunctionTableName,
-  generateJunctionFieldName,
-  getJunctionTableName,
-  getJunctionFieldNames,
-  type AnyRelation,
+  oneToOne,
+  Relation,
 } from "./relation";
-export type { Getter, RelationType, ReferentialAction } from "./relation";
 export * from "./schemas";

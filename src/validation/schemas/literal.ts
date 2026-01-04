@@ -1,10 +1,10 @@
+import { buildSchema, ok } from "../helpers";
 import type {
-  VibSchema,
-  ScalarOptions,
   ComputeInput,
   ComputeOutput,
+  ScalarOptions,
+  VibSchema,
 } from "../types";
-import { buildSchema, ok } from "../helpers";
 
 // =============================================================================
 // Literal Schema
@@ -34,7 +34,7 @@ export interface LiteralSchema<T extends LiteralValue, TInput = T, TOutput = T>
  */
 export function literal<
   const T extends LiteralValue,
-  const Opts extends ScalarOptions<T, any> | undefined = undefined
+  const Opts extends ScalarOptions<T, any> | undefined = undefined,
 >(
   expected: T,
   options?: Opts

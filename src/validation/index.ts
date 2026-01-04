@@ -10,220 +10,212 @@
 //
 // =============================================================================
 
-// Core types
-export type {
-  VibSchema,
-  Cast,
-  ThunkCast,
-  ScalarOptions,
-  InferInput,
-  InferOutput,
-  InferInputShape,
-  InferOutputShape,
-  ComputeInput,
-  ComputeOutput,
-  ValidationResult,
-  ValidationSuccess,
-  ValidationFailure,
-  ValidationIssue,
-  Prettify,
-} from "./types";
-
-export { isVibSchema } from "./types";
+// Helpers
+export {
+  buildValidator,
+  createSchema,
+  fail,
+  getDefault,
+  ok,
+  validateSchema,
+} from "./helpers";
+export type { inferred as inferredType } from "./inferred";
 
 // Branded type symbol
 export { inferred } from "./inferred";
-export type { inferred as inferredType } from "./inferred";
-
-// Helpers
-export {
-  fail,
-  ok,
-  getDefault,
-  buildValidator,
-  createSchema,
-  validateSchema,
-} from "./helpers";
-
 // JSON Schema conversion (StandardJSONSchemaV1)
 export type {
   JsonSchema as JSONSchemaOutput,
-  JsonSchemaTarget,
-  JsonSchemaOptions,
   JsonSchemaConverter,
+  JsonSchemaOptions,
+  JsonSchemaTarget,
 } from "./json-schema";
-
-export { toJsonSchema, createJsonSchemaConverter } from "./json-schema";
-
-// All schemas
-export {
-  // Scalars
-  string,
-  number,
-  integer,
-  boolean,
-  bigint,
-  literal,
-  enum_,
-  json,
-  // Date & Time
-  date,
-  isoTimestamp,
-  isoDate,
-  isoTime,
-  // Instance (Uint8Array, Buffer, etc.)
-  instance,
-  // Blob, Vector, Point
-  blob,
-  vector,
-  point,
-  // Wrappers
-  array,
-  nullable,
-  maybeNullable,
-  optional,
-  // Negative wrappers (narrowing)
-  nonNullable,
-  nonOptional,
-  required,
-  nonArray,
-  element,
-  // Objects
-  object,
-  fromObject,
-  // Composition
-  union,
-  pipe,
-  transformAction,
-  record,
-  fromKeys,
-  // Transform wrapper
-  coerce,
-  map,
-  // Validators (for reuse)
-  validateString,
-  validateNumber,
-  validateInteger,
-  validateBoolean,
-  validateBigInt,
-  validateDate,
-  validateIsoTimestamp,
-  validateIsoDate,
-  validateIsoTime,
-  validateBlob,
-  validateVector,
-  validatePoint,
-  validateJson,
-  isJsonValue,
-} from "./schemas";
-
+export { createJsonSchemaConverter, toJsonSchema } from "./json-schema";
 export type {
-  // Scalar types
-  StringSchema,
-  BaseStringSchema,
-  NumberSchema,
-  BaseNumberSchema,
-  IntegerSchema,
-  BaseIntegerSchema,
-  BooleanSchema,
-  BaseBooleanSchema,
-  BigIntSchema,
-  BaseBigIntSchema,
-  LiteralSchema,
-  LiteralValue,
-  EnumSchema,
-  BaseEnumSchema,
-  JsonSchema,
-  BaseJsonSchema,
-  JsonValue,
-  // Date types
-  DateSchema,
-  BaseDateSchema,
-  IsoTimestampSchema,
-  BaseIsoTimestampSchema,
-  IsoDateSchema,
-  BaseIsoDateSchema,
-  IsoTimeSchema,
-  BaseIsoTimeSchema,
-  // Instance type
-  InstanceSchema,
-  // Blob, Vector, Point types
-  BlobSchema,
-  BaseBlobSchema,
-  VectorSchema,
-  BaseVectorSchema,
-  PointSchema,
-  BasePointSchema,
-  Point,
+  AllPathsToSchemas,
   // Wrapper types
   ArraySchema,
-  NullableSchema,
-  OptionalSchema,
+  BaseBigIntSchema,
+  BaseBlobSchema,
+  BaseBooleanSchema,
+  BaseDateSchema,
+  BaseEnumSchema,
+  BaseIntegerSchema,
+  BaseIsoDateSchema,
+  BaseIsoTimeSchema,
+  BaseIsoTimestampSchema,
+  BaseJsonSchema,
+  BaseNumberSchema,
+  BasePointSchema,
+  BaseStringSchema,
+  BaseVectorSchema,
+  BigIntSchema,
+  // Blob, Vector, Point types
+  BlobSchema,
+  BooleanSchema,
+  // Date types
+  DateSchema,
+  EnumSchema,
+  FromKeysOptions,
+  FromObjectOptions,
+  FromObjectSchema,
+  // Instance type
+  InstanceSchema,
+  IntegerSchema,
+  IsoDateSchema,
+  IsoTimeSchema,
+  IsoTimestampSchema,
+  JsonSchema,
+  JsonValue,
+  LiteralSchema,
+  LiteralValue,
+  NonArraySchema,
   // Negative wrapper types
   NonNullableSchema,
   NonOptionalSchema,
-  NonArraySchema,
-  // Object types
-  ObjectSchema,
+  NullableSchema,
+  NumberSchema,
   ObjectEntries,
   ObjectOptions,
-  FromObjectSchema,
-  FromObjectOptions,
-  AllPathsToSchemas,
-
-  // Composition types
-  UnionSchema,
-  PipeSchema,
-  TransformAction,
+  // Object types
+  ObjectSchema,
+  OptionalSchema,
   PipeAction,
+  PipeSchema,
+  Point,
+  PointSchema,
   RecordSchema,
-  FromKeysOptions,
+  // Scalar types
+  StringSchema,
+  TransformAction,
   // Transform wrapper type
   TransformSchema,
+  // Composition types
+  UnionSchema,
+  VectorSchema,
 } from "./schemas";
+// All schemas
+export {
+  // Wrappers
+  array,
+  bigint,
+  // Blob, Vector, Point
+  blob,
+  boolean,
+  // Transform wrapper
+  coerce,
+  // Date & Time
+  date,
+  element,
+  enum_,
+  fromKeys,
+  fromObject,
+  // Instance (Uint8Array, Buffer, etc.)
+  instance,
+  integer,
+  isJsonValue,
+  isoDate,
+  isoTime,
+  isoTimestamp,
+  json,
+  literal,
+  map,
+  maybeNullable,
+  nonArray,
+  // Negative wrappers (narrowing)
+  nonNullable,
+  nonOptional,
+  nullable,
+  number,
+  // Objects
+  object,
+  optional,
+  pipe,
+  point,
+  record,
+  required,
+  // Scalars
+  string,
+  transformAction,
+  // Composition
+  union,
+  validateBigInt,
+  validateBlob,
+  validateBoolean,
+  validateDate,
+  validateInteger,
+  validateIsoDate,
+  validateIsoTime,
+  validateIsoTimestamp,
+  validateJson,
+  validateNumber,
+  validatePoint,
+  // Validators (for reuse)
+  validateString,
+  validateVector,
+  vector,
+} from "./schemas";
+// Core types
+export type {
+  Cast,
+  ComputeInput,
+  ComputeOutput,
+  InferInput,
+  InferInputShape,
+  InferOutput,
+  InferOutputShape,
+  Prettify,
+  ScalarOptions,
+  ThunkCast,
+  ValidationFailure,
+  ValidationIssue,
+  ValidationResult,
+  ValidationSuccess,
+  VibSchema,
+} from "./types";
+export { isVibSchema } from "./types";
 
-import { StandardSchemaV1 } from "@standard-schema";
 // =============================================================================
 // Convenience namespace (v.string(), v.number(), etc.)
 // =============================================================================
 
 import {
-  string as stringFn,
-  number as numberFn,
-  integer as integerFn,
-  boolean as booleanFn,
+  array as arrayFn,
   bigint as bigintFn,
-  literal as literalFn,
-  enum_ as enumFn,
-  json as jsonFn,
+  blob as blobFn,
+  boolean as booleanFn,
+  coerce as coerceFn,
   date as dateFn,
-  isoTimestamp as isoTimestampFn,
+  element as elementFn,
+  enum_ as enumFn,
+  fromKeys as fromKeysFn,
+  fromObject as fromObjectFn,
+  instance as instanceFn,
+  integer as integerFn,
   isoDate as isoDateFn,
   isoTime as isoTimeFn,
-  instance as instanceFn,
-  blob as blobFn,
-  vector as vectorFn,
-  point as pointFn,
-  array as arrayFn,
-  nullable as nullableFn,
+  isoTimestamp as isoTimestampFn,
+  json as jsonFn,
+  literal as literalFn,
+  map as mapFn,
   maybeNullable as maybeNullableFn,
-  optional as optionalFn,
+  nonArray as nonArrayFn,
   nonNullable as nonNullableFn,
   nonOptional as nonOptionalFn,
-  required as requiredFn,
-  nonArray as nonArrayFn,
-  element as elementFn,
+  nullable as nullableFn,
+  number as numberFn,
   object as objectFn,
-  fromObject as fromObjectFn,
-  union as unionFn,
+  optional as optionalFn,
   pipe as pipeFn,
-  transformAction as transformActionFn,
+  point as pointFn,
   record as recordFn,
-  fromKeys as fromKeysFn,
-  coerce as coerceFn,
-  map as mapFn,
+  required as requiredFn,
+  string as stringFn,
+  transformAction as transformActionFn,
+  union as unionFn,
+  vector as vectorFn,
 } from "./schemas";
-import { Prettify, VibSchema } from "./types";
+import type { Prettify, VibSchema } from "./types";
 export type { Prettify as Simplify };
 /**
  * VibORM validation namespace.

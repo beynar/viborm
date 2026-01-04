@@ -1,6 +1,6 @@
-import { describe, test, expect, expectTypeOf } from "vitest";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { v, number, integer } from "@validation";
+import { integer, number } from "@validation";
+import { describe, expect, expectTypeOf, test } from "vitest";
 
 describe("number schema", () => {
   describe("basic validation", () => {
@@ -31,19 +31,19 @@ describe("number schema", () => {
     });
 
     test("rejects NaN", () => {
-      const result = schema["~standard"].validate(NaN);
+      const result = schema["~standard"].validate(Number.NaN);
       expect(result.issues).toBeDefined();
     });
 
     test("rejects Infinity", () => {
       // Infinity is not storable in MySQL, so we reject it
-      const result = schema["~standard"].validate(Infinity);
+      const result = schema["~standard"].validate(Number.POSITIVE_INFINITY);
       expect(result.issues).toBeDefined();
       expect(result.issues![0].message).toContain("finite number");
     });
 
     test("rejects -Infinity", () => {
-      const result = schema["~standard"].validate(-Infinity);
+      const result = schema["~standard"].validate(Number.NEGATIVE_INFINITY);
       expect(result.issues).toBeDefined();
     });
 

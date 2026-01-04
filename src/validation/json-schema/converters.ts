@@ -4,7 +4,7 @@
  */
 
 import type { VibSchema } from "../types";
-import type { JsonSchema, ConversionContext, JsonSchemaTarget } from "./types";
+import type { ConversionContext, JsonSchema, JsonSchemaTarget } from "./types";
 
 // =============================================================================
 // Helper Functions
@@ -58,7 +58,10 @@ function getSchemaName(schema: any): string | null {
  * @returns The converted JSON Schema
  */
 export function convertSchema(
-  schema: VibSchema<unknown, unknown> & { type: string; [key: string]: unknown },
+  schema: VibSchema<unknown, unknown> & {
+    type: string;
+    [key: string]: unknown;
+  },
   context: ConversionContext,
   skipRef = false
 ): JsonSchema {
@@ -162,7 +165,9 @@ export function convertSchema(
 
     case "object": {
       const entries = (schema as any).entries as Record<string, unknown>;
-      const options = (schema as any).options as { partial?: boolean; strict?: boolean } | undefined;
+      const options = (schema as any).options as
+        | { partial?: boolean; strict?: boolean }
+        | undefined;
       const partial = options?.partial ?? true;
       const strict = options?.strict ?? true;
 
@@ -204,7 +209,7 @@ export function convertSchema(
         const isOptionalWrapper =
           entryType === "optional" || entryType === "nullish";
 
-        if (!partial && !isOptionalWrapper) {
+        if (!(partial || isOptionalWrapper)) {
           jsonSchema.required.push(key);
         }
       }
@@ -225,13 +230,18 @@ export function convertSchema(
     case "record": {
       const valueSchema = (schema as any).value as VibSchema<unknown, unknown>;
       jsonSchema.type = "object";
-      jsonSchema.additionalProperties = convertSchema(valueSchema as any, context);
+      jsonSchema.additionalProperties = convertSchema(
+        valueSchema as any,
+        context
+      );
       break;
     }
 
     case "union": {
       const options = (schema as any).options as VibSchema<unknown, unknown>[];
-      jsonSchema.anyOf = options.map((opt) => convertSchema(opt as any, context));
+      jsonSchema.anyOf = options.map((opt) =>
+        convertSchema(opt as any, context)
+      );
       break;
     }
 
@@ -382,4 +392,3 @@ export function toJsonSchema(
 
   return jsonSchema;
 }
-

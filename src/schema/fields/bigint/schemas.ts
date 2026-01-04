@@ -1,15 +1,15 @@
+import v, {
+  type BaseBigIntSchema,
+  type InferInput,
+  type InferOutput,
+  type VibSchema,
+} from "@validation";
 import {
-  FieldState,
+  type FieldState,
+  shorthandArray,
   shorthandFilter,
   shorthandUpdate,
-  shorthandArray,
 } from "../common";
-import v, {
-  BaseBigIntSchema,
-  InferInput,
-  InferOutput,
-  VibSchema,
-} from "@validation";
 
 // =============================================================================
 // BASE TYPES
@@ -110,10 +110,10 @@ export type BigIntSchemas<F extends FieldState<"bigint">> = {
 
 export type InferBigIntInput<
   F extends FieldState<"bigint">,
-  Type extends "create" | "update" | "filter" | "base"
+  Type extends "create" | "update" | "filter" | "base",
 > = InferInput<BigIntSchemas<F>[Type]>;
 
 export type InferBigIntOutput<
   F extends FieldState<"bigint">,
-  Type extends "create" | "update" | "filter" | "base"
+  Type extends "create" | "update" | "filter" | "base",
 > = InferOutput<BigIntSchemas<F>[Type]>;

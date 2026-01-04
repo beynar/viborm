@@ -5,19 +5,17 @@
  * detecting ambiguous changes that require user input.
  */
 
-import {
-  SchemaSnapshot,
-  TableDef,
+import type {
+  AmbiguousChange,
   ColumnDef,
-  IndexDef,
-  ForeignKeyDef,
-  UniqueConstraintDef,
   DiffOperation,
   DiffResult,
-  AmbiguousChange,
-  AmbiguousColumnChange,
-  AmbiguousTableChange,
   EnumDef,
+  ForeignKeyDef,
+  IndexDef,
+  SchemaSnapshot,
+  TableDef,
+  UniqueConstraintDef,
 } from "./types";
 
 // =============================================================================
@@ -39,14 +37,14 @@ function normalizeType(type: string): string {
 
   // Handle common aliases
   const aliases: Record<string, string> = {
-    "int4": "integer",
-    "int8": "bigint",
-    "int2": "smallint",
-    "float4": "real",
-    "float8": "double precision",
-    "bool": "boolean",
-    "timestamptz": "timestamp with time zone",
-    "timetz": "time with time zone",
+    int4: "integer",
+    int8: "bigint",
+    int2: "smallint",
+    float4: "real",
+    float8: "double precision",
+    bool: "boolean",
+    timestamptz: "timestamp with time zone",
+    timetz: "time with time zone",
   };
 
   return aliases[normalized] || normalized;
@@ -62,8 +60,10 @@ function normalizeDefault(defaultVal: string | undefined): string | undefined {
   if (normalized === "null") return "null";
 
   // Handle boolean values
-  if (normalized === "true" || normalized === "'t'" || normalized === "1") return "true";
-  if (normalized === "false" || normalized === "'f'" || normalized === "0") return "false";
+  if (normalized === "true" || normalized === "'t'" || normalized === "1")
+    return "true";
+  if (normalized === "false" || normalized === "'f'" || normalized === "0")
+    return "false";
 
   return defaultVal;
 }
@@ -89,7 +89,10 @@ function foreignKeysEqual(a: ForeignKeyDef, b: ForeignKeyDef): boolean {
   );
 }
 
-function uniqueConstraintsEqual(a: UniqueConstraintDef, b: UniqueConstraintDef): boolean {
+function uniqueConstraintsEqual(
+  a: UniqueConstraintDef,
+  b: UniqueConstraintDef
+): boolean {
   return a.name === b.name && arraysEqual(a.columns, b.columns);
 }
 
@@ -276,7 +279,11 @@ function diffTable(
 
   for (const [name, uq] of desiredUniques) {
     if (!currentUniques.has(name)) {
-      operations.push({ type: "addUniqueConstraint", tableName, constraint: uq });
+      operations.push({
+        type: "addUniqueConstraint",
+        tableName,
+        constraint: uq,
+      });
     }
   }
 
@@ -324,7 +331,10 @@ function diffTable(
  * Compares two schema snapshots and returns the operations needed to
  * transform the current schema into the desired schema.
  */
-export function diff(current: SchemaSnapshot, desired: SchemaSnapshot): DiffResult {
+export function diff(
+  current: SchemaSnapshot,
+  desired: SchemaSnapshot
+): DiffResult {
   const operations: DiffOperation[] = [];
   const ambiguousChanges: AmbiguousChange[] = [];
 

@@ -5,10 +5,10 @@
  * Handles scalar fields, defaults, and auto-generated values.
  */
 
-import { sql, Sql } from "@sql";
+import type { Sql } from "@sql";
+import { getColumnName, getScalarFieldNames, isRelation } from "../context";
 import type { QueryContext } from "../types";
 import { QueryEngineError } from "../types";
-import { getScalarFieldNames, isRelation, getColumnName } from "../context";
 
 interface ValuesResult {
   columns: string[];
@@ -24,7 +24,7 @@ interface ValuesResult {
  */
 export function buildValues(
   ctx: QueryContext,
-  data: Record<string, unknown> | Record<string, unknown>[],
+  data: Record<string, unknown> | Record<string, unknown>[]
 ): ValuesResult {
   const records = Array.isArray(data) ? data : [data];
 
@@ -40,8 +40,12 @@ export function buildValues(
 
   for (const record of records) {
     for (const [key, value] of Object.entries(record)) {
-      if (value === undefined) continue;
-      if (isRelation(ctx.model, key)) continue; // Skip relations
+      if (value === undefined) {
+        continue;
+      }
+      if (isRelation(ctx.model, key)) {
+        continue; // Skip relations
+      }
       if (scalarFields.includes(key)) {
         fieldsSet.add(key);
       }
@@ -61,7 +65,7 @@ export function buildValues(
         if (genType !== "autoincrement") {
           throw new QueryEngineError(
             `Auto-generated value '${genType}' for field '${fieldName}' must be provided explicitly or ` +
-              `handled by the database. Application-level ID generation (uuid, ulid, cuid) is not yet implemented.`,
+              "handled by the database. Application-level ID generation (uuid, ulid, cuid) is not yet implemented."
           );
         }
       }
@@ -72,7 +76,7 @@ export function buildValues(
   const fieldNames = Array.from(fieldsSet);
   // Map field names to actual column names (handles .map() overrides)
   const columns = fieldNames.map((fieldName) =>
-    getColumnName(ctx.model, fieldName),
+    getColumnName(ctx.model, fieldName)
   );
 
   // Build values for each record
@@ -98,7 +102,7 @@ export function buildValues(
 function buildFieldValue(
   ctx: QueryContext,
   fieldName: string,
-  value: unknown,
+  value: unknown
 ): Sql {
   if (value === undefined || value === null) {
     return ctx.adapter.literals.null();
@@ -141,7 +145,7 @@ function isSql(value: unknown): value is Sql {
 export function buildInsert(
   ctx: QueryContext,
   tableName: string,
-  data: Record<string, unknown>,
+  data: Record<string, unknown>
 ): Sql {
   const { columns, values } = buildValues(ctx, data);
 
@@ -160,7 +164,7 @@ export function buildInsert(
 export function buildInsertMany(
   ctx: QueryContext,
   tableName: string,
-  data: Record<string, unknown>[],
+  data: Record<string, unknown>[]
 ): Sql {
   const { columns, values } = buildValues(ctx, data);
 

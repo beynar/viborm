@@ -5,21 +5,21 @@
  * that can be compared with the current database state.
  */
 
-import type { AnyModel } from "../schema/model";
-import type { Field } from "../schema/fields/base";
-import type { FieldState, AutoGenerateType } from "../schema/fields/common";
-import type { AnyRelation, RelationState } from "../schema/relation/relation";
 import type { Dialect } from "../drivers/types";
-import {
+import type { Field } from "../schema/fields/base";
+import type { FieldState } from "../schema/fields/common";
+import type { AnyModel } from "../schema/model";
+import type { AnyRelation } from "../schema/relation/relation";
+import type {
+  ColumnDef,
+  EnumDef,
+  ForeignKeyDef,
+  IndexDef,
+  PrimaryKeyDef,
+  ReferentialAction,
   SchemaSnapshot,
   TableDef,
-  ColumnDef,
-  IndexDef,
-  ForeignKeyDef,
   UniqueConstraintDef,
-  PrimaryKeyDef,
-  EnumDef,
-  ReferentialAction,
 } from "./types";
 
 // =============================================================================
@@ -29,10 +29,7 @@ import {
 /**
  * Maps VibORM field types to PostgreSQL column types
  */
-function mapFieldTypeToPostgres(
-  field: Field,
-  fieldState: FieldState
-): string {
+function mapFieldTypeToPostgres(field: Field, fieldState: FieldState): string {
   const nativeType = field["~"].nativeType;
 
   // If a native type is specified and it's for PostgreSQL, use it
@@ -68,7 +65,8 @@ function mapFieldTypeToPostgres(
       baseType = "time";
       break;
     case "bigint":
-      baseType = fieldState.autoGenerate === "increment" ? "bigserial" : "bigint";
+      baseType =
+        fieldState.autoGenerate === "increment" ? "bigserial" : "bigint";
       break;
     case "json":
       baseType = "jsonb";
@@ -96,10 +94,7 @@ function mapFieldTypeToPostgres(
 /**
  * Maps VibORM field types to MySQL column types
  */
-function mapFieldTypeToMySQL(
-  field: Field,
-  fieldState: FieldState
-): string {
+function mapFieldTypeToMySQL(field: Field, fieldState: FieldState): string {
   const nativeType = field["~"].nativeType;
 
   if (nativeType && nativeType.db === "mysql") {
@@ -111,7 +106,9 @@ function mapFieldTypeToMySQL(
     case "string":
       return "TEXT";
     case "int":
-      return fieldState.autoGenerate === "increment" ? "INT AUTO_INCREMENT" : "INT";
+      return fieldState.autoGenerate === "increment"
+        ? "INT AUTO_INCREMENT"
+        : "INT";
     case "float":
       return "DOUBLE";
     case "decimal":
@@ -125,7 +122,9 @@ function mapFieldTypeToMySQL(
     case "time":
       return "TIME";
     case "bigint":
-      return fieldState.autoGenerate === "increment" ? "BIGINT AUTO_INCREMENT" : "BIGINT";
+      return fieldState.autoGenerate === "increment"
+        ? "BIGINT AUTO_INCREMENT"
+        : "BIGINT";
     case "json":
       return "JSON";
     case "blob":
@@ -140,10 +139,7 @@ function mapFieldTypeToMySQL(
 /**
  * Maps VibORM field types to SQLite column types
  */
-function mapFieldTypeToSQLite(
-  field: Field,
-  fieldState: FieldState
-): string {
+function mapFieldTypeToSQLite(field: Field, fieldState: FieldState): string {
   const nativeType = field["~"].nativeType;
 
   if (nativeType && nativeType.db === "sqlite") {
@@ -301,7 +297,8 @@ export function serializeModels(
 
   for (const [modelName, model] of Object.entries(models)) {
     const modelState = model["~"].state;
-    const tableName = model["~"].names.sql || modelState.tableName || modelName.toLowerCase();
+    const tableName =
+      model["~"].names.sql || modelState.tableName || modelName.toLowerCase();
 
     const columns: ColumnDef[] = [];
     const indexes: IndexDef[] = [];
@@ -313,7 +310,8 @@ export function serializeModels(
     // Process scalar fields
     for (const [fieldName, field] of Object.entries(modelState.scalars)) {
       const fieldState = (field as Field)["~"].state;
-      const columnName = (field as Field)["~"].names.sql || fieldState.columnName || fieldName;
+      const columnName =
+        (field as Field)["~"].names.sql || fieldState.columnName || fieldName;
 
       // Handle enum types for PostgreSQL
       if (fieldState.type === "enum" && dialect === "postgresql") {
@@ -332,9 +330,10 @@ export function serializeModels(
 
       const columnDef: ColumnDef = {
         name: columnName,
-        type: fieldState.type === "enum" && dialect === "postgresql"
-          ? `${tableName}_${columnName}_enum`
-          : mapFieldType(field as Field, fieldState, dialect),
+        type:
+          fieldState.type === "enum" && dialect === "postgresql"
+            ? `${tableName}_${columnName}_enum`
+            : mapFieldType(field as Field, fieldState, dialect),
         nullable: fieldState.nullable,
         default: getDefaultExpression(fieldState, dialect),
         autoIncrement: fieldState.autoGenerate === "increment",
@@ -383,7 +382,9 @@ export function serializeModels(
 
     // Handle compound unique constraints
     if (modelState.compoundUniques) {
-      for (const [constraintName, schema] of Object.entries(modelState.compoundUniques)) {
+      for (const [constraintName, schema] of Object.entries(
+        modelState.compoundUniques
+      )) {
         if (schema && schema["~"]) {
           const schemaState = schema["~"];
           if (schemaState.def && typeof schemaState.def === "object") {
@@ -398,23 +399,28 @@ export function serializeModels(
 
     // Process indexes from model state
     for (const indexDef of modelState.indexes) {
-      const indexName = indexDef.options.name || `${tableName}_${indexDef.fields.join("_")}_idx`;
+      const indexName =
+        indexDef.options.name ||
+        `${tableName}_${indexDef.fields.join("_")}_idx`;
       indexes.push({
         name: indexName,
         columns: indexDef.fields,
-        unique: indexDef.options.unique || false,
+        unique: indexDef.options.unique,
         type: indexDef.options.type,
         where: indexDef.options.where,
       });
     }
 
     // Process relations to generate foreign keys
-    for (const [relationName, relation] of Object.entries(modelState.relations)) {
+    for (const [relationName, relation] of Object.entries(
+      modelState.relations
+    )) {
       const relationState = (relation as AnyRelation)["~"].state;
 
       // Only process manyToOne and oneToOne relations that define foreign keys
       if (
-        (relationState.type === "manyToOne" || relationState.type === "oneToOne") &&
+        (relationState.type === "manyToOne" ||
+          relationState.type === "oneToOne") &&
         relationState.fields &&
         relationState.references
       ) {
@@ -466,5 +472,9 @@ export function getColumnName(field: Field, fieldName: string): string {
  * Gets the SQL table name for a model
  */
 export function getTableName(model: AnyModel, modelName: string): string {
-  return model["~"].names.sql || model["~"].state.tableName || modelName.toLowerCase();
+  return (
+    model["~"].names.sql ||
+    model["~"].state.tableName ||
+    modelName.toLowerCase()
+  );
 }

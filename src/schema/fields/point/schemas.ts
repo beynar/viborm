@@ -1,10 +1,10 @@
-import { FieldState, shorthandFilter, shorthandUpdate } from "../common";
 import v, {
-  BasePointSchema,
-  InferInput,
-  InferOutput,
-  VibSchema,
+  type BasePointSchema,
+  type InferInput,
+  type InferOutput,
+  type VibSchema,
 } from "@validation";
+import { type FieldState, shorthandFilter, shorthandUpdate } from "../common";
 
 // =============================================================================
 // BASE TYPES
@@ -69,11 +69,10 @@ export type PointSchemas<F extends FieldState<"point">> = {
 
 export type InferPointInput<
   F extends FieldState<"point">,
-  Type extends "create" | "update" | "filter" | "base"
+  Type extends "create" | "update" | "filter" | "base",
 > = InferInput<PointSchemas<F>[Type]>;
 
 export type InferPointOutput<
   F extends FieldState<"point">,
-  Type extends "create" | "update" | "filter" | "base"
+  Type extends "create" | "update" | "filter" | "base",
 > = InferOutput<PointSchemas<F>[Type]>;
-

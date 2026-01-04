@@ -1,8 +1,8 @@
 // Model & Field Validation Rules
 
-import type { Model } from "../../model";
 import type { Field } from "../../fields/base";
-import type { ValidationError, Schema } from "../types";
+import type { Model } from "../../model";
+import type { Schema, ValidationError } from "../types";
 
 /** Helper to get typed scalar field entries */
 function getScalars(model: Model<any>): [string, Field][] {
@@ -214,19 +214,21 @@ export function validateFieldsSinglePass(
     columnToFields.get(col)!.push(fname);
 
     // F004: Default type match
-    if (st.hasDefault && st.defaultValue !== undefined) {
-      if (typeof st.defaultValue !== "function") {
-        const schema = field["~"].schemas.base;
-        const result = schema(st.defaultValue);
-        if (result instanceof Error || (result as any)?.problems) {
-          errors.push({
-            code: "F004",
-            message: `Default value for '${fname}' in '${name}' doesn't match type`,
-            severity: "error",
-            model: name,
-            field: fname,
-          });
-        }
+    if (
+      st.hasDefault &&
+      st.defaultValue !== undefined &&
+      typeof st.defaultValue !== "function"
+    ) {
+      const schema = field["~"].schemas.base;
+      const result = schema(st.defaultValue);
+      if (result instanceof Error || (result as any)?.problems) {
+        errors.push({
+          code: "F004",
+          message: `Default value for '${fname}' in '${name}' doesn't match type`,
+          severity: "error",
+          model: name,
+          field: fname,
+        });
       }
     }
 

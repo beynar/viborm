@@ -51,4 +51,3 @@ export class AliasGenerator {
  * Create a new alias generator
  */
 export const createAliasGenerator = (): AliasGenerator => new AliasGenerator();
-

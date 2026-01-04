@@ -1,6 +1,6 @@
-import { describe, test, expect, expectTypeOf } from "vitest";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { v, point } from "@validation";
+import { point } from "@validation";
+import { describe, expect, expectTypeOf, test } from "vitest";
 
 describe("point schema", () => {
   describe("basic validation", () => {
@@ -9,7 +9,10 @@ describe("point schema", () => {
     test("validates point objects", () => {
       const result = schema["~standard"].validate({ x: 1, y: 2 });
       expect(result.issues).toBeUndefined();
-      expect((result as { value: { x: number; y: number } }).value).toEqual({ x: 1, y: 2 });
+      expect((result as { value: { x: number; y: number } }).value).toEqual({
+        x: 1,
+        y: 2,
+      });
     });
 
     test("rejects missing x", () => {
@@ -25,8 +28,12 @@ describe("point schema", () => {
     });
 
     test("rejects non-numbers", () => {
-      expect(schema["~standard"].validate({ x: "1", y: 2 }).issues).toBeDefined();
-      expect(schema["~standard"].validate({ x: 1, y: "2" }).issues).toBeDefined();
+      expect(
+        schema["~standard"].validate({ x: "1", y: 2 }).issues
+      ).toBeDefined();
+      expect(
+        schema["~standard"].validate({ x: 1, y: "2" }).issues
+      ).toBeDefined();
     });
 
     test("rejects non-objects", () => {
@@ -63,9 +70,11 @@ describe("point schema", () => {
     const schema = point({ array: true });
 
     test("validates array of points", () => {
-      const result = schema["~standard"].validate([{ x: 1, y: 2 }, { x: 3, y: 4 }]);
+      const result = schema["~standard"].validate([
+        { x: 1, y: 2 },
+        { x: 3, y: 4 },
+      ]);
       expect(result.issues).toBeUndefined();
     });
   });
 });
-

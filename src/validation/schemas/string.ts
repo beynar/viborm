@@ -1,16 +1,16 @@
+import { buildSchema, ok } from "../helpers";
 import type {
-  VibSchema,
-  ScalarOptions,
   ComputeInput,
   ComputeOutput,
+  ScalarOptions,
+  VibSchema,
 } from "../types";
-import { buildSchema, ok } from "../helpers";
 
 // =============================================================================
 // String Schema
 // =============================================================================
 export interface BaseStringSchema<
-  Opts extends ScalarOptions<string, any> | undefined = undefined
+  Opts extends ScalarOptions<string, any> | undefined = undefined,
 > extends VibSchema<ComputeInput<string, Opts>, ComputeOutput<string, Opts>> {}
 
 export interface StringSchema<TInput = string, TOutput = string>
@@ -39,7 +39,7 @@ function validateString(value: unknown) {
  * const tags = v.string({ array: true });
  */
 export function string<
-  const Opts extends ScalarOptions<string, any> | undefined = undefined
+  const Opts extends ScalarOptions<string, any> | undefined = undefined,
 >(
   options?: Opts
 ): StringSchema<ComputeInput<string, Opts>, ComputeOutput<string, Opts>> {

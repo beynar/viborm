@@ -4,8 +4,6 @@
  * Core types for database drivers.
  */
 
-import type { Sql } from "@sql";
-
 /**
  * Supported database dialects
  */

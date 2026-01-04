@@ -1,26 +1,21 @@
+import { buildSchema, ok } from "../helpers";
 import type {
-  VibSchema,
-  ScalarOptions,
   ComputeInput,
   ComputeOutput,
   InferInput,
+  ScalarOptions,
+  VibSchema,
 } from "../types";
-import { buildSchema, ok, fail } from "../helpers";
 
 // =============================================================================
 // Enum Schema
 // =============================================================================
-export type EnumValues<S extends VibSchema> = S extends EnumSchema<
-  infer TValues,
-  any,
-  any
->
-  ? TValues
-  : never;
+export type EnumValues<S extends VibSchema> =
+  S extends EnumSchema<infer TValues, any, any> ? TValues : never;
 export type AnyEnumSchema = EnumSchema<string[], any, any>;
 export type BaseEnumSchema<
   TValues extends string[],
-  Opts extends ScalarOptions<TValues[number], any> | undefined = undefined
+  Opts extends ScalarOptions<TValues[number], any> | undefined = undefined,
 > = EnumSchema<
   TValues,
   ComputeInput<TValues[number], Opts>,
@@ -30,7 +25,7 @@ export type BaseEnumSchema<
 export interface EnumSchema<
   TValues extends string[],
   TInput = TValues[number],
-  TOutput = TValues[number]
+  TOutput = TValues[number],
 > extends VibSchema<TInput, TOutput> {
   readonly type: "enum";
   readonly values: TValues;
@@ -50,7 +45,9 @@ export interface EnumSchema<
 // @__NO_SIDE_EFFECTS__
 export function enum_<
   const TValues extends string[],
-  const Opts extends ScalarOptions<TValues[number], any> | undefined = undefined
+  const Opts extends
+    | ScalarOptions<TValues[number], any>
+    | undefined = undefined,
 >(
   values: TValues,
   options?: Opts

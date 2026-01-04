@@ -5,9 +5,9 @@
  * Returns a single record matching the criteria or null.
  */
 
-import { Sql } from "@sql";
+import type { Sql } from "@sql";
 import type { QueryContext } from "../types";
-import { buildFind, FindArgs } from "./find-common";
+import { buildFind, type FindArgs } from "./find-common";
 
 export interface FindFirstArgs extends FindArgs {
   // FindFirst specific: no take (always returns 1)

@@ -5,46 +5,46 @@
  * Validates input, builds SQL, and parses results.
  */
 
-import type { Model } from "@schema/model";
 import type { DatabaseAdapter } from "@adapters";
 import type { Driver } from "@drivers";
-import { Sql } from "@sql";
+import { hydrateSchemaNames } from "@schema/hydration";
+import type { Model } from "@schema/model";
+import type { Sql } from "@sql";
+import { getPrimaryKeyField } from "./builders/correlation-utils";
+import { buildCreateWithNested } from "./builders/nested-create-builder";
 import {
-  Operation,
-  QueryContext,
-  ModelRegistry,
-  QueryEngineError,
-} from "./types";
+  buildConnectFkValues,
+  canUseSubqueryOnly,
+  needsTransaction,
+  separateData,
+} from "./builders/relation-data-builder";
 import { createQueryContext } from "./context";
-import { validate } from "./validator";
-import { parseResult, parseCountResult, parseMutationCount } from "./result";
 import {
+  buildAggregate,
+  buildCount,
+  buildCreate,
+  buildCreateMany,
+  buildDelete,
+  buildDeleteMany,
   buildFindFirst,
   buildFindMany,
   buildFindUnique,
-  buildCreate,
-  buildCreateMany,
+  buildGroupBy,
   buildUpdate,
   buildUpdateMany,
-  buildDelete,
-  buildDeleteMany,
   buildUpsert,
-  buildCount,
-  buildAggregate,
-  buildGroupBy,
   executeNestedCreate,
   executeNestedUpdate,
 } from "./operations";
-import {
-  separateData,
-  needsTransaction,
-  canUseSubqueryOnly,
-  buildConnectFkValues,
-} from "./builders/relation-data-builder";
 import { buildFindUnique as buildFindUniqueQuery } from "./operations/find-unique";
-import { getPrimaryKeyField } from "./builders/correlation-utils";
-import { hydrateSchemaNames } from "@schema/hydration";
-import { buildCreateWithNested } from "./builders/nested-create-builder";
+import { parseResult } from "./result";
+import {
+  type ModelRegistry,
+  type Operation,
+  type QueryContext,
+  QueryEngineError,
+} from "./types";
+import { validate } from "./validator";
 
 /**
  * Query Engine class
@@ -354,9 +354,8 @@ export class QueryEngine {
 
             // Get the updated record for FK operations
             const selectSql = buildFindUniqueQuery(ctx, { where });
-            const selectResult = await tx.execute<Record<string, unknown>>(
-              selectSql
-            );
+            const selectResult =
+              await tx.execute<Record<string, unknown>>(selectSql);
             const updatedRecord = selectResult.rows[0];
 
             if (!updatedRecord) {
@@ -373,9 +372,8 @@ export class QueryEngine {
                 select: args.select as Record<string, unknown> | undefined,
                 include: args.include as Record<string, unknown> | undefined,
               } as { where: Record<string, unknown> });
-              const refetchResult = await tx.execute<Record<string, unknown>>(
-                refetchSql
-              );
+              const refetchResult =
+                await tx.execute<Record<string, unknown>>(refetchSql);
               return parseResult<T>(ctx, "findUnique", refetchResult.rows);
             }
 
@@ -402,9 +400,8 @@ export class QueryEngine {
 
           // Check if record exists
           const selectSql = buildFindUniqueQuery(ctx, { where });
-          const selectResult = await tx.execute<Record<string, unknown>>(
-            selectSql
-          );
+          const selectResult =
+            await tx.execute<Record<string, unknown>>(selectSql);
 
           if (selectResult.rows.length > 0) {
             // Record exists - do update
@@ -417,16 +414,14 @@ export class QueryEngine {
             }
 
             // Re-fetch
-            const refetchResult = await tx.execute<Record<string, unknown>>(
-              selectSql
-            );
+            const refetchResult =
+              await tx.execute<Record<string, unknown>>(selectSql);
             return parseResult<T>(ctx, "findUnique", refetchResult.rows);
-          } else {
-            // Record doesn't exist - do create
-            const createData = args.create as Record<string, unknown>;
-            const createResult = await executeNestedCreate(tx, ctx, createData);
-            return createResult.record as T;
           }
+          // Record doesn't exist - do create
+          const createData = args.create as Record<string, unknown>;
+          const createResult = await executeNestedCreate(tx, ctx, createData);
+          return createResult.record as T;
         });
       }
 

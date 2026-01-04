@@ -5,12 +5,12 @@
  * Run with: bun benchmarks/query-engine.bench.ts
  */
 
-import { s } from "../src/schema";
 import { PostgresAdapter } from "../src/adapters/databases/postgres/postgres-adapter";
 import {
-  QueryEngine,
   createModelRegistry,
+  QueryEngine,
 } from "../src/query-engine/query-engine";
+import { s } from "../src/schema";
 
 // =============================================================================
 // TEST MODELS
@@ -54,7 +54,7 @@ const Tag = s
 const WARMUP_ITERATIONS = 1000;
 const BENCHMARK_RUNS = 5;
 
-function benchmark(name: string, fn: () => void, iterations = 10000): number {
+function benchmark(name: string, fn: () => void, iterations = 10_000): number {
   // Warmup
   for (let i = 0; i < WARMUP_ITERATIONS; i++) fn();
 
@@ -79,7 +79,7 @@ function formatMs(ms: number): string {
 function formatOpsPerSec(ms: number, iterations: number): string {
   const ops = (iterations / ms) * 1000;
   if (ops > 1_000_000) return (ops / 1_000_000).toFixed(2) + "M ops/s";
-  if (ops > 1_000) return (ops / 1_000).toFixed(2) + "K ops/s";
+  if (ops > 1000) return (ops / 1000).toFixed(2) + "K ops/s";
   return ops.toFixed(2) + " ops/s";
 }
 
@@ -92,7 +92,7 @@ interface BenchmarkResult {
 function runBenchmark(
   name: string,
   fn: () => void,
-  iterations = 10000
+  iterations = 10_000
 ): BenchmarkResult {
   return {
     name,
@@ -150,7 +150,7 @@ results.push(
         },
       });
     },
-    10000
+    10_000
   )
 );
 
@@ -166,7 +166,7 @@ results.push(
         },
       });
     },
-    10000
+    10_000
   )
 );
 
@@ -184,7 +184,7 @@ results.push(
         },
       });
     },
-    10000
+    10_000
   )
 );
 
@@ -203,7 +203,7 @@ results.push(
         },
       });
     },
-    10000
+    10_000
   )
 );
 
@@ -219,7 +219,7 @@ results.push(
         },
       });
     },
-    10000
+    10_000
   )
 );
 
@@ -235,7 +235,7 @@ results.push(
         },
       });
     },
-    10000
+    10_000
   )
 );
 
@@ -255,7 +255,7 @@ results.push(
         },
       });
     },
-    10000
+    10_000
   )
 );
 
@@ -274,7 +274,7 @@ results.push(
         },
       });
     },
-    10000
+    10_000
   )
 );
 
@@ -289,7 +289,7 @@ results.push(
         where: { published: true },
       });
     },
-    10000
+    10_000
   )
 );
 
@@ -304,7 +304,7 @@ results.push(
         },
       });
     },
-    10000
+    10_000
   )
 );
 
@@ -319,7 +319,7 @@ results.push(
         },
       });
     },
-    10000
+    10_000
   )
 );
 

@@ -1,17 +1,16 @@
+import v, {
+  type BaseEnumSchema,
+  type InferInput,
+  type InferOutput,
+  type VibSchema,
+} from "@validation";
+import type { EnumValues } from "@validation/schemas/enum";
 import {
-  FieldState,
+  type FieldState,
+  shorthandArray,
   shorthandFilter,
   shorthandUpdate,
-  shorthandArray,
 } from "../common";
-import v, {
-  array,
-  BaseEnumSchema,
-  InferInput,
-  InferOutput,
-  VibSchema,
-} from "@validation";
-import { EnumValues } from "@validation/schemas/enum";
 
 const enumBase = <Values extends string[]>(values: Values) => v.enum(values);
 
@@ -38,7 +37,7 @@ const buildEnumFilterSchema = <S extends VibSchema, Values extends string[]>(
 
 const buildEnumListFilterSchema = <
   S extends VibSchema,
-  Values extends string[]
+  Values extends string[],
 >(
   schema: S,
   values: Values
@@ -74,7 +73,7 @@ const buildEnumUpdateSchema = <S extends VibSchema>(schema: S) =>
 
 const buildEnumListUpdateSchema = <
   S extends VibSchema,
-  Values extends string[]
+  Values extends string[],
 >(
   schema: S,
   values: Values
@@ -93,7 +92,7 @@ const buildEnumListUpdateSchema = <
 
 export const buildEnumSchema = <
   Values extends string[],
-  F extends FieldState<"enum">
+  F extends FieldState<"enum">,
 >(
   values: Values,
   state: F
@@ -112,7 +111,7 @@ export const buildEnumSchema = <
 
 export type EnumSchemas<
   Values extends string[],
-  F extends FieldState<"enum">
+  F extends FieldState<"enum">,
 > = {
   base: F["base"];
   create: BaseEnumSchema<Values, F>;
@@ -126,10 +125,10 @@ export type EnumSchemas<
 
 export type InferEnumInput<
   F extends FieldState<"enum">,
-  Type extends "create" | "update" | "filter" | "base"
+  Type extends "create" | "update" | "filter" | "base",
 > = InferInput<EnumSchemas<EnumValues<F["base"]>, F>[Type]>;
 
 export type InferEnumOutput<
   F extends FieldState<"enum">,
-  Type extends "create" | "update" | "filter" | "base"
+  Type extends "create" | "update" | "filter" | "base",
 > = InferOutput<EnumSchemas<EnumValues<F["base"]>, F>[Type]>;

@@ -1,23 +1,29 @@
 // Blob Field
 // Standalone field class with State generic pattern
 
+import v, { type BaseBlobSchema } from "@validation";
 import {
-  type FieldState,
-  type UpdateState,
-  type DefaultValue,
-  type SchemaNames,
   createDefaultState,
-  DefaultValueInput,
+  type DefaultValue,
+  type DefaultValueInput,
+  type FieldState,
+  type SchemaNames,
+  type UpdateState,
 } from "../common";
 import type { NativeType } from "../native-types";
-import { buildBlobSchema, blobBase, BlobSchemas } from "./schemas";
-import v, { BaseBlobSchema } from "@validation";
+import { type BlobSchemas, blobBase, buildBlobSchema } from "./schemas";
 
 export class BlobField<State extends FieldState<"blob">> {
+  // biome-ignore lint/style/useReadonlyClassProperties: <it is reassigned when hydrating schemas>
   private _names: SchemaNames = {};
   private _schemas: BlobSchemas<State> | undefined;
+  private readonly state: State;
+  private readonly _nativeType?: NativeType | undefined;
 
-  constructor(private state: State, private _nativeType?: NativeType) {}
+  constructor(state: State, _nativeType?: NativeType) {
+    this.state = state;
+    this._nativeType = _nativeType;
+  }
 
   nullable(): BlobField<
     UpdateState<

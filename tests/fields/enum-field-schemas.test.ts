@@ -14,11 +14,10 @@
  * - filter: Input type for filtering + shorthand transforms
  */
 
-import { describe, test, expect, expectTypeOf } from "vitest";
-import { pipe, picklist, brand, Brand } from "valibot";
-import { parse, InferOutput, Prettify } from "@validation";
 import { enumField } from "@schema/fields/enum/field";
 import type { InferEnumInput } from "@schema/fields/enum/schemas";
+import { type Prettify, parse } from "@validation";
+import { describe, expect, expectTypeOf, test } from "vitest";
 
 // Test enum values
 const Status = ["pending", "active", "completed"] as const;

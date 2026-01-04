@@ -1,6 +1,6 @@
-import { describe, test, expect, expectTypeOf } from "vitest";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { v, object, string, array, optional } from "@validation";
+import { array, object, optional, string } from "@validation";
+import { describe, expect, expectTypeOf, test } from "vitest";
 
 describe("circular references with thunks", () => {
   describe("self-reference", () => {

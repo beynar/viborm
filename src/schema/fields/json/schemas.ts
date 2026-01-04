@@ -1,10 +1,10 @@
-import { FieldState } from "../common";
 import v, {
-  BaseJsonSchema,
-  InferInput,
-  InferOutput,
-  VibSchema,
+  type BaseJsonSchema,
+  type InferInput,
+  type InferOutput,
+  type VibSchema,
 } from "@validation";
+import type { FieldState } from "../common";
 
 // =============================================================================
 // BASE TYPES
@@ -58,10 +58,10 @@ export type JsonSchemas<F extends FieldState<"json">> = {
 
 export type InferJsonInput<
   F extends FieldState<"json">,
-  Type extends "create" | "update" | "filter" | "base"
+  Type extends "create" | "update" | "filter" | "base",
 > = InferInput<JsonSchemas<F>[Type]>;
 
 export type InferJsonOutput<
   F extends FieldState<"json">,
-  Type extends "create" | "update" | "filter" | "base"
+  Type extends "create" | "update" | "filter" | "base",
 > = InferOutput<JsonSchemas<F>[Type]>;

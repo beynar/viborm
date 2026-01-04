@@ -1,7 +1,7 @@
+import type { StringKeyOf } from "@schema/model/helper";
+import v from "@validation";
 import type { ModelState } from "../../model";
 import type { CoreSchemas } from "../types";
-import v from "@validation";
-import { StringKeyOf } from "@schema/model/helper";
 
 /**
  * FindUnique args: { where: whereUnique, select?, include? }

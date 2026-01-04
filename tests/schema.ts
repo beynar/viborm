@@ -1,10 +1,7 @@
+import { s } from "@schema";
+import type { InferInput, Prettify } from "@validation/types";
 import z from "zod/v4";
-import { AnyRelation, InferStringInput, s } from "@schema";
 import { createClient } from "../src/index.js";
-import { PrismaClient } from "../generated/prisma/client.js";
-
-import { InferInput, Prettify } from "@validation/types";
-import { getSchemas } from "@schema/schemas.js";
 
 export const string = s.string();
 export const nullableString = s.string().nullable();

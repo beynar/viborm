@@ -1,8 +1,8 @@
 // Database-Specific & Value Validation Rules
 
-import type { Model } from "../../model";
 import type { Field } from "../../fields/base";
-import type { ValidationError, Schema } from "../types";
+import type { Model } from "../../model";
+import type { Schema, ValidationError } from "../types";
 
 /** Helper to get typed scalar field entries */
 function getScalars(model: Model<any>): [string, Field][] {
@@ -91,8 +91,6 @@ export function sqliteNoEnum(
 // =============================================================================
 // VALUE VALIDATION RULES (V001-V003)
 // =============================================================================
-
-const VALID_ID = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 
 /** V001: Enum values must be valid identifiers */
 export function enumValueValid(

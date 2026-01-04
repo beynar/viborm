@@ -5,28 +5,22 @@
  * These operations are executed within a transaction when needed.
  */
 
-import { sql, Sql } from "@sql";
 import type { Driver } from "@drivers";
 import type { Model } from "@schema/model";
-import type { QueryContext, RelationInfo } from "../types";
-import { NestedWriteError } from "../types";
+import { type Sql, sql } from "@sql";
+import { getPrimaryKeyField } from "../builders/correlation-utils";
 import {
-  getTableName,
-  getRelationInfo,
-  getColumnName,
-  createChildContext,
-} from "../context";
-import {
-  separateData,
+  type ConnectOrCreateInput,
+  type FkDirection,
   getFkDirection,
-  buildConnectFkValues,
-  RelationMutation,
-  ConnectOrCreateInput,
-  FkDirection,
+  type RelationMutation,
+  separateData,
 } from "../builders/relation-data-builder";
 import { buildValues } from "../builders/values-builder";
 import { buildWhereUnique } from "../builders/where-builder";
-import { getPrimaryKeyField, getPrimaryKeyFields } from "../builders/correlation-utils";
+import { createChildContext, getColumnName, getTableName } from "../context";
+import type { QueryContext, RelationInfo } from "../types";
+import { NestedWriteError } from "../types";
 
 // ============================================================
 // TYPES
@@ -62,7 +56,10 @@ export interface TransactionContext {
   /** Generated IDs from previous steps */
   generatedIds: Map<string, unknown>;
   /** Created records for return value assembly */
-  createdRecords: Map<string, Record<string, unknown> | Record<string, unknown>[]>;
+  createdRecords: Map<
+    string,
+    Record<string, unknown> | Record<string, unknown>[]
+  >;
 }
 
 // ============================================================
@@ -261,7 +258,10 @@ export async function executeNestedCreate(
     }
 
     // Assemble result
-    const related: Record<string, Record<string, unknown> | Record<string, unknown>[]> = {};
+    const related: Record<
+      string,
+      Record<string, unknown> | Record<string, unknown>[]
+    > = {};
     for (const [name] of [...currentHoldsFK, ...relatedHoldsFK]) {
       const created = txCtx.createdRecords.get(name);
       if (created) {
@@ -337,7 +337,10 @@ export async function executeNestedUpdate(
     }
 
     // Assemble result
-    const related: Record<string, Record<string, unknown> | Record<string, unknown>[]> = {};
+    const related: Record<
+      string,
+      Record<string, unknown> | Record<string, unknown>[]
+    > = {};
     for (const [name] of Object.entries(relations)) {
       const created = txCtx.createdRecords.get(name);
       if (created) {
@@ -471,13 +474,7 @@ async function processRelationMutation(
 
   // Handle set (replace all related records)
   if (mutation.set && timing === "after") {
-    await executeRelationSet(
-      tx,
-      ctx,
-      relationInfo,
-      mutation.set,
-      parentData
-    );
+    await executeRelationSet(tx, ctx, relationInfo, mutation.set, parentData);
   }
 }
 
@@ -498,7 +495,7 @@ async function executeRelationCreate(
   const childCtx = createChildContext(ctx, targetModel, ctx.nextAlias());
 
   // Prepare data with FK if needed
-  let dataWithFk = { ...createData };
+  const dataWithFk = { ...createData };
 
   if (timing === "after" && !fkDir.holdsFK) {
     // Related holds FK - add parent's PK to the data
@@ -551,7 +548,11 @@ async function executeRelationConnect(
   const childCtx = createChildContext(ctx, targetModel, ctx.nextAlias());
 
   // Build WHERE for the record to connect
-  const whereClause = buildWhereUnique(childCtx, connectInput, childCtx.rootAlias);
+  const whereClause = buildWhereUnique(
+    childCtx,
+    connectInput,
+    childCtx.rootAlias
+  );
   if (!whereClause) {
     throw new NestedWriteError(
       `Invalid connect input for relation '${name}'`,
@@ -622,7 +623,14 @@ async function executeConnectOrCreate(
     // If FK is on related side, update it to point to parent
     const fkDir = getFkDirection(ctx, relationInfo);
     if (!fkDir.holdsFK && timing === "after") {
-      await executeRelationConnect(tx, ctx, relationInfo, input.where, parentData, txCtx);
+      await executeRelationConnect(
+        tx,
+        ctx,
+        relationInfo,
+        input.where,
+        parentData,
+        txCtx
+      );
     }
 
     return existingRecord;
@@ -647,7 +655,10 @@ async function executeRelationDisconnect(
   tx: Driver,
   ctx: QueryContext,
   relationInfo: RelationInfo,
-  disconnectInput: boolean | Record<string, unknown> | Record<string, unknown>[],
+  disconnectInput:
+    | boolean
+    | Record<string, unknown>
+    | Record<string, unknown>[],
   parentData: Record<string, unknown>
 ): Promise<void> {
   const { adapter } = ctx;
@@ -671,7 +682,9 @@ async function executeRelationDisconnect(
     whereClause = buildFkMatchCondition(ctx, fkDir, targetModel, parentData);
   } else {
     // Disconnect specific record(s)
-    const inputs = Array.isArray(disconnectInput) ? disconnectInput : [disconnectInput];
+    const inputs = Array.isArray(disconnectInput)
+      ? disconnectInput
+      : [disconnectInput];
     const conditions: Sql[] = [];
 
     for (const input of inputs) {
@@ -688,7 +701,10 @@ async function executeRelationDisconnect(
       );
     }
 
-    whereClause = conditions.length === 1 ? conditions[0]! : adapter.operators.or(...conditions);
+    whereClause =
+      conditions.length === 1
+        ? conditions[0]!
+        : adapter.operators.or(...conditions);
   }
 
   // Build SET clause - set FK fields to NULL
@@ -742,7 +758,10 @@ async function executeRelationDelete(
       );
     }
 
-    whereClause = conditions.length === 1 ? conditions[0]! : adapter.operators.or(...conditions);
+    whereClause =
+      conditions.length === 1
+        ? conditions[0]!
+        : adapter.operators.or(...conditions);
   }
 
   // Execute DELETE
@@ -784,7 +803,7 @@ async function executeRelationSet(
     if (parentData[pkField] === undefined || parentData[pkField] === null) {
       throw new NestedWriteError(
         `Cannot execute 'set' for relation '${name}': parent record is missing primary key field '${pkField}'. ` +
-          `Ensure the parent record is saved before performing nested operations.`,
+          "Ensure the parent record is saved before performing nested operations.",
         name
       );
     }
@@ -796,15 +815,29 @@ async function executeRelationSet(
   const table = adapter.identifiers.escape(targetTable);
 
   // Step 1: Disconnect all existing (set FK to NULL for all related records)
-  const disconnectWhere = buildFkMatchCondition(ctx, fkDir, targetModel, parentData);
+  const disconnectWhere = buildFkMatchCondition(
+    ctx,
+    fkDir,
+    targetModel,
+    parentData
+  );
   const nullAssignments = buildFkNullAssignments(ctx, fkDir, targetModel);
   const disconnectSetSql = sql.join(nullAssignments, ", ");
-  const disconnectSql = adapter.mutations.update(table, disconnectSetSql, disconnectWhere);
+  const disconnectSql = adapter.mutations.update(
+    table,
+    disconnectSetSql,
+    disconnectWhere
+  );
 
   await tx.execute(disconnectSql);
 
   // Step 2: Connect all items in the set array
-  const valueAssignments = buildFkValueAssignments(ctx, fkDir, targetModel, parentData);
+  const valueAssignments = buildFkValueAssignments(
+    ctx,
+    fkDir,
+    targetModel,
+    parentData
+  );
   const connectSetSql = sql.join(valueAssignments, ", ");
 
   for (const setItem of setItems) {
@@ -817,7 +850,11 @@ async function executeRelationSet(
       );
     }
 
-    const connectSql = adapter.mutations.update(table, connectSetSql, whereClause);
+    const connectSql = adapter.mutations.update(
+      table,
+      connectSetSql,
+      whereClause
+    );
     await tx.execute(connectSql);
   }
 }
@@ -880,14 +917,28 @@ async function executeSimpleInsert(
 
   if (pkValue !== undefined) {
     // PK was provided in data - use it to refetch
-    return refetchInsertedRecord(driver, ctx, pkField, pkValue, data, modelName);
+    return refetchInsertedRecord(
+      driver,
+      ctx,
+      pkField,
+      pkValue,
+      data,
+      modelName
+    );
   }
 
   // PK was auto-generated - get last insert ID
   const lastInsertId = await getLastInsertId(driver);
 
   if (lastInsertId !== undefined) {
-    return refetchInsertedRecord(driver, ctx, pkField, lastInsertId, data, modelName);
+    return refetchInsertedRecord(
+      driver,
+      ctx,
+      pkField,
+      lastInsertId,
+      data,
+      modelName
+    );
   }
 
   // Fallback: return input data (can't refetch without ID)
@@ -964,9 +1015,7 @@ async function refetchInsertedRecord(
   // Return original data with PK as a fallback, but this shouldn't happen
   console.warn(
     `[nested-writes] Record not found after insert for ${modelName}.${pkField}=${pkValue}. ` +
-      `This may indicate a race condition or transaction isolation issue.`
+      "This may indicate a race condition or transaction isolation issue."
   );
   return { ...originalData, [pkField]: pkValue };
 }
-
-

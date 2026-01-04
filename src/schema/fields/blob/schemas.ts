@@ -1,10 +1,10 @@
-import { FieldState, shorthandFilter, shorthandUpdate } from "../common";
 import v, {
-  BaseBlobSchema,
-  InferInput,
-  InferOutput,
-  VibSchema,
+  type BaseBlobSchema,
+  type InferInput,
+  type InferOutput,
+  type VibSchema,
 } from "@validation";
+import { type FieldState, shorthandFilter, shorthandUpdate } from "../common";
 
 // =============================================================================
 // BASE TYPES
@@ -58,10 +58,10 @@ export type BlobSchemas<F extends FieldState<"blob">> = {
 
 export type InferBlobInput<
   F extends FieldState<"blob">,
-  Type extends "create" | "update" | "filter" | "base"
+  Type extends "create" | "update" | "filter" | "base",
 > = InferInput<BlobSchemas<F>[Type]>;
 
 export type InferBlobOutput<
   F extends FieldState<"blob">,
-  Type extends "create" | "update" | "filter" | "base"
+  Type extends "create" | "update" | "filter" | "base",
 > = InferOutput<BlobSchemas<F>[Type]>;

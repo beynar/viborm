@@ -1,10 +1,10 @@
+import { buildSchema, ok } from "../helpers";
 import type {
-  VibSchema,
-  ScalarOptions,
   ComputeInput,
   ComputeOutput,
+  ScalarOptions,
+  VibSchema,
 } from "../types";
-import { buildSchema, ok } from "../helpers";
 
 // =============================================================================
 // ISO Format Validators
@@ -32,7 +32,7 @@ const NOT_STRING_OR_DATE_ERROR = Object.freeze({
 // =============================================================================
 
 export interface BaseIsoTimestampSchema<
-  Opts extends ScalarOptions<string, any> | undefined = undefined
+  Opts extends ScalarOptions<string, any> | undefined = undefined,
 > extends VibSchema<
     ComputeInput<string | Date, Opts>,
     ComputeOutput<string, Opts>
@@ -85,7 +85,7 @@ function validateIsoTimestamp(value: unknown) {
  * parse(timestamp, new Date()) // Returns ISO string
  */
 export function isoTimestamp<
-  const Opts extends ScalarOptions<string, any> | undefined = undefined
+  const Opts extends ScalarOptions<string, any> | undefined = undefined,
 >(
   options?: Opts
 ): IsoTimestampSchema<
@@ -107,7 +107,7 @@ export function isoTimestamp<
 // =============================================================================
 
 export interface BaseIsoDateSchema<
-  Opts extends ScalarOptions<string, any> | undefined = undefined
+  Opts extends ScalarOptions<string, any> | undefined = undefined,
 > extends VibSchema<
     ComputeInput<string | Date, Opts>,
     ComputeOutput<string, Opts>
@@ -158,7 +158,7 @@ function validateIsoDate(value: unknown) {
  * parse(birthDate, new Date()) // Returns "2023-12-15"
  */
 export function isoDate<
-  const Opts extends ScalarOptions<string, any> | undefined = undefined
+  const Opts extends ScalarOptions<string, any> | undefined = undefined,
 >(
   options?: Opts
 ): IsoDateSchema<
@@ -176,7 +176,7 @@ export function isoDate<
 // =============================================================================
 
 export interface BaseIsoTimeSchema<
-  Opts extends ScalarOptions<string, any> | undefined = undefined
+  Opts extends ScalarOptions<string, any> | undefined = undefined,
 > extends VibSchema<
     ComputeInput<string | Date, Opts>,
     ComputeOutput<string, Opts>
@@ -244,7 +244,7 @@ function validateIsoTime(value: unknown) {
  * parse(startTime, new Date()) // Returns "10:30:00.000"
  */
 export function isoTime<
-  const Opts extends ScalarOptions<string, any> | undefined = undefined
+  const Opts extends ScalarOptions<string, any> | undefined = undefined,
 >(
   options?: Opts
 ): IsoTimeSchema<

@@ -1,10 +1,10 @@
+import { createSchema, fail, ok, validateSchema } from "../helpers";
 import type {
-  VibSchema,
-  ValidationResult,
   InferInput,
   InferOutput,
+  ValidationResult,
+  VibSchema,
 } from "../types";
-import { createSchema, fail, ok, validateSchema } from "../helpers";
 
 // =============================================================================
 // Transform Schema Wrapper

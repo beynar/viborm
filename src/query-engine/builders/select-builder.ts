@@ -5,25 +5,24 @@
  * Handles scalar fields and delegates relations to include-builder.
  */
 
-import { sql, Sql } from "@sql";
-import type { QueryContext, RelationInfo } from "../types";
-import { QueryEngineError } from "../types";
-import {
-  getScalarFieldNames,
-  isRelation,
-  getRelationInfo,
-  getColumnName,
-  createChildContext,
-  getTableName,
-} from "../context";
-import { buildInclude } from "./include-builder";
-import { buildWhere } from "./where-builder";
-import { buildCorrelation } from "./correlation-utils";
-import {
-  getManyToManyJoinInfo,
-  buildManyToManyJoinParts,
-} from "./many-to-many-utils";
+import { type Sql, sql } from "@sql";
 import { parse } from "@validation";
+import {
+  createChildContext,
+  getColumnName,
+  getRelationInfo,
+  getScalarFieldNames,
+  getTableName,
+  isRelation,
+} from "../context";
+import type { QueryContext, RelationInfo } from "../types";
+import { buildCorrelation } from "./correlation-utils";
+import { buildInclude } from "./include-builder";
+import {
+  buildManyToManyJoinParts,
+  getManyToManyJoinInfo,
+} from "./many-to-many-utils";
+import { buildWhere } from "./where-builder";
 
 /**
  * Options for buildSelect
@@ -59,7 +58,7 @@ export function buildSelect(
   select: Record<string, unknown> | undefined,
   include: Record<string, unknown> | undefined,
   alias: string,
-  options: BuildSelectOptions = {},
+  options: BuildSelectOptions = {}
 ): Sql {
   // Build field/expression pairs
   const pairs = buildSelectPairs(ctx, select, include, alias);
@@ -71,7 +70,7 @@ export function buildSelect(
 
   // Convert pairs to aliased columns
   const columns = pairs.map(([name, expr]) =>
-    ctx.adapter.identifiers.aliased(expr, name),
+    ctx.adapter.identifiers.aliased(expr, name)
   );
 
   return sql.join(columns, ", ");
@@ -84,7 +83,7 @@ function buildSelectPairs(
   ctx: QueryContext,
   select: Record<string, unknown> | undefined,
   include: Record<string, unknown> | undefined,
-  alias: string,
+  alias: string
 ): [string, Sql][] {
   const pairs: [string, Sql][] = [];
   const scalarFields = getScalarFieldNames(ctx.model);
@@ -103,7 +102,9 @@ function buildSelectPairs(
 
     // Handle relations in select (nested select/include)
     for (const [key, value] of Object.entries(select)) {
-      if (value === undefined || value === false) continue;
+      if (value === undefined || value === false) {
+        continue;
+      }
 
       if (isRelation(ctx.model, key)) {
         const relationInfo = getRelationInfo(ctx, key);
@@ -112,7 +113,7 @@ function buildSelectPairs(
             ctx,
             relationInfo,
             value as Record<string, unknown>,
-            alias,
+            alias
           );
           pairs.push([key, relationSql]);
         }
@@ -141,7 +142,9 @@ function buildSelectPairs(
   // Handle include (adds relations on top of scalars)
   if (include) {
     for (const [key, value] of Object.entries(include)) {
-      if (value === undefined || value === false) continue;
+      if (value === undefined || value === false) {
+        continue;
+      }
 
       // Handle _count in include
       if (key === "_count") {
@@ -162,7 +165,7 @@ function buildSelectPairs(
             ctx,
             relationInfo,
             includeValue,
-            alias,
+            alias
           );
           pairs.push([key, relationSql]);
         }
@@ -200,7 +203,7 @@ export function buildSelectWithAliases(
   select: Record<string, unknown> | undefined,
   include: Record<string, unknown> | undefined,
   alias: string,
-  options: BuildSelectOptions = {},
+  options: BuildSelectOptions = {}
 ): SelectResult {
   // Build field/expression pairs
   const pairs = buildSelectPairs(ctx, select, include, alias);
@@ -214,7 +217,7 @@ export function buildSelectWithAliases(
     sqlResult = ctx.adapter.json.objectFromColumns(pairs);
   } else {
     const columns = pairs.map(([name, expr]) =>
-      ctx.adapter.identifiers.aliased(expr, name),
+      ctx.adapter.identifiers.aliased(expr, name)
     );
     sqlResult = sql.join(columns, ", ");
   }
@@ -245,15 +248,19 @@ export function buildSelectAll(ctx: QueryContext, alias: string): Sql {
 function buildCountPairs(
   ctx: QueryContext,
   countSelect: Record<string, unknown>,
-  parentAlias: string,
+  parentAlias: string
 ): [string, Sql][] {
   const pairs: [string, Sql][] = [];
 
   for (const [relationName, config] of Object.entries(countSelect)) {
-    if (config === undefined || config === false) continue;
+    if (config === undefined || config === false) {
+      continue;
+    }
 
     const relationInfo = getRelationInfo(ctx, relationName);
-    if (!relationInfo) continue;
+    if (!relationInfo) {
+      continue;
+    }
 
     const countSql = buildRelationCount(ctx, relationInfo, config, parentAlias);
     pairs.push([`_count_${relationName}`, countSql]);
@@ -275,7 +282,7 @@ function buildRelationCount(
   ctx: QueryContext,
   relationInfo: RelationInfo,
   config: unknown,
-  parentAlias: string,
+  parentAlias: string
 ): Sql {
   const { adapter } = ctx;
 
@@ -293,17 +300,17 @@ function buildRelationCount(
     ctx,
     relationInfo,
     parentAlias,
-    targetAlias,
+    targetAlias
   );
 
   // Build inner where if provided
   let whereCondition = correlation;
-  
+
   if (typeof config === "object" && config !== null && "where" in config) {
     const childCtx = createChildContext(
       ctx,
       relationInfo.targetModel,
-      targetAlias,
+      targetAlias
     );
     // Use the raw where clause directly - it's already validated by the parent schema
     const rawWhere = (config as { where: Record<string, unknown> }).where;
@@ -315,7 +322,7 @@ function buildRelationCount(
 
   // Build COUNT subquery
   return adapter.subqueries.scalar(
-    sql`SELECT COUNT(*) FROM ${targetTable} WHERE ${whereCondition}`,
+    sql`SELECT COUNT(*) FROM ${targetTable} WHERE ${whereCondition}`
   );
 }
 
@@ -326,7 +333,7 @@ function buildManyToManyCount(
   ctx: QueryContext,
   relationInfo: RelationInfo,
   config: unknown,
-  parentAlias: string,
+  parentAlias: string
 ): Sql {
   const { adapter } = ctx;
 
@@ -340,7 +347,7 @@ function buildManyToManyCount(
       joinInfo,
       parentAlias,
       junctionAlias,
-      targetAlias,
+      targetAlias
     );
 
   const conditions: Sql[] = [correlationCondition, joinCondition];
@@ -350,12 +357,13 @@ function buildManyToManyCount(
     const childCtx = createChildContext(
       ctx,
       relationInfo.targetModel,
-      targetAlias,
+      targetAlias
     );
     const rawWhere = (config as { where: Record<string, unknown> }).where;
     const whereSchema = relationInfo.targetModel["~"].schemas.where;
     const normalizedWhere = whereSchema
-      ? (parse(whereSchema, rawWhere).value as Record<string, unknown>)
+      ? (parse(whereSchema, rawWhere) as { value: Record<string, unknown> })
+          .value
       : rawWhere;
     const innerWhere = buildWhere(childCtx, normalizedWhere, targetAlias);
     if (innerWhere) {
@@ -366,6 +374,6 @@ function buildManyToManyCount(
   const whereCondition = adapter.operators.and(...conditions);
 
   return adapter.subqueries.scalar(
-    sql`SELECT COUNT(*) FROM ${fromClause} WHERE ${whereCondition}`,
+    sql`SELECT COUNT(*) FROM ${fromClause} WHERE ${whereCondition}`
   );
 }

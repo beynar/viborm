@@ -5,15 +5,9 @@
  * relation filters, and AND/OR/NOT logical operators.
  */
 
-import { describe, test, expect, expectTypeOf } from "vitest";
-import { parse, InferInput } from "@validation";
-import {
-  simpleSchemas,
-  authorSchemas,
-  postSchemas,
-  type SimpleState,
-  type AuthorState,
-} from "../fixtures";
+import { type InferInput, parse } from "@validation";
+import { describe, expect, expectTypeOf, test } from "vitest";
+import { authorSchemas, postSchemas, simpleSchemas } from "../fixtures";
 
 // =============================================================================
 // TYPE TESTS - Simple Model

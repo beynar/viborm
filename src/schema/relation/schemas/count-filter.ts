@@ -1,9 +1,9 @@
 // Count Filter Schema
 // Schema for _count filtering - accepts true or { where: ... }
 
+import v from "@validation";
 import type { RelationState } from "../relation";
 import { getTargetWhereSchema } from "./helpers";
-import v from "@validation";
 
 /**
  * Count filter schema: true or { where: <filter> }
@@ -20,4 +20,3 @@ export const countFilterFactory = <S extends RelationState>(state: S) => {
     }),
   ]);
 };
-

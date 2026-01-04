@@ -9,8 +9,8 @@
  */
 
 import { s } from "@schema";
-import { getRelationSchemas } from "@schema/relation/schemas";
 import type { RelationState } from "@schema/relation/relation";
+import { getRelationSchemas } from "@schema/relation/schemas";
 
 // =============================================================================
 // BASE MODELS
@@ -153,4 +153,3 @@ export type RequiredOneToManyState = typeof requiredOneToManyState;
 export type OptionalOneToOneState = typeof optionalOneToOneState;
 export type OptionalManyToOneState = typeof optionalManyToOneState;
 export type SelfRefOneToManyState = typeof selfRefOneToManyState;
-

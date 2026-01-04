@@ -2,17 +2,17 @@
 // Standalone field class with State generic pattern
 
 import type { StandardSchemaOf } from "@standard-schema/spec";
+import v, { type BaseIsoTimeSchema } from "@validation";
 import {
-  type FieldState,
-  type UpdateState,
-  type DefaultValue,
-  type SchemaNames,
   createDefaultState,
-  DefaultValueInput,
+  type DefaultValue,
+  type DefaultValueInput,
+  type FieldState,
+  type SchemaNames,
+  type UpdateState,
 } from "../common";
 import type { NativeType } from "../native-types";
-import { buildTimeSchema, timeBase, TimeSchemas } from "./schemas";
-import v, { BaseIsoTimeSchema } from "@validation";
+import { buildTimeSchema, type TimeSchemas, timeBase } from "./schemas";
 
 const defaultNow = () => {
   const now = new Date();
@@ -24,11 +24,16 @@ const defaultUpdatedAt = () => {
 };
 
 export class TimeField<State extends FieldState<"time">> {
-  /** Name slots hydrated by client at initialization */
+  // biome-ignore lint/style/useReadonlyClassProperties: <it is reassigned when hydrating schemas>
   private _names: SchemaNames = {};
   private _schemas: TimeSchemas<State> | undefined;
+  private readonly state: State;
+  private readonly _nativeType?: NativeType | undefined;
 
-  constructor(private state: State, private _nativeType?: NativeType) {}
+  constructor(state: State, _nativeType?: NativeType) {
+    this.state = state;
+    this._nativeType = _nativeType;
+  }
 
   nullable(): TimeField<
     UpdateState<
@@ -121,7 +126,7 @@ export class TimeField<State extends FieldState<"time">> {
     return new TimeField(
       {
         ...this.state,
-        schema: schema,
+        schema,
         base: v.isoTime<{
           nullable: State["nullable"];
           array: State["array"];
@@ -129,7 +134,7 @@ export class TimeField<State extends FieldState<"time">> {
         }>({
           nullable: this.state.nullable,
           array: this.state.array,
-          schema: schema,
+          schema,
         }),
       },
       this._nativeType

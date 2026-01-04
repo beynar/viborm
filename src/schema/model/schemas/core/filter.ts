@@ -1,6 +1,6 @@
-import type { ModelState } from "../../model";
+import v, { type ObjectSchema } from "@validation";
 import type { Field } from "../../../fields/base";
-import v, { ObjectSchema } from "@validation";
+import type { ModelState } from "../../model";
 
 export const getScalarFilter = <T extends ModelState>(state: T) => {
   return v.fromObject(state.scalars, "~.schemas.filter");
@@ -25,21 +25,22 @@ type CompoundConstraintFilterSchema<T extends ModelState> =
       ? ObjectSchema<T["compoundId"] & T["compoundUniques"]>
       : ObjectSchema<T["compoundId"]>
     : T["compoundUniques"] extends Record<string, Record<string, Field>>
-    ? ObjectSchema<T["compoundUniques"]>
-    : ObjectSchema<{}, undefined>;
+      ? ObjectSchema<T["compoundUniques"]>
+      : ObjectSchema<{}, undefined>;
 
 export const getCompoundConstraintFilter = <T extends ModelState>(state: T) => {
-  if (!state.compoundUniques && !state.compoundId) {
+  if (!(state.compoundUniques || state.compoundId)) {
     return v.object({}) as CompoundConstraintFilterSchema<T>;
-  } else if (!state.compoundUniques) {
+  }
+  if (!state.compoundUniques) {
     return v.object(state.compoundId) as CompoundConstraintFilterSchema<T>;
-  } else if (!state.compoundId) {
-    return v.object(state.compoundUniques) as CompoundConstraintFilterSchema<T>;
-  } else {
+  }
+  if (state.compoundId) {
     return v
       .object(state.compoundUniques)
       .extend(state.compoundId) as CompoundConstraintFilterSchema<T>;
   }
+  return v.object(state.compoundUniques) as CompoundConstraintFilterSchema<T>;
 };
 
 export const getCompoundIdFilter = <T extends ModelState>(state: T) => {

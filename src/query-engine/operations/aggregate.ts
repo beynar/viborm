@@ -5,12 +5,15 @@
  * Supports _count, _avg, _sum, _min, _max aggregations.
  */
 
-import { sql, Sql } from "@sql";
+import { type Sql, sql } from "@sql";
+import {
+  buildAggregateColumn,
+  buildCountAggregate,
+} from "../builders/aggregate-utils";
+import { buildWhere } from "../builders/where-builder";
+import { getTableName } from "../context";
 import type { QueryContext } from "../types";
 import { QueryEngineError } from "../types";
-import { getTableName } from "../context";
-import { buildWhere } from "../builders/where-builder";
-import { buildCountAggregate, buildAggregateColumn } from "../builders/aggregate-utils";
 
 /**
  * Aggregate arguments
@@ -55,8 +58,10 @@ export function buildAggregate(ctx: QueryContext, args: AggregateArgs): Sql {
   const where = buildWhere(ctx, args.where, rootAlias);
 
   // Build LIMIT/OFFSET (for cursor-based pagination)
-  const limit = args.take !== undefined ? adapter.literals.value(args.take) : undefined;
-  const offset = args.skip !== undefined ? adapter.literals.value(args.skip) : undefined;
+  const limit =
+    args.take !== undefined ? adapter.literals.value(args.take) : undefined;
+  const offset =
+    args.skip !== undefined ? adapter.literals.value(args.skip) : undefined;
 
   // Assemble query
   const parts: Parameters<typeof adapter.assemble.select>[0] = {

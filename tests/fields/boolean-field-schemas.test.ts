@@ -14,10 +14,10 @@
  * - filter: Input type for filtering + shorthand transforms
  */
 
-import { describe, test, expect, expectTypeOf } from "vitest";
-import { parse } from "@validation";
 import { boolean } from "@schema/fields/boolean/field";
 import type { InferBooleanInput } from "@schema/fields/boolean/schemas";
+import { parse } from "@validation";
+import { describe, expect, expectTypeOf, test } from "vitest";
 
 // =============================================================================
 // RAW BOOLEAN FIELD (required, no modifiers)

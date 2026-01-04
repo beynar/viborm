@@ -1,12 +1,12 @@
-import type {
-  VibSchema,
-  InferOutputShape,
-  InferInputShape,
-  ThunkCast,
-} from "../types";
+import type { StandardSchemaV1 } from "@standard-schema";
 import { fail, ok } from "../helpers";
 import { createJsonSchemaConverter } from "../json-schema/factory";
-import { StandardSchemaV1 } from "@standard-schema";
+import type {
+  InferInputShape,
+  InferOutputShape,
+  ThunkCast,
+  VibSchema,
+} from "../types";
 
 // =============================================================================
 // Object Schema Types
@@ -54,8 +54,8 @@ export interface ObjectOptions<T = unknown, TKeys extends string = string> {
 type ComputeObjectInput<TEntries, TOpts> = TOpts extends { partial: false }
   ? InferInputShape<TEntries>
   : TOpts extends { atLeast: infer Keys extends readonly string[] }
-  ? RequireKeys<Partial<InferInputShape<TEntries>>, Keys[number]>
-  : Partial<InferInputShape<TEntries>>;
+    ? RequireKeys<Partial<InferInputShape<TEntries>>, Keys[number]>
+    : Partial<InferInputShape<TEntries>>;
 
 /**
  * Compute output type based on partial option.
@@ -65,8 +65,8 @@ type ComputeObjectInput<TEntries, TOpts> = TOpts extends { partial: false }
 type ComputeObjectOutput<TEntries, TOpts> = TOpts extends { partial: false }
   ? InferOutputShape<TEntries>
   : TOpts extends { atLeast: infer Keys extends readonly string[] }
-  ? RequireKeys<Partial<InferOutputShape<TEntries>>, Keys[number]>
-  : Partial<InferOutputShape<TEntries>>;
+    ? RequireKeys<Partial<InferOutputShape<TEntries>>, Keys[number]>
+    : Partial<InferOutputShape<TEntries>>;
 
 /**
  * Make specific keys required in an otherwise partial object.
@@ -83,15 +83,15 @@ type ApplyObjectOptions<TBase, TOpts> = TOpts extends { array: true }
       ? TBase[] | undefined | null
       : TBase[] | undefined
     : TOpts extends { nullable: true }
-    ? TBase[] | null
-    : TBase[]
+      ? TBase[] | null
+      : TBase[]
   : TOpts extends { optional: true }
-  ? TOpts extends { nullable: true }
-    ? TBase | undefined | null
-    : TBase | undefined
-  : TOpts extends { nullable: true }
-  ? TBase | null
-  : TBase;
+    ? TOpts extends { nullable: true }
+      ? TBase | undefined | null
+      : TBase | undefined
+    : TOpts extends { nullable: true }
+      ? TBase | null
+      : TBase;
 
 /**
  * Object schema interface.
@@ -100,7 +100,7 @@ export interface ObjectSchema<
   TEntries,
   TOpts extends ObjectOptions | undefined = undefined,
   TInput = ApplyObjectOptions<ComputeObjectInput<TEntries, TOpts>, TOpts>,
-  TOutput = ApplyObjectOptions<ComputeObjectOutput<TEntries, TOpts>, TOpts>
+  TOutput = ApplyObjectOptions<ComputeObjectOutput<TEntries, TOpts>, TOpts>,
 > extends VibSchema<TInput, TOutput> {
   readonly type: "object";
   readonly entries: TEntries;
@@ -109,7 +109,7 @@ export interface ObjectSchema<
   /** Extend this schema with additional entries */
   extend<
     TNewEntries extends ObjectEntries,
-    TNewTOpts extends ObjectOptions | undefined = undefined
+    TNewTOpts extends ObjectOptions | undefined = undefined,
   >(
     newEntries: TNewEntries,
     options?: TNewTOpts
@@ -158,7 +158,7 @@ function createObjectValidator(
       issues: [{ message: `Missing required field: ${key}`, path: [key] }],
     };
     // Key is required if: not partial, OR key is in atLeast list
-    isRequired[i] = !partial || (atLeastSet !== null && atLeastSet.has(key));
+    isRequired[i] = !partial || (atLeastSet?.has(key) ?? false);
   }
 
   // Resolve validators lazily (for circular refs)
@@ -174,7 +174,7 @@ function createObjectValidator(
           : entry;
 
       // Defensive null check: if schema is undefined or invalid, create a failing validator
-      if (!schema || !schema["~standard"]) {
+      if (!schema?.["~standard"]) {
         console.warn(
           `[VibORM] Schema for key "${key}" is undefined or invalid`
         );
@@ -327,7 +327,7 @@ function createObjectValidator(
 export function object<
   TEntries, // NO constraint - critical for circular references
   const TOpts extends ObjectOptions | undefined = undefined,
-  R = ObjectSchema<TEntries, TOpts>
+  R = ObjectSchema<TEntries, TOpts>,
 >(entries: TEntries, options?: TOpts): R extends infer _ ? _ : never {
   type BaseOutput = ComputeObjectOutput<TEntries, TOpts>;
 
@@ -347,10 +347,7 @@ export function object<
 
   let validate: (value: unknown) => any;
 
-  if (!needsWrapper) {
-    // Fast path: direct object validation
-    validate = validateObj;
-  } else {
+  if (needsWrapper) {
     // Slow path: handle wrapper options
     validate = (value: unknown) => {
       // Handle optional
@@ -419,6 +416,9 @@ export function object<
           )
         : result;
     };
+  } else {
+    // Fast path: direct object validation
+    validate = validateObj;
   }
 
   const schema = {

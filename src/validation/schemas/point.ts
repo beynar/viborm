@@ -1,10 +1,10 @@
+import { buildSchema, ok } from "../helpers";
 import type {
-  VibSchema,
-  ScalarOptions,
   ComputeInput,
   ComputeOutput,
+  ScalarOptions,
+  VibSchema,
 } from "../types";
-import { buildSchema, ok } from "../helpers";
 
 // =============================================================================
 // Point Schema ({ x: number, y: number })
@@ -19,7 +19,7 @@ export interface Point {
 }
 
 export interface BasePointSchema<
-  Opts extends ScalarOptions<Point, any> | undefined = undefined
+  Opts extends ScalarOptions<Point, any> | undefined = undefined,
 > extends VibSchema<ComputeInput<Point, Opts>, ComputeOutput<Point, Opts>> {}
 
 export interface PointSchema<TInput = Point, TOutput = Point>
@@ -54,7 +54,7 @@ export function validatePoint(value: unknown) {
   if (typeof value !== "object" || value === null) return NOT_OBJECT_ERROR;
 
   const obj = value as Record<string, unknown>;
-  if (!("x" in obj) || !("y" in obj)) return MISSING_XY_ERROR;
+  if (!("x" in obj && "y" in obj)) return MISSING_XY_ERROR;
   if (typeof obj.x !== "number" || Number.isNaN(obj.x)) return INVALID_X_ERROR;
   if (typeof obj.y !== "number" || Number.isNaN(obj.y)) return INVALID_Y_ERROR;
 
@@ -70,7 +70,7 @@ export function validatePoint(value: unknown) {
  * const pointArray = v.point({ array: true });
  */
 export function point<
-  const Opts extends ScalarOptions<Point, any> | undefined = undefined
+  const Opts extends ScalarOptions<Point, any> | undefined = undefined,
 >(
   options?: Opts
 ): PointSchema<ComputeInput<Point, Opts>, ComputeOutput<Point, Opts>> {

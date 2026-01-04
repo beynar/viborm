@@ -2,16 +2,19 @@
  * Resolver Tests
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
-  applyResolutions,
-  alwaysRenameResolver,
   alwaysAddDropResolver,
-  strictResolver,
-  createResolver,
+  alwaysRenameResolver,
+  applyResolutions,
   createPredefinedResolver,
+  createResolver,
+  strictResolver,
 } from "../../src/migrations/resolver";
-import type { AmbiguousChange, ChangeResolution } from "../../src/migrations/types";
+import type {
+  AmbiguousChange,
+  ChangeResolution,
+} from "../../src/migrations/types";
 
 // =============================================================================
 // HELPERS

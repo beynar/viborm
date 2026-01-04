@@ -2,4 +2,3 @@
   "title": "Queries",
   "pages": ["index", "find-many", "find-unique", "aggregations"]
 }
-

@@ -5,13 +5,16 @@
  * Returns records grouped by specified fields with optional aggregates.
  */
 
-import { sql, Sql } from "@sql";
+import { type Sql, sql } from "@sql";
+import {
+  buildAggregateColumn,
+  buildCountAggregate,
+} from "../builders/aggregate-utils";
+import { buildOrderBy } from "../builders/orderby-builder";
+import { buildWhere } from "../builders/where-builder";
+import { getColumnName, getScalarFieldNames, getTableName } from "../context";
 import type { QueryContext } from "../types";
 import { QueryEngineError } from "../types";
-import { getTableName, getScalarFieldNames, getColumnName } from "../context";
-import { buildWhere } from "../builders/where-builder";
-import { buildOrderBy } from "../builders/orderby-builder";
-import { buildCountAggregate, buildAggregateColumn } from "../builders/aggregate-utils";
 
 /**
  * GroupBy arguments
@@ -60,13 +63,15 @@ export function buildGroupBy(ctx: QueryContext, args: GroupByArgs): Sql {
   for (const field of byFields) {
     if (!scalarFields.includes(field)) {
       throw new QueryEngineError(
-        `GroupBy field '${field}' not found on model '${ctx.model.name}'`
+        `GroupBy field '${field}' not found on model '${ctx.model["~"].state.name}'`
       );
     }
   }
 
   if (byFields.length === 0) {
-    throw new QueryEngineError("GroupBy operation requires at least one field in 'by'");
+    throw new QueryEngineError(
+      "GroupBy operation requires at least one field in 'by'"
+    );
   }
 
   // Build SELECT columns: grouped fields + aggregates
@@ -86,14 +91,18 @@ export function buildGroupBy(ctx: QueryContext, args: GroupByArgs): Sql {
   const groupBy = sql.join(groupByColumns, ", ");
 
   // Build HAVING
-  const having = args.having ? buildHaving(ctx, args.having, rootAlias) : undefined;
+  const having = args.having
+    ? buildHaving(ctx, args.having, rootAlias)
+    : undefined;
 
   // Build ORDER BY
   const orderBy = buildOrderBy(ctx, args.orderBy, rootAlias);
 
   // Build LIMIT/OFFSET
-  const limit = args.take !== undefined ? adapter.literals.value(args.take) : undefined;
-  const offset = args.skip !== undefined ? adapter.literals.value(args.skip) : undefined;
+  const limit =
+    args.take !== undefined ? adapter.literals.value(args.take) : undefined;
+  const offset =
+    args.skip !== undefined ? adapter.literals.value(args.skip) : undefined;
 
   // Assemble query
   const parts: Parameters<typeof adapter.assemble.select>[0] = {
@@ -182,8 +191,19 @@ function buildHaving(
     if (value === undefined) continue;
 
     // Check if it's an aggregate filter
-    if (key === "_count" || key === "_avg" || key === "_sum" || key === "_min" || key === "_max") {
-      const aggConditions = buildAggregateHaving(ctx, key, value as Record<string, unknown>, alias);
+    if (
+      key === "_count" ||
+      key === "_avg" ||
+      key === "_sum" ||
+      key === "_min" ||
+      key === "_max"
+    ) {
+      const aggConditions = buildAggregateHaving(
+        ctx,
+        key,
+        value as Record<string, unknown>,
+        alias
+      );
       if (aggConditions) conditions.push(aggConditions);
       continue;
     }
@@ -219,12 +239,17 @@ function buildAggregateHaving(
     // Build the aggregate expression based on aggregate type
     let aggExpr: Sql;
     // Resolve field name to column name (skip for _all)
-    const columnName = field === "_all" ? undefined : getColumnName(ctx.model, field);
-    const column = columnName ? adapter.identifiers.column(alias, columnName) : undefined;
+    const columnName =
+      field === "_all" ? undefined : getColumnName(ctx.model, field);
+    const column = columnName
+      ? adapter.identifiers.column(alias, columnName)
+      : undefined;
 
     switch (aggType) {
       case "_count":
-        aggExpr = column ? adapter.aggregates.count(column) : adapter.aggregates.count();
+        aggExpr = column
+          ? adapter.aggregates.count(column)
+          : adapter.aggregates.count();
         break;
       case "_avg":
         if (!column) continue; // _avg doesn't support _all
@@ -278,35 +303,54 @@ function buildScalarHaving(
 
     switch (op) {
       case "equals":
-        conditions.push(adapter.operators.eq(column, adapter.literals.value(value)));
+        conditions.push(
+          adapter.operators.eq(column, adapter.literals.value(value))
+        );
         break;
       case "not":
-        conditions.push(adapter.operators.neq(column, adapter.literals.value(value)));
+        conditions.push(
+          adapter.operators.neq(column, adapter.literals.value(value))
+        );
         break;
       case "gt":
-        conditions.push(adapter.operators.gt(column, adapter.literals.value(value)));
+        conditions.push(
+          adapter.operators.gt(column, adapter.literals.value(value))
+        );
         break;
       case "gte":
-        conditions.push(adapter.operators.gte(column, adapter.literals.value(value)));
+        conditions.push(
+          adapter.operators.gte(column, adapter.literals.value(value))
+        );
         break;
       case "lt":
-        conditions.push(adapter.operators.lt(column, adapter.literals.value(value)));
+        conditions.push(
+          adapter.operators.lt(column, adapter.literals.value(value))
+        );
         break;
       case "lte":
-        conditions.push(adapter.operators.lte(column, adapter.literals.value(value)));
+        conditions.push(
+          adapter.operators.lte(column, adapter.literals.value(value))
+        );
         break;
       case "in":
         if (Array.isArray(value)) {
-          const values = value.map(v => adapter.literals.value(v));
-          conditions.push(adapter.operators.in(column, adapter.literals.list(values)));
+          const values = value.map((v) => adapter.literals.value(v));
+          conditions.push(
+            adapter.operators.in(column, adapter.literals.list(values))
+          );
         }
         break;
       case "notIn":
         if (Array.isArray(value)) {
-          const values = value.map(v => adapter.literals.value(v));
-          conditions.push(adapter.operators.notIn(column, adapter.literals.list(values)));
+          const values = value.map((v) => adapter.literals.value(v));
+          conditions.push(
+            adapter.operators.notIn(column, adapter.literals.list(values))
+          );
         }
         break;
+      default: {
+        throw new QueryEngineError(`Invalid operator: ${op}`);
+      }
     }
   }
 

@@ -5,14 +5,9 @@
  * with their respective filter schemas, all optional.
  */
 
-import { describe, test, expect, expectTypeOf } from "vitest";
-import { parse, InferInput } from "@validation";
-import {
-  simpleModel,
-  simpleSchemas,
-  compoundIdSchemas,
-  type SimpleState,
-} from "../fixtures";
+import { type InferInput, parse } from "@validation";
+import { describe, expect, expectTypeOf, test } from "vitest";
+import { compoundIdSchemas, simpleSchemas } from "../fixtures";
 
 // =============================================================================
 // TYPE TESTS

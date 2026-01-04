@@ -1,10 +1,10 @@
+import { buildSchema, ok } from "../helpers";
 import type {
-  VibSchema,
-  ScalarOptions,
   ComputeInput,
   ComputeOutput,
+  ScalarOptions,
+  VibSchema,
 } from "../types";
-import { buildSchema, ok } from "../helpers";
 
 // =============================================================================
 // JSON Schema
@@ -23,7 +23,7 @@ export type JsonValue =
   | { [key: string]: JsonValue };
 
 export interface BaseJsonSchema<
-  Opts extends ScalarOptions<JsonValue, any> | undefined = undefined
+  Opts extends ScalarOptions<JsonValue, any> | undefined = undefined,
 > extends VibSchema<
     ComputeInput<JsonValue, Opts>,
     ComputeOutput<JsonValue, Opts>
@@ -80,10 +80,11 @@ function isJsonValue(value: unknown, seen = new WeakSet<object>()): boolean {
     if (proto !== null && proto !== Object.prototype) return false;
 
     for (const key in value) {
-      if (Object.prototype.hasOwnProperty.call(value, key)) {
-        if (!isJsonValue((value as Record<string, unknown>)[key], seen)) {
-          return false;
-        }
+      if (
+        Object.hasOwn(value, key) &&
+        !isJsonValue((value as Record<string, unknown>)[key], seen)
+      ) {
+        return false;
       }
     }
     return true;
@@ -111,7 +112,7 @@ function validateJson(value: unknown) {
  */
 // @__NO_SIDE_EFFECTS__
 export function json<
-  const Opts extends ScalarOptions<JsonValue, any> | undefined = undefined
+  const Opts extends ScalarOptions<JsonValue, any> | undefined = undefined,
 >(
   options?: Opts
 ): JsonSchema<ComputeInput<JsonValue, Opts>, ComputeOutput<JsonValue, Opts>> {

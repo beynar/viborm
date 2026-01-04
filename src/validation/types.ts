@@ -21,10 +21,10 @@ export type Simplify<T> = { [K in keyof T]: T[K] } & {};
 export type Prettify<T> = T extends (...args: any[]) => any
   ? T // Preserve functions as-is
   : T extends object
-  ? T extends Date
-    ? T
-    : { [K in keyof T]: Prettify<T[K]> } & {}
-  : T;
+    ? T extends Date
+      ? T
+      : { [K in keyof T]: Prettify<T[K]> } & {}
+    : T;
 
 // =============================================================================
 // Schema Interfaces (using interface for caching)
@@ -41,9 +41,10 @@ export interface Cast<TInput = unknown, TOutput = TInput> {
 /**
  * Thunk returning a Cast - for lazy type resolution in circular references.
  */
-export interface ThunkCast<TInput = unknown, TOutput = TInput> {
-  (): Cast<TInput, TOutput>;
-}
+export type ThunkCast<TInput = unknown, TOutput = TInput> = () => Cast<
+  TInput,
+  TOutput
+>;
 
 /**
  * Base schema interface implementing StandardSchemaV1 and StandardJSONSchemaV1.
@@ -113,8 +114,8 @@ export interface ObjectOptions<T, TOut = T, TSchemaOut = TOut>
 export type InferOutput<Def> = Def extends { [inferred]?: [any, infer O] }
   ? O
   : Def extends () => { [inferred]?: [any, infer O] }
-  ? O
-  : unknown;
+    ? O
+    : unknown;
 
 /**
  * Extract input type from branded [inferred] property.
@@ -122,8 +123,8 @@ export type InferOutput<Def> = Def extends { [inferred]?: [any, infer O] }
 export type InferInput<Def> = Def extends { [inferred]?: [infer I, any] }
   ? I
   : Def extends () => { [inferred]?: [infer I, any] }
-  ? I
-  : unknown;
+    ? I
+    : unknown;
 
 /**
  * Infer output shape from object field definitions.
@@ -155,7 +156,7 @@ type BoolKey<T, K extends keyof T> = T[K] extends true ? "t" : "f";
  */
 type EffectiveInput<
   T,
-  Opts extends ScalarOptions<any, any, any>
+  Opts extends ScalarOptions<any, any, any>,
 > = Opts["schema"] extends StandardSchemaV1<infer I, any> ? I : T;
 
 /**
@@ -163,7 +164,7 @@ type EffectiveInput<
  */
 export type ComputeInput<
   T,
-  Opts extends ScalarOptions<any, any, any> | undefined
+  Opts extends ScalarOptions<any, any, any> | undefined,
 > = Opts extends ScalarOptions<any, any, any>
   ? ComputeInputLookup<EffectiveInput<T, Opts>, Opts>[`${BoolKey<
       Opts,
@@ -190,19 +191,19 @@ interface ComputeInputLookup<T, Opts extends ScalarOptions<any, any, any>> {
  */
 type EffectiveOutput<
   T,
-  Opts extends ScalarOptions<any, any, any>
+  Opts extends ScalarOptions<any, any, any>,
 > = Opts["transform"] extends (v: any) => infer R
   ? R
   : Opts["schema"] extends StandardSchemaV1<any, infer S>
-  ? S
-  : T;
+    ? S
+    : T;
 
 /**
  * Compute output type using lookup pattern.
  */
 export type ComputeOutput<
   T,
-  Opts extends ScalarOptions<any, any, any> | undefined
+  Opts extends ScalarOptions<any, any, any> | undefined,
 > = Opts extends ScalarOptions<any, any, any>
   ? ComputeOutputLookup<EffectiveOutput<T, Opts>, Opts>[`${BoolKey<
       Opts,

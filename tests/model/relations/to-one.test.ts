@@ -9,9 +9,9 @@
  * - OrderBy schemas
  */
 
-import { describe, test, expect } from "vitest";
 import { parse } from "@validation";
-import { postSchemas, authorSchemas } from "../fixtures";
+import { describe, expect, test } from "vitest";
+import { postSchemas } from "../fixtures";
 
 // =============================================================================
 // TO-ONE FILTER SCHEMAS

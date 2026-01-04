@@ -1,12 +1,12 @@
+import { createSchema, ok } from "../helpers";
 import type {
-  VibSchema,
-  ThunkCast,
   Cast,
   InferInput,
   InferOutput,
+  ThunkCast,
   ValidationResult,
+  VibSchema,
 } from "../types";
-import { ok, createSchema } from "../helpers";
 
 // =============================================================================
 // Optional Schema
@@ -23,13 +23,14 @@ export type WrappableSchema =
 /**
  * Unwrap a schema or thunk to get the underlying schema type.
  */
-type UnwrapSchema<T> = T extends VibSchema<any, any>
-  ? T
-  : T extends ThunkCast<infer I, infer O>
-  ? VibSchema<I, O>
-  : T extends () => Cast<infer I, infer O>
-  ? VibSchema<I, O>
-  : never;
+type UnwrapSchema<T> =
+  T extends VibSchema<any, any>
+    ? T
+    : T extends ThunkCast<infer I, infer O>
+      ? VibSchema<I, O>
+      : T extends () => Cast<infer I, infer O>
+        ? VibSchema<I, O>
+        : never;
 
 export interface OptionalSchema<
   TWrapped extends WrappableSchema,
@@ -37,7 +38,7 @@ export interface OptionalSchema<
   TInput = InferInput<UnwrapSchema<TWrapped>> | undefined,
   TOutput = TDefault extends undefined
     ? InferOutput<UnwrapSchema<TWrapped>> | undefined
-    : InferOutput<UnwrapSchema<TWrapped>>
+    : InferOutput<UnwrapSchema<TWrapped>>,
 > extends VibSchema<TInput, TOutput> {
   readonly type: "optional";
   readonly wrapped: TWrapped;
@@ -47,7 +48,7 @@ export interface OptionalSchema<
 // Compute output type based on default
 type OptionalOutput<
   TWrapped extends WrappableSchema,
-  TDefault
+  TDefault,
 > = TDefault extends undefined
   ? InferOutput<UnwrapSchema<TWrapped>> | undefined
   : InferOutput<UnwrapSchema<TWrapped>>;
@@ -69,7 +70,7 @@ export function optional<
   TDefault extends
     | InferOutput<UnwrapSchema<TWrapped>>
     | (() => InferOutput<UnwrapSchema<TWrapped>>)
-    | undefined = undefined
+    | undefined = undefined,
 >(
   wrapped: TWrapped,
   defaultValue?: TDefault

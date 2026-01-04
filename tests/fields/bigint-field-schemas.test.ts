@@ -14,18 +14,11 @@
  * - filter: Input type for filtering + shorthand transforms
  */
 
-import { describe, test, expect, expectTypeOf } from "vitest";
-import {
-  pipe,
-  bigint,
-  minValue,
-  maxValue,
-  brand,
-  Brand,
-} from "valibot";
-import { parse, InferOutput } from "@validation";
 import { bigInt } from "@schema/fields/bigint/field";
 import type { InferBigIntInput } from "@schema/fields/bigint/schemas";
+import { type InferOutput, parse } from "@validation";
+import { type Brand, bigint, brand, maxValue, minValue, pipe } from "valibot";
+import { describe, expect, expectTypeOf, test } from "vitest";
 
 // =============================================================================
 // RAW BIGINT FIELD (required, no modifiers)

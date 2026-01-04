@@ -33,6 +33,7 @@
   "@ark/attest-ts-default": "npm:typescript@5.8.3",
   "devDependencies": {
     "@ark/attest": "^0.56.0",
+    "@biomejs/biome": "2.3.11",
     "@cloudflare/workers-types": "^4.20260103.0",
     "@electric-sql/pglite": "^0.3.2",
     "@types/node": "^22.15.21",
@@ -40,6 +41,7 @@
     "prisma": "^6.8.2",
     "type-fest": "^4.41.0",
     "typescript": "^5.8.3",
+    "ultracite": "7.0.6",
     "vitest": "^3.1.4",
     "zod": "^4.1.13"
   },

@@ -1,10 +1,10 @@
-import { FieldState, shorthandFilter, shorthandUpdate } from "../common";
 import v, {
-  BaseVectorSchema,
-  InferInput,
-  InferOutput,
-  VibSchema,
+  type BaseVectorSchema,
+  type InferInput,
+  type InferOutput,
+  type VibSchema,
 } from "@validation";
+import { type FieldState, shorthandFilter, shorthandUpdate } from "../common";
 
 // =============================================================================
 // BASE TYPES
@@ -16,17 +16,17 @@ export const vectorNullable = v.vector(undefined, { nullable: true });
 // =============================================================================
 // FILTER SCHEMAS
 // =============================================================================
-
+export const shorthandFilterVector = <S extends VibSchema>(schema: S) =>
+  v.coerce(schema, (val: S[" vibInferred"]["0"]) => ({ cosine: val }));
 const buildVectorFilterSchema = <S extends VibSchema>(schema: S) => {
   const filter = v.object({
-    equals: schema,
+    l2: schema,
+    // l1Distance: schema,
+    cosine: schema,
+    // hammingDistance: schema,
+    // jaccardDistance: schema,
   });
-  return v.union([
-    shorthandFilter(schema),
-    filter.extend({
-      not: v.union([shorthandFilter(schema), filter]),
-    }),
-  ]);
+  return v.union([shorthandFilter(schema), filter]);
 };
 
 const buildVectorUpdateSchema = <S extends VibSchema>(schema: S) =>
@@ -58,10 +58,10 @@ export type VectorSchemas<F extends FieldState<"vector">> = {
 
 export type InferVectorInput<
   F extends FieldState<"vector">,
-  Type extends "create" | "update" | "filter" | "base"
+  Type extends "create" | "update" | "filter" | "base",
 > = InferInput<VectorSchemas<F>[Type]>;
 
 export type InferVectorOutput<
   F extends FieldState<"vector">,
-  Type extends "create" | "update" | "filter" | "base"
+  Type extends "create" | "update" | "filter" | "base",
 > = InferOutput<VectorSchemas<F>[Type]>;

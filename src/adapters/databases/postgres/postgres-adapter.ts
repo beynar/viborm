@@ -1,5 +1,5 @@
-import { Sql, sql } from "@sql";
-import { DatabaseAdapter, QueryParts } from "../../database-adapter";
+import { type Sql, sql } from "@sql";
+import type { DatabaseAdapter, QueryParts } from "../../database-adapter";
 import { postgresMigrations } from "./migrations";
 
 /**
@@ -361,7 +361,7 @@ export class PostgresAdapter implements DatabaseAdapter {
   cte = {
     with: (definitions: { name: string; query: Sql }[]): Sql => {
       const defs = definitions.map(
-        ({ name, query }) => sql`${sql.raw`"${name}"`} AS (${query})`,
+        ({ name, query }) => sql`${sql.raw`"${name}"`} AS (${query})`
       );
       return sql`WITH ${sql.join(defs, ", ")}`;
     },
@@ -370,7 +370,7 @@ export class PostgresAdapter implements DatabaseAdapter {
       name: string,
       anchor: Sql,
       recursive: Sql,
-      union: "all" | "distinct" = "all",
+      union: "all" | "distinct" = "all"
     ): Sql => {
       const unionKeyword =
         union === "all" ? sql.raw`UNION ALL` : sql.raw`UNION`;
@@ -392,7 +392,7 @@ export class PostgresAdapter implements DatabaseAdapter {
       const rows = values.map((row) => sql`(${sql.join(row, ", ")})`);
       return sql`INSERT INTO ${table} (${sql.join(
         cols,
-        ", ",
+        ", "
       )}) VALUES ${sql.join(rows, ", ")}`;
     },
 

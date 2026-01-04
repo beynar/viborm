@@ -1,17 +1,17 @@
+import { buildSchema, fail, ok } from "../helpers";
 import type {
-  VibSchema,
-  ScalarOptions,
   ComputeInput,
   ComputeOutput,
+  ScalarOptions,
+  VibSchema,
 } from "../types";
-import { buildSchema, fail, ok } from "../helpers";
 
 // =============================================================================
 // Vector Schema (array of numbers for embeddings/ML)
 // =============================================================================
 
 export interface BaseVectorSchema<
-  Opts extends ScalarOptions<number[], any> | undefined = undefined
+  Opts extends ScalarOptions<number[], any> | undefined = undefined,
 > extends VibSchema<
     ComputeInput<number[], Opts>,
     ComputeOutput<number[], Opts>
@@ -74,7 +74,7 @@ function createVectorValidator(dimensions?: number) {
  * const optionalVector = v.vector(undefined, { optional: true });
  */
 export function vector<
-  const Opts extends ScalarOptions<number[], any> | undefined = undefined
+  const Opts extends ScalarOptions<number[], any> | undefined = undefined,
 >(
   dimensions?: number,
   options?: Opts

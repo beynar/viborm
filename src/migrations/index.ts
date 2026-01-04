@@ -4,57 +4,57 @@
  * Database schema migration utilities for VibORM.
  */
 
+// Differ
+export {
+  diff,
+  getDestructiveOperationDescriptions,
+  hasDestructiveOperations,
+} from "./differ";
+// Push
+export type { PushOptions } from "./push";
+export {
+  formatOperation,
+  formatOperations,
+  generateDDL,
+  introspect,
+  push,
+} from "./push";
+// Resolver
+export {
+  alwaysAddDropResolver,
+  alwaysRenameResolver,
+  applyResolutions,
+  createPredefinedResolver,
+  createResolver,
+  formatAmbiguousChange,
+  formatAmbiguousChanges,
+  strictResolver,
+} from "./resolver";
+// Serializer
+export {
+  getColumnName,
+  getTableName,
+  mapFieldType,
+  serializeModels,
+} from "./serializer";
 // Types
 export type {
-  SchemaSnapshot,
-  TableDef,
-  ColumnDef,
-  IndexDef,
-  ForeignKeyDef,
-  UniqueConstraintDef,
-  PrimaryKeyDef,
-  EnumDef,
-  ReferentialAction,
-  DiffOperation,
   AmbiguousChange,
   AmbiguousColumnChange,
   AmbiguousTableChange,
   ChangeResolution,
+  ColumnDef,
+  DiffOperation,
   DiffResult,
-  Resolver,
+  EnumDef,
+  ForeignKeyDef,
+  IndexDef,
+  PrimaryKeyDef,
   PushResult,
+  ReferentialAction,
+  Resolver,
+  SchemaSnapshot,
+  TableDef,
+  UniqueConstraintDef,
 } from "./types";
-
 export { MigrationError } from "./types";
-
-// Serializer
-export { serializeModels, mapFieldType, getColumnName, getTableName } from "./serializer";
-
-// Differ
-export {
-  diff,
-  hasDestructiveOperations,
-  getDestructiveOperationDescriptions,
-} from "./differ";
-
-// Resolver
-export {
-  applyResolutions,
-  alwaysRenameResolver,
-  alwaysAddDropResolver,
-  strictResolver,
-  createResolver,
-  createPredefinedResolver,
-  formatAmbiguousChange,
-  formatAmbiguousChanges,
-} from "./resolver";
-
-// Push
-export type { PushOptions } from "./push";
-export {
-  push,
-  introspect,
-  generateDDL,
-  formatOperation,
-  formatOperations,
-} from "./push";

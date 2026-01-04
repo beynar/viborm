@@ -4,10 +4,10 @@
  * Holds shared state for query building: adapter, model, aliases, registry.
  */
 
-import type { Model } from "@schema/model";
 import type { DatabaseAdapter } from "@adapters";
-import type { QueryContext, ModelRegistry, RelationInfo } from "../types";
-import { AliasGenerator, createAliasGenerator } from "./alias-generator";
+import type { Model } from "@schema/model";
+import type { ModelRegistry, QueryContext, RelationInfo } from "../types";
+import { createAliasGenerator } from "./alias-generator";
 
 /**
  * Create a query context for building queries
@@ -15,7 +15,7 @@ import { AliasGenerator, createAliasGenerator } from "./alias-generator";
 export function createQueryContext(
   adapter: DatabaseAdapter,
   model: Model<any>,
-  registry: ModelRegistry,
+  registry: ModelRegistry
 ): QueryContext {
   const aliasGenerator = createAliasGenerator();
   // Reserve t0 for root
@@ -37,7 +37,7 @@ export function createQueryContext(
 export function createChildContext(
   parent: QueryContext,
   model: Model<any>,
-  alias: string,
+  alias: string
 ): QueryContext {
   return {
     adapter: parent.adapter,
@@ -53,7 +53,7 @@ export function createChildContext(
  */
 export function getRelationInfo(
   ctx: QueryContext,
-  relationName: string,
+  relationName: string
 ): RelationInfo | undefined {
   const relations = ctx.model["~"].state.relations;
   const relation = relations[relationName];

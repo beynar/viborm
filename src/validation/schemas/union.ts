@@ -1,6 +1,5 @@
-import { inferred } from "../inferred";
-import type { VibSchema, InferInput, InferOutput } from "../types";
-import { fail, ok, createSchema, validateSchema } from "../helpers";
+import { createSchema, fail, ok, validateSchema } from "../helpers";
+import type { InferInput, InferOutput, VibSchema } from "../types";
 
 // =============================================================================
 // Union Schema
@@ -11,7 +10,7 @@ export type UnionOptions<T extends readonly VibSchema<any, any>[]> = T;
 export interface UnionSchema<
   TOptions extends readonly VibSchema<any, any>[],
   TInput = TOptions[number][" vibInferred"]["0"],
-  TOutput = InferOutput<TOptions[number]>
+  TOutput = InferOutput<TOptions[number]>,
 > extends VibSchema<TInput, TOutput> {
   readonly type: "union";
   readonly options: TOptions;

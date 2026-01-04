@@ -5,14 +5,12 @@
  * constraints as single keys with nested field objects.
  */
 
-import { describe, test, expect, expectTypeOf } from "vitest";
 import { parse } from "@validation";
+import { describe, expect, expectTypeOf, test } from "vitest";
 import {
   compoundIdSchemas,
-  simpleSchemas,
   compoundUniqueSchemas,
-  type CompoundIdState,
-  type SimpleState,
+  simpleSchemas,
 } from "../fixtures";
 
 // =============================================================================

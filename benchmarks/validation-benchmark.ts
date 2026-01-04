@@ -10,12 +10,13 @@
  * and also simulates edge environments like Cloudflare Workers.
  */
 
-import { v } from "../src/validation";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
+import { type } from "arktype";
+import { configure } from "arktype/config";
 import * as valibot from "valibot";
 import { z } from "zod";
-import { type } from "arktype";
-import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { configure } from "arktype/config";
+import { v } from "../src/validation";
+
 configure({ jitless: true });
 
 // IMPORTANT: Disable Zod JIT compilation BEFORE any schemas are defined
@@ -37,7 +38,7 @@ function validateStandard<T>(
 const WARMUP_ITERATIONS = 1000;
 const BENCHMARK_RUNS = 5;
 
-function benchmark(name: string, fn: () => void, iterations = 10000): number {
+function benchmark(name: string, fn: () => void, iterations = 10_000): number {
   // Extended warmup to stabilize JIT
   for (let i = 0; i < WARMUP_ITERATIONS; i++) fn();
 
@@ -62,7 +63,7 @@ function formatMs(ms: number): string {
 function formatOpsPerSec(ms: number, iterations: number): string {
   const ops = (iterations / ms) * 1000;
   if (ops > 1_000_000) return (ops / 1_000_000).toFixed(2) + "M ops/s";
-  if (ops > 1_000) return (ops / 1_000).toFixed(2) + "K ops/s";
+  if (ops > 1000) return (ops / 1000).toFixed(2) + "K ops/s";
   return ops.toFixed(2) + " ops/s";
 }
 
@@ -81,7 +82,7 @@ function runBenchmark(
   valibotFn: () => void,
   zodFn: () => void,
   arktypeFn: () => void,
-  iterations = 10000
+  iterations = 10_000
 ): BenchmarkResult {
   return {
     name,
@@ -405,7 +406,7 @@ const arktypeNullableOptional = type({
 const validString = "hello world";
 const validNumber = 42;
 const validBoolean = true;
-const validBigint = BigInt(9007199254740991);
+const validBigint = BigInt(9_007_199_254_740_991);
 
 const validSimpleUser = {
   id: "user_123",
@@ -532,7 +533,7 @@ results.push(
     () => validateStandard(valibotSimpleUser, validSimpleUser),
     () => validateStandard(zodSimpleUser, validSimpleUser),
     () => validateStandard(arktypeSimpleUser, validSimpleUser),
-    50000
+    50_000
   )
 );
 
@@ -543,7 +544,7 @@ results.push(
     () => validateStandard(valibotComplexUser, validComplexUser),
     () => validateStandard(zodComplexUser, validComplexUser),
     () => validateStandard(arktypeComplexUser, validComplexUser),
-    20000
+    20_000
   )
 );
 
@@ -554,7 +555,7 @@ results.push(
     () => validateStandard(valibotNullableOptional, validNullableOptional),
     () => validateStandard(zodNullableOptional, validNullableOptional),
     () => validateStandard(arktypeNullableOptional, validNullableOptional),
-    50000
+    50_000
   )
 );
 
@@ -568,7 +569,7 @@ results.push(
     () => validateStandard(valibotPosts, validPosts),
     () => validateStandard(zodPosts, validPosts),
     () => validateStandard(arktypePosts, validPosts),
-    10000
+    10_000
   )
 );
 
@@ -579,7 +580,7 @@ results.push(
     () => validateStandard(valibotStringArray, validStringArray100),
     () => validateStandard(zodStringArray, validStringArray100),
     () => validateStandard(arktypeStringArray, validStringArray100),
-    10000
+    10_000
   )
 );
 
@@ -593,7 +594,7 @@ results.push(
     () => validateStandard(valibotUnion, "hello"),
     () => validateStandard(zodUnion, "hello"),
     () => validateStandard(arktypeUnion, "hello"),
-    100000
+    100_000
   )
 );
 
@@ -604,7 +605,7 @@ results.push(
     () => validateStandard(valibotUnion, true),
     () => validateStandard(zodUnion, true),
     () => validateStandard(arktypeUnion, true),
-    100000
+    100_000
   )
 );
 
@@ -618,7 +619,7 @@ results.push(
     () => validateStandard(valibotSimpleUser, invalidSimpleUser),
     () => validateStandard(zodSimpleUser, invalidSimpleUser),
     () => validateStandard(arktypeSimpleUser, invalidSimpleUser),
-    50000
+    50_000
   )
 );
 
@@ -632,7 +633,7 @@ results.push(
     () => valibot.string(),
     () => z.string(),
     () => type("string"),
-    100000
+    100_000
   )
 );
 
@@ -652,7 +653,7 @@ results.push(
       }),
     () => z.object({ id: z.string(), name: z.string(), age: z.number() }),
     () => type({ id: "string", name: "string", age: "number" }),
-    20000
+    20_000
   )
 );
 
@@ -663,7 +664,7 @@ results.push(
     () => valibot.array(valibot.string()),
     () => z.array(z.string()),
     () => type("string[]"),
-    50000
+    50_000
   )
 );
 
@@ -687,7 +688,7 @@ function benchmarkSyntax(
   name: string,
   optionsFn: () => void,
   wrappersFn: () => void,
-  iterations = 100000
+  iterations = 100_000
 ): SyntaxResult {
   return {
     name,
@@ -699,7 +700,7 @@ function benchmarkSyntax(
 
 function formatOps(ops: number): string {
   if (ops > 1_000_000) return (ops / 1_000_000).toFixed(2) + "M ops/s";
-  if (ops > 1_000) return (ops / 1_000).toFixed(2) + "K ops/s";
+  if (ops > 1000) return (ops / 1000).toFixed(2) + "K ops/s";
   return ops.toFixed(2) + " ops/s";
 }
 
@@ -737,7 +738,7 @@ syntaxResults.push(
     "Create: nullable string",
     () => v.string({ nullable: true }),
     () => v.nullable(v.string()),
-    100000
+    100_000
   )
 );
 
@@ -746,7 +747,7 @@ syntaxResults.push(
     "Create: optional string",
     () => v.string({ optional: true }),
     () => v.optional(v.string()),
-    100000
+    100_000
   )
 );
 
@@ -755,7 +756,7 @@ syntaxResults.push(
     "Create: array of strings",
     () => v.string({ array: true }),
     () => v.array(v.string()),
-    100000
+    100_000
   )
 );
 
@@ -764,7 +765,7 @@ syntaxResults.push(
     "Create: nullable array of strings",
     () => v.string({ array: true, nullable: true }),
     () => v.nullable(v.array(v.string())),
-    100000
+    100_000
   )
 );
 
@@ -773,7 +774,7 @@ syntaxResults.push(
     "Create: optional nullable array",
     () => v.string({ array: true, nullable: true, optional: true }),
     () => v.optional(v.nullable(v.array(v.string()))),
-    100000
+    100_000
   )
 );
 
@@ -782,7 +783,7 @@ syntaxResults.push(
     "Create: with default value",
     () => v.string({ default: "hello" }),
     () => v.optional(v.string(), "hello"),
-    100000
+    100_000
   )
 );
 
@@ -815,7 +816,7 @@ validationSyntaxResults.push(
     "Validate: nullable string (valid)",
     () => validateStandard(optionsNullableStr, "hello"),
     () => validateStandard(wrappersNullableStr, "hello"),
-    100000
+    100_000
   )
 );
 
@@ -824,7 +825,7 @@ validationSyntaxResults.push(
     "Validate: nullable string (null)",
     () => validateStandard(optionsNullableStr, null),
     () => validateStandard(wrappersNullableStr, null),
-    100000
+    100_000
   )
 );
 
@@ -833,7 +834,7 @@ validationSyntaxResults.push(
     "Validate: array of strings",
     () => validateStandard(optionsArrayStr, ["a", "b", "c"]),
     () => validateStandard(wrappersArrayStr, ["a", "b", "c"]),
-    50000
+    50_000
   )
 );
 
@@ -842,7 +843,7 @@ validationSyntaxResults.push(
     "Validate: nullable array (valid array)",
     () => validateStandard(optionsNullableArrayStr, ["a", "b"]),
     () => validateStandard(wrappersNullableArrayStr, ["a", "b"]),
-    50000
+    50_000
   )
 );
 
@@ -851,7 +852,7 @@ validationSyntaxResults.push(
     "Validate: nullable array (null)",
     () => validateStandard(optionsNullableArrayStr, null),
     () => validateStandard(wrappersNullableArrayStr, null),
-    100000
+    100_000
   )
 );
 
@@ -860,7 +861,7 @@ validationSyntaxResults.push(
     "Validate: full combo (undefined)",
     () => validateStandard(optionsFullCombo, undefined),
     () => validateStandard(wrappersFullCombo, undefined),
-    100000
+    100_000
   )
 );
 

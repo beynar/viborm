@@ -16,17 +16,17 @@
  * Also tests branded type preservation for each variant.
  */
 
-import { describe, test, expect, expectTypeOf } from "vitest";
+import { string } from "@schema/fields/string/field";
+import type { InferStringInput } from "@schema/fields/string/schemas";
+import { type InferOutput, type Prettify, parse } from "@validation";
 import {
-  email,
+  type Brand as BRAND,
   brand,
-  Brand as BRAND,
+  email,
   pipe,
   string as stringValibot,
 } from "valibot";
-import { string } from "@schema/fields/string/field";
-import type { InferStringInput } from "@schema/fields/string/schemas";
-import { InferOutput, parse, Prettify } from "@validation";
+import { describe, expect, expectTypeOf, test } from "vitest";
 
 // =============================================================================
 // RAW STRING FIELD (required, no modifiers)

@@ -2,4 +2,3 @@
   "title": "Mutations",
   "pages": ["index", "create", "update", "delete", "upsert"]
 }
-

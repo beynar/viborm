@@ -4,12 +4,8 @@
  */
 
 import type { VibSchema } from "../types";
-import type {
-  JsonSchemaConverter,
-  JsonSchemaOptions,
-  SUPPORTED_TARGETS,
-} from "./types";
 import { toJsonSchema } from "./converters";
+import type { JsonSchemaConverter, JsonSchemaOptions } from "./types";
 
 /**
  * Creates a JSON Schema converter for a VibORM schema.

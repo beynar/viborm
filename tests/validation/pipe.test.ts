@@ -1,6 +1,6 @@
-import { describe, test, expect, expectTypeOf } from "vitest";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { v, pipe, transformAction, string, number } from "@validation";
+import { number, pipe, string, transformAction } from "@validation";
+import { describe, expect, expectTypeOf, test } from "vitest";
 
 describe("pipe schema", () => {
   describe("basic validation", () => {
@@ -28,7 +28,10 @@ describe("pipe schema", () => {
   });
 
   describe("single transform", () => {
-    const schema = pipe(string(), transformAction((s) => s.toUpperCase()));
+    const schema = pipe(
+      string(),
+      transformAction((s) => s.toUpperCase())
+    );
 
     test("applies single transform", () => {
       const result = schema["~standard"].validate("hello");
@@ -86,4 +89,3 @@ describe("pipe schema", () => {
     });
   });
 });
-

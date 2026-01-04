@@ -8,10 +8,9 @@
  * - sqlName: The resolved database name (e.g., "email_column", "users")
  */
 
-import type { Model } from "./model";
 import type { Field } from "./fields/base";
-import type { Relation } from "./relation/relation";
 import type { SchemaNames } from "./fields/common";
+import type { Model } from "./model";
 import type { AnyRelation } from "./relation/relation";
 
 /**
@@ -95,7 +94,9 @@ function hydrateRelation(relationKey: string, relation: AnyRelation): void {
  */
 export function isSchemaHydrated(schema: Schema): boolean {
   const firstModel = Object.values(schema)[0];
-  if (!firstModel) return true; // Empty schema is considered hydrated
+  if (!firstModel) {
+    return true;
+  } // Empty schema is considered hydrated
   return firstModel["~"].names.ts !== undefined;
 }
 

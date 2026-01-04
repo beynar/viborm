@@ -1,9 +1,9 @@
 // Foreign Key & Referential Action Validation Rules
 
+import type { Field } from "../../fields/base";
 import type { Model } from "../../model";
 import type { AnyRelation } from "../../relation";
-import type { Field } from "../../fields/base";
-import type { ValidationError, Schema, ValidationContext } from "../types";
+import type { Schema, ValidationContext, ValidationError } from "../types";
 
 /** Helper to get typed relation entries */
 function getRelations(model: Model<any>): [string, AnyRelation][] {
@@ -88,7 +88,7 @@ export function fkTypeMatch(
   for (const [rname, rel] of getRelations(model)) {
     const fks = rel["~"].state.fields;
     const refs = rel["~"].state.references;
-    if (!fks || !refs) continue;
+    if (!(fks && refs)) continue;
 
     const target = rel["~"].state.getter();
     const targetName = findModel(schema, target, ctx) ?? "?";
@@ -99,7 +99,7 @@ export function fkTypeMatch(
       const refName = refs[i]!;
       const local = getScalar(model, fkName);
       const remote = getScalar(target, refName);
-      if (!local || !remote) continue;
+      if (!(local && remote)) continue;
 
       const localType = local["~"].state.type;
       const remoteType = remote["~"].state.type;
@@ -158,7 +158,7 @@ export function fkReferencesUnique(
       const field = getScalar(target, ref);
       if (!field) continue;
       const st = field["~"].state;
-      if (!st.isId && !st.isUnique) {
+      if (!(st.isId || st.isUnique)) {
         errors.push({
           code: "FK005",
           message: `'${ref}' in '${targetName}' should be unique/ID`,
@@ -210,7 +210,7 @@ export function fkCardinalityMatch(
     const refs = rel["~"].state.references;
 
     // Only check if both are defined
-    if (!fks || !refs) continue;
+    if (!(fks && refs)) continue;
 
     if (fks.length !== refs.length) {
       errors.push({

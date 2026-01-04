@@ -5,8 +5,8 @@
  * This avoids the path alias issues when testing runtime schemas.
  */
 
-import z from "zod/v4";
 import { s } from "@schema";
+import z from "zod/v4";
 
 // =============================================================================
 // FIELD EXPORTS (for field type inference tests)

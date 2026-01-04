@@ -1,5 +1,5 @@
-import { Sql, sql } from "@sql";
-import { DatabaseAdapter, QueryParts } from "../../database-adapter";
+import { type Sql, sql } from "@sql";
+import type { DatabaseAdapter, QueryParts } from "../../database-adapter";
 import { mysqlMigrations } from "./migrations";
 
 /**
@@ -419,7 +419,7 @@ export class MySQLAdapter implements DatabaseAdapter {
     if (parts.distinctColumnAliases && parts.distinctColumnAliases.length > 0) {
       // Select only the original columns, excluding _rn
       const aliasColumns = parts.distinctColumnAliases.map(
-        (alias) => sql.raw`\`${alias}\``,
+        (alias) => sql.raw`\`${alias}\``
       );
       outerSelect = sql`SELECT ${sql.join(aliasColumns, ", ")} FROM (${innerQuery}) AS \`_distinct_subquery\``;
     } else {
@@ -452,7 +452,7 @@ export class MySQLAdapter implements DatabaseAdapter {
   cte = {
     with: (definitions: { name: string; query: Sql }[]): Sql => {
       const defs = definitions.map(
-        ({ name, query }) => sql`${sql.raw`\`${name}\``} AS (${query})`,
+        ({ name, query }) => sql`${sql.raw`\`${name}\``} AS (${query})`
       );
       return sql`WITH ${sql.join(defs, ", ")}`;
     },
@@ -461,7 +461,7 @@ export class MySQLAdapter implements DatabaseAdapter {
       name: string,
       anchor: Sql,
       recursive: Sql,
-      union: "all" | "distinct" = "all",
+      union: "all" | "distinct" = "all"
     ): Sql => {
       const unionKeyword =
         union === "all" ? sql.raw`UNION ALL` : sql.raw`UNION`;
@@ -483,7 +483,7 @@ export class MySQLAdapter implements DatabaseAdapter {
       const rows = values.map((row) => sql`(${sql.join(row, ", ")})`);
       return sql`INSERT INTO ${table} (${sql.join(
         cols,
-        ", ",
+        ", "
       )}) VALUES ${sql.join(rows, ", ")}`;
     },
 

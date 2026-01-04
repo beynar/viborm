@@ -1,15 +1,15 @@
+import v, {
+  type BaseStringSchema,
+  type InferInput,
+  type InferOutput,
+  type VibSchema,
+} from "@validation";
 import {
-  FieldState,
+  type FieldState,
+  shorthandArray,
   shorthandFilter,
   shorthandUpdate,
-  shorthandArray,
 } from "../common";
-import v, {
-  BaseStringSchema,
-  InferInput,
-  InferOutput,
-  VibSchema,
-} from "@validation";
 
 // =============================================================================
 // BASE TYPES
@@ -112,10 +112,10 @@ export type StringSchemas<F extends FieldState<"string">> = {
 
 export type InferStringInput<
   F extends FieldState<"string">,
-  Type extends "create" | "update" | "filter" | "base"
+  Type extends "create" | "update" | "filter" | "base",
 > = InferInput<StringSchemas<F>[Type]>;
 
 export type InferStringOutput<
   F extends FieldState<"string">,
-  Type extends "create" | "update" | "filter" | "base"
+  Type extends "create" | "update" | "filter" | "base",
 > = InferOutput<StringSchemas<F>[Type]>;

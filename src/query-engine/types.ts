@@ -4,10 +4,9 @@
  * Shared types used across the query engine.
  */
 
-import type { Sql } from "@sql";
-import type { Model } from "@schema/model";
 import type { DatabaseAdapter } from "@adapters";
-import type { AnyRelation, Relation } from "@schema/relation";
+import type { Model } from "@schema/model";
+import type { AnyRelation } from "@schema/relation";
 
 // Re-export Sql for convenience
 export { Sql } from "@sql";
@@ -79,7 +78,7 @@ export interface RelationInfo {
 export class ValidationError extends Error {
   constructor(
     public readonly operation: Operation,
-    public readonly details: string,
+    public readonly details: string
   ) {
     super(`Validation failed for ${operation}: ${details}`);
     this.name = "ValidationError";
@@ -104,7 +103,7 @@ export class NestedWriteError extends QueryEngineError {
   constructor(
     message: string,
     public readonly relation: string,
-    public readonly cause?: Error,
+    public readonly cause?: Error
   ) {
     super(message);
     this.name = "NestedWriteError";

@@ -1,20 +1,26 @@
 import type { StandardSchemaOf } from "@standard-schema/spec";
+import v, { type BaseJsonSchema, type JsonValue } from "@validation";
 import {
-  type UpdateState,
-  type DefaultValue,
-  type SchemaNames,
   createDefaultState,
-  FieldState,
-  DefaultValueInput,
+  type DefaultValue,
+  type DefaultValueInput,
+  type FieldState,
+  type SchemaNames,
+  type UpdateState,
 } from "../common";
 import type { NativeType } from "../native-types";
-import { buildJsonSchema, jsonBase, JsonSchemas } from "./schemas";
-import v, { BaseJsonSchema, JsonValue } from "@validation";
+import { buildJsonSchema, type JsonSchemas, jsonBase } from "./schemas";
 
 export class JsonField<State extends FieldState<"json"> = FieldState<"json">> {
+  // biome-ignore lint/style/useReadonlyClassProperties: <it is reassigned when hydrating schemas>
   private _names: SchemaNames = {};
   private _schemas: JsonSchemas<State> | undefined;
-  constructor(private state: State, private _nativeType?: NativeType) {}
+  private readonly state: State;
+  private readonly _nativeType?: NativeType | undefined;
+  constructor(state: State, _nativeType?: NativeType) {
+    this.state = state;
+    this._nativeType = _nativeType;
+  }
 
   nullable(): JsonField<
     UpdateState<
@@ -83,13 +89,13 @@ export class JsonField<State extends FieldState<"json"> = FieldState<"json">> {
     return new JsonField(
       {
         ...this.state,
-        schema: schema,
+        schema,
         base: v.json<{
           nullable: State["nullable"];
           schema: S;
         }>({
           nullable: this.state.nullable,
-          schema: schema,
+          schema,
         }),
       },
       this._nativeType

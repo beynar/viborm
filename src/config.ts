@@ -17,5 +17,5 @@
  * ```
  */
 
-export { defineConfig } from "./cli/utils";
 export type { VibORMConfig } from "./cli/utils";
+export { defineConfig } from "./cli/utils";

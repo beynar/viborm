@@ -1,6 +1,6 @@
-import { describe, test, expect, expectTypeOf } from "vitest";
-import { v, JsonValue } from "@validation";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
+import { type JsonValue, v } from "@validation";
+import { describe, expect, expectTypeOf, test } from "vitest";
 
 describe("json schema", () => {
   const schema = v.json();
@@ -125,17 +125,17 @@ describe("json schema", () => {
     });
 
     test("NaN", () => {
-      const result = schema["~standard"].validate(NaN);
+      const result = schema["~standard"].validate(Number.NaN);
       expect(result.issues).toBeDefined();
     });
 
     test("Infinity", () => {
-      const result = schema["~standard"].validate(Infinity);
+      const result = schema["~standard"].validate(Number.POSITIVE_INFINITY);
       expect(result.issues).toBeDefined();
     });
 
     test("-Infinity", () => {
-      const result = schema["~standard"].validate(-Infinity);
+      const result = schema["~standard"].validate(Number.NEGATIVE_INFINITY);
       expect(result.issues).toBeDefined();
     });
 

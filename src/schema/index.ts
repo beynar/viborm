@@ -1,40 +1,21 @@
 // Schema Builder Entry Point
 // Main API for defining models, fields, and relations
 
-import { model, Model } from "./model";
 import {
-  StringField,
-  IntField,
-  FloatField,
-  DecimalField,
-  BooleanField,
-  BigIntField,
-  DateTimeField,
-  JsonField,
-  BlobField,
-  EnumField,
-  VectorField,
-  type Field,
-  string,
-  int,
-  float,
-  decimal,
-  boolean,
   bigInt,
-  dateTime,
-  json,
   blob,
+  boolean,
+  dateTime,
+  decimal,
   enumField,
+  float,
+  int,
+  json,
+  string,
   vector,
 } from "./fields";
-import {
-  Relation,
-  oneToOne,
-  manyToOne,
-  oneToMany,
-  manyToMany,
-  type Getter,
-} from "./relation";
+import { model } from "./model";
+import { manyToMany, manyToOne, oneToMany, oneToOne } from "./relation";
 
 // =============================================================================
 // SCHEMA BUILDER API
@@ -99,41 +80,38 @@ export const s = {
 // RE-EXPORTS
 // =============================================================================
 
-// Classes for advanced usage
-export {
-  Model,
-  StringField,
-  IntField,
-  FloatField,
-  DecimalField,
-  BooleanField,
-  BigIntField,
-  DateTimeField,
-  JsonField,
-  BlobField,
-  EnumField,
-  VectorField,
-  Relation,
-};
-
-export type { NumberField } from "./fields";
-
 // Types
-export type { Field, Getter };
-
+export type { Field, NumberField } from "./fields";
 // Export all from submodules
 export * from "./fields";
-export * from "./model";
-export * from "./relation";
-export * from "./validation";
+// Classes for advanced usage
+export {
+  BigIntField,
+  BlobField,
+  BooleanField,
+  DateTimeField,
+  DecimalField,
+  EnumField,
+  FloatField,
+  IntField,
+  JsonField,
+  StringField,
+  VectorField,
+} from "./fields";
+export * as TYPES from "./fields/native-types";
 // Hydration exports (excluding Schema type which conflicts with validation)
 export {
+  getFieldSqlName,
+  getModelSqlName,
   hydrateSchemaNames,
   isSchemaHydrated,
-  getModelSqlName,
-  getFieldSqlName,
 } from "./hydration";
-export * as TYPES from "./fields/native-types";
+export * from "./model";
+export { Model } from "./model";
+export type { Getter } from "./relation";
+export * from "./relation";
+export { Relation } from "./relation";
+export * from "./validation";
 
 // =============================================================================
 // TYPE INFERENCE EXPORTS
@@ -141,10 +119,10 @@ export * as TYPES from "./fields/native-types";
 
 // Re-export core types from common
 export type {
-  InferBaseType,
-  InferCreateType,
   AutoGenerateType,
   FieldState as FieldStateType,
+  InferBaseType,
+  InferCreateType,
 } from "./fields/common";
 
 // =============================================================================
@@ -155,26 +133,26 @@ export type {
  * Maps a ScalarFieldType string to its base TypeScript type
  */
 export type ScalarTypeToTS<
-  T extends import("./fields/common").ScalarFieldType
+  T extends import("./fields/common").ScalarFieldType,
 > = T extends "string"
   ? string
   : T extends "int" | "float" | "decimal"
-  ? number
-  : T extends "boolean"
-  ? boolean
-  : T extends "datetime"
-  ? Date
-  : T extends "bigint"
-  ? bigint
-  : T extends "json"
-  ? unknown
-  : T extends "blob"
-  ? Uint8Array
-  : T extends "vector"
-  ? number[]
-  : T extends "enum"
-  ? string
-  : never;
+    ? number
+    : T extends "boolean"
+      ? boolean
+      : T extends "datetime"
+        ? Date
+        : T extends "bigint"
+          ? bigint
+          : T extends "json"
+            ? unknown
+            : T extends "blob"
+              ? Uint8Array
+              : T extends "vector"
+                ? number[]
+                : T extends "enum"
+                  ? string
+                  : never;
 
 /**
  * Infers the TypeScript type from a FieldState
@@ -186,23 +164,23 @@ export type InferType<TState extends import("./fields/common").FieldState> =
       ? ScalarTypeToTS<TState["type"]>[] | null
       : ScalarTypeToTS<TState["type"]>[]
     : TState["nullable"] extends true
-    ? ScalarTypeToTS<TState["type"]> | null
-    : ScalarTypeToTS<TState["type"]>;
+      ? ScalarTypeToTS<TState["type"]> | null
+      : ScalarTypeToTS<TState["type"]>;
 
 /**
  * Infers the input type for create operations (handles defaults)
  */
 export type InferInputType<
-  TState extends import("./fields/common").FieldState
+  TState extends import("./fields/common").FieldState,
 > = TState["hasDefault"] extends true
   ? InferType<TState> | undefined
   : TState["autoGenerate"] extends import("./fields/common").AutoGenerateType
-  ? InferType<TState> | undefined
-  : InferType<TState>;
+    ? InferType<TState> | undefined
+    : InferType<TState>;
 
 /**
  * Infers the storage type (same as base type)
  */
 export type InferStorageType<
-  TState extends import("./fields/common").FieldState
+  TState extends import("./fields/common").FieldState,
 > = InferType<TState>;

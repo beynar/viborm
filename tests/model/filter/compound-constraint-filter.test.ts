@@ -5,14 +5,12 @@
  * compound ID and compound unique constraints.
  */
 
-import { describe, test, expect, expectTypeOf } from "vitest";
 import { parse } from "@validation";
+import { describe, expect, test } from "vitest";
 import {
   compoundIdSchemas,
   compoundUniqueSchemas,
   simpleSchemas,
-  type CompoundIdState,
-  type CompoundUniqueState,
 } from "../fixtures";
 
 // =============================================================================

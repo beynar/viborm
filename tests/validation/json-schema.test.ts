@@ -1,32 +1,31 @@
-import { describe, test, expect } from "vitest";
 import {
-  v,
-  string,
-  number,
-  boolean,
-  bigint,
-  literal,
-  enum_,
-  nullable,
-  optional,
   array,
-  object,
-  union,
-  record,
-  json,
+  bigint,
+  blob,
+  boolean,
+  coerce,
   date,
-  isoTimestamp,
+  enum_,
+  instance,
+  integer,
   isoDate,
   isoTime,
-  blob,
-  vector,
-  point,
-  instance,
-  coerce,
+  isoTimestamp,
+  json,
+  literal,
+  nullable,
+  number,
+  object,
+  optional,
   pipe,
-  integer,
+  point,
+  record,
+  string,
+  union,
+  vector,
 } from "@validation";
 import type { JsonSchema } from "@validation/json-schema";
+import { describe, expect, test } from "vitest";
 
 describe("JSON Schema conversion", () => {
   describe("primitive schemas", () => {
@@ -229,7 +228,7 @@ describe("JSON Schema conversion", () => {
 
       const user = object({
         name: string(),
-        address: address,
+        address,
       });
 
       const jsonSchema = user["~standard"].jsonSchema.output({

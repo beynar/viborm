@@ -2,8 +2,7 @@
 // Shared types and helpers for all field classes
 
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import v, { VibSchema, InferInput, InferOutput } from "@validation";
-import { AnyEnumSchema } from "@validation/schemas/enum";
+import v, { type InferInput, type VibSchema } from "@validation";
 
 // =============================================================================
 // SCHEMA NAMES (hydrated by client at initialization)
@@ -90,12 +89,12 @@ export interface FieldState<T extends ScalarFieldType = ScalarFieldType> {
  */
 export type UpdateState<
   State extends FieldState,
-  Update extends Partial<FieldState>
+  Update extends Partial<FieldState>,
 > = Omit<State, keyof Update> & Update;
 
 export const updateState = <
   State extends FieldState,
-  Update extends Partial<FieldState>
+  Update extends Partial<FieldState>,
 >(
   state: State,
   update: Update
@@ -112,7 +111,7 @@ export const updateState = <
  */
 export type MaybeNullable<
   T,
-  Nullable extends boolean = false
+  Nullable extends boolean = false,
 > = Nullable extends true ? T | null : T;
 
 /**
@@ -120,7 +119,7 @@ export type MaybeNullable<
  */
 export type MaybeArray<
   T,
-  IsArray extends boolean = false
+  IsArray extends boolean = false,
 > = IsArray extends true ? T[] : T;
 
 /**
@@ -141,7 +140,7 @@ export type DefaultValueInput<S extends FieldState> = DefaultValue<
  */
 export const createDefaultState = <
   T extends ScalarFieldType,
-  B extends VibSchema
+  B extends VibSchema,
 >(
   type: T,
   base: B
@@ -169,28 +168,28 @@ export const createDefaultState = <
  */
 export type InferBaseType<
   BaseType,
-  State extends FieldState
+  State extends FieldState,
 > = State["array"] extends true
   ? State["nullable"] extends true
     ? (BaseType | null)[]
     : BaseType[]
   : State["nullable"] extends true
-  ? BaseType | null
-  : BaseType;
+    ? BaseType | null
+    : BaseType;
 
 /**
  * Infers the create input type from a field state
  */
 export type InferCreateType<
   BaseType,
-  State extends FieldState
+  State extends FieldState,
 > = State["hasDefault"] extends true
   ? State["nullable"] extends true
     ? BaseType | null | undefined
     : BaseType | undefined
   : State["nullable"] extends true
-  ? BaseType | null
-  : BaseType;
+    ? BaseType | null
+    : BaseType;
 
 // =============================================================================
 // SCHEMA SHORTHANDS

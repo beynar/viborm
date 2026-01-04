@@ -1,17 +1,17 @@
+import { buildSchema, ok } from "../helpers";
 import type {
-  VibSchema,
-  ScalarOptions,
   ComputeInput,
   ComputeOutput,
+  ScalarOptions,
+  VibSchema,
 } from "../types";
-import { buildSchema, ok } from "../helpers";
 
 // =============================================================================
 // Date Schema (JavaScript Date objects)
 // =============================================================================
 
 export interface BaseDateSchema<
-  Opts extends ScalarOptions<Date, any> | undefined = undefined
+  Opts extends ScalarOptions<Date, any> | undefined = undefined,
 > extends VibSchema<ComputeInput<Date, Opts>, ComputeOutput<Date, Opts>> {}
 
 export interface DateSchema<TInput = Date, TOutput = Date>
@@ -44,7 +44,7 @@ function validateDate(value: unknown) {
  * const optionalDate = v.date({ optional: true });
  */
 export function date<
-  const Opts extends ScalarOptions<Date, any> | undefined = undefined
+  const Opts extends ScalarOptions<Date, any> | undefined = undefined,
 >(
   options?: Opts
 ): DateSchema<ComputeInput<Date, Opts>, ComputeOutput<Date, Opts>> {

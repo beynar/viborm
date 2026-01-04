@@ -1,6 +1,6 @@
-import { describe, test, expect, expectTypeOf } from "vitest";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { v, string } from "@validation";
+import { string } from "@validation";
+import { describe, expect, expectTypeOf, test } from "vitest";
 
 describe("string schema", () => {
   describe("basic validation", () => {
@@ -169,7 +169,7 @@ describe("string schema", () => {
         version: 1,
         vendor: "test",
         validate: (value) => {
-          const num = parseInt(value, 10);
+          const num = Number.parseInt(value, 10);
           if (isNaN(num)) {
             return { issues: [{ message: "Not a number" }] };
           }
@@ -223,7 +223,7 @@ describe("string schema", () => {
         "~standard": {
           version: 1,
           vendor: "test",
-          validate: (value) => ({ value: parseInt(value, 10) }),
+          validate: (value) => ({ value: Number.parseInt(value, 10) }),
         },
       };
       const schema = string({ schema: customSchema, transform: (n) => n * 2 });
@@ -242,7 +242,7 @@ describe("string schema", () => {
 
     test("very long strings", () => {
       const schema = string();
-      const longString = "a".repeat(10000);
+      const longString = "a".repeat(10_000);
       const result = schema["~standard"].validate(longString);
       expect(result.issues).toBeUndefined();
       expect((result as { value: string }).value).toBe(longString);

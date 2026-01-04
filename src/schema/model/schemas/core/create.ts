@@ -1,6 +1,6 @@
-import type { ModelState } from "../../model";
+import type { RequiredFieldKeys } from "@schema/model/helper";
 import v from "@validation";
-import type { RequiredFieldKeys, StringKeyOf } from "@schema/model/helper";
+import type { ModelState } from "../../model";
 
 // =============================================================================
 // SCALAR CREATE
@@ -69,7 +69,7 @@ export const getCreateSchema = <T extends ModelState>(state: T) => {
     // Check if field has default or is optional
     const field = state.scalars[key] as any;
     const fieldState = field?.["~"]?.state;
-    return !fieldState.hasDefault && !fieldState.optional;
+    return !(fieldState.hasDefault || fieldState.optional);
   }) as RequiredFieldKeys<T["fields"]>[];
 
   // Build scalar schema with FK fields as optional

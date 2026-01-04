@@ -5,12 +5,12 @@
  * Returns the updated record.
  */
 
-import { sql, Sql } from "@sql";
-import type { QueryContext } from "../types";
-import { getTableName, isRelation, getRelationInfo } from "../context";
-import { buildSet } from "../builders/set-builder";
-import { buildWhereUnique, buildWhere } from "../builders/where-builder";
+import { type Sql, sql } from "@sql";
 import { buildSelect } from "../builders/select-builder";
+import { buildSet } from "../builders/set-builder";
+import { buildWhere, buildWhereUnique } from "../builders/where-builder";
+import { getRelationInfo, getTableName, isRelation } from "../context";
+import type { QueryContext } from "../types";
 
 interface UpdateArgs {
   where: Record<string, unknown>;
@@ -35,7 +35,7 @@ interface UpdateManyArgs {
  */
 function processRelationOperations(
   ctx: QueryContext,
-  data: Record<string, unknown>,
+  data: Record<string, unknown>
 ): Record<string, unknown> {
   const result: Record<string, unknown> = {};
 

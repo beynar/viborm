@@ -1,35 +1,33 @@
 // Enum Field
 // Standalone field class with State generic pattern
+
+import v, { type BaseEnumSchema } from "@validation";
 import {
-  type FieldState,
-  type DefaultValue,
-  type SchemaNames,
   createDefaultState,
-  DefaultValueInput,
-  UpdateState,
+  type DefaultValue,
+  type DefaultValueInput,
+  type FieldState,
+  type SchemaNames,
+  type UpdateState,
 } from "../common";
 import type { NativeType } from "../native-types";
-import { buildEnumSchema, EnumSchemas } from "./schemas";
-import v, {
-  BaseEnumSchema,
-  InferInput,
-  InferOutput,
-  Prettify,
-} from "@validation";
-import { AnyEnumSchema } from "@validation/schemas/enum";
+import { buildEnumSchema, type EnumSchemas } from "./schemas";
 
 export class EnumField<
   Values extends string[],
-  State extends FieldState<"enum"> = FieldState<"enum">
+  State extends FieldState<"enum"> = FieldState<"enum">,
 > {
+  // biome-ignore lint/style/useReadonlyClassProperties: <it is reassigned when hydrating schemas>
   private _names: SchemaNames = {};
+  readonly values: Values;
   private _schemas: EnumSchemas<Values, State> | undefined;
-
-  constructor(
-    public values: Values,
-    private state: State,
-    private _nativeType?: NativeType
-  ) {}
+  private readonly state: State;
+  private readonly _nativeType?: NativeType | undefined;
+  constructor(values: Values, state: State, _nativeType?: NativeType) {
+    this.values = values;
+    this.state = state;
+    this._nativeType = _nativeType;
+  }
 
   nullable(): EnumField<
     Values,

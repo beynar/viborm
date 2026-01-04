@@ -1,17 +1,17 @@
+import v, {
+  type BaseIsoDateSchema,
+  type BaseIsoTimeSchema,
+  type BaseIsoTimestampSchema,
+  type InferInput,
+  type InferOutput,
+  type VibSchema,
+} from "@validation";
 import {
-  FieldState,
+  type FieldState,
+  shorthandArray,
   shorthandFilter,
   shorthandUpdate,
-  shorthandArray,
 } from "../common";
-import v, {
-  BaseIsoTimestampSchema,
-  BaseIsoDateSchema,
-  BaseIsoTimeSchema,
-  InferInput,
-  InferOutput,
-  VibSchema,
-} from "@validation";
 
 // =============================================================================
 // BASE TYPES
@@ -129,12 +129,12 @@ export type DateTimeSchemas<F extends FieldState<"datetime">> = {
 
 export type InferDateTimeInput<
   F extends FieldState<"datetime">,
-  Type extends "create" | "update" | "filter" | "base"
+  Type extends "create" | "update" | "filter" | "base",
 > = InferInput<DateTimeSchemas<F>[Type]>;
 
 export type InferDateTimeOutput<
   F extends FieldState<"datetime">,
-  Type extends "create" | "update" | "filter" | "base"
+  Type extends "create" | "update" | "filter" | "base",
 > = InferOutput<DateTimeSchemas<F>[Type]>;
 
 // =============================================================================
@@ -226,12 +226,12 @@ export type DateSchemas<F extends FieldState<"date">> = {
 
 export type InferDateInput<
   F extends FieldState<"date">,
-  Type extends "create" | "update" | "filter" | "base"
+  Type extends "create" | "update" | "filter" | "base",
 > = InferInput<DateSchemas<F>[Type]>;
 
 export type InferDateOutput<
   F extends FieldState<"date">,
-  Type extends "create" | "update" | "filter" | "base"
+  Type extends "create" | "update" | "filter" | "base",
 > = InferOutput<DateSchemas<F>[Type]>;
 
 // =============================================================================
@@ -323,10 +323,10 @@ export type TimeSchemas<F extends FieldState<"time">> = {
 
 export type InferTimeInput<
   F extends FieldState<"time">,
-  Type extends "create" | "update" | "filter" | "base"
+  Type extends "create" | "update" | "filter" | "base",
 > = InferInput<TimeSchemas<F>[Type]>;
 
 export type InferTimeOutput<
   F extends FieldState<"time">,
-  Type extends "create" | "update" | "filter" | "base"
+  Type extends "create" | "update" | "filter" | "base",
 > = InferOutput<TimeSchemas<F>[Type]>;

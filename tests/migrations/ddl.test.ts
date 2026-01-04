@@ -2,9 +2,9 @@
  * PostgreSQL DDL Generation Tests
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { postgresMigrations } from "../../src/adapters/databases/postgres/migrations";
-import type { DiffOperation, TableDef, ColumnDef, IndexDef, ForeignKeyDef } from "../../src/migrations/types";
+import type { DiffOperation } from "../../src/migrations/types";
 
 // =============================================================================
 // HELPERS
@@ -50,9 +50,7 @@ describe("PostgreSQL DDL Generation", () => {
         type: "createTable",
         table: {
           name: "users",
-          columns: [
-            { name: "id", type: "integer", nullable: false },
-          ],
+          columns: [{ name: "id", type: "integer", nullable: false }],
           primaryKey: { columns: ["id"], name: "users_pkey" },
           indexes: [],
           foreignKeys: [],
@@ -71,7 +69,12 @@ describe("PostgreSQL DDL Generation", () => {
         table: {
           name: "users",
           columns: [
-            { name: "id", type: "integer", nullable: false, autoIncrement: true },
+            {
+              name: "id",
+              type: "integer",
+              nullable: false,
+              autoIncrement: true,
+            },
           ],
           indexes: [],
           foreignKeys: [],
@@ -90,7 +93,12 @@ describe("PostgreSQL DDL Generation", () => {
         table: {
           name: "users",
           columns: [
-            { name: "status", type: "text", nullable: false, default: "'active'" },
+            {
+              name: "status",
+              type: "text",
+              nullable: false,
+              default: "'active'",
+            },
           ],
           indexes: [],
           foreignKeys: [],
@@ -108,14 +116,10 @@ describe("PostgreSQL DDL Generation", () => {
         type: "createTable",
         table: {
           name: "users",
-          columns: [
-            { name: "email", type: "text", nullable: false },
-          ],
+          columns: [{ name: "email", type: "text", nullable: false }],
           indexes: [],
           foreignKeys: [],
-          uniqueConstraints: [
-            { name: "users_email_key", columns: ["email"] },
-          ],
+          uniqueConstraints: [{ name: "users_email_key", columns: ["email"] }],
         },
       };
 
@@ -203,7 +207,9 @@ describe("PostgreSQL DDL Generation", () => {
 
       const ddl = generateDDL(op);
 
-      expect(ddl).toBe('ALTER TABLE "users" RENAME COLUMN "username" TO "name"');
+      expect(ddl).toBe(
+        'ALTER TABLE "users" RENAME COLUMN "username" TO "name"'
+      );
     });
   });
 
@@ -219,7 +225,9 @@ describe("PostgreSQL DDL Generation", () => {
 
       const ddl = generateDDL(op);
 
-      expect(ddl).toContain('ALTER TABLE "users" ALTER COLUMN "age" TYPE integer');
+      expect(ddl).toContain(
+        'ALTER TABLE "users" ALTER COLUMN "age" TYPE integer'
+      );
     });
 
     it("should generate ALTER COLUMN for nullable change", () => {
@@ -233,7 +241,9 @@ describe("PostgreSQL DDL Generation", () => {
 
       const ddl = generateDDL(op);
 
-      expect(ddl).toContain('ALTER TABLE "users" ALTER COLUMN "email" DROP NOT NULL');
+      expect(ddl).toContain(
+        'ALTER TABLE "users" ALTER COLUMN "email" DROP NOT NULL'
+      );
     });
 
     it("should generate ALTER COLUMN for default change", () => {
@@ -242,7 +252,12 @@ describe("PostgreSQL DDL Generation", () => {
         tableName: "users",
         columnName: "status",
         from: { name: "status", type: "text", nullable: false },
-        to: { name: "status", type: "text", nullable: false, default: "'active'" },
+        to: {
+          name: "status",
+          type: "text",
+          nullable: false,
+          default: "'active'",
+        },
       };
 
       const ddl = generateDDL(op);
@@ -273,19 +288,28 @@ describe("PostgreSQL DDL Generation", () => {
 
       const ddl = generateDDL(op);
 
-      expect(ddl).toBe('CREATE UNIQUE INDEX "idx_users_email" ON "users" ("email")');
+      expect(ddl).toBe(
+        'CREATE UNIQUE INDEX "idx_users_email" ON "users" ("email")'
+      );
     });
 
     it("should generate CREATE INDEX with type", () => {
       const op: DiffOperation = {
         type: "createIndex",
         tableName: "users",
-        index: { name: "idx_users_data", columns: ["data"], unique: false, type: "gin" },
+        index: {
+          name: "idx_users_data",
+          columns: ["data"],
+          unique: false,
+          type: "gin",
+        },
       };
 
       const ddl = generateDDL(op);
 
-      expect(ddl).toBe('CREATE INDEX "idx_users_data" ON "users" USING gin ("data")');
+      expect(ddl).toBe(
+        'CREATE INDEX "idx_users_data" ON "users" USING gin ("data")'
+      );
     });
 
     it("should generate CREATE INDEX with WHERE clause", () => {
@@ -336,7 +360,9 @@ describe("PostgreSQL DDL Generation", () => {
 
       const ddl = generateDDL(op);
 
-      expect(ddl).toContain('ALTER TABLE "posts" ADD CONSTRAINT "fk_posts_user"');
+      expect(ddl).toContain(
+        'ALTER TABLE "posts" ADD CONSTRAINT "fk_posts_user"'
+      );
       expect(ddl).toContain('FOREIGN KEY ("user_id")');
       expect(ddl).toContain('REFERENCES "users" ("id")');
       expect(ddl).toContain("ON DELETE CASCADE");
@@ -443,13 +469,21 @@ describe("PostgreSQL DDL Generation", () => {
     });
 
     it("should handle array types", () => {
-      expect(postgresMigrations.mapFieldType("string", { array: true })).toBe("text[]");
-      expect(postgresMigrations.mapFieldType("int", { array: true })).toBe("integer[]");
+      expect(postgresMigrations.mapFieldType("string", { array: true })).toBe(
+        "text[]"
+      );
+      expect(postgresMigrations.mapFieldType("int", { array: true })).toBe(
+        "integer[]"
+      );
     });
 
     it("should handle auto-increment", () => {
-      expect(postgresMigrations.mapFieldType("int", { autoIncrement: true })).toBe("serial");
-      expect(postgresMigrations.mapFieldType("bigint", { autoIncrement: true })).toBe("bigserial");
+      expect(
+        postgresMigrations.mapFieldType("int", { autoIncrement: true })
+      ).toBe("serial");
+      expect(
+        postgresMigrations.mapFieldType("bigint", { autoIncrement: true })
+      ).toBe("bigserial");
     });
   });
 });

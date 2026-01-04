@@ -1,16 +1,16 @@
+import v, {
+  type BaseIntegerSchema,
+  type BaseNumberSchema,
+  type InferInput,
+  type InferOutput,
+  type VibSchema,
+} from "@validation";
 import {
-  FieldState,
+  type FieldState,
+  shorthandArray,
   shorthandFilter,
   shorthandUpdate,
-  shorthandArray,
 } from "../common";
-import v, {
-  BaseIntegerSchema,
-  BaseNumberSchema,
-  InferInput,
-  InferOutput,
-  VibSchema,
-} from "@validation";
 
 // =============================================================================
 // BASE TYPES
@@ -196,12 +196,12 @@ export type IntSchemas<F extends FieldState<"int">> = {
 
 export type InferIntInput<
   F extends FieldState<"int">,
-  Type extends "create" | "update" | "filter" | "base"
+  Type extends "create" | "update" | "filter" | "base",
 > = InferInput<IntSchemas<F>[Type]>;
 
 export type InferIntOutput<
   F extends FieldState<"int">,
-  Type extends "create" | "update" | "filter" | "base"
+  Type extends "create" | "update" | "filter" | "base",
 > = InferOutput<IntSchemas<F>[Type]>;
 
 // =============================================================================
@@ -234,12 +234,12 @@ export type FloatSchemas<F extends FieldState<"float">> = {
 
 export type InferFloatInput<
   F extends FieldState<"float">,
-  Type extends "create" | "update" | "filter" | "base"
+  Type extends "create" | "update" | "filter" | "base",
 > = InferInput<FloatSchemas<F>[Type]>;
 
 export type InferFloatOutput<
   F extends FieldState<"float">,
-  Type extends "create" | "update" | "filter" | "base"
+  Type extends "create" | "update" | "filter" | "base",
 > = InferOutput<FloatSchemas<F>[Type]>;
 
 // =============================================================================
@@ -274,10 +274,10 @@ export type DecimalSchemas<F extends FieldState<"decimal">> = {
 
 export type InferDecimalInput<
   F extends FieldState<"decimal">,
-  Type extends "create" | "update" | "filter" | "base"
+  Type extends "create" | "update" | "filter" | "base",
 > = InferInput<DecimalSchemas<F>[Type]>;
 
 export type InferDecimalOutput<
   F extends FieldState<"decimal">,
-  Type extends "create" | "update" | "filter" | "base"
+  Type extends "create" | "update" | "filter" | "base",
 > = InferOutput<DecimalSchemas<F>[Type]>;

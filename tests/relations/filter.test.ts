@@ -13,13 +13,13 @@
  * - Nested filtering
  */
 
-import { describe, test, expect, expectTypeOf } from "vitest";
-import { parse, type InferInput } from "@validation";
+import { type InferInput, parse } from "@validation";
+import { describe, expect, expectTypeOf, test } from "vitest";
 import {
+  optionalManyToOneSchemas,
+  optionalOneToOneSchemas,
   requiredManyToOneSchemas,
   requiredOneToManySchemas,
-  optionalOneToOneSchemas,
-  optionalManyToOneSchemas,
 } from "./fixtures";
 
 // =============================================================================

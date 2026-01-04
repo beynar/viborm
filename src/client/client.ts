@@ -1,9 +1,9 @@
-import { DatabaseAdapter } from "@adapters/database-adapter";
-import { Sql } from "@sql";
-import { Client, Operations, Schema } from "./types";
-import { Driver, QueryResult, TransactionOptions } from "@drivers";
+import type { DatabaseAdapter } from "@adapters/database-adapter";
+import type { Driver, QueryResult, TransactionOptions } from "@drivers";
 import { hydrateSchemaNames } from "@schema/hydration";
-import { CacheDriver, CacheOptions } from "./cache/types";
+import type { Sql } from "@sql";
+import type { CacheDriver, CacheOptions } from "./cache/types";
+import type { Client, Operations, Schema } from "./types";
 
 /**
  * Create a recursive proxy for model operations
@@ -72,10 +72,10 @@ export type VibORMClient<S extends Schema> = Client<S> & {
  * VibORM Client
  */
 export class VibORM<S extends Schema> {
-  private adapter: DatabaseAdapter;
-  private driver: Driver;
-  private schema: S;
-  private cache: CacheDriver | undefined;
+  private readonly adapter: DatabaseAdapter;
+  private readonly driver: Driver;
+  private readonly schema: S;
+  private readonly cache: CacheDriver | undefined;
 
   constructor(config: VibORMConfig<S>) {
     this.adapter = config.adapter;

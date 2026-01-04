@@ -1,6 +1,5 @@
-import { inferred } from "../inferred";
-import type { VibSchema, InferInput, InferOutput } from "../types";
-import { fail, ok, createSchema, validateSchema } from "../helpers";
+import { createSchema, fail, ok, validateSchema } from "../helpers";
+import type { InferInput, InferOutput, VibSchema } from "../types";
 
 // =============================================================================
 // Pipe Schema
@@ -43,7 +42,7 @@ export interface PipeSchema<
   TInput = InferInput<TSchema>,
   TOutput = TActions extends readonly [...any[], PipeAction<any, infer TLast>]
     ? TLast
-    : InferOutput<TSchema>
+    : InferOutput<TSchema>,
 > extends VibSchema<TInput, TOutput> {
   readonly type: "pipe";
   readonly schema: TSchema;
@@ -55,16 +54,16 @@ export interface PipeSchema<
  */
 type InferPipeOutput<
   TSchema extends VibSchema<any, any>,
-  TActions extends readonly PipeAction<any, any>[]
+  TActions extends readonly PipeAction<any, any>[],
 > = TActions extends readonly []
   ? InferOutput<TSchema>
   : TActions extends readonly [PipeAction<any, infer TOut>]
-  ? TOut
-  : TActions extends readonly [PipeAction<any, infer TMid>, ...infer TRest]
-  ? TRest extends readonly PipeAction<any, any>[]
-    ? InferPipeOutput<VibSchema<TMid, TMid>, TRest>
-    : TMid
-  : InferOutput<TSchema>;
+    ? TOut
+    : TActions extends readonly [PipeAction<any, infer TMid>, ...infer TRest]
+      ? TRest extends readonly PipeAction<any, any>[]
+        ? InferPipeOutput<VibSchema<TMid, TMid>, TRest>
+        : TMid
+      : InferOutput<TSchema>;
 
 /**
  * Create a pipe schema that chains a base schema with transform actions.
@@ -75,7 +74,7 @@ type InferPipeOutput<
  */
 export function pipe<
   TSchema extends VibSchema<any, any>,
-  const TActions extends readonly PipeAction<any, any>[]
+  const TActions extends readonly PipeAction<any, any>[],
 >(
   schema: TSchema,
   ...actions: TActions

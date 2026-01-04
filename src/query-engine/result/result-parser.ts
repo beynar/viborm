@@ -5,7 +5,7 @@
  * Handles JSON parsing for MySQL/SQLite and null coalescing.
  */
 
-import type { QueryContext, Operation } from "../types";
+import type { Operation, QueryContext } from "../types";
 
 /**
  * Parse query result based on operation type
@@ -178,7 +178,9 @@ function getDefaultResult(operation: Operation): unknown {
 /**
  * Parse count result
  */
-export function parseCountResult(raw: unknown): number | Record<string, number> {
+export function parseCountResult(
+  raw: unknown
+): number | Record<string, number> {
   if (raw === null || raw === undefined) {
     return 0;
   }
@@ -247,4 +249,3 @@ export function parseMutationCount(raw: unknown): { count: number } {
 
   return { count: 0 };
 }
-

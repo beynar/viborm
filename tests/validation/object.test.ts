@@ -1,13 +1,13 @@
-import { describe, test, expect, expectTypeOf } from "vitest";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import {
-  v,
-  object,
-  string,
   number,
+  object,
   optional,
-  Prettify,
+  type Prettify,
+  string,
+  v,
 } from "@validation";
+import { describe, expect, expectTypeOf, test } from "vitest";
 
 describe("object schema", () => {
   describe("basic validation", () => {
@@ -378,7 +378,7 @@ describe("object schema", () => {
       });
 
       const extended = baseSchema.extend({
-        address: address,
+        address,
       });
 
       const result = extended["~standard"].validate({

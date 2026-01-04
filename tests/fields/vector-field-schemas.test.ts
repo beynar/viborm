@@ -14,10 +14,10 @@
  * - filter: Input type for filtering + shorthand transforms
  */
 
-import { describe, test, expect, expectTypeOf } from "vitest";
-import { parse } from "@validation";
 import { vector } from "@schema/fields/vector/field";
 import type { InferVectorInput } from "@schema/fields/vector/schemas";
+import { parse } from "@validation";
+import { describe, expect, expectTypeOf, test } from "vitest";
 
 // =============================================================================
 // RAW VECTOR FIELD (required, no modifiers)

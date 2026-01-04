@@ -13,10 +13,10 @@
  * - Complex updates (with multiple operations)
  */
 
-import { describe, test, expect, beforeAll } from "vitest";
-import { parse } from "@validation";
 import { s } from "@schema";
 import { getModelSchemas } from "@schema/model/schemas";
+import { parse } from "@validation";
+import { beforeAll, describe, expect, test } from "vitest";
 
 // =============================================================================
 // TEST MODELS - Various complexity levels

@@ -1,9 +1,9 @@
 // Utility functions for model schema factories
 
-import type { ModelState } from "../model";
+import type { ObjectSchema, VibSchema } from "@validation";
 import type { Field } from "../../fields/base";
 import type { AnyRelation } from "../../relation/relation";
-import type { ObjectSchema, VibSchema } from "@validation";
+import type { ModelState } from "../model";
 
 /**
  * Iterate over scalar fields only (excludes relations)

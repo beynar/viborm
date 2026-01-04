@@ -14,10 +14,10 @@
  * - filter: Input type for filtering + spatial operations
  */
 
-import { describe, test, expect, expectTypeOf } from "vitest";
-import { parse } from "@validation";
 import { point } from "@schema/fields/point/field";
 import type { InferPointInput } from "@schema/fields/point/schemas";
+import { parse } from "@validation";
+import { describe, expect, expectTypeOf, test } from "vitest";
 
 // =============================================================================
 // RAW POINT FIELD (required, no modifiers)

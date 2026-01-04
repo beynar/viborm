@@ -5,15 +5,9 @@
  * with their filter schemas (some/every/none for toMany, is/isNot for toOne).
  */
 
-import { describe, test, expect, expectTypeOf } from "vitest";
-import { parse, InferInput } from "@validation";
-import {
-  authorSchemas,
-  postSchemas,
-  simpleSchemas,
-  type AuthorState,
-  type PostState,
-} from "../fixtures";
+import { type InferInput, parse } from "@validation";
+import { describe, expect, expectTypeOf, test } from "vitest";
+import { authorSchemas, postSchemas, simpleSchemas } from "../fixtures";
 
 // =============================================================================
 // TYPE TESTS - Author Model (has oneToMany)

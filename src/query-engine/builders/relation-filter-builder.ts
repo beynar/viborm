@@ -9,15 +9,15 @@
  * - isNot: NOT EXISTS for to-one (record doesn't match)
  */
 
-import { sql, Sql } from "@sql";
-import type { QueryContext, RelationInfo } from "../types";
+import { type Sql, sql } from "@sql";
 import { createChildContext, getTableName } from "../context";
-import { buildWhere } from "./where-builder";
+import type { QueryContext, RelationInfo } from "../types";
 import { buildCorrelation } from "./correlation-utils";
 import {
-  getManyToManyJoinInfo,
   buildManyToManyJoinParts,
+  getManyToManyJoinInfo,
 } from "./many-to-many-utils";
+import { buildWhere } from "./where-builder";
 
 /**
  * Build a relation filter (some, every, none, is, isNot)
@@ -32,7 +32,7 @@ export function buildRelationFilter(
   ctx: QueryContext,
   relationInfo: RelationInfo,
   filter: Record<string, unknown>,
-  parentAlias: string,
+  parentAlias: string
 ): Sql | undefined {
   // Schema validation normalizes { author: null } to { author: { is: null } }
   // So we never receive null directly here
@@ -47,7 +47,7 @@ export function buildRelationFilter(
         ctx,
         relationInfo,
         filter.some as Record<string, unknown>,
-        parentAlias,
+        parentAlias
       );
     }
     if (filter.every !== undefined) {
@@ -55,7 +55,7 @@ export function buildRelationFilter(
         ctx,
         relationInfo,
         filter.every as Record<string, unknown>,
-        parentAlias,
+        parentAlias
       );
     }
     if (filter.none !== undefined) {
@@ -63,7 +63,7 @@ export function buildRelationFilter(
         ctx,
         relationInfo,
         filter.none as Record<string, unknown>,
-        parentAlias,
+        parentAlias
       );
     }
     // No fallback - schema validation guarantees explicit form
@@ -81,7 +81,7 @@ export function buildRelationFilter(
         ctx,
         relationInfo,
         isValue as Record<string, unknown>,
-        parentAlias,
+        parentAlias
       );
     }
     if (filter.isNot !== undefined) {
@@ -93,7 +93,7 @@ export function buildRelationFilter(
         ctx,
         relationInfo,
         isNotValue as Record<string, unknown>,
-        parentAlias,
+        parentAlias
       );
     }
     // No fallback - schema validation guarantees explicit form
@@ -109,14 +109,14 @@ function buildSomeFilter(
   ctx: QueryContext,
   relationInfo: RelationInfo,
   innerWhere: Record<string, unknown> | undefined,
-  parentAlias: string,
+  parentAlias: string
 ): Sql {
   const subquery = buildCorrelatedSubquery(
     ctx,
     relationInfo,
     innerWhere,
     parentAlias,
-    false,
+    false
   );
   return ctx.adapter.filters.some(subquery);
 }
@@ -129,14 +129,14 @@ function buildEveryFilter(
   ctx: QueryContext,
   relationInfo: RelationInfo,
   innerWhere: Record<string, unknown> | undefined,
-  parentAlias: string,
+  parentAlias: string
 ): Sql {
   const subquery = buildCorrelatedSubquery(
     ctx,
     relationInfo,
     innerWhere,
     parentAlias,
-    true,
+    true
   );
   return ctx.adapter.filters.every(subquery);
 }
@@ -148,14 +148,14 @@ function buildNoneFilter(
   ctx: QueryContext,
   relationInfo: RelationInfo,
   innerWhere: Record<string, unknown> | undefined,
-  parentAlias: string,
+  parentAlias: string
 ): Sql {
   const subquery = buildCorrelatedSubquery(
     ctx,
     relationInfo,
     innerWhere,
     parentAlias,
-    false,
+    false
   );
   return ctx.adapter.filters.none(subquery);
 }
@@ -167,14 +167,14 @@ function buildIsFilter(
   ctx: QueryContext,
   relationInfo: RelationInfo,
   innerWhere: Record<string, unknown>,
-  parentAlias: string,
+  parentAlias: string
 ): Sql {
   const subquery = buildCorrelatedSubquery(
     ctx,
     relationInfo,
     innerWhere,
     parentAlias,
-    false,
+    false
   );
   return ctx.adapter.filters.is(subquery);
 }
@@ -186,14 +186,14 @@ function buildIsNotFilter(
   ctx: QueryContext,
   relationInfo: RelationInfo,
   innerWhere: Record<string, unknown>,
-  parentAlias: string,
+  parentAlias: string
 ): Sql {
   const subquery = buildCorrelatedSubquery(
     ctx,
     relationInfo,
     innerWhere,
     parentAlias,
-    false,
+    false
   );
   return ctx.adapter.filters.isNot(subquery);
 }
@@ -204,7 +204,7 @@ function buildIsNotFilter(
 function buildIsNullFilter(
   ctx: QueryContext,
   relationInfo: RelationInfo,
-  parentAlias: string,
+  parentAlias: string
 ): Sql {
   // For to-one relations, check if the FK field is null
   const fkField = relationInfo.fields?.[0];
@@ -219,7 +219,7 @@ function buildIsNullFilter(
     relationInfo,
     undefined,
     parentAlias,
-    false,
+    false
   );
   return ctx.adapter.operators.notExists(subquery);
 }
@@ -230,7 +230,7 @@ function buildIsNullFilter(
 function buildIsNotNullFilter(
   ctx: QueryContext,
   relationInfo: RelationInfo,
-  parentAlias: string,
+  parentAlias: string
 ): Sql {
   // For to-one relations, check if the FK field is not null
   const fkField = relationInfo.fields?.[0];
@@ -245,7 +245,7 @@ function buildIsNotNullFilter(
     relationInfo,
     undefined,
     parentAlias,
-    false,
+    false
   );
   return ctx.adapter.operators.exists(subquery);
 }
@@ -264,7 +264,7 @@ function buildCorrelatedSubquery(
   relationInfo: RelationInfo,
   innerWhere: Record<string, unknown> | undefined,
   parentAlias: string,
-  negateInner: boolean,
+  negateInner: boolean
 ): Sql {
   const { adapter } = ctx;
 
@@ -275,7 +275,7 @@ function buildCorrelatedSubquery(
       relationInfo,
       innerWhere,
       parentAlias,
-      negateInner,
+      negateInner
     );
   }
 
@@ -287,14 +287,14 @@ function buildCorrelatedSubquery(
     ctx,
     relationInfo,
     parentAlias,
-    relatedAlias,
+    relatedAlias
   );
 
   // Build inner where condition
   const childCtx = createChildContext(
     ctx,
     relationInfo.targetModel,
-    relatedAlias,
+    relatedAlias
   );
   let innerCondition = buildWhere(childCtx, innerWhere, relatedAlias);
 
@@ -314,7 +314,7 @@ function buildCorrelatedSubquery(
   // Build the subquery: SELECT 1 FROM related WHERE ...
   return adapter.subqueries.existsCheck(
     adapter.identifiers.table(relatedTableName, relatedAlias),
-    whereClause,
+    whereClause
   );
 }
 
@@ -330,7 +330,7 @@ function buildManyToManySubquery(
   relationInfo: RelationInfo,
   innerWhere: Record<string, unknown> | undefined,
   parentAlias: string,
-  negateInner: boolean,
+  negateInner: boolean
 ): Sql {
   const { adapter } = ctx;
 
@@ -344,14 +344,14 @@ function buildManyToManySubquery(
       joinInfo,
       parentAlias,
       junctionAlias,
-      targetAlias,
+      targetAlias
     );
 
   // Build inner where on target
   const childCtx = createChildContext(
     ctx,
     relationInfo.targetModel,
-    targetAlias,
+    targetAlias
   );
   let innerCondition = buildWhere(childCtx, innerWhere, targetAlias);
 

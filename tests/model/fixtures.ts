@@ -10,7 +10,7 @@
 
 import { s } from "@schema";
 import { getModelSchemas } from "@schema/model/schemas";
-import { InferInput, Prettify } from "@validation";
+import type { InferInput, Prettify } from "@validation";
 
 // =============================================================================
 // SIMPLE MODEL (single field ID)

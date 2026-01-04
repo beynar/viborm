@@ -1,7 +1,8 @@
 // Relation Filter Schemas
+
+import { v } from "@validation";
 import type { RelationState } from "../relation";
 import { getTargetWhereSchema } from "./helpers";
-import { v } from "@validation";
 
 /**
  * To-one filter: { is?, isNot? }
@@ -13,12 +14,12 @@ export const toOneFilterFactory = <S extends RelationState>(state: S) => {
     is: () =>
       v.maybeNullable(
         getTargetWhereSchema(state)(),
-        (state.optional || false) as S["optional"] extends true ? true : false
+        state.optional as S["optional"] extends true ? true : false
       ),
     isNot: () =>
       v.maybeNullable(
         getTargetWhereSchema(state)(),
-        (state.optional || false) as S["optional"] extends true ? true : false
+        state.optional as S["optional"] extends true ? true : false
       ),
   });
 };

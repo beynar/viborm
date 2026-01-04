@@ -1,7 +1,6 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { inferred } from "../inferred";
-import type { VibSchema, ValidationResult } from "../types";
 import { createSchema, fail, ok } from "../helpers";
+import type { ValidationResult, VibSchema } from "../types";
 
 // =============================================================================
 // NonArray Schema (Element / Unwrap)

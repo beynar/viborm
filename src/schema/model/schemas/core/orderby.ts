@@ -1,6 +1,6 @@
-import type { ModelState } from "../../model";
+import type { StringKeyOf } from "@schema/model/helper";
 import v from "@validation";
-import { StringKeyOf } from "@schema/model/helper";
+import type { ModelState } from "../../model";
 
 const orderEnum = v.enum(["asc", "desc"]);
 export const sortOrderSchema = v.union([

@@ -1,17 +1,17 @@
 // Shared types for model schemas
 
+import type { VibSchema } from "@validation";
 import type { ModelState } from "../model";
 import type {
-  WhereSchema,
-  WhereUniqueSchema,
   CreateSchema,
-  UpdateSchema,
-  SelectSchema,
   IncludeSchema,
   OrderBySchema,
   ScalarCreateSchema,
+  SelectSchema,
+  UpdateSchema,
+  WhereSchema,
+  WhereUniqueSchema,
 } from "./core";
-import { VibSchema } from "@validation";
 
 /**
  * Schema entries record type

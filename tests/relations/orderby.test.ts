@@ -13,12 +13,12 @@
  * - Aggregate count ordering
  */
 
-import { describe, test, expect, expectTypeOf } from "vitest";
-import { parse, type InferInput } from "@validation";
+import { type InferInput, parse } from "@validation";
+import { describe, expect, expectTypeOf, test } from "vitest";
 import {
+  optionalOneToOneSchemas,
   requiredManyToOneSchemas,
   requiredOneToManySchemas,
-  optionalOneToOneSchemas,
   selfRefOneToManySchemas,
 } from "./fixtures";
 

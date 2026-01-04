@@ -2,43 +2,41 @@
 // Composes all model schemas from modular schema factories
 
 import type { ModelState } from "./model";
-import type { CoreSchemas } from "./schemas/types";
+// Import args schema factories
+import {
+  getAggregateArgs,
+  getCountArgs,
+  getCreateArgs,
+  getCreateManyArgs,
+  getDeleteArgs,
+  getDeleteManyArgs,
+  getFindFirstArgs,
+  getFindManyArgs,
+  getFindUniqueArgs,
+  getGroupByArgs,
+  getUpdateArgs,
+  getUpdateManyArgs,
+  getUpsertArgs,
+} from "./schemas/args";
 
 // Import core schema factories
 import {
-  getScalarFilter,
-  getUniqueFilter,
-  getRelationFilter,
-  getScalarCreate,
-  getRelationCreate,
+  getCompoundConstraintFilter,
   getCreateSchema,
-  getScalarUpdate,
+  getIncludeSchema,
+  getOrderBySchema,
+  getRelationCreate,
+  getRelationFilter,
   getRelationUpdate,
+  getScalarCreate,
+  getScalarFilter,
+  getScalarUpdate,
+  getSelectSchema,
+  getUniqueFilter,
   getUpdateSchema,
   getWhereSchema,
   getWhereUniqueSchema,
-  getSelectSchema,
-  getIncludeSchema,
-  getOrderBySchema,
-  getCompoundConstraintFilter,
 } from "./schemas/core";
-
-// Import args schema factories
-import {
-  getFindUniqueArgs,
-  getFindFirstArgs,
-  getFindManyArgs,
-  getCreateArgs,
-  getCreateManyArgs,
-  getUpdateArgs,
-  getUpdateManyArgs,
-  getDeleteArgs,
-  getDeleteManyArgs,
-  getUpsertArgs,
-  getCountArgs,
-  getAggregateArgs,
-  getGroupByArgs,
-} from "./schemas/args";
 import { getCompoundIdFilter } from "./schemas/core/filter";
 
 // =============================================================================

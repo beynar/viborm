@@ -5,15 +5,11 @@
  * parent and related tables in relation queries.
  */
 
-import { sql, Sql } from "@sql";
 import type { Model } from "@schema/model";
+import type { Sql } from "@sql";
+import { getColumnName } from "../context";
 import type { QueryContext, RelationInfo } from "../types";
 import { QueryEngineError } from "../types";
-import { getColumnName, getTableName } from "../context";
-import {
-  getJunctionTableName,
-  getJunctionFieldNames,
-} from "@schema/relation/relation";
 
 /**
  * Build correlation condition between parent and related table.
@@ -33,7 +29,7 @@ export function buildCorrelation(
   ctx: QueryContext,
   relationInfo: RelationInfo,
   parentAlias: string,
-  relatedAlias: string,
+  relatedAlias: string
 ): Sql {
   const { adapter } = ctx;
   const state = relationInfo.relation["~"].state;
@@ -55,7 +51,7 @@ export function buildCorrelation(
     if (!inverseInfo) {
       throw new QueryEngineError(
         `Relation '${relationInfo.name}' on model '${getModelName(ctx.model)}' requires an inverse relation ` +
-          `on '${getModelName(relationInfo.targetModel)}' with explicit 'fields' and 'references'.`,
+          `on '${getModelName(relationInfo.targetModel)}' with explicit 'fields' and 'references'.`
       );
     }
     // For oneToMany: parent.id = related.authorId
@@ -66,17 +62,17 @@ export function buildCorrelation(
   } else if (state.type === "manyToMany") {
     // manyToMany requires junction table - not yet implemented
     throw new QueryEngineError(
-      `Many-to-many relation '${relationInfo.name}' requires junction table handling (not yet implemented).`,
+      `Many-to-many relation '${relationInfo.name}' requires junction table handling (not yet implemented).`
     );
   } else {
     throw new QueryEngineError(
-      `Relation '${relationInfo.name}' on model '${getModelName(ctx.model)}' must define 'fields' and 'references' explicitly.`,
+      `Relation '${relationInfo.name}' on model '${getModelName(ctx.model)}' must define 'fields' and 'references' explicitly.`
     );
   }
 
   if (parentFields.length !== relatedFields.length) {
     throw new QueryEngineError(
-      `Relation '${relationInfo.name}' has mismatched fields (${parentFields.length}) and references (${relatedFields.length}).`,
+      `Relation '${relationInfo.name}' has mismatched fields (${parentFields.length}) and references (${relatedFields.length}).`
     );
   }
 
@@ -86,12 +82,12 @@ export function buildCorrelation(
     const parentColumnName = getColumnName(ctx.model, parentFields[i]!);
     const relatedColumnName = getColumnName(
       relationInfo.targetModel,
-      relatedFields[i]!,
+      relatedFields[i]!
     );
     const parentCol = adapter.identifiers.column(parentAlias, parentColumnName);
     const relatedCol = adapter.identifiers.column(
       relatedAlias,
-      relatedColumnName,
+      relatedColumnName
     );
     conditions.push(adapter.operators.eq(parentCol, relatedCol));
   }
@@ -107,7 +103,7 @@ export function buildCorrelation(
  */
 function findInverseRelation(
   ctx: QueryContext,
-  relationInfo: RelationInfo,
+  relationInfo: RelationInfo
 ): { fields: string[]; references: string[] } | undefined {
   const targetModel = relationInfo.targetModel;
   const sourceModel = ctx.model;

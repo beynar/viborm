@@ -1,7 +1,8 @@
 import { PrismaPg } from "@prisma/adapter-pg";
 import { Prisma, PrismaClient } from "../generated/prisma";
 
-const connectionString = `postgresql://postgres:password@localhost:2222/baseorm`;
+const connectionString =
+  "postgresql://postgres:password@localhost:2222/baseorm";
 
 const adapter = new PrismaPg({ connectionString });
 const prisma = new PrismaClient({

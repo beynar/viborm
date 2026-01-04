@@ -11,62 +11,62 @@ function Home() {
     <HomeLayout {...baseOptions()}>
       <main className="flex flex-col">
         {/* Hero Section */}
-        <section className="relative overflow-hidden border-b border-fd-border">
+        <section className="relative overflow-hidden border-fd-border border-b">
           <div className="absolute inset-0 bg-gradient-to-br from-fd-primary/5 via-transparent to-fd-primary/10" />
           <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-fd-primary/10 via-transparent to-transparent" />
 
-          <div className="relative container mx-auto px-6 py-24 md:py-32 lg:py-40">
-            <div className="max-w-4xl mx-auto text-center">
-              <div className="inline-flex items-center gap-2 px-3 py-1 mb-6 text-sm font-medium rounded-full bg-fd-primary/10 text-fd-primary border border-fd-primary/20">
+          <div className="container relative mx-auto px-6 py-24 md:py-32 lg:py-40">
+            <div className="mx-auto max-w-4xl text-center">
+              <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-fd-primary/20 bg-fd-primary/10 px-3 py-1 font-medium text-fd-primary text-sm">
                 <span className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-fd-primary opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-fd-primary"></span>
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-fd-primary opacity-75" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-fd-primary" />
                 </span>
                 The Convergence Point
               </div>
 
-              <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight mb-6">
+              <h1 className="mb-6 font-bold text-4xl tracking-tight md:text-5xl lg:text-6xl">
                 The ORM We're All{" "}
                 <span className="bg-gradient-to-r from-fd-primary to-fd-primary/60 bg-clip-text text-transparent">
                   Trying to Build
                 </span>
               </h1>
 
-              <p className="text-lg md:text-xl text-fd-muted-foreground mb-8 max-w-3xl mx-auto leading-relaxed">
+              <p className="mx-auto mb-8 max-w-3xl text-fd-muted-foreground text-lg leading-relaxed md:text-xl">
                 Prisma pioneered elegant APIs but requires code generation and
                 WASM. Drizzle went lightweight but sacrificed elegance. VibORM
                 combines both:{" "}
-                <span className="text-fd-foreground font-medium">
+                <span className="font-medium text-fd-foreground">
                   Prisma's elegant API, zero code generation, no WASM — pure
                   TypeScript.
                 </span>
               </p>
 
-              <div className="flex flex-col sm:flex-row gap-4 justify-center">
+              <div className="flex flex-col justify-center gap-4 sm:flex-row">
                 <Link
-                  to="/docs/$"
+                  className="inline-flex items-center justify-center rounded-lg bg-fd-primary px-6 py-3 font-medium text-base text-fd-primary-foreground transition-colors hover:bg-fd-primary/90"
                   params={{ _splat: "getting-started/quick-start" }}
-                  className="inline-flex items-center justify-center px-6 py-3 text-base font-medium rounded-lg bg-fd-primary text-fd-primary-foreground hover:bg-fd-primary/90 transition-colors"
+                  to="/docs/$"
                 >
                   Get Started
                   <svg
-                    className="ml-2 w-4 h-4"
+                    className="ml-2 h-4 w-4"
                     fill="none"
                     stroke="currentColor"
                     viewBox="0 0 24 24"
                   >
                     <path
+                      d="M13 7l5 5m0 0l-5 5m5-5H6"
                       strokeLinecap="round"
                       strokeLinejoin="round"
                       strokeWidth={2}
-                      d="M13 7l5 5m0 0l-5 5m5-5H6"
                     />
                   </svg>
                 </Link>
                 <Link
-                  to="/docs/$"
+                  className="inline-flex items-center justify-center rounded-lg border border-fd-border bg-fd-background px-6 py-3 font-medium text-base transition-colors hover:bg-fd-accent"
                   params={{ _splat: "" }}
-                  className="inline-flex items-center justify-center px-6 py-3 text-base font-medium rounded-lg border border-fd-border bg-fd-background hover:bg-fd-accent transition-colors"
+                  to="/docs/$"
                 >
                   Read the Docs
                 </Link>
@@ -76,56 +76,56 @@ function Home() {
         </section>
 
         {/* The Convergence Story */}
-        <section className="py-16 md:py-24 border-b border-fd-border">
+        <section className="border-fd-border border-b py-16 md:py-24">
           <div className="container mx-auto px-6">
-            <div className="max-w-4xl mx-auto">
-              <div className="text-center mb-12">
-                <h2 className="text-2xl md:text-3xl font-bold mb-4">
+            <div className="mx-auto max-w-4xl">
+              <div className="mb-12 text-center">
+                <h2 className="mb-4 font-bold text-2xl md:text-3xl">
                   The Great ORM Convergence
                 </h2>
-                <p className="text-fd-muted-foreground max-w-3xl mx-auto leading-relaxed">
+                <p className="mx-auto max-w-3xl text-fd-muted-foreground leading-relaxed">
                   In 2020, Prisma pioneered object-based queries and relational
                   APIs. Drizzle launched as the "anti-Prisma" — lightweight,
                   SQL-first, no abstractions. Now in 2025, Drizzle's v2 adopts
                   the exact patterns they once dismissed.
-                  <span className="block mt-2 text-fd-foreground font-medium">
+                  <span className="mt-2 block font-medium text-fd-foreground">
                     This isn't copying. It's convergence. Production demands
                     these patterns.
                   </span>
                 </p>
               </div>
 
-              <div className="grid md:grid-cols-3 gap-6">
+              <div className="grid gap-6 md:grid-cols-3">
                 <ConvergenceCard
-                  title="Prisma's Path"
+                  highlight="Beautiful DX, but heavy toolchain"
                   items={[
                     "Elegant, readable schemas",
                     "Intuitive query API",
                     "Code generation required",
                     "WASM engine overhead",
                   ]}
-                  highlight="Beautiful DX, but heavy toolchain"
+                  title="Prisma's Path"
                 />
                 <ConvergenceCard
-                  title="Drizzle's Path"
+                  highlight="Lightweight, but sacrificed elegance"
                   items={[
                     "Verbose, SQL-like schemas",
                     "Relations defined separately",
                     "Callback-based → object-based",
                     "Zero code generation",
                   ]}
-                  highlight="Lightweight, but sacrificed elegance"
+                  title="Drizzle's Path"
                 />
                 <ConvergenceCard
-                  title="VibORM"
+                  highlight="The best of both worlds"
                   items={[
                     "Prisma's elegant API ✓",
                     "Zero code generation ✓",
                     "No WASM, pure TypeScript ✓",
                     "Database-agnostic features ✓",
                   ]}
-                  highlight="The best of both worlds"
                   primary
+                  title="VibORM"
                 />
               </div>
             </div>
@@ -133,44 +133,44 @@ function Home() {
         </section>
 
         {/* What Production Demands */}
-        <section className="py-16 md:py-24 border-b border-fd-border bg-fd-card/30">
+        <section className="border-fd-border border-b bg-fd-card/30 py-16 md:py-24">
           <div className="container mx-auto px-6">
-            <div className="max-w-4xl mx-auto">
-              <div className="text-center mb-12">
-                <h2 className="text-2xl md:text-3xl font-bold mb-4">
+            <div className="mx-auto max-w-4xl">
+              <div className="mb-12 text-center">
+                <h2 className="mb-4 font-bold text-2xl md:text-3xl">
                   What Production Actually Demands
                 </h2>
-                <p className="text-fd-muted-foreground max-w-2xl mx-auto">
+                <p className="mx-auto max-w-2xl text-fd-muted-foreground">
                   These patterns aren't arbitrary preferences — they're optimal
                   solutions that emerge when you tackle production-scale
                   problems.
                 </p>
               </div>
 
-              <div className="grid sm:grid-cols-2 gap-6">
+              <div className="grid gap-6 sm:grid-cols-2">
                 <DemandCard
-                  title="Complete object-based queries"
                   description="Drizzle v2 adopted object-based patterns but only partially — missing nested selects on relations and other features. VibORM implements the full Prisma-like API."
                   quote="where is now object. orderBy is now object."
                   source="Drizzle v2 Migration Docs"
+                  title="Complete object-based queries"
                 />
                 <DemandCard
-                  title="Schema elegance isn't optional"
                   description="Drizzle forces you to define relations separately from models. That's not just inconvenient — it's harder to understand and maintain. VibORM keeps relations inline, like Prisma."
                   quote="Your schema should be readable at a glance, not scattered across files."
                   source="Developer Experience"
+                  title="Schema elegance isn't optional"
                 />
                 <DemandCard
-                  title="Typed JSON columns"
                   description="Other ORMs treat JSON as 'any'. VibORM lets you define JSON schemas with Zod or Valibot — full type inference and runtime validation on your JSON data."
                   quote="JSON columns shouldn't be a type safety escape hatch."
                   source="Type Safety"
+                  title="Typed JSON columns"
                 />
                 <DemandCard
-                  title="No WASM, no complexity"
                   description="Prisma bundles a Rust engine compiled to WASM — extra binaries, platform issues, slower cold starts. VibORM is pure TypeScript. Nothing to download, nothing to compile."
                   quote="The simplest architecture is the best architecture."
                   source="Engineering Wisdom"
+                  title="No WASM, no complexity"
                 />
               </div>
             </div>
@@ -178,23 +178,22 @@ function Home() {
         </section>
 
         {/* Elegance Comparison */}
-        <section className="py-16 md:py-24 border-b border-fd-border">
+        <section className="border-fd-border border-b py-16 md:py-24">
           <div className="container mx-auto px-6">
-            <div className="max-w-5xl mx-auto">
-              <div className="text-center mb-12">
-                <h2 className="text-2xl md:text-3xl font-bold mb-4">
+            <div className="mx-auto max-w-5xl">
+              <div className="mb-12 text-center">
+                <h2 className="mb-4 font-bold text-2xl md:text-3xl">
                   Elegance Matters
                 </h2>
-                <p className="text-fd-muted-foreground max-w-2xl mx-auto">
+                <p className="mx-auto max-w-2xl text-fd-muted-foreground">
                   Drizzle requires relations to be defined separately from your
                   models. VibORM keeps everything together — like Prisma, but in
                   pure TypeScript.
                 </p>
               </div>
 
-              <div className="grid md:grid-cols-2 gap-6 mb-8">
+              <div className="mb-8 grid gap-6 md:grid-cols-2">
                 <CodeBlock
-                  title="drizzle-schema.ts"
                   badge="Drizzle"
                   code={`// Tables defined here...
 const users = pgTable("users", {
@@ -220,10 +219,10 @@ const postsRelations = relations(posts, ({ one }) => ({
     references: [users.id],
   }),
 }));`}
+                  title="drizzle-schema.ts"
                 />
 
                 <CodeBlock
-                  title="viborm-schema.ts"
                   badge="VibORM"
                   code={`// Everything in one place — clean & elegant ✨
 const user = s.model({
@@ -245,18 +244,19 @@ const post = s.model({
 
 // That's it. Relations are part of the model.
 // Chainable. Readable. Elegant.`}
+                  title="viborm-schema.ts"
                 />
               </div>
 
-              <div className="grid md:grid-cols-2 gap-6">
-                <div className="p-5 rounded-lg border border-fd-border bg-fd-card">
-                  <h3 className="font-semibold mb-2 flex items-center gap-2">
+              <div className="grid gap-6 md:grid-cols-2">
+                <div className="rounded-lg border border-fd-border bg-fd-card p-5">
+                  <h3 className="mb-2 flex items-center gap-2 font-semibold">
                     <span className="text-red-500">✗</span> Drizzle's Approach
                   </h3>
-                  <ul className="text-sm text-fd-muted-foreground space-y-1">
+                  <ul className="space-y-1 text-fd-muted-foreground text-sm">
                     <li>
                       • Relations defined in separate{" "}
-                      <code className="text-xs bg-fd-muted px-1 rounded">
+                      <code className="rounded bg-fd-muted px-1 text-xs">
                         relations()
                       </code>{" "}
                       calls
@@ -266,11 +266,11 @@ const post = s.model({
                     <li>• More boilerplate, less readable</li>
                   </ul>
                 </div>
-                <div className="p-5 rounded-lg border border-fd-primary/30 bg-fd-primary/5">
-                  <h3 className="font-semibold mb-2 flex items-center gap-2 text-fd-primary">
+                <div className="rounded-lg border border-fd-primary/30 bg-fd-primary/5 p-5">
+                  <h3 className="mb-2 flex items-center gap-2 font-semibold text-fd-primary">
                     <span>✓</span> VibORM's Approach
                   </h3>
-                  <ul className="text-sm text-fd-muted-foreground space-y-1">
+                  <ul className="space-y-1 text-fd-muted-foreground text-sm">
                     <li>• Relations defined inline with the model</li>
                     <li>• One model = one complete definition</li>
                     <li>• Immediately see the full picture</li>
@@ -283,23 +283,22 @@ const post = s.model({
         </section>
 
         {/* Standard Schema & Typed JSON */}
-        <section className="py-16 md:py-24 border-b border-fd-border bg-fd-card/30">
+        <section className="border-fd-border border-b bg-fd-card/30 py-16 md:py-24">
           <div className="container mx-auto px-6">
-            <div className="max-w-5xl mx-auto">
-              <div className="text-center mb-12">
-                <h2 className="text-2xl md:text-3xl font-bold mb-4">
+            <div className="mx-auto max-w-5xl">
+              <div className="mb-12 text-center">
+                <h2 className="mb-4 font-bold text-2xl md:text-3xl">
                   Your Schema Library, Native Support
                 </h2>
-                <p className="text-fd-muted-foreground max-w-2xl mx-auto">
+                <p className="mx-auto max-w-2xl text-fd-muted-foreground">
                   Use Zod, Valibot, or ArkType to narrow field validation.
                   Define typed JSON columns with full inference. No other ORM
                   does this.
                 </p>
               </div>
 
-              <div className="grid md:grid-cols-2 gap-6 mb-8">
+              <div className="mb-8 grid gap-6 md:grid-cols-2">
                 <CodeBlock
-                  title="typed-json.ts"
                   badge="Typed JSON"
                   code={`import { s } from "viborm";
 import { z } from "zod";
@@ -323,10 +322,10 @@ const user = s.model({
 
 // TypeScript knows address is { street, city, zip, country }
 // Runtime validation included — invalid JSON throws`}
+                  title="typed-json.ts"
                 />
 
                 <CodeBlock
-                  title="narrowed-validation.ts"
                   badge="Standard Schema"
                   code={`import { s } from "viborm";
 import { z } from "zod";
@@ -348,46 +347,47 @@ const user = s.model({
 
 // Works with any Standard Schema compliant library
 // Same API, your choice of validator`}
+                  title="narrowed-validation.ts"
                 />
               </div>
 
-              <div className="grid sm:grid-cols-3 gap-4">
-                <div className="p-4 rounded-lg border border-fd-border bg-fd-card text-center">
-                  <div className="font-semibold mb-1">Zod</div>
-                  <p className="text-xs text-fd-muted-foreground">
+              <div className="grid gap-4 sm:grid-cols-3">
+                <div className="rounded-lg border border-fd-border bg-fd-card p-4 text-center">
+                  <div className="mb-1 font-semibold">Zod</div>
+                  <p className="text-fd-muted-foreground text-xs">
                     Most popular schema library
                   </p>
                 </div>
-                <div className="p-4 rounded-lg border border-fd-border bg-fd-card text-center">
-                  <div className="font-semibold mb-1">Valibot</div>
-                  <p className="text-xs text-fd-muted-foreground">
+                <div className="rounded-lg border border-fd-border bg-fd-card p-4 text-center">
+                  <div className="mb-1 font-semibold">Valibot</div>
+                  <p className="text-fd-muted-foreground text-xs">
                     Lightweight alternative
                   </p>
                 </div>
-                <div className="p-4 rounded-lg border border-fd-border bg-fd-card text-center">
-                  <div className="font-semibold mb-1">ArkType</div>
-                  <p className="text-xs text-fd-muted-foreground">
+                <div className="rounded-lg border border-fd-border bg-fd-card p-4 text-center">
+                  <div className="mb-1 font-semibold">ArkType</div>
+                  <p className="text-fd-muted-foreground text-xs">
                     Fastest runtime validation
                   </p>
                 </div>
               </div>
 
-              <div className="mt-8 p-6 rounded-lg border border-fd-primary/30 bg-fd-primary/5">
+              <div className="mt-8 rounded-lg border border-fd-primary/30 bg-fd-primary/5 p-6">
                 <div className="flex items-start gap-4">
-                  <div className="w-10 h-10 rounded-lg bg-fd-primary text-fd-primary-foreground flex items-center justify-center flex-shrink-0">
+                  <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-fd-primary text-fd-primary-foreground">
                     <JsonIcon />
                   </div>
                   <div>
-                    <h3 className="font-semibold mb-1">
+                    <h3 className="mb-1 font-semibold">
                       JSON Columns, Finally Type-Safe
                     </h3>
-                    <p className="text-sm text-fd-muted-foreground">
+                    <p className="text-fd-muted-foreground text-sm">
                       Other ORMs treat JSON as{" "}
-                      <code className="text-xs bg-fd-muted px-1 rounded">
+                      <code className="rounded bg-fd-muted px-1 text-xs">
                         any
                       </code>{" "}
                       or{" "}
-                      <code className="text-xs bg-fd-muted px-1 rounded">
+                      <code className="rounded bg-fd-muted px-1 text-xs">
                         unknown
                       </code>
                       . VibORM lets you define the exact shape with your
@@ -402,22 +402,21 @@ const user = s.model({
         </section>
 
         {/* Query Comparison */}
-        <section className="py-16 md:py-24 border-b border-fd-border bg-fd-card/30">
+        <section className="border-fd-border border-b bg-fd-card/30 py-16 md:py-24">
           <div className="container mx-auto px-6">
-            <div className="max-w-5xl mx-auto">
-              <div className="text-center mb-12">
-                <h2 className="text-2xl md:text-3xl font-bold mb-4">
+            <div className="mx-auto max-w-5xl">
+              <div className="mb-12 text-center">
+                <h2 className="mb-4 font-bold text-2xl md:text-3xl">
                   Queries That Read Like English
                 </h2>
-                <p className="text-fd-muted-foreground max-w-2xl mx-auto">
+                <p className="mx-auto max-w-2xl text-fd-muted-foreground">
                   Prisma's query API is beloved for a reason — it's intuitive.
                   VibORM brings that same elegance without the code generation.
                 </p>
               </div>
 
-              <div className="max-w-3xl mx-auto">
+              <div className="mx-auto max-w-3xl">
                 <CodeBlock
-                  title="queries.ts"
                   badge="Prisma-like API"
                   code={`// Find admins with their published posts
 const admins = await client.user.findMany({
@@ -447,21 +446,22 @@ const newUser = await client.user.create({
 
 // TypeScript knows the exact return type
 // No generation. No guessing. Just inference.`}
+                  title="queries.ts"
                 />
               </div>
 
-              <div className="mt-8 p-6 rounded-lg border border-fd-border bg-fd-background">
+              <div className="mt-8 rounded-lg border border-fd-border bg-fd-background p-6">
                 <div className="flex items-start gap-4">
-                  <div className="w-10 h-10 rounded-lg bg-fd-primary/10 text-fd-primary flex items-center justify-center flex-shrink-0">
+                  <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-fd-primary/10 text-fd-primary">
                     <ZapIcon />
                   </div>
                   <div>
-                    <h3 className="font-semibold mb-1">
+                    <h3 className="mb-1 font-semibold">
                       Simpler Stack, Better Performance
                     </h3>
-                    <p className="text-sm text-fd-muted-foreground">
+                    <p className="text-fd-muted-foreground text-sm">
                       No{" "}
-                      <code className="text-xs bg-fd-muted px-1.5 py-0.5 rounded">
+                      <code className="rounded bg-fd-muted px-1.5 py-0.5 text-xs">
                         prisma generate
                       </code>
                       . No WASM engine. No binary downloads. Just pure
@@ -477,35 +477,35 @@ const newUser = await client.user.create({
         </section>
 
         {/* Comparison Table */}
-        <section className="py-16 md:py-24 border-b border-fd-border">
+        <section className="border-fd-border border-b py-16 md:py-24">
           <div className="container mx-auto px-6">
-            <div className="text-center mb-12">
-              <h2 className="text-2xl md:text-3xl font-bold mb-4">
+            <div className="mb-12 text-center">
+              <h2 className="mb-4 font-bold text-2xl md:text-3xl">
                 The Full Picture
               </h2>
-              <p className="text-fd-muted-foreground max-w-2xl mx-auto">
+              <p className="mx-auto max-w-2xl text-fd-muted-foreground">
                 Prisma's elegance. Drizzle's zero-generation. VibORM combines
                 both — without the compromises.
               </p>
             </div>
 
-            <div className="max-w-4xl mx-auto overflow-x-auto">
+            <div className="mx-auto max-w-4xl overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-fd-border">
-                    <th className="text-left py-4 px-4 font-semibold">
+                  <tr className="border-fd-border border-b">
+                    <th className="px-4 py-4 text-left font-semibold">
                       Feature
                     </th>
-                    <th className="text-center py-4 px-4 font-semibold text-fd-muted-foreground">
+                    <th className="px-4 py-4 text-center font-semibold text-fd-muted-foreground">
                       Prisma
                     </th>
-                    <th className="text-center py-4 px-4 font-semibold text-fd-muted-foreground">
+                    <th className="px-4 py-4 text-center font-semibold text-fd-muted-foreground">
                       Drizzle v1
                     </th>
-                    <th className="text-center py-4 px-4 font-semibold text-fd-muted-foreground">
+                    <th className="px-4 py-4 text-center font-semibold text-fd-muted-foreground">
                       Drizzle v2
                     </th>
-                    <th className="text-center py-4 px-4 font-semibold text-fd-primary">
+                    <th className="px-4 py-4 text-center font-semibold text-fd-primary">
                       VibORM
                     </th>
                   </tr>
@@ -595,7 +595,7 @@ const newUser = await client.user.create({
               </table>
             </div>
 
-            <p className="text-center text-sm text-fd-muted-foreground mt-6 max-w-2xl mx-auto">
+            <p className="mx-auto mt-6 max-w-2xl text-center text-fd-muted-foreground text-sm">
               Prisma has elegance but requires generation and WASM. Drizzle is
               lightweight but sacrificed elegance. VibORM gives you both —
               beautiful queries, pure TypeScript, no build step.
@@ -604,62 +604,62 @@ const newUser = await client.user.create({
         </section>
 
         {/* Database Abstraction Section */}
-        <section className="py-16 md:py-24 border-b border-fd-border">
+        <section className="border-fd-border border-b py-16 md:py-24">
           <div className="container mx-auto px-6">
-            <div className="max-w-4xl mx-auto">
-              <div className="text-center mb-12">
-                <h2 className="text-2xl md:text-3xl font-bold mb-4">
+            <div className="mx-auto max-w-4xl">
+              <div className="mb-12 text-center">
+                <h2 className="mb-4 font-bold text-2xl md:text-3xl">
                   One API. Every Database. Every Feature.
                 </h2>
-                <p className="text-fd-muted-foreground max-w-3xl mx-auto leading-relaxed">
+                <p className="mx-auto max-w-3xl text-fd-muted-foreground leading-relaxed">
                   Other ORMs give you different features depending on your
                   database. VibORM abstracts the limitations away — your code
                   works the same whether you're on PostgreSQL, MySQL, or SQLite.
                 </p>
               </div>
 
-              <div className="grid md:grid-cols-3 gap-6 mb-8">
-                <div className="p-5 rounded-lg border border-fd-border bg-fd-card text-center">
-                  <div className="w-12 h-12 rounded-full bg-fd-primary/10 text-fd-primary flex items-center justify-center mx-auto mb-3">
+              <div className="mb-8 grid gap-6 md:grid-cols-3">
+                <div className="rounded-lg border border-fd-border bg-fd-card p-5 text-center">
+                  <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-fd-primary/10 text-fd-primary">
                     <ArrayIcon />
                   </div>
-                  <h3 className="font-semibold mb-2">Scalar Arrays</h3>
-                  <p className="text-sm text-fd-muted-foreground">
+                  <h3 className="mb-2 font-semibold">Scalar Arrays</h3>
+                  <p className="text-fd-muted-foreground text-sm">
                     MySQL doesn't support array columns natively. VibORM
                     emulates them with JSON — same API, same types, any
                     database.
                   </p>
                 </div>
-                <div className="p-5 rounded-lg border border-fd-border bg-fd-card text-center">
-                  <div className="w-12 h-12 rounded-full bg-fd-primary/10 text-fd-primary flex items-center justify-center mx-auto mb-3">
+                <div className="rounded-lg border border-fd-border bg-fd-card p-5 text-center">
+                  <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-fd-primary/10 text-fd-primary">
                     <FilterIcon />
                   </div>
-                  <h3 className="font-semibold mb-2">DISTINCT Queries</h3>
-                  <p className="text-sm text-fd-muted-foreground">
+                  <h3 className="mb-2 font-semibold">DISTINCT Queries</h3>
+                  <p className="text-fd-muted-foreground text-sm">
                     DISTINCT ON isn't available everywhere. VibORM provides
                     consistent distinct behavior across all supported databases.
                   </p>
                 </div>
-                <div className="p-5 rounded-lg border border-fd-border bg-fd-card text-center">
-                  <div className="w-12 h-12 rounded-full bg-fd-primary/10 text-fd-primary flex items-center justify-center mx-auto mb-3">
+                <div className="rounded-lg border border-fd-border bg-fd-card p-5 text-center">
+                  <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-fd-primary/10 text-fd-primary">
                     <SwitchIcon />
                   </div>
-                  <h3 className="font-semibold mb-2">Switch Anytime</h3>
-                  <p className="text-sm text-fd-muted-foreground">
+                  <h3 className="mb-2 font-semibold">Switch Anytime</h3>
+                  <p className="text-fd-muted-foreground text-sm">
                     Start with SQLite for development, deploy to PostgreSQL.
                     Your queries don't change — the ORM handles the translation.
                   </p>
                 </div>
               </div>
 
-              <div className="p-6 rounded-lg border border-fd-primary/30 bg-fd-primary/5">
+              <div className="rounded-lg border border-fd-primary/30 bg-fd-primary/5 p-6">
                 <div className="flex items-start gap-4">
-                  <div className="w-10 h-10 rounded-lg bg-fd-primary text-fd-primary-foreground flex items-center justify-center flex-shrink-0">
+                  <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-fd-primary text-fd-primary-foreground">
                     <DatabaseIcon />
                   </div>
                   <div>
-                    <h3 className="font-semibold mb-1">The Real Abstraction</h3>
-                    <p className="text-sm text-fd-muted-foreground">
+                    <h3 className="mb-1 font-semibold">The Real Abstraction</h3>
+                    <p className="text-fd-muted-foreground text-sm">
                       Most ORMs abstract SQL <em>syntax</em> — you still hit
                       database limitations. VibORM abstracts database{" "}
                       <em>capabilities</em>. Features that don't exist natively
@@ -674,103 +674,103 @@ const newUser = await client.user.create({
         </section>
 
         {/* Features that matter */}
-        <section className="py-16 md:py-24 border-b border-fd-border bg-fd-card/30">
+        <section className="border-fd-border border-b bg-fd-card/30 py-16 md:py-24">
           <div className="container mx-auto px-6">
-            <div className="text-center mb-12">
-              <h2 className="text-2xl md:text-3xl font-bold mb-4">
+            <div className="mb-12 text-center">
+              <h2 className="mb-4 font-bold text-2xl md:text-3xl">
                 Features That Survived Convergence
               </h2>
-              <p className="text-fd-muted-foreground max-w-2xl mx-auto">
+              <p className="mx-auto max-w-2xl text-fd-muted-foreground">
                 These aren't arbitrary preferences. They're the patterns that
                 every production ORM eventually implements.
               </p>
             </div>
 
-            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6 max-w-5xl mx-auto">
+            <div className="mx-auto grid max-w-5xl gap-6 sm:grid-cols-2 lg:grid-cols-3">
               <FeatureCard
+                description="Chainable schemas. Relations defined inline. Queries that read like English. The beautiful DX Prisma pioneered — in pure TypeScript."
                 icon={<SparklesIcon />}
                 title="Prisma's Elegance"
-                description="Chainable schemas. Relations defined inline. Queries that read like English. The beautiful DX Prisma pioneered — in pure TypeScript."
               />
               <FeatureCard
+                description="Defined inline, not scattered. include, nested select, relation filters — Prisma's complete relational API without the separate relations() boilerplate."
                 icon={<LinkIcon />}
                 title="Relations Done Right"
-                description="Defined inline, not scattered. include, nested select, relation filters — Prisma's complete relational API without the separate relations() boilerplate."
               />
               <FeatureCard
+                description="Every query, filter, and result is typed. No any, no guessing, no runtime surprises."
                 icon={<ShieldIcon />}
                 title="Full Type Safety"
-                description="Every query, filter, and result is typed. No any, no guessing, no runtime surprises."
               />
               <FeatureCard
+                description="No code generation, no WASM engine, no binary downloads. Just TypeScript — simpler workflow, faster cold starts, works everywhere."
                 icon={<ZapIcon />}
                 title="Pure TypeScript"
-                description="No code generation, no WASM engine, no binary downloads. Just TypeScript — simpler workflow, faster cold starts, works everywhere."
               />
               <FeatureCard
+                description="ArkType schemas auto-generated from your models. Use them for API validation, form validation — anywhere you need runtime checks outside the ORM."
                 icon={<CheckCircleIcon />}
                 title="Exported Model Schemas"
-                description="ArkType schemas auto-generated from your models. Use them for API validation, form validation — anywhere you need runtime checks outside the ORM."
               />
               <FeatureCard
+                description="Use Zod, Valibot, or ArkType to narrow field validation and type JSON columns. Your favorite schema library, native support."
                 icon={<PlugIcon />}
                 title="Standard Schema Integration"
-                description="Use Zod, Valibot, or ArkType to narrow field validation and type JSON columns. Your favorite schema library, native support."
               />
               <FeatureCard
+                description="Scalar arrays on MySQL. DISTINCT on SQLite. Every feature works everywhere — the ORM abstracts database limitations, not just syntax."
                 icon={<DatabaseIcon />}
                 title="True Database Abstraction"
-                description="Scalar arrays on MySQL. DISTINCT on SQLite. Every feature works everywhere — the ORM abstracts database limitations, not just syntax."
               />
             </div>
           </div>
         </section>
 
         {/* CTA Section */}
-        <section className="py-16 md:py-24 border-b border-fd-border bg-fd-card/30">
+        <section className="border-fd-border border-b bg-fd-card/30 py-16 md:py-24">
           <div className="container mx-auto px-6">
-            <div className="max-w-2xl mx-auto text-center">
-              <h2 className="text-2xl md:text-3xl font-bold mb-4">
+            <div className="mx-auto max-w-2xl text-center">
+              <h2 className="mb-4 font-bold text-2xl md:text-3xl">
                 Skip the Convergence. Start at the Destination.
               </h2>
-              <p className="text-fd-muted-foreground mb-8">
+              <p className="mb-8 text-fd-muted-foreground">
                 Why wait for other ORMs to implement what you need? VibORM has
                 the patterns that production demands — today.
               </p>
 
-              <div className="bg-fd-card border border-fd-border rounded-lg p-4 font-mono text-sm text-left mb-8">
+              <div className="mb-8 rounded-lg border border-fd-border bg-fd-card p-4 text-left font-mono text-sm">
                 <div className="flex items-center gap-2 text-fd-muted-foreground">
                   <span className="text-fd-primary">$</span>
                   <span>npm install viborm</span>
                 </div>
               </div>
 
-              <div className="flex flex-col sm:flex-row gap-4 justify-center">
+              <div className="flex flex-col justify-center gap-4 sm:flex-row">
                 <Link
-                  to="/docs/$"
+                  className="inline-flex items-center justify-center rounded-lg bg-fd-primary px-6 py-3 font-medium text-base text-fd-primary-foreground transition-colors hover:bg-fd-primary/90"
                   params={{ _splat: "getting-started/quick-start" }}
-                  className="inline-flex items-center justify-center px-6 py-3 text-base font-medium rounded-lg bg-fd-primary text-fd-primary-foreground hover:bg-fd-primary/90 transition-colors"
+                  to="/docs/$"
                 >
                   Get Started
                   <svg
-                    className="ml-2 w-4 h-4"
+                    className="ml-2 h-4 w-4"
                     fill="none"
                     stroke="currentColor"
                     viewBox="0 0 24 24"
                   >
                     <path
+                      d="M13 7l5 5m0 0l-5 5m5-5H6"
                       strokeLinecap="round"
                       strokeLinejoin="round"
                       strokeWidth={2}
-                      d="M13 7l5 5m0 0l-5 5m5-5H6"
                     />
                   </svg>
                 </Link>
                 <a
+                  className="inline-flex items-center justify-center rounded-lg border border-fd-border bg-fd-background px-6 py-3 font-medium text-base transition-colors hover:bg-fd-accent"
                   href="https://github.com/your-org/viborm"
-                  target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center justify-center px-6 py-3 text-base font-medium rounded-lg border border-fd-border bg-fd-background hover:bg-fd-accent transition-colors"
+                  target="_blank"
                 >
                   <GithubIcon />
                   <span className="ml-2">View on GitHub</span>
@@ -781,7 +781,7 @@ const newUser = await client.user.create({
         </section>
 
         {/* Footer */}
-        <footer className="py-8 text-center text-sm text-fd-muted-foreground">
+        <footer className="py-8 text-center text-fd-muted-foreground text-sm">
           <p>The ORM we're all trying to build. Now available.</p>
         </footer>
       </main>
@@ -801,14 +801,14 @@ function CodeBlock({
   code: string;
 }) {
   return (
-    <div className="bg-fd-card border border-fd-border rounded-lg overflow-hidden">
-      <div className="flex items-center justify-between px-4 py-2 border-b border-fd-border bg-fd-muted/30">
-        <span className="text-sm font-medium text-fd-foreground">{title}</span>
-        <span className="text-xs px-2 py-0.5 rounded bg-fd-primary/10 text-fd-primary font-medium">
+    <div className="overflow-hidden rounded-lg border border-fd-border bg-fd-card">
+      <div className="flex items-center justify-between border-fd-border border-b bg-fd-muted/30 px-4 py-2">
+        <span className="font-medium text-fd-foreground text-sm">{title}</span>
+        <span className="rounded bg-fd-primary/10 px-2 py-0.5 font-medium text-fd-primary text-xs">
           {badge}
         </span>
       </div>
-      <pre className="p-4 text-sm overflow-x-auto">
+      <pre className="overflow-x-auto p-4 text-sm">
         <code className="text-fd-muted-foreground">{code}</code>
       </pre>
     </div>
@@ -828,20 +828,20 @@ function ConvergenceCard({
 }) {
   return (
     <div
-      className={`p-6 rounded-lg border ${
+      className={`rounded-lg border p-6 ${
         primary
           ? "border-fd-primary bg-fd-primary/5"
           : "border-fd-border bg-fd-card"
       }`}
     >
-      <h3 className={`font-semibold mb-4 ${primary ? "text-fd-primary" : ""}`}>
+      <h3 className={`mb-4 font-semibold ${primary ? "text-fd-primary" : ""}`}>
         {title}
       </h3>
-      <ul className="space-y-2 mb-4">
+      <ul className="mb-4 space-y-2">
         {items.map((item, i) => (
           <li
+            className="flex items-start gap-2 text-fd-muted-foreground text-sm"
             key={i}
-            className="text-sm text-fd-muted-foreground flex items-start gap-2"
           >
             <span
               className={
@@ -855,7 +855,7 @@ function ConvergenceCard({
         ))}
       </ul>
       <p
-        className={`text-xs font-medium pt-4 border-t ${
+        className={`border-t pt-4 font-medium text-xs ${
           primary
             ? "border-fd-primary/20 text-fd-primary"
             : "border-fd-border text-fd-muted-foreground"
@@ -879,12 +879,12 @@ function DemandCard({
   source: string;
 }) {
   return (
-    <div className="p-6 rounded-lg border border-fd-border bg-fd-card">
-      <h3 className="font-semibold mb-2">{title}</h3>
-      <p className="text-sm text-fd-muted-foreground mb-4">{description}</p>
-      <blockquote className="text-sm italic border-l-2 border-fd-primary pl-3 text-fd-muted-foreground">
+    <div className="rounded-lg border border-fd-border bg-fd-card p-6">
+      <h3 className="mb-2 font-semibold">{title}</h3>
+      <p className="mb-4 text-fd-muted-foreground text-sm">{description}</p>
+      <blockquote className="border-fd-primary border-l-2 pl-3 text-fd-muted-foreground text-sm italic">
         "{quote}"
-        <cite className="block text-xs mt-1 not-italic text-fd-muted-foreground/70">
+        <cite className="mt-1 block text-fd-muted-foreground/70 text-xs not-italic">
           — {source}
         </cite>
       </blockquote>
@@ -902,12 +902,12 @@ function FeatureCard({
   description: string;
 }) {
   return (
-    <div className="group p-6 rounded-lg border border-fd-border bg-fd-card hover:border-fd-primary/50 hover:bg-fd-accent/50 transition-all">
-      <div className="w-10 h-10 rounded-lg bg-fd-primary/10 text-fd-primary flex items-center justify-center mb-4 group-hover:bg-fd-primary group-hover:text-fd-primary-foreground transition-colors">
+    <div className="group rounded-lg border border-fd-border bg-fd-card p-6 transition-all hover:border-fd-primary/50 hover:bg-fd-accent/50">
+      <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-lg bg-fd-primary/10 text-fd-primary transition-colors group-hover:bg-fd-primary group-hover:text-fd-primary-foreground">
         {icon}
       </div>
-      <h3 className="font-semibold mb-2">{title}</h3>
-      <p className="text-sm text-fd-muted-foreground leading-relaxed">
+      <h3 className="mb-2 font-semibold">{title}</h3>
+      <p className="text-fd-muted-foreground text-sm leading-relaxed">
         {description}
       </p>
     </div>
@@ -925,19 +925,19 @@ function ComparisonRow({
 }) {
   return (
     <tr>
-      <td className="py-4 px-4 font-medium">{feature}</td>
-      <td className="py-4 px-4 text-center text-fd-muted-foreground">
+      <td className="px-4 py-4 font-medium">{feature}</td>
+      <td className="px-4 py-4 text-center text-fd-muted-foreground">
         {values[0]}
       </td>
-      <td className="py-4 px-4 text-center text-fd-muted-foreground">
+      <td className="px-4 py-4 text-center text-fd-muted-foreground">
         {values[1]}
       </td>
-      <td className="py-4 px-4 text-center text-fd-muted-foreground">
+      <td className="px-4 py-4 text-center text-fd-muted-foreground">
         {values[2]}
       </td>
       <td
-        className={`py-4 px-4 text-center ${
-          vibormHighlight ? "text-fd-primary font-medium" : ""
+        className={`px-4 py-4 text-center ${
+          vibormHighlight ? "font-medium text-fd-primary" : ""
         }`}
       >
         {values[3]}
@@ -951,16 +951,16 @@ function ComparisonRow({
 function ZapIcon() {
   return (
     <svg
-      className="w-5 h-5"
+      className="h-5 w-5"
       fill="none"
       stroke="currentColor"
       viewBox="0 0 24 24"
     >
       <path
+        d="M13 10V3L4 14h7v7l9-11h-7z"
         strokeLinecap="round"
         strokeLinejoin="round"
         strokeWidth={2}
-        d="M13 10V3L4 14h7v7l9-11h-7z"
       />
     </svg>
   );
@@ -969,16 +969,16 @@ function ZapIcon() {
 function ShieldIcon() {
   return (
     <svg
-      className="w-5 h-5"
+      className="h-5 w-5"
       fill="none"
       stroke="currentColor"
       viewBox="0 0 24 24"
     >
       <path
+        d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"
         strokeLinecap="round"
         strokeLinejoin="round"
         strokeWidth={2}
-        d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"
       />
     </svg>
   );
@@ -987,16 +987,16 @@ function ShieldIcon() {
 function CodeIcon() {
   return (
     <svg
-      className="w-5 h-5"
+      className="h-5 w-5"
       fill="none"
       stroke="currentColor"
       viewBox="0 0 24 24"
     >
       <path
+        d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"
         strokeLinecap="round"
         strokeLinejoin="round"
         strokeWidth={2}
-        d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"
       />
     </svg>
   );
@@ -1005,16 +1005,16 @@ function CodeIcon() {
 function CheckCircleIcon() {
   return (
     <svg
-      className="w-5 h-5"
+      className="h-5 w-5"
       fill="none"
       stroke="currentColor"
       viewBox="0 0 24 24"
     >
       <path
+        d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
         strokeLinecap="round"
         strokeLinejoin="round"
         strokeWidth={2}
-        d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
       />
     </svg>
   );
@@ -1023,16 +1023,16 @@ function CheckCircleIcon() {
 function LinkIcon() {
   return (
     <svg
-      className="w-5 h-5"
+      className="h-5 w-5"
       fill="none"
       stroke="currentColor"
       viewBox="0 0 24 24"
     >
       <path
+        d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"
         strokeLinecap="round"
         strokeLinejoin="round"
         strokeWidth={2}
-        d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"
       />
     </svg>
   );
@@ -1041,16 +1041,16 @@ function LinkIcon() {
 function DatabaseIcon() {
   return (
     <svg
-      className="w-5 h-5"
+      className="h-5 w-5"
       fill="none"
       stroke="currentColor"
       viewBox="0 0 24 24"
     >
       <path
+        d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"
         strokeLinecap="round"
         strokeLinejoin="round"
         strokeWidth={2}
-        d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"
       />
     </svg>
   );
@@ -1058,11 +1058,11 @@ function DatabaseIcon() {
 
 function GithubIcon() {
   return (
-    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+    <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
       <path
-        fillRule="evenodd"
         clipRule="evenodd"
         d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"
+        fillRule="evenodd"
       />
     </svg>
   );
@@ -1071,16 +1071,16 @@ function GithubIcon() {
 function ArrayIcon() {
   return (
     <svg
-      className="w-5 h-5"
+      className="h-5 w-5"
       fill="none"
       stroke="currentColor"
       viewBox="0 0 24 24"
     >
       <path
+        d="M4 6h4v12H4zM10 6h4v12h-4zM16 6h4v12h-4z"
         strokeLinecap="round"
         strokeLinejoin="round"
         strokeWidth={2}
-        d="M4 6h4v12H4zM10 6h4v12h-4zM16 6h4v12h-4z"
       />
     </svg>
   );
@@ -1089,16 +1089,16 @@ function ArrayIcon() {
 function FilterIcon() {
   return (
     <svg
-      className="w-5 h-5"
+      className="h-5 w-5"
       fill="none"
       stroke="currentColor"
       viewBox="0 0 24 24"
     >
       <path
+        d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"
         strokeLinecap="round"
         strokeLinejoin="round"
         strokeWidth={2}
-        d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"
       />
     </svg>
   );
@@ -1107,16 +1107,16 @@ function FilterIcon() {
 function SwitchIcon() {
   return (
     <svg
-      className="w-5 h-5"
+      className="h-5 w-5"
       fill="none"
       stroke="currentColor"
       viewBox="0 0 24 24"
     >
       <path
+        d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"
         strokeLinecap="round"
         strokeLinejoin="round"
         strokeWidth={2}
-        d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"
       />
     </svg>
   );
@@ -1125,16 +1125,16 @@ function SwitchIcon() {
 function SparklesIcon() {
   return (
     <svg
-      className="w-5 h-5"
+      className="h-5 w-5"
       fill="none"
       stroke="currentColor"
       viewBox="0 0 24 24"
     >
       <path
+        d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"
         strokeLinecap="round"
         strokeLinejoin="round"
         strokeWidth={2}
-        d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"
       />
     </svg>
   );
@@ -1143,22 +1143,22 @@ function SparklesIcon() {
 function JsonIcon() {
   return (
     <svg
-      className="w-5 h-5"
+      className="h-5 w-5"
       fill="none"
       stroke="currentColor"
       viewBox="0 0 24 24"
     >
       <path
+        d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"
         strokeLinecap="round"
         strokeLinejoin="round"
         strokeWidth={2}
-        d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"
       />
       <path
+        d="M9 13h2m-1-1v4m4-3h.01M15 15h.01"
         strokeLinecap="round"
         strokeLinejoin="round"
         strokeWidth={2}
-        d="M9 13h2m-1-1v4m4-3h.01M15 15h.01"
       />
     </svg>
   );
@@ -1167,16 +1167,16 @@ function JsonIcon() {
 function PlugIcon() {
   return (
     <svg
-      className="w-5 h-5"
+      className="h-5 w-5"
       fill="none"
       stroke="currentColor"
       viewBox="0 0 24 24"
     >
       <path
+        d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"
         strokeLinecap="round"
         strokeLinejoin="round"
         strokeWidth={2}
-        d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"
       />
     </svg>
   );

@@ -14,10 +14,10 @@
  * - filter: Input type for filtering + shorthand transforms (equals and not only)
  */
 
-import { describe, test, expect, expectTypeOf } from "vitest";
-import { parse } from "@validation";
 import { blob } from "@schema/fields/blob/field";
 import type { InferBlobInput } from "@schema/fields/blob/schemas";
+import { parse } from "@validation";
+import { describe, expect, expectTypeOf, test } from "vitest";
 
 // Test data
 const testData1 = new Uint8Array([1, 2, 3, 4]);

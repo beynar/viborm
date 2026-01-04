@@ -4,11 +4,11 @@
  * Builds SQL for delete mutations.
  */
 
-import { sql, Sql } from "@sql";
-import type { QueryContext } from "../types";
-import { getTableName } from "../context";
-import { buildWhereUnique, buildWhere } from "../builders/where-builder";
+import { type Sql, sql } from "@sql";
 import { buildSelect } from "../builders/select-builder";
+import { buildWhere, buildWhereUnique } from "../builders/where-builder";
+import { getTableName } from "../context";
+import type { QueryContext } from "../types";
 
 interface DeleteArgs {
   where: Record<string, unknown>;
@@ -69,4 +69,3 @@ export function buildDeleteMany(ctx: QueryContext, args: DeleteManyArgs): Sql {
   const table = adapter.identifiers.escape(tableName);
   return adapter.mutations.delete(table, whereSql);
 }
-

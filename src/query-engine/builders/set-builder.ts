@@ -5,9 +5,9 @@
  * Handles simple assignments, increment/decrement, and array operations.
  */
 
-import { Sql, sql } from "@sql";
+import { type Sql, sql } from "@sql";
+import { getColumnName, getScalarFieldNames, isRelation } from "../context";
 import type { QueryContext } from "../types";
-import { getScalarFieldNames, isRelation, getColumnName } from "../context";
 
 /**
  * Build SET clause for UPDATE from update data
@@ -27,9 +27,15 @@ export function buildSet(
   const scalarFields = getScalarFieldNames(ctx.model);
 
   for (const [key, value] of Object.entries(data)) {
-    if (value === undefined) continue;
-    if (isRelation(ctx.model, key)) continue; // Skip relations
-    if (!scalarFields.includes(key)) continue;
+    if (value === undefined) {
+      continue;
+    }
+    if (isRelation(ctx.model, key)) {
+      continue; // Skip relations
+    }
+    if (!scalarFields.includes(key)) {
+      continue;
+    }
 
     // Resolve field name to actual column name (handles .map() overrides)
     const columnName = getColumnName(ctx.model, key);

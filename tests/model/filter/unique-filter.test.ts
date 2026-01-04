@@ -5,14 +5,12 @@
  * with their base schemas, all optional.
  */
 
-import { describe, test, expect, expectTypeOf } from "vitest";
-import { parse, InferInput } from "@validation";
+import { type InferInput, parse } from "@validation";
+import { describe, expect, expectTypeOf, test } from "vitest";
 import {
-  simpleSchemas,
   compoundIdSchemas,
   compoundUniqueSchemas,
-  type SimpleState,
-  type CompoundIdState,
+  simpleSchemas,
 } from "../fixtures";
 
 // =============================================================================

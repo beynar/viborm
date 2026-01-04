@@ -1,6 +1,6 @@
-import { describe, test, expect, expectTypeOf } from "vitest";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { v, date } from "@validation";
+import { date } from "@validation";
+import { describe, expect, expectTypeOf, test } from "vitest";
 
 describe("date schema", () => {
   describe("basic validation", () => {
@@ -26,7 +26,7 @@ describe("date schema", () => {
 
     test("rejects non-dates", () => {
       expect(schema["~standard"].validate("2023-01-01").issues).toBeDefined();
-      expect(schema["~standard"].validate(123456789).issues).toBeDefined();
+      expect(schema["~standard"].validate(123_456_789).issues).toBeDefined();
       expect(schema["~standard"].validate(null).issues).toBeDefined();
       expect(schema["~standard"].validate(undefined).issues).toBeDefined();
     });

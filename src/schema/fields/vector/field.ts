@@ -1,24 +1,29 @@
 // Vector Field
 // Standalone field class with State generic pattern
 
+import v, { type BaseVectorSchema } from "@validation";
 import {
-  type FieldState,
-  type UpdateState,
-  type DefaultValue,
-  type SchemaNames,
   createDefaultState,
-  DefaultValueInput,
+  type DefaultValue,
+  type DefaultValueInput,
+  type FieldState,
+  type SchemaNames,
+  type UpdateState,
 } from "../common";
 import type { NativeType } from "../native-types";
-import { buildVectorSchema, vectorBase, VectorSchemas } from "./schemas";
-import v, { BaseVectorSchema } from "@validation";
+import { buildVectorSchema, type VectorSchemas, vectorBase } from "./schemas";
 
 export class VectorField<State extends FieldState<"vector">> {
-  /** Name slots hydrated by client at initialization */
+  // biome-ignore lint/style/useReadonlyClassProperties: <it is reassigned when hydrating schemas>
   private _names: SchemaNames = {};
   private _schemas: VectorSchemas<State> | undefined;
+  private readonly state: State;
+  private readonly _nativeType?: NativeType | undefined;
 
-  constructor(private state: State, private _nativeType?: NativeType) {}
+  constructor(state: State, _nativeType?: NativeType) {
+    this.state = state;
+    this._nativeType = _nativeType;
+  }
 
   nullable(): VectorField<
     UpdateState<

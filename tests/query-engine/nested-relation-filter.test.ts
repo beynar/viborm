@@ -1,10 +1,6 @@
-import { describe, test, expect } from "vitest";
+import { createModelRegistry } from "@query-engine/query-engine";
 import { s } from "@schema";
-import {
-  createModelRegistry,
-  QueryEngine,
-} from "@query-engine/query-engine";
-import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
+import { describe, test } from "vitest";
 
 describe("Nested Relation Filtering - SQL Output", () => {
   // Define test schema with bidirectional relations

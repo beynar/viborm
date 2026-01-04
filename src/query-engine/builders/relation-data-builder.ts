@@ -5,19 +5,20 @@
  * Separates scalar and relation data, builds connect subqueries, and manages FK direction.
  */
 
-import { sql, Sql } from "@sql";
 import type { Model } from "@schema/model";
-import type { QueryContext, RelationInfo } from "../types";
-import { QueryEngineError, NestedWriteError } from "../types";
+import type { AnyRelation } from "@schema/relation";
+import { type Sql, sql } from "@sql";
 import {
+  createChildContext,
+  getColumnName,
   getRelationInfo,
   getTableName,
   isRelation,
-  getColumnName,
-  createChildContext,
 } from "../context";
+import type { QueryContext, RelationInfo } from "../types";
+import { NestedWriteError, QueryEngineError } from "../types";
+import { getPrimaryKeyFields } from "./correlation-utils";
 import { buildWhereUnique } from "./where-builder";
-import { getPrimaryKeyField, getPrimaryKeyFields } from "./correlation-utils";
 
 // ============================================================
 // TYPES
@@ -96,11 +97,15 @@ export function separateData(
   const relations: Record<string, RelationMutation> = {};
 
   for (const [key, value] of Object.entries(data)) {
-    if (value === undefined) continue;
+    if (value === undefined) {
+      continue;
+    }
 
     if (isRelation(ctx.model, key)) {
       const relationInfo = getRelationInfo(ctx, key);
-      if (!relationInfo) continue;
+      if (!relationInfo) {
+        continue;
+      }
 
       // Parse relation mutation
       const mutation = parseRelationMutation(relationInfo, value);
@@ -194,7 +199,7 @@ function findInverseFkFields(
   const targetRelations = targetModel["~"].state.relations;
   if (targetRelations) {
     for (const [, rel] of Object.entries(targetRelations)) {
-      const relInternals = rel["~"];
+      const relInternals = (rel as AnyRelation)["~"];
       // Check if this relation points back to current model
       const relTarget = relInternals.state?.getter?.();
       if (relTarget === currentModel && relInternals.state?.fields?.length) {
@@ -206,7 +211,7 @@ function findInverseFkFields(
   // No inverse found - this is a schema issue
   throw new QueryEngineError(
     `Cannot determine FK fields for relation '${relationName}'. ` +
-      `Define the inverse relation with .fields([...]) or use explicit FK fields.`
+      "Define the inverse relation with .fields([...]) or use explicit FK fields."
   );
 }
 
@@ -277,7 +282,7 @@ export function buildConnectSubquery(
   ctx: QueryContext,
   relationInfo: RelationInfo,
   connectInput: Record<string, unknown>,
-  fieldIndex: number = 0
+  fieldIndex = 0
 ): Sql {
   const { adapter } = ctx;
   const { targetModel, name } = relationInfo;
@@ -286,7 +291,7 @@ export function buildConnectSubquery(
   if (!fkDir.holdsFK) {
     throw new NestedWriteError(
       `Cannot use connect subquery for relation '${name}' - ` +
-        `FK is on the related model. Use transaction-based connect instead.`,
+        "FK is on the related model. Use transaction-based connect instead.",
       name
     );
   }
@@ -318,9 +323,9 @@ export function buildConnectSubquery(
   const pkSql = adapter.identifiers.column(subAlias, pkColumn);
   const tableSql = adapter.identifiers.escape(targetTable);
 
-  return sql`(SELECT ${pkSql} FROM ${tableSql} ${sql.raw(
-    subAlias
-  )} WHERE ${whereClause})`;
+  return sql`(SELECT ${pkSql} FROM ${tableSql} ${sql.raw([
+    subAlias,
+  ])} WHERE ${whereClause})`;
 }
 
 /**
@@ -426,9 +431,9 @@ function buildConnectSubqueryForField(
   const fieldSql = adapter.identifiers.column(subAlias, fieldColumn);
   const tableSql = adapter.identifiers.escape(targetTable);
 
-  return sql`(SELECT ${fieldSql} FROM ${tableSql} ${sql.raw(
-    subAlias
-  )} WHERE ${whereClause})`;
+  return sql`(SELECT ${fieldSql} FROM ${tableSql} ${sql.raw([
+    subAlias,
+  ])} WHERE ${whereClause})`;
 }
 
 // ============================================================
@@ -502,22 +507,29 @@ export function needsTransaction(
 ): boolean {
   for (const mutation of Object.values(relations)) {
     // Create always needs transaction to get generated ID
-    if (mutation.create) return true;
-
-    // ConnectOrCreate needs transaction
-    if (mutation.connectOrCreate) return true;
-
-    // Delete on relations needs transaction
-    if (mutation.delete) return true;
-
-    // Set on to-many needs transaction
-    if (mutation.set) return true;
-
-    // Disconnect where FK is on other side needs transaction
-    if (mutation.disconnect) {
-      if (!currentHoldsFK(mutation.relationInfo)) return true;
+    if (mutation.create) {
+      return true;
     }
 
+    // ConnectOrCreate needs transaction
+    if (mutation.connectOrCreate) {
+      return true;
+    }
+
+    // Delete on relations needs transaction
+    if (mutation.delete) {
+      return true;
+    }
+
+    // Set on to-many needs transaction
+    if (mutation.set) {
+      return true;
+    }
+
+    // Disconnect where FK is on other side needs transaction
+    if (mutation.disconnect && !currentHoldsFK(mutation.relationInfo)) {
+      return true;
+    }
     // Connect where FK is on other side needs transaction
     if (mutation.connect && !currentHoldsFK(mutation.relationInfo)) {
       return true;
@@ -547,7 +559,9 @@ export function getSubqueryConnects(
     [];
 
   for (const [relationName, mutation] of Object.entries(relations)) {
-    if (!mutation.connect) continue;
+    if (!mutation.connect) {
+      continue;
+    }
 
     const fkDir = getFkDirection(ctx, mutation.relationInfo);
     if (fkDir.holdsFK) {

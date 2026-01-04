@@ -5,9 +5,9 @@
  * Used by both aggregate and groupBy operations.
  */
 
-import { Sql } from "@sql";
-import type { QueryContext } from "../types";
+import type { Sql } from "@sql";
 import { getColumnName } from "../context";
+import type { QueryContext } from "../types";
 
 /**
  * Aggregate function types
@@ -40,7 +40,9 @@ export function buildCountAggregate(
 
   // Object with field selections
   const entries = Object.entries(countSpec).filter(([, include]) => include);
-  if (entries.length === 0) return undefined;
+  if (entries.length === 0) {
+    return undefined;
+  }
 
   // Build JSON object with count for each field
   const pairs: [string, Sql][] = entries.map(([field]) => {
@@ -49,10 +51,16 @@ export function buildCountAggregate(
     }
     // Resolve field name to actual column name (handles .map() overrides)
     const columnName = getColumnName(ctx.model, field);
-    return [field, adapter.aggregates.count(adapter.identifiers.column(alias, columnName))];
+    return [
+      field,
+      adapter.aggregates.count(adapter.identifiers.column(alias, columnName)),
+    ];
   });
 
-  return adapter.identifiers.aliased(adapter.json.objectFromColumns(pairs), "_count");
+  return adapter.identifiers.aliased(
+    adapter.json.objectFromColumns(pairs),
+    "_count"
+  );
 }
 
 /**
@@ -78,10 +86,14 @@ export function buildAggregateColumn(
   }
 
   // For other aggregates, spec must be an object
-  if (spec === true) return undefined;
+  if (spec === true) {
+    return undefined;
+  }
 
   const entries = Object.entries(spec).filter(([, include]) => include);
-  if (entries.length === 0) return undefined;
+  if (entries.length === 0) {
+    return undefined;
+  }
 
   // Get the appropriate aggregate function
   const aggFn = getAggregateFn(adapter, aggType);
@@ -93,7 +105,10 @@ export function buildAggregateColumn(
     return [field, aggFn(adapter.identifiers.column(alias, columnName))];
   });
 
-  return adapter.identifiers.aliased(adapter.json.objectFromColumns(pairs), aggName);
+  return adapter.identifiers.aliased(
+    adapter.json.objectFromColumns(pairs),
+    aggName
+  );
 }
 
 /**
@@ -112,5 +127,7 @@ function getAggregateFn(
       return adapter.aggregates.min;
     case "max":
       return adapter.aggregates.max;
+    default:
+      return adapter.aggregates.count;
   }
 }

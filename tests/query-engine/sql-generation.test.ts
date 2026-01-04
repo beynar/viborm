@@ -4,13 +4,11 @@
  * Comprehensive tests to verify SQL generation for all query operations.
  * Uses QueryEngine.build() to generate SQL without executing.
  */
-import { describe, test, expect, beforeAll } from "vitest";
-import { s } from "@schema";
-import {
-  QueryEngine,
-  createModelRegistry,
-} from "@query-engine/query-engine";
+
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
+import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
+import { s } from "@schema";
+import { beforeAll, describe, expect, test } from "vitest";
 
 // =============================================================================
 // TEST MODELS
@@ -635,7 +633,11 @@ describe("Nested Writes", () => {
           },
         },
       });
-      console.log("create with nested create and return nested:", statement, values);
+      console.log(
+        "create with nested create and return nested:",
+        statement,
+        values
+      );
 
       // Should contain multi-statement with semicolons
       expect(statement).toContain(";");

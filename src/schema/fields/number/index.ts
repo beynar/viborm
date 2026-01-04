@@ -1,9 +1,16 @@
 // Number Field Exports
-export { IntField, FloatField, DecimalField, int, float, decimal } from "./field";
+export {
+  DecimalField,
+  decimal,
+  FloatField,
+  float,
+  IntField,
+  int,
+} from "./field";
 export * from "./schemas";
 
-import type { IntField, FloatField, DecimalField } from "./field";
 import type { FieldState } from "../common";
+import type { DecimalField, FloatField, IntField } from "./field";
 
 // Union type alias for any number field
 export type NumberField =

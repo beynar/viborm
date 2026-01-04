@@ -7,14 +7,14 @@
  * - groupBy
  */
 
-import { describe, test, expect, expectTypeOf } from "vitest";
-import { simpleSchemas, authorSchemas, type SimpleState } from "../fixtures";
 import type {
-  CountArgsInput,
   AggregateArgsInput,
+  CountArgsInput,
   GroupByArgsInput,
 } from "@schema/model/schemas/args";
 import { parse } from "@validation";
+import { describe, expect, expectTypeOf, test } from "vitest";
+import { type SimpleState, simpleSchemas } from "../fixtures";
 
 // =============================================================================
 // COUNT ARGS

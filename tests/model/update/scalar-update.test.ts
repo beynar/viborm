@@ -5,13 +5,9 @@
  * with their update schemas (all optional, with set/increment operations).
  */
 
-import { describe, test, expect, expectTypeOf } from "vitest";
-import { parse, InferInput } from "@validation";
-import {
-  simpleSchemas,
-  compoundIdSchemas,
-  type SimpleState,
-} from "../fixtures";
+import { type InferInput, parse } from "@validation";
+import { describe, expect, expectTypeOf, test } from "vitest";
+import { compoundIdSchemas, simpleSchemas } from "../fixtures";
 
 // =============================================================================
 // TYPE TESTS - Simple Model

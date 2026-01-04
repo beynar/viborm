@@ -5,11 +5,11 @@
  * Returns a single record by unique identifier or null.
  */
 
-import { sql, Sql } from "@sql";
-import type { QueryContext } from "../types";
-import { getTableName } from "../context";
+import { type Sql, sql } from "@sql";
 import { buildSelect } from "../builders/select-builder";
 import { buildWhereUnique } from "../builders/where-builder";
+import { getTableName } from "../context";
+import type { QueryContext } from "../types";
 
 interface FindUniqueArgs {
   where: Record<string, unknown>;

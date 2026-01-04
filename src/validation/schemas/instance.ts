@@ -1,19 +1,21 @@
+import { buildSchema, ok } from "../helpers";
 import type {
-  VibSchema,
-  ScalarOptions,
   ComputeInput,
   ComputeOutput,
+  ScalarOptions,
+  VibSchema,
 } from "../types";
-import { buildSchema, ok } from "../helpers";
 
 // =============================================================================
 // Instance Schema (for class instances like Uint8Array, Buffer, etc.)
 // =============================================================================
 
 export interface InstanceSchema<
-  TClass extends abstract new (...args: any) => any,
+  TClass extends abstract new (
+    ...args: any
+  ) => any,
   TInput = InstanceType<TClass>,
-  TOutput = InstanceType<TClass>
+  TOutput = InstanceType<TClass>,
 > extends VibSchema<TInput, TOutput> {
   readonly type: "instance";
 }
@@ -26,10 +28,12 @@ export interface InstanceSchema<
  * const blob = v.union([v.instance(Uint8Array), v.instance(Buffer)]);
  */
 export function instance<
-  TClass extends abstract new (...args: any) => any,
+  TClass extends abstract new (
+    ...args: any
+  ) => any,
   const Opts extends
     | ScalarOptions<InstanceType<TClass>, any>
-    | undefined = undefined
+    | undefined = undefined,
 >(
   classConstructor: TClass,
   options?: Opts

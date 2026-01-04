@@ -1,10 +1,10 @@
-import { describe, test, expect, expectTypeOf } from "vitest";
 import v from "@validation";
 import type {
-  VibSchema,
-  ValidationResult,
   InferOutput,
+  ValidationResult,
+  VibSchema,
 } from "@validation/types";
+import { describe, expect, expectTypeOf, test } from "vitest";
 
 // Helper to get sync result from parse
 function parse<T>(
@@ -110,11 +110,9 @@ describe("fromKeys", () => {
 
   describe("type inference", () => {
     test("infers correct output type", () => {
-      const schema = v.fromKeys(
-        ["name", "email"] as const,
-        v.string(),
-        { partial: false }
-      );
+      const schema = v.fromKeys(["name", "email"] as const, v.string(), {
+        partial: false,
+      });
 
       expectTypeOf<InferOutput<typeof schema>>().toExtend<{
         name: string;
@@ -145,9 +143,9 @@ describe("fromKeys", () => {
         partial: false,
       });
 
-      expectTypeOf<InferOutput<typeof schema>>().toExtend<
-        { x: string } | null
-      >();
+      expectTypeOf<InferOutput<typeof schema>>().toExtend<{
+        x: string;
+      } | null>();
     });
 
     test("infers optional type when optional: true", () => {
@@ -162,5 +160,3 @@ describe("fromKeys", () => {
     });
   });
 });
-
-

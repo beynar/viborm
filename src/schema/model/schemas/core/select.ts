@@ -1,8 +1,8 @@
 // Select and include schema factories
 
-import type { ModelState } from "../../model";
 import type { StringKeyOf } from "@schema/model/helper";
 import v from "@validation";
+import type { ModelState } from "../../model";
 
 // =============================================================================
 // SELECT SCHEMA

@@ -1,9 +1,10 @@
 // Relation Validation Rules
 
-import type { Model } from "../../model";
-import type { RelationType, AnyRelation } from "../../relation";
 import type { Field } from "../../fields/base";
-import type { ValidationError, Schema, ValidationContext } from "../types";
+import type { Model } from "../../model";
+import type { AnyRelation, RelationType } from "../../relation";
+import type { Schema, ValidationContext, ValidationError } from "../types";
+
 // ValidationContext is used for O(1) model lookups
 
 const INVERSE: Record<RelationType, RelationType> = {
@@ -78,14 +79,25 @@ export function relationHasInverse(
 
     const expected = INVERSE[type];
     if (!hasInverse(target, name, schema, expected, ctx)) {
-      const code =
-        type === "oneToOne"
-          ? "R002"
-          : type === "oneToMany"
-          ? "R003"
-          : type === "manyToOne"
-          ? "R004"
-          : "R005";
+      let code: string;
+      switch (type) {
+        case "oneToOne":
+          code = "R002";
+          break;
+        case "oneToMany":
+          code = "R003";
+          break;
+        case "manyToOne":
+          code = "R004";
+          break;
+        case "manyToMany":
+          code = "R005";
+          break;
+        default:
+          code = "R002";
+          break;
+      }
+
       errors.push({
         code,
         message: `'${rname}' (${type}) in '${name}' missing inverse ${expected} in '${targetName}'`,
@@ -237,17 +249,16 @@ export function selfRefJunctionOrder(
     const b = rel["~"].state.B;
 
     // If both A and B are set, warn if they're not clearly ordered
-    if (a && b) {
-      // Heuristic: A should come before B alphabetically for consistency
-      if (a.localeCompare(b) > 0) {
-        errors.push({
-          code: "JT004",
-          message: `Self-ref M:N '${rname}': A('${a}') should be < B('${b}') alphabetically`,
-          severity: "warning",
-          model: name,
-          relation: rname,
-        });
-      }
+
+    // Heuristic: A should come before B alphabetically for consistency
+    if (a && b && a.localeCompare(b) > 0) {
+      errors.push({
+        code: "JT004",
+        message: `Self-ref M:N '${rname}': A('${a}') should be < B('${b}') alphabetically`,
+        severity: "warning",
+        model: name,
+        relation: rname,
+      });
     }
   }
   return errors;
@@ -296,7 +307,11 @@ export function selfRefValidInverse(
     let found = false;
     for (const [otherName, otherRel] of getRelations(model)) {
       if (otherName !== rname && otherRel["~"].state.type === expected) {
-        const otherTarget = findModel(schema, otherRel["~"].state.getter(), ctx);
+        const otherTarget = findModel(
+          schema,
+          otherRel["~"].state.getter(),
+          ctx
+        );
         if (otherTarget === name) {
           found = true;
           break;
@@ -439,6 +454,7 @@ export function relationPairFkSingleSide(
  * - Separate relation tables: post_comments, photo_comments
  * - Use explicit relations with discriminated unions at app level
  */
+const POLYMORPHIC_TYPE_REGEX = /_type$|Type$/;
 export function polymorphicRelationWarning(
   _s: Schema,
   name: string,
@@ -449,10 +465,10 @@ export function polymorphicRelationWarning(
 
   // Find *_type fields and check for matching *_id
   for (const fname of fieldNames) {
-    if (!fname.endsWith("_type") && !fname.endsWith("Type")) continue;
+    if (!(fname.endsWith("_type") || fname.endsWith("Type"))) continue;
 
     // Extract base name: "commentable_type" -> "commentable"
-    const base = fname.replace(/_type$|Type$/, "");
+    const base = fname.replace(POLYMORPHIC_TYPE_REGEX, "");
     const idField = fieldNames.find(
       (f) => f === `${base}_id` || f === `${base}Id`
     );
