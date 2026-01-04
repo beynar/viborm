@@ -203,7 +203,7 @@ const res1 = client.user.groupBy({
 type Input = Prettify<
   InferInput<(typeof testUser)["~"]["schemas"]["args"]["findFirst"]>
 >["where"];
-const res = await client.user.findFirst({
+const res = await client.withCache({ ttl: 1000 }).user.findFirst({
   where: {
     AND: [
       {

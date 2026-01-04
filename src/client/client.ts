@@ -3,6 +3,7 @@ import { Sql } from "@sql";
 import { Client, Operations, Schema } from "./types";
 import { Driver, QueryResult, TransactionOptions } from "@drivers";
 import { hydrateSchemaNames } from "@schema/hydration";
+import { CacheDriver, CacheOptions } from "./cache/types";
 
 /**
  * Create a recursive proxy for model operations
@@ -36,6 +37,7 @@ export interface VibORMConfig<S extends Schema> {
   schema: S;
   adapter: DatabaseAdapter;
   driver: Driver;
+  cache?: CacheDriver;
 }
 
 /**
@@ -62,6 +64,8 @@ export type VibORMClient<S extends Schema> = Client<S> & {
   $connect: () => Promise<void>;
   /** Disconnect from the database */
   $disconnect: () => Promise<void>;
+  /** Create a client with cache */
+  withCache: (config: CacheOptions) => Client<S>;
 };
 
 /**
@@ -71,17 +75,38 @@ export class VibORM<S extends Schema> {
   private adapter: DatabaseAdapter;
   private driver: Driver;
   private schema: S;
+  private cache: CacheDriver | undefined;
 
   constructor(config: VibORMConfig<S>) {
     this.adapter = config.adapter;
     this.driver = config.driver;
     this.schema = config.schema;
+    this.cache = config.cache;
   }
 
   /**
    * Create the client with model proxies and utility methods
    */
+
   private createClient(driver: Driver = this.driver): Client<S> {
+    return createModelProxy(
+      this.schema,
+      async ({ modelName, operation, args }) => {
+        const model = this.schema[modelName];
+        if (!model) {
+          throw new Error(`Model "${String(modelName)}" not found in schema`);
+        }
+
+        // TODO: Use query engine to build and execute
+        // const sql = queryEngine.build(model, operation, args);
+        // return queryEngine.execute(driver, model, operation, args);
+
+        throw new Error(`Operation ${operation} not yet implemented`);
+      }
+    ) as Client<S>;
+  }
+
+  withCache(config: CacheOptions): Client<S> {
     return createModelProxy(
       this.schema,
       async ({ modelName, operation, args }) => {

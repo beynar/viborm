@@ -33,6 +33,7 @@
   "@ark/attest-ts-default": "npm:typescript@5.8.3",
   "devDependencies": {
     "@ark/attest": "^0.56.0",
+    "@cloudflare/workers-types": "^4.20260103.0",
     "@electric-sql/pglite": "^0.3.2",
     "@types/node": "^22.15.21",
     "@vitest/ui": "^3.1.4",
@@ -61,6 +62,7 @@
     "valibot": "^1.2.0"
   },
   "peerDependencies": {
+    "@cloudflare/workers-types": "^4.20260103.0",
     "@electric-sql/pglite": "^0.3.2"
   },
   "peerDependenciesMeta": {

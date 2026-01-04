@@ -16,6 +16,7 @@ import {
   AggregateResultType,
   GroupByResultType,
 } from "./result-types";
+import { CacheOptions } from "./cache/types";
 
 export type Schema = Record<string, Model<any>>;
 

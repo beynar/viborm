@@ -36,12 +36,14 @@ describe("ToOne Filter - Required (Post.author)", () => {
     });
 
     test("type: accepts isNot property", () => {
-      expectTypeOf<{ isNot?: { name?: string } }>().toMatchTypeOf<FilterInput>();
+      expectTypeOf<{
+        isNot?: { name?: string };
+      }>().toMatchTypeOf<FilterInput>();
     });
 
     test("type: is does not accept null for required relation", () => {
       type IsNull = { is: null };
-      expectTypeOf<IsNull>().not.toMatchTypeOf<FilterInput>();
+      expectTypeOf<IsNull>().not.toMatchTypeOf<FilterInput>({} as FilterInput);
     });
   });
 
@@ -100,7 +102,9 @@ describe("ToOne Filter - Required (Post.author)", () => {
       if (!result.issues) {
         // Scalar values are transformed to { equals: value }
         expect(result.value.is).toEqual({ name: { equals: "Alice" } });
-        expect(result.value.isNot).toEqual({ email: { equals: "bob@example.com" } });
+        expect(result.value.isNot).toEqual({
+          email: { equals: "bob@example.com" },
+        });
       }
     });
 
@@ -121,7 +125,9 @@ describe("ToOne Filter - Required (Post.author)", () => {
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
         // Scalar values are transformed to { equals: value }
-        expect(result.value.is?.posts?.some).toEqual({ published: { equals: true } });
+        expect(result.value.is?.posts?.some).toEqual({
+          published: { equals: true },
+        });
       }
     });
   });
@@ -137,7 +143,9 @@ describe("ToOne Filter - Optional (Profile.user)", () => {
 
   describe("type", () => {
     test("type: accepts is property", () => {
-      expectTypeOf<{ is?: { username?: string } }>().toMatchTypeOf<FilterInput>();
+      expectTypeOf<{
+        is?: { username?: string };
+      }>().toMatchTypeOf<FilterInput>();
     });
 
     test("type: accepts is with null for optional relation", () => {
@@ -187,15 +195,21 @@ describe("ToMany Filter - Required (Author.posts)", () => {
 
   describe("type", () => {
     test("type: accepts some property", () => {
-      expectTypeOf<{ some?: { title?: string } }>().toMatchTypeOf<FilterInput>();
+      expectTypeOf<{
+        some?: { title?: string };
+      }>().toMatchTypeOf<FilterInput>();
     });
 
     test("type: accepts every property", () => {
-      expectTypeOf<{ every?: { published?: boolean } }>().toMatchTypeOf<FilterInput>();
+      expectTypeOf<{
+        every?: { published?: boolean };
+      }>().toMatchTypeOf<FilterInput>();
     });
 
     test("type: accepts none property", () => {
-      expectTypeOf<{ none?: { title?: string } }>().toMatchTypeOf<FilterInput>();
+      expectTypeOf<{
+        none?: { title?: string };
+      }>().toMatchTypeOf<FilterInput>();
     });
   });
 
@@ -283,7 +297,9 @@ describe("ToMany Filter - Required (Author.posts)", () => {
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
         // Scalar values are transformed to { equals: value }
-        expect(result.value.some?.author?.is).toEqual({ name: { equals: "Alice" } });
+        expect(result.value.some?.author?.is).toEqual({
+          name: { equals: "Alice" },
+        });
       }
     });
   });
