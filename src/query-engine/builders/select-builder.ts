@@ -18,11 +18,11 @@ import {
 } from "../context";
 import { buildInclude } from "./include-builder";
 import { buildWhere } from "./where-builder";
-import { buildCorrelation, getPrimaryKeyField } from "./correlation-utils";
+import { buildCorrelation } from "./correlation-utils";
 import {
-  getJunctionTableName,
-  getJunctionFieldNames,
-} from "@schema/relation/relation";
+  getManyToManyJoinInfo,
+  buildManyToManyJoinParts,
+} from "./many-to-many-utils";
 import { parse } from "@validation";
 
 /**
@@ -330,52 +330,19 @@ function buildManyToManyCount(
 ): Sql {
   const { adapter } = ctx;
 
-  // Get model names for junction table resolution
-  const sourceModelName = ctx.model["~"].names.ts ?? "unknown";
-  const targetModelName = relationInfo.targetModel["~"].names.ts ?? "unknown";
-
-  // Get junction table info
-  const junctionTableName = getJunctionTableName(
-    relationInfo.relation,
-    sourceModelName,
-    targetModelName,
-  );
-  const [sourceFieldName, targetFieldName] = getJunctionFieldNames(
-    relationInfo.relation,
-    sourceModelName,
-    targetModelName,
-  );
-
-  // Get primary key fields
-  const sourcePkField = getPrimaryKeyField(ctx.model);
-  const targetPkField = getPrimaryKeyField(relationInfo.targetModel);
-
-  // Create aliases
   const junctionAlias = ctx.nextAlias();
   const targetAlias = ctx.nextAlias();
-  const targetTableName = getTableName(relationInfo.targetModel);
 
-  // Build conditions:
-  // 1. Correlation: jt.sourceId = parent.id
-  const junctionSourceCol = adapter.identifiers.column(
-    junctionAlias,
-    sourceFieldName,
-  );
-  const parentPkCol = adapter.identifiers.column(parentAlias, sourcePkField);
-  const correlationCondition = adapter.operators.eq(
-    junctionSourceCol,
-    parentPkCol,
-  );
+  const joinInfo = getManyToManyJoinInfo(ctx, relationInfo);
+  const { correlationCondition, joinCondition, fromClause } =
+    buildManyToManyJoinParts(
+      ctx,
+      joinInfo,
+      parentAlias,
+      junctionAlias,
+      targetAlias,
+    );
 
-  // 2. Junction to target join: t.id = jt.targetId
-  const targetPkCol = adapter.identifiers.column(targetAlias, targetPkField);
-  const junctionTargetCol = adapter.identifiers.column(
-    junctionAlias,
-    targetFieldName,
-  );
-  const joinCondition = adapter.operators.eq(targetPkCol, junctionTargetCol);
-
-  // Combine conditions
   const conditions: Sql[] = [correlationCondition, joinCondition];
 
   // Add inner where if provided
@@ -385,7 +352,6 @@ function buildManyToManyCount(
       relationInfo.targetModel,
       targetAlias,
     );
-    // Normalize the where clause through the target model's where schema
     const rawWhere = (config as { where: Record<string, unknown> }).where;
     const whereSchema = relationInfo.targetModel["~"].schemas.where;
     const normalizedWhere = whereSchema
@@ -399,10 +365,6 @@ function buildManyToManyCount(
 
   const whereCondition = adapter.operators.and(...conditions);
 
-  // Build FROM clause with both tables
-  const fromClause = sql`${adapter.identifiers.table(junctionTableName, junctionAlias)}, ${adapter.identifiers.table(targetTableName, targetAlias)}`;
-
-  // Build COUNT subquery
   return adapter.subqueries.scalar(
     sql`SELECT COUNT(*) FROM ${fromClause} WHERE ${whereCondition}`,
   );

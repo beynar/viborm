@@ -24,7 +24,7 @@ pnpm db:push                  # Push Prisma schema to DB
 pnpm db:generate              # Generate Prisma client
 ```
 
-## Architecture (9 Layers)
+## Architecture (10 Layers)
 
 ```
 src/
@@ -38,6 +38,17 @@ src/
 ├── adapters/         # L7: Database-specific SQL (postgres, mysql, sqlite)
 ├── drivers/          # L8: Connection and query execution
 ├── client/           # L9: ORM client and result types
+├── migrations/       # L10: Schema migrations and database sync
+│   ├── types.ts      # SchemaSnapshot, DiffOperation, AmbiguousChange
+│   ├── serializer.ts # Model → SchemaSnapshot conversion
+│   ├── differ.ts     # Schema comparison and diff detection
+│   ├── resolver.ts   # Ambiguous change resolution
+│   └── push.ts       # Push workflow orchestration
+├── cli/              # CLI commands (viborm push, etc.)
+│   ├── commands/     # Command implementations
+│   ├── prompts.ts    # Interactive prompts (@clack/prompts)
+│   └── utils.ts      # Config loading utilities
+├── config.ts         # defineConfig helper for viborm.config.ts
 └── sql/              # SQL template tag utilities
 ```
 
@@ -189,6 +200,12 @@ From `.cursor/rules/writter.mdc`:
 | SQL builders | `src/query-engine/builders/` |
 | Database adapters | `src/adapters/databases/` |
 | Client types | `src/client/types.ts` |
+| Migration types | `src/migrations/types.ts` |
+| Migration serializer | `src/migrations/serializer.ts` |
+| Migration differ | `src/migrations/differ.ts` |
+| Push workflow | `src/migrations/push.ts` |
+| CLI commands | `src/cli/commands/` |
+| Config helper | `src/config.ts` |
 
 ## Example Usage
 

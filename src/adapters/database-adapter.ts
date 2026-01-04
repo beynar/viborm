@@ -286,7 +286,7 @@ export interface DatabaseAdapter {
       name: string,
       anchor: Sql,
       recursive: Sql,
-      union?: "all" | "distinct"
+      union?: "all" | "distinct",
     ) => Sql;
   };
 
@@ -357,6 +357,33 @@ export interface DatabaseAdapter {
     /** EXCEPT / MINUS */
     except: (left: Sql, right: Sql) => Sql;
   };
+
+  /**
+   * MIGRATIONS
+   * Database introspection and DDL generation for schema migrations
+   */
+  migrations: MigrationAdapter;
+}
+
+/**
+ * Migration-specific adapter methods
+ */
+export interface MigrationAdapter {
+  /** Introspect current database schema */
+  introspect: (
+    executeRaw: <T>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>,
+  ) => Promise<import("../migrations/types").SchemaSnapshot>;
+
+  /** Generate DDL SQL string for a diff operation */
+  generateDDL: (
+    operation: import("../migrations/types").DiffOperation,
+  ) => string;
+
+  /** Map VibORM field type to native SQL type */
+  mapFieldType: (
+    fieldType: string,
+    options?: { array?: boolean; autoIncrement?: boolean },
+  ) => string;
 }
 
 /**

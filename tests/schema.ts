@@ -4,6 +4,7 @@ import { createClient } from "../src/index.js";
 import { PrismaClient } from "../generated/prisma/client.js";
 
 import { InferInput, Prettify } from "@validation/types";
+import { getSchemas } from "@schema/schemas.js";
 
 export const string = s.string();
 export const nullableString = s.string().nullable();
@@ -196,13 +197,8 @@ const client = createClient({
 
 const res1 = client.user.groupBy({
   by: ["age"],
-  where: {
-    age: {
-      gt: 12,
-    },
-  },
+  where: {},
 });
-
 
 type Input = Prettify<
   InferInput<(typeof testUser)["~"]["schemas"]["args"]["findFirst"]>

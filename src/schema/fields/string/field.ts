@@ -95,9 +95,27 @@ export class StringField<State extends FieldState<"string">> {
     );
   }
 
-  id(): StringField<UpdateState<State, { isId: true; isUnique: true }>> {
+  id(prefix?: string): StringField<
+    UpdateState<
+      State,
+      {
+        isId: true;
+        isUnique: true;
+        autoGenerate: "ulid";
+        default: DefaultValue<string>;
+        optional: true;
+      }
+    >
+  > {
     return new StringField(
-      { ...this.state, isId: true, isUnique: true },
+      {
+        ...this.state,
+        isId: true,
+        isUnique: true,
+        autoGenerate: "ulid",
+        default: defaultUlid(prefix),
+        optional: true,
+      },
       this._nativeType
     );
   }
@@ -165,7 +183,7 @@ export class StringField<State extends FieldState<"string">> {
     ) as this;
   }
 
-  uuid(): StringField<
+  uuid(prefix?: string): StringField<
     UpdateState<
       State,
       {
@@ -180,7 +198,7 @@ export class StringField<State extends FieldState<"string">> {
       {
         ...this.state,
         hasDefault: true,
-        default: defaultUuid,
+        default: defaultUuid(prefix),
         autoGenerate: "uuid",
         optional: true,
       },
@@ -188,7 +206,7 @@ export class StringField<State extends FieldState<"string">> {
     );
   }
 
-  ulid(): StringField<
+  ulid(prefix?: string): StringField<
     UpdateState<
       State,
       {
@@ -203,7 +221,7 @@ export class StringField<State extends FieldState<"string">> {
       {
         ...this.state,
         hasDefault: true,
-        default: defaultUlid,
+        default: defaultUlid(prefix),
         autoGenerate: "ulid",
         optional: true,
       },
@@ -211,7 +229,10 @@ export class StringField<State extends FieldState<"string">> {
     );
   }
 
-  nanoid(length?: number): StringField<
+  nanoid(
+    length?: number,
+    prefix?: string
+  ): StringField<
     UpdateState<
       State,
       {
@@ -226,7 +247,7 @@ export class StringField<State extends FieldState<"string">> {
       {
         ...this.state,
         hasDefault: true,
-        default: defaultNanoid(length),
+        default: defaultNanoid(length, prefix),
         autoGenerate: "nanoid",
         optional: true,
       },
@@ -234,7 +255,7 @@ export class StringField<State extends FieldState<"string">> {
     );
   }
 
-  cuid(): StringField<
+  cuid(prefix?: string): StringField<
     UpdateState<
       State,
       {
@@ -249,7 +270,7 @@ export class StringField<State extends FieldState<"string">> {
       {
         ...this.state,
         hasDefault: true,
-        default: defaultCuid,
+        default: defaultCuid(prefix),
         autoGenerate: "cuid",
         optional: true,
       },

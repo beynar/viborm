@@ -13,11 +13,11 @@ import { sql, Sql } from "@sql";
 import type { QueryContext, RelationInfo } from "../types";
 import { createChildContext, getTableName } from "../context";
 import { buildWhere } from "./where-builder";
-import { buildCorrelation, getPrimaryKeyField } from "./correlation-utils";
+import { buildCorrelation } from "./correlation-utils";
 import {
-  getJunctionTableName,
-  getJunctionFieldNames,
-} from "@schema/relation/relation";
+  getManyToManyJoinInfo,
+  buildManyToManyJoinParts,
+} from "./many-to-many-utils";
 
 /**
  * Build a relation filter (some, every, none, is, isNot)
@@ -322,9 +322,8 @@ function buildCorrelatedSubquery(
  * Build a correlated subquery for manyToMany relation filters.
  *
  * SQL pattern:
- * SELECT 1 FROM junction_table jt
- * INNER JOIN target_table t ON t.id = jt.targetId
- * WHERE jt.sourceId = parent.id AND [inner conditions on t]
+ * SELECT 1 FROM junction_table jt, target_table t
+ * WHERE jt.sourceId = parent.id AND t.id = jt.targetId AND [inner conditions on t]
  */
 function buildManyToManySubquery(
   ctx: QueryContext,
@@ -335,52 +334,20 @@ function buildManyToManySubquery(
 ): Sql {
   const { adapter } = ctx;
 
-  // Get model names for junction table resolution
-  const sourceModelName = ctx.model["~"].names.ts ?? "unknown";
-  const targetModelName = relationInfo.targetModel["~"].names.ts ?? "unknown";
-
-  // Get junction table info
-  const junctionTableName = getJunctionTableName(
-    relationInfo.relation,
-    sourceModelName,
-    targetModelName,
-  );
-  const [sourceFieldName, targetFieldName] = getJunctionFieldNames(
-    relationInfo.relation,
-    sourceModelName,
-    targetModelName,
-  );
-
-  // Get primary key fields
-  const sourcePkField = getPrimaryKeyField(ctx.model);
-  const targetPkField = getPrimaryKeyField(relationInfo.targetModel);
-
-  // Create aliases
   const junctionAlias = ctx.nextAlias();
   const targetAlias = ctx.nextAlias();
-  const targetTableName = getTableName(relationInfo.targetModel);
 
-  // Build conditions:
-  // 1. Correlation: jt.sourceId = parent.id
-  const junctionSourceCol = adapter.identifiers.column(
-    junctionAlias,
-    sourceFieldName,
-  );
-  const parentPkCol = adapter.identifiers.column(parentAlias, sourcePkField);
-  const correlationCondition = adapter.operators.eq(
-    junctionSourceCol,
-    parentPkCol,
-  );
+  const joinInfo = getManyToManyJoinInfo(ctx, relationInfo);
+  const { correlationCondition, joinCondition, fromClause } =
+    buildManyToManyJoinParts(
+      ctx,
+      joinInfo,
+      parentAlias,
+      junctionAlias,
+      targetAlias,
+    );
 
-  // 2. Junction to target join: t.id = jt.targetId
-  const targetPkCol = adapter.identifiers.column(targetAlias, targetPkField);
-  const junctionTargetCol = adapter.identifiers.column(
-    junctionAlias,
-    targetFieldName,
-  );
-  const joinCondition = adapter.operators.eq(targetPkCol, junctionTargetCol);
-
-  // 3. Inner where on target
+  // Build inner where on target
   const childCtx = createChildContext(
     ctx,
     relationInfo.targetModel,
@@ -393,18 +360,12 @@ function buildManyToManySubquery(
     innerCondition = adapter.operators.not(innerCondition);
   }
 
-  // Combine all conditions
   const conditions: Sql[] = [correlationCondition, joinCondition];
   if (innerCondition) {
     conditions.push(innerCondition);
   }
 
   const whereClause = adapter.operators.and(...conditions);
-
-  // Build: SELECT 1 FROM junction jt INNER JOIN target t ON ... WHERE ...
-  // We use a simplified form: SELECT 1 FROM junction jt, target t WHERE ...
-  // This is equivalent to CROSS JOIN with WHERE conditions acting as join
-  const fromClause = sql`${adapter.identifiers.table(junctionTableName, junctionAlias)}, ${adapter.identifiers.table(targetTableName, targetAlias)}`;
 
   return sql`SELECT 1 FROM ${fromClause} WHERE ${whereClause}`;
 }

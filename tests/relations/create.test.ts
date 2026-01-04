@@ -32,7 +32,9 @@ describe("ToOne Create - Required (Post.author)", () => {
 
   describe("type", () => {
     test("type: accepts create property", () => {
-      expectTypeOf<{ create?: { id: string; name: string; email: string } }>().toMatchTypeOf<CreateInput>();
+      expectTypeOf<{
+        create?: { id: string; name: string; email: string };
+      }>().toMatchTypeOf<CreateInput>();
     });
 
     test("type: accepts connect property", () => {
@@ -60,7 +62,7 @@ describe("ToOne Create - Required (Post.author)", () => {
       };
       const result = parse(schema, input);
       expect(result.issues).toBeUndefined();
-      if (!result.issues) {
+      if (!result.issues && result.value) {
         expect(result.value.create).toEqual({
           id: "author-1",
           name: "Alice",
@@ -73,7 +75,7 @@ describe("ToOne Create - Required (Post.author)", () => {
       const input = { connect: { id: "author-1" } };
       const result = parse(schema, input);
       expect(result.issues).toBeUndefined();
-      if (!result.issues) {
+      if (!result.issues && result.value) {
         expect(result.value.connect).toEqual({ id: "author-1" });
       }
     });
@@ -91,7 +93,7 @@ describe("ToOne Create - Required (Post.author)", () => {
       };
       const result = parse(schema, input);
       expect(result.issues).toBeUndefined();
-      if (!result.issues) {
+      if (!result.issues && result.value) {
         expect(result.value.connectOrCreate?.where).toEqual({ id: "author-1" });
         expect(result.value.connectOrCreate?.create).toEqual({
           id: "author-1",
@@ -138,10 +140,10 @@ describe("ToOne Create - Optional (Profile.user)", () => {
       };
       const result = parse(schema, input);
       expect(result.issues).toBeUndefined();
-      if (!result.issues) {
+      if (!result.issues && result.value) {
         // Check the expected properties are preserved
-        expect(result.value.create?.id).toBe("user-1");
-        expect(result.value.create?.username).toBe("alice");
+        expect((result.value.create as any)?.id).toBe("user-1");
+        expect((result.value.create as any)?.username).toBe("alice");
       }
     });
 
@@ -149,7 +151,7 @@ describe("ToOne Create - Optional (Profile.user)", () => {
       const input = { connect: { id: "user-1" } };
       const result = parse(schema, input);
       expect(result.issues).toBeUndefined();
-      if (!result.issues) {
+      if (!result.issues && result.value) {
         expect(result.value.connect).toEqual({ id: "user-1" });
       }
     });
@@ -157,7 +159,7 @@ describe("ToOne Create - Optional (Profile.user)", () => {
     test("runtime: accepts empty object (relation remains unset)", () => {
       const result = parse(schema, {});
       expect(result.issues).toBeUndefined();
-      if (!result.issues) {
+      if (!result.issues && result.value) {
         expect(result.value).toEqual({});
       }
     });
@@ -175,13 +177,23 @@ describe("ToMany Create - Required (Author.posts)", () => {
   describe("type", () => {
     test("type: accepts create as single object", () => {
       expectTypeOf<{
-        create?: { id: string; title: string; content: string; authorId: string };
+        create?: {
+          id: string;
+          title: string;
+          content: string;
+          authorId: string;
+        };
       }>().toMatchTypeOf<CreateInput>();
     });
 
     test("type: accepts create as array", () => {
       expectTypeOf<{
-        create?: Array<{ id: string; title: string; content: string; authorId: string }>;
+        create?: Array<{
+          id: string;
+          title: string;
+          content: string;
+          authorId: string;
+        }>;
       }>().toMatchTypeOf<CreateInput>();
     });
 
@@ -190,7 +202,9 @@ describe("ToMany Create - Required (Author.posts)", () => {
     });
 
     test("type: accepts connect as array", () => {
-      expectTypeOf<{ connect?: Array<{ id: string }> }>().toMatchTypeOf<CreateInput>();
+      expectTypeOf<{
+        connect?: Array<{ id: string }>;
+      }>().toMatchTypeOf<CreateInput>();
     });
   });
 
@@ -206,7 +220,7 @@ describe("ToMany Create - Required (Author.posts)", () => {
       };
       const result = parse(schema, input);
       expect(result.issues).toBeUndefined();
-      if (!result.issues) {
+      if (!result.issues && result.value) {
         // Single create is normalized to array
         expect(Array.isArray(result.value.create)).toBe(true);
         // Verify expected properties are preserved
@@ -220,13 +234,23 @@ describe("ToMany Create - Required (Author.posts)", () => {
     test("runtime: accepts array of create objects", () => {
       const input = {
         create: [
-          { id: "post-1", title: "Post 1", content: "Content 1", authorId: "a1" },
-          { id: "post-2", title: "Post 2", content: "Content 2", authorId: "a1" },
+          {
+            id: "post-1",
+            title: "Post 1",
+            content: "Content 1",
+            authorId: "a1",
+          },
+          {
+            id: "post-2",
+            title: "Post 2",
+            content: "Content 2",
+            authorId: "a1",
+          },
         ],
       };
       const result = parse(schema, input);
       expect(result.issues).toBeUndefined();
-      if (!result.issues) {
+      if (!result.issues && result.value) {
         expect(result.value.create).toHaveLength(2);
         expect(result.value.create?.[0].title).toBe("Post 1");
         expect(result.value.create?.[1].title).toBe("Post 2");
@@ -237,7 +261,7 @@ describe("ToMany Create - Required (Author.posts)", () => {
       const input = { connect: { id: "post-1" } };
       const result = parse(schema, input);
       expect(result.issues).toBeUndefined();
-      if (!result.issues) {
+      if (!result.issues && result.value) {
         // Single connect is normalized to array
         expect(Array.isArray(result.value.connect)).toBe(true);
         expect(result.value.connect?.[0]).toEqual({ id: "post-1" });
@@ -250,10 +274,10 @@ describe("ToMany Create - Required (Author.posts)", () => {
       };
       const result = parse(schema, input);
       expect(result.issues).toBeUndefined();
-      if (!result.issues) {
+      if (!result.issues && result.value) {
         // Verify connect array is present
         expect(Array.isArray(result.value.connect)).toBe(true);
-        expect(result.value.connect?.length).toBeGreaterThanOrEqual(1);
+        expect((result.value.connect as any)?.length).toBeGreaterThanOrEqual(1);
       }
     });
 
@@ -271,10 +295,12 @@ describe("ToMany Create - Required (Author.posts)", () => {
       };
       const result = parse(schema, input);
       expect(result.issues).toBeUndefined();
-      if (!result.issues) {
+      if (!result.issues && result.value) {
         // Single connectOrCreate is normalized to array
         expect(Array.isArray(result.value.connectOrCreate)).toBe(true);
-        expect(result.value.connectOrCreate?.[0].where).toEqual({ id: "post-1" });
+        expect(result.value.connectOrCreate?.[0].where).toEqual({
+          id: "post-1",
+        });
         expect(result.value.connectOrCreate?.[0].create.title).toBe("Hello");
       }
     });
@@ -284,17 +310,27 @@ describe("ToMany Create - Required (Author.posts)", () => {
         connectOrCreate: [
           {
             where: { id: "post-1" },
-            create: { id: "post-1", title: "P1", content: "C1", authorId: "a1" },
+            create: {
+              id: "post-1",
+              title: "P1",
+              content: "C1",
+              authorId: "a1",
+            },
           },
           {
             where: { id: "post-2" },
-            create: { id: "post-2", title: "P2", content: "C2", authorId: "a1" },
+            create: {
+              id: "post-2",
+              title: "P2",
+              content: "C2",
+              authorId: "a1",
+            },
           },
         ],
       };
       const result = parse(schema, input);
       expect(result.issues).toBeUndefined();
-      if (!result.issues) {
+      if (!result.issues && result.value) {
         expect(result.value.connectOrCreate).toHaveLength(2);
         expect(result.value.connectOrCreate?.[0].create.title).toBe("P1");
         expect(result.value.connectOrCreate?.[1].create.title).toBe("P2");
@@ -308,7 +344,7 @@ describe("ToMany Create - Required (Author.posts)", () => {
       };
       const result = parse(schema, input);
       expect(result.issues).toBeUndefined();
-      if (!result.issues) {
+      if (!result.issues && result.value) {
         expect(result.value.create?.[0].title).toBe("New");
         expect(result.value.connect?.[0]).toEqual({ id: "existing-post" });
       }
@@ -318,10 +354,15 @@ describe("ToMany Create - Required (Author.posts)", () => {
   describe("output normalization", () => {
     test("output: normalizes single create to array", () => {
       const result = parse(schema, {
-        create: { id: "post-1", title: "Hello", content: "World", authorId: "a1" },
+        create: {
+          id: "post-1",
+          title: "Hello",
+          content: "World",
+          authorId: "a1",
+        },
       });
       expect(result.issues).toBeUndefined();
-      if (!result.issues) {
+      if (!result.issues && result.value) {
         expect(Array.isArray(result.value.create)).toBe(true);
         expect(result.value.create).toHaveLength(1);
       }
@@ -332,7 +373,7 @@ describe("ToMany Create - Required (Author.posts)", () => {
         connect: { id: "post-1" },
       });
       expect(result.issues).toBeUndefined();
-      if (!result.issues) {
+      if (!result.issues && result.value) {
         expect(Array.isArray(result.value.connect)).toBe(true);
         expect(result.value.connect).toHaveLength(1);
       }
@@ -346,7 +387,7 @@ describe("ToMany Create - Required (Author.posts)", () => {
         },
       });
       expect(result.issues).toBeUndefined();
-      if (!result.issues) {
+      if (!result.issues && result.value) {
         expect(Array.isArray(result.value.connectOrCreate)).toBe(true);
         expect(result.value.connectOrCreate).toHaveLength(1);
       }
@@ -360,7 +401,7 @@ describe("ToMany Create - Required (Author.posts)", () => {
         ],
       });
       expect(result.issues).toBeUndefined();
-      if (!result.issues) {
+      if (!result.issues && result.value) {
         expect(result.value.create).toHaveLength(2);
       }
     });
@@ -384,7 +425,7 @@ describe("ToMany Create - Self-Referential (User.subordinates)", () => {
       };
       const result = parse(schema, input);
       expect(result.issues).toBeUndefined();
-      if (!result.issues) {
+      if (!result.issues && result.value && result.value.create) {
         // Single create is normalized to array
         expect(Array.isArray(result.value.create)).toBe(true);
         // Verify expected properties are preserved
@@ -408,8 +449,8 @@ describe("ToMany Create - Self-Referential (User.subordinates)", () => {
       };
       const result = parse(schema, input);
       expect(result.issues).toBeUndefined();
-      if (!result.issues) {
-        expect(result.value.create?.[0].username).toBe("subordinate");
+      if (!result.issues && result.value && result.value.create) {
+        expect(result.value.create[0].username).toBe("subordinate");
         // Check nested relation
         const nestedCreate = result.value.create?.[0].subordinates?.create;
         expect(Array.isArray(nestedCreate)).toBe(true);
