@@ -1,0 +1,119 @@
+---
+title: L4 - Relations
+description: Defining relationships between models
+icon: Link
+---
+
+# L4: Relations Layer
+
+**Location:** `src/schema/relation/`
+
+The relations layer defines how models connect to each other - one-to-many, many-to-one, many-to-many, and one-to-one relationships.
+
+## Why This Layer Exists
+
+ORMs need to express database relationships in a type-safe way. The challenge: **models reference each other circularly**.
+
+```typescript
+const user = s.model("user", {
+  posts: s.oneToMany(() => post),  // User references Post
+});
+
+const post = s.model("post", {
+  author: s.manyToOne(() => user),  // Post references User
+});
+```
+
+JavaScript can't reference a variable before it's declared. We solve this with **thunks** - functions that defer evaluation until the model is used.
+
+## Relation Types
+
+| Type | Meaning | Foreign Key Location |
+|------|---------|---------------------|
+| `oneToMany` | One record has many related | On the "many" side |
+| `manyToOne` | Many records belong to one | On this side |
+| `oneToOne` | One-to-one relationship | Configurable |
+| `manyToMany` | Many-to-many via join table | Join table |
+
+## Configuration
+
+Relations need to know how tables connect:
+
+```typescript
+const post = s.model("post", {
+  authorId: s.string(),  // Foreign key column
+  author: s.manyToOne(() => user)
+    .fields("authorId")      // Local FK column
+    .references("id"),       // Remote PK column
+});
+```
+
+The `fields()` and `references()` methods establish the database-level connection.
+
+## Bidirectional Relations
+
+Both sides of a relation can be defined:
+
+```typescript
+// On User
+posts: s.oneToMany(() => post)  // "I have many posts"
+
+// On Post  
+author: s.manyToOne(() => user)
+  .fields("authorId")
+  .references("id")             // "I belong to one user"
+```
+
+VibORM uses these definitions to:
+- Generate correct JOINs
+- Enable nested queries (`where: { author: { name: "..." } }`)
+- Support nested writes (`create: { author: { create: {...} } }`)
+
+## Many-to-Many Relations
+
+Many-to-many requires a join table:
+
+```typescript
+const postTags = s.model("post_tags", {
+  postId: s.string(),
+  tagId: s.string(),
+});
+
+const post = s.model("post", {
+  tags: s.manyToMany(() => tag)
+    .through(() => postTags)
+    .fields("id")
+    .references("postId"),
+});
+```
+
+## Why Thunks?
+
+The `() => model` pattern is essential for two reasons:
+
+### 1. Circular References
+
+Without thunks, this would fail:
+
+```typescript
+const user = s.model("user", {
+  posts: s.oneToMany(post),  // ❌ ReferenceError: post is not defined
+});
+const post = s.model("post", { ... });
+```
+
+### 2. TypeScript Inference
+
+Thunks let TypeScript infer the return type **before** the variable is initialized:
+
+```typescript
+// TypeScript can infer () => typeof post
+// even though post isn't assigned yet
+posts: s.oneToMany(() => post)
+```
+
+## Connection to Other Layers
+
+- **L3 (Query Schemas)**: Relations generate nested schemas for include/select
+- **L6 (Query Engine)**: Relations determine JOIN generation
+- **L10 (Migrations)**: Relations inform foreign key constraints

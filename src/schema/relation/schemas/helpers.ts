@@ -3,7 +3,7 @@
 
 import type { AnyModel } from "@schema/model";
 import v, { type VibSchema } from "@validation";
-import type { RelationState } from "../relation";
+import type { RelationState } from "../types";
 
 type TargetModel<S extends RelationState> = S["getter"] extends () => infer T
   ? T extends AnyModel

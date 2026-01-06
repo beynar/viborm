@@ -1,3 +1,4 @@
+import { unsupportedGeospatial, unsupportedVector } from "@drivers/errors";
 import { type Sql, sql } from "@sql";
 import type { DatabaseAdapter, QueryParts } from "../../database-adapter";
 import { mysqlMigrations } from "./migrations";
@@ -565,6 +566,18 @@ export class MySQLAdapter implements DatabaseAdapter {
   // ============================================================
 
   migrations = mysqlMigrations;
+
+  // ============================================================
+  // VECTOR (not natively supported in MySQL)
+  // ============================================================
+
+  vector = unsupportedVector;
+
+  // ============================================================
+  // GEOSPATIAL (not natively supported in MySQL adapter)
+  // ============================================================
+
+  geospatial = unsupportedGeospatial;
 }
 
 // Export singleton instance

@@ -1,5 +1,5 @@
 import type { Field } from "@schema/fields/base";
-import { type AnyRelation, Relation } from "@schema/relation/relation";
+import type { AnyRelation } from "@schema/relation";
 
 /**
  * Record of model fields - the canonical type for field definitions.
@@ -83,10 +83,24 @@ export type UniqueFields<T extends FieldRecord> = {
   [K in UniqueFieldKeys<T>]: T[K] extends Field ? T[K] : never;
 };
 
+/** Check if a value is a relation (has ["~"].state.type matching relation types) */
+function isRelation(value: unknown): value is AnyRelation {
+  if (!value || typeof value !== "object") return false;
+  const v = value as any;
+  if (!v["~"]?.state?.type) return false;
+  const type = v["~"].state.type;
+  return (
+    type === "oneToOne" ||
+    type === "oneToMany" ||
+    type === "manyToOne" ||
+    type === "manyToMany"
+  );
+}
+
 export const extractScalarFields = <T extends FieldRecord>(fields: T) => {
   return Object.entries(fields).reduce(
     (acc, [key, value]) => {
-      if (!(value instanceof Relation)) {
+      if (!isRelation(value)) {
         acc[key] = value;
       }
       return acc;
@@ -98,7 +112,7 @@ export const extractScalarFields = <T extends FieldRecord>(fields: T) => {
 export const extractRelationFields = <T extends FieldRecord>(fields: T) => {
   return Object.entries(fields).reduce(
     (acc, [key, value]) => {
-      if (value instanceof Relation) {
+      if (isRelation(value)) {
         acc[key] = value;
       }
       return acc;
@@ -111,7 +125,7 @@ export const extractUniqueFields = <T extends FieldRecord>(fields: T) => {
   return Object.entries(fields).reduce(
     (acc, [key, value]) => {
       if (
-        (!(value instanceof Relation) && value["~"].state.isUnique) ||
+        (!isRelation(value) && value["~"].state.isUnique) ||
         value["~"].state.isId
       ) {
         acc[key] = value;

@@ -1,0 +1,95 @@
+---
+title: L2 - Fields
+description: Type definitions with State generic for compile-time tracking
+icon: Box
+---
+
+# L2: Fields Layer
+
+**Location:** `src/schema/fields/`
+
+The fields layer defines all field types (`s.string()`, `s.int()`, etc.) using a **State generic** that TypeScript uses to track configuration at compile time.
+
+## Why This Layer Exists
+
+Fields need to preserve type information as users chain modifiers:
+
+```typescript
+s.string()           // StringField<{type: "string"}>
+  .nullable()        // StringField<{type: "string", nullable: true}>  
+  .default("hello")  // StringField<{..., default: "hello"}>
+```
+
+Each modifier returns a **new instance** with updated types. TypeScript tracks this through the State generic, enabling fully typed queries without code generation.
+
+## The State Generic Pattern
+
+Every field carries its configuration as a type parameter:
+
+```typescript
+class StringField<S extends StringFieldState> {
+  // S contains: type, nullable, optional, default, unique, id, etc.
+}
+```
+
+When you call `.nullable()`, a new field is created:
+
+```typescript
+nullable(): StringField<S & { nullable: true }> {
+  return new StringField({ ...this.state, nullable: true });
+}
+```
+
+The key insight: **immutability enables type tracking**. If we mutated the field, TypeScript couldn't know the type changed.
+
+## Available Field Types
+
+| Factory | Database Type | TypeScript Type |
+|---------|---------------|-----------------|
+| `s.string()` | VARCHAR/TEXT | `string` |
+| `s.int()` | INTEGER | `number` |
+| `s.bigint()` | BIGINT | `bigint` |
+| `s.float()` | FLOAT/DOUBLE | `number` |
+| `s.decimal()` | DECIMAL | `string` |
+| `s.boolean()` | BOOLEAN | `boolean` |
+| `s.datetime()` | DATETIME/TIMESTAMP | `Date` |
+| `s.json<T>()` | JSON/JSONB | `T` |
+| `s.enum(values)` | ENUM/VARCHAR | `values[number]` |
+| `s.blob()` | BLOB/BYTEA | `Uint8Array` |
+| `s.point()` | POINT | `{ x, y }` |
+| `s.vector(dim)` | VECTOR | `number[]` |
+
+## Common Modifiers
+
+Modifiers work across field types where applicable:
+
+| Modifier | Purpose |
+|----------|---------|
+| `.nullable()` | Allow NULL values |
+| `.default(value)` | Set default value |
+| `.id()` | Mark as primary key |
+| `.unique()` | Add unique constraint |
+| `.map(columnName)` | Map to different column name |
+| `.auto.uuid()` | Auto-generate UUIDs |
+| `.auto.ulid()` | Auto-generate ULIDs |
+
+## Lazy Schema Building
+
+Fields don't build validation schemas immediately - that would be slow. Instead, schemas are built **on first access**:
+
+```typescript
+// Internal pattern
+get ["~"]() {
+  this._schemas ??= buildSchemas(this.state);  // Built once, cached
+  return this._schemas;
+}
+```
+
+This matters because VibORM creates many field instances during schema definition, but only builds validation schemas when actually needed for queries.
+
+## Connection to Other Layers
+
+- **L1 (Validation)**: Fields use `v.*` primitives internally
+- **L3 (Query Schemas)**: Query schemas compose field schemas for where/create/update  
+- **L7 (Adapters)**: Field types determine SQL column types
+- **L10 (Migrations)**: Field state drives DDL generation

@@ -25,13 +25,10 @@ import { manyToMany, manyToOne, oneToMany, oneToOne } from "./relation";
  * Main schema builder object
  * Use this to define models, fields, and relations
  *
- * Relations use a builder pattern with config-first, getter-last:
- * s.relation.fields("authorId").references("id").manyToOne(() => user)
- *
- * This pattern avoids TypeScript circular reference issues because:
- * 1. Config methods (fields, references, etc.) return `this` - no generics
- * 2. Terminal methods (oneToOne, manyToOne, etc.) introduce the generic LAST
- * 3. No more chaining after terminal = no need to resolve generic for method lookup
+ * Relations use a chainable API:
+ * - ToOne (oneToOne, manyToOne): .fields(), .references(), .optional(), .onDelete(), .onUpdate()
+ * - ToMany (oneToMany): minimal config - just .name() if needed
+ * - ManyToMany: .through(), .A(), .B(), .onDelete(), .onUpdate()
  *
  * @example
  * ```ts
@@ -41,14 +38,14 @@ import { manyToMany, manyToOne, oneToMany, oneToOne } from "./relation";
  *   id: s.string().id().ulid(),
  *   name: s.string(),
  *   email: s.string().unique(),
- *   posts: s.relation.oneToMany(() => post),
- *   profile: s.relation.optional().oneToOne(() => profile),
+ *   posts: s.oneToMany(() => post),
+ *   profile: s.oneToOne(() => profile).optional(),
  * }).map("users");
  *
  * const post = s.model({
  *   id: s.string().id().ulid(),
  *   authorId: s.string(),
- *   author: s.relation.fields("authorId").references("id").manyToOne(() => user),
+ *   author: s.manyToOne(() => user).fields("authorId").references("id"),
  * }).map("posts");
  * ```
  */
@@ -108,9 +105,14 @@ export {
 } from "./hydration";
 export * from "./model";
 export { Model } from "./model";
-export type { Getter } from "./relation";
+export type { Getter, ReferentialAction, RelationType } from "./relation";
 export * from "./relation";
-export { Relation } from "./relation";
+export {
+  type AnyRelation,
+  ManyToManyRelation,
+  ToManyRelation,
+  ToOneRelation,
+} from "./relation";
 export * from "./validation";
 
 // =============================================================================

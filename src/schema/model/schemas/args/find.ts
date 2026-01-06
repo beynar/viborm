@@ -25,15 +25,20 @@ export const getFindUniqueArgs = <T extends ModelState>(
 export const getFindFirstArgs = <T extends ModelState>(
   core: CoreSchemas<T>
 ) => {
-  return v.object({
-    where: core.where,
-    orderBy: () => v.union([core.orderBy, v.array(core.orderBy)]),
-    take: v.number(),
-    skip: v.number(),
-    cursor: core.whereUnique,
-    select: core.select,
-    include: core.include,
-  });
+  return v.object(
+    {
+      where: core.where,
+      orderBy: () => v.union([core.orderBy, v.array(core.orderBy)]),
+      take: v.number(),
+      skip: v.number(),
+      cursor: core.whereUnique,
+      select: core.select,
+      include: core.include,
+    },
+    {
+      optional: true,
+    }
+  );
 };
 
 // =============================================================================
@@ -50,14 +55,17 @@ export const getFindManyArgs = <T extends ModelState>(
   // Build distinct schema - array of scalar field names
   const fieldNames = Object.keys(state.scalars) as StringKeyOf<T["scalars"]>[];
 
-  return v.object({
-    where: core.where,
-    orderBy: v.union([core.orderBy, v.array(core.orderBy)]),
-    take: v.number(),
-    skip: v.number(),
-    cursor: core.whereUnique,
-    select: core.select,
-    include: core.include,
-    distinct: v.enum(fieldNames, { array: true }),
-  });
+  return v.object(
+    {
+      where: core.where,
+      orderBy: v.union([core.orderBy, v.array(core.orderBy)]),
+      take: v.number(),
+      skip: v.number(),
+      cursor: core.whereUnique,
+      select: core.select,
+      include: core.include,
+      distinct: v.enum(fieldNames, { array: true }),
+    },
+    { optional: true }
+  );
 };

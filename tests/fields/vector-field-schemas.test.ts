@@ -138,41 +138,36 @@ describe("Raw Vector Field", () => {
       expectTypeOf<number[]>().toExtend<Filter>();
     });
 
-    test("type: filter accepts equals operation", () => {
+    test("type: filter accepts cosine/l2 operations", () => {
       type Filter = InferVectorInput<State, "filter">;
-      expectTypeOf<{ equals: number[] }>().toExtend<Filter>();
+      expectTypeOf<{ cosine: number[] }>().toExtend<Filter>();
+      expectTypeOf<{ l2: number[] }>().toExtend<Filter>();
     });
 
-    test("runtime: shorthand transforms to { equals: value }", () => {
+    test("runtime: shorthand transforms to cosine filter", () => {
       const result1 = parse(schemas.filter, [1, 2, 3]);
       if (result1.issues) throw new Error("Expected success");
-      expect(result1.value).toEqual({ equals: [1, 2, 3] });
+      expect(result1.value).toEqual({ cosine: [1, 2, 3] });
 
       const result2 = parse(schemas.filter, [0.5, 0.6]);
       if (result2.issues) throw new Error("Expected success");
-      expect(result2.value).toEqual({ equals: [0.5, 0.6] });
+      expect(result2.value).toEqual({ cosine: [0.5, 0.6] });
     });
 
-    test("runtime: equals filter passes through", () => {
-      const result1 = parse(schemas.filter, { equals: [1, 2, 3] });
+    test("runtime: cosine filter passes through", () => {
+      const result1 = parse(schemas.filter, { cosine: [1, 2, 3] });
       if (result1.issues) throw new Error("Expected success");
-      expect(result1.value).toEqual({ equals: [1, 2, 3] });
+      expect(result1.value).toEqual({ cosine: [1, 2, 3] });
 
-      const result2 = parse(schemas.filter, { equals: [0.1, 0.2, 0.3] });
+      const result2 = parse(schemas.filter, { cosine: [0.1, 0.2, 0.3] });
       if (result2.issues) throw new Error("Expected success");
-      expect(result2.value).toEqual({ equals: [0.1, 0.2, 0.3] });
+      expect(result2.value).toEqual({ cosine: [0.1, 0.2, 0.3] });
     });
 
-    test("runtime: not filter with shorthand", () => {
-      const result = parse(schemas.filter, { not: [1, 2, 3] });
+    test("runtime: l2 filter passes through", () => {
+      const result = parse(schemas.filter, { l2: [1, 2, 3] });
       if (result.issues) throw new Error("Expected success");
-      expect(result.value).toEqual({ not: { equals: [1, 2, 3] } });
-    });
-
-    test("runtime: not filter with object", () => {
-      const result = parse(schemas.filter, { not: { equals: [4, 5, 6] } });
-      if (result.issues) throw new Error("Expected success");
-      expect(result.value).toEqual({ not: { equals: [4, 5, 6] } });
+      expect(result.value).toEqual({ l2: [1, 2, 3] });
     });
   });
 });
@@ -267,22 +262,29 @@ describe("Nullable Vector Field", () => {
   });
 
   describe("filter", () => {
-    test("type: filter accepts null", () => {
+    test("type: filter accepts null and cosine/l2 operations", () => {
       type Filter = InferVectorInput<State, "filter">;
       expectTypeOf<null>().toExtend<Filter>();
-      expectTypeOf<{ equals: null }>().toExtend<Filter>();
+      expectTypeOf<{ cosine: number[] | null }>().toExtend<Filter>();
+      expectTypeOf<{ l2: number[] | null }>().toExtend<Filter>();
     });
 
-    test("runtime: shorthand null transforms to { equals: null }", () => {
+    test("runtime: shorthand null transforms to cosine null filter", () => {
       const result = parse(schemas.filter, null);
       if (result.issues) throw new Error("Expected success");
-      expect(result.value).toEqual({ equals: null });
+      expect(result.value).toEqual({ cosine: null });
     });
 
-    test("runtime: equals null passes through", () => {
-      const result = parse(schemas.filter, { equals: null });
+    test("runtime: cosine null passes through", () => {
+      const result = parse(schemas.filter, { cosine: null });
       if (result.issues) throw new Error("Expected success");
-      expect(result.value).toEqual({ equals: null });
+      expect(result.value).toEqual({ cosine: null });
+    });
+
+    test("runtime: cosine with array passes through", () => {
+      const result = parse(schemas.filter, { cosine: [1, 2, 3] });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ cosine: [1, 2, 3] });
     });
   });
 });
@@ -374,7 +376,7 @@ describe("Default Value Behavior", () => {
   describe("default with dimension", () => {
     const field = vector()
       .dimension(128)
-      .default(() => Array(128).fill(0));
+      .default(() => new Array(128).fill(0));
     const schemas = field["~"].schemas;
 
     test("runtime: default function can use dimension", () => {

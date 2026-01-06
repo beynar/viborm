@@ -4,7 +4,7 @@ import v, {
   type InferOutput,
   type VibSchema,
 } from "@validation";
-import { type FieldState, shorthandFilter, shorthandUpdate } from "../common";
+import { type FieldState, shorthandUpdate } from "../common";
 
 // =============================================================================
 // BASE TYPES
@@ -16,17 +16,15 @@ export const vectorNullable = v.vector(undefined, { nullable: true });
 // =============================================================================
 // FILTER SCHEMAS
 // =============================================================================
-export const shorthandFilterVector = <S extends VibSchema>(schema: S) =>
+const shorthandFilterVector = <S extends VibSchema>(schema: S) =>
   v.coerce(schema, (val: S[" vibInferred"]["0"]) => ({ cosine: val }));
+
 const buildVectorFilterSchema = <S extends VibSchema>(schema: S) => {
   const filter = v.object({
     l2: schema,
-    // l1Distance: schema,
     cosine: schema,
-    // hammingDistance: schema,
-    // jaccardDistance: schema,
   });
-  return v.union([shorthandFilter(schema), filter]);
+  return v.union([shorthandFilterVector(schema), filter]);
 };
 
 const buildVectorUpdateSchema = <S extends VibSchema>(schema: S) =>

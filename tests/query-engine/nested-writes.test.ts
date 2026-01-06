@@ -33,10 +33,10 @@ const Post = s
     content: s.string().nullable(),
     published: s.boolean().default(false),
     authorId: s.string(),
-    author: s.manyToOne(() => User, {
-      fields: ["authorId"],
-      references: ["id"],
-    }),
+    author: s
+      .manyToOne(() => User)
+      .fields("authorId")
+      .references("id"),
   })
   .map("posts");
 
@@ -45,10 +45,7 @@ const UserWithPosts = s.model({
   id: s.string().id().ulid(),
   name: s.string(),
   email: s.string().unique(),
-  posts: s.oneToMany(() => Post, {
-    fields: ["id"],
-    references: ["authorId"],
-  }),
+  posts: s.oneToMany(() => Post),
 });
 
 // Model with compound ID

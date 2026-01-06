@@ -1,3 +1,4 @@
+import type { Field } from "@schema/fields";
 import type { RequiredFieldKeys } from "@schema/model/helper";
 import v from "@validation";
 import type { ModelState } from "../../model";
@@ -10,11 +11,22 @@ import type { ModelState } from "../../model";
  * Build scalar create schema - all scalar fields for create input
  */
 export const getScalarCreate = <T extends ModelState>(state: T) => {
-  return v.fromObject<T["scalars"], "~.schemas.create", { partial: false }>(
-    state.scalars,
+  const requiredScalars = Object.keys(state.scalars).filter((key) => {
+    const field = state.fields[key] as Field;
+    if (field["~"]["state"]["optional"]) {
+      return false;
+    }
+    return true;
+  }) as RequiredFieldKeys<T["fields"]>[];
+  return v.fromObject<
+    T["scalars"],
     "~.schemas.create",
-    { partial: false }
-  );
+    {
+      atLeast: RequiredFieldKeys<T["fields"]>[];
+    }
+  >(state.scalars, "~.schemas.create", {
+    atLeast: requiredScalars,
+  });
 };
 
 /**
@@ -73,17 +85,10 @@ export const getCreateSchema = <T extends ModelState>(state: T) => {
   }) as RequiredFieldKeys<T["fields"]>[];
 
   // Build scalar schema with FK fields as optional
-  const scalarCreate = v.fromObject<
-    T["scalars"],
-    "~.schemas.create",
-    {
-      partial: true;
-      atLeast: RequiredFieldKeys<T["fields"]>[];
-    }
-  >(state.scalars, "~.schemas.create", {
-    partial: true,
-    atLeast: requiredScalars,
-  });
+  const scalarCreate = v.fromObject<T["scalars"], "~.schemas.create">(
+    state.scalars,
+    "~.schemas.create"
+  );
 
   // Relation create is optional (you don't have to use connect/create)
   const relationCreate = v.fromObject<T["relations"], "~.schemas.create">(
@@ -91,7 +96,14 @@ export const getCreateSchema = <T extends ModelState>(state: T) => {
     "~.schemas.create"
   );
 
-  return scalarCreate.extend(relationCreate.entries, {
-    name: `${state.tableName}_create`,
-  });
+  // return scalarCreate.extend(relationCreate.entries);
+  return v.object(
+    {
+      ...scalarCreate.entries,
+      ...relationCreate.entries,
+    },
+    {
+      atLeast: requiredScalars,
+    }
+  );
 };

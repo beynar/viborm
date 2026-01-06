@@ -18,7 +18,7 @@ export const getCreateArgs = <T extends ModelState>(core: CoreSchemas<T>) => {
       select: v.optional(core.select),
       include: v.optional(core.include),
     },
-    { partial: false }
+    { atLeast: ["data"] }
   );
 };
 
@@ -37,7 +37,7 @@ export const getCreateManyArgs = <T extends ModelState>(
       data: v.array(core.scalarCreate),
       skipDuplicates: v.boolean({ optional: true }),
     },
-    { partial: false }
+    { atLeast: ["data"] }
   );
 };
 
@@ -56,7 +56,7 @@ export const getUpdateArgs = <T extends ModelState>(core: CoreSchemas<T>) => {
       select: v.optional(core.select),
       include: v.optional(core.include),
     },
-    { partial: false }
+    { atLeast: ["where", "data"] }
   );
 };
 
@@ -75,7 +75,7 @@ export const getUpdateManyArgs = <T extends ModelState>(
       where: v.optional(core.where),
       data: core.update,
     },
-    { partial: false }
+    { atLeast: ["data"] }
   );
 };
 
@@ -93,7 +93,7 @@ export const getDeleteArgs = <T extends ModelState>(core: CoreSchemas<T>) => {
       select: v.optional(core.select),
       include: v.optional(core.include),
     },
-    { partial: false }
+    { atLeast: ["where"] }
   );
 };
 
@@ -111,7 +111,7 @@ export const getDeleteManyArgs = <T extends ModelState>(
     {
       where: v.optional(core.where),
     },
-    { partial: false }
+    { partial: false, optional: true }
   );
 };
 
@@ -131,6 +131,6 @@ export const getUpsertArgs = <T extends ModelState>(core: CoreSchemas<T>) => {
       select: v.optional(core.select),
       include: v.optional(core.include),
     },
-    { partial: false }
+    { atLeast: ["where", "create", "update"] }
   );
 };

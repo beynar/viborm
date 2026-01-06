@@ -1,0 +1,99 @@
+---
+title: L7 - Adapters
+description: Database-specific SQL generation
+icon: Plug
+---
+
+# L7: Adapters Layer
+
+**Location:** `src/adapters/`
+
+Adapters translate VibORM's database-agnostic operations into dialect-specific SQL. Each supported database has its own adapter.
+
+## Why This Layer Exists
+
+Databases have different syntax for the same operations:
+
+| Operation | PostgreSQL | MySQL | SQLite |
+|-----------|------------|-------|--------|
+| Identifier quote | `"column"` | `` `column` `` | `"column"` |
+| String concat | `\|\|` | `CONCAT()` | `\|\|` |
+| JSON aggregation | `json_agg()` | `JSON_ARRAYAGG()` | `json_group_array()` |
+| Upsert | `ON CONFLICT ... DO UPDATE` | `ON DUPLICATE KEY UPDATE` | `ON CONFLICT ... DO UPDATE` |
+| Boolean | `true/false` | `1/0` | `1/0` |
+| RETURNING | `RETURNING *` | Requires separate SELECT | `RETURNING *` |
+
+The adapter pattern lets VibORM support multiple databases without scattering conditionals throughout the codebase.
+
+## Adapter Interface
+
+Every adapter implements `DatabaseAdapter`:
+
+```typescript
+interface DatabaseAdapter {
+  // Identifiers
+  quoteIdentifier(name: string): string;
+  
+  // Expressions
+  concat(...parts: Sql[]): Sql;
+  coalesce(value: Sql, fallback: Sql): Sql;
+  
+  // JSON
+  json: {
+    build(fields: Record<string, Sql>): Sql;
+    agg(query: Sql): Sql;
+  };
+  
+  // Operations
+  upsert(config: UpsertConfig): Sql;
+  returning(columns: string[]): Sql;
+  
+  // Types
+  columnType(field: Field): string;
+}
+```
+
+## Available Adapters
+
+| Adapter | Database | Status |
+|---------|----------|--------|
+| `PostgresAdapter` | PostgreSQL | Full support |
+| `MySQLAdapter` | MySQL 8.0+ | Full support |
+| `SQLiteAdapter` | SQLite 3.35+ | Partial support |
+
+## Database Capabilities
+
+Not all databases support everything:
+
+| Capability | PostgreSQL | MySQL | SQLite |
+|------------|------------|-------|--------|
+| RETURNING clause | ✅ | ❌ | ✅ |
+| JSON columns | ✅ | ✅ | ✅ |
+| Array columns | ✅ | ❌ | ❌ |
+| CTEs | ✅ | ✅ | ✅ |
+| Window functions | ✅ | ✅ | ✅ |
+| ENUM type | ✅ | ✅ | ❌ (VARCHAR) |
+| Vector type | pgvector | ❌ | ❌ |
+
+## How Adapters Are Used
+
+Query engine calls adapter methods instead of generating SQL directly:
+
+```typescript
+// In query engine
+const aggregated = ctx.adapter.json.agg(subquery);
+
+// PostgreSQL adapter returns
+sql`COALESCE(json_agg(row_to_json(${subquery})), '[]'::json)`
+
+// MySQL adapter returns
+sql`JSON_ARRAYAGG(JSON_OBJECT(${fields}))`
+```
+
+The query engine doesn't know which SQL was generated - it just gets a composable fragment.
+
+## Connection to Other Layers
+
+- **L6 (Query Engine)**: Query engine delegates all SQL syntax to adapters
+- **L8 (Drivers)**: Adapters produce SQL that drivers execute
+- **L10 (Migrations)**: Adapters generate DDL for their database

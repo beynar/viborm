@@ -1,9 +1,24 @@
-import type { DatabaseAdapter } from "@adapters/database-adapter";
 import type { Driver, QueryResult, TransactionOptions } from "@drivers";
+import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
+import type { Operation } from "@query-engine/types";
 import { hydrateSchemaNames } from "@schema/hydration";
 import type { Sql } from "@sql";
 import type { CacheDriver, CacheOptions } from "./cache/types";
 import type { Client, Operations, Schema } from "./types";
+
+/**
+ * Error thrown when a record is not found for OrThrow operations
+ */
+export class NotFoundError extends Error {
+  readonly model: string;
+  readonly operation: string;
+  constructor(model: string, operation: string) {
+    super(`No ${model} record found for ${operation}`);
+    this.model = model;
+    this.operation = operation;
+    this.name = "NotFoundError";
+  }
+}
 
 /**
  * Create a recursive proxy for model operations
@@ -17,9 +32,14 @@ function createModelProxy<S extends Schema>(
   }) => Promise<unknown>,
   path: string[] = []
 ): unknown {
+  // biome-ignore lint: <it's ok>
   return new Proxy(() => {}, {
     get(_target, key) {
       if (typeof key !== "string") return undefined;
+      // Prevent Promise-like behavior - return undefined for 'then'
+      // This allows the proxy to be returned from async functions without
+      // being treated as a thenable
+      if (key === "then") return undefined;
       return createModelProxy(schema, executeOperation, [...path, key]);
     },
     apply(_target, _thisArg, [args]) {
@@ -35,7 +55,6 @@ function createModelProxy<S extends Schema>(
  */
 export interface VibORMConfig<S extends Schema> {
   schema: S;
-  adapter: DatabaseAdapter;
   driver: Driver;
   cache?: CacheDriver;
 }
@@ -72,13 +91,11 @@ export type VibORMClient<S extends Schema> = Client<S> & {
  * VibORM Client
  */
 export class VibORM<S extends Schema> {
-  private readonly adapter: DatabaseAdapter;
   private readonly driver: Driver;
   private readonly schema: S;
   private readonly cache: CacheDriver | undefined;
 
   constructor(config: VibORMConfig<S>) {
-    this.adapter = config.adapter;
     this.driver = config.driver;
     this.schema = config.schema;
     this.cache = config.cache;
@@ -87,8 +104,11 @@ export class VibORM<S extends Schema> {
   /**
    * Create the client with model proxies and utility methods
    */
-
   private createClient(driver: Driver = this.driver): Client<S> {
+    // Create a query engine for this driver (may be transaction driver)
+    const registry = createModelRegistry(this.schema as Record<string, any>);
+    const engine = new QueryEngine(driver.adapter, registry, driver);
+
     return createModelProxy(
       this.schema,
       async ({ modelName, operation, args }) => {
@@ -97,31 +117,42 @@ export class VibORM<S extends Schema> {
           throw new Error(`Model "${String(modelName)}" not found in schema`);
         }
 
-        // TODO: Use query engine to build and execute
-        // const sql = queryEngine.build(model, operation, args);
-        // return queryEngine.execute(driver, model, operation, args);
+        // Strip "OrThrow" suffix for query engine (it only knows base operations)
+        const OR_THROW_SUFFIX = "OrThrow";
+        const baseOperation = operation.endsWith(OR_THROW_SUFFIX)
+          ? (operation.slice(0, -OR_THROW_SUFFIX.length) as Operation)
+          : (operation as Operation);
 
-        throw new Error(`Operation ${operation} not yet implemented`);
+        const result = await engine.execute(
+          model,
+          baseOperation,
+          (args ?? {}) as Record<string, unknown>
+        );
+
+        if (operation.endsWith("OrThrow")) {
+          if (result === null) {
+            throw new NotFoundError(String(modelName), operation);
+          }
+          return result;
+        }
+
+        // Handle exist operation (convert count to boolean)
+        if (operation === "exist") {
+          return (result as number) > 0;
+        }
+
+        return result;
       }
     ) as Client<S>;
   }
 
-  withCache(config: CacheOptions): Client<S> {
-    return createModelProxy(
-      this.schema,
-      async ({ modelName, operation, args }) => {
-        const model = this.schema[modelName];
-        if (!model) {
-          throw new Error(`Model "${String(modelName)}" not found in schema`);
-        }
-
-        // TODO: Use query engine to build and execute
-        // const sql = queryEngine.build(model, operation, args);
-        // return queryEngine.execute(driver, model, operation, args);
-
-        throw new Error(`Operation ${operation} not yet implemented`);
-      }
-    ) as Client<S>;
+  /**
+   * Create a client with caching enabled
+   */
+  withCache(_config: CacheOptions): Client<S> {
+    // TODO: Implement caching layer
+    // For now, return a regular client
+    return this.createClient();
   }
 
   /**
@@ -156,9 +187,9 @@ export class VibORM<S extends Schema> {
             fn: (tx: Client<S>) => Promise<T>,
             options?: TransactionOptions
           ) => {
-            return orm.driver.transaction(async (txDriver) => {
+            return orm.driver.transaction((txDriver) => {
               // Create a transactional client backed by the tx driver
-              const txClient = orm.createClientWithDriver(txDriver);
+              const txClient = orm.createClient(txDriver);
               return fn(txClient);
             }, options);
           };
@@ -172,30 +203,14 @@ export class VibORM<S extends Schema> {
           return () => orm.driver.disconnect?.() ?? Promise.resolve();
         }
 
+        if (prop === "withCache") {
+          return (cacheConfig: CacheOptions) => orm.withCache(cacheConfig);
+        }
+
         // Model operations
         return (target as any)[prop];
       },
     }) as VibORMClient<S>;
-  }
-
-  /**
-   * Create a client backed by a specific driver (used for transactions)
-   */
-  private createClientWithDriver(driver: Driver): Client<S> {
-    return createModelProxy(
-      this.schema,
-      async ({ modelName, operation, args }) => {
-        const model = this.schema[modelName];
-        if (!model) {
-          throw new Error(`Model "${String(modelName)}" not found in schema`);
-        }
-
-        // TODO: Use query engine with the provided driver
-        // return queryEngine.execute(driver, model, operation, args);
-
-        throw new Error(`Operation ${operation} not yet implemented`);
-      }
-    ) as Client<S>;
   }
 }
 
@@ -204,18 +219,13 @@ export class VibORM<S extends Schema> {
  *
  * @example
  * ```ts
+ * import { PGlite } from "@electric-sql/pglite";
+ * import { PGliteDriver } from "viborm/drivers/pglite";
  * import { createClient } from "viborm";
- * import { PgDriver } from "viborm/drivers/pg";
  *
- * const driver = new PgDriver({ connectionString: "..." });
- * const client = createClient({
- *   driver,
- *   adapter: new PostgresAdapter(),
- *   schema: { user, post },
- * });
- *
- * // Connect
- * await client.$connect();
+ * const db = new PGlite();
+ * const driver = new PGliteDriver({ client: db });
+ * const client = createClient({ driver, schema: { user, post } });
  *
  * // Query
  * const users = await client.user.findMany({ where: { name: "Alice" } });

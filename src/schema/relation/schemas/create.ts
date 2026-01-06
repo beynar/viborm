@@ -1,7 +1,7 @@
 // Relation Create Schemas
 
 import { v } from "@validation";
-import type { RelationState } from "../relation";
+import type { RelationState } from "../types";
 import {
   getTargetCreateSchema,
   getTargetScalarCreateSchema,

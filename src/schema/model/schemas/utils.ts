@@ -2,7 +2,7 @@
 
 import type { ObjectSchema, VibSchema } from "@validation";
 import type { Field } from "../../fields/base";
-import type { AnyRelation } from "../../relation/relation";
+import type { AnyRelation } from "../../relation";
 import type { ModelState } from "../model";
 
 /**

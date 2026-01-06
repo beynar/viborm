@@ -1,79 +1,162 @@
 ---
 title: Introduction
-description: A fully type-safe TypeScript ORM with zero code generation
+description: Prisma's API without code generation or WASM deployment issues
 icon: Database
 ---
 
 # VibORM
 
-VibORM is a modern TypeScript ORM that provides **full type safety** without code generation. Define your schema once and get perfectly typed queries, mutations, and results.
+VibORM gives you **Prisma's query API** without the code generation step or WASM deployment headaches.
 
-## Why VibORM?
+## Why We Built This
 
-| Feature            | VibORM         | Prisma          | Drizzle    |
-| ------------------ | -------------- | --------------- | ---------- |
-| Type Safety        | Full inference | Code generation | Partial    |
-| Schema Definition  | TypeScript     | Schema file     | TypeScript |
-| Code Generation    | None           | Required        | None       |
-| Query API          | Prisma-like    | Prisma          | SQL-like   |
-| Runtime Validation | ArkType        | None            | None       |
+We loved Prisma's developer experience - the intuitive query API, the nested includes, the type safety, and especially the **schema definition** where relations are declared within the model itself. But two things kept causing friction:
 
-## Key Features
+### Code Generation
 
-- **Zero Code Generation** — Types are inferred from your schema at compile time
-- **Prisma-like API** — Familiar patterns if you're coming from Prisma
-- **Full Type Safety** — Every query, filter, and result is fully typed
-- **Runtime Validation** — Built-in ArkType schemas validate data at runtime
-- **Chainable API** — Fluent, composable schema definitions
-- **Database Agnostic** — Supports PostgreSQL, MySQL, and SQLite
+Every schema change requires `prisma generate`. Forget to run it and you're debugging phantom type errors. We wanted **types that update instantly on save**.
 
-## Quick Example
+### WASM Deployment Issues
 
-```ts
+Prisma's query engine is compiled to WASM, which creates deployment problems - bundle size concerns, cold start latency, and compatibility issues with edge runtimes like Cloudflare Workers. We wanted a **pure TypeScript solution**.
+
+## Built From First Principles
+
+We tried to reproduce Prisma's schema DDL in pure TypeScript - not like Drizzle where models and relations are defined in separate places, but where **relations live inside the model definition**:
+
+```typescript
+// What we wanted - relations declared within the model
+const user = s.model("user", {
+  id: s.string().id(),
+  posts: s.oneToMany(() => post),  // Relation here, not in a separate file
+});
+```
+
+This immediately confronted us with **circular reference issues** - User references Post, Post references User. TypeScript and JavaScript don't handle this well out of the box.
+
+Solving this led us to build our own validation engine using **thunks** (`() => model`) for lazy evaluation. To have types inferred without code generation, we needed a way to **declare the type surface that also validates at runtime** - and handle circular references correctly.
+
+This is what "from first principles" means for us: starting with the schema definition we wanted, hitting real problems, and building solutions as we went.
+
+## What It Looks Like
+
+```typescript
 import { s, createClient } from "viborm";
 
-// Define your schema with full type inference
-const user = s
-  .model({
-    id: s.string().id().ulid(),
-    email: s.string().unique(),
-    name: s.string().nullable(),
-    role: s.enum(["USER", "ADMIN"]).default("USER"),
-    posts: s.relation.oneToMany(() => post),
-  })
-  .map("users");
+// Define schema - types are inferred from this
+const user = s.model("user", {
+  id: s.string().id().ulid(),
+  email: s.string().unique(),
+  name: s.string().nullable(),
+  posts: s.oneToMany(() => post),
+});
 
-const post = s
-  .model({
-    id: s.string().id().ulid(),
-    title: s.string(),
-    published: s.boolean().default(false),
-    authorId: s.string(),
-    author: s.relation
-      .fields("authorId")
-      .references("id")
-      .manyToOne(() => user),
-  })
-  .map("posts");
+const post = s.model("post", {
+  id: s.string().id().ulid(),
+  title: s.string(),
+  authorId: s.string(),
+  author: s.manyToOne(() => user).fields("authorId").references("id"),
+});
 
-// Create a fully typed client
-const client = createClient({
+// Create client
+const orm = createClient({
   schema: { user, post },
   adapter: new PostgresAdapter({ connectionString: "..." }),
 });
 
-// Query with full type safety
-const users = await client.user.findMany({
-  where: { role: "ADMIN" },
+// Prisma-like queries, fully typed
+const users = await orm.user.findMany({
+  where: { email: { contains: "@company.com" } },
   include: { posts: { where: { published: true } } },
 });
-// Type: { id: string; email: string; name: string | null; role: "USER" | "ADMIN"; posts: Post[] }[]
 ```
 
-## Installation
+## What to Expect
 
-```bash
-npm install viborm
+<Callout type="warn" title="Early Alpha">
+VibORM is in early alpha and **not ready for production use**. APIs may change, features are incomplete, and there will be bugs. Use it for experimentation and side projects, not critical systems.
+</Callout>
+
+### Familiar API
+
+If you know Prisma, you know VibORM. Same patterns: `findMany`, `findFirst`, `create`, `update`, `delete`, nested `include`, `where` filters, etc.
+
+### Database Support
+
+PostgreSQL, MySQL, and SQLite supported through adapters.
+
+### Still Evolving
+
+Some features are in progress:
+- Transactions (partial)
+- Raw SQL escape hatches
+- Migration edge cases
+
+If you need stability today, Prisma is battle-tested. If code generation and WASM deployment are pain points and you want to explore an alternative approach, VibORM might be interesting to follow.
+
+## How It Works
+
+```mermaid
+flowchart TB
+    subgraph Definition
+        S["s.string().nullable()"]
+    end
+    
+    subgraph Validation
+        V["v.string({nullable})"]
+    end
+    
+    subgraph Types
+        T["string | null"]
+    end
+    
+    subgraph Execution
+        QE["Query Engine"]
+        AD["Adapter"]
+        DB[(Database)]
+    end
+    
+    S --> V
+    V --> T
+    T --> QE
+    QE -->|"what to query"| AD
+    AD -->|"dialect SQL"| DB
+    DB --> R["Typed Results"]
+```
+
+The schema you write generates validation schemas. TypeScript infers types from those schemas. Query engine builds database-agnostic queries. Adapters handle the dialect-specific SQL.
+
+## Benefits of Our Own Validation Engine
+
+Building our own [validation layer](/docs/internals/validation) turned out to unlock some nice features:
+
+### Standard Schema Access
+
+Every operation schema (where, create, update, args) is accessible and [Standard Schema V1](https://standardschema.dev/) compliant. You can reuse them in your server routes:
+
+```typescript
+import { getSchemas } from "viborm";
+
+const schemas = getSchemas(mySchema);
+
+// Use in your API routes
+app.post("/users", async (req) => {
+  const result = schemas.user.create["~standard"].validate(req.body);
+  if (result.issues) return { error: result.issues };
+  // ...
+});
+```
+
+### JSON Schema Export
+
+Schemas can export to JSON Schema format, making them usable with AI tools, OpenAPI generation, or any JSON Schema consumer:
+
+```typescript
+const jsonSchema = schemas.user.create["~standard"].jsonSchema.output({
+  target: "openapi-3.0",
+});
+
+// Use with AI tool calling, API docs, etc.
 ```
 
 ## Next Steps
@@ -81,17 +164,17 @@ npm install viborm
 <Cards>
   <Card
     title="Quick Start"
-    description="Build your first schema in 5 minutes"
+    description="Set up VibORM in 5 minutes"
     href="/docs/getting-started/quick-start"
   />
   <Card
     title="Schema Definition"
-    description="Learn how to define models, fields, and relations"
+    description="Define models, fields, and relations"
     href="/docs/schema"
   />
   <Card
-    title="Client API"
-    description="Query and mutate data with full type safety"
-    href="/docs/client"
+    title="Internals"
+    description="Understand the architecture"
+    href="/docs/internals"
   />
 </Cards>

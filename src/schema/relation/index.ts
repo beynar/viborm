@@ -1,16 +1,52 @@
 // Relation exports
+// Re-exports all public types and factory functions
 
-export type { Getter, ReferentialAction, RelationType } from "./relation";
+// =============================================================================
+// HELPERS
+// =============================================================================
 export {
-  type AnyRelation,
   generateJunctionFieldName,
   generateJunctionTableName,
   getJunctionFieldNames,
   getJunctionTableName,
-  manyToMany,
-  manyToOne,
-  oneToMany,
-  oneToOne,
-  Relation,
-} from "./relation";
+} from "./helpers";
+export { ManyToManyRelation, manyToMany } from "./many-to-many";
+// =============================================================================
+// SCHEMAS
+// =============================================================================
 export * from "./schemas";
+export { oneToMany, ToManyRelation } from "./to-many";
+// =============================================================================
+// RELATION CLASSES
+// =============================================================================
+export { manyToOne, oneToOne, ToOneRelation } from "./to-one";
+// =============================================================================
+// BASE TYPES
+// =============================================================================
+export type {
+  Getter,
+  ManyToManyRelationState,
+  ReferentialAction,
+  RelationState,
+  RelationType,
+  ToManyRelationState,
+  ToOneRelationState,
+} from "./types";
+
+// =============================================================================
+// ANY RELATION (union of all concrete relation types)
+// =============================================================================
+import type { ManyToManyRelation } from "./many-to-many";
+import type { ToManyRelation } from "./to-many";
+import type { ToOneRelation } from "./to-one";
+import type {
+  ManyToManyRelationState,
+  ToManyRelationState,
+  ToOneRelationState,
+} from "./types";
+
+/** Union type of all relation classes */
+export type AnyRelation =
+  | ToOneRelation<ToOneRelationState>
+  | ToManyRelation<ToManyRelationState>
+  | ManyToManyRelation<ManyToManyRelationState>;

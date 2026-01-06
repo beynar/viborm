@@ -9,8 +9,8 @@
  */
 
 import { s } from "@schema";
-import type { RelationState } from "@schema/relation/relation";
 import { getRelationSchemas } from "@schema/relation/schemas";
+import type { RelationState } from "@schema/relation/types";
 
 // =============================================================================
 // BASE MODELS
@@ -45,7 +45,7 @@ export const Profile = s.model({
   id: s.string().id(),
   bio: s.string().nullable(),
   userId: s.string().nullable(),
-  user: s.oneToOne(() => User, { optional: true }),
+  user: s.oneToOne(() => User).optional(),
 });
 
 /**
@@ -54,9 +54,9 @@ export const Profile = s.model({
 export const User = s.model({
   id: s.string().id(),
   username: s.string(),
-  profile: s.oneToOne(() => Profile, { optional: true }),
+  profile: s.oneToOne(() => Profile).optional(),
   managerId: s.string().nullable(),
-  manager: s.manyToOne(() => User, { optional: true }),
+  manager: s.manyToOne(() => User).optional(),
   subordinates: s.oneToMany(() => User),
 });
 

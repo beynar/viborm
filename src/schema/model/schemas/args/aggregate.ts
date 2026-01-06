@@ -52,12 +52,15 @@ export const getAggregateFieldSchemas = <T extends ModelState>(state: T) => {
  * Count args: { where?, cursor?, take?, skip? }
  */
 export const getCountArgs = <T extends ModelState>(core: CoreSchemas<T>) => {
-  return v.object({
-    where: v.optional(core.where),
-    cursor: v.optional(core.whereUnique),
-    take: v.number({ optional: true }),
-    skip: v.number({ optional: true }),
-  });
+  return v.object(
+    {
+      where: v.optional(core.where),
+      cursor: v.optional(core.whereUnique),
+      take: v.number({ optional: true }),
+      skip: v.number({ optional: true }),
+    },
+    { optional: true }
+  );
 };
 
 // =============================================================================

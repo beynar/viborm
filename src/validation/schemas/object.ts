@@ -70,9 +70,13 @@ type ComputeObjectOutput<TEntries, TOpts> = TOpts extends { partial: false }
 
 /**
  * Make specific keys required in an otherwise partial object.
+ * Uses a mapped type instead of Omit & Required<Pick> to reduce type depth.
  */
-type RequireKeys<T, K extends string> = Omit<T, K> &
-  Required<Pick<T, K & keyof T>>;
+type RequireKeys<T, K extends string> = {
+  [P in keyof T as P extends K ? never : P]?: T[P];
+} & {
+  [P in keyof T as P extends K ? P : never]-?: T[P];
+};
 
 /**
  * Apply wrapper options (optional, nullable, array) to object type.

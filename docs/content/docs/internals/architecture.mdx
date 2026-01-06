@@ -1,6 +1,6 @@
 ---
 title: Architecture
-description: VibORM's system architecture and component relationships
+description: VibORM's design principles, data flow, and critical architectural rules
 icon: Network
 ---
 
@@ -8,214 +8,88 @@ icon: Network
 
 VibORM is built as a layered system where each layer has clear responsibilities and well-defined interfaces.
 
-## High-Level Architecture
+## Design Principles
 
-```mermaid
-flowchart TB
-    subgraph User["User Code"]
-        SD[Schema Definition]
-        QC[Query Calls]
-    end
+### 1. Types From Runtime Validation
 
-    subgraph Schema["Schema Layer"]
-        M[Model]
-        F[Fields]
-        R[Relations]
-    end
+VibORM infers TypeScript types **from runtime validation schemas** - a single source of truth for both compile-time types AND runtime validation.
 
-    subgraph Types["Type System"]
-        IT[Input Types]
-        OT[Output Types]
-        HT[Helper Types]
-    end
+```typescript
+const user = s.model("user", {
+  id: s.string().id().ulid(),
+  name: s.string(),
+  email: s.string().unique(),
+});
 
-    subgraph Runtime["Runtime Layer"]
-        VS[Valibot Schemas]
-        NP[Normalization Pipes]
-        V[Validation]
-    end
-
-    subgraph Client["Client Layer"]
-        CL[Client API]
-        OP[Operations]
-    end
-
-    subgraph Engine["Query Engine"]
-        QB[Query Builder]
-        SB[SQL Builder]
-        AD[Adapter]
-    end
-
-    subgraph DB["Database"]
-        PG[(PostgreSQL)]
-        MY[(MySQL)]
-        SL[(SQLite)]
-    end
-
-    SD --> M
-    M --> F
-    M --> R
-
-    F --> IT
-    F --> OT
-    R --> IT
-    R --> OT
-
-    F --> VS
-    R --> VS
-    VS --> NP
-    NP --> V
-
-    QC --> CL
-    CL --> OP
-    OP --> V
-    V --> QB
-    QB --> SB
-    SB --> AD
-
-    AD --> PG
-    AD --> MY
-    AD --> SL
+// Types are inferred from the schema definition
+// No code generation needed
+const users = await orm.user.findMany({
+  where: { name: "Alice" }  // ← Fully typed!
+});
 ```
 
-## Layer Responsibilities
+### 2. Dual Validation
 
-### 1. Schema Layer
+Every operation is validated twice:
 
-The schema layer is where users define their data model. It's the foundation of everything.
+1. **Compile-time** - TypeScript catches type errors
+2. **Runtime** - VibORM's validation engine validates actual data
 
-```mermaid
-classDiagram
-    class Model {
-        +fields: Map~string, Field~
-        +relations: Map~string, Relation~
-        +tableName: string
-        +compoundId: CompoundConstraint
-        +compoundUniques: CompoundConstraint[]
-        +indexes: IndexDefinition[]
-        +map(name): Model
-        +id(fields, options): Model
-        +unique(fields, options): Model
-        +index(fields, options): Model
-    }
+### 3. Separation of Concerns
 
-    class Field {
-        +state: FieldState
-        +schemas: FieldSchemas
-        +nullable(): Field
-        +default(value): Field
-        +id(): Field
-        +unique(): Field
-        +array(): Field
-        +map(columnName): Field
-    }
+The architecture separates **what** to query from **how** to express it:
 
-    class Relation {
-        +getter: () => Model
-        +relationType: RelationType
-        +isOptional: boolean
-        +fields(): Relation
-        +references(): Relation
-        +onDelete(): Relation
-        +onUpdate(): Relation
-        +optional(): Relation
-    }
-
-    Model "1" *-- "*" Field
-    Model "1" *-- "*" Relation
-    Relation --> Model : references
+```
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│  Schema Layer   │────▶│  Client Layer   │────▶│  Query Engine   │
+│  (Definition)   │     │  (Operations)   │     │  (WHAT)         │
+└─────────────────┘     └─────────────────┘     └─────────────────┘
+                                                        │
+                                                        ▼
+                               ┌─────────────────┐     ┌─────────────┐
+                               │    Database     │◀────│  Adapters   │
+                               │    (Execute)    │     │  (HOW)      │
+                               └─────────────────┘     └─────────────┘
 ```
 
-### 2. Type System Layer
+## Critical Architectural Rules
 
-Types are **inferred** from schema definitions, not generated. This happens at compile time.
+### Rule 1: Query Engine / Adapter Separation
 
-```mermaid
-flowchart LR
-    subgraph Schema
-        F[Field Definition]
-        R[Relation Definition]
-    end
+**The Golden Rule:** Query engine decides WHAT to query. Adapters decide HOW to express it.
 
-    subgraph State["Field State"]
-        N[nullable: boolean]
-        D[hasDefault: boolean]
-        I[isId: boolean]
-        U[isUnique: boolean]
-        A[isArray: boolean]
-    end
+This enables VibORM to support PostgreSQL, MySQL, and SQLite with a single codebase. The query engine builds query structure; adapters translate to database-specific syntax.
 
-    subgraph Derived["Derived Types"]
-        BT[Base Type]
-        FT[Filter Type]
-        CT[Create Type]
-        UT[Update Type]
-    end
+### Rule 2: Immutable State for Type Tracking
 
-    F --> State
-    State --> BT
-    State --> FT
-    State --> CT
-    State --> UT
+Every field modifier returns a NEW instance:
+
+```typescript
+s.string()           // StringField<{type: "string"}>
+  .nullable()        // StringField<{type: "string", nullable: true}>  ← NEW instance
+  .default("hello")  // StringField<{..., default: "hello"}>           ← NEW instance
 ```
 
-**Key insight**: The same field state produces different types for different operations:
+TypeScript tracks the State generic through each transformation. If we mutated the field instead, the type system couldn't track changes.
 
-| Operation | nullable=false      | nullable=true              | hasDefault=true      |
-| --------- | ------------------- | -------------------------- | -------------------- |
-| Base      | `string`            | `string \| null`           | `string`             |
-| Create    | `string` (required) | `string \| null`           | `string?` (optional) |
-| Update    | `{ set?: string }`  | `{ set?: string \| null }` | `{ set?: string }`   |
-| Filter    | `StringFilter`      | `StringNullableFilter`     | `StringFilter`       |
+### Rule 3: Lazy Evaluation for Circular References
 
-### 3. Runtime Schema Layer
+Relations use thunks `() => Model` to break circular dependencies:
 
-Valibot schemas provide runtime validation with the same guarantees as the type system.
-
-```mermaid
-flowchart TB
-    subgraph Build["Schema Building"]
-        M[Model] --> CBS[buildModelSchemas]
-        CBS --> CS[Core Schemas]
-        CBS --> AS[Args Schemas]
-    end
-
-    subgraph Core["Core Schemas"]
-        W[where]
-        WU[whereUnique]
-        C[create]
-        U[update]
-        S[select]
-        I[include]
-        O[orderBy]
-    end
-
-    subgraph Args["Operation Args Schemas"]
-        FM[findMany]
-        FU[findUnique]
-        FF[findFirst]
-        CA[createArgs]
-        UA[updateArgs]
-        DA[deleteArgs]
-    end
-
-    CS --> W
-    CS --> WU
-    CS --> C
-    CS --> U
-    CS --> S
-    CS --> I
-    CS --> O
-
-    W --> FM
-    WU --> FU
-    C --> CA
-    U --> UA
+```typescript
+const user = s.model("user", {
+  posts: s.oneToMany(() => post),  // Thunk defers evaluation
+});
+const post = s.model("post", {
+  author: s.manyToOne(() => user),
+});
 ```
 
-### 4. Client Layer
+JavaScript can't reference a variable before it's declared. Thunks defer resolution until the model is actually used.
 
-The client provides a type-safe API for executing operations.
+## Data Flow
+
+### Query Execution
 
 ```mermaid
 sequenceDiagram
@@ -223,173 +97,69 @@ sequenceDiagram
     participant C as Client
     participant V as Validator
     participant Q as QueryEngine
+    participant A as Adapter
+    participant D as Driver
     participant DB as Database
 
-    U->>C: client.user.findMany({ where: { name: "Alice" } })
+    U->>C: orm.user.findMany({ where: { name: "Alice" } })
     C->>V: Validate args against schema
-    V->>V: Normalize shorthand to canonical form
     V-->>C: Validated & normalized args
     C->>Q: Execute operation
-    Q->>Q: Build SQL query
-    Q->>DB: Execute SQL
-    DB-->>Q: Raw results
-    Q->>Q: Transform results
+    Q->>A: Build SQL via adapter methods
+    A-->>Q: Sql fragments
+    Q->>D: Execute SQL
+    D->>DB: Query
+    DB-->>D: Raw results
+    D-->>Q: Transform results
     Q-->>C: Typed results
     C-->>U: User[]
 ```
 
-### 5. Query Engine Layer
+## Layer Boundaries
 
-The query engine translates validated operations into SQL.
+### Schema Layers (L1-L5)
 
-```mermaid
-flowchart TB
-    subgraph Input
-        VA[Validated Args]
-    end
+These layers handle **definition and validation** - no SQL generation.
 
-    subgraph Builders
-        WB[WhereBuilder]
-        SB[SelectBuilder]
-        OB[OrderByBuilder]
-        RB[RelationBuilder]
-    end
+| Layer | Purpose |
+|-------|---------|
+| L1: Validation | Standard Schema V1 primitives (`v.*`) |
+| L2: Fields | Field type definitions with State generic |
+| L3: Query Schemas | Validation schemas for where/create/update |
+| L4: Relations | Relationship definitions between models |
+| L5: Schema Validation | Definition-time correctness checking |
 
-    subgraph Output
-        SQL[SQL Query]
-        P[Parameters]
-    end
+### Execution Layers (L6-L8)
 
-    VA --> WB
-    VA --> SB
-    VA --> OB
-    WB --> RB
+These layers handle **query building and execution**.
 
-    WB --> SQL
-    SB --> SQL
-    OB --> SQL
-    RB --> SQL
+| Layer | Purpose |
+|-------|---------|
+| L6: Query Engine | Database-agnostic query structure (WHAT) |
+| L7: Adapters | Database-specific SQL syntax (HOW) |
+| L8: Drivers | Connection management and execution |
 
-    SQL --> P
-```
+### Interface Layer (L9)
 
-## Data Flow
+The client layer provides the **public API** and type inference.
 
-### Query Flow
+### Management Layer (L10)
 
-```mermaid
-flowchart LR
-    subgraph Input["User Input"]
-        UI["{name: 'Alice'}"]
-    end
-
-    subgraph Validation
-        VS[Schema Validation]
-        NP[Normalization Pipe]
-    end
-
-    subgraph Normalized
-        NO["{name: {equals: 'Alice'}}"]
-    end
-
-    subgraph Query
-        QB[Query Builder]
-        SQL["SELECT * FROM users WHERE name = $1"]
-    end
-
-    UI --> VS
-    VS --> NP
-    NP --> NO
-    NO --> QB
-    QB --> SQL
-```
-
-### Mutation Flow
-
-```mermaid
-flowchart LR
-    subgraph Input["User Input"]
-        UI["{name: 'Bob'}"]
-    end
-
-    subgraph Validation
-        VS[Schema Validation]
-        NP[Normalization Pipe]
-    end
-
-    subgraph Normalized
-        NO["{name: {set: 'Bob'}}"]
-    end
-
-    subgraph Query
-        QB[Query Builder]
-        SQL["UPDATE users SET name = $1"]
-    end
-
-    UI --> VS
-    VS --> NP
-    NP --> NO
-    NO --> QB
-    QB --> SQL
-```
+Migrations handle **schema evolution** independently.
 
 ## File Structure
 
 ```
 src/
-├── schema/
-│   ├── model/
-│   │   ├── model.ts           # Model class
-│   │   ├── types/             # TypeScript types
-│   │   │   ├── helpers.ts     # Type utilities
-│   │   │   ├── input-types.ts # Create/Update/Where types
-│   │   │   ├── result-types.ts# Query result types
-│   │   │   └── relation-types.ts
-│   │   └── runtime/           # Valibot schemas
-│   │       ├── core-schemas.ts
-│   │       ├── args-schemas.ts
-│   │       ├── mutation-schemas.ts
-│   │       └── nested-schemas.ts
-│   ├── fields/
-│   │   ├── string/
-│   │   │   ├── field.ts       # StringField class
-│   │   │   └── schemas.ts     # Valibot schemas
-│   │   ├── number/
-│   │   ├── boolean/
-│   │   └── ...
-│   ├── relation/
-│   │   └── relation.ts        # Relation classes
-│   └── validation/
-│       └── rules/             # Schema validation rules
-├── client/
-│   ├── client.ts              # Client factory
-│   └── types.ts               # Client types
-└── query-engine/
-    ├── query-engine.ts        # Main engine
-    ├── builders/              # SQL builders
-    └── operations/            # Operation handlers
+├── validation/           # L1: Validation primitives
+├── schema/               # L2-L5: Schema system
+│   ├── fields/           # L2: Field types
+│   ├── model/schemas/    # L3: Query schemas
+│   ├── relation/         # L4: Relations
+│   └── validation/       # L5: Schema validation
+├── query-engine/         # L6: Query engine
+├── adapters/             # L7: Database adapters
+├── drivers/              # L8: Database drivers
+├── client/               # L9: ORM client
+└── migrations/           # L10: Schema migrations
 ```
-
-## Design Decisions
-
-### Why Inference Over Generation?
-
-1. **No build step** - Types update instantly as you edit
-2. **Single source of truth** - Schema IS the type definition
-3. **Better IDE support** - Full autocomplete and refactoring
-4. **Simpler tooling** - No codegen to maintain
-
-### Why Valibot?
-
-1. **Runtime + Types** - Single definition for both
-2. **Pipes/Transforms** - Built-in transformation support
-3. **Performance** - Faster than Zod for validation with smaller bundle size
-4. **Type inference** - Excellent TypeScript integration
-
-### Why Two-Phase Schema Building?
-
-Core schemas (where, create, update) are built first, then reused by operation-specific schemas. This:
-
-1. Prevents duplicate schema building
-2. Enables lazy evaluation for circular references
-3. Improves performance via caching

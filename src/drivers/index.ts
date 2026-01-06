@@ -11,13 +11,19 @@ export { isDriver } from "./driver";
 export {
   ConnectionError,
   DriverError,
+  FeatureNotSupportedError,
   ForeignKeyError,
   isRetryableError,
   isUniqueConstraintError,
   QueryError,
   TransactionError,
   UniqueConstraintError,
+  unsupportedGeospatial,
+  unsupportedVector,
 } from "./errors";
+export type { PGliteDriverOptions } from "./pglite";
+// PGlite driver
+export { PGliteDriver } from "./pglite";
 // Types
 export type {
   Dialect,

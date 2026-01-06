@@ -30,11 +30,11 @@ const Post = s
     published: s.boolean().default(false),
     views: s.int().default(0),
     authorId: s.string(),
-    author: s.manyToOne(() => Author, {
-      fields: ["authorId"],
-      references: ["id"],
-      optional: true,
-    }),
+    author: s
+      .manyToOne(() => Author)
+      .fields("authorId")
+      .references("id")
+      .optional(),
     comments: s.oneToMany(() => Comment),
     tags: s.manyToMany(() => Tag),
   })
@@ -45,10 +45,10 @@ const Comment = s
     id: s.string().id(),
     text: s.string(),
     postId: s.string(),
-    post: s.manyToOne(() => Post, {
-      fields: ["postId"],
-      references: ["id"],
-    }),
+    post: s
+      .manyToOne(() => Post)
+      .fields("postId")
+      .references("id"),
   })
   .map("comments");
 

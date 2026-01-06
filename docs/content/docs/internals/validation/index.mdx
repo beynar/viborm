@@ -1,0 +1,105 @@
+---
+title: Overview
+description: L1 Validation - Standard Schema V1 primitives with recursive schema support
+icon: CheckCircle
+---
+
+# L1: Validation Layer
+
+**Location:** `src/validation/`
+
+The validation layer provides Standard Schema V1-compliant validation primitives (`v.*`) that serve as the **foundation** of VibORM's type system.
+
+## Why This Layer Exists
+
+VibORM needed validation schemas that could:
+1. Serve as **both** runtime validators AND TypeScript type sources (single source of truth)
+2. Handle **recursive schema references** correctly - ORM models reference each other circularly
+
+We evaluated existing libraries but none handled recursive schemas well for our use case - either types broke, or runtime evaluation caused infinite loops.
+
+## The Core Feature: Recursive Schemas
+
+ORM models reference each other. User has Posts, Post has Author (a User). This creates circular dependencies:
+
+```typescript
+const user = s.model("user", {
+  posts: s.oneToMany(() => post),  // User → Post
+});
+
+const post = s.model("post", {
+  author: s.manyToOne(() => user),  // Post → User (circular!)
+});
+```
+
+The validation layer handles this through **thunks and lazy evaluation** (inspired by ArkType):
+
+```typescript
+const userSchema = v.object({
+  name: v.string(),
+  posts: () => v.array(postSchema),  // Thunk - not evaluated immediately
+});
+
+const postSchema = v.object({
+  title: v.string(),
+  author: () => userSchema,  // Back-reference works
+});
+```
+
+### How It Works
+
+1. **Thunks defer evaluation** - `() => schema` isn't called during construction
+2. **Lazy evaluation** - Thunks are only called during validation, when all schemas exist
+3. **TypeScript still infers** - TS can infer the return type of a function before it's called
+
+This is the key innovation. Without it, you get either `ReferenceError` at runtime or `any` types.
+
+## What It Provides
+
+The `v.*` primitives for building validation schemas:
+
+```typescript
+import { v } from "viborm";
+
+// Scalar types
+v.string()
+v.number()
+v.boolean()
+
+// Modifiers
+v.string({ nullable: true, optional: true, array: true })
+
+// Objects with circular references
+v.object({
+  name: v.string(),
+  friend: () => userSchema,  // Deferred evaluation
+})
+```
+
+## Standard Schema V1 Compliance
+
+Every schema implements the [Standard Schema](https://standardschema.dev/) interface, enabling interoperability with tools like tRPC, React Hook Form, and Vercel AI SDK:
+
+```typescript
+schema["~standard"].validate(value)
+// Returns { value } on success, { issues } on failure
+```
+
+## Two "Validations" in VibORM
+
+| Layer | Purpose | When |
+|-------|---------|------|
+| **L1: Validation** | Runtime input checking | Query execution |
+| **L5: Schema Validation** | Definition-time correctness | Schema definition |
+
+L1 validates data at runtime. L5 validates that your schema definitions are correct (e.g., relations reference valid models).
+
+## Design Goals
+
+The validation engine aims for **balance**, not maximum performance:
+
+- **Schema instantiation** - Fast enough for dynamic query schema building
+- **Validation performance** - Reasonable for typical ORM inputs
+- **Bundle size** - Minimal footprint
+
+It's not trying to be the fastest validation engine - it's trying to correctly handle recursive ORM schemas while staying performant enough.

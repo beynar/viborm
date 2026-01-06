@@ -57,7 +57,8 @@ export function buildUpsert(ctx: QueryContext, args: UpsertArgs): Sql {
   let upsertSql = sql`${insertSql} ${onConflictSql}`;
 
   // Build RETURNING clause if supported
-  const returningCols = buildSelect(ctx, args.select, args.include, rootAlias);
+  // Use empty alias since INSERT doesn't have a FROM clause with table aliases
+  const returningCols = buildSelect(ctx, args.select, args.include, "");
   const returningSql = adapter.mutations.returning(returningCols);
 
   if (returningSql.strings.join("").trim() !== "") {

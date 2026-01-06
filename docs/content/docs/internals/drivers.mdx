@@ -1,0 +1,111 @@
+---
+title: L8 - Drivers
+description: Connection management and query execution
+icon: Cable
+---
+
+# L8: Drivers Layer
+
+**Location:** `src/drivers/`
+
+Drivers handle database connections and execute queries. This is the thinnest layer - most complexity lives in adapters (SQL generation) and query engine (structure).
+
+## Why This Layer Exists
+
+Different database clients have different APIs:
+
+```typescript
+// node-postgres
+const result = await client.query(sql, params);
+
+// PGlite (embedded)
+const result = await db.exec(sql, params);
+
+// mysql2
+const [rows] = await connection.execute(sql, params);
+
+// better-sqlite3
+const rows = db.prepare(sql).all(...params);
+```
+
+Drivers abstract these differences behind a common interface.
+
+## Driver Interface
+
+```typescript
+interface Driver {
+  // Execute and return rows
+  query<T>(sql: string, params: unknown[]): Promise<T[]>;
+  
+  // Execute without return (INSERT/UPDATE/DELETE)
+  execute(sql: string, params: unknown[]): Promise<void>;
+  
+  // Transaction support
+  transaction<T>(fn: (tx: Driver) => Promise<T>): Promise<T>;
+  
+  // Connection management
+  connect(): Promise<void>;
+  disconnect(): Promise<void>;
+}
+```
+
+## Available Drivers
+
+| Driver | Client | Use Case |
+|--------|--------|----------|
+| `PostgresDriver` | node-postgres | PostgreSQL servers |
+| `PGliteDriver` | PGlite | Embedded PostgreSQL |
+| `MySQLDriver` | mysql2 | MySQL servers |
+| `SQLiteDriver` | better-sqlite3 | SQLite files |
+
+## What Drivers Handle
+
+### Connection Pooling
+
+For server databases, drivers manage connection pools:
+
+```typescript
+const driver = new PostgresDriver({
+  connectionString: "postgres://...",
+  pool: { min: 2, max: 10 }
+});
+```
+
+### Parameterization
+
+Drivers ensure queries use parameterized values:
+
+```typescript
+// SQL fragment from query engine
+sql`SELECT * FROM users WHERE id = ${userId}`
+
+// Driver separates template and values
+query: "SELECT * FROM users WHERE id = $1"
+params: [userId]
+```
+
+### Result Transformation
+
+Some databases return results in different formats. Drivers normalize this:
+
+```typescript
+// MySQL returns [rows, fields]
+// PostgreSQL returns { rows, rowCount }
+// Drivers return just the rows
+```
+
+### Error Handling
+
+Database-specific errors are wrapped in VibORM errors:
+
+```typescript
+// PostgreSQL: error code "23505"
+// MySQL: error code "ER_DUP_ENTRY"
+// Driver: VibORMError("UNIQUE_CONSTRAINT_VIOLATION")
+```
+
+## Connection to Other Layers
+
+- **L6 (Query Engine)**: Query engine produces SQL, driver executes it
+- **L7 (Adapters)**: Adapters determine SQL dialect, drivers execute it
+- **L9 (Client)**: Client uses driver through query engine

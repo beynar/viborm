@@ -1,0 +1,155 @@
+---
+title: Standard Schema V1
+description: Interoperability with the validation ecosystem
+icon: FileCheck
+---
+
+# Standard Schema V1 Compliance
+
+VibORM implements [Standard Schema V1](https://standardschema.dev/), enabling interoperability with other validation libraries and tools.
+
+## What is Standard Schema?
+
+Standard Schema is a universal interface for TypeScript validation libraries. Instead of each library having its own API, Standard Schema provides a common interface:
+
+```typescript
+interface StandardSchemaV1<TInput, TOutput> {
+  readonly "~standard": {
+    readonly version: 1;
+    readonly vendor: string;
+    validate(value: unknown): { value: TOutput } | { issues: Issue[] };
+  };
+}
+```
+
+## Why We Comply
+
+### Library Integration
+
+Many tools support Standard Schema. VibORM schemas work with:
+- Form validation (React Hook Form, Formik)
+- API validation (tRPC, Hono)
+- AI tool calling (Vercel AI SDK)
+- OpenAPI generation
+
+### Interoperability
+
+You can use VibORM schemas alongside Zod or Valibot if needed:
+
+```typescript
+// Both implement the same interface
+zodSchema["~standard"].validate(data);
+vibSchema["~standard"].validate(data);
+```
+
+## JSON Schema Export
+
+VibORM also complies with the **JSON Schema specification**, allowing you to export schemas for documentation, API specs, or external validation:
+
+```typescript
+const jsonSchema = schema["~standard"].jsonSchema.output({
+  target: "draft-07",  // or "openapi-3.0"
+});
+```
+
+Circular references are automatically converted to `$ref` entries.
+
+## Accessing Model Schemas
+
+VibORM provides a `getSchemas` utility to easily access all validation schemas for your models:
+
+```typescript
+import { getSchemas } from "viborm";
+
+const schemas = getSchemas(mySchema);
+
+// Access any model's schemas
+schemas.user.where        // WHERE clause validation
+schemas.user.create       // CREATE data validation
+schemas.user.args.findMany // Full findMany args validation
+```
+
+### Available Schemas
+
+Each model exposes a comprehensive set of schemas:
+
+#### Core Schemas
+
+| Schema | Purpose |
+|--------|---------|
+| `where` | Full WHERE clause with all operators |
+| `whereUnique` | WHERE clause for unique constraints |
+| `create` | Data for create operations |
+| `update` | Data for update operations |
+| `select` | Field selection |
+| `include` | Relation inclusion |
+| `orderBy` | Sorting configuration |
+
+#### Operation Args
+
+Complete argument schemas for each operation:
+
+| Schema | Operation |
+|--------|-----------|
+| `args.findUnique` | `findUnique()` arguments |
+| `args.findFirst` | `findFirst()` arguments |
+| `args.findMany` | `findMany()` arguments |
+| `args.create` | `create()` arguments |
+| `args.createMany` | `createMany()` arguments |
+| `args.update` | `update()` arguments |
+| `args.updateMany` | `updateMany()` arguments |
+| `args.delete` | `delete()` arguments |
+| `args.deleteMany` | `deleteMany()` arguments |
+| `args.upsert` | `upsert()` arguments |
+| `args.count` | `count()` arguments |
+| `args.aggregate` | `aggregate()` arguments |
+| `args.groupBy` | `groupBy()` arguments |
+
+#### Building Blocks (Advanced)
+
+Lower-level schemas for custom composition:
+
+```typescript
+schemas.user._filter.scalar          // Scalar field filters
+schemas.user._filter.unique          // Unique constraint filters
+schemas.user._filter.relation        // Relation filters
+schemas.user._filter.compoundConstraint  // Compound constraint filters
+schemas.user._filter.compoundId      // Compound ID filters
+
+schemas.user._create.scalar          // Scalar field create
+schemas.user._create.relation        // Relation nested creates
+
+schemas.user._update.scalar          // Scalar field update
+schemas.user._update.relation        // Relation nested updates
+```
+
+## Recursive Schema Handling
+
+The key challenge for Standard Schema compliance is **recursive schemas**. ORM models reference each other:
+
+```typescript
+// User → Posts → User (circular)
+const userSchema = v.object({
+  posts: () => v.array(postSchema),  // Thunk
+});
+```
+
+### Thunks + Lazy Evaluation
+
+VibORM uses **thunks** (functions that return schemas) combined with **lazy evaluation**:
+
+1. During schema construction, thunks are stored but NOT called
+2. During validation, thunks are called to resolve the actual schema
+3. TypeScript infers the return type of thunks at compile time
+
+This approach was inspired by ArkType's handling of recursive types.
+
+### Why Other Libraries Struggled
+
+| Library | Issue with Recursion |
+|---------|---------------------|
+| **Zod** | `z.lazy()` loses type information, returns `any` |
+| **Valibot** | `lazy()` wrapper evaluated eagerly, causing infinite loops |
+| **ArkType** | Good inference, but thunks evaluated during construction |
+
+VibORM's approach: thunks are truly lazy - only called at validation time.

@@ -8,10 +8,7 @@ describe("Nested Relation Filtering - SQL Output", () => {
     id: s.string().id(),
     name: s.string(),
     email: s.string(),
-    posts: s.manyToMany(() => Post, {
-      fields: ["id"],
-      references: ["authorId"],
-    }),
+    posts: s.oneToMany(() => Post),
   });
 
   const Post = s.model({
@@ -20,13 +17,13 @@ describe("Nested Relation Filtering - SQL Output", () => {
     content: s.string(),
     published: s.boolean(),
     authorId: s.string(),
-    author: s.manyToOne(() => User, {
-      fields: ["authorId"],
-      references: ["id"],
-    }),
+    author: s
+      .manyToOne(() => User)
+      .fields("authorId")
+      .references("id"),
   });
 
-  console.log(User["~"].scalarSchemas);
+  // console.log(User["~"].schemas);
   const registry = createModelRegistry({ User, Post });
 
   // console.log(User["~"].scalarSchemas);

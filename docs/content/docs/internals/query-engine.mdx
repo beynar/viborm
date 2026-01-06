@@ -1,0 +1,119 @@
+---
+title: L6 - Query Engine
+description: Database-agnostic query building
+icon: Database
+---
+
+# L6: Query Engine Layer
+
+**Location:** `src/query-engine/`
+
+The query engine transforms VibORM queries into SQL. Critically, it does this **without knowing which database you're using** - all dialect-specific SQL is delegated to adapters.
+
+## Why This Layer Exists
+
+VibORM supports PostgreSQL, MySQL, and SQLite. Each has different syntax:
+
+```sql
+-- PostgreSQL
+SELECT COALESCE(json_agg(row_to_json(t)), '[]'::json) FROM ...
+
+-- MySQL  
+SELECT JSON_ARRAYAGG(JSON_OBJECT(...)) FROM ...
+
+-- SQLite
+SELECT json_group_array(json_object(...)) FROM ...
+```
+
+If the query engine generated dialect-specific SQL, adding a database would require modifying 50+ files. Instead:
+
+- **Query engine** decides WHAT to query (structure, joins, conditions)
+- **Adapters** decide HOW to express it (syntax, functions, quotes)
+
+## The Golden Rule
+
+> Query engine NEVER generates dialect-specific SQL. ALWAYS delegate to adapter.
+
+```typescript
+// ❌ WRONG: Hardcoded PostgreSQL
+sql`COALESCE(json_agg(...), '[]'::json)`
+
+// ✅ RIGHT: Delegate to adapter
+ctx.adapter.json.agg(subquery)
+```
+
+This is the most important architectural rule in VibORM.
+
+## How It Works
+
+### 1. Query Context
+
+Every query operation receives a context:
+
+```typescript
+interface QueryContext {
+  adapter: DatabaseAdapter;  // Database-specific methods
+  model: Model;              // The model being queried
+  // ...
+}
+```
+
+### 2. SQL Fragments
+
+Builders return `Sql` fragments, not strings:
+
+```typescript
+const fragment = sql`WHERE ${field} = ${value}`;
+// Contains: template strings + parameter values (separated)
+```
+
+Fragments enable:
+- **Parameterization**: Values stay separate from SQL (prevents injection)
+- **Composition**: Fragments can nest inside other fragments
+
+### 3. Operation Flow
+
+```typescript
+orm.user.findMany({ where: { email: "..." } })
+
+// 1. Query enters operations/findMany.ts
+// 2. Builders construct SQL fragments
+// 3. Fragments delegate to adapter for syntax
+// 4. Driver executes final SQL
+```
+
+## Core Operations
+
+| Operation | Description |
+|-----------|-------------|
+| `findMany` | SELECT with relations |
+| `findFirst` | SELECT with LIMIT 1 |
+| `findUnique` | SELECT by unique constraint |
+| `create` | INSERT single row |
+| `createMany` | INSERT multiple rows |
+| `update` | UPDATE by condition |
+| `updateMany` | UPDATE multiple rows |
+| `delete` | DELETE by condition |
+| `deleteMany` | DELETE multiple rows |
+| `count` | COUNT with conditions |
+| `aggregate` | SUM, AVG, MIN, MAX |
+
+## Builder Responsibilities
+
+| Builder | Purpose |
+|---------|---------|
+| **select** | Column selection, aliasing |
+| **where** | WHERE clause conditions |
+| **orderBy** | ORDER BY clause |
+| **pagination** | LIMIT, OFFSET |
+| **join** | JOIN clauses for relations |
+| **include** | Nested relation loading |
+| **create** | INSERT statements |
+| **update** | UPDATE statements |
+
+## Connection to Other Layers
+
+- **L3 (Query Schemas)**: Query engine validates inputs against schemas
+- **L7 (Adapters)**: All SQL syntax delegated to adapters
+- **L8 (Drivers)**: Drivers execute the generated SQL
+- **L9 (Client)**: Client calls query engine operations

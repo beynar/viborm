@@ -166,7 +166,7 @@ export class PostgresAdapter implements DatabaseAdapter {
   json = {
     object: (pairs: [string, Sql][]): Sql => {
       if (pairs.length === 0) return sql.raw`'{}'::json`;
-      const args = pairs.flatMap(([key, value]) => [sql`${key}`, value]);
+      const args = pairs.flatMap(([key, value]) => [sql.raw`'${key}'`, value]);
       return sql`json_build_object(${sql.join(args, ", ")})`;
     },
 
@@ -183,7 +183,10 @@ export class PostgresAdapter implements DatabaseAdapter {
 
     objectFromColumns: (columns: [string, Sql][]): Sql => {
       if (columns.length === 0) return sql.raw`'{}'::json`;
-      const args = columns.flatMap(([key, value]) => [sql`${key}`, value]);
+      const args = columns.flatMap(([key, value]) => [
+        sql.raw`'${key}'`,
+        value,
+      ]);
       return sql`json_build_object(${sql.join(args, ", ")})`;
     },
 
@@ -471,6 +474,51 @@ export class PostgresAdapter implements DatabaseAdapter {
   // ============================================================
 
   migrations = postgresMigrations;
+
+  // ============================================================
+  // VECTOR (pgvector)
+  // ============================================================
+
+  vector = {
+    literal: (values: number[]): Sql => sql`${`[${values.join(",")}]`}::vector`,
+
+    l2: (column: Sql, vector: Sql): Sql => sql`${column} <-> ${vector}`,
+
+    cosine: (column: Sql, vector: Sql): Sql => sql`${column} <=> ${vector}`,
+  };
+
+  // ============================================================
+  // GEOSPATIAL (PostGIS)
+  // ============================================================
+
+  geospatial = {
+    point: (lng: Sql, lat: Sql): Sql =>
+      sql`ST_SetSRID(ST_MakePoint(${lng}, ${lat}), 4326)`,
+
+    equals: (geom1: Sql, geom2: Sql): Sql => sql`ST_Equals(${geom1}, ${geom2})`,
+
+    intersects: (geom1: Sql, geom2: Sql): Sql =>
+      sql`ST_Intersects(${geom1}, ${geom2})`,
+
+    contains: (geom1: Sql, geom2: Sql): Sql =>
+      sql`ST_Contains(${geom1}, ${geom2})`,
+
+    within: (geom1: Sql, geom2: Sql): Sql => sql`ST_Within(${geom1}, ${geom2})`,
+
+    crosses: (geom1: Sql, geom2: Sql): Sql =>
+      sql`ST_Crosses(${geom1}, ${geom2})`,
+
+    overlaps: (geom1: Sql, geom2: Sql): Sql =>
+      sql`ST_Overlaps(${geom1}, ${geom2})`,
+
+    touches: (geom1: Sql, geom2: Sql): Sql =>
+      sql`ST_Touches(${geom1}, ${geom2})`,
+
+    covers: (geom1: Sql, geom2: Sql): Sql => sql`ST_Covers(${geom1}, ${geom2})`,
+
+    dWithin: (geom1: Sql, geom2: Sql, distance: Sql): Sql =>
+      sql`ST_DWithin(${geom1}::geography, ${geom2}::geography, ${distance})`,
+  };
 }
 
 // Export singleton instance

@@ -1,0 +1,104 @@
+---
+title: L3 - Query Schemas
+description: Validation schemas for query operations
+icon: Filter
+---
+
+# L3: Query Schemas Layer
+
+**Location:** `src/schema/model/schemas/`
+
+The query schemas layer generates validation schemas for every query operation - where clauses, create data, update data, and operation arguments.
+
+## Why This Layer Exists
+
+VibORM validates query inputs at runtime:
+
+```typescript
+orm.user.findMany({
+  where: { email: { contains: "@example.com" } },  // Validated!
+  include: { posts: true },                         // Validated!
+});
+```
+
+Query schemas define what's valid for each operation. They're built dynamically from model definitions.
+
+## Schema Categories
+
+### Core Schemas (Per Field)
+
+Each field type generates its own schemas:
+
+| Schema | Purpose | Example |
+|--------|---------|---------|
+| **Base** | Raw input validation | `string` or `null` |
+| **Filter** | Where clause operators | `{ contains: string }` |
+| **Create** | Create operation input | Required unless defaulted |
+| **Update** | Update operation input | Optional, can be `null` |
+
+### Args Schemas (Per Model)
+
+Models compose field schemas into operation schemas:
+
+| Schema | Purpose |
+|--------|---------|
+| **WhereSchema** | Full `where` clause with all fields |
+| **CreateDataSchema** | Full `data` for create operations |
+| **UpdateDataSchema** | Full `data` for update operations |
+| **FindArgs** | `where` + `select` + `include` + `orderBy` |
+| **CreateArgs** | `data` with nested relation creates |
+| **UpdateArgs** | `where` + `data` with nested writes |
+
+## Dynamic Schema Generation
+
+Schemas are generated based on field state:
+
+```typescript
+// If field is nullable + has default:
+// - Filter: allows null comparisons
+// - Create: optional (has default)  
+// - Update: accepts null or value
+```
+
+The logic considers:
+- Is the field nullable?
+- Does it have a default value?
+- Is it an auto-generated field (UUID, timestamps)?
+- Is it optional vs required?
+
+## Handling Relations
+
+Relations add complexity because queries can be nested:
+
+```typescript
+orm.user.findMany({
+  where: {
+    posts: { some: { published: true } }  // Nested where
+  },
+  include: {
+    posts: {
+      where: { published: true },  // Nested filter
+      select: { title: true }      // Nested select
+    }
+  }
+});
+```
+
+Query schemas handle this with recursive definitions using thunks to avoid infinite loops.
+
+## Why Lazy Building?
+
+Schemas are expensive to construct - they compose many nested objects. VibORM builds them **only when first accessed**:
+
+```typescript
+model["~"].schemas.where  // Built on first access, then cached
+```
+
+This keeps schema definition fast, deferring the cost until query time.
+
+## Connection to Other Layers
+
+- **L1 (Validation)**: Query schemas use `v.*` primitives
+- **L2 (Fields)**: Field schemas are composed into model schemas
+- **L4 (Relations)**: Relation schemas enable nested queries
+- **L6 (Query Engine)**: Query engine validates against these schemas

@@ -2,7 +2,7 @@
 
 import type { ModelState } from "@schema/model";
 import v from "@validation";
-import type { RelationState } from "../relation";
+import type { RelationState } from "../types";
 import {
   getTargetIncludeSchema,
   getTargetOrderBySchema,

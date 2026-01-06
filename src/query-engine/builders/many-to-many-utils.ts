@@ -8,7 +8,7 @@
 import {
   getJunctionFieldNames,
   getJunctionTableName,
-} from "@schema/relation/relation";
+} from "@schema/relation/helpers";
 import { type Sql, sql } from "@sql";
 import { getTableName } from "../context";
 import type { QueryContext, RelationInfo } from "../types";

@@ -3,7 +3,7 @@ import v, {
   type ValidationResult,
   type VibSchema,
 } from "@validation";
-import type { RelationState } from "../relation";
+import type { RelationState } from "../types";
 import { getTargetOrderBySchema } from "./helpers";
 
 /**

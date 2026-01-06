@@ -1,3 +1,4 @@
+import { unsupportedGeospatial, unsupportedVector } from "@drivers/errors";
 import { type Sql, sql } from "@sql";
 import type { DatabaseAdapter, QueryParts } from "../../database-adapter";
 import { sqliteMigrations } from "./migrations";
@@ -572,6 +573,18 @@ export class SQLiteAdapter implements DatabaseAdapter {
   // ============================================================
 
   migrations = sqliteMigrations;
+
+  // ============================================================
+  // VECTOR (not natively supported in SQLite)
+  // ============================================================
+
+  vector = unsupportedVector;
+
+  // ============================================================
+  // GEOSPATIAL (not natively supported in SQLite)
+  // ============================================================
+
+  geospatial = unsupportedGeospatial;
 }
 
 // Export singleton instance

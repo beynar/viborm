@@ -49,7 +49,7 @@ const Author = s.model({
   email: s.string().unique(),
   bio: s.string().nullable(),
   posts: s.oneToMany(() => Post),
-  profile: s.oneToOne(() => Profile, { optional: true }),
+  profile: s.oneToOne(() => Profile).optional(),
 });
 
 const Post = s.model({

@@ -113,9 +113,13 @@ function buildToManySubquery(
 ): Sql {
   const { adapter } = ctx;
 
-  // Build inner query that returns JSON objects
+  // Alias for the JSON column in the inner query
+  const jsonColAlias = "_json";
+  const aliasedJsonExpr = adapter.identifiers.aliased(jsonExpr, jsonColAlias);
+
+  // Build inner query that returns JSON objects with a named column
   const innerParts: Sql[] = [
-    sql`SELECT ${jsonExpr}`,
+    sql`SELECT ${aliasedJsonExpr}`,
     sql`FROM ${fromTable}`,
     sql`WHERE ${where}`,
   ];
@@ -134,10 +138,11 @@ function buildToManySubquery(
 
   const innerQuery = sql.join(innerParts, " ");
 
-  // Wrap with aggregation: SELECT COALESCE(json_agg(alias), '[]') FROM (innerQuery) alias
+  // Wrap with aggregation: SELECT COALESCE(json_agg(subAlias._json), '[]') FROM (innerQuery) subAlias
   const subAlias = ctx.nextAlias();
+  const jsonColumn = adapter.identifiers.column(subAlias, jsonColAlias);
   return adapter.subqueries.scalar(
-    sql`SELECT ${adapter.json.agg(adapter.identifiers.escape(subAlias))} FROM (${innerQuery}) ${adapter.identifiers.escape(subAlias)}`
+    sql`SELECT ${adapter.json.agg(jsonColumn)} FROM (${innerQuery}) ${adapter.identifiers.escape(subAlias)}`
   );
 }
 
@@ -227,9 +232,13 @@ function buildManyToManyInclude(
   // Build ORDER BY
   const orderBySql = buildOrderBy(childCtx, orderBy, targetAlias);
 
+  // Alias for the JSON column in the inner query
+  const jsonColAlias = "_json";
+  const aliasedJsonExpr = adapter.identifiers.aliased(jsonExpr, jsonColAlias);
+
   // Build inner query
   const innerParts: Sql[] = [
-    sql`SELECT ${jsonExpr}`,
+    sql`SELECT ${aliasedJsonExpr}`,
     sql`FROM ${fromClause}`,
     sql`WHERE ${whereCondition}`,
   ];
@@ -250,7 +259,8 @@ function buildManyToManyInclude(
 
   // Wrap with aggregation
   const subAlias = ctx.nextAlias();
+  const jsonColumn = adapter.identifiers.column(subAlias, jsonColAlias);
   return adapter.subqueries.scalar(
-    sql`SELECT ${adapter.json.agg(adapter.identifiers.escape(subAlias))} FROM (${innerQuery}) ${adapter.identifiers.escape(subAlias)}`
+    sql`SELECT ${adapter.json.agg(jsonColumn)} FROM (${innerQuery}) ${adapter.identifiers.escape(subAlias)}`
   );
 }

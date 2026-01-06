@@ -39,6 +39,7 @@ import {
 import { buildFindUnique as buildFindUniqueQuery } from "./operations/find-unique";
 import { parseResult } from "./result";
 import {
+  isBatchOperation,
   type ModelRegistry,
   type Operation,
   type QueryContext,
@@ -208,7 +209,10 @@ export class QueryEngine {
     const result = await this.driver.execute(sqlQuery);
 
     // Parse result using the same context
-    // Driver returns { rows, rowCount }, parseResult expects the rows
+    // For batch operations, pass rowCount; for others, pass rows
+    if (isBatchOperation(operation)) {
+      return parseResult<T>(ctx, operation, { rowCount: result.rowCount });
+    }
     return parseResult<T>(ctx, operation, result.rows);
   }
 

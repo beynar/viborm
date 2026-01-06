@@ -30,6 +30,19 @@ export type Operation =
   | "groupBy"
   | "exist";
 
+/** Operations that return BatchPayload { count: number } */
+export const BATCH_OPERATIONS = [
+  "createMany",
+  "updateMany",
+  "deleteMany",
+] as const;
+export type BatchOperation = (typeof BATCH_OPERATIONS)[number];
+
+/** Check if operation is a batch operation */
+export function isBatchOperation(op: Operation): op is BatchOperation {
+  return (BATCH_OPERATIONS as readonly string[]).includes(op);
+}
+
 /**
  * Model registry for accessing related models
  */

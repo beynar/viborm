@@ -1,6 +1,6 @@
 // Relation Schema Factories
 // Builds filter, create, update schemas for relations using Valibot
-import type { RelationState } from "../relation";
+import type { RelationState } from "../types";
 
 export { countFilterFactory } from "./count-filter";
 export { toManyCreateFactory, toOneCreateFactory } from "./create";

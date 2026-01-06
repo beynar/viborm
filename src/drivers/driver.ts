@@ -5,6 +5,7 @@
  * Passed to createClient() and used by the query engine.
  */
 
+import type { DatabaseAdapter } from "@adapters/database-adapter";
 import type { Sql } from "@sql";
 import type { Dialect, QueryResult, TransactionOptions } from "./types";
 
@@ -34,6 +35,14 @@ export interface Driver {
    * Database dialect
    */
   readonly dialect: Dialect;
+
+  /**
+   * Database adapter for SQL generation
+   *
+   * The driver owns the adapter and may override specific features
+   * (e.g., vector/geospatial) based on available extensions.
+   */
+  readonly adapter: DatabaseAdapter;
 
   /**
    * Execute a parameterized SQL query

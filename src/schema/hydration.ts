@@ -11,7 +11,7 @@
 import type { Field } from "./fields/base";
 import type { SchemaNames } from "./fields/common";
 import type { Model } from "./model";
-import type { AnyRelation } from "./relation/relation";
+import type { AnyRelation } from "./relation";
 
 /**
  * Schema type - record of model names to Model instances

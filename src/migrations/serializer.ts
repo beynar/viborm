@@ -9,7 +9,7 @@ import type { Dialect } from "../drivers/types";
 import type { Field } from "../schema/fields/base";
 import type { FieldState } from "../schema/fields/common";
 import type { AnyModel } from "../schema/model";
-import type { AnyRelation } from "../schema/relation/relation";
+import type { AnyRelation } from "../schema/relation";
 import type {
   ColumnDef,
   EnumDef,

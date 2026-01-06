@@ -2,7 +2,7 @@
 // Schema for _count filtering - accepts true or { where: ... }
 
 import v from "@validation";
-import type { RelationState } from "../relation";
+import type { RelationState } from "../types";
 import { getTargetWhereSchema } from "./helpers";
 
 /**

@@ -4,6 +4,7 @@
 import type { BigIntField } from "./bigint/field";
 import type { BlobField } from "./blob/field";
 import type { BooleanField } from "./boolean/field";
+import type { FieldState } from "./common";
 import type { DateField } from "./datetime/date-field";
 import type { DateTimeField } from "./datetime/field";
 import type { TimeField } from "./datetime/time-field";
@@ -29,20 +30,20 @@ import type { VectorField } from "./vector/field";
  */
 
 export type Field =
-  | StringField<any>
-  | IntField<any>
-  | FloatField<any>
-  | DecimalField<any>
-  | BooleanField<any>
-  | DateTimeField<any>
-  | DateField<any>
-  | TimeField<any>
-  | BigIntField<any>
-  | JsonField<any>
-  | VectorField<any>
-  | BlobField<any>
-  | PointField<any>
-  | EnumField<any>;
+  | StringField<FieldState<"string">>
+  | IntField<FieldState<"int">>
+  | FloatField<FieldState<"float">>
+  | DecimalField<FieldState<"decimal">>
+  | BooleanField<FieldState<"boolean">>
+  | DateTimeField<FieldState<"datetime">>
+  | DateField<FieldState<"date">>
+  | TimeField<FieldState<"time">>
+  | BigIntField<FieldState<"bigint">>
+  | JsonField<FieldState<"json">>
+  | VectorField<FieldState<"vector">>
+  | BlobField<FieldState<"blob">>
+  | PointField<FieldState<"point">>
+  | EnumField<any, FieldState<"enum">>;
 
 /**
  * Any field with any state (for loose typing).

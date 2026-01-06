@@ -9,7 +9,6 @@
     "declarationMap": false,
     "sourceMap": false,
     "noEmit": true,
-
     "tsBuildInfoFile": ".tsbuildinfo",
     "removeComments": false,
     "noImplicitAny": false,
@@ -35,6 +34,8 @@
       "@drivers/*": ["./src/drivers/*"],
       "@drivers": ["./src/drivers/index.ts"],
       "@sql": ["./src/sql/sql.ts"],
+      "@migrations/*": ["./src/migrations/*"],
+      "@migrations": ["./src/migrations/index.ts"],
       "@standard-schema": ["./src/standardSchema.ts"]
     }
   },

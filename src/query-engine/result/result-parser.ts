@@ -5,7 +5,7 @@
  * Handles JSON parsing for MySQL/SQLite and null coalescing.
  */
 
-import type { Operation, QueryContext } from "../types";
+import { isBatchOperation, type Operation, type QueryContext } from "../types";
 
 /**
  * Parse query result based on operation type
@@ -33,6 +33,16 @@ export function parseResult<T>(
         ? count > 0
         : Object.values(count).some((v) => v > 0);
     return hasRecords as T;
+  }
+
+  // Handle count operation - return number or object with counts
+  if (operation === "count") {
+    return parseCountResult(raw) as T;
+  }
+
+  // Handle batch operations - return { count: number }
+  if (isBatchOperation(operation)) {
+    return parseMutationCount(raw) as T;
   }
 
   // Handle array results
@@ -136,6 +146,7 @@ function isSingleRecordOperation(operation: Operation): boolean {
     "update",
     "delete",
     "upsert",
+    "aggregate", // aggregate returns a single row with aggregate values
   ].includes(operation);
 }
 
@@ -177,6 +188,9 @@ function getDefaultResult(operation: Operation): unknown {
 
 /**
  * Parse count result
+ *
+ * Returns a plain number for simple count, or an object with multiple counts
+ * when using select (e.g., { _all: 5, name: 4 })
  */
 export function parseCountResult(
   raw: unknown
@@ -195,13 +209,19 @@ export function parseCountResult(
     return Number(raw);
   }
 
-  // Array with single row containing count
+  // Array with single row containing count(s)
   if (Array.isArray(raw) && raw.length > 0) {
     const firstRow = raw[0];
     if (typeof firstRow === "object" && firstRow !== null) {
-      // Multiple counts (with select)
+      const entries = Object.entries(firstRow);
+      // Simple count: single "count" key -> return just the number
+      if (entries.length === 1 && entries[0][0] === "count") {
+        const value = entries[0][1];
+        return typeof value === "bigint" ? Number(value) : Number(value);
+      }
+      // Multiple counts (with select) -> return object
       const result: Record<string, number> = {};
-      for (const [key, value] of Object.entries(firstRow)) {
+      for (const [key, value] of entries) {
         result[key] = typeof value === "bigint" ? Number(value) : Number(value);
       }
       return result;
@@ -210,8 +230,15 @@ export function parseCountResult(
 
   // Object with count(s)
   if (typeof raw === "object" && raw !== null) {
+    const entries = Object.entries(raw as Record<string, unknown>);
+    // Simple count: single "count" key -> return just the number
+    if (entries.length === 1 && entries[0][0] === "count") {
+      const value = entries[0][1];
+      return typeof value === "bigint" ? Number(value) : Number(value);
+    }
+    // Multiple counts -> return object
     const result: Record<string, number> = {};
-    for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    for (const [key, value] of entries) {
       result[key] = typeof value === "bigint" ? Number(value) : Number(value);
     }
     return result;

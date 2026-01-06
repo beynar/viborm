@@ -15,7 +15,8 @@
         "useBlockStatements": "off"
       },
       "performance": {
-        "noBarrelFile": "off"
+        "noBarrelFile": "off",
+        "useTopLevelRegex": "info"
       },
       "complexity": {
         "useLiteralKeys": "off",
@@ -24,6 +25,9 @@
             "maxAllowedComplexity": 45
           }
         }
+      },
+      "correctness": {
+        "noUnusedVariables": "info"
       }
     }
   }

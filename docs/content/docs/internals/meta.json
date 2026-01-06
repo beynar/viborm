@@ -3,11 +3,14 @@
   "pages": [
     "index",
     "architecture",
-    "schema-system",
-    "type-system",
     "validation",
-    "runtime-schemas",
-    "normalization",
-    "contract"
+    "fields",
+    "query-schemas",
+    "relations",
+    "query-engine",
+    "adapters",
+    "drivers",
+    "client",
+    "migrations"
   ]
 }

@@ -363,6 +363,54 @@ export interface DatabaseAdapter {
    * Database introspection and DDL generation for schema migrations
    */
   migrations: MigrationAdapter;
+
+  /**
+   * VECTOR
+   * Vector operations for similarity search (pgvector)
+   *
+   * Matches filter schema: { l2, cosine }
+   * Drivers that don't support vector operations can override
+   * this property with an object that throws FeatureNotSupportedError.
+   */
+  vector: {
+    /** Create a vector literal from number array: '[1,2,3]'::vector */
+    literal: (values: number[]) => Sql;
+    /** L2 (Euclidean) distance operator for ORDER BY: column <-> vector */
+    l2: (column: Sql, vector: Sql) => Sql;
+    /** Cosine distance operator for ORDER BY: column <=> vector */
+    cosine: (column: Sql, vector: Sql) => Sql;
+  };
+
+  /**
+   * GEOSPATIAL
+   * Geospatial operations (PostGIS)
+   *
+   * Matches filter schema: { equals, intersects, contains, within, crosses, overlaps, touches, covers, dWithin }
+   * Drivers that don't support geospatial operations can override
+   * this property with an object that throws FeatureNotSupportedError.
+   */
+  geospatial: {
+    /** Create a point from longitude/latitude: ST_SetSRID(ST_MakePoint(lng, lat), 4326) */
+    point: (lng: Sql, lat: Sql) => Sql;
+    /** ST_Equals: geometries are spatially equal */
+    equals: (geom1: Sql, geom2: Sql) => Sql;
+    /** ST_Intersects: geometries share any space */
+    intersects: (geom1: Sql, geom2: Sql) => Sql;
+    /** ST_Contains: geom1 completely contains geom2 */
+    contains: (geom1: Sql, geom2: Sql) => Sql;
+    /** ST_Within: geom1 is completely within geom2 */
+    within: (geom1: Sql, geom2: Sql) => Sql;
+    /** ST_Crosses: geometries cross each other */
+    crosses: (geom1: Sql, geom2: Sql) => Sql;
+    /** ST_Overlaps: geometries overlap */
+    overlaps: (geom1: Sql, geom2: Sql) => Sql;
+    /** ST_Touches: geometries touch at boundary */
+    touches: (geom1: Sql, geom2: Sql) => Sql;
+    /** ST_Covers: geom1 covers geom2 (no points of geom2 outside geom1) */
+    covers: (geom1: Sql, geom2: Sql) => Sql;
+    /** ST_DWithin: geometries are within specified distance (meters for geography) */
+    dWithin: (geom1: Sql, geom2: Sql, distance: Sql) => Sql;
+  };
 }
 
 /**

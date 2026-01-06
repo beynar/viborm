@@ -149,7 +149,7 @@ export const testPost = s
     createdAt: s.dateTime().now(),
     updatedAt: s.dateTime().now(),
     authorId: s.string(),
-    author: s.oneToOne(() => testUser),
+    author: s.oneToOne(() => testUser).name("author"),
     // metadata: s
     //   .json(
     //     z.object({
@@ -172,7 +172,7 @@ export const testProfile = s
     bio: s.string().nullable(),
     avatar: s.string().nullable(),
     userId: s.string().unique(),
-    user: s.oneToOne(() => testUser),
+    user: s.oneToOne(() => testUser).name("user"),
   })
   .map("Profile")
   .index(["avatar", "bio"], { name: "idx_profile_eaeaz", type: "gin" })
@@ -199,12 +199,20 @@ const res1 = client.user.groupBy({
 
 type Input = Prettify<
   InferInput<(typeof testUser)["~"]["schemas"]["args"]["findFirst"]>
->["where"];
+>;
+
 const res = await client.withCache({ ttl: 1000 }).user.findFirst({
   where: {
     AND: [
       {
         age: 12,
+        posts: {
+          none: {
+            authorId: {
+              startsWith: "123",
+            },
+          },
+        },
         createdAt: new Date("2025-01-01"),
         email: {
           equals: "ezk",
@@ -217,6 +225,15 @@ const res = await client.withCache({ ttl: 1000 }).user.findFirst({
   },
   include: {
     posts: true,
+    profile: {
+      include: {
+        user: {
+          include: {
+            posts: true,
+          },
+        },
+      },
+    },
   },
   // select: {
   //   age: true,

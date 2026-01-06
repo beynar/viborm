@@ -1,0 +1,149 @@
+---
+title: L10 - Migrations
+description: Schema diffing and database synchronization
+icon: GitBranch
+---
+
+# L10: Migrations Layer
+
+**Location:** `src/migrations/`
+
+The migrations layer synchronizes your TypeScript schema with the database. It diffs the current schema against the database and generates DDL to reconcile differences.
+
+## Why This Layer Exists
+
+Your TypeScript schema is the source of truth:
+
+```typescript
+const user = s.model("user", {
+  id: s.string().id().ulid(),
+  email: s.string().unique(),
+  name: s.string().nullable(),  // ← Add this field
+});
+```
+
+The migrations layer detects this change and generates:
+
+```sql
+ALTER TABLE "user" ADD COLUMN "name" VARCHAR NULL;
+```
+
+## How It Works
+
+### 1. Schema Snapshot
+
+First, the current TypeScript schema is serialized into a database-agnostic snapshot:
+
+```typescript
+{
+  tables: [{
+    name: "user",
+    columns: [{
+      name: "email",
+      type: "varchar",
+      nullable: false,
+      unique: true
+    }],
+    indexes: [...],
+    foreignKeys: [...]
+  }]
+}
+```
+
+### 2. Database Introspection
+
+The current database state is read through the driver:
+
+```sql
+SELECT column_name, data_type, is_nullable 
+FROM information_schema.columns 
+WHERE table_name = 'user';
+```
+
+### 3. Diffing
+
+The differ compares snapshots and produces operations:
+
+```typescript
+[
+  { type: "addColumn", table: "user", column: { name: "name", ... } },
+  { type: "dropIndex", table: "user", indexName: "email_idx" }
+]
+```
+
+### 4. DDL Generation
+
+Each operation becomes database-specific DDL via the adapter:
+
+```typescript
+adapter.addColumn(operation)  // → ALTER TABLE ... ADD COLUMN ...
+```
+
+## Operation Types
+
+| Operation | Description |
+|-----------|-------------|
+| `createTable` | New table |
+| `dropTable` | Remove table |
+| `addColumn` | Add column to table |
+| `dropColumn` | Remove column |
+| `alterColumn` | Change column type/constraints |
+| `createIndex` | Add index |
+| `dropIndex` | Remove index |
+| `addForeignKey` | Add foreign key constraint |
+| `dropForeignKey` | Remove foreign key constraint |
+
+## Ambiguous Changes
+
+Some changes can't be automatically resolved:
+
+```typescript
+// Did you rename "name" to "fullName"?
+// Or delete "name" and create "fullName"?
+```
+
+The CLI prompts for clarification:
+
+```
+? Column "name" was removed and "fullName" was added.
+  ○ Rename "name" to "fullName" (preserves data)
+  ○ Drop "name" and create "fullName" (loses data)
+```
+
+## Push vs Migrate
+
+VibORM offers two approaches:
+
+### `viborm push`
+
+Direct sync - applies changes immediately:
+
+```bash
+viborm push
+# Compares schema → database
+# Shows diff
+# Applies changes
+```
+
+Best for: Development, prototyping
+
+### Migration Files (Planned)
+
+Generate SQL files for review:
+
+```bash
+viborm migrate generate
+# Creates: migrations/20240115_add_name.sql
+
+viborm migrate apply
+# Executes pending migrations
+```
+
+Best for: Production, team workflows
+
+## Connection to Other Layers
+
+- **L2 (Fields)**: Field state determines column definitions
+- **L4 (Relations)**: Relations determine foreign key constraints
+- **L7 (Adapters)**: Adapters generate database-specific DDL
+- **L8 (Drivers)**: Drivers execute DDL and introspect schema

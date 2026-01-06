@@ -1,108 +1,147 @@
 ---
 title: Internals Overview
-description: Deep dive into VibORM's internal architecture
-icon: Cog
+description: The 10-layer architecture of VibORM
+icon: Layers
 ---
 
 # VibORM Internals
 
-This section documents VibORM's internal architecture for contributors and advanced users who want to understand how the ORM works under the hood.
+VibORM is built as a **10-layer architecture** that transforms type-safe schema definitions into database queries without code generation. Each layer has clear responsibilities and well-defined boundaries.
 
-## What You'll Learn
+## The 10-Layer Architecture
 
-- **[Architecture](/docs/internals/architecture)** - High-level system design and component relationships
-- **[Schema System](/docs/internals/schema-system)** - How models, fields, and relations are defined
-- **[Type System](/docs/internals/type-system)** - TypeScript type inference and derivation
-- **[Validation](/docs/internals/validation)** - Custom StandardSchema-compliant validation library
-- **[Runtime Schemas](/docs/internals/runtime-schemas)** - Schema builders for model validation
-- **[Normalization](/docs/internals/normalization)** - Input transformation pipeline
-- **[Contract](/docs/internals/contract)** - Guarantees between types and runtime
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                          User Code                                       │
+│   s.model("user", { name: s.string() })  →  orm.user.findMany({...})    │
+└─────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│  L1: Validation       │ v.* primitives, Standard Schema V1 compliance   │
+├───────────────────────┼─────────────────────────────────────────────────┤
+│  L2: Fields           │ Field classes with State generic pattern        │
+├───────────────────────┼─────────────────────────────────────────────────┤
+│  L3: Query Schemas    │ where, create, update, args schema generation   │
+├───────────────────────┼─────────────────────────────────────────────────┤
+│  L4: Relations        │ oneToOne, manyToOne, oneToMany, manyToMany      │
+├───────────────────────┼─────────────────────────────────────────────────┤
+│  L5: Schema Validation│ Definition-time schema correctness checks       │
+├───────────────────────┼─────────────────────────────────────────────────┤
+│  L6: Query Engine     │ Database-agnostic query structure building      │
+├───────────────────────┼─────────────────────────────────────────────────┤
+│  L7: Adapters         │ Database-specific SQL dialect generation        │
+├───────────────────────┼─────────────────────────────────────────────────┤
+│  L8: Drivers          │ Connection management and query execution       │
+├───────────────────────┼─────────────────────────────────────────────────┤
+│  L9: Client           │ Type-safe ORM interface via recursive proxies   │
+├───────────────────────┼─────────────────────────────────────────────────┤
+│  L10: Migrations      │ Schema diffing and database synchronization     │
+└───────────────────────┴─────────────────────────────────────────────────┘
+```
 
-## Design Principles
+## Layer Responsibility Matrix
 
-### 1. Type-First Design
+| Layer | Location | Owns | Doesn't Own |
+|-------|----------|------|-------------|
+| **L1: Validation** | `src/validation/` | v.* primitives, Standard Schema V1 | Field logic, domain rules |
+| **L2: Fields** | `src/schema/fields/` | Field classes, State generics | Query schemas |
+| **L3: Query Schemas** | `src/schema/model/schemas/` | where, create, update, args schemas | SQL generation |
+| **L4: Relations** | `src/schema/relation/` | Relation types, nested schemas | Query execution |
+| **L5: Schema Validation** | `src/schema/validation/` | Definition-time validation | Runtime validation |
+| **L6: Query Engine** | `src/query-engine/` | Query structure, logic | **Database SQL** |
+| **L7: Adapters** | `src/adapters/` | **Database-specific SQL** | Query logic |
+| **L8: Drivers** | `src/drivers/` | Connection, execution | Query building |
+| **L9: Client** | `src/client/` | Result types, proxies | Query construction |
+| **L10: Migrations** | `src/migrations/` | Schema diffing, push | Schema definition |
 
-VibORM is built with TypeScript types as the source of truth. Rather than generating types from a schema file (like Prisma), types are **inferred** directly from the schema definition at compile time.
+## Why This Architecture?
+
+VibORM was designed to solve three problems that plagued existing ORMs:
+
+### 1. Code Generation Lock-in
+
+Prisma requires `prisma generate` after every schema change. We wanted **instant type updates on save**.
 
 ```typescript
-// Types are inferred, not generated
-const user = s.model({
-  id: s.string().id().ulid(),
-  name: s.string(),
-  email: s.string().unique(),
+// VibORM: Types update instantly when you change this
+const user = s.model("user", {
+  email: s.string().unique(),  // Change here → types update immediately
 });
-
-// TypeScript knows the exact shape
-type UserFields = (typeof user)["~"]["fields"];
-// { id: StringField<...>, name: StringField<...>, email: StringField<...> }
 ```
 
-### 2. Dual Validation
+### 2. Multi-Database Support Without Forking
 
-Every operation is validated twice:
+Drizzle has separate packages per database. We wanted **one codebase supporting PostgreSQL, MySQL, and SQLite** through the adapter pattern.
 
-1. **Compile-time** - TypeScript catches type errors
-2. **Runtime** - VibORM's [validation library](/docs/internals/validation) validates actual data
-
-### 3. Normalization Pipeline
-
-User-friendly shorthand syntax is normalized to canonical forms before reaching the query engine, simplifying SQL generation.
-
-### 4. Separation of Concerns
-
-```
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│  Schema Layer   │────▶│  Client Layer   │────▶│  Query Engine   │
-│  (Definition)   │     │  (Operations)   │     │  (Execution)    │
-└─────────────────┘     └─────────────────┘     └─────────────────┘
-        │                       │                       │
-        ▼                       ▼                       ▼
-   Type System            Type Guards           SQL Generation
-   VibORM Validation      Validation            Database Adapters
+```typescript
+// Same code, different adapters
+const pg = new PostgresAdapter();
+const mysql = new MySQLAdapter();
+const sqlite = new SQLiteAdapter();
 ```
 
-## Quick Architecture Overview
+### 3. Types From Runtime Validation (Single Source of Truth)
 
-```mermaid
-graph TB
-    subgraph "Schema Definition"
-        M[Model] --> F[Fields]
-        M --> R[Relations]
-        F --> FS[Field State]
-        R --> RS[Relation State]
-    end
+We wanted types **inferred from runtime schema validators** - a single source of truth for both compile-time types AND runtime validation. Maintaining separate type definitions and validation logic would make the codebase difficult to evolve.
 
-    subgraph "Type System"
-        FS --> IT[Input Types]
-        FS --> OT[Output Types]
-        RS --> RT[Relation Types]
-    end
+The key challenge: **ORM models reference each other recursively**. User has Posts, Post has Author. None of the existing libraries handled this well:
 
-    subgraph "Runtime Schemas"
-        FS --> VS[VibORM Schemas]
-        RS --> VRS[Relation Schemas]
-        VS --> VN[Validation + Normalization]
-    end
+- **Zod** - `z.lazy()` loses type info, becomes `any`
+- **ArkType** - Good types, but thunks evaluated eagerly causing issues  
+- **Valibot** - Poor lazy evaluation caused infinite recursion at runtime
 
-    subgraph "Query Engine"
-        VN --> QE[Query Builder]
-        QE --> SQL[SQL Generation]
-    end
+So we built our own validation layer using **thunks + lazy evaluation** (inspired by ArkType's approach) that correctly handles recursive schemas.
+
+## Type Flow Through Layers
+
+```
+User writes:           s.string().nullable()
+                              ↓
+L2: Field creates:     StringField<{type: "string", nullable: true}>
+                              ↓
+L1: Schema factory:    v.string({nullable: true})  (lazy, on first access)
+                              ↓
+Type inference:        InferInput<schema> → string | null
+                              ↓
+L9: Client uses:       orm.user.findMany({ where: { name: ... }})  // Fully typed!
 ```
 
-## Key Components
+**Key insight:** Types flow DOWN through this chain. If types are wrong at the client level, the bug is upstream in schema or field definition.
 
-| Component        | Location                          | Purpose                       |
-| ---------------- | --------------------------------- | ----------------------------- |
-| Model class      | `src/schema/model/model.ts`       | Schema definition entry point |
-| Field classes    | `src/schema/fields/*/field.ts`    | Field type definitions        |
-| Relation classes | `src/schema/relation/relation.ts` | Relationship definitions      |
-| Type helpers     | `src/schema/model/types/`         | TypeScript type derivation    |
-| Validation lib   | `src/validation/`                 | StandardSchema validation     |
-| Runtime schemas  | `src/schema/model/runtime/`       | Model schema builders         |
-| Client           | `src/client/`                     | Operation execution           |
-| Query Engine     | `src/query-engine/`               | SQL generation                |
+## The Golden Rule
+
+<Callout type="error" title="Query Engine / Adapter Separation">
+Query engine NEVER generates dialect-specific SQL. ALWAYS delegate to adapter.
+</Callout>
+
+```typescript
+// ❌ WRONG: Hardcoded PostgreSQL in query-engine
+sql`COALESCE(json_agg(...), '[]'::json)`
+
+// ✅ RIGHT: Delegate to adapter
+ctx.adapter.json.agg(subquery)
+```
+
+This is the most important architectural boundary. The query engine decides **WHAT** to query. The adapter decides **HOW** to express it.
+
+## Explore the Layers
+
+| Layer | Purpose |
+|-------|---------|
+| [L1: Validation](/docs/internals/validation) | Recursive schemas via thunks + lazy evaluation |
+| [L2: Fields](/docs/internals/fields) | Field types with State generic for type tracking |
+| [L3: Query Schemas](/docs/internals/query-schemas) | Schema generation for where/create/update |
+| [L4: Relations](/docs/internals/relations) | Model relationships with thunks for circular refs |
+| [L6: Query Engine](/docs/internals/query-engine) | Database-agnostic query structure |
+| [L7: Adapters](/docs/internals/adapters) | Database-specific SQL dialects |
+| [L8: Drivers](/docs/internals/drivers) | Connection management and execution |
+| [L9: Client](/docs/internals/client) | The public `orm.model.operation()` API |
+| [L10: Migrations](/docs/internals/migrations) | Schema diffing and synchronization |
 
 ## Next Steps
 
-Start with [Architecture](/docs/internals/architecture) for a comprehensive system overview, or jump directly to the component you're interested in.
+- [Architecture](/docs/internals/architecture) - Design principles and data flow
+- [L1: Validation](/docs/internals/validation) - The foundation layer
+- [L6: Query Engine](/docs/internals/query-engine) - Core query building
+- [L7: Adapters](/docs/internals/adapters) - Database dialect support

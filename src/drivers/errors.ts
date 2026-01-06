@@ -140,3 +140,90 @@ export function isUniqueConstraintError(
 ): error is UniqueConstraintError {
   return error instanceof UniqueConstraintError;
 }
+
+/**
+ * Feature not supported by driver
+ *
+ * Thrown when a driver doesn't support a specific feature
+ * (e.g., vector operations without pgvector extension).
+ */
+export class FeatureNotSupportedError extends DriverError {
+  constructor(
+    public readonly feature: string,
+    public readonly method: string,
+    suggestion?: string
+  ) {
+    const msg = suggestion
+      ? `${feature}.${method} is not supported. ${suggestion}`
+      : `${feature}.${method} is not supported by this driver.`;
+    super(msg);
+    this.name = "FeatureNotSupportedError";
+  }
+}
+
+/**
+ * Unsupported vector operations
+ *
+ * Use this to override adapter.vector when pgvector is not available.
+ */
+export const unsupportedVector = {
+  literal: (): never => {
+    throw new FeatureNotSupportedError(
+      "vector",
+      "literal",
+      "Load the pgvector extension."
+    );
+  },
+  l2: (): never => {
+    throw new FeatureNotSupportedError(
+      "vector",
+      "l2",
+      "Load the pgvector extension."
+    );
+  },
+  cosine: (): never => {
+    throw new FeatureNotSupportedError(
+      "vector",
+      "cosine",
+      "Load the pgvector extension."
+    );
+  },
+};
+
+/**
+ * Unsupported geospatial operations
+ *
+ * Use this to override adapter.geospatial when PostGIS is not available.
+ */
+export const unsupportedGeospatial = {
+  point: (): never => {
+    throw new FeatureNotSupportedError("geospatial", "point");
+  },
+  equals: (): never => {
+    throw new FeatureNotSupportedError("geospatial", "equals");
+  },
+  intersects: (): never => {
+    throw new FeatureNotSupportedError("geospatial", "intersects");
+  },
+  contains: (): never => {
+    throw new FeatureNotSupportedError("geospatial", "contains");
+  },
+  within: (): never => {
+    throw new FeatureNotSupportedError("geospatial", "within");
+  },
+  crosses: (): never => {
+    throw new FeatureNotSupportedError("geospatial", "crosses");
+  },
+  overlaps: (): never => {
+    throw new FeatureNotSupportedError("geospatial", "overlaps");
+  },
+  touches: (): never => {
+    throw new FeatureNotSupportedError("geospatial", "touches");
+  },
+  covers: (): never => {
+    throw new FeatureNotSupportedError("geospatial", "covers");
+  },
+  dWithin: (): never => {
+    throw new FeatureNotSupportedError("geospatial", "dWithin");
+  },
+};

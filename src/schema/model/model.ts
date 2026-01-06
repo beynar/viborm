@@ -4,7 +4,7 @@
 import v, { type ObjectSchema, type VibSchema } from "@validation";
 import type { Field } from "../fields/base";
 import type { SchemaNames } from "../fields/common";
-import type { AnyRelation } from "../relation/relation";
+import type { AnyRelation } from "../relation";
 import {
   extractRelationFields,
   extractScalarFields,

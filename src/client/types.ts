@@ -87,7 +87,9 @@ export type OperationPayload<
                             : O extends "updateMany"
                               ? M["~"]["schemas"]["args"]["updateMany"][" vibInferred"]["0"]
                               : O extends "exist"
-                                ? M["~"]["schemas"]["where"][" vibInferred"]["0"]
+                                ? {
+                                    where: M["~"]["schemas"]["where"][" vibInferred"]["0"];
+                                  }
                                 : never;
 
 /**
@@ -126,8 +128,16 @@ export type OperationResult<
  */
 export type Client<S extends Schema> = {
   [K in keyof S]: {
-    [O in Operations]: <Args extends OperationPayload<O, S[K]>>(
-      args: Args
-    ) => Promise<OperationResult<O, S[K], Args>>;
+    [O in Operations]: Operation<O, S[K]>;
   };
 };
+
+type Operation<
+  O extends Operations,
+  M extends Model<any>,
+  Payload = OperationPayload<O, M>,
+> = undefined extends Payload
+  ? <Arg extends Payload>(
+      args?: Exclude<Arg, undefined>
+    ) => Promise<OperationResult<O, M, Arg>>
+  : <Arg extends Payload>(args: Arg) => Promise<OperationResult<O, M, Arg>>;

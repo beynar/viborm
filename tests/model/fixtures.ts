@@ -85,7 +85,7 @@ export const postModel = s.model({
   title: s.string(),
   published: s.boolean().default(false),
   authorId: s.string(),
-  author: s.manyToOne(() => authorModel, { optional: true }),
+  author: s.manyToOne(() => authorModel).optional(),
 });
 
 // Lazy schema creation to avoid circular reference issues at import time

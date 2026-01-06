@@ -142,8 +142,8 @@ describe("alwaysRenameResolver", () => {
 
     const resolutions = await alwaysRenameResolver(changes);
 
-    expect(resolutions.get(changes[0])).toEqual({ type: "rename" });
-    expect(resolutions.get(changes[1])).toEqual({ type: "rename" });
+    expect(resolutions.get(changes[0]!)).toEqual({ type: "rename" });
+    expect(resolutions.get(changes[1]!)).toEqual({ type: "rename" });
   });
 });
 
@@ -156,8 +156,8 @@ describe("alwaysAddDropResolver", () => {
 
     const resolutions = await alwaysAddDropResolver(changes);
 
-    expect(resolutions.get(changes[0])).toEqual({ type: "addAndDrop" });
-    expect(resolutions.get(changes[1])).toEqual({ type: "addAndDrop" });
+    expect(resolutions.get(changes[0]!)).toEqual({ type: "addAndDrop" });
+    expect(resolutions.get(changes[1]!)).toEqual({ type: "addAndDrop" });
   });
 });
 
@@ -192,20 +192,22 @@ describe("createResolver", () => {
 
     const resolutions = await resolver(changes);
 
-    expect(resolutions.get(changes[0])).toEqual({ type: "rename" });
-    expect(resolutions.get(changes[1])).toEqual({ type: "addAndDrop" });
+    expect(resolutions.get(changes[0]!)).toEqual({ type: "rename" });
+    expect(resolutions.get(changes[1]!)).toEqual({ type: "addAndDrop" });
   });
 
   it("should support async decision function", async () => {
-    const resolver = createResolver(async (_change) => {
-      await new Promise((resolve) => setTimeout(resolve, 1));
-      return "rename";
-    });
+    const resolver = createResolver(
+      async (_change): Promise<"rename" | "addAndDrop"> => {
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        return "rename";
+      }
+    );
 
     const changes = [makeColumnChange("users", "username", "name")];
     const resolutions = await resolver(changes);
 
-    expect(resolutions.get(changes[0])).toEqual({ type: "rename" });
+    expect(resolutions.get(changes[0]!)).toEqual({ type: "rename" });
   });
 });
 
@@ -224,7 +226,7 @@ describe("createPredefinedResolver", () => {
     const changes = [makeColumnChange("users", "username", "name")];
     const resolutions = await resolver(changes);
 
-    expect(resolutions.get(changes[0])).toEqual({ type: "rename" });
+    expect(resolutions.get(changes[0]!)).toEqual({ type: "rename" });
   });
 
   it("should match table changes by name", async () => {
@@ -240,7 +242,7 @@ describe("createPredefinedResolver", () => {
     const changes = [makeTableChange("posts", "articles")];
     const resolutions = await resolver(changes);
 
-    expect(resolutions.get(changes[0])).toEqual({ type: "rename" });
+    expect(resolutions.get(changes[0]!)).toEqual({ type: "rename" });
   });
 
   it("should not set resolution for unmatched changes", async () => {
@@ -256,6 +258,6 @@ describe("createPredefinedResolver", () => {
     const changes = [makeColumnChange("users", "username", "name")];
     const resolutions = await resolver(changes);
 
-    expect(resolutions.has(changes[0])).toBe(false);
+    expect(resolutions.has(changes[0]!)).toBe(false);
   });
 });

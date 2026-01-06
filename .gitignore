@@ -9,3 +9,5 @@ node_modules
 
 docs/dist
 docs/.wrangler
+
+.pglite
