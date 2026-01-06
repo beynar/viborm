@@ -1,6 +1,6 @@
 import { type Sql, sql } from "@sql";
 import type { DatabaseAdapter, QueryParts } from "../../database-adapter";
-import { postgresMigrations } from "./migrations";
+import { postgresMigrations } from "./migrations/index";
 
 /**
  * PostgreSQL Database Adapter
