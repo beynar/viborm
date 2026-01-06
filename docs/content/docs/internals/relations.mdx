@@ -15,12 +15,17 @@ The relations layer defines how models connect to each other - one-to-many, many
 ORMs need to express database relationships in a type-safe way. The challenge: **models reference each other circularly**.
 
 ```typescript
-const user = s.model("user", {
+const user = s.model({
+  id: s.string().id(),
   posts: s.oneToMany(() => post),  // User references Post
 });
 
-const post = s.model("post", {
-  author: s.manyToOne(() => user),  // Post references User
+const post = s.model({
+  id: s.string().id(),
+  authorId: s.string(),
+  author: s.manyToOne(() => user)  // Post references User
+    .fields("authorId")
+    .references("id"),
 });
 ```
 
@@ -35,12 +40,12 @@ JavaScript can't reference a variable before it's declared. We solve this with *
 | `oneToOne` | One-to-one relationship | Configurable |
 | `manyToMany` | Many-to-many via join table | Join table |
 
-## Configuration
+## Chainable API
 
-Relations need to know how tables connect:
+Relations use a chainable API where the thunk comes first:
 
 ```typescript
-const post = s.model("post", {
+const post = s.model({
   authorId: s.string(),  // Foreign key column
   author: s.manyToOne(() => user)
     .fields("authorId")      // Local FK column
@@ -48,43 +53,66 @@ const post = s.model("post", {
 });
 ```
 
-The `fields()` and `references()` methods establish the database-level connection.
+### Available Methods by Type
+
+| Relation | Methods |
+|----------|---------|
+| `oneToOne` | `.fields()`, `.references()`, `.optional()`, `.onDelete()`, `.onUpdate()`, `.name()` |
+| `manyToOne` | `.fields()`, `.references()`, `.optional()`, `.onDelete()`, `.onUpdate()`, `.name()` |
+| `oneToMany` | `.name()` only (FK is on other side) |
+| `manyToMany` | `.through()`, `.A()`, `.B()`, `.onDelete()`, `.onUpdate()`, `.name()` |
 
 ## Bidirectional Relations
 
 Both sides of a relation can be defined:
 
 ```typescript
-// On User
-posts: s.oneToMany(() => post)  // "I have many posts"
+// On User - the "one" side (doesn't own FK)
+const user = s.model({
+  id: s.string().id(),
+  posts: s.oneToMany(() => post),  // "I have many posts"
+});
 
-// On Post  
-author: s.manyToOne(() => user)
-  .fields("authorId")
-  .references("id")             // "I belong to one user"
+// On Post - the "many" side (owns FK)
+const post = s.model({
+  id: s.string().id(),
+  authorId: s.string(),
+  author: s.manyToOne(() => user)
+    .fields("authorId")
+    .references("id"),             // "I belong to one user"
+});
 ```
 
 VibORM uses these definitions to:
 - Generate correct JOINs
 - Enable nested queries (`where: { author: { name: "..." } }`)
-- Support nested writes (`create: { author: { create: {...} } }`)
+- Support nested writes (`create: { author: { connect: {...} } }`)
 
 ## Many-to-Many Relations
 
-Many-to-many requires a join table:
+Many-to-many uses an implicit junction table:
 
 ```typescript
-const postTags = s.model("post_tags", {
-  postId: s.string(),
-  tagId: s.string(),
+const post = s.model({
+  id: s.string().id(),
+  title: s.string(),
+  tags: s.manyToMany(() => tag),  // Auto-creates post_tag table
 });
 
-const post = s.model("post", {
-  tags: s.manyToMany(() => tag)
-    .through(() => postTags)
-    .fields("id")
-    .references("postId"),
+const tag = s.model({
+  id: s.string().id(),
+  name: s.string(),
+  posts: s.manyToMany(() => post),
 });
+```
+
+With explicit junction table configuration:
+
+```typescript
+tags: s.manyToMany(() => tag)
+  .through("post_tags")   // Custom table name
+  .A("postId")            // Source FK column
+  .B("tagId"),            // Target FK column
 ```
 
 ## Why Thunks?
@@ -96,10 +124,10 @@ The `() => model` pattern is essential for two reasons:
 Without thunks, this would fail:
 
 ```typescript
-const user = s.model("user", {
+const user = s.model({
   posts: s.oneToMany(post),  // ❌ ReferenceError: post is not defined
 });
-const post = s.model("post", { ... });
+const post = s.model({ ... });
 ```
 
 ### 2. TypeScript Inference

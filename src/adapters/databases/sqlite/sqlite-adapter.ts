@@ -201,7 +201,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
 
     extract: (column: Sql, path: string[]): Sql => {
       if (path.length === 0) return column;
-      const jsonPath = "$." + path.join(".");
+      const jsonPath = `$.${path.join(".")}`;
       return sql`json_extract(${column}, ${jsonPath})`;
     },
 
@@ -209,7 +209,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
       // SQLite json_extract returns the value in native form
       // For text, we can cast or use as-is
       if (path.length === 0) return column;
-      const jsonPath = "$." + path.join(".");
+      const jsonPath = `$.${path.join(".")}`;
       return sql`json_extract(${column}, ${jsonPath})`;
     },
   };

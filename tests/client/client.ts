@@ -1,12 +1,22 @@
 import { createClient as PGliteCreateClient } from "@drivers/pglite";
 import { push } from "@migrations";
 import { s } from "@schema";
+import z from "zod/v4";
 
 const user = s.model({
   id: s.string().id(),
   name: s.string(),
   email: s.string(),
-  posts: s.oneToMany(() => post, { references: ["id"] }),
+  pets: s.json().schema(
+    z.array(
+      z.object({
+        name: z.string(),
+        age: z.number(),
+        type: z.enum(["dog", "cat", "bird"]),
+      })
+    )
+  ),
+  posts: s.oneToMany(() => post),
 });
 
 const post = s.model({
@@ -14,7 +24,10 @@ const post = s.model({
   title: s.string(),
   content: s.string(),
   authorId: s.string(),
-  author: s.manyToOne(() => user, { fields: ["authorId"], references: ["id"] }),
+  author: s
+    .manyToOne(() => user)
+    .fields("authorId")
+    .references("id"),
 });
 
 const schema = { user, post };
@@ -41,6 +54,13 @@ const newUser = await client.user.create({
   data: {
     email: "eze",
     name: "eze",
+    pets: [
+      {
+        age: 10,
+        name: "dog",
+        type: "dog",
+      },
+    ],
   },
   include: {
     posts: true,

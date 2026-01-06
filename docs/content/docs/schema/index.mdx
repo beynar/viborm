@@ -17,7 +17,7 @@ const user = s.model({
   id: s.string().id().ulid(),
   email: s.string().unique(),
   name: s.string().nullable(),
-  posts: s.relation.oneToMany(() => post),
+  posts: s.oneToMany(() => post),
 }).map("users");
 ```
 
@@ -33,7 +33,8 @@ import { s } from "viborm";
 s.model({ ... })              // Create a model
 s.string()                    // String field
 s.int()                       // Integer field
-s.relation.oneToMany(...)     // One-to-many relation
+s.oneToMany(() => post)       // One-to-many relation
+s.manyToOne(() => user)       // Many-to-one relation
 // ... and more
 ```
 

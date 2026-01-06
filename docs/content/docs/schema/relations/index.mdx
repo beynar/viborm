@@ -8,27 +8,24 @@ icon: GitBranch
 
 Relations define how models connect to each other. VibORM supports all standard relationship types.
 
-## Relation Builder Pattern
+## Chainable API
 
-VibORM uses a **config-first, getter-last** pattern for defining relations:
+VibORM uses a chainable API for defining relations:
 
 ```ts
-s.relation.config().type(() => targetModel)
+s.manyToOne(() => targetModel).fields("fk").references("id")
 ```
 
-This pattern avoids TypeScript circular reference issues because:
-1. Config methods (`fields`, `references`, etc.) return `this` - no generics involved
-2. Terminal methods (`oneToOne`, `manyToOne`, etc.) introduce the generic **last**
-3. Since there's no more chaining after the terminal method, TypeScript doesn't need to resolve the generic to enable further method calls
+The thunk `() => targetModel` comes first to handle circular references between models, then configuration methods are chained.
 
 ## Relation Types
 
 | Relation | Description | Example |
 |----------|-------------|---------|
-| `s.relation.oneToOne()` | One record relates to one other | User → Profile |
-| `s.relation.oneToMany()` | One record relates to many | User → Posts |
-| `s.relation.manyToOne()` | Many records relate to one | Post → Author |
-| `s.relation.manyToMany()` | Many relate to many | Post ↔ Tags |
+| `s.oneToOne()` | One record relates to one other | User → Profile |
+| `s.oneToMany()` | One record relates to many | User → Posts |
+| `s.manyToOne()` | Many records relate to one | Post → Author |
+| `s.manyToMany()` | Many relate to many | Post ↔ Tags |
 
 ## Quick Example
 
@@ -38,53 +35,69 @@ import { s } from "viborm";
 const user = s.model({
   id: s.string().id().ulid(),
   email: s.string().unique(),
-  profile: s.relation.optional().oneToOne(() => profile),
-  posts: s.relation.oneToMany(() => post),
+  profile: s.oneToOne(() => profile).optional(),
+  posts: s.oneToMany(() => post),
 }).map("users");
 
 const profile = s.model({
   id: s.string().id().ulid(),
   bio: s.string(),
   userId: s.string().unique(),
-  user: s.relation
+  user: s.oneToOne(() => user)
     .fields("userId")
-    .references("id")
-    .oneToOne(() => user),
+    .references("id"),
 }).map("profiles");
 
 const post = s.model({
   id: s.string().id().ulid(),
   title: s.string(),
   authorId: s.string(),
-  author: s.relation
+  author: s.manyToOne(() => user)
     .fields("authorId")
-    .references("id")
-    .manyToOne(() => user),
-  tags: s.relation.manyToMany(() => tag),
+    .references("id"),
+  tags: s.manyToMany(() => tag),
 }).map("posts");
 
 const tag = s.model({
   id: s.string().id().ulid(),
   name: s.string().unique(),
-  posts: s.relation.manyToMany(() => post),
+  posts: s.manyToMany(() => post),
 }).map("tags");
 ```
 
-## Config Methods (before terminal)
+## Methods by Relation Type
 
-All config methods can be chained before the terminal method:
+### ToOne Relations (`oneToOne`, `manyToOne`)
 
 ```ts
-s.relation
-  .fields("fieldName")       // FK field on current model
-  .references("fieldName")   // Referenced field on target model
-  .onDelete("cascade")       // Referential action on delete
-  .onUpdate("cascade")       // Referential action on update
-  .optional()                // Mark as optional (to-one only)
-  .through("tableName")      // Junction table (many-to-many only)
-  .A("fieldName")            // Junction FK for source (many-to-many only)
-  .B("fieldName")            // Junction FK for target (many-to-many only)
-  .manyToOne(() => target)   // Terminal method - ALWAYS LAST
+s.manyToOne(() => target)
+  .fields("authorId")       // FK field on current model
+  .references("id")         // Referenced field on target model
+  .optional()               // Mark as optional (FK can be null)
+  .onDelete("cascade")      // Referential action on delete
+  .onUpdate("cascade")      // Referential action on update
+  .name("author")           // Custom relation name
+```
+
+### ToMany Relations (`oneToMany`)
+
+```ts
+s.oneToMany(() => target)
+  .name("posts")            // Custom relation name (only method needed)
+```
+
+The FK configuration is done on the `manyToOne` side, not here.
+
+### ManyToMany Relations
+
+```ts
+s.manyToMany(() => target)
+  .through("post_tags")     // Junction table name
+  .A("postId")              // Source FK in junction table
+  .B("tagId")               // Target FK in junction table
+  .onDelete("cascade")      // Referential action (applies to both FKs)
+  .onUpdate("cascade")      // Referential action (applies to both FKs)
+  .name("tags")             // Custom relation name
 ```
 
 ## Referential Actions
@@ -96,18 +109,17 @@ s.relation
 | `restrict` | Prevent delete/update if related records exist |
 | `noAction` | Database default behavior |
 
-## Class Hierarchy
+## Class Structure
 
-VibORM uses specialized classes for different relation types:
+VibORM uses standalone classes for different relation types:
 
 ```
-Relation (abstract base)
-├── ToOneRelation       → oneToOne, manyToOne (has .optional())
-├── OneToManyRelation   → oneToMany
-└── ManyToManyRelation  → manyToMany (has .through(), .A(), .B())
+ToOneRelation       → oneToOne, manyToOne
+ToManyRelation      → oneToMany
+ManyToManyRelation  → manyToMany
 ```
 
-This ensures only valid methods appear in IntelliSense.
+Each class only exposes methods relevant to that relation type.
 
 ## Pages
 
@@ -133,4 +145,3 @@ This ensures only valid methods appear in IntelliSense.
     href="/docs/schema/relations/many-to-many"
   />
 </Cards>
-

@@ -21,7 +21,7 @@ export const user = s.model({
   email: s.string().unique(),
   name: s.string(),
   createdAt: s.dateTime().default(() => new Date()),
-  posts: s.relation.oneToMany(() => post),
+  posts: s.oneToMany(() => post),
 }).map("users");
 
 // Post model
@@ -31,10 +31,9 @@ export const post = s.model({
   content: s.string().nullable(),
   published: s.boolean().default(false),
   authorId: s.string(),
-  author: s.relation
+  author: s.manyToOne(() => user)
     .fields("authorId")
-    .references("id")
-    .manyToOne(() => user),
+    .references("id"),
   createdAt: s.dateTime().default(() => new Date()),
 }).map("posts");
 ```

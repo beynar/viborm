@@ -162,7 +162,6 @@ export const testPost = s
     title: true,
     content: true,
   });
-const x = testPost["state"]["omit"];
 /**
  * Test profile model for client type tests
  */

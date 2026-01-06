@@ -138,32 +138,32 @@ s.vector()
 | Method | Description |
 |--------|-------------|
 | `.nullable()` | Allow NULL |
+| `.dimension(n)` | Set vector dimension |
 
 ## Relations
 
-VibORM uses a **config-first, getter-last** pattern for relations:
+VibORM uses a chainable API where the thunk comes first:
 
 ```ts
-s.relation.config().type(() => targetModel)
+s.manyToOne(() => targetModel).fields("fk").references("id")
 ```
 
 ### One-to-One
 
 ```ts
-s.relation.oneToOne(() => targetModel)
+s.oneToOne(() => targetModel)
 
 // With config
-s.relation
+s.oneToOne(() => targetModel)
   .fields("userId")
   .references("id")
   .optional()
-  .oneToOne(() => targetModel)
 ```
 
 ### One-to-Many
 
 ```ts
-s.relation.oneToMany(() => targetModel)
+s.oneToMany(() => targetModel)
 ```
 
 No FK config needed — FK is on the many side.
@@ -171,37 +171,50 @@ No FK config needed — FK is on the many side.
 ### Many-to-One
 
 ```ts
-s.relation
+s.manyToOne(() => targetModel)
   .fields("authorId")
   .references("id")
-  .manyToOne(() => targetModel)
 ```
 
 ### Many-to-Many
 
 ```ts
-s.relation.manyToMany(() => targetModel)
+s.manyToMany(() => targetModel)
 
 // With junction table config
-s.relation
+s.manyToMany(() => targetModel)
   .through("post_tags")
   .A("post_id")
   .B("tag_id")
-  .manyToMany(() => targetModel)
 ```
 
-### Relation Config Methods
+### ToOne Methods (`oneToOne`, `manyToOne`)
 
 | Method | Description |
 |--------|-------------|
 | `.fields(...names)` | FK fields on current model |
 | `.references(...names)` | Referenced fields on target |
-| `.optional()` | Nullable relation (to-one only) |
+| `.optional()` | Nullable relation |
 | `.onDelete(action)` | Delete behavior |
 | `.onUpdate(action)` | Update behavior |
-| `.through(tableName)` | Junction table (many-to-many) |
-| `.A(columnName)` | Source FK column (many-to-many) |
-| `.B(columnName)` | Target FK column (many-to-many) |
+| `.name(relationName)` | Custom relation name |
+
+### ToMany Methods (`oneToMany`)
+
+| Method | Description |
+|--------|-------------|
+| `.name(relationName)` | Custom relation name |
+
+### ManyToMany Methods
+
+| Method | Description |
+|--------|-------------|
+| `.through(tableName)` | Junction table name |
+| `.A(columnName)` | Source FK column |
+| `.B(columnName)` | Target FK column |
+| `.onDelete(action)` | Delete behavior (both FKs) |
+| `.onUpdate(action)` | Update behavior (both FKs) |
+| `.name(relationName)` | Custom relation name |
 
 ## Referential Actions
 
@@ -229,4 +242,3 @@ s.relation
 | `type` | `"btree"`, `"hash"`, `"gin"`, `"gist"` |
 | `unique` | `true`, `false` |
 | `where` | Partial index condition |
-

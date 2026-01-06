@@ -6,7 +6,19 @@ icon: Database
 
 # VibORM
 
-VibORM gives you **Prisma's query API** without the code generation step or WASM deployment headaches.
+VibORM started as an experiment: **how far can we push vibe coding?** Can we build something as complex as an ORM with AI assistance?
+
+The answer, so far, is yes - and the result gives you **Prisma's query API** without the code generation step or WASM deployment headaches.
+
+## The Origin
+
+This project was born from two things: frustration with Prisma's developer experience friction, and the opportunity presented by new AI models like Claude Opus and agents like Cursor.
+
+The name says it: **Vib**e coding + **ORM** = **VibORM**.
+
+Unlike Prisma's codebase (which can be intimidating), VibORM is designed to be **accessible to mid-level TypeScript engineers**. The architecture is organized into clean layers, each documented by `AGENTS.md` files that explain what each layer does, why it exists, and how to modify it. This makes it easy for contributors - and their AI assistants - to understand the codebase and make quality pull requests.
+
+Check out the [Internals](/docs/internals) section to see how it's structured.
 
 ## Why We Built This
 

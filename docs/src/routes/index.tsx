@@ -229,17 +229,16 @@ const user = s.model({
   id: s.string().id().ulid(),
   email: s.string().unique(),
   name: s.string().nullable(),
-  posts: s.relation.oneToMany(() => post),
+  posts: s.oneToMany(() => post),
 }).map("users");
 
 const post = s.model({
   id: s.string().id().ulid(),
   title: s.string(),
   authorId: s.string(),
-  author: s.relation
+  author: s.manyToOne(() => user)
     .fields("authorId")
-    .references("id")
-    .manyToOne(() => user),
+    .references("id"),
 }).map("posts");
 
 // That's it. Relations are part of the model.

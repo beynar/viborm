@@ -144,9 +144,9 @@ const user = s
     createdAt: s.dateTime().default(() => new Date()),
     updatedAt: s.dateTime().updatedAt(),
 
-    // Relations (config-first, getter-last pattern)
-    posts: s.relation.oneToMany(() => post),
-    profile: s.relation.optional().oneToOne(() => profile),
+    // Relations
+    posts: s.oneToMany(() => post),
+    profile: s.oneToOne(() => profile).optional(),
   })
   .map("users")
   .index("email")
