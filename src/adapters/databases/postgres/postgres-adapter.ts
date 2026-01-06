@@ -1,7 +1,7 @@
 import { type Sql, sql } from "@sql";
 import type { DatabaseAdapter, QueryParts } from "../../database-adapter";
 import { convertBigIntToNumber } from "../../shared/result-parsing";
-import { postgresMigrations } from "./migrations";
+import { postgresMigrations } from "./migrations/index";
 
 /**
  * PostgreSQL Database Adapter
