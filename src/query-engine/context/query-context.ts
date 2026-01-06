@@ -117,14 +117,14 @@ export function isRelation(model: Model<any>, fieldName: string): boolean {
 
 /**
  * Get the actual database column name for a field
- * Resolves .map("column_name") overrides using hydrated names.
+ * Uses the model's nameRegistry to resolve names (supports field reuse across models).
+ * Falls back to field's .map() columnName or the field name itself.
  *
  * @param model - The model containing the field
  * @param fieldName - The field name in the schema
- * @returns The actual column name (from .map() or the field name itself)
+ * @returns The actual column name (from registry, .map(), or the field name itself)
  */
 export function getColumnName(model: Model<any>, fieldName: string): string {
-  const field = model["~"].state.scalars[fieldName];
-  if (!field) return fieldName; // Fallback for unknown fields
-  return field["~"].names.sql ?? fieldName;
+  // Use model's getFieldName helper which checks nameRegistry first
+  return model["~"].getFieldName(fieldName).sql;
 }

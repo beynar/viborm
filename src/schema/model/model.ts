@@ -77,9 +77,26 @@ export type UpdateState<
   Update extends Partial<ModelState>,
 > = Omit<State, keyof Update> & Update;
 
+/**
+ * Name registry for fields and relations.
+ * Maps field/relation keys to their resolved names (ts and sql).
+ * This is populated during hydration.
+ */
+export interface NameRegistry {
+  /** Field names: key -> {ts, sql} */
+  fields: Map<string, SchemaNames>;
+  /** Relation names: key -> {ts, sql} */
+  relations: Map<string, SchemaNames>;
+}
+
 export class Model<State extends ModelState> {
   // biome-ignore lint/style/useReadonlyClassProperties: <it is reassigned when hydrating schemas>
   private _names: SchemaNames = {};
+  // biome-ignore lint/style/useReadonlyClassProperties: <it is reassigned when hydrating schemas>
+  private _nameRegistry: NameRegistry = {
+    fields: new Map(),
+    relations: new Map(),
+  };
   private readonly state: State;
   constructor(state: State) {
     this.state = state;
@@ -232,6 +249,33 @@ export class Model<State extends ModelState> {
       state: this.state,
       schemas: getModelSchemas(this.state),
       names: this._names,
+      nameRegistry: this._nameRegistry,
+      /**
+       * Get the resolved names for a field.
+       * Requires hydration - throws if field not found in registry.
+       */
+      getFieldName: (key: string): HydratedSchemaNames => {
+        const registered = this._nameRegistry.fields.get(key);
+        if (!registered) {
+          throw new Error(
+            `Field "${key}" not found in nameRegistry. Schema may not be hydrated.`
+          );
+        }
+        return registered as HydratedSchemaNames;
+      },
+      /**
+       * Get the resolved names for a relation.
+       * Requires hydration - throws if relation not found in registry.
+       */
+      getRelationName: (key: string): HydratedSchemaNames => {
+        const registered = this._nameRegistry.relations.get(key);
+        if (!registered) {
+          throw new Error(
+            `Relation "${key}" not found in nameRegistry. Schema may not be hydrated.`
+          );
+        }
+        return registered as HydratedSchemaNames;
+      },
     };
   }
 }

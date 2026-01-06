@@ -5,15 +5,12 @@ import {
   type DefaultValue,
   type DefaultValueInput,
   type FieldState,
-  type SchemaNames,
   type UpdateState,
 } from "../common";
 import type { NativeType } from "../native-types";
 import { buildJsonSchema, type JsonSchemas, jsonBase } from "./schemas";
 
 export class JsonField<State extends FieldState<"json"> = FieldState<"json">> {
-  // biome-ignore lint/style/useReadonlyClassProperties: <it is reassigned when hydrating schemas>
-  private _names: SchemaNames = {};
   private _schemas: JsonSchemas<State> | undefined;
   private readonly state: State;
   private readonly _nativeType?: NativeType | undefined;
@@ -114,7 +111,6 @@ export class JsonField<State extends FieldState<"json"> = FieldState<"json">> {
       state: this.state,
       schemas: (this._schemas ??= buildJsonSchema(this.state)),
       nativeType: this._nativeType,
-      names: this._names,
     };
   }
 }

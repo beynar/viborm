@@ -1,7 +1,6 @@
 // ToOne Relation Class (Standalone)
 // For oneToOne and manyToOne relations with chainable configuration API
 
-import type { SchemaNames } from "../fields/common";
 import { getRelationSchemas } from "./schemas";
 import type { Getter, ReferentialAction, ToOneRelationState } from "./types";
 
@@ -30,7 +29,6 @@ import type { Getter, ReferentialAction, ToOneRelationState } from "./types";
  */
 export class ToOneRelation<State extends ToOneRelationState> {
   private readonly _state: State;
-  private readonly _names: SchemaNames = {};
   private _schemas: ReturnType<typeof getRelationSchemas<State>> | undefined;
 
   constructor(state: State) {
@@ -98,12 +96,11 @@ export class ToOneRelation<State extends ToOneRelationState> {
   }
 
   /**
-   * Internal accessor for state, schemas, and names
+   * Internal accessor for state and schemas
    */
   get "~"() {
     return {
       state: this._state,
-      names: this._names,
       schemas: (this._schemas ??= getRelationSchemas(this._state)),
     };
   }

@@ -8,7 +8,6 @@ import {
   type DefaultValue,
   type DefaultValueInput,
   type FieldState,
-  type SchemaNames,
   type UpdateState,
 } from "../common";
 import type { NativeType } from "../native-types";
@@ -21,8 +20,6 @@ import {
 import { buildStringSchema, type StringSchemas, stringBase } from "./schemas";
 
 export class StringField<State extends FieldState<"string">> {
-  // biome-ignore lint/style/useReadonlyClassProperties: <it is reassigned when hydrating schemas>
-  private _names: SchemaNames = {};
   private _schemas: StringSchemas<State> | undefined;
   private readonly state: State;
   private readonly _nativeType?: NativeType | undefined;
@@ -287,7 +284,6 @@ export class StringField<State extends FieldState<"string">> {
       state: this.state,
       schemas: (this._schemas ??= buildStringSchema(this.state)),
       nativeType: this._nativeType,
-      names: this._names,
     };
   }
 }

@@ -8,7 +8,6 @@ import {
   type DefaultValue,
   type DefaultValueInput,
   type FieldState,
-  type SchemaNames,
   type UpdateState,
 } from "../common";
 import type { NativeType } from "../native-types";
@@ -24,8 +23,6 @@ const defaultUpdatedAt = () => {
 };
 
 export class TimeField<State extends FieldState<"time">> {
-  // biome-ignore lint/style/useReadonlyClassProperties: <it is reassigned when hydrating schemas>
-  private _names: SchemaNames = {};
   private _schemas: TimeSchemas<State> | undefined;
   private readonly state: State;
   private readonly _nativeType?: NativeType | undefined;
@@ -218,7 +215,6 @@ export class TimeField<State extends FieldState<"time">> {
       state: this.state,
       schemas: (this._schemas ??= buildTimeSchema(this.state)),
       nativeType: this._nativeType,
-      names: this._names,
     };
   }
 }

@@ -7,7 +7,6 @@ import {
   type DefaultValue,
   type DefaultValueInput,
   type FieldState,
-  type SchemaNames,
   type UpdateState,
 } from "../common";
 import type { NativeType } from "../native-types";
@@ -18,8 +17,6 @@ import {
 } from "./schemas";
 
 export class BooleanField<State extends FieldState<"boolean">> {
-  // biome-ignore lint/style/useReadonlyClassProperties: <it is reassigned when hydrating schemas>
-  private _names: SchemaNames = {};
   private _schemas: BooleanSchemas<State> | undefined;
   private readonly state: State;
   private readonly _nativeType?: NativeType | undefined;
@@ -122,7 +119,6 @@ export class BooleanField<State extends FieldState<"boolean">> {
       state: this.state,
       schemas: (this._schemas ??= buildBooleanSchema(this.state)),
       nativeType: this._nativeType,
-      names: this._names,
     };
   }
 }
