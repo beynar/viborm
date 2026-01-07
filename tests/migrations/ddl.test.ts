@@ -455,6 +455,294 @@ describe("PostgreSQL DDL Generation", () => {
       expect(ddl).toContain("ALTER TYPE \"status\" ADD VALUE 'pending'");
       expect(ddl).toContain("ALTER TYPE \"status\" ADD VALUE 'archived'");
     });
+
+    it("should recreate enum when removing values", () => {
+      const op: DiffOperation = {
+        type: "alterEnum",
+        enumName: "status",
+        removeValues: ["pending"],
+        newValues: ["active", "inactive"],
+        dependentColumns: [
+          { tableName: "users", columnName: "status" },
+          { tableName: "orders", columnName: "order_status" },
+        ],
+        // Provide replacement to avoid warning comment
+        defaultReplacement: "active",
+      };
+
+      const ddl = generateDDL(op);
+      const statements = ddl.split(";\n");
+
+      // Should convert columns to text first
+      expect(statements[0]).toBe(
+        'ALTER TABLE "users" ALTER COLUMN "status" TYPE text'
+      );
+      expect(statements[1]).toBe(
+        'ALTER TABLE "orders" ALTER COLUMN "order_status" TYPE text'
+      );
+
+      // Should UPDATE with default replacement
+      expect(statements[2]).toBe(
+        `UPDATE "users" SET "status" = 'active' WHERE "status" = 'pending'`
+      );
+      expect(statements[3]).toBe(
+        `UPDATE "orders" SET "order_status" = 'active' WHERE "order_status" = 'pending'`
+      );
+
+      // Should drop the old enum
+      expect(statements[4]).toBe('DROP TYPE "status"');
+
+      // Should create the new enum with correct values
+      expect(statements[5]).toBe(
+        "CREATE TYPE \"status\" AS ENUM ('active', 'inactive')"
+      );
+
+      // Should convert columns back to enum type
+      expect(statements[6]).toBe(
+        'ALTER TABLE "users" ALTER COLUMN "status" TYPE "status" USING "status"::"status"'
+      );
+      expect(statements[7]).toBe(
+        'ALTER TABLE "orders" ALTER COLUMN "order_status" TYPE "status" USING "order_status"::"status"'
+      );
+    });
+
+    it("should recreate enum without dependent columns", () => {
+      const op: DiffOperation = {
+        type: "alterEnum",
+        enumName: "unused_status",
+        removeValues: ["old_value"],
+        newValues: ["new_value"],
+      };
+
+      const ddl = generateDDL(op);
+      const statements = ddl.split(";\n");
+
+      // Should just drop and recreate
+      expect(statements[0]).toBe('DROP TYPE "unused_status"');
+      expect(statements[1]).toBe(
+        "CREATE TYPE \"unused_status\" AS ENUM ('new_value')"
+      );
+    });
+
+    it("should handle both add and remove values", () => {
+      const op: DiffOperation = {
+        type: "alterEnum",
+        enumName: "status",
+        addValues: ["new_value"],
+        removeValues: ["old_value"],
+        newValues: ["active", "inactive", "new_value"],
+        dependentColumns: [{ tableName: "users", columnName: "status" }],
+      };
+
+      const ddl = generateDDL(op);
+
+      // When removing values, the entire enum must be recreated
+      // (addValues is ignored in favor of newValues)
+      expect(ddl).toContain('DROP TYPE "status"');
+      expect(ddl).toContain(
+        "CREATE TYPE \"status\" AS ENUM ('active', 'inactive', 'new_value')"
+      );
+    });
+
+    it("should throw error when removeValues provided without newValues", () => {
+      const op: DiffOperation = {
+        type: "alterEnum",
+        enumName: "status",
+        removeValues: ["pending"],
+      };
+
+      expect(() => generateDDL(op)).toThrow(
+        'Cannot alter enum "status": newValues required when removing values'
+      );
+    });
+
+    it("should generate UPDATE statements for value replacements", () => {
+      const op: DiffOperation = {
+        type: "alterEnum",
+        enumName: "status",
+        removeValues: ["pending", "archived"],
+        newValues: ["active", "inactive"],
+        dependentColumns: [
+          { tableName: "users", columnName: "status" },
+          { tableName: "orders", columnName: "order_status" },
+        ],
+        valueReplacements: {
+          pending: "active",
+          archived: "inactive",
+        },
+      };
+
+      const ddl = generateDDL(op);
+      const statements = ddl.split(";\n");
+
+      // Should have: 2 ALTER to text + 4 UPDATEs (2 values × 2 tables) + DROP + CREATE + 2 ALTER back = 10
+      expect(statements).toHaveLength(10);
+
+      // Check UPDATE statements are generated
+      expect(ddl).toContain(
+        `UPDATE "users" SET "status" = 'active' WHERE "status" = 'pending'`
+      );
+      expect(ddl).toContain(
+        `UPDATE "orders" SET "order_status" = 'active' WHERE "order_status" = 'pending'`
+      );
+      expect(ddl).toContain(
+        `UPDATE "users" SET "status" = 'inactive' WHERE "status" = 'archived'`
+      );
+      expect(ddl).toContain(
+        `UPDATE "orders" SET "order_status" = 'inactive' WHERE "order_status" = 'archived'`
+      );
+    });
+
+    it("should handle NULL replacement values", () => {
+      const op: DiffOperation = {
+        type: "alterEnum",
+        enumName: "status",
+        removeValues: ["deprecated"],
+        newValues: ["active", "inactive"],
+        dependentColumns: [{ tableName: "users", columnName: "status" }],
+        valueReplacements: {
+          deprecated: null,
+        },
+      };
+
+      const ddl = generateDDL(op);
+
+      expect(ddl).toContain(
+        `UPDATE "users" SET "status" = NULL WHERE "status" = 'deprecated'`
+      );
+    });
+
+    it("should only generate UPDATEs for values with replacements", () => {
+      const op: DiffOperation = {
+        type: "alterEnum",
+        enumName: "status",
+        removeValues: ["pending", "archived"],
+        newValues: ["active", "inactive"],
+        dependentColumns: [{ tableName: "users", columnName: "status" }],
+        valueReplacements: {
+          pending: "active",
+          // No replacement for 'archived' - will fail at runtime if data exists
+        },
+      };
+
+      const ddl = generateDDL(op);
+
+      // Should have UPDATE for pending only
+      expect(ddl).toContain(
+        `UPDATE "users" SET "status" = 'active' WHERE "status" = 'pending'`
+      );
+      expect(ddl).not.toContain(`WHERE "status" = 'archived'`);
+    });
+
+    it("should use defaultReplacement for values without explicit mapping", () => {
+      const op: DiffOperation = {
+        type: "alterEnum",
+        enumName: "status",
+        removeValues: ["pending", "archived", "deleted"],
+        newValues: ["active", "inactive"],
+        dependentColumns: [{ tableName: "users", columnName: "status" }],
+        valueReplacements: {
+          pending: "inactive", // explicit mapping
+        },
+        defaultReplacement: "active", // used for archived and deleted
+      };
+
+      const ddl = generateDDL(op);
+
+      // pending uses explicit replacement
+      expect(ddl).toContain(
+        `UPDATE "users" SET "status" = 'inactive' WHERE "status" = 'pending'`
+      );
+      // archived and deleted use defaultReplacement
+      expect(ddl).toContain(
+        `UPDATE "users" SET "status" = 'active' WHERE "status" = 'archived'`
+      );
+      expect(ddl).toContain(
+        `UPDATE "users" SET "status" = 'active' WHERE "status" = 'deleted'`
+      );
+    });
+
+    it("should use defaultReplacement alone without valueReplacements", () => {
+      const op: DiffOperation = {
+        type: "alterEnum",
+        enumName: "status",
+        removeValues: ["pending", "archived"],
+        newValues: ["active", "inactive"],
+        dependentColumns: [{ tableName: "users", columnName: "status" }],
+        defaultReplacement: "active",
+      };
+
+      const ddl = generateDDL(op);
+
+      expect(ddl).toContain(
+        `UPDATE "users" SET "status" = 'active' WHERE "status" = 'pending'`
+      );
+      expect(ddl).toContain(
+        `UPDATE "users" SET "status" = 'active' WHERE "status" = 'archived'`
+      );
+    });
+
+    it("should handle null as defaultReplacement", () => {
+      const op: DiffOperation = {
+        type: "alterEnum",
+        enumName: "status",
+        removeValues: ["pending"],
+        newValues: ["active", "inactive"],
+        dependentColumns: [{ tableName: "users", columnName: "status" }],
+        defaultReplacement: null,
+      };
+
+      const ddl = generateDDL(op);
+
+      expect(ddl).toContain(
+        `UPDATE "users" SET "status" = NULL WHERE "status" = 'pending'`
+      );
+    });
+
+    it("should add warning comment when values have no replacement", () => {
+      const op: DiffOperation = {
+        type: "alterEnum",
+        enumName: "status",
+        removeValues: ["pending", "archived"],
+        newValues: ["active", "inactive"],
+        dependentColumns: [{ tableName: "users", columnName: "status" }],
+        valueReplacements: {
+          pending: "active", // only pending has replacement
+        },
+        // archived has no replacement
+      };
+
+      const ddl = generateDDL(op);
+
+      // Should include warning about archived
+      expect(ddl).toContain(
+        "-- WARNING: The following removed values have no replacement: 'archived'"
+      );
+      expect(ddl).toContain(
+        "-- If rows exist with these values, the migration will fail."
+      );
+      expect(ddl).toContain(
+        '--   1. Add valueReplacements: { "archived": "newValue" }'
+      );
+      expect(ddl).toContain(
+        "--   2. Set defaultReplacement to your field's default value"
+      );
+    });
+
+    it("should not add warning when all values have replacements", () => {
+      const op: DiffOperation = {
+        type: "alterEnum",
+        enumName: "status",
+        removeValues: ["pending"],
+        newValues: ["active", "inactive"],
+        dependentColumns: [{ tableName: "users", columnName: "status" }],
+        defaultReplacement: "active",
+      };
+
+      const ddl = generateDDL(op);
+
+      expect(ddl).not.toContain("-- WARNING:");
+    });
   });
 
   describe("mapFieldType", () => {

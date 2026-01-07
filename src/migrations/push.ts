@@ -62,6 +62,12 @@ export interface PushOptions {
   resolver?: Resolver;
   /** Called when destructive operations are detected (for CLI confirmation) */
   onDestructive?: (descriptions: string[]) => Promise<boolean>;
+  /**
+   * Called when enum values are being removed and need replacement mappings.
+   * If not provided and enum values are removed, the migration will include
+   * a warning comment and may fail at runtime if rows exist with removed values.
+   */
+  enumValueResolver?: EnumValueResolver;
 }
 
 // =============================================================================
@@ -131,7 +137,13 @@ export async function push(
     finalOperations = sortOperations(finalOperations);
   }
 
-  // 5. Check for destructive operations
+  // 5. Resolve enum value removals
+  finalOperations = await resolveEnumValueRemovals(
+    finalOperations,
+    options.enumValueResolver
+  );
+
+  // 6. Check for destructive operations
   if (hasDestructiveOperations(finalOperations) && !force) {
     const descriptions = getDestructiveOperationDescriptions(finalOperations);
 
@@ -152,7 +164,7 @@ export async function push(
     }
   }
 
-  // 6. Generate DDL statements
+  // 7. Generate DDL statements
   const sql: string[] = [];
   for (const op of finalOperations) {
     const ddl = adapter.migrations.generateDDL(op);
@@ -161,14 +173,34 @@ export async function push(
     sql.push(...statements);
   }
 
-  // 7. Execute DDL (unless dry run)
+  // 8. Execute DDL (unless dry run)
   if (!dryRun && sql.length > 0) {
-    // Execute in a transaction for atomicity
-    await driver._transaction(async () => {
-      for (const statement of sql) {
-        await driver._executeRaw(statement + ";");
+    // Separate ALTER TYPE ... ADD VALUE statements - they cannot run in a transaction
+    // (PostgreSQL limitation: ADD VALUE cannot be executed inside a transaction block)
+    const addValueStatements: string[] = [];
+    const transactionalStatements: string[] = [];
+
+    for (const statement of sql) {
+      if (statement.trim().match(/^ALTER\s+TYPE\s+.*\s+ADD\s+VALUE\s+/i)) {
+        addValueStatements.push(statement);
+      } else {
+        transactionalStatements.push(statement);
       }
-    });
+    }
+
+    // Execute ADD VALUE statements outside transaction first
+    for (const statement of addValueStatements) {
+      await driver._executeRaw(statement + ";");
+    }
+
+    // Execute remaining statements in a transaction for atomicity
+    if (transactionalStatements.length > 0) {
+      await driver._transaction(async () => {
+        for (const statement of transactionalStatements) {
+          await driver._executeRaw(statement + ";");
+        }
+      });
+    }
   }
 
   return {
@@ -181,6 +213,73 @@ export async function push(
 // =============================================================================
 // HELPERS
 // =============================================================================
+
+/**
+ * Resolves enum value removals by calling the resolver callback (if provided)
+ * and merging the resolutions into the operations.
+ */
+async function resolveEnumValueRemovals(
+  operations: DiffOperation[],
+  resolver?: EnumValueResolver
+): Promise<DiffOperation[]> {
+  // Find alterEnum operations with removeValues that need resolution
+  const removals: EnumValueRemoval[] = [];
+
+  for (const op of operations) {
+    if (
+      op.type === "alterEnum" &&
+      op.removeValues &&
+      op.removeValues.length > 0
+    ) {
+      // Check if any removed values lack replacements
+      const unresolvedValues = op.removeValues.filter((v) => {
+        const hasExplicit = op.valueReplacements && v in op.valueReplacements;
+        const hasDefault = op.defaultReplacement !== undefined;
+        return !(hasExplicit || hasDefault);
+      });
+
+      if (unresolvedValues.length > 0) {
+        removals.push({
+          enumName: op.enumName,
+          removedValues: unresolvedValues,
+          newValues: op.newValues || [],
+          dependentColumns: op.dependentColumns || [],
+        });
+      }
+    }
+  }
+
+  // If no unresolved removals or no resolver, return operations unchanged
+  if (removals.length === 0 || !resolver) {
+    return operations;
+  }
+
+  // Call the resolver
+  const resolutions = await resolver(removals);
+
+  // Merge resolutions into operations
+  return operations.map((op) => {
+    if (op.type !== "alterEnum" || !op.removeValues) {
+      return op;
+    }
+
+    const resolution = resolutions.get(op.enumName);
+    if (!resolution) {
+      return op;
+    }
+
+    // Merge the resolution into the operation
+    return {
+      ...op,
+      valueReplacements: {
+        ...op.valueReplacements,
+        ...resolution.valueReplacements,
+      },
+      defaultReplacement:
+        resolution.defaultReplacement ?? op.defaultReplacement,
+    };
+  });
+}
 
 /**
  * Sort operations for proper execution order

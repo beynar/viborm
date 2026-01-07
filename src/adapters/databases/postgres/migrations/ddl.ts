@@ -238,23 +238,109 @@ export function generateDDL(operation: DiffOperation): string {
       return `DROP TYPE ${escapeIdentifier(operation.enumName)}`;
 
     case "alterEnum": {
-      const { enumName, addValues, removeValues } = operation;
+      const {
+        enumName,
+        addValues,
+        removeValues,
+        newValues,
+        dependentColumns,
+        valueReplacements,
+      } = operation;
       const statements: string[] = [];
 
-      // PostgreSQL can add values but not remove them easily
-      if (addValues) {
+      // If we're only adding values, use the simple ALTER TYPE ... ADD VALUE
+      if (addValues && (!removeValues || removeValues.length === 0)) {
         for (const value of addValues) {
           statements.push(
             `ALTER TYPE ${escapeIdentifier(enumName)} ADD VALUE ${escapeValue(value)}`
           );
         }
+        return statements.join(";\n");
       }
 
-      // Note: Removing enum values in PostgreSQL requires recreating the type
+      // When removing values, we need to recreate the entire enum type
+      // This requires:
+      // 1. Convert dependent columns to text
+      // 2. Migrate data for removed values (if replacements provided)
+      // 3. Drop the old enum
+      // 4. Create the new enum with correct values
+      // 5. Convert columns back to the enum type
       if (removeValues && removeValues.length > 0) {
+        if (!newValues || newValues.length === 0) {
+          throw new Error(
+            `Cannot alter enum "${enumName}": newValues required when removing values`
+          );
+        }
+
+        // Step 1: Convert all dependent columns to text temporarily
+        if (dependentColumns && dependentColumns.length > 0) {
+          for (const { tableName, columnName } of dependentColumns) {
+            statements.push(
+              `ALTER TABLE ${escapeIdentifier(tableName)} ALTER COLUMN ${escapeIdentifier(columnName)} TYPE text`
+            );
+          }
+        }
+
+        // Step 2: Migrate data for removed values
+        // This must happen AFTER converting to text but BEFORE dropping the enum
+        if (dependentColumns && dependentColumns.length > 0) {
+          for (const removedValue of removeValues) {
+            // Check for explicit replacement first, then fall back to default
+            let replacement: string | null | undefined;
+            if (valueReplacements && removedValue in valueReplacements) {
+              replacement = valueReplacements[removedValue];
+            } else if (operation.defaultReplacement !== undefined) {
+              replacement = operation.defaultReplacement;
+            }
+
+            // Only generate UPDATE if we have a replacement
+            if (replacement !== undefined) {
+              for (const { tableName, columnName } of dependentColumns) {
+                const newValue =
+                  replacement === null ? "NULL" : escapeValue(replacement);
+                statements.push(
+                  `UPDATE ${escapeIdentifier(tableName)} SET ${escapeIdentifier(columnName)} = ${newValue} WHERE ${escapeIdentifier(columnName)} = ${escapeValue(removedValue)}`
+                );
+              }
+            }
+          }
+        }
+
+        // Step 3: Drop the old enum type
+        statements.push(`DROP TYPE ${escapeIdentifier(enumName)}`);
+
+        // Step 4: Create the new enum with correct values
+        const values = newValues.map(escapeValue).join(", ");
         statements.push(
-          `-- WARNING: Removing enum values requires recreating the type. Values to remove: ${removeValues.join(", ")}`
+          `CREATE TYPE ${escapeIdentifier(enumName)} AS ENUM (${values})`
         );
+
+        // Step 5: Convert columns back to the enum type
+        // Check if any removed values don't have replacements - add a warning comment
+        const unreplacedValues = removeValues.filter((v) => {
+          const hasExplicit = valueReplacements && v in valueReplacements;
+          const hasDefault = operation.defaultReplacement !== undefined;
+          return !(hasExplicit || hasDefault);
+        });
+
+        if (unreplacedValues.length > 0 && dependentColumns?.length) {
+          statements.push(
+            `-- WARNING: The following removed values have no replacement: ${unreplacedValues.map((v) => `'${v}'`).join(", ")}\n` +
+              "-- If rows exist with these values, the migration will fail.\n" +
+              "-- Fix options:\n" +
+              `--   1. Add valueReplacements: { "${unreplacedValues[0]}": "newValue" }\n` +
+              `--   2. Set defaultReplacement to your field's default value\n` +
+              "--   3. Manually UPDATE rows before running this migration"
+          );
+        }
+
+        if (dependentColumns && dependentColumns.length > 0) {
+          for (const { tableName, columnName } of dependentColumns) {
+            statements.push(
+              `ALTER TABLE ${escapeIdentifier(tableName)} ALTER COLUMN ${escapeIdentifier(columnName)} TYPE ${escapeIdentifier(enumName)} USING ${escapeIdentifier(columnName)}::${escapeIdentifier(enumName)}`
+            );
+          }
+        }
       }
 
       return statements.join(";\n");
