@@ -310,8 +310,8 @@ export function serializeModels(
     // Process scalar fields
     for (const [fieldName, field] of Object.entries(modelState.scalars)) {
       const fieldState = (field as Field)["~"].state;
-      const columnName =
-        (field as Field)["~"].names.sql || fieldState.columnName || fieldName;
+      // Use model's nameRegistry for column name resolution (supports field reuse)
+      const columnName = model["~"].getFieldName(fieldName).sql;
 
       // Handle enum types for PostgreSQL
       if (fieldState.type === "enum" && dialect === "postgresql") {
@@ -462,10 +462,15 @@ export function serializeModels(
 }
 
 /**
- * Gets the SQL column name for a field
+ * Gets the SQL column name for a field using the model's nameRegistry.
+ * This supports field reuse across multiple models.
+ *
+ * @param model - The model containing the field
+ * @param fieldName - The field key in the schema
+ * @returns The SQL column name
  */
-export function getColumnName(field: Field, fieldName: string): string {
-  return field["~"].names.sql || field["~"].state.columnName || fieldName;
+export function getColumnName(model: AnyModel, fieldName: string): string {
+  return model["~"].getFieldName(fieldName).sql;
 }
 
 /**

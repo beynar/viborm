@@ -11,3 +11,6 @@ docs/dist
 docs/.wrangler
 
 .pglite
+.dist
+.dist-test
+.dist-tsc

@@ -7,7 +7,6 @@ import {
   type DefaultValue,
   type DefaultValueInput,
   type FieldState,
-  type SchemaNames,
   type UpdateState,
 } from "../common";
 import type { NativeType } from "../native-types";
@@ -17,8 +16,6 @@ export class EnumField<
   Values extends string[],
   State extends FieldState<"enum"> = FieldState<"enum">,
 > {
-  // biome-ignore lint/style/useReadonlyClassProperties: <it is reassigned when hydrating schemas>
-  private _names: SchemaNames = {};
   readonly values: Values;
   private _schemas: EnumSchemas<Values, State> | undefined;
   private readonly state: State;
@@ -138,7 +135,6 @@ export class EnumField<
       state: this.state,
       schemas: (this._schemas ??= buildEnumSchema(this.values, this.state)),
       nativeType: this._nativeType,
-      names: this._names,
     };
   }
 }

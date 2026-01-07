@@ -23,6 +23,17 @@ export interface SchemaNames {
   sql?: string;
 }
 
+/**
+ * Hydrated schema names - guaranteed to have both ts and sql defined.
+ * Returned by model["~"].getFieldName() and model["~"].getRelationName().
+ */
+export interface HydratedSchemaNames {
+  /** TypeScript key name in the schema */
+  ts: string;
+  /** Resolved SQL name (column/table) */
+  sql: string;
+}
+
 // =============================================================================
 // SCALAR TYPES
 // =============================================================================

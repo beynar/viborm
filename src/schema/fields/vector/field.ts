@@ -7,15 +7,12 @@ import {
   type DefaultValue,
   type DefaultValueInput,
   type FieldState,
-  type SchemaNames,
   type UpdateState,
 } from "../common";
 import type { NativeType } from "../native-types";
 import { buildVectorSchema, type VectorSchemas, vectorBase } from "./schemas";
 
 export class VectorField<State extends FieldState<"vector">> {
-  // biome-ignore lint/style/useReadonlyClassProperties: <it is reassigned when hydrating schemas>
-  private _names: SchemaNames = {};
   private _schemas: VectorSchemas<State> | undefined;
   private readonly state: State;
   private readonly _nativeType?: NativeType | undefined;
@@ -97,7 +94,6 @@ export class VectorField<State extends FieldState<"vector">> {
       state: this.state,
       schemas: (this._schemas ??= buildVectorSchema(this.state)),
       nativeType: this._nativeType,
-      names: this._names,
     };
   }
 }

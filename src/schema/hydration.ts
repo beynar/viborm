@@ -6,11 +6,14 @@
  *
  * - tsName: The TypeScript key name in the schema (e.g., "email", "User")
  * - sqlName: The resolved database name (e.g., "email_column", "users")
+ *
+ * Names are stored in the model's nameRegistry, not on the field/relation instances.
+ * This allows the same field to be reused across multiple models with different keys.
  */
 
 import type { Field } from "./fields/base";
 import type { SchemaNames } from "./fields/common";
-import type { Model } from "./model";
+import type { Model, NameRegistry } from "./model";
 import type { AnyRelation } from "./relation";
 
 /**
@@ -21,13 +24,11 @@ export type Schema = Record<string, Model<any>>;
 /**
  * Hydrate name slots for all models, fields, and relations in a schema.
  *
- * This function mutates the schema objects in place, setting:
+ * This function populates the model's nameRegistry:
  * - model["~"].names.ts = schema key (e.g., "User")
  * - model["~"].names.sql = tableName ?? schema key (e.g., "users")
- * - field["~"].names.ts = field key (e.g., "email")
- * - field["~"].names.sql = columnName ?? field key (e.g., "email_column")
- * - relation["~"].names.ts = relation key (e.g., "posts")
- * - relation["~"].names.sql = relation key (relations don't have column mapping)
+ * - model["~"].nameRegistry.fields.get(fieldKey) = {ts, sql}
+ * - model["~"].nameRegistry.relations.get(relationKey) = {ts, sql}
  *
  * Note: Full schemas are built lazily when first accessed via model["~"].schemas.
  * This allows circular references to work correctly - thunks are evaluated
@@ -47,46 +48,37 @@ export function hydrateSchemaNames(schema: Schema): void {
 function hydrateModel(modelKey: string, model: Model<any>): void {
   const names = model["~"].names as SchemaNames;
   const state = model["~"].state;
+  const registry = model["~"].nameRegistry as NameRegistry;
 
   // Set model names
   names.ts = modelKey;
   names.sql = state.tableName ?? modelKey;
 
-  // Hydrate scalar fields
+  // Hydrate scalar fields into model's nameRegistry
   for (const [fieldKey, field] of Object.entries(
     state.scalars as Record<string, Field>
   )) {
-    hydrateField(fieldKey, field);
+    const fieldNames: SchemaNames = {
+      ts: fieldKey,
+      sql: field["~"].state.columnName ?? fieldKey,
+    };
+    registry.fields.set(fieldKey, fieldNames);
   }
 
-  // Hydrate relations
-  for (const [relationKey, relation] of Object.entries(
+  // Hydrate relations into model's nameRegistry
+  for (const [relationKey] of Object.entries(
     state.relations as Record<string, AnyRelation>
   )) {
-    hydrateRelation(relationKey, relation);
+    const relationNames: SchemaNames = {
+      ts: relationKey,
+      // Relations don't have column mapping - sql name equals ts name
+      sql: relationKey,
+    };
+    registry.relations.set(relationKey, relationNames);
   }
 
   // Note: Schemas are built lazily on first access to model["~"].schemas
   // No explicit buildSchemas() call needed
-}
-
-/**
- * Hydrate a single field
- */
-function hydrateField(fieldKey: string, field: Field): void {
-  const names = field["~"].names as SchemaNames;
-  names.ts = fieldKey;
-  names.sql = field["~"].state.columnName ?? fieldKey;
-}
-
-/**
- * Hydrate a single relation
- */
-function hydrateRelation(relationKey: string, relation: AnyRelation): void {
-  const names = relation["~"].names as SchemaNames;
-  names.ts = relationKey;
-  // Relations don't have column mapping - sql name equals ts name
-  names.sql = relationKey;
 }
 
 /**
@@ -114,14 +106,20 @@ export function getModelSqlName(model: Model<any>): string {
 }
 
 /**
- * Get the SQL name for a field (throws if not hydrated)
+ * Get the SQL name for a field.
+ * Delegates to model["~"].getFieldName().
  */
-export function getFieldSqlName(field: Field): string {
-  const sqlName = field["~"].names.sql;
-  if (!sqlName) {
-    throw new Error(
-      "Schema not hydrated. Call hydrateSchemaNames() or create a client first."
-    );
-  }
-  return sqlName;
+export function getFieldSqlName(model: Model<any>, fieldKey: string): string {
+  return model["~"].getFieldName(fieldKey).sql;
+}
+
+/**
+ * Get the SQL name for a relation.
+ * Delegates to model["~"].getRelationName().
+ */
+export function getRelationSqlName(
+  model: Model<any>,
+  relationKey: string
+): string {
+  return model["~"].getRelationName(relationKey).sql;
 }

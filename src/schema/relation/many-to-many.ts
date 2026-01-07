@@ -1,7 +1,6 @@
 // ManyToMany Relation Class (Standalone)
 // For many-to-many relations with junction table configuration
 
-import type { SchemaNames } from "../fields/common";
 import { getRelationSchemas } from "./schemas";
 import type {
   Getter,
@@ -40,7 +39,6 @@ import type {
  */
 export class ManyToManyRelation<State extends ManyToManyRelationState> {
   private readonly _state: State;
-  private readonly _names: SchemaNames = {};
   private _schemas: ReturnType<typeof getRelationSchemas<State>> | undefined;
 
   constructor(state: State) {
@@ -108,12 +106,11 @@ export class ManyToManyRelation<State extends ManyToManyRelationState> {
   }
 
   /**
-   * Internal accessor for state, schemas, and names
+   * Internal accessor for state and schemas
    */
   get "~"() {
     return {
       state: this._state,
-      names: this._names,
       schemas: (this._schemas ??= getRelationSchemas(this._state)),
     };
   }

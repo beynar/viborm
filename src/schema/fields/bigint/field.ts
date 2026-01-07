@@ -8,15 +8,12 @@ import {
   type DefaultValue,
   type DefaultValueInput,
   type FieldState,
-  type SchemaNames,
   type UpdateState,
 } from "../common";
 import type { NativeType } from "../native-types";
 import { type BigIntSchemas, bigIntBase, buildBigIntSchema } from "./schemas";
 
 export class BigIntField<State extends FieldState<"bigint">> {
-  // biome-ignore lint/style/useReadonlyClassProperties: <it is reassigned when hydrating schemas>
-  private _names: SchemaNames = {};
   private _schemas: BigIntSchemas<State> | undefined;
   private readonly state: State;
   private readonly _nativeType?: NativeType | undefined;
@@ -183,7 +180,6 @@ export class BigIntField<State extends FieldState<"bigint">> {
       state: this.state,
       schemas: (this._schemas ??= buildBigIntSchema(this.state)),
       nativeType: this._nativeType,
-      names: this._names,
     };
   }
 }

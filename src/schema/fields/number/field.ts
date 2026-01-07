@@ -8,7 +8,6 @@ import {
   type DefaultValue,
   type DefaultValueInput,
   type FieldState,
-  type SchemaNames,
   type UpdateState,
 } from "../common";
 import type { NativeType } from "../native-types";
@@ -25,8 +24,6 @@ import {
 } from "./schemas";
 
 export class IntField<State extends FieldState<"int">> {
-  // biome-ignore lint/style/useReadonlyClassProperties: <it is reassigned when hydrating schemas>
-  private _names: SchemaNames = {};
   private _schemas: IntSchemas<State> | undefined;
   private readonly state: State;
   private readonly _nativeType?: NativeType | undefined;
@@ -192,14 +189,11 @@ export class IntField<State extends FieldState<"int">> {
       state: this.state,
       schemas: (this._schemas ??= buildIntSchema(this.state)),
       nativeType: this._nativeType,
-      names: this._names,
     };
   }
 }
 
 export class FloatField<State extends FieldState<"float">> {
-  // biome-ignore lint/style/useReadonlyClassProperties: <it is reassigned when hydrating schemas>
-  private _names: SchemaNames = {};
   private readonly state: State;
   private readonly _nativeType?: NativeType | undefined;
   private _schemas: FloatSchemas<State> | undefined;
@@ -343,14 +337,11 @@ export class FloatField<State extends FieldState<"float">> {
       state: this.state,
       schemas: (this._schemas ??= buildFloatSchema(this.state)),
       nativeType: this._nativeType,
-      names: this._names,
     };
   }
 }
 
 export class DecimalField<State extends FieldState<"decimal">> {
-  // biome-ignore lint/style/useReadonlyClassProperties: <it is reassigned when hydrating schemas>
-  private _names: SchemaNames = {};
   private readonly state: State;
   private readonly _nativeType?: NativeType | undefined;
   private _schemas: DecimalSchemas<State> | undefined;
@@ -497,7 +488,6 @@ export class DecimalField<State extends FieldState<"decimal">> {
       state: this.state,
       schemas: (this._schemas ??= buildDecimalSchema(this.state)),
       nativeType: this._nativeType,
-      names: this._names,
     };
   }
 }

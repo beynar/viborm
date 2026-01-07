@@ -35,6 +35,7 @@ import {
   getWhereSchema,
   getWhereUniqueSchema,
 } from "./core";
+import type { ModelSchemas } from "./types";
 
 // Re-export args schemas
 export * from "./args";
@@ -49,7 +50,9 @@ export { forEachRelation, forEachScalarField, isToOne } from "./utils";
  * Build all schemas for a model.
  * Returns a complete set of schemas for validation and type inference.
  */
-export const getModelSchemas = <T extends ModelState>(state: T) => {
+export const getModelSchemas = <T extends ModelState>(
+  state: T
+): ModelSchemas<T> => {
   // Core building blocks
   const scalarFilter = getScalarFilter(state);
   const uniqueFilter = getUniqueFilter(state);

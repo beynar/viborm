@@ -3,7 +3,7 @@
 
 import v, { type ObjectSchema, type VibSchema } from "@validation";
 import type { Field } from "../fields/base";
-import type { SchemaNames } from "../fields/common";
+import type { HydratedSchemaNames, SchemaNames } from "../fields/common";
 import type { AnyRelation } from "../relation";
 import {
   extractRelationFields,
@@ -18,6 +18,7 @@ import {
   type UniqueFields,
 } from "./helper";
 import { getModelSchemas } from "./schemas";
+import type { ModelSchemas } from "./schemas/types";
 // Re-export types from helpers for external use
 
 // =============================================================================
@@ -38,6 +39,22 @@ export interface ModelState {
   scalars: Record<string, Field>;
   relations: Record<string, AnyRelation>;
   uniques: Record<string, Field>;
+}
+
+/**
+ * Internal accessor return type for Model["~"]
+ * Explicit type annotation to avoid TS7056 (type too complex to serialize)
+ */
+export interface ModelInternal<T extends ModelState> {
+  state: T;
+  schemas: ModelSchemas<T>;
+  names: SchemaNames;
+  nameRegistry: {
+    fields: Map<string, SchemaNames>;
+    relations: Map<string, SchemaNames>;
+  };
+  getFieldName: (key: string) => HydratedSchemaNames;
+  getRelationName: (key: string) => HydratedSchemaNames;
 }
 
 export type IndexType = "btree" | "hash" | "gin" | "gist";
@@ -77,9 +94,26 @@ export type UpdateState<
   Update extends Partial<ModelState>,
 > = Omit<State, keyof Update> & Update;
 
+/**
+ * Name registry for fields and relations.
+ * Maps field/relation keys to their resolved names (ts and sql).
+ * This is populated during hydration.
+ */
+export interface NameRegistry {
+  /** Field names: key -> {ts, sql} */
+  fields: Map<string, SchemaNames>;
+  /** Relation names: key -> {ts, sql} */
+  relations: Map<string, SchemaNames>;
+}
+
 export class Model<State extends ModelState> {
   // biome-ignore lint/style/useReadonlyClassProperties: <it is reassigned when hydrating schemas>
   private _names: SchemaNames = {};
+  // biome-ignore lint/style/useReadonlyClassProperties: <it is reassigned when hydrating schemas>
+  private _nameRegistry: NameRegistry = {
+    fields: new Map(),
+    relations: new Map(),
+  };
   private readonly state: State;
   constructor(state: State) {
     this.state = state;
@@ -88,59 +122,38 @@ export class Model<State extends ModelState> {
   /**
    * Maps the model to a specific database table name
    */
-  map<Name extends string>(
-    tableName: Name
-  ): Model<UpdateState<State, { tableName: Name }>> {
-    return new Model({ ...this.state, tableName });
+  map<Name extends string>(tableName: Name) {
+    return new Model({ ...this.state, tableName }) as unknown as Model<
+      UpdateState<State, { tableName: Name }>
+    >;
   }
 
-  omit<OmitItems extends Record<string, true>>(
-    items: OmitItems
-  ): Model<UpdateState<State, { omit: OmitItems }>> {
+  omit<OmitItems extends Record<string, true>>(items: OmitItems) {
     return new Model({
       ...this.state,
       omit: items,
-    });
+    }) as unknown as Model<UpdateState<State, { omit: OmitItems }>>;
   }
 
   index<
     const Keys extends StringKeyOf<State["scalars"]>[],
     O extends IndexOptions = IndexOptions,
-  >(
-    fields: Keys,
-    options: O = {} as O
-  ): Model<
-    UpdateState<
-      State,
-      { indexes: UpdateIndexDefinition<State, { fields; options }> }
-    >
-  > {
+  >(fields: Keys, options: O = {} as O) {
     return new Model({
       ...this.state,
       indexes: mergeIndexDefinitions(this.state, { fields, options }),
-    });
+    }) as unknown as Model<
+      UpdateState<
+        State,
+        { indexes: UpdateIndexDefinition<State, { fields; options }> }
+      >
+    >;
   }
 
   id<
     const Keys extends StringKeyOf<State["scalars"]>[],
     Name extends string | undefined = undefined,
-  >(
-    fields: Keys,
-    options?: { name?: Name }
-  ): Model<
-    UpdateState<
-      State,
-      {
-        compoundId: {
-          [K in Name extends undefined
-            ? NameFromKeys<Keys>
-            : Name]: ObjectSchema<{
-            [K2 in Keys[number]]: State["scalars"][K2]["~"]["schemas"]["base"];
-          }>;
-        };
-      }
-    >
-  > {
+  >(fields: Keys, options?: { name?: Name }) {
     const name = getNameFromKeys(options?.name, fields);
     const fieldsRecord = fields.reduce(
       (acc, fieldName) => {
@@ -159,29 +172,26 @@ export class Model<State extends ModelState> {
     const compoundId = {
       [name]: v.object(fieldsRecord, { partial: false }),
     } as any;
-    return new Model({ ...this.state, compoundId });
+    return new Model({ ...this.state, compoundId }) as unknown as Model<
+      UpdateState<
+        State,
+        {
+          compoundId: {
+            [K in Name extends undefined
+              ? NameFromKeys<Keys>
+              : Name]: ObjectSchema<{
+              [K2 in Keys[number]]: State["scalars"][K2]["~"]["schemas"]["base"];
+            }>;
+          };
+        }
+      >
+    >;
   }
 
   unique<
     const Keys extends StringKeyOf<State["scalars"]>[],
     Name extends string | undefined = undefined,
-  >(
-    fields: Keys,
-    options?: { name?: Name }
-  ): Model<
-    UpdateState<
-      State,
-      {
-        compoundUniques: {
-          [K in Name extends undefined
-            ? NameFromKeys<Keys>
-            : Name]: ObjectSchema<{
-            [K2 in Keys[number]]: State["scalars"][K2]["~"]["schemas"]["base"];
-          }>;
-        };
-      }
-    >
-  > {
+  >(fields: Keys, options?: { name?: Name }) {
     const name = getNameFromKeys(options?.name, fields);
     const fieldsRecord = fields.reduce(
       (acc, fieldName) => {
@@ -200,22 +210,23 @@ export class Model<State extends ModelState> {
     const compoundUniques = {
       [name]: v.object(fieldsRecord, { partial: false }),
     } as any;
-    return new Model({ ...this.state, compoundUniques });
+    return new Model({ ...this.state, compoundUniques }) as unknown as Model<
+      UpdateState<
+        State,
+        {
+          compoundUniques: {
+            [K in Name extends undefined
+              ? NameFromKeys<Keys>
+              : Name]: ObjectSchema<{
+              [K2 in Keys[number]]: State["scalars"][K2]["~"]["schemas"]["base"];
+            }>;
+          };
+        }
+      >
+    >;
   }
 
-  extends<ETFields extends FieldRecord>(
-    fields: ETFields
-  ): Model<
-    UpdateState<
-      State,
-      {
-        fields: State["fields"] & ETFields;
-        scalars: ScalarFields<State["fields"] & ETFields>;
-        relations: RelationFields<State["fields"] & ETFields>;
-        uniques: UniqueFields<State["fields"] & ETFields>;
-      }
-    >
-  > {
+  extends<ETFields extends FieldRecord>(fields: ETFields) {
     const newFields = { ...this.state.fields, ...fields } as State["fields"] &
       ETFields;
     return new Model({
@@ -224,14 +235,51 @@ export class Model<State extends ModelState> {
       scalars: extractScalarFields(newFields),
       relations: extractRelationFields(newFields),
       uniques: extractUniqueFields(newFields),
-    });
+    }) as unknown as Model<
+      UpdateState<
+        State,
+        {
+          fields: State["fields"] & ETFields;
+          scalars: ScalarFields<State["fields"] & ETFields>;
+          relations: RelationFields<State["fields"] & ETFields>;
+          uniques: UniqueFields<State["fields"] & ETFields>;
+        }
+      >
+    >;
   }
 
-  get "~"() {
+  get "~"(): ModelInternal<State> {
     return {
       state: this.state,
       schemas: getModelSchemas(this.state),
       names: this._names,
+      nameRegistry: this._nameRegistry,
+      /**
+       * Get the resolved names for a field.
+       * Requires hydration - throws if field not found in registry.
+       */
+      getFieldName: (key: string): HydratedSchemaNames => {
+        const registered = this._nameRegistry.fields.get(key);
+        if (!registered) {
+          throw new Error(
+            `Field "${key}" not found in nameRegistry. Schema may not be hydrated.`
+          );
+        }
+        return registered as HydratedSchemaNames;
+      },
+      /**
+       * Get the resolved names for a relation.
+       * Requires hydration - throws if relation not found in registry.
+       */
+      getRelationName: (key: string): HydratedSchemaNames => {
+        const registered = this._nameRegistry.relations.get(key);
+        if (!registered) {
+          throw new Error(
+            `Relation "${key}" not found in nameRegistry. Schema may not be hydrated.`
+          );
+        }
+        return registered as HydratedSchemaNames;
+      },
     };
   }
 }

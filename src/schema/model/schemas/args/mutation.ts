@@ -109,9 +109,9 @@ export const getDeleteManyArgs = <T extends ModelState>(
 ) => {
   return v.object(
     {
-      where: v.optional(core.where),
+      where: core.where,
     },
-    { partial: false, optional: true }
+    { partial: true, optional: true }
   );
 };
 

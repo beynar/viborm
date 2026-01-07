@@ -1,7 +1,6 @@
 // ToMany Relation Class (Standalone)
 // For oneToMany relations - the inverse side with minimal configuration
 
-import type { SchemaNames } from "../fields/common";
 import { getRelationSchemas } from "./schemas";
 import type { Getter, ToManyRelationState } from "./types";
 
@@ -23,7 +22,6 @@ import type { Getter, ToManyRelationState } from "./types";
  */
 export class ToManyRelation<State extends ToManyRelationState> {
   private readonly _state: State;
-  private readonly _names: SchemaNames = {};
   private _schemas: ReturnType<typeof getRelationSchemas<State>> | undefined;
 
   constructor(state: State) {
@@ -41,12 +39,11 @@ export class ToManyRelation<State extends ToManyRelationState> {
   }
 
   /**
-   * Internal accessor for state, schemas, and names
+   * Internal accessor for state and schemas
    */
   get "~"() {
     return {
       state: this._state,
-      names: this._names,
       schemas: (this._schemas ??= getRelationSchemas(this._state)),
     };
   }

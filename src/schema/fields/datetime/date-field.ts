@@ -8,7 +8,6 @@ import {
   type DefaultValue,
   type DefaultValueInput,
   type FieldState,
-  type SchemaNames,
   type UpdateState,
 } from "../common";
 import type { NativeType } from "../native-types";
@@ -18,8 +17,6 @@ const defaultNow = () => new Date().toISOString().split("T")[0]!;
 const defaultUpdatedAt = () => new Date().toISOString().split("T")[0]!;
 
 export class DateField<State extends FieldState<"date">> {
-  // biome-ignore lint/style/useReadonlyClassProperties: <it is reassigned when hydrating schemas>
-  private _names: SchemaNames = {};
   private _schemas: DateSchemas<State> | undefined;
   private readonly state: State;
   private readonly _nativeType?: NativeType | undefined;
@@ -212,7 +209,6 @@ export class DateField<State extends FieldState<"date">> {
       state: this.state,
       schemas: (this._schemas ??= buildDateSchema(this.state)),
       nativeType: this._nativeType,
-      names: this._names,
     };
   }
 }
