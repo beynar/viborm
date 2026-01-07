@@ -106,7 +106,9 @@ export class Model<State extends ModelState> {
    * Maps the model to a specific database table name
    */
   map<Name extends string>(tableName: Name) {
-    return new Model({ ...this.state, tableName });
+    return new Model({ ...this.state, tableName }) as unknown as Model<
+      UpdateState<State, { tableName: Name }>
+    >;
   }
 
   omit<OmitItems extends Record<string, true>>(items: OmitItems) {
