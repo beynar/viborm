@@ -450,11 +450,37 @@ export function diff(
         );
 
         if (addValues.length > 0 || removeValues.length > 0) {
+          // When removing values, we need to find all columns that use this enum
+          // so we can temporarily convert them to text during the recreation
+          let dependentColumns:
+            | Array<{ tableName: string; columnName: string }>
+            | undefined;
+
+          if (removeValues.length > 0) {
+            dependentColumns = [];
+            // Search through all tables (current schema) for columns using this enum
+            for (const table of current.tables) {
+              for (const column of table.columns) {
+                if (column.type === name) {
+                  dependentColumns.push({
+                    tableName: table.name,
+                    columnName: column.name,
+                  });
+                }
+              }
+            }
+          }
+
           operations.push({
             type: "alterEnum",
             enumName: name,
             addValues: addValues.length > 0 ? addValues : undefined,
             removeValues: removeValues.length > 0 ? removeValues : undefined,
+            newValues: removeValues.length > 0 ? desiredEnum.values : undefined,
+            dependentColumns:
+              dependentColumns && dependentColumns.length > 0
+                ? dependentColumns
+                : undefined,
           });
         }
       }

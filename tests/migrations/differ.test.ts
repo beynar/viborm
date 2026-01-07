@@ -454,6 +454,91 @@ describe("diff", () => {
         })
       );
     });
+
+    it("should detect enum value removal with dependent columns", () => {
+      const current: SchemaSnapshot = {
+        tables: [
+          makeTable("users", [
+            makeColumn("id", "integer"),
+            makeColumn("status", "user_status_enum"),
+          ]),
+          makeTable("orders", [
+            makeColumn("id", "integer"),
+            makeColumn("order_status", "user_status_enum"),
+          ]),
+        ],
+        enums: [
+          {
+            name: "user_status_enum",
+            values: ["active", "inactive", "pending"],
+          },
+        ],
+      };
+      const desired: SchemaSnapshot = {
+        tables: [
+          makeTable("users", [
+            makeColumn("id", "integer"),
+            makeColumn("status", "user_status_enum"),
+          ]),
+          makeTable("orders", [
+            makeColumn("id", "integer"),
+            makeColumn("order_status", "user_status_enum"),
+          ]),
+        ],
+        enums: [{ name: "user_status_enum", values: ["active", "inactive"] }],
+      };
+
+      const result = diff(current, desired);
+
+      const alterEnumOp = result.operations.find(
+        (op) => op.type === "alterEnum"
+      );
+
+      expect(alterEnumOp).toBeDefined();
+      expect(alterEnumOp).toMatchObject({
+        type: "alterEnum",
+        enumName: "user_status_enum",
+        removeValues: ["pending"],
+        newValues: ["active", "inactive"],
+      });
+
+      // Should include dependent columns
+      if (alterEnumOp?.type === "alterEnum") {
+        expect(alterEnumOp.dependentColumns).toEqual([
+          { tableName: "users", columnName: "status" },
+          { tableName: "orders", columnName: "order_status" },
+        ]);
+      }
+    });
+
+    it("should not include newValues or dependentColumns when only adding values", () => {
+      const current: SchemaSnapshot = {
+        tables: [makeTable("users", [makeColumn("status", "status_enum")])],
+        enums: [{ name: "status_enum", values: ["active"] }],
+      };
+      const desired: SchemaSnapshot = {
+        tables: [makeTable("users", [makeColumn("status", "status_enum")])],
+        enums: [{ name: "status_enum", values: ["active", "inactive"] }],
+      };
+
+      const result = diff(current, desired);
+
+      const alterEnumOp = result.operations.find(
+        (op) => op.type === "alterEnum"
+      );
+
+      expect(alterEnumOp).toMatchObject({
+        type: "alterEnum",
+        enumName: "status_enum",
+        addValues: ["inactive"],
+      });
+
+      // Should NOT have newValues or dependentColumns when only adding
+      if (alterEnumOp?.type === "alterEnum") {
+        expect(alterEnumOp.newValues).toBeUndefined();
+        expect(alterEnumOp.dependentColumns).toBeUndefined();
+      }
+    });
   });
 
   describe("operation ordering", () => {
