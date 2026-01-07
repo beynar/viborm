@@ -3,7 +3,7 @@
 
 import v, { type ObjectSchema, type VibSchema } from "@validation";
 import type { Field } from "../fields/base";
-import type { SchemaNames } from "../fields/common";
+import type { HydratedSchemaNames, SchemaNames } from "../fields/common";
 import type { AnyRelation } from "../relation";
 import {
   extractRelationFields,
@@ -105,59 +105,36 @@ export class Model<State extends ModelState> {
   /**
    * Maps the model to a specific database table name
    */
-  map<Name extends string>(
-    tableName: Name
-  ): Model<UpdateState<State, { tableName: Name }>> {
+  map<Name extends string>(tableName: Name) {
     return new Model({ ...this.state, tableName });
   }
 
-  omit<OmitItems extends Record<string, true>>(
-    items: OmitItems
-  ): Model<UpdateState<State, { omit: OmitItems }>> {
+  omit<OmitItems extends Record<string, true>>(items: OmitItems) {
     return new Model({
       ...this.state,
       omit: items,
-    });
+    }) as unknown as Model<UpdateState<State, { omit: OmitItems }>>;
   }
 
   index<
     const Keys extends StringKeyOf<State["scalars"]>[],
     O extends IndexOptions = IndexOptions,
-  >(
-    fields: Keys,
-    options: O = {} as O
-  ): Model<
-    UpdateState<
-      State,
-      { indexes: UpdateIndexDefinition<State, { fields; options }> }
-    >
-  > {
+  >(fields: Keys, options: O = {} as O) {
     return new Model({
       ...this.state,
       indexes: mergeIndexDefinitions(this.state, { fields, options }),
-    });
+    }) as unknown as Model<
+      UpdateState<
+        State,
+        { indexes: UpdateIndexDefinition<State, { fields; options }> }
+      >
+    >;
   }
 
   id<
     const Keys extends StringKeyOf<State["scalars"]>[],
     Name extends string | undefined = undefined,
-  >(
-    fields: Keys,
-    options?: { name?: Name }
-  ): Model<
-    UpdateState<
-      State,
-      {
-        compoundId: {
-          [K in Name extends undefined
-            ? NameFromKeys<Keys>
-            : Name]: ObjectSchema<{
-            [K2 in Keys[number]]: State["scalars"][K2]["~"]["schemas"]["base"];
-          }>;
-        };
-      }
-    >
-  > {
+  >(fields: Keys, options?: { name?: Name }) {
     const name = getNameFromKeys(options?.name, fields);
     const fieldsRecord = fields.reduce(
       (acc, fieldName) => {
@@ -176,29 +153,26 @@ export class Model<State extends ModelState> {
     const compoundId = {
       [name]: v.object(fieldsRecord, { partial: false }),
     } as any;
-    return new Model({ ...this.state, compoundId });
+    return new Model({ ...this.state, compoundId }) as unknown as Model<
+      UpdateState<
+        State,
+        {
+          compoundId: {
+            [K in Name extends undefined
+              ? NameFromKeys<Keys>
+              : Name]: ObjectSchema<{
+              [K2 in Keys[number]]: State["scalars"][K2]["~"]["schemas"]["base"];
+            }>;
+          };
+        }
+      >
+    >;
   }
 
   unique<
     const Keys extends StringKeyOf<State["scalars"]>[],
     Name extends string | undefined = undefined,
-  >(
-    fields: Keys,
-    options?: { name?: Name }
-  ): Model<
-    UpdateState<
-      State,
-      {
-        compoundUniques: {
-          [K in Name extends undefined
-            ? NameFromKeys<Keys>
-            : Name]: ObjectSchema<{
-            [K2 in Keys[number]]: State["scalars"][K2]["~"]["schemas"]["base"];
-          }>;
-        };
-      }
-    >
-  > {
+  >(fields: Keys, options?: { name?: Name }) {
     const name = getNameFromKeys(options?.name, fields);
     const fieldsRecord = fields.reduce(
       (acc, fieldName) => {
@@ -217,22 +191,23 @@ export class Model<State extends ModelState> {
     const compoundUniques = {
       [name]: v.object(fieldsRecord, { partial: false }),
     } as any;
-    return new Model({ ...this.state, compoundUniques });
+    return new Model({ ...this.state, compoundUniques }) as unknown as Model<
+      UpdateState<
+        State,
+        {
+          compoundUniques: {
+            [K in Name extends undefined
+              ? NameFromKeys<Keys>
+              : Name]: ObjectSchema<{
+              [K2 in Keys[number]]: State["scalars"][K2]["~"]["schemas"]["base"];
+            }>;
+          };
+        }
+      >
+    >;
   }
 
-  extends<ETFields extends FieldRecord>(
-    fields: ETFields
-  ): Model<
-    UpdateState<
-      State,
-      {
-        fields: State["fields"] & ETFields;
-        scalars: ScalarFields<State["fields"] & ETFields>;
-        relations: RelationFields<State["fields"] & ETFields>;
-        uniques: UniqueFields<State["fields"] & ETFields>;
-      }
-    >
-  > {
+  extends<ETFields extends FieldRecord>(fields: ETFields) {
     const newFields = { ...this.state.fields, ...fields } as State["fields"] &
       ETFields;
     return new Model({
@@ -241,7 +216,17 @@ export class Model<State extends ModelState> {
       scalars: extractScalarFields(newFields),
       relations: extractRelationFields(newFields),
       uniques: extractUniqueFields(newFields),
-    });
+    }) as unknown as Model<
+      UpdateState<
+        State,
+        {
+          fields: State["fields"] & ETFields;
+          scalars: ScalarFields<State["fields"] & ETFields>;
+          relations: RelationFields<State["fields"] & ETFields>;
+          uniques: UniqueFields<State["fields"] & ETFields>;
+        }
+      >
+    >;
   }
 
   get "~"() {
