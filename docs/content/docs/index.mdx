@@ -20,6 +20,21 @@ Unlike Prisma's codebase (which can be intimidating), VibORM is designed to be *
 
 Check out the [Internals](/docs/internals) section to see how it's structured.
 
+## Feature Goals
+
+We want the same features that make Prisma great:
+
+- **Implicit many-to-many** - Define relations without manual join tables
+- **Rich filtering** - `contains`, `startsWith`, `in`, `not`, and more
+- **Deep relation filtering** - Filter by nested relation fields (`where: { posts: { some: { published: true } } }`)
+- **Single query execution** - No N+1 problem, relations loaded in one roundtrip
+- **Nested writes** - Create/update related records in a single operation
+
+And we want to explore features that don't exist yet but should be possible:
+
+- **Polymorphic relations** - A comment that can belong to either a Post or a Video
+- **Recursive queries** - Query self-referencing relationships (org hierarchies, threaded comments)
+
 ## Why We Built This
 
 We loved Prisma's developer experience - the intuitive query API, the nested includes, the type safety, and especially the **schema definition** where relations are declared within the model itself. But two things kept causing friction:

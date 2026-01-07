@@ -125,8 +125,8 @@ export const extractUniqueFields = <T extends FieldRecord>(fields: T) => {
   return Object.entries(fields).reduce(
     (acc, [key, value]) => {
       if (
-        (!isRelation(value) && value["~"].state.isUnique) ||
-        value["~"].state.isId
+        !isRelation(value) &&
+        (value["~"].state.isUnique || value["~"].state.isId)
       ) {
         acc[key] = value;
       }

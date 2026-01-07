@@ -126,6 +126,13 @@ await client.$transaction(async (tx) => {
     data: {
       email: "eze2",
       name: "eze2",
+      pets: [
+        {
+          age: 10,
+          name: "dog",
+          type: "dog",
+        },
+      ],
     },
   });
   console.log("Created user:", newUser);

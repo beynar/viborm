@@ -4,8 +4,6 @@
 import type { ModelState } from "./model";
 // Import args schema factories
 import {
-  getAggregateArgs,
-  getCountArgs,
   getCreateArgs,
   getCreateManyArgs,
   getDeleteArgs,
@@ -13,11 +11,16 @@ import {
   getFindFirstArgs,
   getFindManyArgs,
   getFindUniqueArgs,
-  getGroupByArgs,
   getUpdateArgs,
   getUpdateManyArgs,
   getUpsertArgs,
 } from "./schemas/args";
+// Import aggregate args directly (not re-exported to avoid TS7056 in .d.ts)
+import {
+  getAggregateArgs,
+  getCountArgs,
+  getGroupByArgs,
+} from "./schemas/args/aggregate";
 
 // Import core schema factories
 import {
@@ -38,6 +41,7 @@ import {
   getWhereUniqueSchema,
 } from "./schemas/core";
 import { getCompoundIdFilter } from "./schemas/core/filter";
+import type { ModelSchemas } from "./schemas/types";
 
 // =============================================================================
 // MAIN EXPORT - getModelSchemas
@@ -47,7 +51,9 @@ import { getCompoundIdFilter } from "./schemas/core/filter";
  * Build all schemas for a model.
  * Returns a complete set of schemas for validation and type inference.
  */
-export const getModelSchemas = <T extends ModelState>(state: T) => {
+export const getModelSchemas = <T extends ModelState>(
+  state: T
+): ModelSchemas<T> => {
   // Core building blocks
   const scalarFilter = getScalarFilter(state);
   const uniqueFilter = getUniqueFilter(state);

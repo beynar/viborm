@@ -18,6 +18,7 @@ import {
   type UniqueFields,
 } from "./helper";
 import { getModelSchemas } from "./schemas";
+import type { ModelSchemas } from "./schemas/types";
 // Re-export types from helpers for external use
 
 // =============================================================================
@@ -38,6 +39,22 @@ export interface ModelState {
   scalars: Record<string, Field>;
   relations: Record<string, AnyRelation>;
   uniques: Record<string, Field>;
+}
+
+/**
+ * Internal accessor return type for Model["~"]
+ * Explicit type annotation to avoid TS7056 (type too complex to serialize)
+ */
+export interface ModelInternal<T extends ModelState> {
+  state: T;
+  schemas: ModelSchemas<T>;
+  names: SchemaNames;
+  nameRegistry: {
+    fields: Map<string, SchemaNames>;
+    relations: Map<string, SchemaNames>;
+  };
+  getFieldName: (key: string) => HydratedSchemaNames;
+  getRelationName: (key: string) => HydratedSchemaNames;
 }
 
 export type IndexType = "btree" | "hash" | "gin" | "gist";
@@ -231,7 +248,7 @@ export class Model<State extends ModelState> {
     >;
   }
 
-  get "~"() {
+  get "~"(): ModelInternal<State> {
     return {
       state: this.state,
       schemas: getModelSchemas(this.state),
