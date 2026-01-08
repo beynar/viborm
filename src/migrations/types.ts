@@ -100,6 +100,36 @@ export type DiffOperation =
       enumName: string;
       addValues?: string[] | undefined;
       removeValues?: string[] | undefined;
+      /**
+       * Full list of desired enum values (required when removing values)
+       * Used to recreate the enum type in PostgreSQL
+       */
+      newValues?: string[] | undefined;
+      /**
+       * Columns that depend on this enum (required when removing values)
+       * Each entry is { tableName, columnName }
+       */
+      dependentColumns?:
+        | Array<{ tableName: string; columnName: string }>
+        | undefined;
+      /**
+       * Replacement values for removed enum values.
+       * Maps old value -> new value for data migration.
+       * If a removed value has no replacement (and no defaultReplacement),
+       * the migration will fail at runtime.
+       *
+       * Example: { "pending": "inactive" } - rows with "pending" become "inactive"
+       * Use null to set rows to NULL: { "pending": null }
+       */
+      valueReplacements?: Record<string, string | null> | undefined;
+      /**
+       * Default replacement for any removed values without explicit mapping.
+       * Useful when the enum field has a default value - use that here.
+       * Use null to set rows to NULL.
+       *
+       * Example: If your field has `.default("active")`, set defaultReplacement: "active"
+       */
+      defaultReplacement?: string | null | undefined;
     };
 
 // =============================================================================
@@ -148,6 +178,27 @@ export type Resolver = (
   changes: AmbiguousChange[]
 ) => Promise<Map<AmbiguousChange, ChangeResolution>>;
 
+/** Information about an enum value removal that needs resolution */
+export interface EnumValueRemoval {
+  enumName: string;
+  removedValues: string[];
+  newValues: string[];
+  dependentColumns: Array<{ tableName: string; columnName: string }>;
+}
+
+/** User's resolution for enum value removal */
+export interface EnumValueResolution {
+  /** Map specific old values to new values */
+  valueReplacements?: Record<string, string | null>;
+  /** Default replacement for any values not in valueReplacements */
+  defaultReplacement?: string | null;
+}
+
+/** Callback to resolve enum value removals (used by CLI or programmatic API) */
+export type EnumValueResolver = (
+  removals: EnumValueRemoval[]
+) => Promise<Map<string, EnumValueResolution>>; // Map<enumName, resolution>
+
 // =============================================================================
 // PUSH RESULT
 // =============================================================================
@@ -166,11 +217,10 @@ export interface PushResult {
 // =============================================================================
 
 export class MigrationError extends Error {
-  constructor(
-    message: string,
-    public readonly code?: string
-  ) {
+  readonly code?: string | undefined;
+  constructor(message: string, code?: string) {
     super(message);
     this.name = "MigrationError";
+    this.code = code ?? undefined;
   }
 }
