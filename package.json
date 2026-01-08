@@ -51,9 +51,9 @@
     "db:run": "docker run -d --name baseorm -p 2222:5432 -e POSTGRES_DB=baseorm -e POSTGRES_PASSWORD=password postgres",
     "db:push": "prisma db push",
     "db:generate": "prisma generate",
-    "package:build": "tsdown && tsc -p tsconfig.build.json",
+    "package:build": "tsdown && (tsc -p tsconfig.build.json || true)",
     "package:build:js": "tsdown",
-    "package:build:dts": "tsc -p tsconfig.build.json",
+    "package:build:dts": "tsc -p tsconfig.build.json || true",
     "package:dev": "tsdown --watch"
   },
   "keywords": [

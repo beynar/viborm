@@ -5,10 +5,10 @@ import type { StandardSchemaOf } from "@standard-schema/spec";
 import v, { type BaseStringSchema } from "@validation";
 import {
   createDefaultState,
-  type DefaultValue,
   type DefaultValueInput,
   type FieldState,
   type UpdateState,
+  updateState,
 } from "../common";
 import type { NativeType } from "../native-types";
 import {
@@ -23,30 +23,15 @@ export class StringField<State extends FieldState<"string">> {
   private _schemas: StringSchemas<State> | undefined;
   private readonly state: State;
   private readonly _nativeType?: NativeType | undefined;
+
   constructor(state: State, _nativeType?: NativeType) {
     this.state = state;
     this._nativeType = _nativeType;
   }
 
-  nullable(): StringField<
-    UpdateState<
-      State,
-      {
-        nullable: true;
-        hasDefault: true;
-        default: DefaultValue<null>;
-        optional: true;
-        base: BaseStringSchema<{
-          nullable: true;
-          array: State["array"];
-          schema: State["schema"];
-        }>;
-      }
-    >
-  > {
+  nullable() {
     return new StringField(
-      {
-        ...this.state,
+      updateState(this, {
         nullable: true,
         hasDefault: true,
         default: null,
@@ -60,27 +45,14 @@ export class StringField<State extends FieldState<"string">> {
           array: this.state.array,
           schema: this.state.schema,
         }),
-      },
+      }),
       this._nativeType
     );
   }
 
-  array(): StringField<
-    UpdateState<
-      State,
-      {
-        array: true;
-        base: BaseStringSchema<{
-          nullable: State["nullable"];
-          array: true;
-          schema: State["schema"];
-        }>;
-      }
-    >
-  > {
+  array() {
     return new StringField(
-      {
-        ...this.state,
+      updateState(this, {
         array: true,
         base: v.string<{
           nullable: State["nullable"];
@@ -91,52 +63,40 @@ export class StringField<State extends FieldState<"string">> {
           array: true,
           schema: this.state.schema,
         }),
-      },
+      }),
       this._nativeType
     );
   }
 
-  id(prefix?: string): StringField<
-    UpdateState<
-      State,
-      {
-        isId: true;
-        isUnique: true;
-        autoGenerate: "ulid";
-        default: DefaultValue<string>;
-        optional: true;
-      }
-    >
-  > {
+  id(prefix?: string) {
     return new StringField(
-      {
-        ...this.state,
+      updateState(this, {
         isId: true,
         isUnique: true,
         autoGenerate: "ulid",
         default: defaultUlid(prefix),
         optional: true,
-      },
+      }),
       this._nativeType
     );
   }
 
-  unique(): StringField<UpdateState<State, { isUnique: true }>> {
-    return new StringField({ ...this.state, isUnique: true }, this._nativeType);
+  unique() {
+    return new StringField(
+      updateState(this, {
+        isUnique: true,
+      }),
+      this._nativeType
+    );
   }
 
-  default<V extends DefaultValueInput<State>>(
-    value: V
-  ): StringField<
-    UpdateState<State, { hasDefault: true; default: V; optional: true }>
-  > {
+  default<V extends DefaultValueInput<State>>(value: V) {
     return new StringField(
-      {
-        ...this.state,
+      updateState(this, {
         hasDefault: true,
         default: value,
         optional: true,
-      },
+      }),
       this._nativeType
     );
   }
@@ -177,104 +137,54 @@ export class StringField<State extends FieldState<"string">> {
   /**
    * Maps this field to a custom column name in the database
    */
-  map(columnName: string): this {
-    return new StringField(
-      { ...this.state, columnName },
-      this._nativeType
-    ) as this;
+  map(columnName: string) {
+    return new StringField(updateState(this, { columnName }), this._nativeType);
   }
 
-  uuid(prefix?: string): StringField<
-    UpdateState<
-      State,
-      {
-        hasDefault: true;
-        autoGenerate: "uuid";
-        default: DefaultValue<string>;
-        optional: true;
-      }
-    >
-  > {
+  uuid(prefix?: string) {
     return new StringField(
-      {
-        ...this.state,
+      updateState(this, {
         hasDefault: true,
         default: defaultUuid(prefix),
         autoGenerate: "uuid",
         optional: true,
-      },
+      }),
       this._nativeType
     );
   }
 
-  ulid(prefix?: string): StringField<
-    UpdateState<
-      State,
-      {
-        hasDefault: true;
-        autoGenerate: "ulid";
-        default: DefaultValue<string>;
-        optional: true;
-      }
-    >
-  > {
+  ulid(prefix?: string) {
     return new StringField(
-      {
-        ...this.state,
+      updateState(this, {
         hasDefault: true,
         default: defaultUlid(prefix),
         autoGenerate: "ulid",
         optional: true,
-      },
+      }),
       this._nativeType
     );
   }
 
-  nanoid(
-    length?: number,
-    prefix?: string
-  ): StringField<
-    UpdateState<
-      State,
-      {
-        hasDefault: true;
-        autoGenerate: "nanoid";
-        default: DefaultValue<string>;
-        optional: true;
-      }
-    >
-  > {
+  nanoid(length?: number, prefix?: string) {
     return new StringField(
-      {
-        ...this.state,
+      updateState(this, {
         hasDefault: true,
         default: defaultNanoid(length, prefix),
         autoGenerate: "nanoid",
         optional: true,
-      },
+      }),
       this._nativeType
     );
   }
 
-  cuid(prefix?: string): StringField<
-    UpdateState<
-      State,
-      {
-        hasDefault: true;
-        autoGenerate: "cuid";
-        default: DefaultValue<string>;
-        optional: true;
-      }
-    >
-  > {
+  cuid(prefix?: string) {
     return new StringField(
-      {
-        ...this.state,
+      updateState(this, {
         hasDefault: true,
         default: defaultCuid(prefix),
         autoGenerate: "cuid",
         optional: true,
-      },
+      }),
       this._nativeType
     );
   }
@@ -290,3 +200,12 @@ export class StringField<State extends FieldState<"string">> {
 
 export const string = (nativeType?: NativeType) =>
   new StringField(createDefaultState("string", stringBase), nativeType);
+
+const test = string().nullable().array();
+
+type IsNullable<S extends FieldState<"string">> = S["nullable"] extends true
+  ? true
+  : false;
+type TestState = (typeof test)["~"]["state"];
+type TestState1 = (typeof test)["~"]["state"];
+type Test = IsNullable<TestState>;

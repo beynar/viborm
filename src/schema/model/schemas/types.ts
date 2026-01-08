@@ -19,8 +19,6 @@ import type {
 } from "./args";
 import type {
   CreateSchema,
-  getCompoundConstraintFilter,
-  getCompoundIdFilter,
   IncludeSchema,
   OrderBySchema,
   RelationCreateSchema,
@@ -65,8 +63,6 @@ export interface ModelSchemas<T extends ModelState> {
     scalar: ScalarFilterSchema<T>;
     unique: UniqueFilterSchema<T>;
     relation: RelationFilterSchema<T>;
-    compoundConstraint: ReturnType<typeof getCompoundConstraintFilter<T>>;
-    compoundId: ReturnType<typeof getCompoundIdFilter<T>>;
   };
   _create: {
     scalar: ScalarCreateSchema<T>;

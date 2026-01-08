@@ -49,7 +49,7 @@ export interface TransformSchema<TInput, TOutput>
  */
 export function coerce<S extends VibSchema<any, any>, TOut>(
   schema: S,
-  fn: (value: InferOutput<S>) => TOut
+  fn: (value: S[" vibInferred"]["1"]) => TOut
 ): TransformSchema<InferInput<S>, TOut> & { wrapped: S } {
   const transformSchema = createSchema<InferInput<S>, TOut>(
     "transform",

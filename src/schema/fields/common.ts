@@ -3,6 +3,7 @@
 
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import v, { type InferInput, type VibSchema } from "@validation";
+import type { Field } from "./base";
 
 // =============================================================================
 // SCHEMA NAMES (hydrated by client at initialization)
@@ -104,13 +105,16 @@ export type UpdateState<
 > = Omit<State, keyof Update> & Update;
 
 export const updateState = <
-  State extends FieldState,
+  F extends Field,
   Update extends Partial<FieldState>,
 >(
-  state: State,
+  field: F,
   update: Update
 ) => {
-  return { ...state, ...update } as UpdateState<State, Update>;
+  return { ...field["~"].state, ...update } as UpdateState<
+    F["~"]["state"],
+    Update
+  >;
 };
 
 // =============================================================================
@@ -211,18 +215,21 @@ export type InferCreateType<
  * Used for shorthand filter syntax: `"value"` -> `{ equals: "value" }`
  */
 export const shorthandFilter = <S extends VibSchema>(schema: S) =>
-  v.coerce(schema, (val: S[" vibInferred"]["0"]) => ({ equals: val }));
+  v.coerce(schema, (val: S[" vibInferred"]["1"]) => ({ equals: val }));
 
 /**
  * Coerces a value to an update object with `set` key.
  * Used for shorthand update syntax: `"value"` -> `{ set: "value" }`
  */
 export const shorthandUpdate = <S extends VibSchema>(schema: S) =>
-  v.coerce(schema, (val: S[" vibInferred"]["0"]) => ({ set: val }));
+  v.coerce(schema, (val: S[" vibInferred"]["1"]) => ({ set: val }));
 
 /**
  * Coerces a single value to an array.
  * Used for shorthand array syntax: `"value"` -> `["value"]`
  */
 export const shorthandArray = <S extends VibSchema>(schema: S) =>
-  v.coerce(schema, (val: S[" vibInferred"]["0"]) => [val]);
+  v.coerce(
+    schema,
+    (val: S[" vibInferred"]["1"]) => [val] as [S[" vibInferred"]["1"]]
+  );

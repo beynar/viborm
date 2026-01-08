@@ -2,8 +2,8 @@ import v, {
   type BaseJsonSchema,
   type InferInput,
   type InferOutput,
-  type VibSchema,
 } from "@validation";
+import type { V } from "@validation/V";
 import type { FieldState } from "../common";
 
 // =============================================================================
@@ -14,10 +14,42 @@ export const jsonBase = v.json();
 export const jsonNullable = v.json({ nullable: true });
 
 // =============================================================================
-// FILTER SCHEMAS
+// FILTER TYPES
 // =============================================================================
 
-const buildJsonFilterSchema = <S extends VibSchema>(schema: S) => {
+type JsonFilterBase<S extends V.Schema> = {
+  equals: S;
+  path: V.Array<V.String>;
+  string_contains: V.String;
+  string_starts_with: V.String;
+  string_ends_with: V.String;
+  array_contains: S;
+  array_starts_with: S;
+  array_ends_with: S;
+};
+
+export type JsonFilterSchema<S extends V.Schema> = V.Object<
+  JsonFilterBase<S> & {
+    not: V.Object<JsonFilterBase<S>>;
+  }
+>;
+
+// =============================================================================
+// UPDATE TYPES
+// =============================================================================
+
+export type JsonUpdateSchema<S extends V.Schema> = V.Coerce<
+  S,
+  { set: S[" vibInferred"]["1"] }
+>;
+
+// =============================================================================
+// SCHEMA BUILDERS
+// =============================================================================
+
+const buildJsonFilterSchema = <S extends V.Schema>(
+  schema: S
+): JsonFilterSchema<S> => {
   const filter = v.object({
     equals: schema,
     path: v.array(v.string()),
@@ -33,35 +65,43 @@ const buildJsonFilterSchema = <S extends VibSchema>(schema: S) => {
   });
 };
 
-const buildJsonUpdateSchema = <S extends VibSchema>(schema: S) =>
+const buildJsonUpdateSchema = <S extends V.Schema>(
+  schema: S
+): JsonUpdateSchema<S> =>
   v.coerce(schema, (value: S[" vibInferred"]["0"]) => {
     return {
       set: value,
     };
   });
 
-export const buildJsonSchema = <F extends FieldState<"json">>(state: F) => {
+// =============================================================================
+// JSON SCHEMA BUILDER
+// =============================================================================
+
+export interface JsonSchemas<F extends FieldState<"json">> {
+  base: F["base"];
+  create: BaseJsonSchema<F>;
+  update: JsonUpdateSchema<F["base"]>;
+  filter: JsonFilterSchema<F["base"]>;
+}
+
+export const buildJsonSchema = <F extends FieldState<"json">>(
+  state: F
+): JsonSchemas<F> => {
   return {
-    base: state.base,
+    base: state.base as F["base"],
     create: v.json(state),
     update: buildJsonUpdateSchema(state.base),
     filter: buildJsonFilterSchema(state.base),
   } as JsonSchemas<F>;
 };
 
-export type JsonSchemas<F extends FieldState<"json">> = {
-  base: F["base"];
-  create: BaseJsonSchema<F>;
-  update: ReturnType<typeof buildJsonUpdateSchema<F["base"]>>;
-  filter: ReturnType<typeof buildJsonFilterSchema<F["base"]>>;
-};
-
 export type InferJsonInput<
   F extends FieldState<"json">,
-  Type extends "create" | "update" | "filter" | "base",
+  Type extends keyof JsonSchemas<F>,
 > = InferInput<JsonSchemas<F>[Type]>;
 
 export type InferJsonOutput<
   F extends FieldState<"json">,
-  Type extends "create" | "update" | "filter" | "base",
+  Type extends keyof JsonSchemas<F>,
 > = InferOutput<JsonSchemas<F>[Type]>;

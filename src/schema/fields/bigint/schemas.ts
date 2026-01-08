@@ -2,8 +2,8 @@ import v, {
   type BaseBigIntSchema,
   type InferInput,
   type InferOutput,
-  type VibSchema,
 } from "@validation";
+import type { V } from "@validation/V";
 import {
   type FieldState,
   shorthandArray,
@@ -21,7 +21,87 @@ export const bigIntList = v.bigint({ array: true });
 export const bigIntListNullable = v.bigint({ array: true, nullable: true });
 
 // =============================================================================
-// FILTER SCHEMAS
+// FILTER TYPES
+// =============================================================================
+
+type BigIntFilterBase<S extends V.Schema> = {
+  equals: S;
+  in: V.BigInt<{ array: true }>;
+  notIn: V.BigInt<{ array: true }>;
+  lt: V.BigInt;
+  lte: V.BigInt;
+  gt: V.BigInt;
+  gte: V.BigInt;
+};
+
+export type BigIntFilterSchema<S extends V.Schema> = V.Union<
+  readonly [
+    V.ShorthandFilter<S>,
+    V.Object<
+      BigIntFilterBase<S> & {
+        not: V.Union<
+          readonly [V.ShorthandFilter<S>, V.Object<BigIntFilterBase<S>>]
+        >;
+      }
+    >,
+  ]
+>;
+
+type BigIntListFilterBase<S extends V.Schema> = {
+  equals: S;
+  has: V.BigInt;
+  hasEvery: V.BigInt<{ array: true }>;
+  hasSome: V.BigInt<{ array: true }>;
+  isEmpty: V.Boolean;
+};
+
+export type BigIntListFilterSchema<S extends V.Schema> = V.Union<
+  readonly [
+    V.ShorthandFilter<S>,
+    V.Object<
+      BigIntListFilterBase<S> & {
+        not: V.Union<
+          readonly [V.ShorthandFilter<S>, V.Object<BigIntListFilterBase<S>>]
+        >;
+      }
+    >,
+  ]
+>;
+
+// =============================================================================
+// UPDATE TYPES
+// =============================================================================
+
+export type BigIntUpdateSchema<S extends V.Schema> = V.Union<
+  readonly [
+    V.ShorthandUpdate<S>,
+    V.Object<{
+      set: S;
+      increment: V.BigInt;
+      decrement: V.BigInt;
+      multiply: V.BigInt;
+      divide: V.BigInt;
+    }>,
+  ]
+>;
+
+export type BigIntListUpdateSchema<S extends V.Schema> = V.Union<
+  readonly [
+    V.ShorthandUpdate<S>,
+    V.Object<{
+      set: S;
+      push: V.Union<
+        readonly [V.ShorthandArray<V.BigInt>, V.BigInt<{ array: true }>]
+      >;
+      unshift: V.Union<
+        readonly [V.ShorthandArray<V.BigInt>, V.BigInt<{ array: true }>]
+      >;
+    }>,
+  ]
+>;
+
+// =============================================================================
+// FILTER SCHEMA BUILDERS
 // =============================================================================
 
 const bigIntFilterBase = v.object({
@@ -33,7 +113,9 @@ const bigIntFilterBase = v.object({
   gte: bigIntBase,
 });
 
-const buildBigIntFilterSchema = <S extends VibSchema>(schema: S) => {
+const buildBigIntFilterSchema = <S extends V.Schema>(
+  schema: S
+): BigIntFilterSchema<S> => {
   const filter = bigIntFilterBase.extend({
     equals: schema,
   });
@@ -52,7 +134,9 @@ const bigIntListFilterBase = v.object({
   isEmpty: v.boolean(),
 });
 
-const buildBigIntListFilterSchema = <S extends VibSchema>(schema: S) => {
+const buildBigIntListFilterSchema = <S extends V.Schema>(
+  schema: S
+): BigIntListFilterSchema<S> => {
   const filter = bigIntListFilterBase.extend({
     equals: schema,
   });
@@ -62,7 +146,13 @@ const buildBigIntListFilterSchema = <S extends VibSchema>(schema: S) => {
   ]);
 };
 
-const buildBigIntUpdateSchema = <S extends VibSchema>(schema: S) =>
+// =============================================================================
+// UPDATE SCHEMA BUILDERS
+// =============================================================================
+
+const buildBigIntUpdateSchema = <S extends V.Schema>(
+  schema: S
+): BigIntUpdateSchema<S> =>
   v.union([
     shorthandUpdate(schema),
     v.object({
@@ -74,7 +164,9 @@ const buildBigIntUpdateSchema = <S extends VibSchema>(schema: S) =>
     }),
   ]);
 
-const buildBigIntListUpdateSchema = <S extends VibSchema>(schema: S) =>
+const buildBigIntListUpdateSchema = <S extends V.Schema>(
+  schema: S
+): BigIntListUpdateSchema<S> =>
   v.union([
     shorthandUpdate(schema),
     v.object({
@@ -84,9 +176,26 @@ const buildBigIntListUpdateSchema = <S extends VibSchema>(schema: S) =>
     }),
   ]);
 
-export const buildBigIntSchema = <F extends FieldState<"bigint">>(state: F) => {
+// =============================================================================
+// BIGINT SCHEMA BUILDER
+// =============================================================================
+
+export interface BigIntSchemas<F extends FieldState<"bigint">> {
+  base: F["base"];
+  create: BaseBigIntSchema<F>;
+  update: F["array"] extends true
+    ? BigIntListUpdateSchema<F["base"]>
+    : BigIntUpdateSchema<F["base"]>;
+  filter: F["array"] extends true
+    ? BigIntListFilterSchema<F["base"]>
+    : BigIntFilterSchema<F["base"]>;
+}
+
+export const buildBigIntSchema = <F extends FieldState<"bigint">>(
+  state: F
+): BigIntSchemas<F> => {
   return {
-    base: state.base,
+    base: state.base as F["base"],
     create: v.bigint(state),
     update: state.array
       ? buildBigIntListUpdateSchema(state.base)
@@ -97,23 +206,12 @@ export const buildBigIntSchema = <F extends FieldState<"bigint">>(state: F) => {
   } as BigIntSchemas<F>;
 };
 
-export type BigIntSchemas<F extends FieldState<"bigint">> = {
-  base: F["base"];
-  create: BaseBigIntSchema<F>;
-  update: F["array"] extends true
-    ? ReturnType<typeof buildBigIntListUpdateSchema<F["base"]>>
-    : ReturnType<typeof buildBigIntUpdateSchema<F["base"]>>;
-  filter: F["array"] extends true
-    ? ReturnType<typeof buildBigIntListFilterSchema<F["base"]>>
-    : ReturnType<typeof buildBigIntFilterSchema<F["base"]>>;
-};
-
 export type InferBigIntInput<
   F extends FieldState<"bigint">,
-  Type extends "create" | "update" | "filter" | "base",
+  Type extends keyof BigIntSchemas<F>,
 > = InferInput<BigIntSchemas<F>[Type]>;
 
 export type InferBigIntOutput<
   F extends FieldState<"bigint">,
-  Type extends "create" | "update" | "filter" | "base",
+  Type extends keyof BigIntSchemas<F>,
 > = InferOutput<BigIntSchemas<F>[Type]>;

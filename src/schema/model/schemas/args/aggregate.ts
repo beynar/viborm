@@ -51,13 +51,19 @@ export const getAggregateFieldSchemas = <T extends ModelState>(state: T) => {
 /**
  * Count args: { where?, cursor?, take?, skip? }
  */
-export const getCountArgs = <T extends ModelState>(core: CoreSchemas<T>) => {
+
+export const getCountArgs = <
+  T extends ModelState,
+  C extends CoreSchemas<T> = CoreSchemas<T>,
+>(
+  core: C
+) => {
   return v.object(
     {
-      where: v.optional(core.where),
-      cursor: v.optional(core.whereUnique),
-      take: v.number({ optional: true }),
-      skip: v.number({ optional: true }),
+      where: core.where,
+      cursor: core.whereUnique,
+      take: v.number(),
+      skip: v.number(),
     },
     { optional: true }
   );
@@ -70,23 +76,27 @@ export const getCountArgs = <T extends ModelState>(core: CoreSchemas<T>) => {
 /**
  * Aggregate args: { where?, orderBy?, cursor?, take?, skip?, _count?, _avg?, _sum?, _min?, _max? }
  */
-export const getAggregateArgs = <T extends ModelState>(
+
+export const getAggregateArgs = <
+  T extends ModelState,
+  C extends CoreSchemas<T> = CoreSchemas<T>,
+>(
   state: T,
-  core: CoreSchemas<T>
+  core: C
 ) => {
   const aggSchemas = getAggregateFieldSchemas(state);
 
   return v.object({
-    where: v.optional(core.where),
-    orderBy: v.optional(v.union([core.orderBy, v.array(core.orderBy)])),
-    cursor: v.optional(core.whereUnique),
-    take: v.number({ optional: true }),
-    skip: v.number({ optional: true }),
-    _count: v.optional(v.union([v.literal(true), aggSchemas.count])),
-    _avg: v.optional(aggSchemas.avg),
-    _sum: v.optional(aggSchemas.sum),
-    _min: v.optional(aggSchemas.min),
-    _max: v.optional(aggSchemas.max),
+    where: core.where,
+    orderBy: v.union([core.orderBy, v.array(core.orderBy)]),
+    cursor: core.whereUnique,
+    take: v.number(),
+    skip: v.number(),
+    _count: v.union([v.literal(true), aggSchemas.count]),
+    _avg: aggSchemas.avg,
+    _sum: aggSchemas.sum,
+    _min: aggSchemas.min,
+    _max: aggSchemas.max,
   });
 };
 

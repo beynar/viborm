@@ -15,8 +15,7 @@
         "useBlockStatements": "off"
       },
       "performance": {
-        "noBarrelFile": "off",
-        "useTopLevelRegex": "info"
+        "noBarrelFile": "off"
       },
       "complexity": {
         "useLiteralKeys": "off",

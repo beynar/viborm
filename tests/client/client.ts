@@ -5,7 +5,7 @@ import z from "zod/v4";
 
 const user = s.model({
   id: s.string().id(),
-  name: s.string(),
+  name: s.string().nullable(),
   email: s.string(),
   pets: s.json().schema(
     z.array(
@@ -106,7 +106,19 @@ console.log("User with posts:", userWithPosts);
 // Update the user
 const updatedUser = await client.user.update({
   where: { id: newUser.id },
-  data: { name: "Jane Doe" },
+  data: {
+    name: "Jane Doe",
+    email: {
+      set: "eak",
+    },
+    pets: [
+      {
+        age: 10,
+        name: "dog",
+        type: "dog",
+      },
+    ],
+  },
 });
 console.log("Updated user:", updatedUser);
 

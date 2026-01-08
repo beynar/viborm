@@ -175,6 +175,9 @@ export type {
 } from "./types";
 export { isVibSchema } from "./types";
 
+// V Namespace - Type-level schema mirrors for explicit type annotations
+export type { V } from "./V";
+
 // =============================================================================
 // Convenience namespace (v.string(), v.number(), etc.)
 // =============================================================================

@@ -2,8 +2,8 @@ import v, {
   type BaseBlobSchema,
   type InferInput,
   type InferOutput,
-  type VibSchema,
 } from "@validation";
+import type { V } from "@validation/V";
 import { type FieldState, shorthandFilter, shorthandUpdate } from "../common";
 
 // =============================================================================
@@ -14,10 +14,41 @@ export const blobBase = v.blob();
 export const blobNullable = v.blob({ nullable: true });
 
 // =============================================================================
-// FILTER SCHEMAS
+// FILTER TYPES
 // =============================================================================
 
-const buildBlobFilterSchema = <S extends VibSchema>(schema: S) => {
+type BlobFilterBase<S extends V.Schema> = {
+  equals: S;
+};
+
+export type BlobFilterSchema<S extends V.Schema> = V.Union<
+  readonly [
+    V.ShorthandFilter<S>,
+    V.Object<
+      BlobFilterBase<S> & {
+        not: V.Union<
+          readonly [V.ShorthandFilter<S>, V.Object<BlobFilterBase<S>>]
+        >;
+      }
+    >,
+  ]
+>;
+
+// =============================================================================
+// UPDATE TYPES
+// =============================================================================
+
+export type BlobUpdateSchema<S extends V.Schema> = V.Union<
+  readonly [V.ShorthandUpdate<S>, V.Object<{ set: S }, { partial: false }>]
+>;
+
+// =============================================================================
+// SCHEMA BUILDERS
+// =============================================================================
+
+const buildBlobFilterSchema = <S extends V.Schema>(
+  schema: S
+): BlobFilterSchema<S> => {
   const filter = v.object({
     equals: schema,
   });
@@ -29,7 +60,9 @@ const buildBlobFilterSchema = <S extends VibSchema>(schema: S) => {
   ]);
 };
 
-const buildBlobUpdateSchema = <S extends VibSchema>(schema: S) =>
+const buildBlobUpdateSchema = <S extends V.Schema>(
+  schema: S
+): BlobUpdateSchema<S> =>
   v.union([
     shorthandUpdate(schema),
     v.object(
@@ -40,28 +73,34 @@ const buildBlobUpdateSchema = <S extends VibSchema>(schema: S) =>
     ),
   ]);
 
-export const buildBlobSchema = <F extends FieldState<"blob">>(state: F) => {
+// =============================================================================
+// BLOB SCHEMA BUILDER
+// =============================================================================
+
+export interface BlobSchemas<F extends FieldState<"blob">> {
+  base: F["base"];
+  create: BaseBlobSchema<F>;
+  update: BlobUpdateSchema<F["base"]>;
+  filter: BlobFilterSchema<F["base"]>;
+}
+
+export const buildBlobSchema = <F extends FieldState<"blob">>(
+  state: F
+): BlobSchemas<F> => {
   return {
-    base: state.base,
+    base: state.base as F["base"],
     create: v.blob(state),
     update: buildBlobUpdateSchema(state.base),
     filter: buildBlobFilterSchema(state.base),
   } as BlobSchemas<F>;
 };
 
-export type BlobSchemas<F extends FieldState<"blob">> = {
-  base: F["base"];
-  create: BaseBlobSchema<F>;
-  update: ReturnType<typeof buildBlobUpdateSchema<F["base"]>>;
-  filter: ReturnType<typeof buildBlobFilterSchema<F["base"]>>;
-};
-
 export type InferBlobInput<
   F extends FieldState<"blob">,
-  Type extends "create" | "update" | "filter" | "base",
+  Type extends keyof BlobSchemas<F>,
 > = InferInput<BlobSchemas<F>[Type]>;
 
 export type InferBlobOutput<
   F extends FieldState<"blob">,
-  Type extends "create" | "update" | "filter" | "base",
+  Type extends keyof BlobSchemas<F>,
 > = InferOutput<BlobSchemas<F>[Type]>;
