@@ -52,7 +52,7 @@ console.log("\n--- Testing CRUD operations ---\n");
 // Create a user
 const newUser = await client.user.create({
   data: {
-    email: "eze",
+    email: "lemz",
     name: "eze",
     pets: [
       {

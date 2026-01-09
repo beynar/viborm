@@ -2,13 +2,12 @@
 // Standalone field class with State generic pattern
 
 import type { StandardSchemaOf } from "@standard-schema/spec";
-import v, { type BaseBigIntSchema } from "@validation";
+import v from "@validation";
 import {
   createDefaultState,
-  type DefaultValue,
   type DefaultValueInput,
   type FieldState,
-  type UpdateState,
+  updateState,
 } from "../common";
 import type { NativeType } from "../native-types";
 import { type BigIntSchemas, bigIntBase, buildBigIntSchema } from "./schemas";
@@ -23,24 +22,9 @@ export class BigIntField<State extends FieldState<"bigint">> {
     this._nativeType = _nativeType;
   }
 
-  nullable(): BigIntField<
-    UpdateState<
-      State,
-      {
-        nullable: true;
-        hasDefault: true;
-        default: DefaultValue<null>;
-        optional: true;
-        base: BaseBigIntSchema<{
-          nullable: true;
-          array: State["array"];
-        }>;
-      }
-    >
-  > {
+  nullable() {
     return new BigIntField(
-      {
-        ...this.state,
+      updateState(this, {
         nullable: true,
         hasDefault: true,
         default: null,
@@ -52,25 +36,14 @@ export class BigIntField<State extends FieldState<"bigint">> {
           nullable: true,
           array: this.state.array,
         }),
-      },
+      }),
       this._nativeType
     );
   }
 
-  array(): BigIntField<
-    UpdateState<
-      State,
-      {
-        array: true;
-        base: BaseBigIntSchema<{
-          nullable: State["nullable"];
-          array: true;
-        }>;
-      }
-    >
-  > {
+  array() {
     return new BigIntField(
-      {
+      updateState(this, {
         ...this.state,
         array: true,
         base: v.bigint<{
@@ -80,56 +53,35 @@ export class BigIntField<State extends FieldState<"bigint">> {
           nullable: this.state.nullable,
           array: true,
         }),
-      },
+      }),
       this._nativeType
     );
   }
 
-  id(): BigIntField<UpdateState<State, { isId: true; isUnique: true }>> {
+  id() {
     return new BigIntField(
-      { ...this.state, isId: true, isUnique: true },
+      updateState(this, { isId: true, isUnique: true }),
       this._nativeType
     );
   }
 
-  unique(): BigIntField<UpdateState<State, { isUnique: true }>> {
-    return new BigIntField({ ...this.state, isUnique: true }, this._nativeType);
-  }
-
-  default<V extends DefaultValueInput<State>>(
-    value: V
-  ): BigIntField<
-    UpdateState<State, { hasDefault: true; default: V; optional: true }>
-  > {
+  unique() {
     return new BigIntField(
-      {
-        ...this.state,
-        hasDefault: true,
-        default: value,
-        optional: true,
-      },
+      updateState(this, { isUnique: true }),
       this._nativeType
     );
   }
 
-  schema<S extends StandardSchemaOf<bigint>>(
-    schema: S
-  ): BigIntField<
-    UpdateState<
-      State,
-      {
-        schema: S;
-        base: BaseBigIntSchema<{
-          nullable: State["nullable"];
-          array: State["array"];
-          schema: S;
-        }>;
-      }
-    >
-  > {
+  default<V extends DefaultValueInput<State>>(value: V) {
     return new BigIntField(
-      {
-        ...this.state,
+      updateState(this, { hasDefault: true, default: value, optional: true }),
+      this._nativeType
+    );
+  }
+
+  schema<S extends StandardSchemaOf<bigint>>(schema: S) {
+    return new BigIntField(
+      updateState(this, {
         schema,
         base: v.bigint<{
           nullable: State["nullable"];
@@ -140,37 +92,23 @@ export class BigIntField<State extends FieldState<"bigint">> {
           array: this.state.array,
           schema,
         }),
-      },
+      }),
       this._nativeType
     );
   }
 
-  map(columnName: string): this {
-    return new BigIntField(
-      { ...this.state, columnName },
-      this._nativeType
-    ) as this;
+  map(columnName: string) {
+    return new BigIntField(updateState(this, { columnName }), this._nativeType);
   }
 
-  increment(): BigIntField<
-    UpdateState<
-      State,
-      {
-        hasDefault: true;
-        autoGenerate: "increment";
-        default: DefaultValue<bigint>;
-        optional: true;
-      }
-    >
-  > {
+  increment() {
     return new BigIntField(
-      {
-        ...this.state,
+      updateState(this, {
         hasDefault: true,
         autoGenerate: "increment",
-        default: 0n, // Placeholder, actual value set by DB
+        default: 0n,
         optional: true,
-      },
+      }),
       this._nativeType
     );
   }

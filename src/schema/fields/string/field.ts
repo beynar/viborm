@@ -198,14 +198,6 @@ export class StringField<State extends FieldState<"string">> {
   }
 }
 
-export const string = (nativeType?: NativeType) =>
-  new StringField(createDefaultState("string", stringBase), nativeType);
-
-const test = string().nullable().array();
-
-type IsNullable<S extends FieldState<"string">> = S["nullable"] extends true
-  ? true
-  : false;
-type TestState = (typeof test)["~"]["state"];
-type TestState1 = (typeof test)["~"]["state"];
-type Test = IsNullable<TestState>;
+export const string = (nativeType?: NativeType) => {
+  return new StringField(createDefaultState("string", stringBase), nativeType);
+};

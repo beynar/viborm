@@ -35,6 +35,22 @@ And we want to explore features that don't exist yet but should be possible:
 - **Polymorphic relations** - A comment that can belong to either a Post or a Video
 - **Recursive queries** - Query self-referencing relationships (org hierarchies, threaded comments)
 
+We also have **deep Standard Schema integration**. You can extend field definitions with additional constraints using Zod, Valibot, or any Standard Schema compliant library:
+
+```typescript
+import { z } from "zod";
+
+const user = s.model("user", {
+  // Add custom validation beyond what the database enforces
+  email: s.string().schema(z.string().email()),
+  
+  // Or use branded types for stricter typing
+  id: s.string().schema(z.string().brand<"UserId">()),
+});
+```
+
+This lets you go beyond database-level constraints - add email validation, URL checks, branded types for type-safe IDs, or any custom logic your app needs.
+
 ## Why We Built This
 
 We loved Prisma's developer experience - the intuitive query API, the nested includes, the type safety, and especially the **schema definition** where relations are declared within the model itself. But two things kept causing friction:

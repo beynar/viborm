@@ -268,6 +268,11 @@ export namespace V {
   export type Nullable<TWrapped extends VibSchema<any, any>> =
     NullableSchema<TWrapped>;
 
+  export type MaybeNullable<
+    TWrapped extends VibSchema<any, any>,
+    TIsNullable extends boolean,
+  > = TIsNullable extends true ? NullableSchema<TWrapped> : TWrapped;
+
   // =========================================================================
   // Transform Types
   // =========================================================================
@@ -304,6 +309,14 @@ export namespace V {
     TWrapped,
     [TWrapped[" vibInferred"]["1"]]
   >;
+
+  export type SingleOrArray<TWrapped extends VibSchema<any, any>> = V.Union<
+    readonly [
+      V.Coerce<TWrapped, [TWrapped[" vibInferred"]["1"]]>,
+      V.Array<TWrapped>,
+    ]
+  >;
+
   // =========================================================================
   // Utility Types
   // =========================================================================

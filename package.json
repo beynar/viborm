@@ -51,10 +51,10 @@
     "db:run": "docker run -d --name baseorm -p 2222:5432 -e POSTGRES_DB=baseorm -e POSTGRES_PASSWORD=password postgres",
     "db:push": "prisma db push",
     "db:generate": "prisma generate",
-    "package:build": "tsdown && (tsc -p tsconfig.build.json || true)",
-    "package:build:js": "tsdown",
-    "package:build:dts": "tsc -p tsconfig.build.json || true",
-    "package:dev": "tsdown --watch"
+    "package:build": "tsdown",
+    "package:dev": "tsdown --watch",
+    "size": "size-limit",
+    "size:why": "size-limit --why"
   },
   "keywords": [
     "orm",
@@ -74,6 +74,8 @@
     "@biomejs/biome": "2.3.11",
     "@cloudflare/workers-types": "^4.20260103.0",
     "@electric-sql/pglite": "^0.3.2",
+    "@size-limit/esbuild-why": "^12.0.0",
+    "@size-limit/file": "^11.2.0",
     "@types/node": "^22.15.21",
     "@vitest/ui": "^3.1.4",
     "prisma": "^6.8.2",
@@ -110,5 +112,43 @@
     "@electric-sql/pglite": {
       "optional": true
     }
-  }
+  },
+  "size-limit": [
+    {
+      "name": "Main (viborm)",
+      "path": "dist/index.mjs",
+      "brotli": false,
+      "gzip": false
+    },
+    {
+      "name": "Adapters",
+      "path": "dist/adapters.mjs",
+      "brotli": false,
+      "gzip": false
+    },
+    {
+      "name": "Drivers",
+      "path": "dist/drivers.mjs",
+      "brotli": false,
+      "gzip": false
+    },
+    {
+      "name": "Drivers (PGlite)",
+      "path": "dist/drivers/pglite.mjs",
+      "brotli": false,
+      "gzip": false
+    },
+    {
+      "name": "Migrations",
+      "path": "dist/migrations.mjs",
+      "brotli": false,
+      "gzip": false
+    },
+    {
+      "name": "Validation",
+      "path": "dist/validation.mjs",
+      "brotli": false,
+      "gzip": false
+    }
+  ]
 }

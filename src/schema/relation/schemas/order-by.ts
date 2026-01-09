@@ -1,49 +1,30 @@
-import v, {
-  createSchema,
-  type ValidationResult,
-  type VibSchema,
-} from "@validation";
+import v, { type V } from "@validation";
 import type { RelationState } from "../types";
-import { getTargetOrderBySchema } from "./helpers";
+import { getTargetOrderBySchema, type InferTargetSchema } from "./helpers";
 
 /**
  * To-one orderBy: nested orderBy from the related model's fields
  * e.g., orderBy: { author: { name: 'asc' } }
- *
- * Creates a lazy schema that delegates to the target model's orderBy schema.
- * This avoids circular reference issues while returning a proper VibSchema.
  */
-export const toOneOrderByFactory = <S extends RelationState>(state: S) => {
-  // Get the thunk that resolves to the target model's orderBy schema
-  const getTargetOrderBy = getTargetOrderBySchema(state);
+export type ToOneOrderBySchema<S extends RelationState> =
+  () => InferTargetSchema<S, "orderBy">;
 
-  // Create a lazy schema that delegates validation to the target's orderBy
-  return createSchema<unknown, unknown>(
-    "lazy",
-    (value): ValidationResult<unknown> => {
-      const targetOrderBySchema = getTargetOrderBy() as VibSchema | undefined;
-      if (!(targetOrderBySchema && targetOrderBySchema["~standard"])) {
-        return { issues: [{ message: "OrderBy schema not available" }] };
-      }
-      const result = targetOrderBySchema["~standard"].validate(value);
-      if ("then" in result) {
-        return { issues: [{ message: "Async schemas are not supported" }] };
-      }
-      if (result.issues) {
-        return {
-          issues: result.issues as { message: string; path?: PropertyKey[] }[],
-        };
-      }
-      return { value: (result as { value: unknown }).value };
-    }
-  );
+export const toOneOrderByFactory = <S extends RelationState>(
+  state: S
+): ToOneOrderBySchema<S> => {
+  return getTargetOrderBySchema(state);
 };
 
 /**
  * To-many orderBy: can order by _count aggregate
  * e.g., orderBy: { posts: { _count: 'desc' } }
  */
-export const toManyOrderByFactory = <S extends RelationState>(_state: S) => {
+export type ToManyOrderBySchema<S extends RelationState> = V.Object<{
+  _count: V.Enum<["asc", "desc"]>;
+}>;
+export const toManyOrderByFactory = <S extends RelationState>(
+  _state: S
+): ToManyOrderBySchema<S> => {
   return v.object({
     _count: v.enum(["asc", "desc"]),
   });

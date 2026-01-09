@@ -41,7 +41,6 @@ import {
   getWhereUniqueSchema,
 } from "./schemas/core";
 import { getCompoundIdFilter } from "./schemas/core/filter";
-import type { ModelSchemas } from "./schemas/types";
 
 // =============================================================================
 // MAIN EXPORT - getModelSchemas
@@ -51,9 +50,7 @@ import type { ModelSchemas } from "./schemas/types";
  * Build all schemas for a model.
  * Returns a complete set of schemas for validation and type inference.
  */
-export const getModelSchemas = <T extends ModelState>(
-  state: T
-): ModelSchemas<T> => {
+export const getModelSchemas = <T extends ModelState>(state: T) => {
   // Core building blocks
   const scalarFilter = getScalarFilter(state);
   const uniqueFilter = getUniqueFilter(state);
@@ -91,22 +88,15 @@ export const getModelSchemas = <T extends ModelState>(
   };
 
   return {
-    // Core building blocks (exposed for advanced use)
-    _filter: {
-      scalar: scalarFilter,
-      unique: uniqueFilter,
-      relation: relationFilter,
-      compoundConstraint: compoundConstraintFilter,
-      compoundId: compoundIdFilter,
-    },
-    _create: {
-      scalar: scalarCreate,
-      relation: relationCreate,
-    },
-    _update: {
-      scalar: scalarUpdate,
-      relation: relationUpdate,
-    },
+    scalarFilter,
+    uniqueFilter,
+    relationFilter,
+    compoundConstraintFilter,
+    compoundIdFilter,
+    scalarCreate,
+    relationCreate,
+    scalarUpdate,
+    relationUpdate,
 
     // Combined schemas
     where,

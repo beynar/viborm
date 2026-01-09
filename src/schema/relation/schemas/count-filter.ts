@@ -1,9 +1,9 @@
 // Count Filter Schema
 // Schema for _count filtering - accepts true or { where: ... }
 
-import v from "@validation";
+import v, { type V } from "@validation";
 import type { RelationState } from "../types";
-import { getTargetWhereSchema } from "./helpers";
+import { getTargetWhereSchema, type InferTargetSchema } from "./helpers";
 
 /**
  * Count filter schema: true or { where: <filter> }
@@ -12,7 +12,17 @@ import { getTargetWhereSchema } from "./helpers";
  * - true: count all related records
  * - { where: ... }: count related records matching the filter
  */
-export const countFilterFactory = <S extends RelationState>(state: S) => {
+export type CountFilterSchema<S extends RelationState> = V.Union<
+  readonly [
+    V.Literal<true>,
+    V.Object<{
+      where: () => InferTargetSchema<S, "where">;
+    }>,
+  ]
+>;
+export const countFilterFactory = <S extends RelationState>(
+  state: S
+): CountFilterSchema<S> => {
   return v.union([
     v.literal(true),
     v.object({

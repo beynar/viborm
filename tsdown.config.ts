@@ -22,7 +22,6 @@ export default defineConfig({
   // VibORM's type inference relies on these complex types - using VibSchema
   // would break the inference chain from schema → query → result types.
   // Use tsc separately: pnpm tsc --emitDeclarationOnly --declaration --outDir dist
-  dts: false,
 
   // Clean output directory before build
   clean: true,
@@ -52,6 +51,9 @@ export default defineConfig({
 
   // Shims for Node.js builtins when targeting edge runtimes
   shims: true,
+
+  minify: true,
+  bundle: true,
 
   // Enable tree-shaking
   treeshake: true,

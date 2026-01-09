@@ -59,19 +59,15 @@ export interface CoreSchemas<T extends ModelState = ModelState> {
  * Used as explicit return type for getModelSchemas to avoid TS7056
  */
 export interface ModelSchemas<T extends ModelState> {
-  _filter: {
-    scalar: ScalarFilterSchema<T>;
-    unique: UniqueFilterSchema<T>;
-    relation: RelationFilterSchema<T>;
-  };
-  _create: {
-    scalar: ScalarCreateSchema<T>;
-    relation: RelationCreateSchema<T>;
-  };
-  _update: {
-    scalar: ScalarUpdateSchema<T>;
-    relation: RelationUpdateSchema<T>;
-  };
+  scalarFilter: ScalarFilterSchema<T>;
+  uniqueFilter: UniqueFilterSchema<T>;
+  relationFilter: RelationFilterSchema<T>;
+  // compoundConstraintFilter: CompoundConstraintFilterSchema<T>;
+  // compoundIdFilter: CompoundIdFilterSchema<T>;
+  scalarCreate: ScalarCreateSchema<T>;
+  relationCreate: RelationCreateSchema<T>;
+  scalarUpdate: ScalarUpdateSchema<T>;
+  relationUpdate: RelationUpdateSchema<T>;
 
   // Combined schemas
   where: WhereSchema<T>;

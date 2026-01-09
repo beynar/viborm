@@ -1,11 +1,12 @@
 // Relation Create Schemas
 
-import { v } from "@validation";
+import { type V, v } from "@validation";
 import type { RelationState } from "../types";
 import {
   getTargetCreateSchema,
   getTargetScalarCreateSchema,
   getTargetWhereUniqueSchema,
+  type InferTargetSchema,
   singleOrArray,
 } from "./helpers";
 // =============================================================================
@@ -19,7 +20,21 @@ import {
 /**
  * To-one create: { create?, connect?, connectOrCreate? }
  */
-export const toOneCreateFactory = <S extends RelationState>(state: S) => {
+export type ToOneCreateSchema<S extends RelationState> = V.Object<
+  {
+    create: () => InferTargetSchema<S, "create">;
+    connect: () => InferTargetSchema<S, "whereUnique">;
+    connectOrCreate: V.Object<{
+      where: () => InferTargetSchema<S, "whereUnique">;
+      create: () => InferTargetSchema<S, "create">;
+    }>;
+  },
+  { optional: true }
+>;
+
+export const toOneCreateFactory = <S extends RelationState>(
+  state: S
+): ToOneCreateSchema<S> => {
   return v.object(
     {
       create: getTargetCreateSchema(state),
@@ -41,7 +56,30 @@ export const toOneCreateFactory = <S extends RelationState>(state: S) => {
  * Note: createMany uses scalarCreate (no nested relations) because
  * nested creates within createMany are not supported.
  */
-export const toManyCreateFactory = <S extends RelationState>(state: S) => {
+
+export type ToManyCreateSchema<S extends RelationState> = V.Object<
+  {
+    create: () => V.SingleOrArray<InferTargetSchema<S, "create">>;
+    createMany: V.Object<{
+      data: () => V.Array<InferTargetSchema<S, "scalarCreate">>;
+      skipDuplicates: V.Boolean<{ optional: true }>;
+    }>;
+    connect: () => V.SingleOrArray<InferTargetSchema<S, "whereUnique">>;
+    connectOrCreate: () => V.SingleOrArray<
+      V.Object<
+        {
+          where: () => InferTargetSchema<S, "whereUnique">;
+          create: () => InferTargetSchema<S, "create">;
+        },
+        { partial: false }
+      >
+    >;
+  },
+  { optional: true }
+>;
+export const toManyCreateFactory = <S extends RelationState>(
+  state: S
+): ToManyCreateSchema<S> => {
   return v.object(
     {
       create: () => singleOrArray(getTargetCreateSchema(state)()),

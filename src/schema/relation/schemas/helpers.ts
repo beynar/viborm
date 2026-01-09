@@ -2,7 +2,8 @@
 // Common utilities and type helpers for relation schemas
 
 import type { AnyModel } from "@schema/model";
-import v, { type VibSchema } from "@validation";
+import type { ModelSchemas } from "@schema/model/schemas/types";
+import v, { type V, type VibSchema } from "@validation";
 import type { RelationState } from "../types";
 
 type TargetModel<S extends RelationState> = S["getter"] extends () => infer T
@@ -14,26 +15,12 @@ type TargetModel<S extends RelationState> = S["getter"] extends () => infer T
 /** Infer a specific schema type from the target model */
 export type InferTargetSchema<
   S extends RelationState,
-  K extends
-    | "where"
-    | "whereUnique"
-    | "create"
-    | "update"
-    | "select"
-    | "include"
-    | "orderBy",
+  K extends keyof ModelSchemas<TargetModel<S>>,
 > = TargetModel<S>["~"]["schemas"][K];
 
 const getTargetSchemas = <
   S extends RelationState,
-  K extends
-    | "where"
-    | "whereUnique"
-    | "create"
-    | "update"
-    | "select"
-    | "include"
-    | "orderBy",
+  K extends keyof ModelSchemas<TargetModel<S>>,
 >(
   state: S,
   key: K
@@ -77,11 +64,7 @@ export const getTargetCreateSchema = <S extends RelationState>(state: S) => {
 export const getTargetScalarCreateSchema = <S extends RelationState>(
   state: S
 ) => {
-  return () => {
-    const targetModel = state.getter() as AnyModel;
-    // scalarCreate is at _create.scalar in the schemas object
-    return targetModel["~"].schemas._create.scalar;
-  };
+  return getTargetSchemas(state, "scalarCreate");
 };
 
 /**
@@ -116,9 +99,11 @@ export const getTargetOrderBySchema = <S extends RelationState>(state: S) => {
 // HELPER: Normalize single value to array
 // =============================================================================
 
-export const singleOrArray = <S extends VibSchema>(schema: S) => {
+export const singleOrArray = <S extends VibSchema>(
+  schema: S
+): V.SingleOrArray<S> => {
   return v.union([
-    v.coerce(schema, (v: S[" vibInferred"]["0"]) => [v]),
+    v.coerce(schema, (v: S[" vibInferred"]["1"]) => [v]),
     v.array(schema),
   ]);
 };
