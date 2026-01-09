@@ -1,16 +1,35 @@
-import v, { type ObjectSchema } from "@validation";
+import v, { type ObjectSchema, type V } from "@validation";
 import type { Field } from "../../../fields/base";
 import type { ModelState } from "../../model";
 
-export const getScalarFilter = <T extends ModelState>(state: T) => {
+export type ScalarFilterSchema<T extends ModelState> = V.FromObject<
+  T["scalars"],
+  "~.schemas.filter"
+>;
+export const getScalarFilter = <T extends ModelState>(
+  state: T
+): ScalarFilterSchema<T> => {
   return v.fromObject(state.scalars, "~.schemas.filter");
 };
 
-export const getUniqueFilter = <T extends ModelState>(state: T) => {
+export type UniqueFilterSchema<T extends ModelState> = V.FromObject<
+  T["uniques"],
+  "~.schemas.base"
+>;
+export const getUniqueFilter = <T extends ModelState>(
+  state: T
+): UniqueFilterSchema<T> => {
   return v.fromObject(state.uniques, "~.schemas.base");
 };
 
-export const getRelationFilter = <T extends ModelState>(state: T) => {
+export type RelationFilterSchema<T extends ModelState> = V.FromObject<
+  T["relations"],
+  "~.schemas.filter"
+>;
+
+export const getRelationFilter = <T extends ModelState>(
+  state: T
+): RelationFilterSchema<T> => {
   return v.fromObject(state.relations, "~.schemas.filter");
 };
 
@@ -28,7 +47,9 @@ type CompoundConstraintFilterSchema<T extends ModelState> =
       ? ObjectSchema<T["compoundUniques"]>
       : ObjectSchema<{}, undefined>;
 
-export const getCompoundConstraintFilter = <T extends ModelState>(state: T) => {
+export const getCompoundConstraintFilter = <T extends ModelState>(
+  state: T
+): CompoundConstraintFilterSchema<T> => {
   if (!(state.compoundUniques || state.compoundId)) {
     return v.object({}) as CompoundConstraintFilterSchema<T>;
   }
@@ -43,7 +64,10 @@ export const getCompoundConstraintFilter = <T extends ModelState>(state: T) => {
   return v.object(state.compoundUniques) as CompoundConstraintFilterSchema<T>;
 };
 
-export const getCompoundIdFilter = <T extends ModelState>(state: T) => {
+type CompoundIdFilterSchema<T extends ModelState> = V.Object<T["compoundId"]>;
+export const getCompoundIdFilter = <T extends ModelState>(
+  state: T
+): CompoundIdFilterSchema<T> => {
   if (!state.compoundId) {
     return v.object({});
   }

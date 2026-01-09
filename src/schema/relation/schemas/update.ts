@@ -1,12 +1,13 @@
 // Relation Update Schemas
 
-import v from "@validation";
+import v, { type V } from "@validation";
 import type { RelationState } from "../types";
 import {
   getTargetCreateSchema,
   getTargetUpdateSchema,
   getTargetWhereSchema,
   getTargetWhereUniqueSchema,
+  type InferTargetSchema,
   singleOrArray,
 } from "./helpers";
 
@@ -18,7 +19,30 @@ import {
  * To-one update: { create?, connect?, connectOrCreate?, update?, upsert?, disconnect?, delete? }
  * disconnect and delete only available for optional relations
  */
-export const toOneUpdateFactory = <S extends RelationState>(state: S) => {
+
+type ToOneUpdateSchemaBase<S extends RelationState> = V.Object<{
+  create: () => InferTargetSchema<S, "create">;
+  connect: () => InferTargetSchema<S, "whereUnique">;
+  connectOrCreate: V.Object<{
+    where: () => InferTargetSchema<S, "whereUnique">;
+    create: () => InferTargetSchema<S, "create">;
+  }>;
+}>;
+type ToOneUpdateSchemaOptional<S extends RelationState> = V.Object<{
+  disconnect: V.Boolean;
+  delete: V.Boolean;
+}>;
+
+type ToOneUpdateSchema<S extends RelationState> = S["optional"] extends true
+  ? V.Object<
+      ToOneUpdateSchemaOptional<S>["entries"] &
+        ToOneUpdateSchemaBase<S>["entries"]
+    >
+  : ToOneUpdateSchemaBase<S>;
+
+export const toOneUpdateFactory = <S extends RelationState>(
+  state: S
+): ToOneUpdateSchema<S> => {
   const createSchema = getTargetCreateSchema(state);
   const updateSchema = getTargetUpdateSchema(state);
   const whereUniqueSchema = getTargetWhereUniqueSchema(state);
@@ -54,7 +78,45 @@ export const toOneUpdateFactory = <S extends RelationState>(state: S) => {
  * To-many update: { create?, connect?, disconnect?, set?, delete?, update?, updateMany?, deleteMany?, upsert? }
  * Most operations accept single or array
  */
-export const toManyUpdateFactory = <S extends RelationState>(state: S) => {
+
+type ToManyUpdateSchema<S extends RelationState> = V.Object<{
+  create: () => V.SingleOrArray<InferTargetSchema<S, "create">>;
+  connect: () => V.SingleOrArray<InferTargetSchema<S, "whereUnique">>;
+  disconnect: () => V.Union<
+    readonly [V.Boolean, V.SingleOrArray<InferTargetSchema<S, "whereUnique">>]
+  >;
+  delete: () => V.SingleOrArray<InferTargetSchema<S, "whereUnique">>;
+  connectOrCreate: V.SingleOrArray<
+    V.Object<{
+      where: () => InferTargetSchema<S, "whereUnique">;
+      create: () => InferTargetSchema<S, "create">;
+    }>
+  >;
+  set: () => V.SingleOrArray<InferTargetSchema<S, "whereUnique">>;
+  update: V.SingleOrArray<
+    V.Object<{
+      where: () => InferTargetSchema<S, "where">;
+      data: () => InferTargetSchema<S, "update">;
+    }>
+  >;
+  updateMany: V.SingleOrArray<
+    V.Object<{
+      where: () => InferTargetSchema<S, "where">;
+      data: () => InferTargetSchema<S, "update">;
+    }>
+  >;
+  deleteMany: () => V.SingleOrArray<InferTargetSchema<S, "where">>;
+  upsert: V.SingleOrArray<
+    V.Object<{
+      where: () => InferTargetSchema<S, "whereUnique">;
+      create: () => InferTargetSchema<S, "create">;
+      update: () => InferTargetSchema<S, "update">;
+    }>
+  >;
+}>;
+export const toManyUpdateFactory = <S extends RelationState>(
+  state: S
+): ToManyUpdateSchema<S> => {
   const createSchema = getTargetCreateSchema(state);
   const updateSchema = getTargetUpdateSchema(state);
   const whereSchema = getTargetWhereSchema(state);

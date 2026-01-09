@@ -26,24 +26,24 @@ export { getWhereSchema, getWhereUniqueSchema } from "./where";
 // rather than being explicitly defined
 
 import type { ModelState } from "../../model";
-import type {
+import {
   getCreateSchema,
-  getRelationCreate,
-  getScalarCreate,
+  type getRelationCreate,
+  type getScalarCreate,
 } from "./create";
 import type {
   getRelationFilter,
   getScalarFilter,
   getUniqueFilter,
 } from "./filter";
-import type { getOrderBySchema } from "./orderby";
-import type { getIncludeSchema, getSelectSchema } from "./select";
-import type {
-  getRelationUpdate,
-  getScalarUpdate,
+import { getOrderBySchema } from "./orderby";
+import { getIncludeSchema, getSelectSchema } from "./select";
+import {
+  type getRelationUpdate,
+  type getScalarUpdate,
   getUpdateSchema,
 } from "./update";
-import type { getWhereSchema, getWhereUniqueSchema } from "./where";
+import { getWhereSchema, getWhereUniqueSchema } from "./where";
 // Core schema types (inferred from factory return types)
 export type SelectSchema<T extends ModelState> = ReturnType<
   typeof getSelectSchema<T>
@@ -92,3 +92,25 @@ export type RelationFilterSchema<T extends ModelState> = ReturnType<
 export type OrderBySchema<T extends ModelState> = ReturnType<
   typeof getOrderBySchema<T>
 >;
+
+export type CoreSchemas<T extends ModelState> = {
+  where: WhereSchema<T>;
+  whereUnique: WhereUniqueSchema<T>;
+  create: CreateSchema<T>;
+  update: UpdateSchema<T>;
+  select: SelectSchema<T>;
+  include: IncludeSchema<T>;
+  orderBy: OrderBySchema<T>;
+};
+
+export const getCoreSchemas = <T extends ModelState>(state: T) => {
+  return {
+    where: getWhereSchema(state),
+    whereUnique: getWhereUniqueSchema(state),
+    create: getCreateSchema(state),
+    update: getUpdateSchema(state),
+    select: getSelectSchema(state),
+    include: getIncludeSchema(state),
+    orderBy: getOrderBySchema(state),
+  };
+};

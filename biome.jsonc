@@ -6,7 +6,8 @@
     "rules": {
       "suspicious": {
         "noExplicitAny": "off",
-        "noAssignInExpressions": "off"
+        "noAssignInExpressions": "off",
+        "useGuardForIn": "off"
       },
       "style": {
         "noNamespace": "off",

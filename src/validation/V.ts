@@ -17,6 +17,7 @@ import type { BlobSchema } from "./schemas/blob";
 import type { BooleanSchema } from "./schemas/boolean";
 import type { DateSchema } from "./schemas/date";
 import type { EnumSchema } from "./schemas/enum";
+import type { ComputeEntriesFromObject } from "./schemas/from-object";
 import type {
   IsoDateSchema,
   IsoTimeSchema,
@@ -30,7 +31,7 @@ import type { ObjectOptions, ObjectSchema } from "./schemas/object";
 import type { OptionalSchema, WrappableSchema } from "./schemas/optional";
 import type { PipeAction, PipeSchema } from "./schemas/pipe";
 import type { PointSchema } from "./schemas/point";
-import type { RecordSchema } from "./schemas/record";
+import type { ComputeEntriesFromKeys, RecordSchema } from "./schemas/record";
 import type { StringSchema } from "./schemas/string";
 import type { TransformSchema } from "./schemas/transform";
 import type { UnionSchema } from "./schemas/union";
@@ -208,6 +209,22 @@ export namespace V {
   > = ObjectSchema<TEntries, TOpts>;
 
   /**
+   * Type-level from object schema.
+   * @example V.FromObject<{ name: V.String }, "name"> - Object with name field
+   */
+
+  export type FromObject<
+    TObject extends Record<string, any>,
+    TPath extends string,
+    TOpts extends ObjectOptions | undefined = undefined,
+  > = ObjectSchema<ComputeEntriesFromObject<TObject, TPath>, TOpts>;
+
+  export type FromKeys<
+    TKeys extends string[],
+    TSchema extends VibSchema<any, any>,
+    TOpts extends ObjectOptions | undefined = undefined,
+  > = ObjectSchema<ComputeEntriesFromKeys<TKeys, TSchema>, TOpts>;
+  /**
    * Type-level array schema.
    * @example V.Array<V.String> - Array of strings
    */
@@ -243,7 +260,7 @@ export namespace V {
    * Type-level record schema (dictionary with uniform value type).
    * @example V.Record<V.String, V.Number>
    */
-  export type Record<
+  export type VRecord<
     TKey extends VibSchema<any, string>,
     TValue extends VibSchema<any, any>,
   > = RecordSchema<TKey, TValue>;

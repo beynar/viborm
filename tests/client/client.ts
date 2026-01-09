@@ -63,7 +63,17 @@ const newUser = await client.user.create({
     ],
   },
   include: {
-    posts: true,
+    posts: {
+      where: {
+        AND: [
+          {
+            title: {
+              contains: "Hello",
+            },
+          },
+        ],
+      },
+    },
   },
 });
 console.log("Created user:", newUser);

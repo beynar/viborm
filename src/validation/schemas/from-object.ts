@@ -6,19 +6,6 @@ import { type ObjectOptions, type ObjectSchema, object } from "./object";
 // =============================================================================
 
 /**
- * Check if T is a valid schema entry (VibSchema or ThunkCast).
- * This matches ObjectEntries which allows both.
- */
-type IsSchemaEntry<T> =
-  T extends VibSchema<any, any>
-    ? true
-    : T extends ThunkCast<any, any>
-      ? true
-      : T extends () => Cast<any, any>
-        ? true
-        : false;
-
-/**
  * Gets the value at a dot path in an object type.
  * Supports nested paths like "create.name" or "create.friends".
  */
@@ -210,3 +197,5 @@ export function fromObject<
     TOpts
   >;
 }
+
+export type { ComputeEntries as ComputeEntriesFromObject };

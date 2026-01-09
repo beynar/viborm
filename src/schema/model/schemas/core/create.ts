@@ -1,6 +1,6 @@
 import type { Field } from "@schema/fields";
 import type { RequiredFieldKeys } from "@schema/model/helper";
-import v from "@validation";
+import v, { type V } from "@validation";
 import type { ModelState } from "../../model";
 
 // =============================================================================
@@ -10,7 +10,17 @@ import type { ModelState } from "../../model";
 /**
  * Build scalar create schema - all scalar fields for create input
  */
-export const getScalarCreate = <T extends ModelState>(state: T) => {
+
+export type ScalarCreateSchema<T extends ModelState> = V.FromObject<
+  T["scalars"],
+  "~.schemas.create",
+  {
+    atLeast: RequiredFieldKeys<T["fields"]>[];
+  }
+>;
+export const getScalarCreate = <T extends ModelState>(
+  state: T
+): ScalarCreateSchema<T> => {
   const requiredScalars = Object.keys(state.scalars).filter((key) => {
     const field = state.fields[key] as Field;
     if (field["~"]["state"]["optional"]) {
@@ -32,7 +42,13 @@ export const getScalarCreate = <T extends ModelState>(state: T) => {
 /**
  * Build relation create schema - combines all relation create inputs
  */
-export const getRelationCreate = <T extends ModelState>(state: T) => {
+export type RelationCreateSchema<T extends ModelState> = V.FromObject<
+  T["relations"],
+  "~.schemas.create"
+>;
+export const getRelationCreate = <T extends ModelState>(
+  state: T
+): RelationCreateSchema<T> => {
   return v.fromObject<T["relations"], "~.schemas.create">(
     state.relations,
     "~.schemas.create"
@@ -70,7 +86,16 @@ function getFkFields<T extends ModelState>(state: T): Set<string> {
  * FK fields (like authorId) are optional because they can be derived from
  * nested relation operations (connect, create).
  */
-export const getCreateSchema = <T extends ModelState>(state: T) => {
+type CreateSchema<T extends ModelState> = V.Object<
+  V.FromObject<T["scalars"], "~.schemas.create">["entries"] &
+    V.FromObject<T["relations"], "~.schemas.create">["entries"],
+  {
+    atLeast: RequiredFieldKeys<T["fields"]>[];
+  }
+>;
+export const getCreateSchema = <T extends ModelState>(
+  state: T
+): CreateSchema<T> => {
   // Identify FK fields - these should be optional when using connect/create
   const fkFields = getFkFields(state);
 

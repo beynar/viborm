@@ -105,7 +105,7 @@ type NormalizeEntry<T> =
 /**
  * Compute entries from a tuple of keys and a schema.
  */
-type ComputeEntriesFromKeys<
+export type ComputeEntriesFromKeys<
   TKeys extends readonly string[],
   TSchema extends SchemaEntry,
 > = {
