@@ -1,9 +1,9 @@
 // Aggregate operation args schema factories
 
 import type { StringKeyOf } from "@schema/model/helper";
-import v from "@validation";
+import v, { type V } from "@validation";
 import type { ModelState } from "../../model";
-import type { CoreSchemas } from "../types";
+import type { CoreSchemas } from "../core";
 import { forEachScalarField } from "../utils";
 
 // =============================================================================
@@ -13,7 +13,20 @@ import { forEachScalarField } from "../utils";
 /**
  * Build aggregate field schemas (for _count, _avg, _sum, _min, _max)
  */
-export const getAggregateFieldSchemas = <T extends ModelState>(state: T) => {
+type OptionalBoolean = V.Boolean<{ optional: true }>;
+
+// TODO this is not typed properly
+export type AggregateFieldSchemas<T extends ModelState> = {
+  count: V.FromKeys<string[], OptionalBoolean>;
+  avg: V.FromKeys<StringKeyOf<T["scalars"]>[], OptionalBoolean>;
+  sum: V.FromKeys<StringKeyOf<T["scalars"]>[], OptionalBoolean>;
+  min: V.FromKeys<StringKeyOf<T["scalars"]>[], OptionalBoolean>;
+  max: V.FromKeys<StringKeyOf<T["scalars"]>[], OptionalBoolean>;
+};
+
+export const getAggregateFieldSchemas = <T extends ModelState>(
+  state: T
+): AggregateFieldSchemas<T> => {
   const countKeys: string[] = ["_all"];
   const numericKeys: string[] = [];
   const minMaxKeys: string[] = [];
@@ -51,13 +64,18 @@ export const getAggregateFieldSchemas = <T extends ModelState>(state: T) => {
 /**
  * Count args: { where?, cursor?, take?, skip? }
  */
-
-export const getCountArgs = <
-  T extends ModelState,
-  C extends CoreSchemas<T> = CoreSchemas<T>,
->(
-  core: C
-) => {
+export type CountArgs<T extends ModelState> = V.Object<
+  {
+    where: CoreSchemas<T>["where"];
+    cursor: CoreSchemas<T>["whereUnique"];
+    take: V.Number;
+    skip: V.Number;
+  },
+  { optional: true }
+>;
+export const getCountArgs = <T extends ModelState>(
+  core: CoreSchemas<T>
+): CountArgs<T> => {
   return v.object(
     {
       where: core.where,
@@ -77,13 +95,29 @@ export const getCountArgs = <
  * Aggregate args: { where?, orderBy?, cursor?, take?, skip?, _count?, _avg?, _sum?, _min?, _max? }
  */
 
+export type AggregateArgs<T extends ModelState> = V.Object<{
+  where: CoreSchemas<T>["where"];
+  orderBy: V.Union<
+    readonly [CoreSchemas<T>["orderBy"], V.Array<CoreSchemas<T>["orderBy"]>]
+  >;
+  cursor: CoreSchemas<T>["whereUnique"];
+  take: V.Number;
+  skip: V.Number;
+  _count: V.Union<
+    readonly [V.Literal<true>, AggregateFieldSchemas<T>["count"]]
+  >;
+  _avg: AggregateFieldSchemas<T>["avg"];
+  _sum: AggregateFieldSchemas<T>["sum"];
+  _min: AggregateFieldSchemas<T>["min"];
+  _max: AggregateFieldSchemas<T>["max"];
+}>;
 export const getAggregateArgs = <
   T extends ModelState,
   C extends CoreSchemas<T> = CoreSchemas<T>,
 >(
   state: T,
   core: C
-) => {
+): AggregateArgs<T> => {
   const aggSchemas = getAggregateFieldSchemas(state);
 
   return v.object({
@@ -107,10 +141,34 @@ export const getAggregateArgs = <
 /**
  * GroupBy args: { by, where?, having?, orderBy?, take?, skip?, _count?, _avg?, _sum?, _min?, _max? }
  */
+type EnumOfFields<T extends ModelState> = V.Enum<StringKeyOf<T["fields"]>[]>;
+
+export type GroupByArgs<T extends ModelState> = V.Object<
+  {
+    by: V.Union<readonly [EnumOfFields<T>, V.Array<EnumOfFields<T>>]>;
+    where: CoreSchemas<T>["where"];
+    having: CoreSchemas<T>["where"];
+    orderBy: V.Union<
+      readonly [CoreSchemas<T>["orderBy"], V.Array<CoreSchemas<T>["orderBy"]>]
+    >;
+    take: V.Number;
+    skip: V.Number;
+    _count: V.Union<
+      readonly [V.Literal<true>, AggregateFieldSchemas<T>["count"]]
+    >;
+    _avg: AggregateFieldSchemas<T>["avg"];
+    _sum: AggregateFieldSchemas<T>["sum"];
+    _min: AggregateFieldSchemas<T>["min"];
+    _max: AggregateFieldSchemas<T>["max"];
+  },
+  {
+    atLeast: ["by"];
+  }
+>;
 export const getGroupByArgs = <T extends ModelState>(
   state: T,
   core: CoreSchemas<T>
-) => {
+): GroupByArgs<T> => {
   // Build "by" schema - array of scalar field names or single field
   const scalarKeys = Object.keys(state.scalars) as StringKeyOf<T["scalars"]>[];
 
@@ -122,16 +180,16 @@ export const getGroupByArgs = <T extends ModelState>(
   return v.object(
     {
       by: v.union([fieldSchema, v.array(fieldSchema)]),
-      where: v.optional(core.where),
-      having: v.optional(core.where), // Simplified - could be more specific
-      orderBy: v.optional(v.union([core.orderBy, v.array(core.orderBy)])),
-      take: v.number({ optional: true }),
-      skip: v.number({ optional: true }),
-      _count: v.optional(v.union([v.literal(true), aggSchemas.count])),
-      _avg: v.optional(aggSchemas.avg),
-      _sum: v.optional(aggSchemas.sum),
-      _min: v.optional(aggSchemas.min),
-      _max: v.optional(aggSchemas.max),
+      where: core.where,
+      having: core.where, // Simplified - could be more specific
+      orderBy: v.union([core.orderBy, v.array(core.orderBy)]),
+      take: v.number(),
+      skip: v.number(),
+      _count: v.union([v.literal(true), aggSchemas.count]),
+      _avg: aggSchemas.avg,
+      _sum: aggSchemas.sum,
+      _min: aggSchemas.min,
+      _max: aggSchemas.max,
     },
     {
       atLeast: ["by"],

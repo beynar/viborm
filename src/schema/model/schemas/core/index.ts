@@ -27,73 +27,52 @@ export { getWhereSchema, getWhereUniqueSchema } from "./where";
 
 import type { ModelState } from "../../model";
 import {
+  type CreateSchema,
   getCreateSchema,
-  type getRelationCreate,
-  type getScalarCreate,
+  getRelationCreate,
+  getScalarCreate,
+  type RelationCreateSchema,
+  type ScalarCreateSchema,
 } from "./create";
-import type {
+import {
   getRelationFilter,
   getScalarFilter,
   getUniqueFilter,
+  type RelationFilterSchema,
+  type ScalarFilterSchema,
+  type UniqueFilterSchema,
 } from "./filter";
-import { getOrderBySchema } from "./orderby";
-import { getIncludeSchema, getSelectSchema } from "./select";
+import { getOrderBySchema, type OrderBySchema } from "./orderby";
 import {
-  type getRelationUpdate,
-  type getScalarUpdate,
+  getIncludeSchema,
+  getSelectSchema,
+  type IncludeSchema,
+  type SelectSchema,
+} from "./select";
+import {
+  getRelationUpdate,
+  getScalarUpdate,
   getUpdateSchema,
+  type RelationUpdateSchema,
+  type ScalarUpdateSchema,
+  type UpdateSchema,
 } from "./update";
-import { getWhereSchema, getWhereUniqueSchema } from "./where";
+import {
+  getWhereSchema,
+  getWhereUniqueSchema,
+  type WhereSchema,
+  type WhereUniqueSchema,
+} from "./where";
 // Core schema types (inferred from factory return types)
-export type SelectSchema<T extends ModelState> = ReturnType<
-  typeof getSelectSchema<T>
->;
-export type IncludeSchema<T extends ModelState> = ReturnType<
-  typeof getIncludeSchema<T>
->;
-
-export type UpdateSchema<T extends ModelState> = ReturnType<
-  typeof getUpdateSchema<T>
->;
-export type ScalarUpdateSchema<T extends ModelState> = ReturnType<
-  typeof getScalarUpdate<T>
->;
-export type RelationUpdateSchema<T extends ModelState> = ReturnType<
-  typeof getRelationUpdate<T>
->;
-
-export type WhereSchema<T extends ModelState> = ReturnType<
-  typeof getWhereSchema<T>
->;
-export type WhereUniqueSchema<T extends ModelState> = ReturnType<
-  typeof getWhereUniqueSchema<T>
->;
-
-export type CreateSchema<T extends ModelState> = ReturnType<
-  typeof getCreateSchema<T>
->;
-export type ScalarCreateSchema<T extends ModelState> = ReturnType<
-  typeof getScalarCreate<T>
->;
-export type RelationCreateSchema<T extends ModelState> = ReturnType<
-  typeof getRelationCreate<T>
->;
-
-export type ScalarFilterSchema<T extends ModelState> = ReturnType<
-  typeof getScalarFilter<T>
->;
-export type UniqueFilterSchema<T extends ModelState> = ReturnType<
-  typeof getUniqueFilter<T>
->;
-export type RelationFilterSchema<T extends ModelState> = ReturnType<
-  typeof getRelationFilter<T>
->;
-
-export type OrderBySchema<T extends ModelState> = ReturnType<
-  typeof getOrderBySchema<T>
->;
 
 export type CoreSchemas<T extends ModelState> = {
+  scalarFilter: ScalarFilterSchema<T>;
+  uniqueFilter: UniqueFilterSchema<T>;
+  relationFilter: RelationFilterSchema<T>;
+  scalarCreate: ScalarCreateSchema<T>;
+  relationCreate: RelationCreateSchema<T>;
+  scalarUpdate: ScalarUpdateSchema<T>;
+  relationUpdate: RelationUpdateSchema<T>;
   where: WhereSchema<T>;
   whereUnique: WhereUniqueSchema<T>;
   create: CreateSchema<T>;
@@ -103,8 +82,17 @@ export type CoreSchemas<T extends ModelState> = {
   orderBy: OrderBySchema<T>;
 };
 
-export const getCoreSchemas = <T extends ModelState>(state: T) => {
+export const getCoreSchemas = <T extends ModelState>(
+  state: T
+): CoreSchemas<T> => {
   return {
+    scalarFilter: getScalarFilter(state),
+    uniqueFilter: getUniqueFilter(state),
+    relationFilter: getRelationFilter(state),
+    scalarCreate: getScalarCreate(state),
+    relationCreate: getRelationCreate(state),
+    scalarUpdate: getScalarUpdate(state),
+    relationUpdate: getRelationUpdate(state),
     where: getWhereSchema(state),
     whereUnique: getWhereUniqueSchema(state),
     create: getCreateSchema(state),

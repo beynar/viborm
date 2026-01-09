@@ -86,7 +86,7 @@ function getFkFields<T extends ModelState>(state: T): Set<string> {
  * FK fields (like authorId) are optional because they can be derived from
  * nested relation operations (connect, create).
  */
-type CreateSchema<T extends ModelState> = V.Object<
+export type CreateSchema<T extends ModelState> = V.Object<
   V.FromObject<T["scalars"], "~.schemas.create">["entries"] &
     V.FromObject<T["relations"], "~.schemas.create">["entries"],
   {

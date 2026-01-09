@@ -11,7 +11,7 @@ import type { ModelState } from "../../model";
 /**
  * Build select schema - boolean selection for each scalar field, nested select for relations
  */
-type SelectSchema<T extends ModelState> = V.Object<
+export type SelectSchema<T extends ModelState> = V.Object<
   V.FromKeys<StringKeyOf<T["scalars"]>[], V.Boolean>["entries"] &
     V.FromObject<T["relations"], "~.schemas.select">["entries"] & {
       _count: V.Object<
@@ -74,7 +74,7 @@ export const getSelectSchema = <T extends ModelState>(
  * Build include schema - nested include for each relation
  */
 
-type IncludeSchema<T extends ModelState> = V.FromObject<
+export type IncludeSchema<T extends ModelState> = V.FromObject<
   T["relations"],
   "~.schemas.include",
   { optional: true }

@@ -1,6 +1,9 @@
-import v from "@validation";
+import v, { type V } from "@validation";
 import type { ModelState } from "../../model";
-import { getCompoundConstraintFilter } from "./filter";
+import {
+  type CompoundConstraintFilterSchema,
+  getCompoundConstraintFilter,
+} from "./filter";
 
 // =============================================================================
 // WHERE SCHEMA
@@ -10,7 +13,26 @@ import { getCompoundConstraintFilter } from "./filter";
  * Build full where schema - scalar + relation filters + AND/OR/NOT
  * Uses thunks for recursive self-references
  */
-export const getWhereSchema = <T extends ModelState>(state: T) => {
+export type WhereSchemaBase<T extends ModelState> = V.Object<
+  V.FromObject<T["scalars"], "~.schemas.filter">["entries"] &
+    V.FromObject<T["relations"], "~.schemas.filter">["entries"]
+>;
+
+export type WhereSchema<T extends ModelState> = V.Object<
+  {
+    AND: () => V.Optional<
+      V.Union<readonly [WhereSchema<T>, V.Array<WhereSchema<T>>]>
+    >;
+    OR: () => V.Optional<V.Array<WhereSchema<T>>>;
+    NOT: () => V.Optional<
+      V.Union<readonly [WhereSchema<T>, V.Array<WhereSchema<T>>]>
+    >;
+  } & WhereSchemaBase<T>["entries"]
+>;
+
+export const getWhereSchema = <T extends ModelState>(
+  state: T
+): WhereSchema<T> => {
   // Build scalar and relation filter entries
 
   const scalarFilter = v.fromObject<T["scalars"], "~.schemas.filter">(
@@ -44,6 +66,10 @@ export const getWhereSchema = <T extends ModelState>(state: T) => {
  * Build whereUnique schema - unique fields + compound constraints
  * Combines single-field uniques with compound ID and compound uniques
  */
+export type WhereUniqueSchema<T extends ModelState> = V.Object<
+  V.FromObject<T["uniques"], "~.schemas.base">["entries"] &
+    CompoundConstraintFilterSchema<T>["entries"]
+>;
 export const getWhereUniqueSchema = <T extends ModelState>(state: T) => {
   // Single-field unique constraints
   const uniqueFilter = v.fromObject<T["uniques"], "~.schemas.base">(

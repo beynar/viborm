@@ -19,22 +19,10 @@ import {
   getUpsertArgs,
 } from "./args";
 // Core schema factories
-import {
-  getCreateSchema,
-  getIncludeSchema,
-  getOrderBySchema,
-  getRelationCreate,
-  getRelationFilter,
-  getRelationUpdate,
-  getScalarCreate,
-  getScalarFilter,
-  getScalarUpdate,
-  getSelectSchema,
-  getUniqueFilter,
-  getUpdateSchema,
-  getWhereSchema,
-  getWhereUniqueSchema,
-} from "./core";
+import { getCoreSchemas } from "./core";
+
+export type { CoreSchemas } from "./core";
+
 import type { ModelSchemas } from "./types";
 
 // Re-export args schemas
@@ -42,7 +30,7 @@ export * from "./args";
 // Re-export core schemas
 export * from "./core";
 // Re-export types
-export type { CoreSchemas, SchemaEntries } from "./types";
+export type { SchemaEntries } from "./types";
 // Re-export utilities (if needed externally)
 export { forEachRelation, forEachScalarField, isToOne } from "./utils";
 
@@ -53,65 +41,10 @@ export { forEachRelation, forEachScalarField, isToOne } from "./utils";
 export const getModelSchemas = <T extends ModelState>(
   state: T
 ): ModelSchemas<T> => {
-  // Core building blocks
-  const scalarFilter = getScalarFilter(state);
-  const uniqueFilter = getUniqueFilter(state);
-  const relationFilter = getRelationFilter(state);
-
-  const scalarCreate = getScalarCreate(state);
-  const relationCreate = getRelationCreate(state);
-
-  const scalarUpdate = getScalarUpdate(state);
-  const relationUpdate = getRelationUpdate(state);
-
-  // Select, include, orderBy
-  const select = getSelectSchema(state);
-  const include = getIncludeSchema(state);
-  const orderBy = getOrderBySchema(state);
-
-  // Combined schemas
-  const where = getWhereSchema(state);
-  const whereUnique = getWhereUniqueSchema(state);
-  const create = getCreateSchema(state);
-  const update = getUpdateSchema(state);
-
   // Core schemas bundle for args factories
-  const core = {
-    where,
-    whereUnique,
-    create,
-    update,
-    select,
-    include,
-    orderBy,
-    scalarCreate,
-  };
-
+  const core = getCoreSchemas(state);
   return {
-    // Core building blocks (exposed for advanced use)
-    _filter: {
-      scalar: scalarFilter,
-      unique: uniqueFilter,
-      relation: relationFilter,
-    },
-    _create: {
-      scalar: scalarCreate,
-      relation: relationCreate,
-    },
-    _update: {
-      scalar: scalarUpdate,
-      relation: relationUpdate,
-    },
-
-    // Combined schemas
-    where,
-    whereUnique,
-    create,
-    update,
-    select,
-    include,
-    orderBy,
-
+    ...core,
     // Args schemas for each operation
     args: {
       findUnique: getFindUniqueArgs(core),

@@ -38,7 +38,7 @@ export const getRelationFilter = <T extends ModelState>(
  * Creates an object schema where each compound key maps to an optional object of field base schemas
  */
 
-type CompoundConstraintFilterSchema<T extends ModelState> =
+export type CompoundConstraintFilterSchema<T extends ModelState> =
   T["compoundId"] extends Record<string, Record<string, Field>>
     ? T["compoundUniques"] extends Record<string, Record<string, Field>>
       ? ObjectSchema<T["compoundId"] & T["compoundUniques"]>
