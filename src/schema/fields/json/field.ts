@@ -1,11 +1,10 @@
 import type { StandardSchemaOf } from "@standard-schema/spec";
-import v, { type BaseJsonSchema, type JsonValue } from "@validation";
+import v, { type JsonValue } from "@validation";
 import {
   createDefaultState,
-  type DefaultValue,
   type DefaultValueInput,
   type FieldState,
-  type UpdateState,
+  updateState,
 } from "../common";
 import type { NativeType } from "../native-types";
 import { buildJsonSchema, type JsonSchemas, jsonBase } from "./schemas";
@@ -19,24 +18,9 @@ export class JsonField<State extends FieldState<"json"> = FieldState<"json">> {
     this._nativeType = _nativeType;
   }
 
-  nullable(): JsonField<
-    UpdateState<
-      State,
-      {
-        nullable: true;
-        hasDefault: true;
-        default: DefaultValue<null>;
-        optional: true;
-        base: BaseJsonSchema<{
-          nullable: true;
-          schema: State["schema"];
-        }>;
-      }
-    >
-  > {
+  nullable() {
     return new JsonField(
-      {
-        ...this.state,
+      updateState(this, {
         nullable: true,
         hasDefault: true,
         default: null,
@@ -48,44 +32,25 @@ export class JsonField<State extends FieldState<"json"> = FieldState<"json">> {
           nullable: true,
           schema: this.state.schema,
         }),
-      },
+      }),
       this._nativeType
     );
   }
 
-  default<V extends DefaultValueInput<State>>(
-    value: V
-  ): JsonField<
-    UpdateState<State, { hasDefault: true; default: V; optional: true }>
-  > {
+  default<V extends DefaultValueInput<State>>(value: V) {
     return new JsonField(
-      {
-        ...this.state,
+      updateState(this, {
         hasDefault: true,
         default: value,
         optional: true,
-      },
+      }),
       this._nativeType
     );
   }
 
-  schema<S extends StandardSchemaOf<JsonValue>>(
-    schema: S
-  ): JsonField<
-    UpdateState<
-      State,
-      {
-        schema: S;
-        base: BaseJsonSchema<{
-          nullable: State["nullable"];
-          schema: S;
-        }>;
-      }
-    >
-  > {
+  schema<S extends StandardSchemaOf<JsonValue>>(schema: S) {
     return new JsonField(
-      {
-        ...this.state,
+      updateState(this, {
         schema,
         base: v.json<{
           nullable: State["nullable"];
@@ -94,16 +59,13 @@ export class JsonField<State extends FieldState<"json"> = FieldState<"json">> {
           nullable: this.state.nullable,
           schema,
         }),
-      },
+      }),
       this._nativeType
     );
   }
 
-  map(columnName: string): this {
-    return new JsonField(
-      { ...this.state, columnName },
-      this._nativeType
-    ) as this;
+  map(columnName: string) {
+    return new JsonField(updateState(this, { columnName }), this._nativeType);
   }
 
   get ["~"]() {

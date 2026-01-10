@@ -1,13 +1,12 @@
 // Enum Field
 // Standalone field class with State generic pattern
 
-import v, { type BaseEnumSchema } from "@validation";
+import v from "@validation";
 import {
   createDefaultState,
-  type DefaultValue,
   type DefaultValueInput,
   type FieldState,
-  type UpdateState,
+  updateState,
 } from "../common";
 import type { NativeType } from "../native-types";
 import { buildEnumSchema, type EnumSchemas } from "./schemas";
@@ -26,29 +25,10 @@ export class EnumField<
     this._nativeType = _nativeType;
   }
 
-  nullable(): EnumField<
-    Values,
-    UpdateState<
-      State,
-      {
-        nullable: true;
-        hasDefault: true;
-        default: DefaultValue<null>;
-        optional: true;
-        base: BaseEnumSchema<
-          Values,
-          {
-            nullable: true;
-            array: State["array"];
-          }
-        >;
-      }
-    >
-  > {
+  nullable() {
     return new EnumField(
       this.values,
-      {
-        ...this.state,
+      updateState(this, {
         nullable: true,
         hasDefault: true,
         default: null,
@@ -63,31 +43,15 @@ export class EnumField<
           nullable: true,
           array: this.state.array,
         }),
-      },
+      }),
       this._nativeType
     );
   }
 
-  array(): EnumField<
-    Values,
-    UpdateState<
-      State,
-      {
-        array: true;
-        base: BaseEnumSchema<
-          Values,
-          {
-            nullable: State["nullable"];
-            array: true;
-          }
-        >;
-      }
-    >
-  > {
+  array() {
     return new EnumField(
       this.values,
-      {
-        ...this.state,
+      updateState(this, {
         array: true,
         base: v.enum<
           Values,
@@ -99,35 +63,29 @@ export class EnumField<
           nullable: this.state.nullable,
           array: true,
         }),
-      },
+      }),
       this._nativeType
     );
   }
 
-  default<V extends DefaultValueInput<State>>(
-    value: V
-  ): EnumField<
-    Values,
-    UpdateState<State, { hasDefault: true; default: V; optional: true }>
-  > {
+  default<V extends DefaultValueInput<State>>(value: V) {
     return new EnumField(
       this.values,
-      {
-        ...this.state,
+      updateState(this, {
         hasDefault: true,
         default: value,
         optional: true,
-      },
+      }),
       this._nativeType
     );
   }
 
-  map(columnName: string): this {
+  map(columnName: string) {
     return new EnumField(
       this.values,
-      { ...this.state, columnName },
+      updateState(this, { columnName }),
       this._nativeType
-    ) as this;
+    );
   }
 
   get ["~"]() {
@@ -143,6 +101,9 @@ export const enumField = <const T extends string[]>(
   values: T,
   nativeType?: NativeType
 ) => {
-  const base = v.enum(values);
-  return new EnumField(values, createDefaultState("enum", base), nativeType);
+  return new EnumField<T>(
+    values,
+    createDefaultState("enum", v.enum(values)),
+    nativeType
+  );
 };

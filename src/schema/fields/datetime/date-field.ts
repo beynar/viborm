@@ -2,13 +2,12 @@
 // Standalone field class with State generic pattern
 
 import type { StandardSchemaOf } from "@standard-schema/spec";
-import v, { type BaseIsoDateSchema } from "@validation";
+import v from "@validation";
 import {
   createDefaultState,
-  type DefaultValue,
   type DefaultValueInput,
   type FieldState,
-  type UpdateState,
+  updateState,
 } from "../common";
 import type { NativeType } from "../native-types";
 import { buildDateSchema, type DateSchemas, dateBase } from "./schemas";
@@ -26,24 +25,9 @@ export class DateField<State extends FieldState<"date">> {
     this._nativeType = _nativeType;
   }
 
-  nullable(): DateField<
-    UpdateState<
-      State,
-      {
-        nullable: true;
-        hasDefault: true;
-        default: DefaultValue<null>;
-        optional: true;
-        base: BaseIsoDateSchema<{
-          nullable: true;
-          array: State["array"];
-        }>;
-      }
-    >
-  > {
+  nullable() {
     return new DateField(
-      {
-        ...this.state,
+      updateState(this, {
         nullable: true,
         hasDefault: true,
         default: null,
@@ -55,26 +39,14 @@ export class DateField<State extends FieldState<"date">> {
           nullable: true,
           array: this.state.array,
         }),
-      },
+      }),
       this._nativeType
     );
   }
 
-  array(): DateField<
-    UpdateState<
-      State,
-      {
-        array: true;
-        base: BaseIsoDateSchema<{
-          nullable: State["nullable"];
-          array: true;
-        }>;
-      }
-    >
-  > {
+  array() {
     return new DateField(
-      {
-        ...this.state,
+      updateState(this, {
         array: true,
         base: v.isoDate<{
           nullable: State["nullable"];
@@ -83,40 +55,28 @@ export class DateField<State extends FieldState<"date">> {
           nullable: this.state.nullable,
           array: true,
         }),
-      },
+      }),
       this._nativeType
     );
   }
 
-  id(): DateField<UpdateState<State, { isId: true; isUnique: true }>> {
+  id() {
     return new DateField(
-      { ...this.state, isId: true, isUnique: true },
+      updateState(this, { isId: true, isUnique: true }),
       this._nativeType
     );
   }
 
-  unique(): DateField<UpdateState<State, { isUnique: true }>> {
-    return new DateField({ ...this.state, isUnique: true }, this._nativeType);
+  unique() {
+    return new DateField(
+      updateState(this, { isUnique: true }),
+      this._nativeType
+    );
   }
 
-  schema<S extends StandardSchemaOf<string>>(
-    schema: S
-  ): DateField<
-    UpdateState<
-      State,
-      {
-        schema: S;
-        base: BaseIsoDateSchema<{
-          nullable: State["nullable"];
-          array: State["array"];
-          schema: S;
-        }>;
-      }
-    >
-  > {
+  schema<S extends StandardSchemaOf<string>>(schema: S) {
     return new DateField(
-      {
-        ...this.state,
+      updateState(this, {
         schema,
         base: v.isoDate<{
           nullable: State["nullable"];
@@ -127,23 +87,18 @@ export class DateField<State extends FieldState<"date">> {
           array: this.state.array,
           schema,
         }),
-      },
+      }),
       this._nativeType
     );
   }
 
-  default<V extends DefaultValueInput<State>>(
-    value: V
-  ): DateField<
-    UpdateState<State, { hasDefault: true; default: V; optional: true }>
-  > {
+  default<V extends DefaultValueInput<State>>(value: V) {
     return new DateField(
-      {
-        ...this.state,
+      updateState(this, {
         hasDefault: true,
         default: value,
         optional: true,
-      },
+      }),
       this._nativeType
     );
   }
@@ -151,55 +106,30 @@ export class DateField<State extends FieldState<"date">> {
   /**
    * Maps this field to a custom column name in the database
    */
-  map(columnName: string): this {
-    return new DateField(
-      { ...this.state, columnName },
-      this._nativeType
-    ) as this;
+  map(columnName: string) {
+    return new DateField(updateState(this, { columnName }), this._nativeType);
   }
 
-  now(): DateField<
-    UpdateState<
-      State,
-      {
-        hasDefault: true;
-        autoGenerate: "now";
-        default: DefaultValue<string>;
-        optional: true;
-      }
-    >
-  > {
+  now() {
     return new DateField(
-      {
-        ...this.state,
+      updateState(this, {
         hasDefault: true,
         autoGenerate: "now",
         default: defaultNow,
         optional: true,
-      },
+      }),
       this._nativeType
     );
   }
 
-  updatedAt(): DateField<
-    UpdateState<
-      State,
-      {
-        hasDefault: true;
-        autoGenerate: "updatedAt";
-        default: DefaultValue<string>;
-        optional: true;
-      }
-    >
-  > {
+  updatedAt() {
     return new DateField(
-      {
-        ...this.state,
+      updateState(this, {
         hasDefault: true,
         autoGenerate: "updatedAt",
         default: defaultUpdatedAt,
         optional: true,
-      },
+      }),
       this._nativeType
     );
   }

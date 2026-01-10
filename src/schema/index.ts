@@ -5,6 +5,7 @@ import {
   bigInt,
   blob,
   boolean,
+  date,
   dateTime,
   decimal,
   enumField,
@@ -12,6 +13,7 @@ import {
   int,
   json,
   string,
+  time,
   vector,
 } from "./fields";
 import { model } from "./model";
@@ -61,6 +63,8 @@ export const s = {
   decimal,
   bigInt,
   dateTime,
+  date,
+  time,
   json,
   blob,
   enum: enumField,
@@ -86,6 +90,7 @@ export {
   BigIntField,
   BlobField,
   BooleanField,
+  DateField,
   DateTimeField,
   DecimalField,
   EnumField,
@@ -93,6 +98,7 @@ export {
   IntField,
   JsonField,
   StringField,
+  TimeField,
   VectorField,
 } from "./fields";
 export * as TYPES from "./fields/native-types";
@@ -142,19 +148,21 @@ export type ScalarTypeToTS<
     ? number
     : T extends "boolean"
       ? boolean
-      : T extends "datetime"
+      : T extends "datetime" | "date"
         ? Date
-        : T extends "bigint"
-          ? bigint
-          : T extends "json"
-            ? unknown
-            : T extends "blob"
-              ? Uint8Array
-              : T extends "vector"
-                ? number[]
-                : T extends "enum"
-                  ? string
-                  : never;
+        : T extends "time"
+          ? string
+          : T extends "bigint"
+            ? bigint
+            : T extends "json"
+              ? unknown
+              : T extends "blob"
+                ? Uint8Array
+                : T extends "vector"
+                  ? number[]
+                  : T extends "enum"
+                    ? string
+                    : never;
 
 /**
  * Infers the TypeScript type from a FieldState

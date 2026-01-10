@@ -51,10 +51,9 @@ export default defineConfig({
 
   // Shims for Node.js builtins when targeting edge runtimes
   shims: true,
-
   minify: true,
   bundle: true,
-
+  dts: true,
   // Enable tree-shaking
   treeshake: true,
 });

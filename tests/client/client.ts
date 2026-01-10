@@ -57,7 +57,7 @@ const newUser = await client.user.create({
     pets: [
       {
         age: 10,
-        name: "dog",
+        name: "dog1",
         type: "dog",
       },
     ],
@@ -106,7 +106,13 @@ const userWithPosts = await client.user.findFirst({
   include: {
     posts: {
       include: {
-        author: true,
+        author: {
+          include: {
+            posts: {
+              skip: 2,
+            },
+          },
+        },
       },
     },
   },

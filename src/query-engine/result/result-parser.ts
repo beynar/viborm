@@ -3,8 +3,11 @@
  *
  * Transforms raw database rows into typed objects.
  * Handles JSON parsing for MySQL/SQLite and null coalescing.
+ * Applies schema-aware type conversion for relation data (datetime, bigint).
  */
 
+import type { Field } from "@schema/fields";
+import type { AnyRelation } from "@schema/relation";
 import { isBatchOperation, type Operation, type QueryContext } from "../types";
 
 /**
@@ -70,16 +73,132 @@ export function parseResult<T>(
 }
 
 /**
- * Parse a single row, handling JSON columns
+ * Parse a single row, using schema info for type-aware conversion
  */
 function parseRow(
   ctx: QueryContext,
   row: Record<string, unknown>
 ): Record<string, unknown> {
   const result: Record<string, unknown> = {};
+  const model = ctx.model;
+  const scalars = model["~"].state.scalars;
+  const relations = model["~"].state.relations;
 
   for (const [key, value] of Object.entries(row)) {
-    result[key] = parseValue(value);
+    // Check if this is a scalar field with a known type
+    const field = scalars[key];
+    if (field) {
+      const fieldType = field["~"].state.type;
+      result[key] = parseTypedValue(value, fieldType);
+    } else if (relations[key]) {
+      // It's a relation - parse with target model schema
+      result[key] = parseRelationValue(relations[key], value);
+    } else {
+      // Unknown field - parse generically
+      result[key] = parseValue(value);
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Parse a value with knowledge of its expected type
+ */
+function parseTypedValue(value: unknown, fieldType: string): unknown {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  // Handle arrays - apply typed conversion to each element
+  if (Array.isArray(value)) {
+    return value.map((item) => parseTypedValue(item, fieldType));
+  }
+
+  switch (fieldType) {
+    case "datetime":
+    case "date":
+      // Convert ISO strings to Date objects
+      if (value instanceof Date) return value;
+      if (typeof value === "string" || typeof value === "number") {
+        return new Date(value);
+      }
+      return value;
+
+    case "bigint":
+      // Convert numbers/strings to BigInt
+      if (typeof value === "bigint") return value;
+      if (typeof value === "number" || typeof value === "string") {
+        return BigInt(value);
+      }
+      return value;
+
+    case "time":
+      // Time stays as string
+      if (typeof value === "string") return value;
+      return String(value);
+
+    default:
+      return parseValue(value);
+  }
+}
+
+/**
+ * Parse relation values (nested objects from json_agg)
+ */
+function parseRelationValue(relation: AnyRelation, value: unknown): unknown {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  // Get target model from relation thunk
+  const targetModel = relation["~"].state.getter();
+  const targetScalars = targetModel["~"].state.scalars;
+  const targetRelations = targetModel["~"].state.relations;
+
+  if (Array.isArray(value)) {
+    // To-many relation - deserialize each item
+    return value.map((item) =>
+      deserializeWithSchema(
+        item as Record<string, unknown>,
+        targetScalars,
+        targetRelations
+      )
+    );
+  }
+
+  if (typeof value === "object") {
+    // To-one relation
+    return deserializeWithSchema(
+      value as Record<string, unknown>,
+      targetScalars,
+      targetRelations
+    );
+  }
+
+  return value;
+}
+
+/**
+ * Deserialize an object using schema information
+ */
+function deserializeWithSchema(
+  obj: Record<string, unknown>,
+  scalars: Record<string, Field>,
+  relations: Record<string, AnyRelation>
+): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+
+  for (const [key, value] of Object.entries(obj)) {
+    const field = scalars[key];
+    if (field) {
+      result[key] = parseTypedValue(value, field["~"].state.type);
+    } else if (relations[key]) {
+      // Nested relation - recursive
+      result[key] = parseRelationValue(relations[key], value);
+    } else {
+      result[key] = parseValue(value);
+    }
   }
 
   return result;
@@ -87,6 +206,7 @@ function parseRow(
 
 /**
  * Parse a single value, handling JSON strings and BigInt
+ * (Generic parser for unknown fields)
  */
 function parseValue(value: unknown): unknown {
   // Null passthrough
@@ -120,10 +240,22 @@ function parseValue(value: unknown): unknown {
 
   // Already parsed object (PostgreSQL returns JSON as objects)
   if (typeof value === "object") {
+    // Preserve Date objects - they have no enumerable properties
+    // so Object.entries would return empty array
+    if (value instanceof Date) {
+      return value;
+    }
+
+    // Preserve Buffer/Uint8Array for blob fields
+    if (value instanceof Uint8Array || Buffer.isBuffer(value)) {
+      return value;
+    }
+
     if (Array.isArray(value)) {
       return value.map(parseValue);
     }
-    // Recursively parse nested objects
+
+    // Recursively parse nested objects (JSON fields, etc.)
     const result: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
       result[k] = parseValue(v);

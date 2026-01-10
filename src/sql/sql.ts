@@ -74,17 +74,17 @@ export class Sql {
   }
 }
 
-function spreadValues(...data: Array<Record<string, RawValue>>) {
+function spreadValues(...data: Record<string, RawValue>[]) {
   const firstRow = data[0]!;
   // Assuming all rows have the same keys
   const valueKeys = Object.keys(firstRow) as string[];
   const allLengths = new Set();
 
-  const values = data.map((item, index) => {
+  const values = data.map((item) => {
     const keys = Object.keys(item);
     const values = keys.map((key) => item[key]);
     allLengths.add(values.length);
-    return new Sql(["(", ...Array(keys.length - 1).fill(","), ")"], values);
+    return new Sql(["(", ...new Array(keys.length - 1).fill(","), ")"], values);
   });
 
   if (allLengths.size > 1) {
@@ -98,7 +98,7 @@ function spreadValues(...data: Array<Record<string, RawValue>>) {
   return new Sql(
     [
       `(${valueKeys.join(",")}) VALUES `,
-      ...Array(values.length - 1).fill(","),
+      ...new Array(values.length - 1).fill(","),
       ")",
     ],
     values
@@ -131,7 +131,7 @@ function join(
   suffix = ""
 ) {
   return new Sql(
-    [prefix, ...Array(values.length - 1).fill(separator), suffix],
+    [prefix, ...new Array(values.length - 1).fill(separator), suffix],
     values
   );
 }

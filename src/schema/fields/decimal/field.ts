@@ -1,11 +1,10 @@
 import type { StandardSchemaOf } from "@standard-schema/spec";
-import v, { type BaseNumberSchema } from "@validation";
+import v from "@validation";
 import {
   createDefaultState,
-  type DefaultValue,
   type DefaultValueInput,
   type FieldState,
-  type UpdateState,
+  updateState,
 } from "../common";
 import type { NativeType } from "../native-types";
 import {
@@ -24,24 +23,9 @@ export class DecimalField<State extends FieldState<"decimal">> {
     this._nativeType = _nativeType;
   }
 
-  nullable(): DecimalField<
-    UpdateState<
-      State,
-      {
-        nullable: true;
-        hasDefault: true;
-        default: DefaultValue<null>;
-        optional: true;
-        base: BaseNumberSchema<{
-          nullable: true;
-          array: State["array"];
-        }>;
-      }
-    >
-  > {
+  nullable() {
     return new DecimalField(
-      {
-        ...this.state,
+      updateState(this, {
         nullable: true,
         hasDefault: true,
         default: null,
@@ -53,26 +37,14 @@ export class DecimalField<State extends FieldState<"decimal">> {
           nullable: true,
           array: this.state.array,
         }),
-      },
+      }),
       this._nativeType
     );
   }
 
-  array(): DecimalField<
-    UpdateState<
-      State,
-      {
-        array: true;
-        base: BaseNumberSchema<{
-          nullable: State["nullable"];
-          array: true;
-        }>;
-      }
-    >
-  > {
+  array() {
     return new DecimalField(
-      {
-        ...this.state,
+      updateState(this, {
         array: true,
         base: v.number<{
           nullable: State["nullable"];
@@ -81,59 +53,39 @@ export class DecimalField<State extends FieldState<"decimal">> {
           nullable: this.state.nullable,
           array: true,
         }),
-      },
+      }),
       this._nativeType
     );
   }
 
-  id(): DecimalField<UpdateState<State, { isId: true; isUnique: true }>> {
+  id() {
     return new DecimalField(
-      { ...this.state, isId: true, isUnique: true },
+      updateState(this, { isId: true, isUnique: true }),
       this._nativeType
     );
   }
 
-  unique(): DecimalField<UpdateState<State, { isUnique: true }>> {
+  unique() {
     return new DecimalField(
-      { ...this.state, isUnique: true },
+      updateState(this, { isUnique: true }),
       this._nativeType
     );
   }
 
-  default<V extends DefaultValueInput<State>>(
-    value: V
-  ): DecimalField<
-    UpdateState<State, { hasDefault: true; default: V; optional: true }>
-  > {
+  default<V extends DefaultValueInput<State>>(value: V) {
     return new DecimalField(
-      {
-        ...this.state,
+      updateState(this, {
         hasDefault: true,
         default: value,
         optional: true,
-      },
+      }),
       this._nativeType
     );
   }
 
-  schema<S extends StandardSchemaOf<number>>(
-    schema: S
-  ): DecimalField<
-    UpdateState<
-      State,
-      {
-        schema: S;
-        base: BaseNumberSchema<{
-          nullable: State["nullable"];
-          array: State["array"];
-          schema: S;
-        }>;
-      }
-    >
-  > {
+  schema<S extends StandardSchemaOf<number>>(schema: S) {
     return new DecimalField(
-      {
-        ...this.state,
+      updateState(this, {
         schema,
         base: v.number<{
           nullable: State["nullable"];
@@ -144,16 +96,16 @@ export class DecimalField<State extends FieldState<"decimal">> {
           array: this.state.array,
           schema,
         }),
-      },
+      }),
       this._nativeType
     );
   }
 
-  map(columnName: string): this {
+  map(columnName: string) {
     return new DecimalField(
-      { ...this.state, columnName },
+      updateState(this, { columnName }),
       this._nativeType
-    ) as this;
+    );
   }
 
   get ["~"]() {

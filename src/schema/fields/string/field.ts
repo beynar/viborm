@@ -2,12 +2,11 @@
 // Standalone field class with State generic pattern
 
 import type { StandardSchemaOf } from "@standard-schema/spec";
-import v, { type BaseStringSchema } from "@validation";
+import v from "@validation";
 import {
   createDefaultState,
   type DefaultValueInput,
   type FieldState,
-  type UpdateState,
   updateState,
 } from "../common";
 import type { NativeType } from "../native-types";
@@ -101,24 +100,9 @@ export class StringField<State extends FieldState<"string">> {
     );
   }
 
-  schema<S extends StandardSchemaOf<string>>(
-    schema: S
-  ): StringField<
-    UpdateState<
-      State,
-      {
-        schema: S;
-        base: BaseStringSchema<{
-          nullable: State["nullable"];
-          array: State["array"];
-          schema: S;
-        }>;
-      }
-    >
-  > {
+  schema<S extends StandardSchemaOf<string>>(schema: S) {
     return new StringField(
-      {
-        ...this.state,
+      updateState(this, {
         schema,
         base: v.string<{
           nullable: State["nullable"];
@@ -129,7 +113,7 @@ export class StringField<State extends FieldState<"string">> {
           array: this.state.array,
           schema,
         }),
-      },
+      }),
       this._nativeType
     );
   }

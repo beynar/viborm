@@ -1,13 +1,12 @@
 // Boolean Field
 // Standalone field class with State generic pattern
 
-import v, { type BaseBooleanSchema } from "@validation";
+import v from "@validation";
 import {
   createDefaultState,
-  type DefaultValue,
   type DefaultValueInput,
   type FieldState,
-  type UpdateState,
+  updateState,
 } from "../common";
 import type { NativeType } from "../native-types";
 import {
@@ -26,24 +25,9 @@ export class BooleanField<State extends FieldState<"boolean">> {
     this._nativeType = _nativeType;
   }
 
-  nullable(): BooleanField<
-    UpdateState<
-      State,
-      {
-        nullable: true;
-        hasDefault: true;
-        default: DefaultValue<null>;
-        optional: true;
-        base: BaseBooleanSchema<{
-          nullable: true;
-          array: State["array"];
-        }>;
-      }
-    >
-  > {
+  nullable() {
     return new BooleanField(
-      {
-        ...this.state,
+      updateState(this, {
         nullable: true,
         hasDefault: true,
         default: null,
@@ -55,26 +39,14 @@ export class BooleanField<State extends FieldState<"boolean">> {
           nullable: true,
           array: this.state.array,
         }),
-      },
+      }),
       this._nativeType
     );
   }
 
-  array(): BooleanField<
-    UpdateState<
-      State,
-      {
-        array: true;
-        base: BaseBooleanSchema<{
-          nullable: State["nullable"];
-          array: true;
-        }>;
-      }
-    >
-  > {
+  array() {
     return new BooleanField(
-      {
-        ...this.state,
+      updateState(this, {
         array: true,
         base: v.boolean<{
           nullable: State["nullable"];
@@ -83,23 +55,18 @@ export class BooleanField<State extends FieldState<"boolean">> {
           nullable: this.state.nullable,
           array: true,
         }),
-      },
+      }),
       this._nativeType
     );
   }
 
-  default<V extends DefaultValueInput<State>>(
-    value: V
-  ): BooleanField<
-    UpdateState<State, { hasDefault: true; default: V; optional: true }>
-  > {
+  default<V extends DefaultValueInput<State>>(value: V) {
     return new BooleanField(
-      {
-        ...this.state,
+      updateState(this, {
         hasDefault: true,
         default: value,
         optional: true,
-      },
+      }),
       this._nativeType
     );
   }
@@ -107,11 +74,11 @@ export class BooleanField<State extends FieldState<"boolean">> {
   /**
    * Maps this field to a custom column name in the database
    */
-  map(columnName: string): this {
+  map(columnName: string) {
     return new BooleanField(
-      { ...this.state, columnName },
+      updateState(this, { columnName }),
       this._nativeType
-    ) as this;
+    );
   }
 
   get ["~"]() {

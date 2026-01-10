@@ -5,12 +5,12 @@
  * Works directly with ModelState for full type context (including omit settings).
  */
 
-import type { Field, FieldState } from "@schema/fields";
+import type { EnumField, Field, FieldState } from "@schema/fields";
 import type { Model, ModelState } from "@schema/model";
 import type { FieldRecord } from "@schema/model/helper";
 import type { AnyRelation } from "@schema/relation";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import type { Simplify } from "@validation";
+import type { Prettify } from "@validation";
 
 // =============================================================================
 // SCALAR OUTPUT TYPE MAPPING
@@ -33,7 +33,7 @@ type ScalarResultTypeMap = {
   boolean: boolean;
   datetime: Date; // Database results are Date objects, not ISO strings
   date: Date;
-  time: Date;
+  time: string; // Time-only value as "HH:MM:SS" string
   bigint: bigint;
   json: unknown;
   blob: Uint8Array;
@@ -64,9 +64,9 @@ type GetScalarResultType<F extends Field> =
           ? O
           : unknown
         : S["type"] extends "enum"
-          ? S["schema"] extends StandardSchemaV1<any, infer O>
-            ? O
-            : string
+          ? F extends EnumField<infer Values, any>
+            ? F
+            : never
           : S["type"] extends keyof ScalarResultTypeMap
             ? ScalarResultTypeMap[S["type"]]
             : unknown
@@ -100,12 +100,13 @@ type ApplyArray<T, IsArray> = [IsArray] extends [true] ? T[] : T;
  * // For s.string().array() → string[]
  * // For s.json().schema(z.object({...})) → { ... }
  */
+
 export type InferScalarOutput<F extends Field> =
   ExtractFieldState<F> extends infer S
     ? S extends FieldState
-      ? ApplyArray<
-          ApplyNullable<GetScalarResultType<F>, S["nullable"]>,
-          S["array"]
+      ? ApplyNullable<
+          ApplyArray<GetScalarResultType<F>, S["array"]>,
+          S["nullable"]
         >
       : never
     : never;
@@ -130,7 +131,7 @@ export interface BatchPayload {
  * Supports select for per-field counts like Prisma: count({ select: { _all: true, name: true } })
  */
 export type CountResultType<Args> = Args extends { select: infer S }
-  ? Simplify<{ [K in keyof S as S[K] extends true ? K : never]: number }>
+  ? Prettify<{ [K in keyof S as S[K] extends true ? K : never]: number }>
   : number;
 
 // =============================================================================
@@ -218,7 +219,7 @@ export type InferSelectInclude<S extends ModelState, Args> = Args extends {
 /**
  * Result when select is provided - ONLY selected fields are returned
  */
-export type InferSelectResult<S extends ModelState, Selection> = Simplify<{
+export type InferSelectResult<S extends ModelState, Selection> = Prettify<{
   [K in keyof Selection & keyof S["fields"] as Selection[K] extends
     | true
     | object
@@ -242,7 +243,7 @@ export type InferSelectResult<S extends ModelState, Selection> = Simplify<{
 /**
  * Result when include is provided - base result + included relations
  */
-export type InferIncludeResult<S extends ModelState, Include> = Simplify<
+export type InferIncludeResult<S extends ModelState, Include> = Prettify<
   InferModelOutput<S> & {
     [K in keyof Include & keyof S["relations"] as Include[K] extends
       | true
@@ -306,7 +307,7 @@ type InferFieldBase<F> = F extends Field ? InferScalarOutput<F> : never;
  * Result type for aggregate operations
  * Dynamically typed based on which aggregates are requested
  */
-export type AggregateResultType<T extends FieldRecord, Args> = Simplify<{
+export type AggregateResultType<T extends FieldRecord, Args> = Prettify<{
   [K in keyof Args as K extends `_${string}` ? K : never]: K extends "_count"
     ? Args[K] extends true
       ? number
@@ -339,7 +340,7 @@ export type AggregateResultType<T extends FieldRecord, Args> = Simplify<{
 export type GroupByResultType<T extends FieldRecord, Args> = Args extends {
   by: infer B;
 }
-  ? Simplify<
+  ? Prettify<
       // Grouped-by fields
       (B extends readonly (infer K)[]
         ? K extends ScalarFieldKeys<T> & keyof T

@@ -1,11 +1,10 @@
 import type { StandardSchemaOf } from "@standard-schema/spec";
-import v, { type BaseIntegerSchema } from "@validation";
+import v from "@validation";
 import {
   createDefaultState,
-  type DefaultValue,
   type DefaultValueInput,
   type FieldState,
-  type UpdateState,
+  updateState,
 } from "../common";
 import type { NativeType } from "../native-types";
 import { buildIntSchema, type IntSchemas, intBase } from "./schemas";
@@ -20,24 +19,9 @@ export class IntField<State extends FieldState<"int">> {
     this._nativeType = _nativeType;
   }
 
-  nullable(): IntField<
-    UpdateState<
-      State,
-      {
-        nullable: true;
-        hasDefault: true;
-        default: DefaultValue<null>;
-        optional: true;
-        base: BaseIntegerSchema<{
-          nullable: true;
-          array: State["array"];
-        }>;
-      }
-    >
-  > {
+  nullable() {
     return new IntField(
-      {
-        ...this.state,
+      updateState(this, {
         nullable: true,
         hasDefault: true,
         default: null,
@@ -49,26 +33,14 @@ export class IntField<State extends FieldState<"int">> {
           nullable: true,
           array: this.state.array,
         }),
-      },
+      }),
       this._nativeType
     );
   }
 
-  array(): IntField<
-    UpdateState<
-      State,
-      {
-        array: true;
-        base: BaseIntegerSchema<{
-          nullable: State["nullable"];
-          array: true;
-        }>;
-      }
-    >
-  > {
+  array() {
     return new IntField(
-      {
-        ...this.state,
+      updateState(this, {
         array: true,
         base: v.integer<{
           nullable: State["nullable"];
@@ -77,56 +49,39 @@ export class IntField<State extends FieldState<"int">> {
           nullable: this.state.nullable,
           array: true,
         }),
-      },
+      }),
       this._nativeType
     );
   }
 
-  id(): IntField<UpdateState<State, { isId: true; isUnique: true }>> {
+  id() {
     return new IntField(
-      { ...this.state, isId: true, isUnique: true },
+      updateState(this, { isId: true, isUnique: true }),
       this._nativeType
     );
   }
 
-  unique(): IntField<UpdateState<State, { isUnique: true }>> {
-    return new IntField({ ...this.state, isUnique: true }, this._nativeType);
+  unique() {
+    return new IntField(
+      updateState(this, { isUnique: true }),
+      this._nativeType
+    );
   }
 
-  default<V extends DefaultValueInput<State>>(
-    value: V
-  ): IntField<
-    UpdateState<State, { hasDefault: true; default: V; optional: true }>
-  > {
+  default<V extends DefaultValueInput<State>>(value: V) {
     return new IntField(
-      {
-        ...this.state,
+      updateState(this, {
         hasDefault: true,
         default: value,
         optional: true,
-      },
+      }),
       this._nativeType
     );
   }
 
-  schema<S extends StandardSchemaOf<number>>(
-    schema: S
-  ): IntField<
-    UpdateState<
-      State,
-      {
-        schema: S;
-        base: BaseIntegerSchema<{
-          nullable: State["nullable"];
-          array: State["array"];
-          schema: S;
-        }>;
-      }
-    >
-  > {
+  schema<S extends StandardSchemaOf<number>>(schema: S) {
     return new IntField(
-      {
-        ...this.state,
+      updateState(this, {
         schema,
         base: v.integer<{
           nullable: State["nullable"];
@@ -137,37 +92,23 @@ export class IntField<State extends FieldState<"int">> {
           array: this.state.array,
           schema,
         }),
-      },
+      }),
       this._nativeType
     );
   }
 
-  map(columnName: string): this {
-    return new IntField(
-      { ...this.state, columnName },
-      this._nativeType
-    ) as this;
+  map(columnName: string) {
+    return new IntField(updateState(this, { columnName }), this._nativeType);
   }
 
-  increment(): IntField<
-    UpdateState<
-      State,
-      {
-        hasDefault: true;
-        autoGenerate: "increment";
-        default: DefaultValue<number>;
-        optional: true;
-      }
-    >
-  > {
+  increment() {
     return new IntField(
-      {
-        ...this.state,
+      updateState(this, {
         hasDefault: true,
         autoGenerate: "increment",
         default: 0,
         optional: true,
-      },
+      }),
       this._nativeType
     );
   }

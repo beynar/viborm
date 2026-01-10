@@ -1,13 +1,12 @@
 // Vector Field
 // Standalone field class with State generic pattern
 
-import v, { type BaseVectorSchema } from "@validation";
+import v from "@validation";
 import {
   createDefaultState,
-  type DefaultValue,
   type DefaultValueInput,
   type FieldState,
-  type UpdateState,
+  updateState,
 } from "../common";
 import type { NativeType } from "../native-types";
 import { buildVectorSchema, type VectorSchemas, vectorBase } from "./schemas";
@@ -22,23 +21,9 @@ export class VectorField<State extends FieldState<"vector">> {
     this._nativeType = _nativeType;
   }
 
-  nullable(): VectorField<
-    UpdateState<
-      State,
-      {
-        nullable: true;
-        hasDefault: true;
-        default: DefaultValue<null>;
-        optional: true;
-        base: BaseVectorSchema<{
-          nullable: true;
-        }>;
-      }
-    >
-  > {
+  nullable() {
     return new VectorField(
-      {
-        ...this.state,
+      updateState(this, {
         nullable: true,
         hasDefault: true,
         default: null,
@@ -48,23 +33,18 @@ export class VectorField<State extends FieldState<"vector">> {
         }>(undefined, {
           nullable: true,
         }),
-      },
+      }),
       this._nativeType
     );
   }
 
-  default<V extends DefaultValueInput<State>>(
-    value: V
-  ): VectorField<
-    UpdateState<State, { hasDefault: true; default: V; optional: true }>
-  > {
+  default<V extends DefaultValueInput<State>>(value: V) {
     return new VectorField(
-      {
-        ...this.state,
+      updateState(this, {
         hasDefault: true,
         default: value,
         optional: true,
-      },
+      }),
       this._nativeType
     );
   }
@@ -72,19 +52,13 @@ export class VectorField<State extends FieldState<"vector">> {
   /**
    * Maps this field to a custom column name in the database
    */
-  map(columnName: string): this {
-    return new VectorField(
-      { ...this.state, columnName },
-      this._nativeType
-    ) as this;
+  map(columnName: string) {
+    return new VectorField(updateState(this, { columnName }), this._nativeType);
   }
 
-  dimension(dim: number): VectorField<State & { dimension: number }> {
+  dimension(dim: number) {
     return new VectorField(
-      {
-        ...this.state,
-        dimension: dim,
-      } as State & { dimension: number },
+      updateState(this, { dimension: dim } as any),
       this._nativeType
     );
   }

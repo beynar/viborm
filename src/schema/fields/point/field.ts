@@ -1,13 +1,12 @@
 // Point Field
 // Standalone field class with State generic pattern
 
-import v, { type BasePointSchema } from "@validation";
+import v from "@validation";
 import {
   createDefaultState,
-  type DefaultValue,
   type DefaultValueInput,
   type FieldState,
-  type UpdateState,
+  updateState,
 } from "../common";
 import type { NativeType } from "../native-types";
 import { buildPointSchema, type PointSchemas, pointBase } from "./schemas";
@@ -21,23 +20,9 @@ export class PointField<State extends FieldState<"point">> {
     this._nativeType = _nativeType;
   }
 
-  nullable(): PointField<
-    UpdateState<
-      State,
-      {
-        nullable: true;
-        hasDefault: true;
-        default: DefaultValue<null>;
-        optional: true;
-        base: BasePointSchema<{
-          nullable: true;
-        }>;
-      }
-    >
-  > {
+  nullable() {
     return new PointField(
-      {
-        ...this.state,
+      updateState(this, {
         nullable: true,
         hasDefault: true,
         default: null,
@@ -47,32 +32,24 @@ export class PointField<State extends FieldState<"point">> {
         }>({
           nullable: true,
         }),
-      },
+      }),
       this._nativeType
     );
   }
 
-  default<V extends DefaultValueInput<State>>(
-    value: V
-  ): PointField<
-    UpdateState<State, { hasDefault: true; default: V; optional: true }>
-  > {
+  default<V extends DefaultValueInput<State>>(value: V) {
     return new PointField(
-      {
-        ...this.state,
+      updateState(this, {
         hasDefault: true,
         default: value,
         optional: true,
-      },
+      }),
       this._nativeType
     );
   }
 
-  map(columnName: string): this {
-    return new PointField(
-      { ...this.state, columnName },
-      this._nativeType
-    ) as this;
+  map(columnName: string) {
+    return new PointField(updateState(this, { columnName }), this._nativeType);
   }
 
   get ["~"]() {

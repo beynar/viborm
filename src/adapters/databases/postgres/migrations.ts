@@ -479,6 +479,23 @@ function formatReferentialAction(action: ReferentialAction): string {
 function generateColumnDef(column: ColumnDef): string {
   const parts: string[] = [escapeIdentifier(column.name)];
 
+  // Helper to format column type, escaping enum types that need quoting
+  const formatColumnType = (type: string): string => {
+    // Enum types (identified by _enum suffix) need to be quoted to preserve case
+    // PostgreSQL lowercases unquoted identifiers, but CREATE TYPE uses quoted names
+    if (type.endsWith("_enum")) {
+      return escapeIdentifier(type);
+    }
+    // Array types: check if base type is an enum
+    if (type.endsWith("[]")) {
+      const baseType = type.slice(0, -2);
+      if (baseType.endsWith("_enum")) {
+        return `${escapeIdentifier(baseType)}[]`;
+      }
+    }
+    return type;
+  };
+
   // Handle serial types for auto-increment
   if (column.autoIncrement) {
     if (column.type === "integer" || column.type === "int4") {
@@ -488,10 +505,10 @@ function generateColumnDef(column: ColumnDef): string {
     } else if (column.type === "smallint" || column.type === "int2") {
       parts.push("SMALLSERIAL");
     } else {
-      parts.push(column.type);
+      parts.push(formatColumnType(column.type));
     }
   } else {
-    parts.push(column.type);
+    parts.push(formatColumnType(column.type));
   }
 
   if (!column.nullable) {

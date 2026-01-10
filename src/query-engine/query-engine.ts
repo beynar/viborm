@@ -57,11 +57,18 @@ import { validate } from "./validator";
  * 4. Parsing results into typed objects
  */
 export class QueryEngine {
+  private readonly adapter: DatabaseAdapter;
+  private readonly registry: ModelRegistry;
+  private readonly driver: Driver | undefined;
   constructor(
-    private readonly adapter: DatabaseAdapter,
-    private readonly registry: ModelRegistry,
-    private readonly driver?: Driver
-  ) {}
+    adapter: DatabaseAdapter,
+    registry: ModelRegistry,
+    driver?: Driver
+  ) {
+    this.adapter = adapter;
+    this.registry = registry;
+    this.driver = driver;
+  }
 
   /**
    * Build SQL for an operation without executing

@@ -12,5 +12,8 @@ docs/.wrangler
 
 .pglite
 .dist
+dist
+dist/**/*.d.ts
+dist/**/*.d.ts.map
 .dist-test
 .dist-tsc

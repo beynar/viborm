@@ -1,13 +1,12 @@
 // Blob Field
 // Standalone field class with State generic pattern
 
-import v, { type BaseBlobSchema } from "@validation";
+import v from "@validation";
 import {
   createDefaultState,
-  type DefaultValue,
   type DefaultValueInput,
   type FieldState,
-  type UpdateState,
+  updateState,
 } from "../common";
 import type { NativeType } from "../native-types";
 import { type BlobSchemas, blobBase, buildBlobSchema } from "./schemas";
@@ -22,23 +21,9 @@ export class BlobField<State extends FieldState<"blob">> {
     this._nativeType = _nativeType;
   }
 
-  nullable(): BlobField<
-    UpdateState<
-      State,
-      {
-        nullable: true;
-        hasDefault: true;
-        default: DefaultValue<null>;
-        optional: true;
-        base: BaseBlobSchema<{
-          nullable: true;
-        }>;
-      }
-    >
-  > {
+  nullable() {
     return new BlobField(
-      {
-        ...this.state,
+      updateState(this, {
         nullable: true,
         hasDefault: true,
         default: null,
@@ -48,23 +33,18 @@ export class BlobField<State extends FieldState<"blob">> {
         }>({
           nullable: true,
         }),
-      },
+      }),
       this._nativeType
     );
   }
 
-  default<V extends DefaultValueInput<State>>(
-    value: V
-  ): BlobField<
-    UpdateState<State, { hasDefault: true; default: V; optional: true }>
-  > {
+  default<V extends DefaultValueInput<State>>(value: V) {
     return new BlobField(
-      {
-        ...this.state,
+      updateState(this, {
         hasDefault: true,
         default: value,
         optional: true,
-      },
+      }),
       this._nativeType
     );
   }
@@ -72,11 +52,8 @@ export class BlobField<State extends FieldState<"blob">> {
   /**
    * Maps this field to a custom column name in the database
    */
-  map(columnName: string): this {
-    return new BlobField(
-      { ...this.state, columnName },
-      this._nativeType
-    ) as this;
+  map(columnName: string) {
+    return new BlobField(updateState(this, { columnName }), this._nativeType);
   }
 
   // Blob fields don't support array(), id(), or unique()
