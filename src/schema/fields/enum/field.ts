@@ -98,8 +98,5 @@ export const enumField = <const T extends string[]>(
   values: T,
   nativeType?: NativeType
 ) => {
-  return new EnumField(
-    createDefaultState("enum", v.enum(values), values),
-    nativeType
-  );
+  return new EnumField(createDefaultState("enum", v.enum(values)), nativeType);
 };
