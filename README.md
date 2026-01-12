@@ -1,195 +1,327 @@
 # VibORM
 
-**A Vibe Coding Experiment: Building the Perfect TypeScript ORM**
+Type-safe TypeScript ORM with **zero code generation**. Types are inferred from schema definitions at compile time—no `prisma generate` needed.
 
-## 🚀 What is VibORM?
+## Key Features
 
-VibORM is an experimental TypeScript ORM born from a simple question: _"Can we vibe code a perfect ORM?"_
-
-This project represents my attempt to combine the beautiful developer experience of Prisma with the pure TypeScript philosophy of Drizzle, creating something that feels magical to use while remaining 100% TypeScript under the hood.
-
-## 💭 The Motivation
-
-I love Prisma's syntax and developer experience, but I have issues with:
-
-- **The binary dependency** - I want pure TypeScript, no external binaries
-- **Code generation** - I prefer type inference over generated code
-- **Not being "full TypeScript"** like Drizzle
-
-So VibORM is my attempt to create an ORM that:
-
-- ✨ **Feels like Prisma** - Familiar, intuitive API that developers already know and love
-- 🔧 **Pure TypeScript** - Zero binaries, zero code generation, just beautiful type inference
-- 🎯 **Perfect DX** - Chainable schema builder, type-safe queries, intelligent autocomplete
-- 🗄️ **Database Agnostic and Interoperable** - Works with any SQL database through a unified query interface with the same schema syntax and features.
-
-## 🏗️ Project Status & Architecture
-
-VibORM is structured around several key components, each at different stages of completion:
-
-### ✅ **Schema Builder** (Complete)
-
-The chainable API for defining models, fields, and relations.
+| Feature | Description |
+|---------|-------------|
+| **Zero Codegen** | Types flow from schema → query → result via TypeScript inference |
+| **Standard Schema V1** | Interoperable with Zod, Valibot, ArkType for validation |
+| **Prisma-like API** | Familiar `findMany`, `create`, `update` operations with `where`, `include`, `select` |
+| **Multi-Database** | PostgreSQL, MySQL, SQLite from one codebase via adapter pattern |
+| **Chainable Schema** | `s.string().nullable().unique()` with immutable state tracking |
 
 ```typescript
 import { s } from "viborm";
+import { createClient } from "viborm/drivers/pglite";
 
+// Schema carries type information
 const user = s.model("user", {
   id: s.string().id().ulid(),
-  name: s.string(),
   email: s.string().unique(),
-  posts: s.relation.oneToMany(() => post),
-  profile: s.relation.oneToOne(() => profile),
+  posts: s.oneToMany(() => post),
 });
 
 const post = s.model("post", {
   id: s.string().id().ulid(),
   title: s.string(),
-  content: s.string().nullable(),
-  author: s.relation.manyToOne(() => user),
+  authorId: s.string(),
+  author: s.manyToOne(() => user).fields("authorId").references("id"),
 });
-```
 
-### ✅ **Type System** (Complete)
+// Fully typed queries - no codegen!
+const orm = createClient({ schema: { user, post } });
 
-Fully type-safe client types inferred from schema definitions - no code generation needed.
-
-```typescript
-// Types are automatically inferred from your schema
 const users = await orm.user.findMany({
-  where: { name: "Alice" },
-  include: { posts: true },
+  where: { email: { contains: "@company.com" } },  // ← TypeScript knows email is string
+  include: { posts: true }                          // ← Result includes typed posts[]
 });
-// users is fully typed based on your schema definition
 ```
 
-### ✅ **Validation System** (Complete)
+---
 
-Built-in validation system with support for Standard Schema V1 interface (Zod, Valibot, Arktype).
+## Quick Start (PGlite)
 
-```typescript
-// Custom field validation
-const user = s.model("user", {
-  email: s.string().schema(z.string().email()),
-  age: s.int().schema(z.number().min(0).max(120)),
-  username: s.string().schema(usernameSchema),
-});
+PGlite runs PostgreSQL in-process via WebAssembly—no Docker or external database needed. Perfect for development and testing.
 
-// Schema-based JSON fields with automatic validation
-const userProfile = s.json(profileSchema); // Strongly typed + validated
-const settings = s.json(settingsSchema).nullable();
-const metadata = s.json(); // Flexible untyped JSON
+### 1. Install
+
+```bash
+pnpm add viborm @electric-sql/pglite
 ```
 
-### 🚧 **Components In Progress**
-
-- **AST Compiler** - Transforms TypeScript schema definitions into executable query logic
-- **Database Adapters** - Support for PostgreSQL, MySQL, and other databases
-- **Provider System** - Pluggable database connection and query execution
-- **Migration System** - Schema evolution and database migration tools
-- **Query Optimizer** - Smart query planning and execution optimization
-
-### 📋 **Planned Features**
-
-- **Transactions** - Full ACID transaction support
-- **Multiple Database Support** - PostgreSQL, MySQL, SQLite, and more
-
-## 🎯 Design Philosophy
-
-VibORM follows these core principles:
-
-- **🔒 Type Safety First** - Everything is fully type-safe using TypeScript's type inference
-- **⛓️ Chainable API** - Fluent, readable schema definitions with method chaining
-- **🚫 No Decorators** - Clean, functional approach without decorator magic
-- **🏃‍♂️ Zero Generation** - Types are inferred at compile time, not generated
-- **🔗 Prisma-Compatible** - Familiar query API that Prisma users already know
-- **🏗️ Modular Design** - Loosely coupled components that can be independently tested
-- **✅ Validation Built-in** - Schema-level validation with Standard Schema V1 support
-
-## 📖 Documentation & Development History
-
-This project is being developed as a "vibe coding" experiment, where we explore what's possible for the AI to accomplish
-
-**Every change, discussion, and breakthrough is meticulously documented by Claude in [AI-CHANGELOG.md](./AI-CHANGELOG.md)**
-
-The changelog contains:
-
-- Detailed implementation discussions
-- Technical breakthrough explanations
-- Problem-solving approaches
-- Architecture decision rationale
-- Complete development timeline
-
-## 🚀 Current Example
-
-Here's what VibORM looks like today:
+### 2. Define Schema
 
 ```typescript
+// schema.ts
 import { s } from "viborm";
-import { z } from "zod";
 
-// Schema Definition with Validation (✅ Working)
-const user = s.model("user", {
+export const user = s.model("user", {
   id: s.string().id().ulid(),
-  name: s.string().schema(z.string().min(1).max(100)),
-  email: s.string().unique().schema(z.string().email()),
-  age: s.int().nullable().schema(z.number().min(0).max(120)),
-  posts: s.relation.oneToMany(() => post),
-  profile: s.json(profileSchema), // Strongly typed JSON with validation
+  name: s.string(),
+  email: s.string().unique(),
   createdAt: s.dateTime().now(),
+  posts: s.oneToMany(() => post),
 });
 
-const post = s.model("post", {
+export const post = s.model("post", {
   id: s.string().id().ulid(),
-  title: s.string().schema(z.string().min(1).max(200)),
+  title: s.string(),
   content: s.string().nullable(),
-  author: s.relation.manyToOne(() => user),
-  metadata: s.json(postMetadataSchema).nullable(),
-  publishedAt: s.dateTime().nullable(),
+  authorId: s.string(),
+  author: s.manyToOne(() => user).fields("authorId").references("id"),
 });
 
-// Client Usage (🚧 In Progress)
-const orm = createClient({
-  provider: "postgresql",
-  url: process.env.DATABASE_URL,
+export const schema = { user, post };
+```
+
+### 3. Create Client & Push Schema
+
+```typescript
+// db.ts
+import { createClient } from "viborm/drivers/pglite";
+import { push } from "viborm/migrations";
+import { schema } from "./schema";
+
+export const orm = createClient({
+  schema,
+  dataDir: ".pglite", // Persists to filesystem (omit for in-memory)
 });
 
-// This will work once the AST compiler and adapters are complete
-const users = await orm.user.findMany({
-  where: {
-    posts: {
-      some: {
-        publishedAt: { not: null },
-      },
-    },
-  },
-  include: { posts: true },
+// Push schema to database (creates tables)
+await push(orm, schema);
+```
+
+### 4. Query
+
+```typescript
+// Create
+const newUser = await orm.user.create({
+  data: { name: "Alice", email: "alice@example.com" }
+});
+
+// Read with relations
+const usersWithPosts = await orm.user.findMany({
+  include: { posts: true }
+});
+
+// Filter
+const alice = await orm.user.findFirst({
+  where: { email: { contains: "alice" } }
+});
+
+// Update
+await orm.user.update({
+  where: { id: newUser.id },
+  data: { name: "Alice Smith" }
+});
+
+// Delete
+await orm.user.delete({
+  where: { id: newUser.id }
 });
 ```
 
-## 🧪 Experiment Status
+---
 
-This is very much an **active experiment**. The goal is to push the boundaries of what's possible with TypeScript's type system while maintaining excellent developer experience.
+## Repository Structure
 
-- **Schema System**: ✅ Production-ready
-- **Type Inference**: ✅ Production-ready
-- **Validation System**: ✅ Production-ready
-- **Query System**: 🚧 In active development
-- **Database Layer**: 📋 Planned
-- **Migration Tools**: 📋 Planned
+VibORM uses a **10-layer architecture**. Each layer has an `AGENTS.md` with detailed documentation.
 
-## 🤝 Contributing
+```
+src/
+├── validation/        L1  Standard Schema V1 primitives (v.*)
+│                          Branded types, set-theory optimization
+│
+├── schema/            L2-L5  Schema definition
+│   ├── fields/              Field types with State generic pattern
+│   ├── model/               Model composition, query schemas
+│   ├── relation/            Relation types (oneToMany, manyToOne, etc.)
+│   └── validation/          Definition-time schema validation
+│
+├── query-engine/      L6  Database-agnostic query building
+│                          Decides WHAT to query, delegates HOW to adapters
+│
+├── adapters/          L7  Database-specific SQL generation
+│                          PostgreSQL, MySQL, SQLite dialect implementations
+│
+├── drivers/           L8  Connection management, query execution
+│   ├── pglite/            PGlite (PostgreSQL in WASM)
+│   ├── pg/                node-postgres
+│   ├── postgres/          postgres.js
+│   └── sqlite3/           better-sqlite3
+│
+├── client/            L9  Type inference, ORM interface
+│                          Recursive proxy pattern, result types
+│
+└── migrations/        L10 Schema diffing, push
+```
 
-This is primarily a learning and experimentation project, but if you're interested in exploring advanced TypeScript patterns and ORM design, feel free to check out the codebase and [AI-CHANGELOG.md](./AI-CHANGELOG.md) to understand the development journey.
+### Key Architecture Rules
 
-## 📄 License
+1. **Query Engine / Adapter Separation**: Query engine decides WHAT to query, adapter decides HOW to express it in SQL. Never hardcode dialect-specific syntax in query-engine.
 
-MIT - Feel free to learn from, fork, or experiment with this code.
+2. **Natural Type Inference**: Never use type assertions (`as`). Types flow from schema → validation → client.
+
+3. **Immutable State**: Every field modifier returns a NEW instance. `s.string().nullable()` returns a new field, doesn't mutate.
+
+4. **Lazy Evaluation**: Schemas are built on first access (`??=` pattern) and cached.
 
 ---
 
-## _VibORM: Where TypeScript meets database perfection_ ✨
+## Development
+
+### Prerequisites
+
+```bash
+pnpm install
+```
+
+### Testing (Vitest)
+
+We use [Vitest](https://vitest.dev/) for testing. Tests run against PGlite by default—no external database needed.
+
+```bash
+pnpm test               # Run all tests
+pnpm test:watch         # Watch mode
+pnpm test:ui            # ⭐ Interactive UI - great for exploring/debugging tests
+```
+
+Run a specific test file:
+
+```bash
+pnpm vitest run tests/validation/string.test.ts
+pnpm vitest run -t "validates strings"  # Run by test name pattern
+```
+
+### Build Commands
+
+```bash
+pnpm build              # Compile TypeScript
+pnpm type-check         # Type check only (faster)
+pnpm package:build      # Build distributable with tsdown
+```
+
+### Path Aliases
+
+```typescript
+import { ... } from "@schema";        // src/schema/
+import { ... } from "@client";        // src/client/
+import { ... } from "@validation";    // src/validation/
+import { ... } from "@query-engine";  // src/query-engine/
+import { ... } from "@adapters";      // src/adapters/
+import { ... } from "@drivers";       // src/drivers/
+import { ... } from "@sql";           // src/sql/
+```
 
 ---
 
-AI GENERATED
+## Agent-First Codebase
+
+This codebase is designed for **AI agents to help developers**. Each major directory contains an `AGENTS.md` file—comprehensive architectural documentation that AI assistants can read to understand:
+
+- **Why** the layer exists and what problems it solves
+- **Entry points** and key files to modify
+- **Core rules** that must never be broken
+- **Anti-patterns** to avoid
+- **Step-by-step guides** for common tasks
+
+**Key documentation:**
+- `AGENTS.md` — Full architectural overview (start here)
+- `FEATURE_IMPLEMENTATION_TEMPLATE.md` — Step-by-step guide for implementing features and fixing bugs, with layer-by-layer analysis framework and code patterns
+
+When working with an AI assistant, point it to these files first.
+
+### Navigating the Codebase
+
+| I want to... | Start here |
+|--------------|------------|
+| Add new field type | `src/schema/fields/AGENTS.md` |
+| Add query operator | `src/query-engine/AGENTS.md` + `src/adapters/AGENTS.md` |
+| Fix type inference bug | `src/client/AGENTS.md` → check upstream schemas |
+| Add migration operation | `src/migrations/AGENTS.md` |
+| Add relation feature | `src/schema/relation/AGENTS.md` |
+| Understand validation | `src/validation/AGENTS.md` |
+
+---
+
+## Test Structure
+
+Tests mirror the `src/` structure:
+
+```
+tests/
+├── validation/       28 tests for v.* primitives
+├── fields/           Schema generation per field type
+├── model/            Query schemas (where, create, update, args)
+│   ├── filter/       WHERE clause generation
+│   ├── create/       CREATE input schemas
+│   ├── update/       UPDATE input schemas
+│   └── args/         Operation argument schemas
+├── query-engine/     SQL generation tests
+├── relations/        Relation CRUD operations
+├── client/           End-to-end client operations
+├── migrations/       Schema diffing and DDL
+└── drivers/          Database-specific driver tests
+```
+
+Most tests run against PGlite (in-memory PostgreSQL). Driver tests in `tests/drivers/` require external databases.
+
+---
+
+## Common Pitfalls
+
+| Mistake | Why it breaks | Fix |
+|---------|---------------|-----|
+| Hardcoded SQL in query-engine | Breaks MySQL/SQLite | Use `ctx.adapter.*` methods |
+| Type assertions (`as`) | Hides type mismatches | Let types flow naturally |
+| Forgot Field union update | New field type invisible | Update `src/schema/fields/base.ts` |
+| Direct model reference in relation | ReferenceError at runtime | Use thunk `() => model` |
+| Eager schema building | Performance (rebuilds every access) | Use `??=` lazy pattern |
+| Mutation instead of new instance | Type/runtime desync | Return new instance from modifiers |
+
+---
+
+## Current Status
+
+**Core features working:**
+- All CRUD operations (create, read, update, delete, upsert)
+- Relations (oneToOne, oneToMany, manyToOne, manyToMany)
+- Nested writes (connect, disconnect, create, update, delete)
+- Select/include with typed results
+- All field types (string, int, float, boolean, dateTime, json, enum, etc.)
+- PostgreSQL and SQLite adapters
+
+**Known limitations:**
+- MySQL migrations not yet implemented
+- Query caching not implemented
+- GroupBy HAVING needs schema support
+- Aggregate field typing is loose (`string[]` instead of actual field names)
+
+**Future features** (documented in `features-docs/`):
+- Polymorphic relations
+- Recursive queries (WITH RECURSIVE)
+
+See `PENDING_WORK.md` for detailed tracking.
+
+---
+
+## Internal API Convention
+
+All internal state is accessed via `["~"]`:
+
+```typescript
+field["~"].state          // FieldState - configuration object
+field["~"].schemas        // {base, filter, create, update} - lazy built
+model["~"].schemas.where  // Where schema for this model
+relation["~"].targetModel // Thunk to target model
+```
+
+This keeps the public API clean and signals "internal" to developers.
+
+---
+
+## License
+
+MIT

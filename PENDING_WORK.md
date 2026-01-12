@@ -126,6 +126,7 @@ For historical reference, these were previously documented as pending but are no
 
 | Feature | Location |
 |---------|----------|
+| Enum literal types preserved through relations | `src/schema/fields/enum/`, `src/client/result-types.ts` |
 | Create/CreateMany operations | `src/query-engine/operations/create.ts` |
 | Update/UpdateMany operations | `src/query-engine/operations/update.ts` |
 | Delete/DeleteMany operations | `src/query-engine/operations/delete.ts` |
@@ -144,8 +145,7 @@ For historical reference, these were previously documented as pending but are no
 
 ## Priority Order
 
-1. **High:** Enum type widening bug (affects developer experience)
-2. **Medium:** Unskip cursor pagination test
-3. **Medium:** GroupBy HAVING schema support
-4. **Low:** Aggregate schema typing
-5. **Future:** MySQL migrations, caching, polymorphic relations, recursive queries
+1. **Medium:** Unskip cursor pagination test
+2. **Medium:** GroupBy HAVING schema support
+3. **Low:** Aggregate schema typing
+4. **Future:** MySQL migrations, caching, polymorphic relations, recursive queries

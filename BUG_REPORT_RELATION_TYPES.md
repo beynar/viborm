@@ -12,16 +12,26 @@ This document covers multiple bugs related to field types when accessed through 
 
 ## Fix
 
-The fix was simple: use `InferOutput<S["base"]>` in `GetScalarResultType` to extract enum types from the branded `" vibInferred"` property instead of returning the widened state.
+The fix involved restructuring how enum values are stored and accessed:
 
-```typescript
-// src/client/result-types.ts
-: S["type"] extends "enum"
-  ? InferOutput<S["base"]>  // ← Extract from branded type
-  : ...
-```
+1. **FieldState conditional type** - Added `enumValues` as a conditional property that only exists for enum fields:
+   ```typescript
+   export type FieldState<T extends ScalarFieldType> = BaseFieldState<T> &
+     (T extends "enum" ? { enumValues: string[] } : { enumValues?: undefined });
+   ```
 
-**Why it works:** While structural properties like `values: TValues` get widened to `string[]` through the `Field` union, the branded type `" vibInferred": [TInput, TOutput]` preserves the literal types because it's a computed type based on `TValues[number]`, not a direct property.
+2. **EnumField stores values in state** - The enum values are now stored directly in the state object, not just as a class property.
+
+3. **GetScalarResultType extracts from enumValues** - Updated to use `S["enumValues"]` for enum type inference:
+   ```typescript
+   : S["type"] extends "enum"
+     ? S["enumValues"] extends (infer V)[] ? V : string
+     : ...
+   ```
+
+4. **const modifier on updateState** - Added `const` to preserve literal types through state updates.
+
+**Why it works:** Primitive literals (`true`, `"hello"`) are preserved through TypeScript's type system even with broader constraints, while array/object types get widened. By storing enum values directly in FieldState and using proper generic constraints, the literal union types flow through correctly.
 
 ## Summary
 
