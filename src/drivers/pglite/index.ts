@@ -109,10 +109,8 @@ export class PGliteDriver extends LazyDriver<PGliteClient> {
   }
 
   protected async initClient(): Promise<PGliteClient> {
-    // @ts-expect-error - @electric-sql/pglite types may not be installed
     const module = await import("@electric-sql/pglite");
-    const PGlite = (module.PGlite ||
-      module.default?.PGlite) as PGliteConstructor;
+    const PGlite = module.PGlite as PGliteConstructor;
 
     if (!PGlite) {
       throw new Error(
@@ -166,7 +164,7 @@ export class PGliteDriver extends LazyDriver<PGliteClient> {
     };
   }
 
-  protected async transactionWithClient<T>(
+  protected transactionWithClient<T>(
     client: PGliteClient,
     fn: (tx: Driver) => Promise<T>,
     _options?: TransactionOptions
@@ -229,13 +227,14 @@ export function createClient<S extends Schema>(
 ): VibORMClient<S> {
   const { client, options, dataDir, pgvector, postgis, ...restConfig } = config;
 
-  const driver = new PGliteDriver({
-    client,
-    options,
-    dataDir,
-    pgvector,
-    postgis,
-  });
+  const driverOptions: PGliteDriverOptions = {};
+  if (client) driverOptions.client = client;
+  if (options) driverOptions.options = options;
+  if (dataDir) driverOptions.dataDir = dataDir;
+  if (pgvector !== undefined) driverOptions.pgvector = pgvector;
+  if (postgis !== undefined) driverOptions.postgis = postgis;
+
+  const driver = new PGliteDriver(driverOptions);
 
   return baseCreateClient<S>({
     ...restConfig,
