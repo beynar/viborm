@@ -13,13 +13,16 @@ import {
 } from "@client/client";
 import type { Schema } from "@client/types";
 import type { Sql } from "@sql";
+import { LazyDriver } from "../base-driver";
 import type { Driver } from "../driver";
 import { unsupportedGeospatial, unsupportedVector } from "../errors";
+import { buildPostgresStatement } from "../postgres-utils";
 import type { Dialect, QueryResult, TransactionOptions } from "../types";
 
-/**
- * PGlite client interface (from @electric-sql/pglite)
- */
+// ============================================================
+// INTERFACES (matching @electric-sql/pglite types)
+// ============================================================
+
 interface PGliteClient {
   query<T = Record<string, unknown>>(
     sql: string,
@@ -29,9 +32,6 @@ interface PGliteClient {
   close(): Promise<void>;
 }
 
-/**
- * PGlite transaction interface
- */
 interface PGliteTransaction {
   query<T = Record<string, unknown>>(
     sql: string,
@@ -39,220 +39,154 @@ interface PGliteTransaction {
   ): Promise<{ rows: T[]; affectedRows?: number }>;
 }
 
-/**
- * PGlite constructor interface (for auto-creation)
- */
 interface PGliteConstructor {
-  new (dataDir?: string): PGliteClient;
+  new (dataDirOrOptions?: string | PGliteOptions): PGliteClient;
 }
 
-/**
- * PGlite driver options
- */
+// ============================================================
+// EXPORTED OPTIONS
+// ============================================================
+
+export interface PGliteOptions {
+  /** Data directory for persistence */
+  dataDir?: string;
+  /** Debug level (0 = off) */
+  debug?: number;
+  /** Relaxed durability mode */
+  relaxedDurability?: boolean;
+  /** Extensions to load */
+  extensions?: Record<string, unknown> | unknown[];
+  /** Custom file system */
+  fs?: unknown;
+  /** Initial SQL to run */
+  initialMemory?: number;
+  /** Load data dump on creation */
+  loadDataDir?: string;
+}
+
 export interface PGliteDriverOptions {
-  /**
-   * PGlite client instance.
-   * If not provided, a new PGlite instance will be created with the dataDir option.
-   */
   client?: PGliteClient;
-  /**
-   * Data directory for PGlite persistence.
-   * Only used when client is not provided.
-   * Defaults to ".pglite"
-   */
+  options?: PGliteOptions;
+  /** @deprecated Use options.dataDir */
   dataDir?: string;
-  /** Enable pgvector extension support (default: false) */
   pgvector?: boolean;
-  /** Enable PostGIS extension support (default: false) */
   postgis?: boolean;
 }
 
-/**
- * PGlite client config for createClient
- */
 export interface PGliteClientConfig<S extends Schema> {
-  /** Schema models */
   schema: S;
-  /**
-   * PGlite client instance.
-   * If not provided, a new PGlite instance will be created with the dataDir option.
-   */
   client?: PGliteClient;
-  /**
-   * Data directory for PGlite persistence.
-   * Only used when client is not provided.
-   * Defaults to ".pglite"
-   */
+  options?: PGliteOptions;
   dataDir?: string;
-  /** Enable pgvector extension support (default: false) */
   pgvector?: boolean;
-  /** Enable PostGIS extension support (default: false) */
   postgis?: boolean;
 }
 
-// Lazily loaded PGlite constructor
-let PGliteClass: PGliteConstructor | null = null;
+// ============================================================
+// DRIVER IMPLEMENTATION
+// ============================================================
 
-/**
- * Build a PostgreSQL statement with $1, $2, etc. placeholders
- */
-function buildPostgresStatement(query: Sql): string {
-  const len = query.strings.length;
-  let i = 1;
-  let result = query.strings[0] ?? "";
-  while (i < len) {
-    result += `$${i}${query.strings[i] ?? ""}`;
-    i++;
-  }
-  return result;
-}
-
-/**
- * Get PGlite constructor, loading it dynamically if needed
- */
-async function getPGliteClass(): Promise<PGliteConstructor> {
-  if (PGliteClass) return PGliteClass;
-
-  try {
-    const module = await import("@electric-sql/pglite");
-    PGliteClass = module.PGlite;
-    return PGliteClass;
-  } catch {
-    throw new Error(
-      "PGlite is not installed. Install it with: npm install @electric-sql/pglite"
-    );
-  }
-}
-
-/**
- * PGlite Driver
- *
- * Implements the Driver interface for PGlite.
- *
- * @example Basic usage with auto-created client
- * ```ts
- * import { createClient } from "viborm/drivers/pglite";
- *
- * const client = await createClient({ schema });
- * // Data persisted to .viborm/pglite by default
- * ```
- *
- * @example With custom data directory
- * ```ts
- * import { createClient } from "viborm/drivers/pglite";
- *
- * const client = await createClient({
- *   schema,
- *   dataDir: "./my-data/db"
- * });
- * ```
- *
- * @example With existing PGlite client
- * ```ts
- * import { PGlite } from "@electric-sql/pglite";
- * import { createClient } from "viborm/drivers/pglite";
- *
- * const db = new PGlite();
- * const client = await createClient({ client: db, schema });
- * ```
- *
- * @example With pgvector extension
- * ```ts
- * import { PGlite } from "@electric-sql/pglite";
- * import { vector } from "@electric-sql/pglite/vector";
- * import { createClient } from "viborm/drivers/pglite";
- *
- * const db = new PGlite({ extensions: { vector } });
- * const client = await createClient({ client: db, schema, pgvector: true });
- * ```
- */
-export class PGliteDriver implements Driver {
+export class PGliteDriver extends LazyDriver<PGliteClient> {
   readonly dialect: Dialect = "postgresql";
   readonly adapter: DatabaseAdapter;
 
-  private readonly client: PGliteClient;
+  private readonly driverOptions: PGliteDriverOptions;
 
-  constructor(options: PGliteDriverOptions & { client: PGliteClient }) {
-    this.client = options.client;
+  constructor(options: PGliteDriverOptions = {}) {
+    super();
+    this.driverOptions = options;
 
-    // Create adapter and override unsupported features
+    // If client provided, set it directly
+    if (options.client) {
+      this.client = options.client;
+    }
+
+    // Configure adapter
     const adapter = new PostgresAdapter();
-
-    if (!options.pgvector) {
-      adapter.vector = unsupportedVector;
-    }
-
-    if (!options.postgis) {
-      adapter.geospatial = unsupportedGeospatial;
-    }
-
+    if (!options.pgvector) adapter.vector = unsupportedVector;
+    if (!options.postgis) adapter.geospatial = unsupportedGeospatial;
     this.adapter = adapter;
   }
 
-  /**
-   * Create a PGliteDriver, auto-creating the PGlite client if not provided
-   */
-  static async create(
-    options: PGliteDriverOptions = {}
-  ): Promise<PGliteDriver> {
-    let client = options.client;
+  protected async initClient(): Promise<PGliteClient> {
+    // @ts-expect-error - @electric-sql/pglite types may not be installed
+    const module = await import("@electric-sql/pglite");
+    const PGlite = (module.PGlite ||
+      module.default?.PGlite) as PGliteConstructor;
 
-    if (!client) {
-      const PGlite = await getPGliteClass();
-      const dataDir = options.dataDir ?? ".pglite";
-      client = new PGlite(dataDir);
+    if (!PGlite) {
+      throw new Error(
+        "@electric-sql/pglite is not installed. Run: npm install @electric-sql/pglite"
+      );
     }
 
-    return new PGliteDriver({ ...options, client });
+    // Build options
+    const pgliteOptions: PGliteOptions = this.driverOptions.options
+      ? { ...this.driverOptions.options }
+      : {};
+
+    // Fallback to deprecated dataDir
+    if (!pgliteOptions.dataDir && this.driverOptions.dataDir) {
+      pgliteOptions.dataDir = this.driverOptions.dataDir;
+    }
+
+    // Default to .pglite if nothing specified
+    if (!pgliteOptions.dataDir) {
+      pgliteOptions.dataDir = ".pglite";
+    }
+
+    return new PGlite(pgliteOptions);
   }
 
-  async execute<T = Record<string, unknown>>(
+  protected async closeClient(client: PGliteClient): Promise<void> {
+    await client.close();
+  }
+
+  protected async executeWithClient<T>(
+    client: PGliteClient,
     query: Sql
   ): Promise<QueryResult<T>> {
-    // Build parameterized statement with $1, $2, etc. placeholders
     const statement = buildPostgresStatement(query);
-    const result = await this.client.query<T>(statement, query.values);
+    const result = await client.query<T>(statement, query.values);
     return {
       rows: result.rows,
       rowCount: result.affectedRows ?? result.rows.length,
     };
   }
 
-  async executeRaw<T = Record<string, unknown>>(
+  protected async executeRawWithClient<T>(
+    client: PGliteClient,
     sql: string,
     params?: unknown[]
   ): Promise<QueryResult<T>> {
-    const result = await this.client.query<T>(sql, params);
+    const result = await client.query<T>(sql, params);
     return {
       rows: result.rows,
       rowCount: result.affectedRows ?? result.rows.length,
     };
   }
 
-  transaction<T>(
+  protected async transactionWithClient<T>(
+    client: PGliteClient,
     fn: (tx: Driver) => Promise<T>,
     _options?: TransactionOptions
   ): Promise<T> {
-    return this.client.transaction((tx) => {
-      const txDriver = new PGliteTransactionDriver(tx, this.adapter);
-      return fn(txDriver);
+    // PGlite doesn't support isolation levels
+    return client.transaction((tx) => {
+      return fn(new PGliteTransactionDriver(tx, this.adapter));
     });
-  }
-
-  async disconnect(): Promise<void> {
-    await this.client.close();
   }
 }
 
-/**
- * PGlite Transaction Driver
- *
- * Driver implementation for transactions within PGlite.
- */
+// ============================================================
+// TRANSACTION DRIVER
+// ============================================================
+
 class PGliteTransactionDriver implements Driver {
   readonly dialect: Dialect = "postgresql";
   readonly adapter: DatabaseAdapter;
-  readonly tx: PGliteTransaction;
+  private readonly tx: PGliteTransaction;
+
   constructor(tx: PGliteTransaction, adapter: DatabaseAdapter) {
     this.tx = tx;
     this.adapter = adapter;
@@ -281,44 +215,27 @@ class PGliteTransactionDriver implements Driver {
   }
 
   transaction<T>(fn: (tx: Driver) => Promise<T>): Promise<T> {
-    // Nested transaction - PGlite doesn't support savepoints,
-    // so we run in the same transaction context
+    // PGlite doesn't support nested transactions/savepoints
     return fn(this);
   }
 }
 
-/**
- * Create a VibORM client with PGlite driver
- *
- * Convenience function that creates the driver and client in one step.
- * If no PGlite client is provided, one will be created automatically
- * with data persisted to `.viborm/pglite` (or custom dataDir).
- *
- * @example
- * ```ts
- * import { createClient } from "viborm/drivers/pglite";
- *
- * const client = await createClient({ schema: { user, post } });
- *
- * // With custom data directory
- * const client = await createClient({
- *   schema: { user, post },
- *   dataDir: "./data/mydb"
- * });
- * ```
- */
-export async function createClient<S extends Schema>(
+// ============================================================
+// CONVENIENCE FUNCTION
+// ============================================================
+
+export function createClient<S extends Schema>(
   config: PGliteClientConfig<S>
-): Promise<VibORMClient<S>> {
-  const { client, dataDir, pgvector, postgis, ...restConfig } = config;
+): VibORMClient<S> {
+  const { client, options, dataDir, pgvector, postgis, ...restConfig } = config;
 
-  const driverOptions: PGliteDriverOptions = {};
-  if (client !== undefined) driverOptions.client = client;
-  if (dataDir !== undefined) driverOptions.dataDir = dataDir;
-  if (pgvector !== undefined) driverOptions.pgvector = pgvector;
-  if (postgis !== undefined) driverOptions.postgis = postgis;
-
-  const driver = await PGliteDriver.create(driverOptions);
+  const driver = new PGliteDriver({
+    client,
+    options,
+    dataDir,
+    pgvector,
+    postgis,
+  });
 
   return baseCreateClient<S>({
     ...restConfig,

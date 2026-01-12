@@ -131,16 +131,16 @@ const allFieldsModel = s.model({
   dateWithNow: s.date().now(),
 
   // ============= TIME FIELDS =============
-  // Required time
-  timeRequired: s.time(),
+  // Required time (without timezone to avoid +00 suffix in output)
+  timeRequired: s.time().withoutTimezone(),
   // Nullable time
-  timeNullable: s.time().nullable(),
+  timeNullable: s.time().withoutTimezone().nullable(),
   // Time array
-  timeArray: s.time().array(),
+  timeArray: s.time().withoutTimezone().array(),
   // Nullable time array
-  timeArrayNullable: s.time().array().nullable(),
+  timeArrayNullable: s.time().withoutTimezone().array().nullable(),
   // Time with now() default
-  timeWithNow: s.time().now(),
+  timeWithNow: s.time().withoutTimezone().now(),
 
   // ============= JSON FIELDS =============
   // Required json

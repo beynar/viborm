@@ -18,7 +18,7 @@ import {
 // =============================================================================
 
 describe("Compound Constraint Filter - Compound ID Model Runtime", () => {
-  const schema = compoundIdSchemas._filter.compoundConstraint;
+  const schema = compoundIdSchemas.compoundConstraintFilter;
 
   test("runtime: accepts empty object", () => {
     const result = parse(schema, {});
@@ -66,7 +66,7 @@ describe("Compound Constraint Filter - Compound ID Model Runtime", () => {
 // =============================================================================
 
 describe("Compound Constraint Filter - Compound Unique Model Runtime", () => {
-  const schema = compoundUniqueSchemas._filter.compoundConstraint;
+  const schema = compoundUniqueSchemas.compoundConstraintFilter;
 
   test("runtime: accepts empty object", () => {
     const result = parse(schema, {});
@@ -114,7 +114,7 @@ describe("Compound Constraint Filter - Compound Unique Model Runtime", () => {
 // =============================================================================
 
 describe("Compound Constraint Filter - Simple Model Runtime", () => {
-  const schema = simpleSchemas._filter.compoundConstraint;
+  const schema = simpleSchemas.compoundConstraintFilter;
 
   test("runtime: accepts empty object", () => {
     const result = parse(schema, {});

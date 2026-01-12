@@ -184,8 +184,10 @@ export class SQLiteAdapter implements DatabaseAdapter {
 
     emptyArray: (): Sql => sql.raw`json_array()`,
 
+    // Use json() to ensure the aggregated value is treated as JSON, not string
+    // Without json(), json_group_array produces ["{...}"] instead of [{...}]
     agg: (expr: Sql): Sql =>
-      sql`COALESCE(json_group_array(${expr}), json_array())`,
+      sql`COALESCE(json_group_array(json(${expr})), json_array())`,
 
     rowToJson: (alias: string): Sql => {
       // SQLite doesn't have row_to_json - would need to build manually
@@ -585,6 +587,34 @@ export class SQLiteAdapter implements DatabaseAdapter {
   // ============================================================
 
   geospatial = unsupportedGeospatial;
+
+  // ============================================================
+  // RESULT PARSING
+  // ============================================================
+  // RESULT PARSING
+  // SQLite-specific parsing is handled by the driver (SQLite3Driver.result)
+  // Adapter just passes through to default parsing
+  // ============================================================
+
+  result = {
+    parseResult: (
+      _raw: unknown,
+      _operation: import("../../../query-engine/types").Operation,
+      next: (value?: unknown) => unknown
+    ): unknown => next(),
+
+    parseRelation: (
+      _value: unknown,
+      _type: import("../../../schema/relation/types").RelationType,
+      next: (value?: unknown) => unknown
+    ): unknown => next(),
+
+    parseField: (
+      _value: unknown,
+      _fieldType: string,
+      next: (value?: unknown) => unknown
+    ): unknown => next(),
+  };
 }
 
 // Export singleton instance

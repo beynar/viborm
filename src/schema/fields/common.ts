@@ -72,6 +72,7 @@ export type AutoGenerateType =
  * Complete state for a field instance.
  * This is the single generic that flows through the field class.
  */
+
 export interface FieldState<T extends ScalarFieldType = ScalarFieldType> {
   type: T;
   nullable: boolean;
@@ -86,6 +87,7 @@ export interface FieldState<T extends ScalarFieldType = ScalarFieldType> {
   /** Custom column name in the database (set via .map()) */
   columnName: string | undefined;
   base: VibSchema;
+  withTimezone?: boolean | undefined;
 }
 
 // =============================================================================
@@ -106,7 +108,7 @@ export type UpdateState<
 
 export const updateState = <
   F extends Field,
-  Update extends Partial<FieldState>,
+  const Update extends Partial<FieldState>,
 >(
   field: F,
   update: Update
@@ -156,6 +158,7 @@ export type DefaultValueInput<S extends FieldState> = DefaultValue<
 export const createDefaultState = <
   T extends ScalarFieldType,
   B extends VibSchema,
+  Values extends string[] = string[],
 >(
   type: T,
   base: B
@@ -171,6 +174,7 @@ export const createDefaultState = <
   schema: undefined,
   columnName: undefined,
   optional: false,
+  withTimezone: false,
   base,
 });
 

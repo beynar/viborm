@@ -14,7 +14,7 @@ import { compoundIdSchemas, simpleSchemas } from "../fixtures";
 // =============================================================================
 
 describe("Scalar Create - Types (Simple Model)", () => {
-  type Input = InferInput<typeof simpleSchemas._create.scalar>;
+  type Input = InferInput<typeof simpleSchemas.scalarCreate>;
 
   test("type: includes all scalar fields", () => {
     expectTypeOf<Input>().toHaveProperty("id");
@@ -36,7 +36,7 @@ describe("Scalar Create - Types (Simple Model)", () => {
 // =============================================================================
 
 describe("Scalar Create - Simple Model Runtime", () => {
-  const schema = simpleSchemas._create.scalar;
+  const schema = simpleSchemas.scalarCreate;
 
   test("runtime: accepts valid input with all required fields", () => {
     const result = parse(schema, {
@@ -103,7 +103,7 @@ describe("Scalar Create - Simple Model Runtime", () => {
 // =============================================================================
 
 describe("Scalar Create - Compound ID Model Runtime", () => {
-  const schema = compoundIdSchemas._create.scalar;
+  const schema = compoundIdSchemas.scalarCreate;
 
   test("runtime: accepts all fields", () => {
     const result = parse(schema, {

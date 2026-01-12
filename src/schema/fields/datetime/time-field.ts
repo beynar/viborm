@@ -140,6 +140,21 @@ export class TimeField<State extends FieldState<"time">> {
     );
   }
 
+  /**
+   * Stores time without timezone information.
+   * Maps to PostgreSQL TIME (without time zone) instead of TIMETZ.
+   *
+   * Use this when:
+   * - You want to store local times (e.g., "store opens at 9:00 AM")
+   * - The time should not be converted based on timezone
+   */
+  withoutTimezone() {
+    return new TimeField(
+      updateState(this, { withTimezone: false }),
+      this._nativeType
+    );
+  }
+
   get ["~"]() {
     return {
       state: this.state,
@@ -150,4 +165,7 @@ export class TimeField<State extends FieldState<"time">> {
 }
 
 export const time = (nativeType?: NativeType) =>
-  new TimeField(createDefaultState("time", timeBase), nativeType);
+  new TimeField(
+    { ...createDefaultState("time", timeBase), withTimezone: true },
+    nativeType
+  );

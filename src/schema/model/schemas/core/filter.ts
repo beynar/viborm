@@ -64,7 +64,9 @@ export const getCompoundConstraintFilter = <T extends ModelState>(
   return v.object(state.compoundUniques) as CompoundConstraintFilterSchema<T>;
 };
 
-type CompoundIdFilterSchema<T extends ModelState> = V.Object<T["compoundId"]>;
+export type CompoundIdFilterSchema<T extends ModelState> = V.Object<
+  T["compoundId"]
+>;
 export const getCompoundIdFilter = <T extends ModelState>(
   state: T
 ): CompoundIdFilterSchema<T> => {

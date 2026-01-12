@@ -65,7 +65,7 @@ const parentModel = s.model({
   jsonNullable: s.json().nullable(),
 
   // Enum field
-  status: s.enum(["ACTIVE", "INACTIVE", "PENDING"]),
+  status: s.enum(["ACTIVE", "INACTIVE", "PENDING"] as const),
 
   // Blob field
   blobNullable: s.blob().nullable(),
@@ -223,6 +223,8 @@ describe("Relation Types Integration Test", () => {
       include: { parent: true },
     });
 
+    const t = childWithParent?.parent.status;
+
     expect(childWithParent).not.toBeNull();
     if (!childWithParent) throw new Error("Child not found");
 
@@ -328,11 +330,6 @@ describe("Relation Types Integration Test", () => {
     expectTypeOf(
       childWithParent.parent.blobNullable
     ).toEqualTypeOf<Uint8Array | null>();
-    // BUG: Enum types through relations are widened to string
-    // See BUG_REPORT_RELATION_TYPES.md for details
-    // Expected: "ACTIVE" | "INACTIVE" | "PENDING"
-    // Actual: string
-    expectTypeOf(childWithParent.parent.status).toEqualTypeOf<string>();
     // Runtime value is correct - verify it
     expect(["ACTIVE", "INACTIVE", "PENDING"]).toContain(
       childWithParent.parent.status
@@ -394,9 +391,9 @@ describe("Relation Types Integration Test", () => {
     expectTypeOf(firstResult.parentId).toEqualTypeOf<string>();
     expectTypeOf(firstResult.parent.id).toEqualTypeOf<string>();
     expectTypeOf(firstResult.parent.stringRequired).toEqualTypeOf<string>();
-    // BUG: Enum widened to string through relations (see BUG_REPORT_RELATION_TYPES.md)
-    // Expected: "ACTIVE" | "INACTIVE" | "PENDING", Actual: string
-    expectTypeOf(firstResult.parent.status).toEqualTypeOf<string>();
+    expectTypeOf(firstResult.parent.status).toEqualTypeOf<
+      "ACTIVE" | "INACTIVE" | "PENDING"
+    >();
   });
 
   test("findMany with include returns array of properly typed results", async () => {
@@ -415,8 +412,8 @@ describe("Relation Types Integration Test", () => {
       expect(typeof child.parent.status).toBe("string");
     }
 
-    // BUG: Enum widened to string through relations (see BUG_REPORT_RELATION_TYPES.md)
-    // Expected: "ACTIVE" | "INACTIVE" | "PENDING", Actual: string
-    expectTypeOf(allChildren[0]!.parent.status).toEqualTypeOf<string>();
+    expectTypeOf(allChildren[0]!.parent.status).toEqualTypeOf<
+      "ACTIVE" | "INACTIVE" | "PENDING"
+    >();
   });
 });

@@ -14,7 +14,7 @@ import { compoundIdSchemas, simpleSchemas } from "../fixtures";
 // =============================================================================
 
 describe("Scalar Filter - Types", () => {
-  type Input = InferInput<typeof simpleSchemas._filter.scalar>;
+  type Input = InferInput<typeof simpleSchemas.scalarFilter>;
 
   test("type: includes all scalar fields", () => {
     expectTypeOf<Input>().toHaveProperty("id");
@@ -46,7 +46,7 @@ describe("Scalar Filter - Types", () => {
 // =============================================================================
 
 describe("Scalar Filter - Simple Model Runtime", () => {
-  const schema = simpleSchemas._filter.scalar;
+  const schema = simpleSchemas.scalarFilter;
 
   test("runtime: accepts empty object", () => {
     const result = parse(schema, {});
@@ -119,7 +119,7 @@ describe("Scalar Filter - Simple Model Runtime", () => {
 // =============================================================================
 
 describe("Scalar Filter - Compound ID Model Runtime", () => {
-  const schema = compoundIdSchemas._filter.scalar;
+  const schema = compoundIdSchemas.scalarFilter;
 
   test("runtime: includes all scalar fields from compound id model", () => {
     const result = parse(schema, {

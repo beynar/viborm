@@ -45,7 +45,7 @@ export type Field =
   | VectorField<FieldState<"vector">>
   | BlobField<FieldState<"blob">>
   | PointField<FieldState<"point">>
-  | EnumField<any, FieldState<"enum">>;
+  | EnumField<FieldState<"enum">>;
 
 /**
  * Any field with any state (for loose typing).

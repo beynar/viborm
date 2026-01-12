@@ -30,13 +30,9 @@ export {
   formatAmbiguousChanges,
   strictResolver,
 } from "./resolver";
+export type { SerializeOptions } from "./serializer";
 // Serializer
-export {
-  getColumnName,
-  getTableName,
-  mapFieldType,
-  serializeModels,
-} from "./serializer";
+export { getColumnName, getTableName, serializeModels } from "./serializer";
 // Types
 export type {
   AmbiguousChange,

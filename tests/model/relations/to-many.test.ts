@@ -18,7 +18,7 @@ import { authorSchemas } from "../fixtures";
 // =============================================================================
 
 describe("ToMany Filter - Author.posts (oneToMany)", () => {
-  const schema = authorSchemas._filter.relation;
+  const schema = authorSchemas.relationFilter;
 
   test("accepts 'some' filter", () => {
     const result = parse(schema, {
@@ -104,7 +104,7 @@ describe("ToMany Filter - Author.posts (oneToMany)", () => {
 // =============================================================================
 
 describe("ToMany Create - Author.posts (oneToMany)", () => {
-  const schema = authorSchemas._create.relation;
+  const schema = authorSchemas.relationCreate;
 
   test("accepts single 'create' object", () => {
     const result = parse(schema, {
@@ -229,7 +229,7 @@ describe("ToMany Create - Author.posts (oneToMany)", () => {
 // =============================================================================
 
 describe("ToMany Update - Author.posts (oneToMany)", () => {
-  const schema = authorSchemas._update.relation;
+  const schema = authorSchemas.relationUpdate;
 
   // Create operations
   test("accepts single 'create'", () => {

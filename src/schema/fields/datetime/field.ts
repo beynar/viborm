@@ -106,9 +106,6 @@ export class DateTimeField<State extends FieldState<"datetime">> {
     );
   }
 
-  /**
-   * Maps this field to a custom column name in the database
-   */
   map(columnName: string) {
     return new DateTimeField(
       updateState(this, { columnName }),
@@ -140,6 +137,13 @@ export class DateTimeField<State extends FieldState<"datetime">> {
     );
   }
 
+  withoutTimezone() {
+    return new DateTimeField(
+      updateState(this, { withTimezone: false }),
+      this._nativeType
+    );
+  }
+
   get ["~"]() {
     return {
       state: this.state,
@@ -150,4 +154,7 @@ export class DateTimeField<State extends FieldState<"datetime">> {
 }
 
 export const dateTime = (nativeType?: NativeType) =>
-  new DateTimeField(createDefaultState("datetime", datetimeBase), nativeType);
+  new DateTimeField(
+    { ...createDefaultState("datetime", datetimeBase), withTimezone: true },
+    nativeType
+  );

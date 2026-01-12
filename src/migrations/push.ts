@@ -32,12 +32,15 @@ import {
 // =============================================================================
 
 import { postgresAdapter } from "../adapters/databases/postgres/postgres-adapter";
+import { sqliteAdapter } from "../adapters/databases/sqlite/sqlite-adapter";
 
 function getAdapterForDialect(dialect: string): DatabaseAdapter {
   switch (dialect) {
     case "postgresql":
       return postgresAdapter;
-    // TODO: Add mysql and sqlite adapters when migrations are implemented
+    case "sqlite":
+      return sqliteAdapter;
+    // TODO: Add mysql adapter when migrations are implemented
     default:
       throw new MigrationError(
         `Migrations not yet supported for dialect: ${dialect}`,
@@ -84,7 +87,9 @@ export async function push(
   const adapter = getAdapterForDialect(driver.dialect);
 
   // 1. Serialize VibORM models to SchemaSnapshot
-  const desired = serializeModels(models, { dialect: driver.dialect });
+  const desired = serializeModels(models, {
+    migrationAdapter: adapter.migrations,
+  });
 
   // 2. Introspect current database state
   const current = await adapter.migrations.introspect(async (sql, params) => {

@@ -3,11 +3,15 @@
  *
  * Converts VibORM model definitions into a database-agnostic SchemaSnapshot
  * that can be compared with the current database state.
+ *
+ * Database-specific logic is delegated to the MigrationAdapter:
+ * - Type mapping (mapFieldType)
+ * - Default expressions (getDefaultExpression)
+ * - Enum handling (supportsNativeEnums, getEnumColumnType)
  */
 
-import type { Dialect } from "../drivers/types";
+import type { MigrationAdapter } from "../adapters/database-adapter";
 import type { Field } from "../schema/fields/base";
-import type { FieldState } from "../schema/fields/common";
 import type { AnyModel } from "../schema/model";
 import type { AnyRelation } from "../schema/relation";
 import type {
@@ -23,239 +27,6 @@ import type {
 } from "./types";
 
 // =============================================================================
-// TYPE MAPPING
-// =============================================================================
-
-/**
- * Maps VibORM field types to PostgreSQL column types
- */
-function mapFieldTypeToPostgres(field: Field, fieldState: FieldState): string {
-  const nativeType = field["~"].nativeType;
-
-  // If a native type is specified and it's for PostgreSQL, use it
-  if (nativeType && nativeType.db === "pg") {
-    return fieldState.array ? `${nativeType.type}[]` : nativeType.type;
-  }
-
-  // Default mappings based on field type
-  let baseType: string;
-  switch (fieldState.type) {
-    case "string":
-      baseType = "text";
-      break;
-    case "int":
-      baseType = fieldState.autoGenerate === "increment" ? "serial" : "integer";
-      break;
-    case "float":
-      baseType = "double precision";
-      break;
-    case "decimal":
-      baseType = "numeric";
-      break;
-    case "boolean":
-      baseType = "boolean";
-      break;
-    case "datetime":
-      baseType = "timestamptz";
-      break;
-    case "date":
-      baseType = "date";
-      break;
-    case "time":
-      baseType = "time";
-      break;
-    case "bigint":
-      baseType =
-        fieldState.autoGenerate === "increment" ? "bigserial" : "bigint";
-      break;
-    case "json":
-      baseType = "jsonb";
-      break;
-    case "blob":
-      baseType = "bytea";
-      break;
-    case "vector":
-      baseType = "vector";
-      break;
-    case "point":
-      baseType = "point";
-      break;
-    case "enum":
-      // Enum fields need special handling - we'll use the enum name
-      baseType = "text"; // Will be overridden by enum handling
-      break;
-    default:
-      baseType = "text";
-  }
-
-  return fieldState.array ? `${baseType}[]` : baseType;
-}
-
-/**
- * Maps VibORM field types to MySQL column types
- */
-function mapFieldTypeToMySQL(field: Field, fieldState: FieldState): string {
-  const nativeType = field["~"].nativeType;
-
-  if (nativeType && nativeType.db === "mysql") {
-    // MySQL doesn't have native array types
-    return nativeType.type;
-  }
-
-  switch (fieldState.type) {
-    case "string":
-      return "TEXT";
-    case "int":
-      return fieldState.autoGenerate === "increment"
-        ? "INT AUTO_INCREMENT"
-        : "INT";
-    case "float":
-      return "DOUBLE";
-    case "decimal":
-      return "DECIMAL(65,30)";
-    case "boolean":
-      return "TINYINT(1)";
-    case "datetime":
-      return "DATETIME(3)";
-    case "date":
-      return "DATE";
-    case "time":
-      return "TIME";
-    case "bigint":
-      return fieldState.autoGenerate === "increment"
-        ? "BIGINT AUTO_INCREMENT"
-        : "BIGINT";
-    case "json":
-      return "JSON";
-    case "blob":
-      return "LONGBLOB";
-    case "enum":
-      return "VARCHAR(255)";
-    default:
-      return "TEXT";
-  }
-}
-
-/**
- * Maps VibORM field types to SQLite column types
- */
-function mapFieldTypeToSQLite(field: Field, fieldState: FieldState): string {
-  const nativeType = field["~"].nativeType;
-
-  if (nativeType && nativeType.db === "sqlite") {
-    return nativeType.type;
-  }
-
-  switch (fieldState.type) {
-    case "string":
-    case "enum":
-    case "json":
-      return "TEXT";
-    case "int":
-    case "bigint":
-    case "boolean":
-      return "INTEGER";
-    case "float":
-    case "decimal":
-      return "REAL";
-    case "datetime":
-    case "date":
-    case "time":
-      return "TEXT";
-    case "blob":
-      return "BLOB";
-    default:
-      return "TEXT";
-  }
-}
-
-/**
- * Maps VibORM field type to SQL type based on dialect
- */
-export function mapFieldType(
-  field: Field,
-  fieldState: FieldState,
-  dialect: Dialect
-): string {
-  switch (dialect) {
-    case "postgresql":
-      return mapFieldTypeToPostgres(field, fieldState);
-    case "mysql":
-      return mapFieldTypeToMySQL(field, fieldState);
-    case "sqlite":
-      return mapFieldTypeToSQLite(field, fieldState);
-    default:
-      return mapFieldTypeToPostgres(field, fieldState);
-  }
-}
-
-// =============================================================================
-// DEFAULT VALUE HANDLING
-// =============================================================================
-
-/**
- * Converts a VibORM default value to a SQL default expression
- */
-function getDefaultExpression(
-  fieldState: FieldState,
-  dialect: Dialect
-): string | undefined {
-  // Handle auto-generate types
-  if (fieldState.autoGenerate) {
-    switch (fieldState.autoGenerate) {
-      case "increment":
-        // Handled by column type (serial/bigserial in PG, AUTO_INCREMENT in MySQL)
-        return undefined;
-      case "uuid":
-        if (dialect === "postgresql") return "gen_random_uuid()";
-        return undefined; // Generated in application
-      case "now":
-        if (dialect === "postgresql") return "now()";
-        if (dialect === "mysql") return "CURRENT_TIMESTAMP";
-        return "CURRENT_TIMESTAMP";
-      case "updatedAt":
-        // This is typically handled via triggers or application logic
-        return undefined;
-      case "ulid":
-      case "nanoid":
-      case "cuid":
-        // These are generated in the application
-        return undefined;
-    }
-  }
-
-  // Handle explicit default value
-  if (fieldState.hasDefault && fieldState.default !== undefined) {
-    const defaultVal = fieldState.default;
-
-    // Skip function defaults (generated at runtime)
-    if (typeof defaultVal === "function") {
-      return undefined;
-    }
-
-    // Handle null default
-    if (defaultVal === null) {
-      return "NULL";
-    }
-
-    // Handle primitive defaults
-    if (typeof defaultVal === "string") {
-      return `'${defaultVal.replace(/'/g, "''")}'`;
-    }
-    if (typeof defaultVal === "number") {
-      return String(defaultVal);
-    }
-    if (typeof defaultVal === "boolean") {
-      if (dialect === "postgresql") return defaultVal ? "true" : "false";
-      if (dialect === "mysql") return defaultVal ? "1" : "0";
-      return defaultVal ? "1" : "0";
-    }
-  }
-
-  return undefined;
-}
-
-// =============================================================================
 // REFERENTIAL ACTION MAPPING
 // =============================================================================
 
@@ -269,7 +40,6 @@ function mapReferentialAction(
       return "setNull";
     case "restrict":
       return "restrict";
-    case "noAction":
     default:
       return "noAction";
   }
@@ -280,7 +50,7 @@ function mapReferentialAction(
 // =============================================================================
 
 export interface SerializeOptions {
-  dialect: Dialect;
+  migrationAdapter: MigrationAdapter;
 }
 
 /**
@@ -290,7 +60,7 @@ export function serializeModels(
   models: Record<string, AnyModel>,
   options: SerializeOptions
 ): SchemaSnapshot {
-  const { dialect } = options;
+  const { migrationAdapter } = options;
   const tables: TableDef[] = [];
   const enums: EnumDef[] = [];
   const enumsSet = new Set<string>();
@@ -313,29 +83,44 @@ export function serializeModels(
       // Use model's nameRegistry for column name resolution (supports field reuse)
       const columnName = model["~"].getFieldName(fieldName).sql;
 
-      // Handle enum types for PostgreSQL
-      if (fieldState.type === "enum" && dialect === "postgresql") {
+      // Handle enum types (only for databases that support native enums)
+      let columnType: string;
+      if (fieldState.type === "enum") {
         const enumField = field as any;
-        if (enumField.values && Array.isArray(enumField.values)) {
-          const enumName = `${tableName}_${columnName}_enum`;
+        const enumValues = enumField.values as string[] | undefined;
+
+        if (migrationAdapter.supportsNativeEnums && enumValues) {
+          // Create native enum type definition
+          const enumName = migrationAdapter.getEnumColumnType(
+            tableName,
+            columnName,
+            enumValues
+          );
           if (!enumsSet.has(enumName)) {
             enums.push({
               name: enumName,
-              values: enumField.values,
+              values: enumValues,
             });
             enumsSet.add(enumName);
           }
+          columnType = enumName;
+        } else {
+          // Fall back to adapter's default enum column type
+          columnType = migrationAdapter.getEnumColumnType(
+            tableName,
+            columnName,
+            enumValues || []
+          );
         }
+      } else {
+        columnType = migrationAdapter.mapFieldType(field as Field, fieldState);
       }
 
       const columnDef: ColumnDef = {
         name: columnName,
-        type:
-          fieldState.type === "enum" && dialect === "postgresql"
-            ? `${tableName}_${columnName}_enum`
-            : mapFieldType(field as Field, fieldState, dialect),
+        type: columnType,
         nullable: fieldState.nullable,
-        default: getDefaultExpression(fieldState, dialect),
+        default: migrationAdapter.getDefaultExpression(fieldState),
         autoIncrement: fieldState.autoGenerate === "increment",
       };
 
@@ -363,7 +148,7 @@ export function serializeModels(
         const firstKey = compoundIdKeys[0]!;
         // Extract field names from the compound ID schema
         const compoundIdSchema = modelState.compoundId[firstKey];
-        if (compoundIdSchema && compoundIdSchema["~"]) {
+        if (compoundIdSchema?.["~"]) {
           const schemaState = compoundIdSchema["~"];
           if (schemaState.def && typeof schemaState.def === "object") {
             pkColumns.push(...Object.keys(schemaState.def));
@@ -385,7 +170,7 @@ export function serializeModels(
       for (const [constraintName, schema] of Object.entries(
         modelState.compoundUniques
       )) {
-        if (schema && schema["~"]) {
+        if (schema?.["~"]) {
           const schemaState = schema["~"];
           if (schemaState.def && typeof schemaState.def === "object") {
             uniqueConstraints.push({
@@ -426,7 +211,7 @@ export function serializeModels(
       ) {
         // Get the target model
         const targetModel = relationState.getter();
-        if (targetModel && targetModel["~"]) {
+        if (targetModel?.["~"]) {
           const targetModelState = targetModel["~"].state;
           const targetTableName =
             targetModel["~"].names.sql ||

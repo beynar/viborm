@@ -5,12 +5,13 @@
  * Works directly with ModelState for full type context (including omit settings).
  */
 
-import type { EnumField, Field, FieldState } from "@schema/fields";
+import type { Field, FieldState } from "@schema/fields";
 import type { Model, ModelState } from "@schema/model";
 import type { FieldRecord } from "@schema/model/helper";
 import type { AnyRelation } from "@schema/relation";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { Prettify } from "@validation";
+import type { EnumValues } from "@validation/schemas/enum";
 
 // =============================================================================
 // SCALAR OUTPUT TYPE MAPPING
@@ -55,6 +56,9 @@ type ExtractFieldState<F> = F extends { "~": { state: infer S } }
  * Get the base scalar type for a field, handling custom schemas.
  * For json/enum fields with custom schemas, infer from the schema.
  * For datetime fields, always return Date (regardless of validation schema output).
+ *
+ * Note: Enum types return `string` when accessed through relations due to type widening.
+ * See BUG_REPORT_RELATION_TYPES.md Bug 1 for details.
  */
 type GetScalarResultType<F extends Field> =
   ExtractFieldState<F> extends infer S
@@ -64,12 +68,8 @@ type GetScalarResultType<F extends Field> =
           ? O
           : unknown
         : S["type"] extends "enum"
-          ? F extends EnumField<infer Values, any>
-            ? F
-            : never
-          : S["type"] extends keyof ScalarResultTypeMap
-            ? ScalarResultTypeMap[S["type"]]
-            : unknown
+          ? EnumValues<S["base"]>[number]
+          : ScalarResultTypeMap[S["type"]]
       : unknown
     : unknown;
 

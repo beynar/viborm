@@ -68,7 +68,7 @@ function buildCountColumns(
   const { adapter } = ctx;
 
   if (!select) {
-    // Simple count all
+    // Simple count all - adapter.result.parseResult normalizes database-specific column names
     return adapter.aggregates.count();
   }
 

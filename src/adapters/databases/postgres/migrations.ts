@@ -720,18 +720,28 @@ function generateDDL(operation: DiffOperation): string {
 // TYPE MAPPING
 // =============================================================================
 
-function mapFieldType(
-  fieldType: string,
-  options?: { array?: boolean; autoIncrement?: boolean }
-): string {
+/**
+ * Maps VibORM field types to PostgreSQL column types.
+ * Uses full field state to access properties like withTimezone, autoGenerate, etc.
+ */
+function mapFieldType(field: Field, fieldState: FieldState): string {
+  const nativeType = field["~"].nativeType;
+
+  // If a native type is specified and it's for PostgreSQL, use it
+  if (nativeType && nativeType.db === "pg") {
+    return fieldState.array ? `${nativeType.type}[]` : nativeType.type;
+  }
+
+  // Default mappings based on field type
   let baseType: string;
 
-  switch (fieldType) {
+  switch (fieldState.type) {
     case "string":
       baseType = "text";
       break;
     case "int":
-      baseType = options?.autoIncrement ? "serial" : "integer";
+      // AUTO_INCREMENT (serial) is handled by DDL generator via ColumnDef.autoIncrement
+      baseType = "integer";
       break;
     case "float":
       baseType = "double precision";
@@ -743,16 +753,19 @@ function mapFieldType(
       baseType = "boolean";
       break;
     case "datetime":
-      baseType = "timestamptz";
+      // withTimezone: true → timestamptz, false/undefined → timestamp
+      baseType = fieldState.withTimezone ? "timestamptz" : "timestamp";
       break;
     case "date":
       baseType = "date";
       break;
     case "time":
-      baseType = "time";
+      // withTimezone: true → timetz, false/undefined → time
+      baseType = fieldState.withTimezone ? "timetz" : "time";
       break;
     case "bigint":
-      baseType = options?.autoIncrement ? "bigserial" : "bigint";
+      // AUTO_INCREMENT (bigserial) is handled by DDL generator via ColumnDef.autoIncrement
+      baseType = "bigint";
       break;
     case "json":
       baseType = "jsonb";
@@ -766,11 +779,88 @@ function mapFieldType(
     case "point":
       baseType = "point";
       break;
+    case "enum":
+      // Enum type is set via getEnumColumnType, this is a fallback
+      baseType = "text";
+      break;
     default:
-      baseType = fieldType;
+      baseType = "text";
   }
 
-  return options?.array ? `${baseType}[]` : baseType;
+  return fieldState.array ? `${baseType}[]` : baseType;
+}
+
+// =============================================================================
+// DEFAULT EXPRESSION
+// =============================================================================
+
+/**
+ * Converts a VibORM default value to a PostgreSQL default expression.
+ * Note: uuid, now, ulid, nanoid, cuid are always generated at the ORM level
+ * for cross-database consistency.
+ */
+function getDefaultExpression(fieldState: FieldState): string | undefined {
+  // Handle auto-generate types - all generated at ORM level for consistency
+  if (fieldState.autoGenerate) {
+    switch (fieldState.autoGenerate) {
+      case "increment":
+        // Handled by column type (serial/bigserial)
+        return undefined;
+      case "uuid":
+      case "now":
+      case "updatedAt":
+      case "ulid":
+      case "nanoid":
+      case "cuid":
+        // All generated at ORM level for cross-database consistency
+        return undefined;
+      default:
+        return undefined;
+    }
+  }
+
+  // Handle explicit default value
+  if (fieldState.hasDefault && fieldState.default !== undefined) {
+    const defaultVal = fieldState.default;
+
+    // Skip function defaults (generated at runtime)
+    if (typeof defaultVal === "function") {
+      return undefined;
+    }
+
+    // Handle null default
+    if (defaultVal === null) {
+      return "NULL";
+    }
+
+    // Handle primitive defaults
+    if (typeof defaultVal === "string") {
+      return `'${defaultVal.replace(/'/g, "''")}'`;
+    }
+    if (typeof defaultVal === "number") {
+      return String(defaultVal);
+    }
+    if (typeof defaultVal === "boolean") {
+      return defaultVal ? "true" : "false";
+    }
+  }
+
+  return undefined;
+}
+
+// =============================================================================
+// ENUM HANDLING
+// =============================================================================
+
+/**
+ * PostgreSQL supports native enum types via CREATE TYPE ... AS ENUM.
+ */
+function getEnumColumnType(
+  tableName: string,
+  columnName: string,
+  _values: string[]
+): string {
+  return `${tableName}_${columnName}_enum`;
 }
 
 // =============================================================================
@@ -781,4 +871,7 @@ export const postgresMigrations: MigrationAdapter = {
   introspect,
   generateDDL,
   mapFieldType,
+  getDefaultExpression,
+  supportsNativeEnums: true,
+  getEnumColumnType,
 };

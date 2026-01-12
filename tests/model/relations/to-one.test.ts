@@ -19,7 +19,7 @@ import { postSchemas } from "../fixtures";
 
 describe("ToOne Filter - Post.author (manyToOne)", () => {
   // Post has manyToOne relation to Author
-  const schema = postSchemas._filter.relation;
+  const schema = postSchemas.relationFilter;
 
   test("accepts 'is' filter with scalar conditions", () => {
     const result = parse(schema, {
@@ -98,7 +98,7 @@ describe("ToOne Filter - Post.author (manyToOne)", () => {
 // =============================================================================
 
 describe("ToOne Create - Post.author (manyToOne)", () => {
-  const schema = postSchemas._create.relation;
+  const schema = postSchemas.relationCreate;
 
   test("accepts 'create' nested object", () => {
     const result = parse(schema, {
@@ -170,7 +170,7 @@ describe("ToOne Create - Post.author (manyToOne)", () => {
 // =============================================================================
 
 describe("ToOne Update - Post.author (manyToOne)", () => {
-  const schema = postSchemas._update.relation;
+  const schema = postSchemas.relationUpdate;
 
   test("accepts 'create' for creating new related record", () => {
     const result = parse(schema, {

@@ -27,8 +27,9 @@ import {
 // =============================================================================
 
 describe("ToOne OrderBy (Post.author)", () => {
-  const schema = requiredManyToOneSchemas.orderBy;
-  type OrderByInput = InferInput<typeof schema>;
+  // orderBy is a thunk - call it to get the actual schema
+  const getSchema = requiredManyToOneSchemas.orderBy;
+  type OrderByInput = InferInput<ReturnType<typeof getSchema>>;
 
   describe("type", () => {
     test("type: accepts scalar field ordering", () => {
@@ -45,6 +46,7 @@ describe("ToOne OrderBy (Post.author)", () => {
 
   describe("runtime", () => {
     test("runtime: accepts nested orderBy on related model fields", () => {
+      const schema = getSchema();
       const input = { name: "asc" };
       const result = parse(schema, input);
       expect(result.issues).toBeUndefined();
@@ -54,6 +56,7 @@ describe("ToOne OrderBy (Post.author)", () => {
     });
 
     test("runtime: accepts nested orderBy with desc", () => {
+      const schema = getSchema();
       const input = { id: "desc" };
       const result = parse(schema, input);
       expect(result.issues).toBeUndefined();
@@ -63,6 +66,7 @@ describe("ToOne OrderBy (Post.author)", () => {
     });
 
     test("runtime: accepts multiple fields ordering", () => {
+      const schema = getSchema();
       const input = {
         name: "asc",
         email: "desc",
@@ -76,6 +80,7 @@ describe("ToOne OrderBy (Post.author)", () => {
     });
 
     test("runtime: accepts empty object", () => {
+      const schema = getSchema();
       const result = parse(schema, {});
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
@@ -84,6 +89,7 @@ describe("ToOne OrderBy (Post.author)", () => {
     });
 
     test("runtime: rejects invalid order value", () => {
+      const schema = getSchema();
       const result = parse(schema, { name: "invalid" });
       expect(result.issues).toBeDefined();
     });
@@ -95,6 +101,7 @@ describe("ToOne OrderBy (Post.author)", () => {
 // =============================================================================
 
 describe("ToMany OrderBy (Author.posts)", () => {
+  // toMany orderBy is NOT a thunk - it's a direct schema
   const schema = requiredOneToManySchemas.orderBy;
   type OrderByInput = InferInput<typeof schema>;
 
@@ -143,10 +150,12 @@ describe("ToMany OrderBy (Author.posts)", () => {
 // =============================================================================
 
 describe("Optional ToOne OrderBy (Profile.user)", () => {
-  const schema = optionalOneToOneSchemas.orderBy;
+  // orderBy is a thunk - call it to get the actual schema
+  const getSchema = optionalOneToOneSchemas.orderBy;
 
   describe("runtime", () => {
     test("runtime: accepts nested field ordering for optional relation", () => {
+      const schema = getSchema();
       const input = { username: "asc" };
       const result = parse(schema, input);
       expect(result.issues).toBeUndefined();
@@ -156,6 +165,7 @@ describe("Optional ToOne OrderBy (Profile.user)", () => {
     });
 
     test("runtime: accepts multiple field ordering", () => {
+      const schema = getSchema();
       const input = {
         id: "desc",
         username: "asc",

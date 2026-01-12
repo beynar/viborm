@@ -14,7 +14,7 @@ import { authorSchemas, postSchemas, simpleSchemas } from "../fixtures";
 // =============================================================================
 
 describe("Relation Filter - Types (Author Model)", () => {
-  type Input = InferInput<typeof authorSchemas._filter.relation>;
+  type Input = InferInput<typeof authorSchemas.relationFilter>;
 
   test("type: includes relation field", () => {
     expectTypeOf<Input>().toHaveProperty("posts");
@@ -34,7 +34,7 @@ describe("Relation Filter - Types (Author Model)", () => {
 // =============================================================================
 
 describe("Relation Filter - Types (Post Model)", () => {
-  type Input = InferInput<typeof postSchemas._filter.relation>;
+  type Input = InferInput<typeof postSchemas.relationFilter>;
 
   test("type: includes relation field", () => {
     expectTypeOf<Input>().toHaveProperty("author");
@@ -46,7 +46,7 @@ describe("Relation Filter - Types (Post Model)", () => {
 // =============================================================================
 
 describe("Relation Filter - Author Model Runtime (oneToMany)", () => {
-  const schema = authorSchemas._filter.relation;
+  const schema = authorSchemas.relationFilter;
 
   test("runtime: accepts empty object", () => {
     const result = parse(schema, {});
@@ -80,7 +80,7 @@ describe("Relation Filter - Author Model Runtime (oneToMany)", () => {
 // =============================================================================
 
 describe("Relation Filter - Post Model Runtime (manyToOne)", () => {
-  const schema = postSchemas._filter.relation;
+  const schema = postSchemas.relationFilter;
 
   test("runtime: accepts empty object", () => {
     const result = parse(schema, {});
@@ -107,7 +107,7 @@ describe("Relation Filter - Post Model Runtime (manyToOne)", () => {
 // =============================================================================
 
 describe("Relation Filter - Simple Model Runtime (no relations)", () => {
-  const schema = simpleSchemas._filter.relation;
+  const schema = simpleSchemas.relationFilter;
 
   test("runtime: accepts empty object", () => {
     const result = parse(schema, {});

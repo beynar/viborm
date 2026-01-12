@@ -14,7 +14,7 @@ import { compoundIdSchemas, simpleSchemas } from "../fixtures";
 // =============================================================================
 
 describe("Scalar Update - Types (Simple Model)", () => {
-  type Input = InferInput<typeof simpleSchemas._update.scalar>;
+  type Input = InferInput<typeof simpleSchemas.scalarUpdate>;
 
   test("type: includes all scalar fields", () => {
     expectTypeOf<Input>().toHaveProperty("id");
@@ -34,7 +34,7 @@ describe("Scalar Update - Types (Simple Model)", () => {
 // =============================================================================
 
 describe("Scalar Update - Simple Model Runtime", () => {
-  const schema = simpleSchemas._update.scalar;
+  const schema = simpleSchemas.scalarUpdate;
 
   test("runtime: accepts empty object", () => {
     const result = parse(schema, {});
@@ -93,7 +93,7 @@ describe("Scalar Update - Simple Model Runtime", () => {
 // =============================================================================
 
 describe("Scalar Update - Compound ID Model Runtime", () => {
-  const schema = compoundIdSchemas._update.scalar;
+  const schema = compoundIdSchemas.scalarUpdate;
 
   test("runtime: accepts update to any scalar field", () => {
     const result = parse(schema, { role: "member" });

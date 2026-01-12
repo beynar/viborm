@@ -1,6 +1,11 @@
 import { unsupportedGeospatial, unsupportedVector } from "@drivers/errors";
 import { type Sql, sql } from "@sql";
 import type { DatabaseAdapter, QueryParts } from "../../database-adapter";
+import {
+  normalizeCountResult,
+  parseIntegerBoolean,
+  tryParseJsonString,
+} from "../../shared/result-parsing";
 import { mysqlMigrations } from "./migrations";
 
 /**
@@ -578,6 +583,56 @@ export class MySQLAdapter implements DatabaseAdapter {
   // ============================================================
 
   geospatial = unsupportedGeospatial;
+
+  // ============================================================
+  // RESULT PARSING
+  // MySQL: Parse JSON strings, convert 0/1 to booleans
+  // ============================================================
+
+  result = {
+    parseResult: (
+      raw: unknown,
+      operation: import("../../../query-engine/types").Operation,
+      next: (value?: unknown) => unknown
+    ): unknown => {
+      // For count operation, normalize column name to _result
+      if (operation === "count" || operation === "exist") {
+        const normalized = normalizeCountResult(raw);
+        if (normalized) {
+          return next(normalized);
+        }
+      }
+      return next();
+    },
+
+    parseRelation: (
+      value: unknown,
+      _type: import("../../../schema/relation/types").RelationType,
+      next: (value?: unknown) => unknown
+    ): unknown => {
+      // MySQL returns JSON as strings - parse before delegating
+      const parsed = tryParseJsonString(value);
+      if (parsed !== undefined) {
+        return next(parsed);
+      }
+      return next();
+    },
+
+    parseField: (
+      value: unknown,
+      fieldType: string,
+      next: (value?: unknown) => unknown
+    ): unknown => {
+      // MySQL stores booleans as TINYINT(1) - 0/1
+      if (fieldType === "boolean") {
+        const parsed = parseIntegerBoolean(value);
+        if (parsed !== undefined) {
+          return parsed;
+        }
+      }
+      return next();
+    },
+  };
 }
 
 // Export singleton instance

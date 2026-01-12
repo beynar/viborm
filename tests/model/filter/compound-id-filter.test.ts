@@ -30,7 +30,7 @@ describe("Compound ID Filter - Types", () => {
 // =============================================================================
 
 describe("Compound ID Filter - Compound ID Model Runtime", () => {
-  const schema = compoundIdSchemas._filter.compoundId;
+  const schema = compoundIdSchemas.compoundIdFilter;
 
   test("runtime: accepts empty object", () => {
     const result = parse(schema, {});
@@ -57,7 +57,7 @@ describe("Compound ID Filter - Compound ID Model Runtime", () => {
 // =============================================================================
 
 describe("Compound ID Filter - Simple Model Runtime (no compound id)", () => {
-  const schema = simpleSchemas._filter.compoundId;
+  const schema = simpleSchemas.compoundIdFilter;
 
   test("runtime: accepts empty object", () => {
     const result = parse(schema, {});
@@ -76,7 +76,7 @@ describe("Compound ID Filter - Simple Model Runtime (no compound id)", () => {
 // =============================================================================
 
 describe("Compound ID Filter - Compound Unique Model Runtime", () => {
-  const schema = compoundUniqueSchemas._filter.compoundId;
+  const schema = compoundUniqueSchemas.compoundIdFilter;
 
   test("runtime: accepts empty object (no compound ID)", () => {
     const result = parse(schema, {});

@@ -1,5 +1,6 @@
 import { type Sql, sql } from "@sql";
 import type { DatabaseAdapter, QueryParts } from "../../database-adapter";
+import { convertBigIntToNumber } from "../../shared/result-parsing";
 import { postgresMigrations } from "./migrations";
 
 /**
@@ -518,6 +519,44 @@ export class PostgresAdapter implements DatabaseAdapter {
 
     dWithin: (geom1: Sql, geom2: Sql, distance: Sql): Sql =>
       sql`ST_DWithin(${geom1}::geography, ${geom2}::geography, ${distance})`,
+  };
+
+  // ============================================================
+  // RESULT PARSING
+  // PostgreSQL: Mostly passthrough - native JSON and boolean types
+  // ============================================================
+
+  result = {
+    parseResult: (
+      raw: unknown,
+      _operation: import("../../../query-engine/types").Operation,
+      next: (value?: unknown) => unknown
+    ): unknown => {
+      // PostgreSQL returns bigint for COUNT - convert to number
+      const converted = convertBigIntToNumber(raw);
+      if (converted !== undefined) {
+        return converted;
+      }
+      return next();
+    },
+
+    parseRelation: (
+      _value: unknown,
+      _type: import("../../../schema/relation/types").RelationType,
+      next: (value?: unknown) => unknown
+    ): unknown => {
+      // PostgreSQL returns native JSON objects - passthrough
+      return next();
+    },
+
+    parseField: (
+      _value: unknown,
+      _fieldType: string,
+      next: (value?: unknown) => unknown
+    ): unknown => {
+      // PostgreSQL has native types - passthrough
+      return next();
+    },
   };
 }
 

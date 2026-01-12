@@ -22,8 +22,6 @@ export { getWhereSchema, getWhereUniqueSchema } from "./where";
 // =============================================================================
 // INFERRED TYPE EXPORTS
 // =============================================================================
-// These types are inferred from the return types of the factory functions
-// rather than being explicitly defined
 
 import type { ModelState } from "../../model";
 import {
@@ -35,6 +33,10 @@ import {
   type ScalarCreateSchema,
 } from "./create";
 import {
+  type CompoundConstraintFilterSchema,
+  type CompoundIdFilterSchema,
+  getCompoundConstraintFilter,
+  getCompoundIdFilter,
   getRelationFilter,
   getScalarFilter,
   getUniqueFilter,
@@ -63,12 +65,13 @@ import {
   type WhereSchema,
   type WhereUniqueSchema,
 } from "./where";
-// Core schema types (inferred from factory return types)
 
 export type CoreSchemas<T extends ModelState> = {
   scalarFilter: ScalarFilterSchema<T>;
   uniqueFilter: UniqueFilterSchema<T>;
   relationFilter: RelationFilterSchema<T>;
+  compoundIdFilter: CompoundIdFilterSchema<T>;
+  compoundConstraintFilter: CompoundConstraintFilterSchema<T>;
   scalarCreate: ScalarCreateSchema<T>;
   relationCreate: RelationCreateSchema<T>;
   scalarUpdate: ScalarUpdateSchema<T>;
@@ -89,6 +92,8 @@ export const getCoreSchemas = <T extends ModelState>(
     scalarFilter: getScalarFilter(state),
     uniqueFilter: getUniqueFilter(state),
     relationFilter: getRelationFilter(state),
+    compoundIdFilter: getCompoundIdFilter(state),
+    compoundConstraintFilter: getCompoundConstraintFilter(state),
     scalarCreate: getScalarCreate(state),
     relationCreate: getRelationCreate(state),
     scalarUpdate: getScalarUpdate(state),

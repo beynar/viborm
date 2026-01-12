@@ -116,7 +116,7 @@ export const getPostSchemas = () => {
   return _postSchemas;
 };
 
-// Legacy exports - will be evaluated lazily when first accessed
+// Lazy accessor exports
 export const authorSchemas = {
   get args() {
     return getAuthorSchemas().args;
@@ -142,14 +142,23 @@ export const authorSchemas = {
   get orderBy() {
     return getAuthorSchemas().orderBy;
   },
-  get _filter() {
-    return getAuthorSchemas()._filter;
+  get scalarFilter() {
+    return getAuthorSchemas().scalarFilter;
   },
-  get _create() {
-    return getAuthorSchemas()._create;
+  get relationFilter() {
+    return getAuthorSchemas().relationFilter;
   },
-  get _update() {
-    return getAuthorSchemas()._update;
+  get scalarCreate() {
+    return getAuthorSchemas().scalarCreate;
+  },
+  get relationCreate() {
+    return getAuthorSchemas().relationCreate;
+  },
+  get scalarUpdate() {
+    return getAuthorSchemas().scalarUpdate;
+  },
+  get relationUpdate() {
+    return getAuthorSchemas().relationUpdate;
   },
 };
 
@@ -178,14 +187,23 @@ export const postSchemas = {
   get orderBy() {
     return getPostSchemas().orderBy;
   },
-  get _filter() {
-    return getPostSchemas()._filter;
+  get scalarFilter() {
+    return getPostSchemas().scalarFilter;
   },
-  get _create() {
-    return getPostSchemas()._create;
+  get relationFilter() {
+    return getPostSchemas().relationFilter;
   },
-  get _update() {
-    return getPostSchemas()._update;
+  get scalarCreate() {
+    return getPostSchemas().scalarCreate;
+  },
+  get relationCreate() {
+    return getPostSchemas().relationCreate;
+  },
+  get scalarUpdate() {
+    return getPostSchemas().scalarUpdate;
+  },
+  get relationUpdate() {
+    return getPostSchemas().relationUpdate;
   },
 };
 

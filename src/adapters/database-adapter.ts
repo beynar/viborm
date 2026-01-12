@@ -411,6 +411,102 @@ export interface DatabaseAdapter {
     /** ST_DWithin: geometries are within specified distance (meters for geography) */
     dWithin: (geom1: Sql, geom2: Sql, distance: Sql) => Sql;
   };
+
+  /**
+   * RESULT PARSING
+   * Database-specific result parsing middleware.
+   * Each method receives a `next` function that calls the default parsing logic.
+   *
+   * ## Usage Pattern
+   *
+   * - `next()` - Continue with original value (passthrough)
+   * - `next(transformed)` - Continue with transformed value
+   * - `return value` - Short-circuit, skip default parsing
+   *
+   * ## Database Behaviors
+   *
+   * - **PostgreSQL**: Mostly passthrough (native JSON, native booleans)
+   * - **MySQL/SQLite**: Parse JSON strings, convert 0/1 to booleans
+   */
+  result: {
+    /**
+     * Parse operation result (count, aggregate, etc.)
+     *
+     * @param raw - Raw database result
+     * @param operation - Query operation type
+     * @param next - Call to continue with default parsing
+     *   - `next()` uses original raw value
+     *   - `next(transformed)` uses the transformed value
+     *
+     * @returns Parsed result or result of `next()`
+     *
+     * @example
+     * // Normalize COUNT(*) column name
+     * parseResult: (raw, op, next) => {
+     *   if (op === 'count') {
+     *     const normalized = normalizeCountResult(raw);
+     *     if (normalized) return next(normalized);
+     *   }
+     *   return next();
+     * }
+     */
+    parseResult: (
+      raw: unknown,
+      operation: import("../query-engine/types").Operation,
+      next: (value?: unknown) => unknown
+    ) => unknown;
+
+    /**
+     * Parse relation value (nested JSON from includes)
+     *
+     * @param value - Raw relation value from database
+     * @param type - Relation type (oneToMany, manyToOne, etc.)
+     * @param next - Call to continue with default parsing
+     *   - `next()` uses original value
+     *   - `next(parsed)` uses the parsed value
+     *
+     * @returns Parsed relation or result of `next()`
+     *
+     * @example
+     * // Parse JSON strings (MySQL/SQLite)
+     * parseRelation: (value, type, next) => {
+     *   const parsed = tryParseJsonString(value);
+     *   return parsed !== undefined ? next(parsed) : next();
+     * }
+     */
+    parseRelation: (
+      value: unknown,
+      type: import("../schema/relation/types").RelationType,
+      next: (value?: unknown) => unknown
+    ) => unknown;
+
+    /**
+     * Parse field value by type
+     *
+     * @param value - Raw field value from database
+     * @param fieldType - Field type (boolean, datetime, bigint, etc.)
+     * @param next - Call to continue with default parsing
+     *   - `next()` uses original value
+     *   - `next(converted)` uses the converted value
+     *
+     * @returns Parsed value, or result of `next()`, or short-circuit return
+     *
+     * @example
+     * // Convert 0/1 to boolean (SQLite/MySQL)
+     * parseField: (value, fieldType, next) => {
+     *   if (fieldType === 'boolean') {
+     *     const bool = parseIntegerBoolean(value);
+     *     if (bool !== undefined) return bool; // Short-circuit
+     *   }
+     *   return next();
+     * }
+     */
+    parseField: (
+      value: unknown,
+      fieldType: string,
+      next: (value?: unknown) => unknown
+    ) => unknown;
+  };
 }
 
 /**
@@ -427,10 +523,39 @@ export interface MigrationAdapter {
     operation: import("../migrations/types").DiffOperation
   ) => string;
 
-  /** Map VibORM field type to native SQL type */
+  /**
+   * Map VibORM field to native SQL type.
+   * Uses full field state to access properties like withTimezone.
+   */
   mapFieldType: (
-    fieldType: string,
-    options?: { array?: boolean; autoIncrement?: boolean }
+    field: import("../schema/fields/base").Field,
+    fieldState: import("../schema/fields/common").FieldState
+  ) => string;
+
+  /**
+   * Get the SQL default expression for a field.
+   * Returns undefined if no default or if generated at runtime.
+   */
+  getDefaultExpression: (
+    fieldState: import("../schema/fields/common").FieldState
+  ) => string | undefined;
+
+  /**
+   * Whether this database supports native enum types.
+   * PostgreSQL: true (CREATE TYPE ... AS ENUM)
+   * MySQL/SQLite: false (uses VARCHAR/TEXT)
+   */
+  supportsNativeEnums: boolean;
+
+  /**
+   * Get the column type for an enum field.
+   * PostgreSQL: returns the enum type name (e.g., "users_status_enum")
+   * MySQL/SQLite: returns VARCHAR or TEXT
+   */
+  getEnumColumnType: (
+    tableName: string,
+    columnName: string,
+    values: string[]
   ) => string;
 }
 

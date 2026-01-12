@@ -2,13 +2,99 @@
  * Result Parser
  *
  * Transforms raw database rows into typed objects.
- * Handles JSON parsing for MySQL/SQLite and null coalescing.
+ * Delegates database-specific parsing through a middleware chain:
+ * Driver (optional) -> Adapter -> Default parsing
+ *
  * Applies schema-aware type conversion for relation data (datetime, bigint).
  */
 
+import { COUNT_RESULT_KEY } from "@adapters/shared/result-parsing";
 import type { Field } from "@schema/fields";
 import type { AnyRelation } from "@schema/relation";
+import type { RelationType } from "@schema/relation/types";
 import { isBatchOperation, type Operation, type QueryContext } from "../types";
+
+/**
+ * Check if a key is a recognized count result column name.
+ * Adapters normalize to COUNT_RESULT_KEY, but we also accept "count" for compatibility.
+ */
+function isCountKey(key: string): boolean {
+  return key === COUNT_RESULT_KEY || key === "count";
+}
+
+/**
+ * Create the chained parseResult function.
+ * Chain: Driver (if present) -> Adapter -> Default
+ */
+function createParseResultChain(ctx: QueryContext) {
+  // Default parsing (end of chain)
+  const defaultParse = (value: unknown, op: Operation) =>
+    parseResultDefault(ctx, op, value);
+
+  // Adapter wraps default
+  const adapterParse = (value: unknown, op: Operation) =>
+    ctx.adapter.result.parseResult(value, op, (transformed) =>
+      defaultParse(transformed ?? value, op)
+    );
+
+  // Driver wraps adapter (if driver has result parsing)
+  if (ctx.driver?.result?.parseResult) {
+    return (value: unknown, op: Operation) =>
+      ctx.driver!.result!.parseResult!(value, op, adapterParse);
+  }
+
+  return adapterParse;
+}
+
+/**
+ * Create the chained parseRelation function.
+ * Chain: Driver (if present) -> Adapter -> Default
+ */
+function createParseRelationChain(ctx: QueryContext, relation: AnyRelation) {
+  const relationType = relation["~"].state.type;
+
+  // Default parsing (end of chain)
+  const defaultParse = (value: unknown, _type: RelationType) =>
+    parseRelationValueDefault(ctx, relation, value);
+
+  // Adapter wraps default
+  const adapterParse = (value: unknown, type: RelationType) =>
+    ctx.adapter.result.parseRelation(value, type, (transformed) =>
+      defaultParse(transformed ?? value, type)
+    );
+
+  // Driver wraps adapter (if driver has result parsing)
+  if (ctx.driver?.result?.parseRelation) {
+    return (value: unknown) =>
+      ctx.driver!.result!.parseRelation!(value, relationType, adapterParse);
+  }
+
+  return (value: unknown) => adapterParse(value, relationType);
+}
+
+/**
+ * Create the chained parseField function.
+ * Chain: Driver (if present) -> Adapter -> Default
+ */
+function createParseFieldChain(ctx: QueryContext, fieldType: string) {
+  // Default parsing (end of chain)
+  const defaultParse = (value: unknown, _type: string) =>
+    parseTypedValueDefault(value, fieldType);
+
+  // Adapter wraps default
+  const adapterParse = (value: unknown, type: string) =>
+    ctx.adapter.result.parseField(value, type, (transformed) =>
+      defaultParse(transformed ?? value, type)
+    );
+
+  // Driver wraps adapter (if driver has result parsing)
+  if (ctx.driver?.result?.parseField) {
+    return (value: unknown) =>
+      ctx.driver!.result!.parseField!(value, fieldType, adapterParse);
+  }
+
+  return (value: unknown) => adapterParse(value, fieldType);
+}
 
 /**
  * Parse query result based on operation type
@@ -28,24 +114,37 @@ export function parseResult<T>(
     return getDefaultResult(operation) as T;
   }
 
+  // Use chained parsing: Driver -> Adapter -> Default
+  const parse = createParseResultChain(ctx);
+  return parse(raw, operation) as T;
+}
+
+/**
+ * Default result parsing logic (called via adapter's next())
+ */
+function parseResultDefault(
+  ctx: QueryContext,
+  operation: Operation,
+  raw: unknown
+): unknown {
   // Handle exist operation - convert count to boolean
   if (operation === "exist") {
-    const count = parseCountResult(raw);
+    const count = parseCountResultDefault(raw);
     const hasRecords =
       typeof count === "number"
         ? count > 0
         : Object.values(count).some((v) => v > 0);
-    return hasRecords as T;
+    return hasRecords;
   }
 
   // Handle count operation - return number or object with counts
   if (operation === "count") {
-    return parseCountResult(raw) as T;
+    return parseCountResultDefault(raw);
   }
 
   // Handle batch operations - return { count: number }
   if (isBatchOperation(operation)) {
-    return parseMutationCount(raw) as T;
+    return parseMutationCount(raw);
   }
 
   // Handle array results
@@ -54,22 +153,22 @@ export function parseResult<T>(
     if (isSingleRecordOperation(operation)) {
       const first = raw[0];
       if (!first) {
-        return null as T;
+        return null;
       }
-      return parseRow(ctx, first) as T;
+      return parseRow(ctx, first);
     }
 
     // For operations that return arrays
-    return raw.map((row) => parseRow(ctx, row)) as T;
+    return raw.map((row) => parseRow(ctx, row));
   }
 
   // Single row result
   if (typeof raw === "object") {
-    return parseRow(ctx, raw as Record<string, unknown>) as T;
+    return parseRow(ctx, raw as Record<string, unknown>);
   }
 
   // Scalar result (count, etc.)
-  return raw as T;
+  return raw;
 }
 
 /**
@@ -85,14 +184,18 @@ function parseRow(
   const relations = model["~"].state.relations;
 
   for (const [key, value] of Object.entries(row)) {
-    // Check if this is a scalar field with a known type
     const field = scalars[key];
+    const relation = relations[key];
+
     if (field) {
       const fieldType = field["~"].state.type;
-      result[key] = parseTypedValue(value, fieldType);
-    } else if (relations[key]) {
-      // It's a relation - parse with target model schema
-      result[key] = parseRelationValue(relations[key], value);
+      // Use chained parsing: Driver -> Adapter -> Default
+      const parse = createParseFieldChain(ctx, fieldType);
+      result[key] = parse(value);
+    } else if (relation) {
+      // Use chained parsing: Driver -> Adapter -> Default
+      const parse = createParseRelationChain(ctx, relation);
+      result[key] = parse(value);
     } else {
       // Unknown field - parse generically
       result[key] = parseValue(value);
@@ -103,16 +206,16 @@ function parseRow(
 }
 
 /**
- * Parse a value with knowledge of its expected type
+ * Default field value parsing (called via adapter's next())
  */
-function parseTypedValue(value: unknown, fieldType: string): unknown {
+function parseTypedValueDefault(value: unknown, fieldType: string): unknown {
   if (value === null || value === undefined) {
     return null;
   }
 
   // Handle arrays - apply typed conversion to each element
   if (Array.isArray(value)) {
-    return value.map((item) => parseTypedValue(item, fieldType));
+    return value.map((item) => parseTypedValueDefault(item, fieldType));
   }
 
   switch (fieldType) {
@@ -144,9 +247,14 @@ function parseTypedValue(value: unknown, fieldType: string): unknown {
 }
 
 /**
- * Parse relation values (nested objects from json_agg)
+ * Default relation value parsing (called via adapter's next())
+ * Note: JSON string parsing is handled by adapter.result.parseRelation
  */
-function parseRelationValue(relation: AnyRelation, value: unknown): unknown {
+function parseRelationValueDefault(
+  ctx: QueryContext,
+  relation: AnyRelation,
+  value: unknown
+): unknown {
   if (value === null || value === undefined) {
     return null;
   }
@@ -160,6 +268,7 @@ function parseRelationValue(relation: AnyRelation, value: unknown): unknown {
     // To-many relation - deserialize each item
     return value.map((item) =>
       deserializeWithSchema(
+        ctx,
         item as Record<string, unknown>,
         targetScalars,
         targetRelations
@@ -170,6 +279,7 @@ function parseRelationValue(relation: AnyRelation, value: unknown): unknown {
   if (typeof value === "object") {
     // To-one relation
     return deserializeWithSchema(
+      ctx,
       value as Record<string, unknown>,
       targetScalars,
       targetRelations
@@ -183,6 +293,7 @@ function parseRelationValue(relation: AnyRelation, value: unknown): unknown {
  * Deserialize an object using schema information
  */
 function deserializeWithSchema(
+  ctx: QueryContext,
   obj: Record<string, unknown>,
   scalars: Record<string, Field>,
   relations: Record<string, AnyRelation>
@@ -191,11 +302,17 @@ function deserializeWithSchema(
 
   for (const [key, value] of Object.entries(obj)) {
     const field = scalars[key];
+    const relation = relations[key];
+
     if (field) {
-      result[key] = parseTypedValue(value, field["~"].state.type);
-    } else if (relations[key]) {
-      // Nested relation - recursive
-      result[key] = parseRelationValue(relations[key], value);
+      const fieldType = field["~"].state.type;
+      // Use chained parsing: Driver -> Adapter -> Default
+      const parse = createParseFieldChain(ctx, fieldType);
+      result[key] = parse(value);
+    } else if (relation) {
+      // Use chained parsing: Driver -> Adapter -> Default
+      const parse = createParseRelationChain(ctx, relation);
+      result[key] = parse(value);
     } else {
       result[key] = parseValue(value);
     }
@@ -319,12 +436,12 @@ function getDefaultResult(operation: Operation): unknown {
 }
 
 /**
- * Parse count result
+ * Default count result parsing (called via adapter's next())
  *
  * Returns a plain number for simple count, or an object with multiple counts
  * when using select (e.g., { _all: 5, name: 4 })
  */
-export function parseCountResult(
+function parseCountResultDefault(
   raw: unknown
 ): number | Record<string, number> {
   if (raw === null || raw === undefined) {
@@ -346,9 +463,10 @@ export function parseCountResult(
     const firstRow = raw[0];
     if (typeof firstRow === "object" && firstRow !== null) {
       const entries = Object.entries(firstRow);
-      // Simple count: single "count" key -> return just the number
-      if (entries.length === 1 && entries[0][0] === "count") {
-        const value = entries[0][1];
+      const firstEntry = entries[0];
+      // Simple count: single normalized key -> return just the number
+      if (entries.length === 1 && firstEntry && isCountKey(firstEntry[0])) {
+        const value = firstEntry[1];
         return typeof value === "bigint" ? Number(value) : Number(value);
       }
       // Multiple counts (with select) -> return object
@@ -363,9 +481,10 @@ export function parseCountResult(
   // Object with count(s)
   if (typeof raw === "object" && raw !== null) {
     const entries = Object.entries(raw as Record<string, unknown>);
-    // Simple count: single "count" key -> return just the number
-    if (entries.length === 1 && entries[0][0] === "count") {
-      const value = entries[0][1];
+    const firstEntry = entries[0];
+    // Simple count: single normalized key -> return just the number
+    if (entries.length === 1 && firstEntry && isCountKey(firstEntry[0])) {
+      const value = firstEntry[1];
       return typeof value === "bigint" ? Number(value) : Number(value);
     }
     // Multiple counts -> return object
@@ -377,6 +496,16 @@ export function parseCountResult(
   }
 
   return 0;
+}
+
+/**
+ * Parse count result (exported for external use)
+ * @deprecated Use parseResult with 'count' operation instead
+ */
+export function parseCountResult(
+  raw: unknown
+): number | Record<string, number> {
+  return parseCountResultDefault(raw);
 }
 
 /**

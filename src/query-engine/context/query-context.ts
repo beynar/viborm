@@ -5,6 +5,7 @@
  */
 
 import type { DatabaseAdapter } from "@adapters";
+import type { Driver } from "@drivers/driver";
 import type { Model } from "@schema/model";
 import type { ModelRegistry, QueryContext, RelationInfo } from "../types";
 import { createAliasGenerator } from "./alias-generator";
@@ -15,13 +16,15 @@ import { createAliasGenerator } from "./alias-generator";
 export function createQueryContext(
   adapter: DatabaseAdapter,
   model: Model<any>,
-  registry: ModelRegistry
+  registry: ModelRegistry,
+  driver?: Driver
 ): QueryContext {
   const aliasGenerator = createAliasGenerator();
   // Reserve t0 for root
   const rootAlias = aliasGenerator.next();
 
   return {
+    driver,
     adapter,
     model,
     registry,
@@ -32,7 +35,7 @@ export function createQueryContext(
 
 /**
  * Create a child context for nested queries (relations)
- * Inherits adapter and registry, but uses a different model and alias space
+ * Inherits driver, adapter and registry, but uses a different model and alias space
  */
 export function createChildContext(
   parent: QueryContext,
@@ -40,6 +43,7 @@ export function createChildContext(
   alias: string
 ): QueryContext {
   return {
+    driver: parent.driver,
     adapter: parent.adapter,
     model,
     registry: parent.registry,

@@ -458,32 +458,139 @@ describe("PostgreSQL DDL Generation", () => {
   });
 
   describe("mapFieldType", () => {
+    // Helper to create mock field with minimal state
+    const createMockField = (state: any) =>
+      ({
+        ["~"]: {
+          state,
+          nativeType: undefined,
+        },
+      }) as any;
+
+    const createFieldState = (
+      type: string,
+      overrides: Record<string, any> = {}
+    ) => ({
+      type,
+      nullable: false,
+      array: false,
+      hasDefault: false,
+      isId: false,
+      isUnique: false,
+      default: undefined,
+      autoGenerate: undefined,
+      schema: undefined,
+      optional: false,
+      columnName: undefined,
+      base: {} as any,
+      withTimezone: false,
+      ...overrides,
+    });
+
     it("should map VibORM types to PostgreSQL types", () => {
-      expect(postgresMigrations.mapFieldType("string")).toBe("text");
-      expect(postgresMigrations.mapFieldType("int")).toBe("integer");
-      expect(postgresMigrations.mapFieldType("float")).toBe("double precision");
-      expect(postgresMigrations.mapFieldType("boolean")).toBe("boolean");
-      expect(postgresMigrations.mapFieldType("datetime")).toBe("timestamptz");
-      expect(postgresMigrations.mapFieldType("json")).toBe("jsonb");
-      expect(postgresMigrations.mapFieldType("bigint")).toBe("bigint");
+      expect(
+        postgresMigrations.mapFieldType(
+          createMockField(createFieldState("string")),
+          createFieldState("string")
+        )
+      ).toBe("text");
+      expect(
+        postgresMigrations.mapFieldType(
+          createMockField(createFieldState("int")),
+          createFieldState("int")
+        )
+      ).toBe("integer");
+      expect(
+        postgresMigrations.mapFieldType(
+          createMockField(createFieldState("float")),
+          createFieldState("float")
+        )
+      ).toBe("double precision");
+      expect(
+        postgresMigrations.mapFieldType(
+          createMockField(createFieldState("boolean")),
+          createFieldState("boolean")
+        )
+      ).toBe("boolean");
+      // datetime without timezone (default false) -> timestamp
+      expect(
+        postgresMigrations.mapFieldType(
+          createMockField(createFieldState("datetime")),
+          createFieldState("datetime")
+        )
+      ).toBe("timestamp");
+      // datetime with timezone -> timestamptz
+      expect(
+        postgresMigrations.mapFieldType(
+          createMockField(createFieldState("datetime", { withTimezone: true })),
+          createFieldState("datetime", { withTimezone: true })
+        )
+      ).toBe("timestamptz");
+      expect(
+        postgresMigrations.mapFieldType(
+          createMockField(createFieldState("json")),
+          createFieldState("json")
+        )
+      ).toBe("jsonb");
+      expect(
+        postgresMigrations.mapFieldType(
+          createMockField(createFieldState("bigint")),
+          createFieldState("bigint")
+        )
+      ).toBe("bigint");
     });
 
     it("should handle array types", () => {
-      expect(postgresMigrations.mapFieldType("string", { array: true })).toBe(
-        "text[]"
-      );
-      expect(postgresMigrations.mapFieldType("int", { array: true })).toBe(
-        "integer[]"
-      );
+      expect(
+        postgresMigrations.mapFieldType(
+          createMockField(createFieldState("string", { array: true })),
+          createFieldState("string", { array: true })
+        )
+      ).toBe("text[]");
+      expect(
+        postgresMigrations.mapFieldType(
+          createMockField(createFieldState("int", { array: true })),
+          createFieldState("int", { array: true })
+        )
+      ).toBe("integer[]");
     });
 
     it("should handle auto-increment", () => {
+      // mapFieldType returns base type; DDL generator converts to serial/bigserial
+      // based on ColumnDef.autoIncrement flag
       expect(
-        postgresMigrations.mapFieldType("int", { autoIncrement: true })
-      ).toBe("serial");
+        postgresMigrations.mapFieldType(
+          createMockField(
+            createFieldState("int", { autoGenerate: "increment" })
+          ),
+          createFieldState("int", { autoGenerate: "increment" })
+        )
+      ).toBe("integer");
       expect(
-        postgresMigrations.mapFieldType("bigint", { autoIncrement: true })
-      ).toBe("bigserial");
+        postgresMigrations.mapFieldType(
+          createMockField(
+            createFieldState("bigint", { autoGenerate: "increment" })
+          ),
+          createFieldState("bigint", { autoGenerate: "increment" })
+        )
+      ).toBe("bigint");
+    });
+
+    it("should handle time with and without timezone", () => {
+      // time without timezone (default) -> time
+      expect(
+        postgresMigrations.mapFieldType(
+          createMockField(createFieldState("time")),
+          createFieldState("time")
+        )
+      ).toBe("time");
+      // time with timezone -> timetz
+      expect(
+        postgresMigrations.mapFieldType(
+          createMockField(createFieldState("time", { withTimezone: true })),
+          createFieldState("time", { withTimezone: true })
+        )
+      ).toBe("timetz");
     });
   });
 });

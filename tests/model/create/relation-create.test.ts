@@ -14,7 +14,7 @@ import { authorSchemas, postSchemas, simpleSchemas } from "../fixtures";
 // =============================================================================
 
 describe("Relation Create - Types (Author Model)", () => {
-  type Input = InferInput<typeof authorSchemas._create.relation>;
+  type Input = InferInput<typeof authorSchemas.relationCreate>;
 
   test("type: includes relation field", () => {
     expectTypeOf<Input>().toHaveProperty("posts");
@@ -30,7 +30,7 @@ describe("Relation Create - Types (Author Model)", () => {
 // =============================================================================
 
 describe("Relation Create - Types (Post Model)", () => {
-  type Input = InferInput<typeof postSchemas._create.relation>;
+  type Input = InferInput<typeof postSchemas.relationCreate>;
 
   test("type: includes relation field", () => {
     expectTypeOf<Input>().toHaveProperty("author");
@@ -42,7 +42,7 @@ describe("Relation Create - Types (Post Model)", () => {
 // =============================================================================
 
 describe("Relation Create - Author Model Runtime (oneToMany)", () => {
-  const schema = authorSchemas._create.relation;
+  const schema = authorSchemas.relationCreate;
 
   test("runtime: accepts empty object", () => {
     const result = parse(schema, {});
@@ -96,7 +96,7 @@ describe("Relation Create - Author Model Runtime (oneToMany)", () => {
 // =============================================================================
 
 describe("Relation Create - Post Model Runtime (manyToOne)", () => {
-  const schema = postSchemas._create.relation;
+  const schema = postSchemas.relationCreate;
 
   test("runtime: accepts empty object", () => {
     const result = parse(schema, {});
@@ -139,7 +139,7 @@ describe("Relation Create - Post Model Runtime (manyToOne)", () => {
 // =============================================================================
 
 describe("Relation Create - Simple Model Runtime (no relations)", () => {
-  const schema = simpleSchemas._create.relation;
+  const schema = simpleSchemas.relationCreate;
 
   test("runtime: accepts empty object", () => {
     const result = parse(schema, {});

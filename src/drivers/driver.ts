@@ -6,8 +6,69 @@
  */
 
 import type { DatabaseAdapter } from "@adapters/database-adapter";
+import type { Operation } from "@query-engine/types";
+import type { RelationType } from "@schema/relation/types";
 import type { Sql } from "@sql";
 import type { Dialect, QueryResult, TransactionOptions } from "./types";
+
+/**
+ * Driver-level result parsing middleware.
+ *
+ * Drivers can optionally implement these to intercept result parsing
+ * before the adapter. Each method receives the adapter's method as `next`,
+ * creating a chain: Driver -> Adapter -> Default.
+ *
+ * @example
+ * ```ts
+ * result: {
+ *   parseResult: (raw, op, next) => {
+ *     // Custom driver logic
+ *     if (needsSpecialHandling(raw)) {
+ *       return transform(raw);
+ *     }
+ *     // Delegate to adapter
+ *     return next(raw, op);
+ *   }
+ * }
+ * ```
+ */
+export interface DriverResultParser {
+  /**
+   * Parse operation result. Call next() to delegate to adapter.
+   * @param raw - Raw database result
+   * @param operation - Query operation type
+   * @param next - Adapter's parseResult method (call to continue chain)
+   */
+  parseResult?: (
+    raw: unknown,
+    operation: Operation,
+    next: (raw: unknown, operation: Operation) => unknown
+  ) => unknown;
+
+  /**
+   * Parse relation value. Call next() to delegate to adapter.
+   * @param value - Raw relation value
+   * @param type - Relation type
+   * @param next - Adapter's parseRelation method (call to continue chain)
+   */
+  parseRelation?: (
+    value: unknown,
+    type: RelationType,
+    next: (value: unknown, type: RelationType) => unknown
+  ) => unknown;
+
+  /**
+   * Parse field value. Call next() to delegate to adapter.
+   * @param value - Raw field value
+   * @param fieldType - Field type string
+   * @param next - Adapter's parseField method (call to continue chain)
+   */
+  parseField?: (
+    value: unknown,
+    fieldType: string,
+    next: (value: unknown, fieldType: string) => unknown
+  ) => unknown;
+}
 
 /**
  * Database Driver Interface
@@ -104,6 +165,27 @@ export interface Driver {
    * Closes connections/pool. Call when shutting down.
    */
   disconnect?(): Promise<void>;
+
+  /**
+   * Optional result parsing middleware.
+   *
+   * Allows drivers to intercept and transform results before adapter parsing.
+   * Useful for driver-specific quirks or custom type handling.
+   *
+   * @example
+   * ```ts
+   * result: {
+   *   parseField: (value, fieldType, next) => {
+   *     // Handle driver-specific boolean format
+   *     if (fieldType === 'boolean' && typeof value === 'string') {
+   *       return value === 'Y';
+   *     }
+   *     return next(value, fieldType);
+   *   }
+   * }
+   * ```
+   */
+  result?: DriverResultParser;
 }
 
 /**

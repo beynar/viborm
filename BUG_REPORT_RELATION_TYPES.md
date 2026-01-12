@@ -6,7 +6,22 @@ This document covers multiple bugs related to field types when accessed through 
 
 # Bug 1: Enum Literal Types Widened to `string` Through Relations
 
+**Status:** ✅ FIXED
+
 **Type:** Type inference bug (compile-time only, runtime correct)
+
+## Fix
+
+The fix was simple: use `InferOutput<S["base"]>` in `GetScalarResultType` to extract enum types from the branded `" vibInferred"` property instead of returning the widened state.
+
+```typescript
+// src/client/result-types.ts
+: S["type"] extends "enum"
+  ? InferOutput<S["base"]>  // ← Extract from branded type
+  : ...
+```
+
+**Why it works:** While structural properties like `values: TValues` get widened to `string[]` through the `Field` union, the branded type `" vibInferred": [TInput, TOutput]` preserves the literal types because it's a computed type based on `TValues[number]`, not a direct property.
 
 ## Summary
 

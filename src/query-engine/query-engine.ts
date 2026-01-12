@@ -83,7 +83,12 @@ export class QueryEngine {
     const validated = validate<Record<string, unknown>>(model, operation, args);
 
     // Create context
-    const ctx = createQueryContext(this.adapter, model, this.registry);
+    const ctx = createQueryContext(
+      this.adapter,
+      model,
+      this.registry,
+      this.driver
+    );
 
     // For create operations, check for nested creates and use CTE-based builder
     if (operation === "create" && validated.data) {
@@ -202,7 +207,12 @@ export class QueryEngine {
     const validated = validate<Record<string, unknown>>(model, operation, args);
 
     // Create context once and reuse for both building and parsing
-    const ctx = createQueryContext(this.adapter, model, this.registry);
+    const ctx = createQueryContext(
+      this.adapter,
+      model,
+      this.registry,
+      this.driver
+    );
 
     // Check if this is a mutation with nested writes
     if (this.hasNestedWrites(operation, validated)) {

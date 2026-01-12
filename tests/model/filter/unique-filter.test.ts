@@ -18,7 +18,7 @@ import {
 // =============================================================================
 
 describe("Unique Filter - Types (Simple Model)", () => {
-  type Input = InferInput<typeof simpleSchemas._filter.unique>;
+  type Input = InferInput<typeof simpleSchemas.uniqueFilter>;
 
   test("type: includes id field", () => {
     expectTypeOf<Input>().toHaveProperty("id");
@@ -43,7 +43,7 @@ describe("Unique Filter - Types (Simple Model)", () => {
 // =============================================================================
 
 describe("Unique Filter - Simple Model Runtime", () => {
-  const schema = simpleSchemas._filter.unique;
+  const schema = simpleSchemas.uniqueFilter;
 
   test("runtime: accepts empty object", () => {
     const result = parse(schema, {});
@@ -84,8 +84,8 @@ describe("Unique Filter - Simple Model Runtime", () => {
 // =============================================================================
 
 describe("Unique Filter - Compound ID Model Runtime", () => {
-  type Input = InferInput<typeof compoundIdSchemas._filter.unique>;
-  const schema = compoundIdSchemas._filter.unique;
+  type Input = InferInput<typeof compoundIdSchemas.uniqueFilter>;
+  const schema = compoundIdSchemas.uniqueFilter;
 
   test("type: does not have single field id (compound id)", () => {
     // Compound ID model has no single-field unique constraints
@@ -103,7 +103,7 @@ describe("Unique Filter - Compound ID Model Runtime", () => {
 // =============================================================================
 
 describe("Unique Filter - Compound Unique Model Runtime", () => {
-  const schema = compoundUniqueSchemas._filter.unique;
+  const schema = compoundUniqueSchemas.uniqueFilter;
 
   test("runtime: accepts id field", () => {
     const result = parse(schema, { id: "record-123" });
