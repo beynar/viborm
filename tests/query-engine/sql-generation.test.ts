@@ -10,6 +10,12 @@ import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { s } from "@schema";
 import { beforeAll, describe, expect, test } from "vitest";
 
+const ASC_REGEX = /ASC/i;
+const JSON_OBJECT_REGEX = /json_build_object|row_to_json/i;
+const JSON_AGG_REGEX = /json_agg|COALESCE/i;
+const IS_NULL_REGEX = /IS NULL|NOT EXISTS/i;
+const IS_NOT_NULL_REGEX = /IS NOT NULL|EXISTS/i;
+
 // =============================================================================
 // TEST MODELS
 // =============================================================================
@@ -115,7 +121,7 @@ describe("Basic CRUD Operations", () => {
       console.log("findFirst with orderBy:", statement);
 
       expect(statement).toContain("ORDER BY");
-      expect(statement).toMatch(/ASC/i);
+      expect(statement).toMatch(ASC_REGEX);
     });
   });
 
@@ -258,7 +264,7 @@ describe("Select/Include (Relation Loading)", () => {
 
       expect(statement).toContain("SELECT");
       // Should have a subquery for author with JSON
-      expect(statement).toMatch(/json_build_object|row_to_json/i);
+      expect(statement).toMatch(JSON_OBJECT_REGEX);
     });
   });
 
@@ -275,7 +281,7 @@ describe("Select/Include (Relation Loading)", () => {
 
       expect(statement).toContain("SELECT");
       // Should have a subquery with json_agg
-      expect(statement).toMatch(/json_agg|COALESCE/i);
+      expect(statement).toMatch(JSON_AGG_REGEX);
     });
   });
 
@@ -474,7 +480,7 @@ describe("Relation Filters in WHERE", () => {
       });
       console.log("is null filter:", statement);
 
-      expect(statement).toMatch(/IS NULL|NOT EXISTS/i);
+      expect(statement).toMatch(IS_NULL_REGEX);
     });
 
     test("isNot null", () => {
@@ -487,7 +493,7 @@ describe("Relation Filters in WHERE", () => {
       });
       console.log("isNot null filter:", statement);
 
-      expect(statement).toMatch(/IS NOT NULL|EXISTS/i);
+      expect(statement).toMatch(IS_NOT_NULL_REGEX);
     });
   });
 });
@@ -762,7 +768,7 @@ describe("Aggregates", () => {
   });
 
   describe("groupBy", () => {
-    test("with having", () => {
+    test("with aggregate having (_count)", () => {
       const { statement, values } = getSql(Post, "groupBy", {
         by: ["authorId"],
         _count: { id: true },
@@ -776,6 +782,138 @@ describe("Aggregates", () => {
 
       expect(statement).toContain("GROUP BY");
       expect(statement).toContain("HAVING");
+    });
+
+    test("with multiple aggregates on same field", () => {
+      const { statement, values } = getSql(Post, "groupBy", {
+        by: ["authorId"],
+        having: {
+          views: {
+            _avg: { gte: 10 },
+            _sum: { lt: 100 },
+          },
+        },
+      });
+      console.log("groupBy with multiple aggregates:", statement, values);
+
+      expect(statement).toContain("GROUP BY");
+      expect(statement).toContain("HAVING");
+      expect(statement).toContain("AVG");
+      expect(statement).toContain("SUM");
+      expect(values).toContain(10);
+      expect(values).toContain(100);
+    });
+
+    test("with multiple fields (aggregate having)", () => {
+      const { statement, values } = getSql(Post, "groupBy", {
+        by: ["authorId"],
+        having: {
+          id: { _count: { gt: 5 } },
+          views: { _sum: { lte: 100 } },
+        },
+      });
+      console.log("groupBy with multiple fields having:", statement, values);
+
+      expect(statement).toContain("GROUP BY");
+      expect(statement).toContain("HAVING");
+      expect(statement).toContain("COUNT");
+      expect(statement).toContain("SUM");
+      expect(values).toContain(5);
+      expect(values).toContain(100);
+    });
+
+    test("with direct value filter in having", () => {
+      const { statement, values } = getSql(Post, "groupBy", {
+        by: ["authorId"],
+        having: {
+          authorId: "author-1",
+        },
+      });
+      console.log("groupBy with direct value having:", statement, values);
+
+      expect(statement).toContain("GROUP BY");
+      expect(statement).toContain("HAVING");
+      expect(statement).toContain('"t0"."authorId" =');
+      expect(values).toContain("author-1");
+    });
+
+    test("with direct object filter (equals)", () => {
+      const { statement, values } = getSql(Post, "groupBy", {
+        by: ["authorId"],
+        having: {
+          authorId: { equals: "author-1" },
+        },
+      });
+      console.log("groupBy with direct equals having:", statement, values);
+
+      expect(statement).toContain("GROUP BY");
+      expect(statement).toContain("HAVING");
+      expect(statement).toContain('"t0"."authorId" =');
+      expect(values).toContain("author-1");
+    });
+
+    test("with direct object filter (in)", () => {
+      const { statement, values } = getSql(Post, "groupBy", {
+        by: ["authorId"],
+        having: {
+          authorId: { in: ["author-1", "author-2"] },
+        },
+      });
+      console.log("groupBy with direct in having:", statement, values);
+
+      expect(statement).toContain("GROUP BY");
+      expect(statement).toContain("HAVING");
+      // PostgresAdapter uses "= ANY(...)" for IN
+      expect(statement).toContain("= ANY");
+      expect(values).toContain("author-1");
+      expect(values).toContain("author-2");
+    });
+
+    test("with direct object filter (notIn)", () => {
+      const { statement, values } = getSql(Post, "groupBy", {
+        by: ["authorId"],
+        having: {
+          authorId: { notIn: ["author-1", "author-2"] },
+        },
+      });
+      console.log("groupBy with direct notIn having:", statement, values);
+
+      expect(statement).toContain("GROUP BY");
+      expect(statement).toContain("HAVING");
+      // PostgresAdapter uses "<> ALL(...)" for NOT IN
+      expect(statement).toContain("<> ALL");
+      expect(values).toContain("author-1");
+      expect(values).toContain("author-2");
+    });
+
+    test("with mixed aggregate and direct filters", () => {
+      const { statement, values } = getSql(Post, "groupBy", {
+        by: ["authorId"],
+        having: {
+          id: { _count: { gt: 5 } },
+          authorId: "author-1",
+        },
+      });
+      console.log("groupBy with mixed having:", statement, values);
+
+      expect(statement).toContain("GROUP BY");
+      expect(statement).toContain("HAVING");
+      expect(statement).toContain("COUNT");
+      expect(statement).toContain('"t0"."authorId" =');
+      expect(statement).toContain("AND");
+      expect(values).toContain(5);
+      expect(values).toContain("author-1");
+    });
+
+    test("throws when direct having filter field is not in by", () => {
+      expect(() =>
+        getSql(Post, "groupBy", {
+          by: ["authorId"],
+          having: {
+            title: { equals: "Hello" },
+          },
+        })
+      ).toThrow("must be included in 'by'");
     });
   });
 });

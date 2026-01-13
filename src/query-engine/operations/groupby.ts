@@ -92,7 +92,7 @@ export function buildGroupBy(ctx: QueryContext, args: GroupByArgs): Sql {
 
   // Build HAVING
   const having = args.having
-    ? buildHaving(ctx, args.having, rootAlias)
+    ? buildHaving(ctx, args.having, rootAlias, byFields)
     : undefined;
 
   // Build ORDER BY
@@ -183,7 +183,8 @@ function buildGroupByColumns(
 function buildHaving(
   ctx: QueryContext,
   having: Record<string, unknown>,
-  alias: string
+  alias: string,
+  byFields: string[]
 ): Sql | undefined {
   const { adapter } = ctx;
   const conditions: Sql[] = [];
@@ -194,8 +195,9 @@ function buildHaving(
     const fieldConditions = buildFieldKeyedHaving(
       ctx,
       fieldName,
-      value as Record<string, unknown>,
-      alias
+      value,
+      alias,
+      byFields
     );
     if (fieldConditions) conditions.push(fieldConditions);
   }
@@ -213,50 +215,87 @@ function buildHaving(
 function buildFieldKeyedHaving(
   ctx: QueryContext,
   fieldName: string,
-  aggregates: Record<string, unknown>,
-  alias: string
+  value: unknown,
+  alias: string,
+  byFields: string[]
 ): Sql | undefined {
   const { adapter } = ctx;
-  const conditions: Sql[] = [];
 
-  // Resolve field name to column name
-  const columnName = getColumnName(ctx.model, fieldName);
-  const column = adapter.identifiers.column(alias, columnName);
+  // Detect whether this is an aggregate filter object (Prisma-style)
+  const aggregateKeys = ["_count", "_avg", "_sum", "_min", "_max"] as const;
+  const isObject =
+    typeof value === "object" && value !== null && !Array.isArray(value);
+  const valueKeys = isObject
+    ? Object.keys(value as Record<string, unknown>)
+    : [];
+  const hasAggregateKey = valueKeys.some((k) =>
+    (aggregateKeys as readonly string[]).includes(k)
+  );
 
-  for (const [aggType, filter] of Object.entries(aggregates)) {
-    if (filter === undefined) continue;
-
-    // Build the aggregate expression
-    let aggExpr: Sql;
-    switch (aggType) {
-      case "_count":
-        aggExpr = adapter.aggregates.count(column);
-        break;
-      case "_avg":
-        aggExpr = adapter.aggregates.avg(column);
-        break;
-      case "_sum":
-        aggExpr = adapter.aggregates.sum(column);
-        break;
-      case "_min":
-        aggExpr = adapter.aggregates.min(column);
-        break;
-      case "_max":
-        aggExpr = adapter.aggregates.max(column);
-        break;
-      default:
-        // Not an aggregate type - skip
-        continue;
-    }
-
-    // Build the comparison condition
-    const filterCondition = buildScalarHaving(ctx, aggExpr, filter);
-    if (filterCondition) conditions.push(filterCondition);
+  // Direct field filters in HAVING are only valid for fields present in `by`
+  // (Prisma rule: you can only filter on aggregate values or fields available in `by`)
+  if (!(hasAggregateKey || byFields.includes(fieldName))) {
+    throw new QueryEngineError(
+      `Field '${fieldName}' used in 'having' must be included in 'by'.`
+    );
   }
 
-  if (conditions.length === 0) return undefined;
-  if (conditions.length === 1) return conditions[0];
-  return adapter.operators.and(...conditions);
+  // Aggregate filters: { fieldName: { _count: { gt: 5 } } }
+  if (hasAggregateKey) {
+    if (!isObject) return undefined;
+
+    const conditions: Sql[] = [];
+
+    // Resolve field name to column name
+    const columnName = getColumnName(ctx.model, fieldName);
+    const column = adapter.identifiers.column(alias, columnName);
+
+    const aggregateValue = value as Record<string, unknown>;
+    for (const [aggType, filter] of Object.entries(aggregateValue)) {
+      if (filter === undefined) continue;
+
+      // Build the aggregate expression
+      let aggExpr: Sql;
+      switch (aggType) {
+        case "_count":
+          aggExpr = adapter.aggregates.count(column);
+          break;
+        case "_avg":
+          aggExpr = adapter.aggregates.avg(column);
+          break;
+        case "_sum":
+          aggExpr = adapter.aggregates.sum(column);
+          break;
+        case "_min":
+          aggExpr = adapter.aggregates.min(column);
+          break;
+        case "_max":
+          aggExpr = adapter.aggregates.max(column);
+          break;
+        default:
+          // Not an aggregate type - ignore
+          continue;
+      }
+
+      // Build the comparison condition
+      const filterCondition = buildScalarHaving(ctx, aggExpr, filter);
+      if (filterCondition) conditions.push(filterCondition);
+    }
+
+    if (conditions.length === 0) return undefined;
+    if (conditions.length === 1) return conditions[0];
+    return adapter.operators.and(...conditions);
+  }
+
+  // Direct field filters: { fieldName: { equals: "x" } } or { fieldName: "x" }
+  // Reuse WHERE builder to support the full filter operator set (contains, startsWith, mode, etc.)
+  const normalizedFilter =
+    typeof value === "object" && value !== null ? value : { equals: value };
+  return buildWhere(
+    ctx,
+    { [fieldName]: normalizedFilter } as Record<string, unknown>,
+    alias
+  );
 }
 
 /**

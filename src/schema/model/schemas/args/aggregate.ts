@@ -174,11 +174,13 @@ export const getAggregateArgs = <
 /**
  * Having schema for groupBy follows Prisma's pattern.
  *
- * Allows filtering on aggregate values like:
- * { profileViews: { _avg: { gt: 100 } }, name: { _count: { gte: 5 } } }
+ * Allows filtering on:
+ * - Direct field filters (for fields in `by`): { country: "USA" } / { country: { in: ["USA", "UK"] } }
+ * - Aggregate values: { profileViews: { _avg: { gt: 100 } }, id: { _count: { gte: 5 } } }
  *
- * Each field can have aggregate operators: _count, _avg, _sum, _min, _max
- * Each aggregate operator accepts numeric comparison operators.
+ * For each scalar field key, we accept either:
+ * - the field's regular filter schema (same as WHERE), OR
+ * - an aggregate filter object with _count/_avg/_sum/_min/_max.
  */
 type NumericFilterOps = V.Object<
   {
@@ -192,7 +194,7 @@ type NumericFilterOps = V.Object<
   { optional: true }
 >;
 
-export type HavingFieldSchema = V.Object<
+export type HavingAggregateFieldSchema = V.Object<
   {
     _count: NumericFilterOps;
     _avg: NumericFilterOps;
@@ -203,8 +205,19 @@ export type HavingFieldSchema = V.Object<
   { optional: true }
 >;
 
+type ScalarFilterEntries<T extends ModelState> = V.FromObject<
+  T["scalars"],
+  "~.schemas.filter"
+>["entries"];
+
+export type HavingSchemaEntries<T extends ModelState> = {
+  [K in keyof ScalarFilterEntries<T>]: V.Union<
+    readonly [HavingAggregateFieldSchema, ScalarFilterEntries<T>[K]]
+  >;
+};
+
 export type HavingSchema<T extends ModelState> = V.Object<
-  V.FromKeys<ScalarFieldKeys<T["scalars"]>[], HavingFieldSchema>["entries"],
+  HavingSchemaEntries<T>,
   { optional: true }
 >;
 
@@ -234,10 +247,13 @@ const havingFieldSchema = v.object(
 export const getHavingSchema = <T extends ModelState>(
   state: T
 ): HavingSchema<T> => {
-  const scalarKeys = Object.keys(state.scalars);
-  return v.fromKeys(scalarKeys, havingFieldSchema, {
-    optional: true,
-  }) as HavingSchema<T>;
+  const entries: Record<string, unknown> = {};
+
+  forEachScalarField(state, (name, field) => {
+    entries[name] = v.union([havingFieldSchema, field["~"].schemas.filter]);
+  });
+
+  return v.object(entries, { optional: true }) as HavingSchema<T>;
 };
 
 // =============================================================================
