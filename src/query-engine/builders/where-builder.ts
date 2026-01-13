@@ -316,8 +316,8 @@ function buildFilterOperation(
     }
 
     // String operations (respect case sensitivity mode)
-    // Use adapter.expressions.concat to properly parameterize the value
-    // This prevents SQL injection from wildcards (% and _) in user input
+    // Use adapter.expressions.concat to build LIKE pattern at SQL execution time
+    // Keeps wildcards in SQL and user value as separate parameter
     case "contains": {
       const containsPattern = adapter.expressions.concat(
         sql`'%'`,
