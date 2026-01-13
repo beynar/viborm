@@ -465,7 +465,27 @@ export class QueryEngine {
           // Record doesn't exist - do create
           const createData = args.create as Record<string, unknown>;
           const createResult = await executeNestedCreate(tx, ctx, createData);
-          return createResult.record as T;
+
+          // Handle include/select for return value (same as create operation)
+          if (args.include || args.select) {
+            const pkField = getPrimaryKeyField(ctx.model);
+            const pkValue = createResult.record[pkField];
+            if (pkValue !== undefined) {
+              const refetchSql = buildFindUniqueQuery(ctx, {
+                where: { [pkField]: pkValue },
+                select: args.select as Record<string, unknown> | undefined,
+                include: args.include as Record<string, unknown> | undefined,
+              } as { where: Record<string, unknown> });
+              const refetchResult =
+                await tx.execute<Record<string, unknown>>(refetchSql);
+              if (refetchResult.rows.length > 0) {
+                return parseResult<T>(ctx, "findUnique", refetchResult.rows);
+              }
+            }
+          }
+
+          // Return the created record with nested records merged
+          return { ...createResult.record, ...createResult.related } as T;
         });
       }
 

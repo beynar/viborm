@@ -187,6 +187,8 @@ function buildHaving(
   alias: string,
   byFields: string[]
 ): Sql | undefined {
+  if (!having || typeof having !== "object") return undefined;
+
   const { adapter } = ctx;
   const conditions: Sql[] = [];
 
