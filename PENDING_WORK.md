@@ -14,28 +14,7 @@ _No critical bugs currently tracked._
 
 ## 🟡 Skipped Tests to Fix
 
-### 1. Cursor Pagination Test
-
-**File:** `tests/query-engine/sql-generation.test.ts:142`
-
-```typescript
-test.skip("with cursor pagination", () => {
-  // Cursor pagination requires more complex setup - skip for now
-```
-
-**Note:** Implementation exists in `src/query-engine/operations/find-common.ts` (`buildCursorCondition`). Test just needs proper setup.
-
----
-
-### 2. GroupBy with HAVING Test
-
-**File:** `tests/query-engine/sql-generation.test.ts:729`
-
-```typescript
-test.skip("with having", () => {
-```
-
-**Issue:** Schema support for HAVING is implemented (`src/schema/model/schemas/args/aggregate.ts`). Test needs to be unskipped and query-engine SQL generation for HAVING clause needs implementation.
+_No skipped tests currently tracked._
 
 ---
 
@@ -130,11 +109,11 @@ For historical reference, these were previously documented as pending but are no
 | Connect/Disconnect/Set operations | `src/query-engine/operations/nested-writes.ts` |
 | ConnectOrCreate operations | `src/query-engine/operations/nested-writes.ts` |
 | M2M junction logic utils | `src/query-engine/builders/many-to-many-utils.ts` |
+| **Cursor pagination test (fixed)** | `src/query-engine/operations/find-common.ts` - Filter undefined values from cursor entries |
+| **GroupBy HAVING query generation** | `src/query-engine/operations/groupby.ts` - Prisma-style field-keyed having structure |
 
 ---
 
 ## Priority Order
 
-1. **Medium:** Unskip cursor pagination test
-2. **Medium:** GroupBy HAVING query-engine SQL generation (schema done)
-3. **Future:** MySQL migrations, caching, polymorphic relations, recursive queries
+1. **Future:** MySQL migrations, caching, polymorphic relations, recursive queries

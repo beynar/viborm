@@ -175,9 +175,10 @@ function buildGroupByColumns(
 /**
  * Build HAVING clause from having specification
  *
- * Having can filter on:
- * - Scalar fields (same as WHERE)
- * - Aggregate results: _count, _avg, _sum, _min, _max
+ * Prisma-style having uses field-keyed structure:
+ * { fieldName: { _count: { gt: 5 }, _avg: { gte: 10 } } }
+ *
+ * Each field can have multiple aggregate filters applied.
  */
 function buildHaving(
   ctx: QueryContext,
@@ -187,32 +188,16 @@ function buildHaving(
   const { adapter } = ctx;
   const conditions: Sql[] = [];
 
-  for (const [key, value] of Object.entries(having)) {
+  for (const [fieldName, value] of Object.entries(having)) {
     if (value === undefined) continue;
 
-    // Check if it's an aggregate filter
-    if (
-      key === "_count" ||
-      key === "_avg" ||
-      key === "_sum" ||
-      key === "_min" ||
-      key === "_max"
-    ) {
-      const aggConditions = buildAggregateHaving(
-        ctx,
-        key,
-        value as Record<string, unknown>,
-        alias
-      );
-      if (aggConditions) conditions.push(aggConditions);
-      continue;
-    }
-
-    // Scalar field filter (same as WHERE) - resolve to column name
-    const columnName = getColumnName(ctx.model, key);
-    const column = adapter.identifiers.column(alias, columnName);
-    const scalarCondition = buildScalarHaving(ctx, column, value);
-    if (scalarCondition) conditions.push(scalarCondition);
+    const fieldConditions = buildFieldKeyedHaving(
+      ctx,
+      fieldName,
+      value as Record<string, unknown>,
+      alias
+    );
+    if (fieldConditions) conditions.push(fieldConditions);
   }
 
   if (conditions.length === 0) return undefined;
@@ -220,54 +205,47 @@ function buildHaving(
 }
 
 /**
- * Build aggregate HAVING condition
+ * Build HAVING condition for Prisma-style field-keyed structure
  *
- * Example: { _count: { id: { gt: 5 } } }
+ * Example: { id: { _count: { gt: 5 }, _avg: { gte: 10 } } }
+ * Where 'id' is the field name, and the value contains aggregate type keys
  */
-function buildAggregateHaving(
+function buildFieldKeyedHaving(
   ctx: QueryContext,
-  aggType: string,
-  spec: Record<string, unknown>,
+  fieldName: string,
+  aggregates: Record<string, unknown>,
   alias: string
 ): Sql | undefined {
   const { adapter } = ctx;
   const conditions: Sql[] = [];
 
-  for (const [field, filter] of Object.entries(spec)) {
+  // Resolve field name to column name
+  const columnName = getColumnName(ctx.model, fieldName);
+  const column = adapter.identifiers.column(alias, columnName);
+
+  for (const [aggType, filter] of Object.entries(aggregates)) {
     if (filter === undefined) continue;
 
-    // Build the aggregate expression based on aggregate type
+    // Build the aggregate expression
     let aggExpr: Sql;
-    // Resolve field name to column name (skip for _all)
-    const columnName =
-      field === "_all" ? undefined : getColumnName(ctx.model, field);
-    const column = columnName
-      ? adapter.identifiers.column(alias, columnName)
-      : undefined;
-
     switch (aggType) {
       case "_count":
-        aggExpr = column
-          ? adapter.aggregates.count(column)
-          : adapter.aggregates.count();
+        aggExpr = adapter.aggregates.count(column);
         break;
       case "_avg":
-        if (!column) continue; // _avg doesn't support _all
         aggExpr = adapter.aggregates.avg(column);
         break;
       case "_sum":
-        if (!column) continue; // _sum doesn't support _all
         aggExpr = adapter.aggregates.sum(column);
         break;
       case "_min":
-        if (!column) continue; // _min doesn't support _all
         aggExpr = adapter.aggregates.min(column);
         break;
       case "_max":
-        if (!column) continue; // _max doesn't support _all
         aggExpr = adapter.aggregates.max(column);
         break;
       default:
+        // Not an aggregate type - skip
         continue;
     }
 
@@ -277,6 +255,7 @@ function buildAggregateHaving(
   }
 
   if (conditions.length === 0) return undefined;
+  if (conditions.length === 1) return conditions[0];
   return adapter.operators.and(...conditions);
 }
 

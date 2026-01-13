@@ -148,15 +148,18 @@ function buildCursorCondition(
   orderBy: Record<string, unknown> | Record<string, unknown>[] | undefined,
   alias: string
 ): Sql | undefined {
-  // Get cursor field and value
-  const cursorEntries = Object.entries(cursor);
+  // Get cursor field and value, filtering out undefined values
+  // (validation layer adds undefined for optional fields not provided in input)
+  const cursorEntries = Object.entries(cursor).filter(
+    ([, value]) => value !== undefined
+  );
   if (cursorEntries.length === 0) return undefined;
 
-  // Validate no null values in cursor
+  // Validate no null values in cursor (explicit null is not allowed)
   for (const [field, value] of cursorEntries) {
-    if (value === null || value === undefined) {
+    if (value === null) {
       throw new QueryEngineError(
-        `Cursor field '${field}' cannot be null or undefined. ` +
+        `Cursor field '${field}' cannot be null. ` +
           "Cursor must point to a specific record."
       );
     }
@@ -175,7 +178,9 @@ function buildCursorCondition(
   }
 
   // Compound cursor - validate and build
-  return buildCompoundCursor(ctx, cursor, orderBy, alias);
+  // Build filtered cursor object from the filtered entries
+  const filteredCursor = Object.fromEntries(cursorEntries);
+  return buildCompoundCursor(ctx, filteredCursor, orderBy, alias);
 }
 
 /**

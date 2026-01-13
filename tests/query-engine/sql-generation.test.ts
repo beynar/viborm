@@ -139,8 +139,7 @@ describe("Basic CRUD Operations", () => {
       expect(statement).toContain("OFFSET");
     });
 
-    test.skip("with cursor pagination", () => {
-      // Cursor pagination requires more complex setup - skip for now
+    test("with cursor pagination", () => {
       const { statement, values } = getSql(Author, "findMany", {
         cursor: { id: "cursor-id" },
         take: 10,
@@ -763,8 +762,7 @@ describe("Aggregates", () => {
   });
 
   describe("groupBy", () => {
-    // TODO: having clause with aggregate functions (_count, etc.) needs special schema support
-    test.skip("with having", () => {
+    test("with having", () => {
       const { statement, values } = getSql(Post, "groupBy", {
         by: ["authorId"],
         _count: { id: true },
