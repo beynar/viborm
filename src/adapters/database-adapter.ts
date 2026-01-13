@@ -305,6 +305,8 @@ export interface DatabaseAdapter {
     returning: (columns: Sql) => Sql;
     /** ON CONFLICT / ON DUPLICATE KEY */
     onConflict: (target: Sql | null, action: Sql) => Sql;
+    /** Build update action for ON CONFLICT (PG/SQLite: UPDATE SET ..., MySQL: just the SET part) */
+    onConflictUpdate: (sets: Sql) => Sql;
     /**
      * Skip duplicate key errors (for createMany with skipDuplicates: true)
      * PostgreSQL/SQLite: ON CONFLICT DO NOTHING (suffix)

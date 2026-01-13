@@ -367,5 +367,5 @@ function buildManyToManySubquery(
 
   const whereClause = adapter.operators.and(...conditions);
 
-  return sql`SELECT 1 FROM ${fromClause} WHERE ${whereClause}`;
+  return adapter.subqueries.existsCheck(fromClause, whereClause);
 }

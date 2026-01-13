@@ -52,24 +52,27 @@ export function assembleInnerQuery(
   take: number | undefined,
   skip: number | undefined
 ): Sql {
-  const parts: Sql[] = [sql`SELECT ${selectExpr}`, sql`FROM ${from}`];
+  const parts: Sql[] = [
+    adapter.clauses.select(selectExpr),
+    adapter.clauses.from(from),
+  ];
 
   if (joins && joins.length > 0) {
     parts.push(...joins);
   }
 
-  parts.push(sql`WHERE ${where}`);
+  parts.push(adapter.clauses.where(where));
 
   if (orderBy) {
-    parts.push(sql`ORDER BY ${orderBy}`);
+    parts.push(adapter.clauses.orderBy(orderBy));
   }
 
   if (take !== undefined) {
-    parts.push(sql`LIMIT ${adapter.literals.value(take)}`);
+    parts.push(adapter.clauses.limit(adapter.literals.value(take)));
   }
 
   if (skip !== undefined) {
-    parts.push(sql`OFFSET ${adapter.literals.value(skip)}`);
+    parts.push(adapter.clauses.offset(adapter.literals.value(skip)));
   }
 
   return sql.join(parts, " ");
@@ -314,7 +317,10 @@ function buildLateralInclude(
     const aggExpr = adapter.json.agg(jsonColumn);
     const aliasedAggExpr = adapter.identifiers.aliased(aggExpr, resultColAlias);
 
-    const lateralSubquery = sql`SELECT ${aliasedAggExpr} FROM (${innerQuery}) ${adapter.identifiers.escape(innerAlias)}`;
+    const lateralSubquery = sql.join([
+      adapter.clauses.select(aliasedAggExpr),
+      adapter.clauses.from(sql`(${innerQuery}) ${adapter.identifiers.escape(innerAlias)}`),
+    ], " ");
     const lateralJoin = adapter.joins.lateralLeft(
       lateralSubquery,
       lateralAlias
@@ -377,7 +383,10 @@ function buildToManySubquery(
   const subAlias = ctx.nextAlias();
   const jsonColumn = adapter.identifiers.column(subAlias, jsonColAlias);
   return adapter.subqueries.scalar(
-    sql`SELECT ${adapter.json.agg(jsonColumn)} FROM (${innerQuery}) ${adapter.identifiers.escape(subAlias)}`
+    sql.join([
+      adapter.clauses.select(adapter.json.agg(jsonColumn)),
+      adapter.clauses.from(sql`(${innerQuery}) ${adapter.identifiers.escape(subAlias)}`),
+    ], " ")
   );
 }
 
@@ -499,7 +508,10 @@ function buildManyToManyLateralInclude(
   const resultColAlias = "_result";
   const aliasedAggExpr = adapter.identifiers.aliased(aggExpr, resultColAlias);
 
-  const lateralSubquery = sql`SELECT ${aliasedAggExpr} FROM (${innerQuery}) ${adapter.identifiers.escape(innerAlias)}`;
+  const lateralSubquery = sql.join([
+    adapter.clauses.select(aliasedAggExpr),
+    adapter.clauses.from(sql`(${innerQuery}) ${adapter.identifiers.escape(innerAlias)}`),
+  ], " ");
   const lateralJoin = adapter.joins.lateralLeft(lateralSubquery, lateralAlias);
   const column = adapter.identifiers.column(lateralAlias, resultColAlias);
 
@@ -586,6 +598,9 @@ function buildManyToManyInclude(
   const subAlias = ctx.nextAlias();
   const jsonColumn = adapter.identifiers.column(subAlias, jsonColAlias);
   return adapter.subqueries.scalar(
-    sql`SELECT ${adapter.json.agg(jsonColumn)} FROM (${innerQuery}) ${adapter.identifiers.escape(subAlias)}`
+    sql.join([
+      adapter.clauses.select(adapter.json.agg(jsonColumn)),
+      adapter.clauses.from(sql`(${innerQuery}) ${adapter.identifiers.escape(subAlias)}`),
+    ], " ")
   );
 }

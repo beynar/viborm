@@ -611,7 +611,12 @@ async function executeConnectOrCreate(
   }
 
   // SELECT to check existence and fetch full record
-  const selectSql = sql`SELECT * FROM ${adapter.identifiers.escape(targetTable)} ${adapter.identifiers.escape(alias)} WHERE ${whereClause} LIMIT 1`;
+  const selectSql = sql.join([
+    adapter.clauses.select(sql`*`),
+    adapter.clauses.from(sql`${adapter.identifiers.escape(targetTable)} ${adapter.identifiers.escape(alias)}`),
+    adapter.clauses.where(whereClause),
+    adapter.clauses.limit(adapter.literals.value(1)),
+  ], " ");
 
   const result = await tx.execute<Record<string, unknown>>(selectSql);
 

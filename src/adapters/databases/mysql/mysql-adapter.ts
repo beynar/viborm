@@ -517,6 +517,9 @@ export class MySQLAdapter implements DatabaseAdapter {
       return sql`ON DUPLICATE KEY UPDATE ${action}`;
     },
 
+    // MySQL doesn't need UPDATE SET prefix - onConflict already includes UPDATE
+    onConflictUpdate: (sets: Sql): Sql => sets,
+
     skipDuplicates: () => ({ prefix: sql`IGNORE`, suffix: sql`` }),
   };
 

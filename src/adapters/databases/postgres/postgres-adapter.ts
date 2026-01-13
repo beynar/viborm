@@ -424,6 +424,8 @@ export class PostgresAdapter implements DatabaseAdapter {
       return sql`ON CONFLICT DO ${action}`;
     },
 
+    onConflictUpdate: (sets: Sql): Sql => sql`UPDATE SET ${sets}`,
+
     skipDuplicates: () => ({ prefix: sql``, suffix: sql`ON CONFLICT DO NOTHING` }),
   };
 
