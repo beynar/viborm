@@ -4,6 +4,7 @@
  * Implements database introspection and DDL generation for PostgreSQL.
  */
 
+import type { Field, FieldState } from "@schema/fields";
 import type {
   ColumnDef,
   DiffOperation,

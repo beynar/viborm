@@ -17,7 +17,7 @@ import {
 } from "../context";
 import type { QueryContext, RelationInfo } from "../types";
 import { buildCorrelation } from "./correlation-utils";
-import { buildInclude } from "./include-builder";
+import { buildInclude, type IncludeStrategy } from "./include-builder";
 import {
   buildManyToManyJoinParts,
   getManyToManyJoinInfo,
@@ -41,6 +41,16 @@ export interface BuildSelectOptions {
 export interface SelectResult {
   sql: Sql;
   aliases: string[];
+  /** Lateral join clauses to add to the query (for databases supporting LATERAL) */
+  lateralJoins: Sql[];
+}
+
+/**
+ * Internal result from buildSelectPairs
+ */
+interface SelectPairsResult {
+  pairs: [string, Sql][];
+  lateralJoins: Sql[];
 }
 
 /**
@@ -60,8 +70,9 @@ export function buildSelect(
   alias: string,
   options: BuildSelectOptions = {}
 ): Sql {
-  // Build field/expression pairs
-  const pairs = buildSelectPairs(ctx, select, include, alias);
+  // Build field/expression pairs in expression-only mode:
+  // includes must be scalar subqueries so this can be embedded anywhere (e.g. RETURNING).
+  const { pairs } = buildSelectPairs(ctx, select, include, alias, "subquery");
 
   // Return JSON object if requested
   if (options.asJson) {
@@ -78,14 +89,17 @@ export function buildSelect(
 
 /**
  * Internal: Build pairs of [fieldName, expression] for select
+ * Also collects lateral join clauses for databases that support them.
  */
 function buildSelectPairs(
   ctx: QueryContext,
   select: Record<string, unknown> | undefined,
   include: Record<string, unknown> | undefined,
-  alias: string
-): [string, Sql][] {
+  alias: string,
+  includeStrategy: IncludeStrategy
+): SelectPairsResult {
   const pairs: [string, Sql][] = [];
+  const lateralJoins: Sql[] = [];
   const scalarFields = getScalarFieldNames(ctx.model);
 
   if (select) {
@@ -109,13 +123,17 @@ function buildSelectPairs(
       if (isRelation(ctx.model, key)) {
         const relationInfo = getRelationInfo(ctx, key);
         if (relationInfo && typeof value === "object" && value !== null) {
-          const relationSql = buildInclude(
+          const includeResult = buildInclude(
             ctx,
             relationInfo,
             value as Record<string, unknown>,
-            alias
+            alias,
+            { strategy: includeStrategy }
           );
-          pairs.push([key, relationSql]);
+          pairs.push([key, includeResult.column]);
+          if (includeResult.lateralJoin) {
+            lateralJoins.push(includeResult.lateralJoin);
+          }
         }
       }
     }
@@ -161,13 +179,17 @@ function buildSelectPairs(
         if (relationInfo) {
           const includeValue =
             value === true ? {} : (value as Record<string, unknown>);
-          const relationSql = buildInclude(
+          const includeResult = buildInclude(
             ctx,
             relationInfo,
             includeValue,
-            alias
+            alias,
+            { strategy: includeStrategy }
           );
-          pairs.push([key, relationSql]);
+          pairs.push([key, includeResult.column]);
+          if (includeResult.lateralJoin) {
+            lateralJoins.push(includeResult.lateralJoin);
+          }
         }
       }
     }
@@ -184,7 +206,7 @@ function buildSelectPairs(
     }
   }
 
-  return pairs;
+  return { pairs, lateralJoins };
 }
 
 /**
@@ -196,7 +218,7 @@ function buildSelectPairs(
  * @param include - Include input (relations to include)
  * @param alias - Current table alias
  * @param options - Build options
- * @returns Object with SQL and column aliases
+ * @returns Object with SQL, column aliases, and lateral joins
  */
 export function buildSelectWithAliases(
   ctx: QueryContext,
@@ -206,7 +228,13 @@ export function buildSelectWithAliases(
   options: BuildSelectOptions = {}
 ): SelectResult {
   // Build field/expression pairs
-  const pairs = buildSelectPairs(ctx, select, include, alias);
+  const { pairs, lateralJoins } = buildSelectPairs(
+    ctx,
+    select,
+    include,
+    alias,
+    "auto"
+  );
 
   // Extract aliases
   const aliases = pairs.map(([name]) => name);
@@ -222,7 +250,7 @@ export function buildSelectWithAliases(
     sqlResult = sql.join(columns, ", ");
   }
 
-  return { sql: sqlResult, aliases };
+  return { sql: sqlResult, aliases, lateralJoins };
 }
 
 /**

@@ -318,6 +318,12 @@ export interface DatabaseAdapter {
     supportsCteWithMutations: boolean;
     /** Whether database supports FULL OUTER JOIN */
     supportsFullOuterJoin: boolean;
+    /**
+     * Whether database supports LATERAL joins (PG 9.3+, MySQL 8.0.14+)
+     * When true, include builder uses lateral joins for better performance
+     * When false, falls back to correlated subqueries
+     */
+    supportsLateralJoins: boolean;
   };
 
   /**
@@ -341,6 +347,25 @@ export interface DatabaseAdapter {
     right: (table: Sql, condition: Sql) => Sql;
     full: (table: Sql, condition: Sql) => Sql;
     cross: (table: Sql) => Sql;
+    /**
+     * LATERAL subquery join (PostgreSQL 9.3+, MySQL 8.0.14+)
+     * Allows referencing columns from preceding tables in the subquery.
+     * Used for efficient nested includes.
+     *
+     * @param subquery - The lateral subquery (must be a complete SELECT)
+     * @param alias - Alias for the lateral result
+     * @returns JOIN LATERAL (subquery) AS alias ON true
+     */
+    lateral: (subquery: Sql, alias: string) => Sql;
+    /**
+     * LEFT JOIN LATERAL - same as lateral but with LEFT JOIN semantics
+     * Returns NULL for the joined columns when subquery returns no rows.
+     *
+     * @param subquery - The lateral subquery (must be a complete SELECT)
+     * @param alias - Alias for the lateral result
+     * @returns LEFT JOIN LATERAL (subquery) AS alias ON true
+     */
+    lateralLeft: (subquery: Sql, alias: string) => Sql;
   };
 
   /**

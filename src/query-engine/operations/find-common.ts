@@ -7,10 +7,7 @@
 
 import { type Sql, sql } from "@sql";
 import { buildOrderBy } from "../builders/orderby-builder";
-import {
-  buildSelect,
-  buildSelectWithAliases,
-} from "../builders/select-builder";
+import { buildSelectWithAliases } from "../builders/select-builder";
 import { buildWhere } from "../builders/where-builder";
 import { getColumnName, getScalarFieldNames, getTableName } from "../context";
 import type { QueryContext } from "../types";
@@ -53,23 +50,19 @@ export function buildFind(
   const { adapter, rootAlias } = ctx;
   const tableName = getTableName(ctx.model);
 
-  // Build SELECT columns - use buildSelectWithAliases if distinct is needed
-  // so the adapter can reference columns by alias in outer SELECT
-  let columns: Sql;
-  let columnAliases: string[] | undefined;
-
-  if (args.distinct && args.distinct.length > 0) {
-    const selectResult = buildSelectWithAliases(
-      ctx,
-      args.select,
-      args.include,
-      rootAlias
-    );
-    columns = selectResult.sql;
-    columnAliases = selectResult.aliases;
-  } else {
-    columns = buildSelect(ctx, args.select, args.include, rootAlias);
-  }
+  // Build SELECT columns using buildSelectWithAliases to get:
+  // - columns SQL
+  // - column aliases (for distinct)
+  // - lateral joins (for databases supporting LATERAL)
+  const selectResult = buildSelectWithAliases(
+    ctx,
+    args.select,
+    args.include,
+    rootAlias
+  );
+  const columns = selectResult.sql;
+  const columnAliases = selectResult.aliases;
+  const lateralJoins = selectResult.lateralJoins;
 
   // Build FROM
   const from = adapter.identifiers.table(tableName, rootAlias);
@@ -115,6 +108,11 @@ export function buildFind(
     columns,
     from,
   };
+
+  // Add lateral joins if any (for databases supporting LATERAL)
+  if (lateralJoins.length > 0) {
+    parts.joins = lateralJoins;
+  }
 
   if (distinct && columnAliases) {
     parts.distinct = distinct;

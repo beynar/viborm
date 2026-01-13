@@ -442,6 +442,12 @@ export class PostgresAdapter implements DatabaseAdapter {
       sql`FULL OUTER JOIN ${table} ON ${condition}`,
 
     cross: (table: Sql): Sql => sql`CROSS JOIN ${table}`,
+
+    lateral: (subquery: Sql, alias: string): Sql =>
+      sql`JOIN LATERAL (${subquery}) AS ${sql.raw`"${alias}"`} ON TRUE`,
+
+    lateralLeft: (subquery: Sql, alias: string): Sql =>
+      sql`LEFT JOIN LATERAL (${subquery}) AS ${sql.raw`"${alias}"`} ON TRUE`,
   };
 
   // ============================================================
@@ -466,6 +472,7 @@ export class PostgresAdapter implements DatabaseAdapter {
     supportsReturning: true,
     supportsCteWithMutations: true,
     supportsFullOuterJoin: true,
+    supportsLateralJoins: true,
   };
 
   lastInsertId = (): Sql => sql.raw`lastval()`;

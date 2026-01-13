@@ -11,7 +11,8 @@ export {
   getPrimaryKeyField,
   getPrimaryKeyFields,
 } from "./correlation-utils";
-export { buildInclude } from "./include-builder";
+export type { IncludeResult } from "./include-builder";
+export { assembleInnerQuery, buildInclude } from "./include-builder";
 export { buildCreateWithNested } from "./nested-create-builder";
 export { buildOrderBy } from "./orderby-builder";
 export type {

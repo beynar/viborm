@@ -298,7 +298,9 @@ describe("Select/Include (Relation Loading)", () => {
       console.log("nested select 3 levels:", statement);
 
       expect(statement).toContain("SELECT");
-      // Should have nested subqueries
+      // Should use recursive LATERAL joins for nested includes (posts + comments)
+      const lateralCount = (statement.match(/LEFT JOIN LATERAL/g) ?? []).length;
+      expect(lateralCount).toBeGreaterThanOrEqual(2);
     });
   });
 
@@ -351,6 +353,38 @@ describe("Select/Include (Relation Loading)", () => {
       console.log("select with relation take:", statement);
 
       expect(statement).toContain("LIMIT");
+    });
+
+    test("select posts with skip", () => {
+      const { statement } = getSql(Author, "findMany", {
+        select: {
+          id: true,
+          posts: {
+            skip: 10,
+            select: { id: true, title: true },
+          },
+        },
+      });
+      console.log("select with relation skip:", statement);
+
+      expect(statement).toContain("OFFSET");
+    });
+
+    test("select posts with take and skip", () => {
+      const { statement } = getSql(Author, "findMany", {
+        select: {
+          id: true,
+          posts: {
+            take: 5,
+            skip: 10,
+            select: { id: true, title: true },
+          },
+        },
+      });
+      console.log("select with relation take+skip:", statement);
+
+      expect(statement).toContain("LIMIT");
+      expect(statement).toContain("OFFSET");
     });
   });
 });
@@ -477,7 +511,9 @@ describe("Many-to-Many Relations", () => {
 
       // Should use junction table
       expect(statement).toContain("SELECT");
-      // Expecting either join through junction or subquery pattern
+      // Should use LATERAL join strategy for includes (PostgreSQL adapter)
+      expect(statement).toContain("LEFT JOIN LATERAL");
+      expect(statement).toContain('"post_tag"');
     });
 
     test("select posts on tag", () => {
@@ -491,6 +527,8 @@ describe("Many-to-Many Relations", () => {
       console.log("manyToMany reverse select:", statement);
 
       expect(statement).toContain("SELECT");
+      expect(statement).toContain("LEFT JOIN LATERAL");
+      expect(statement).toContain('"post_tag"');
     });
   });
 
@@ -741,5 +779,141 @@ describe("Aggregates", () => {
       expect(statement).toContain("GROUP BY");
       expect(statement).toContain("HAVING");
     });
+  });
+});
+
+// =============================================================================
+// ASSEMBLE INNER QUERY HELPER TESTS
+// =============================================================================
+
+import { assembleInnerQuery } from "../../src/query-engine/builders";
+import { sql } from "../../src/sql/sql";
+
+describe("assembleInnerQuery helper", () => {
+  const adapter = new PostgresAdapter();
+
+  test("basic query: SELECT FROM WHERE", () => {
+    const result = assembleInnerQuery(
+      adapter,
+      sql`"id", "name"`,
+      sql`"users"`,
+      undefined, // no joins
+      sql`"active" = true`,
+      undefined, // no order
+      undefined, // no take
+      undefined // no skip
+    );
+
+    const statement = result.toStatement();
+    expect(statement).toBe(
+      'SELECT "id", "name" FROM "users" WHERE "active" = true'
+    );
+  });
+
+  test("with joins", () => {
+    const result = assembleInnerQuery(
+      adapter,
+      sql`"u"."id", "p"."title"`,
+      sql`"users" "u"`,
+      [sql`JOIN "posts" "p" ON "p"."userId" = "u"."id"`],
+      sql`1=1`,
+      undefined,
+      undefined,
+      undefined
+    );
+
+    const statement = result.toStatement();
+    expect(statement).toContain('JOIN "posts" "p"');
+  });
+
+  test("with ORDER BY", () => {
+    const result = assembleInnerQuery(
+      adapter,
+      sql`*`,
+      sql`"users"`,
+      undefined,
+      sql`1=1`,
+      sql`"created_at" DESC`,
+      undefined,
+      undefined
+    );
+
+    const statement = result.toStatement();
+    expect(statement).toContain('ORDER BY "created_at" DESC');
+  });
+
+  test("with LIMIT", () => {
+    const result = assembleInnerQuery(
+      adapter,
+      sql`*`,
+      sql`"users"`,
+      undefined,
+      sql`1=1`,
+      undefined,
+      10,
+      undefined
+    );
+
+    const statement = result.toStatement();
+    expect(statement).toContain("LIMIT");
+    expect(result.values).toContain(10);
+  });
+
+  test("with OFFSET", () => {
+    const result = assembleInnerQuery(
+      adapter,
+      sql`*`,
+      sql`"users"`,
+      undefined,
+      sql`1=1`,
+      undefined,
+      undefined,
+      20
+    );
+
+    const statement = result.toStatement();
+    expect(statement).toContain("OFFSET");
+    expect(result.values).toContain(20);
+  });
+
+  test("full query: SELECT FROM JOIN WHERE ORDER LIMIT OFFSET", () => {
+    const result = assembleInnerQuery(
+      adapter,
+      sql`"u"."id", "u"."name"`,
+      sql`"users" "u"`,
+      [sql`LEFT JOIN "posts" "p" ON "p"."authorId" = "u"."id"`],
+      sql`"u"."active" = true`,
+      sql`"u"."name" ASC`,
+      5,
+      10
+    );
+
+    const statement = result.toStatement();
+
+    expect(statement).toContain("SELECT");
+    expect(statement).toContain("FROM");
+    expect(statement).toContain("LEFT JOIN");
+    expect(statement).toContain("WHERE");
+    expect(statement).toContain("ORDER BY");
+    expect(statement).toContain("LIMIT");
+    expect(statement).toContain("OFFSET");
+    expect(result.values).toContain(5);
+    expect(result.values).toContain(10);
+  });
+
+  test("empty joins array is ignored", () => {
+    const result = assembleInnerQuery(
+      adapter,
+      sql`*`,
+      sql`"users"`,
+      [], // empty joins
+      sql`1=1`,
+      undefined,
+      undefined,
+      undefined
+    );
+
+    const statement = result.toStatement();
+    expect(statement).not.toContain("JOIN");
   });
 });
