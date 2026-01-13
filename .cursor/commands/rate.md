@@ -1,1 +1,1 @@
-On a range of 0 to 12 rate the code you've just produced. Be honnest, look at how DRY it it, if it may contains bugs. Give area of improvement if any.
+On a range of 0 to 12 rate the code you've just produced. Be honnest, look at how DRY it it, if it may contains bugs. Give area of improvement if any. In a general way how solid and prodcution ready is the code you have produced. 

@@ -542,6 +542,20 @@ export class SQLiteAdapter implements DatabaseAdapter {
       sql`LEFT JOIN ${table} ON ${condition}`,
 
     cross: (table: Sql): Sql => sql`CROSS JOIN ${table}`,
+
+    // SQLite does NOT support LATERAL joins
+    // These methods should never be called - query engine should check capability first
+    lateral: (_subquery: Sql, _alias: string): Sql => {
+      throw new Error(
+        "SQLite does not support LATERAL joins. Check adapter.capabilities.supportsLateralJoins before calling."
+      );
+    },
+
+    lateralLeft: (_subquery: Sql, _alias: string): Sql => {
+      throw new Error(
+        "SQLite does not support LATERAL joins. Check adapter.capabilities.supportsLateralJoins before calling."
+      );
+    },
   };
 
   // ============================================================
@@ -566,6 +580,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
     supportsReturning: true, // SQLite 3.35+
     supportsCteWithMutations: true,
     supportsFullOuterJoin: false,
+    supportsLateralJoins: false, // SQLite does not support LATERAL joins
   };
 
   lastInsertId = (): Sql => sql.raw`last_insert_rowid()`;

@@ -14,6 +14,10 @@ import type { MigrationAdapter } from "../adapters/database-adapter";
 import type { Field } from "../schema/fields/base";
 import type { AnyModel } from "../schema/model";
 import type { AnyRelation } from "../schema/relation";
+import {
+  getJunctionFieldNames,
+  getJunctionTableName,
+} from "../schema/relation/helpers";
 import type {
   ColumnDef,
   EnumDef,
@@ -87,7 +91,7 @@ export function serializeModels(
       let columnType: string;
       if (fieldState.type === "enum") {
         const enumField = field as any;
-        const enumValues = enumField.values as string[] | undefined;
+        const enumValues = enumField.enumValues as string[] | undefined;
 
         if (migrationAdapter.supportsNativeEnums && enumValues) {
           // Create native enum type definition
@@ -240,10 +244,154 @@ export function serializeModels(
     });
   }
 
+  // ==========================================================================
+  // JUNCTION TABLES FOR MANY-TO-MANY RELATIONS
+  // ==========================================================================
+  const junctionTables = new Map<string, TableDef>();
+
+  for (const [modelName, model] of Object.entries(models)) {
+    const modelState = model["~"].state;
+    const sourceTableName =
+      model["~"].names.sql || modelState.tableName || modelName.toLowerCase();
+
+    for (const [relationName, relation] of Object.entries(
+      modelState.relations
+    )) {
+      const relState = (relation as AnyRelation)["~"].state;
+      if (relState.type !== "manyToMany") continue;
+
+      const targetModel = relState.getter();
+      if (!targetModel?.["~"]) continue;
+
+      // Target model must have hydrated names
+      const targetModelName = targetModel["~"].names.ts;
+      if (!targetModelName) {
+        throw new Error(
+          `Target model for relation "${relationName}" has no name. ` +
+            "Schema may not be hydrated. Call hydrateSchemaNames() first."
+        );
+      }
+
+      const targetTableName = targetModel["~"].names.sql;
+      if (!targetTableName) {
+        throw new Error(
+          `Target model "${targetModelName}" has no SQL table name. ` +
+            "Schema may not be hydrated. Call hydrateSchemaNames() first."
+        );
+      }
+
+      // Get junction table name (from .through() or generated)
+      const junctionTableName = getJunctionTableName(
+        relation as AnyRelation,
+        modelName,
+        targetModelName
+      );
+
+      // Avoid duplicating (post_tag from Post side and from Tag side)
+      if (junctionTables.has(junctionTableName)) continue;
+
+      // Get junction field names
+      const [sourceFieldName, targetFieldName] = getJunctionFieldNames(
+        relation as AnyRelation,
+        modelName,
+        targetModelName
+      );
+
+      // Get PK types from source and target models
+      const sourcePkField = getPrimaryKeyFieldDef(model, migrationAdapter);
+      const targetPkField = getPrimaryKeyFieldDef(
+        targetModel,
+        migrationAdapter
+      );
+
+      junctionTables.set(junctionTableName, {
+        name: junctionTableName,
+        columns: [
+          {
+            name: sourceFieldName,
+            type: sourcePkField.type,
+            nullable: false,
+          },
+          {
+            name: targetFieldName,
+            type: targetPkField.type,
+            nullable: false,
+          },
+        ],
+        primaryKey: { columns: [sourceFieldName, targetFieldName] },
+        indexes: [],
+        foreignKeys: [
+          {
+            name: `${junctionTableName}_${sourceFieldName}_fkey`,
+            columns: [sourceFieldName],
+            referencedTable: sourceTableName,
+            referencedColumns: [sourcePkField.name],
+            onDelete: mapReferentialAction(relState.onDelete),
+            onUpdate: mapReferentialAction(relState.onUpdate),
+          },
+          {
+            name: `${junctionTableName}_${targetFieldName}_fkey`,
+            columns: [targetFieldName],
+            referencedTable: targetTableName,
+            referencedColumns: [targetPkField.name],
+            onDelete: mapReferentialAction(relState.onDelete),
+            onUpdate: mapReferentialAction(relState.onUpdate),
+          },
+        ],
+        uniqueConstraints: [],
+      });
+    }
+  }
+
+  // Append junction tables to the tables array
+  tables.push(...junctionTables.values());
+
   return {
     tables,
     enums: enums.length > 0 ? enums : undefined,
   };
+}
+
+// =============================================================================
+// HELPER FUNCTIONS
+// =============================================================================
+
+/**
+ * Get the primary key field definition for a model.
+ * Throws if the model uses compound PK (not supported for M2M junction tables).
+ */
+function getPrimaryKeyFieldDef(
+  model: AnyModel,
+  migrationAdapter: MigrationAdapter
+): { name: string; type: string } {
+  const modelState = model["~"].state;
+  const modelName = model["~"].names.ts;
+
+  // Compound PKs not supported for junction tables
+  if (modelState.compoundId && Object.keys(modelState.compoundId).length > 0) {
+    throw new Error(
+      `Model "${modelName}" uses compound primary key. ` +
+        "Many-to-many relations with compound PKs are not supported. " +
+        "Use a single-field surrogate key (e.g., s.string().id().ulid()) instead."
+    );
+  }
+
+  for (const [fieldName, field] of Object.entries(modelState.scalars)) {
+    const fieldState = (field as Field)["~"].state;
+    if (fieldState.isId) {
+      const columnName = model["~"].getFieldName(fieldName).sql;
+      const columnType = migrationAdapter.mapFieldType(
+        field as Field,
+        fieldState
+      );
+      return { name: columnName, type: columnType };
+    }
+  }
+
+  throw new Error(
+    `Model "${modelName}" has no primary key field. ` +
+      "Schema may not be hydrated."
+  );
 }
 
 /**

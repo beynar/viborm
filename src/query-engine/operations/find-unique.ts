@@ -6,7 +6,7 @@
  */
 
 import { type Sql, sql } from "@sql";
-import { buildSelect } from "../builders/select-builder";
+import { buildSelectWithAliases } from "../builders/select-builder";
 import { buildWhereUnique } from "../builders/where-builder";
 import { getTableName } from "../context";
 import type { QueryContext } from "../types";
@@ -29,7 +29,14 @@ export function buildFindUnique(ctx: QueryContext, args: FindUniqueArgs): Sql {
   const tableName = getTableName(ctx.model);
 
   // Build SELECT columns
-  const columns = buildSelect(ctx, args.select, args.include, rootAlias);
+  const selectResult = buildSelectWithAliases(
+    ctx,
+    args.select,
+    args.include,
+    rootAlias
+  );
+  const columns = selectResult.sql;
+  const lateralJoins = selectResult.lateralJoins;
 
   // Build FROM
   const from = adapter.identifiers.table(tableName, rootAlias);
@@ -45,6 +52,9 @@ export function buildFindUnique(ctx: QueryContext, args: FindUniqueArgs): Sql {
     columns,
     from,
   };
+  if (lateralJoins.length > 0) {
+    parts.joins = lateralJoins;
+  }
   if (where) parts.where = where;
   parts.limit = limit;
 

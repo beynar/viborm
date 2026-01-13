@@ -537,6 +537,13 @@ export class MySQLAdapter implements DatabaseAdapter {
       sql`LEFT JOIN ${table} ON ${condition}`,
 
     cross: (table: Sql): Sql => sql`CROSS JOIN ${table}`,
+
+    // MySQL 8.0.14+ supports LATERAL
+    lateral: (subquery: Sql, alias: string): Sql =>
+      sql`JOIN LATERAL (${subquery}) AS ${sql.raw`\`${alias}\``} ON TRUE`,
+
+    lateralLeft: (subquery: Sql, alias: string): Sql =>
+      sql`LEFT JOIN LATERAL (${subquery}) AS ${sql.raw`\`${alias}\``} ON TRUE`,
   };
 
   // ============================================================
@@ -562,6 +569,7 @@ export class MySQLAdapter implements DatabaseAdapter {
     supportsReturning: false,
     supportsCteWithMutations: false, // MySQL CTEs are read-only
     supportsFullOuterJoin: false,
+    supportsLateralJoins: true, // MySQL 8.0.14+
   };
 
   lastInsertId = (): Sql => sql.raw`LAST_INSERT_ID()`;
