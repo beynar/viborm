@@ -60,9 +60,10 @@ export function buildCorrelation(
     parentFields = inverseInfo.references;
     relatedFields = inverseInfo.fields;
   } else if (state.type === "manyToMany") {
-    // manyToMany requires junction table - not yet implemented
+    // manyToMany requires junction table handling - callers should use getManyToManyJoinInfo() instead
     throw new QueryEngineError(
-      `Many-to-many relation '${relationInfo.name}' requires junction table handling (not yet implemented).`
+      `Many-to-many relation '${relationInfo.name}' cannot use buildCorrelation directly. ` +
+        `Use getManyToManyJoinInfo() and buildManyToManyJoinParts() from many-to-many-utils.ts instead.`
     );
   } else {
     throw new QueryEngineError(

@@ -415,7 +415,7 @@ export class QueryEngine {
       }
 
       case "upsert": {
-        // Upsert with nested writes is complex - for now, delegate to transaction
+        // Upsert with nested writes - delegate to transaction
         return driver.transaction(async (tx) => {
           const where = args.where as Record<string, unknown>;
 
@@ -425,19 +425,43 @@ export class QueryEngine {
             await tx.execute<Record<string, unknown>>(selectSql);
 
           if (selectResult.rows.length > 0) {
-            // Record exists - do update
+            // Record exists - do update with nested operations
             const updateData = args.update as Record<string, unknown>;
-            const { scalar } = separateData(ctx, updateData);
+            const { scalar, relations } = separateData(ctx, updateData);
 
+            // Update scalar fields
             if (Object.keys(scalar).length > 0) {
               const updateSql = buildUpdate(ctx, { where, data: scalar });
               await tx.execute(updateSql);
             }
 
-            // Re-fetch
-            const refetchResult =
+            // Get the updated record for nested operations
+            const updatedResult =
               await tx.execute<Record<string, unknown>>(selectSql);
-            return parseResult<T>(ctx, "findUnique", refetchResult.rows);
+            const updatedRecord = updatedResult.rows[0];
+
+            if (!updatedRecord) {
+              throw new QueryEngineError("Record to update not found");
+            }
+
+            // Handle nested relation mutations (connect, disconnect, create, delete)
+            if (Object.keys(relations).length > 0) {
+              await executeNestedUpdate(tx, ctx, updatedRecord, relations);
+            }
+
+            // Re-fetch with includes if needed
+            if (args.include || args.select) {
+              const refetchSql = buildFindUniqueQuery(ctx, {
+                where,
+                select: args.select as Record<string, unknown> | undefined,
+                include: args.include as Record<string, unknown> | undefined,
+              } as { where: Record<string, unknown> });
+              const refetchResult =
+                await tx.execute<Record<string, unknown>>(refetchSql);
+              return parseResult<T>(ctx, "findUnique", refetchResult.rows);
+            }
+
+            return updatedRecord as T;
           }
           // Record doesn't exist - do create
           const createData = args.create as Record<string, unknown>;

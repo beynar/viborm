@@ -305,6 +305,12 @@ export interface DatabaseAdapter {
     returning: (columns: Sql) => Sql;
     /** ON CONFLICT / ON DUPLICATE KEY */
     onConflict: (target: Sql | null, action: Sql) => Sql;
+    /**
+     * Skip duplicate key errors (for createMany with skipDuplicates: true)
+     * PostgreSQL/SQLite: ON CONFLICT DO NOTHING
+     * MySQL: INSERT IGNORE (prefix) or ON DUPLICATE KEY UPDATE with no-op
+     */
+    skipDuplicates: () => Sql;
   };
 
   /**

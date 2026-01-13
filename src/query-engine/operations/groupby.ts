@@ -179,6 +179,7 @@ function buildGroupByColumns(
  * { fieldName: { _count: { gt: 5 }, _avg: { gte: 10 } } }
  *
  * Each field can have multiple aggregate filters applied.
+ * Also supports logical operators: AND, OR, NOT
  */
 function buildHaving(
   ctx: QueryContext,
@@ -189,12 +190,32 @@ function buildHaving(
   const { adapter } = ctx;
   const conditions: Sql[] = [];
 
-  for (const [fieldName, value] of Object.entries(having)) {
+  for (const [key, value] of Object.entries(having)) {
     if (value === undefined) continue;
 
+    // Handle logical operators (AND, OR, NOT)
+    if (key === "AND") {
+      const andCondition = buildHavingLogicalAnd(ctx, value, alias, byFields);
+      if (andCondition) conditions.push(andCondition);
+      continue;
+    }
+
+    if (key === "OR") {
+      const orCondition = buildHavingLogicalOr(ctx, value, alias, byFields);
+      if (orCondition) conditions.push(orCondition);
+      continue;
+    }
+
+    if (key === "NOT") {
+      const notCondition = buildHavingLogicalNot(ctx, value, alias, byFields);
+      if (notCondition) conditions.push(notCondition);
+      continue;
+    }
+
+    // Handle field-keyed having
     const fieldConditions = buildFieldKeyedHaving(
       ctx,
-      fieldName,
+      key,
       value,
       alias,
       byFields
@@ -204,6 +225,87 @@ function buildHaving(
 
   if (conditions.length === 0) return undefined;
   return adapter.operators.and(...conditions);
+}
+
+/**
+ * Build AND logical operator for HAVING
+ */
+function buildHavingLogicalAnd(
+  ctx: QueryContext,
+  value: unknown,
+  alias: string,
+  byFields: string[]
+): Sql | undefined {
+  const items = Array.isArray(value) ? value : [value];
+  const conditions: Sql[] = [];
+
+  for (const item of items) {
+    const condition = buildHaving(
+      ctx,
+      item as Record<string, unknown>,
+      alias,
+      byFields
+    );
+    if (condition) conditions.push(condition);
+  }
+
+  if (conditions.length === 0) return undefined;
+  return ctx.adapter.operators.and(...conditions);
+}
+
+/**
+ * Build OR logical operator for HAVING
+ */
+function buildHavingLogicalOr(
+  ctx: QueryContext,
+  value: unknown,
+  alias: string,
+  byFields: string[]
+): Sql | undefined {
+  if (!Array.isArray(value)) return undefined;
+
+  const conditions: Sql[] = [];
+
+  for (const item of value) {
+    const condition = buildHaving(
+      ctx,
+      item as Record<string, unknown>,
+      alias,
+      byFields
+    );
+    if (condition) conditions.push(condition);
+  }
+
+  if (conditions.length === 0) return undefined;
+  return ctx.adapter.operators.or(...conditions);
+}
+
+/**
+ * Build NOT logical operator for HAVING
+ */
+function buildHavingLogicalNot(
+  ctx: QueryContext,
+  value: unknown,
+  alias: string,
+  byFields: string[]
+): Sql | undefined {
+  const items = Array.isArray(value) ? value : [value];
+  const conditions: Sql[] = [];
+
+  for (const item of items) {
+    const condition = buildHaving(
+      ctx,
+      item as Record<string, unknown>,
+      alias,
+      byFields
+    );
+    if (condition) conditions.push(condition);
+  }
+
+  if (conditions.length === 0) return undefined;
+
+  const combined = ctx.adapter.operators.and(...conditions);
+  return ctx.adapter.operators.not(combined);
 }
 
 /**

@@ -609,15 +609,13 @@ async function executeConnectOrCreate(
     );
   }
 
-  // SELECT to check existence
-  const pkField = getPrimaryKeyField(targetModel);
-  const pkColumn = getColumnName(targetModel, pkField);
-  const selectSql = sql`SELECT ${adapter.identifiers.column(alias, pkColumn)} FROM ${adapter.identifiers.escape(targetTable)} ${sql.raw(alias)} WHERE ${whereClause} LIMIT 1`;
+  // SELECT to check existence and fetch full record
+  const selectSql = sql`SELECT * FROM ${adapter.identifiers.escape(targetTable)} ${adapter.identifiers.escape(alias)} WHERE ${whereClause} LIMIT 1`;
 
   const result = await tx.execute<Record<string, unknown>>(selectSql);
 
   if (result.rows.length > 0) {
-    // Record exists - just connect it
+    // Record exists - connect it and return full record
     const existingRecord = result.rows[0]!;
 
     // If FK is on related side, update it to point to parent

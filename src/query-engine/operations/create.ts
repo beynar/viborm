@@ -82,8 +82,7 @@ export function buildCreateMany(
 
   // Add ON CONFLICT DO NOTHING if skipDuplicates
   if (skipDuplicates) {
-    const onConflict = adapter.mutations.onConflict(null, sql.raw`NOTHING`);
-    insertSql = sql`${insertSql} ${onConflict}`;
+    insertSql = sql`${insertSql} ${adapter.mutations.skipDuplicates()}`;
   }
 
   return insertSql;

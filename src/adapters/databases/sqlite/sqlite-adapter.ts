@@ -520,6 +520,8 @@ export class SQLiteAdapter implements DatabaseAdapter {
       }
       return sql`ON CONFLICT DO ${action}`;
     },
+
+    skipDuplicates: (): Sql => sql`ON CONFLICT DO NOTHING`,
   };
 
   // ============================================================
