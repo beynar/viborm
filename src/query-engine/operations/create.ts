@@ -76,11 +76,14 @@ export function buildCreateMany(
     throw new Error("No data to insert");
   }
 
-  // Build INSERT
+  // Build INSERT using adapter (handles column escaping and row formatting)
   const table = adapter.identifiers.escape(tableName);
-  const { prefix, suffix } = skipDuplicates
-    ? adapter.mutations.skipDuplicates()
-    : { prefix: sql``, suffix: sql`` };
 
-  return sql`INSERT ${prefix} INTO ${table} (${sql.join(columns, sql`, `)}) VALUES ${sql.join(values, sql`, `)} ${suffix}`;
+  if (skipDuplicates) {
+    const { prefix, suffix } = adapter.mutations.skipDuplicates();
+    const insertSql = adapter.mutations.insert(table, columns, values, prefix);
+    return sql`${insertSql} ${suffix}`;
+  }
+
+  return adapter.mutations.insert(table, columns, values);
 }

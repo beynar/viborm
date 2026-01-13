@@ -484,10 +484,11 @@ export class MySQLAdapter implements DatabaseAdapter {
   // ============================================================
 
   mutations = {
-    insert: (table: Sql, columns: string[], values: Sql[][]): Sql => {
+    insert: (table: Sql, columns: string[], values: Sql[][], prefix?: Sql): Sql => {
       const cols = columns.map((c) => sql.raw`\`${c}\``);
       const rows = values.map((row) => sql`(${sql.join(row, ", ")})`);
-      return sql`INSERT INTO ${table} (${sql.join(
+      const prefixPart = prefix ? sql`${prefix} ` : sql``;
+      return sql`INSERT ${prefixPart}INTO ${table} (${sql.join(
         cols,
         ", "
       )}) VALUES ${sql.join(rows, ", ")}`;

@@ -295,8 +295,8 @@ export interface DatabaseAdapter {
    * Insert, Update, Delete operations
    */
   mutations: {
-    /** INSERT INTO table (cols) VALUES (...) */
-    insert: (table: Sql, columns: string[], values: Sql[][]) => Sql;
+    /** INSERT INTO table (cols) VALUES (...), with optional prefix (e.g., IGNORE for MySQL) */
+    insert: (table: Sql, columns: string[], values: Sql[][], prefix?: Sql) => Sql;
     /** UPDATE table SET ... WHERE ... */
     update: (table: Sql, sets: Sql, where?: Sql) => Sql;
     /** DELETE FROM table WHERE ... */
