@@ -436,11 +436,15 @@ export class QueryEngine {
             }
 
             // Get the updated record for nested operations
-            // Fall back to original record if re-fetch fails (e.g., concurrent modification)
             const updatedResult =
               await tx.execute<Record<string, unknown>>(selectSql);
-            const updatedRecord =
-              updatedResult.rows[0] ?? (selectResult.rows[0] as Record<string, unknown>);
+            const updatedRecord = updatedResult.rows[0];
+
+            if (!updatedRecord) {
+              throw new QueryEngineError(
+                "Record was modified or deleted by another transaction during upsert"
+              );
+            }
 
             // Handle nested relation mutations (connect, disconnect, create, delete)
             if (Object.keys(relations).length > 0) {
