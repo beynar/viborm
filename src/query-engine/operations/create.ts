@@ -78,12 +78,9 @@ export function buildCreateMany(
 
   // Build INSERT
   const table = adapter.identifiers.escape(tableName);
-  let insertSql = adapter.mutations.insert(table, columns, values);
+  const { prefix, suffix } = skipDuplicates
+    ? adapter.mutations.skipDuplicates()
+    : { prefix: sql``, suffix: sql`` };
 
-  // Add ON CONFLICT DO NOTHING if skipDuplicates
-  if (skipDuplicates) {
-    insertSql = sql`${insertSql} ${adapter.mutations.skipDuplicates()}`;
-  }
-
-  return insertSql;
+  return sql`INSERT ${prefix} INTO ${table} (${sql.join(columns, sql`, `)}) VALUES ${sql.join(values, sql`, `)} ${suffix}`;
 }

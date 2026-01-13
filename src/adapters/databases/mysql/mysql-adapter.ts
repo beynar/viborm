@@ -516,11 +516,7 @@ export class MySQLAdapter implements DatabaseAdapter {
       return sql`ON DUPLICATE KEY UPDATE ${action}`;
     },
 
-    // MySQL doesn't have ON CONFLICT DO NOTHING, so we use a no-op update
-    // This sets the first column to itself, which effectively does nothing on duplicate
-    // Note: This approach has a side effect of incrementing auto_increment counters
-    // A better approach would be INSERT IGNORE but that requires modifying the INSERT itself
-    skipDuplicates: (): Sql => sql`AS new ON DUPLICATE KEY UPDATE id = id`,
+    skipDuplicates: () => ({ prefix: sql`IGNORE`, suffix: sql`` }),
   };
 
   // ============================================================

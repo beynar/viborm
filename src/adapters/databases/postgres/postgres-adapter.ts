@@ -423,7 +423,7 @@ export class PostgresAdapter implements DatabaseAdapter {
       return sql`ON CONFLICT DO ${action}`;
     },
 
-    skipDuplicates: (): Sql => sql`ON CONFLICT DO NOTHING`,
+    skipDuplicates: () => ({ prefix: sql``, suffix: sql`ON CONFLICT DO NOTHING` }),
   };
 
   // ============================================================
