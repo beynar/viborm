@@ -449,19 +449,15 @@ export class QueryEngine {
               await executeNestedUpdate(tx, ctx, updatedRecord, relations);
             }
 
-            // Re-fetch with includes if needed
-            if (args.include || args.select) {
-              const refetchSql = buildFindUniqueQuery(ctx, {
-                where,
-                select: args.select as Record<string, unknown> | undefined,
-                include: args.include as Record<string, unknown> | undefined,
-              } as { where: Record<string, unknown> });
-              const refetchResult =
-                await tx.execute<Record<string, unknown>>(refetchSql);
-              return parseResult<T>(ctx, "findUnique", refetchResult.rows);
-            }
-
-            return updatedRecord as T;
+            // Re-fetch to get final state (including nested changes if include/select specified)
+            const refetchSql = buildFindUniqueQuery(ctx, {
+              where,
+              select: args.select as Record<string, unknown> | undefined,
+              include: args.include as Record<string, unknown> | undefined,
+            } as { where: Record<string, unknown> });
+            const refetchResult =
+              await tx.execute<Record<string, unknown>>(refetchSql);
+            return parseResult<T>(ctx, "findUnique", refetchResult.rows);
           }
           // Record doesn't exist - do create
           const createData = args.create as Record<string, unknown>;
