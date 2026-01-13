@@ -330,6 +330,11 @@ export interface DatabaseAdapter {
      * When false, falls back to correlated subqueries
      */
     supportsLateralJoins: boolean;
+    /**
+     * Whether driver supports transactions (false for D1, etc.)
+     * When false, nested writes execute sequentially without atomicity guarantees
+     */
+    supportsTransactions: boolean;
   };
 
   /**

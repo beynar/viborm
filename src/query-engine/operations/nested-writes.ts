@@ -21,6 +21,7 @@ import { buildWhereUnique } from "../builders/where-builder";
 import { createChildContext, getColumnName, getTableName } from "../context";
 import type { QueryContext, RelationInfo } from "../types";
 import { NestedWriteError } from "../types";
+import { withTransactionIfSupported } from "../utils/transaction-helper";
 
 // ============================================================
 // TYPES
@@ -205,8 +206,8 @@ export async function executeNestedCreate(
     return { record: result, related: {} };
   }
 
-  // Execute in transaction
-  return driver.transaction(async (tx) => {
+  // Execute in transaction if supported
+  return withTransactionIfSupported(driver, async (tx) => {
     const txCtx: TransactionContext = {
       generatedIds: new Map(),
       createdRecords: new Map(),
@@ -311,8 +312,8 @@ export async function executeNestedUpdate(
     return { record: parentRecord, related: {} };
   }
 
-  // Execute in transaction
-  return driver.transaction(async (tx) => {
+  // Execute in transaction if supported
+  return withTransactionIfSupported(driver, async (tx) => {
     const txCtx: TransactionContext = {
       generatedIds: new Map(),
       createdRecords: new Map(),

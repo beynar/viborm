@@ -45,6 +45,7 @@ import {
   type QueryContext,
   QueryEngineError,
 } from "./types";
+import { withTransactionIfSupported } from "./utils/transaction-helper";
 import { validate } from "./validator";
 
 /**
@@ -366,7 +367,7 @@ export class QueryEngine {
 
         // Check if we need a transaction for nested operations
         if (Object.keys(relations).length > 0 && needsTransaction(relations)) {
-          return driver.transaction(async (tx) => {
+          return withTransactionIfSupported(driver, async (tx) => {
             // First, update the scalar fields
             if (Object.keys(scalar).length > 0) {
               const updateSql = buildUpdate(ctx, { where, data: scalar });
@@ -416,7 +417,7 @@ export class QueryEngine {
 
       case "upsert": {
         // Upsert with nested writes - delegate to transaction
-        return driver.transaction(async (tx) => {
+        return withTransactionIfSupported(driver, async (tx) => {
           const where = args.where as Record<string, unknown>;
 
           // Check if record exists
