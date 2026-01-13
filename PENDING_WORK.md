@@ -8,20 +8,7 @@ This document tracks the actual remaining work for VibORM, replacing outdated pl
 
 ## 🔴 Bugs to Fix
 
-### 1. Aggregate Schema Not Properly Typed
-
-**File:** `src/schema/model/schemas/args/aggregate.ts:18`  
-**Priority:** Low
-
-```typescript
-// TODO this is not typed properly
-export type AggregateFieldSchemas<T extends ModelState> = {
-  count: V.FromKeys<string[], OptionalBoolean>;  // Should infer actual field names
-  // ...
-}
-```
-
-The aggregate field schemas use `string[]` instead of inferring actual field names from the model.
+_No critical bugs currently tracked._
 
 ---
 
@@ -45,11 +32,10 @@ test.skip("with cursor pagination", () => {
 **File:** `tests/query-engine/sql-generation.test.ts:729`
 
 ```typescript
-// TODO: having clause with aggregate functions (_count, etc.) needs special schema support
 test.skip("with having", () => {
 ```
 
-**Issue:** HAVING clause with aggregate functions like `_count: { gt: 5 }` needs schema-level support for aggregate conditions.
+**Issue:** Schema support for HAVING is implemented (`src/schema/model/schemas/args/aggregate.ts`). Test needs to be unskipped and query-engine SQL generation for HAVING clause needs implementation.
 
 ---
 
@@ -126,6 +112,10 @@ For historical reference, these were previously documented as pending but are no
 
 | Feature | Location |
 |---------|----------|
+| **Aggregate schema proper typing** | `src/schema/model/schemas/args/aggregate.ts` |
+| **Prisma-compliant having schema** | `src/schema/model/schemas/args/aggregate.ts` |
+| **Count args with select option** | `src/schema/model/schemas/args/aggregate.ts` |
+| **NumericFieldKeys helper type** | `src/schema/model/helper.ts` |
 | Enum literal types preserved through relations | `src/schema/fields/enum/`, `src/client/result-types.ts` |
 | Create/CreateMany operations | `src/query-engine/operations/create.ts` |
 | Update/UpdateMany operations | `src/query-engine/operations/update.ts` |
@@ -146,6 +136,5 @@ For historical reference, these were previously documented as pending but are no
 ## Priority Order
 
 1. **Medium:** Unskip cursor pagination test
-2. **Medium:** GroupBy HAVING schema support
-3. **Low:** Aggregate schema typing
-4. **Future:** MySQL migrations, caching, polymorphic relations, recursive queries
+2. **Medium:** GroupBy HAVING query-engine SQL generation (schema done)
+3. **Future:** MySQL migrations, caching, polymorphic relations, recursive queries

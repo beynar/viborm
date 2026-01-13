@@ -12,87 +12,37 @@ import {
 } from "@client/client";
 import type { Schema } from "@client/types";
 import type { Sql } from "@sql";
+import postgres, {
+  type Options as PostgresOptions,
+  type Sql as PostgresSql,
+} from "postgres";
 import { LazyDriver } from "../base-driver";
 import type { Driver } from "../driver";
 import { unsupportedGeospatial, unsupportedVector } from "../errors";
 import { buildPostgresStatement } from "../postgres-utils";
 import type { Dialect, QueryResult, TransactionOptions } from "../types";
 
-// ============================================================
-// INTERFACES (matching postgres.js types)
-// ============================================================
-
-interface PostgresSql {
-  unsafe<T extends Record<string, unknown>[] = Record<string, unknown>[]>(
-    query: string,
-    parameters?: unknown[]
-  ): PostgresPromise<T>;
-
-  begin<T>(fn: (sql: PostgresSql) => Promise<T>): Promise<T>;
-  begin<T>(
-    options: string | PostgresTransactionOptions,
-    fn: (sql: PostgresSql) => Promise<T>
-  ): Promise<T>;
-
-  end(options?: { timeout?: number }): Promise<void>;
-}
-
-interface PostgresPromise<T> extends Promise<T> {
-  count: number;
-}
-
-interface PostgresTransactionOptions {
-  isolationLevel?:
-    | "read uncommitted"
-    | "read committed"
-    | "repeatable read"
-    | "serializable";
-}
-
-type PostgresConstructor = (
-  connectionString?: string | PostgresOptions
-) => PostgresSql;
-
-// ============================================================
-// EXPORTED OPTIONS
-// ============================================================
-
-export interface PostgresOptions {
-  host?: string;
-  port?: number;
-  database?: string;
-  username?: string;
-  user?: string;
-  password?: string;
-  ssl?: boolean | "require" | "prefer" | "allow" | "verify-full";
-  max?: number;
-  idle_timeout?: number;
-  connect_timeout?: number;
-}
-
 export interface PostgresDriverOptions {
-  client?: PostgresSql;
-  options?: PostgresOptions;
+  client?: PostgresSql<Record<string, unknown>>;
+  options?: PostgresOptions<Record<string, unknown>>;
   /** @deprecated Use options directly */
   connectionString?: string;
   pgvector?: boolean;
   postgis?: boolean;
 }
 
-export interface PostgresClientConfig<S extends Schema> {
+export interface PostgresClientConfig<S extends Schema>
+  extends PostgresDriverOptions {
   schema: S;
-  client?: PostgresSql;
-  options?: PostgresOptions;
-  connectionString?: string;
-  pgvector?: boolean;
-  postgis?: boolean;
 }
 
 // ============================================================
 // DRIVER IMPLEMENTATION
 // ============================================================
 
-export class PostgresDriver extends LazyDriver<PostgresSql> {
+export class PostgresDriver extends LazyDriver<
+  PostgresSql<Record<string, unknown>>
+> {
   readonly dialect: Dialect = "postgresql";
   readonly adapter: DatabaseAdapter;
 
@@ -114,15 +64,7 @@ export class PostgresDriver extends LazyDriver<PostgresSql> {
     this.adapter = adapter;
   }
 
-  protected async initClient(): Promise<PostgresSql> {
-    // @ts-expect-error - postgres types may not be installed
-    const module = await import("postgres");
-    const postgres = (module.default || module) as PostgresConstructor;
-
-    if (!postgres) {
-      throw new Error("postgres is not installed. Run: npm install postgres");
-    }
-
+  protected async initClient(): Promise<PostgresSql<Record<string, unknown>>> {
     if (this.driverOptions.options) {
       return postgres(this.driverOptions.options);
     }
@@ -132,56 +74,54 @@ export class PostgresDriver extends LazyDriver<PostgresSql> {
     return postgres();
   }
 
-  protected async closeClient(sql: PostgresSql): Promise<void> {
+  protected async closeClient(
+    sql: PostgresSql<Record<string, unknown>>
+  ): Promise<void> {
     await sql.end();
   }
 
   protected async executeWithClient<T>(
-    sql: PostgresSql,
+    sql: PostgresSql<Record<string, unknown>>,
     query: Sql
   ): Promise<QueryResult<T>> {
     const statement = buildPostgresStatement(query);
     const result = await sql.unsafe<T[]>(statement, query.values);
     return {
       rows: result as T[],
-      rowCount:
-        (result as unknown as PostgresPromise<T[]>).count ?? result.length,
+      rowCount: (result as RowList<T[]>).count ?? result.length,
     };
   }
 
   protected async executeRawWithClient<T>(
-    sql: PostgresSql,
+    sql: PostgresSql<Record<string, unknown>>,
     sqlStr: string,
     params?: unknown[]
   ): Promise<QueryResult<T>> {
     const result = await sql.unsafe<T[]>(sqlStr, params);
     return {
       rows: result as T[],
-      rowCount:
-        (result as unknown as PostgresPromise<T[]>).count ?? result.length,
+      rowCount: (result as RowList<T[]>).count ?? result.length,
     };
   }
 
   protected async transactionWithClient<T>(
-    sql: PostgresSql,
+    sql: PostgresSql<Record<string, unknown>>,
     fn: (tx: Driver) => Promise<T>,
     options?: TransactionOptions
   ): Promise<T> {
-    const txOptions = options?.isolationLevel
-      ? {
-          isolationLevel: {
-            ReadUncommitted: "read uncommitted",
-            ReadCommitted: "read committed",
-            RepeatableRead: "repeatable read",
-            Serializable: "serializable",
-          }[
-            options.isolationLevel
-          ] as PostgresTransactionOptions["isolationLevel"],
-        }
+    const isolationMap = {
+      ReadUncommitted: "read uncommitted",
+      ReadCommitted: "read committed",
+      RepeatableRead: "repeatable read",
+      Serializable: "serializable",
+    } as const;
+
+    const isolation = options?.isolationLevel
+      ? isolationMap[options.isolationLevel]
       : undefined;
 
-    if (txOptions) {
-      return sql.begin(txOptions, async (txSql) => {
+    if (isolation) {
+      return sql.begin(isolation, async (txSql) => {
         return fn(new PostgresTransactionDriver(txSql, this.adapter));
       });
     }
@@ -199,10 +139,13 @@ export class PostgresDriver extends LazyDriver<PostgresSql> {
 class PostgresTransactionDriver implements Driver {
   readonly dialect: Dialect = "postgresql";
   readonly adapter: DatabaseAdapter;
-  private readonly sql: PostgresSql;
+  private readonly sql: PostgresSql<Record<string, unknown>>;
   private savepointCounter = 0;
 
-  constructor(sql: PostgresSql, adapter: DatabaseAdapter) {
+  constructor(
+    sql: PostgresSql<Record<string, unknown>>,
+    adapter: DatabaseAdapter
+  ) {
     this.sql = sql;
     this.adapter = adapter;
   }
@@ -214,8 +157,7 @@ class PostgresTransactionDriver implements Driver {
     const result = await this.sql.unsafe<T[]>(statement, query.values);
     return {
       rows: result as T[],
-      rowCount:
-        (result as unknown as PostgresPromise<T[]>).count ?? result.length,
+      rowCount: (result as RowList<T[]>).count ?? result.length,
     };
   }
 
@@ -226,8 +168,7 @@ class PostgresTransactionDriver implements Driver {
     const result = await this.sql.unsafe<T[]>(sqlStr, params);
     return {
       rows: result as T[],
-      rowCount:
-        (result as unknown as PostgresPromise<T[]>).count ?? result.length,
+      rowCount: (result as RowList<T[]>).count ?? result.length,
     };
   }
 

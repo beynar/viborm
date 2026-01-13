@@ -57,7 +57,7 @@ export const getModelSchemas = <T extends ModelState>(
       delete: getDeleteArgs(core),
       deleteMany: getDeleteManyArgs(core),
       upsert: getUpsertArgs(core),
-      count: getCountArgs(core),
+      count: getCountArgs(state, core),
       aggregate: getAggregateArgs(state, core),
       groupBy: getGroupByArgs(state, core),
     },

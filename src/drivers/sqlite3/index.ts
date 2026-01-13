@@ -17,62 +17,31 @@ import {
 } from "@client/client";
 import type { Schema } from "@client/types";
 import type { Sql } from "@sql";
+import Database from "better-sqlite3";
 import { LazyDriver } from "../base-driver";
 import type { Driver, DriverResultParser } from "../driver";
 import type { Dialect, QueryResult, TransactionOptions } from "../types";
 
-// ============================================================
-// INTERFACES (matching better-sqlite3 types)
-// ============================================================
-
-interface SQLite3Database {
-  prepare<T = Record<string, unknown>>(sql: string): SQLite3Statement<T>;
-  exec(sql: string): this;
-  close(): void;
-}
-
-interface SQLite3Statement<T = Record<string, unknown>> {
-  run(...params: unknown[]): { changes: number };
-  all(...params: unknown[]): T[];
-}
-
-interface SQLite3Constructor {
-  new (filename: string, options?: SQLite3ConstructorOptions): SQLite3Database;
-}
-
-interface SQLite3ConstructorOptions {
-  readonly?: boolean;
-  fileMustExist?: boolean;
-  timeout?: number;
-  verbose?: (message?: unknown, ...additionalArgs: unknown[]) => void;
-  nativeBinding?: string;
-}
+type SQLite3Database = Database.Database;
 
 // ============================================================
 // EXPORTED OPTIONS
 // ============================================================
 
-export interface SQLite3Options {
+export interface SQLite3DriverOptionsConfig extends SQLite3Options {
   filename?: string;
-  readonly?: boolean;
-  fileMustExist?: boolean;
-  timeout?: number;
-  verbose?: (message?: unknown, ...additionalArgs: unknown[]) => void;
-  nativeBinding?: string;
 }
 
 export interface SQLite3DriverOptions {
   client?: SQLite3Database;
-  options?: SQLite3Options;
+  options?: SQLite3DriverOptionsConfig;
   /** @deprecated Use options.filename */
   filename?: string;
 }
 
-export interface SQLite3ClientConfig<S extends Schema> {
+export interface SQLite3ClientConfig<S extends Schema>
+  extends SQLite3DriverOptions {
   schema: S;
-  client?: SQLite3Database;
-  options?: SQLite3Options;
-  filename?: string;
 }
 
 // ============================================================
@@ -141,18 +110,7 @@ export class SQLite3Driver extends LazyDriver<SQLite3Database> {
   }
 
   protected async initClient(): Promise<SQLite3Database> {
-    // @ts-expect-error - better-sqlite3 types may not be installed
-    const module = await import("better-sqlite3");
-    const Database = (module.default ||
-      module) as unknown as SQLite3Constructor;
-
-    if (!Database) {
-      throw new Error(
-        "better-sqlite3 is not installed. Run: npm install better-sqlite3"
-      );
-    }
-
-    const opts: SQLite3ConstructorOptions = {};
+    const opts: SQLite3Options = {};
     const explicitOptions = this.driverOptions.options;
 
     if (explicitOptions?.readonly !== undefined)

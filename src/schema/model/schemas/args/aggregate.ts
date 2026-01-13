@@ -1,6 +1,10 @@
 // Aggregate operation args schema factories
 
-import type { StringKeyOf } from "@schema/model/helper";
+import type {
+  NumericFieldKeys,
+  ScalarFieldKeys,
+  StringKeyOf,
+} from "@schema/model/helper";
 import v, { type V } from "@validation";
 import type { ModelState } from "../../model";
 import type { CoreSchemas } from "../core";
@@ -12,16 +16,34 @@ import { forEachScalarField } from "../utils";
 
 /**
  * Build aggregate field schemas (for _count, _avg, _sum, _min, _max)
+ * Following Prisma's API:
+ * - _count: can be `true` or object with `_all` + all scalar field names
+ * - _avg, _sum: only numeric fields (int, float, decimal, bigint)
+ * - _min, _max: all comparable types (all scalars)
  */
 type OptionalBoolean = V.Boolean<{ optional: true }>;
 
-// TODO this is not typed properly
+/**
+ * Count keys include "_all" plus all scalar field names
+ */
+export type CountFieldKeys<T extends ModelState> =
+  | "_all"
+  | ScalarFieldKeys<T["scalars"]>;
+
+/**
+ * Aggregate field schemas with proper typing
+ */
 export type AggregateFieldSchemas<T extends ModelState> = {
-  count: V.FromKeys<string[], OptionalBoolean>;
-  avg: V.FromKeys<StringKeyOf<T["scalars"]>[], OptionalBoolean>;
-  sum: V.FromKeys<StringKeyOf<T["scalars"]>[], OptionalBoolean>;
-  min: V.FromKeys<StringKeyOf<T["scalars"]>[], OptionalBoolean>;
-  max: V.FromKeys<StringKeyOf<T["scalars"]>[], OptionalBoolean>;
+  /** Count can include _all and any scalar field */
+  count: V.FromKeys<CountFieldKeys<T>[], OptionalBoolean>;
+  /** Avg only works on numeric fields */
+  avg: V.FromKeys<NumericFieldKeys<T["scalars"]>[], OptionalBoolean>;
+  /** Sum only works on numeric fields */
+  sum: V.FromKeys<NumericFieldKeys<T["scalars"]>[], OptionalBoolean>;
+  /** Min works on all comparable types (all scalars) */
+  min: V.FromKeys<ScalarFieldKeys<T["scalars"]>[], OptionalBoolean>;
+  /** Max works on all comparable types (all scalars) */
+  max: V.FromKeys<ScalarFieldKeys<T["scalars"]>[], OptionalBoolean>;
 };
 
 export const getAggregateFieldSchemas = <T extends ModelState>(
@@ -54,7 +76,7 @@ export const getAggregateFieldSchemas = <T extends ModelState>(
     sum: v.fromKeys(numericKeys, booleanOptional),
     min: v.fromKeys(minMaxKeys, booleanOptional),
     max: v.fromKeys(minMaxKeys, booleanOptional),
-  };
+  } as AggregateFieldSchemas<T>;
 };
 
 // =============================================================================
@@ -62,7 +84,12 @@ export const getAggregateFieldSchemas = <T extends ModelState>(
 // =============================================================================
 
 /**
- * Count args: { where?, cursor?, take?, skip? }
+ * Count args following Prisma's API:
+ * - where: filter records before counting
+ * - cursor: cursor-based pagination
+ * - take: limit number of records
+ * - skip: skip number of records
+ * - select: which fields to count (including _all for total count)
  */
 export type CountArgs<T extends ModelState> = V.Object<
   {
@@ -70,21 +97,27 @@ export type CountArgs<T extends ModelState> = V.Object<
     cursor: CoreSchemas<T>["whereUnique"];
     take: V.Number;
     skip: V.Number;
+    select: AggregateFieldSchemas<T>["count"];
   },
   { optional: true }
 >;
+
 export const getCountArgs = <T extends ModelState>(
+  state: T,
   core: CoreSchemas<T>
 ): CountArgs<T> => {
+  const aggSchemas = getAggregateFieldSchemas(state);
+
   return v.object(
     {
       where: core.where,
       cursor: core.whereUnique,
       take: v.number(),
       skip: v.number(),
+      select: aggSchemas.count,
     },
     { optional: true }
-  );
+  ) as CountArgs<T>;
 };
 
 // =============================================================================
@@ -131,7 +164,80 @@ export const getAggregateArgs = <
     _sum: aggSchemas.sum,
     _min: aggSchemas.min,
     _max: aggSchemas.max,
-  });
+  }) as AggregateArgs<T>;
+};
+
+// =============================================================================
+// GROUP BY HAVING SCHEMA
+// =============================================================================
+
+/**
+ * Having schema for groupBy follows Prisma's pattern.
+ *
+ * Allows filtering on aggregate values like:
+ * { profileViews: { _avg: { gt: 100 } }, name: { _count: { gte: 5 } } }
+ *
+ * Each field can have aggregate operators: _count, _avg, _sum, _min, _max
+ * Each aggregate operator accepts numeric comparison operators.
+ */
+type NumericFilterOps = V.Object<
+  {
+    equals: V.Number;
+    gt: V.Number;
+    gte: V.Number;
+    lt: V.Number;
+    lte: V.Number;
+    not: V.Number;
+  },
+  { optional: true }
+>;
+
+export type HavingFieldSchema = V.Object<
+  {
+    _count: NumericFilterOps;
+    _avg: NumericFilterOps;
+    _sum: NumericFilterOps;
+    _min: NumericFilterOps;
+    _max: NumericFilterOps;
+  },
+  { optional: true }
+>;
+
+export type HavingSchema<T extends ModelState> = V.Object<
+  V.FromKeys<ScalarFieldKeys<T["scalars"]>[], HavingFieldSchema>["entries"],
+  { optional: true }
+>;
+
+const numericFilterOps = v.object(
+  {
+    equals: v.number(),
+    gt: v.number(),
+    gte: v.number(),
+    lt: v.number(),
+    lte: v.number(),
+    not: v.number(),
+  },
+  { optional: true }
+);
+
+const havingFieldSchema = v.object(
+  {
+    _count: numericFilterOps,
+    _avg: numericFilterOps,
+    _sum: numericFilterOps,
+    _min: numericFilterOps,
+    _max: numericFilterOps,
+  },
+  { optional: true }
+);
+
+export const getHavingSchema = <T extends ModelState>(
+  state: T
+): HavingSchema<T> => {
+  const scalarKeys = Object.keys(state.scalars);
+  return v.fromKeys(scalarKeys, havingFieldSchema, {
+    optional: true,
+  }) as HavingSchema<T>;
 };
 
 // =============================================================================
@@ -147,7 +253,7 @@ export type GroupByArgs<T extends ModelState> = V.Object<
   {
     by: V.Union<readonly [EnumOfFields<T>, V.Array<EnumOfFields<T>>]>;
     where: CoreSchemas<T>["where"];
-    having: CoreSchemas<T>["where"];
+    having: HavingSchema<T>;
     orderBy: V.Union<
       readonly [CoreSchemas<T>["orderBy"], V.Array<CoreSchemas<T>["orderBy"]>]
     >;
@@ -165,6 +271,7 @@ export type GroupByArgs<T extends ModelState> = V.Object<
     atLeast: ["by"];
   }
 >;
+
 export const getGroupByArgs = <T extends ModelState>(
   state: T,
   core: CoreSchemas<T>
@@ -176,12 +283,13 @@ export const getGroupByArgs = <T extends ModelState>(
   const fieldSchema = v.enum(scalarKeys);
 
   const aggSchemas = getAggregateFieldSchemas(state);
+  const havingSchema = getHavingSchema(state);
 
   return v.object(
     {
       by: v.union([fieldSchema, v.array(fieldSchema)]),
       where: core.where,
-      having: core.where, // Simplified - could be more specific
+      having: havingSchema,
       orderBy: v.union([core.orderBy, v.array(core.orderBy)]),
       take: v.number(),
       skip: v.number(),
@@ -194,5 +302,5 @@ export const getGroupByArgs = <T extends ModelState>(
     {
       atLeast: ["by"],
     }
-  );
+  ) as GroupByArgs<T>;
 };

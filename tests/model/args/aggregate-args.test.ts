@@ -273,7 +273,7 @@ describe("GroupBy Args - Simple Model Runtime", () => {
   test("runtime: accepts with having", () => {
     const result = parse(schema, {
       by: "active",
-      having: { age: { gte: 18 } },
+      having: { age: { _avg: { gte: 18 } } },
     });
     expect(result.issues).toBeUndefined();
   });
@@ -307,7 +307,7 @@ describe("GroupBy Args - Simple Model Runtime", () => {
     const result = parse(schema, {
       by: ["active", "name"],
       where: { age: { gte: 18 } },
-      having: { active: true },
+      having: { age: { _avg: { gte: 18 } } },
       orderBy: { active: "asc" },
       take: 10,
       skip: 0,
@@ -344,11 +344,11 @@ describe("GroupBy Args - Simple Model Runtime", () => {
     }
   });
 
-  test("output: preserves all groupBy options correctly (with normalization)", () => {
+  test("output: preserves all groupBy options correctly", () => {
     const result = parse(schema, {
       by: ["active"],
       where: { age: { gte: 18 } },
-      having: { active: true },
+      having: { age: { _avg: { gte: 18 } }, name: { _count: { gt: 0 } } },
       orderBy: { active: "asc" },
       take: 10,
       skip: 5,
@@ -357,10 +357,12 @@ describe("GroupBy Args - Simple Model Runtime", () => {
     expect(result.issues).toBeUndefined();
     if (!result.issues) {
       expect(result.value.by).toEqual(["active"]);
-      // Filter values in where/having are preserved (gte is already an operator)
       expect(result.value.where).toEqual({ age: { gte: 18 } });
-      // having with boolean is normalized
-      expect(result.value.having).toEqual({ active: { equals: true } });
+      // having uses Prisma-style aggregate filtering
+      expect(result.value.having).toEqual({
+        age: { _avg: { gte: 18 } },
+        name: { _count: { gt: 0 } },
+      });
       expect(result.value.orderBy).toEqual({ active: "asc" });
       expect(result.value.take).toBe(10);
       expect(result.value.skip).toBe(5);

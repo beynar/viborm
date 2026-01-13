@@ -6,6 +6,8 @@ export type {
   CompoundConstraint,
   FieldRecord,
   NameFromKeys,
+  NumericFieldKeys,
+  NumericFieldType,
   RelationFields,
   RelationKeys,
   ScalarFieldKeys,

@@ -12,6 +12,7 @@ import {
   type VibORMClient,
 } from "@client/client";
 import type { Schema } from "@client/types";
+import { PGlite, type PGliteOptions } from "@electric-sql/pglite";
 import type { Sql } from "@sql";
 import { LazyDriver } from "../base-driver";
 import type { Driver } from "../driver";
@@ -19,18 +20,7 @@ import { unsupportedGeospatial, unsupportedVector } from "../errors";
 import { buildPostgresStatement } from "../postgres-utils";
 import type { Dialect, QueryResult, TransactionOptions } from "../types";
 
-// ============================================================
-// INTERFACES (matching @electric-sql/pglite types)
-// ============================================================
-
-interface PGliteClient {
-  query<T = Record<string, unknown>>(
-    sql: string,
-    params?: unknown[]
-  ): Promise<{ rows: T[]; affectedRows?: number }>;
-  transaction<T>(fn: (tx: PGliteTransaction) => Promise<T>): Promise<T>;
-  close(): Promise<void>;
-}
+type PGliteClient = PGlite;
 
 interface PGliteTransaction {
   query<T = Record<string, unknown>>(
@@ -39,30 +29,11 @@ interface PGliteTransaction {
   ): Promise<{ rows: T[]; affectedRows?: number }>;
 }
 
-interface PGliteConstructor {
-  new (dataDirOrOptions?: string | PGliteOptions): PGliteClient;
-}
-
 // ============================================================
 // EXPORTED OPTIONS
 // ============================================================
 
-export interface PGliteOptions {
-  /** Data directory for persistence */
-  dataDir?: string;
-  /** Debug level (0 = off) */
-  debug?: number;
-  /** Relaxed durability mode */
-  relaxedDurability?: boolean;
-  /** Extensions to load */
-  extensions?: Record<string, unknown> | unknown[];
-  /** Custom file system */
-  fs?: unknown;
-  /** Initial SQL to run */
-  initialMemory?: number;
-  /** Load data dump on creation */
-  loadDataDir?: string;
-}
+export type { PGliteOptions } from "@electric-sql/pglite";
 
 export interface PGliteDriverOptions {
   client?: PGliteClient;
@@ -73,13 +44,9 @@ export interface PGliteDriverOptions {
   postgis?: boolean;
 }
 
-export interface PGliteClientConfig<S extends Schema> {
+export interface PGliteClientConfig<S extends Schema>
+  extends PGliteDriverOptions {
   schema: S;
-  client?: PGliteClient;
-  options?: PGliteOptions;
-  dataDir?: string;
-  pgvector?: boolean;
-  postgis?: boolean;
 }
 
 // ============================================================
@@ -108,16 +75,7 @@ export class PGliteDriver extends LazyDriver<PGliteClient> {
     this.adapter = adapter;
   }
 
-  protected async initClient(): Promise<PGliteClient> {
-    const module = await import("@electric-sql/pglite");
-    const PGlite = module.PGlite as PGliteConstructor;
-
-    if (!PGlite) {
-      throw new Error(
-        "@electric-sql/pglite is not installed. Run: npm install @electric-sql/pglite"
-      );
-    }
-
+  protected initClient(): Promise<PGliteClient> {
     // Build options
     const pgliteOptions: PGliteOptions = this.driverOptions.options
       ? { ...this.driverOptions.options }
@@ -133,7 +91,7 @@ export class PGliteDriver extends LazyDriver<PGliteClient> {
       pgliteOptions.dataDir = ".pglite";
     }
 
-    return new PGlite(pgliteOptions);
+    return PGlite.create(pgliteOptions);
   }
 
   protected async closeClient(client: PGliteClient): Promise<void> {

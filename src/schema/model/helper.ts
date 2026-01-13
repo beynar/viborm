@@ -71,6 +71,18 @@ export type UniqueFieldKeys<T extends FieldRecord> = {
     : never;
 }[keyof T];
 
+/** Numeric field types for aggregations (avg, sum) */
+export type NumericFieldType = "int" | "float" | "decimal" | "bigint";
+
+/** Extract keys of numeric fields from a FieldRecord */
+export type NumericFieldKeys<T extends FieldRecord> = {
+  [K in keyof T]: T[K] extends Field
+    ? T[K]["~"]["state"]["type"] extends NumericFieldType
+      ? ToString<K>
+      : never
+    : never;
+}[keyof T];
+
 export type ScalarFields<T extends FieldRecord> = {
   [K in ScalarFieldKeys<T>]: T[K] extends Field ? T[K] : never;
 };
