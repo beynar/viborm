@@ -290,7 +290,9 @@ function buildFieldKeyedHaving(
   // Direct field filters: { fieldName: { equals: "x" } } or { fieldName: "x" }
   // Reuse WHERE builder to support the full filter operator set (contains, startsWith, mode, etc.)
   const normalizedFilter =
-    typeof value === "object" && value !== null ? value : { equals: value };
+    typeof value === "object" && value !== null && !Array.isArray(value)
+      ? value
+      : { equals: value };
   return buildWhere(
     ctx,
     { [fieldName]: normalizedFilter } as Record<string, unknown>,
