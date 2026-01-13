@@ -572,7 +572,6 @@ export class MySQLAdapter implements DatabaseAdapter {
     supportsCteWithMutations: false, // MySQL CTEs are read-only
     supportsFullOuterJoin: false,
     supportsLateralJoins: true, // MySQL 8.0.14+
-    supportsTransactions: true,
   };
 
   lastInsertId = (): Sql => sql.raw`LAST_INSERT_ID()`;

@@ -583,7 +583,6 @@ export class SQLiteAdapter implements DatabaseAdapter {
     supportsCteWithMutations: true,
     supportsFullOuterJoin: false,
     supportsLateralJoins: false, // SQLite does not support LATERAL joins
-    supportsTransactions: true,
   };
 
   lastInsertId = (): Sql => sql.raw`last_insert_rowid()`;

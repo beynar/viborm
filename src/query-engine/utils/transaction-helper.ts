@@ -25,7 +25,8 @@ export async function withTransactionIfSupported<T>(
   driver: Driver,
   fn: (tx: Driver) => Promise<T>
 ): Promise<T> {
-  if (driver.adapter.capabilities.supportsTransactions) {
+  // Default to true if not specified
+  if (driver.supportsTransactions !== false) {
     return driver.transaction(fn);
   }
   // No transaction support - execute directly (no atomicity)

@@ -475,7 +475,6 @@ export class PostgresAdapter implements DatabaseAdapter {
     supportsCteWithMutations: true,
     supportsFullOuterJoin: true,
     supportsLateralJoins: true,
-    supportsTransactions: true,
   };
 
   lastInsertId = (): Sql => sql.raw`lastval()`;
