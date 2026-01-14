@@ -13,8 +13,8 @@ import {
   SPAN_EXECUTE,
   SPAN_PARSE,
   SPAN_VALIDATE,
-  ATTR_VIBORM_MODEL,
-  ATTR_VIBORM_OPERATION,
+  ATTR_DB_MODEL,
+  ATTR_DB_OPERATION,
 } from "../instrumentation";
 import { hydrateSchemaNames } from "@schema/hydration";
 import type { Model } from "@schema/model";
@@ -220,8 +220,8 @@ export class QueryEngine {
     const tracer = this.instrumentation?.tracer;
     const modelName = model["~"].names.ts ?? "unknown";
     const spanAttrs = {
-      [ATTR_VIBORM_MODEL]: modelName,
-      [ATTR_VIBORM_OPERATION]: operation,
+      [ATTR_DB_MODEL]: modelName,
+      [ATTR_DB_OPERATION]: operation,
     };
 
     // Validate input (synchronous - use sync span method)

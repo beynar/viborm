@@ -74,12 +74,27 @@ export type VibORMSpanName =
 	| typeof SPAN_DISCONNECT;
 
 /**
- * Semantic attribute keys following OpenTelemetry conventions
- * @see https://opentelemetry.io/docs/specs/semconv/database/
+ * Semantic attribute keys for span attributes
+ * Uses `db.*` namespace for consistency
  */
+
+/** Database system/adapter (postgresql, mysql, sqlite) - OTel convention */
 export const ATTR_DB_SYSTEM = "db.system.name";
+
+/** Driver name (postgres, pg, pglite, mysql2, better-sqlite3) */
+export const ATTR_DB_DRIVER = "db.system.driver";
+
+/** SQL query text */
 export const ATTR_DB_QUERY_TEXT = "db.query.text";
+
+/** Query parameters as JSON string */
 export const ATTR_DB_QUERY_PARAMS = "db.query.params";
-export const ATTR_VIBORM_MODEL = "viborm.model";
-export const ATTR_VIBORM_OPERATION = "viborm.operation";
-export const ATTR_VIBORM_NESTED_WRITES = "viborm.nested_writes";
+
+/** Model name (e.g., User, Post) */
+export const ATTR_DB_MODEL = "db.model";
+
+/** Operation type (e.g., findMany, create, update) */
+export const ATTR_DB_OPERATION = "db.operation";
+
+/** Number of nested write operations */
+export const ATTR_DB_NESTED_WRITES = "db.nested_writes";

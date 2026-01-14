@@ -8,8 +8,8 @@ import {
 	SPAN_DISCONNECT,
 	SPAN_OPERATION,
 	SPAN_TRANSACTION,
-	ATTR_VIBORM_MODEL,
-	ATTR_VIBORM_OPERATION,
+	ATTR_DB_MODEL,
+	ATTR_DB_OPERATION,
 	createQueryLogEvent,
 	createErrorLogEvent,
 } from "../instrumentation";
@@ -187,8 +187,8 @@ export class VibORM<S extends Schema> {
             {
               name: SPAN_OPERATION,
               attributes: {
-                [ATTR_VIBORM_MODEL]: modelNameStr,
-                [ATTR_VIBORM_OPERATION]: operation,
+                [ATTR_DB_MODEL]: modelNameStr,
+                [ATTR_DB_OPERATION]: operation,
               },
             },
             executeWithLogging

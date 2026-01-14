@@ -93,15 +93,16 @@ viborm.transaction (transaction wrapper)
 
 ## Span Attributes
 
-Spans include semantic attributes following [OpenTelemetry conventions](https://opentelemetry.io/docs/specs/semconv/database/):
+All attributes use the `db.*` namespace for consistency:
 
 | Attribute | Description |
 |-----------|-------------|
-| `db.system.name` | Database system (`postgresql`, `mysql`, `sqlite`) |
+| `db.system.name` | Database adapter (`postgresql`, `mysql`, `sqlite`) |
+| `db.system.driver` | Driver name (`postgres`, `pg`, `pglite`, `mysql2`, `better-sqlite3`) |
 | `db.query.text` | SQL query (if `includeSql` enabled) |
 | `db.query.params` | Query parameters as JSON (if `includeParams` enabled) |
-| `viborm.model` | Model name (e.g., `User`) |
-| `viborm.operation` | Operation type (e.g., `findMany`) |
+| `db.model` | Model name (e.g., `User`) |
+| `db.operation` | Operation type (e.g., `findMany`) |
 
 ## Full Setup Example
 
