@@ -7,7 +7,7 @@
 
 import type { VibORMSpanName } from "./spans";
 import {
-	ATTR_DB_QUERY_PARAMS,
+	ATTR_DB_QUERY_PARAMETER_PREFIX,
 	ATTR_DB_QUERY_TEXT,
 } from "./spans";
 
@@ -131,7 +131,13 @@ export function createTracerWrapper(
 				attrs[ATTR_DB_QUERY_TEXT] = options.sql.query;
 			}
 			if (includeParams && options.sql.params) {
-				attrs[ATTR_DB_QUERY_PARAMS] = JSON.stringify(options.sql.params);
+				// Use individual parameter attributes per OTel spec
+				// db.query.parameter.0, db.query.parameter.1, etc.
+				for (let i = 0; i < options.sql.params.length; i++) {
+					const value = options.sql.params[i];
+					attrs[`${ATTR_DB_QUERY_PARAMETER_PREFIX}.${i}`] =
+						typeof value === "string" ? value : JSON.stringify(value);
+				}
 			}
 		}
 

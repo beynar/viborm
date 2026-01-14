@@ -93,16 +93,31 @@ viborm.transaction (transaction wrapper)
 
 ## Span Attributes
 
-All attributes use the `db.*` namespace for consistency:
+VibORM follows [OTel database semantic conventions](https://opentelemetry.io/docs/specs/semconv/database/database-spans/) where possible.
+
+### OTel Standard Attributes
+
+| Attribute | Required | Description |
+|-----------|----------|-------------|
+| `db.system.name` | Yes | Database system (`postgresql`, `mysql`, `sqlite`) |
+| `db.namespace` | If available | Database name/schema |
+| `db.collection.name` | If available | Table name |
+| `db.operation.name` | Yes | Operation (`findMany`, `create`, `SELECT`) |
+| `db.query.text` | If `includeSql` | SQL query text |
+| `db.query.parameter.<index>` | If `includeParams` | Individual query parameters |
+| `db.response.returned_rows` | If available | Number of rows returned |
+| `db.operation.batch.size` | For batch ops | Number of items in batch |
+| `server.address` | If available | Database host |
+| `server.port` | If available | Database port |
+| `error.type` | On failure | Error class name |
+
+### VibORM Custom Attributes
 
 | Attribute | Description |
 |-----------|-------------|
-| `db.system.name` | Database adapter (`postgresql`, `mysql`, `sqlite`) |
 | `db.system.driver` | Driver name (`postgres`, `pg`, `pglite`, `mysql2`, `better-sqlite3`) |
-| `db.query.text` | SQL query (if `includeSql` enabled) |
-| `db.query.params` | Query parameters as JSON (if `includeParams` enabled) |
-| `db.model` | Model name (e.g., `User`) |
-| `db.operation` | Operation type (e.g., `findMany`) |
+| `db.viborm.model` | VibORM model name (e.g., `User`) |
+| `db.viborm.nested_writes` | Number of nested write operations |
 
 ## Full Setup Example
 

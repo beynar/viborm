@@ -75,26 +75,62 @@ export type VibORMSpanName =
 
 /**
  * Semantic attribute keys for span attributes
- * Uses `db.*` namespace for consistency
+ * Following OTel database semantic conventions where possible
+ * @see https://opentelemetry.io/docs/specs/semconv/database/database-spans/
  */
 
-/** Database system/adapter (postgresql, mysql, sqlite) - OTel convention */
+// =============================================================================
+// OTel Standard Attributes
+// =============================================================================
+
+/** Database system (postgresql, mysql, sqlite) - REQUIRED */
 export const ATTR_DB_SYSTEM = "db.system.name";
+
+/** Database name/schema - Conditionally required */
+export const ATTR_DB_NAMESPACE = "db.namespace";
+
+/** Table/collection name - Conditionally required */
+export const ATTR_DB_COLLECTION = "db.collection.name";
+
+/** Operation name (SELECT, INSERT, findMany, create) - Conditionally required */
+export const ATTR_DB_OPERATION_NAME = "db.operation.name";
+
+/** SQL query text - Recommended */
+export const ATTR_DB_QUERY_TEXT = "db.query.text";
+
+/** Low cardinality query summary - Recommended */
+export const ATTR_DB_QUERY_SUMMARY = "db.query.summary";
+
+/** Batch operation size - Recommended */
+export const ATTR_DB_BATCH_SIZE = "db.operation.batch.size";
+
+/** Database server host - Recommended */
+export const ATTR_SERVER_ADDRESS = "server.address";
+
+/** Database server port - Conditionally required */
+export const ATTR_SERVER_PORT = "server.port";
+
+/** Number of rows returned - Optional */
+export const ATTR_DB_ROWS_RETURNED = "db.response.returned_rows";
+
+/** Error type on failure - Conditionally required */
+export const ATTR_ERROR_TYPE = "error.type";
+
+// =============================================================================
+// VibORM Custom Attributes
+// =============================================================================
 
 /** Driver name (postgres, pg, pglite, mysql2, better-sqlite3) */
 export const ATTR_DB_DRIVER = "db.system.driver";
 
-/** SQL query text */
-export const ATTR_DB_QUERY_TEXT = "db.query.text";
+/** VibORM model name (e.g., User, Post) - maps to TypeScript model */
+export const ATTR_DB_MODEL = "db.viborm.model";
 
-/** Query parameters as JSON string */
-export const ATTR_DB_QUERY_PARAMS = "db.query.params";
+/** Number of nested write operations in a mutation */
+export const ATTR_DB_NESTED_WRITES = "db.viborm.nested_writes";
 
-/** Model name (e.g., User, Post) */
-export const ATTR_DB_MODEL = "db.model";
-
-/** Operation type (e.g., findMany, create, update) */
-export const ATTR_DB_OPERATION = "db.operation";
-
-/** Number of nested write operations */
-export const ATTR_DB_NESTED_WRITES = "db.nested_writes";
+/**
+ * Query parameter by key or index
+ * Usage: `db.query.parameter.0`, `db.query.parameter.userId`
+ */
+export const ATTR_DB_QUERY_PARAMETER_PREFIX = "db.query.parameter";

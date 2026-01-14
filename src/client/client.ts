@@ -9,7 +9,7 @@ import {
 	SPAN_OPERATION,
 	SPAN_TRANSACTION,
 	ATTR_DB_MODEL,
-	ATTR_DB_OPERATION,
+	ATTR_DB_OPERATION_NAME,
 	createQueryLogEvent,
 	createErrorLogEvent,
 } from "../instrumentation";
@@ -188,7 +188,7 @@ export class VibORM<S extends Schema> {
               name: SPAN_OPERATION,
               attributes: {
                 [ATTR_DB_MODEL]: modelNameStr,
-                [ATTR_DB_OPERATION]: operation,
+                [ATTR_DB_OPERATION_NAME]: operation,
               },
             },
             executeWithLogging

@@ -14,7 +14,7 @@ import {
   SPAN_PARSE,
   SPAN_VALIDATE,
   ATTR_DB_MODEL,
-  ATTR_DB_OPERATION,
+  ATTR_DB_OPERATION_NAME,
 } from "../instrumentation";
 import { hydrateSchemaNames } from "@schema/hydration";
 import type { Model } from "@schema/model";
@@ -221,7 +221,7 @@ export class QueryEngine {
     const modelName = model["~"].names.ts ?? "unknown";
     const spanAttrs = {
       [ATTR_DB_MODEL]: modelName,
-      [ATTR_DB_OPERATION]: operation,
+      [ATTR_DB_OPERATION_NAME]: operation,
     };
 
     // Validate input (synchronous - use sync span method)
