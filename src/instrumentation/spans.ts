@@ -123,9 +123,6 @@ export const ATTR_ERROR_TYPE = "error.type";
 /** Driver name (postgres, pg, pglite, mysql2, better-sqlite3) */
 export const ATTR_DB_DRIVER = "db.system.driver";
 
-/** VibORM model name (e.g., User, Post) - maps to TypeScript model */
-export const ATTR_DB_MODEL = "db.viborm.model";
-
 /** Number of nested write operations in a mutation */
 export const ATTR_DB_NESTED_WRITES = "db.viborm.nested_writes";
 

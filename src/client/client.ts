@@ -8,7 +8,7 @@ import {
 	SPAN_DISCONNECT,
 	SPAN_OPERATION,
 	SPAN_TRANSACTION,
-	ATTR_DB_MODEL,
+	ATTR_DB_COLLECTION,
 	ATTR_DB_OPERATION_NAME,
 	createQueryLogEvent,
 	createErrorLogEvent,
@@ -138,6 +138,7 @@ export class VibORM<S extends Schema> {
           : (operation as Operation);
 
         const modelNameStr = String(modelName);
+        const tableName = model["~"].names.sql ?? modelNameStr;
         const startTime = Date.now();
 
         // Core execution logic
@@ -187,7 +188,7 @@ export class VibORM<S extends Schema> {
             {
               name: SPAN_OPERATION,
               attributes: {
-                [ATTR_DB_MODEL]: modelNameStr,
+                [ATTR_DB_COLLECTION]: tableName,
                 [ATTR_DB_OPERATION_NAME]: operation,
               },
             },

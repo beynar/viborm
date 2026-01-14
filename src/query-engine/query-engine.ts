@@ -13,7 +13,7 @@ import {
   SPAN_EXECUTE,
   SPAN_PARSE,
   SPAN_VALIDATE,
-  ATTR_DB_MODEL,
+  ATTR_DB_COLLECTION,
   ATTR_DB_OPERATION_NAME,
 } from "../instrumentation";
 import { hydrateSchemaNames } from "@schema/hydration";
@@ -218,9 +218,9 @@ export class QueryEngine {
     }
 
     const tracer = this.instrumentation?.tracer;
-    const modelName = model["~"].names.ts ?? "unknown";
+    const tableName = model["~"].names.sql ?? "unknown";
     const spanAttrs = {
-      [ATTR_DB_MODEL]: modelName,
+      [ATTR_DB_COLLECTION]: tableName,
       [ATTR_DB_OPERATION_NAME]: operation,
     };
 

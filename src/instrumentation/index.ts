@@ -31,7 +31,6 @@ export {
 	ATTR_SERVER_PORT,
 	// VibORM custom attributes
 	ATTR_DB_DRIVER,
-	ATTR_DB_MODEL,
 	ATTR_DB_NESTED_WRITES,
 	// Span names
 	SPAN_BUILD,
