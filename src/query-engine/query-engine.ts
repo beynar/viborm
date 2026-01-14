@@ -427,8 +427,14 @@ export class QueryEngine {
 
           if (selectResult.rows.length > 0) {
             // Record exists - do update with nested operations
+            const existingRecord = selectResult.rows[0]!;
             const updateData = args.update as Record<string, unknown>;
             const { scalar, relations } = separateData(ctx, updateData);
+
+            // Get PK for re-fetching (in case update changes where clause fields)
+            const pkField = getPrimaryKeyField(ctx.model);
+            const pkValue = existingRecord[pkField];
+            const pkWhere = { [pkField]: pkValue };
 
             // Update scalar fields
             if (Object.keys(scalar).length > 0) {
@@ -436,14 +442,15 @@ export class QueryEngine {
               await tx.execute(updateSql);
             }
 
-            // Get the updated record for nested operations
+            // Get the updated record for nested operations (use PK, not original where)
+            const refetchByPkSql = buildFindUniqueQuery(ctx, { where: pkWhere });
             const updatedResult =
-              await tx.execute<Record<string, unknown>>(selectSql);
+              await tx.execute<Record<string, unknown>>(refetchByPkSql);
             const updatedRecord = updatedResult.rows[0];
 
             if (!updatedRecord) {
               throw new QueryEngineError(
-                "Record was modified or deleted by another transaction during upsert"
+                "Record was deleted by another transaction during upsert"
               );
             }
 
@@ -452,9 +459,9 @@ export class QueryEngine {
               await executeNestedUpdate(tx, ctx, updatedRecord, relations);
             }
 
-            // Re-fetch to get final state (including nested changes if include/select specified)
+            // Re-fetch to get final state (use PK in case update changed where clause fields)
             const refetchSql = buildFindUniqueQuery(ctx, {
-              where,
+              where: pkWhere,
               select: args.select as Record<string, unknown> | undefined,
               include: args.include as Record<string, unknown> | undefined,
             } as { where: Record<string, unknown> });

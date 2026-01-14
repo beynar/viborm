@@ -527,6 +527,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
     skipDuplicates: () => ({ prefix: sql``, suffix: sql`ON CONFLICT DO NOTHING` }),
   };
 
+
   // ============================================================
   // JOINS
   // ============================================================
