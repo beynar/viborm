@@ -32,8 +32,11 @@ const client = VibORM.create({
     },
     // Enable structured logging
     logging: {
-      query: true,                   // Pretty console output
-      error: (event) => log(event)   // Custom callback
+      query: true,                       // Pretty console output
+      error: (event, log) => {           // Custom callback
+        errorTracker.capture(event.error);
+        log();                           // Also use default logger
+      }
     }
   }
 });

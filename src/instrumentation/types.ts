@@ -38,8 +38,10 @@ export interface LogEvent {
 
 /**
  * Logging callback function signature
+ * @param event - The log event
+ * @param log - Call this to invoke the default pretty logger
  */
-export type LogCallback = (event: LogEvent) => void;
+export type LogCallback = (event: LogEvent, log: () => void) => void;
 
 /**
  * Tracing configuration options
@@ -75,19 +77,30 @@ export type LogLevelHandler = true | LogCallback;
  *
  * Each log level can be:
  * - `true` to use the default pretty console output
- * - A callback function for custom handling
+ * - A callback function for custom handling (receives event and default logger)
  * - Omitted/undefined to disable that level
+ *
+ * Use `all` as a catch-all for all log levels.
  *
  * @example
  * ```typescript
  * logging: {
- *   query: true,                    // Pretty console output
- *   error: (event) => log(event),   // Custom callback
+ *   query: true,                        // Pretty console output
+ *   error: (event, log) => {
+ *     errorTracker.capture(event.error);
+ *     log();                            // Also use default logger
+ *   },
  *   // warning: omitted = disabled
  * }
  * ```
  */
 export interface LoggingConfig {
+	/**
+	 * Catch-all handler for all log levels.
+	 * Applied when a specific level handler is not defined.
+	 */
+	all?: LogLevelHandler | undefined;
+
 	/**
 	 * Query log handler.
 	 * Emitted for every database query.

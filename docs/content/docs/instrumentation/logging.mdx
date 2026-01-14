@@ -30,6 +30,7 @@ const client = VibORM.create({
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
+| `all` | `true \| LogCallback` | - | Catch-all handler for all levels |
 | `query` | `true \| LogCallback` | - | Query log handler |
 | `warning` | `true \| LogCallback` | - | Warning log handler |
 | `error` | `true \| LogCallback` | - | Error log handler |
@@ -41,8 +42,8 @@ const client = VibORM.create({
 Each level can be configured independently:
 
 - **`true`** - Use the built-in pretty console formatter
-- **`(event) => {}`** - Use a custom callback function
-- **`undefined`** (or omit) - Disable this level
+- **`(event, log) => {}`** - Custom callback (receives default logger as second argument)
+- **`undefined`** (or omit) - Falls back to `all` handler, or disabled if no `all`
 
 | Level | Description |
 |-------|-------------|
@@ -76,16 +77,48 @@ The formatter includes:
 
 ## Custom Callbacks
 
-For full control, provide a callback function:
+For full control, provide a callback function. The callback receives the event and a `log` function that invokes the default pretty logger:
 
 ```typescript
 logging: {
-  query: (event) => {
+  query: (event, log) => {
     // Your custom handling
     myLogger.info(event);
+    log(); // Also print with default pretty formatter
   },
-  error: (event) => {
+  error: (event, log) => {
     errorTracker.capture(event.error);
+    // Don't call log() - skip default output
+  }
+}
+```
+
+## Catch-All Handler
+
+Use `all` to handle all log levels with a single handler:
+
+```typescript
+logging: {
+  all: true  // Pretty output for everything
+}
+
+// Or with a callback
+logging: {
+  all: (event, log) => {
+    myLogger.log(event);
+    log();
+  }
+}
+```
+
+Specific level handlers take precedence over `all`:
+
+```typescript
+logging: {
+  all: true,                    // Default for all levels
+  error: (event, log) => {      // Override for errors only
+    errorTracker.capture(event.error);
+    log();
   }
 }
 ```
@@ -128,7 +161,7 @@ JSON logging for queries, error tracking for errors:
 
 ```typescript
 logging: {
-  query: (event) => {
+  query: (event, log) => {
     console.log(JSON.stringify({
       level: event.level,
       timestamp: event.timestamp.toISOString(),
@@ -137,7 +170,7 @@ logging: {
       duration: event.duration
     }));
   },
-  error: (event) => {
+  error: (event, log) => {
     errorTracker.capture(event.error, {
       model: event.model,
       operation: event.operation
@@ -154,14 +187,14 @@ import pino from "pino";
 const logger = pino();
 
 logging: {
-  query: (event) => {
+  query: (event, log) => {
     logger.info({
       model: event.model,
       operation: event.operation,
       duration: event.duration
     }, `${event.model}.${event.operation}`);
   },
-  error: (event) => {
+  error: (event, log) => {
     logger.error({
       model: event.model,
       operation: event.operation,

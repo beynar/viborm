@@ -103,6 +103,7 @@ function prettyLog(event: LogEvent): void {
 
 /**
  * Get the handler for a specific level from config
+ * Falls back to `all` handler if specific level is not defined
  */
 function getHandler(
 	config: LoggingConfig,
@@ -110,11 +111,11 @@ function getHandler(
 ): LogLevelHandler | undefined {
 	switch (level) {
 		case "query":
-			return config.query;
+			return config.query ?? config.all;
 		case "warning":
-			return config.warning;
+			return config.warning ?? config.all;
 		case "error":
-			return config.error;
+			return config.error ?? config.all;
 	}
 }
 
@@ -147,10 +148,13 @@ export function createLogger(config: LoggingConfig): Logger {
 
 		const sanitized = sanitizeEvent(event);
 
+		// Create the default logger function to pass to callbacks
+		const defaultLog = () => prettyLog(sanitized);
+
 		if (handler === true) {
 			prettyLog(sanitized);
 		} else {
-			handler(sanitized);
+			handler(sanitized, defaultLog);
 		}
 	}
 
