@@ -933,7 +933,7 @@ async function executeSimpleInsert(
   }
 
   // PK was auto-generated - get last insert ID
-  const lastInsertId = await getLastInsertId(driver);
+  const lastInsertId = await getLastInsertId(driver, adapter);
 
   if (lastInsertId !== undefined) {
     return refetchInsertedRecord(
@@ -951,28 +951,25 @@ async function executeSimpleInsert(
 }
 
 /**
- * Get the last inserted ID using dialect-specific query
+ * Get the last inserted ID using adapter's lastInsertId method
  */
-async function getLastInsertId(driver: Driver): Promise<unknown | undefined> {
-  const dialect = driver.dialect;
-
+async function getLastInsertId(
+  driver: Driver,
+  adapter: DatabaseAdapter
+): Promise<unknown | undefined> {
   // PostgreSQL uses RETURNING, no need to query for last insert ID
-  if (dialect === "postgresql") {
+  if (driver.dialect === "postgresql") {
     return undefined;
   }
 
-  let query: string;
-  if (dialect === "mysql") {
-    query = "SELECT LAST_INSERT_ID() as id";
-  } else if (dialect === "sqlite") {
-    query = "SELECT last_insert_rowid() as id";
-  } else {
-    // Unknown dialect - let errors propagate
-    return undefined;
-  }
+  // Use adapter's lastInsertId to build dialect-appropriate query
+  const lastInsertIdExpr = adapter.lastInsertId();
+  const selectSql = adapter.assemble.select({
+    columns: sql`${lastInsertIdExpr} ${adapter.clauses.as} ${sql.identifier("id")}`,
+  });
 
   // Let DB errors propagate - don't silently return undefined
-  const result = await driver.executeRaw<{ id: unknown }>(query, []);
+  const result = await driver.execute<{ id: unknown }>(selectSql);
   return result.rows[0]?.id;
 }
 
@@ -1016,11 +1013,10 @@ async function refetchInsertedRecord(
     return result.rows[0]!;
   }
 
-  // Record not found after insert - this is a bug or race condition
-  // Return original data with PK as a fallback, but this shouldn't happen
-  console.warn(
-    `[nested-writes] Record not found after insert for ${modelName}.${pkField}=${pkValue}. ` +
+  // Record not found after insert - this shouldn't happen
+  // Throw error instead of silently returning potentially incorrect data
+  throw new Error(
+    `Record not found after insert for ${modelName}.${pkField}=${pkValue}. ` +
       "This may indicate a race condition or transaction isolation issue."
   );
-  return { ...originalData, [pkField]: pkValue };
 }
