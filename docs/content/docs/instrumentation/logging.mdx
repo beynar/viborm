@@ -1,12 +1,12 @@
 ---
 title: Logging
-description: Configure structured logging with callback-based event handling
+description: Configure structured logging with pretty console output or custom callbacks
 icon: FileText
 ---
 
 # Logging
 
-VibORM provides structured logging through a callback-based system. You provide a callback function that receives log events, giving you full control over how logs are handled.
+VibORM provides structured logging where each log level can use either a built-in pretty console formatter or a custom callback function.
 
 ## Configuration
 
@@ -18,11 +18,9 @@ const client = VibORM.create({
   driver,
   instrumentation: {
     logging: {
-      levels: ["query", "error"],
-      callback: (event) => {
-        // Handle the log event
-        console.log(JSON.stringify(event));
-      }
+      query: true,                    // Pretty console output
+      error: (event) => log(event),   // Custom callback
+      // warning: omitted = disabled
     }
   }
 });
@@ -32,14 +30,19 @@ const client = VibORM.create({
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `levels` | `LogLevel[] \| "all"` | - | Log levels to emit |
-| `callback` | `LogCallback` | - | Function to receive log events |
+| `query` | `true \| LogCallback` | - | Query log handler |
+| `warning` | `true \| LogCallback` | - | Warning log handler |
+| `error` | `true \| LogCallback` | - | Error log handler |
 | `includeSql` | `boolean` | `true` | Include SQL query text in events |
 | `includeParams` | `boolean` | `false` | Include query parameters in events |
 
 ## Log Levels
 
-VibORM supports three log levels:
+Each level can be configured independently:
+
+- **`true`** - Use the built-in pretty console formatter
+- **`(event) => {}`** - Use a custom callback function
+- **`undefined`** (or omit) - Disable this level
 
 | Level | Description |
 |-------|-------------|
@@ -47,12 +50,43 @@ VibORM supports three log levels:
 | `warning` | Emitted for non-fatal issues |
 | `error` | Emitted when operations fail |
 
-Use `"all"` to enable all levels:
+## Pretty Console Output
+
+When you set a level to `true`, VibORM uses a colorized console formatter:
 
 ```typescript
 logging: {
-  levels: "all",
-  callback: (event) => { /* ... */ }
+  query: true,
+  error: true
+}
+```
+
+Output example:
+```
+2024-01-15T10:30:00.000Z User.findMany 12ms
+  SELECT * FROM "users" WHERE "active" = $1
+```
+
+The formatter includes:
+- Timestamp in ISO format
+- Model and operation name (color-coded)
+- Duration with color based on speed (green < 10ms, yellow < 100ms, red >= 100ms)
+- SQL query (dimmed)
+- Parameters if enabled (dimmed)
+
+## Custom Callbacks
+
+For full control, provide a callback function:
+
+```typescript
+logging: {
+  query: (event) => {
+    // Your custom handling
+    myLogger.info(event);
+  },
+  error: (event) => {
+    errorTracker.capture(event.error);
+  }
 }
 ```
 
@@ -76,32 +110,38 @@ interface LogEvent {
 
 ## Examples
 
-### Basic Console Logging
+### Development Setup
+
+Pretty output for all levels during development:
 
 ```typescript
 logging: {
-  levels: ["query"],
-  callback: (event) => {
-    console.log(`[${event.level}] ${event.model}.${event.operation} - ${event.duration}ms`);
-  }
+  query: true,
+  warning: true,
+  error: true
 }
 ```
 
-### JSON Logging for Production
+### Production Setup
+
+JSON logging for queries, error tracking for errors:
 
 ```typescript
 logging: {
-  levels: "all",
-  callback: (event) => {
-    const log = {
+  query: (event) => {
+    console.log(JSON.stringify({
       level: event.level,
       timestamp: event.timestamp.toISOString(),
       model: event.model,
       operation: event.operation,
-      duration: event.duration,
-      ...(event.error && { error: event.error.message })
-    };
-    console.log(JSON.stringify(log));
+      duration: event.duration
+    }));
+  },
+  error: (event) => {
+    errorTracker.capture(event.error, {
+      model: event.model,
+      operation: event.operation
+    });
   }
 }
 ```
@@ -114,33 +154,30 @@ import pino from "pino";
 const logger = pino();
 
 logging: {
-  levels: "all",
-  callback: (event) => {
-    const method = event.level === "error" ? "error" : "info";
-    logger[method]({
+  query: (event) => {
+    logger.info({
       model: event.model,
       operation: event.operation,
       duration: event.duration
     }, `${event.model}.${event.operation}`);
+  },
+  error: (event) => {
+    logger.error({
+      model: event.model,
+      operation: event.operation,
+      error: event.error?.message
+    }, `${event.model}.${event.operation} failed`);
   }
 }
 ```
 
-### Error Handling
+### Errors Only
+
+Log only errors with pretty output:
 
 ```typescript
 logging: {
-  levels: ["error"],
-  callback: (event) => {
-    if (event.error) {
-      // Send to error tracking service
-      errorTracker.capture(event.error, {
-        model: event.model,
-        operation: event.operation,
-        sql: event.sql
-      });
-    }
-  }
+  error: true
 }
 ```
 
@@ -149,15 +186,10 @@ logging: {
 By default, SQL is included but parameters are excluded:
 
 ```typescript
-// Default behavior
 logging: {
-  levels: ["query"],
-  includeSql: true,      // SQL visible
-  includeParams: false,  // Params hidden
-  callback: (event) => {
-    console.log(event.sql);    // "SELECT * FROM users WHERE id = $1"
-    console.log(event.params); // undefined
-  }
+  query: true,
+  includeSql: true,      // SQL visible (default)
+  includeParams: false   // Params hidden (default)
 }
 ```
 
@@ -165,13 +197,8 @@ To include parameters (development only):
 
 ```typescript
 logging: {
-  levels: ["query"],
-  includeSql: true,
-  includeParams: true,  // Include params
-  callback: (event) => {
-    console.log(event.sql);    // "SELECT * FROM users WHERE id = $1"
-    console.log(event.params); // [123]
-  }
+  query: true,
+  includeParams: true
 }
 ```
 

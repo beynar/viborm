@@ -1,12 +1,18 @@
 /**
  * Structured Logger
  *
- * Wraps the user-provided logging callback with level filtering.
+ * Provides pretty console output or custom callbacks per log level.
  */
 
 import type { VibORMError } from "../errors";
 import type { Operation } from "../query-engine/types";
-import type { LogCallback, LogEvent, LoggingConfig, LogLevel } from "./types";
+import type {
+	LogCallback,
+	LogEvent,
+	LoggingConfig,
+	LogLevel,
+	LogLevelHandler,
+} from "./types";
 
 /**
  * Logger interface for internal use
@@ -25,20 +31,99 @@ export interface Logger {
 }
 
 /**
+ * ANSI color codes for pretty output
+ */
+const colors = {
+	reset: "\x1b[0m",
+	dim: "\x1b[2m",
+	cyan: "\x1b[36m",
+	yellow: "\x1b[33m",
+	red: "\x1b[31m",
+	green: "\x1b[32m",
+	magenta: "\x1b[35m",
+} as const;
+
+/**
+ * Format duration with color based on speed
+ */
+function formatDuration(ms: number | undefined): string {
+	if (ms === undefined) return "";
+	const color = ms < 10 ? colors.green : ms < 100 ? colors.yellow : colors.red;
+	return `${color}${ms}ms${colors.reset}`;
+}
+
+/**
+ * Default pretty console formatter
+ */
+function prettyLog(event: LogEvent): void {
+	const time = `${colors.dim}${event.timestamp.toISOString()}${colors.reset}`;
+	const duration = formatDuration(event.duration);
+
+	switch (event.level) {
+		case "query": {
+			const target = event.model
+				? `${colors.cyan}${event.model}${colors.reset}.${colors.magenta}${event.operation}${colors.reset}`
+				: `${colors.magenta}${event.operation ?? "query"}${colors.reset}`;
+			const parts = [time, target, duration].filter(Boolean);
+			console.log(parts.join(" "));
+			if (event.sql) {
+				console.log(`  ${colors.dim}${event.sql}${colors.reset}`);
+			}
+			if (event.params?.length) {
+				console.log(
+					`  ${colors.dim}params: ${JSON.stringify(event.params)}${colors.reset}`,
+				);
+			}
+			break;
+		}
+		case "warning": {
+			const prefix = `${colors.yellow}WARN${colors.reset}`;
+			const target = event.model
+				? `${colors.cyan}${event.model}${colors.reset}`
+				: "";
+			console.warn(time, prefix, target, event.meta ?? "");
+			break;
+		}
+		case "error": {
+			const prefix = `${colors.red}ERROR${colors.reset}`;
+			const target = event.model
+				? `${colors.cyan}${event.model}${colors.reset}.${colors.magenta}${event.operation}${colors.reset}`
+				: "";
+			console.error(time, prefix, target, duration);
+			if (event.error) {
+				console.error(`  ${colors.red}${event.error.message}${colors.reset}`);
+			}
+			if (event.sql) {
+				console.error(`  ${colors.dim}${event.sql}${colors.reset}`);
+			}
+			break;
+		}
+	}
+}
+
+/**
+ * Get the handler for a specific level from config
+ */
+function getHandler(
+	config: LoggingConfig,
+	level: LogLevel,
+): LogLevelHandler | undefined {
+	switch (level) {
+		case "query":
+			return config.query;
+		case "warning":
+			return config.warning;
+		case "error":
+			return config.error;
+	}
+}
+
+/**
  * Create a logger instance from config
  */
 export function createLogger(config: LoggingConfig): Logger {
-	const enabledLevels: Set<LogLevel> =
-		config.levels === "all"
-			? new Set(["query", "warning", "error"])
-			: new Set(config.levels);
-
 	const includeSql = config.includeSql ?? true; // SQL enabled by default
 	const includeParams = config.includeParams ?? false; // Params disabled by default
-
-	function shouldLog(level: LogLevel): boolean {
-		return enabledLevels.has(level);
-	}
 
 	function sanitizeEvent(event: LogEvent): LogEvent {
 		const result = { ...event };
@@ -56,27 +141,38 @@ export function createLogger(config: LoggingConfig): Logger {
 		return result;
 	}
 
+	function emit(event: LogEvent): void {
+		const handler = getHandler(config, event.level);
+		if (!handler) return;
+
+		const sanitized = sanitizeEvent(event);
+
+		if (handler === true) {
+			prettyLog(sanitized);
+		} else {
+			handler(sanitized);
+		}
+	}
+
 	return {
 		log(event: LogEvent): void {
-			if (shouldLog(event.level)) {
-				config.callback(sanitizeEvent(event));
-			}
+			emit(event);
 		},
 
 		query(event: Omit<LogEvent, "level">): void {
-			this.log({ ...event, level: "query" });
+			emit({ ...event, level: "query" });
 		},
 
 		warn(event: Omit<LogEvent, "level">): void {
-			this.log({ ...event, level: "warning" });
+			emit({ ...event, level: "warning" });
 		},
 
 		error(event: Omit<LogEvent, "level">): void {
-			this.log({ ...event, level: "error" });
+			emit({ ...event, level: "error" });
 		},
 
 		isLevelEnabled(level: LogLevel): boolean {
-			return shouldLog(level);
+			return getHandler(config, level) !== undefined;
 		},
 	};
 }

@@ -66,19 +66,45 @@ export interface TracingConfig {
 }
 
 /**
+ * Handler for a log level: true for default console output, or a custom callback
+ */
+export type LogLevelHandler = true | LogCallback;
+
+/**
  * Logging configuration options
+ *
+ * Each log level can be:
+ * - `true` to use the default pretty console output
+ * - A callback function for custom handling
+ * - Omitted/undefined to disable that level
+ *
+ * @example
+ * ```typescript
+ * logging: {
+ *   query: true,                    // Pretty console output
+ *   error: (event) => log(event),   // Custom callback
+ *   // warning: omitted = disabled
+ * }
+ * ```
  */
 export interface LoggingConfig {
 	/**
-	 * Log levels to emit. 'all' enables all levels.
-	 * @default ['error']
+	 * Query log handler.
+	 * Emitted for every database query.
 	 */
-	levels: LogLevel[] | "all";
+	query?: LogLevelHandler | undefined;
 
 	/**
-	 * Callback function to receive log events
+	 * Warning log handler.
+	 * Emitted for non-fatal issues.
 	 */
-	callback: LogCallback;
+	warning?: LogLevelHandler | undefined;
+
+	/**
+	 * Error log handler.
+	 * Emitted when operations fail.
+	 */
+	error?: LogLevelHandler | undefined;
 
 	/**
 	 * Include SQL query text in log events.
