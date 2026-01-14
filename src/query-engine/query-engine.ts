@@ -224,9 +224,9 @@ export class QueryEngine {
       [ATTR_VIBORM_OPERATION]: operation,
     };
 
-    // Validate input (with optional span)
+    // Validate input (synchronous - use sync span method)
     const validated = tracer
-      ? await tracer.startActiveSpan(
+      ? tracer.startActiveSpanSync(
           { name: SPAN_VALIDATE, attributes: spanAttrs },
           () => validate<Record<string, unknown>>(model, operation, args)
         )
@@ -245,9 +245,9 @@ export class QueryEngine {
       return this.executeWithNestedWrites<T>(ctx, operation, validated);
     }
 
-    // Build SQL (with optional span)
+    // Build SQL (synchronous - use sync span method)
     const sqlQuery = tracer
-      ? await tracer.startActiveSpan(
+      ? tracer.startActiveSpanSync(
           { name: SPAN_BUILD, attributes: spanAttrs },
           () => this.buildOperation(ctx, operation, validated)
         )
@@ -267,11 +267,10 @@ export class QueryEngine {
         )
       : await this.driver.execute(sqlQuery);
 
-    // Parse result using the same context (with optional span)
-    // For batch operations, pass rowCount; for others, pass rows
+    // Parse result (synchronous - use sync span method)
     if (isBatchOperation(operation)) {
       return tracer
-        ? await tracer.startActiveSpan(
+        ? tracer.startActiveSpanSync(
             { name: SPAN_PARSE, attributes: spanAttrs },
             () => parseResult<T>(ctx, operation, { rowCount: result.rowCount })
           )
@@ -279,7 +278,7 @@ export class QueryEngine {
     }
 
     return tracer
-      ? await tracer.startActiveSpan(
+      ? tracer.startActiveSpanSync(
           { name: SPAN_PARSE, attributes: spanAttrs },
           () => parseResult<T>(ctx, operation, result.rows)
         )
