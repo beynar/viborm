@@ -621,9 +621,7 @@ async function executeConnectOrCreate(
   const result = await tx.execute<Record<string, unknown>>(selectSql);
 
   if (result.rows.length > 0) {
-    // Record exists - connect it and return full record
-    const existingRecord = result.rows[0]!;
-
+    // Record exists - connect it
     // If FK is on related side, update it to point to parent
     const fkDir = getFkDirection(ctx, relationInfo);
     if (!fkDir.holdsFK && timing === "after") {
@@ -635,9 +633,12 @@ async function executeConnectOrCreate(
         parentData,
         txCtx
       );
+      // Re-fetch to get updated FK values
+      const refetchResult = await tx.execute<Record<string, unknown>>(selectSql);
+      return refetchResult.rows[0] ?? result.rows[0]!;
     }
 
-    return existingRecord;
+    return result.rows[0]!;
   }
 
   // Record doesn't exist - create it
