@@ -45,6 +45,7 @@ import {
   type QueryContext,
   QueryEngineError,
 } from "./types";
+import { withTransactionIfSupported } from "./utils/transaction-helper";
 import { validate } from "./validator";
 
 /**
@@ -366,7 +367,7 @@ export class QueryEngine {
 
         // Check if we need a transaction for nested operations
         if (Object.keys(relations).length > 0 && needsTransaction(relations)) {
-          return driver.transaction(async (tx) => {
+          return withTransactionIfSupported(driver, async (tx) => {
             // First, update the scalar fields
             if (Object.keys(scalar).length > 0) {
               const updateSql = buildUpdate(ctx, { where, data: scalar });
@@ -415,8 +416,8 @@ export class QueryEngine {
       }
 
       case "upsert": {
-        // Upsert with nested writes is complex - for now, delegate to transaction
-        return driver.transaction(async (tx) => {
+        // Upsert with nested writes - delegate to transaction
+        return withTransactionIfSupported(driver, async (tx) => {
           const where = args.where as Record<string, unknown>;
 
           // Check if record exists
@@ -425,24 +426,73 @@ export class QueryEngine {
             await tx.execute<Record<string, unknown>>(selectSql);
 
           if (selectResult.rows.length > 0) {
-            // Record exists - do update
+            // Record exists - do update with nested operations
+            const existingRecord = selectResult.rows[0]!;
             const updateData = args.update as Record<string, unknown>;
-            const { scalar } = separateData(ctx, updateData);
+            const { scalar, relations } = separateData(ctx, updateData);
 
+            // Get PK for re-fetching (in case update changes where clause fields)
+            const pkField = getPrimaryKeyField(ctx.model);
+            const pkValue = existingRecord[pkField];
+            const pkWhere = { [pkField]: pkValue };
+
+            // Update scalar fields
             if (Object.keys(scalar).length > 0) {
               const updateSql = buildUpdate(ctx, { where, data: scalar });
               await tx.execute(updateSql);
             }
 
-            // Re-fetch
+            // Get the updated record for nested operations (use PK, not original where)
+            const refetchByPkSql = buildFindUniqueQuery(ctx, { where: pkWhere });
+            const updatedResult =
+              await tx.execute<Record<string, unknown>>(refetchByPkSql);
+            const updatedRecord = updatedResult.rows[0];
+
+            if (!updatedRecord) {
+              throw new QueryEngineError(
+                "Record was deleted by another transaction during upsert"
+              );
+            }
+
+            // Handle nested relation mutations (connect, disconnect, create, delete)
+            if (Object.keys(relations).length > 0) {
+              await executeNestedUpdate(tx, ctx, updatedRecord, relations);
+            }
+
+            // Re-fetch to get final state (use PK in case update changed where clause fields)
+            const refetchSql = buildFindUniqueQuery(ctx, {
+              where: pkWhere,
+              select: args.select as Record<string, unknown> | undefined,
+              include: args.include as Record<string, unknown> | undefined,
+            } as { where: Record<string, unknown> });
             const refetchResult =
-              await tx.execute<Record<string, unknown>>(selectSql);
+              await tx.execute<Record<string, unknown>>(refetchSql);
             return parseResult<T>(ctx, "findUnique", refetchResult.rows);
           }
           // Record doesn't exist - do create
           const createData = args.create as Record<string, unknown>;
           const createResult = await executeNestedCreate(tx, ctx, createData);
-          return createResult.record as T;
+
+          // Handle include/select for return value (same as create operation)
+          if (args.include || args.select) {
+            const pkField = getPrimaryKeyField(ctx.model);
+            const pkValue = createResult.record[pkField];
+            if (pkValue !== undefined) {
+              const refetchSql = buildFindUniqueQuery(ctx, {
+                where: { [pkField]: pkValue },
+                select: args.select as Record<string, unknown> | undefined,
+                include: args.include as Record<string, unknown> | undefined,
+              } as { where: Record<string, unknown> });
+              const refetchResult =
+                await tx.execute<Record<string, unknown>>(refetchSql);
+              if (refetchResult.rows.length > 0) {
+                return parseResult<T>(ctx, "findUnique", refetchResult.rows);
+              }
+            }
+          }
+
+          // Return the created record with nested records merged
+          return { ...createResult.record, ...createResult.related } as T;
         });
       }
 

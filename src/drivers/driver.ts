@@ -186,6 +186,23 @@ export interface Driver {
    * ```
    */
   result?: DriverResultParser;
+
+  /**
+   * Whether this driver supports transactions.
+   *
+   * When false, nested writes execute sequentially without atomicity guarantees.
+   * Defaults to true if not specified.
+   *
+   * @example
+   * ```ts
+   * // D1 driver without transaction support
+   * class D1Driver implements Driver {
+   *   supportsTransactions = false;
+   *   // ...
+   * }
+   * ```
+   */
+  supportsTransactions?: boolean;
 }
 
 /**

@@ -50,7 +50,7 @@ export function buildUpsert(ctx: QueryContext, args: UpsertArgs): Sql {
   // Build ON CONFLICT ... DO UPDATE
   const onConflictSql = adapter.mutations.onConflict(
     conflictTarget,
-    sql`UPDATE SET ${updateAction}`
+    adapter.mutations.onConflictUpdate(updateAction)
   );
 
   // Combine INSERT with ON CONFLICT

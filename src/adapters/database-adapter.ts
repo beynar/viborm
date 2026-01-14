@@ -295,8 +295,8 @@ export interface DatabaseAdapter {
    * Insert, Update, Delete operations
    */
   mutations: {
-    /** INSERT INTO table (cols) VALUES (...) */
-    insert: (table: Sql, columns: string[], values: Sql[][]) => Sql;
+    /** INSERT INTO table (cols) VALUES (...), with optional prefix (e.g., IGNORE for MySQL) */
+    insert: (table: Sql, columns: string[], values: Sql[][], prefix?: Sql) => Sql;
     /** UPDATE table SET ... WHERE ... */
     update: (table: Sql, sets: Sql, where?: Sql) => Sql;
     /** DELETE FROM table WHERE ... */
@@ -305,6 +305,14 @@ export interface DatabaseAdapter {
     returning: (columns: Sql) => Sql;
     /** ON CONFLICT / ON DUPLICATE KEY */
     onConflict: (target: Sql | null, action: Sql) => Sql;
+    /** Build update action for ON CONFLICT (PG/SQLite: UPDATE SET ..., MySQL: just the SET part) */
+    onConflictUpdate: (sets: Sql) => Sql;
+    /**
+     * Skip duplicate key errors (for createMany with skipDuplicates: true)
+     * PostgreSQL/SQLite: ON CONFLICT DO NOTHING (suffix)
+     * MySQL: INSERT IGNORE (prefix)
+     */
+    skipDuplicates: () => { prefix: Sql; suffix: Sql };
   };
 
   /**

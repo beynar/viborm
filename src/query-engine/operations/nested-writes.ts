@@ -21,6 +21,7 @@ import { buildWhereUnique } from "../builders/where-builder";
 import { createChildContext, getColumnName, getTableName } from "../context";
 import type { QueryContext, RelationInfo } from "../types";
 import { NestedWriteError } from "../types";
+import { withTransactionIfSupported } from "../utils/transaction-helper";
 
 // ============================================================
 // TYPES
@@ -205,8 +206,8 @@ export async function executeNestedCreate(
     return { record: result, related: {} };
   }
 
-  // Execute in transaction
-  return driver.transaction(async (tx) => {
+  // Execute in transaction if supported
+  return withTransactionIfSupported(driver, async (tx) => {
     const txCtx: TransactionContext = {
       generatedIds: new Map(),
       createdRecords: new Map(),
@@ -311,8 +312,8 @@ export async function executeNestedUpdate(
     return { record: parentRecord, related: {} };
   }
 
-  // Execute in transaction
-  return driver.transaction(async (tx) => {
+  // Execute in transaction if supported
+  return withTransactionIfSupported(driver, async (tx) => {
     const txCtx: TransactionContext = {
       generatedIds: new Map(),
       createdRecords: new Map(),
@@ -609,17 +610,18 @@ async function executeConnectOrCreate(
     );
   }
 
-  // SELECT to check existence
-  const pkField = getPrimaryKeyField(targetModel);
-  const pkColumn = getColumnName(targetModel, pkField);
-  const selectSql = sql`SELECT ${adapter.identifiers.column(alias, pkColumn)} FROM ${adapter.identifiers.escape(targetTable)} ${sql.raw(alias)} WHERE ${whereClause} LIMIT 1`;
+  // SELECT to check existence and fetch full record
+  const selectSql = sql.join([
+    adapter.clauses.select(sql`*`),
+    adapter.clauses.from(sql`${adapter.identifiers.escape(targetTable)} ${adapter.identifiers.escape(alias)}`),
+    adapter.clauses.where(whereClause),
+    adapter.clauses.limit(adapter.literals.value(1)),
+  ], " ");
 
   const result = await tx.execute<Record<string, unknown>>(selectSql);
 
   if (result.rows.length > 0) {
-    // Record exists - just connect it
-    const existingRecord = result.rows[0]!;
-
+    // Record exists - connect it
     // If FK is on related side, update it to point to parent
     const fkDir = getFkDirection(ctx, relationInfo);
     if (!fkDir.holdsFK && timing === "after") {
@@ -631,9 +633,12 @@ async function executeConnectOrCreate(
         parentData,
         txCtx
       );
+      // Re-fetch to get updated FK values
+      const refetchResult = await tx.execute<Record<string, unknown>>(selectSql);
+      return refetchResult.rows[0] ?? result.rows[0]!;
     }
 
-    return existingRecord;
+    return result.rows[0]!;
   }
 
   // Record doesn't exist - create it
@@ -928,7 +933,7 @@ async function executeSimpleInsert(
   }
 
   // PK was auto-generated - get last insert ID
-  const lastInsertId = await getLastInsertId(driver);
+  const lastInsertId = await getLastInsertId(driver, adapter);
 
   if (lastInsertId !== undefined) {
     return refetchInsertedRecord(
@@ -946,28 +951,25 @@ async function executeSimpleInsert(
 }
 
 /**
- * Get the last inserted ID using dialect-specific query
+ * Get the last inserted ID using adapter's lastInsertId method
  */
-async function getLastInsertId(driver: Driver): Promise<unknown | undefined> {
-  const dialect = driver.dialect;
-
+async function getLastInsertId(
+  driver: Driver,
+  adapter: DatabaseAdapter
+): Promise<unknown | undefined> {
   // PostgreSQL uses RETURNING, no need to query for last insert ID
-  if (dialect === "postgresql") {
+  if (driver.dialect === "postgresql") {
     return undefined;
   }
 
-  let query: string;
-  if (dialect === "mysql") {
-    query = "SELECT LAST_INSERT_ID() as id";
-  } else if (dialect === "sqlite") {
-    query = "SELECT last_insert_rowid() as id";
-  } else {
-    // Unknown dialect - let errors propagate
-    return undefined;
-  }
+  // Use adapter's lastInsertId to build dialect-appropriate query
+  const lastInsertIdExpr = adapter.lastInsertId();
+  const selectSql = adapter.assemble.select({
+    columns: sql`${lastInsertIdExpr} ${adapter.clauses.as} ${sql.identifier("id")}`,
+  });
 
   // Let DB errors propagate - don't silently return undefined
-  const result = await driver.executeRaw<{ id: unknown }>(query, []);
+  const result = await driver.execute<{ id: unknown }>(selectSql);
   return result.rows[0]?.id;
 }
 
@@ -1011,11 +1013,10 @@ async function refetchInsertedRecord(
     return result.rows[0]!;
   }
 
-  // Record not found after insert - this is a bug or race condition
-  // Return original data with PK as a fallback, but this shouldn't happen
-  console.warn(
-    `[nested-writes] Record not found after insert for ${modelName}.${pkField}=${pkValue}. ` +
+  // Record not found after insert - this shouldn't happen
+  // Throw error instead of silently returning potentially incorrect data
+  throw new Error(
+    `Record not found after insert for ${modelName}.${pkField}=${pkValue}. ` +
       "This may indicate a race condition or transaction isolation issue."
   );
-  return { ...originalData, [pkField]: pkValue };
 }

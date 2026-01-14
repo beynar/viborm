@@ -449,7 +449,11 @@ function buildFinalSelect(
     parentPkColumn
   )} = ${parentIdRef}`;
 
-  return sql`SELECT ${columnsSql} FROM ${parentTable} WHERE ${whereSql}`;
+  return sql.join([
+    adapter.clauses.select(columnsSql),
+    adapter.clauses.from(parentTable),
+    adapter.clauses.where(whereSql),
+  ], " ");
 }
 
 /**

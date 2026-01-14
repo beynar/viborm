@@ -289,16 +289,24 @@ function buildFilterOperation(
 
     // Set membership
     case "in": {
-      if (!Array.isArray(value) || value.length === 0) {
+      if (!Array.isArray(value)) {
         return undefined;
+      }
+      // Empty array should match nothing (always false)
+      if (value.length === 0) {
+        return adapter.literals.false();
       }
       const inValues = value.map((v) => lit(v));
       return adapter.operators.in(column, adapter.literals.list(inValues));
     }
 
     case "notIn": {
-      if (!Array.isArray(value) || value.length === 0) {
+      if (!Array.isArray(value)) {
         return undefined;
+      }
+      // Empty array for notIn should match everything (always true)
+      if (value.length === 0) {
+        return adapter.literals.true();
       }
       const notInValues = value.map((v) => lit(v));
       return adapter.operators.notIn(
@@ -308,22 +316,28 @@ function buildFilterOperation(
     }
 
     // String operations (respect case sensitivity mode)
+    // Use adapter.expressions.concat to build LIKE pattern at SQL execution time
+    // Keeps wildcards in SQL and user value as separate parameter
     case "contains": {
-      const containsPattern = sql`${`%${String(value)}%`}`;
+      const containsPattern = adapter.expressions.concat(
+        sql`'%'`,
+        lit(value),
+        sql`'%'`
+      );
       return isInsensitive
         ? adapter.operators.ilike(column, containsPattern)
         : adapter.operators.like(column, containsPattern);
     }
 
     case "startsWith": {
-      const startsPattern = sql`${`${String(value)}%`}`;
+      const startsPattern = adapter.expressions.concat(lit(value), sql`'%'`);
       return isInsensitive
         ? adapter.operators.ilike(column, startsPattern)
         : adapter.operators.like(column, startsPattern);
     }
 
     case "endsWith": {
-      const endsPattern = sql`${`%${String(value)}`}`;
+      const endsPattern = adapter.expressions.concat(sql`'%'`, lit(value));
       return isInsensitive
         ? adapter.operators.ilike(column, endsPattern)
         : adapter.operators.like(column, endsPattern);
