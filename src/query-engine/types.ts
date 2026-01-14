@@ -12,6 +12,13 @@ import type { AnyRelation } from "@schema/relation";
 // Re-export Sql for convenience
 export { Sql } from "@sql";
 
+// Re-export errors from unified error hierarchy
+export {
+	ValidationError,
+	QueryEngineError,
+	NestedWriteError,
+} from "../errors";
+
 /**
  * All supported operations
  */
@@ -88,48 +95,6 @@ export interface RelationInfo {
   references: string[] | undefined;
 }
 
-/**
- * Validation error thrown when input doesn't match schema
- */
-export class ValidationError extends Error {
-  readonly operation: Operation;
-  readonly details: string;
-  constructor(operation: Operation, details: string) {
-    super(`Validation failed for ${operation}: ${details}`);
-    this.name = "ValidationError";
-    this.operation = operation;
-    this.details = details;
-  }
-}
-
-/**
- * Query engine error for runtime issues
- */
-export class QueryEngineError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "QueryEngineError";
-  }
-}
-
-/**
- * Error thrown during nested write operations
- * Provides context about which relation failed
- */
-export class NestedWriteError extends QueryEngineError {
-  readonly relation: string;
-  readonly cause: Error | undefined;
-  constructor(message: string, relation: string, cause?: Error) {
-    super(message);
-    this.name = "NestedWriteError";
-    this.relation = relation;
-    this.cause = cause;
-    // Preserve the original stack trace if available
-    if (cause?.stack) {
-      this.stack = `${this.stack}\nCaused by: ${cause.stack}`;
-    }
-  }
-}
 
 // ============================================================
 // NARROWER TYPE DEFINITIONS

@@ -12,7 +12,7 @@ export { isDriver } from "./driver";
 // Errors
 export {
   ConnectionError,
-  DriverError,
+  VibORMError as DriverError,
   FeatureNotSupportedError,
   ForeignKeyError,
   isRetryableError,
@@ -22,7 +22,7 @@ export {
   UniqueConstraintError,
   unsupportedGeospatial,
   unsupportedVector,
-} from "./errors";
+} from "../errors";
 // pg driver (node-postgres)
 export type { PgDriverOptions, PgOptions } from "./pg";
 export { PgDriver } from "./pg";

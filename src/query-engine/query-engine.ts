@@ -7,6 +7,15 @@
 
 import type { DatabaseAdapter } from "@adapters";
 import type { Driver } from "@drivers";
+import {
+  type InstrumentationContext,
+  SPAN_BUILD,
+  SPAN_EXECUTE,
+  SPAN_PARSE,
+  SPAN_VALIDATE,
+  ATTR_VIBORM_MODEL,
+  ATTR_VIBORM_OPERATION,
+} from "../instrumentation";
 import { hydrateSchemaNames } from "@schema/hydration";
 import type { Model } from "@schema/model";
 import type { Sql } from "@sql";
@@ -61,14 +70,18 @@ export class QueryEngine {
   private readonly adapter: DatabaseAdapter;
   private readonly registry: ModelRegistry;
   private readonly driver: Driver | undefined;
+  private readonly instrumentation: InstrumentationContext | undefined;
+
   constructor(
     adapter: DatabaseAdapter,
     registry: ModelRegistry,
-    driver?: Driver
+    driver?: Driver,
+    instrumentation?: InstrumentationContext
   ) {
     this.adapter = adapter;
     this.registry = registry;
     this.driver = driver;
+    this.instrumentation = instrumentation;
   }
 
   /**
@@ -204,8 +217,20 @@ export class QueryEngine {
       );
     }
 
-    // Validate input
-    const validated = validate<Record<string, unknown>>(model, operation, args);
+    const tracer = this.instrumentation?.tracer;
+    const modelName = model["~"].names.ts ?? "unknown";
+    const spanAttrs = {
+      [ATTR_VIBORM_MODEL]: modelName,
+      [ATTR_VIBORM_OPERATION]: operation,
+    };
+
+    // Validate input (with optional span)
+    const validated = tracer
+      ? await tracer.startActiveSpan(
+          { name: SPAN_VALIDATE, attributes: spanAttrs },
+          () => validate<Record<string, unknown>>(model, operation, args)
+        )
+      : validate<Record<string, unknown>>(model, operation, args);
 
     // Create context once and reuse for both building and parsing
     const ctx = createQueryContext(
@@ -220,18 +245,45 @@ export class QueryEngine {
       return this.executeWithNestedWrites<T>(ctx, operation, validated);
     }
 
-    // Build SQL
-    const sqlQuery = this.buildOperation(ctx, operation, validated);
+    // Build SQL (with optional span)
+    const sqlQuery = tracer
+      ? await tracer.startActiveSpan(
+          { name: SPAN_BUILD, attributes: spanAttrs },
+          () => this.buildOperation(ctx, operation, validated)
+        )
+      : this.buildOperation(ctx, operation, validated);
 
-    // Execute via driver
-    const result = await this.driver.execute(sqlQuery);
+    // Execute via driver (with optional span)
+    const result = tracer
+      ? await tracer.startActiveSpan(
+          {
+            name: SPAN_EXECUTE,
+            attributes: spanAttrs,
+            sql: this.instrumentation?.config.tracing?.includeSql
+              ? { query: sqlQuery.toStatement(), params: sqlQuery.values }
+              : undefined,
+          },
+          () => this.driver!.execute(sqlQuery)
+        )
+      : await this.driver.execute(sqlQuery);
 
-    // Parse result using the same context
+    // Parse result using the same context (with optional span)
     // For batch operations, pass rowCount; for others, pass rows
     if (isBatchOperation(operation)) {
-      return parseResult<T>(ctx, operation, { rowCount: result.rowCount });
+      return tracer
+        ? await tracer.startActiveSpan(
+            { name: SPAN_PARSE, attributes: spanAttrs },
+            () => parseResult<T>(ctx, operation, { rowCount: result.rowCount })
+          )
+        : parseResult<T>(ctx, operation, { rowCount: result.rowCount });
     }
-    return parseResult<T>(ctx, operation, result.rows);
+
+    return tracer
+      ? await tracer.startActiveSpan(
+          { name: SPAN_PARSE, attributes: spanAttrs },
+          () => parseResult<T>(ctx, operation, result.rows)
+        )
+      : parseResult<T>(ctx, operation, result.rows);
   }
 
   /**
@@ -629,8 +681,9 @@ export function createModelRegistry(
 export function createQueryEngine(
   adapter: DatabaseAdapter,
   models: Record<string, Model<any>>,
-  driver?: Driver
+  driver?: Driver,
+  instrumentation?: InstrumentationContext
 ): QueryEngine {
   const registry = createModelRegistry(models);
-  return new QueryEngine(adapter, registry, driver);
+  return new QueryEngine(adapter, registry, driver, instrumentation);
 }

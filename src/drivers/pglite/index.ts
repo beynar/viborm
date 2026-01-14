@@ -16,7 +16,7 @@ import { PGlite, type PGliteOptions } from "@electric-sql/pglite";
 import type { Sql } from "@sql";
 import { LazyDriver } from "../base-driver";
 import type { Driver } from "../driver";
-import { unsupportedGeospatial, unsupportedVector } from "../errors";
+import { unsupportedGeospatial, unsupportedVector } from "../../errors";
 import { buildPostgresStatement } from "../postgres-utils";
 import type { Dialect, QueryResult, TransactionOptions } from "../types";
 

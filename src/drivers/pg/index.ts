@@ -15,7 +15,7 @@ import type { Sql } from "@sql";
 import { Pool, type PoolClient, type PoolConfig } from "pg";
 import { LazyDriver } from "../base-driver";
 import type { Driver } from "../driver";
-import { unsupportedGeospatial, unsupportedVector } from "../errors";
+import { unsupportedGeospatial, unsupportedVector } from "../../errors";
 import { buildPostgresStatement } from "../postgres-utils";
 import type { Dialect, QueryResult, TransactionOptions } from "../types";
 

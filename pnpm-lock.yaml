@@ -11,6 +11,9 @@ importers:
       '@clack/prompts':
         specifier: ^0.7.0
         version: 0.7.0
+      '@opentelemetry/api':
+        specifier: ^1.9.0
+        version: 1.9.0
       '@paralleldrive/cuid2':
         specifier: ^3.0.4
         version: 3.0.4
@@ -31,7 +34,7 @@ importers:
         version: 12.1.0
       drizzle-orm:
         specifier: ^0.43.1
-        version: 0.43.1(@cloudflare/workers-types@4.20260103.0)(@electric-sql/pglite@0.3.2)(@prisma/client@6.8.2(prisma@6.8.2(typescript@5.8.3))(typescript@5.8.3))(@types/better-sqlite3@7.6.13)(better-sqlite3@12.6.0)(pg@8.16.0)(postgres@3.4.8)(prisma@6.8.2(typescript@5.8.3))
+        version: 0.43.1(@cloudflare/workers-types@4.20260103.0)(@electric-sql/pglite@0.3.2)(@opentelemetry/api@1.9.0)(@prisma/client@6.8.2(prisma@6.8.2(typescript@5.8.3))(typescript@5.8.3))(@types/better-sqlite3@7.6.13)(better-sqlite3@12.6.0)(pg@8.16.0)(postgres@3.4.8)(prisma@6.8.2(typescript@5.8.3))
       nanoid:
         specifier: ^5.1.5
         version: 5.1.5
@@ -406,6 +409,10 @@ packages:
   '@noble/hashes@2.0.1':
     resolution: {integrity: sha512-XlOlEbQcE9fmuXxrVTXCTlG2nlRXa9Rj3rr5Ue/+tX+nmkgbX720YHh0VR3hBF9xDvwnb8D2shVGOwNx+ulArw==}
     engines: {node: '>= 20.19.0'}
+
+  '@opentelemetry/api@1.9.0':
+    resolution: {integrity: sha512-3giAOQvZiH5F9bMlMiv8+GSPMeqg0dbaeo58/0SlA9sxSqZhnUtxzX9/2FzyhS9sWQf5S0GJE0AKBrFqjpeYcg==}
+    engines: {node: '>=8.0.0'}
 
   '@oxc-project/types@0.106.0':
     resolution: {integrity: sha512-QdsH3rZq480VnOHSHgPYOhjL8O8LBdcnSjM408BpPCCUc0JYYZPG9Gafl9i3OcGk/7137o+gweb4cCv3WAUykg==}
@@ -2009,6 +2016,8 @@ snapshots:
 
   '@noble/hashes@2.0.1': {}
 
+  '@opentelemetry/api@1.9.0': {}
+
   '@oxc-project/types@0.106.0': {}
 
   '@oxlint/darwin-arm64@1.36.0':
@@ -2435,10 +2444,11 @@ snapshots:
 
   detect-libc@2.1.2: {}
 
-  drizzle-orm@0.43.1(@cloudflare/workers-types@4.20260103.0)(@electric-sql/pglite@0.3.2)(@prisma/client@6.8.2(prisma@6.8.2(typescript@5.8.3))(typescript@5.8.3))(@types/better-sqlite3@7.6.13)(better-sqlite3@12.6.0)(pg@8.16.0)(postgres@3.4.8)(prisma@6.8.2(typescript@5.8.3)):
+  drizzle-orm@0.43.1(@cloudflare/workers-types@4.20260103.0)(@electric-sql/pglite@0.3.2)(@opentelemetry/api@1.9.0)(@prisma/client@6.8.2(prisma@6.8.2(typescript@5.8.3))(typescript@5.8.3))(@types/better-sqlite3@7.6.13)(better-sqlite3@12.6.0)(pg@8.16.0)(postgres@3.4.8)(prisma@6.8.2(typescript@5.8.3)):
     optionalDependencies:
       '@cloudflare/workers-types': 4.20260103.0
       '@electric-sql/pglite': 0.3.2
+      '@opentelemetry/api': 1.9.0
       '@prisma/client': 6.8.2(prisma@6.8.2(typescript@5.8.3))(typescript@5.8.3)
       '@types/better-sqlite3': 7.6.13
       better-sqlite3: 12.6.0

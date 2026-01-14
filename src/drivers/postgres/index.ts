@@ -18,7 +18,7 @@ import postgres, {
 } from "postgres";
 import { LazyDriver } from "../base-driver";
 import type { Driver } from "../driver";
-import { unsupportedGeospatial, unsupportedVector } from "../errors";
+import { unsupportedGeospatial, unsupportedVector } from "../../errors";
 import { buildPostgresStatement } from "../postgres-utils";
 import type { Dialect, QueryResult, TransactionOptions } from "../types";
 
