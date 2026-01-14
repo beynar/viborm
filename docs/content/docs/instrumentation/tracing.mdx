@@ -25,7 +25,17 @@ The `@opentelemetry/api` package is an optional peer dependency. VibORM graceful
 ```typescript
 import { VibORM } from "viborm";
 
+// Simple: enable with defaults
 const client = VibORM.create({
+  schema,
+  driver,
+  instrumentation: {
+    tracing: true
+  }
+});
+
+// Custom: configure options
+const clientCustom = VibORM.create({
   schema,
   driver,
   instrumentation: {
@@ -117,7 +127,7 @@ const client = VibORM.create({
   schema,
   driver,
   instrumentation: {
-    tracing: {}  // Uses defaults
+    tracing: true
   }
 });
 ```

@@ -33,16 +33,19 @@ export function createInstrumentationContext(
 
 	// Create tracer if tracing is configured (explicit opt-in)
 	if (config.tracing) {
+		const tracingConfig = config.tracing === true ? {} : config.tracing;
 		context.tracer = createTracerWrapper({
-			includeSql: config.tracing.includeSql,
-			includeParams: config.tracing.includeParams,
-			ignoreSpanTypes: config.tracing.ignoreSpanTypes,
+			includeSql: tracingConfig.includeSql,
+			includeParams: tracingConfig.includeParams,
+			ignoreSpanTypes: tracingConfig.ignoreSpanTypes,
 		});
 	}
 
 	// Create logger if logging is configured
 	if (config.logging) {
-		context.logger = createLogger(config.logging);
+		const loggingConfig =
+			config.logging === true ? { all: true as const } : config.logging;
+		context.logger = createLogger(loggingConfig);
 	}
 
 	return context;

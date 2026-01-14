@@ -138,12 +138,16 @@ export interface LoggingConfig {
  */
 export interface InstrumentationConfig {
 	/**
-	 * Enable OpenTelemetry tracing (explicit opt-in)
+	 * Enable OpenTelemetry tracing.
+	 * - `true` enables with defaults (includeSql: true, includeParams: false)
+	 * - Object for custom configuration
 	 */
-	tracing?: TracingConfig | undefined;
+	tracing?: true | TracingConfig | undefined;
 
 	/**
-	 * Enable structured logging
+	 * Enable structured logging.
+	 * - `true` enables pretty console output for all levels
+	 * - Object for custom configuration
 	 */
-	logging?: LoggingConfig | undefined;
+	logging?: true | LoggingConfig | undefined;
 }

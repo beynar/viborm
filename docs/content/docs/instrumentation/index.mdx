@@ -21,16 +21,25 @@ VibORM provides built-in support for observability through OpenTelemetry tracing
 ```typescript
 import { VibORM } from "viborm";
 
+// Simple: enable both with defaults
 const client = VibORM.create({
   schema,
   driver,
   instrumentation: {
-    // Enable OpenTelemetry tracing
+    tracing: true,  // Enable tracing with defaults
+    logging: true   // Enable pretty console logging for all levels
+  }
+});
+
+// Advanced: custom configuration
+const clientAdvanced = VibORM.create({
+  schema,
+  driver,
+  instrumentation: {
     tracing: {
       includeSql: true,    // Include SQL in spans (default: true)
       includeParams: false // Exclude params for security (default: false)
     },
-    // Enable structured logging
     logging: {
       query: true,                       // Pretty console output
       error: (event, log) => {           // Custom callback

@@ -13,13 +13,26 @@ VibORM provides structured logging where each log level can use either a built-i
 ```typescript
 import { VibORM } from "viborm";
 
+// Simple: enable all levels with pretty console output
 const client = VibORM.create({
+  schema,
+  driver,
+  instrumentation: {
+    logging: true
+  }
+});
+
+// Custom: configure individual levels
+const clientCustom = VibORM.create({
   schema,
   driver,
   instrumentation: {
     logging: {
       query: true,                    // Pretty console output
-      error: (event) => log(event),   // Custom callback
+      error: (event, log) => {        // Custom callback
+        errorTracker.capture(event.error);
+        log();
+      }
       // warning: omitted = disabled
     }
   }
@@ -138,6 +151,97 @@ interface LogEvent {
   sql?: string;            // SQL query (if includeSql enabled)
   params?: unknown[];      // Query parameters (if includeParams enabled)
   meta?: Record<string, unknown>; // Additional metadata
+}
+```
+
+## Event Examples
+
+### Query Events
+
+Emitted for every successful database operation:
+
+```typescript
+{
+  level: "query",
+  timestamp: new Date("2024-01-15T10:30:00.000Z"),
+  duration: 12,
+  model: "User",
+  operation: "findMany",
+  sql: 'SELECT * FROM "users" WHERE "active" = $1',
+  params: [true]
+}
+```
+
+### Warning Events
+
+Emitted for non-fatal issues that may need attention:
+
+```typescript
+// Slow query warning
+{
+  level: "warning",
+  timestamp: new Date("2024-01-15T10:30:00.000Z"),
+  model: "User",
+  operation: "findMany",
+  duration: 5000,
+  meta: {
+    reason: "slow_query",
+    threshold: 1000
+  }
+}
+
+// Deprecation warning
+{
+  level: "warning",
+  timestamp: new Date("2024-01-15T10:30:00.000Z"),
+  meta: {
+    reason: "deprecated_feature",
+    feature: "rawQuery",
+    suggestion: "Use $queryRaw instead"
+  }
+}
+```
+
+### Error Events
+
+Emitted when operations fail:
+
+```typescript
+// Unique constraint violation
+{
+  level: "error",
+  timestamp: new Date("2024-01-15T10:30:00.000Z"),
+  model: "User",
+  operation: "create",
+  duration: 15,
+  error: UniqueConstraintError,  // VibORMError with code V3001
+  sql: 'INSERT INTO "users" ("email") VALUES ($1)',
+  meta: {
+    constraint: "users_email_key",
+    field: "email"
+  }
+}
+
+// Connection error
+{
+  level: "error",
+  timestamp: new Date("2024-01-15T10:30:00.000Z"),
+  error: ConnectionError,  // VibORMError with code V1001
+  meta: {
+    host: "localhost",
+    port: 5432
+  }
+}
+
+// Record not found (for findUniqueOrThrow)
+{
+  level: "error",
+  timestamp: new Date("2024-01-15T10:30:00.000Z"),
+  model: "User",
+  operation: "findUniqueOrThrow",
+  duration: 8,
+  error: NotFoundError,  // VibORMError with code V6001
+  sql: 'SELECT * FROM "users" WHERE "id" = $1'
 }
 ```
 
