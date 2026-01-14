@@ -1,0 +1,180 @@
+---
+title: Logging
+description: Configure structured logging with callback-based event handling
+icon: FileText
+---
+
+# Logging
+
+VibORM provides structured logging through a callback-based system. You provide a callback function that receives log events, giving you full control over how logs are handled.
+
+## Configuration
+
+```typescript
+import { VibORM } from "viborm";
+
+const client = VibORM.create({
+  schema,
+  driver,
+  instrumentation: {
+    logging: {
+      levels: ["query", "error"],
+      callback: (event) => {
+        // Handle the log event
+        console.log(JSON.stringify(event));
+      }
+    }
+  }
+});
+```
+
+## Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `levels` | `LogLevel[] \| "all"` | - | Log levels to emit |
+| `callback` | `LogCallback` | - | Function to receive log events |
+| `includeSql` | `boolean` | `true` | Include SQL query text in events |
+| `includeParams` | `boolean` | `false` | Include query parameters in events |
+
+## Log Levels
+
+VibORM supports three log levels:
+
+| Level | Description |
+|-------|-------------|
+| `query` | Emitted for every database query |
+| `warning` | Emitted for non-fatal issues |
+| `error` | Emitted when operations fail |
+
+Use `"all"` to enable all levels:
+
+```typescript
+logging: {
+  levels: "all",
+  callback: (event) => { /* ... */ }
+}
+```
+
+## Log Event Structure
+
+Every log event contains the following fields:
+
+```typescript
+interface LogEvent {
+  level: "query" | "warning" | "error";
+  timestamp: Date;
+  duration?: number;       // Query duration in milliseconds
+  model?: string;          // Model name (e.g., "User")
+  operation?: string;      // Operation (e.g., "findMany")
+  error?: VibORMError;     // Error object (for error events)
+  sql?: string;            // SQL query (if includeSql enabled)
+  params?: unknown[];      // Query parameters (if includeParams enabled)
+  meta?: Record<string, unknown>; // Additional metadata
+}
+```
+
+## Examples
+
+### Basic Console Logging
+
+```typescript
+logging: {
+  levels: ["query"],
+  callback: (event) => {
+    console.log(`[${event.level}] ${event.model}.${event.operation} - ${event.duration}ms`);
+  }
+}
+```
+
+### JSON Logging for Production
+
+```typescript
+logging: {
+  levels: "all",
+  callback: (event) => {
+    const log = {
+      level: event.level,
+      timestamp: event.timestamp.toISOString(),
+      model: event.model,
+      operation: event.operation,
+      duration: event.duration,
+      ...(event.error && { error: event.error.message })
+    };
+    console.log(JSON.stringify(log));
+  }
+}
+```
+
+### Integrate with Pino
+
+```typescript
+import pino from "pino";
+
+const logger = pino();
+
+logging: {
+  levels: "all",
+  callback: (event) => {
+    const method = event.level === "error" ? "error" : "info";
+    logger[method]({
+      model: event.model,
+      operation: event.operation,
+      duration: event.duration
+    }, `${event.model}.${event.operation}`);
+  }
+}
+```
+
+### Error Handling
+
+```typescript
+logging: {
+  levels: ["error"],
+  callback: (event) => {
+    if (event.error) {
+      // Send to error tracking service
+      errorTracker.capture(event.error, {
+        model: event.model,
+        operation: event.operation,
+        sql: event.sql
+      });
+    }
+  }
+}
+```
+
+## SQL and Parameters
+
+By default, SQL is included but parameters are excluded:
+
+```typescript
+// Default behavior
+logging: {
+  levels: ["query"],
+  includeSql: true,      // SQL visible
+  includeParams: false,  // Params hidden
+  callback: (event) => {
+    console.log(event.sql);    // "SELECT * FROM users WHERE id = $1"
+    console.log(event.params); // undefined
+  }
+}
+```
+
+To include parameters (development only):
+
+```typescript
+logging: {
+  levels: ["query"],
+  includeSql: true,
+  includeParams: true,  // Include params
+  callback: (event) => {
+    console.log(event.sql);    // "SELECT * FROM users WHERE id = $1"
+    console.log(event.params); // [123]
+  }
+}
+```
+
+<Callout type="warn">
+Never enable `includeParams` in production. Query parameters may contain passwords, personal information, or other sensitive data.
+</Callout>

@@ -1,0 +1,79 @@
+---
+title: Instrumentation
+description: Add observability to your VibORM application with OpenTelemetry tracing and structured logging
+icon: Activity
+---
+
+# Instrumentation
+
+VibORM provides built-in support for observability through OpenTelemetry tracing and structured logging. Both features are opt-in and designed to work seamlessly in any environment, including serverless.
+
+## Features
+
+- **OpenTelemetry Tracing** - Automatic span creation for all database operations
+- **Structured Logging** - Callback-based logging with level filtering
+- **Graceful Degradation** - Tracing works without OTel installed (no-op)
+- **Serverless Compatible** - No module-level state, safe for edge runtimes
+- **Security Defaults** - SQL shown by default, parameters hidden
+
+## Quick Example
+
+```typescript
+import { VibORM } from "viborm";
+
+const client = VibORM.create({
+  schema,
+  driver,
+  instrumentation: {
+    // Enable OpenTelemetry tracing
+    tracing: {
+      includeSql: true,    // Include SQL in spans (default: true)
+      includeParams: false // Exclude params for security (default: false)
+    },
+    // Enable structured logging
+    logging: {
+      levels: ["query", "error"],
+      callback: (event) => {
+        console.log(JSON.stringify(event));
+      }
+    }
+  }
+});
+```
+
+## Configuration
+
+The `instrumentation` option accepts two optional configurations:
+
+| Option | Description |
+|--------|-------------|
+| `tracing` | OpenTelemetry tracing configuration |
+| `logging` | Structured logging configuration |
+
+Both are fully independent - you can enable one, both, or neither.
+
+## Privacy & Security
+
+By default, VibORM includes SQL query text but excludes query parameters:
+
+- **`includeSql: true`** (default) - SQL statements are visible in traces/logs
+- **`includeParams: false`** (default) - Parameters are hidden to protect sensitive data
+
+<Callout type="warn">
+Only enable `includeParams` in development or staging environments. Query parameters may contain sensitive user data.
+</Callout>
+
+## Next Steps
+
+<Cards>
+  <Card
+    title="Logging"
+    description="Configure structured logging with callbacks"
+    href="/docs/instrumentation/logging"
+  />
+  <Card
+    title="Tracing"
+    description="Set up OpenTelemetry tracing"
+    href="/docs/instrumentation/tracing"
+  />
+</Cards>
