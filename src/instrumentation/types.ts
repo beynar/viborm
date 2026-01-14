@@ -46,11 +46,17 @@ export type LogCallback = (event: LogEvent) => void;
  */
 export interface TracingConfig {
 	/**
-	 * Include SQL query in spans.
+	 * Include SQL query text in spans.
+	 * @default true
+	 */
+	includeSql?: boolean | undefined;
+
+	/**
+	 * Include query parameters in spans.
 	 * WARNING: May expose sensitive data. Use only in development/staging.
 	 * @default false
 	 */
-	includeSql?: boolean | undefined;
+	includeParams?: boolean | undefined;
 
 	/**
 	 * Span names to ignore (string or regex patterns)
@@ -75,10 +81,17 @@ export interface LoggingConfig {
 	callback: LogCallback;
 
 	/**
-	 * Include SQL in log events (opt-in for security)
-	 * @default false
+	 * Include SQL query text in log events.
+	 * @default true
 	 */
 	includeSql?: boolean | undefined;
+
+	/**
+	 * Include query parameters in log events.
+	 * WARNING: May expose sensitive data. Use only in development/staging.
+	 * @default false
+	 */
+	includeParams?: boolean | undefined;
 }
 
 /**

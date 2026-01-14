@@ -42,8 +42,10 @@ export interface VibORMSpanOptions {
  * Configuration for tracer wrapper
  */
 export interface TracerWrapperConfig {
-	/** Include SQL in span attributes */
+	/** Include SQL query text in span attributes (default: true) */
 	includeSql?: boolean | undefined;
+	/** Include query parameters in span attributes (default: false) */
+	includeParams?: boolean | undefined;
 	/** Span names to ignore */
 	ignoreSpanTypes?: Array<string | RegExp> | undefined;
 }
@@ -85,7 +87,8 @@ export function createTracerWrapper(
 	config?: TracerWrapperConfig,
 ): TracerWrapper {
 	const ignorePatterns = config?.ignoreSpanTypes ?? [];
-	const includeSql = config?.includeSql ?? false;
+	const includeSql = config?.includeSql ?? true; // SQL enabled by default
+	const includeParams = config?.includeParams ?? false; // Params disabled by default
 
 	// Instance-scoped state (not module-level) for serverless compatibility
 	let otel: OTelAPI | null = null;
@@ -123,9 +126,11 @@ export function createTracerWrapper(
 	): Attributes {
 		const attrs: Attributes = { ...options.attributes };
 
-		if (includeSql && options.sql) {
-			attrs[ATTR_DB_QUERY_TEXT] = options.sql.query;
-			if (options.sql.params) {
+		if (options.sql) {
+			if (includeSql) {
+				attrs[ATTR_DB_QUERY_TEXT] = options.sql.query;
+			}
+			if (includeParams && options.sql.params) {
 				attrs[ATTR_DB_QUERY_PARAMS] = JSON.stringify(options.sql.params);
 			}
 		}

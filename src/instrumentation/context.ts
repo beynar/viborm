@@ -35,6 +35,7 @@ export function createInstrumentationContext(
 	if (config.tracing) {
 		context.tracer = createTracerWrapper({
 			includeSql: config.tracing.includeSql,
+			includeParams: config.tracing.includeParams,
 			ignoreSpanTypes: config.tracing.ignoreSpanTypes,
 		});
 	}

@@ -33,19 +33,27 @@ export function createLogger(config: LoggingConfig): Logger {
 			? new Set(["query", "warning", "error"])
 			: new Set(config.levels);
 
-	const includeSql = config.includeSql ?? false;
+	const includeSql = config.includeSql ?? true; // SQL enabled by default
+	const includeParams = config.includeParams ?? false; // Params disabled by default
 
 	function shouldLog(level: LogLevel): boolean {
 		return enabledLevels.has(level);
 	}
 
 	function sanitizeEvent(event: LogEvent): LogEvent {
+		const result = { ...event };
+
 		// Strip SQL if not enabled
 		if (!includeSql) {
-			const { sql, params, ...rest } = event;
-			return rest as LogEvent;
+			delete result.sql;
 		}
-		return event;
+
+		// Strip params if not enabled
+		if (!includeParams) {
+			delete result.params;
+		}
+
+		return result;
 	}
 
 	return {
