@@ -91,27 +91,55 @@ viborm.transaction (transaction wrapper)
 
 VibORM follows [OTel database semantic conventions](https://opentelemetry.io/docs/specs/semconv/database/database-spans/) where possible.
 
-### OTel Standard Attributes
+### Attributes by Span Type
 
-| Attribute | Required | Description |
-|-----------|----------|-------------|
-| `db.system.name` | Yes | Database system (`postgresql`, `mysql`, `sqlite`) |
-| `db.namespace` | If available | Database name/schema |
-| `db.collection.name` | If available | Table name |
-| `db.operation.name` | Yes | Operation (`findMany`, `create`, `SELECT`) |
-| `db.query.text` | If `includeSql` | SQL query text |
-| `db.query.parameter.<index>` | If `includeParams` | Individual query parameters |
-| `db.response.returned_rows` | If available | Number of rows returned |
-| `db.operation.batch.size` | For batch ops | Number of items in batch |
-| `server.address` | If available | Database host |
-| `server.port` | If available | Database port |
-| `error.type` | On failure | Error class name |
-
-### VibORM Custom Attributes
+**All spans** include these base attributes:
 
 | Attribute | Description |
 |-----------|-------------|
-| `db.system.driver` | Driver name (`postgres`, `pg`, `pglite`, `mysql2`, `better-sqlite3`) |
+| `db.system.name` | Database system (`postgresql`, `sqlite`) |
+| `db.system.driver` | Driver name (`postgres`, `pg`, `pglite`, `sqlite3`) |
+
+**Operation spans** (`viborm.operation`, `viborm.validate`, `viborm.build`, `viborm.execute`, `viborm.parse`) add:
+
+| Attribute | Description |
+|-----------|-------------|
+| `db.collection.name` | Table name (e.g., `users`) |
+| `db.operation.name` | Operation (`findMany`, `create`, `update`, etc.) |
+
+**Driver execute span** (`viborm.driver.execute`) adds SQL details when configured:
+
+| Attribute | Condition | Description |
+|-----------|-----------|-------------|
+| `db.query.text` | `includeSql: true` | SQL query text |
+| `db.query.parameter.<index>` | `includeParams: true` | Individual query parameters |
+
+### Example Span Attributes
+
+```typescript
+// viborm.operation span
+{
+  "db.system.name": "postgresql",
+  "db.system.driver": "pg",
+  "db.collection.name": "users",
+  "db.operation.name": "findMany"
+}
+
+// viborm.driver.execute span (with includeSql: true)
+{
+  "db.system.name": "postgresql",
+  "db.system.driver": "pg",
+  "db.collection.name": "users",
+  "db.operation.name": "findMany",
+  "db.query.text": "SELECT * FROM \"users\" WHERE \"active\" = $1"
+}
+
+// viborm.transaction span
+{
+  "db.system.name": "postgresql",
+  "db.system.driver": "pg"
+}
+```
 
 ## Full Setup Example
 

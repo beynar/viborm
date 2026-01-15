@@ -1,23 +1,22 @@
-import type { Driver, QueryResult, TransactionOptions } from "@drivers";
-import { NotFoundError } from "../errors";
-import {
-	createInstrumentationContext,
-	type InstrumentationConfig,
-	type InstrumentationContext,
-	SPAN_CONNECT,
-	SPAN_DISCONNECT,
-	SPAN_OPERATION,
-	SPAN_TRANSACTION,
-	ATTR_DB_COLLECTION,
-	ATTR_DB_OPERATION_NAME,
-	createQueryLogEvent,
-	createErrorLogEvent,
-} from "../instrumentation";
-import type { VibORMError } from "../errors";
+import type { AnyDriver, QueryResult, TransactionOptions } from "@drivers";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import type { Operation } from "@query-engine/types";
 import { hydrateSchemaNames } from "@schema/hydration";
 import type { Sql } from "@sql";
+import type { VibORMError } from "../errors";
+import { NotFoundError } from "../errors";
+import {
+  ATTR_DB_COLLECTION,
+  ATTR_DB_OPERATION_NAME,
+  createErrorLogEvent,
+  createInstrumentationContext,
+  type InstrumentationConfig,
+  type InstrumentationContext,
+  SPAN_CONNECT,
+  SPAN_DISCONNECT,
+  SPAN_OPERATION,
+  SPAN_TRANSACTION,
+} from "../instrumentation";
 import type { CacheDriver, CacheOptions } from "./cache/types";
 import type { Client, Operations, Schema } from "./types";
 
@@ -56,7 +55,7 @@ function createModelProxy<S extends Schema>(
  */
 export interface VibORMConfig<S extends Schema> {
   schema: S;
-  driver: Driver;
+  driver: AnyDriver;
   cache?: CacheDriver;
   /** Instrumentation configuration for tracing and logging */
   instrumentation?: InstrumentationConfig;
@@ -67,7 +66,7 @@ export interface VibORMConfig<S extends Schema> {
  */
 export type VibORMClient<S extends Schema> = Client<S> & {
   /** Access the underlying driver */
-  $driver: Driver;
+  $driver: AnyDriver;
   /** Execute a raw SQL query */
   $executeRaw: <T = Record<string, unknown>>(
     query: Sql
@@ -94,7 +93,7 @@ export type VibORMClient<S extends Schema> = Client<S> & {
  * VibORM Client
  */
 export class VibORM<S extends Schema> {
-  private readonly driver: Driver;
+  private readonly driver: AnyDriver;
   private readonly schema: S;
   private readonly cache: CacheDriver | undefined;
   private readonly instrumentation: InstrumentationContext | undefined;
@@ -111,7 +110,7 @@ export class VibORM<S extends Schema> {
   /**
    * Create the client with model proxies and utility methods
    */
-  private createClient(driver: Driver = this.driver): Client<S> {
+  private createClient(driver: AnyDriver = this.driver): Client<S> {
     // Create a query engine for this driver (may be transaction driver)
     const registry = createModelRegistry(this.schema as Record<string, any>);
     const engine = new QueryEngine(
@@ -141,35 +140,27 @@ export class VibORM<S extends Schema> {
         const tableName = model["~"].names.sql ?? modelNameStr;
         const startTime = Date.now();
 
-        // Core execution logic
+        // Core execution logic (SQL logging is handled by QueryEngine)
         const executeCore = async () => {
-          const result = await engine.execute(
-            model,
-            baseOperation,
-            (args ?? {}) as Record<string, unknown>
-          );
-
-          if (operation.endsWith("OrThrow") && result === null) {
-            throw new NotFoundError(modelNameStr, operation);
-          }
-
-          // Handle exist operation (convert count to boolean)
-          return operation === "exist" ? (result as number) > 0 : result;
-        };
-
-        // Execute with logging wrapper
-        const executeWithLogging = async () => {
           try {
-            const result = await executeCore();
-            instrumentation?.logger?.query(
-              createQueryLogEvent({
-                model: modelNameStr,
-                operation: baseOperation,
-                duration: Date.now() - startTime,
-              })
+            const result = await engine.execute(
+              model,
+              baseOperation,
+              (args ?? {}) as Record<string, unknown>
             );
-            return result;
+
+            if (operation.endsWith("OrThrow") && result === null) {
+              throw new NotFoundError(modelNameStr, operation);
+            }
+
+            // Handle exist operation (convert count to boolean)
+            return operation === "exist" ? (result as number) > 0 : result;
           } catch (error) {
+            if (error instanceof Error && "logged" in error) {
+              // logged down in the stack, probably in the driver in order for the sql to be injected in the log
+              throw error;
+            }
+            // Log errors at client level
             instrumentation?.logger?.error(
               createErrorLogEvent({
                 error: error as VibORMError,
@@ -188,15 +179,16 @@ export class VibORM<S extends Schema> {
             {
               name: SPAN_OPERATION,
               attributes: {
+                ...driver.getBaseAttributes(),
                 [ATTR_DB_COLLECTION]: tableName,
                 [ATTR_DB_OPERATION_NAME]: operation,
               },
             },
-            executeWithLogging
+            executeCore
           );
         }
 
-        return executeWithLogging();
+        return executeCore();
       }
     ) as Client<S>;
   }
@@ -218,6 +210,12 @@ export class VibORM<S extends Schema> {
     hydrateSchemaNames(config.schema);
 
     const orm = new VibORM(config);
+
+    // Inject instrumentation into driver if supported
+    if (orm.instrumentation && "setInstrumentation" in config.driver) {
+      (config.driver as any).setInstrumentation(orm.instrumentation);
+    }
+
     const client = orm.createClient();
     const instrumentation = orm.instrumentation;
 
@@ -230,12 +228,12 @@ export class VibORM<S extends Schema> {
         }
 
         if (prop === "$executeRaw") {
-          return <T>(query: Sql) => orm.driver.execute<T>(query);
+          return <T>(query: Sql) => orm.driver._execute<T>(query);
         }
 
         if (prop === "$queryRaw") {
           return <T>(sql: string, params?: unknown[]) =>
-            orm.driver.executeRaw<T>(sql, params);
+            orm.driver._executeRaw<T>(sql, params);
         }
 
         if (prop === "$transaction") {
@@ -244,7 +242,7 @@ export class VibORM<S extends Schema> {
             options?: TransactionOptions
           ) => {
             const executeTransaction = () =>
-              orm.driver.transaction((txDriver) => {
+              orm.driver._transaction((txDriver) => {
                 const txClient = orm.createClient(txDriver);
                 return fn(txClient);
               }, options);
@@ -252,7 +250,10 @@ export class VibORM<S extends Schema> {
             // Wrap with tracing if available
             if (instrumentation?.tracer) {
               return instrumentation.tracer.startActiveSpan(
-                { name: SPAN_TRANSACTION },
+                {
+                  name: SPAN_TRANSACTION,
+                  attributes: orm.driver.getBaseAttributes(),
+                },
                 executeTransaction
               );
             }
@@ -262,12 +263,14 @@ export class VibORM<S extends Schema> {
 
         if (prop === "$connect") {
           return async () => {
-            const doConnect = () =>
-              orm.driver.connect?.() ?? Promise.resolve();
+            const doConnect = () => orm.driver.connect?.() ?? Promise.resolve();
 
             if (instrumentation?.tracer) {
               return instrumentation.tracer.startActiveSpan(
-                { name: SPAN_CONNECT },
+                {
+                  name: SPAN_CONNECT,
+                  attributes: orm.driver.getBaseAttributes(),
+                },
                 doConnect
               );
             }
@@ -282,7 +285,10 @@ export class VibORM<S extends Schema> {
 
             if (instrumentation?.tracer) {
               return instrumentation.tracer.startActiveSpan(
-                { name: SPAN_DISCONNECT },
+                {
+                  name: SPAN_DISCONNECT,
+                  attributes: orm.driver.getBaseAttributes(),
+                },
                 doDisconnect
               );
             }

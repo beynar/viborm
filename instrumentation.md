@@ -612,3 +612,19 @@ export const tracer = {
 ```json
 		"@opentelemetry/api": "^1.4.1",
 ```
+
+
+❯ i want to implement open telemery in the orm.
+
+  this is how prisma implement it
+   "/Users/arnaudderbey/baseorm/instrumentation.md" explain how drizzle and prisma implement it.
+
+  I want the best of both world.
+
+  span name should be clear and sufficient no need to over bloat.
+
+  The implementation should live under a folder named instrumentation.
+
+  It should also allow various level of logging define in the client for local debuging [all, error, warning, query].
+
+  I think we should take the opportunity to have better standerdizd errors accros the system

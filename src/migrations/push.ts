@@ -10,7 +10,7 @@
  */
 
 import type { DatabaseAdapter } from "../adapters/database-adapter";
-import type { Driver } from "../drivers/driver";
+import type { AnyDriver } from "../drivers/driver";
 import type { AnyModel } from "../schema/model";
 import {
   diff,
@@ -77,7 +77,7 @@ export interface PushOptions {
  * @returns Push result with operations and SQL statements
  */
 export async function push(
-  driver: Driver,
+  driver: AnyDriver,
   models: Record<string, AnyModel>,
   options: PushOptions = {}
 ): Promise<PushResult> {
@@ -93,7 +93,7 @@ export async function push(
 
   // 2. Introspect current database state
   const current = await adapter.migrations.introspect(async (sql, params) => {
-    const result = await driver.executeRaw<any>(sql, params);
+    const result = await driver._executeRaw<any>(sql, params);
     return result;
   });
 
@@ -164,9 +164,9 @@ export async function push(
   // 7. Execute DDL (unless dry run)
   if (!dryRun && sql.length > 0) {
     // Execute in a transaction for atomicity
-    await driver.transaction(async (tx) => {
+    await driver._transaction(async (tx) => {
       for (const statement of sql) {
-        await tx.executeRaw(statement + ";");
+        await tx._executeRaw(statement + ";");
       }
     });
   }
@@ -214,10 +214,10 @@ function sortOperations(operations: DiffOperation[]): DiffOperation[] {
  * Introspects the current database schema without making any changes.
  * Useful for debugging or displaying current state.
  */
-export async function introspect(driver: Driver): Promise<SchemaSnapshot> {
+export async function introspect(driver: AnyDriver): Promise<SchemaSnapshot> {
   const adapter = getAdapterForDialect(driver.dialect);
   return adapter.migrations.introspect(async (sql, params) => {
-    const result = await driver.executeRaw<any>(sql, params);
+    const result = await driver._executeRaw<any>(sql, params);
     return result;
   });
 }
@@ -227,7 +227,7 @@ export async function introspect(driver: Driver): Promise<SchemaSnapshot> {
  * without executing them. Useful for generating migration files.
  */
 export async function generateDDL(
-  driver: Driver,
+  driver: AnyDriver,
   models: Record<string, AnyModel>,
   options: { resolver?: Resolver } = {}
 ): Promise<{ operations: DiffOperation[]; sql: string[] }> {

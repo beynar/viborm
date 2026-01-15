@@ -5,8 +5,8 @@
  */
 
 // Base driver for custom implementations
-export { LazyDriver } from "./base-driver";
-export type { Driver, DriverResultParser } from "./driver";
+export { Driver } from "./driver";
+export type { AnyDriver, DriverResultParser, QueryExecutionContext } from "./driver";
 // Main interface
 export { isDriver } from "./driver";
 // Errors

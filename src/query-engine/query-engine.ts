@@ -6,19 +6,19 @@
  */
 
 import type { DatabaseAdapter } from "@adapters";
-import type { Driver } from "@drivers";
+import type { AnyDriver, QueryExecutionContext } from "@drivers";
+import { hydrateSchemaNames } from "@schema/hydration";
+import type { Model } from "@schema/model";
+import type { Sql } from "@sql";
 import {
+  ATTR_DB_COLLECTION,
+  ATTR_DB_OPERATION_NAME,
   type InstrumentationContext,
   SPAN_BUILD,
   SPAN_EXECUTE,
   SPAN_PARSE,
   SPAN_VALIDATE,
-  ATTR_DB_COLLECTION,
-  ATTR_DB_OPERATION_NAME,
 } from "../instrumentation";
-import { hydrateSchemaNames } from "@schema/hydration";
-import type { Model } from "@schema/model";
-import type { Sql } from "@sql";
 import { getPrimaryKeyField } from "./builders/correlation-utils";
 import { buildCreateWithNested } from "./builders/nested-create-builder";
 import {
@@ -58,6 +58,16 @@ import { withTransactionIfSupported } from "./utils/transaction-helper";
 import { validate } from "./validator";
 
 /**
+ * Type guard to check if driver supports context methods
+ */
+function hasContextSupport(driver: AnyDriver): driver is AnyDriver & {
+  setContext(ctx: QueryExecutionContext): void;
+  clearContext(): void;
+} {
+  return "setContext" in driver && "clearContext" in driver;
+}
+
+/**
  * Query Engine class
  *
  * Responsible for:
@@ -69,13 +79,13 @@ import { validate } from "./validator";
 export class QueryEngine {
   private readonly adapter: DatabaseAdapter;
   private readonly registry: ModelRegistry;
-  private readonly driver: Driver | undefined;
+  private readonly driver: AnyDriver | undefined;
   private readonly instrumentation: InstrumentationContext | undefined;
 
   constructor(
     adapter: DatabaseAdapter,
     registry: ModelRegistry,
-    driver?: Driver,
+    driver?: AnyDriver,
     instrumentation?: InstrumentationContext
   ) {
     this.adapter = adapter;
@@ -204,6 +214,24 @@ export class QueryEngine {
   }
 
   /**
+   * Set context on driver if supported
+   */
+  private setDriverContext(model: string, operation: string): void {
+    if (this.driver && hasContextSupport(this.driver)) {
+      this.driver.setContext({ model, operation });
+    }
+  }
+
+  /**
+   * Clear context on driver if supported
+   */
+  private clearDriverContext(): void {
+    if (this.driver && hasContextSupport(this.driver)) {
+      this.driver.clearContext();
+    }
+  }
+
+  /**
    * Execute an operation and return parsed results
    */
   async execute<T>(
@@ -218,8 +246,10 @@ export class QueryEngine {
     }
 
     const tracer = this.instrumentation?.tracer;
-    const tableName = model["~"].names.sql ?? "unknown";
+    const modelName = model["~"].names.ts ?? "unknown";
+    const tableName = model["~"].names.sql ?? modelName;
     const spanAttrs = {
+      ...this.driver.getBaseAttributes(),
       [ATTR_DB_COLLECTION]: tableName,
       [ATTR_DB_OPERATION_NAME]: operation,
     };
@@ -253,36 +283,42 @@ export class QueryEngine {
         )
       : this.buildOperation(ctx, operation, validated);
 
-    // Execute via driver (with optional span)
-    const result = tracer
-      ? await tracer.startActiveSpan(
-          {
-            name: SPAN_EXECUTE,
-            attributes: spanAttrs,
-            sql: this.instrumentation?.config.tracing?.includeSql
-              ? { query: sqlQuery.toStatement(), params: sqlQuery.values }
-              : undefined,
-          },
-          () => this.driver!.execute(sqlQuery)
-        )
-      : await this.driver.execute(sqlQuery);
+    // Set context on driver for logging
+    this.setDriverContext(modelName, operation);
 
-    // Parse result (synchronous - use sync span method)
-    if (isBatchOperation(operation)) {
+    try {
+      // Execute query - driver handles logging with context
+      const result = tracer
+        ? await tracer.startActiveSpan(
+            {
+              name: SPAN_EXECUTE,
+              attributes: spanAttrs,
+            },
+            () => this.driver!._execute(sqlQuery)
+          )
+        : await this.driver!._execute(sqlQuery);
+
+      // Parse result (synchronous - use sync span method)
+      if (isBatchOperation(operation)) {
+        return tracer
+          ? tracer.startActiveSpanSync(
+              { name: SPAN_PARSE, attributes: spanAttrs },
+              () =>
+                parseResult<T>(ctx, operation, { rowCount: result.rowCount })
+            )
+          : parseResult<T>(ctx, operation, { rowCount: result.rowCount });
+      }
+
       return tracer
         ? tracer.startActiveSpanSync(
             { name: SPAN_PARSE, attributes: spanAttrs },
-            () => parseResult<T>(ctx, operation, { rowCount: result.rowCount })
+            () => parseResult<T>(ctx, operation, result.rows)
           )
-        : parseResult<T>(ctx, operation, { rowCount: result.rowCount });
+        : parseResult<T>(ctx, operation, result.rows);
+    } finally {
+      // Clear context after execution
+      this.clearDriverContext();
     }
-
-    return tracer
-      ? tracer.startActiveSpanSync(
-          { name: SPAN_PARSE, attributes: spanAttrs },
-          () => parseResult<T>(ctx, operation, result.rows)
-        )
-      : parseResult<T>(ctx, operation, result.rows);
   }
 
   /**
@@ -334,208 +370,76 @@ export class QueryEngine {
     args: Record<string, unknown>
   ): Promise<T> {
     const driver = this.driver!;
+    const modelName = ctx.model["~"].names.ts ?? "unknown";
 
-    switch (operation) {
-      case "create": {
-        const data = args.data as Record<string, unknown>;
-        const { scalar, relations } = separateData(ctx, data);
+    // Set context for the entire nested write operation
+    this.setDriverContext(modelName, operation);
 
-        // Check if we can use subquery-only approach (no transaction needed)
-        // Additional check: if any connect has multiple items, force transaction
-        // (because we can only set one FK value per INSERT)
-        const hasMultipleConnects = Object.values(relations).some(
-          (mutation) =>
-            mutation.connect &&
-            Array.isArray(mutation.connect) &&
-            mutation.connect.length > 1
-        );
+    try {
+      switch (operation) {
+        case "create": {
+          const data = args.data as Record<string, unknown>;
+          const { scalar, relations } = separateData(ctx, data);
 
-        if (canUseSubqueryOnly(relations) && !hasMultipleConnects) {
-          // Add FK values from connect operations as subqueries
-          const dataWithFks = { ...scalar };
-          for (const [, mutation] of Object.entries(relations)) {
-            if (mutation.connect && mutation.relationInfo.fields?.length) {
-              // For subquery approach, we only handle single connect
-              // (array connects with >1 item are handled by transaction path above)
-              const connectInput = Array.isArray(mutation.connect)
-                ? mutation.connect[0]!
-                : mutation.connect;
-              const fkValues = buildConnectFkValues(
-                ctx,
-                mutation.relationInfo,
-                connectInput
-              );
-              // Add FK values to scalar data (they are Sql subqueries)
-              Object.assign(dataWithFks, fkValues);
+          // Check if we can use subquery-only approach (no transaction needed)
+          // Additional check: if any connect has multiple items, force transaction
+          // (because we can only set one FK value per INSERT)
+          const hasMultipleConnects = Object.values(relations).some(
+            (mutation) =>
+              mutation.connect &&
+              Array.isArray(mutation.connect) &&
+              mutation.connect.length > 1
+          );
+
+          if (canUseSubqueryOnly(relations) && !hasMultipleConnects) {
+            // Add FK values from connect operations as subqueries
+            const dataWithFks = { ...scalar };
+            for (const [, mutation] of Object.entries(relations)) {
+              if (mutation.connect && mutation.relationInfo.fields?.length) {
+                // For subquery approach, we only handle single connect
+                // (array connects with >1 item are handled by transaction path above)
+                const connectInput = Array.isArray(mutation.connect)
+                  ? mutation.connect[0]!
+                  : mutation.connect;
+                const fkValues = buildConnectFkValues(
+                  ctx,
+                  mutation.relationInfo,
+                  connectInput
+                );
+                // Add FK values to scalar data (they are Sql subqueries)
+                Object.assign(dataWithFks, fkValues);
+              }
             }
+
+            // Build and execute single INSERT with subqueries
+            const sqlQuery = buildCreate(ctx, {
+              data: dataWithFks,
+              select: args.select as Record<string, unknown>,
+              include: args.include as Record<string, unknown>,
+            });
+            const result = await driver._execute(sqlQuery);
+            return parseResult<T>(ctx, operation, result.rows);
           }
 
-          // Build and execute single INSERT with subqueries
-          const sqlQuery = buildCreate(ctx, {
-            data: dataWithFks,
-            select: args.select as Record<string, unknown>,
-            include: args.include as Record<string, unknown>,
-          });
-          const result = await driver.execute(sqlQuery);
-          return parseResult<T>(ctx, operation, result.rows);
-        }
+          // Need transaction for complex nested writes
+          const createResult = await executeNestedCreate(driver, ctx, data);
 
-        // Need transaction for complex nested writes
-        const createResult = await executeNestedCreate(driver, ctx, data);
-
-        // Handle include/select for return value
-        if (args.include || args.select) {
-          // Re-fetch the created record with includes
-          const pkField = getPrimaryKeyField(ctx.model);
-          const pkValue = createResult.record[pkField];
-          if (pkValue !== undefined) {
-            const refetchArgs = {
-              where: { [pkField]: pkValue },
-              select: args.select,
-              include: args.include,
-            };
-            const refetchSql = buildFindUniqueQuery(
-              ctx,
-              refetchArgs as { where: Record<string, unknown> }
-            );
-            const refetchResult = await driver.execute(refetchSql);
-            if (refetchResult.rows.length > 0) {
-              return parseResult<T>(ctx, "findUnique", refetchResult.rows);
-            }
-          }
-        }
-
-        // Return the created record with nested records merged
-        const finalRecord = { ...createResult.record, ...createResult.related };
-        return finalRecord as T;
-      }
-
-      case "update": {
-        // For update, we first execute the update, then handle nested operations
-        const data = args.data as Record<string, unknown>;
-        const where = args.where as Record<string, unknown>;
-        const { scalar, relations } = separateData(ctx, data);
-
-        // Check if we need a transaction for nested operations
-        if (Object.keys(relations).length > 0 && needsTransaction(relations)) {
-          return withTransactionIfSupported(driver, async (tx) => {
-            // First, update the scalar fields
-            if (Object.keys(scalar).length > 0) {
-              const updateSql = buildUpdate(ctx, { where, data: scalar });
-              await tx.execute(updateSql);
-            }
-
-            // Get the updated record for FK operations
-            const selectSql = buildFindUniqueQuery(ctx, { where });
-            const selectResult =
-              await tx.execute<Record<string, unknown>>(selectSql);
-            const updatedRecord = selectResult.rows[0];
-
-            if (!updatedRecord) {
-              throw new QueryEngineError("Record to update not found");
-            }
-
-            // Handle relation mutations (connect, disconnect, create, delete)
-            await executeNestedUpdate(tx, ctx, updatedRecord, relations);
-
-            // Re-fetch with includes if needed
-            if (args.include || args.select) {
-              const refetchSql = buildFindUniqueQuery(ctx, {
-                where,
-                select: args.select as Record<string, unknown> | undefined,
-                include: args.include as Record<string, unknown> | undefined,
-              } as { where: Record<string, unknown> });
-              const refetchResult =
-                await tx.execute<Record<string, unknown>>(refetchSql);
-              return parseResult<T>(ctx, "findUnique", refetchResult.rows);
-            }
-
-            return updatedRecord as T;
-          });
-        }
-
-        // Simple update without nested operations
-        const updateSql = buildUpdate(
-          ctx,
-          args as {
-            where: Record<string, unknown>;
-            data: Record<string, unknown>;
-          }
-        );
-        const result = await driver.execute(updateSql);
-        return parseResult<T>(ctx, operation, result.rows);
-      }
-
-      case "upsert": {
-        // Upsert with nested writes - delegate to transaction
-        return withTransactionIfSupported(driver, async (tx) => {
-          const where = args.where as Record<string, unknown>;
-
-          // Check if record exists
-          const selectSql = buildFindUniqueQuery(ctx, { where });
-          const selectResult =
-            await tx.execute<Record<string, unknown>>(selectSql);
-
-          if (selectResult.rows.length > 0) {
-            // Record exists - do update with nested operations
-            const existingRecord = selectResult.rows[0]!;
-            const updateData = args.update as Record<string, unknown>;
-            const { scalar, relations } = separateData(ctx, updateData);
-
-            // Get PK for re-fetching (in case update changes where clause fields)
-            const pkField = getPrimaryKeyField(ctx.model);
-            const pkValue = existingRecord[pkField];
-            const pkWhere = { [pkField]: pkValue };
-
-            // Update scalar fields
-            if (Object.keys(scalar).length > 0) {
-              const updateSql = buildUpdate(ctx, { where, data: scalar });
-              await tx.execute(updateSql);
-            }
-
-            // Get the updated record for nested operations (use PK, not original where)
-            const refetchByPkSql = buildFindUniqueQuery(ctx, { where: pkWhere });
-            const updatedResult =
-              await tx.execute<Record<string, unknown>>(refetchByPkSql);
-            const updatedRecord = updatedResult.rows[0];
-
-            if (!updatedRecord) {
-              throw new QueryEngineError(
-                "Record was deleted by another transaction during upsert"
-              );
-            }
-
-            // Handle nested relation mutations (connect, disconnect, create, delete)
-            if (Object.keys(relations).length > 0) {
-              await executeNestedUpdate(tx, ctx, updatedRecord, relations);
-            }
-
-            // Re-fetch to get final state (use PK in case update changed where clause fields)
-            const refetchSql = buildFindUniqueQuery(ctx, {
-              where: pkWhere,
-              select: args.select as Record<string, unknown> | undefined,
-              include: args.include as Record<string, unknown> | undefined,
-            } as { where: Record<string, unknown> });
-            const refetchResult =
-              await tx.execute<Record<string, unknown>>(refetchSql);
-            return parseResult<T>(ctx, "findUnique", refetchResult.rows);
-          }
-          // Record doesn't exist - do create
-          const createData = args.create as Record<string, unknown>;
-          const createResult = await executeNestedCreate(tx, ctx, createData);
-
-          // Handle include/select for return value (same as create operation)
+          // Handle include/select for return value
           if (args.include || args.select) {
+            // Re-fetch the created record with includes
             const pkField = getPrimaryKeyField(ctx.model);
             const pkValue = createResult.record[pkField];
             if (pkValue !== undefined) {
-              const refetchSql = buildFindUniqueQuery(ctx, {
+              const refetchArgs = {
                 where: { [pkField]: pkValue },
-                select: args.select as Record<string, unknown> | undefined,
-                include: args.include as Record<string, unknown> | undefined,
-              } as { where: Record<string, unknown> });
-              const refetchResult =
-                await tx.execute<Record<string, unknown>>(refetchSql);
+                select: args.select,
+                include: args.include,
+              };
+              const refetchSql = buildFindUniqueQuery(
+                ctx,
+                refetchArgs as { where: Record<string, unknown> }
+              );
+              const refetchResult = await driver._execute(refetchSql);
               if (refetchResult.rows.length > 0) {
                 return parseResult<T>(ctx, "findUnique", refetchResult.rows);
               }
@@ -543,21 +447,170 @@ export class QueryEngine {
           }
 
           // Return the created record with nested records merged
-          return { ...createResult.record, ...createResult.related } as T;
-        });
-      }
+          const finalRecord = {
+            ...createResult.record,
+            ...createResult.related,
+          };
+          return finalRecord as T;
+        }
 
-      default:
-        throw new QueryEngineError(
-          `Nested writes not supported for operation: ${operation}`
-        );
+        case "update": {
+          // For update, we first execute the update, then handle nested operations
+          const data = args.data as Record<string, unknown>;
+          const where = args.where as Record<string, unknown>;
+          const { scalar, relations } = separateData(ctx, data);
+
+          // Check if we need a transaction for nested operations
+          if (
+            Object.keys(relations).length > 0 &&
+            needsTransaction(relations)
+          ) {
+            return withTransactionIfSupported(driver, async (tx) => {
+              // First, update the scalar fields
+              if (Object.keys(scalar).length > 0) {
+                const updateSql = buildUpdate(ctx, { where, data: scalar });
+                await tx._execute(updateSql);
+              }
+
+              // Get the updated record for FK operations
+              const selectSql = buildFindUniqueQuery(ctx, { where });
+              const selectResult =
+                await tx._execute<Record<string, unknown>>(selectSql);
+              const updatedRecord = selectResult.rows[0];
+
+              if (!updatedRecord) {
+                throw new QueryEngineError("Record to update not found");
+              }
+
+              // Handle relation mutations (connect, disconnect, create, delete)
+              await executeNestedUpdate(tx, ctx, updatedRecord, relations);
+
+              // Re-fetch with includes if needed
+              if (args.include || args.select) {
+                const refetchSql = buildFindUniqueQuery(ctx, {
+                  where,
+                  select: args.select as Record<string, unknown> | undefined,
+                  include: args.include as Record<string, unknown> | undefined,
+                } as { where: Record<string, unknown> });
+                const refetchResult =
+                  await tx._execute<Record<string, unknown>>(refetchSql);
+                return parseResult<T>(ctx, "findUnique", refetchResult.rows);
+              }
+
+              return updatedRecord as T;
+            });
+          }
+
+          // Simple update without nested operations
+          const updateSql = buildUpdate(
+            ctx,
+            args as {
+              where: Record<string, unknown>;
+              data: Record<string, unknown>;
+            }
+          );
+          const result = await driver._execute(updateSql);
+          return parseResult<T>(ctx, operation, result.rows);
+        }
+
+        case "upsert": {
+          // Upsert with nested writes - delegate to transaction
+          return withTransactionIfSupported(driver, async (tx) => {
+            const where = args.where as Record<string, unknown>;
+
+            // Check if record exists
+            const selectSql = buildFindUniqueQuery(ctx, { where });
+            const selectResult =
+              await tx._execute<Record<string, unknown>>(selectSql);
+
+            if (selectResult.rows.length > 0) {
+              // Record exists - do update with nested operations
+              const existingRecord = selectResult.rows[0]!;
+              const updateData = args.update as Record<string, unknown>;
+              const { scalar, relations } = separateData(ctx, updateData);
+
+              // Get PK for re-fetching (in case update changes where clause fields)
+              const pkField = getPrimaryKeyField(ctx.model);
+              const pkValue = existingRecord[pkField];
+              const pkWhere = { [pkField]: pkValue };
+
+              // Update scalar fields
+              if (Object.keys(scalar).length > 0) {
+                const updateSql = buildUpdate(ctx, { where, data: scalar });
+                await tx._execute(updateSql);
+              }
+
+              // Get the updated record for nested operations (use PK, not original where)
+              const refetchByPkSql = buildFindUniqueQuery(ctx, {
+                where: pkWhere,
+              });
+              const updatedResult =
+                await tx._execute<Record<string, unknown>>(refetchByPkSql);
+              const updatedRecord = updatedResult.rows[0];
+
+              if (!updatedRecord) {
+                throw new QueryEngineError(
+                  "Record was deleted by another transaction during upsert"
+                );
+              }
+
+              // Handle nested relation mutations (connect, disconnect, create, delete)
+              if (Object.keys(relations).length > 0) {
+                await executeNestedUpdate(tx, ctx, updatedRecord, relations);
+              }
+
+              // Re-fetch to get final state (use PK in case update changed where clause fields)
+              const refetchSql = buildFindUniqueQuery(ctx, {
+                where: pkWhere,
+                select: args.select as Record<string, unknown> | undefined,
+                include: args.include as Record<string, unknown> | undefined,
+              } as { where: Record<string, unknown> });
+              const refetchResult =
+                await tx._execute<Record<string, unknown>>(refetchSql);
+              return parseResult<T>(ctx, "findUnique", refetchResult.rows);
+            }
+            // Record doesn't exist - do create
+            const createData = args.create as Record<string, unknown>;
+            const createResult = await executeNestedCreate(tx, ctx, createData);
+
+            // Handle include/select for return value (same as create operation)
+            if (args.include || args.select) {
+              const pkField = getPrimaryKeyField(ctx.model);
+              const pkValue = createResult.record[pkField];
+              if (pkValue !== undefined) {
+                const refetchSql = buildFindUniqueQuery(ctx, {
+                  where: { [pkField]: pkValue },
+                  select: args.select as Record<string, unknown> | undefined,
+                  include: args.include as Record<string, unknown> | undefined,
+                } as { where: Record<string, unknown> });
+                const refetchResult =
+                  await tx._execute<Record<string, unknown>>(refetchSql);
+                if (refetchResult.rows.length > 0) {
+                  return parseResult<T>(ctx, "findUnique", refetchResult.rows);
+                }
+              }
+            }
+
+            // Return the created record with nested records merged
+            return { ...createResult.record, ...createResult.related } as T;
+          });
+        }
+
+        default:
+          throw new QueryEngineError(
+            `Nested writes not supported for operation: ${operation}`
+          );
+      }
+    } finally {
+      // Clear context after nested writes complete
+      this.clearDriverContext();
     }
   }
 
   /**
    * Get the driver instance for direct access
    */
-  getDriver(): Driver | undefined {
+  getDriver(): AnyDriver | undefined {
     return this.driver;
   }
 
@@ -680,7 +733,7 @@ export function createModelRegistry(
 export function createQueryEngine(
   adapter: DatabaseAdapter,
   models: Record<string, Model<any>>,
-  driver?: Driver,
+  driver?: AnyDriver,
   instrumentation?: InstrumentationContext
 ): QueryEngine {
   const registry = createModelRegistry(models);

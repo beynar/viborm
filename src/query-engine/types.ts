@@ -5,7 +5,7 @@
  */
 
 import type { DatabaseAdapter } from "@adapters";
-import type { Driver } from "@drivers/driver";
+import type { AnyDriver } from "@drivers/driver";
 import type { Model } from "@schema/model";
 import type { AnyRelation } from "@schema/relation";
 
@@ -64,7 +64,7 @@ export interface ModelRegistry {
  */
 export interface QueryContext {
   /** Database driver (optional, for result parsing) */
-  driver?: Driver;
+  driver?: AnyDriver;
   /** Database adapter for SQL generation */
   adapter: DatabaseAdapter;
   /** Current model being queried */

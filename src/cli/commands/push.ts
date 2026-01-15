@@ -78,7 +78,7 @@ export const pushCommand = new Command("push")
 
         spinner.start("Resetting database...");
         // Drop all tables in the public schema
-        await driver.executeRaw(`
+        await driver._executeRaw(`
           DO $$ DECLARE
             r RECORD;
           BEGIN
@@ -88,7 +88,7 @@ export const pushCommand = new Command("push")
           END $$;
         `);
         // Drop all types (enums)
-        await driver.executeRaw(`
+        await driver._executeRaw(`
           DO $$ DECLARE
             r RECORD;
           BEGIN

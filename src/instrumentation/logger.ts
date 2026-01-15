@@ -7,98 +7,109 @@
 import type { VibORMError } from "../errors";
 import type { Operation } from "../query-engine/types";
 import type {
-	LogCallback,
-	LogEvent,
-	LoggingConfig,
-	LogLevel,
-	LogLevelHandler,
+  LogEvent,
+  LoggingConfig,
+  LogLevel,
+  LogLevelHandler,
 } from "./types";
 
 /**
  * Logger interface for internal use
  */
 export interface Logger {
-	/** Log an event with explicit level */
-	log(event: LogEvent): void;
-	/** Log a query event */
-	query(event: Omit<LogEvent, "level">): void;
-	/** Log a warning event */
-	warn(event: Omit<LogEvent, "level">): void;
-	/** Log an error event */
-	error(event: Omit<LogEvent, "level">): void;
-	/** Check if a specific level is enabled */
-	isLevelEnabled(level: LogLevel): boolean;
+  /** Log an event with explicit level */
+  log(event: LogEvent): void;
+  /** Log a query event */
+  query(event: Omit<LogEvent, "level">): void;
+  /** Log a warning event */
+  warn(event: Omit<LogEvent, "level">): void;
+  /** Log an error event */
+  error(event: Omit<LogEvent, "level">): void;
+  /** Check if a specific level is enabled */
+  isLevelEnabled(level: LogLevel): boolean;
 }
 
 /**
  * ANSI color codes for pretty output
  */
 const colors = {
-	reset: "\x1b[0m",
-	dim: "\x1b[2m",
-	cyan: "\x1b[36m",
-	yellow: "\x1b[33m",
-	red: "\x1b[31m",
-	green: "\x1b[32m",
-	magenta: "\x1b[35m",
+  reset: "\x1b[0m",
+  dim: "\x1b[2m",
+  cyan: "\x1b[36m",
+  yellow: "\x1b[33m",
+  red: "\x1b[31m",
+  green: "\x1b[32m",
+  magenta: "\x1b[35m",
+  blue: "\x1b[34m",
 } as const;
+
+const backgrounds = {
+  bgRed: (...args: string[]) => `\x1b[41m${args.join(" ")}\x1b[0m`,
+  bgGreen: (...args: string[]) => `\x1b[42m${args.join(" ")}\x1b[0m`,
+  bgYellow: (...args: string[]) => `\x1b[43m${args.join(" ")}\x1b[0m`,
+  bgBlue: (...args: string[]) => `\x1b[44m${args.join(" ")}\x1b[0m`,
+};
 
 /**
  * Format duration with color based on speed
  */
 function formatDuration(ms: number | undefined): string {
-	if (ms === undefined) return "";
-	const color = ms < 10 ? colors.green : ms < 100 ? colors.yellow : colors.red;
-	return `${color}${ms}ms${colors.reset}`;
+  if (ms === undefined) return "";
+  const color = ms < 10 ? colors.green : ms < 100 ? colors.yellow : colors.red;
+  return `${color}${ms}ms${colors.reset}`;
 }
 
 /**
  * Default pretty console formatter
  */
 function prettyLog(event: LogEvent): void {
-	const time = `${colors.dim}${event.timestamp.toISOString()}${colors.reset}`;
-	const duration = formatDuration(event.duration);
+  const time = `${colors.dim}${event.timestamp.toISOString()}${colors.reset}`;
+  const duration = formatDuration(event.duration);
 
-	switch (event.level) {
-		case "query": {
-			const target = event.model
-				? `${colors.cyan}${event.model}${colors.reset}.${colors.magenta}${event.operation}${colors.reset}`
-				: `${colors.magenta}${event.operation ?? "query"}${colors.reset}`;
-			const parts = [time, target, duration].filter(Boolean);
-			console.log(parts.join(" "));
-			if (event.sql) {
-				console.log(`  ${colors.dim}${event.sql}${colors.reset}`);
-			}
-			if (event.params?.length) {
-				console.log(
-					`  ${colors.dim}params: ${JSON.stringify(event.params)}${colors.reset}`,
-				);
-			}
-			break;
-		}
-		case "warning": {
-			const prefix = `${colors.yellow}WARN${colors.reset}`;
-			const target = event.model
-				? `${colors.cyan}${event.model}${colors.reset}`
-				: "";
-			console.warn(time, prefix, target, event.meta ?? "");
-			break;
-		}
-		case "error": {
-			const prefix = `${colors.red}ERROR${colors.reset}`;
-			const target = event.model
-				? `${colors.cyan}${event.model}${colors.reset}.${colors.magenta}${event.operation}${colors.reset}`
-				: "";
-			console.error(time, prefix, target, duration);
-			if (event.error) {
-				console.error(`  ${colors.red}${event.error.message}${colors.reset}`);
-			}
-			if (event.sql) {
-				console.error(`  ${colors.dim}${event.sql}${colors.reset}`);
-			}
-			break;
-		}
-	}
+  switch (event.level) {
+    case "query": {
+      const target = event.model
+        ? `${colors.cyan}${event.model}${colors.reset}.${colors.magenta}${event.operation}${colors.reset}`
+        : `${colors.magenta}${event.operation ?? "query"}${colors.reset}`;
+      const prefix = `${backgrounds.bgBlue(`${colors.blue}[QUERY]${colors.reset}`)}`;
+      const parts = [prefix, time, target, duration].filter(Boolean);
+      console.log(parts.join(" "));
+      if (event.sql) {
+        console.log(`  ${colors.dim}${event.sql}${colors.reset}`);
+      }
+      if (event.params?.length) {
+        console.log(
+          `  ${colors.dim}params: ${JSON.stringify(event.params)}${colors.reset}`
+        );
+      }
+      break;
+    }
+    case "warning": {
+      const prefix = `${colors.yellow}${backgrounds.bgYellow("[WARN]")}${colors.reset}`;
+      const target = event.model
+        ? `${colors.cyan}${event.model}${colors.reset}`
+        : "";
+      console.warn(prefix, time, target, event.meta ?? "");
+      break;
+    }
+    case "error": {
+      const prefix = `${colors.red}${backgrounds.bgRed("[ERROR]")}${colors.reset}`;
+      const target = event.model
+        ? `${colors.cyan}${event.model}${colors.reset}.${colors.magenta}${event.operation}${colors.reset}`
+        : "";
+      console.error(`\x1b[41m${prefix}\x1b[0m`, time, target, duration);
+      if (event.error) {
+        console.error(`  ${colors.red}${event.error.message}${colors.reset}`);
+      }
+      if (event.sql) {
+        console.error(`  ${colors.dim}${event.sql}${colors.reset}`);
+      }
+      break;
+    }
+    default: {
+      //
+    }
+  }
 }
 
 /**
@@ -106,119 +117,116 @@ function prettyLog(event: LogEvent): void {
  * Falls back to `all` handler if specific level is not defined
  */
 function getHandler(
-	config: LoggingConfig,
-	level: LogLevel,
+  config: LoggingConfig,
+  level: LogLevel
 ): LogLevelHandler | undefined {
-	switch (level) {
-		case "query":
-			return config.query ?? config.all;
-		case "warning":
-			return config.warning ?? config.all;
-		case "error":
-			return config.error ?? config.all;
-	}
+  switch (level) {
+    case "query":
+      return config.query ?? config.all;
+    case "warning":
+      return config.warning ?? config.all;
+    case "error":
+      return config.error ?? config.all;
+    default: {
+      //
+    }
+  }
 }
 
 /**
  * Create a logger instance from config
  */
 export function createLogger(config: LoggingConfig): Logger {
-	const includeSql = config.includeSql ?? true; // SQL enabled by default
-	const includeParams = config.includeParams ?? false; // Params disabled by default
+  const includeSql = config.includeSql ?? true; // SQL enabled by default
+  const includeParams = config.includeParams ?? false; // Params disabled by default
 
-	function sanitizeEvent(event: LogEvent): LogEvent {
-		const result = { ...event };
+  function sanitizeEvent(event: LogEvent): LogEvent {
+    const result = {
+      ...event,
+      sql: includeSql ? event.sql : undefined,
+      params: includeParams ? event.params : undefined,
+    };
 
-		// Strip SQL if not enabled
-		if (!includeSql) {
-			delete result.sql;
-		}
+    return result;
+  }
 
-		// Strip params if not enabled
-		if (!includeParams) {
-			delete result.params;
-		}
+  function emit(event: LogEvent): void {
+    const handler = getHandler(config, event.level);
+    if (!handler) return;
 
-		return result;
-	}
+    const sanitized = sanitizeEvent(event);
 
-	function emit(event: LogEvent): void {
-		const handler = getHandler(config, event.level);
-		if (!handler) return;
+    // Create the default logger function to pass to callbacks
+    const defaultLog = () => prettyLog(sanitized);
 
-		const sanitized = sanitizeEvent(event);
+    if (handler === true) {
+      prettyLog(sanitized);
+    } else {
+      handler(sanitized, defaultLog);
+    }
+  }
 
-		// Create the default logger function to pass to callbacks
-		const defaultLog = () => prettyLog(sanitized);
+  return {
+    log(event: LogEvent): void {
+      emit(event);
+    },
 
-		if (handler === true) {
-			prettyLog(sanitized);
-		} else {
-			handler(sanitized, defaultLog);
-		}
-	}
+    query(event: Omit<LogEvent, "level">): void {
+      emit({ ...event, level: "query" });
+    },
 
-	return {
-		log(event: LogEvent): void {
-			emit(event);
-		},
+    warn(event: Omit<LogEvent, "level">): void {
+      emit({ ...event, level: "warning" });
+    },
 
-		query(event: Omit<LogEvent, "level">): void {
-			emit({ ...event, level: "query" });
-		},
+    error(event: Omit<LogEvent, "level">): void {
+      emit({ ...event, level: "error" });
+    },
 
-		warn(event: Omit<LogEvent, "level">): void {
-			emit({ ...event, level: "warning" });
-		},
-
-		error(event: Omit<LogEvent, "level">): void {
-			emit({ ...event, level: "error" });
-		},
-
-		isLevelEnabled(level: LogLevel): boolean {
-			return getHandler(config, level) !== undefined;
-		},
-	};
+    isLevelEnabled(level: LogLevel): boolean {
+      return getHandler(config, level) !== undefined;
+    },
+  };
 }
 
 /**
  * Helper to create a query log event
  */
 export function createQueryLogEvent(params: {
-	model?: string | undefined;
-	operation?: Operation | undefined;
-	duration?: number | undefined;
-	sql?: string | undefined;
-	sqlParams?: unknown[] | undefined;
-	meta?: Record<string, unknown> | undefined;
+  model?: string | undefined;
+  operation?: Operation | undefined;
+  duration?: number | undefined;
+  sql?: string | undefined;
+  sqlParams?: unknown[] | undefined;
+  meta?: Record<string, unknown> | undefined;
 }): Omit<LogEvent, "level"> {
-	return {
-		timestamp: new Date(),
-		model: params.model,
-		operation: params.operation,
-		duration: params.duration,
-		sql: params.sql,
-		params: params.sqlParams,
-		meta: params.meta,
-	};
+  return {
+    timestamp: new Date(),
+    model: params.model,
+    operation: params.operation,
+    duration: params.duration,
+    sql: params.sql,
+    params: params.sqlParams,
+    meta: params.meta,
+  };
 }
 
 /**
  * Helper to create an error log event
  */
 export function createErrorLogEvent(params: {
-	error: VibORMError;
-	model?: string | undefined;
-	operation?: Operation | undefined;
-	duration?: number | undefined;
-	meta?: Record<string, unknown> | undefined;
+  error: Error | VibORMError;
+  model?: string | undefined;
+  operation?: Operation | undefined;
+  duration?: number | undefined;
+  meta?: Record<string, unknown> | undefined;
 }): Omit<LogEvent, "level"> {
-	return {
-		timestamp: new Date(),
-		error: params.error,
-		model: params.model,
-		operation: params.operation,
-		duration: params.duration,
-		meta: params.meta,
-	};
+  return {
+    timestamp: new Date(),
+    error: params.error,
+    model: params.model,
+    operation: params.operation,
+    duration: params.duration,
+    meta: params.meta,
+  };
 }

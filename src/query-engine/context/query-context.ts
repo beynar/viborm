@@ -5,7 +5,7 @@
  */
 
 import type { DatabaseAdapter } from "@adapters";
-import type { Driver } from "@drivers/driver";
+import type { AnyDriver } from "@drivers/driver";
 import type { Model } from "@schema/model";
 import type { ModelRegistry, QueryContext, RelationInfo } from "../types";
 import { createAliasGenerator } from "./alias-generator";
@@ -17,7 +17,7 @@ export function createQueryContext(
   adapter: DatabaseAdapter,
   model: Model<any>,
   registry: ModelRegistry,
-  driver?: Driver
+  driver?: AnyDriver
 ): QueryContext {
   const aliasGenerator = createAliasGenerator();
   // Reserve t0 for root

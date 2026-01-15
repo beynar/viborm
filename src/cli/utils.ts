@@ -11,7 +11,7 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import type { Driver } from "../drivers/driver";
+import type { AnyDriver } from "../drivers/driver";
 import type { AnyModel } from "../schema/model";
 
 // =============================================================================
@@ -35,7 +35,7 @@ import type { AnyModel } from "../schema/model";
  */
 export interface VibORMConfig {
   /** Database driver instance */
-  driver: Driver;
+  driver: AnyDriver;
   /** Schema models */
   schema: Record<string, AnyModel>;
   /** Optional: Output directory for generated files */
@@ -48,7 +48,7 @@ export interface LoadConfigOptions {
 }
 
 export interface LoadedConfig {
-  driver: Driver;
+  driver: AnyDriver;
   models: Record<string, AnyModel>;
 }
 

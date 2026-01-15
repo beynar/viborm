@@ -116,7 +116,6 @@ export function json<
 >(
   options?: Opts
 ): JsonSchema<ComputeInput<JsonValue, Opts>, ComputeOutput<JsonValue, Opts>> {
-  console.log("json", options);
   return buildSchema("json", validateJson, options) as JsonSchema<
     ComputeInput<JsonValue, Opts>,
     ComputeOutput<JsonValue, Opts>
