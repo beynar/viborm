@@ -17,7 +17,7 @@ export {
 	ValidationError,
 	QueryEngineError,
 	NestedWriteError,
-} from "../errors";
+} from "@errors";
 
 /**
  * All supported operations

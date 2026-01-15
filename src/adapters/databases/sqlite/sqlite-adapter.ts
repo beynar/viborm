@@ -1,4 +1,4 @@
-import { unsupportedGeospatial, unsupportedVector } from "../../../errors";
+import { unsupportedGeospatial, unsupportedVector } from "@errors";
 import { type Sql, sql } from "@sql";
 import type { DatabaseAdapter, QueryParts } from "../../database-adapter";
 import { sqliteMigrations } from "./migrations";

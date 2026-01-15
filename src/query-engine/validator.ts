@@ -7,7 +7,7 @@
 
 import type { Model } from "@schema/model";
 import { parse, type VibSchema } from "@validation";
-import { ValidationError } from "../errors";
+import { ValidationError } from "@errors";
 import type { Operation } from "./types";
 
 /**

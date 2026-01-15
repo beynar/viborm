@@ -9,6 +9,7 @@ import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import {
   createClient as baseCreateClient,
+  type DriverConfig,
   type VibORMClient,
 } from "@client/client";
 import type { Schema } from "@client/types";
@@ -17,7 +18,7 @@ import {
   type PGliteOptions,
   type Transaction,
 } from "@electric-sql/pglite";
-import { unsupportedGeospatial, unsupportedVector } from "../../errors";
+import { unsupportedGeospatial, unsupportedVector } from "@errors";
 import { Driver } from "../driver";
 import type { QueryResult, TransactionOptions } from "../types";
 
@@ -34,9 +35,8 @@ export interface PGliteDriverOptions {
   postgis?: boolean;
 }
 
-export interface PGliteConfig<S extends Schema> extends PGliteDriverOptions {
-  schema: S;
-}
+export type PGliteConfig<S extends Schema> = PGliteDriverOptions &
+  DriverConfig<S>;
 
 // ============================================================
 // DRIVER IMPLEMENTATION
@@ -44,6 +44,7 @@ export interface PGliteConfig<S extends Schema> extends PGliteDriverOptions {
 
 export class PGliteDriver extends Driver<PGlite, Transaction> {
   readonly adapter: DatabaseAdapter;
+
 
   private readonly driverOptions: PGliteDriverOptions;
 

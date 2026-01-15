@@ -8,11 +8,12 @@ import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import {
   createClient as baseCreateClient,
+  type DriverConfig,
   type VibORMClient,
 } from "@client/client";
 import type { Schema } from "@client/types";
 import { Pool, type PoolClient, type PoolConfig } from "pg";
-import { unsupportedGeospatial, unsupportedVector } from "../../errors";
+import { unsupportedGeospatial, unsupportedVector } from "@errors";
 import { Driver } from "../driver";
 import type { QueryResult, TransactionOptions } from "../types";
 
@@ -29,9 +30,8 @@ export interface PgDriverOptions {
   postgis?: boolean;
 }
 
-export interface PgClientConfig<S extends Schema> extends PgDriverOptions {
-  schema: S;
-}
+export type PgClientConfig<S extends Schema> = PgDriverOptions &
+  DriverConfig<S>;
 
 // ============================================================
 // DRIVER IMPLEMENTATION

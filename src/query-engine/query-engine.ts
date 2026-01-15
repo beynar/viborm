@@ -216,7 +216,7 @@ export class QueryEngine {
   /**
    * Set context on driver if supported
    */
-  private setDriverContext(model: string, operation: string): void {
+  private setDriverContext(model: string, operation: Operation): void {
     if (this.driver && hasContextSupport(this.driver)) {
       this.driver.setContext({ model, operation });
     }

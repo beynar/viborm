@@ -1,10 +1,9 @@
 import type { AnyDriver, QueryResult, TransactionOptions } from "@drivers";
+import { NotFoundError, type VibORMError } from "@errors";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import type { Operation } from "@query-engine/types";
 import { hydrateSchemaNames } from "@schema/hydration";
 import type { Sql } from "@sql";
-import type { VibORMError } from "../errors";
-import { NotFoundError } from "../errors";
 import {
   ATTR_DB_COLLECTION,
   ATTR_DB_OPERATION_NAME,
@@ -60,7 +59,11 @@ export interface VibORMConfig<S extends Schema> {
   /** Instrumentation configuration for tracing and logging */
   instrumentation?: InstrumentationConfig;
 }
-
+export interface DriverConfig<S extends Schema> {
+  schema: S;
+  cache?: CacheDriver;
+  instrumentation?: InstrumentationConfig;
+}
 /**
  * Extended client type with utility methods
  */

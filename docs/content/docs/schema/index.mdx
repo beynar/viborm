@@ -94,36 +94,3 @@ const user = s.model({
     href="/docs/schema/validation"
   />
 </Cards>
-
-## Architecture
-
-The schema module consists of:
-
-| Component | Purpose |
-|-----------|---------|
-| **Model** | Represents a database table |
-| **Fields** | Scalar columns (string, int, etc.) |
-| **Relations** | Connections between models |
-| **Validation** | Schema correctness checks |
-| **Runtime Schemas** | ArkType validation schemas |
-
-## State-Based Generics
-
-VibORM uses a single `State` generic pattern for future-proof type inference:
-
-```ts
-// Field state tracks all modifiers
-class StringField<State extends FieldState<"string">> {
-  nullable(): StringField<UpdateState<State, { nullable: true }>>
-  // ...
-}
-
-// Model state tracks fields and constraints
-class Model<State extends ModelState> {
-  id(fields: ...): Model<ModelState<...>>
-  // ...
-}
-```
-
-This pattern ensures that adding new features won't break existing code.
-

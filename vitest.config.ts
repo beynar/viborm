@@ -17,6 +17,7 @@ export default defineConfig({
       "@validation": resolve(__dirname, "src/validation"),
       "@query-engine": resolve(__dirname, "src/query-engine"),
       "@migrations": resolve(__dirname, "src/migrations"),
+      "@errors": resolve(__dirname, "src/errors"),
     },
   },
 });

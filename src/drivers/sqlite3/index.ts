@@ -13,6 +13,7 @@ import {
 } from "@adapters/shared/result-parsing";
 import {
   createClient as baseCreateClient,
+  type DriverConfig,
   type VibORMClient,
 } from "@client/client";
 import type { Schema } from "@client/types";
@@ -39,10 +40,8 @@ export interface SQLite3DriverOptions {
   filename?: string;
 }
 
-export interface SQLite3ClientConfig<S extends Schema>
-  extends SQLite3DriverOptions {
-  schema: S;
-}
+export type SQLite3ClientConfig<S extends Schema> = SQLite3DriverOptions &
+  DriverConfig<S>;
 
 // ============================================================
 // HELPERS

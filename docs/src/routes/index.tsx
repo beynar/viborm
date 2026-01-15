@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { HomeLayout } from "fumadocs-ui/layouts/home";
+import { ShikiHighlighter } from "react-shiki";
 import { baseOptions } from "@/lib/layout.shared";
 
 export const Route = createFileRoute("/")({
@@ -17,29 +18,14 @@ function Home() {
 
           <div className="container relative mx-auto px-6 py-24 md:py-32 lg:py-40">
             <div className="mx-auto max-w-4xl text-center">
-              <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-fd-primary/20 bg-fd-primary/10 px-3 py-1 font-medium text-fd-primary text-sm">
-                <span className="relative flex h-2 w-2">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-fd-primary opacity-75" />
-                  <span className="relative inline-flex h-2 w-2 rounded-full bg-fd-primary" />
-                </span>
-                The Convergence Point
-              </div>
-
               <h1 className="mb-6 font-bold text-4xl tracking-tight md:text-5xl lg:text-6xl">
-                The ORM We're All{" "}
                 <span className="bg-gradient-to-r from-fd-primary to-fd-primary/60 bg-clip-text text-transparent">
-                  Trying to Build
+                  VibORM
                 </span>
               </h1>
 
               <p className="mx-auto mb-8 max-w-3xl text-fd-muted-foreground text-lg leading-relaxed md:text-xl">
-                Prisma pioneered elegant APIs but requires code generation and
-                WASM. Drizzle went lightweight but sacrificed elegance. VibORM
-                combines both:{" "}
-                <span className="font-medium text-fd-foreground">
-                  Prisma's elegant API, zero code generation, no WASM — pure
-                  TypeScript.
-                </span>
+                Prisma-like API. Zero code generation. No WASM. Pure TypeScript.
               </p>
 
               <div className="flex flex-col justify-center gap-4 sm:flex-row">
@@ -75,120 +61,16 @@ function Home() {
           </div>
         </section>
 
-        {/* The Convergence Story */}
-        <section className="border-fd-border border-b py-16 md:py-24">
-          <div className="container mx-auto px-6">
-            <div className="mx-auto max-w-4xl">
-              <div className="mb-12 text-center">
-                <h2 className="mb-4 font-bold text-2xl md:text-3xl">
-                  The Great ORM Convergence
-                </h2>
-                <p className="mx-auto max-w-3xl text-fd-muted-foreground leading-relaxed">
-                  In 2020, Prisma pioneered object-based queries and relational
-                  APIs. Drizzle launched as the "anti-Prisma" — lightweight,
-                  SQL-first, no abstractions. Now in 2025, Drizzle's v2 adopts
-                  the exact patterns they once dismissed.
-                  <span className="mt-2 block font-medium text-fd-foreground">
-                    This isn't copying. It's convergence. Production demands
-                    these patterns.
-                  </span>
-                </p>
-              </div>
-
-              <div className="grid gap-6 md:grid-cols-3">
-                <ConvergenceCard
-                  highlight="Beautiful DX, but heavy toolchain"
-                  items={[
-                    "Elegant, readable schemas",
-                    "Intuitive query API",
-                    "Code generation required",
-                    "WASM engine overhead",
-                  ]}
-                  title="Prisma's Path"
-                />
-                <ConvergenceCard
-                  highlight="Lightweight, but sacrificed elegance"
-                  items={[
-                    "Verbose, SQL-like schemas",
-                    "Relations defined separately",
-                    "Callback-based → object-based",
-                    "Zero code generation",
-                  ]}
-                  title="Drizzle's Path"
-                />
-                <ConvergenceCard
-                  highlight="The best of both worlds"
-                  items={[
-                    "Prisma's elegant API ✓",
-                    "Zero code generation ✓",
-                    "No WASM, pure TypeScript ✓",
-                    "Database-agnostic features ✓",
-                  ]}
-                  primary
-                  title="VibORM"
-                />
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* What Production Demands */}
-        <section className="border-fd-border border-b bg-fd-card/30 py-16 md:py-24">
-          <div className="container mx-auto px-6">
-            <div className="mx-auto max-w-4xl">
-              <div className="mb-12 text-center">
-                <h2 className="mb-4 font-bold text-2xl md:text-3xl">
-                  What Production Actually Demands
-                </h2>
-                <p className="mx-auto max-w-2xl text-fd-muted-foreground">
-                  These patterns aren't arbitrary preferences — they're optimal
-                  solutions that emerge when you tackle production-scale
-                  problems.
-                </p>
-              </div>
-
-              <div className="grid gap-6 sm:grid-cols-2">
-                <DemandCard
-                  description="Drizzle v2 adopted object-based patterns but only partially — missing nested selects on relations and other features. VibORM implements the full Prisma-like API."
-                  quote="where is now object. orderBy is now object."
-                  source="Drizzle v2 Migration Docs"
-                  title="Complete object-based queries"
-                />
-                <DemandCard
-                  description="Drizzle forces you to define relations separately from models. That's not just inconvenient — it's harder to understand and maintain. VibORM keeps relations inline, like Prisma."
-                  quote="Your schema should be readable at a glance, not scattered across files."
-                  source="Developer Experience"
-                  title="Schema elegance isn't optional"
-                />
-                <DemandCard
-                  description="Other ORMs treat JSON as 'any'. VibORM lets you define JSON schemas with Zod or Valibot — full type inference and runtime validation on your JSON data."
-                  quote="JSON columns shouldn't be a type safety escape hatch."
-                  source="Type Safety"
-                  title="Typed JSON columns"
-                />
-                <DemandCard
-                  description="Prisma bundles a Rust engine compiled to WASM — extra binaries, platform issues, slower cold starts. VibORM is pure TypeScript. Nothing to download, nothing to compile."
-                  quote="The simplest architecture is the best architecture."
-                  source="Engineering Wisdom"
-                  title="No WASM, no complexity"
-                />
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* Elegance Comparison */}
+        {/* Schema Comparison */}
         <section className="border-fd-border border-b py-16 md:py-24">
           <div className="container mx-auto px-6">
             <div className="mx-auto max-w-5xl">
               <div className="mb-12 text-center">
                 <h2 className="mb-4 font-bold text-2xl md:text-3xl">
-                  Elegance Matters
+                  Schema Definition
                 </h2>
                 <p className="mx-auto max-w-2xl text-fd-muted-foreground">
-                  Drizzle requires relations to be defined separately from your
-                  models. VibORM keeps everything together — like Prisma, but in
-                  pure TypeScript.
+                  Relations are defined inline with the model.
                 </p>
               </div>
 
@@ -224,13 +106,13 @@ const postsRelations = relations(posts, ({ one }) => ({
 
                 <CodeBlock
                   badge="VibORM"
-                  code={`// Everything in one place — clean & elegant ✨
+                  code={`// Everything in one place — clean & elegant
 const user = s.model({
   id: s.string().id().ulid(),
   email: s.string().unique(),
   name: s.string().nullable(),
   posts: s.oneToMany(() => post),
-}).map("users");
+});
 
 const post = s.model({
   id: s.string().id().ulid(),
@@ -239,43 +121,9 @@ const post = s.model({
   author: s.manyToOne(() => user)
     .fields("authorId")
     .references("id"),
-}).map("posts");
-
-// That's it. Relations are part of the model.
-// Chainable. Readable. Elegant.`}
+});`}
                   title="viborm-schema.ts"
                 />
-              </div>
-
-              <div className="grid gap-6 md:grid-cols-2">
-                <div className="rounded-lg border border-fd-border bg-fd-card p-5">
-                  <h3 className="mb-2 flex items-center gap-2 font-semibold">
-                    <span className="text-red-500">✗</span> Drizzle's Approach
-                  </h3>
-                  <ul className="space-y-1 text-fd-muted-foreground text-sm">
-                    <li>
-                      • Relations defined in separate{" "}
-                      <code className="rounded bg-fd-muted px-1 text-xs">
-                        relations()
-                      </code>{" "}
-                      calls
-                    </li>
-                    <li>• Schema scattered across multiple declarations</li>
-                    <li>• Harder to understand model structure at a glance</li>
-                    <li>• More boilerplate, less readable</li>
-                  </ul>
-                </div>
-                <div className="rounded-lg border border-fd-primary/30 bg-fd-primary/5 p-5">
-                  <h3 className="mb-2 flex items-center gap-2 font-semibold text-fd-primary">
-                    <span>✓</span> VibORM's Approach
-                  </h3>
-                  <ul className="space-y-1 text-fd-muted-foreground text-sm">
-                    <li>• Relations defined inline with the model</li>
-                    <li>• One model = one complete definition</li>
-                    <li>• Immediately see the full picture</li>
-                    <li>• Chainable, fluent, Prisma-like elegance</li>
-                  </ul>
-                </div>
               </div>
             </div>
           </div>
@@ -287,12 +135,11 @@ const post = s.model({
             <div className="mx-auto max-w-5xl">
               <div className="mb-12 text-center">
                 <h2 className="mb-4 font-bold text-2xl md:text-3xl">
-                  Your Schema Library, Native Support
+                  Standard Schema Support
                 </h2>
                 <p className="mx-auto max-w-2xl text-fd-muted-foreground">
-                  Use Zod, Valibot, or ArkType to narrow field validation.
-                  Define typed JSON columns with full inference. No other ORM
-                  does this.
+                  Use Zod, Valibot, or ArkType to narrow field validation and
+                  define typed JSON columns.
                 </p>
               </div>
 
@@ -313,11 +160,11 @@ const addressSchema = z.object({
 const user = s.model({
   id: s.string().id().ulid(),
   email: s.string().unique(),
-  // Typed JSON column with full inference ✨
-  address: s.json(addressSchema),
+  // Typed JSON column with full inference
+  address: s.json().schema(addressSchema),
   // Nullable typed JSON
-  preferences: s.json(prefsSchema).nullable(),
-}).map("users");
+  preferences: s.json().schema(prefsSchema).nullable(),
+});
 
 // TypeScript knows address is { street, city, zip, country }
 // Runtime validation included — invalid JSON throws`}
@@ -342,7 +189,7 @@ const user = s.model({
   ),
   // Or ArkType
   age: s.int().schema(type("number > 0 & < 150")),
-}).map("users");
+});
 
 // Works with any Standard Schema compliant library
 // Same API, your choice of validator`}
@@ -370,47 +217,20 @@ const user = s.model({
                   </p>
                 </div>
               </div>
-
-              <div className="mt-8 rounded-lg border border-fd-primary/30 bg-fd-primary/5 p-6">
-                <div className="flex items-start gap-4">
-                  <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-fd-primary text-fd-primary-foreground">
-                    <JsonIcon />
-                  </div>
-                  <div>
-                    <h3 className="mb-1 font-semibold">
-                      JSON Columns, Finally Type-Safe
-                    </h3>
-                    <p className="text-fd-muted-foreground text-sm">
-                      Other ORMs treat JSON as{" "}
-                      <code className="rounded bg-fd-muted px-1 text-xs">
-                        any
-                      </code>{" "}
-                      or{" "}
-                      <code className="rounded bg-fd-muted px-1 text-xs">
-                        unknown
-                      </code>
-                      . VibORM lets you define the exact shape with your
-                      favorite schema library — full type inference in queries,
-                      runtime validation on writes. No more JSON escape hatches.
-                    </p>
-                  </div>
-                </div>
-              </div>
             </div>
           </div>
         </section>
 
-        {/* Query Comparison */}
+        {/* Query Example */}
         <section className="border-fd-border border-b bg-fd-card/30 py-16 md:py-24">
           <div className="container mx-auto px-6">
             <div className="mx-auto max-w-5xl">
               <div className="mb-12 text-center">
                 <h2 className="mb-4 font-bold text-2xl md:text-3xl">
-                  Queries That Read Like English
+                  Query API
                 </h2>
                 <p className="mx-auto max-w-2xl text-fd-muted-foreground">
-                  Prisma's query API is beloved for a reason — it's intuitive.
-                  VibORM brings that same elegance without the code generation.
+                  Object-based queries with full type inference.
                 </p>
               </div>
 
@@ -448,29 +268,6 @@ const newUser = await client.user.create({
                   title="queries.ts"
                 />
               </div>
-
-              <div className="mt-8 rounded-lg border border-fd-border bg-fd-background p-6">
-                <div className="flex items-start gap-4">
-                  <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-fd-primary/10 text-fd-primary">
-                    <ZapIcon />
-                  </div>
-                  <div>
-                    <h3 className="mb-1 font-semibold">
-                      Simpler Stack, Better Performance
-                    </h3>
-                    <p className="text-fd-muted-foreground text-sm">
-                      No{" "}
-                      <code className="rounded bg-fd-muted px-1.5 py-0.5 text-xs">
-                        prisma generate
-                      </code>
-                      . No WASM engine. No binary downloads. Just pure
-                      TypeScript that runs anywhere Node.js runs — faster cold
-                      starts, simpler deployments, and the complete Prisma-like
-                      query API.
-                    </p>
-                  </div>
-                </div>
-              </div>
             </div>
           </div>
         </section>
@@ -480,12 +277,8 @@ const newUser = await client.user.create({
           <div className="container mx-auto px-6">
             <div className="mb-12 text-center">
               <h2 className="mb-4 font-bold text-2xl md:text-3xl">
-                The Full Picture
+                Feature Comparison
               </h2>
-              <p className="mx-auto max-w-2xl text-fd-muted-foreground">
-                Prisma's elegance. Drizzle's zero-generation. VibORM combines
-                both — without the compromises.
-              </p>
             </div>
 
             <div className="mx-auto max-w-4xl overflow-x-auto">
@@ -547,7 +340,7 @@ const newUser = await client.user.create({
                   />
                   <ComparisonRow
                     feature="Exported model schemas"
-                    values={["✗", "✗", "✗", "ArkType"]}
+                    values={["✗", "✗", "✗", "✓"]}
                     vibormHighlight
                   />
                   <ComparisonRow
@@ -593,12 +386,6 @@ const newUser = await client.user.create({
                 </tbody>
               </table>
             </div>
-
-            <p className="mx-auto mt-6 max-w-2xl text-center text-fd-muted-foreground text-sm">
-              Prisma has elegance but requires generation and WASM. Drizzle is
-              lightweight but sacrificed elegance. VibORM gives you both —
-              beautiful queries, pure TypeScript, no build step.
-            </p>
           </div>
         </section>
 
@@ -608,12 +395,10 @@ const newUser = await client.user.create({
             <div className="mx-auto max-w-4xl">
               <div className="mb-12 text-center">
                 <h2 className="mb-4 font-bold text-2xl md:text-3xl">
-                  One API. Every Database. Every Feature.
+                  Database Abstraction
                 </h2>
                 <p className="mx-auto max-w-3xl text-fd-muted-foreground leading-relaxed">
-                  Other ORMs give you different features depending on your
-                  database. VibORM abstracts the limitations away — your code
-                  works the same whether you're on PostgreSQL, MySQL, or SQLite.
+                  Same API across PostgreSQL, MySQL, and SQLite.
                 </p>
               </div>
 
@@ -650,92 +435,64 @@ const newUser = await client.user.create({
                   </p>
                 </div>
               </div>
-
-              <div className="rounded-lg border border-fd-primary/30 bg-fd-primary/5 p-6">
-                <div className="flex items-start gap-4">
-                  <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-fd-primary text-fd-primary-foreground">
-                    <DatabaseIcon />
-                  </div>
-                  <div>
-                    <h3 className="mb-1 font-semibold">The Real Abstraction</h3>
-                    <p className="text-fd-muted-foreground text-sm">
-                      Most ORMs abstract SQL <em>syntax</em> — you still hit
-                      database limitations. VibORM abstracts database{" "}
-                      <em>capabilities</em>. Features that don't exist natively
-                      are emulated transparently. You get the same powerful API
-                      everywhere.
-                    </p>
-                  </div>
-                </div>
-              </div>
             </div>
           </div>
         </section>
 
-        {/* Features that matter */}
+        {/* Features */}
         <section className="border-fd-border border-b bg-fd-card/30 py-16 md:py-24">
           <div className="container mx-auto px-6">
             <div className="mb-12 text-center">
-              <h2 className="mb-4 font-bold text-2xl md:text-3xl">
-                Features That Survived Convergence
-              </h2>
-              <p className="mx-auto max-w-2xl text-fd-muted-foreground">
-                These aren't arbitrary preferences. They're the patterns that
-                every production ORM eventually implements.
-              </p>
+              <h2 className="mb-4 font-bold text-2xl md:text-3xl">Features</h2>
             </div>
 
             <div className="mx-auto grid max-w-5xl gap-6 sm:grid-cols-2 lg:grid-cols-3">
               <FeatureCard
-                description="Chainable schemas. Relations defined inline. Queries that read like English. The beautiful DX Prisma pioneered — in pure TypeScript."
+                description="Chainable schemas with relations defined inline."
                 icon={<SparklesIcon />}
-                title="Prisma's Elegance"
+                title="Chainable API"
               />
               <FeatureCard
-                description="Defined inline, not scattered. include, nested select, relation filters — Prisma's complete relational API without the separate relations() boilerplate."
+                description="Relations defined inline with include, nested select, and relation filters."
                 icon={<LinkIcon />}
-                title="Relations Done Right"
+                title="Inline Relations"
               />
               <FeatureCard
-                description="Every query, filter, and result is typed. No any, no guessing, no runtime surprises."
+                description="Every query, filter, and result is typed."
                 icon={<ShieldIcon />}
                 title="Full Type Safety"
               />
               <FeatureCard
-                description="No code generation, no WASM engine, no binary downloads. Just TypeScript — simpler workflow, faster cold starts, works everywhere."
+                description="No code generation, no WASM engine, no binary downloads."
                 icon={<ZapIcon />}
                 title="Pure TypeScript"
               />
               <FeatureCard
-                description="ArkType schemas auto-generated from your models. Use them for API validation, form validation — anywhere you need runtime checks outside the ORM."
+                description="Validation schemas auto-generated from your models using our internal validation library."
                 icon={<CheckCircleIcon />}
                 title="Exported Model Schemas"
               />
               <FeatureCard
-                description="Use Zod, Valibot, or ArkType to narrow field validation and type JSON columns. Your favorite schema library, native support."
+                description="Use Zod, Valibot, or ArkType to narrow field validation and type JSON columns."
                 icon={<PlugIcon />}
                 title="Standard Schema Integration"
               />
               <FeatureCard
-                description="Scalar arrays on MySQL. DISTINCT on SQLite. Every feature works everywhere — the ORM abstracts database limitations, not just syntax."
+                description="Scalar arrays on MySQL, DISTINCT on SQLite. Database limitations are abstracted away."
                 icon={<DatabaseIcon />}
-                title="True Database Abstraction"
+                title="Database Abstraction"
               />
             </div>
           </div>
         </section>
 
-        {/* CTA Section */}
+        {/* Install Section */}
         <section className="border-fd-border border-b bg-fd-card/30 py-16 md:py-24">
           <div className="container mx-auto px-6">
             <div className="mx-auto max-w-2xl text-center">
               <h2 className="mb-4 font-bold text-2xl md:text-3xl">
-                Skip the Convergence. Start at the Destination.
+                Installation
               </h2>
-              <p className="mb-8 text-fd-muted-foreground">
-                Why wait for other ORMs to implement what you need? VibORM has
-                the patterns that production demands — today.
-              </p>
 
               <div className="mb-8 rounded-lg border border-fd-border bg-fd-card p-4 text-left font-mono text-sm">
                 <div className="flex items-center gap-2 text-fd-muted-foreground">
@@ -772,7 +529,7 @@ const newUser = await client.user.create({
                   target="_blank"
                 >
                   <GithubIcon />
-                  <span className="ml-2">View on GitHub</span>
+                  <span className="ml-2">GitHub</span>
                 </a>
               </div>
             </div>
@@ -781,7 +538,7 @@ const newUser = await client.user.create({
 
         {/* Footer */}
         <footer className="py-8 text-center text-fd-muted-foreground text-sm">
-          <p>The ORM we're all trying to build. Now available.</p>
+          <p>VibORM</p>
         </footer>
       </main>
     </HomeLayout>
@@ -794,99 +551,24 @@ function CodeBlock({
   title,
   badge,
   code,
+  lang = "typescript",
 }: {
   title: string;
   badge: string;
   code: string;
+  lang?: string;
 }) {
   return (
-    <div className="overflow-hidden rounded-lg border border-fd-border bg-fd-card">
+    <div className="h-fit overflow-hidden rounded-lg border border-fd-border bg-fd-card">
       <div className="flex items-center justify-between border-fd-border border-b bg-fd-muted/30 px-4 py-2">
         <span className="font-medium text-fd-foreground text-sm">{title}</span>
         <span className="rounded bg-fd-primary/10 px-2 py-0.5 font-medium text-fd-primary text-xs">
           {badge}
         </span>
       </div>
-      <pre className="overflow-x-auto p-4 text-sm">
-        <code className="text-fd-muted-foreground">{code}</code>
-      </pre>
-    </div>
-  );
-}
-
-function ConvergenceCard({
-  title,
-  items,
-  highlight,
-  primary = false,
-}: {
-  title: string;
-  items: string[];
-  highlight: string;
-  primary?: boolean;
-}) {
-  return (
-    <div
-      className={`rounded-lg border p-6 ${
-        primary
-          ? "border-fd-primary bg-fd-primary/5"
-          : "border-fd-border bg-fd-card"
-      }`}
-    >
-      <h3 className={`mb-4 font-semibold ${primary ? "text-fd-primary" : ""}`}>
-        {title}
-      </h3>
-      <ul className="mb-4 space-y-2">
-        {items.map((item, i) => (
-          <li
-            className="flex items-start gap-2 text-fd-muted-foreground text-sm"
-            key={i}
-          >
-            <span
-              className={
-                primary ? "text-fd-primary" : "text-fd-muted-foreground"
-              }
-            >
-              {primary ? "✓" : "→"}
-            </span>
-            {item}
-          </li>
-        ))}
-      </ul>
-      <p
-        className={`border-t pt-4 font-medium text-xs ${
-          primary
-            ? "border-fd-primary/20 text-fd-primary"
-            : "border-fd-border text-fd-muted-foreground"
-        }`}
-      >
-        {highlight}
-      </p>
-    </div>
-  );
-}
-
-function DemandCard({
-  title,
-  description,
-  quote,
-  source,
-}: {
-  title: string;
-  description: string;
-  quote: string;
-  source: string;
-}) {
-  return (
-    <div className="rounded-lg border border-fd-border bg-fd-card p-6">
-      <h3 className="mb-2 font-semibold">{title}</h3>
-      <p className="mb-4 text-fd-muted-foreground text-sm">{description}</p>
-      <blockquote className="border-fd-primary border-l-2 pl-3 text-fd-muted-foreground text-sm italic">
-        "{quote}"
-        <cite className="mt-1 block text-fd-muted-foreground/70 text-xs not-italic">
-          — {source}
-        </cite>
-      </blockquote>
+      <ShikiHighlighter language={lang} theme={"vitesse-dark"}>
+        {code}
+      </ShikiHighlighter>
     </div>
   );
 }
@@ -975,24 +657,6 @@ function ShieldIcon() {
     >
       <path
         d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={2}
-      />
-    </svg>
-  );
-}
-
-function CodeIcon() {
-  return (
-    <svg
-      className="h-5 w-5"
-      fill="none"
-      stroke="currentColor"
-      viewBox="0 0 24 24"
-    >
-      <path
-        d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"
         strokeLinecap="round"
         strokeLinejoin="round"
         strokeWidth={2}
@@ -1131,30 +795,6 @@ function SparklesIcon() {
     >
       <path
         d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={2}
-      />
-    </svg>
-  );
-}
-
-function JsonIcon() {
-  return (
-    <svg
-      className="h-5 w-5"
-      fill="none"
-      stroke="currentColor"
-      viewBox="0 0 24 24"
-    >
-      <path
-        d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={2}
-      />
-      <path
-        d="M9 13h2m-1-1v4m4-3h.01M15 15h.01"
         strokeLinecap="round"
         strokeLinejoin="round"
         strokeWidth={2}

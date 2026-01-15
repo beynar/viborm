@@ -4,8 +4,8 @@
  * Centralized error factory for creating errors with consistent context.
  */
 
+import { NestedWriteError, QueryEngineError } from "@errors";
 import type { Model } from "@schema/model";
-import { NestedWriteError, QueryEngineError } from "../errors";
 import type { QueryContext } from "./types";
 
 /**

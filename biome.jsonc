@@ -16,7 +16,8 @@
         "useConsistentTypeDefinitions": "off",
         "noNonNullAssertion": "off",
         "useBlockStatements": "off",
-        "noNestedTernary": "off"
+        "noNestedTernary": "off",
+        "noEnum": "off"
       },
       "performance": {
         "noBarrelFile": "off"

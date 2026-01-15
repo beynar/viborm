@@ -4,7 +4,7 @@
  * Provides pretty console output or custom callbacks per log level.
  */
 
-import type { VibORMError } from "../errors";
+import type { VibORMError } from "@errors";
 import type { Operation } from "../query-engine/types";
 import type {
   LogEvent,

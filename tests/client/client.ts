@@ -1,4 +1,4 @@
-import { createClient as PGliteCreateClient } from "@drivers/pglite";
+import { createClient } from "@drivers/pglite";
 import { push } from "@migrations";
 import { s } from "@schema";
 import z from "zod/v4";
@@ -33,7 +33,12 @@ const post = s.model({
 const schema = { user, post };
 
 // Create client with PGlite
-const client = await PGliteCreateClient({ schema });
+const client = createClient({
+  schema,
+  instrumentation: {
+    logging: true,
+  },
+});
 
 // Push schema (will be no-op if already in sync)
 const pushResult = await push(client.$driver, schema, { force: true });
@@ -58,7 +63,7 @@ const newUser = await client.user.create({
       {
         age: 10,
         name: "dog1",
-        type: "dog",
+        type: "cat",
       },
     ],
   },
@@ -78,102 +83,122 @@ const newUser = await client.user.create({
 });
 console.log("Created user:", newUser);
 
-// Create a post for this user
-const newPost = await client.post.create({
-  data: {
-    id: crypto.randomUUID(),
-    title: "Hello World",
-    content: "This is my first post!",
-    authorId: newUser.id,
+const newUserfetched = await client.user.findUnique({
+  where: {
+    id: newUser.id,
   },
-});
-console.log("Created post:", newPost);
-
-// Find all users
-const allUsers = await client.user.findMany();
-console.log("All users:", allUsers);
-
-// Find user by id
-const foundUser = await client.user.findFirst({
-  where: { id: newUser.id },
-});
-console.log("Found user:", foundUser);
-
-// Find user with posts (include)
-
-const userWithPosts = await client.user.findFirst({
-  where: { id: newUser.id },
   include: {
     posts: {
-      include: {
-        author: {
-          include: {
-            posts: {
-              skip: 2,
+      where: {
+        AND: [
+          {
+            title: {
+              contains: "Hello",
             },
           },
-        },
+        ],
       },
     },
   },
 });
-console.log("User with posts:", userWithPosts);
+console.log("Created user:", newUser);
 
-// Update the user
-const updatedUser = await client.user.update({
-  where: { id: newUser.id },
-  data: {
-    name: "Jane Doe",
-    email: {
-      set: "eak",
-    },
-    pets: [
-      {
-        age: 10,
-        name: "dog",
-        type: "dog",
-      },
-    ],
-  },
-});
-console.log("Updated user:", updatedUser);
+// // Create a post for this user
+// const newPost = await client.post.create({
+//   data: {
+//     id: crypto.randomUUID(),
+//     title: "Hello World",
+//     content: "This is my first post!",
+//     authorId: newUser.id,
+//   },
+// });
+// console.log("Created post:", newPost);
 
-// Count users
-const userCount = await client.user.count({});
-console.log("User count:", userCount);
+// // Find all users
+// const allUsers = await client.user.findMany();
+// console.log("All users:", allUsers);
 
-// Clean up - delete the post first (foreign key constraint)
-await client.post.delete({ where: { id: newPost.id } });
-console.log("Deleted post");
+// // Find user by id
+// const foundUser = await client.user.findFirst({
+//   where: { id: newUser.id },
+// });
+// console.log("Found user:", foundUser);
 
-// Delete the user
-await client.user.delete({ where: { id: newUser.id } });
+// // Find user with posts (include)
 
-await client.$transaction(async (tx) => {
-  const newUser = await tx.user.create({
-    data: {
-      email: "eze2",
-      name: "eze2",
-      pets: [
-        {
-          age: 10,
-          name: "dog",
-          type: "dog",
-        },
-      ],
-    },
-  });
-  console.log("Created user:", newUser);
-  const newPost = await tx.post.create({
-    data: {
-      title: "Hello World2",
-      content: "This is my second post!",
-      authorId: newUser.id,
-    },
-  });
-  console.log("Created post:", newPost);
-});
-console.log("Deleted user");
+// const userWithPosts = await client.user.findFirst({
+//   where: { id: newUser.id },
+//   include: {
+//     posts: {
+//       include: {
+//         author: {
+//           include: {
+//             posts: {
+//               skip: 2,
+//             },
+//           },
+//         },
+//       },
+//     },
+//   },
+// });
+// console.log("User with posts:", userWithPosts);
+
+// // Update the user
+// const updatedUser = await client.user.update({
+//   where: { id: newUser.id },
+//   data: {
+//     name: "Jane Doe",
+//     email: {
+//       set: "eak",
+//     },
+//     pets: [
+//       {
+//         age: 10,
+//         name: "dog",
+//         type: "dog",
+//       },
+//     ],
+//   },
+// });
+// console.log("Updated user:", updatedUser);
+
+// // Count users
+// const userCount = await client.user.count({});
+// console.log("User count:", userCount);
+
+// // Clean up - delete the post first (foreign key constraint)
+// await client.post.delete({ where: { id: newPost.id } });
+// console.log("Deleted post");
+
+// // Delete the user
+// await client.user.delete({ where: { id: newUser.id } });
+
+// await client.$transaction(async (tx) => {
+//   const newUser = await tx.user.create({
+//     data: {
+//       email: "eze2",
+//       name: "eze2",
+//       pets: [
+//         {
+//           age: 10,
+//           name: "dog",
+//           type: "dog",
+//         },
+//       ],
+//     },
+//   });
+//   console.log("Created user:", newUser);
+//   const newPost = await tx.post.create({
+//     data: {
+//       title: "Hello World2",
+//       content: "This is my second post!",
+//       authorId: newUser.id,
+//     },
+//   });
+//   console.log("Created post:", newPost);
+// });
+// console.log("Deleted user");
 
 // Disconnect
 await client.$disconnect();

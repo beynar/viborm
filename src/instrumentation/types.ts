@@ -4,7 +4,7 @@
  * Configuration interfaces for OpenTelemetry tracing and structured logging.
  */
 
-import type { VibORMError } from "../errors";
+import type { VibORMError } from "@errors";
 import type { Operation } from "../query-engine/types";
 
 /**

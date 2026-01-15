@@ -74,6 +74,9 @@
       ],
       "@standard-schema": [
         "./src/standardSchema.ts"
+      ],
+      "@errors": [
+        "./src/errors.ts"
       ]
     }
   },
