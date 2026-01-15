@@ -5,9 +5,7 @@
  */
 
 import type { DatabaseAdapter } from "@adapters/database-adapter";
-import type { RelationType } from "@schema/relation/types";
-import type { Sql } from "@sql";
-import type { InstrumentationContext } from "../instrumentation/context";
+import type { InstrumentationContext } from "@instrumentation/context";
 import {
   ATTR_DB_COLLECTION,
   ATTR_DB_DRIVER,
@@ -15,8 +13,10 @@ import {
   ATTR_DB_SYSTEM,
   SPAN_DRIVER_EXECUTE,
   SPAN_TRANSACTION,
-} from "../instrumentation/spans";
-import type { Operation } from "../query-engine/types";
+} from "@instrumentation/spans";
+import type { Operation } from "@query-engine/types";
+import type { RelationType } from "@schema/relation/types";
+import type { Sql } from "@sql";
 import { buildPostgresStatement } from "./postgres-utils";
 import type { Dialect, QueryResult, TransactionOptions } from "./types";
 

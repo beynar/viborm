@@ -18,6 +18,7 @@ export default defineConfig({
       "@query-engine": resolve(__dirname, "src/query-engine"),
       "@migrations": resolve(__dirname, "src/migrations"),
       "@errors": resolve(__dirname, "src/errors"),
+      "@instrumentation": resolve(__dirname, "src/instrumentation"),
     },
   },
 });

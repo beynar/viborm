@@ -7,9 +7,6 @@
 
 import type { DatabaseAdapter } from "@adapters";
 import type { AnyDriver, QueryExecutionContext } from "@drivers";
-import { hydrateSchemaNames } from "@schema/hydration";
-import type { Model } from "@schema/model";
-import type { Sql } from "@sql";
 import {
   ATTR_DB_COLLECTION,
   ATTR_DB_OPERATION_NAME,
@@ -18,7 +15,11 @@ import {
   SPAN_EXECUTE,
   SPAN_PARSE,
   SPAN_VALIDATE,
-} from "../instrumentation";
+} from "@instrumentation";
+
+import { hydrateSchemaNames } from "@schema/hydration";
+import type { Model } from "@schema/model";
+import type { Sql } from "@sql";
 import { getPrimaryKeyField } from "./builders/correlation-utils";
 import { buildCreateWithNested } from "./builders/nested-create-builder";
 import {
