@@ -16,29 +16,73 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "skipLibCheck": true,
-    "exactOptionalPropertyTypes": true,
+    "exactOptionalPropertyTypes": false,
     "noUncheckedIndexedAccess": true,
-    "lib": ["ES2020", "DOM"],
-    "types": ["node", "vitest/globals"],
+    "lib": [
+      "ES2020",
+      "DOM"
+    ],
+    "types": [
+      "node",
+      "vitest/globals"
+    ],
     "paths": {
-      "@schema/*": ["./src/schema/*"],
-      "@client/*": ["./src/client/*"],
-      "@client": ["./src/client/index.ts"],
-      "@schema": ["./src/schema/index.ts"],
-      "@validation/*": ["./src/validation/*"],
-      "@validation": ["./src/validation/index.ts"],
-      "@query-engine/*": ["./src/query-engine/*"],
-      "@query-engine": ["./src/query-engine/index.ts"],
-      "@adapters/*": ["./src/adapters/*"],
-      "@adapters": ["./src/adapters/index.ts"],
-      "@drivers/*": ["./src/drivers/*"],
-      "@drivers": ["./src/drivers/index.ts"],
-      "@sql": ["./src/sql/sql.ts"],
-      "@migrations/*": ["./src/migrations/*"],
-      "@migrations": ["./src/migrations/index.ts"],
-      "@standard-schema": ["./src/standardSchema.ts"]
+      "@schema/*": [
+        "./src/schema/*"
+      ],
+      "@client/*": [
+        "./src/client/*"
+      ],
+      "@client": [
+        "./src/client/index.ts"
+      ],
+      "@schema": [
+        "./src/schema/index.ts"
+      ],
+      "@validation/*": [
+        "./src/validation/*"
+      ],
+      "@validation": [
+        "./src/validation/index.ts"
+      ],
+      "@query-engine/*": [
+        "./src/query-engine/*"
+      ],
+      "@query-engine": [
+        "./src/query-engine/index.ts"
+      ],
+      "@adapters/*": [
+        "./src/adapters/*"
+      ],
+      "@adapters": [
+        "./src/adapters/index.ts"
+      ],
+      "@drivers/*": [
+        "./src/drivers/*"
+      ],
+      "@drivers": [
+        "./src/drivers/index.ts"
+      ],
+      "@sql": [
+        "./src/sql/sql.ts"
+      ],
+      "@migrations/*": [
+        "./src/migrations/*"
+      ],
+      "@migrations": [
+        "./src/migrations/index.ts"
+      ],
+      "@standard-schema": [
+        "./src/standardSchema.ts"
+      ]
     }
   },
-  "include": ["src/**/*", "tests/**/*.ts"],
-  "exclude": ["dist", "node_modules"]
+  "include": [
+    "src/**/*",
+    "tests/**/*.ts"
+  ],
+  "exclude": [
+    "dist",
+    "node_modules"
+  ]
 }

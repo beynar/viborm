@@ -5,8 +5,8 @@
  */
 
 import type { Model } from "@schema/model";
+import { NestedWriteError, QueryEngineError } from "../errors";
 import type { QueryContext } from "./types";
-import { NestedWriteError, QueryEngineError } from "./types";
 
 /**
  * Get model name from model or context
@@ -46,7 +46,10 @@ export function createNestedWriteError(
 ): NestedWriteError {
   const modelName = getModelName(modelOrCtx);
   const fullMessage = `[${modelName}.${relation}] ${message}`;
-  return new NestedWriteError(fullMessage, relation, cause);
+  return new NestedWriteError(fullMessage, relation, {
+    cause,
+    meta: { model: modelName },
+  });
 }
 
 /**
@@ -62,7 +65,9 @@ export function createQueryError(
 ): QueryEngineError {
   const modelName = getModelName(modelOrCtx);
   if (modelName !== "unknown") {
-    return new QueryEngineError(`[${modelName}] ${message}`);
+    return new QueryEngineError(`[${modelName}] ${message}`, {
+      meta: { model: modelName },
+    });
   }
   return new QueryEngineError(message);
 }
@@ -77,7 +82,8 @@ export function createMissingFieldError(
 ): QueryEngineError {
   const modelName = getModelName(modelOrCtx);
   return new QueryEngineError(
-    `[${modelName}] Missing required field '${fieldName}' for ${operation} operation`
+    `[${modelName}] Missing required field '${fieldName}' for ${operation} operation`,
+    { meta: { model: modelName, field: fieldName, operation } }
   );
 }
 
@@ -93,6 +99,7 @@ export function createInvalidRelationError(
   const modelName = getModelName(modelOrCtx);
   return new NestedWriteError(
     `[${modelName}.${relation}] Invalid '${operation}' operation: ${reason}`,
-    relation
+    relation,
+    { meta: { model: modelName, operation } }
   );
 }

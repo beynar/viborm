@@ -5,7 +5,7 @@
  * different capabilities (transactional vs non-transactional).
  */
 
-import type { Driver } from "@drivers";
+import type { AnyDriver } from "@drivers";
 
 /**
  * Execute operations with transaction if supported, otherwise sequentially.
@@ -22,12 +22,12 @@ import type { Driver } from "@drivers";
  * @returns Result of the function
  */
 export async function withTransactionIfSupported<T>(
-  driver: Driver,
-  fn: (tx: Driver) => Promise<T>
+  driver: AnyDriver,
+  fn: (tx: AnyDriver) => Promise<T>
 ): Promise<T> {
   // Default to true if not specified
   if (driver.supportsTransactions !== false) {
-    return driver.transaction(fn);
+    return driver._transaction(fn);
   }
   // No transaction support - execute directly (no atomicity)
   return fn(driver);

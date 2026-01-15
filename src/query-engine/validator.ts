@@ -7,7 +7,8 @@
 
 import type { Model } from "@schema/model";
 import { parse, type VibSchema } from "@validation";
-import { type Operation, ValidationError } from "./types";
+import { ValidationError } from "../errors";
+import type { Operation } from "./types";
 
 /**
  * Get the appropriate schema for an operation
@@ -71,21 +72,18 @@ export function validate<T>(
   const schema = getOperationSchema(model, operation);
 
   if (!schema) {
-    throw new ValidationError(
-      operation,
-      `Schema not found for operation: ${operation}`
-    );
+    throw new ValidationError(operation, [
+      { path: "operation", message: `Schema not found for operation: ${operation}` },
+    ]);
   }
 
   const result = parse(schema, input);
 
   if (result.issues) {
-    const issues = result.issues
-      .map(
-        (issue) =>
-          `${issue.path?.map((p: any) => p.key).join(".") || "root"}: ${issue.message}`
-      )
-      .join("; ");
+    const issues = result.issues.map((issue) => ({
+      path: issue.path?.map((p: { key?: string }) => p.key).join(".") || "root",
+      message: issue.message,
+    }));
     throw new ValidationError(operation, issues);
   }
 

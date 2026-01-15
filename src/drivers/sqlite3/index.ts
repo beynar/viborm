@@ -16,17 +16,17 @@ import {
   type VibORMClient,
 } from "@client/client";
 import type { Schema } from "@client/types";
-import type { Sql } from "@sql";
 import Database from "better-sqlite3";
-import { LazyDriver } from "../base-driver";
-import type { Driver, DriverResultParser } from "../driver";
-import type { Dialect, QueryResult, TransactionOptions } from "../types";
+import { Driver, type DriverResultParser } from "../driver";
+import type { QueryResult, TransactionOptions } from "../types";
 
 type SQLite3Database = Database.Database;
 
 // ============================================================
 // EXPORTED OPTIONS
 // ============================================================
+
+export type SQLite3Options = Database.Options;
 
 export interface SQLite3DriverOptionsConfig extends SQLite3Options {
   filename?: string;
@@ -47,17 +47,6 @@ export interface SQLite3ClientConfig<S extends Schema>
 // ============================================================
 // HELPERS
 // ============================================================
-
-function buildSQLiteStatement(query: Sql): string {
-  const len = query.strings.length;
-  let i = 1;
-  let result = query.strings[0] ?? "";
-  while (i < len) {
-    result += `?${query.strings[i] ?? ""}`;
-    i++;
-  }
-  return result;
-}
 
 function convertValuesForSQLite(values: unknown[]): unknown[] {
   return values.map((v) => {
@@ -93,15 +82,15 @@ const sqlite3ResultParser: DriverResultParser = {
 // DRIVER IMPLEMENTATION
 // ============================================================
 
-export class SQLite3Driver extends LazyDriver<SQLite3Database> {
-  readonly dialect: Dialect = "sqlite";
+export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
   readonly adapter: DatabaseAdapter = new SQLiteAdapter();
   readonly result: DriverResultParser = sqlite3ResultParser;
 
   private readonly driverOptions: SQLite3DriverOptions;
+  private savepointCounter = 0;
 
   constructor(options: SQLite3DriverOptions = {}) {
-    super();
+    super("sqlite", "sqlite3");
     this.driverOptions = options;
 
     if (options.client) {
@@ -134,22 +123,22 @@ export class SQLite3Driver extends LazyDriver<SQLite3Database> {
     db.close();
   }
 
-  protected async executeWithClient<T>(
-    db: SQLite3Database,
-    query: Sql
+  protected async execute<T>(
+    client: SQLite3Database,
+    sql: string,
+    params: unknown[]
   ): Promise<QueryResult<T>> {
-    const statement = buildSQLiteStatement(query);
-    const values = convertValuesForSQLite(query.values);
-    return this.runStatement<T>(db, statement, values);
+    const values = convertValuesForSQLite(params);
+    return this.runStatement<T>(client, sql, values);
   }
 
-  protected async executeRawWithClient<T>(
-    db: SQLite3Database,
+  protected async executeRaw<T>(
+    client: SQLite3Database,
     sql: string,
     params?: unknown[]
   ): Promise<QueryResult<T>> {
     const values = params ? convertValuesForSQLite(params) : undefined;
-    return this.runStatement<T>(db, sql, values);
+    return this.runStatement<T>(client, sql, values);
   }
 
   private runStatement<T>(
@@ -157,14 +146,14 @@ export class SQLite3Driver extends LazyDriver<SQLite3Database> {
     sql: string,
     values?: unknown[]
   ): QueryResult<T> {
-    const stmt = db.prepare<T>(sql);
+    const stmt = db.prepare(sql);
     const normalized = sql.trim().toUpperCase();
     const isSelect =
       normalized.startsWith("SELECT") || normalized.startsWith("WITH");
     const isReturning = normalized.includes("RETURNING");
 
     if (isSelect || isReturning) {
-      const rows = values ? stmt.all(...values) : stmt.all();
+      const rows = (values ? stmt.all(...values) : stmt.all()) as T[];
       return { rows, rowCount: rows.length };
     }
 
@@ -172,83 +161,34 @@ export class SQLite3Driver extends LazyDriver<SQLite3Database> {
     return { rows: [] as T[], rowCount: result.changes };
   }
 
-  protected async transactionWithClient<T>(
-    db: SQLite3Database,
-    fn: (tx: Driver) => Promise<T>,
+  protected async transaction<T>(
+    client: SQLite3Database,
+    fn: (tx: SQLite3Database) => Promise<T>,
     _options?: TransactionOptions
   ): Promise<T> {
-    const txDriver = new SQLite3TransactionDriver(db, this.adapter);
-
-    db.exec("BEGIN");
-    try {
-      const result = await fn(txDriver);
-      db.exec("COMMIT");
-      return result;
-    } catch (error) {
-      db.exec("ROLLBACK");
-      throw error;
-    }
-  }
-}
-
-// ============================================================
-// TRANSACTION DRIVER
-// ============================================================
-
-class SQLite3TransactionDriver implements Driver {
-  readonly dialect: Dialect = "sqlite";
-  readonly adapter: DatabaseAdapter;
-  readonly result: DriverResultParser = sqlite3ResultParser;
-  private readonly db: SQLite3Database;
-
-  constructor(db: SQLite3Database, adapter: DatabaseAdapter) {
-    this.db = db;
-    this.adapter = adapter;
-  }
-
-  async execute<T = Record<string, unknown>>(
-    query: Sql
-  ): Promise<QueryResult<T>> {
-    const statement = buildSQLiteStatement(query);
-    const values = convertValuesForSQLite(query.values);
-    return this.runStatement<T>(statement, values);
-  }
-
-  async executeRaw<T = Record<string, unknown>>(
-    sql: string,
-    params?: unknown[]
-  ): Promise<QueryResult<T>> {
-    const values = params ? convertValuesForSQLite(params) : undefined;
-    return this.runStatement<T>(sql, values);
-  }
-
-  private runStatement<T>(sql: string, values?: unknown[]): QueryResult<T> {
-    const stmt = this.db.prepare<T>(sql);
-    const normalized = sql.trim().toUpperCase();
-    const isSelect =
-      normalized.startsWith("SELECT") || normalized.startsWith("WITH");
-    const isReturning = normalized.includes("RETURNING");
-
-    if (isSelect || isReturning) {
-      const rows = values ? stmt.all(...values) : stmt.all();
-      return { rows, rowCount: rows.length };
-    }
-
-    const result = values ? stmt.run(...values) : stmt.run();
-    return { rows: [] as T[], rowCount: result.changes };
-  }
-
-  async transaction<T>(fn: (tx: Driver) => Promise<T>): Promise<T> {
-    const savepointName = `sp_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-    this.db.exec(`SAVEPOINT ${savepointName}`);
-
-    try {
-      const result = await fn(this);
-      this.db.exec(`RELEASE SAVEPOINT ${savepointName}`);
-      return result;
-    } catch (error) {
-      this.db.exec(`ROLLBACK TO SAVEPOINT ${savepointName}`);
-      throw error;
+    if (this.inTransaction) {
+      // Nested transaction - use savepoint
+      const savepointName = `sp_${++this.savepointCounter}_${Date.now()}`;
+      client.exec(`SAVEPOINT ${savepointName}`);
+      try {
+        const result = await fn(client);
+        client.exec(`RELEASE SAVEPOINT ${savepointName}`);
+        return result;
+      } catch (error) {
+        client.exec(`ROLLBACK TO SAVEPOINT ${savepointName}`);
+        throw error;
+      }
+    } else {
+      // Start a new transaction
+      client.exec("BEGIN");
+      try {
+        const result = await fn(client);
+        client.exec("COMMIT");
+        return result;
+      } catch (error) {
+        client.exec("ROLLBACK");
+        throw error;
+      }
     }
   }
 }

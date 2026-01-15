@@ -1,68 +1,45 @@
 /**
- * Driver Interface
+ * Driver Interface and Base Implementation
  *
- * Single interface for all database drivers.
- * Passed to createClient() and used by the query engine.
+ * Single file containing the Driver interface and LazyDriver base class.
  */
 
 import type { DatabaseAdapter } from "@adapters/database-adapter";
-import type { Operation } from "@query-engine/types";
 import type { RelationType } from "@schema/relation/types";
 import type { Sql } from "@sql";
+import type { InstrumentationContext } from "../instrumentation/context";
+import {
+  ATTR_DB_COLLECTION,
+  ATTR_DB_DRIVER,
+  ATTR_DB_OPERATION_NAME,
+  ATTR_DB_SYSTEM,
+  SPAN_DRIVER_EXECUTE,
+  SPAN_TRANSACTION,
+} from "../instrumentation/spans";
+import type { Operation } from "../query-engine/types";
+import { buildPostgresStatement } from "./postgres-utils";
 import type { Dialect, QueryResult, TransactionOptions } from "./types";
+
+// ============================================================
+// DRIVER INTERFACE
+// ============================================================
 
 /**
  * Driver-level result parsing middleware.
- *
- * Drivers can optionally implement these to intercept result parsing
- * before the adapter. Each method receives the adapter's method as `next`,
- * creating a chain: Driver -> Adapter -> Default.
- *
- * @example
- * ```ts
- * result: {
- *   parseResult: (raw, op, next) => {
- *     // Custom driver logic
- *     if (needsSpecialHandling(raw)) {
- *       return transform(raw);
- *     }
- *     // Delegate to adapter
- *     return next(raw, op);
- *   }
- * }
- * ```
  */
 export interface DriverResultParser {
-  /**
-   * Parse operation result. Call next() to delegate to adapter.
-   * @param raw - Raw database result
-   * @param operation - Query operation type
-   * @param next - Adapter's parseResult method (call to continue chain)
-   */
   parseResult?: (
     raw: unknown,
     operation: Operation,
     next: (raw: unknown, operation: Operation) => unknown
   ) => unknown;
 
-  /**
-   * Parse relation value. Call next() to delegate to adapter.
-   * @param value - Raw relation value
-   * @param type - Relation type
-   * @param next - Adapter's parseRelation method (call to continue chain)
-   */
   parseRelation?: (
     value: unknown,
     type: RelationType,
     next: (value: unknown, type: RelationType) => unknown
   ) => unknown;
 
-  /**
-   * Parse field value. Call next() to delegate to adapter.
-   * @param value - Raw field value
-   * @param fieldType - Field type string
-   * @param next - Adapter's parseField method (call to continue chain)
-   */
   parseField?: (
     value: unknown,
     fieldType: string,
@@ -71,144 +48,9 @@ export interface DriverResultParser {
 }
 
 /**
- * Database Driver Interface
- *
- * All database drivers (pg, mysql2, better-sqlite3, D1, etc.) implement this interface.
- * The driver is passed to createClient and used internally by the query engine.
- *
- * @example
- * ```ts
- * import { PgDriver } from "viborm/drivers/pg";
- * import { createClient } from "viborm";
- *
- * const driver = new PgDriver({ connectionString: "..." });
- * const client = createClient(driver, { user, post });
- *
- * // Driver accessible on client
- * await client.$driver.execute(sql`SELECT 1`);
- *
- * // Client operations use query engine → driver
- * await client.user.findMany({ where: { name: "Alice" } });
- * ```
- */
-export interface Driver {
-  /**
-   * Database dialect
-   */
-  readonly dialect: Dialect;
-
-  /**
-   * Database adapter for SQL generation
-   *
-   * The driver owns the adapter and may override specific features
-   * (e.g., vector/geospatial) based on available extensions.
-   */
-  readonly adapter: DatabaseAdapter;
-
-  /**
-   * Execute a parameterized SQL query
-   *
-   * @param query - SQL query built with sql template tag
-   * @returns Query result with rows and rowCount
-   */
-  execute<T = Record<string, unknown>>(query: Sql): Promise<QueryResult<T>>;
-
-  /**
-   * Execute a raw SQL string
-   *
-   * ⚠️ No SQL injection protection - use with caution
-   *
-   * @param sql - Raw SQL string
-   * @param params - Query parameters
-   * @returns Query result
-   */
-  executeRaw<T = Record<string, unknown>>(
-    sql: string,
-    params?: unknown[]
-  ): Promise<QueryResult<T>>;
-
-  /**
-   * Execute a transaction
-   *
-   * Automatically commits on success, rolls back on error.
-   * The callback receives a transactional driver instance.
-   *
-   * @param fn - Callback receiving transactional driver
-   * @param options - Transaction options
-   * @returns Result of callback
-   *
-   * @example
-   * ```ts
-   * const user = await driver.transaction(async (tx) => {
-   *   const result = await tx.execute(sql`INSERT INTO users ...`);
-   *   await tx.execute(sql`INSERT INTO profiles ...`);
-   *   return result.rows[0];
-   * });
-   * ```
-   */
-  transaction<T>(
-    fn: (tx: Driver) => Promise<T>,
-    options?: TransactionOptions
-  ): Promise<T>;
-
-  /**
-   * Connect to the database (if needed)
-   *
-   * Some drivers (like D1) don't need explicit connection.
-   * For pooled drivers, this initializes the pool.
-   */
-  connect?(): Promise<void>;
-
-  /**
-   * Disconnect from the database
-   *
-   * Closes connections/pool. Call when shutting down.
-   */
-  disconnect?(): Promise<void>;
-
-  /**
-   * Optional result parsing middleware.
-   *
-   * Allows drivers to intercept and transform results before adapter parsing.
-   * Useful for driver-specific quirks or custom type handling.
-   *
-   * @example
-   * ```ts
-   * result: {
-   *   parseField: (value, fieldType, next) => {
-   *     // Handle driver-specific boolean format
-   *     if (fieldType === 'boolean' && typeof value === 'string') {
-   *       return value === 'Y';
-   *     }
-   *     return next(value, fieldType);
-   *   }
-   * }
-   * ```
-   */
-  result?: DriverResultParser;
-
-  /**
-   * Whether this driver supports transactions.
-   *
-   * When false, nested writes execute sequentially without atomicity guarantees.
-   * Defaults to true if not specified.
-   *
-   * @example
-   * ```ts
-   * // D1 driver without transaction support
-   * class D1Driver implements Driver {
-   *   supportsTransactions = false;
-   *   // ...
-   * }
-   * ```
-   */
-  supportsTransactions?: boolean;
-}
-
-/**
  * Type guard to check if an object is a Driver
  */
-export function isDriver(obj: unknown): obj is Driver {
+export function isDriver(obj: unknown): obj is Driver<any, any> {
   return (
     typeof obj === "object" &&
     obj !== null &&
@@ -218,3 +60,350 @@ export function isDriver(obj: unknown): obj is Driver {
     "transaction" in obj
   );
 }
+
+// ============================================================
+// QUERY EXECUTION CONTEXT
+// ============================================================
+
+/**
+ * Context for the current query execution
+ */
+export interface QueryExecutionContext {
+  model?: string;
+  operation?: Operation;
+}
+
+// ============================================================
+// STATEMENT BUILDERS
+// ============================================================
+
+/**
+ * Build a SQLite/MySQL statement with ? placeholders
+ */
+function buildSQLiteStatement(query: Sql): string {
+  const len = query.strings.length;
+  let i = 1;
+  let result = query.strings[0] ?? "";
+  while (i < len) {
+    result += `?${query.strings[i] ?? ""}`;
+    i++;
+  }
+  return result;
+}
+
+// ============================================================
+// LAZY DRIVER BASE CLASS
+// ============================================================
+
+/**
+ * Abstract base class for drivers with lazy client initialization.
+ *
+ * Subclasses must implement:
+ * - `initClient()`: Creates the database client
+ * - `closeClient()`: Closes the database client
+ * - `execute()`: Executes a query (receives client, sql string, params)
+ * - `executeRaw()`: Executes raw SQL (receives client, sql string, params)
+ * - `runTransaction()`: Runs a transaction with the client
+ */
+export abstract class Driver<TClient, TTransaction> {
+  connect?(): Promise<void>;
+  supportsTransactions?: boolean;
+  readonly dialect: Dialect;
+  readonly driverName: string;
+  abstract readonly adapter: DatabaseAdapter;
+  readonly result?: DriverResultParser;
+  protected client: TClient | null = null;
+  protected transactions: TTransaction[] = [];
+  protected inTransaction = false;
+  private initPromise: Promise<TClient> | null = null;
+  private isDisconnecting = false;
+  protected instrumentation?: InstrumentationContext;
+  protected currentContext: QueryExecutionContext = {};
+
+  // ============================================================
+  // ABSTRACT METHODS - Concrete drivers implement these
+  // ============================================================
+
+  protected abstract initClient(): Promise<TClient>;
+  protected abstract closeClient(client: TClient): Promise<void>;
+  /**
+   * Execute a query. Receives client, SQL string, and params.
+   */
+  protected abstract execute<T>(
+    client: TClient | TTransaction,
+    sql: string,
+    params: unknown[]
+  ): Promise<QueryResult<T>>;
+
+  /**
+   * Execute raw SQL. Receives client, SQL string, and optional params.
+   */
+  protected abstract executeRaw<T>(
+    client: TClient | TTransaction,
+    sql: string,
+    params?: unknown[]
+  ): Promise<QueryResult<T>>;
+
+  /**
+   * Run a transaction with the client.
+   */
+  protected abstract transaction<T>(
+    client: TClient | TTransaction,
+    fn: (tx: TTransaction) => Promise<T>,
+    options?: TransactionOptions
+  ): Promise<T>;
+
+  constructor(dialect: Dialect, driverName: string) {
+    this.dialect = dialect;
+    this.driverName = driverName;
+  }
+
+  /**
+   * Set instrumentation context
+   */
+  setInstrumentation(ctx: InstrumentationContext | undefined): void {
+    this.instrumentation = ctx;
+  }
+
+  /**
+   * Set context before execution (called by query engine)
+   */
+  setContext(ctx: QueryExecutionContext): void {
+    this.currentContext = ctx;
+  }
+
+  /**
+   * Clear context after execution
+   */
+  clearContext(): void {
+    this.currentContext = {};
+  }
+
+  /**
+   * Get base OTel attributes for this driver.
+   * Can be used by other parts of the code to include standard database attributes.
+   */
+  getBaseAttributes(): Record<string, string> {
+    return {
+      [ATTR_DB_SYSTEM]: this.dialect,
+      [ATTR_DB_DRIVER]: this.driverName,
+    };
+  }
+
+  /**
+   * Get OTel attributes including current context (model, operation).
+   */
+  getContextAttributes(): Record<string, string | undefined> {
+    const { model, operation } = this.currentContext;
+    const attrs: Record<string, string | undefined> = this.getBaseAttributes();
+    if (model) attrs[ATTR_DB_COLLECTION] = model;
+    if (operation) attrs[ATTR_DB_OPERATION_NAME] = operation;
+    return attrs;
+  }
+
+  /**
+   * Build dialect-specific SQL statement
+   */
+  protected buildStatement(query: Sql): string {
+    switch (this.dialect) {
+      case "postgresql":
+        return buildPostgresStatement(query);
+      case "sqlite":
+      case "mysql":
+        return buildSQLiteStatement(query);
+      default:
+        return query.toStatement();
+    }
+  }
+
+  /**
+   * Log a query execution (success)
+   */
+  protected logQuery(
+    sql: string,
+    params: unknown[],
+    duration: number,
+    model?: string,
+    operation?: Operation,
+    error?: unknown
+  ): void {
+    if (!this.instrumentation?.logger) return;
+
+    const isError = error instanceof Error;
+
+    if (isError) {
+      Object.assign(error, {
+        logged: true,
+      });
+    }
+    this.instrumentation.logger[error ? "error" : "query"]({
+      timestamp: new Date(),
+      duration,
+      model,
+      operation,
+      sql,
+      params,
+      error: isError ? error : undefined,
+    });
+  }
+
+  /**
+   * Get or initialize the client.
+   */
+  protected async getClient(): Promise<TClient | TTransaction> {
+    if (this.isDisconnecting) {
+      throw new Error("Driver is disconnecting");
+    }
+    const transaction = this.transactions.at(-1);
+    if (transaction) {
+      return transaction;
+    }
+
+    if (this.client) return this.client;
+
+    if (!this.initPromise) {
+      this.initPromise = this.initClient().then((client) => {
+        this.client = client;
+        return client;
+      });
+    }
+
+    return this.initPromise;
+  }
+
+  // ============================================================
+  // INSTRUMENTATION HELPER
+  // ============================================================
+
+  /**
+   * Wrap query execution with logging and tracing.
+   */
+  private async withInstrumentation<T>(
+    sql: string,
+    params: unknown[],
+    executor: () => Promise<QueryResult<T>>
+  ): Promise<QueryResult<T>> {
+    const startTime = Date.now();
+    const { model, operation } = this.currentContext;
+
+    const runAndLog = async () => {
+      try {
+        const result = await executor();
+        this.logQuery(sql, params, Date.now() - startTime, model, operation);
+        return result;
+      } catch (error) {
+        this.logQuery(
+          sql,
+          params,
+          Date.now() - startTime,
+          model,
+          operation,
+          error
+        );
+        throw error;
+      }
+    };
+
+    if (!this.instrumentation?.tracer) {
+      return runAndLog();
+    }
+
+    return this.instrumentation.tracer.startActiveSpan(
+      {
+        name: SPAN_DRIVER_EXECUTE,
+        attributes: this.getContextAttributes(),
+        sql: { query: sql, params },
+      },
+      runAndLog
+    );
+  }
+
+  // ============================================================
+  // PUBLIC API for the driver to be called by the query-engine
+  // ============================================================
+
+  /**
+   * Execute a query with instrumentation (tracing + logging).
+   * Converts Sql to string/params ONCE, then calls run().
+   */
+  async _execute<T = Record<string, unknown>>(
+    query: Sql
+  ): Promise<QueryResult<T>> {
+    const client = await this.getClient();
+    const sql = this.buildStatement(query);
+    const params = query.values;
+    return this.withInstrumentation(sql, params, () =>
+      this.execute<T>(client, sql, params)
+    );
+  }
+
+  async _executeRaw<T = Record<string, unknown>>(
+    sql: string,
+    params?: unknown[]
+  ): Promise<QueryResult<T>> {
+    const client = await this.getClient();
+    return this.withInstrumentation(sql, params ?? [], () =>
+      this.executeRaw<T>(client, sql, params)
+    );
+  }
+
+  async _transaction<T>(
+    fn: (tx: Driver<TClient, TTransaction>) => Promise<T>,
+    options?: TransactionOptions
+  ): Promise<T> {
+    const client = await this.getClient();
+
+    const runTransaction = async () => {
+      const result = await this.transaction(
+        client,
+        (tx) => {
+          this.inTransaction = true;
+          this.transactions.push(tx);
+          return fn(this);
+        },
+        options
+      );
+      this.transactions.pop();
+      this.inTransaction = !!this.transactions.length;
+      return result;
+    };
+
+    if (!this.instrumentation?.tracer) {
+      return runTransaction();
+    }
+
+    return this.instrumentation.tracer.startActiveSpan(
+      {
+        name: SPAN_TRANSACTION,
+        attributes: this.getBaseAttributes(),
+      },
+      runTransaction
+    );
+  }
+
+  async disconnect(): Promise<void> {
+    this.isDisconnecting = true;
+
+    if (this.initPromise) {
+      try {
+        await this.initPromise;
+      } catch {
+        // Ignore init errors during disconnect
+      }
+    }
+
+    if (this.client) {
+      await this.closeClient(this.client);
+    }
+
+    this.client = null;
+    this.initPromise = null;
+    this.isDisconnecting = false;
+    this.transactions = [];
+  }
+}
+
+/**
+ * Type alias for any driver (used when concrete types are not needed)
+ */
+export type AnyDriver = Driver<unknown, unknown>;

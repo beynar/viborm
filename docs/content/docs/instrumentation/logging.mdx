@@ -1,0 +1,340 @@
+---
+title: Logging
+description: Configure structured logging with pretty console output or custom callbacks
+icon: FileText
+---
+
+## Configuration
+
+```typescript
+import { VibORM } from "viborm";
+
+// Simple: enable all levels with pretty console output
+const client = VibORM.create({
+  schema,
+  driver,
+  instrumentation: {
+    logging: true
+  }
+});
+
+// Custom: configure individual levels
+const clientCustom = VibORM.create({
+  schema,
+  driver,
+  instrumentation: {
+    logging: {
+      query: true,                    // Pretty console output
+      error: (event, log) => {        // Custom callback
+        errorTracker.capture(event.error);
+        log();
+      }
+      // warning: omitted = disabled
+    }
+  }
+});
+```
+
+## Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `all` | `true \| LogCallback` | - | Catch-all handler for all levels |
+| `query` | `true \| LogCallback` | - | Query log handler |
+| `warning` | `true \| LogCallback` | - | Warning log handler |
+| `error` | `true \| LogCallback` | - | Error log handler |
+| `includeSql` | `boolean` | `true` | Include SQL query text in events |
+| `includeParams` | `boolean` | `false` | Include query parameters in events |
+
+## Log Levels
+
+Each level can be configured independently:
+
+- **`true`** - Use the built-in pretty console formatter
+- **`(event, log) => {}`** - Custom callback (receives default logger as second argument)
+- **`undefined`** (or omit) - Falls back to `all` handler, or disabled if no `all`
+
+| Level | Description |
+|-------|-------------|
+| `query` | Emitted for every database query |
+| `warning` | Emitted for non-fatal issues |
+| `error` | Emitted when operations fail |
+
+## Pretty Console Output
+
+When you set a level to `true`, VibORM uses a colorized console formatter:
+
+```typescript
+logging: {
+  query: true,
+  error: true
+}
+```
+
+Output example:
+```
+2024-01-15T10:30:00.000Z User.findMany 12ms
+  SELECT * FROM "users" WHERE "active" = $1
+```
+
+The formatter includes:
+- Timestamp in ISO format
+- Model and operation name (color-coded)
+- Duration with color based on speed (green < 10ms, yellow < 100ms, red >= 100ms)
+- SQL query (dimmed)
+- Parameters if enabled (dimmed)
+
+## Custom Callbacks
+
+For full control, provide a callback function. The callback receives the event and a `log` function that invokes the default pretty logger:
+
+```typescript
+logging: {
+  query: (event, log) => {
+    // Your custom handling
+    myLogger.info(event);
+    log(); // Also print with default pretty formatter
+  },
+  error: (event, log) => {
+    errorTracker.capture(event.error);
+    // Don't call log() - skip default output
+  }
+}
+```
+
+## Catch-All Handler
+
+Use `all` to handle all log levels with a single handler:
+
+```typescript
+logging: {
+  all: true  // Pretty output for everything
+}
+
+// Or with a callback
+logging: {
+  all: (event, log) => {
+    myLogger.log(event);
+    log();
+  }
+}
+```
+
+Specific level handlers take precedence over `all`:
+
+```typescript
+logging: {
+  all: true,                    // Default for all levels
+  error: (event, log) => {      // Override for errors only
+    errorTracker.capture(event.error);
+    log();
+  }
+}
+```
+
+## Log Event Structure
+
+Every log event contains the following fields:
+
+```typescript
+interface LogEvent {
+  level: "query" | "warning" | "error";
+  timestamp: Date;
+  duration?: number;       // Query duration in milliseconds
+  model?: string;          // Model name (e.g., "User")
+  operation?: string;      // Operation (e.g., "findMany")
+  error?: VibORMError;     // Error object (for error events)
+  sql?: string;            // SQL query (if includeSql enabled)
+  params?: unknown[];      // Query parameters (if includeParams enabled)
+  meta?: Record<string, unknown>; // Additional metadata
+}
+```
+
+## Event Examples
+
+### Query Events
+
+Emitted for every successful database operation:
+
+```typescript
+{
+  level: "query",
+  timestamp: new Date("2024-01-15T10:30:00.000Z"),
+  duration: 12,
+  model: "User",
+  operation: "findMany",
+  sql: 'SELECT * FROM "users" WHERE "active" = $1',
+  params: [true]
+}
+```
+
+### Warning Events
+
+Emitted for non-fatal issues that may need attention:
+
+```typescript
+// Slow query warning
+{
+  level: "warning",
+  timestamp: new Date("2024-01-15T10:30:00.000Z"),
+  model: "User",
+  operation: "findMany",
+  duration: 5000,
+  meta: {
+    reason: "slow_query",
+    threshold: 1000
+  }
+}
+
+// Deprecation warning
+{
+  level: "warning",
+  timestamp: new Date("2024-01-15T10:30:00.000Z"),
+  meta: {
+    reason: "deprecated_feature",
+    feature: "rawQuery",
+    suggestion: "Use $queryRaw instead"
+  }
+}
+```
+
+### Error Events
+
+Emitted when operations fail:
+
+```typescript
+// Unique constraint violation
+{
+  level: "error",
+  timestamp: new Date("2024-01-15T10:30:00.000Z"),
+  model: "User",
+  operation: "create",
+  duration: 15,
+  error: UniqueConstraintError,  // VibORMError with code V3001
+  sql: 'INSERT INTO "users" ("email") VALUES ($1)',
+  meta: {
+    constraint: "users_email_key",
+    field: "email"
+  }
+}
+
+// Connection error
+{
+  level: "error",
+  timestamp: new Date("2024-01-15T10:30:00.000Z"),
+  error: ConnectionError,  // VibORMError with code V1001
+  meta: {
+    host: "localhost",
+    port: 5432
+  }
+}
+
+// Record not found (for findUniqueOrThrow)
+{
+  level: "error",
+  timestamp: new Date("2024-01-15T10:30:00.000Z"),
+  model: "User",
+  operation: "findUniqueOrThrow",
+  duration: 8,
+  error: NotFoundError,  // VibORMError with code V6001
+  sql: 'SELECT * FROM "users" WHERE "id" = $1'
+}
+```
+
+## Examples
+
+### Development Setup
+
+Pretty output for all levels during development:
+
+```typescript
+logging: {
+  query: true,
+  warning: true,
+  error: true
+}
+```
+
+### Production Setup
+
+JSON logging for queries, error tracking for errors:
+
+```typescript
+logging: {
+  query: (event, log) => {
+    console.log(JSON.stringify({
+      level: event.level,
+      timestamp: event.timestamp.toISOString(),
+      model: event.model,
+      operation: event.operation,
+      duration: event.duration
+    }));
+  },
+  error: (event, log) => {
+    errorTracker.capture(event.error, {
+      model: event.model,
+      operation: event.operation
+    });
+  }
+}
+```
+
+### Integrate with Pino
+
+```typescript
+import pino from "pino";
+
+const logger = pino();
+
+logging: {
+  query: (event, log) => {
+    logger.info({
+      model: event.model,
+      operation: event.operation,
+      duration: event.duration
+    }, `${event.model}.${event.operation}`);
+  },
+  error: (event, log) => {
+    logger.error({
+      model: event.model,
+      operation: event.operation,
+      error: event.error?.message
+    }, `${event.model}.${event.operation} failed`);
+  }
+}
+```
+
+### Errors Only
+
+Log only errors with pretty output:
+
+```typescript
+logging: {
+  error: true
+}
+```
+
+## SQL and Parameters
+
+By default, SQL is included but parameters are excluded:
+
+```typescript
+logging: {
+  query: true,
+  includeSql: true,      // SQL visible (default)
+  includeParams: false   // Params hidden (default)
+}
+```
+
+To include parameters (development only):
+
+```typescript
+logging: {
+  query: true,
+  includeParams: true
+}
+```
+
+<Callout type="warn">
+Never enable `includeParams` in production. Query parameters may contain passwords, personal information, or other sensitive data.
+</Callout>

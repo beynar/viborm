@@ -5,7 +5,8 @@
  * These operations are executed within a transaction when needed.
  */
 
-import type { Driver } from "@drivers";
+import type { AnyDriver } from "@drivers";
+import type { DatabaseAdapter } from "@adapters";
 import type { Model } from "@schema/model";
 import { type Sql, sql } from "@sql";
 import { getPrimaryKeyField } from "../builders/correlation-utils";
@@ -194,7 +195,7 @@ function buildFkValueAssignments(
  * @returns Created record with nested records
  */
 export async function executeNestedCreate(
-  driver: Driver,
+  driver: AnyDriver,
   ctx: QueryContext,
   data: Record<string, unknown>
 ): Promise<NestedCreateResult> {
@@ -302,7 +303,7 @@ export interface NestedUpdateResult {
  * @returns Updated record with related records
  */
 export async function executeNestedUpdate(
-  driver: Driver,
+  driver: AnyDriver,
   ctx: QueryContext,
   parentRecord: Record<string, unknown>,
   relations: Record<string, RelationMutation>
@@ -357,7 +358,7 @@ export async function executeNestedUpdate(
  * Process a single relation mutation
  */
 async function processRelationMutation(
-  tx: Driver,
+  tx: AnyDriver,
   ctx: QueryContext,
   relationName: string,
   mutation: RelationMutation,
@@ -483,7 +484,7 @@ async function processRelationMutation(
  * Execute a nested create for a relation
  */
 async function executeRelationCreate(
-  tx: Driver,
+  tx: AnyDriver,
   ctx: QueryContext,
   relationInfo: RelationInfo,
   createData: Record<string, unknown>,
@@ -527,7 +528,7 @@ async function executeRelationCreate(
  * Execute a relation connect (when FK is on related side)
  */
 async function executeRelationConnect(
-  tx: Driver,
+  tx: AnyDriver,
   ctx: QueryContext,
   relationInfo: RelationInfo,
   connectInput: Record<string, unknown>,
@@ -579,14 +580,14 @@ async function executeRelationConnect(
   const table = adapter.identifiers.escape(targetTable);
   const updateSql = adapter.mutations.update(table, setSql, whereClause);
 
-  await tx.execute(updateSql);
+  await tx._execute(updateSql);
 }
 
 /**
  * Execute a connectOrCreate operation
  */
 async function executeConnectOrCreate(
-  tx: Driver,
+  tx: AnyDriver,
   ctx: QueryContext,
   relationInfo: RelationInfo,
   input: ConnectOrCreateInput,
@@ -618,7 +619,7 @@ async function executeConnectOrCreate(
     adapter.clauses.limit(adapter.literals.value(1)),
   ], " ");
 
-  const result = await tx.execute<Record<string, unknown>>(selectSql);
+  const result = await tx._execute<Record<string, unknown>>(selectSql);
 
   if (result.rows.length > 0) {
     // Record exists - connect it
@@ -634,7 +635,7 @@ async function executeConnectOrCreate(
         txCtx
       );
       // Re-fetch to get updated FK values
-      const refetchResult = await tx.execute<Record<string, unknown>>(selectSql);
+      const refetchResult = await tx._execute<Record<string, unknown>>(selectSql);
       return refetchResult.rows[0] ?? result.rows[0]!;
     }
 
@@ -657,7 +658,7 @@ async function executeConnectOrCreate(
  * Execute a disconnect operation
  */
 async function executeRelationDisconnect(
-  tx: Driver,
+  tx: AnyDriver,
   ctx: QueryContext,
   relationInfo: RelationInfo,
   disconnectInput:
@@ -718,14 +719,14 @@ async function executeRelationDisconnect(
   const table = adapter.identifiers.escape(targetTable);
   const updateSql = adapter.mutations.update(table, setSql, whereClause);
 
-  await tx.execute(updateSql);
+  await tx._execute(updateSql);
 }
 
 /**
  * Execute a nested delete operation
  */
 async function executeRelationDelete(
-  tx: Driver,
+  tx: AnyDriver,
   ctx: QueryContext,
   relationInfo: RelationInfo,
   deleteInput: boolean | Record<string, unknown> | Record<string, unknown>[],
@@ -773,7 +774,7 @@ async function executeRelationDelete(
   const table = adapter.identifiers.escape(targetTable);
   const deleteSql = adapter.mutations.delete(table, whereClause);
 
-  await tx.execute(deleteSql);
+  await tx._execute(deleteSql);
 }
 
 /**
@@ -784,7 +785,7 @@ async function executeRelationDelete(
  * 2. Connect all items in the set array
  */
 async function executeRelationSet(
-  tx: Driver,
+  tx: AnyDriver,
   ctx: QueryContext,
   relationInfo: RelationInfo,
   setItems: Record<string, unknown>[],
@@ -834,7 +835,7 @@ async function executeRelationSet(
     disconnectWhere
   );
 
-  await tx.execute(disconnectSql);
+  await tx._execute(disconnectSql);
 
   // Step 2: Connect all items in the set array
   const valueAssignments = buildFkValueAssignments(
@@ -860,7 +861,7 @@ async function executeRelationSet(
       connectSetSql,
       whereClause
     );
-    await tx.execute(connectSql);
+    await tx._execute(connectSql);
   }
 }
 
@@ -872,13 +873,13 @@ async function executeRelationSet(
  * Execute a simple INSERT and return the created record
  */
 async function executeSimpleInsert(
-  driver: Driver,
+  driver: AnyDriver,
   ctx: QueryContext,
   data: Record<string, unknown>
 ): Promise<Record<string, unknown>> {
   const { adapter } = ctx;
   const tableName = getTableName(ctx.model);
-  const modelName = ctx.model.name ?? tableName;
+  const modelName = ctx.model["~"]?.names?.ts ?? tableName;
 
   const { columns, values } = buildValues(ctx, data);
 
@@ -901,7 +902,7 @@ async function executeSimpleInsert(
   if (hasReturning) {
     // PostgreSQL with RETURNING - single query returns the created record
     const finalSql = sql`${insertSql} ${returningSql}`;
-    const result = await driver.execute<Record<string, unknown>>(finalSql);
+    const result = await driver._execute<Record<string, unknown>>(finalSql);
 
     if (result.rows.length === 0) {
       throw new NestedWriteError(
@@ -914,7 +915,7 @@ async function executeSimpleInsert(
   }
 
   // MySQL/SQLite without RETURNING - INSERT then refetch
-  await driver.execute(insertSql);
+  await driver._execute(insertSql);
 
   // Get the last inserted ID based on dialect
   const pkField = getPrimaryKeyField(ctx.model);
@@ -954,7 +955,7 @@ async function executeSimpleInsert(
  * Get the last inserted ID using adapter's lastInsertId method
  */
 async function getLastInsertId(
-  driver: Driver,
+  driver: AnyDriver,
   adapter: DatabaseAdapter
 ): Promise<unknown | undefined> {
   // PostgreSQL uses RETURNING, no need to query for last insert ID
@@ -969,7 +970,7 @@ async function getLastInsertId(
   });
 
   // Let DB errors propagate - don't silently return undefined
-  const result = await driver.execute<{ id: unknown }>(selectSql);
+  const result = await driver._execute<{ id: unknown }>(selectSql);
   return result.rows[0]?.id;
 }
 
@@ -980,11 +981,11 @@ async function getLastInsertId(
  * If refetch fails, we throw rather than returning partial data.
  */
 async function refetchInsertedRecord(
-  driver: Driver,
+  driver: AnyDriver,
   ctx: QueryContext,
   pkField: string,
   pkValue: unknown,
-  originalData: Record<string, unknown>,
+  _originalData: Record<string, unknown>,
   modelName: string
 ): Promise<Record<string, unknown>> {
   const { adapter } = ctx;
@@ -1007,7 +1008,7 @@ async function refetchInsertedRecord(
   });
 
   // Let DB errors propagate - don't silently return partial data
-  const result = await driver.execute<Record<string, unknown>>(selectSql);
+  const result = await driver._execute<Record<string, unknown>>(selectSql);
 
   if (result.rows.length > 0) {
     return result.rows[0]!;

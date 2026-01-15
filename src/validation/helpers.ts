@@ -218,9 +218,7 @@ export function buildValidator<T, TOut, TSchemaOut = T>(
     const schemaValidate = schema!["~standard"].validate;
     const prev = validate;
     validate = (v): ValidationResult<any> => {
-      console.log("v", v, schema);
       const r = prev(v);
-      console.log("r", r);
       if (r.issues) return r;
       const sr = schemaValidate((r as { value: any }).value);
       if ("then" in sr) return fail("Async schemas are not supported");
