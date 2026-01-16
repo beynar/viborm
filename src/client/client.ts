@@ -1,3 +1,10 @@
+import type {
+  CacheDriver,
+  CacheInvalidationOptions,
+  WaitUntilFn,
+  WithCacheOptions,
+} from "@cache";
+import { createCachedClientProxy } from "@cache/client";
 import type { AnyDriver, QueryResult, TransactionOptions } from "@drivers";
 import { NotFoundError, type VibORMError } from "@errors";
 import {
@@ -16,8 +23,6 @@ import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import type { Operation } from "@query-engine/types";
 import { hydrateSchemaNames } from "@schema/hydration";
 import type { Sql } from "@sql";
-import type { CacheDriver, CacheInvalidationOptions, WithCacheOptions, WaitUntilFn } from "@cache";
-import { createCachedClientProxy } from "@cache/client";
 import type {
   CacheableOperations,
   CachedClient,
@@ -88,7 +93,6 @@ export interface VibORMConfig {
   driver: AnyDriver;
   cache?: CacheDriver;
   instrumentation?: InstrumentationConfig;
-  /** Callback to keep serverless runtime alive during background operations (e.g., SWR revalidation) */
   waitUntil?: WaitUntilFn;
 }
 
@@ -96,6 +100,7 @@ export interface DriverConfig {
   schema: Schema;
   cache?: CacheDriver;
   instrumentation?: InstrumentationConfig;
+  waitUntil?: WaitUntilFn;
 }
 
 /**
@@ -410,7 +415,8 @@ export class VibORM<C extends VibORMConfig> {
         }
 
         if (prop === "$withCache") {
-          return (cacheConfig?: WithCacheOptions) => orm.$withCache(cacheConfig);
+          return (cacheConfig?: WithCacheOptions) =>
+            orm.$withCache(cacheConfig);
         }
 
         if (prop === "$invalidate") {
