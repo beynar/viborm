@@ -171,6 +171,12 @@ Layer 9 (Client):
   □ Is the result being hydrated incorrectly?
   □ Are result types wrong?
 
+Layer 10 (Cache):
+  □ Is the cache key being generated correctly?
+  □ Is TTL parsing correct?
+  □ Is cache invalidation working?
+  □ Is SWR pattern behaving correctly?
+
 Root Cause: [Identified layer and specific issue]
 ─────────────────────────────────────────────────────────
 ```
@@ -308,6 +314,19 @@ Do not assume all layers need changes. Analyze the feature requirements and just
 │  ├── types.ts           Operation argument types                    │
 │  └── result-types.ts    Result type inference                       │
 └──────────────────────────────────────────────────────────────────────┘
+                                   │
+                                   ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│  LAYER 10: Cache Layer                                    src/cache/ │
+│  Query result caching with multiple backends                         │
+│  ────────────────────────────────────────────────────────────────── │
+│  ├── driver.ts          Abstract CacheDriver base class             │
+│  ├── client.ts          CachedClient proxy                          │
+│  ├── key.ts             Cache key generation                        │
+│  ├── ttl.ts             TTL parsing                                 │
+│  ├── schema.ts          Cache invalidation schema                   │
+│  └── drivers/           Backend implementations                     │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Quick Layer Reference
@@ -323,6 +342,7 @@ Do not assume all layers need changes. Analyze the feature requirements and just
 | 7. Database Adapters | `src/adapters/` | Dialect differences |
 | 8. Driver Layer | `src/drivers/` | Connection & execution |
 | 9. Client Layer | `src/client/` | Result types & client |
+| 10. Cache Layer | `src/cache/` | Query caching & invalidation |
 | Tests | `tests/` | All test files |
 
 ---
@@ -342,6 +362,7 @@ What type of feature is this?
 | **New schema modifier** | New field option, new model option | Layers 2, 3, 5 |
 | **Query API extension** | New operation type, new include pattern | Layers 3, 6, 9 |
 | **Connection feature** | Transactions, connection pooling | Layers 8, 9 |
+| **Cache feature** | New cache backend, invalidation strategy | Layer 10 |
 | **Internal improvement** | Performance, refactoring | Varies |
 
 ### Step 2: Layer-by-Layer Analysis
@@ -747,6 +768,41 @@ jsonAggregate(subquery: Sql, options?: { coalesce?: boolean }): Sql {
 
 ---
 
+### Layer 10: Cache Layer
+
+**Location:** `src/cache/`
+
+**Key files:**
+| File/Folder | Purpose |
+|-------------|---------|
+| `src/cache/driver.ts` | Abstract CacheDriver base class |
+| `src/cache/client.ts` | CachedClient proxy for cached queries |
+| `src/cache/key.ts` | Cache key generation (deterministic hashing) |
+| `src/cache/ttl.ts` | TTL string parsing ("1 hour" → ms) |
+| `src/cache/schema.ts` | Cache invalidation options schema |
+| `src/cache/types.ts` | TypeScript types for cache options |
+| `src/cache/drivers/memory.ts` | In-memory cache implementation |
+| `src/cache/drivers/cloudflare-kv.ts` | Cloudflare KV cache implementation |
+
+**When to modify:**
+- Adding new cache backend implementations
+- Changing cache key generation logic
+- Modifying TTL parsing or invalidation patterns
+- Adding new cache options or strategies
+
+**Key questions:**
+- Does this need a new cache driver?
+- How does cache invalidation work for this feature?
+- What TTL semantics are needed?
+- Does SWR (stale-while-revalidate) apply?
+
+**When NOT to modify:**
+- Query execution logic (that's query-engine)
+- Database-specific SQL (that's adapters)
+- Client result types (that's client layer)
+
+---
+
 ## Documentation Template
 
 When implementing a feature, document the following:
@@ -768,6 +824,11 @@ How developers will use this feature.
 **Changes:** [If yes, what changes]
 
 ### Layer 3: Query Schema
+**Affected:** Yes/No
+**Reason:** [Why or why not]
+**Changes:** [If yes, what changes]
+
+### Layer 10: Cache
 **Affected:** Yes/No
 **Reason:** [Why or why not]
 **Changes:** [If yes, what changes]
@@ -1150,6 +1211,7 @@ IMPLEMENTATION
 □ Layer 6 (Query Engine): Builders updated for SQL generation
 □ Layer 7 (Adapters): Database-specific handling (if needed)
 □ Layer 9 (Client): Result types updated (if needed)
+□ Layer 10 (Cache): Cache logic updated (if needed)
 □ Exports added to index.ts files
 
 TESTING

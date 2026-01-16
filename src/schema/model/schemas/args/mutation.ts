@@ -1,9 +1,9 @@
 // Mutation operation args schema factories
 
+import { type CacheInvalidationSchema, cacheInvalidationSchema } from "@cache/schema";
 import v, { type V } from "@validation";
 import type { ModelState } from "../../model";
 import type { CoreSchemas } from "../core";
-
 // =============================================================================
 // CREATE ARGS
 // =============================================================================
@@ -16,6 +16,7 @@ export type CreateArgs<T extends ModelState> = V.Object<
     data: CoreSchemas<T>["create"];
     select: CoreSchemas<T>["select"];
     include: CoreSchemas<T>["include"];
+    cache: CacheInvalidationSchema;
   },
   { atLeast: ["data"] }
 >;
@@ -27,6 +28,7 @@ export const getCreateArgs = <T extends ModelState>(
       data: core.create,
       select: core.select,
       include: core.include,
+      cache: cacheInvalidationSchema,
     },
     { atLeast: ["data"] }
   );
@@ -43,6 +45,7 @@ export type CreateManyArgs<T extends ModelState> = V.Object<
   {
     data: V.Array<CoreSchemas<T>["scalarCreate"]>;
     skipDuplicates: V.Boolean<{ optional: true }>;
+    cache: CacheInvalidationSchema;
   },
   { atLeast: ["data"] }
 >;
@@ -53,6 +56,7 @@ export const getCreateManyArgs = <T extends ModelState>(
     {
       data: v.array(core.scalarCreate),
       skipDuplicates: v.boolean({ optional: true }),
+      cache: cacheInvalidationSchema,
     },
     { atLeast: ["data"] }
   );
@@ -71,6 +75,7 @@ export type UpdateArgs<T extends ModelState> = V.Object<
     data: CoreSchemas<T>["update"];
     select: CoreSchemas<T>["select"];
     include: CoreSchemas<T>["include"];
+    cache: CacheInvalidationSchema;
   },
   { atLeast: ["where", "data"] }
 >;
@@ -84,6 +89,7 @@ export const getUpdateArgs = <T extends ModelState>(
       data: core.update,
       select: core.select,
       include: core.include,
+      cache: cacheInvalidationSchema,
     },
     { atLeast: ["where", "data"] }
   );
@@ -100,6 +106,7 @@ export type UpdateManyArgs<T extends ModelState> = V.Object<
   {
     where: CoreSchemas<T>["where"];
     data: CoreSchemas<T>["update"];
+    cache: CacheInvalidationSchema;
   },
   { atLeast: ["data"] }
 >;
@@ -110,6 +117,7 @@ export const getUpdateManyArgs = <T extends ModelState>(
     {
       where: core.where,
       data: core.update,
+      cache: cacheInvalidationSchema,
     },
     { atLeast: ["data"] }
   );
@@ -127,6 +135,7 @@ export type DeleteArgs<T extends ModelState> = V.Object<
     where: CoreSchemas<T>["whereUnique"];
     select: CoreSchemas<T>["select"];
     include: CoreSchemas<T>["include"];
+    cache: CacheInvalidationSchema;
   },
   { atLeast: ["where"] }
 >;
@@ -138,6 +147,7 @@ export const getDeleteArgs = <T extends ModelState>(
       where: core.whereUnique,
       select: core.select,
       include: core.include,
+      cache: cacheInvalidationSchema,
     },
     { atLeast: ["where"] }
   );
@@ -153,6 +163,7 @@ export const getDeleteArgs = <T extends ModelState>(
 export type DeleteManyArgs<T extends ModelState> = V.Object<
   {
     where: CoreSchemas<T>["where"];
+    cache: CacheInvalidationSchema;
   },
   { optional: true }
 >;
@@ -162,6 +173,7 @@ export const getDeleteManyArgs = <T extends ModelState>(
   return v.object(
     {
       where: core.where,
+      cache: cacheInvalidationSchema,
     },
     { optional: true }
   );
@@ -172,7 +184,7 @@ export const getDeleteManyArgs = <T extends ModelState>(
 // =============================================================================
 
 /**
- * Upsert args: { where: whereUnique, create, update, select?, include? }
+ * Upsert args: { where: whereUnique, create, update, select?, include?, cache? }
  */
 export type UpsertArgs<T extends ModelState> = V.Object<
   {
@@ -181,6 +193,7 @@ export type UpsertArgs<T extends ModelState> = V.Object<
     update: CoreSchemas<T>["update"];
     select: CoreSchemas<T>["select"];
     include: CoreSchemas<T>["include"];
+    cache: CacheInvalidationSchema;
   },
   { atLeast: ["where", "create", "update"] }
 >;
@@ -195,6 +208,7 @@ export const getUpsertArgs = <T extends ModelState>(
       update: core.update,
       select: core.select,
       include: core.include,
+      cache: cacheInvalidationSchema,
     },
     { atLeast: ["where", "create", "update"] }
   );

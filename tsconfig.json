@@ -83,6 +83,12 @@
       ],
       "@instrumentation/*": [
         "./src/instrumentation/*"
+      ],
+      "@cache": [
+        "./src/cache/index.ts"
+      ],
+      "@cache/*": [
+        "./src/cache/*"
       ]
     }
   },

@@ -41,6 +41,16 @@ export {
 	SPAN_PARSE,
 	SPAN_TRANSACTION,
 	SPAN_VALIDATE,
+	// Cache spans and attributes
+	SPAN_CACHE_GET,
+	SPAN_CACHE_SET,
+	SPAN_CACHE_DELETE,
+	SPAN_CACHE_CLEAR,
+	SPAN_CACHE_INVALIDATE,
+	ATTR_CACHE_DRIVER,
+	ATTR_CACHE_KEY,
+	ATTR_CACHE_RESULT,
+	ATTR_CACHE_TTL,
 	type VibORMSpanName,
 } from "./spans";
 
@@ -54,9 +64,11 @@ export {
 
 // Logger
 export {
+	createCacheLogEvent,
 	createErrorLogEvent,
 	createLogger,
 	createQueryLogEvent,
+	type CacheEventType,
 	type Logger,
 } from "./logger";
 

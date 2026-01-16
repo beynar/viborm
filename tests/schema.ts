@@ -200,7 +200,7 @@ type Input = Prettify<
   InferInput<(typeof testUser)["~"]["schemas"]["args"]["findFirst"]>
 >;
 
-const res = await client.withCache({ ttl: 1000 }).user.findFirst({
+const res = await client.$withCache({ ttl: 1000 }).user.findFirst({
   where: {
     AND: [
       {

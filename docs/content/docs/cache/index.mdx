@@ -1,0 +1,394 @@
+---
+title: Caching
+description: Cache query results with automatic invalidation and stale-while-revalidate support
+icon: Database
+---
+
+VibORM provides built-in caching for read queries with support for multiple backends, automatic cache invalidation on mutations, and stale-while-revalidate (SWR) patterns for optimal performance.
+
+## Features
+
+- **Multiple Backends** - In-memory, Cloudflare KV, or custom implementations
+- **Automatic Invalidation** - Optionally clear cache when data changes
+- **Stale-While-Revalidate** - Return stale data instantly while refreshing in background
+- **Serverless Ready** - Works with Cloudflare Workers and Vercel Edge
+- **Type-Safe** - Full TypeScript support, only read operations available on cached client
+
+## Quick Start
+
+```typescript
+import { createClient, MemoryCache } from "viborm";
+
+const client = createClient({
+  schema: { user, post },
+  driver,
+  cache: new MemoryCache(),
+});
+
+// Use cached queries
+const users = await client.$withCache().user.findMany({
+  where: { active: true },
+});
+```
+
+## Configuration
+
+### Setting Up a Cache Driver
+
+Pass a cache driver when creating the client:
+
+```typescript
+import { MemoryCache, CloudflareKVCache } from "viborm";
+
+// In-memory cache (development/single instance)
+const client = createClient({
+  schema,
+  driver,
+  cache: new MemoryCache(),
+});
+
+// Cloudflare KV cache (production/distributed)
+const client = createClient({
+  schema,
+  driver,
+  cache: new CloudflareKVCache(env.MY_KV_NAMESPACE),
+});
+```
+
+### Using $withCache
+
+The `$withCache()` method returns a cached client that only exposes read operations:
+
+```typescript
+// Default: 5 minute TTL
+const cached = client.$withCache();
+
+// Custom TTL
+const cached = client.$withCache({ ttl: "1 hour" });
+const cached = client.$withCache({ ttl: 30000 }); // 30 seconds in ms
+
+// With stale-while-revalidate
+const cached = client.$withCache({ ttl: "5 minutes", swr: true });
+```
+
+### Available Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `ttl` | `string \| number` | `300000` (5 min) | Cache duration. String format: "1 hour", "30 seconds", etc. |
+| `swr` | `boolean` | `false` | Enable stale-while-revalidate pattern |
+| `key` | `string` | auto-generated | Custom cache key (overrides automatic key generation) |
+
+## TTL Format
+
+TTL can be specified as milliseconds or human-readable strings:
+
+```typescript
+// Milliseconds
+{ ttl: 60000 }  // 1 minute
+
+// Human-readable strings
+{ ttl: "30 seconds" }
+{ ttl: "5 minutes" }
+{ ttl: "1 hour" }
+{ ttl: "2 hours" }
+{ ttl: "1 day" }
+{ ttl: "1 week" }
+```
+
+Supported units: `ms`, `s`/`sec`/`second`/`seconds`, `m`/`min`/`minute`/`minutes`, `h`/`hr`/`hour`/`hours`, `d`/`day`/`days`, `w`/`week`/`weeks`, `month`/`months`
+
+## Cached Operations
+
+Only read operations are available on the cached client:
+
+```typescript
+const cached = client.$withCache({ ttl: "1 hour" });
+
+// Available operations
+await cached.user.findMany({ where: { active: true } });
+await cached.user.findFirst({ where: { role: "admin" } });
+await cached.user.findUnique({ where: { id: "123" } });
+await cached.user.findUniqueOrThrow({ where: { id: "123" } });
+await cached.user.findFirstOrThrow({ where: { role: "admin" } });
+await cached.user.count({ where: { active: true } });
+await cached.user.aggregate({ _avg: { age: true } });
+await cached.user.groupBy({ by: ["role"], _count: true });
+await cached.user.exist({ where: { email: "test@example.com" } });
+
+// Mutation operations are NOT available on cached client
+// cached.user.create() // TypeScript error!
+// cached.user.update() // TypeScript error!
+```
+
+## Stale-While-Revalidate (SWR)
+
+SWR improves perceived performance by returning cached data immediately while refreshing in the background:
+
+```typescript
+const cached = client.$withCache({ ttl: "5 minutes", swr: true });
+
+// First request: cache miss, executes query
+const users1 = await cached.user.findMany(); // ~50ms (database query)
+
+// Second request (within TTL): fresh cache hit
+const users2 = await cached.user.findMany(); // ~1ms (from cache)
+
+// Third request (after TTL but within 2x TTL): stale hit + background refresh
+const users3 = await cached.user.findMany(); // ~1ms (stale data returned)
+// Background: query executes and updates cache
+```
+
+### How SWR Works
+
+1. **Fresh hit** (age < TTL): Return cached data immediately
+2. **Stale hit** (TTL < age < 2×TTL): Return stale data, refresh in background
+3. **Miss** (age > 2×TTL or not cached): Execute query, cache result
+
+### Serverless Environments
+
+In serverless environments (Cloudflare Workers, Vercel Edge), configure `waitUntil` at the client level to ensure background revalidation completes:
+
+```typescript
+// Cloudflare Workers
+export default {
+  async fetch(request, env, ctx) {
+    const client = createClient({
+      schema: { user },
+      driver: createD1Driver(env.DB),
+      cache: new CloudflareKVCache(env.CACHE),
+      waitUntil: ctx.waitUntil.bind(ctx),
+    });
+
+    const users = await client
+      .$withCache({ ttl: "5 minutes", swr: true })
+      .user.findMany();
+
+    return Response.json(users);
+  }
+}
+
+// Vercel Edge
+import { waitUntil } from "@vercel/functions";
+
+const client = createClient({
+  schema: { user },
+  driver,
+  cache: new MemoryCache(),
+  waitUntil,
+});
+
+export async function GET() {
+  const users = await client
+    .$withCache({ ttl: "5 minutes", swr: true })
+    .user.findMany();
+
+  return Response.json(users);
+}
+```
+
+<Callout type="warn">
+Without `waitUntil` in serverless environments, background revalidation may be terminated when the request completes.
+</Callout>
+
+## Cache Invalidation
+
+### Direct Invalidation with $invalidate
+
+Use `$invalidate` to manually invalidate cache entries at any time:
+
+```typescript
+// Invalidate specific keys
+await client.$invalidate("user:findMany:abc123");
+
+// Invalidate by prefix (use * suffix)
+await client.$invalidate("user:*");
+
+// Invalidate multiple patterns
+await client.$invalidate("user:*", "post:findMany:*");
+```
+
+### Invalidation on Mutations
+
+Specify cache keys or prefixes to invalidate when performing mutations:
+
+```typescript
+// Invalidate specific keys
+await client.user.update({
+  where: { id: "123" },
+  data: { name: "Alice" },
+  cache: {
+    invalidate: ["user:findUnique:abc123"],
+  },
+});
+
+// Invalidate by prefix (note the * suffix)
+await client.user.update({
+  where: { id: "123" },
+  data: { name: "Alice" },
+  cache: {
+    invalidate: ["user:findMany:*"],  // Clears all findMany caches for user
+  },
+});
+
+// Invalidate multiple patterns
+await client.post.create({
+  data: { title: "New Post", authorId: "123" },
+  cache: {
+    invalidate: [
+      "post:*",      // All post caches
+      "user:123:*",  // All caches for this user
+    ],
+  },
+});
+```
+
+### Automatic Model Invalidation
+
+Enable `autoInvalidate` to automatically clear all cache entries for a model after mutations:
+
+```typescript
+await client.user.update({
+  where: { id: "123" },
+  data: { name: "Alice" },
+  cache: {
+    autoInvalidate: true,  // Clears all user:* cache entries
+  },
+});
+```
+
+<Callout type="info">
+Auto-invalidation clears ALL cached queries for the model. Use manual invalidation for more granular control.
+</Callout>
+
+## Cache Key Generation
+
+Cache keys are automatically generated from the model name, operation, and query arguments:
+
+```
+viborm:<model>:<operation>:<hash>
+```
+
+For example:
+```
+viborm:user:findMany:a1b2c3d4e5f6...
+```
+
+The hash is deterministic — identical queries always produce the same key, regardless of object property order.
+
+<Callout type="info">
+The current key format includes the operation name, which means `findFirst` and `findUnique` with identical arguments will have separate cache entries even though they may produce the same SQL query. Use custom cache keys if you need to share cache entries across operations.
+</Callout>
+
+### Custom Cache Keys
+
+Override automatic key generation when needed:
+
+```typescript
+const cached = client.$withCache({
+  ttl: "1 hour",
+  key: "homepage-featured-users",
+});
+
+const users = await cached.user.findMany({
+  where: { featured: true },
+  take: 5,
+});
+```
+
+## Cache Drivers
+
+VibORM includes built-in cache drivers and supports custom implementations.
+
+| Driver | Best For | Persistence |
+|--------|----------|-------------|
+| [MemoryCache](/docs/cache/drivers/memory) | Development, testing | No |
+| [CloudflareKVCache](/docs/cache/drivers/cloudflare-kv) | Cloudflare Workers | Yes |
+| [Custom](/docs/cache/drivers/custom) | Redis, Upstash, etc. | Varies |
+
+See [Cache Drivers](/docs/cache/drivers) for detailed configuration and implementation guides.
+
+## Examples
+
+### Basic Caching
+
+```typescript
+const client = createClient({
+  schema: { user, post },
+  driver,
+  cache: new MemoryCache(),
+});
+
+// Cache user queries for 10 minutes
+const cached = client.$withCache({ ttl: "10 minutes" });
+
+const users = await cached.user.findMany({
+  where: { active: true },
+  include: { posts: true },
+});
+```
+
+### SWR with Cloudflare Workers
+
+```typescript
+import { createClient, CloudflareKVCache } from "viborm";
+
+export default {
+  async fetch(request, env, ctx) {
+    const client = createClient({
+      schema: { user },
+      driver: createD1Driver(env.DB),
+      cache: new CloudflareKVCache(env.CACHE),
+      waitUntil: ctx.waitUntil.bind(ctx),
+    });
+
+    const users = await client
+      .$withCache({ ttl: "5 minutes", swr: true })
+      .user.findMany({ where: { active: true } });
+
+    return Response.json(users);
+  }
+}
+```
+
+### Invalidation on Write
+
+```typescript
+// Create a post and invalidate related caches
+await client.post.create({
+  data: {
+    title: "New Post",
+    authorId: userId,
+  },
+  cache: {
+    invalidate: [
+      "post:findMany:*",           // All post lists
+      `user:${userId}:posts:*`,    // This user's post caches
+    ],
+  },
+});
+```
+
+### Different TTLs for Different Queries
+
+```typescript
+// Short TTL for frequently changing data
+const recentPosts = await client
+  .$withCache({ ttl: "1 minute" })
+  .post.findMany({
+    orderBy: { createdAt: "desc" },
+    take: 10,
+  });
+
+// Longer TTL for stable data
+const categories = await client
+  .$withCache({ ttl: "1 hour" })
+  .category.findMany();
+
+// SWR for user-facing pages
+const featuredUsers = await client
+  .$withCache({ ttl: "5 minutes", swr: true })
+  .user.findMany({
+    where: { featured: true },
+  });
+```

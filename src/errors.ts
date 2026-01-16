@@ -54,6 +54,11 @@ export enum VibORMErrorCode {
   FEATURE_NOT_SUPPORTED = "V8001",
   DRIVER_NOT_SUPPORTED = "V8002",
 
+  // Cache errors (10xxx)
+  CACHE_INVALID_TTL = "V10001",
+  CACHE_INVALID_KEY = "V10002",
+  CACHE_OPERATION_NOT_CACHEABLE = "V10003",
+
   // Internal errors (9xxx)
   INTERNAL_ERROR = "V9001",
   SCHEMA_ERROR = "V9002",
@@ -376,6 +381,54 @@ export class FeatureNotSupportedError extends VibORMError {
       meta: { feature, method },
     });
     this.name = "FeatureNotSupportedError";
+  }
+}
+
+// ============================================================
+// CACHE ERRORS
+// ============================================================
+
+/**
+ * Invalid TTL format or value
+ */
+export class CacheInvalidTTLError extends VibORMError {
+  constructor(message: string, options?: { meta?: VibORMErrorMeta }) {
+    super(message, VibORMErrorCode.CACHE_INVALID_TTL, {
+      meta: options?.meta,
+    });
+    this.name = "CacheInvalidTTLError";
+  }
+}
+
+/**
+ * Invalid cache key (circular reference, uncacheable type)
+ */
+export class CacheInvalidKeyError extends VibORMError {
+  constructor(message: string, options?: { meta?: VibORMErrorMeta }) {
+    super(message, VibORMErrorCode.CACHE_INVALID_KEY, {
+      meta: options?.meta,
+    });
+    this.name = "CacheInvalidKeyError";
+  }
+}
+
+/**
+ * Operation cannot be cached (e.g., mutation operations)
+ */
+export class CacheOperationNotCacheableError extends VibORMError {
+  constructor(
+    operation: string,
+    cacheableOperations: string[],
+    options?: { meta?: VibORMErrorMeta }
+  ) {
+    super(
+      `Operation "${operation}" is not cacheable. Only read operations can be cached: ${cacheableOperations.join(", ")}`,
+      VibORMErrorCode.CACHE_OPERATION_NOT_CACHEABLE,
+      {
+        meta: { ...options?.meta, operation },
+      }
+    );
+    this.name = "CacheOperationNotCacheableError";
   }
 }
 

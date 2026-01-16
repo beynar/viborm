@@ -71,7 +71,12 @@ export type VibORMSpanName =
 	| typeof SPAN_PARSE
 	| typeof SPAN_TRANSACTION
 	| typeof SPAN_CONNECT
-	| typeof SPAN_DISCONNECT;
+	| typeof SPAN_DISCONNECT
+	| typeof SPAN_CACHE_GET
+	| typeof SPAN_CACHE_SET
+	| typeof SPAN_CACHE_DELETE
+	| typeof SPAN_CACHE_CLEAR
+	| typeof SPAN_CACHE_INVALIDATE;
 
 /**
  * Semantic attribute keys for span attributes
@@ -128,3 +133,34 @@ export const ATTR_DB_DRIVER = "db.system.driver";
  * Usage: `db.query.parameter.0`, `db.query.parameter.userId`
  */
 export const ATTR_DB_QUERY_PARAMETER_PREFIX = "db.query.parameter";
+
+// =============================================================================
+// Cache Spans and Attributes
+// =============================================================================
+
+/** Span name for cache get operations */
+export const SPAN_CACHE_GET = "viborm.cache.get";
+
+/** Span name for cache set operations */
+export const SPAN_CACHE_SET = "viborm.cache.set";
+
+/** Span name for cache delete operations */
+export const SPAN_CACHE_DELETE = "viborm.cache.delete";
+
+/** Span name for cache clear operations */
+export const SPAN_CACHE_CLEAR = "viborm.cache.clear";
+
+/** Span name for cache invalidation */
+export const SPAN_CACHE_INVALIDATE = "viborm.cache.invalidate";
+
+/** Cache driver name (memory, cloudflare-kv, redis, etc.) */
+export const ATTR_CACHE_DRIVER = "cache.driver";
+
+/** Cache key */
+export const ATTR_CACHE_KEY = "cache.key";
+
+/** Cache operation result (hit, miss, stale) */
+export const ATTR_CACHE_RESULT = "cache.result";
+
+/** Cache TTL in milliseconds */
+export const ATTR_CACHE_TTL = "cache.ttl";
