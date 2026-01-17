@@ -270,6 +270,7 @@ export abstract class CacheDriver {
    */
   async _clearRevalidating(key: string): Promise<void> {
     const revalidatingKey = `${this.prefixKey(key)}${REVALIDATING_SUFFIX}`;
+    // Use direct delete (no instrumentation) - internal housekeeping
     await this.delete([revalidatingKey]);
   }
 
@@ -288,7 +289,7 @@ export abstract class CacheDriver {
       // Auto-invalidate model cache if enabled (uses driver's version)
       if (options?.autoInvalidate) {
         const prefix = generateCachePrefix(modelName, this.version);
-        promises.push(this.clear(prefix));
+        promises.push(this._clear(prefix));
       }
 
       // Custom invalidation - detect prefix (ends with *) vs specific key
@@ -297,7 +298,7 @@ export abstract class CacheDriver {
           if (entry.endsWith("*")) {
             // Prefix invalidation - strip the * and clear by prefix
             const prefix = entry.slice(0, -1);
-            promises.push(this.clear(this.prefixKey(prefix)));
+            promises.push(this._clear(prefix));
           } else {
             // Specific key invalidation (include revalidating key)
             const prefixedKey = this.prefixKey(entry);
