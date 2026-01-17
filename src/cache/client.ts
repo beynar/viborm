@@ -176,7 +176,14 @@ class CachedClientImpl<S extends Schema> {
       // Bypass cache read if requested
       if (this.options.bypass) {
         const result = await this.executor({ modelName, operation, args });
-        await this.cache._set(cacheKey, result, { ttl: this.options.ttlMs });
+        const cachePromise = this.cache
+          ._set(cacheKey, result, { ttl: this.options.ttlMs })
+          .catch((error) => {
+            this.log(cacheKey, "bypass", "cache-set-failed", error);
+          });
+        if (this.options.waitUntil) {
+          this.options.waitUntil(cachePromise);
+        }
         return { result, cacheResult: "bypass" };
       }
 
