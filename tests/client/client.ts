@@ -1,4 +1,4 @@
-import { MemoryCache } from "@client/cache";
+import { MemoryCache } from "@cache/drivers/memory";
 import { createClient } from "@drivers/pglite";
 import { push } from "@migrations";
 import { s } from "@schema";
@@ -39,7 +39,7 @@ const client = createClient({
   instrumentation: {
     logging: true,
   },
-  cache: new MemoryCache(),
+  // cache: new MemoryCache(),
 });
 
 // Push schema (will be no-op if already in sync)
@@ -49,10 +49,13 @@ console.log("Push result:", {
   operationsCount: pushResult.operations.length,
 });
 
+
+
+
 client.user.deleteMany({
   cache: {
-    invalidate
-  }
+    invalidate: [""],
+  },
 });
 
 // Clean up any existing test data

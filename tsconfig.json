@@ -94,7 +94,8 @@
   },
   "include": [
     "src/**/*",
-    "tests/**/*.ts"
+    "tests/**/*.ts",
+    "demo.ts"
   ],
   "exclude": [
     "dist",

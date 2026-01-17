@@ -20,7 +20,7 @@ import {
   SPAN_TRANSACTION,
 } from "@instrumentation";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
-import type { Operation } from "@query-engine/types";
+import type { ModelRegistry, Operation } from "@query-engine/types";
 import { hydrateSchemaNames } from "@schema/hydration";
 import type { Sql } from "@sql";
 import type {
@@ -94,44 +94,45 @@ export interface VibORMConfig {
   cache?: CacheDriver;
   instrumentation?: InstrumentationConfig;
   waitUntil?: WaitUntilFn;
+  /** Cache version for invalidating cache on schema changes */
+  cacheVersion?: number | string;
 }
 
-export interface DriverConfig {
-  schema: Schema;
-  cache?: CacheDriver;
-  instrumentation?: InstrumentationConfig;
-  waitUntil?: WaitUntilFn;
-}
+export interface DriverConfig extends Omit<VibORMConfig, "driver"> {}
 
 /**
  * Extended client type with utility methods
  */
-export type VibORMClient<C extends VibORMConfig> = Client<C> & {
-  /** Access the underlying driver */
-  $driver: AnyDriver;
-  /** Execute a raw SQL query */
-  $executeRaw: <T = Record<string, unknown>>(
-    query: Sql
-  ) => Promise<QueryResult<T>>;
-  /** Execute a raw SQL string */
-  $queryRaw: <T = Record<string, unknown>>(
-    sql: string,
-    params?: unknown[]
-  ) => Promise<QueryResult<T>>;
-  /** Run operations in a transaction */
-  $transaction: <T>(
-    fn: (tx: Client<C>) => Promise<T>,
-    options?: TransactionOptions
-  ) => Promise<T>;
-  /** Connect to the database */
-  $connect: () => Promise<void>;
-  /** Disconnect from the database */
-  $disconnect: () => Promise<void>;
-  /** Create a client with cache - only read operations available */
-  $withCache: (config?: WithCacheOptions) => CachedClient<C["schema"]>;
-  /** Invalidate cache entries by keys or patterns (use * suffix for prefix matching) */
-  $invalidate: (...keys: string[]) => Promise<void>;
-};
+export type VibORMClient<C extends VibORMConfig> = Client<C> &
+  Omit<
+    {
+      /** Access the underlying driver */
+      $driver: AnyDriver;
+      /** Execute a raw SQL query */
+      $executeRaw: <T = Record<string, unknown>>(
+        query: Sql
+      ) => Promise<QueryResult<T>>;
+      /** Execute a raw SQL string */
+      $queryRaw: <T = Record<string, unknown>>(
+        sql: string,
+        params?: unknown[]
+      ) => Promise<QueryResult<T>>;
+      /** Run operations in a transaction */
+      $transaction: <T>(
+        fn: (tx: Client<C>) => Promise<T>,
+        options?: TransactionOptions
+      ) => Promise<T>;
+      /** Connect to the database */
+      $connect: () => Promise<void>;
+      /** Disconnect from the database */
+      $disconnect: () => Promise<void>;
+      /** Create a client with cache - only read operations available */
+      $withCache: (config?: WithCacheOptions) => CachedClient<C["schema"]>;
+      /** Invalidate cache entries by keys or patterns (use * suffix for prefix matching) */
+      $invalidate: (...keys: string[]) => Promise<void>;
+    },
+    C["cache"] extends CacheDriver ? "never" : "$withCache" | "$invalidate"
+  >;
 
 /**
  * VibORM Client
@@ -142,6 +143,22 @@ export class VibORM<C extends VibORMConfig> {
   private readonly cache: C["cache"];
   private readonly instrumentation: InstrumentationContext | undefined;
   private readonly waitUntil: WaitUntilFn | undefined;
+  private readonly cacheVersion: string | number | undefined;
+  private readonly registry: ModelRegistry;
+  private readonly engine: QueryEngine;
+  private readonly cachedExecuteOperation: (opts: {
+    modelName: keyof C["schema"];
+    operation: CacheableOperations;
+    args: unknown;
+  }) => Promise<unknown>;
+  private readonly cachedSpanWrapper:
+    | (<T>(
+        modelName: string,
+        operation: string,
+        fn: () => Promise<T>,
+        options?: { root?: boolean }
+      ) => Promise<T>)
+    | undefined;
 
   constructor(config: C) {
     this.driver = config.driver;
@@ -151,23 +168,89 @@ export class VibORM<C extends VibORMConfig> {
       ? createInstrumentationContext(config.instrumentation)
       : undefined;
     this.waitUntil = config.waitUntil;
+    this.cacheVersion = config.cacheVersion;
+
+    // Create registry and engine once, reuse for all operations
+    this.registry = createModelRegistry(this.schema as Record<string, any>);
+    this.engine = new QueryEngine(
+      this.driver.adapter,
+      this.registry,
+      this.driver,
+      this.instrumentation
+    );
+
+    // Cache executeOperation for $withCache
+    this.cachedExecuteOperation = async ({ modelName, operation, args }) => {
+      const model = (this.schema as C["schema"])[modelName];
+      if (!model) {
+        throw new Error(`Model "${String(modelName)}" not found in schema`);
+      }
+
+      const OR_THROW_SUFFIX = "OrThrow";
+      const baseOperation = operation.endsWith(OR_THROW_SUFFIX)
+        ? (operation.slice(0, -OR_THROW_SUFFIX.length) as Operation)
+        : (operation as Operation);
+
+      const result = await this.engine.execute(
+        model,
+        baseOperation,
+        (args ?? {}) as Record<string, unknown>
+      );
+
+      if (operation.endsWith("OrThrow") && result === null) {
+        throw new NotFoundError(String(modelName), operation);
+      }
+
+      return operation === "exist" ? (result as number) > 0 : result;
+    };
+
+    // Cache spanWrapper for $withCache
+    this.cachedSpanWrapper = this.instrumentation?.tracer
+      ? <T>(
+          modelName: string,
+          operation: string,
+          fn: () => Promise<T>,
+          options?: { root?: boolean }
+        ) => {
+          const model = (this.schema as C["schema"])[
+            modelName as keyof C["schema"]
+          ];
+          const tableName = model?.["~"]?.names?.sql ?? modelName;
+
+          return this.instrumentation!.tracer!.startActiveSpan(
+            {
+              name: SPAN_OPERATION,
+              attributes: {
+                ...this.driver.getBaseAttributes(),
+                [ATTR_DB_COLLECTION]: tableName,
+                [ATTR_DB_OPERATION_NAME]: operation,
+              },
+              root: options?.root,
+            },
+            fn
+          );
+        }
+      : undefined;
   }
 
   /**
    * Create the client with model proxies and utility methods
    */
   private createClient(driver: AnyDriver = this.driver): Client<C> {
-    // Create a query engine for this driver (may be transaction driver)
-    const registry = createModelRegistry(this.schema as Record<string, any>);
-    const engine = new QueryEngine(
-      driver.adapter,
-      registry,
-      driver,
-      this.instrumentation
-    );
+    // Use cached engine for default driver, create new one for transactions
+    const engine =
+      driver === this.driver
+        ? this.engine
+        : new QueryEngine(
+            driver.adapter,
+            this.registry,
+            driver,
+            this.instrumentation
+          );
 
     const instrumentation = this.instrumentation;
     const cache = this.cache;
+    const cacheVersion = this.cacheVersion;
 
     return createModelProxy(
       this.schema,
@@ -268,55 +351,15 @@ export class VibORM<C extends VibORMConfig> {
       );
     }
 
-    const registry = createModelRegistry(this.schema as Record<string, any>);
-    const engine = new QueryEngine(
-      this.driver.adapter,
-      registry,
-      this.driver,
-      this.instrumentation
-    );
-
-    const executeOperation = async ({
-      modelName,
-      operation,
-      args,
-    }: {
-      modelName: keyof C["schema"];
-      operation: CacheableOperations;
-      args: unknown;
-    }) => {
-      const model = (this.schema as C["schema"])[modelName];
-      if (!model) {
-        throw new Error(`Model "${String(modelName)}" not found in schema`);
-      }
-
-      // Strip "OrThrow" suffix for query engine
-      const OR_THROW_SUFFIX = "OrThrow";
-      const baseOperation = operation.endsWith(OR_THROW_SUFFIX)
-        ? (operation.slice(0, -OR_THROW_SUFFIX.length) as Operation)
-        : (operation as Operation);
-
-      const result = await engine.execute(
-        model,
-        baseOperation,
-        (args ?? {}) as Record<string, unknown>
-      );
-
-      if (operation.endsWith("OrThrow") && result === null) {
-        throw new NotFoundError(String(modelName), operation);
-      }
-
-      // Handle exist operation (convert count to boolean)
-      return operation === "exist" ? (result as number) > 0 : result;
-    };
-
     return createCachedClientProxy(
       this.schema,
-      executeOperation,
+      this.cachedExecuteOperation,
       this.cache,
       config ?? {},
       this.waitUntil,
-      this.instrumentation
+      this.cacheVersion,
+      this.instrumentation,
+      this.cachedSpanWrapper
     );
   }
 
@@ -330,9 +373,13 @@ export class VibORM<C extends VibORMConfig> {
     const orm = new VibORM<C>(config);
 
     // Inject instrumentation into driver if supported
-    if (orm.instrumentation && "setInstrumentation" in config.driver) {
-      (config.driver as any).setInstrumentation(orm.instrumentation);
-    }
+    config.driver?.setInstrumentation(orm.instrumentation);
+
+    // Inject instrumentation into cache driver if supported
+    config.cache?.setInstrumentation(orm.instrumentation);
+
+    // Set cache version on driver
+    config.cache?.setVersion(config.cacheVersion);
 
     const client = orm.createClient();
     const instrumentation = orm.instrumentation;

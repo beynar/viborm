@@ -75,11 +75,14 @@ abstract class CacheDriver {
 Keys are generated from operation parameters:
 
 ```
-viborm:<model>:<operation>:<hash>
+viborm[:v<version>]:<model>:<operation>:<hash>
 viborm:user:findMany:abc123def456...
+viborm:v2:user:findMany:abc123def456...  // with cacheVersion: 2
 ```
 
 The hash uses a fast non-cryptographic algorithm (djb2 variant) on stable-stringified args. Stability means `{a: 1, b: 2}` and `{b: 2, a: 1}` produce the same hash.
+
+**Cache Versioning:** Setting `cacheVersion` in client config adds a version prefix to all keys. Bump the version when schema changes to automatically invalidate stale cache entries with incompatible shapes.
 
 > **TODO: Reconsider operation in cache key**
 >

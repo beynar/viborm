@@ -10,6 +10,7 @@ import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import {
   createClient as baseCreateClient,
   type DriverConfig,
+  type VibORMClient,
 } from "@client/client";
 import {
   PGlite,
@@ -122,5 +123,5 @@ export function createClient<C extends DriverConfig>(config: PGliteConfig<C>) {
   return baseCreateClient({
     ...restConfig,
     driver,
-  });
+  }) as VibORMClient<C & { driver: PGliteDriver }>;
 }

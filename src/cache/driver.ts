@@ -9,6 +9,7 @@ import type { InstrumentationContext } from "@instrumentation/context";
 import {
   ATTR_CACHE_DRIVER,
   ATTR_CACHE_KEY,
+  ATTR_CACHE_RESULT,
   ATTR_CACHE_TTL,
   SPAN_CACHE_CLEAR,
   SPAN_CACHE_DELETE,
@@ -58,9 +59,17 @@ export interface CacheSetOptions {
 export abstract class CacheDriver {
   readonly driverName: string;
   protected instrumentation?: InstrumentationContext;
+  protected version?: string | number;
 
   constructor(driverName: string) {
     this.driverName = driverName;
+  }
+
+  /**
+   * Set cache version for key prefixing
+   */
+  setVersion(version: string | number | undefined): void {
+    this.version = version;
   }
 
   // ============================================================
@@ -116,13 +125,8 @@ export abstract class CacheDriver {
   async _get<T>(key: string): Promise<CacheEntry<T> | null> {
     const prefixedKey = this.prefixKey(key);
 
-    const execute = async () => {
-      const entry = await this.get<T>(prefixedKey);
-      return entry;
-    };
-
     if (!this.instrumentation?.tracer) {
-      return execute();
+      return this.get<T>(prefixedKey);
     }
 
     return this.instrumentation.tracer.startActiveSpan(
@@ -133,7 +137,17 @@ export abstract class CacheDriver {
           [ATTR_CACHE_KEY]: key,
         },
       },
-      execute
+      async (span) => {
+        const entry = await this.get<T>(prefixedKey);
+        if (entry) {
+          const age = Date.now() - entry.createdAt;
+          const isStale = age > entry.ttl;
+          span?.setAttribute(ATTR_CACHE_RESULT, isStale ? "stale" : "hit");
+        } else {
+          span?.setAttribute(ATTR_CACHE_RESULT, "miss");
+        }
+        return entry;
+      }
     );
   }
 
@@ -271,9 +285,9 @@ export abstract class CacheDriver {
     const execute = async () => {
       const promises: Promise<void>[] = [];
 
-      // Auto-invalidate model cache if enabled
+      // Auto-invalidate model cache if enabled (uses driver's version)
       if (options?.autoInvalidate) {
-        const prefix = generateCachePrefix(modelName);
+        const prefix = generateCachePrefix(modelName, this.version);
         promises.push(this.clear(this.prefixKey(prefix)));
       }
 
@@ -335,14 +349,15 @@ export abstract class CacheDriver {
   // ============================================================
 
   /**
-   * Prefix a key with the cache prefix
+   * Prefix a key with the cache prefix (including version if set)
    */
   private prefixKey(key: string): string {
+    const prefix = generateCachePrefix(undefined, this.version);
     // If already prefixed, don't double-prefix
-    if (key.startsWith(CACHE_PREFIX)) {
+    if (key.startsWith(prefix) || key.startsWith(CACHE_PREFIX)) {
       return key;
     }
-    return `${CACHE_PREFIX}:${key}`;
+    return `${prefix}:${key}`;
   }
 }
 

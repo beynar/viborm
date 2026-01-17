@@ -33,6 +33,8 @@ export interface VibORMSpanOptions {
   attributes?: Attributes | undefined;
   /** SQL info (only included if tracer config has includeSql enabled) */
   sql?: { query: string; params?: unknown[] } | undefined;
+  /** Start a new root span (not child of current context) */
+  root?: boolean | undefined;
 }
 
 /**
@@ -142,41 +144,52 @@ export function createTracerWrapper(
     return tracer;
   }
 
+  // Eagerly load OTel on first tracer creation
+  const otelReady = tryLoadOtel();
+
   return {
     async startActiveSpan<T>(
       options: VibORMSpanOptions,
       fn: (span?: Span) => T | Promise<T>
     ): Promise<T> {
-      const api = await tryLoadOtel();
-      if (!api || shouldIgnoreSpan(options.name)) {
+      // Wait for initial load only on first call, then otel is cached
+      if (!otel) await otelReady;
+      if (!otel || shouldIgnoreSpan(options.name)) {
         return fn();
       }
 
       const attributes = buildAttributes(options);
-      const kind = options.kind ?? api.SpanKind.INTERNAL;
+      const kind = options.kind ?? otel.SpanKind.INTERNAL;
 
-      return getTracer(api).startActiveSpan(
+      // Use ROOT_CONTEXT if root option is set, otherwise use active context
+      const parentContext = options.root
+        ? otel.ROOT_CONTEXT
+        : otel.context.active();
+      const span = getTracer(otel).startSpan(
         options.name,
         { kind, attributes },
-        async (span) => {
-          try {
-            const result = await fn(span);
-            span.setStatus({ code: api.SpanStatusCode.OK });
-            return result;
-          } catch (error) {
-            span.setStatus({
-              code: api.SpanStatusCode.ERROR,
-              message: error instanceof Error ? error.message : "Unknown error",
-            });
-            if (error instanceof Error) {
-              span.recordException(error);
-            }
-            throw error;
-          } finally {
-            span.end();
-          }
-        }
+        parentContext
       );
+      const contextWithSpan = otel.trace.setSpan(parentContext, span);
+
+      return otel.context.with(contextWithSpan, async () => {
+        try {
+          const result = await fn(span);
+          span.setStatus({ code: otel!.SpanStatusCode.OK });
+          return result;
+        } catch (error) {
+          span.setStatus({
+            code: otel!.SpanStatusCode.ERROR,
+            message: error instanceof Error ? error.message : "Unknown error",
+          });
+          if (error instanceof Error) {
+            span.recordException(error);
+          }
+          throw error;
+        } finally {
+          span.end();
+        }
+      });
     },
 
     startActiveSpanSync<T>(
@@ -191,28 +204,33 @@ export function createTracerWrapper(
       const attributes = buildAttributes(options);
       const kind = options.kind ?? otel.SpanKind.INTERNAL;
 
-      return getTracer(otel).startActiveSpan(
+      // Use context.with to ensure proper parent-child relationship
+      const currentContext = otel.context.active();
+      const span = getTracer(otel).startSpan(
         options.name,
         { kind, attributes },
-        (span) => {
-          try {
-            const result = fn(span);
-            span.setStatus({ code: otel!.SpanStatusCode.OK });
-            return result;
-          } catch (error) {
-            span.setStatus({
-              code: otel!.SpanStatusCode.ERROR,
-              message: error instanceof Error ? error.message : "Unknown error",
-            });
-            if (error instanceof Error) {
-              span.recordException(error);
-            }
-            throw error;
-          } finally {
-            span.end();
-          }
-        }
+        currentContext
       );
+      const contextWithSpan = otel.trace.setSpan(currentContext, span);
+
+      return otel.context.with(contextWithSpan, () => {
+        try {
+          const result = fn(span);
+          span.setStatus({ code: otel!.SpanStatusCode.OK });
+          return result;
+        } catch (error) {
+          span.setStatus({
+            code: otel!.SpanStatusCode.ERROR,
+            message: error instanceof Error ? error.message : "Unknown error",
+          });
+          if (error instanceof Error) {
+            span.recordException(error);
+          }
+          throw error;
+        } finally {
+          span.end();
+        }
+      });
     },
 
     isEnabled(): boolean {

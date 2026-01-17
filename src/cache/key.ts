@@ -12,29 +12,45 @@ import { CacheInvalidKeyError } from "@errors";
 export const CACHE_PREFIX = "viborm";
 
 /**
+ * Build the versioned prefix
+ */
+function buildPrefix(version?: string | number): string {
+  return version !== undefined ? `${CACHE_PREFIX}:v${version}` : CACHE_PREFIX;
+}
+
+/**
  * Generate a deterministic cache key from operation parameters
  *
- * Key structure: viborm:<model>:<operation>:<hash>
+ * Key structure: viborm[:v<version>]:<model>:<operation>:<hash>
  *
  * @example
  * generateCacheKey("user", "findMany", { where: { active: true } })
  * // "viborm:user:findMany:abc123..."
+ *
+ * generateCacheKey("user", "findMany", { where: { active: true } }, 2)
+ * // "viborm:v2:user:findMany:abc123..."
  */
 export function generateCacheKey(
   modelName: string,
   operation: string,
-  args: unknown
+  args: unknown,
+  version?: string | number
 ): string {
+  const prefix = buildPrefix(version);
   const argsHash = hashArgs(args);
-  return `${CACHE_PREFIX}:${modelName}:${operation}:${argsHash}`;
+  return `${prefix}:${modelName}:${operation}:${argsHash}`;
 }
 
 /**
  * Generate prefix for cache invalidation
  * Used to clear all cached queries for a model
  */
-export function generateCachePrefix(modelName?: string): string {
-  return modelName ? `${CACHE_PREFIX}:${modelName}` : CACHE_PREFIX;
+export function generateCachePrefix(
+  modelName?: string,
+  version?: string | number
+): string {
+  const prefix = buildPrefix(version);
+  return modelName ? `${prefix}:${modelName}` : prefix;
 }
 
 /**

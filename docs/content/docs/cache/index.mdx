@@ -55,6 +55,23 @@ const client = createClient({
 });
 ```
 
+### Cache Versioning
+
+Use `cacheVersion` to invalidate all cached data when your schema changes:
+
+```typescript
+const client = createClient({
+  schema,
+  driver,
+  cache: new MemoryCache(),
+  cacheVersion: 2,  // Bump when schema changes
+});
+```
+
+Cache keys become versioned: `viborm:v2:user:findMany:...`
+
+When you update the version, all previously cached entries are automatically ignored (different key prefix). This prevents stale data with incompatible shapes from being returned after schema migrations.
+
 ### Using $withCache
 
 The `$withCache()` method returns a cached client that only exposes read operations:
@@ -69,6 +86,9 @@ const cached = client.$withCache({ ttl: 30000 }); // 30 seconds in ms
 
 // With stale-while-revalidate
 const cached = client.$withCache({ ttl: "5 minutes", swr: true });
+
+// Force fresh fetch (bypass cache read)
+const fresh = client.$withCache({ bypass: true });
 ```
 
 ### Available Options
@@ -78,6 +98,7 @@ const cached = client.$withCache({ ttl: "5 minutes", swr: true });
 | `ttl` | `string \| number` | `300000` (5 min) | Cache duration. String format: "1 hour", "30 seconds", etc. |
 | `swr` | `boolean` | `false` | Enable stale-while-revalidate pattern |
 | `key` | `string` | auto-generated | Custom cache key (overrides automatic key generation) |
+| `bypass` | `boolean` | `false` | Skip cache read and force fresh fetch (still writes to cache) |
 
 ## TTL Format
 

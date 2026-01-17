@@ -37,6 +37,13 @@ export interface WithCacheOptions {
    * If not provided, key is generated from model, operation, and args
    */
   key?: string;
+
+  /**
+   * Bypass cache read and force a fresh fetch
+   * The result is still written to cache
+   * @default false
+   */
+  bypass?: boolean;
 }
 
 /**
@@ -45,6 +52,7 @@ export interface WithCacheOptions {
 export interface ParsedCacheOptions {
   ttlMs: number;
   swr: boolean;
+  bypass: boolean;
   key?: string;
   waitUntil?: WaitUntilFn;
 }

@@ -4,14 +4,33 @@
  * Provides a cached client proxy that wraps read operations with caching.
  */
 
+import type { CacheableOperations, CachedClient, Schema } from "@client/types";
 import { CacheOperationNotCacheableError } from "@errors";
 import type { InstrumentationContext } from "@instrumentation/context";
-import type { CacheableOperations, CachedClient, Schema } from "@client/types";
 import type { CacheDriver } from "./driver";
 import { generateCacheKey } from "./key";
 import { DEFAULT_CACHE_TTL } from "./schema";
 import { parseTTL } from "./ttl";
-import type { ParsedCacheOptions, WaitUntilFn, WithCacheOptions } from "./types";
+import type {
+  ParsedCacheOptions,
+  WaitUntilFn,
+  WithCacheOptions,
+} from "./types";
+
+/**
+ * Function to wrap an operation with a span
+ */
+export type OperationSpanWrapper = <T>(
+  modelName: string,
+  operation: string,
+  fn: () => Promise<T>,
+  options?: { root?: boolean }
+) => Promise<T>;
+
+/**
+ * Cache result types for spans
+ */
+type CacheResult = "hit" | "stale" | "miss" | "bypass";
 
 /**
  * Set of cacheable operations
@@ -55,7 +74,9 @@ class CachedClientImpl<S extends Schema> {
   private readonly executor: OperationExecutor<S>;
   private readonly cache: CacheDriver;
   private readonly options: ParsedCacheOptions;
+  private readonly version?: string | number;
   private readonly instrumentation?: InstrumentationContext;
+  private readonly spanWrapper?: OperationSpanWrapper;
 
   constructor(
     schema: S,
@@ -63,7 +84,9 @@ class CachedClientImpl<S extends Schema> {
     cache: CacheDriver,
     options: WithCacheOptions,
     waitUntil?: WaitUntilFn,
-    instrumentation?: InstrumentationContext
+    version?: string | number,
+    instrumentation?: InstrumentationContext,
+    spanWrapper?: OperationSpanWrapper
   ) {
     this.schema = schema;
     this.executor = executor;
@@ -71,10 +94,13 @@ class CachedClientImpl<S extends Schema> {
     this.options = {
       ttlMs: options?.ttl ? parseTTL(options.ttl) : DEFAULT_CACHE_TTL,
       swr: options?.swr ?? false,
+      bypass: options?.bypass ?? false,
       key: options?.key,
       waitUntil,
     };
+    this.version = version;
     this.instrumentation = instrumentation;
+    this.spanWrapper = spanWrapper;
   }
 
   /**
@@ -103,10 +129,9 @@ class CachedClientImpl<S extends Schema> {
 
         // Runtime check - only cacheable operations allowed
         if (!isCacheableOperation(operation)) {
-          throw new CacheOperationNotCacheableError(
-            operation,
-            [...CACHEABLE_OPERATIONS]
-          );
+          throw new CacheOperationNotCacheableError(operation, [
+            ...CACHEABLE_OPERATIONS,
+          ]);
         }
 
         return this.execute(modelName, operation, args);
@@ -122,32 +147,54 @@ class CachedClientImpl<S extends Schema> {
     operation: CacheableOperations,
     args: unknown
   ): Promise<unknown> {
+    // Wrap with operation span if wrapper available, otherwise execute directly
+    if (this.spanWrapper) {
+      return this.spanWrapper(String(modelName), operation, () =>
+        this.executeCore(modelName, operation, args)
+      );
+    }
+    return this.executeCore(modelName, operation, args);
+  }
+
+  /**
+   * Core execution logic for cached operations
+   */
+  private async executeCore(
+    modelName: keyof S,
+    operation: CacheableOperations,
+    args: unknown
+  ): Promise<unknown> {
     // Generate or use custom cache key
     const cacheKey =
-      this.options.key ?? generateCacheKey(String(modelName), operation, args);
+      this.options.key ??
+      generateCacheKey(String(modelName), operation, args, this.version);
 
-    // Try to get from cache
-    const cached = await this.cache._get(cacheKey);
-
-    if (cached) {
-      const age = Date.now() - cached.createdAt;
-      const isStale = age > cached.ttl;
-
-      if (!isStale) {
-        // Fresh cache hit
-        this.log(cacheKey, "hit", "fresh");
-        return cached.value;
+    const executeWithResult = async (): Promise<{
+      result: unknown;
+      cacheResult: CacheResult;
+    }> => {
+      // Bypass cache read if requested
+      if (this.options.bypass) {
+        const result = await this.executor({ modelName, operation, args });
+        await this.cache._set(cacheKey, result, { ttl: this.options.ttlMs });
+        return { result, cacheResult: "bypass" };
       }
 
-      if (this.options.swr) {
-        // Stale but SWR enabled - return stale and revalidate in background
-        this.log(cacheKey, "hit", "stale");
+      // Try to get from cache
+      const cached = await this.cache._get(cacheKey);
 
-        // Try to mark as revalidating (prevents thundering herd)
-        const shouldRevalidate = await this.cache._markRevalidating(cacheKey);
+      if (cached) {
+        const age = Date.now() - cached.createdAt;
+        const isStale = age > cached.ttl;
 
-        if (shouldRevalidate) {
-          // Fire off background revalidation (don't await)
+        if (!isStale) {
+          // Fresh cache hit
+          return { result: cached.value, cacheResult: "hit" };
+        }
+
+        if (this.options.swr) {
+          // Stale but SWR enabled - return stale and revalidate in background
+          // Fire off revalidation without blocking the response
           const revalidationPromise = this.revalidateInBackground(
             modelName,
             operation,
@@ -155,31 +202,41 @@ class CachedClientImpl<S extends Schema> {
             cacheKey
           );
 
-          // Use waitUntil if provided (serverless environments)
           if (this.options.waitUntil) {
             this.options.waitUntil(revalidationPromise);
           }
+
+          return { result: cached.value, cacheResult: "stale" };
         }
 
-        return cached.value;
+        // Stale and no SWR - fall through to fetch fresh
       }
 
-      // Stale and no SWR - fall through to fetch fresh
-    }
+      // Cache miss or stale without SWR - execute query
+      const result = await this.executor({ modelName, operation, args });
 
-    // Cache miss or stale without SWR - execute query
-    this.log(cacheKey, "miss");
+      const cachePromise = this.cache._set(cacheKey, result, {
+        ttl: this.options.ttlMs,
+      });
+      if (this.options.waitUntil) {
+        this.options.waitUntil(cachePromise);
+      }
+      return { result, cacheResult: "miss" };
+    };
 
-    const result = await this.executor({ modelName, operation, args });
-
-    // Store in cache
-    await this.cache._set(cacheKey, result, { ttl: this.options.ttlMs });
-
+    const { result, cacheResult } = await executeWithResult();
+    this.log(
+      cacheKey,
+      cacheResult === "stale" ? "hit" : cacheResult,
+      cacheResult === "stale" ? "stale" : undefined
+    );
     return result;
   }
 
   /**
    * Revalidate cache entry in background (for SWR)
+   * Returns a promise that resolves when revalidation completes (for waitUntil)
+   * Uses _markRevalidating to prevent thundering herd (multiple concurrent revalidations)
    */
   private async revalidateInBackground(
     modelName: keyof S,
@@ -187,19 +244,38 @@ class CachedClientImpl<S extends Schema> {
     args: unknown,
     cacheKey: string
   ): Promise<void> {
-    try {
-      this.log(cacheKey, "revalidate", "start");
-
-      const result = await this.executor({ modelName, operation, args });
-      await this.cache._set(cacheKey, result, { ttl: this.options.ttlMs });
-
-      this.log(cacheKey, "revalidate", "success");
-    } catch (error) {
-      // Log error but don't throw - this is background operation
-      this.log(cacheKey, "revalidate", "error", error);
-    } finally {
-      await this.cache._clearRevalidating(cacheKey);
+    // Check if another request is already revalidating this key
+    // Do this before creating a span to avoid empty traces
+    const shouldRevalidate = await this.cache._markRevalidating(cacheKey);
+    if (!shouldRevalidate) {
+      // Another request is handling revalidation, skip
+      return;
     }
+
+    const doRevalidate = async () => {
+      try {
+        this.log(cacheKey, "revalidate", "start");
+
+        const result = await this.executor({ modelName, operation, args });
+        await this.cache._set(cacheKey, result, { ttl: this.options.ttlMs });
+
+        this.log(cacheKey, "revalidate", "success");
+      } catch (error) {
+        // Log error but don't throw - this is background operation
+        this.log(cacheKey, "revalidate", "error", error);
+      } finally {
+        await this.cache._clearRevalidating(cacheKey);
+      }
+    };
+
+    // Wrap with operation span if wrapper available
+    // Use root: true to create a new trace (not child of current context)
+    if (this.spanWrapper) {
+      return this.spanWrapper(String(modelName), operation, doRevalidate, {
+        root: true,
+      });
+    }
+    return doRevalidate();
   }
 
   /**
@@ -207,7 +283,7 @@ class CachedClientImpl<S extends Schema> {
    */
   private log(
     key: string,
-    event: "hit" | "miss" | "revalidate",
+    event: "hit" | "miss" | "revalidate" | "bypass",
     status?: string,
     error?: unknown
   ): void {
@@ -230,7 +306,9 @@ export function createCachedClientProxy<S extends Schema>(
   cacheDriver: CacheDriver,
   options: WithCacheOptions,
   waitUntil?: WaitUntilFn,
-  instrumentation?: InstrumentationContext
+  version?: string | number,
+  instrumentation?: InstrumentationContext,
+  spanWrapper?: OperationSpanWrapper
 ): CachedClient<S> {
   const client = new CachedClientImpl(
     schema,
@@ -238,7 +316,9 @@ export function createCachedClientProxy<S extends Schema>(
     cacheDriver,
     options,
     waitUntil,
-    instrumentation
+    version,
+    instrumentation,
+    spanWrapper
   );
   return client.createProxy();
 }
