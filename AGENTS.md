@@ -168,6 +168,12 @@ The driver layer is thin - just connection management and query execution. Most 
 | Module-level mutable state | Breaks serverless (Cloudflare) | Use function-scoped or context state |
 | Eager schema building | Rebuilds schemas on every access (perf) | Use `??=` lazy pattern |
 | Direct model reference in relation | ReferenceError at runtime | Use thunk `() => model` |
+| Recreating objects in hot paths | Performance degradation | Cache in constructor, reuse instances |
+| Spread operator on large arrays | Stack overflow | Use `for...of` loops instead |
+| Paginated APIs without cursor loop | Incomplete data (e.g., KV list) | Always loop with cursor until complete |
+| Schema/type definition mismatch | Runtime validation differs from types | Keep type definitions and runtime schema in sync |
+| Blocking background operations | Slow response times | Move locks/checks inside async callbacks |
+| Fire-and-forget without error handling | Silent failures | Add `.catch()` with logging |
 
 ---
 
