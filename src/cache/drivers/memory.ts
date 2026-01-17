@@ -25,10 +25,14 @@ export class MemoryCache extends CacheDriver {
 
   protected async set<T>(
     key: string,
-    _storageTtl: number,
+    storageTtl: number,
     entry: CacheEntry<T>
   ): Promise<void> {
     this.store.set(key, entry);
+    // Schedule cleanup after storageTtl to prevent unbounded growth
+    // Use unref() so the timer doesn't keep the process alive
+    const timer = setTimeout(() => this.store.delete(key), storageTtl);
+    if (typeof timer.unref === "function") timer.unref();
   }
 
   protected async delete(keys: string[]): Promise<void> {

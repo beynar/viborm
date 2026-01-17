@@ -288,7 +288,7 @@ export abstract class CacheDriver {
       // Auto-invalidate model cache if enabled (uses driver's version)
       if (options?.autoInvalidate) {
         const prefix = generateCachePrefix(modelName, this.version);
-        promises.push(this.clear(this.prefixKey(prefix)));
+        promises.push(this.clear(prefix));
       }
 
       // Custom invalidation - detect prefix (ends with *) vs specific key
@@ -353,8 +353,8 @@ export abstract class CacheDriver {
    */
   private prefixKey(key: string): string {
     const prefix = generateCachePrefix(undefined, this.version);
-    // If already prefixed, don't double-prefix (check for exact prefix with colon)
-    if (key.startsWith(`${prefix}:`) || key.startsWith(`${CACHE_PREFIX}:`)) {
+    // If already prefixed, don't double-prefix
+    if (key.startsWith(`${prefix}:`)) {
       return key;
     }
     return `${prefix}:${key}`;

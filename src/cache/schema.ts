@@ -48,7 +48,10 @@ export type WithCacheSchemaEntries = {
   key: V.String<{ optional: true }>;
 };
 
-export type WithCacheSchema = V.Object<WithCacheSchemaEntries, { optional: true }>;
+export type WithCacheSchema = V.Object<
+  WithCacheSchemaEntries,
+  { optional: true }
+>;
 
 export const withCacheSchema = v.object(
   {
@@ -69,6 +72,12 @@ export const withCacheSchema = v.object(
      * If not provided, key is generated from model, operation, and args
      */
     key: v.string({ optional: true }),
+    /**
+     * Bypass cache read and force fresh data
+     * Still writes result to cache for subsequent requests
+     * @default false
+     */
+    bypass: v.boolean({ optional: true }),
   },
   { optional: true }
 );
