@@ -46,6 +46,7 @@ export type WithCacheSchemaEntries = {
   ttl: V.Optional<V.Union<[V.String, V.Number]>>;
   swr: V.Boolean<{ optional: true }>;
   key: V.String<{ optional: true }>;
+  bypass: V.Boolean<{ optional: true }>;
 };
 
 export type WithCacheSchema = V.Object<
