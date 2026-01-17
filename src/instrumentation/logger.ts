@@ -21,6 +21,8 @@ export interface Logger {
   log(event: LogEvent): void;
   /** Log a query event */
   query(event: Omit<LogEvent, "level">): void;
+  /** Log a cache event */
+  cache(event: Omit<LogEvent, "level">): void;
   /** Log a warning event */
   warn(event: Omit<LogEvent, "level">): void;
   /** Log an error event */
@@ -84,6 +86,19 @@ function prettyLog(event: LogEvent): void {
       }
       break;
     }
+    case "cache": {
+      const prefix = `${backgrounds.bgGreen(`${colors.green}[CACHE]${colors.reset}`)}`;
+      const meta = event.meta as
+        | { event?: string; status?: string; key?: string }
+        | undefined;
+      const cacheEvent = meta?.event ?? "unknown";
+      const status = meta?.status ? `(${meta.status})` : "";
+      const key = meta?.key
+        ? `${colors.dim}${meta.key}${colors.reset}`
+        : "";
+      console.log(prefix, time, `${colors.magenta}${cacheEvent}${colors.reset}`, status, key);
+      break;
+    }
     case "warning": {
       const prefix = `${colors.yellow}${backgrounds.bgYellow("[WARN]")}${colors.reset}`;
       const target = event.model
@@ -123,6 +138,8 @@ function getHandler(
   switch (level) {
     case "query":
       return config.query ?? config.all;
+    case "cache":
+      return config.cache ?? config.all;
     case "warning":
       return config.warning ?? config.all;
     case "error":
@@ -173,6 +190,10 @@ export function createLogger(config: LoggingConfig): Logger {
 
     query(event: Omit<LogEvent, "level">): void {
       emit({ ...event, level: "query" });
+    },
+
+    cache(event: Omit<LogEvent, "level">): void {
+      emit({ ...event, level: "cache" });
     },
 
     warn(event: Omit<LogEvent, "level">): void {
@@ -228,5 +249,30 @@ export function createErrorLogEvent(params: {
     operation: params.operation,
     duration: params.duration,
     meta: params.meta,
+  };
+}
+
+/**
+ * Cache event types
+ */
+export type CacheEventType = "hit" | "miss" | "revalidate";
+
+/**
+ * Helper to create a cache log event
+ */
+export function createCacheLogEvent(params: {
+  event: CacheEventType;
+  key: string;
+  status?: string | undefined;
+  error?: Error | undefined;
+}): Omit<LogEvent, "level"> {
+  return {
+    timestamp: new Date(),
+    error: params.error,
+    meta: {
+      event: params.event,
+      key: params.key,
+      status: params.status,
+    },
   };
 }

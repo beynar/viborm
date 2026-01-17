@@ -1,0 +1,99 @@
+---
+title: MemoryCache
+description: In-memory cache driver for development and single-instance deployments
+---
+
+`MemoryCache` is an in-memory cache implementation that stores data in a JavaScript `Map`. It's ideal for development, testing, and single-instance deployments.
+
+## Installation
+
+No additional dependencies required. `MemoryCache` is included in the core VibORM package.
+
+## Configuration
+
+```typescript
+// Direct import for optimal tree-shaking (recommended)
+import { MemoryCache } from "viborm/cache/memory";
+
+// Or import from main package
+import { createClient, MemoryCache } from "viborm";
+
+const client = createClient({
+  schema: { user, post },
+  driver,
+  cache: new MemoryCache(),
+});
+```
+
+The `MemoryCache` constructor takes no arguments.
+
+## Characteristics
+
+| Property | Value |
+|----------|-------|
+| Persistence | None - data lost on restart |
+| Distribution | Single instance only |
+| TTL Handling | Staleness checked at read time |
+| Dependencies | None |
+| Performance | Fastest (in-process) |
+
+## Behavior
+
+### No Automatic Eviction
+
+`MemoryCache` does not automatically evict expired entries. Instead, it checks staleness when reading:
+
+- **Fresh entries** are returned immediately
+- **Stale entries** trigger revalidation (if SWR enabled) or are refetched
+- Entries remain in memory until explicitly invalidated or the process restarts
+
+This design keeps the implementation simple and avoids timer overhead.
+
+### Memory Usage
+
+Since there's no automatic eviction, memory usage can grow over time. For long-running processes with many unique queries, consider:
+
+1. Using a production cache driver (Redis, Cloudflare KV)
+2. Implementing periodic cache clearing
+3. Using manual invalidation on mutations
+
+## Use Cases
+
+**Recommended for:**
+- Local development
+- Unit and integration tests
+- Single-instance deployments with limited query diversity
+- Prototyping and demos
+
+**Not recommended for:**
+- Multi-instance deployments (no cache sharing)
+- Serverless functions (cache lost between invocations)
+- Long-running processes with unbounded query patterns
+
+## Example
+
+```typescript
+import { createClient, MemoryCache } from "viborm";
+
+const client = createClient({
+  schema: { user },
+  driver,
+  cache: new MemoryCache(),
+});
+
+// Cache queries for 10 minutes
+const cached = client.$withCache({ ttl: "10 minutes" });
+
+// First call: cache miss, executes query
+const users1 = await cached.user.findMany({ where: { active: true } });
+
+// Second call: cache hit, returns cached data
+const users2 = await cached.user.findMany({ where: { active: true } });
+
+// Invalidate on mutation
+await client.user.update({
+  where: { id: "123" },
+  data: { name: "Alice" },
+  cache: { autoInvalidate: true },
+});
+```

@@ -3,6 +3,22 @@
 
 export type { VibORMClient, VibORMConfig } from "@client/client.js";
 export { createClient } from "@client/client.js";
+export type { CachedClient, CacheableOperations, MutationOperations } from "@client/types.js";
+// Cache
+export {
+  CacheDriver,
+  CloudflareKVCache,
+  MemoryCache,
+  generateCacheKey,
+  generateCachePrefix,
+  parseTTL,
+} from "@cache/index.js";
+export type {
+  CacheEntry,
+  CacheSetOptions,
+  WithCacheOptions,
+  CacheInvalidationOptions,
+} from "@cache/index.js";
 // Instrumentation
 export type {
   InstrumentationConfig,

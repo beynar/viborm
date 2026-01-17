@@ -2,8 +2,8 @@
 
 ## 30-Second Summary
 
-Type-safe ORM with zero codegen. Types inferred from validation schemas, not generated.  
-**10-layer architecture:** validation → schema → query-engine → adapters → drivers → client.
+Type-safe ORM with zero codegen. Types inferred from validation schemas, not generated.
+**11-layer architecture:** validation → schema → query-engine → adapters → drivers → client → cache.
 
 See `FEATURE_IMPLEMENTATION_TEMPLATE.md` for detailed layer-by-layer implementation guidance.
 
@@ -36,7 +36,8 @@ These constraints shaped every architectural decision. When you wonder "why is t
 | **L7: Adapters** | `src/adapters/` | **Database-specific SQL** | Query logic | [adapters/AGENTS.md](src/adapters/AGENTS.md) |
 | **L8: Drivers** | `src/drivers/` | Connection, execution | Query building | — |
 | **L9: Client** | `src/client/` | Result types, proxies | Query construction | [client/AGENTS.md](src/client/AGENTS.md) |
-| **L10: Migrations** | `src/migrations/` | Schema diffing, push | Schema definition | [migrations/AGENTS.md](src/migrations/AGENTS.md) |
+| **L10: Cache** | `src/cache/` | Query caching, invalidation | Query execution | [cache/AGENTS.md](src/cache/AGENTS.md) |
+| **L11: Migrations** | `src/migrations/` | Schema diffing, push | Schema definition | [migrations/AGENTS.md](src/migrations/AGENTS.md) |
 
 ---
 
@@ -133,6 +134,8 @@ Client uses types:     orm.user.findMany({ where: { name: ... }})  // Fully type
 | Fix type inference bug | [client/](src/client/AGENTS.md) | Check schema factories upstream |
 | Add migration operation | [migrations/](src/migrations/AGENTS.md) | + adapter migrations module |
 | Add relation feature | [schema/relation/](src/schema/relation/AGENTS.md) | + relation schemas |
+| Add cache backend | [cache/](src/cache/AGENTS.md) | Export from main index |
+| Add cache invalidation option | [cache/](src/cache/AGENTS.md) | Update `schema.ts` |
 
 ---
 
@@ -165,6 +168,12 @@ The driver layer is thin - just connection management and query execution. Most 
 | Module-level mutable state | Breaks serverless (Cloudflare) | Use function-scoped or context state |
 | Eager schema building | Rebuilds schemas on every access (perf) | Use `??=` lazy pattern |
 | Direct model reference in relation | ReferenceError at runtime | Use thunk `() => model` |
+| Recreating objects in hot paths | Performance degradation | Cache in constructor, reuse instances |
+| Spread operator on large arrays | Stack overflow | Use `for...of` loops instead |
+| Paginated APIs without cursor loop | Incomplete data (e.g., KV list) | Always loop with cursor until complete |
+| Schema/type definition mismatch | Runtime validation differs from types | Keep type definitions and runtime schema in sync |
+| Blocking background operations | Slow response times | Move locks/checks inside async callbacks |
+| Fire-and-forget without error handling | Silent failures | Add `.catch()` with logging |
 
 ---
 
@@ -192,7 +201,7 @@ pnpm test:sqlite        # SQLite
 ## Code Style Essentials
 
 ### Path Aliases
-`@schema`, `@client`, `@validation`, `@query-engine`, `@adapters`, `@drivers`, `@sql`
+`@schema`, `@client`, `@validation`, `@query-engine`, `@adapters`, `@drivers`, `@sql`, `@cache`
 
 ### Naming Conventions
 - Field factories: lowercase (`string()`, `int()`)

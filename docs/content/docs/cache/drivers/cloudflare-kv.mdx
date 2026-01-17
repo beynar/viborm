@@ -1,0 +1,187 @@
+---
+title: CloudflareKVCache
+description: Distributed cache driver using Cloudflare Workers KV
+---
+
+`CloudflareKVCache` is a distributed cache implementation using Cloudflare Workers KV. It provides persistent, globally distributed caching for applications deployed on Cloudflare Workers.
+
+## Prerequisites
+
+- Cloudflare Workers environment
+- A KV namespace bound to your worker
+
+### Creating a KV Namespace
+
+```bash
+# Create a KV namespace
+wrangler kv:namespace create "CACHE"
+
+# Add to wrangler.toml
+[[kv_namespaces]]
+binding = "CACHE"
+id = "your-namespace-id"
+```
+
+## Configuration
+
+```typescript
+// Direct import for optimal tree-shaking (recommended)
+import { CloudflareKVCache } from "viborm/cache/cloudflare-kv";
+
+// Or import from main package
+import { createClient, CloudflareKVCache } from "viborm";
+
+export default {
+  async fetch(request, env, ctx) {
+    const client = createClient({
+      schema: { user, post },
+      driver: createD1Driver(env.DB),
+      cache: new CloudflareKVCache(env.CACHE),
+      waitUntil: ctx.waitUntil.bind(ctx),
+    });
+
+    // Use cached queries
+    const users = await client
+      .$withCache({ ttl: "5 minutes", swr: true })
+      .user.findMany();
+
+    return Response.json(users);
+  }
+}
+```
+
+### Constructor
+
+```typescript
+new CloudflareKVCache(kv: KVNamespace)
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `kv` | `KVNamespace` | Cloudflare KV namespace binding |
+
+## Characteristics
+
+| Property | Value |
+|----------|-------|
+| Persistence | Yes - survives worker restarts |
+| Distribution | Global (Cloudflare edge network) |
+| TTL Handling | Native KV expiration |
+| Consistency | Eventually consistent (typically < 60s) |
+| Max Value Size | 25 MiB |
+| Max Key Size | 512 bytes |
+
+## Behavior
+
+### TTL and Expiration
+
+Cloudflare KV handles TTL natively. When a cache entry is stored:
+
+1. VibORM calculates the storage TTL (2x user TTL for SWR support)
+2. KV's `expirationTtl` is set in seconds
+3. KV automatically deletes expired entries
+
+### Eventually Consistent
+
+Cloudflare KV is eventually consistent across regions. After a write:
+
+- The same region sees the update immediately
+- Other regions typically see it within 60 seconds
+- This is acceptable for caching (stale data is expected)
+
+### Prefix-Based Invalidation
+
+When invalidating with patterns like `user:*`, the driver:
+
+1. Lists all keys with the prefix
+2. Deletes each matching key
+
+<Callout type="warn">
+KV list operations can be slow with many keys. For large-scale invalidation, consider using specific cache keys instead of broad prefixes.
+</Callout>
+
+## TypeScript Setup
+
+If using TypeScript, ensure you have Cloudflare Workers types:
+
+```bash
+npm install -D @cloudflare/workers-types
+```
+
+Add to `tsconfig.json`:
+
+```json
+{
+  "compilerOptions": {
+    "types": ["@cloudflare/workers-types"]
+  }
+}
+```
+
+## Example with SWR
+
+```typescript
+import { createClient, CloudflareKVCache } from "viborm";
+
+export default {
+  async fetch(request, env, ctx) {
+    const client = createClient({
+      schema: { user, post },
+      driver: createD1Driver(env.DB),
+      cache: new CloudflareKVCache(env.CACHE),
+      waitUntil: ctx.waitUntil.bind(ctx),
+    });
+
+    // SWR: return stale data immediately, refresh in background
+    const cached = client.$withCache({
+      ttl: "5 minutes",
+      swr: true
+    });
+
+    // Fast response with potentially stale data
+    const users = await cached.user.findMany({
+      where: { active: true },
+      include: { posts: true },
+    });
+
+    return Response.json(users);
+  }
+}
+```
+
+## Example with Invalidation
+
+```typescript
+export default {
+  async fetch(request, env, ctx) {
+    const client = createClient({
+      schema: { user },
+      driver: createD1Driver(env.DB),
+      cache: new CloudflareKVCache(env.CACHE),
+    });
+
+    if (request.method === "POST") {
+      // Create user and invalidate cache
+      const user = await client.user.create({
+        data: { name: "Alice", email: "alice@example.com" },
+        cache: { autoInvalidate: true },
+      });
+      return Response.json(user);
+    }
+
+    // Read from cache
+    const users = await client
+      .$withCache({ ttl: "10 minutes" })
+      .user.findMany();
+
+    return Response.json(users);
+  }
+}
+```
+
+## Limitations
+
+- **KV Pricing**: Reads, writes, and list operations are metered
+- **Consistency**: Not suitable for data requiring strong consistency
+- **List Performance**: Prefix-based invalidation can be slow with many keys
+- **Value Size**: Cache entries must be under 25 MiB

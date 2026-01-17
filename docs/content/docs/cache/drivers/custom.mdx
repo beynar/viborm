@@ -1,0 +1,274 @@
+---
+title: Custom Drivers
+description: Implement your own cache driver for any backend
+---
+
+VibORM's cache system is designed to be extensible. You can implement custom drivers for any cache backend by extending the `CacheDriver` abstract class.
+
+## Interface
+
+```typescript
+import { CacheDriver, type CacheEntry } from "viborm";
+
+abstract class CacheDriver {
+  // Get a cache entry by key
+  protected abstract get<T>(key: string): Promise<CacheEntry<T> | null>;
+
+  // Store a cache entry with TTL
+  protected abstract set<T>(
+    key: string,
+    storageTtl: number,  // milliseconds
+    entry: CacheEntry<T>
+  ): Promise<void>;
+
+  // Delete specific keys
+  protected abstract delete(keys: string[]): Promise<void>;
+
+  // Clear all keys with a given prefix
+  protected abstract clear(prefix: string): Promise<void>;
+}
+```
+
+### CacheEntry Type
+
+```typescript
+interface CacheEntry<T = unknown> {
+  value: T;           // The cached data
+  createdAt: number;  // Timestamp when cached (Date.now())
+  ttl: number;        // Original TTL in milliseconds
+}
+```
+
+## Redis Example
+
+```typescript
+import { CacheDriver, type CacheEntry } from "viborm";
+import { Redis } from "ioredis";
+
+export class RedisCache extends CacheDriver {
+  private readonly redis: Redis;
+
+  constructor(redis: Redis) {
+    super("redis");
+    this.redis = redis;
+  }
+
+  protected async get<T>(key: string): Promise<CacheEntry<T> | null> {
+    const data = await this.redis.get(key);
+    if (!data) return null;
+    return JSON.parse(data) as CacheEntry<T>;
+  }
+
+  protected async set<T>(
+    key: string,
+    storageTtl: number,
+    entry: CacheEntry<T>
+  ): Promise<void> {
+    // Redis PSETEX takes TTL in milliseconds
+    await this.redis.psetex(key, storageTtl, JSON.stringify(entry));
+  }
+
+  protected async delete(keys: string[]): Promise<void> {
+    if (keys.length > 0) {
+      await this.redis.del(...keys);
+    }
+  }
+
+  protected async clear(prefix: string): Promise<void> {
+    // Use SCAN to find keys (avoid KEYS in production)
+    const stream = this.redis.scanStream({
+      match: `${prefix}*`,
+      count: 100,
+    });
+
+    const pipeline = this.redis.pipeline();
+
+    for await (const keys of stream) {
+      for (const key of keys as string[]) {
+        pipeline.del(key);
+      }
+    }
+
+    await pipeline.exec();
+  }
+}
+```
+
+### Usage
+
+```typescript
+import { createClient } from "viborm";
+import { Redis } from "ioredis";
+import { RedisCache } from "./redis-cache";
+
+const redis = new Redis(process.env.REDIS_URL);
+
+const client = createClient({
+  schema: { user, post },
+  driver,
+  cache: new RedisCache(redis),
+});
+```
+
+## Upstash Redis Example
+
+For serverless environments, Upstash provides a REST-based Redis:
+
+```typescript
+import { CacheDriver, type CacheEntry } from "viborm";
+import { Redis } from "@upstash/redis";
+
+export class UpstashCache extends CacheDriver {
+  private readonly redis: Redis;
+
+  constructor(redis: Redis) {
+    super("upstash");
+    this.redis = redis;
+  }
+
+  protected async get<T>(key: string): Promise<CacheEntry<T> | null> {
+    const data = await this.redis.get<CacheEntry<T>>(key);
+    return data ?? null;
+  }
+
+  protected async set<T>(
+    key: string,
+    storageTtl: number,
+    entry: CacheEntry<T>
+  ): Promise<void> {
+    // Upstash px option takes milliseconds
+    await this.redis.set(key, entry, { px: storageTtl });
+  }
+
+  protected async delete(keys: string[]): Promise<void> {
+    if (keys.length > 0) {
+      await this.redis.del(...keys);
+    }
+  }
+
+  protected async clear(prefix: string): Promise<void> {
+    let cursor = 0;
+    do {
+      const [nextCursor, keys] = await this.redis.scan(cursor, {
+        match: `${prefix}*`,
+        count: 100,
+      });
+      cursor = Number(nextCursor);
+
+      if (keys.length > 0) {
+        await this.redis.del(...keys);
+      }
+    } while (cursor !== 0);
+  }
+}
+```
+
+### Usage with Vercel
+
+```typescript
+import { createClient } from "viborm";
+import { Redis } from "@upstash/redis";
+import { waitUntil } from "@vercel/functions";
+import { UpstashCache } from "./upstash-cache";
+
+const redis = Redis.fromEnv();
+
+const client = createClient({
+  schema: { user },
+  driver,
+  cache: new UpstashCache(redis),
+  waitUntil,
+});
+```
+
+## Implementation Guidelines
+
+### 1. Call `super()` with a Driver Name
+
+```typescript
+constructor(/* config */) {
+  super("my-driver");  // Used for logging/debugging
+  // ...
+}
+```
+
+### 2. Handle Missing Keys
+
+Return `null` when a key doesn't exist, not an error:
+
+```typescript
+protected async get<T>(key: string): Promise<CacheEntry<T> | null> {
+  const data = await this.backend.get(key);
+  return data ?? null;  // null, not undefined
+}
+```
+
+### 3. Respect Storage TTL
+
+The `storageTtl` parameter is already calculated (2x user TTL for SWR support). Use it directly:
+
+```typescript
+protected async set<T>(key: string, storageTtl: number, entry: CacheEntry<T>) {
+  // storageTtl is in milliseconds
+  await this.backend.set(key, entry, { ttl: storageTtl });
+}
+```
+
+### 4. Handle Empty Operations Gracefully
+
+```typescript
+protected async delete(keys: string[]): Promise<void> {
+  if (keys.length === 0) return;  // No-op for empty array
+  await this.backend.del(...keys);
+}
+```
+
+### 5. Prefix Clearing Should Match All
+
+The `clear` method receives a prefix like `viborm:user`. It should delete all keys starting with that prefix:
+
+```typescript
+protected async clear(prefix: string): Promise<void> {
+  // Match: viborm:user:findMany:abc, viborm:user:findFirst:xyz, etc.
+  const keys = await this.backend.keys(`${prefix}*`);
+  // ...
+}
+```
+
+## Testing Your Driver
+
+```typescript
+import { describe, it, expect } from "vitest";
+import { MyCache } from "./my-cache";
+
+describe("MyCache", () => {
+  it("stores and retrieves entries", async () => {
+    const cache = new MyCache(/* config */);
+
+    await cache._set("test-key", { id: 1 }, { ttl: 60000 });
+    const entry = await cache._get("test-key");
+
+    expect(entry?.value).toEqual({ id: 1 });
+  });
+
+  it("returns null for missing keys", async () => {
+    const cache = new MyCache(/* config */);
+    const entry = await cache._get("nonexistent");
+    expect(entry).toBeNull();
+  });
+
+  it("clears by prefix", async () => {
+    const cache = new MyCache(/* config */);
+
+    await cache._set("viborm:user:a", {}, { ttl: 60000 });
+    await cache._set("viborm:user:b", {}, { ttl: 60000 });
+    await cache._set("viborm:post:c", {}, { ttl: 60000 });
+
+    await cache._invalidate("user", {});
+
+    expect(await cache._get("viborm:user:a")).toBeNull();
+    expect(await cache._get("viborm:user:b")).toBeNull();
+    expect(await cache._get("viborm:post:c")).not.toBeNull();
+  });
+});
+```

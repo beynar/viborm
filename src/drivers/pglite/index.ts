@@ -12,7 +12,6 @@ import {
   type DriverConfig,
   type VibORMClient,
 } from "@client/client";
-import type { Schema } from "@client/types";
 import {
   PGlite,
   type PGliteOptions,
@@ -35,16 +34,14 @@ export interface PGliteDriverOptions {
   postgis?: boolean;
 }
 
-export type PGliteConfig<S extends Schema> = PGliteDriverOptions &
-  DriverConfig<S>;
+export type PGliteConfig<C extends DriverConfig> = PGliteDriverOptions & C;
 
-// ============================================================
+// ===  ======================================================
 // DRIVER IMPLEMENTATION
 // ============================================================
 
 export class PGliteDriver extends Driver<PGlite, Transaction> {
   readonly adapter: DatabaseAdapter;
-
 
   private readonly driverOptions: PGliteDriverOptions;
 
@@ -112,9 +109,7 @@ export class PGliteDriver extends Driver<PGlite, Transaction> {
 // CONVENIENCE FUNCTION
 // ============================================================
 
-export function createClient<S extends Schema>(
-  config: PGliteConfig<S>
-): VibORMClient<S> {
+export function createClient<C extends DriverConfig>(config: PGliteConfig<C>) {
   const { client, options, pgvector, postgis, ...restConfig } = config;
 
   const driverOptions: PGliteDriverOptions = {};
@@ -125,8 +120,8 @@ export function createClient<S extends Schema>(
 
   const driver = new PGliteDriver(driverOptions);
 
-  return baseCreateClient<S>({
+  return baseCreateClient({
     ...restConfig,
     driver,
-  }) as VibORMClient<S>;
+  }) as VibORMClient<C & { driver: PGliteDriver }>;
 }

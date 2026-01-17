@@ -10,7 +10,7 @@ import type { Operation } from "../query-engine/types";
 /**
  * Log levels for the logging callback
  */
-export type LogLevel = "query" | "warning" | "error";
+export type LogLevel = "query" | "cache" | "warning" | "error";
 
 /**
  * Log event payload passed to the logging callback
@@ -106,6 +106,12 @@ export interface LoggingConfig {
    * Emitted for every database query.
    */
   query?: LogLevelHandler | undefined;
+
+  /**
+   * Cache log handler.
+   * Emitted for cache operations (hit, miss, revalidate).
+   */
+  cache?: LogLevelHandler | undefined;
 
   /**
    * Warning log handler.

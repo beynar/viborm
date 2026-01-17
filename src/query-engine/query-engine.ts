@@ -16,8 +16,6 @@ import {
   SPAN_PARSE,
   SPAN_VALIDATE,
 } from "@instrumentation";
-
-import { hydrateSchemaNames } from "@schema/hydration";
 import type { Model } from "@schema/model";
 import type { Sql } from "@sql";
 import { getPrimaryKeyField } from "./builders/correlation-utils";
@@ -704,11 +702,11 @@ export class QueryEngine {
 
 /**
  * Create a simple in-memory model registry
+ * Note: Assumes schema is already hydrated via hydrateSchemaNames()
  */
 export function createModelRegistry(
   models: Record<string, Model<any>>
 ): ModelRegistry {
-  hydrateSchemaNames(models);
   const byName = new Map<string, Model<any>>();
   const byTableName = new Map<string, Model<any>>();
 

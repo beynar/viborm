@@ -83,12 +83,19 @@
       ],
       "@instrumentation/*": [
         "./src/instrumentation/*"
+      ],
+      "@cache": [
+        "./src/cache/index.ts"
+      ],
+      "@cache/*": [
+        "./src/cache/*"
       ]
     }
   },
   "include": [
     "src/**/*",
-    "tests/**/*.ts"
+    "tests/**/*.ts",
+    "demo.ts"
   ],
   "exclude": [
     "dist",

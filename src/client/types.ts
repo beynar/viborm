@@ -9,6 +9,7 @@
 import type { Model } from "@schema/model";
 import type { FieldRecord } from "@schema/model/helper";
 import type { Prettify } from "@validation";
+import type { VibORMConfig } from "./client";
 import type {
   AggregateResultType,
   BatchPayload,
@@ -36,6 +37,32 @@ export type Operations =
   | "groupBy"
   | "upsert"
   | "exist";
+
+/**
+ * Operations that can be cached (read-only operations)
+ */
+export type CacheableOperations =
+  | "findFirst"
+  | "findMany"
+  | "findUnique"
+  | "findUniqueOrThrow"
+  | "findFirstOrThrow"
+  | "count"
+  | "aggregate"
+  | "groupBy"
+  | "exist";
+
+/**
+ * Operations that mutate data (not cacheable)
+ */
+export type MutationOperations =
+  | "create"
+  | "createMany"
+  | "update"
+  | "updateMany"
+  | "delete"
+  | "deleteMany"
+  | "upsert";
 
 /**
  * Extract fields from a Model - works with Model<any>
@@ -126,9 +153,9 @@ export type OperationResult<
  * Client type - provides fully typed access to all model operations
  * Each operation returns a Promise with the properly inferred result type
  */
-export type Client<S extends Schema> = {
-  [K in keyof S]: {
-    [O in Operations]: Operation<O, S[K]>;
+export type Client<C extends VibORMConfig> = {
+  [K in keyof C["schema"]]: {
+    [O in Operations]: Operation<O, C["schema"][K]>;
   };
 };
 
@@ -141,3 +168,13 @@ type Operation<
       args?: Exclude<Arg, undefined>
     ) => Promise<OperationResult<O, M, Arg>>
   : <Arg extends Payload>(args: Arg) => Promise<OperationResult<O, M, Arg>>;
+
+/**
+ * Cached client type - provides typed access to only cacheable (read) operations
+ * Mutations are excluded at the type level
+ */
+export type CachedClient<S extends Schema> = {
+  [K in keyof S]: {
+    [O in CacheableOperations]: Operation<O, S[K]>;
+  };
+};
