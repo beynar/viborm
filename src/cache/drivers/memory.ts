@@ -24,6 +24,7 @@ import { CacheDriver, type CacheEntry } from "../driver";
  */
 export class MemoryCache extends CacheDriver {
   private readonly store = new Map<string, CacheEntry>();
+  private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
 
   constructor() {
     super("memory");
@@ -40,15 +41,21 @@ export class MemoryCache extends CacheDriver {
     storageTtl: number,
     entry: CacheEntry<T>
   ): Promise<void> {
+    // Clear existing timer if re-setting key
+    this.clearTimer(key);
     this.store.set(key, entry);
     // Schedule cleanup after storageTtl to prevent unbounded growth
-    // Use unref() so the timer doesn't keep the process alive
-    const timer = setTimeout(() => this.store.delete(key), storageTtl);
+    const timer = setTimeout(() => {
+      this.store.delete(key);
+      this.timers.delete(key);
+    }, storageTtl);
     if (typeof timer.unref === "function") timer.unref();
+    this.timers.set(key, timer);
   }
 
   protected async delete(keys: string[]): Promise<void> {
     for (const key of keys) {
+      this.clearTimer(key);
       this.store.delete(key);
     }
   }
@@ -56,8 +63,17 @@ export class MemoryCache extends CacheDriver {
   protected async clear(prefix: string): Promise<void> {
     for (const key of this.store.keys()) {
       if (key.startsWith(prefix)) {
+        this.clearTimer(key);
         this.store.delete(key);
       }
+    }
+  }
+
+  private clearTimer(key: string): void {
+    const timer = this.timers.get(key);
+    if (timer) {
+      clearTimeout(timer);
+      this.timers.delete(key);
     }
   }
 }

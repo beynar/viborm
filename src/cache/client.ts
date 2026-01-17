@@ -255,7 +255,13 @@ class CachedClientImpl<S extends Schema> {
   ): Promise<void> {
     // Check if another request is already revalidating this key
     // Do this before creating a span to avoid empty traces
-    const shouldRevalidate = await this.cache._markRevalidating(cacheKey);
+    let shouldRevalidate: boolean;
+    try {
+      shouldRevalidate = await this.cache._markRevalidating(cacheKey);
+    } catch {
+      // If marking fails, skip revalidation to avoid request failure
+      return;
+    }
     if (!shouldRevalidate) {
       // Another request is handling revalidation, skip
       return;
