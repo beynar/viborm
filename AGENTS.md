@@ -3,7 +3,7 @@
 ## 30-Second Summary
 
 Type-safe ORM with zero codegen. Types inferred from validation schemas, not generated.
-**11-layer architecture:** validation → schema → query-engine → adapters → drivers → client → cache.
+**12-layer architecture:** validation → schema → query-engine → adapters → drivers → client → cache → instrumentation.
 
 See `FEATURE_IMPLEMENTATION_TEMPLATE.md` for detailed layer-by-layer implementation guidance.
 
@@ -37,7 +37,8 @@ These constraints shaped every architectural decision. When you wonder "why is t
 | **L8: Drivers** | `src/drivers/` | Connection, execution | Query building | — |
 | **L9: Client** | `src/client/` | Result types, proxies | Query construction | [client/AGENTS.md](src/client/AGENTS.md) |
 | **L10: Cache** | `src/cache/` | Query caching, invalidation | Query execution | [cache/AGENTS.md](src/cache/AGENTS.md) |
-| **L11: Migrations** | `src/migrations/` | Schema diffing, push | Schema definition | [migrations/AGENTS.md](src/migrations/AGENTS.md) |
+| **L11: Instrumentation** | `src/instrumentation/` | Tracing, logging | Query logic | [instrumentation/AGENTS.md](src/instrumentation/AGENTS.md) |
+| **L12: Migrations** | `src/migrations/` | Schema diffing, push | Schema definition | [migrations/AGENTS.md](src/migrations/AGENTS.md) |
 
 ---
 
@@ -136,6 +137,8 @@ Client uses types:     orm.user.findMany({ where: { name: ... }})  // Fully type
 | Add relation feature | [schema/relation/](src/schema/relation/AGENTS.md) | + relation schemas |
 | Add cache backend | [cache/](src/cache/AGENTS.md) | Export from main index |
 | Add cache invalidation option | [cache/](src/cache/AGENTS.md) | Update `schema.ts` |
+| Add tracing span/attribute | [instrumentation/](src/instrumentation/AGENTS.md) | Update `spans.ts` |
+| Add logging level | [instrumentation/](src/instrumentation/AGENTS.md) | Update `types.ts`, `logger.ts` |
 
 ---
 
@@ -155,6 +158,9 @@ Sql fragments carry both the template string AND parameter values separately. Th
 
 ### Why there's no `src/drivers/AGENTS.md`
 The driver layer is thin - just connection management and query execution. Most complexity lives in adapters (SQL generation) and query-engine (structure). Drivers rarely need modification.
+
+### Why OTel is dynamically imported
+OpenTelemetry is an optional peer dependency. Most users don't need tracing. Dynamic `import()` with catch allows graceful degradation when `@opentelemetry/api` isn't installed.
 
 ---
 
@@ -201,7 +207,7 @@ pnpm test:sqlite        # SQLite
 ## Code Style Essentials
 
 ### Path Aliases
-`@schema`, `@client`, `@validation`, `@query-engine`, `@adapters`, `@drivers`, `@sql`, `@cache`
+`@schema`, `@client`, `@validation`, `@query-engine`, `@adapters`, `@drivers`, `@sql`, `@cache`, `@instrumentation`
 
 ### Naming Conventions
 - Field factories: lowercase (`string()`, `int()`)

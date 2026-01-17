@@ -39,7 +39,7 @@ const client = createClient({
   instrumentation: {
     logging: true,
   },
-  // cache: new MemoryCache(),
+  cache: new MemoryCache(),
 });
 
 // Push schema (will be no-op if already in sync)
@@ -53,9 +53,7 @@ console.log("Push result:", {
 
 
 client.user.deleteMany({
-  cache: {
-    invalidate: [""],
-  },
+
 });
 
 // Clean up any existing test data

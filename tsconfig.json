@@ -93,7 +93,7 @@
     }
   },
   "include": [
-    "src/**/*",
+    "src/**/*.ts",
     "tests/**/*.ts",
     "demo.ts"
   ],

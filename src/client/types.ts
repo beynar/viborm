@@ -18,6 +18,8 @@ import type {
   InferSelectInclude,
 } from "./result-types";
 
+import { CacheDriver } from "../cache/driver";
+
 export type Schema = Record<string, Model<any>>;
 
 export type Operations =
@@ -155,16 +157,23 @@ export type OperationResult<
  */
 export type Client<C extends VibORMConfig> = {
   [K in keyof C["schema"]]: {
-    [O in Operations]: Operation<O, C["schema"][K]>;
+    [O in Operations]: Operation<O, C["schema"][K], C>;
   };
 };
+
+type RemoveCacheKey<C extends VibORMConfig, T> = C["cache"] extends CacheDriver
+  ? T
+  : T extends { cache?: infer _ }
+    ? Omit<T, "cache"> & {}
+    : T;
 
 type Operation<
   O extends Operations,
   M extends Model<any>,
+  C extends VibORMConfig,
   Payload = OperationPayload<O, M>,
 > = undefined extends Payload
-  ? <Arg extends Payload>(
+  ? <Arg extends RemoveCacheKey<C,Payload>>(
       args?: Exclude<Arg, undefined>
     ) => Promise<OperationResult<O, M, Arg>>
   : <Arg extends Payload>(args: Arg) => Promise<OperationResult<O, M, Arg>>;
@@ -175,6 +184,6 @@ type Operation<
  */
 export type CachedClient<S extends Schema> = {
   [K in keyof S]: {
-    [O in CacheableOperations]: Operation<O, S[K]>;
+    [O in CacheableOperations]: Operation<O, S[K], VibORMConfig>;
   };
 };

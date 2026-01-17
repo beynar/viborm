@@ -327,6 +327,18 @@ Do not assume all layers need changes. Analyze the feature requirements and just
 │  ├── schema.ts          Cache invalidation schema                   │
 │  └── drivers/           Backend implementations                     │
 └──────────────────────────────────────────────────────────────────────┘
+                                   │
+                                   ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│  LAYER 11: Instrumentation                       src/instrumentation/│
+│  OpenTelemetry tracing and structured logging                        │
+│  ────────────────────────────────────────────────────────────────── │
+│  ├── context.ts         InstrumentationContext (tracer + logger)    │
+│  ├── tracer.ts          TracerWrapper for OTel spans                │
+│  ├── logger.ts          Structured logging                          │
+│  ├── spans.ts           Span names and attribute constants          │
+│  └── types.ts           Configuration interfaces                    │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Quick Layer Reference
@@ -343,6 +355,7 @@ Do not assume all layers need changes. Analyze the feature requirements and just
 | 8. Driver Layer | `src/drivers/` | Connection & execution |
 | 9. Client Layer | `src/client/` | Result types & client |
 | 10. Cache Layer | `src/cache/` | Query caching & invalidation |
+| 11. Instrumentation | `src/instrumentation/` | Tracing & logging |
 | Tests | `tests/` | All test files |
 
 ---
@@ -363,6 +376,7 @@ What type of feature is this?
 | **Query API extension** | New operation type, new include pattern | Layers 3, 6, 9 |
 | **Connection feature** | Transactions, connection pooling | Layers 8, 9 |
 | **Cache feature** | New cache backend, invalidation strategy | Layer 10 |
+| **Observability feature** | New span type, log level, attributes | Layer 11 |
 | **Internal improvement** | Performance, refactoring | Varies |
 
 ### Step 2: Layer-by-Layer Analysis
@@ -803,6 +817,43 @@ jsonAggregate(subquery: Sql, options?: { coalesce?: boolean }): Sql {
 
 ---
 
+### Layer 11: Instrumentation
+
+**Location:** `src/instrumentation/`
+
+**Key files:**
+| File/Folder | Purpose |
+|-------------|---------|
+| `src/instrumentation/context.ts` | `InstrumentationContext` - combines tracer + logger |
+| `src/instrumentation/tracer.ts` | `TracerWrapper` - OpenTelemetry span management |
+| `src/instrumentation/logger.ts` | `Logger` - structured console/callback logging |
+| `src/instrumentation/spans.ts` | Span names and attribute constants |
+| `src/instrumentation/types.ts` | Configuration interfaces |
+
+**When to modify:**
+- Adding new span types for new operations
+- Adding new attributes to existing spans
+- Adding new log levels or log event types
+- Changing how OTel integration works
+
+**Key questions:**
+- Does this operation need its own span?
+- What attributes should be recorded?
+- Is this a log event that users might want to observe?
+- Does this need to work without OTel installed?
+
+**When NOT to modify:**
+- Query logic (that's query-engine)
+- Cache logic (that's cache layer)
+- Just adding instrumentation calls to existing code (use existing span types)
+
+**Key patterns:**
+- All mutable state must be instance-scoped (not module-level) for serverless
+- OTel is optional - always handle missing dependency gracefully
+- Use `context.with()` to ensure proper span parenting
+
+---
+
 ## Documentation Template
 
 When implementing a feature, document the following:
@@ -829,6 +880,11 @@ How developers will use this feature.
 **Changes:** [If yes, what changes]
 
 ### Layer 10: Cache
+**Affected:** Yes/No
+**Reason:** [Why or why not]
+**Changes:** [If yes, what changes]
+
+### Layer 11: Instrumentation
 **Affected:** Yes/No
 **Reason:** [Why or why not]
 **Changes:** [If yes, what changes]
