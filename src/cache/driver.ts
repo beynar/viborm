@@ -353,8 +353,8 @@ export abstract class CacheDriver {
    */
   private prefixKey(key: string): string {
     const prefix = generateCachePrefix(undefined, this.version);
-    // If already prefixed, don't double-prefix
-    if (key.startsWith(prefix) || key.startsWith(CACHE_PREFIX)) {
+    // If already prefixed, don't double-prefix (check for exact prefix with colon)
+    if (key.startsWith(`${prefix}:`) || key.startsWith(`${CACHE_PREFIX}:`)) {
       return key;
     }
     return `${prefix}:${key}`;

@@ -42,7 +42,11 @@ export class CloudflareKVCache extends CacheDriver {
   }
 
   protected async clear(prefix: string): Promise<void> {
-    const keys = await this.kv.list({ prefix });
-    await Promise.all(keys.keys.map((k) => this.kv.delete(k.name)));
+    let cursor: string | undefined;
+    do {
+      const result = await this.kv.list({ prefix, cursor });
+      await Promise.all(result.keys.map((k) => this.kv.delete(k.name)));
+      cursor = result.list_complete ? undefined : result.cursor;
+    } while (cursor);
   }
 }

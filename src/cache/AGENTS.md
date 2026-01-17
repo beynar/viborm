@@ -65,10 +65,16 @@ abstract class CacheDriver {
   async _get<T>(key: string): Promise<CacheEntry<T> | null>;
   async _set<T>(key: string, value: T, options: CacheSetOptions): Promise<void>;
   async _invalidate(modelName: string, options?: CacheInvalidationOptions): Promise<void>;
+
+  // Configuration
+  setVersion(version: string | number | undefined): void;
+  setInstrumentation(ctx: InstrumentationContext | undefined): void;
 }
 ```
 
 **Why underscore prefix:** Public methods (`_get`, `_set`) handle cross-cutting concerns (key prefixing, instrumentation). Protected methods (`get`, `set`) are pure backend operations.
+
+**Version storage:** The driver stores the version and uses it in `prefixKey()` to ensure all operations (including manual `$invalidate`) respect the configured `cacheVersion`.
 
 ### Deterministic Cache Keys
 
@@ -83,10 +89,6 @@ viborm:v2:user:findMany:abc123def456...  // with cacheVersion: 2
 The hash uses a fast non-cryptographic algorithm (djb2 variant) on stable-stringified args. Stability means `{a: 1, b: 2}` and `{b: 2, a: 1}` produce the same hash.
 
 **Cache Versioning:** Setting `cacheVersion` in client config adds a version prefix to all keys. Bump the version when schema changes to automatically invalidate stale cache entries with incompatible shapes.
-
-> **TODO: Reconsider operation in cache key**
->
-> Including the operation name in the key may not be ideal. Different operations with the same args (e.g., `findFirst` vs `findUnique` with identical where clause) generate the same SQL but produce different cache keys. This prevents cache sharing between semantically equivalent queries. Consider removing the operation from the key and relying solely on `model:hash` — the hash already encodes all query parameters that affect the result.
 
 ### Stale-While-Revalidate (SWR)
 
@@ -121,16 +123,30 @@ const cached = client.$withCache({ swr: true });
 
 ### Cache Invalidation
 
-Two patterns:
+Three patterns:
+- **Direct:** Use `client.$invalidate("user:*")` to invalidate anytime
 - **Automatic:** After mutations, clear model's cache prefix (opt-in via `autoInvalidate: true`)
 - **Manual:** Specify keys or prefixes in mutation's `cache.invalidate` option
 
 ```typescript
-// Clear specific key
+// Direct invalidation from client
+await client.$invalidate("user:*", "post:findMany:*");
+
+// Clear specific key in mutation
 cache: { invalidate: ["user:findUnique:abc123"] }
 
 // Clear by prefix (note the *)
 cache: { invalidate: ["user:*"] }
+```
+
+**Version-aware invalidation:** The cache driver stores the version via `setVersion()`. All key prefixing (including in `$invalidate`) respects the stored version automatically.
+
+### Bypass Option
+
+When `bypass: true` is set in `$withCache()`, the cache read is skipped but the result is still written to cache. Useful for debugging or forcing a fresh fetch.
+
+```typescript
+const fresh = client.$withCache({ bypass: true }).user.findMany();
 ```
 
 ---
@@ -147,7 +163,11 @@ Storage TTL is 2x the user's TTL to allow SWR to serve stale content. The entry'
 All cache operations are async. Even in-memory cache returns Promises for interface consistency.
 
 ### Rule 4: Instrumentation Support
-All public methods support OpenTelemetry tracing via `this.instrumentation`. Cache operations appear as spans.
+All public methods support OpenTelemetry tracing via `this.instrumentation`. Cache operations appear as spans with these attributes:
+- `cache.driver`: Driver name (memory, cloudflare-kv)
+- `cache.key`: The cache key
+- `cache.result`: `hit`, `miss`, `stale`, or `bypass`
+- `cache.ttl`: TTL in milliseconds
 
 ---
 

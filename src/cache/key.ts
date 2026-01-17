@@ -93,7 +93,18 @@ function stableStringify(value: unknown, seen = new WeakSet<object>()): string {
   }
 
   if (value instanceof Uint8Array) {
-    return `"base64:${btoa(String.fromCharCode(...value))}"`;
+    // Use Buffer in Node.js, btoa in browser/edge
+    let base64: string;
+    if (typeof Buffer !== "undefined") {
+      base64 = Buffer.from(value).toString("base64");
+    } else {
+      let binary = "";
+      for (const byte of value) {
+        binary += String.fromCharCode(byte);
+      }
+      base64 = btoa(binary);
+    }
+    return `"base64:${base64}"`;
   }
 
   if (Array.isArray(value)) {

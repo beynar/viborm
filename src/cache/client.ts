@@ -215,9 +215,11 @@ class CachedClientImpl<S extends Schema> {
       // Cache miss or stale without SWR - execute query
       const result = await this.executor({ modelName, operation, args });
 
-      const cachePromise = this.cache._set(cacheKey, result, {
-        ttl: this.options.ttlMs,
-      });
+      const cachePromise = this.cache
+        ._set(cacheKey, result, { ttl: this.options.ttlMs })
+        .catch((error) => {
+          this.log(cacheKey, "miss", "cache-set-failed", error);
+        });
       if (this.options.waitUntil) {
         this.options.waitUntil(cachePromise);
       }

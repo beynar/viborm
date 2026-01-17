@@ -13,6 +13,8 @@ VibORM provides built-in caching for read queries with support for multiple back
 - **Stale-While-Revalidate** - Return stale data instantly while refreshing in background
 - **Serverless Ready** - Works with Cloudflare Workers and Vercel Edge
 - **Type-Safe** - Full TypeScript support, only read operations available on cached client
+- **Cache Versioning** - Invalidate all cache on schema changes
+- **OpenTelemetry** - Built-in tracing with hit/miss/stale status
 
 ## Quick Start
 
@@ -229,6 +231,10 @@ await client.$invalidate("user:*");
 await client.$invalidate("user:*", "post:findMany:*");
 ```
 
+<Callout type="info">
+When `cacheVersion` is configured, `$invalidate` automatically uses the versioned prefix. For example, with `cacheVersion: 2`, calling `$invalidate("user:*")` clears `viborm:v2:user:*`.
+</Callout>
+
 ### Invalidation on Mutations
 
 Specify cache keys or prefixes to invalidate when performing mutations:
@@ -287,12 +293,13 @@ Auto-invalidation clears ALL cached queries for the model. Use manual invalidati
 Cache keys are automatically generated from the model name, operation, and query arguments:
 
 ```
-viborm:<model>:<operation>:<hash>
+viborm[:v<version>]:<model>:<operation>:<hash>
 ```
 
 For example:
 ```
 viborm:user:findMany:a1b2c3d4e5f6...
+viborm:v2:user:findMany:a1b2c3d4e5f6...  // with cacheVersion: 2
 ```
 
 The hash is deterministic — identical queries always produce the same key, regardless of object property order.
@@ -315,6 +322,63 @@ const users = await cached.user.findMany({
   where: { featured: true },
   take: 5,
 });
+```
+
+### Generating Keys for Manual Invalidation
+
+Use `generateCacheKey` to create keys matching the auto-generated format:
+
+```typescript
+import { generateCacheKey } from "viborm";
+
+// Generate the same key that would be used for a cached query
+const key = generateCacheKey(
+  "user",
+  "findMany",
+  { where: { active: true } },
+  2  // optional: cacheVersion
+);
+// "viborm:v2:user:findMany:abc123..."
+
+// Use for precise invalidation
+await client.$invalidate(key);
+```
+
+## Observability
+
+Cache operations emit OpenTelemetry spans when instrumentation is configured.
+
+### Spans
+
+| Span Name | Description |
+|-----------|-------------|
+| `viborm.cache.get` | Cache read operation |
+| `viborm.cache.set` | Cache write operation |
+| `viborm.cache.delete` | Cache key deletion |
+| `viborm.cache.clear` | Cache prefix clearing |
+| `viborm.cache.invalidate` | Cache invalidation |
+
+### Attributes
+
+| Attribute | Description |
+|-----------|-------------|
+| `cache.driver` | Driver name (memory, cloudflare-kv, etc.) |
+| `cache.key` | Cache key being accessed |
+| `cache.result` | Result of cache read: `hit`, `miss`, `stale`, or `bypass` |
+| `cache.ttl` | TTL in milliseconds |
+
+### Example Trace
+
+```
+viborm.operation (user.findMany)
+└── viborm.cache.get (cache.result: "hit")
+```
+
+When SWR returns stale data:
+```
+viborm.operation (user.findMany)
+└── viborm.cache.get (cache.result: "stale")
+    └── [background] viborm.cache.set
 ```
 
 ## Cache Drivers
