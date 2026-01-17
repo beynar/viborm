@@ -3,6 +3,18 @@
  *
  * In-memory cache implementation for development/testing.
  * Suitable for single-instance deployments.
+ *
+ * @example
+ * ```ts
+ * // Direct import for optimal tree-shaking
+ * import { MemoryCache } from "viborm/cache/memory";
+ *
+ * const client = createClient({
+ *   schema,
+ *   driver,
+ *   cache: new MemoryCache(),
+ * });
+ * ```
  */
 
 import { CacheDriver, type CacheEntry } from "../driver";

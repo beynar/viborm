@@ -25,6 +25,10 @@ id = "your-namespace-id"
 ## Configuration
 
 ```typescript
+// Direct import for optimal tree-shaking (recommended)
+import { CloudflareKVCache } from "viborm/cache/cloudflare-kv";
+
+// Or import from main package
 import { createClient, CloudflareKVCache } from "viborm";
 
 export default {

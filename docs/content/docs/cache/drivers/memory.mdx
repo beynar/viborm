@@ -12,6 +12,10 @@ No additional dependencies required. `MemoryCache` is included in the core VibOR
 ## Configuration
 
 ```typescript
+// Direct import for optimal tree-shaking (recommended)
+import { MemoryCache } from "viborm/cache/memory";
+
+// Or import from main package
 import { createClient, MemoryCache } from "viborm";
 
 const client = createClient({
