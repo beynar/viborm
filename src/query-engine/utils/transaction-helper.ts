@@ -23,12 +23,12 @@ import type { AnyDriver } from "@drivers";
  */
 export async function withTransactionIfSupported<T>(
   driver: AnyDriver,
-  fn: (tx: AnyDriver) => Promise<T>
+  fn: () => Promise<T>
 ): Promise<T> {
   // Default to true if not specified
   if (driver.supportsTransactions !== false) {
     return driver._transaction(fn);
   }
   // No transaction support - execute directly (no atomicity)
-  return fn(driver);
+  return fn();
 }

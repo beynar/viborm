@@ -25,6 +25,7 @@
       "complexity": {
         "useLiteralKeys": "off",
         "noExcessiveCognitiveComplexity": {
+          "level": "off",
           "options": {
             "maxAllowedComplexity": 45
           }

@@ -35,7 +35,7 @@ export function createQueryContext(
 
 /**
  * Create a child context for nested queries (relations)
- * Inherits driver, adapter and registry, but uses a different model and alias space
+ * Inherits driver, adapter, registry, but uses a different model and alias space
  */
 export function createChildContext(
   parent: QueryContext,
@@ -92,31 +92,31 @@ export function getTableName(model: Model<any>): string {
 }
 
 /**
- * Get all scalar field names from a model
+ * Get all scalar field names from a model (cached)
  */
 export function getScalarFieldNames(model: Model<any>): string[] {
-  return Object.keys(model["~"].state.scalars);
+  return model["~"].scalarFieldNames;
 }
 
 /**
- * Get all relation names from a model
+ * Get all relation names from a model (cached)
  */
 export function getRelationNames(model: Model<any>): string[] {
-  return Object.keys(model["~"].state.relations);
+  return model["~"].relationNames;
 }
 
 /**
- * Check if a field name is a scalar field
+ * Check if a field name is a scalar field (O(1) using cached Set)
  */
 export function isScalarField(model: Model<any>, fieldName: string): boolean {
-  return fieldName in model["~"].state.scalars;
+  return model["~"].scalarFieldSet.has(fieldName);
 }
 
 /**
- * Check if a field name is a relation
+ * Check if a field name is a relation (O(1) using cached Set)
  */
 export function isRelation(model: Model<any>, fieldName: string): boolean {
-  return fieldName in model["~"].state.relations;
+  return model["~"].relationSet.has(fieldName);
 }
 
 /**

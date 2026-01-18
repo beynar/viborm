@@ -6,7 +6,7 @@
  */
 
 import type { Sql } from "@sql";
-import { getColumnName, getScalarFieldNames, isRelation } from "../context";
+import { getColumnName } from "../context";
 import type { QueryContext } from "../types";
 import { QueryEngineError } from "../types";
 
@@ -32,28 +32,30 @@ export function buildValues(
     return { columns: [], values: [] };
   }
 
-  // Get all scalar field names
-  const scalarFields = getScalarFieldNames(ctx.model);
+  // Get cached scalar field Set for O(1) lookups
+  const scalarFieldSet = ctx.model["~"].scalarFieldSet;
 
   // Determine which fields to include (all fields that have values in any record)
   const fieldsSet = new Set<string>();
 
   for (const record of records) {
-    for (const [key, value] of Object.entries(record)) {
+    // Use Object.keys + direct access instead of Object.entries to avoid tuple allocation
+    const keys = Object.keys(record);
+    for (const key of keys) {
+      const value = record[key];
       if (value === undefined) {
         continue;
       }
-      if (isRelation(ctx.model, key)) {
-        continue; // Skip relations
+      // Use cached Set for O(1) lookup instead of array.includes() O(n)
+      if (!scalarFieldSet.has(key)) {
+        continue; // Skip relations and unknown fields
       }
-      if (scalarFields.includes(key)) {
-        fieldsSet.add(key);
-      }
+      fieldsSet.add(key);
     }
   }
 
   // Check for auto-generated fields that weren't provided
-  for (const fieldName of scalarFields) {
+  for (const fieldName of ctx.model["~"].scalarFieldNames) {
     const field = ctx.model["~"].state.scalars[fieldName];
     if (field) {
       const state = field["~"].state;

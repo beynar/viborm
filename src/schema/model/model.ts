@@ -17,8 +17,7 @@ import {
   type StringKeyOf,
   type UniqueFields,
 } from "./helper";
-import { getModelSchemas } from "./schemas";
-import type { ModelSchemas } from "./schemas/types";
+import { ModelSchemas } from "./schemas/model-schemas";
 // Re-export types from helpers for external use
 
 // =============================================================================
@@ -55,6 +54,14 @@ export interface ModelInternal<T extends ModelState> {
   };
   getFieldName: (key: string) => HydratedSchemaNames;
   getRelationName: (key: string) => HydratedSchemaNames;
+  /** Cached scalar field names (computed once on first access) */
+  scalarFieldNames: string[];
+  /** Cached scalar field Set for O(1) lookup (computed once on first access) */
+  scalarFieldSet: Set<string>;
+  /** Cached relation names (computed once on first access) */
+  relationNames: string[];
+  /** Cached relation Set for O(1) lookup (computed once on first access) */
+  relationSet: Set<string>;
 }
 
 export type IndexType = "btree" | "hash" | "gin" | "gist";
@@ -115,6 +122,15 @@ export class Model<State extends ModelState> {
     relations: new Map(),
   };
   private readonly state: State;
+
+  // Cached field metadata (lazily computed on first access)
+  // Using ModelSchemas<any> to avoid type incompatibility when model state is transformed
+  private _schemas: ModelSchemas<any> | undefined;
+  private _scalarFieldNames: string[] | undefined;
+  private _scalarFieldSet: Set<string> | undefined;
+  private _relationNames: string[] | undefined;
+  private _relationSet: Set<string> | undefined;
+
   constructor(state: State) {
     this.state = state;
   }
@@ -249,36 +265,64 @@ export class Model<State extends ModelState> {
   }
 
   get "~"(): ModelInternal<State> {
+    // Capture model instance for use in getters
+    const model = this;
+
     return {
       state: this.state,
-      schemas: getModelSchemas(this.state),
+      /** Cached model schemas (computed once on first access) */
+      get schemas() {
+        return (model._schemas ??= new ModelSchemas(model.state) as ModelSchemas<State>);
+      },
       names: this._names,
       nameRegistry: this._nameRegistry,
       /**
        * Get the resolved names for a field.
-       * Requires hydration - throws if field not found in registry.
+       * Falls back to field name and columnName from field state if not hydrated.
        */
       getFieldName: (key: string): HydratedSchemaNames => {
-        const registered = this._nameRegistry.fields.get(key);
-        if (!registered) {
-          throw new Error(
-            `Field "${key}" not found in nameRegistry. Schema may not be hydrated.`
-          );
+        const registered = model._nameRegistry.fields.get(key);
+        if (registered) {
+          return registered as HydratedSchemaNames;
         }
-        return registered as HydratedSchemaNames;
+        // Fallback for non-hydrated models: use field name and check for .map() columnName
+        const field = model.state.scalars[key];
+        const columnName = field?.["~"]?.state?.columnName;
+        return {
+          ts: key,
+          sql: columnName ?? key,
+        };
       },
       /**
        * Get the resolved names for a relation.
-       * Requires hydration - throws if relation not found in registry.
+       * Falls back to relation name if not hydrated.
        */
       getRelationName: (key: string): HydratedSchemaNames => {
-        const registered = this._nameRegistry.relations.get(key);
-        if (!registered) {
-          throw new Error(
-            `Relation "${key}" not found in nameRegistry. Schema may not be hydrated.`
-          );
+        const registered = model._nameRegistry.relations.get(key);
+        if (registered) {
+          return registered as HydratedSchemaNames;
         }
-        return registered as HydratedSchemaNames;
+        // Fallback for non-hydrated models
+        return {
+          ts: key,
+          sql: key,
+        };
+      },
+      /** Cached scalar field names (computed once on first access) */
+      get scalarFieldNames(): string[] {
+        return (model._scalarFieldNames ??= Object.keys(model.state.scalars));
+      },
+      /** Cached scalar field Set for O(1) lookup (computed once on first access) */
+      get scalarFieldSet(): Set<string> {
+        return (model._scalarFieldSet ??= new Set(this.scalarFieldNames));
+      },
+      /** Cached relation names (computed once on first access) */
+      get relationNames(): string[] {
+        return (model._relationNames ??= Object.keys(model.state.relations));
+      },
+      /** Cached relation Set for O(1) lookup (computed once on first access) */
+      get relationSet(): Set<string> {
+        return (model._relationSet ??= new Set(this.relationNames));
       },
     };
   }

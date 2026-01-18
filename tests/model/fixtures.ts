@@ -9,7 +9,6 @@
  */
 
 import { s } from "@schema";
-import { getModelSchemas } from "@schema/model/schemas";
 import type { InferInput, Prettify } from "@validation";
 
 // =============================================================================
@@ -24,18 +23,10 @@ export const simpleModel = s.model({
   active: s.boolean().default(true),
 });
 
-// Lazy schema creation to avoid circular reference issues
-let _simpleSchemas: ReturnType<
-  typeof getModelSchemas<(typeof simpleModel)["~"]["state"]>
->;
-export const getSimpleSchemas = () => {
-  if (!_simpleSchemas) {
-    _simpleSchemas = getModelSchemas(simpleModel["~"].state);
-  }
-  return _simpleSchemas;
-};
+// Access schemas via model["~"].schemas (lazy loaded)
+export const getSimpleSchemas = () => simpleModel["~"].schemas;
 // Legacy export for backward compatibility
-export const simpleSchemas = getModelSchemas(simpleModel["~"].state);
+export const simpleSchemas = simpleModel["~"].schemas;
 
 // =============================================================================
 // COMPOUND ID MODEL
@@ -49,7 +40,7 @@ export const compoundIdModel = s
   })
   .id(["orgId", "memberId"]);
 
-export const compoundIdSchemas = getModelSchemas(compoundIdModel["~"].state);
+export const compoundIdSchemas = compoundIdModel["~"].schemas;
 export type CompoundIdState = (typeof compoundIdModel)["~"]["state"];
 
 // =============================================================================
@@ -65,9 +56,7 @@ export const compoundUniqueModel = s
   })
   .unique(["email", "tenantId"]);
 
-export const compoundUniqueSchemas = getModelSchemas(
-  compoundUniqueModel["~"].state
-);
+export const compoundUniqueSchemas = compoundUniqueModel["~"].schemas;
 export type CompoundUniqueState = (typeof compoundUniqueModel)["~"]["state"];
 
 // =============================================================================
@@ -88,33 +77,18 @@ export const postModel = s.model({
   author: s.manyToOne(() => authorModel).optional(),
 });
 
-// Lazy schema creation to avoid circular reference issues at import time
-let _authorSchemas: ReturnType<
-  typeof getModelSchemas<(typeof authorModel)["~"]["state"]>
->;
-let _postSchemas: ReturnType<
-  typeof getModelSchemas<(typeof postModel)["~"]["state"]>
->;
+// Access schemas via model["~"].schemas (lazy loaded internally)
+type AuthorSchemas = (typeof authorModel)["~"]["schemas"];
+type PostSchemas = (typeof postModel)["~"]["schemas"];
 
-type Include = Prettify<InferInput<(typeof _authorSchemas)["include"]>>;
+type Include = Prettify<InferInput<AuthorSchemas["include"]>>;
 
 type InputFindUnique = Prettify<
-  InferInput<(typeof _authorSchemas)["args"]["findUnique"]>
+  InferInput<AuthorSchemas["args"]["findUnique"]>
 >;
 
-export const getAuthorSchemas = () => {
-  if (!_authorSchemas) {
-    _authorSchemas = getModelSchemas(authorModel["~"].state);
-  }
-  return _authorSchemas;
-};
-
-export const getPostSchemas = () => {
-  if (!_postSchemas) {
-    _postSchemas = getModelSchemas(postModel["~"].state);
-  }
-  return _postSchemas;
-};
+export const getAuthorSchemas = () => authorModel["~"].schemas;
+export const getPostSchemas = () => postModel["~"].schemas;
 
 // Lazy accessor exports
 export const authorSchemas = {

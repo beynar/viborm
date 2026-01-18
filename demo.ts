@@ -256,6 +256,7 @@ async function main() {
     )
   `);
 
+  const clientInstantStart = performance.now();
   const client = VibORM.create({
     schema: { user },
     driver,
@@ -270,16 +271,54 @@ async function main() {
       tracing: true,
     },
   });
+  const clientInstantEnd = performance.now();
+  console.log(`Client creation took ${clientInstantEnd - clientInstantStart}ms`);
 
   console.log("\n--- findMany ---\n");
 
+  await client
+    .user.findMany({
+      where: {
+        AND: [{
+          email: {
+            contains: "example.com"
+          },
+          id: {
+            endsWith: "123"
+          },
+
+        }],
+        OR: [{
+          name: {
+            startsWith: "Alice"
+          }
+        }]
+      },
+
+
+    });
   await client
     .$withCache({ key: "users", ttl: "1 second", swr: true })
     .user.findMany();
   await new Promise((resolve) => setTimeout(resolve, 1200));
   await client.$withCache({ key: "users", swr: true }).user.findMany();
 
-  await client.$withCache({ key: "users", swr: true }).user.findMany();
+
+  await client.$transaction(async tx => {
+
+
+
+  await tx.user.create({
+    data: { id: "user-1", name: "Alice", email: "alice@example.com" },
+  })
+
+  const u = await tx.user.findUnique({
+    where: { id: "user-1" }
+
+  })
+
+    console.log(u)
+    })
 
   // console.log("\n--- create ---\n");
   // await client.user.create({

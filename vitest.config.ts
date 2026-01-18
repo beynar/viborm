@@ -19,6 +19,7 @@ export default defineConfig({
       "@migrations": resolve(__dirname, "src/migrations"),
       "@errors": resolve(__dirname, "src/errors"),
       "@instrumentation": resolve(__dirname, "src/instrumentation"),
+      "@cache": resolve(__dirname, "src/cache"),
     },
   },
 });

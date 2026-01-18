@@ -12,7 +12,6 @@ import {
   ATTR_DB_OPERATION_NAME,
   type InstrumentationContext,
   SPAN_BUILD,
-  SPAN_EXECUTE,
   SPAN_PARSE,
   SPAN_VALIDATE,
 } from "@instrumentation";
@@ -78,18 +77,17 @@ function hasContextSupport(driver: AnyDriver): driver is AnyDriver & {
 export class QueryEngine {
   private readonly adapter: DatabaseAdapter;
   private readonly registry: ModelRegistry;
-  private readonly driver: AnyDriver | undefined;
+  private readonly driver: AnyDriver;
   private readonly instrumentation: InstrumentationContext | undefined;
 
   constructor(
-    adapter: DatabaseAdapter,
+    driver: AnyDriver,
     registry: ModelRegistry,
-    driver?: AnyDriver,
     instrumentation?: InstrumentationContext
   ) {
-    this.adapter = adapter;
-    this.registry = registry;
     this.driver = driver;
+    this.adapter = driver.adapter;
+    this.registry = registry;
     this.instrumentation = instrumentation;
   }
 
@@ -238,12 +236,6 @@ export class QueryEngine {
     operation: Operation,
     args: Record<string, unknown>
   ): Promise<T> {
-    if (!this.driver) {
-      throw new QueryEngineError(
-        "No driver provided. Use build() to get SQL without executing."
-      );
-    }
-
     const tracer = this.instrumentation?.tracer;
     const modelName = model["~"].names.ts ?? "unknown";
     const tableName = model["~"].names.sql ?? modelName;
@@ -287,15 +279,7 @@ export class QueryEngine {
 
     try {
       // Execute query - driver handles logging with context
-      const result = tracer
-        ? await tracer.startActiveSpan(
-            {
-              name: SPAN_EXECUTE,
-              attributes: spanAttrs,
-            },
-            () => this.driver!._execute(sqlQuery)
-          )
-        : await this.driver!._execute(sqlQuery);
+      const result = await this.driver._execute(sqlQuery);
 
       // Parse result (synchronous - use sync span method)
       if (isBatchOperation(operation)) {
@@ -368,7 +352,7 @@ export class QueryEngine {
     operation: Operation,
     args: Record<string, unknown>
   ): Promise<T> {
-    const driver = this.driver!;
+    const driver = this.driver;
     const modelName = ctx.model["~"].names.ts ?? "unknown";
 
     // Set context for the entire nested write operation
@@ -464,17 +448,17 @@ export class QueryEngine {
             Object.keys(relations).length > 0 &&
             needsTransaction(relations)
           ) {
-            return withTransactionIfSupported(driver, async (tx) => {
+            return withTransactionIfSupported(driver, async () => {
               // First, update the scalar fields
               if (Object.keys(scalar).length > 0) {
                 const updateSql = buildUpdate(ctx, { where, data: scalar });
-                await tx._execute(updateSql);
+                await driver._execute(updateSql);
               }
 
               // Get the updated record for FK operations
               const selectSql = buildFindUniqueQuery(ctx, { where });
               const selectResult =
-                await tx._execute<Record<string, unknown>>(selectSql);
+                await driver._execute<Record<string, unknown>>(selectSql);
               const updatedRecord = selectResult.rows[0];
 
               if (!updatedRecord) {
@@ -482,7 +466,7 @@ export class QueryEngine {
               }
 
               // Handle relation mutations (connect, disconnect, create, delete)
-              await executeNestedUpdate(tx, ctx, updatedRecord, relations);
+              await executeNestedUpdate(driver, ctx, updatedRecord, relations);
 
               // Re-fetch with includes if needed
               if (args.include || args.select) {
@@ -492,7 +476,7 @@ export class QueryEngine {
                   include: args.include as Record<string, unknown> | undefined,
                 } as { where: Record<string, unknown> });
                 const refetchResult =
-                  await tx._execute<Record<string, unknown>>(refetchSql);
+                  await driver._execute<Record<string, unknown>>(refetchSql);
                 return parseResult<T>(ctx, "findUnique", refetchResult.rows);
               }
 
@@ -514,13 +498,13 @@ export class QueryEngine {
 
         case "upsert": {
           // Upsert with nested writes - delegate to transaction
-          return withTransactionIfSupported(driver, async (tx) => {
+          return withTransactionIfSupported(driver, async () => {
             const where = args.where as Record<string, unknown>;
 
             // Check if record exists
             const selectSql = buildFindUniqueQuery(ctx, { where });
             const selectResult =
-              await tx._execute<Record<string, unknown>>(selectSql);
+              await driver._execute<Record<string, unknown>>(selectSql);
 
             if (selectResult.rows.length > 0) {
               // Record exists - do update with nested operations
@@ -536,7 +520,7 @@ export class QueryEngine {
               // Update scalar fields
               if (Object.keys(scalar).length > 0) {
                 const updateSql = buildUpdate(ctx, { where, data: scalar });
-                await tx._execute(updateSql);
+                await driver._execute(updateSql);
               }
 
               // Get the updated record for nested operations (use PK, not original where)
@@ -544,7 +528,7 @@ export class QueryEngine {
                 where: pkWhere,
               });
               const updatedResult =
-                await tx._execute<Record<string, unknown>>(refetchByPkSql);
+                await driver._execute<Record<string, unknown>>(refetchByPkSql);
               const updatedRecord = updatedResult.rows[0];
 
               if (!updatedRecord) {
@@ -555,7 +539,7 @@ export class QueryEngine {
 
               // Handle nested relation mutations (connect, disconnect, create, delete)
               if (Object.keys(relations).length > 0) {
-                await executeNestedUpdate(tx, ctx, updatedRecord, relations);
+                await executeNestedUpdate(driver, ctx, updatedRecord, relations);
               }
 
               // Re-fetch to get final state (use PK in case update changed where clause fields)
@@ -565,12 +549,12 @@ export class QueryEngine {
                 include: args.include as Record<string, unknown> | undefined,
               } as { where: Record<string, unknown> });
               const refetchResult =
-                await tx._execute<Record<string, unknown>>(refetchSql);
+                await driver._execute<Record<string, unknown>>(refetchSql);
               return parseResult<T>(ctx, "findUnique", refetchResult.rows);
             }
             // Record doesn't exist - do create
             const createData = args.create as Record<string, unknown>;
-            const createResult = await executeNestedCreate(tx, ctx, createData);
+            const createResult = await executeNestedCreate(driver, ctx, createData);
 
             // Handle include/select for return value (same as create operation)
             if (args.include || args.select) {
@@ -583,7 +567,7 @@ export class QueryEngine {
                   include: args.include as Record<string, unknown> | undefined,
                 } as { where: Record<string, unknown> });
                 const refetchResult =
-                  await tx._execute<Record<string, unknown>>(refetchSql);
+                  await driver._execute<Record<string, unknown>>(refetchSql);
                 if (refetchResult.rows.length > 0) {
                   return parseResult<T>(ctx, "findUnique", refetchResult.rows);
                 }
@@ -730,11 +714,10 @@ export function createModelRegistry(
  * Factory function to create a query engine
  */
 export function createQueryEngine(
-  adapter: DatabaseAdapter,
+  driver: AnyDriver,
   models: Record<string, Model<any>>,
-  driver?: AnyDriver,
   instrumentation?: InstrumentationContext
 ): QueryEngine {
   const registry = createModelRegistry(models);
-  return new QueryEngine(adapter, registry, driver, instrumentation);
+  return new QueryEngine(driver, registry, instrumentation);
 }

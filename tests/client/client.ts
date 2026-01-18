@@ -29,7 +29,7 @@ const post = s.model({
     .manyToOne(() => user)
     .fields("authorId")
     .references("id"),
-});
+})
 
 const schema = { user, post };
 
@@ -42,6 +42,8 @@ const client = createClient({
   cache: new MemoryCache(),
 });
 
+
+
 // Push schema (will be no-op if already in sync)
 const pushResult = await push(client.$driver, schema, { force: true });
 console.log("Push result:", {
@@ -52,9 +54,7 @@ console.log("Push result:", {
 
 
 
-client.user.deleteMany({
 
-});
 
 // Clean up any existing test data
 await client.post.deleteMany();
@@ -84,6 +84,9 @@ const newUser = await client.user.create({
             title: {
               contains: "Hello",
             },
+            id: {
+              endsWith: "123"
+            }
           },
         ],
       },

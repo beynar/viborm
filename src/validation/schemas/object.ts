@@ -58,15 +58,11 @@ type ComputeObjectInput<TEntries, TOpts> = TOpts extends { partial: false }
     : Partial<InferInputShape<TEntries>>;
 
 /**
- * Compute output type based on partial option.
- * Default is partial: true, so only non-partial when explicitly { partial: false }
- * If atLeast is specified, those keys are required even when partial: true
+ * Compute output type based on entries.
+ * Unlike input, output doesn't use Partial - each field's schema determines
+ * whether its output includes undefined (based on whether it has a default).
  */
-type ComputeObjectOutput<TEntries, TOpts> = TOpts extends { partial: false }
-  ? InferOutputShape<TEntries>
-  : TOpts extends { atLeast: infer Keys extends readonly string[] }
-    ? RequireKeys<Partial<InferOutputShape<TEntries>>, Keys[number]>
-    : Partial<InferOutputShape<TEntries>>;
+type ComputeObjectOutput<TEntries, _TOpts> = InferOutputShape<TEntries>;
 
 /**
  * Make specific keys required in an otherwise partial object.
@@ -79,9 +75,10 @@ type RequireKeys<T, K extends string> = {
 };
 
 /**
- * Apply wrapper options (optional, nullable, array) to object type.
+ * Apply wrapper options (optional, nullable, array) to input type.
+ * Input accepts undefined when optional (even with default).
  */
-type ApplyObjectOptions<TBase, TOpts> = TOpts extends { array: true }
+type ApplyObjectOptionsInput<TBase, TOpts> = TOpts extends { array: true }
   ? TOpts extends { optional: true }
     ? TOpts extends { nullable: true }
       ? TBase[] | undefined | null
@@ -98,13 +95,42 @@ type ApplyObjectOptions<TBase, TOpts> = TOpts extends { array: true }
       : TBase;
 
 /**
+ * Apply wrapper options (optional, nullable, array) to output type.
+ * When a default is provided, undefined is not included in output
+ * (the default will always be applied).
+ */
+type ApplyObjectOptionsOutput<TBase, TOpts> = TOpts extends { array: true }
+  ? TOpts extends { optional: true }
+    ? TOpts extends { default: any }
+      ? TOpts extends { nullable: true }
+        ? TBase[] | null
+        : TBase[]
+      : TOpts extends { nullable: true }
+        ? TBase[] | undefined | null
+        : TBase[] | undefined
+    : TOpts extends { nullable: true }
+      ? TBase[] | null
+      : TBase[]
+  : TOpts extends { optional: true }
+    ? TOpts extends { default: any }
+      ? TOpts extends { nullable: true }
+        ? TBase | null
+        : TBase
+      : TOpts extends { nullable: true }
+        ? TBase | undefined | null
+        : TBase | undefined
+    : TOpts extends { nullable: true }
+      ? TBase | null
+      : TBase;
+
+/**
  * Object schema interface.
  */
 export interface ObjectSchema<
   TEntries,
   TOpts extends ObjectOptions | undefined = undefined,
-  TInput = ApplyObjectOptions<ComputeObjectInput<TEntries, TOpts>, TOpts>,
-  TOutput = ApplyObjectOptions<ComputeObjectOutput<TEntries, TOpts>, TOpts>,
+  TInput = ApplyObjectOptionsInput<ComputeObjectInput<TEntries, TOpts>, TOpts>,
+  TOutput = ApplyObjectOptionsOutput<ComputeObjectOutput<TEntries, TOpts>, TOpts>,
 > extends VibSchema<TInput, TOutput> {
   readonly type: "object";
   readonly entries: TEntries;

@@ -5,7 +5,7 @@
  * Tests CRUD operations, queries, aggregations, transactions, and raw SQL.
  */
 
-import { NotFoundError } from "@client/client";
+import { NotFoundError } from "@errors";
 import { createClient as PGliteCreateClient } from "@drivers/pglite";
 import { push } from "@migrations";
 import { s } from "@schema";
@@ -52,13 +52,10 @@ const schema = { user, post };
 // TEST SETUP
 // =============================================================================
 
-let client: Awaited<ReturnType<typeof PGliteCreateClient<typeof schema>>>;
+let client: Awaited<ReturnType<typeof PGliteCreateClient<{schema:typeof schema}>>>;
 
 beforeAll(async () => {
-  // Use in-memory PGlite to avoid conflicts with existing data
-  const { PGlite } = await import("@electric-sql/pglite");
-  const pglite = new PGlite();
-  client = await PGliteCreateClient({ schema, client: pglite });
+  client = PGliteCreateClient({ schema });
   await push(client.$driver, schema, { force: true });
 });
 

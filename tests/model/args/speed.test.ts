@@ -2,7 +2,7 @@
  * Schema Creation & Validation Speed Tests
  *
  * Measures performance for serverless environments where each request:
- * 1. Creates model schemas (getModelSchemas)
+ * 1. Accesses model schemas (model["~"].schemas - lazy loaded)
  * 2. Validates input data (parse)
  *
  * Tests various query complexities:
@@ -14,7 +14,6 @@
  */
 
 import { s } from "@schema";
-import { getModelSchemas } from "@schema/model/schemas";
 import { parse } from "@validation";
 import { beforeAll, describe, expect, test } from "vitest";
 
@@ -140,7 +139,7 @@ function logResult(result: BenchmarkResult) {
 describe("Schema Creation Speed", () => {
   test("simple model schema creation", () => {
     const result = benchmark("Simple Model", ITERATIONS, () => {
-      getModelSchemas(SimpleModel["~"].state);
+      SimpleModel["~"].schemas;
     });
 
     logResult(result);
@@ -149,7 +148,7 @@ describe("Schema Creation Speed", () => {
 
   test("medium model schema creation", () => {
     const result = benchmark("Medium Model", ITERATIONS, () => {
-      getModelSchemas(MediumModel["~"].state);
+      MediumModel["~"].schemas;
     });
 
     logResult(result);
@@ -158,7 +157,7 @@ describe("Schema Creation Speed", () => {
 
   test("complex model with relations schema creation", () => {
     const result = benchmark("Complex Model (Author)", ITERATIONS, () => {
-      getModelSchemas(Author["~"].state);
+      Author["~"].schemas;
     });
 
     logResult(result);
@@ -167,7 +166,7 @@ describe("Schema Creation Speed", () => {
 
   test("model with deep relations schema creation", () => {
     const result = benchmark("Deep Relations (Post)", ITERATIONS, () => {
-      getModelSchemas(Post["~"].state);
+      Post["~"].schemas;
     });
 
     logResult(result);
@@ -181,12 +180,12 @@ describe("Schema Creation Speed", () => {
 
 describe("Validation Speed (Pre-built Schema)", () => {
   // Pre-build schemas for validation tests
-  let authorSchemas: ReturnType<typeof getModelSchemas>;
-  let postSchemas: ReturnType<typeof getModelSchemas>;
+  let authorSchemas: (typeof Author)["~"]["schemas"];
+  let postSchemas: (typeof Post)["~"]["schemas"];
 
   beforeAll(() => {
-    authorSchemas = getModelSchemas(Author["~"].state);
-    postSchemas = getModelSchemas(Post["~"].state);
+    authorSchemas = Author["~"].schemas;
+    postSchemas = Post["~"].schemas;
   });
 
   describe("Simple Queries", () => {
@@ -408,7 +407,7 @@ describe("Serverless Request Simulation (Schema Build + Validate)", () => {
     test("findUnique - full request", () => {
       const result = benchmark("findUnique (full)", ITERATIONS, () => {
         // Simulate serverless: build schema + validate
-        const schemas = getModelSchemas(Author["~"].state);
+        const schemas = Author["~"].schemas;
         parse(schemas.args.findUnique, {
           where: { id: "author-1" },
         });
@@ -420,7 +419,7 @@ describe("Serverless Request Simulation (Schema Build + Validate)", () => {
 
     test("findMany with filters - full request", () => {
       const result = benchmark("findMany filtered (full)", ITERATIONS, () => {
-        const schemas = getModelSchemas(Author["~"].state);
+        const schemas = Author["~"].schemas;
         parse(schemas.args.findMany, {
           where: { name: { contains: "Alice" } },
           take: 10,
@@ -434,7 +433,7 @@ describe("Serverless Request Simulation (Schema Build + Validate)", () => {
 
     test("findMany with nested include - full request", () => {
       const result = benchmark("findMany + include (full)", ITERATIONS, () => {
-        const schemas = getModelSchemas(Author["~"].state);
+        const schemas = Author["~"].schemas;
         parse(schemas.args.findMany, {
           where: { name: { startsWith: "A" } },
           include: {
@@ -454,7 +453,7 @@ describe("Serverless Request Simulation (Schema Build + Validate)", () => {
 
     test("create with nested - full request", () => {
       const result = benchmark("create nested (full)", ITERATIONS, () => {
-        const schemas = getModelSchemas(Author["~"].state);
+        const schemas = Author["~"].schemas;
         parse(schemas.args.create, {
           data: {
             id: "author-new",
@@ -476,7 +475,7 @@ describe("Serverless Request Simulation (Schema Build + Validate)", () => {
 
     test("update with complex operations - full request", () => {
       const result = benchmark("update complex (full)", ITERATIONS, () => {
-        const schemas = getModelSchemas(Author["~"].state);
+        const schemas = Author["~"].schemas;
         parse(schemas.args.update, {
           where: { id: "author-1" },
           data: {
@@ -501,7 +500,7 @@ describe("Serverless Request Simulation (Schema Build + Validate)", () => {
         "Post findMany 3-level (full)",
         ITERATIONS,
         () => {
-          const schemas = getModelSchemas(Post["~"].state);
+          const schemas = Post["~"].schemas;
           parse(schemas.args.findMany, {
             where: { published: true },
             include: {
@@ -539,15 +538,15 @@ describe("Performance Summary", () => {
 
     // Schema creation
     const simpleSchemaResult = benchmark("Schema: Simple", 50, () => {
-      getModelSchemas(SimpleModel["~"].state);
+      SimpleModel["~"].schemas;
     });
 
     const complexSchemaResult = benchmark("Schema: Complex", 50, () => {
-      getModelSchemas(Author["~"].state);
+      Author["~"].schemas;
     });
 
     // Pre-built validation
-    const authorSchemas = getModelSchemas(Author["~"].state);
+    const authorSchemas = Author["~"].schemas;
     const simpleQueryResult = benchmark("Validate: Simple Query", 50, () => {
       parse(authorSchemas.args.findUnique, { where: { id: "1" } });
     });
@@ -562,12 +561,12 @@ describe("Performance Summary", () => {
 
     // Full request
     const fullSimpleResult = benchmark("Full Request: Simple", 50, () => {
-      const schemas = getModelSchemas(Author["~"].state);
+      const schemas = Author["~"].schemas;
       parse(schemas.args.findUnique, { where: { id: "1" } });
     });
 
     const fullComplexResult = benchmark("Full Request: Complex", 50, () => {
-      const schemas = getModelSchemas(Author["~"].state);
+      const schemas = Author["~"].schemas;
       parse(schemas.args.findMany, {
         where: { name: { contains: "A" } },
         include: { posts: { include: { comments: true } } },

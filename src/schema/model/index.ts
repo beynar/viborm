@@ -23,7 +23,7 @@ export type {
   // State types
   ModelState,
 } from "./model";
-export { type AnyModel, Model, model } from "./model";
+export { type AnyModel, Model, model, type NameRegistry } from "./model";
 
 // Schema exports
-export { getModelSchemas } from "./schemas";
+export { ModelSchemas } from "./schemas";

@@ -216,12 +216,18 @@ export function validateFieldsSinglePass(
     // F004: Default type match
     if (
       st.hasDefault &&
-      st.defaultValue !== undefined &&
-      typeof st.defaultValue !== "function"
+      st.default !== undefined &&
+      typeof st.default !== "function"
     ) {
       const schema = field["~"].schemas.base;
-      const result = schema(st.defaultValue);
-      if (result instanceof Error || (result as any)?.problems) {
+      const result = schema["~standard"].validate(st.default);
+      if (result instanceof Promise) {
+
+
+      } else {
+
+
+      if (result.issues) {
         errors.push({
           code: "F004",
           message: `Default value for '${fname}' in '${name}' doesn't match type`,
@@ -230,6 +236,7 @@ export function validateFieldsSinglePass(
           field: fname,
         });
       }
+        }
     }
 
     // F006: ID not nullable

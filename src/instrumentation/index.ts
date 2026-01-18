@@ -35,7 +35,6 @@ export {
 	SPAN_BUILD,
 	SPAN_CONNECT,
 	SPAN_DISCONNECT,
-	SPAN_DRIVER_EXECUTE,
 	SPAN_EXECUTE,
 	SPAN_OPERATION,
 	SPAN_PARSE,
@@ -80,3 +79,14 @@ export {
 	isTracingActive,
 	type InstrumentationContext,
 } from "./context";
+
+// Performance tracker
+export {
+	createPerfTracker,
+	formatPerfReport,
+	noopTracker,
+	type PerfEntry,
+	type PerfEntryReport,
+	type PerfReport,
+	type PerfTracker,
+} from "./perf-tracker";

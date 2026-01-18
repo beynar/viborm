@@ -3,7 +3,7 @@
 
 export type { VibORMClient, VibORMConfig } from "@client/client.js";
 export { createClient } from "@client/client.js";
-export type { CachedClient, CacheableOperations, MutationOperations } from "@client/types.js";
+export type { CachedClient, CacheableOperations, MutationOperations, WaitUntilFn } from "@client/types.js";
 // Cache
 export {
   CacheDriver,

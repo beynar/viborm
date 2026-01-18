@@ -47,6 +47,13 @@ function createParseResultChain(ctx: QueryContext) {
 }
 
 /**
+ * Get or create the cached parseResult chain for this context
+ */
+function getParseResultChain(ctx: QueryContext) {
+  return (ctx._parseResultChain ??= createParseResultChain(ctx));
+}
+
+/**
  * Create the chained parseRelation function.
  * Chain: Driver (if present) -> Adapter -> Default
  */
@@ -70,6 +77,19 @@ function createParseRelationChain(ctx: QueryContext, relation: AnyRelation) {
   }
 
   return (value: unknown) => adapterParse(value, relationType);
+}
+
+/**
+ * Get or create the cached parseRelation chain for a relation
+ */
+function getParseRelationChain(ctx: QueryContext, relationName: string, relation: AnyRelation) {
+  ctx._parseRelationChains ??= new Map();
+  let chain = ctx._parseRelationChains.get(relationName);
+  if (!chain) {
+    chain = createParseRelationChain(ctx, relation);
+    ctx._parseRelationChains.set(relationName, chain);
+  }
+  return chain;
 }
 
 /**
@@ -97,6 +117,19 @@ function createParseFieldChain(ctx: QueryContext, fieldType: string) {
 }
 
 /**
+ * Get or create the cached parseField chain for a field type
+ */
+function getParseFieldChain(ctx: QueryContext, fieldType: string) {
+  ctx._parseFieldChains ??= new Map();
+  let chain = ctx._parseFieldChains.get(fieldType);
+  if (!chain) {
+    chain = createParseFieldChain(ctx, fieldType);
+    ctx._parseFieldChains.set(fieldType, chain);
+  }
+  return chain;
+}
+
+/**
  * Parse query result based on operation type
  *
  * @param ctx - Query context
@@ -114,8 +147,8 @@ export function parseResult<T>(
     return getDefaultResult(operation) as T;
   }
 
-  // Use chained parsing: Driver -> Adapter -> Default
-  const parse = createParseResultChain(ctx);
+  // Use cached chained parsing: Driver -> Adapter -> Default
+  const parse = getParseResultChain(ctx);
   return parse(raw, operation) as T;
 }
 
@@ -183,18 +216,21 @@ function parseRow(
   const scalars = model["~"].state.scalars;
   const relations = model["~"].state.relations;
 
-  for (const [key, value] of Object.entries(row)) {
+  // Use Object.keys + direct access instead of Object.entries to avoid tuple allocation
+  const keys = Object.keys(row);
+  for (const key of keys) {
+    const value = row[key];
     const field = scalars[key];
     const relation = relations[key];
 
     if (field) {
       const fieldType = field["~"].state.type;
-      // Use chained parsing: Driver -> Adapter -> Default
-      const parse = createParseFieldChain(ctx, fieldType);
+      // Use cached chained parsing: Driver -> Adapter -> Default
+      const parse = getParseFieldChain(ctx, fieldType);
       result[key] = parse(value);
     } else if (relation) {
-      // Use chained parsing: Driver -> Adapter -> Default
-      const parse = createParseRelationChain(ctx, relation);
+      // Use cached chained parsing: Driver -> Adapter -> Default
+      const parse = getParseRelationChain(ctx, key, relation);
       result[key] = parse(value);
     } else {
       // Unknown field - parse generically
@@ -300,18 +336,21 @@ function deserializeWithSchema(
 ): Record<string, unknown> {
   const result: Record<string, unknown> = {};
 
-  for (const [key, value] of Object.entries(obj)) {
+  // Use Object.keys + direct access instead of Object.entries to avoid tuple allocation
+  const keys = Object.keys(obj);
+  for (const key of keys) {
+    const value = obj[key];
     const field = scalars[key];
     const relation = relations[key];
 
     if (field) {
       const fieldType = field["~"].state.type;
-      // Use chained parsing: Driver -> Adapter -> Default
-      const parse = createParseFieldChain(ctx, fieldType);
+      // Use cached chained parsing: Driver -> Adapter -> Default
+      const parse = getParseFieldChain(ctx, fieldType);
       result[key] = parse(value);
     } else if (relation) {
-      // Use chained parsing: Driver -> Adapter -> Default
-      const parse = createParseRelationChain(ctx, relation);
+      // Use cached chained parsing: Driver -> Adapter -> Default
+      const parse = getParseRelationChain(ctx, key, relation);
       result[key] = parse(value);
     } else {
       result[key] = parseValue(value);

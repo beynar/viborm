@@ -75,6 +75,12 @@ export interface QueryContext {
   nextAlias: () => string;
   /** Get root alias (t0) */
   rootAlias: string;
+  /** Cached parse result chain (lazily initialized) */
+  _parseResultChain?: (value: unknown, op: Operation) => unknown;
+  /** Cached parse field chains by field type (lazily initialized) */
+  _parseFieldChains?: Map<string, (value: unknown) => unknown>;
+  /** Cached parse relation chains by relation name (lazily initialized) */
+  _parseRelationChains?: Map<string, (value: unknown) => unknown>;
 }
 
 /**

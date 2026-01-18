@@ -7,8 +7,6 @@
 // Base driver for custom implementations
 export { Driver } from "./driver";
 export type { AnyDriver, DriverResultParser, QueryExecutionContext } from "./driver";
-// Main interface
-export { isDriver } from "./driver";
 // Errors
 export {
   ConnectionError,

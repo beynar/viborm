@@ -29,13 +29,20 @@ export function buildWhere(
   where: Record<string, unknown> | undefined,
   alias: string
 ): Sql | undefined {
-  if (!where || Object.keys(where).length === 0) {
+  if (!where) {
+    return undefined;
+  }
+
+  // Use Object.keys + direct access instead of Object.entries to avoid tuple allocation
+  const keys = Object.keys(where);
+  if (keys.length === 0) {
     return undefined;
   }
 
   const conditions: Sql[] = [];
 
-  for (const [key, value] of Object.entries(where)) {
+  for (const key of keys) {
+    const value = where[key];
     if (value === undefined) {
       continue;
     }

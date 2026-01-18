@@ -1,7 +1,14 @@
 // Core schema factories - re-exports
 
 // Create exports
-export { getCreateSchema, getRelationCreate, getScalarCreate } from "./create";
+export {
+  getCreateSchema,
+  getRelationCreate,
+  getScalarCreate,
+  type CreateSchema,
+  type RelationCreateSchema,
+  type ScalarCreateSchema,
+} from "./create";
 // Filter exports
 export {
   getCompoundConstraintFilter,
@@ -9,49 +16,23 @@ export {
   getRelationFilter,
   getScalarFilter,
   getUniqueFilter,
-} from "./filter";
-// OrderBy exports
-export { getOrderBySchema, sortOrderSchema } from "./orderby";
-// Select/Include exports
-export { getIncludeSchema, getSelectSchema } from "./select";
-// Update exports
-export { getRelationUpdate, getScalarUpdate, getUpdateSchema } from "./update";
-// Where exports
-export { getWhereSchema, getWhereUniqueSchema } from "./where";
-
-// =============================================================================
-// INFERRED TYPE EXPORTS
-// =============================================================================
-
-import type { ModelState } from "../../model";
-import {
-  type CreateSchema,
-  getCreateSchema,
-  getRelationCreate,
-  getScalarCreate,
-  type RelationCreateSchema,
-  type ScalarCreateSchema,
-} from "./create";
-import {
   type CompoundConstraintFilterSchema,
   type CompoundIdFilterSchema,
-  getCompoundConstraintFilter,
-  getCompoundIdFilter,
-  getRelationFilter,
-  getScalarFilter,
-  getUniqueFilter,
   type RelationFilterSchema,
   type ScalarFilterSchema,
   type UniqueFilterSchema,
 } from "./filter";
-import { getOrderBySchema, type OrderBySchema } from "./orderby";
-import {
+// OrderBy exports
+export { getOrderBySchema, sortOrderSchema, type OrderBySchema } from "./orderby";
+// Select/Include exports
+export {
   getIncludeSchema,
   getSelectSchema,
   type IncludeSchema,
   type SelectSchema,
 } from "./select";
-import {
+// Update exports
+export {
   getRelationUpdate,
   getScalarUpdate,
   getUpdateSchema,
@@ -59,13 +40,30 @@ import {
   type ScalarUpdateSchema,
   type UpdateSchema,
 } from "./update";
-import {
+// Where exports
+export {
   getWhereSchema,
   getWhereUniqueSchema,
   type WhereSchema,
   type WhereUniqueSchema,
 } from "./where";
 
+// =============================================================================
+// CORE SCHEMAS TYPE
+// =============================================================================
+
+import type { ModelState } from "../../model";
+import { CreateSchema, RelationCreateSchema, ScalarCreateSchema } from "./create";
+import { CompoundConstraintFilterSchema, CompoundIdFilterSchema, RelationFilterSchema, ScalarFilterSchema, UniqueFilterSchema } from "./filter";
+import { OrderBySchema } from "./orderby";
+import { IncludeSchema, SelectSchema } from "./select";
+import { RelationUpdateSchema, ScalarUpdateSchema, UpdateSchema } from "./update";
+import { WhereSchema, WhereUniqueSchema } from "./where";
+
+/**
+ * Type representing all core schemas for a model.
+ * Used by args factories to reference schema types.
+ */
 export type CoreSchemas<T extends ModelState> = {
   scalarFilter: ScalarFilterSchema<T>;
   uniqueFilter: UniqueFilterSchema<T>;
@@ -83,27 +81,4 @@ export type CoreSchemas<T extends ModelState> = {
   select: SelectSchema<T>;
   include: IncludeSchema<T>;
   orderBy: OrderBySchema<T>;
-};
-
-export const getCoreSchemas = <T extends ModelState>(
-  state: T
-): CoreSchemas<T> => {
-  return {
-    scalarFilter: getScalarFilter(state),
-    uniqueFilter: getUniqueFilter(state),
-    relationFilter: getRelationFilter(state),
-    compoundIdFilter: getCompoundIdFilter(state),
-    compoundConstraintFilter: getCompoundConstraintFilter(state),
-    scalarCreate: getScalarCreate(state),
-    relationCreate: getRelationCreate(state),
-    scalarUpdate: getScalarUpdate(state),
-    relationUpdate: getRelationUpdate(state),
-    where: getWhereSchema(state),
-    whereUnique: getWhereUniqueSchema(state),
-    create: getCreateSchema(state),
-    update: getUpdateSchema(state),
-    select: getSelectSchema(state),
-    include: getIncludeSchema(state),
-    orderBy: getOrderBySchema(state),
-  };
 };

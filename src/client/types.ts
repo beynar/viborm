@@ -20,6 +20,13 @@ import type {
 
 import { CacheDriver } from "../cache/driver";
 
+/**
+ * Callback to extend the lifetime of the request until the promise resolves.
+ * Used in serverless environments (Cloudflare Workers, Vercel Edge) to keep
+ * the runtime alive for background operations like SWR revalidation.
+ */
+export type WaitUntilFn = (promise: Promise<unknown>) => void;
+
 export type Schema = Record<string, Model<any>>;
 
 export type Operations =

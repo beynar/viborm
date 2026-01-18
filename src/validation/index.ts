@@ -218,7 +218,7 @@ import {
   union as unionFn,
   vector as vectorFn,
 } from "./schemas";
-import type { VibSchema } from "./types";
+import type { Prettify, VibSchema } from "./types";
 
 /**
  * VibORM validation namespace.

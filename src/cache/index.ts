@@ -2,11 +2,11 @@
  * Cache Module Exports
  */
 
-export { createCachedClientProxy, type OperationSpanWrapper } from "./client";
 export {
   type AnyCacheDriver,
   CacheDriver,
   type CacheEntry,
+  type CacheExecutionOptions,
   type CacheSetOptions,
 } from "./driver";
 export { CloudflareKVCache } from "./drivers/cloudflare-kv";
@@ -17,12 +17,8 @@ export {
   type CacheInvalidationSchema,
   cacheInvalidationSchema,
   DEFAULT_CACHE_TTL,
+  type WithCacheOptions,
   type WithCacheSchema,
   withCacheSchema,
 } from "./schema";
 export { parseTTL } from "./ttl";
-export type {
-  ParsedCacheOptions,
-  WaitUntilFn,
-  WithCacheOptions,
-} from "./types";

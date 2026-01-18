@@ -24,16 +24,10 @@ export const SPAN_VALIDATE = "viborm.validate";
 export const SPAN_BUILD = "viborm.build";
 
 /**
- * Span name for query execution (wrapper)
- * Created around the driver execution
- */
-export const SPAN_EXECUTE = "viborm.execute";
-
-/**
- * Span name for actual driver-level execution
+ * Span name for query execution
  * Created for the actual database round-trip
  */
-export const SPAN_DRIVER_EXECUTE = "viborm.driver.execute";
+export const SPAN_EXECUTE = "viborm.execute";
 
 /**
  * Span name for result parsing
@@ -67,7 +61,6 @@ export type VibORMSpanName =
 	| typeof SPAN_VALIDATE
 	| typeof SPAN_BUILD
 	| typeof SPAN_EXECUTE
-	| typeof SPAN_DRIVER_EXECUTE
 	| typeof SPAN_PARSE
 	| typeof SPAN_TRANSACTION
 	| typeof SPAN_CONNECT

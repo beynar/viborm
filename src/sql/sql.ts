@@ -15,6 +15,11 @@ export class Sql {
   readonly values: Value[];
   readonly strings: string[];
 
+  // Cached statement strings (memoized per placeholder type)
+  private _stmt$n: string | undefined;
+  private _stmt$: string | undefined;
+  private _stmtQ: string | undefined;
+
   constructor(rawStrings: readonly string[], rawValues: readonly RawValue[]) {
     if (rawStrings.length - 1 !== rawValues.length) {
       if (rawStrings.length === 0) {
@@ -27,10 +32,11 @@ export class Sql {
       );
     }
 
-    const valuesLength = rawValues.reduce<number>(
-      (len, value) => len + (value instanceof Sql ? value.values.length : 1),
-      0
-    );
+    // Single pass to count values (avoid reduce overhead)
+    let valuesLength = 0;
+    for (const v of rawValues) {
+      valuesLength += v instanceof Sql ? v.values.length : 1;
+    }
 
     this.values = new Array(valuesLength);
     this.strings = new Array(valuesLength + 1);
@@ -39,8 +45,8 @@ export class Sql {
 
     // Iterate over raw values, strings, and children. The value is always
     // positioned between two strings, e.g. `index + 1`.
-    let i = 0,
-      pos = 0;
+    let i = 0;
+    let pos = 0;
     while (i < rawValues.length) {
       const child = rawValues[i++]!;
       const rawString = rawStrings[i]!;
@@ -65,12 +71,63 @@ export class Sql {
     }
   }
 
-  toStatement(placeholder: "$n" | ":n" | "?" = "?") {
-    const len = this.strings.length;
-    let i = 1;
-    let value = this.strings[0]!;
-    while (i < len) value += `${placeholder}${i}${this.strings[i++]!}`;
-    return value;
+  /**
+   * Build the final SQL statement string with placeholders.
+   * Results are cached per placeholder type for reuse.
+   */
+  toStatement(placeholder: "$n" | ":n" | "?" = "?"): string {
+    // Check cache first
+    if (placeholder === "$n") {
+      if (this._stmt$n !== undefined) return this._stmt$n;
+    } else if (placeholder === ":n") {
+      if (this._stmt$ !== undefined) return this._stmt$;
+    } else {
+      if (this._stmtQ !== undefined) return this._stmtQ;
+    }
+
+    // Build the statement
+    const strings = this.strings;
+    const len = strings.length;
+
+    if (len === 1) {
+      // No placeholders needed
+      const result = strings[0]!;
+      this._stmt$n = this._stmt$ = this._stmtQ = result;
+      return result;
+    }
+
+    // Pre-calculate total length for better string allocation
+    // Use array join for better performance with many segments
+    const parts = new Array<string>(len * 2 - 1);
+    parts[0] = strings[0]!;
+
+    if (placeholder === "?") {
+      // Simple ? placeholders (MySQL/SQLite style)
+      for (let i = 1; i < len; i++) {
+        parts[i * 2 - 1] = "?";
+        parts[i * 2] = strings[i]!;
+      }
+    } else {
+      // Numbered placeholders ($1, $2 or :1, :2)
+      const prefix = placeholder === "$n" ? "$" : ":";
+      for (let i = 1; i < len; i++) {
+        parts[i * 2 - 1] = prefix + i;
+        parts[i * 2] = strings[i]!;
+      }
+    }
+
+    const result = parts.join("");
+
+    // Cache the result
+    if (placeholder === "$n") {
+      this._stmt$n = result;
+    } else if (placeholder === ":n") {
+      this._stmt$ = result;
+    } else {
+      this._stmtQ = result;
+    }
+
+    return result;
   }
 }
 
@@ -130,10 +187,20 @@ function join(
   prefix = "",
   suffix = ""
 ) {
-  return new Sql(
-    [prefix, ...new Array(values.length - 1).fill(separator), suffix],
-    values
-  );
+  const len = values.length;
+  if (len === 0) {
+    return new Sql([prefix + suffix], []);
+  }
+
+  // Pre-allocate array with exact size instead of spread + fill
+  const strings = new Array<string>(len + 1);
+  strings[0] = prefix;
+  for (let i = 1; i < len; i++) {
+    strings[i] = separator;
+  }
+  strings[len] = suffix;
+
+  return new Sql(strings, values);
 }
 
 /**

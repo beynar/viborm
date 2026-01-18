@@ -17,6 +17,7 @@ function getOperationSchema(
   model: Model<any>,
   operation: Operation
 ): VibSchema | undefined {
+
   const schemas = model["~"].schemas;
 
   // Map operations to their schema locations
@@ -81,7 +82,7 @@ export function validate<T>(
 
   if (result.issues) {
     const issues = result.issues.map((issue) => ({
-      path: issue.path?.map((p: { key?: string }) => p.key).join(".") || "root",
+      path: issue.path?.map((p) => typeof p ==="object" ? p.key: p ).join(".") || "root",
       message: issue.message,
     }));
     throw new ValidationError(operation, issues);

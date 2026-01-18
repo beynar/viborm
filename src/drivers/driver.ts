@@ -6,18 +6,18 @@
 
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import type { InstrumentationContext } from "@instrumentation/context";
+
 import {
   ATTR_DB_COLLECTION,
   ATTR_DB_DRIVER,
   ATTR_DB_OPERATION_NAME,
   ATTR_DB_SYSTEM,
-  SPAN_DRIVER_EXECUTE,
+  SPAN_EXECUTE,
   SPAN_TRANSACTION,
 } from "@instrumentation/spans";
 import type { Operation } from "@query-engine/types";
 import type { RelationType } from "@schema/relation/types";
 import type { Sql } from "@sql";
-import { buildPostgresStatement } from "./postgres-utils";
 import type { Dialect, QueryResult, TransactionOptions } from "./types";
 
 // ============================================================
@@ -47,20 +47,6 @@ export interface DriverResultParser {
   ) => unknown;
 }
 
-/**
- * Type guard to check if an object is a Driver
- */
-export function isDriver(obj: unknown): obj is Driver<any, any> {
-  return (
-    typeof obj === "object" &&
-    obj !== null &&
-    "dialect" in obj &&
-    "execute" in obj &&
-    "executeRaw" in obj &&
-    "transaction" in obj
-  );
-}
-
 // ============================================================
 // QUERY EXECUTION CONTEXT
 // ============================================================
@@ -71,24 +57,6 @@ export function isDriver(obj: unknown): obj is Driver<any, any> {
 export interface QueryExecutionContext {
   model?: string;
   operation?: Operation;
-}
-
-// ============================================================
-// STATEMENT BUILDERS
-// ============================================================
-
-/**
- * Build a SQLite/MySQL statement with ? placeholders
- */
-function buildSQLiteStatement(query: Sql): string {
-  const len = query.strings.length;
-  let i = 1;
-  let result = query.strings[0] ?? "";
-  while (i < len) {
-    result += `?${query.strings[i] ?? ""}`;
-    i++;
-  }
-  return result;
 }
 
 // ============================================================
@@ -202,15 +170,16 @@ export abstract class Driver<TClient, TTransaction> {
   }
 
   /**
-   * Build dialect-specific SQL statement
+   * Build dialect-specific SQL statement.
+   * Uses Sql.toStatement() which caches results per placeholder type.
    */
   protected buildStatement(query: Sql): string {
     switch (this.dialect) {
       case "postgresql":
-        return buildPostgresStatement(query);
+        return query.toStatement("$n");
       case "sqlite":
       case "mysql":
-        return buildSQLiteStatement(query);
+        return query.toStatement("?");
       default:
         return query.toStatement();
     }
@@ -310,7 +279,7 @@ export abstract class Driver<TClient, TTransaction> {
 
     return this.instrumentation.tracer.startActiveSpan(
       {
-        name: SPAN_DRIVER_EXECUTE,
+        name: SPAN_EXECUTE,
         attributes: this.getContextAttributes(),
         sql: { query: sql, params },
       },
@@ -332,6 +301,7 @@ export abstract class Driver<TClient, TTransaction> {
     const client = await this.getClient();
     const sql = this.buildStatement(query);
     const params = query.values;
+
     return this.withInstrumentation(sql, params, () =>
       this.execute<T>(client, sql, params)
     );
@@ -348,7 +318,7 @@ export abstract class Driver<TClient, TTransaction> {
   }
 
   async _transaction<T>(
-    fn: (tx: Driver<TClient, TTransaction>) => Promise<T>,
+    fn: () => Promise<T>,
     options?: TransactionOptions
   ): Promise<T> {
     const client = await this.getClient();
@@ -359,7 +329,7 @@ export abstract class Driver<TClient, TTransaction> {
         (tx) => {
           this.inTransaction = true;
           this.transactions.push(tx);
-          return fn(this);
+          return fn();
         },
         options
       );
