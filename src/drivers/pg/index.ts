@@ -11,7 +11,6 @@ import {
   type DriverConfig,
   type VibORMClient,
 } from "@client/client";
-import type { Schema } from "@client/types";
 import { Pool, type PoolClient, type PoolConfig } from "pg";
 import { unsupportedGeospatial, unsupportedVector } from "@errors";
 import { Driver } from "../driver";
@@ -30,8 +29,7 @@ export interface PgDriverOptions {
   postgis?: boolean;
 }
 
-export type PgClientConfig<S extends Schema> = PgDriverOptions &
-  DriverConfig<S>;
+export type PgClientConfig<C extends DriverConfig> = PgDriverOptions & C;
 
 // ============================================================
 // DRIVER IMPLEMENTATION
@@ -141,9 +139,7 @@ export class PgDriver extends Driver<Pool, PoolClient> {
 // CONVENIENCE FUNCTION
 // ============================================================
 
-export function createClient<S extends Schema>(
-  config: PgClientConfig<S>
-): VibORMClient<S> {
+export function createClient<C extends DriverConfig>(config: PgClientConfig<C>) {
   const { pool, options, pgvector, postgis, ...restConfig } = config;
 
   const driverOptions: PgDriverOptions = {};
@@ -154,8 +150,8 @@ export function createClient<S extends Schema>(
 
   const driver = new PgDriver(driverOptions);
 
-  return baseCreateClient<S>({
+  return baseCreateClient({
     ...restConfig,
     driver,
-  }) as VibORMClient<S>;
+  }) as VibORMClient<C & { driver: PgDriver }>;
 }

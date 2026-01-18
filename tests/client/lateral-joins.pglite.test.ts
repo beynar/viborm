@@ -85,7 +85,7 @@ const schema = {
 // TEST SETUP
 // =============================================================================
 
-let client: Awaited<ReturnType<typeof PGliteCreateClient<typeof schema>>>;
+let client: Awaited<ReturnType<typeof PGliteCreateClient<{ schema: typeof schema }>>>;
 
 beforeAll(async () => {
   const { PGlite } = await import("@electric-sql/pglite");

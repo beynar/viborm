@@ -66,7 +66,7 @@ export const withCacheSchema = v.object(
      * @default 300000 (5 minutes)
      */
     ttl: v.coerce(v.optional(v.union([v.string(), v.number()]), DEFAULT_CACHE_TTL), (value: string | number) => {
-      return parseTTL(value);
+      return parseTTL(value || DEFAULT_CACHE_TTL);
     }),
     /**
      * Enable stale-while-revalidate pattern

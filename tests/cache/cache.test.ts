@@ -507,6 +507,7 @@ describe("Cache", () => {
         // No cache
       });
 
+      // @ts-expect-error - Testing runtime error when cache not configured
       expect(() => client.$withCache()).toThrow(
         "Cache driver not configured"
       );

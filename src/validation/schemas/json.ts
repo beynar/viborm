@@ -81,7 +81,7 @@ function isJsonValue(value: unknown, seen = new WeakSet<object>()): boolean {
 
     for (const key in value) {
       if (
-        Object.hasOwn(value, key) &&
+        Object.prototype.hasOwnProperty.call(value, key) &&
         !isJsonValue((value as Record<string, unknown>)[key], seen)
       ) {
         return false;

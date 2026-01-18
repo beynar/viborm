@@ -694,9 +694,11 @@ async function executeRelationDisconnect(
     const conditions: Sql[] = [];
 
     for (const input of inputs) {
-      const condition = buildWhereUnique(childCtx, input, childCtx.rootAlias);
-      if (condition) {
-        conditions.push(condition);
+      if (typeof input === "object" && input !== null) {
+        const condition = buildWhereUnique(childCtx, input, childCtx.rootAlias);
+        if (condition) {
+          conditions.push(condition);
+        }
       }
     }
 
@@ -751,9 +753,11 @@ async function executeRelationDelete(
     const conditions: Sql[] = [];
 
     for (const input of inputs) {
-      const condition = buildWhereUnique(childCtx, input, childCtx.rootAlias);
-      if (condition) {
-        conditions.push(condition);
+      if (typeof input === "object" && input !== null) {
+        const condition = buildWhereUnique(childCtx, input, childCtx.rootAlias);
+        if (condition) {
+          conditions.push(condition);
+        }
       }
     }
 
@@ -964,10 +968,9 @@ async function getLastInsertId(
   }
 
   // Use adapter's lastInsertId to build dialect-appropriate query
+  // MySQL/SQLite allow SELECT without FROM for scalar functions
   const lastInsertIdExpr = adapter.lastInsertId();
-  const selectSql = adapter.assemble.select({
-    columns: sql`${lastInsertIdExpr} ${adapter.clauses.as} ${sql.identifier("id")}`,
-  });
+  const selectSql = sql`SELECT ${lastInsertIdExpr} AS "id"`;
 
   // Let DB errors propagate - don't silently return undefined
   const result = await driver._execute<{ id: unknown }>(selectSql);

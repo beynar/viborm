@@ -2,7 +2,7 @@
 // Common utilities and type helpers for relation schemas
 
 import type { AnyModel } from "@schema/model";
-import type { ModelSchemas } from "@schema/model/schemas/types";
+import type { ModelSchemas } from "@schema/model/schemas/model-schemas";
 import v, { type V, type VibSchema } from "@validation";
 import type { RelationState } from "../types";
 

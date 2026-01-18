@@ -137,7 +137,7 @@ async function introspect(
         name: col.name,
         type: col.type || "TEXT",
         nullable: col.notnull === 0,
-        defaultValue: col.dflt_value ?? undefined,
+        default: col.dflt_value ?? undefined,
         autoIncrement:
           col.pk === 1 && col.type.toUpperCase() === "INTEGER" ? true : false,
       });
@@ -294,8 +294,8 @@ function generateCreateTable(table: TableDef): string {
     const colDef = [escapeIdentifier(col.name), col.type];
 
     if (!col.nullable) colDef.push("NOT NULL");
-    if (col.defaultValue !== undefined) {
-      colDef.push(`DEFAULT ${col.defaultValue}`);
+    if (col.default !== undefined) {
+      colDef.push(`DEFAULT ${col.default}`);
     }
 
     parts.push(colDef.join(" "));
@@ -369,8 +369,8 @@ function generateAddColumn(tableName: string, column: ColumnDef): string {
   const parts = [escapeIdentifier(column.name), column.type];
 
   if (!column.nullable) parts.push("NOT NULL");
-  if (column.defaultValue !== undefined) {
-    parts.push(`DEFAULT ${column.defaultValue}`);
+  if (column.default !== undefined) {
+    parts.push(`DEFAULT ${column.default}`);
   }
 
   return `ALTER TABLE ${escapeIdentifier(tableName)} ADD COLUMN ${parts.join(" ")}`;

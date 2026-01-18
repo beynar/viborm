@@ -164,9 +164,9 @@ export async function push(
   // 7. Execute DDL (unless dry run)
   if (!dryRun && sql.length > 0) {
     // Execute in a transaction for atomicity
-    await driver._transaction(async (tx) => {
+    await driver._transaction(async () => {
       for (const statement of sql) {
-        await tx._executeRaw(statement + ";");
+        await driver._executeRaw(statement + ";");
       }
     });
   }

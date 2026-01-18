@@ -5,10 +5,43 @@
  * Uses QueryEngine.build() to generate SQL without executing.
  */
 
+import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
+import { Driver } from "@drivers";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
-import { s } from "@schema";
+import { s, hydrateSchemaNames } from "@schema";
 import { beforeAll, describe, expect, test } from "vitest";
+
+// =============================================================================
+// MOCK DRIVER FOR TESTING
+// =============================================================================
+
+class MockDriver extends Driver<null, null> {
+  readonly adapter: DatabaseAdapter;
+
+  constructor(adapter: DatabaseAdapter) {
+    super("postgresql", "mock-postgresql");
+    this.adapter = adapter;
+  }
+
+  protected async initClient() {
+    return null;
+  }
+
+  protected async closeClient() {}
+
+  protected async execute<T>(): Promise<{ rows: T[]; rowCount: number }> {
+    return { rows: [], rowCount: 0 };
+  }
+
+  protected async executeRaw<T>(): Promise<{ rows: T[]; rowCount: number }> {
+    return { rows: [], rowCount: 0 };
+  }
+
+  protected async transaction<T>(_client: null, fn: () => Promise<T>): Promise<T> {
+    return fn();
+  }
+}
 
 const ASC_REGEX = /ASC/i;
 const JSON_OBJECT_REGEX = /json_build_object|row_to_json/i;
@@ -70,13 +103,20 @@ const Tag = s
 // TEST SETUP
 // =============================================================================
 
+const schema = { Author, Post, Comment, Tag };
+
+// Hydrate schema names before tests
+hydrateSchemaNames(schema);
+
 const adapter = new PostgresAdapter();
+const mockDriver = new MockDriver(adapter);
+
 let registry: ReturnType<typeof createModelRegistry>;
 let engine: QueryEngine;
 
 beforeAll(() => {
-  registry = createModelRegistry({ Author, Post, Comment, Tag });
-  engine = new QueryEngine(adapter, registry);
+  registry = createModelRegistry(schema);
+  engine = new QueryEngine(mockDriver, registry);
 });
 
 // Helper to get SQL string and values

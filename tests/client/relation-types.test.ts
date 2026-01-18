@@ -96,7 +96,7 @@ const schema = { parentModel, childModel };
 // TEST SETUP
 // =============================================================================
 
-let client: Awaited<ReturnType<typeof PGliteCreateClient<typeof schema>>>;
+let client: Awaited<ReturnType<typeof PGliteCreateClient<{ schema: typeof schema }>>>;
 
 // Test data
 const testDate = new Date("2024-06-15T14:30:00.000Z");

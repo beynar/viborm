@@ -16,7 +16,6 @@ import {
   type DriverConfig,
   type VibORMClient,
 } from "@client/client";
-import type { Schema } from "@client/types";
 import Database from "better-sqlite3";
 import { Driver, type DriverResultParser } from "../driver";
 import type { QueryResult, TransactionOptions } from "../types";
@@ -40,8 +39,8 @@ export interface SQLite3DriverOptions {
   filename?: string;
 }
 
-export type SQLite3ClientConfig<S extends Schema> = SQLite3DriverOptions &
-  DriverConfig<S>;
+export type SQLite3ClientConfig<C extends DriverConfig> = SQLite3DriverOptions &
+  C;
 
 // ============================================================
 // HELPERS
@@ -196,15 +195,15 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
 // CONVENIENCE FUNCTION
 // ============================================================
 
-export function createClient<S extends Schema>(
-  config: SQLite3ClientConfig<S>
-): VibORMClient<S> {
+export function createClient<C extends DriverConfig>(
+  config: SQLite3ClientConfig<C>
+) {
   const { client, options, filename, ...restConfig } = config;
 
   const driver = new SQLite3Driver({ client, options, filename });
 
-  return baseCreateClient<S>({
+  return baseCreateClient({
     ...restConfig,
     driver,
-  }) as VibORMClient<S>;
+  }) as VibORMClient<C & { driver: SQLite3Driver }>;
 }

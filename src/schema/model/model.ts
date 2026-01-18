@@ -278,35 +278,25 @@ export class Model<State extends ModelState> {
       nameRegistry: this._nameRegistry,
       /**
        * Get the resolved names for a field.
-       * Falls back to field name and columnName from field state if not hydrated.
+       * Throws if the schema has not been hydrated.
        */
       getFieldName: (key: string): HydratedSchemaNames => {
         const registered = model._nameRegistry.fields.get(key);
         if (registered) {
           return registered as HydratedSchemaNames;
         }
-        // Fallback for non-hydrated models: use field name and check for .map() columnName
-        const field = model.state.scalars[key];
-        const columnName = field?.["~"]?.state?.columnName;
-        return {
-          ts: key,
-          sql: columnName ?? key,
-        };
+        throw new Error(`Field "${key}" not found in nameRegistry`);
       },
       /**
        * Get the resolved names for a relation.
-       * Falls back to relation name if not hydrated.
+       * Throws if the schema has not been hydrated.
        */
       getRelationName: (key: string): HydratedSchemaNames => {
         const registered = model._nameRegistry.relations.get(key);
         if (registered) {
           return registered as HydratedSchemaNames;
         }
-        // Fallback for non-hydrated models
-        return {
-          ts: key,
-          sql: key,
-        };
+        throw new Error(`Relation "${key}" not found in nameRegistry`);
       },
       /** Cached scalar field names (computed once on first access) */
       get scalarFieldNames(): string[] {

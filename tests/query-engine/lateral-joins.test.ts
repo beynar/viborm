@@ -8,11 +8,13 @@
  * - SQL output matches expected patterns
  */
 
+import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
+import { Driver, type Dialect } from "@drivers";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
-import { s } from "@schema";
+import { s, hydrateSchemaNames } from "@schema";
 import { sql } from "@sql";
 import { beforeAll, describe, expect, test } from "vitest";
 
@@ -40,13 +42,53 @@ const Post = s
   })
   .map("posts");
 
+const schema = { Author, Post };
+
+// Hydrate schema names before tests
+hydrateSchemaNames(schema);
+
 // =============================================================================
-// ADAPTERS
+// MOCK DRIVER FOR TESTING
+// =============================================================================
+
+class MockDriver extends Driver<null, null> {
+  readonly adapter: DatabaseAdapter;
+
+  constructor(dialect: Dialect, adapter: DatabaseAdapter) {
+    super(dialect, `mock-${dialect}`);
+    this.adapter = adapter;
+  }
+
+  protected async initClient() {
+    return null;
+  }
+
+  protected async closeClient() {}
+
+  protected async execute<T>(): Promise<{ rows: T[]; rowCount: number }> {
+    return { rows: [], rowCount: 0 };
+  }
+
+  protected async executeRaw<T>(): Promise<{ rows: T[]; rowCount: number }> {
+    return { rows: [], rowCount: 0 };
+  }
+
+  protected async transaction<T>(_client: null, fn: () => Promise<T>): Promise<T> {
+    return fn();
+  }
+}
+
+// =============================================================================
+// ADAPTERS AND MOCK DRIVERS
 // =============================================================================
 
 const postgresAdapter = new PostgresAdapter();
 const mysqlAdapter = new MySQLAdapter();
 const sqliteAdapter = new SQLiteAdapter();
+
+const postgresMockDriver = new MockDriver("postgresql", postgresAdapter);
+const mysqlMockDriver = new MockDriver("mysql", mysqlAdapter);
+const sqliteMockDriver = new MockDriver("sqlite", sqliteAdapter);
 
 // =============================================================================
 // ADAPTER CAPABILITIES TESTS
@@ -140,7 +182,7 @@ describe("Lateral Joins", () => {
       let engine: QueryEngine;
 
       beforeAll(() => {
-        engine = new QueryEngine(postgresAdapter, registry);
+        engine = new QueryEngine(postgresMockDriver, registry);
       });
 
       test("to-many include uses lateral join", () => {
@@ -165,8 +207,8 @@ describe("Lateral Joins", () => {
         // Should use lateral join syntax
         expect(statement).toContain("LEFT JOIN LATERAL");
         expect(statement).toContain("ON TRUE");
-        // LIMIT is parameterized (LIMIT $n1)
-        expect(statement).toMatch(/LIMIT \$n\d+/);
+        // LIMIT is parameterized (LIMIT $1, $2, etc.)
+        expect(statement).toMatch(/LIMIT \$\d+/);
       });
 
       test("include with where filter", () => {
@@ -219,7 +261,7 @@ describe("Lateral Joins", () => {
       let engine: QueryEngine;
 
       beforeAll(() => {
-        engine = new QueryEngine(sqliteAdapter, registry);
+        engine = new QueryEngine(sqliteMockDriver, registry);
       });
 
       test("to-many include uses correlated subquery (no lateral)", () => {
@@ -245,8 +287,8 @@ describe("Lateral Joins", () => {
         expect(statement).not.toContain("LATERAL");
         // Should use scalar subquery pattern
         expect(statement).toContain("(SELECT");
-        // LIMIT is parameterized (LIMIT ?N)
-        expect(statement).toMatch(/LIMIT \?\d+/);
+        // LIMIT is parameterized (LIMIT ?)
+        expect(statement).toContain("LIMIT ?");
       });
     });
 
@@ -254,7 +296,7 @@ describe("Lateral Joins", () => {
       let engine: QueryEngine;
 
       beforeAll(() => {
-        engine = new QueryEngine(mysqlAdapter, registry);
+        engine = new QueryEngine(mysqlMockDriver, registry);
       });
 
       test("to-many include uses lateral join", () => {
@@ -279,8 +321,8 @@ describe("Lateral Joins", () => {
         // Should use lateral join syntax
         expect(statement).toContain("LEFT JOIN LATERAL");
         expect(statement).toContain("ON TRUE");
-        // LIMIT is parameterized (LIMIT ?N)
-        expect(statement).toMatch(/LIMIT \?\d+/);
+        // LIMIT is parameterized (LIMIT ?)
+        expect(statement).toContain("LIMIT ?");
       });
     });
   });

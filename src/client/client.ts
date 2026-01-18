@@ -3,7 +3,7 @@ import type {
   CacheInvalidationOptions,
   WithCacheOptions,
 } from "@cache";
-import { type CacheExecutionOptions, cacheInvalidationSchema, DEFAULT_CACHE_TTL, parseTTL, withCacheSchema } from "@cache";
+import { type CacheExecutionOptions, withCacheSchema } from "@cache";
 import { CacheOperationNotCacheableError } from "@errors";
 import { parse } from "@validation";
 import type { WaitUntilFn } from "./types";
@@ -122,7 +122,8 @@ export interface VibORMConfig {
   cacheVersion?: number | string;
 }
 
-export interface DriverConfig extends Omit<VibORMConfig, "driver"> {}
+export interface DriverConfig extends Omit<VibORMConfig, "driver"> { }
+
 
 /**
  * Extended client type with utility methods

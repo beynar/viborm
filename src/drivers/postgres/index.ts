@@ -11,7 +11,6 @@ import {
   type DriverConfig,
   type VibORMClient,
 } from "@client/client";
-import type { Schema } from "@client/types";
 import postgres, {
   type Options as PostgresOptionsType,
   type Sql as PostgresSql,
@@ -33,8 +32,8 @@ export interface PostgresDriverOptions {
   postgis?: boolean;
 }
 
-export type PostgresClientConfig<S extends Schema> = PostgresDriverOptions &
-  DriverConfig<S>;
+export type PostgresClientConfig<C extends DriverConfig> = PostgresDriverOptions &
+  C;
 
 type PostgresClient = PostgresSql<Record<string, unknown>>;
 
@@ -125,9 +124,9 @@ export class PostgresDriver extends Driver<
 // CONVENIENCE FUNCTION
 // ============================================================
 
-export function createClient<S extends Schema>(
-  config: PostgresClientConfig<S>
-): VibORMClient<S> {
+export function createClient<C extends DriverConfig>(
+  config: PostgresClientConfig<C>
+) {
   const { client, options, pgvector, postgis, ...restConfig } = config;
 
   const driver = new PostgresDriver({
@@ -137,8 +136,8 @@ export function createClient<S extends Schema>(
     postgis,
   });
 
-  return baseCreateClient<S>({
+  return baseCreateClient({
     ...restConfig,
     driver,
-  }) as VibORMClient<S>;
+  }) as VibORMClient<C & { driver: PostgresDriver }>;
 }
