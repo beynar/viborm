@@ -4,18 +4,30 @@
  * Maps ORM field types to PostgreSQL native types.
  */
 
-export function mapFieldType(
-  fieldType: string,
-  options?: { array?: boolean; autoIncrement?: boolean }
-): string {
+import type { Field, FieldState } from "@schema/fields";
+
+/**
+ * Maps VibORM field types to PostgreSQL column types.
+ * Uses full field state to access properties like withTimezone, autoGenerate, etc.
+ */
+export function mapFieldType(field: Field, fieldState: FieldState): string {
+  const nativeType = field["~"].nativeType;
+
+  // If a native type is specified and it's for PostgreSQL, use it
+  if (nativeType && nativeType.db === "pg") {
+    return fieldState.array ? `${nativeType.type}[]` : nativeType.type;
+  }
+
+  // Default mappings based on field type
   let baseType: string;
 
-  switch (fieldType) {
+  switch (fieldState.type) {
     case "string":
       baseType = "text";
       break;
     case "int":
-      baseType = options?.autoIncrement ? "serial" : "integer";
+      // AUTO_INCREMENT (serial) is handled by DDL generator via ColumnDef.autoIncrement
+      baseType = "integer";
       break;
     case "float":
       baseType = "double precision";
@@ -27,16 +39,19 @@ export function mapFieldType(
       baseType = "boolean";
       break;
     case "datetime":
-      baseType = "timestamptz";
+      // withTimezone: true → timestamptz, false/undefined → timestamp
+      baseType = fieldState.withTimezone ? "timestamptz" : "timestamp";
       break;
     case "date":
       baseType = "date";
       break;
     case "time":
-      baseType = "time";
+      // withTimezone: true → timetz, false/undefined → time
+      baseType = fieldState.withTimezone ? "timetz" : "time";
       break;
     case "bigint":
-      baseType = options?.autoIncrement ? "bigserial" : "bigint";
+      // AUTO_INCREMENT (bigserial) is handled by DDL generator via ColumnDef.autoIncrement
+      baseType = "bigint";
       break;
     case "json":
       baseType = "jsonb";
@@ -50,9 +65,13 @@ export function mapFieldType(
     case "point":
       baseType = "point";
       break;
+    case "enum":
+      // Enum type is set via getEnumColumnType, this is a fallback
+      baseType = "text";
+      break;
     default:
-      baseType = fieldType;
+      baseType = "text";
   }
 
-  return options?.array ? `${baseType}[]` : baseType;
+  return fieldState.array ? `${baseType}[]` : baseType;
 }
