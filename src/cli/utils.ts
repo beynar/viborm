@@ -11,6 +11,7 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { createClient, type VibORMClient, type VibORMConfig as ClientConfig } from "../client/client";
 import type { AnyDriver } from "../drivers/driver";
 import type { AnyModel } from "../schema/model";
 
@@ -48,6 +49,7 @@ export interface LoadConfigOptions {
 }
 
 export interface LoadedConfig {
+  client: VibORMClient<ClientConfig>;
   driver: AnyDriver;
   models: Record<string, AnyModel>;
 }
@@ -161,7 +163,14 @@ export async function loadConfig(
     );
   }
 
+  // Create client from driver and models
+  const client = createClient({
+    driver: config.driver,
+    schema: models,
+  });
+
   return {
+    client,
     driver: config.driver,
     models,
   };

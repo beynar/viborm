@@ -12,6 +12,15 @@
 import type { DatabaseAdapter } from "../adapters/database-adapter";
 import type { AnyDriver } from "../drivers/driver";
 import type { AnyModel } from "../schema/model";
+
+/**
+ * Minimal client interface required for migrations.
+ * This allows push() to work with any object that has $driver and $schema.
+ */
+export interface MigrationClient {
+  $driver: AnyDriver;
+  $schema: Record<string, AnyModel>;
+}
 import {
   diff,
   getDestructiveOperationDescriptions,
@@ -21,6 +30,8 @@ import { applyResolutions, strictResolver } from "./resolver";
 import { serializeModels } from "./serializer";
 import {
   type DiffOperation,
+  type EnumValueRemoval,
+  type EnumValueResolver,
   MigrationError,
   type PushResult,
   type Resolver,
@@ -77,17 +88,18 @@ export interface PushOptions {
 /**
  * Pushes schema changes directly to the database.
  *
- * @param driver - Database driver for executing queries
- * @param models - Record of model name to model definition
+ * @param client - VibORM client containing driver and schema
  * @param options - Push options
  * @returns Push result with operations and SQL statements
  */
 export async function push(
-  driver: AnyDriver,
-  models: Record<string, AnyModel>,
+  client: MigrationClient,
   options: PushOptions = {}
 ): Promise<PushResult> {
   const { force = false, dryRun = false, resolver = strictResolver } = options;
+
+  const driver = client.$driver;
+  const models = client.$schema;
 
   // Get the adapter for this database dialect
   const adapter = getAdapterForDialect(driver.dialect);
@@ -313,7 +325,10 @@ function sortOperations(operations: DiffOperation[]): DiffOperation[] {
  * Introspects the current database schema without making any changes.
  * Useful for debugging or displaying current state.
  */
-export async function introspect(driver: AnyDriver): Promise<SchemaSnapshot> {
+export async function introspect(
+  client: MigrationClient
+): Promise<SchemaSnapshot> {
+  const driver = client.$driver;
   const adapter = getAdapterForDialect(driver.dialect);
   return adapter.migrations.introspect(async (sql, params) => {
     const result = await driver._executeRaw<any>(sql, params);
@@ -326,11 +341,10 @@ export async function introspect(driver: AnyDriver): Promise<SchemaSnapshot> {
  * without executing them. Useful for generating migration files.
  */
 export async function generateDDL(
-  driver: AnyDriver,
-  models: Record<string, AnyModel>,
+  client: MigrationClient,
   options: { resolver?: Resolver } = {}
 ): Promise<{ operations: DiffOperation[]; sql: string[] }> {
-  const result = await push(driver, models, {
+  const result = await push(client, {
     ...options,
     dryRun: true,
     force: true,

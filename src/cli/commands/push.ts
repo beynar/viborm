@@ -49,7 +49,7 @@ export const pushCommand = new Command("push")
       const spinner = p.spinner();
       spinner.start("Loading configuration...");
 
-      const { driver, models } = await loadConfig({
+      const { client, driver } = await loadConfig({
         config: options.config,
       });
 
@@ -103,7 +103,7 @@ export const pushCommand = new Command("push")
       // 4. Introspect and diff
       spinner.start("Comparing schemas...");
 
-      const result = await push(driver, models, {
+      const result = await push(client, {
         force: options.acceptDataLoss,
         dryRun: true, // First run as dry-run to preview
         resolver: interactiveResolver,
@@ -184,7 +184,7 @@ export const pushCommand = new Command("push")
       // 10. Apply changes
       spinner.start("Applying changes...");
 
-      const applyResult = await push(driver, models, {
+      const applyResult = await push(client, {
         force: true,
         dryRun: false,
         resolver: interactiveResolver,
