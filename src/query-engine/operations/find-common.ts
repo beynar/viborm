@@ -10,8 +10,7 @@ import { buildOrderBy } from "../builders/orderby-builder";
 import { buildSelectWithAliases } from "../builders/select-builder";
 import { buildWhere } from "../builders/where-builder";
 import { getColumnName, getScalarFieldNames, getTableName } from "../context";
-import type { QueryContext } from "../types";
-import { QueryEngineError } from "../types";
+import { QueryEngineError, type QueryContext } from "../types";
 
 /**
  * Common find arguments

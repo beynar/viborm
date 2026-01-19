@@ -6,7 +6,6 @@ import {
   parseIntegerBoolean,
   tryParseJsonString,
 } from "../../shared/result-parsing";
-import { mysqlMigrations } from "./migrations";
 
 /**
  * MySQL Database Adapter
@@ -579,12 +578,6 @@ export class MySQLAdapter implements DatabaseAdapter {
   };
 
   lastInsertId = (): Sql => sql.raw`LAST_INSERT_ID()`;
-
-  // ============================================================
-  // MIGRATIONS
-  // ============================================================
-
-  migrations = mysqlMigrations;
 
   // ============================================================
   // VECTOR (not natively supported in MySQL)

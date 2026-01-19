@@ -1,7 +1,6 @@
 import { type Sql, sql } from "@sql";
 import type { DatabaseAdapter, QueryParts } from "../../database-adapter";
 import { convertBigIntToNumber } from "../../shared/result-parsing";
-import { postgresMigrations } from "./migrations/index";
 
 /**
  * PostgreSQL Database Adapter
@@ -481,12 +480,6 @@ export class PostgresAdapter implements DatabaseAdapter {
   };
 
   lastInsertId = (): Sql => sql.raw`lastval()`;
-
-  // ============================================================
-  // MIGRATIONS
-  // ============================================================
-
-  migrations = postgresMigrations;
 
   // ============================================================
   // VECTOR (pgvector)

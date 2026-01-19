@@ -11,13 +11,39 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { createClient, type VibORMClient, type VibORMConfig as ClientConfig } from "../client/client";
+import type { VibORMClient, VibORMConfig as ClientConfig } from "../client/client";
 import type { AnyDriver } from "../drivers/driver";
+import type { MigrationStorageDriver } from "../migrations/storage/driver";
 import type { AnyModel } from "../schema/model";
+import { validateSchemaOrThrow } from "../schema/validation";
 
 // =============================================================================
 // CONFIG TYPES
 // =============================================================================
+
+/**
+ * Migration configuration options.
+ */
+export interface MigrationConfig {
+  /** Directory for migration files (default: "./migrations") */
+  dir?: string;
+  /** Name of the migrations tracking table (default: "_viborm_migrations") */
+  tableName?: string;
+  /**
+   * Storage driver for migration files.
+   * If not provided, uses filesystem storage with the `dir` option.
+   *
+   * @example
+   * ```ts
+   * import { createFsStorageDriver } from "viborm/migrations/storage/fs";
+   *
+   * migrations: {
+   *   storageDriver: createFsStorageDriver("./migrations"),
+   * }
+   * ```
+   */
+  storageDriver?: MigrationStorageDriver;
+}
 
 /**
  * VibORM configuration file format.
@@ -25,22 +51,18 @@ import type { AnyModel } from "../schema/model";
  * Example viborm.config.ts:
  * ```ts
  * import { defineConfig } from "viborm/config";
- * import { driver } from "./src/db";
- * import * as schema from "./src/schema";
+ * import { client } from "./src/db";
  *
  * export default defineConfig({
- *   driver,
- *   schema,
+ *   client,
  * });
  * ```
  */
 export interface VibORMConfig {
-  /** Database driver instance */
-  driver: AnyDriver;
-  /** Schema models */
-  schema: Record<string, AnyModel>;
-  /** Optional: Output directory for generated files */
-  out?: string;
+  /** VibORM client instance */
+  client: VibORMClient<any>;
+  /** Optional: Migration configuration */
+  migrations?: MigrationConfig;
 }
 
 export interface LoadConfigOptions {
@@ -52,6 +74,7 @@ export interface LoadedConfig {
   client: VibORMClient<ClientConfig>;
   driver: AnyDriver;
   models: Record<string, AnyModel>;
+  migrations?: MigrationConfig;
 }
 
 // =============================================================================
@@ -86,8 +109,7 @@ function findFile(cwd: string, candidates: string[]): string | null {
  * Loads VibORM configuration from viborm.config.ts file.
  *
  * The config file should export a default configuration object with:
- * - driver: Database driver instance
- * - schema: Object containing model definitions
+ * - client: VibORM client instance created with createClient()
  */
 export async function loadConfig(
   options: LoadConfigOptions = {}
@@ -107,11 +129,9 @@ export async function loadConfig(
         `Searched for:\n${searchedPaths.map((f) => `  - ${f}`).join("\n")}\n\n` +
         "Create a viborm.config.ts file:\n\n" +
         `  import { defineConfig } from "viborm/config";\n` +
-        `  import { driver } from "./src/db";\n` +
-        `  import * as schema from "./src/schema";\n\n` +
+        `  import { client } from "./src/db";\n\n` +
         "  export default defineConfig({\n" +
-        "    driver,\n" +
-        "    schema,\n" +
+        "    client,\n" +
         "  });\n"
     );
   }
@@ -123,37 +143,37 @@ export async function loadConfig(
   const config: VibORMConfig =
     configModule.default || configModule.config || configModule;
 
-  // Validate required fields
-  if (!config.driver) {
+  // Validate client
+  if (!config.client) {
     throw new Error(
-      `Missing "driver" in ${configPath}.\n\n` +
-        "Your config should include a database driver:\n\n" +
+      `Missing "client" in ${configPath}.\n\n` +
+        "Your config should include a VibORM client:\n\n" +
+        `  import { createClient } from "viborm";\n` +
+        `  const client = createClient({ driver, schema });\n\n` +
         "  export default defineConfig({\n" +
-        "    driver: yourDriver,\n" +
-        "    schema: { ... },\n" +
+        "    client,\n" +
         "  });\n"
     );
   }
 
-  if (!config.schema || typeof config.schema !== "object") {
+  if (!isValidClient(config.client)) {
     throw new Error(
-      `Missing "schema" in ${configPath}.\n\n` +
-        "Your config should include schema models:\n\n" +
-        `  import * as schema from "./src/schema";\n\n` +
-        "  export default defineConfig({\n" +
-        "    driver,\n" +
-        "    schema,\n" +
-        "  });\n"
+      `Invalid "client" in ${configPath}.\n\n` +
+        "The client must be created with createClient().\n"
     );
   }
+
+  // Extract driver and schema from client
+  const driver = config.client.$driver;
+  const schemaInput = config.client.$schema;
 
   // Extract models from schema (filter out non-model exports)
-  const models = extractModels(config.schema);
+  const models = extractModels(schemaInput as Record<string, unknown>);
 
   if (Object.keys(models).length === 0) {
     throw new Error(
-      `No models found in schema from ${configPath}.\n\n` +
-        "Make sure your schema exports VibORM models:\n\n" +
+      `No models found in client schema from ${configPath}.\n\n` +
+        "Make sure your client was created with schema models:\n\n" +
         "  // src/schema.ts\n" +
         `  import { model, string, int } from "viborm";\n\n` +
         "  export const user = model({\n" +
@@ -163,16 +183,14 @@ export async function loadConfig(
     );
   }
 
-  // Create client from driver and models
-  const client = createClient({
-    driver: config.driver,
-    schema: models,
-  });
+  // Validate schema before proceeding
+  validateSchemaOrThrow(models);
 
   return {
-    client,
-    driver: config.driver,
+    client: config.client,
+    driver,
     models,
+    migrations: config.migrations,
   };
 }
 
@@ -231,6 +249,18 @@ function isModel(value: unknown): boolean {
   );
 }
 
+/**
+ * Checks if a value is a valid VibORM client instance.
+ */
+function isValidClient(value: unknown): boolean {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    "$driver" in value &&
+    "$schema" in value
+  );
+}
+
 // =============================================================================
 // DEFINE CONFIG HELPER
 // =============================================================================
@@ -242,12 +272,10 @@ function isModel(value: unknown): boolean {
  * ```ts
  * // viborm.config.ts
  * import { defineConfig } from "viborm/config";
- * import { driver } from "./src/db";
- * import * as schema from "./src/schema";
+ * import { client } from "./src/db";
  *
  * export default defineConfig({
- *   driver,
- *   schema,
+ *   client,
  * });
  * ```
  */

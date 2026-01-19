@@ -14,7 +14,7 @@ import type {
   SchemaSnapshot,
   TableDef,
   UniqueConstraintDef,
-} from "../../../../migrations/types";
+} from "../../types";
 import type {
   PgColumn,
   PgEnum,
@@ -322,10 +322,13 @@ export async function introspect(
     const pkCols = pkByTable.get(tableName);
     if (pkCols && pkCols.length > 0) {
       pkCols.sort((a, b) => a.ordinal_position - b.ordinal_position);
-      primaryKey = {
-        columns: pkCols.map((pk) => pk.column_name),
-        name: pkCols[0].constraint_name,
-      };
+      const firstPk = pkCols[0];
+      if (firstPk) {
+        primaryKey = {
+          columns: pkCols.map((pk) => pk.column_name),
+          name: firstPk.constraint_name,
+        };
+      }
     }
 
     // Build indexes
@@ -335,13 +338,15 @@ export async function introspect(
       for (const [indexName, indexCols] of tableIndexes) {
         indexCols.sort((a, b) => a.ordinal_position - b.ordinal_position);
         const firstCol = indexCols[0];
-        indexes.push({
-          name: indexName,
-          columns: indexCols.map((idx) => idx.column_name),
-          unique: firstCol.is_unique,
-          type: firstCol.index_type as "btree" | "hash" | "gin" | "gist",
-          where: firstCol.filter_condition || undefined,
-        });
+        if (firstCol) {
+          indexes.push({
+            name: indexName,
+            columns: indexCols.map((idx) => idx.column_name),
+            unique: firstCol.is_unique,
+            type: firstCol.index_type as "btree" | "hash" | "gin" | "gist",
+            where: firstCol.filter_condition || undefined,
+          });
+        }
       }
     }
 
@@ -352,14 +357,16 @@ export async function introspect(
       for (const [constraintName, fkCols] of tableFks) {
         fkCols.sort((a, b) => a.ordinal_position - b.ordinal_position);
         const firstFk = fkCols[0];
-        foreignKeys.push({
-          name: constraintName,
-          columns: fkCols.map((fk) => fk.column_name),
-          referencedTable: firstFk.foreign_table_name,
-          referencedColumns: fkCols.map((fk) => fk.foreign_column_name),
-          onDelete: mapReferentialAction(firstFk.delete_rule),
-          onUpdate: mapReferentialAction(firstFk.update_rule),
-        });
+        if (firstFk) {
+          foreignKeys.push({
+            name: constraintName,
+            columns: fkCols.map((fk) => fk.column_name),
+            referencedTable: firstFk.foreign_table_name,
+            referencedColumns: fkCols.map((fk) => fk.foreign_column_name),
+            onDelete: mapReferentialAction(firstFk.delete_rule),
+            onUpdate: mapReferentialAction(firstFk.update_rule),
+          });
+        }
       }
     }
 

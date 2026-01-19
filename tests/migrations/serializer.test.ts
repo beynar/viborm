@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { postgresMigrations } from "../../src/adapters/databases/postgres/migrations";
+import { postgresMigrationDriver } from "../../src/migrations/drivers/postgres";
 import { serializeModels } from "../../src/migrations/serializer";
 import { s } from "../../src/schema";
 import { hydrateSchemaNames } from "../../src/schema/hydration";
@@ -32,7 +32,7 @@ describe("junction table generation", () => {
     hydrateSchemaNames(schema);
 
     const snapshot = serializeModels(schema, {
-      migrationAdapter: postgresMigrations,
+      migrationDriver: postgresMigrationDriver,
     });
 
     // Should have 3 tables: post, tag, and junction table
@@ -65,7 +65,7 @@ describe("junction table generation", () => {
     hydrateSchemaNames(schema);
 
     const snapshot = serializeModels(schema, {
-      migrationAdapter: postgresMigrations,
+      migrationDriver: postgresMigrationDriver,
     });
 
     const junctionTable = snapshot.tables.find(
@@ -97,7 +97,7 @@ describe("junction table generation", () => {
     hydrateSchemaNames(schema);
 
     const snapshot = serializeModels(schema, {
-      migrationAdapter: postgresMigrations,
+      migrationDriver: postgresMigrationDriver,
     });
 
     const junctionTable = snapshot.tables.find((t) => t.name === "post_tag");
@@ -125,7 +125,7 @@ describe("junction table generation", () => {
     hydrateSchemaNames(schema);
 
     const snapshot = serializeModels(schema, {
-      migrationAdapter: postgresMigrations,
+      migrationDriver: postgresMigrationDriver,
     });
 
     const junctionTable = snapshot.tables.find((t) => t.name === "post_tag");
@@ -164,7 +164,7 @@ describe("junction table generation", () => {
     hydrateSchemaNames(schema);
 
     const snapshot = serializeModels(schema, {
-      migrationAdapter: postgresMigrations,
+      migrationDriver: postgresMigrationDriver,
     });
 
     const junctionTable = snapshot.tables.find((t) => t.name === "post_tag");
@@ -195,7 +195,7 @@ describe("junction table generation", () => {
     hydrateSchemaNames(schema);
 
     const snapshot = serializeModels(schema, {
-      migrationAdapter: postgresMigrations,
+      migrationDriver: postgresMigrationDriver,
     });
 
     const junctionTable = snapshot.tables.find((t) => t.name === "post_tag");
@@ -223,7 +223,7 @@ describe("junction table generation", () => {
     hydrateSchemaNames(schema);
 
     const snapshot = serializeModels(schema, {
-      migrationAdapter: postgresMigrations,
+      migrationDriver: postgresMigrationDriver,
     });
 
     const junctionTable = snapshot.tables.find((t) => t.name === "post_tag");
@@ -255,7 +255,7 @@ describe("junction table generation", () => {
 
     expect(() =>
       serializeModels(schema, {
-        migrationAdapter: postgresMigrations,
+        migrationDriver: postgresMigrationDriver,
       })
     ).toThrow(/compound primary key.*surrogate key/i);
   });
@@ -277,7 +277,7 @@ describe("junction table generation", () => {
 
     expect(() =>
       serializeModels(schema, {
-        migrationAdapter: postgresMigrations,
+        migrationDriver: postgresMigrationDriver,
       })
     ).toThrow(/no primary key field/i);
   });
@@ -299,7 +299,7 @@ describe("junction table generation", () => {
     hydrateSchemaNames(schema);
 
     const snapshot = serializeModels(schema, {
-      migrationAdapter: postgresMigrations,
+      migrationDriver: postgresMigrationDriver,
     });
 
     // Should only create one junction table, not two
@@ -323,7 +323,7 @@ describe("enum serialization", () => {
     hydrateSchemaNames(schema);
 
     const snapshot = serializeModels(schema, {
-      migrationAdapter: postgresMigrations,
+      migrationDriver: postgresMigrationDriver,
     });
 
     // Verify enum is created (PostgreSQL supports native enums)

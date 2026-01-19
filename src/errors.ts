@@ -59,6 +59,19 @@ export enum VibORMErrorCode {
   CACHE_INVALID_KEY = "V10002",
   CACHE_OPERATION_NOT_CACHEABLE = "V10003",
 
+  // Migration errors (11xxx)
+  MIGRATION_FAILED = "V11001",
+  MIGRATION_NOT_FOUND = "V11002",
+  MIGRATION_CHECKSUM_MISMATCH = "V11003",
+  MIGRATION_DIALECT_MISMATCH = "V11004",
+  MIGRATION_LOCK_FAILED = "V11005",
+  MIGRATION_ALREADY_APPLIED = "V11006",
+  MIGRATION_OUT_OF_ORDER = "V11007",
+  MIGRATION_FILE_NOT_FOUND = "V11008",
+  MIGRATION_INVALID_STATE = "V11009",
+  MIGRATION_DESTRUCTIVE_REJECTED = "V11010",
+  MIGRATION_STORAGE_REQUIRED = "V11011",
+
   // Internal errors (9xxx)
   INTERNAL_ERROR = "V9001",
   SCHEMA_ERROR = "V9002",
@@ -453,6 +466,53 @@ export class QueryEngineError extends VibORMError {
     super(message, VibORMErrorCode.INTERNAL_ERROR, opts);
     this.name = "QueryEngineError";
   }
+}
+
+// ============================================================
+// MIGRATION ERRORS
+// ============================================================
+
+/**
+ * Migration error metadata
+ */
+export interface MigrationErrorMeta extends VibORMErrorMeta {
+  /** Name of the migration */
+  migrationName?: string;
+  /** Expected checksum (from database) */
+  expectedChecksum?: string;
+  /** Actual checksum (from file) */
+  actualChecksum?: string;
+  /** Migration index */
+  migrationIndex?: number;
+  /** Directory path */
+  migrationsDir?: string;
+}
+
+/**
+ * Migration-related errors
+ */
+export class MigrationError extends VibORMError {
+  constructor(
+    message: string,
+    code: VibORMErrorCode = VibORMErrorCode.MIGRATION_FAILED,
+    options?: {
+      cause?: Error | undefined;
+      meta?: MigrationErrorMeta | undefined;
+    }
+  ) {
+    const opts: { cause?: Error; meta?: VibORMErrorMeta } = {};
+    if (options?.cause) opts.cause = options.cause;
+    if (options?.meta) opts.meta = options.meta;
+    super(message, code, opts);
+    this.name = "MigrationError";
+  }
+}
+
+/**
+ * Type guard for migration errors
+ */
+export function isMigrationError(error: unknown): error is MigrationError {
+  return error instanceof MigrationError;
 }
 
 // ============================================================

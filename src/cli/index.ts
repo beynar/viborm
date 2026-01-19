@@ -6,6 +6,7 @@
  */
 
 import { Command } from "commander";
+import { migrateCommand } from "./commands/migrate";
 import { pushCommand } from "./commands/push";
 
 const program = new Command();
@@ -17,6 +18,7 @@ program
 
 // Register commands
 program.addCommand(pushCommand);
+program.addCommand(migrateCommand);
 
 // Parse arguments
 program.parse();

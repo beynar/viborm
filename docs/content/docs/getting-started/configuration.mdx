@@ -1,0 +1,363 @@
+---
+title: Configuration
+description: Configure VibORM with viborm.config.ts for CLI commands like push and migrate
+icon: Settings
+---
+
+import { Tabs, Tab } from "fumadocs-ui/components/tabs";
+import { Callout } from "fumadocs-ui/components/callout";
+import { Cards, Card } from "fumadocs-ui/components/card";
+
+## Config File
+
+Create a `viborm.config.ts` file in your project root:
+
+```ts title="viborm.config.ts"
+import { defineConfig } from "viborm/config";
+import { client } from "./src/db";
+
+export default defineConfig({
+  client,
+});
+```
+
+The client is created in your application code:
+
+```ts title="src/db.ts"
+import { createClient } from "viborm/drivers/pglite";
+import * as schema from "./schema";
+
+export const client = createClient({ schema });
+```
+
+<Callout type="info" title="File Names">
+VibORM automatically discovers config files in this order:
+- `viborm.config.ts`
+- `viborm.config.mts`
+- `viborm.config.js`
+- `viborm.config.mjs`
+
+You can also specify a custom path with `--config ./path/to/config.ts`.
+</Callout>
+
+## Configuration Options
+
+```ts
+interface VibORMConfig {
+  /** VibORM client instance (required) */
+  client: VibORMClient;
+
+  /** Migration configuration */
+  migrations?: {
+    /** Directory for migration files (default: "./migrations") */
+    dir?: string;
+    /** Name of the migrations tracking table (default: "_viborm_migrations") */
+    tableName?: string;
+    /** Storage driver for migration files */
+    storageDriver?: MigrationStorageDriver;
+  };
+}
+```
+
+| Option | Type | Required | Default | Description |
+|--------|------|----------|---------|-------------|
+| `client` | `VibORMClient` | Yes | - | VibORM client instance |
+| `migrations.dir` | `string` | No | `"./migrations"` | Directory for migration files |
+| `migrations.tableName` | `string` | No | `"_viborm_migrations"` | Name of the migrations tracking table |
+| `migrations.storageDriver` | `MigrationStorageDriver` | No | Filesystem | Storage driver for migration files |
+
+<Callout type="info" title="CLI Override">
+All migration options can be overridden via CLI flags:
+- `--dir` overrides `migrations.dir`
+- `--table-name` overrides `migrations.tableName`
+</Callout>
+
+## Database Drivers
+
+VibORM supports multiple database drivers. Choose the one that matches your database:
+
+### PostgreSQL
+
+<Tabs items={["PGlite (Embedded)", "node-postgres (pg)", "Postgres.js"]}>
+  <Tab value="PGlite (Embedded)">
+```ts title="src/db.ts"
+import { createClient } from "viborm/drivers/pglite";
+import * as schema from "./schema";
+
+// In-memory database (default)
+export const client = createClient({ schema });
+
+// Or with persistence
+// export const client = createClient({
+//   schema,
+//   options: { dataDir: "./data/mydb" },
+// });
+```
+  </Tab>
+  <Tab value="node-postgres (pg)">
+```ts title="src/db.ts"
+import { createClient } from "viborm/drivers/pg";
+import * as schema from "./schema";
+
+export const client = createClient({
+  schema,
+  options: { connectionString: process.env.DATABASE_URL },
+});
+```
+  </Tab>
+  <Tab value="Postgres.js">
+```ts title="src/db.ts"
+import { createClient } from "viborm/drivers/postgres";
+import * as schema from "./schema";
+
+export const client = createClient({
+  schema,
+  options: process.env.DATABASE_URL,
+});
+```
+  </Tab>
+</Tabs>
+
+### SQLite
+
+```ts title="src/db.ts"
+import { createClient } from "viborm/drivers/sqlite3";
+import * as schema from "./schema";
+
+export const client = createClient({
+  schema,
+  options: { filename: "./data/mydb.sqlite" },
+});
+```
+
+## Migration Storage
+
+By default, VibORM uses filesystem storage for migration files. You can configure the storage driver explicitly:
+
+```ts title="viborm.config.ts"
+import { defineConfig } from "viborm/config";
+import { createFsStorageDriver } from "viborm/migrations/storage/fs";
+import { client } from "./src/db";
+
+export default defineConfig({
+  client,
+  migrations: {
+    // Explicit filesystem storage
+    storageDriver: createFsStorageDriver("./migrations"),
+    // Or just use dir (creates filesystem storage automatically)
+    // dir: "./migrations",
+    tableName: "_viborm_migrations",
+  },
+});
+```
+
+<Callout type="info" title="Storage Driver Priority">
+The CLI resolves storage in this order:
+1. `--dir` CLI flag (creates filesystem storage)
+2. `migrations.storageDriver` from config
+3. `migrations.dir` from config (creates filesystem storage)
+4. Default: `./migrations` with filesystem storage
+</Callout>
+
+## Schema Export
+
+Your schema file should export all your models:
+
+```ts title="src/schema.ts"
+import { s } from "viborm";
+
+// Define enums with explicit names for reuse
+export const Status = s.enum(["PENDING", "ACTIVE", "INACTIVE"]).name("status");
+
+// Define models
+export const user = s.model({
+  id: s.string().id(),
+  name: s.string(),
+  email: s.string().unique(),
+  status: Status.default("PENDING"),
+});
+
+export const post = s.model({
+  id: s.string().id(),
+  title: s.string(),
+  content: s.string().nullable(),
+  authorId: s.string(),
+  author: s.manyToOne(() => user).fields("authorId").references("id"),
+});
+```
+
+Then import it when creating your client:
+
+```ts title="src/db.ts"
+import { createClient } from "viborm/drivers/pg";
+import * as schema from "./schema";
+// schema = { Status, user, post }
+
+// VibORM extracts only the model definitions
+export const client = createClient({
+  schema,
+  options: { connectionString: process.env.DATABASE_URL },
+});
+```
+
+<Callout type="info" title="Model Extraction">
+VibORM automatically extracts model definitions from your schema object. Non-model exports (like enums, utilities, or types) are filtered out.
+</Callout>
+
+## Environment Variables
+
+Use environment variables for sensitive configuration:
+
+```ts title="src/db.ts"
+import { createClient } from "viborm/drivers/pg";
+import * as schema from "./schema";
+
+export const client = createClient({
+  schema,
+  options: {
+    connectionString: process.env.DATABASE_URL,
+    // Or individual options:
+    // host: process.env.DB_HOST,
+    // port: Number(process.env.DB_PORT),
+    // user: process.env.DB_USER,
+    // password: process.env.DB_PASSWORD,
+    // database: process.env.DB_NAME,
+  },
+});
+```
+
+```bash title=".env"
+DATABASE_URL=postgresql://user:password@localhost:5432/mydb
+```
+
+## Running the CLI
+
+The CLI automatically loads your config file:
+
+```bash
+# Using bun (recommended for TypeScript)
+bun viborm push
+
+# Using npx with tsx
+npx tsx node_modules/.bin/viborm push
+
+# With custom config path
+bun viborm push --config ./config/viborm.config.ts
+```
+
+## Multiple Environments
+
+For different environments, you can use environment variables or multiple config files:
+
+<Tabs items={["Environment Variables", "Multiple Configs"]}>
+  <Tab value="Environment Variables">
+```ts title="src/db.ts"
+import { createClient } from "viborm/drivers/pg";
+import * as schema from "./schema";
+
+const isProduction = process.env.NODE_ENV === "production";
+
+export const client = createClient({
+  schema,
+  options: {
+    connectionString: isProduction
+      ? process.env.DATABASE_URL
+      : "postgresql://localhost:5432/mydb_dev",
+    ssl: isProduction ? { rejectUnauthorized: false } : undefined,
+  },
+});
+```
+
+```ts title="viborm.config.ts"
+import { defineConfig } from "viborm/config";
+import { client } from "./src/db";
+
+const isProduction = process.env.NODE_ENV === "production";
+
+export default defineConfig({
+  client,
+  migrations: {
+    dir: "./migrations",
+    tableName: isProduction ? "_migrations" : "_viborm_migrations",
+  },
+});
+```
+  </Tab>
+  <Tab value="Multiple Configs">
+```ts title="src/db.dev.ts"
+import { createClient } from "viborm/drivers/pglite";
+import * as schema from "./schema";
+
+export const client = createClient({ schema });
+```
+
+```ts title="src/db.prod.ts"
+import { createClient } from "viborm/drivers/pg";
+import * as schema from "./schema";
+
+export const client = createClient({
+  schema,
+  options: { connectionString: process.env.DATABASE_URL },
+});
+```
+
+```ts title="viborm.config.dev.ts"
+import { defineConfig } from "viborm/config";
+import { client } from "./src/db.dev";
+
+export default defineConfig({ client });
+```
+
+```ts title="viborm.config.prod.ts"
+import { defineConfig } from "viborm/config";
+import { client } from "./src/db.prod";
+
+export default defineConfig({ client });
+```
+
+```bash
+# Development
+bun viborm push --config viborm.config.dev.ts
+
+# Production
+bun viborm push --config viborm.config.prod.ts
+```
+  </Tab>
+</Tabs>
+
+## TypeScript Support
+
+The `defineConfig` helper provides full TypeScript support:
+
+```ts
+import { defineConfig } from "viborm/config";
+import { client } from "./src/db";
+
+export default defineConfig({
+  client, // Type-checked
+  migrations: {
+    dir: "./migrations",
+    tableName: "_viborm_migrations",
+  },
+});
+```
+
+## Next Steps
+
+<Cards>
+  <Card
+    title="Push"
+    description="Sync your schema directly to the database"
+    href="/docs/migration/push"
+  />
+  <Card
+    title="Migrate"
+    description="Generate and apply migration files"
+    href="/docs/migration/migrate"
+  />
+  <Card
+    title="Schema"
+    description="Learn how to define your schema"
+    href="/docs/schema"
+  />
+</Cards>

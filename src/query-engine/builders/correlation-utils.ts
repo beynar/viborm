@@ -8,8 +8,7 @@
 import type { Model } from "@schema/model";
 import type { Sql } from "@sql";
 import { getColumnName } from "../context";
-import type { QueryContext, RelationInfo } from "../types";
-import { QueryEngineError } from "../types";
+import { QueryEngineError, type QueryContext, type RelationInfo } from "../types";
 
 /**
  * Build correlation condition between parent and related table.

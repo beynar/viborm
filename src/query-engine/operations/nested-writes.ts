@@ -20,8 +20,7 @@ import {
 import { buildValues } from "../builders/values-builder";
 import { buildWhereUnique } from "../builders/where-builder";
 import { createChildContext, getColumnName, getTableName } from "../context";
-import type { QueryContext, RelationInfo } from "../types";
-import { NestedWriteError } from "../types";
+import { NestedWriteError, type QueryContext, type RelationInfo } from "../types";
 import { withTransactionIfSupported } from "../utils/transaction-helper";
 
 // ============================================================

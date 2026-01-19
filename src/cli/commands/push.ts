@@ -12,10 +12,9 @@ import * as p from "@clack/prompts";
 import { Command } from "commander";
 import { push } from "../../migrations/push";
 import {
-  confirmDestructiveChanges,
   displayOperations,
   displaySQL,
-  interactiveResolver,
+  interactiveResolve,
 } from "../prompts";
 import { loadConfig } from "../utils";
 
@@ -23,8 +22,8 @@ export const pushCommand = new Command("push")
   .description("Push schema changes directly to database")
   .option("--config <path>", "Path to viborm.config.ts file")
   .option(
-    "--accept-data-loss",
-    "Ignore data loss warnings (required for destructive changes)",
+    "--force",
+    "Skip confirmation prompts for destructive/ambiguous changes",
     false
   )
   .option(
@@ -104,15 +103,9 @@ export const pushCommand = new Command("push")
       spinner.start("Comparing schemas...");
 
       const result = await push(client, {
-        force: options.acceptDataLoss,
+        force: options.force,
         dryRun: true, // First run as dry-run to preview
-        resolver: interactiveResolver,
-        onDestructive: async (descriptions) => {
-          if (options.acceptDataLoss) {
-            return true;
-          }
-          return confirmDestructiveChanges(descriptions);
-        },
+        resolve: options.force ? undefined : interactiveResolve,
       });
 
       spinner.stop("Schema comparison complete");
@@ -187,7 +180,6 @@ export const pushCommand = new Command("push")
       const applyResult = await push(client, {
         force: true,
         dryRun: false,
-        resolver: interactiveResolver,
       });
 
       spinner.stop(`Applied ${applyResult.operations.length} change(s)`);

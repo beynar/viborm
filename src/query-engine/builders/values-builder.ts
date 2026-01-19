@@ -7,8 +7,7 @@
 
 import type { Sql } from "@sql";
 import { getColumnName } from "../context";
-import type { QueryContext } from "../types";
-import { QueryEngineError } from "../types";
+import { QueryEngineError, type QueryContext } from "../types";
 
 interface ValuesResult {
   columns: string[];

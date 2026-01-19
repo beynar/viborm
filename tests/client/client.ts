@@ -1,13 +1,18 @@
 import { MemoryCache } from "@cache/drivers/memory";
 import { createClient } from "@drivers/pglite";
-import { push } from "@migrations";
+import { push, status } from "@migrations";
 import { s } from "@schema";
+import { Prettify } from "@validation/types";
 import z from "zod/v4";
+
+
+const statusENUM = s.enum(["active", "inactive", "deleted"]).name("STATUS").nullable();
 
 const user = s.model({
   id: s.string().id(),
   name: s.string().nullable(),
   email: s.string(),
+  status: statusENUM,
   pets: s.json().schema(
     z.array(
       z.object({
@@ -32,7 +37,8 @@ const post = s.model({
 })
 
 const schema = { user, post };
-
+const id = s.string().id()
+type StataId = Prettify<typeof id["~"]["state"]["autoGenerate"]>
 // Create client with PGlite
 const client = createClient({
   schema,
@@ -43,13 +49,26 @@ const client = createClient({
 });
 
 
+type E  =  Prettify<typeof statusENUM["~"]["state"]>
+type O = typeof statusENUM["~"]["state"]["base"]
+const v  = statusENUM.enumValues
 
 // Push schema (will be no-op if already in sync)
-const pushResult = await push(client.$driver, schema, { force: true });
+const pushResult = await push(client, {
+  force: true,
+  resolve: async (change) => {
+    if (change.type === "enumValueRemoval") {
+      return change.useNull();
+    }
+    return change.reject();
+  }
+});
 console.log("Push result:", {
   applied: pushResult.applied,
   operationsCount: pushResult.operations.length,
 });
+
+
 
 
 
@@ -68,6 +87,7 @@ const newUser = await client.user.create({
   data: {
     email: "lemz",
     name: "eze",
+    status:"active",
     pets: [
       {
         age: 10,

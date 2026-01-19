@@ -4,13 +4,13 @@
  * Converts VibORM model definitions into a database-agnostic SchemaSnapshot
  * that can be compared with the current database state.
  *
- * Database-specific logic is delegated to the MigrationAdapter:
+ * Database-specific logic is delegated to the MigrationDriver:
  * - Type mapping (mapFieldType)
  * - Default expressions (getDefaultExpression)
- * - Enum handling (supportsNativeEnums, getEnumColumnType)
+ * - Enum handling (capabilities.supportsNativeEnums, getEnumColumnType)
  */
 
-import type { MigrationAdapter } from "../adapters/database-adapter";
+import type { MigrationDriver } from "./drivers";
 import type { Field } from "../schema/fields/base";
 import type { AnyModel } from "../schema/model";
 import type { AnyRelation } from "../schema/relation";
@@ -54,7 +54,7 @@ function mapReferentialAction(
 // =============================================================================
 
 export interface SerializeOptions {
-  migrationAdapter: MigrationAdapter;
+  migrationDriver: MigrationDriver;
 }
 
 /**
@@ -64,7 +64,7 @@ export function serializeModels(
   models: Record<string, AnyModel>,
   options: SerializeOptions
 ): SchemaSnapshot {
-  const { migrationAdapter } = options;
+  const { migrationDriver } = options;
   const tables: TableDef[] = [];
   const enums: EnumDef[] = [];
   const enumsSet = new Set<string>();
@@ -93,13 +93,12 @@ export function serializeModels(
         const enumField = field as any;
         const enumValues = enumField.enumValues as string[] | undefined;
 
-        if (migrationAdapter.supportsNativeEnums && enumValues) {
-          // Create native enum type definition
-          const enumName = migrationAdapter.getEnumColumnType(
-            tableName,
-            columnName,
-            enumValues
-          );
+        if (migrationDriver.capabilities.supportsNativeEnums && enumValues) {
+          // Use explicit enum name if provided, otherwise auto-generate
+          const enumName = fieldState.enumName
+            ? fieldState.enumName
+            : migrationDriver.getEnumColumnType(tableName, columnName, enumValues);
+
           if (!enumsSet.has(enumName)) {
             enums.push({
               name: enumName,
@@ -109,22 +108,22 @@ export function serializeModels(
           }
           columnType = enumName;
         } else {
-          // Fall back to adapter's default enum column type
-          columnType = migrationAdapter.getEnumColumnType(
+          // Fall back to driver's default enum column type
+          columnType = migrationDriver.getEnumColumnType(
             tableName,
             columnName,
             enumValues || []
           );
         }
       } else {
-        columnType = migrationAdapter.mapFieldType(field as Field, fieldState);
+        columnType = migrationDriver.mapFieldType(field as Field, fieldState);
       }
 
       const columnDef: ColumnDef = {
         name: columnName,
         type: columnType,
         nullable: fieldState.nullable,
-        default: migrationAdapter.getDefaultExpression(fieldState),
+        default: migrationDriver.getDefaultExpression(fieldState),
         autoIncrement: fieldState.autoGenerate === "increment",
       };
 
@@ -298,10 +297,10 @@ export function serializeModels(
       );
 
       // Get PK types from source and target models
-      const sourcePkField = getPrimaryKeyFieldDef(model, migrationAdapter);
+      const sourcePkField = getPrimaryKeyFieldDef(model, migrationDriver);
       const targetPkField = getPrimaryKeyFieldDef(
         targetModel,
-        migrationAdapter
+        migrationDriver
       );
 
       junctionTables.set(junctionTableName, {
@@ -362,7 +361,7 @@ export function serializeModels(
  */
 function getPrimaryKeyFieldDef(
   model: AnyModel,
-  migrationAdapter: MigrationAdapter
+  migrationDriver: MigrationDriver
 ): { name: string; type: string } {
   const modelState = model["~"].state;
   const modelName = model["~"].names.ts;
@@ -380,7 +379,7 @@ function getPrimaryKeyFieldDef(
     const fieldState = (field as Field)["~"].state;
     if (fieldState.isId) {
       const columnName = model["~"].getFieldName(fieldName).sql;
-      const columnType = migrationAdapter.mapFieldType(
+      const columnType = migrationDriver.mapFieldType(
         field as Field,
         fieldState
       );

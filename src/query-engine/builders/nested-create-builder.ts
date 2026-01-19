@@ -27,8 +27,7 @@ import {
   getScalarFieldNames,
   getTableName,
 } from "../context";
-import type { QueryContext, RelationInfo } from "../types";
-import { QueryEngineError } from "../types";
+import { QueryEngineError, type QueryContext, type RelationInfo } from "../types";
 import { getPrimaryKeyField } from "./correlation-utils";
 import {
   getFkDirection,

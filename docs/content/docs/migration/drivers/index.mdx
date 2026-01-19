@@ -1,0 +1,128 @@
+---
+title: Migration Drivers
+description: Database-specific DDL generation, schema introspection, and type mapping
+icon: Cpu
+---
+
+## What Migration Drivers Do
+
+- **Schema introspection** - Read current database state
+- **DDL generation** - Generate database-specific SQL
+- **Type mapping** - Convert VibORM types to database types
+- **Capability detection** - Handle database-specific limitations
+
+## Available Drivers
+
+| Driver | Database | Native Enums | Native Arrays | Index Types |
+|--------|----------|--------------|---------------|-------------|
+| [PostgreSQL](/docs/migration/drivers/postgresql) | PostgreSQL | Yes | Yes | btree, hash, gin, gist |
+| [SQLite](/docs/migration/drivers/sqlite) | SQLite, LibSQL | No (CHECK) | No (JSON) | btree |
+
+## Driver Capabilities
+
+Each driver declares its capabilities:
+
+```ts
+interface MigrationCapabilities {
+  supportsNativeEnums: boolean;
+  supportsAddEnumValueInTransaction: boolean;
+  supportsIndexTypes: string[];
+  supportsNativeArrays: boolean;
+}
+```
+
+### PostgreSQL
+
+```ts
+{
+  supportsNativeEnums: true,
+  supportsAddEnumValueInTransaction: false,
+  supportsIndexTypes: ["btree", "hash", "gin", "gist"],
+  supportsNativeArrays: true
+}
+```
+
+### SQLite
+
+```ts
+{
+  supportsNativeEnums: false,
+  supportsAddEnumValueInTransaction: true,
+  supportsIndexTypes: ["btree"],
+  supportsNativeArrays: false
+}
+```
+
+## Supported Operations
+
+Migration drivers generate DDL for these operations:
+
+| Operation | PostgreSQL | SQLite |
+|-----------|------------|--------|
+| `createTable` | Direct | Direct |
+| `dropTable` | Direct | Direct |
+| `renameTable` | Direct | Direct |
+| `addColumn` | Direct | Direct |
+| `dropColumn` | Direct | Direct (3.35.0+) |
+| `renameColumn` | Direct | Direct (3.25.0+) |
+| `alterColumn` | Direct | Table recreation |
+| `createIndex` | Direct | Direct |
+| `dropIndex` | Direct | Direct |
+| `addForeignKey` | Direct | Table recreation |
+| `dropForeignKey` | Direct | Table recreation |
+| `addPrimaryKey` | Direct | Table recreation |
+| `dropPrimaryKey` | Direct | Table recreation |
+| `createEnum` | `CREATE TYPE` | No-op (TEXT) |
+| `dropEnum` | `DROP TYPE` | No-op |
+| `alterEnum` | `ALTER TYPE` | No-op |
+
+## Automatic Driver Selection
+
+VibORM automatically selects the migration driver based on your database driver:
+
+```ts
+import { createClient } from "viborm";
+import { PostgresDriver } from "viborm/drivers/postgres";
+
+const client = createClient({
+  driver: new PostgresDriver({ connectionString: "..." }),
+  schema: { User },
+});
+
+// PostgreSQL migration driver is automatically used
+await push(client);
+```
+
+## Type Mapping
+
+Each driver maps VibORM field types to database-specific types:
+
+### Common Mappings
+
+| VibORM Type | PostgreSQL | SQLite |
+|-------------|------------|--------|
+| `string()` | `text` | `TEXT` |
+| `int()` | `integer` | `INTEGER` |
+| `bigint()` | `bigint` | `INTEGER` |
+| `float()` | `double precision` | `REAL` |
+| `boolean()` | `boolean` | `INTEGER` |
+| `datetime()` | `timestamp` | `TEXT` |
+| `json()` | `jsonb` | `TEXT` |
+| `blob()` | `bytea` | `BLOB` |
+
+See individual driver pages for complete type mappings.
+
+## Next Steps
+
+<Cards>
+  <Card
+    title="PostgreSQL Driver"
+    description="PostgreSQL-specific features"
+    href="/docs/migration/drivers/postgresql"
+  />
+  <Card
+    title="SQLite Driver"
+    description="SQLite-specific features and limitations"
+    href="/docs/migration/drivers/sqlite"
+  />
+</Cards>

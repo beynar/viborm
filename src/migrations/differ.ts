@@ -17,6 +17,7 @@ import type {
   TableDef,
   UniqueConstraintDef,
 } from "./types";
+import { sortOperations } from "./utils";
 
 // =============================================================================
 // HELPER FUNCTIONS
@@ -495,53 +496,8 @@ export function diff(
 }
 
 // =============================================================================
-// OPERATION ORDERING
+// DESTRUCTIVE OPERATION CHECKS
 // =============================================================================
-
-/**
- * Sorts operations for proper execution order:
- * 1. Create enums (before tables that use them)
- * 2. Drop foreign keys (before dropping tables/columns)
- * 3. Drop indexes
- * 4. Drop unique constraints
- * 5. Drop primary keys
- * 6. Drop columns
- * 7. Drop tables
- * 8. Create tables
- * 9. Add columns
- * 10. Alter columns
- * 11. Rename tables/columns
- * 12. Add primary keys
- * 13. Add unique constraints
- * 14. Create indexes
- * 15. Add foreign keys (after tables/columns exist)
- * 16. Alter enums
- * 17. Drop enums (after tables that use them are dropped)
- */
-function sortOperations(operations: DiffOperation[]): DiffOperation[] {
-  const priority: Record<DiffOperation["type"], number> = {
-    createEnum: 1,
-    dropForeignKey: 2,
-    dropIndex: 3,
-    dropUniqueConstraint: 4,
-    dropPrimaryKey: 5,
-    dropColumn: 6,
-    dropTable: 7,
-    createTable: 8,
-    addColumn: 9,
-    alterColumn: 10,
-    renameTable: 11,
-    renameColumn: 12,
-    addPrimaryKey: 13,
-    addUniqueConstraint: 14,
-    createIndex: 15,
-    addForeignKey: 16,
-    alterEnum: 17,
-    dropEnum: 18,
-  };
-
-  return [...operations].sort((a, b) => priority[a.type] - priority[b.type]);
-}
 
 /**
  * Checks if any operations are destructive (could cause data loss)

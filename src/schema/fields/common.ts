@@ -88,6 +88,8 @@ export interface FieldState<T extends ScalarFieldType = ScalarFieldType> {
   columnName: string | undefined;
   base: VibSchema;
   withTimezone?: boolean | undefined;
+  /** Custom enum type name in the database (set via .name() on enum fields) */
+  enumName?: string | undefined;
 }
 
 // =============================================================================

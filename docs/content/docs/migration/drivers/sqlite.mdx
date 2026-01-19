@@ -1,0 +1,266 @@
+---
+title: SQLite Driver
+description: SQLite migration driver with automatic table recreation for limited ALTER TABLE support
+icon: FileBox
+---
+
+## Capabilities
+
+| Feature | Supported |
+|---------|-----------|
+| Native enums | No (CHECK constraint) |
+| Native arrays | No (JSON) |
+| Index types | btree only |
+| Locking | File-based |
+| Transactions | Full support |
+
+## Type Mappings
+
+| VibORM Type | SQLite Type |
+|-------------|-------------|
+| `string()` | `TEXT` |
+| `int()` | `INTEGER` |
+| `bigint()` | `INTEGER` |
+| `float()` | `REAL` |
+| `boolean()` | `INTEGER` (1/0) |
+| `datetime()` | `TEXT` (ISO 8601) |
+| `json()` | `JSON` |
+| `blob()` | `BLOB` |
+| `uuid()` | `TEXT` |
+| `enumField()` | `TEXT` + CHECK constraint |
+| Array types | `JSON` |
+
+## Auto-Increment
+
+SQLite uses `INTEGER PRIMARY KEY` for auto-increment:
+
+```ts
+const User = model("users", {
+  id: int().primaryKey().autoIncrement(),
+});
+```
+
+Generates:
+
+```sql
+CREATE TABLE "users" (
+  "id" INTEGER PRIMARY KEY AUTOINCREMENT
+);
+```
+
+## Boolean Handling
+
+SQLite stores booleans as integers:
+
+```ts
+const User = model("users", {
+  isActive: boolean().default(true),
+});
+```
+
+Generates:
+
+```sql
+CREATE TABLE "users" (
+  "isActive" INTEGER NOT NULL DEFAULT 1
+);
+```
+
+Values: `1` for `true`, `0` for `false`.
+
+## Enum Handling
+
+SQLite doesn't have native enums, so VibORM uses TEXT columns with CHECK constraints for validation:
+
+```ts
+const User = model("users", {
+  status: enumField(["active", "inactive", "pending"]),
+});
+```
+
+Generates:
+
+```sql
+CREATE TABLE "users" (
+  "status" TEXT CHECK("status" IN ('active', 'inactive', 'pending')) NOT NULL
+);
+```
+
+### Enum Operations
+
+**Adding enum values:**
+Requires table recreation to update the CHECK constraint.
+
+**Removing enum values:**
+Requires table recreation to update the CHECK constraint. You must also handle existing data with the removed values.
+
+**Dropping an enum:**
+Converts the column to plain TEXT (removes CHECK constraint) via table recreation.
+
+## Array Handling
+
+Arrays are stored as JSON:
+
+```ts
+const User = model("users", {
+  tags: string().array(),
+  scores: int().array(),
+});
+```
+
+Generates:
+
+```sql
+CREATE TABLE "users" (
+  "tags" JSON NOT NULL,
+  "scores" JSON NOT NULL
+);
+```
+
+Values are JSON-encoded: `["tag1", "tag2"]` or `[100, 200, 300]`.
+
+## Supported Direct Operations
+
+These operations work directly in SQLite:
+
+| Operation | SQLite Version | DDL |
+|-----------|----------------|-----|
+| Add column | 3.0+ | `ALTER TABLE ... ADD COLUMN` |
+| Drop column | 3.35.0+ | `ALTER TABLE ... DROP COLUMN` |
+| Rename column | 3.25.0+ | `ALTER TABLE ... RENAME COLUMN` |
+| Rename table | All | `ALTER TABLE ... RENAME TO` |
+| Create index | All | `CREATE INDEX` |
+| Drop index | All | `DROP INDEX` |
+
+## Table Recreation
+
+For operations SQLite doesn't support natively, VibORM uses table recreation:
+
+### Operations Requiring Recreation
+
+- **Alter column** (type, nullability, default changes)
+- **Add/drop foreign key**
+- **Add/drop primary key**
+- **Alter/drop enum** (updating CHECK constraints)
+
+### Recreation Process
+
+When table recreation is needed, VibORM generates:
+
+```sql
+-- 1. Disable foreign keys
+PRAGMA foreign_keys=OFF;
+
+-- 2. Create new table with desired schema
+CREATE TABLE "__new_users" (
+  "id" INTEGER PRIMARY KEY,
+  "email" TEXT NOT NULL,
+  "status" TEXT CHECK("status" IN ('active', 'suspended')) NOT NULL
+);
+
+-- 3. Copy data (column mapping handles renames)
+INSERT INTO "__new_users" ("id", "email", "status")
+SELECT "id", "email", "status" FROM "users";
+
+-- 4. Drop old table
+DROP TABLE "users";
+
+-- 5. Rename new table
+ALTER TABLE "__new_users" RENAME TO "users";
+
+-- 6. Recreate indexes
+CREATE UNIQUE INDEX "users_email_idx" ON "users" ("email");
+
+-- 7. Re-enable foreign keys
+PRAGMA foreign_keys=ON;
+```
+
+### Column Mapping
+
+The recreation process handles:
+
+- **Renamed columns**: Maps old names to new names
+- **New columns**: Uses default values or NULL
+- **Dropped columns**: Excludes from copy
+- **Type changes**: Preserves data when possible
+
+## DDL Examples
+
+### Create Table with Enum
+
+```sql
+CREATE TABLE "users" (
+  "id" INTEGER PRIMARY KEY AUTOINCREMENT,
+  "email" TEXT NOT NULL,
+  "role" TEXT CHECK("role" IN ('admin', 'user', 'guest')) NOT NULL,
+  "tags" JSON,
+  "created_at" TEXT DEFAULT (datetime('now'))
+);
+```
+
+### Add Column
+
+```sql
+ALTER TABLE "users" ADD COLUMN "bio" TEXT;
+```
+
+### Rename Column
+
+```sql
+ALTER TABLE "users" RENAME COLUMN "name" TO "full_name";
+```
+
+### Drop Column
+
+```sql
+ALTER TABLE "users" DROP COLUMN "bio";
+```
+
+## Limitations
+
+| Limitation | Workaround |
+|------------|------------|
+| No native enums | CHECK constraints |
+| No native arrays | JSON storage |
+| Single index type | Only btree available |
+| Limited ALTER TABLE | Table recreation |
+| No concurrent writes | File-level locking |
+
+## Performance Considerations
+
+### Table Recreation
+
+Table recreation can be slow for large tables. Consider:
+
+- Running migrations during low-traffic periods
+- Testing on staging with production-like data volumes
+- Breaking large schema changes into smaller migrations
+
+### JSON Arrays
+
+Querying JSON arrays requires SQLite's JSON functions:
+
+```sql
+-- Check if array contains value
+SELECT * FROM users WHERE json_each.value = 'admin'
+FROM users, json_each(users.tags);
+```
+
+## LibSQL / Turso
+
+The SQLite driver also works with LibSQL (Turso). The same limitations and features apply.
+
+## Next Steps
+
+<Cards>
+  <Card
+    title="PostgreSQL Driver"
+    description="PostgreSQL-specific features"
+    href="/docs/migration/drivers/postgresql"
+  />
+  <Card
+    title="Migration Drivers"
+    description="Driver overview"
+    href="/docs/migration/drivers"
+  />
+</Cards>

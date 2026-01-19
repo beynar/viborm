@@ -391,11 +391,7 @@ export interface DatabaseAdapter {
     except: (left: Sql, right: Sql) => Sql;
   };
 
-  /**
-   * MIGRATIONS
-   * Database introspection and DDL generation for schema migrations
-   */
-  migrations: MigrationAdapter;
+
 
   /**
    * VECTOR
@@ -542,55 +538,7 @@ export interface DatabaseAdapter {
   };
 }
 
-/**
- * Migration-specific adapter methods
- */
-export interface MigrationAdapter {
-  /** Introspect current database schema */
-  introspect: (
-    executeRaw: <T>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>
-  ) => Promise<import("../migrations/types").SchemaSnapshot>;
 
-  /** Generate DDL SQL string for a diff operation */
-  generateDDL: (
-    operation: import("../migrations/types").DiffOperation
-  ) => string;
-
-  /**
-   * Map VibORM field to native SQL type.
-   * Uses full field state to access properties like withTimezone.
-   */
-  mapFieldType: (
-    field: import("../schema/fields/base").Field,
-    fieldState: import("../schema/fields/common").FieldState
-  ) => string;
-
-  /**
-   * Get the SQL default expression for a field.
-   * Returns undefined if no default or if generated at runtime.
-   */
-  getDefaultExpression: (
-    fieldState: import("../schema/fields/common").FieldState
-  ) => string | undefined;
-
-  /**
-   * Whether this database supports native enum types.
-   * PostgreSQL: true (CREATE TYPE ... AS ENUM)
-   * MySQL/SQLite: false (uses VARCHAR/TEXT)
-   */
-  supportsNativeEnums: boolean;
-
-  /**
-   * Get the column type for an enum field.
-   * PostgreSQL: returns the enum type name (e.g., "users_status_enum")
-   * MySQL/SQLite: returns VARCHAR or TEXT
-   */
-  getEnumColumnType: (
-    tableName: string,
-    columnName: string,
-    values: string[]
-  ) => string;
-}
 
 /**
  * Type for query parts assembly

@@ -12,8 +12,7 @@ import {
 } from "../builders/aggregate-utils";
 import { buildWhere } from "../builders/where-builder";
 import { getTableName } from "../context";
-import type { QueryContext } from "../types";
-import { QueryEngineError } from "../types";
+import { QueryEngineError, type QueryContext } from "../types";
 
 /**
  * Aggregate arguments

@@ -1,7 +1,7 @@
 /**
  * CLI Interactive Prompts
  *
- * Interactive prompts for resolving ambiguous changes using @clack/prompts.
+ * Interactive prompts for resolving changes using @clack/prompts.
  */
 
 import * as p from "@clack/prompts";
@@ -9,36 +9,87 @@ import type {
   AmbiguousChange,
   ChangeResolution,
   DiffOperation,
+  ResolveCallback,
+  ResolveChange,
+  ResolveResult,
   Resolver,
 } from "../migrations/types";
 
 // =============================================================================
-// INTERACTIVE RESOLVER
+// INTERACTIVE RESOLVE CALLBACK
 // =============================================================================
 
 /**
- * Interactive resolver using CLI prompts.
- * Asks the user to resolve each ambiguous change.
+ * Interactive resolve callback using CLI prompts.
+ * Asks the user to resolve each destructive/ambiguous/enum change.
  */
-export const interactiveResolver: Resolver = async (changes) => {
-  const resolutions = new Map<AmbiguousChange, ChangeResolution>();
+export const interactiveResolve: ResolveCallback = async (
+  change: ResolveChange
+): Promise<ResolveResult> => {
+  if (change.type === "destructive") {
+    // Show destructive change and ask for confirmation
+    p.note(change.description, "Destructive change");
 
-  for (const change of changes) {
-    if (change.type === "ambiguousColumn") {
-      const answer = await p.select({
-        message: `Column "${change.droppedColumn.name}" was removed and "${change.addedColumn.name}" was added in table "${change.tableName}". Is this a rename?`,
-        options: [
-          {
-            value: "rename",
-            label: `Rename: ${change.droppedColumn.name} → ${change.addedColumn.name}`,
-            hint: "Data will be preserved",
-          },
-          {
-            value: "addAndDrop",
-            label: "Add + Drop: Create new column, delete old one",
-            hint: "Data in old column will be LOST",
-          },
-        ],
+    const answer = await p.confirm({
+      message: "Do you want to proceed with this change?",
+      initialValue: false,
+    });
+
+    if (p.isCancel(answer)) {
+      p.cancel("Operation cancelled.");
+      process.exit(0);
+    }
+
+    return answer ? change.proceed() : change.reject();
+  }
+
+  if (change.type === "enumValueRemoval") {
+    // Enum value removal - ask for replacement mappings per column
+    const nullableNote = change.isNullable
+      ? " (nullable - can safely set to NULL)"
+      : " (non-nullable)";
+
+    p.note(
+      `Column: ${change.tableName}.${change.columnName}${nullableNote}\n` +
+        `Removing values: ${change.removedValues.join(", ")}\n` +
+        `Available values: ${change.availableValues.join(", ")}${change.isNullable ? " or NULL" : ""}`,
+      `Enum "${change.enumName}" value removal`
+    );
+
+    // For nullable columns, offer a quick option to set all to NULL
+    if (change.isNullable) {
+      const useNull = await p.confirm({
+        message: "Set all removed values to NULL?",
+        initialValue: true,
+      });
+
+      if (p.isCancel(useNull)) {
+        p.cancel("Operation cancelled.");
+        process.exit(0);
+      }
+
+      if (useNull) {
+        return change.useNull();
+      }
+    }
+
+    const mappings: Record<string, string | null> = {};
+
+    for (const removedValue of change.removedValues) {
+      const options = [
+        ...(change.isNullable
+          ? [{ value: "__NULL__", label: "NULL", hint: "Set to null" }]
+          : []),
+        ...change.availableValues.map((v) => ({
+          value: v,
+          label: v,
+          hint: `Replace with "${v}"`,
+        })),
+      ];
+
+      const answer = await p.select<{ value: string; label: string }[], string>({
+        message: `Map "${removedValue}" to:`,
+        options,
       });
 
       if (p.isCancel(answer)) {
@@ -46,62 +97,108 @@ export const interactiveResolver: Resolver = async (changes) => {
         process.exit(0);
       }
 
-      resolutions.set(change, { type: answer as "rename" | "addAndDrop" });
+      mappings[removedValue] = answer === "__NULL__" ? null : (answer as string);
     }
 
-    if (change.type === "ambiguousTable") {
-      const answer = await p.select({
-        message: `Table "${change.droppedTable}" was removed and "${change.addedTable}" was added. Is this a rename?`,
-        options: [
+    return change.mapValues(mappings);
+  }
+
+  // Ambiguous change - ask rename vs add+drop
+  const options =
+    change.operation === "renameTable"
+      ? [
           {
-            value: "rename",
-            label: `Rename: ${change.droppedTable} → ${change.addedTable}`,
+            value: "rename" as const,
+            label: `Rename: ${change.oldName} → ${change.newName}`,
             hint: "Data will be preserved",
           },
           {
-            value: "addAndDrop",
+            value: "addAndDrop" as const,
             label: "Add + Drop: Create new table, delete old one",
             hint: "ALL DATA in old table will be LOST",
           },
-        ],
-      });
+        ]
+      : [
+          {
+            value: "rename" as const,
+            label: `Rename: ${change.oldName} → ${change.newName}`,
+            hint: "Data will be preserved",
+          },
+          {
+            value: "addAndDrop" as const,
+            label: "Add + Drop: Create new column, delete old one",
+            hint: "Data in old column will be LOST",
+          },
+        ];
 
-      if (p.isCancel(answer)) {
-        p.cancel("Operation cancelled.");
-        process.exit(0);
-      }
-
-      resolutions.set(change, { type: answer as "rename" | "addAndDrop" });
-    }
-  }
-
-  return resolutions;
-};
-
-// =============================================================================
-// CONFIRMATION PROMPTS
-// =============================================================================
-
-/**
- * Prompts the user to confirm destructive operations.
- */
-export async function confirmDestructiveChanges(
-  descriptions: string[]
-): Promise<boolean> {
-  p.note(descriptions.join("\n"), "Destructive changes detected");
-
-  const confirm = await p.confirm({
-    message: "Do you want to proceed with these destructive changes?",
-    initialValue: false,
+  const answer = await p.select({
+    message: change.description,
+    options,
   });
 
-  if (p.isCancel(confirm)) {
+  if (p.isCancel(answer)) {
     p.cancel("Operation cancelled.");
     process.exit(0);
   }
 
-  return confirm;
-}
+  return answer === "rename" ? change.rename() : change.addAndDrop();
+};
+
+// =============================================================================
+// LEGACY RESOLVER (for generate command)
+// =============================================================================
+
+/**
+ * Interactive resolver for ambiguous changes (legacy Resolver type).
+ * Used by the generate command for resolving ambiguous changes.
+ */
+export const interactiveResolver: Resolver = async (
+  changes: AmbiguousChange[]
+): Promise<Map<AmbiguousChange, ChangeResolution>> => {
+  const resolutions = new Map<AmbiguousChange, ChangeResolution>();
+
+  for (const change of changes) {
+    const isTable = change.type === "ambiguousTable";
+    const oldName = isTable
+      ? change.droppedTable
+      : change.droppedColumn.name;
+    const newName = isTable
+      ? change.addedTable
+      : change.addedColumn.name;
+    const tableName = isTable ? "" : ` in table "${change.tableName}"`;
+
+    const options = [
+      {
+        value: "rename" as const,
+        label: `Rename: ${oldName} → ${newName}`,
+        hint: "Data will be preserved",
+      },
+      {
+        value: "addAndDrop" as const,
+        label: isTable
+          ? "Add + Drop: Create new table, delete old one"
+          : "Add + Drop: Create new column, delete old one",
+        hint: isTable
+          ? "ALL DATA in old table will be LOST"
+          : "Data in old column will be LOST",
+      },
+    ];
+
+    const answer = await p.select({
+      message: `${isTable ? "Table" : "Column"} "${oldName}" → "${newName}"${tableName} (rename or add+drop?)`,
+      options,
+    });
+
+    if (p.isCancel(answer)) {
+      p.cancel("Operation cancelled.");
+      process.exit(0);
+    }
+
+    resolutions.set(change, { type: answer as "rename" | "addAndDrop" });
+  }
+
+  return resolutions;
+};
 
 /**
  * Prompts the user to confirm applying changes.

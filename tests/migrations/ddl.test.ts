@@ -3,7 +3,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { postgresMigrations } from "../../src/adapters/databases/postgres/migrations";
+import { postgresMigrationDriver } from "../../src/migrations/drivers/postgres";
 import type { DiffOperation } from "../../src/migrations/types";
 
 // =============================================================================
@@ -11,7 +11,7 @@ import type { DiffOperation } from "../../src/migrations/types";
 // =============================================================================
 
 function generateDDL(op: DiffOperation): string {
-  return postgresMigrations.generateDDL(op);
+  return postgresMigrationDriver.generateDDL(op);
 }
 
 // =============================================================================
@@ -777,51 +777,51 @@ describe("PostgreSQL DDL Generation", () => {
 
     it("should map VibORM types to PostgreSQL types", () => {
       expect(
-        postgresMigrations.mapFieldType(
+        postgresMigrationDriver.mapFieldType(
           createMockField(createFieldState("string")),
           createFieldState("string")
         )
       ).toBe("text");
       expect(
-        postgresMigrations.mapFieldType(
+        postgresMigrationDriver.mapFieldType(
           createMockField(createFieldState("int")),
           createFieldState("int")
         )
       ).toBe("integer");
       expect(
-        postgresMigrations.mapFieldType(
+        postgresMigrationDriver.mapFieldType(
           createMockField(createFieldState("float")),
           createFieldState("float")
         )
       ).toBe("double precision");
       expect(
-        postgresMigrations.mapFieldType(
+        postgresMigrationDriver.mapFieldType(
           createMockField(createFieldState("boolean")),
           createFieldState("boolean")
         )
       ).toBe("boolean");
       // datetime without timezone (default false) -> timestamp
       expect(
-        postgresMigrations.mapFieldType(
+        postgresMigrationDriver.mapFieldType(
           createMockField(createFieldState("datetime")),
           createFieldState("datetime")
         )
       ).toBe("timestamp");
       // datetime with timezone -> timestamptz
       expect(
-        postgresMigrations.mapFieldType(
+        postgresMigrationDriver.mapFieldType(
           createMockField(createFieldState("datetime", { withTimezone: true })),
           createFieldState("datetime", { withTimezone: true })
         )
       ).toBe("timestamptz");
       expect(
-        postgresMigrations.mapFieldType(
+        postgresMigrationDriver.mapFieldType(
           createMockField(createFieldState("json")),
           createFieldState("json")
         )
       ).toBe("jsonb");
       expect(
-        postgresMigrations.mapFieldType(
+        postgresMigrationDriver.mapFieldType(
           createMockField(createFieldState("bigint")),
           createFieldState("bigint")
         )
@@ -830,13 +830,13 @@ describe("PostgreSQL DDL Generation", () => {
 
     it("should handle array types", () => {
       expect(
-        postgresMigrations.mapFieldType(
+        postgresMigrationDriver.mapFieldType(
           createMockField(createFieldState("string", { array: true })),
           createFieldState("string", { array: true })
         )
       ).toBe("text[]");
       expect(
-        postgresMigrations.mapFieldType(
+        postgresMigrationDriver.mapFieldType(
           createMockField(createFieldState("int", { array: true })),
           createFieldState("int", { array: true })
         )
@@ -847,7 +847,7 @@ describe("PostgreSQL DDL Generation", () => {
       // mapFieldType returns base type; DDL generator converts to serial/bigserial
       // based on ColumnDef.autoIncrement flag
       expect(
-        postgresMigrations.mapFieldType(
+        postgresMigrationDriver.mapFieldType(
           createMockField(
             createFieldState("int", { autoGenerate: "increment" })
           ),
@@ -855,7 +855,7 @@ describe("PostgreSQL DDL Generation", () => {
         )
       ).toBe("integer");
       expect(
-        postgresMigrations.mapFieldType(
+        postgresMigrationDriver.mapFieldType(
           createMockField(
             createFieldState("bigint", { autoGenerate: "increment" })
           ),
@@ -867,14 +867,14 @@ describe("PostgreSQL DDL Generation", () => {
     it("should handle time with and without timezone", () => {
       // time without timezone (default) -> time
       expect(
-        postgresMigrations.mapFieldType(
+        postgresMigrationDriver.mapFieldType(
           createMockField(createFieldState("time")),
           createFieldState("time")
         )
       ).toBe("time");
       // time with timezone -> timetz
       expect(
-        postgresMigrations.mapFieldType(
+        postgresMigrationDriver.mapFieldType(
           createMockField(createFieldState("time", { withTimezone: true })),
           createFieldState("time", { withTimezone: true })
         )

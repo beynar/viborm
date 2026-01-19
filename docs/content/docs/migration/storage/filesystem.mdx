@@ -1,0 +1,221 @@
+---
+title: Filesystem Storage
+description: Store migrations as files on the local filesystem (default storage driver)
+icon: FolderOpen
+---
+
+## Quick Start
+
+```ts
+import { createMigrationClient } from "viborm/migrations";
+import { createFsStorageDriver } from "viborm/migrations/storage/fs";
+
+const storage = createFsStorageDriver("./migrations");
+
+const migrations = createMigrationClient(client, {
+  storageDriver: storage,
+});
+```
+
+<Callout type="info" title="Tree-Shaking">
+The filesystem storage driver is imported separately from `viborm/migrations/storage/fs` to enable tree-shaking. This allows edge environments (like Cloudflare Workers) to use `push()` without bundling `node:fs`.
+</Callout>
+
+## Configuration
+
+```ts
+const storage = createFsStorageDriver(baseDir);
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `baseDir` | `string` | Base directory for migration files |
+
+The `baseDir` should be an absolute path or relative to the current working directory.
+
+## Characteristics
+
+| Property | Value |
+|----------|-------|
+| Storage | Local filesystem |
+| Persistence | Permanent (until deleted) |
+| Version control | Yes (commit to git) |
+| Team collaboration | Via git |
+| Performance | Fast (local I/O) |
+
+## Directory Structure
+
+```
+migrations/                    # baseDir
+├── 0000_initial.sql          # First migration
+├── 0001_add-users.sql        # Second migration
+├── 0002_add-posts.sql        # Third migration
+└── meta/                     # Metadata directory
+    ├── _journal.json         # Migration index
+    ├── _snapshot.json        # Current schema snapshot
+    ├── _down/                # Down migrations
+    │   ├── 0000_initial.sql
+    │   ├── 0001_add-users.sql
+    │   └── 0002_add-posts.sql
+    ├── _backup/              # Backups before modification
+    └── _archive/             # Archived (squashed) migrations
+```
+
+## File Formats
+
+### Migration Files
+
+SQL files with statements separated by semicolons:
+
+```sql
+-- 0001_add-users.sql
+
+CREATE TABLE "users" (
+  "id" serial PRIMARY KEY,
+  "email" text NOT NULL UNIQUE,
+  "name" text,
+  "created_at" timestamp DEFAULT NOW()
+);
+
+CREATE INDEX "users_email_idx" ON "users" ("email");
+```
+
+### Journal File
+
+JSON file tracking all migrations:
+
+```json
+{
+  "version": "1",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "20240115120000",
+      "name": "initial",
+      "when": 1705320000000,
+      "checksum": "sha256:abc123..."
+    },
+    {
+      "idx": 1,
+      "version": "20240116140000",
+      "name": "add-users",
+      "when": 1705413600000,
+      "checksum": "sha256:def456..."
+    }
+  ]
+}
+```
+
+### Snapshot File
+
+JSON representation of the current schema:
+
+```json
+{
+  "tables": [
+    {
+      "name": "users",
+      "columns": [
+        { "name": "id", "type": "serial", "nullable": false },
+        { "name": "email", "type": "text", "nullable": false }
+      ],
+      "primaryKey": { "columns": ["id"] },
+      "indexes": [],
+      "foreignKeys": [],
+      "uniqueConstraints": []
+    }
+  ],
+  "enums": []
+}
+```
+
+## Use Cases
+
+### Local Development
+
+```ts
+import { createMigrationClient } from "viborm/migrations";
+import { createFsStorageDriver } from "viborm/migrations/storage/fs";
+
+const migrations = createMigrationClient(client, {
+  storageDriver: createFsStorageDriver("./migrations"),
+});
+
+// Generate migrations as you develop
+await migrations.generate({ name: "add-feature" });
+
+// Apply to local database
+await migrations.apply();
+```
+
+### CI/CD Pipelines
+
+```yaml
+# .github/workflows/migrate.yml
+- name: Apply migrations
+  run: |
+    npx ts-node scripts/migrate.ts
+```
+
+```ts
+// scripts/migrate.ts
+import { createMigrationClient } from "viborm/migrations";
+import { createFsStorageDriver } from "viborm/migrations/storage/fs";
+
+const migrations = createMigrationClient(client, {
+  storageDriver: createFsStorageDriver("./migrations"),
+});
+
+const pending = await migrations.pending();
+if (pending.length > 0) {
+  console.log(`Applying ${pending.length} migrations...`);
+  await migrations.apply();
+}
+```
+
+### Version Control
+
+Migration files are designed to be committed to git:
+
+```bash
+# .gitignore - don't ignore migrations!
+# migrations/  # DO NOT ADD THIS
+
+# Commit migrations
+git add migrations/
+git commit -m "Add user table migration"
+```
+
+## Error Handling
+
+The filesystem driver handles common scenarios:
+
+- **Missing directory**: Creates directories automatically on `put()`
+- **Missing file**: Returns `null` on `get()`, no-op on `delete()`
+- **Permission errors**: Throws standard Node.js errors
+
+```ts
+try {
+  await migrations.apply();
+} catch (error) {
+  if (error.code === "EACCES") {
+    console.error("Permission denied - check file permissions");
+  }
+}
+```
+
+## Next Steps
+
+<Cards>
+  <Card
+    title="Storage Drivers"
+    description="Learn about other storage options"
+    href="/docs/migration/storage"
+  />
+  <Card
+    title="Migration Client"
+    description="Full client API"
+    href="/docs/migration/client"
+  />
+</Cards>
