@@ -428,7 +428,23 @@ export function diff(
     // Dropped enums
     for (const [name] of currentEnums) {
       if (!desiredEnums.has(name)) {
-        operations.push({ type: "dropEnum", enumName: name });
+        // Find all columns that depend on this enum
+        const dependentColumns: Array<{ tableName: string; columnName: string }> = [];
+        for (const table of current.tables) {
+          for (const column of table.columns) {
+            if (column.type === name) {
+              dependentColumns.push({
+                tableName: table.name,
+                columnName: column.name,
+              });
+            }
+          }
+        }
+        operations.push({
+          type: "dropEnum",
+          enumName: name,
+          dependentColumns: dependentColumns.length > 0 ? dependentColumns : undefined,
+        });
       }
     }
 

@@ -492,26 +492,50 @@ export class SQLite3MigrationDriver extends MigrationDriver {
   generateDropEnum(op: DropEnumOperation, context?: DDLContext): string {
     // Dropping an enum means removing CHECK constraints from dependent columns
     // This requires table recreation for each dependent table
-    //
-    // LIMITATION: The enum name follows the pattern: {tableName}_{columnName}_enum
-    // This regex parsing is ambiguous for names containing underscores
-    // (e.g., "user_profile_status_enum" could be table="user_profile", column="status"
-    // or table="user", column="profile_status").
-    // We verify by checking the column exists with a CHECK constraint.
     const statements: string[] = [];
-    const enumName = op.enumName;
+    const { enumName, dependentColumns } = op;
 
-    // Parse enum name to find table and column (greedy match for table name)
+    // Use dependentColumns metadata when available (preferred)
+    if (dependentColumns && dependentColumns.length > 0) {
+      for (const dep of dependentColumns) {
+        const currentTable = this.getCurrentTable(dep.tableName, context);
+        if (!currentTable) {
+          statements.push(
+            `-- SQLite: table "${dep.tableName}" not found for enum "${enumName}"`
+          );
+          continue;
+        }
+
+        // Change the column type to plain TEXT (remove CHECK constraint)
+        const newColumns = currentTable.columns.map((col) => {
+          if (col.name === dep.columnName && col.type.includes("CHECK")) {
+            return { ...col, type: "TEXT" };
+          }
+          return col;
+        });
+
+        const newTable: TableDef = { ...currentTable, columns: newColumns };
+        statements.push(
+          this.generateTableRecreation(dep.tableName, newTable, currentTable)
+        );
+      }
+
+      return statements.length > 0
+        ? statements.join(";\n")
+        : `-- SQLite: no columns to update for enum "${enumName}"`;
+    }
+
+    // Fallback: parse enum name to find table/column (legacy behavior)
+    // LIMITATION: This regex is ambiguous for names with underscores
     const match = enumName.match(/^(.+)_([^_]+)_enum$/);
     if (!match) {
-      return `-- SQLite: cannot parse enum name "${enumName}" to find dependent column`;
+      return `-- SQLite: cannot parse enum name "${enumName}" and no dependentColumns provided`;
     }
 
     const tableName = match[1]!;
     const columnName = match[2]!;
     const currentTable = this.getCurrentTable(tableName, context);
 
-    // If table not found, the regex may have split incorrectly - this is expected for edge cases
     if (!currentTable) {
       return `-- SQLite: table "${tableName}" not found for enum "${enumName}" (naming may be ambiguous)`;
     }
@@ -524,7 +548,7 @@ export class SQLite3MigrationDriver extends MigrationDriver {
       return `-- SQLite: column "${columnName}" with CHECK constraint not found in "${tableName}" for enum "${enumName}"`;
     }
 
-    // Find the column and change its type to plain TEXT (remove CHECK)
+    // Change the column type to plain TEXT (remove CHECK constraint)
     const newColumns = currentTable.columns.map((col) => {
       if (col.name === columnName && col.type.includes("CHECK")) {
         return { ...col, type: "TEXT" };

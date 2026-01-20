@@ -94,7 +94,15 @@ export type DiffOperation =
   | { type: "addPrimaryKey"; tableName: string; primaryKey: PrimaryKeyDef }
   | { type: "dropPrimaryKey"; tableName: string; constraintName: string }
   | { type: "createEnum"; enumDef: EnumDef }
-  | { type: "dropEnum"; enumName: string }
+  | {
+      type: "dropEnum";
+      enumName: string;
+      /**
+       * Columns that depend on this enum.
+       * Required for SQLite to know which columns need CHECK constraint removal.
+       */
+      dependentColumns?: Array<{ tableName: string; columnName: string }>;
+    }
   | {
       type: "alterEnum";
       enumName: string;
