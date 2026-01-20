@@ -5,9 +5,9 @@
  * Maps operation names to schema keys and validates input.
  */
 
+import { ValidationError } from "@errors";
 import type { Model } from "@schema/model";
 import { parse, type VibSchema } from "@validation";
-import { ValidationError } from "@errors";
 import type { Operation } from "./types";
 
 /**
@@ -17,7 +17,6 @@ function getOperationSchema(
   model: Model<any>,
   operation: Operation
 ): VibSchema | undefined {
-
   const schemas = model["~"].schemas;
 
   // Map operations to their schema locations
@@ -74,7 +73,10 @@ export function validate<T>(
 
   if (!schema) {
     throw new ValidationError(operation, [
-      { path: "operation", message: `Schema not found for operation: ${operation}` },
+      {
+        path: "operation",
+        message: `Schema not found for operation: ${operation}`,
+      },
     ]);
   }
 
@@ -82,7 +84,9 @@ export function validate<T>(
 
   if (result.issues) {
     const issues = result.issues.map((issue) => ({
-      path: issue.path?.map((p) => typeof p ==="object" ? p.key: p ).join(".") || "root",
+      path:
+        issue.path?.map((p) => (typeof p === "object" ? p.key : p)).join(".") ||
+        "root",
       message: issue.message,
     }));
     throw new ValidationError(operation, issues);

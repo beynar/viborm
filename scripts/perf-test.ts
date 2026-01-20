@@ -9,16 +9,19 @@
  */
 
 import { PGlite } from "@electric-sql/pglite";
+import { PGliteDriver } from "../src/drivers/pglite";
 import {
   createPerfTracker,
   formatPerfReport,
 } from "../src/instrumentation/perf-tracker";
-import { s } from "../src/schema";
 
 // Import internals to measure each step
-import { createModelRegistry, QueryEngine } from "../src/query-engine/query-engine";
+import {
+  createModelRegistry,
+  QueryEngine,
+} from "../src/query-engine/query-engine";
+import { s } from "../src/schema";
 import { hydrateSchemaNames } from "../src/schema/hydration";
-import { PGliteDriver } from "../src/drivers/pglite";
 
 async function main() {
   const perf = createPerfTracker();

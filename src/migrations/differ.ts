@@ -429,7 +429,10 @@ export function diff(
     for (const [name] of currentEnums) {
       if (!desiredEnums.has(name)) {
         // Find all columns that depend on this enum
-        const dependentColumns: Array<{ tableName: string; columnName: string }> = [];
+        const dependentColumns: Array<{
+          tableName: string;
+          columnName: string;
+        }> = [];
         for (const table of current.tables) {
           for (const column of table.columns) {
             if (column.type === name) {
@@ -443,7 +446,8 @@ export function diff(
         operations.push({
           type: "dropEnum",
           enumName: name,
-          dependentColumns: dependentColumns.length > 0 ? dependentColumns : undefined,
+          dependentColumns:
+            dependentColumns.length > 0 ? dependentColumns : undefined,
         });
       }
     }

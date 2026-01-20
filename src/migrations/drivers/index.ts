@@ -5,34 +5,34 @@
  * driver name and can be looked up by driver name or dialect.
  */
 
+import { MigrationError, VibORMErrorCode } from "../../errors";
 import type { MigrationDriver } from "./base";
 import type { Dialect } from "./types";
-import { MigrationError, VibORMErrorCode } from "../../errors";
 
+export type {
+  AddColumnOperation,
+  AddForeignKeyOperation,
+  AddPrimaryKeyOperation,
+  AddUniqueConstraintOperation,
+  AlterColumnOperation,
+  AlterEnumOperation,
+  CreateEnumOperation,
+  CreateIndexOperation,
+  CreateTableOperation,
+  DDLContext,
+  DropColumnOperation,
+  DropEnumOperation,
+  DropForeignKeyOperation,
+  DropIndexOperation,
+  DropPrimaryKeyOperation,
+  DropTableOperation,
+  DropUniqueConstraintOperation,
+  RenameColumnOperation,
+  RenameTableOperation,
+} from "./base";
 // Export base class and types
 export { MigrationDriver } from "./base";
-export type {
-  DDLContext,
-  CreateTableOperation,
-  DropTableOperation,
-  RenameTableOperation,
-  AddColumnOperation,
-  DropColumnOperation,
-  RenameColumnOperation,
-  AlterColumnOperation,
-  CreateIndexOperation,
-  DropIndexOperation,
-  AddForeignKeyOperation,
-  DropForeignKeyOperation,
-  AddUniqueConstraintOperation,
-  DropUniqueConstraintOperation,
-  AddPrimaryKeyOperation,
-  DropPrimaryKeyOperation,
-  CreateEnumOperation,
-  DropEnumOperation,
-  AlterEnumOperation,
-} from "./base";
-export type { MigrationCapabilities, Dialect } from "./types";
+export type { Dialect, MigrationCapabilities } from "./types";
 
 // =============================================================================
 // REGISTRY
@@ -49,6 +49,7 @@ const driverRegistry = new Map<string, MigrationDriver>();
 const dialectDefaults = new Map<Dialect, string>([
   ["postgresql", "postgresql"],
   ["sqlite", "sqlite3"],
+  ["mysql", "mysql"],
 ]);
 
 /**
@@ -113,10 +114,12 @@ export function hasMigrationDriver(driverName: string): boolean {
 // =============================================================================
 
 // Import and register built-in drivers
+import { libsqlMigrationDriver } from "./libsql";
+import { mysqlMigrationDriver } from "./mysql";
 import { postgresMigrationDriver } from "./postgres";
 import { sqlite3MigrationDriver } from "./sqlite";
 
 registerMigrationDriver(postgresMigrationDriver);
 registerMigrationDriver(sqlite3MigrationDriver);
-
-// Note: LibSQL driver will be registered when implemented
+registerMigrationDriver(libsqlMigrationDriver);
+registerMigrationDriver(mysqlMigrationDriver);

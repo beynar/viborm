@@ -185,7 +185,9 @@ const schema = { allFieldsModel };
 // TEST SETUP
 // =============================================================================
 
-let client: Awaited<ReturnType<typeof PGliteCreateClient<{ schema: typeof schema }>>>;
+let client: Awaited<
+  ReturnType<typeof PGliteCreateClient<{ schema: typeof schema }>>
+>;
 
 beforeAll(async () => {
   // Use in-memory PGlite

@@ -97,7 +97,8 @@ export const interactiveResolve: ResolveCallback = async (
         process.exit(0);
       }
 
-      mappings[removedValue] = answer === "__NULL__" ? null : (answer as string);
+      mappings[removedValue] =
+        answer === "__NULL__" ? null : (answer as string);
     }
 
     return change.mapValues(mappings);
@@ -159,12 +160,8 @@ export const interactiveResolver: Resolver = async (
 
   for (const change of changes) {
     const isTable = change.type === "ambiguousTable";
-    const oldName = isTable
-      ? change.droppedTable
-      : change.droppedColumn.name;
-    const newName = isTable
-      ? change.addedTable
-      : change.addedColumn.name;
+    const oldName = isTable ? change.droppedTable : change.droppedColumn.name;
+    const newName = isTable ? change.addedTable : change.addedColumn.name;
     const tableName = isTable ? "" : ` in table "${change.tableName}"`;
 
     const options = [

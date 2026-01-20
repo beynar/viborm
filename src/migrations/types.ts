@@ -372,7 +372,11 @@ export type ResolveChange =
  */
 export type ResolveCallback = (
   change: ResolveChange
-) => Promise<ResolveResult | undefined | void> | ResolveResult | undefined | void;
+) =>
+  | Promise<ResolveResult | undefined | void>
+  | ResolveResult
+  | undefined
+  | void;
 
 /**
  * Create a destructive change object with resolution methods.

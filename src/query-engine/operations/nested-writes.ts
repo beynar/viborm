@@ -5,8 +5,8 @@
  * These operations are executed within a transaction when needed.
  */
 
-import type { AnyDriver } from "@drivers";
 import type { DatabaseAdapter } from "@adapters";
+import type { AnyDriver } from "@drivers";
 import type { Model } from "@schema/model";
 import { type Sql, sql } from "@sql";
 import { getPrimaryKeyField } from "../builders/correlation-utils";
@@ -20,7 +20,11 @@ import {
 import { buildValues } from "../builders/values-builder";
 import { buildWhereUnique } from "../builders/where-builder";
 import { createChildContext, getColumnName, getTableName } from "../context";
-import { NestedWriteError, type QueryContext, type RelationInfo } from "../types";
+import {
+  NestedWriteError,
+  type QueryContext,
+  type RelationInfo,
+} from "../types";
 import { withTransactionIfSupported } from "../utils/transaction-helper";
 
 // ============================================================
@@ -611,12 +615,17 @@ async function executeConnectOrCreate(
   }
 
   // SELECT to check existence and fetch full record
-  const selectSql = sql.join([
-    adapter.clauses.select(sql`*`),
-    adapter.clauses.from(sql`${adapter.identifiers.escape(targetTable)} ${adapter.identifiers.escape(alias)}`),
-    adapter.clauses.where(whereClause),
-    adapter.clauses.limit(adapter.literals.value(1)),
-  ], " ");
+  const selectSql = sql.join(
+    [
+      adapter.clauses.select(sql`*`),
+      adapter.clauses.from(
+        sql`${adapter.identifiers.escape(targetTable)} ${adapter.identifiers.escape(alias)}`
+      ),
+      adapter.clauses.where(whereClause),
+      adapter.clauses.limit(adapter.literals.value(1)),
+    ],
+    " "
+  );
 
   const result = await tx._execute<Record<string, unknown>>(selectSql);
 
@@ -634,7 +643,8 @@ async function executeConnectOrCreate(
         txCtx
       );
       // Re-fetch to get updated FK values
-      const refetchResult = await tx._execute<Record<string, unknown>>(selectSql);
+      const refetchResult =
+        await tx._execute<Record<string, unknown>>(selectSql);
       return refetchResult.rows[0] ?? result.rows[0]!;
     }
 

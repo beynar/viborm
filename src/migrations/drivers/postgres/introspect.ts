@@ -15,6 +15,7 @@ import type {
   TableDef,
   UniqueConstraintDef,
 } from "../../types";
+import { groupBy, groupByNested } from "../utils";
 import type {
   PgColumn,
   PgEnum,
@@ -151,54 +152,6 @@ ORDER BY t.typname, e.enumsortorder;
 // =============================================================================
 // HELPER FUNCTIONS
 // =============================================================================
-
-/**
- * Groups an array of items by a key extracted via keyFn.
- */
-function groupBy<T>(items: T[], keyFn: (item: T) => string): Map<string, T[]> {
-  const map = new Map<string, T[]>();
-  for (const item of items) {
-    const key = keyFn(item);
-    const existing = map.get(key);
-    if (existing) {
-      existing.push(item);
-    } else {
-      map.set(key, [item]);
-    }
-  }
-  return map;
-}
-
-/**
- * Groups items by primary key, then by secondary key.
- * Used for indexes, foreign keys, and unique constraints that have
- * multiple rows per constraint (one per column).
- */
-function groupByNested<T>(
-  items: T[],
-  primaryKeyFn: (item: T) => string,
-  secondaryKeyFn: (item: T) => string
-): Map<string, Map<string, T[]>> {
-  const map = new Map<string, Map<string, T[]>>();
-  for (const item of items) {
-    const pk = primaryKeyFn(item);
-    const sk = secondaryKeyFn(item);
-
-    let secondary = map.get(pk);
-    if (!secondary) {
-      secondary = new Map();
-      map.set(pk, secondary);
-    }
-
-    const existing = secondary.get(sk);
-    if (existing) {
-      existing.push(item);
-    } else {
-      secondary.set(sk, [item]);
-    }
-  }
-  return map;
-}
 
 function mapReferentialAction(rule: string): ReferentialAction {
   switch (rule) {

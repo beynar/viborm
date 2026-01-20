@@ -11,8 +11,8 @@ import {
   type DriverConfig,
   type VibORMClient,
 } from "@client/client";
-import { Pool, type PoolClient, type PoolConfig } from "pg";
 import { unsupportedGeospatial, unsupportedVector } from "@errors";
+import { Pool, type PoolClient, type PoolConfig } from "pg";
 import { Driver } from "../driver";
 import type { QueryResult, TransactionOptions } from "../types";
 
@@ -30,7 +30,7 @@ export interface PgDriverOptions {
   databaseUrl?: string;
 }
 
-export type PgClientConfig<C extends DriverConfig> = PgDriverOptions & C
+export type PgClientConfig<C extends DriverConfig> = PgDriverOptions & C;
 
 // ============================================================
 // DRIVER IMPLEMENTATION
@@ -140,11 +140,20 @@ export class PgDriver extends Driver<Pool, PoolClient> {
 // CONVENIENCE FUNCTION
 // ============================================================
 
-export function createClient<C extends DriverConfig>(config: PgClientConfig<C>) {
-  const { pool, options = {}, pgvector, postgis, databaseUrl, ...restConfig } = config;
+export function createClient<C extends DriverConfig>(
+  config: PgClientConfig<C>
+) {
+  const {
+    pool,
+    options = {},
+    pgvector,
+    postgis,
+    databaseUrl,
+    ...restConfig
+  } = config;
 
   const driverOptions: PgDriverOptions = {};
-  if(databaseUrl !== undefined) options.connectionString = databaseUrl;
+  if (databaseUrl !== undefined) options.connectionString = databaseUrl;
   if (pool) driverOptions.pool = pool;
   if (options) driverOptions.options = options;
   if (pgvector !== undefined) driverOptions.pgvector = pgvector;

@@ -9,15 +9,14 @@ import type { AnyDriver } from "@drivers/driver";
 import type { Model } from "@schema/model";
 import type { AnyRelation } from "@schema/relation";
 
-// Re-export Sql for convenience
-export { Sql } from "@sql";
-
 // Re-export errors from unified error hierarchy
 export {
-	ValidationError,
-	QueryEngineError,
-	NestedWriteError,
+  NestedWriteError,
+  QueryEngineError,
+  ValidationError,
 } from "@errors";
+// Re-export Sql for convenience
+export { Sql } from "@sql";
 
 /**
  * All supported operations
@@ -100,7 +99,6 @@ export interface RelationInfo {
   /** Referenced fields on target model */
   references: string[] | undefined;
 }
-
 
 // ============================================================
 // NARROWER TYPE DEFINITIONS

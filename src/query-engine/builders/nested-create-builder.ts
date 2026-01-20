@@ -27,7 +27,11 @@ import {
   getScalarFieldNames,
   getTableName,
 } from "../context";
-import { QueryEngineError, type QueryContext, type RelationInfo } from "../types";
+import {
+  type QueryContext,
+  QueryEngineError,
+  type RelationInfo,
+} from "../types";
 import { getPrimaryKeyField } from "./correlation-utils";
 import {
   getFkDirection,
@@ -448,11 +452,14 @@ function buildFinalSelect(
     parentPkColumn
   )} = ${parentIdRef}`;
 
-  return sql.join([
-    adapter.clauses.select(columnsSql),
-    adapter.clauses.from(parentTable),
-    adapter.clauses.where(whereSql),
-  ], " ");
+  return sql.join(
+    [
+      adapter.clauses.select(columnsSql),
+      adapter.clauses.from(parentTable),
+      adapter.clauses.where(whereSql),
+    ],
+    " "
+  );
 }
 
 /**

@@ -9,7 +9,7 @@
  * - isNot: NOT EXISTS for to-one (record doesn't match)
  */
 
-import { type Sql, sql } from "@sql";
+import type { Sql } from "@sql";
 import { createChildContext, getTableName } from "../context";
 import type { QueryContext, RelationInfo } from "../types";
 import { buildCorrelation } from "./correlation-utils";

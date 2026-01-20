@@ -222,12 +222,7 @@ export function validateFieldsSinglePass(
       const schema = field["~"].schemas.base;
       const result = schema["~standard"].validate(st.default);
       if (result instanceof Promise) {
-
-
-      } else {
-
-
-      if (result.issues) {
+      } else if (result.issues) {
         errors.push({
           code: "F004",
           message: `Default value for '${fname}' in '${name}' doesn't match type`,
@@ -236,7 +231,6 @@ export function validateFieldsSinglePass(
           field: fname,
         });
       }
-        }
     }
 
     // F006: ID not nullable

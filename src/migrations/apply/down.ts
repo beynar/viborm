@@ -79,7 +79,8 @@ export async function down(
 
   if (to !== undefined) {
     // Roll back to a specific migration
-    const targetIdx = typeof to === "number" ? to : findMigrationIndex(journal.entries, to);
+    const targetIdx =
+      typeof to === "number" ? to : findMigrationIndex(journal.entries, to);
     if (targetIdx === -1) {
       throw new MigrationError(
         `Migration "${to}" not found`,
@@ -95,7 +96,9 @@ export async function down(
   } else {
     // Roll back last N migrations
     const appliedNames = new Set(appliedMigrations.map((m) => m.name));
-    const appliedEntries = journal.entries.filter((e) => appliedNames.has(e.name));
+    const appliedEntries = journal.entries.filter((e) =>
+      appliedNames.has(e.name)
+    );
     toRollback = appliedEntries.slice(-steps).reverse();
   }
 
@@ -110,7 +113,7 @@ export async function down(
       throw new MigrationError(
         `Migration "${entry.name}" has been modified since it was applied. ` +
           `Applied checksum: ${applied.checksum}, current checksum: ${entry.checksum}. ` +
-          `Rolling back a modified migration may cause data inconsistencies.`,
+          "Rolling back a modified migration may cause data inconsistencies.",
         VibORMErrorCode.MIGRATION_CHECKSUM_MISMATCH,
         { meta: { migrationName: entry.name } }
       );
@@ -162,7 +165,10 @@ function findMigrationIndex(entries: MigrationEntry[], name: string): number {
  * 1. migrations/meta/_down/0000_name.sql
  * 2. -- down marker in the main migration file
  */
-async function readDownSql(ctx: MigrationContext, entry: MigrationEntry): Promise<string | null> {
+async function readDownSql(
+  ctx: MigrationContext,
+  entry: MigrationEntry
+): Promise<string | null> {
   // Try dedicated down file first
   const downContent = await ctx.storage.readDownMigration(entry);
   if (downContent) {

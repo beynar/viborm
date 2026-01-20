@@ -5,9 +5,9 @@
  * from push.ts, generate/index.ts, and apply/index.ts.
  */
 
-import { resolve, relative } from "node:path";
-import { MigrationError, VibORMErrorCode } from "../errors";
+import { relative, resolve } from "node:path";
 import type { AnyDriver } from "../drivers/driver";
+import { MigrationError, VibORMErrorCode } from "../errors";
 import type {
   Dialect,
   DiffOperation,
@@ -40,7 +40,7 @@ export function normalizeDialect(dialect: string): Dialect {
   }
   throw new MigrationError(
     `Unsupported dialect for migrations: "${dialect}". ` +
-      `Supported dialects: postgresql, sqlite.`,
+      "Supported dialects: postgresql, sqlite.",
     VibORMErrorCode.MIGRATION_DIALECT_MISMATCH,
     { meta: { dialect } }
   );
@@ -83,7 +83,7 @@ export function validateTableName(tableName: string): string {
   if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(tableName)) {
     throw new MigrationError(
       `Invalid migration table name: "${tableName}". ` +
-        `Only alphanumeric characters and underscores are allowed.`,
+        "Only alphanumeric characters and underscores are allowed.",
       VibORMErrorCode.INVALID_INPUT,
       { meta: { table: tableName } }
     );

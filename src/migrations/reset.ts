@@ -107,7 +107,9 @@ export async function reset(
       }
 
       // 3. Clear migration tracking table (don't drop, just clear)
-      const clearSql = ctx.migrationDriver.generateClearMigrations(ctx.tableName);
+      const clearSql = ctx.migrationDriver.generateClearMigrations(
+        ctx.tableName
+      );
       await ctx.executeRaw(clearSql);
 
       // 4. Re-apply all migrations
@@ -144,7 +146,7 @@ export async function reset(
  */
 async function getTableNames(ctx: MigrationContext): Promise<string[]> {
   const sql = ctx.migrationDriver.generateListTables();
-  const rows = await ctx.executor(sql) as Array<{ name: string }>;
+  const rows = (await ctx.executor(sql)) as Array<{ name: string }>;
   return rows.map((r) => r.name);
 }
 
@@ -157,6 +159,6 @@ async function getEnumNames(ctx: MigrationContext): Promise<string[]> {
     return [];
   }
 
-  const rows = await ctx.executor(sql) as Array<{ name: string }>;
+  const rows = (await ctx.executor(sql)) as Array<{ name: string }>;
   return rows.map((r) => r.name);
 }

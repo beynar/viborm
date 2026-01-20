@@ -28,22 +28,61 @@ export interface DDLContext {
 }
 
 // Extract individual operation types from the DiffOperation union
-export type CreateTableOperation = Extract<DiffOperation, { type: "createTable" }>;
+export type CreateTableOperation = Extract<
+  DiffOperation,
+  { type: "createTable" }
+>;
 export type DropTableOperation = Extract<DiffOperation, { type: "dropTable" }>;
-export type RenameTableOperation = Extract<DiffOperation, { type: "renameTable" }>;
+export type RenameTableOperation = Extract<
+  DiffOperation,
+  { type: "renameTable" }
+>;
 export type AddColumnOperation = Extract<DiffOperation, { type: "addColumn" }>;
-export type DropColumnOperation = Extract<DiffOperation, { type: "dropColumn" }>;
-export type RenameColumnOperation = Extract<DiffOperation, { type: "renameColumn" }>;
-export type AlterColumnOperation = Extract<DiffOperation, { type: "alterColumn" }>;
-export type CreateIndexOperation = Extract<DiffOperation, { type: "createIndex" }>;
+export type DropColumnOperation = Extract<
+  DiffOperation,
+  { type: "dropColumn" }
+>;
+export type RenameColumnOperation = Extract<
+  DiffOperation,
+  { type: "renameColumn" }
+>;
+export type AlterColumnOperation = Extract<
+  DiffOperation,
+  { type: "alterColumn" }
+>;
+export type CreateIndexOperation = Extract<
+  DiffOperation,
+  { type: "createIndex" }
+>;
 export type DropIndexOperation = Extract<DiffOperation, { type: "dropIndex" }>;
-export type AddForeignKeyOperation = Extract<DiffOperation, { type: "addForeignKey" }>;
-export type DropForeignKeyOperation = Extract<DiffOperation, { type: "dropForeignKey" }>;
-export type AddUniqueConstraintOperation = Extract<DiffOperation, { type: "addUniqueConstraint" }>;
-export type DropUniqueConstraintOperation = Extract<DiffOperation, { type: "dropUniqueConstraint" }>;
-export type AddPrimaryKeyOperation = Extract<DiffOperation, { type: "addPrimaryKey" }>;
-export type DropPrimaryKeyOperation = Extract<DiffOperation, { type: "dropPrimaryKey" }>;
-export type CreateEnumOperation = Extract<DiffOperation, { type: "createEnum" }>;
+export type AddForeignKeyOperation = Extract<
+  DiffOperation,
+  { type: "addForeignKey" }
+>;
+export type DropForeignKeyOperation = Extract<
+  DiffOperation,
+  { type: "dropForeignKey" }
+>;
+export type AddUniqueConstraintOperation = Extract<
+  DiffOperation,
+  { type: "addUniqueConstraint" }
+>;
+export type DropUniqueConstraintOperation = Extract<
+  DiffOperation,
+  { type: "dropUniqueConstraint" }
+>;
+export type AddPrimaryKeyOperation = Extract<
+  DiffOperation,
+  { type: "addPrimaryKey" }
+>;
+export type DropPrimaryKeyOperation = Extract<
+  DiffOperation,
+  { type: "dropPrimaryKey" }
+>;
+export type CreateEnumOperation = Extract<
+  DiffOperation,
+  { type: "createEnum" }
+>;
 export type DropEnumOperation = Extract<DiffOperation, { type: "dropEnum" }>;
 export type AlterEnumOperation = Extract<DiffOperation, { type: "alterEnum" }>;
 
@@ -129,7 +168,10 @@ export abstract class MigrationDriver {
   abstract generateAddColumn(op: AddColumnOperation): string;
   abstract generateDropColumn(op: DropColumnOperation): string;
   abstract generateRenameColumn(op: RenameColumnOperation): string;
-  abstract generateAlterColumn(op: AlterColumnOperation, context?: DDLContext): string;
+  abstract generateAlterColumn(
+    op: AlterColumnOperation,
+    context?: DDLContext
+  ): string;
 
   // ===========================================================================
   // DDL GENERATION - Index Operations
@@ -142,30 +184,55 @@ export abstract class MigrationDriver {
   // DDL GENERATION - Foreign Key Operations
   // ===========================================================================
 
-  abstract generateAddForeignKey(op: AddForeignKeyOperation, context?: DDLContext): string;
-  abstract generateDropForeignKey(op: DropForeignKeyOperation, context?: DDLContext): string;
+  abstract generateAddForeignKey(
+    op: AddForeignKeyOperation,
+    context?: DDLContext
+  ): string;
+  abstract generateDropForeignKey(
+    op: DropForeignKeyOperation,
+    context?: DDLContext
+  ): string;
 
   // ===========================================================================
   // DDL GENERATION - Unique Constraint Operations
   // ===========================================================================
 
-  abstract generateAddUniqueConstraint(op: AddUniqueConstraintOperation): string;
-  abstract generateDropUniqueConstraint(op: DropUniqueConstraintOperation): string;
+  abstract generateAddUniqueConstraint(
+    op: AddUniqueConstraintOperation
+  ): string;
+  abstract generateDropUniqueConstraint(
+    op: DropUniqueConstraintOperation
+  ): string;
 
   // ===========================================================================
   // DDL GENERATION - Primary Key Operations
   // ===========================================================================
 
-  abstract generateAddPrimaryKey(op: AddPrimaryKeyOperation, context?: DDLContext): string;
-  abstract generateDropPrimaryKey(op: DropPrimaryKeyOperation, context?: DDLContext): string;
+  abstract generateAddPrimaryKey(
+    op: AddPrimaryKeyOperation,
+    context?: DDLContext
+  ): string;
+  abstract generateDropPrimaryKey(
+    op: DropPrimaryKeyOperation,
+    context?: DDLContext
+  ): string;
 
   // ===========================================================================
   // DDL GENERATION - Enum Operations
   // ===========================================================================
 
-  abstract generateCreateEnum(op: CreateEnumOperation, context?: DDLContext): string;
-  abstract generateDropEnum(op: DropEnumOperation, context?: DDLContext): string;
-  abstract generateAlterEnum(op: AlterEnumOperation, context?: DDLContext): string;
+  abstract generateCreateEnum(
+    op: CreateEnumOperation,
+    context?: DDLContext
+  ): string;
+  abstract generateDropEnum(
+    op: DropEnumOperation,
+    context?: DDLContext
+  ): string;
+  abstract generateAlterEnum(
+    op: AlterEnumOperation,
+    context?: DDLContext
+  ): string;
 
   // ===========================================================================
   // HELPER METHODS (can be overridden)
@@ -312,7 +379,10 @@ export abstract class MigrationDriver {
    * @param indexType - The index type to validate (e.g., "btree", "hash", "gin")
    * @param indexName - The index name (for error messages)
    */
-  protected validateIndexType(indexType: string | undefined, indexName: string): void {
+  protected validateIndexType(
+    indexType: string | undefined,
+    indexName: string
+  ): void {
     if (!indexType) return; // Default index type is always supported
 
     const supported = this.capabilities.supportsIndexTypes;
@@ -390,7 +460,10 @@ export abstract class MigrationDriver {
    * @param tableName - The tracking table name
    * @returns SQL INSERT statement with placeholders
    */
-  abstract generateInsertMigration(tableName: string): { sql: string; paramCount: number };
+  abstract generateInsertMigration(tableName: string): {
+    sql: string;
+    paramCount: number;
+  };
 
   /**
    * Generates SQL for deleting a migration record.
@@ -398,7 +471,10 @@ export abstract class MigrationDriver {
    * @param tableName - The tracking table name
    * @returns SQL DELETE statement with placeholders
    */
-  abstract generateDeleteMigration(tableName: string): { sql: string; paramCount: number };
+  abstract generateDeleteMigration(tableName: string): {
+    sql: string;
+    paramCount: number;
+  };
 
   /**
    * Generates SQL for clearing all migration records.

@@ -93,10 +93,14 @@ function prettyLog(event: LogEvent): void {
         | undefined;
       const cacheEvent = meta?.event ?? "unknown";
       const status = meta?.status ? `(${meta.status})` : "";
-      const key = meta?.key
-        ? `${colors.dim}${meta.key}${colors.reset}`
-        : "";
-      console.log(prefix, time, `${colors.magenta}${cacheEvent}${colors.reset}`, status, key);
+      const key = meta?.key ? `${colors.dim}${meta.key}${colors.reset}` : "";
+      console.log(
+        prefix,
+        time,
+        `${colors.magenta}${cacheEvent}${colors.reset}`,
+        status,
+        key
+      );
       break;
     }
     case "warning": {

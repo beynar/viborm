@@ -71,7 +71,11 @@ export async function generate(
   const diffResult = diff(previousSnapshot, currentSnapshot);
 
   // 4. Resolve ambiguous changes
-  let finalOperations = await resolveAmbiguousChanges(diffResult, currentSnapshot, resolver);
+  let finalOperations = await resolveAmbiguousChanges(
+    diffResult,
+    currentSnapshot,
+    resolver
+  );
 
   // 5. Resolve enum value removals
   finalOperations = await resolveEnumValueRemovals(
@@ -159,9 +163,8 @@ export async function preview(
 }
 
 // Re-export utilities for convenience
-export { getNextMigrationIndex } from "../storage";
-export { readJournal } from "./journal";
-export { readSnapshot, getSnapshotOrEmpty } from "./snapshot";
-export { parseStatements, getMigrationFilePath } from "./file-writer";
-export { formatMigrationFilename } from "../storage";
+export { formatMigrationFilename, getNextMigrationIndex } from "../storage";
 export { generateMigrationName } from "../utils";
+export { getMigrationFilePath, parseStatements } from "./file-writer";
+export { readJournal } from "./journal";
+export { getSnapshotOrEmpty, readSnapshot } from "./snapshot";

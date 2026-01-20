@@ -74,14 +74,20 @@
     "@biomejs/biome": "2.3.11",
     "@cloudflare/workers-types": "^4.20260103.0",
     "@electric-sql/pglite": "^0.3.2",
+    "@libsql/client": "^0.14.0",
+    "@neondatabase/serverless": "^0.10.0",
     "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/sdk-trace-node": "^2.4.0",
+    "@planetscale/database": "^1.19.0",
     "@size-limit/esbuild-why": "^12.0.0",
     "@size-limit/file": "^11.2.0",
     "@types/better-sqlite3": "^7.6.13",
+    "@types/bun": "^1.2.17",
     "@types/node": "^22.15.21",
     "@types/pg": "^8.16.0",
     "@vitest/ui": "^3.1.4",
     "better-sqlite3": "^12.6.0",
+    "mysql2": "^3.14.1",
     "postgres": "^3.4.8",
     "prisma": "^6.8.2",
     "tsdown": "0.19.0-beta.4",
@@ -96,6 +102,9 @@
   },
   "dependencies": {
     "@clack/prompts": "^0.7.0",
+    "@opentelemetry/resources": "^2.4.0",
+    "@opentelemetry/sdk-node": "^0.210.0",
+    "@opentelemetry/semantic-conventions": "^1.39.0",
     "@paralleldrive/cuid2": "^3.0.4",
     "@prisma/adapter-pg": "^6.8.2",
     "@prisma/client": "6.8.2",
@@ -112,8 +121,12 @@
   "peerDependencies": {
     "@cloudflare/workers-types": "^4.20260103.0",
     "@electric-sql/pglite": "^0.3.2",
+    "@libsql/client": "^0.14.0",
+    "@neondatabase/serverless": "^0.10.0",
     "@opentelemetry/api": "^1.9.0",
+    "@planetscale/database": "^1.19.0",
     "better-sqlite3": "^12.6.0",
+    "mysql2": "^3.14.0",
     "pg": "^8.16.0",
     "postgres": "^3.4.0"
   },
@@ -124,10 +137,22 @@
     "@electric-sql/pglite": {
       "optional": true
     },
+    "@libsql/client": {
+      "optional": true
+    },
+    "@neondatabase/serverless": {
+      "optional": true
+    },
     "@opentelemetry/api": {
       "optional": true
     },
+    "@planetscale/database": {
+      "optional": true
+    },
     "better-sqlite3": {
+      "optional": true
+    },
+    "mysql2": {
       "optional": true
     },
     "pg": {

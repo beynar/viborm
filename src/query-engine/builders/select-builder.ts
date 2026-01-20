@@ -350,11 +350,14 @@ function buildRelationCount(
 
   // Build COUNT subquery
   return adapter.subqueries.scalar(
-    sql.join([
-      adapter.clauses.select(sql`COUNT(*)`),
-      adapter.clauses.from(targetTable),
-      adapter.clauses.where(whereCondition),
-    ], " ")
+    sql.join(
+      [
+        adapter.clauses.select(sql`COUNT(*)`),
+        adapter.clauses.from(targetTable),
+        adapter.clauses.where(whereCondition),
+      ],
+      " "
+    )
   );
 }
 
@@ -406,10 +409,13 @@ function buildManyToManyCount(
   const whereCondition = adapter.operators.and(...conditions);
 
   return adapter.subqueries.scalar(
-    sql.join([
-      adapter.clauses.select(sql`COUNT(*)`),
-      adapter.clauses.from(fromClause),
-      adapter.clauses.where(whereCondition),
-    ], " ")
+    sql.join(
+      [
+        adapter.clauses.select(sql`COUNT(*)`),
+        adapter.clauses.from(fromClause),
+        adapter.clauses.where(whereCondition),
+      ],
+      " "
+    )
   );
 }

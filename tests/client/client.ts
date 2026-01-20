@@ -1,12 +1,14 @@
 import { MemoryCache } from "@cache/drivers/memory";
 import { createClient } from "@drivers/pglite";
-import { push, status } from "@migrations";
+import { push } from "@migrations";
 import { s } from "@schema";
-import { Prettify } from "@validation/types";
+import type { Prettify } from "@validation/types";
 import z from "zod/v4";
 
-
-const statusENUM = s.enum(["active", "inactive", "deleted"]).name("STATUS").nullable();
+const statusENUM = s
+  .enum(["active", "inactive", "deleted"])
+  .name("STATUS")
+  .nullable();
 
 const user = s.model({
   id: s.string().id(),
@@ -34,11 +36,11 @@ const post = s.model({
     .manyToOne(() => user)
     .fields("authorId")
     .references("id"),
-})
+});
 
 const schema = { user, post };
-const id = s.string().id()
-type StataId = Prettify<typeof id["~"]["state"]["autoGenerate"]>
+const id = s.string().id();
+type StataId = Prettify<(typeof id)["~"]["state"]["autoGenerate"]>;
 // Create client with PGlite
 const client = createClient({
   schema,
@@ -49,6 +51,20 @@ const client = createClient({
 });
 
 
+client.$transaction(async (tx) => {
+  await tx.user.exist({
+    where: {
+      id:"2"
+    }
+  });
+});
+
+const res=  client.$transaction([client.user.exist({
+  where: {
+    id:"2"
+  }
+})])
+
 // Push schema (will be no-op if already in sync)
 const pushResult = await push(client, {
   force: true,
@@ -57,19 +73,12 @@ const pushResult = await push(client, {
       return change.useNull();
     }
     return change.reject();
-  }
+  },
 });
 console.log("Push result:", {
   applied: pushResult.applied,
   operationsCount: pushResult.operations.length,
 });
-
-
-
-
-
-
-
 
 // Clean up any existing test data
 await client.post.deleteMany();
@@ -83,7 +92,7 @@ const newUser = await client.user.create({
   data: {
     email: "lemz",
     name: "eze",
-    status:"active",
+    status: "active",
     pets: [
       {
         age: 10,
@@ -101,8 +110,8 @@ const newUser = await client.user.create({
               contains: "Hello",
             },
             id: {
-              endsWith: "123"
-            }
+              endsWith: "123",
+            },
           },
         ],
       },

@@ -539,7 +539,12 @@ export class QueryEngine {
 
               // Handle nested relation mutations (connect, disconnect, create, delete)
               if (Object.keys(relations).length > 0) {
-                await executeNestedUpdate(driver, ctx, updatedRecord, relations);
+                await executeNestedUpdate(
+                  driver,
+                  ctx,
+                  updatedRecord,
+                  relations
+                );
               }
 
               // Re-fetch to get final state (use PK in case update changed where clause fields)
@@ -554,7 +559,11 @@ export class QueryEngine {
             }
             // Record doesn't exist - do create
             const createData = args.create as Record<string, unknown>;
-            const createResult = await executeNestedCreate(driver, ctx, createData);
+            const createResult = await executeNestedCreate(
+              driver,
+              ctx,
+              createData
+            );
 
             // Handle include/select for return value (same as create operation)
             if (args.include || args.select) {

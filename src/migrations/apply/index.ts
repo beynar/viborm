@@ -8,11 +8,14 @@
 import { MigrationError, VibORMErrorCode } from "../../errors";
 import { MigrationContext } from "../context";
 import { parseStatements } from "../generate/file-writer";
-import { MigrationStorageDriver, validateJournalDialect } from "../storage";
 import type { MigrationClient } from "../push";
+import {
+  type MigrationStorageDriver,
+  validateJournalDialect,
+} from "../storage";
 import type {
-  ApplyOptions,
   AppliedMigration,
+  ApplyOptions,
   MigrationEntry,
   MigrationStatus,
 } from "../types";
@@ -168,7 +171,11 @@ export async function apply(
  */
 export async function status(
   client: MigrationClient,
-  options: { dir?: string; tableName?: string; storageDriver: MigrationStorageDriver }
+  options: {
+    dir?: string;
+    tableName?: string;
+    storageDriver: MigrationStorageDriver;
+  }
 ): Promise<MigrationStatus[]> {
   const { dir, tableName, storageDriver } = options;
 
@@ -209,7 +216,11 @@ export async function status(
  */
 export async function pending(
   client: MigrationClient,
-  options: { dir?: string; tableName?: string; storageDriver: MigrationStorageDriver }
+  options: {
+    dir?: string;
+    tableName?: string;
+    storageDriver: MigrationStorageDriver;
+  }
 ): Promise<MigrationEntry[]> {
   const statuses = await status(client, options);
   return statuses.filter((s) => !s.applied).map((s) => s.entry);
@@ -221,7 +232,12 @@ export async function pending(
  */
 export async function rollback(
   client: MigrationClient,
-  options: { count?: number; dir?: string; tableName?: string; storageDriver: MigrationStorageDriver }
+  options: {
+    count?: number;
+    dir?: string;
+    tableName?: string;
+    storageDriver: MigrationStorageDriver;
+  }
 ): Promise<MigrationEntry[]> {
   const { count = 1, dir, tableName, storageDriver } = options;
 

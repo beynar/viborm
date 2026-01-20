@@ -130,7 +130,10 @@ export interface ObjectSchema<
   TEntries,
   TOpts extends ObjectOptions | undefined = undefined,
   TInput = ApplyObjectOptionsInput<ComputeObjectInput<TEntries, TOpts>, TOpts>,
-  TOutput = ApplyObjectOptionsOutput<ComputeObjectOutput<TEntries, TOpts>, TOpts>,
+  TOutput = ApplyObjectOptionsOutput<
+    ComputeObjectOutput<TEntries, TOpts>,
+    TOpts
+  >,
 > extends VibSchema<TInput, TOutput> {
   readonly type: "object";
   readonly entries: TEntries;

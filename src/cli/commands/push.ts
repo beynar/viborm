@@ -13,11 +13,7 @@ import { Command } from "commander";
 import { getMigrationDriver } from "../../migrations/drivers";
 import { push } from "../../migrations/push";
 import { normalizeDialect } from "../../migrations/utils";
-import {
-  displayOperations,
-  displaySQL,
-  interactiveResolve,
-} from "../prompts";
+import { displayOperations, displaySQL, interactiveResolve } from "../prompts";
 import { loadConfig } from "../utils";
 
 export const pushCommand = new Command("push")
@@ -94,7 +90,7 @@ export const pushCommand = new Command("push")
           const tablesQuery = migrationDriver.generateListTables();
           const result = await driver._executeRaw(tablesQuery);
           const tables =
-            ((result as unknown) as { rows?: { name: string }[] }).rows ?? [];
+            (result as unknown as { rows?: { name: string }[] }).rows ?? [];
 
           for (const table of tables) {
             const dropSql = migrationDriver.generateDropTableSQL(table.name);

@@ -1,7 +1,4 @@
 {
   "title": "Migration storage",
-  "pages": [
-    "index",
-    "filesystem"
-  ]
+  "pages": ["index", "filesystem"]
 }

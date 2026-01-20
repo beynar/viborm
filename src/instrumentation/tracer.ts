@@ -5,7 +5,11 @@
  * Follows Drizzle's pattern: optional dependency, no-op when unavailable.
  */
 
-import { ATTR_DB_QUERY_PARAMETER_PREFIX, ATTR_DB_QUERY_TEXT, type VibORMSpanName } from "./spans";
+import {
+  ATTR_DB_QUERY_PARAMETER_PREFIX,
+  ATTR_DB_QUERY_TEXT,
+  type VibORMSpanName,
+} from "./spans";
 
 /**
  * OpenTelemetry types (imported dynamically)

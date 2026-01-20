@@ -5,8 +5,8 @@
  * Tests CRUD operations, queries, aggregations, transactions, and raw SQL.
  */
 
-import { NotFoundError } from "@errors";
 import { createClient as PGliteCreateClient } from "@drivers/pglite";
+import { NotFoundError } from "@errors";
 import { push } from "@migrations";
 import { s } from "@schema";
 import { sql } from "@sql";
@@ -52,7 +52,9 @@ const schema = { user, post };
 // TEST SETUP
 // =============================================================================
 
-let client: Awaited<ReturnType<typeof PGliteCreateClient<{schema:typeof schema}>>>;
+let client: Awaited<
+  ReturnType<typeof PGliteCreateClient<{ schema: typeof schema }>>
+>;
 
 beforeAll(async () => {
   client = PGliteCreateClient({ schema });

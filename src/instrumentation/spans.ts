@@ -57,19 +57,19 @@ export const SPAN_DISCONNECT = "viborm.disconnect";
  * Type for all valid span names
  */
 export type VibORMSpanName =
-	| typeof SPAN_OPERATION
-	| typeof SPAN_VALIDATE
-	| typeof SPAN_BUILD
-	| typeof SPAN_EXECUTE
-	| typeof SPAN_PARSE
-	| typeof SPAN_TRANSACTION
-	| typeof SPAN_CONNECT
-	| typeof SPAN_DISCONNECT
-	| typeof SPAN_CACHE_GET
-	| typeof SPAN_CACHE_SET
-	| typeof SPAN_CACHE_DELETE
-	| typeof SPAN_CACHE_CLEAR
-	| typeof SPAN_CACHE_INVALIDATE;
+  | typeof SPAN_OPERATION
+  | typeof SPAN_VALIDATE
+  | typeof SPAN_BUILD
+  | typeof SPAN_EXECUTE
+  | typeof SPAN_PARSE
+  | typeof SPAN_TRANSACTION
+  | typeof SPAN_CONNECT
+  | typeof SPAN_DISCONNECT
+  | typeof SPAN_CACHE_GET
+  | typeof SPAN_CACHE_SET
+  | typeof SPAN_CACHE_DELETE
+  | typeof SPAN_CACHE_CLEAR
+  | typeof SPAN_CACHE_INVALIDATE;
 
 /**
  * Semantic attribute keys for span attributes

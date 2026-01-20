@@ -272,53 +272,50 @@ async function main() {
     },
   });
   const clientInstantEnd = performance.now();
-  console.log(`Client creation took ${clientInstantEnd - clientInstantStart}ms`);
+  console.log(
+    `Client creation took ${clientInstantEnd - clientInstantStart}ms`
+  );
 
   console.log("\n--- findMany ---\n");
 
-  await client
-    .user.findMany({
-      where: {
-        AND: [{
+  await client.user.findMany({
+    where: {
+      AND: [
+        {
           email: {
-            contains: "example.com"
+            contains: "example.com",
           },
           id: {
-            endsWith: "123"
+            endsWith: "123",
           },
-
-        }],
-        OR: [{
+        },
+      ],
+      OR: [
+        {
           name: {
-            startsWith: "Alice"
-          }
-        }]
-      },
-
-
-    });
+            startsWith: "Alice",
+          },
+        },
+      ],
+    },
+  });
   await client
     .$withCache({ key: "users", ttl: "1 second", swr: true })
     .user.findMany();
   await new Promise((resolve) => setTimeout(resolve, 1200));
   await client.$withCache({ key: "users", swr: true }).user.findMany();
 
+  await client.$transaction(async (tx) => {
+    await tx.user.create({
+      data: { id: "user-1", name: "Alice", email: "alice@example.com" },
+    });
 
-  await client.$transaction(async tx => {
+    const u = await tx.user.findUnique({
+      where: { id: "user-1" },
+    });
 
-
-
-  await tx.user.create({
-    data: { id: "user-1", name: "Alice", email: "alice@example.com" },
-  })
-
-  const u = await tx.user.findUnique({
-    where: { id: "user-1" }
-
-  })
-
-    console.log(u)
-    })
+    console.log(u);
+  });
 
   // console.log("\n--- create ---\n");
   // await client.user.create({

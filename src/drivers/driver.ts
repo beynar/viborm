@@ -18,7 +18,12 @@ import {
 import type { Operation } from "@query-engine/types";
 import type { RelationType } from "@schema/relation/types";
 import type { Sql } from "@sql";
-import type { Dialect, QueryResult, TransactionOptions } from "./types";
+import type {
+  BatchQuery,
+  Dialect,
+  QueryResult,
+  TransactionOptions,
+} from "./types";
 
 // ============================================================
 // DRIVER INTERFACE
@@ -75,7 +80,20 @@ export interface QueryExecutionContext {
  */
 export abstract class Driver<TClient, TTransaction> {
   connect?(): Promise<void>;
-  supportsTransactions?: boolean;
+
+  /**
+   * Whether this driver supports transactions (BEGIN/COMMIT/ROLLBACK).
+   * Default: true for most drivers, false for HTTP-based drivers like D1, Neon-HTTP.
+   */
+  readonly supportsTransactions: boolean = true;
+
+  /**
+   * Whether this driver supports native batch execution.
+   * Batch execution allows multiple independent queries to be executed atomically.
+   * Default: false. Override in drivers that have native batch support (D1, D1-HTTP, Neon-HTTP).
+   */
+  readonly supportsBatch: boolean = false;
+
   readonly dialect: Dialect;
   readonly driverName: string;
   abstract readonly adapter: DatabaseAdapter;
@@ -349,6 +367,61 @@ export abstract class Driver<TClient, TTransaction> {
       },
       runTransaction
     );
+  }
+
+  // ============================================================
+  // BATCH EXECUTION
+  // ============================================================
+
+  /**
+   * Execute multiple queries in a batch.
+   * Default implementation: sequential execution.
+   * Override in drivers with native batch support (D1, D1-HTTP, Neon-HTTP).
+   */
+  protected async executeBatch<T>(
+    client: TClient | TTransaction,
+    queries: BatchQuery[]
+  ): Promise<Array<QueryResult<T>>> {
+    const results: Array<QueryResult<T>> = [];
+    for (const query of queries) {
+      results.push(await this.executeRaw<T>(client, query.sql, query.params));
+    }
+    return results;
+  }
+
+  /**
+   * Public API for batch execution with instrumentation.
+   * Uses native batch if supported, otherwise falls back to:
+   * 1. Transaction-wrapped sequential execution (if transactions supported)
+   * 2. Sequential execution with warning (no atomicity)
+   */
+  async _executeBatch<T>(queries: BatchQuery[]): Promise<Array<QueryResult<T>>> {
+    if (queries.length === 0) {
+      return [];
+    }
+
+    const client = await this.getClient();
+
+    // If driver has native batch support, use it directly
+    if (this.supportsBatch) {
+      return this.executeBatch<T>(client, queries);
+    }
+
+    // If driver supports transactions, wrap batch in a transaction for atomicity
+    if (this.supportsTransactions) {
+      return this._transaction(async () => {
+        const txClient = await this.getClient();
+        return this.executeBatch<T>(txClient, queries);
+      });
+    }
+
+    // No batch or transaction support - execute sequentially with warning
+    console.warn(
+      `Driver "${this.driverName}" supports neither transactions nor batch. ` +
+        "Operations will execute sequentially without atomicity. " +
+        "If any operation fails, others may still complete."
+    );
+    return this.executeBatch<T>(client, queries);
   }
 
   async disconnect(): Promise<void> {

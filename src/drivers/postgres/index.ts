@@ -11,11 +11,11 @@ import {
   type DriverConfig,
   type VibORMClient,
 } from "@client/client";
+import { unsupportedGeospatial, unsupportedVector } from "@errors";
 import postgres, {
   type Options as PostgresOptionsType,
   type Sql as PostgresSql,
 } from "postgres";
-import { unsupportedGeospatial, unsupportedVector } from "@errors";
 import { Driver } from "../driver";
 import type { QueryResult, TransactionOptions } from "../types";
 
@@ -33,20 +33,19 @@ export interface PostgresDriverOptions {
   databaseUrl?: string;
 }
 
-
 const parseDatabaseUrl = (url: string): PostgresOptions => {
   const parsed = new URL(url);
   return {
     host: parsed.hostname,
-    port: parsed.port ? parseInt(parsed.port) : 5432,
+    port: parsed.port ? Number.parseInt(parsed.port, 10) : 5432,
     database: parsed.pathname.slice(1), // Remove leading "/"
     user: parsed.username || undefined,
     password: parsed.password || undefined,
   };
 };
 
-export type PostgresClientConfig<C extends DriverConfig> = PostgresDriverOptions &
-  C;
+export type PostgresClientConfig<C extends DriverConfig> =
+  PostgresDriverOptions & C;
 
 type PostgresClient = PostgresSql<Record<string, unknown>>;
 
@@ -140,7 +139,14 @@ export class PostgresDriver extends Driver<
 export function createClient<C extends DriverConfig>(
   config: PostgresClientConfig<C>
 ) {
-  const { client, options ={}, pgvector, postgis, databaseUrl, ...restConfig } = config;
+  const {
+    client,
+    options = {},
+    pgvector,
+    postgis,
+    databaseUrl,
+    ...restConfig
+  } = config;
 
   if (databaseUrl) {
     Object.assign(options, parseDatabaseUrl(databaseUrl));

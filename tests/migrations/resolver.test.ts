@@ -4,25 +4,25 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  addDropResolver,
   alwaysAddDropResolver,
   alwaysRenameResolver,
   applyResolutions,
   createPredefinedResolver,
   createResolver,
-  strictResolver,
   // Unified resolvers
   lenientResolver,
-  addDropResolver,
   rejectAllResolver,
+  strictResolver,
 } from "../../src/migrations/resolver";
-import {
-  createDestructiveChange,
-  createAmbiguousChange,
-  createEnumValueRemovalChange,
-} from "../../src/migrations/types";
 import type {
   AmbiguousChange,
   ChangeResolution,
+} from "../../src/migrations/types";
+import {
+  createAmbiguousChange,
+  createDestructiveChange,
+  createEnumValueRemovalChange,
 } from "../../src/migrations/types";
 
 // =============================================================================

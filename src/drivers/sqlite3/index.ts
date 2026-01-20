@@ -7,17 +7,13 @@
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import {
-  normalizeCountResult,
-  parseIntegerBoolean,
-  tryParseJsonString,
-} from "@adapters/shared/result-parsing";
-import {
   createClient as baseCreateClient,
   type DriverConfig,
   type VibORMClient,
 } from "@client/client";
 import Database from "better-sqlite3";
 import { Driver, type DriverResultParser } from "../driver";
+import { convertValuesForSQLite, sqliteResultParser } from "../shared";
 import type { QueryResult, TransactionOptions } from "../types";
 
 type SQLite3Database = Database.Database;
@@ -28,53 +24,14 @@ type SQLite3Database = Database.Database;
 
 export type SQLite3Options = Database.Options;
 
-export interface SQLite3DriverOptionsConfig extends SQLite3Options {
-  filename?: string;
-}
-
 export interface SQLite3DriverOptions {
   client?: SQLite3Database;
-  options?: SQLite3DriverOptionsConfig;
-  /** @deprecated Use options.filename */
-  filename?: string;
+  dataDir?: string;
+  options?: SQLite3Options;
 }
 
 export type SQLite3ClientConfig<C extends DriverConfig> = SQLite3DriverOptions &
   C;
-
-// ============================================================
-// HELPERS
-// ============================================================
-
-function convertValuesForSQLite(values: unknown[]): unknown[] {
-  return values.map((v) => {
-    if (typeof v === "boolean") return v ? 1 : 0;
-    if (v === undefined) return null;
-    return v;
-  });
-}
-
-const sqlite3ResultParser: DriverResultParser = {
-  parseResult: (raw, operation, next) => {
-    if (operation === "count" || operation === "exist") {
-      const normalized = normalizeCountResult(raw);
-      if (normalized !== undefined) return next(normalized, operation);
-    }
-    return next(raw, operation);
-  },
-  parseRelation: (value, type, next) => {
-    const parsed = tryParseJsonString(value);
-    if (parsed !== undefined) return next(parsed, type);
-    return next(value, type);
-  },
-  parseField: (value, fieldType, next) => {
-    if (fieldType === "boolean") {
-      const parsed = parseIntegerBoolean(value);
-      if (parsed !== undefined) return parsed;
-    }
-    return next(value, fieldType);
-  },
-};
 
 // ============================================================
 // DRIVER IMPLEMENTATION
@@ -82,7 +39,7 @@ const sqlite3ResultParser: DriverResultParser = {
 
 export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
   readonly adapter: DatabaseAdapter = new SQLiteAdapter();
-  readonly result: DriverResultParser = sqlite3ResultParser;
+  readonly result: DriverResultParser = sqliteResultParser;
 
   private readonly driverOptions: SQLite3DriverOptions;
   private savepointCounter = 0;
@@ -97,24 +54,10 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
   }
 
   protected async initClient(): Promise<SQLite3Database> {
-    const opts: SQLite3Options = {};
-    const explicitOptions = this.driverOptions.options;
+    const dataDir = this.driverOptions.dataDir ?? ":memory:";
+    const options = this.driverOptions.options ?? {};
 
-    if (explicitOptions?.readonly !== undefined)
-      opts.readonly = explicitOptions.readonly;
-    if (explicitOptions?.fileMustExist !== undefined)
-      opts.fileMustExist = explicitOptions.fileMustExist;
-    if (explicitOptions?.timeout !== undefined)
-      opts.timeout = explicitOptions.timeout;
-    if (explicitOptions?.verbose !== undefined)
-      opts.verbose = explicitOptions.verbose;
-    if (explicitOptions?.nativeBinding !== undefined)
-      opts.nativeBinding = explicitOptions.nativeBinding;
-
-    const filename =
-      explicitOptions?.filename ?? this.driverOptions.filename ?? ":memory:";
-
-    return new Database(filename, opts);
+    return new Database(dataDir, options);
   }
 
   protected async closeClient(db: SQLite3Database): Promise<void> {
@@ -198,9 +141,9 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
 export function createClient<C extends DriverConfig>(
   config: SQLite3ClientConfig<C>
 ) {
-  const { client, options, filename, ...restConfig } = config;
+  const { client, dataDir, options, ...restConfig } = config;
 
-  const driver = new SQLite3Driver({ client, options, filename });
+  const driver = new SQLite3Driver({ client, dataDir, options });
 
   return baseCreateClient({
     ...restConfig,

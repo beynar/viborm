@@ -26,7 +26,7 @@ export const cacheInvalidationSchema = v.object(
      * Automatically invalidate all cache entries for this model after mutation
      * @default false
      */
-    autoInvalidate: v.boolean({ optional: true, default:false }),
+    autoInvalidate: v.boolean({ optional: true, default: false }),
   },
   { optional: true, default: { autoInvalidate: false } }
 );
@@ -65,9 +65,12 @@ export const withCacheSchema = v.object(
      * Can be a number (milliseconds) or a string like "1 hour", "20 seconds"
      * @default 300000 (5 minutes)
      */
-    ttl: v.coerce(v.optional(v.union([v.string(), v.number()]), DEFAULT_CACHE_TTL), (value: string | number) => {
-      return parseTTL(value || DEFAULT_CACHE_TTL);
-    }),
+    ttl: v.coerce(
+      v.optional(v.union([v.string(), v.number()]), DEFAULT_CACHE_TTL),
+      (value: string | number) => {
+        return parseTTL(value || DEFAULT_CACHE_TTL);
+      }
+    ),
     /**
      * Enable stale-while-revalidate pattern
      * When true, returns stale data immediately and revalidates in background
@@ -101,4 +104,4 @@ export const withCacheSchema = v.object(
  */
 export type WithCacheOptions = WithCacheSchema[" vibInferred"]["0"];
 
-type T = WithCacheSchema[" vibInferred"]["0"]
+type T = WithCacheSchema[" vibInferred"]["0"];

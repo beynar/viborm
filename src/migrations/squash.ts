@@ -7,9 +7,12 @@
 
 import { MigrationError, VibORMErrorCode } from "../errors";
 import { MigrationContext, type MigrationContextOptions } from "./context";
-import { formatMigrationContent, parseStatements } from "./generate/file-writer";
-import { createMigrationEntry, formatMigrationFilename } from "./storage";
+import {
+  formatMigrationContent,
+  parseStatements,
+} from "./generate/file-writer";
 import type { MigrationClient } from "./push";
+import { createMigrationEntry, formatMigrationFilename } from "./storage";
 import type { MigrationEntry, MigrationJournal } from "./types";
 
 // =============================================================================
@@ -123,14 +126,24 @@ export async function squash(
 
   // Create the new entry
   const content = formatMigrationContent(
-    { idx: 0, version: "", name: migrationName, when: Date.now(), checksum: "" },
+    {
+      idx: 0,
+      version: "",
+      name: migrationName,
+      when: Date.now(),
+      checksum: "",
+    },
     allStatements,
     ctx.dialect
   );
   const newEntry = createMigrationEntry(0, migrationName, content);
 
   // Re-format with actual checksum
-  const finalContent = formatMigrationContent(newEntry, allStatements, ctx.dialect);
+  const finalContent = formatMigrationContent(
+    newEntry,
+    allStatements,
+    ctx.dialect
+  );
 
   if (dryRun) {
     return {

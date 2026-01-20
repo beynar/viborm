@@ -4,14 +4,25 @@
  * Provides a unified API for all migration operations with shared configuration.
  */
 
-import { apply, pending, rollback, status, type ApplyResult } from "./apply/index";
-import { down, type DownOptions, type DownResult } from "./apply/down";
-import { generate, preview } from "./generate";
-import { push, type MigrationClient, type PushOptions, type PushResult } from "./push";
-import { reset, type ResetOptions, type ResetResult } from "./reset";
-import { squash, type SquashOptions, type SquashResult } from "./squash";
-import type { MigrationStorageDriver } from "./storage/driver";
 import { MigrationError, VibORMErrorCode } from "../errors";
+import { type DownOptions, type DownResult, down } from "./apply/down";
+import {
+  type ApplyResult,
+  apply,
+  pending,
+  rollback,
+  status,
+} from "./apply/index";
+import { generate, preview } from "./generate";
+import {
+  type MigrationClient,
+  type PushOptions,
+  type PushResult,
+  push,
+} from "./push";
+import { type ResetOptions, type ResetResult, reset } from "./reset";
+import { type SquashOptions, type SquashResult, squash } from "./squash";
+import type { MigrationStorageDriver } from "./storage/driver";
 import type {
   ApplyOptions,
   GenerateOptions,
@@ -98,12 +109,16 @@ export interface Migrations {
   /**
    * Generate a new migration by comparing schema with previous snapshot.
    */
-  generate(options?: Omit<GenerateOptions, "dir" | "storageDriver">): Promise<GenerateResult>;
+  generate(
+    options?: Omit<GenerateOptions, "dir" | "storageDriver">
+  ): Promise<GenerateResult>;
 
   /**
    * Preview what migration would be generated without writing files.
    */
-  preview(options?: Omit<GenerateOptions, "dir" | "storageDriver" | "dryRun">): Promise<GenerateResult>;
+  preview(
+    options?: Omit<GenerateOptions, "dir" | "storageDriver" | "dryRun">
+  ): Promise<GenerateResult>;
 
   /**
    * Apply pending migrations to the database.
@@ -118,17 +133,23 @@ export interface Migrations {
   /**
    * Roll back migrations with down SQL execution.
    */
-  down(options?: Omit<DownOptions, "dir" | "tableName" | "storageDriver">): Promise<DownResult>;
+  down(
+    options?: Omit<DownOptions, "dir" | "tableName" | "storageDriver">
+  ): Promise<DownResult>;
 
   /**
    * Reset the database (drop all tables and re-apply migrations).
    */
-  reset(options?: Omit<ResetOptions, "dir" | "tableName" | "storageDriver">): Promise<ResetResult>;
+  reset(
+    options?: Omit<ResetOptions, "dir" | "tableName" | "storageDriver">
+  ): Promise<ResetResult>;
 
   /**
    * Squash multiple migrations into one.
    */
-  squash(options?: Omit<SquashOptions, "dir" | "tableName" | "storageDriver">): Promise<SquashResult>;
+  squash(
+    options?: Omit<SquashOptions, "dir" | "tableName" | "storageDriver">
+  ): Promise<SquashResult>;
 
   /**
    * Push schema changes directly to the database without creating migration files.
@@ -213,7 +234,8 @@ export function createMigrationClient(
 
     snapshot: () => requireStorage("snapshot").readSnapshot(),
 
-    read: (entry: MigrationEntry) => requireStorage("read").readMigration(entry),
+    read: (entry: MigrationEntry) =>
+      requireStorage("read").readMigration(entry),
 
     status: () => status(client, getContextOptions()),
 
@@ -229,20 +251,16 @@ export function createMigrationClient(
     preview: (opts = {}) =>
       preview(client, { ...opts, storageDriver: requireStorage("preview") }),
 
-    apply: (opts = {}) =>
-      apply(client, { ...getContextOptions(), ...opts }),
+    apply: (opts = {}) => apply(client, { ...getContextOptions(), ...opts }),
 
     rollback: (opts = {}) =>
       rollback(client, { ...getContextOptions(), ...opts }),
 
-    down: (opts = {}) =>
-      down(client, { ...getContextOptions(), ...opts }),
+    down: (opts = {}) => down(client, { ...getContextOptions(), ...opts }),
 
-    reset: (opts = {}) =>
-      reset(client, { ...getContextOptions(), ...opts }),
+    reset: (opts = {}) => reset(client, { ...getContextOptions(), ...opts }),
 
-    squash: (opts = {}) =>
-      squash(client, { ...getContextOptions(), ...opts }),
+    squash: (opts = {}) => squash(client, { ...getContextOptions(), ...opts }),
 
     // Push works without storage driver
     push: (opts = {}) =>

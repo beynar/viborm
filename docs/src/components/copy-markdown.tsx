@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useCallback, useState } from "react";
 import { twMerge } from "tailwind-merge";
 
 interface CopyMarkdownButtonProps {
@@ -9,8 +9,13 @@ interface CopyMarkdownButtonProps {
 // Cache fetched content to avoid refetching
 const cache = new Map<string, string>();
 
-export function CopyMarkdownButton({ slugs, className }: CopyMarkdownButtonProps) {
-  const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
+export function CopyMarkdownButton({
+  slugs,
+  className,
+}: CopyMarkdownButtonProps) {
+  const [status, setStatus] = useState<
+    "idle" | "loading" | "success" | "error"
+  >("idle");
 
   const handleCopy = useCallback(async () => {
     const cacheKey = slugs.join("/");
@@ -40,17 +45,17 @@ export function CopyMarkdownButton({ slugs, className }: CopyMarkdownButtonProps
 
   return (
     <button
-      type="button"
-      onClick={handleCopy}
-      disabled={status === "loading"}
+      aria-label="Copy page as Markdown"
       className={twMerge(
-        "inline-flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm font-medium transition-colors",
+        "inline-flex items-center gap-2 rounded-md border px-3 py-1.5 font-medium text-sm transition-colors",
         "bg-fd-secondary text-fd-secondary-foreground hover:bg-fd-accent",
         "disabled:pointer-events-none disabled:opacity-50",
         "[&_svg]:size-3.5",
-        className,
+        className
       )}
-      aria-label="Copy page as Markdown"
+      disabled={status === "loading"}
+      onClick={handleCopy}
+      type="button"
     >
       {status === "idle" && (
         <>
@@ -83,15 +88,15 @@ export function CopyMarkdownButton({ slugs, className }: CopyMarkdownButtonProps
 function CopyIcon() {
   return (
     <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="2"
       strokeLinecap="round"
       strokeLinejoin="round"
+      strokeWidth="2"
+      viewBox="0 0 24 24"
+      xmlns="http://www.w3.org/2000/svg"
     >
-      <rect width="14" height="14" x="8" y="8" rx="2" ry="2" />
+      <rect height="14" rx="2" ry="2" width="14" x="8" y="8" />
       <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
     </svg>
   );
@@ -100,13 +105,13 @@ function CopyIcon() {
 function CheckIcon() {
   return (
     <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="2"
       strokeLinecap="round"
       strokeLinejoin="round"
+      strokeWidth="2"
+      viewBox="0 0 24 24"
+      xmlns="http://www.w3.org/2000/svg"
     >
       <polyline points="20 6 9 17 4 12" />
     </svg>
@@ -117,13 +122,13 @@ function LoadingIcon() {
   return (
     <svg
       className="animate-spin"
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="2"
       strokeLinecap="round"
       strokeLinejoin="round"
+      strokeWidth="2"
+      viewBox="0 0 24 24"
+      xmlns="http://www.w3.org/2000/svg"
     >
       <path d="M21 12a9 9 0 1 1-6.219-8.56" />
     </svg>
@@ -133,13 +138,13 @@ function LoadingIcon() {
 function XIcon() {
   return (
     <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="2"
       strokeLinecap="round"
       strokeLinejoin="round"
+      strokeWidth="2"
+      viewBox="0 0 24 24"
+      xmlns="http://www.w3.org/2000/svg"
     >
       <path d="M18 6 6 18" />
       <path d="m6 6 12 12" />

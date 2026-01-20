@@ -8,7 +8,11 @@
 import type { Model } from "@schema/model";
 import type { Sql } from "@sql";
 import { getColumnName } from "../context";
-import { QueryEngineError, type QueryContext, type RelationInfo } from "../types";
+import {
+  type QueryContext,
+  QueryEngineError,
+  type RelationInfo,
+} from "../types";
 
 /**
  * Build correlation condition between parent and related table.
@@ -62,7 +66,7 @@ export function buildCorrelation(
     // manyToMany requires junction table handling - callers should use getManyToManyJoinInfo() instead
     throw new QueryEngineError(
       `Many-to-many relation '${relationInfo.name}' cannot use buildCorrelation directly. ` +
-        `Use getManyToManyJoinInfo() and buildManyToManyJoinParts() from many-to-many-utils.ts instead.`
+        "Use getManyToManyJoinInfo() and buildManyToManyJoinParts() from many-to-many-utils.ts instead."
     );
   } else {
     throw new QueryEngineError(

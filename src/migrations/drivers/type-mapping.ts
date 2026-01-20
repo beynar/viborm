@@ -55,6 +55,30 @@ export const SQLITE_TYPE_DEFAULTS = {
   enum: SQLITE.STRING.TEXT.type,
 } as const;
 
+/**
+ * Default MySQL type mappings for each VibORM field type.
+ * MySQL has full type support but uses TINYINT(1) for booleans
+ * and doesn't support native arrays (use JSON instead).
+ */
+export const MYSQL_TYPE_DEFAULTS = {
+  string: "TEXT",
+  int: "INT",
+  float: "DOUBLE",
+  decimal: "DECIMAL",
+  boolean: "TINYINT(1)", // MySQL uses TINYINT(1) for boolean
+  datetime: "DATETIME",
+  datetimetz: "DATETIME", // MySQL DATETIME can store with timezone via application
+  date: "DATE",
+  time: "TIME",
+  timetz: "TIME", // MySQL TIME doesn't have timezone variant
+  bigint: "BIGINT",
+  json: "JSON",
+  blob: "BLOB",
+  vector: "JSON", // No native vector support, use JSON
+  point: "POINT", // MySQL has native POINT type
+  enum: "TEXT", // Default for unspecified enums; usually use inline ENUM()
+} as const;
+
 // =============================================================================
 // TYPE MAPPING FUNCTIONS
 // =============================================================================
@@ -174,5 +198,53 @@ export function getSQLiteType(context: FieldTypeContext): string {
       return SQLITE_TYPE_DEFAULTS.blob;
     default:
       return SQLITE_TYPE_DEFAULTS.string;
+  }
+}
+
+/**
+ * Gets the MySQL column type for a VibORM field type.
+ * MySQL doesn't support native arrays - they are stored as JSON.
+ */
+export function getMySQLType(context: FieldTypeContext): string {
+  // MySQL doesn't support native arrays - use JSON
+  if (context.array) {
+    return "JSON";
+  }
+
+  switch (context.type) {
+    case "string":
+      return MYSQL_TYPE_DEFAULTS.string;
+    case "int":
+      return MYSQL_TYPE_DEFAULTS.int;
+    case "float":
+      return MYSQL_TYPE_DEFAULTS.float;
+    case "decimal":
+      return MYSQL_TYPE_DEFAULTS.decimal;
+    case "boolean":
+      return MYSQL_TYPE_DEFAULTS.boolean;
+    case "datetime":
+      return context.withTimezone
+        ? MYSQL_TYPE_DEFAULTS.datetimetz
+        : MYSQL_TYPE_DEFAULTS.datetime;
+    case "date":
+      return MYSQL_TYPE_DEFAULTS.date;
+    case "time":
+      return context.withTimezone
+        ? MYSQL_TYPE_DEFAULTS.timetz
+        : MYSQL_TYPE_DEFAULTS.time;
+    case "bigint":
+      return MYSQL_TYPE_DEFAULTS.bigint;
+    case "json":
+      return MYSQL_TYPE_DEFAULTS.json;
+    case "blob":
+      return MYSQL_TYPE_DEFAULTS.blob;
+    case "vector":
+      return MYSQL_TYPE_DEFAULTS.vector;
+    case "point":
+      return MYSQL_TYPE_DEFAULTS.point;
+    case "enum":
+      return MYSQL_TYPE_DEFAULTS.enum;
+    default:
+      return MYSQL_TYPE_DEFAULTS.string;
   }
 }

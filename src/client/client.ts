@@ -4,10 +4,8 @@ import type {
   WithCacheOptions,
 } from "@cache";
 import { type CacheExecutionOptions, withCacheSchema } from "@cache";
-import { CacheOperationNotCacheableError, NotFoundError, type VibORMError } from "@errors";
-import { parse } from "@validation";
-import type { WaitUntilFn } from "./types";
 import type { AnyDriver, QueryResult, TransactionOptions } from "@drivers";
+import { CacheOperationNotCacheableError, NotFoundError } from "@errors";
 import {
   ATTR_DB_COLLECTION,
   ATTR_DB_OPERATION_NAME,
@@ -23,6 +21,12 @@ import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import type { ModelRegistry, Operation } from "@query-engine/types";
 import { hydrateSchemaNames } from "@schema/hydration";
 import type { Sql } from "@sql";
+import { parse } from "@validation";
+import {
+  isPendingOperation,
+  PendingOperation,
+  type QueryMetadata,
+} from "./pending-operation";
 import type {
   CacheableOperations,
   CachedClient,
@@ -30,6 +34,7 @@ import type {
   MutationOperations,
   Operations,
   Schema,
+  WaitUntilFn,
 } from "./types";
 
 /**
@@ -80,14 +85,15 @@ function isCacheableOperation(
 
 /**
  * Create a recursive proxy for model operations
+ * Operations return PendingOperation which can be awaited directly or batched
  */
 function createModelProxy<S extends Schema>(
   schema: S,
-  executeOperation: (opts: {
+  createOperation: (opts: {
     modelName: keyof S;
     operation: Operations;
     args: unknown;
-  }) => Promise<unknown>,
+  }) => PendingOperation<unknown>,
   path: string[] = []
 ): unknown {
   // biome-ignore lint: <it's ok>
@@ -98,12 +104,12 @@ function createModelProxy<S extends Schema>(
       // This allows the proxy to be returned from async functions without
       // being treated as a thenable
       if (key === "then") return undefined;
-      return createModelProxy(schema, executeOperation, [...path, key]);
+      return createModelProxy(schema, createOperation, [...path, key]);
     },
     apply(_target, _thisArg, [args]) {
       const modelName = path[0] as keyof S;
       const operation = path[1] as Operations;
-      return executeOperation({ modelName, operation, args });
+      return createOperation({ modelName, operation, args });
     },
   });
 }
@@ -121,8 +127,7 @@ export interface VibORMConfig {
   cacheVersion?: number | string;
 }
 
-export interface DriverConfig extends Omit<VibORMConfig, "driver"> { }
-
+export interface DriverConfig extends Omit<VibORMConfig, "driver"> {}
 
 /**
  * Extended client type with utility methods
@@ -143,11 +148,37 @@ export type VibORMClient<C extends VibORMConfig> = Client<C> &
         sql: string,
         params?: unknown[]
       ) => Promise<QueryResult<T>>;
-      /** Run operations in a transaction */
-      $transaction: <T>(
-        fn: (tx: Client<C>) => Promise<T>,
-        options?: TransactionOptions
-      ) => Promise<T>;
+      /**
+       * Run operations in a transaction or batch
+       *
+       * @example Dynamic transaction (callback) - operations can depend on each other
+       * ```ts
+       * await client.$transaction(async (tx) => {
+       *   const user = await tx.user.create({ data: { name: "Alice" } });
+       *   await tx.post.create({ data: { title: "Hello", authorId: user.id } });
+       * });
+       * ```
+       *
+       * @example Batch (array) - independent operations, atomic execution
+       * ```ts
+       * const [users, posts] = await client.$transaction([
+       *   client.user.findMany(),
+       *   client.post.findMany(),
+       * ]);
+       * ```
+       */
+      $transaction: {
+        // Overload 1: Dynamic transaction (callback)
+        <T>(
+          fn: (tx: Client<C>) => Promise<T>,
+          options?: TransactionOptions
+        ): Promise<T>;
+        // Overload 2: Batch of independent operations (Prisma-style)
+        <T extends PendingOperation<unknown>[]>(
+          operations: [...T],
+          options?: TransactionOptions
+        ): Promise<{ [K in keyof T]: Awaited<T[K]> }>;
+      };
       /** Connect to the database */
       $connect: () => Promise<void>;
       /** Disconnect from the database */
@@ -222,7 +253,9 @@ export class VibORM<C extends VibORMConfig> {
     const tableName = model["~"].names.sql ?? modelName;
     const startTime = Date.now();
 
-    const { cache, ...cleanArgs } = (args ?? {}) as (Record<string, unknown> & {cache?: CacheInvalidationOptions});
+    const { cache, ...cleanArgs } = (args ?? {}) as Record<string, unknown> & {
+      cache?: CacheInvalidationOptions;
+    };
 
     // Core execution logic
     const executeCore = async () => {
@@ -256,7 +289,7 @@ export class VibORM<C extends VibORMConfig> {
           if (!("logged" in error)) {
             this.instrumentation?.logger?.error(
               createErrorLogEvent({
-                error: error,
+                error,
                 model: modelName,
                 operation: baseOperation,
                 duration: Date.now() - startTime,
@@ -288,13 +321,41 @@ export class VibORM<C extends VibORMConfig> {
 
   /**
    * Create the client with model proxies and utility methods
+   * Model operations return PendingOperation for deferred execution
    */
   private createClient(): Client<C> {
-    return createModelProxy(
-      this.schema,
-      ({ modelName, operation, args }) =>
-        this.executeOperation(String(modelName), operation, args)
+    return createModelProxy(this.schema, ({ modelName, operation, args }) =>
+      this.createPendingOperation(String(modelName), operation, args)
     ) as Client<C>;
+  }
+
+  /**
+   * Create a PendingOperation for deferred execution
+   * The operation can be awaited directly or batched with $transaction([...])
+   */
+  private createPendingOperation(
+    modelName: string,
+    operation: Operations,
+    args: unknown
+  ): PendingOperation<unknown> {
+    // Create the executor function that performs the actual operation
+    const executor = () => this.executeOperation(modelName, operation, args);
+
+    // Create minimal metadata for the PendingOperation
+    // Note: We don't eagerly build SQL here since operations may have nested writes
+    // that require multiple queries. The executor handles all complexity.
+    const metadata: QueryMetadata<unknown> = {
+      // @ts-expect-error - We use a placeholder since we don't eagerly build SQL
+      sql: null,
+      parseResult: (rows) => rows,
+      isBatchOperation: [
+        "createMany",
+        "updateMany",
+        "deleteMany",
+      ].includes(operation),
+    };
+
+    return new PendingOperation(executor, metadata);
   }
 
   /**
@@ -316,7 +377,7 @@ export class VibORM<C extends VibORMConfig> {
       );
     }
     // Schema applies defaults, but TypeScript doesn't know that
-    const {bypass, key, ttl, swr} = parsed.value;
+    const { bypass, key, ttl, swr } = parsed.value;
 
     // Build execution options
     const options: CacheExecutionOptions = {
@@ -330,7 +391,7 @@ export class VibORM<C extends VibORMConfig> {
     // Create proxy that validates cacheable operations and delegates to cache driver
     return createModelProxy(
       this.schema,
-      async ({ modelName, operation, args }) => {
+      ({ modelName, operation, args }) => {
         const modelNameStr = String(modelName);
 
         // Runtime check - only cacheable operations allowed
@@ -340,20 +401,29 @@ export class VibORM<C extends VibORMConfig> {
           ]);
         }
 
-        // Delegate to cache driver for all orchestration
-        // skipSpan: cache driver adds its own operation span
-        // skipCacheInvalidation: read operations don't need invalidation
-        return this.cache!._executeCached(
-          modelNameStr,
-          operation,
-          args,
-          () =>
-            this.executeOperation(modelNameStr, operation, args, {
-              skipSpan: true,
-              skipCacheInvalidation: true,
-            }),
-          options
-        );
+        // Create executor for cache operations
+        const executor = () =>
+          this.cache!._executeCached(
+            modelNameStr,
+            operation,
+            args,
+            () =>
+              this.executeOperation(modelNameStr, operation, args, {
+                skipSpan: true,
+                skipCacheInvalidation: true,
+              }),
+            options
+          );
+
+        // Wrap in PendingOperation for consistency
+        const metadata: QueryMetadata<unknown> = {
+          // @ts-expect-error - We use a placeholder since cache operations don't have SQL
+          sql: null,
+          parseResult: (rows) => rows,
+          isBatchOperation: false,
+        };
+
+        return new PendingOperation(executor, metadata);
       }
     ) as CachedClient<C["schema"]>;
   }
@@ -400,14 +470,81 @@ export class VibORM<C extends VibORMConfig> {
         }
 
         if (prop === "$transaction") {
-          return <T>(
-            fn: (tx: Client<C>) => Promise<T>,
+          return async <T>(
+            input:
+              | ((tx: Client<C>) => Promise<T>)
+              | PendingOperation<unknown>[],
             options?: TransactionOptions
-          ) =>
-            orm.driver._transaction(() => {
+          ): Promise<T | unknown[]> => {
+            // Array of PendingOperations = batch mode
+            if (Array.isArray(input)) {
+              const operations = input as PendingOperation<unknown>[];
+
+              // Validate all items are PendingOperations
+              for (const op of operations) {
+                if (!isPendingOperation(op)) {
+                  throw new Error(
+                    "$transaction array must contain only pending operations from client methods"
+                  );
+                }
+              }
+
+              // If driver supports transactions, wrap in transaction for atomicity
+              if (orm.driver.supportsTransactions) {
+                return orm.driver._transaction(async () => {
+                  const results: unknown[] = [];
+                  for (const op of operations) {
+                    results.push(await op.execute());
+                  }
+                  return results;
+                }, options);
+              }
+
+              // If driver supports batch but not transactions (D1, etc.)
+              // For now, execute sequentially with warning since we don't have
+              // the SQL queries extracted yet
+              if (orm.driver.supportsBatch) {
+                // TODO: Extract SQL from operations for true batch execution
+                // For now, execute sequentially
+                console.warn(
+                  `Driver "${orm.driver.driverName}" supports batch but batch extraction is not yet implemented. ` +
+                    "Operations will execute sequentially without atomicity."
+                );
+              } else {
+                console.warn(
+                  `Driver "${orm.driver.driverName}" supports neither transactions nor batch. ` +
+                    "Operations will execute sequentially without atomicity. " +
+                    "If any operation fails, others may still complete."
+                );
+              }
+
+              // Execute sequentially (no atomicity)
+              const results: unknown[] = [];
+              for (const op of operations) {
+                results.push(await op.execute());
+              }
+              return results;
+            }
+
+            // Callback = dynamic transaction mode
+            const fn = input as (tx: Client<C>) => Promise<T>;
+
+            if (!orm.driver.supportsTransactions) {
+              console.warn(
+                `Driver "${orm.driver.driverName}" does not support dynamic transactions. ` +
+                  "Operations will execute sequentially without isolation. " +
+                  "Consider using batch mode: $transaction([op1, op2, ...]) for atomicity."
+              );
+              // Execute without transaction wrapper
+              const txClient = orm.createClient();
+              return fn(txClient);
+            }
+
+            return orm.driver._transaction(() => {
               const txClient = orm.createClient();
               return fn(txClient);
             }, options);
+          };
         }
 
         if (prop === "$connect") {

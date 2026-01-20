@@ -13,7 +13,7 @@ import {
 import { buildOrderBy } from "../builders/orderby-builder";
 import { buildWhere } from "../builders/where-builder";
 import { getColumnName, getScalarFieldNames, getTableName } from "../context";
-import { QueryEngineError, type QueryContext } from "../types";
+import { type QueryContext, QueryEngineError } from "../types";
 
 /**
  * GroupBy arguments

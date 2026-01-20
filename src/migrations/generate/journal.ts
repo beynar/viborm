@@ -72,7 +72,9 @@ export function createEmptyJournal(dialect: Dialect): MigrationJournal {
 /**
  * Get the next migration index from the journal
  */
-export function getNextMigrationIndex(journal: MigrationJournal | null): number {
+export function getNextMigrationIndex(
+  journal: MigrationJournal | null
+): number {
   if (!journal || journal.entries.length === 0) {
     return 0;
   }
