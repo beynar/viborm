@@ -10,7 +10,9 @@
 
 import * as p from "@clack/prompts";
 import { Command } from "commander";
+import { getMigrationDriver } from "../../migrations/drivers";
 import { push } from "../../migrations/push";
+import { normalizeDialect } from "../../migrations/utils";
 import {
   displayOperations,
   displaySQL,
@@ -76,26 +78,30 @@ export const pushCommand = new Command("push")
         }
 
         spinner.start("Resetting database...");
-        // Drop all tables in the public schema
-        await driver._executeRaw(`
-          DO $$ DECLARE
-            r RECORD;
-          BEGIN
-            FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = 'public') LOOP
-              EXECUTE 'DROP TABLE IF EXISTS "' || r.tablename || '" CASCADE';
-            END LOOP;
-          END $$;
-        `);
-        // Drop all types (enums)
-        await driver._executeRaw(`
-          DO $$ DECLARE
-            r RECORD;
-          BEGIN
-            FOR r IN (SELECT typname FROM pg_type t JOIN pg_namespace n ON t.typnamespace = n.oid WHERE n.nspname = 'public' AND t.typtype = 'e') LOOP
-              EXECUTE 'DROP TYPE IF EXISTS "' || r.typname || '" CASCADE';
-            END LOOP;
-          END $$;
-        `);
+
+        const dialect = normalizeDialect(driver.dialect);
+        const migrationDriver = getMigrationDriver(driver.driverName, dialect);
+        const resetStatements = migrationDriver.generateResetSQL();
+
+        if (resetStatements.length > 0) {
+          // Use driver-specific reset SQL
+          for (const sql of resetStatements) {
+            await driver._executeRaw(sql);
+          }
+        } else {
+          // Fallback for databases without dynamic SQL (e.g., SQLite)
+          // Query for tables and drop each one
+          const tablesQuery = migrationDriver.generateListTables();
+          const result = await driver._executeRaw(tablesQuery);
+          const tables =
+            ((result as unknown) as { rows?: { name: string }[] }).rows ?? [];
+
+          for (const table of tables) {
+            const dropSql = migrationDriver.generateDropTableSQL(table.name);
+            await driver._executeRaw(dropSql);
+          }
+        }
+
         spinner.stop("Database reset complete");
       }
 

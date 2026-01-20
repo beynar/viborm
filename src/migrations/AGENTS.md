@@ -1,66 +1,78 @@
-# Migrations - Schema Diffing & Database Sync
+# Migrations - Schema Sync & Migration Files
 
-**Location:** `src/migrations/`  
-**Layer:** L10 - Migrations (see [root AGENTS.md](../../AGENTS.md))
+**Location:** `src/migrations/`
+**Layer:** L12 - Migrations (see [root AGENTS.md](../../AGENTS.md))
 
 ## Purpose
 
-Detects schema changes and pushes them to the database via serializer→differ→resolver→push workflow. Similar to Prisma's `db push` or Drizzle's `push` command.
+Provides two approaches for syncing TypeScript schema to the database:
 
-## Why This Layer Exists
-
-VibORM needs to sync TypeScript schema definitions to actual database tables. The workflow:
-
-1. **Serialize** models to database-agnostic snapshot
-2. **Introspect** current database state
-3. **Diff** to find changes
-4. **Resolve** ambiguous changes (rename vs drop+add)
-5. **Push** changes with user confirmation
-
-This is intentionally simpler than migration files. For production, we recommend proper migration tools. `push` is for development iteration.
+1. **Push** - Direct sync for development (no migration files)
+2. **Migrate** - File-based migrations for production (versioned SQL files)
 
 ---
 
 ## Entry Points
 
-| File | Purpose | Lines |
-|------|---------|-------|
-| `push.ts` | Workflow orchestration | ~250 |
-| `serializer.ts` | Model → SchemaSnapshot | ~200 |
-| `differ.ts` | Compare snapshots, detect changes | ~300 |
-| `resolver.ts` | Ambiguous change resolution | ~100 |
-| `types.ts` | SchemaSnapshot, DiffOperation types | ~150 |
+| File | Purpose |
+|------|---------|
+| `push.ts` | Direct push workflow (serialize → diff → execute) |
+| `client.ts` | `createMigrationClient()` programmatic API |
+| `generate/index.ts` | Generate migration files |
+| `apply/index.ts` | Apply/rollback migrations |
+| `context.ts` | Shared context (locking, tracking, execution) |
+| `serializer.ts` | Model → SchemaSnapshot |
+| `differ.ts` | Compare snapshots, detect changes |
+| `resolver.ts` | Ambiguous/destructive change resolution |
+| `types.ts` | SchemaSnapshot, DiffOperation, MigrationEntry types |
+
+### Subdirectories
+
+| Directory | Purpose |
+|-----------|---------|
+| `drivers/` | Migration-specific drivers (DDL generation, introspection) |
+| `storage/` | Storage drivers for migration files (filesystem, etc.) |
+| `generate/` | Migration file generation and formatting |
+| `apply/` | Apply, rollback, status, down operations |
 
 ---
 
-## The Push Workflow
+## Two Workflows
+
+### Push (Development)
+
+Direct sync - no migration files:
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  Models (TypeScript)         Database (actual)              │
-│         │                           │                       │
-│         ▼                           ▼                       │
-│  serialize()              introspect()                      │
-│         │                           │                       │
-│         ▼                           ▼                       │
-│  SchemaSnapshot ────────────────────┘                       │
-│  (desired)                  (current)                       │
-│                    │                                        │
-│                    ▼                                        │
-│               differ()                                      │
-│                    │                                        │
-│                    ▼                                        │
-│         DiffOperations + AmbiguousChanges                   │
-│                    │                                        │
-│                    ▼                                        │
-│    User resolves ambiguities (rename or drop+add?)          │
-│                    │                                        │
-│                    ▼                                        │
-│         adapter.generateSQL(operations)                     │
-│                    │                                        │
-│                    ▼                                        │
-│         driver.execute(sql)                                 │
-└─────────────────────────────────────────────────────────────┘
+Models → serialize() → SchemaSnapshot
+                              ↓
+Database → introspect() → SchemaSnapshot
+                              ↓
+                          differ()
+                              ↓
+                      DiffOperations
+                              ↓
+                    User resolves ambiguities
+                              ↓
+                    migrationDriver.generateDDL()
+                              ↓
+                    driver.execute()
+```
+
+### Migrate (Production)
+
+File-based migrations with journal:
+
+```
+Models → serialize() → SchemaSnapshot
+                              ↓
+Previous snapshot → diff() → DiffOperations
+                              ↓
+                    migrationDriver.generateDDL()
+                              ↓
+                    Write to SQL file + Update journal
+                              ↓
+Later: apply() reads files → execute in transaction
 ```
 
 ---
@@ -68,8 +80,6 @@ This is intentionally simpler than migration files. For production, we recommend
 ## Core Concepts
 
 ### SchemaSnapshot (Database-Agnostic)
-
-Normalized representation that works for any database:
 
 ```typescript
 interface SchemaSnapshot {
@@ -83,95 +93,147 @@ interface TableDef {
   primaryKey?: PrimaryKeyDef;
   indexes: IndexDef[];
   foreignKeys: ForeignKeyDef[];
+  uniqueConstraints: UniqueConstraintDef[];
 }
 ```
 
-**Why database-agnostic:** Same diff algorithm works for PostgreSQL, MySQL, SQLite.
+### Migration Journal
 
-### DiffOperation (Resolved Changes)
-
-Unambiguous operations ready to execute:
+Tracks migration history in `meta/_journal.json`:
 
 ```typescript
-type DiffOperation =
-  | { type: "createTable"; table: TableDef }
-  | { type: "dropTable"; tableName: string }
-  | { type: "renameTable"; from: string; to: string }
-  | { type: "addColumn"; tableName: string; column: ColumnDef }
-  | { type: "dropColumn"; tableName: string; columnName: string }
-  | { type: "renameColumn"; tableName: string; from: string; to: string }
-  // ... more operations
+interface MigrationJournal {
+  version: string;
+  dialect: Dialect;
+  entries: MigrationEntry[];
+}
+
+interface MigrationEntry {
+  idx: number;       // Sequential index
+  version: string;   // Timestamp version
+  name: string;      // kebab-case name
+  when: number;      // Unix timestamp
+  checksum: string;  // SHA256 of SQL content
+}
 ```
 
-### AmbiguousChange (Needs User Input)
+### Storage Drivers
 
-When we can't tell if it's a rename or drop+add:
+Abstract storage for migration files. Concrete implementations:
+
+- `FsStorageDriver` - Filesystem (default)
+- Custom drivers possible (S3, database, etc.)
 
 ```typescript
-// Column "email" dropped, column "user_email" added
-// Is this a RENAME (preserve data) or DROP+ADD (lose data)?
-type AmbiguousChange = {
-  type: "ambiguousColumn";
-  tableName: string;
-  droppedColumn: ColumnDef;
-  addedColumn: ColumnDef;
-};
+abstract class MigrationStorageDriver {
+  abstract get(path: string): Promise<string | null>;
+  abstract put(path: string, content: string): Promise<void>;
+  abstract delete(path: string): Promise<void>;
+
+  // High-level operations (implemented by base class)
+  readJournal(): Promise<MigrationJournal | null>;
+  writeJournal(journal: MigrationJournal): Promise<void>;
+  readSnapshot(): Promise<SchemaSnapshot | null>;
+  writeSnapshot(snapshot: SchemaSnapshot): Promise<void>;
+  readMigration(entry: MigrationEntry): Promise<string | null>;
+  writeMigration(entry: MigrationEntry, content: string): Promise<void>;
+}
 ```
 
-**Why ask:** Getting this wrong causes data loss. Better to ask than guess.
+### Migration Drivers
+
+Separate from database drivers. Handle DDL generation and introspection:
+
+```typescript
+abstract class MigrationDriver {
+  abstract generateDDL(operation: DiffOperation, ctx: DDLContext): string;
+  abstract introspect(): Promise<SchemaSnapshot>;
+  abstract generateCreateTrackingTable(tableName: string): string;
+  // ... more methods
+}
+```
 
 ---
 
-## Core Rules
+## Programmatic API
 
-### Rule 1: Database-Agnostic Snapshots
-SchemaSnapshot format is the same for all databases. Dialect differences handled by adapters during SQL generation.
+```typescript
+import { createMigrationClient } from "viborm/migrations";
+import { createFsStorageDriver } from "viborm/migrations/storage/fs";
 
-### Rule 2: Explicit Ambiguity Resolution
-When column/table dropped AND added, always ask user. Never assume rename.
+const migrations = createMigrationClient(client, {
+  storageDriver: createFsStorageDriver("./migrations"),
+  tableName: "_viborm_migrations",
+});
 
-### Rule 3: Destructive Change Confirmation
-Operations like `dropTable`, `dropColumn` require explicit confirmation. Use `--accept-data-loss` flag to skip.
+// Generate a migration
+await migrations.generate({ name: "add-users" });
 
-### Rule 4: Dry Run First
-Always support `--dry-run` to preview SQL before execution.
+// Apply pending migrations
+await migrations.apply();
 
----
+// Get status
+const statuses = await migrations.status();
 
-## Anti-Patterns
-
-### Assuming Rename
-Detecting column drop + add and automatically treating as rename. Could cause data loss if actually separate operations.
-
-### Dialect-Specific Serialization
-Putting PostgreSQL-specific type mappings in serializer. Adapter handles dialect during SQL generation.
-
-### Silent Destructive Operations
-Dropping tables or columns without confirmation. Data loss must require explicit approval.
-
-### Skipping Dry Run Support
-Executing migrations without preview option. Users must be able to see SQL first.
-
-### Ignoring Database Capabilities
-Using native arrays in MySQL migration (not supported). Check adapter capabilities first.
+// Push (no files) - works without storageDriver
+await migrations.push();
+```
 
 ---
 
 ## CLI Commands
 
 ```bash
-# Preview changes (dry run)
-viborm push --dry-run
-
-# Apply changes
+# Push (direct sync, no files)
 viborm push
-
-# Force (skip confirmations)
+viborm push --dry-run
 viborm push --accept-data-loss
 
-# Reset and push
-viborm push --force-reset
+# Migrate (file-based)
+viborm migrate generate --name add-users
+viborm migrate apply
+viborm migrate status
+viborm migrate drop --last
 ```
+
+---
+
+## Core Rules
+
+### Rule 1: Separation of Concerns
+
+- **Serializer** - Pure function: models → snapshot
+- **Differ** - Pure function: snapshots → operations
+- **MigrationDriver** - DDL generation (dialect-specific)
+- **StorageDriver** - File I/O (filesystem, S3, etc.)
+
+### Rule 2: Explicit Ambiguity Resolution
+
+When column/table dropped AND added, always ask user. Never assume rename.
+
+### Rule 3: Checksum Verification
+
+Migrations are checksummed. Modifying an applied migration is an error.
+
+### Rule 4: Transactional Apply
+
+Each migration is applied in a transaction. Failure rolls back that migration.
+
+### Rule 5: Journal is Source of Truth
+
+The journal tracks which migrations exist. The database tracks which are applied.
+
+---
+
+## Anti-Patterns
+
+| Anti-Pattern | Why It's Bad | Do This Instead |
+|--------------|--------------|-----------------|
+| Assuming rename | Data loss if actually drop+add | Ask user via resolver |
+| Modifying applied migrations | Checksum mismatch error | Create new migration |
+| Skipping storage driver | Can't use file-based operations | Use `createFsStorageDriver()` |
+| Hardcoded dialect SQL | Breaks other databases | Use `migrationDriver.generateDDL()` |
+| Silent destructive ops | Unexpected data loss | Require confirmation |
 
 ---
 
@@ -186,27 +248,52 @@ viborm push --force-reset
    }
    ```
 
-3. **Generate SQL in adapter** (`adapters/*/migrations.ts`):
+3. **Generate DDL in migration drivers** (`drivers/postgres/index.ts`, `drivers/sqlite/index.ts`):
    ```typescript
-   if (op.type === "myOperation") {
-     return sql`ALTER TABLE ...`;
-   }
+   case "myOperation":
+     return `ALTER TABLE ...`;
    ```
 
 4. **Test across all databases**
 
 ---
 
-## Invisible Knowledge
+## File Structure
 
-### Why not migration files
-Migration files (like Prisma) require running `migrate dev` for every change. VibORM's `push` is for fast iteration - change schema, push, see results. For production, use proper migration tools.
-
-### Why ambiguity resolution exists
-Early version assumed renames. User renamed `email` to `userEmail` and it worked. Later, user deleted `oldField` and added `newField` (unrelated) - VibORM "renamed" and copied wrong data. Now we always ask.
-
-### Why serialization is separate from diffing
-Serializer is pure (models → snapshot). Differ is pure (snapshots → operations). This separation makes testing easy and enables dry-run without database access.
+```
+src/migrations/
+├── index.ts           # Public exports
+├── client.ts          # createMigrationClient() API
+├── push.ts            # Direct push workflow
+├── context.ts         # MigrationContext (shared state)
+├── serializer.ts      # Model → SchemaSnapshot
+├── differ.ts          # Snapshot comparison
+├── resolver.ts        # Ambiguous change resolution
+├── types.ts           # Type definitions
+├── utils.ts           # Utilities
+├── reset.ts           # Database reset
+├── squash.ts          # Squash migrations
+├── drivers/
+│   ├── index.ts       # Driver registry
+│   ├── base.ts        # MigrationDriver base class
+│   ├── types.ts       # Driver types
+│   ├── postgres/      # PostgreSQL driver
+│   └── sqlite/        # SQLite driver
+├── storage/
+│   ├── index.ts       # Storage exports
+│   ├── driver.ts      # MigrationStorageDriver base
+│   └── drivers/
+│       └── fs.ts      # Filesystem storage
+├── generate/
+│   ├── index.ts       # generate(), preview()
+│   ├── file-writer.ts # Migration file formatting
+│   ├── journal.ts     # Journal operations
+│   └── snapshot.ts    # Snapshot operations
+└── apply/
+    ├── index.ts       # apply(), status(), pending(), rollback()
+    ├── down.ts        # Down migrations
+    └── tracker.ts     # Tracking table operations
+```
 
 ---
 
@@ -214,6 +301,7 @@ Serializer is pure (models → snapshot). Differ is pure (snapshots → operatio
 
 | Layer | Relationship |
 |-------|--------------|
-| **Schema** ([schema/AGENTS.md](../schema/AGENTS.md)) | Provides models to serialize |
-| **Adapters** ([adapters/AGENTS.md](../adapters/AGENTS.md)) | Generates dialect-specific DDL |
-| **Drivers** | Executes migration SQL |
+| **Schema** | Provides models to serialize |
+| **Drivers** | Provides database connection |
+| **Adapters** | Query-time SQL (not used for migrations) |
+| **CLI** | User interface for migration commands |

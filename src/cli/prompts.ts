@@ -87,7 +87,7 @@ export const interactiveResolve: ResolveCallback = async (
         })),
       ];
 
-      const answer = await p.select<{ value: string; label: string }[], string>({
+      const answer = await p.select({
         message: `Map "${removedValue}" to:`,
         options,
       });

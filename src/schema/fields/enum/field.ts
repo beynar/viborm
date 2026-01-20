@@ -22,7 +22,7 @@ export class EnumField<State extends FieldState<"enum">> {
   }
 
   get enumValues() {
-    return ("values" in this.state.base ? this.state.base.values : [])as EnumValues<State["base"]> ;
+    return ("values" in this.state.base ? this.state.base.values : []) as EnumValues<State["base"]>;
   }
 
   nullable() {

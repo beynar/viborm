@@ -31,7 +31,7 @@ import { TYPES } from "viborm";
 
 s.blob(TYPES.PG.BLOB.BYTEA) // BYTEA
 
-````
+```
   </Tab>
   <Tab value="MySQL">
 ```ts
@@ -43,7 +43,7 @@ s.blob(TYPES.MYSQL.BLOB.MEDIUMBLOB)  // MEDIUMBLOB (16MB)
 s.blob(TYPES.MYSQL.BLOB.LONGBLOB)    // LONGBLOB (4GB)
 s.blob(TYPES.MYSQL.BLOB.BINARY(16))  // BINARY(16)
 s.blob(TYPES.MYSQL.BLOB.VARBINARY(255))  // VARBINARY(255)
-````
+```
 
   </Tab>
   <Tab value="SQLite">
@@ -52,7 +52,7 @@ import { TYPES } from "viborm";
 
 s.blob(TYPES.SQLITE.BLOB.BLOB) // BLOB
 
-````
+```
   </Tab>
 </Tabs>
 
@@ -88,7 +88,7 @@ const encryptedData = s.blob();
 
 // Fixed-size hash
 const passwordHash = s.blob(TYPES.MYSQL.BLOB.BINARY(64));
-````
+```
 
 ## Working with Blobs
 

@@ -494,7 +494,8 @@ export class SQLite3MigrationDriver extends MigrationDriver {
       return `-- SQLite: cannot parse enum name "${enumName}" to find dependent column`;
     }
 
-    const [, tableName, columnName] = match;
+    const tableName = match[1]!;
+    const columnName = match[2]!;
     const currentTable = this.getCurrentTable(tableName, context);
 
     if (!currentTable) {
@@ -600,6 +601,15 @@ export class SQLite3MigrationDriver extends MigrationDriver {
   generateReleaseLock(_lockId: number): string | null {
     // SQLite uses file-based locking via transactions
     return null;
+  }
+
+  generateResetSQL(): string[] {
+    // SQLite doesn't support dynamic SQL in a single statement.
+    // The CLI should:
+    // 1. Query sqlite_master for tables
+    // 2. Execute DROP TABLE for each
+    // Return empty to signal programmatic reset is needed.
+    return [];
   }
 
   // ===========================================================================

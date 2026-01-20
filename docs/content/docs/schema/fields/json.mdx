@@ -50,14 +50,14 @@ import { TYPES } from "viborm";
 s.json(TYPES.PG.JSON.JSON) // JSON (text-based)
 s.json(TYPES.PG.JSON.JSONB) // JSONB (binary, indexable, default)
 
-````
+```
   </Tab>
   <Tab value="MySQL">
 ```ts
 import { TYPES } from "viborm";
 
 s.json(TYPES.MYSQL.JSON.JSON)  // JSON
-````
+```
 
   </Tab>
   <Tab value="SQLite">
@@ -66,7 +66,7 @@ import { TYPES } from "viborm";
 
 s.json(TYPES.SQLITE.JSON.TEXT) // TEXT (stored as string)
 
-````
+```
   </Tab>
 </Tabs>
 
@@ -87,7 +87,7 @@ s.json(TYPES.SQLITE.JSON.TEXT) // TEXT (stored as string)
 ```ts
 const metadata = s.json().default({});
 const tags = s.json().default([]);
-````
+```
 
 ### Typed with Valibot
 

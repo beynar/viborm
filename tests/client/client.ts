@@ -49,10 +49,6 @@ const client = createClient({
 });
 
 
-type E  =  Prettify<typeof statusENUM["~"]["state"]>
-type O = typeof statusENUM["~"]["state"]["base"]
-const v  = statusENUM.enumValues
-
 // Push schema (will be no-op if already in sync)
 const pushResult = await push(client, {
   force: true,

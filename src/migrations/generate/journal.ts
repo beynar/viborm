@@ -76,7 +76,7 @@ export function getNextMigrationIndex(journal: MigrationJournal | null): number 
   if (!journal || journal.entries.length === 0) {
     return 0;
   }
-  const lastEntry = journal.entries[journal.entries.length - 1];
+  const lastEntry = journal.entries.at(-1);
   return lastEntry ? lastEntry.idx + 1 : 0;
 }
 

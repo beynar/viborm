@@ -38,7 +38,7 @@ These constraints shaped every architectural decision. When you wonder "why is t
 | **L9: Client** | `src/client/` | Result types, proxies | Query construction | [client/AGENTS.md](src/client/AGENTS.md) |
 | **L10: Cache** | `src/cache/` | Query caching, invalidation | Query execution | [cache/AGENTS.md](src/cache/AGENTS.md) |
 | **L11: Instrumentation** | `src/instrumentation/` | Tracing, logging | Query logic | [instrumentation/AGENTS.md](src/instrumentation/AGENTS.md) |
-| **L12: Migrations** | `src/migrations/` | Schema diffing, push | Schema definition | [migrations/AGENTS.md](src/migrations/AGENTS.md) |
+| **L12: Migrations** | `src/migrations/` | Schema sync, migration files, DDL | Schema definition | [migrations/AGENTS.md](src/migrations/AGENTS.md) |
 
 ---
 
@@ -133,7 +133,8 @@ Client uses types:     orm.user.findMany({ where: { name: ... }})  // Fully type
 | Add new field type | [schema/fields/](src/schema/fields/AGENTS.md) | Update Field union in `base.ts` |
 | Add query operator (e.g., `contains`) | [query-engine/](src/query-engine/AGENTS.md) | + [adapters/](src/adapters/AGENTS.md) (all 3!) |
 | Fix type inference bug | [client/](src/client/AGENTS.md) | Check schema factories upstream |
-| Add migration operation | [migrations/](src/migrations/AGENTS.md) | + adapter migrations module |
+| Add migration operation | [migrations/](src/migrations/AGENTS.md) | + migration drivers (postgres, sqlite) |
+| Add storage driver | [migrations/](src/migrations/AGENTS.md) | Extend `MigrationStorageDriver` |
 | Add relation feature | [schema/relation/](src/schema/relation/AGENTS.md) | + relation schemas |
 | Add cache backend | [cache/](src/cache/AGENTS.md) | Export from main index |
 | Add cache invalidation option | [cache/](src/cache/AGENTS.md) | Update `schema.ts` |

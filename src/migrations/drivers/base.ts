@@ -434,6 +434,14 @@ export abstract class MigrationDriver {
    */
   abstract generateReleaseLock(lockId: number): string | null;
 
+  /**
+   * Generates SQL statements for resetting the database (dropping all tables and enums).
+   * Used by `--force-reset` flag in CLI.
+   *
+   * @returns Array of SQL statements to execute
+   */
+  abstract generateResetSQL(): string[];
+
   // ===========================================================================
   // SCHEMA INTROSPECTION HELPERS
   // ===========================================================================

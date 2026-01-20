@@ -289,15 +289,17 @@ async function resetDatabase(
   // Drop all tables in reverse order (for FK dependencies)
   const tablesToDrop = [...current.tables].reverse();
   for (const table of tablesToDrop) {
-    const dropSql = `DROP TABLE IF EXISTS ${migrationDriver.escapeIdentifier(table.name)} CASCADE`;
+    const dropSql = migrationDriver.generateDropTableSQL(table.name, true);
     await driver._executeRaw(dropSql + ";");
   }
 
-  // Drop all enums
+  // Drop all enums (only for databases that support them)
   if (current.enums) {
     for (const enumDef of current.enums) {
-      const dropSql = `DROP TYPE IF EXISTS ${migrationDriver.escapeIdentifier(enumDef.name)} CASCADE`;
-      await driver._executeRaw(dropSql + ";");
+      const dropSql = migrationDriver.generateDropEnumSQL(enumDef.name);
+      if (dropSql) {
+        await driver._executeRaw(dropSql + ";");
+      }
     }
   }
 

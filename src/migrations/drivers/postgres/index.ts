@@ -364,6 +364,27 @@ export class PostgresMigrationDriver extends MigrationDriver {
     return `SELECT pg_advisory_unlock(${lockId})`;
   }
 
+  generateResetSQL(): string[] {
+    return [
+      // Drop all tables in public schema
+      `DO $$ DECLARE
+        r RECORD;
+      BEGIN
+        FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = 'public') LOOP
+          EXECUTE 'DROP TABLE IF EXISTS "' || r.tablename || '" CASCADE';
+        END LOOP;
+      END $$`,
+      // Drop all enum types in public schema
+      `DO $$ DECLARE
+        r RECORD;
+      BEGIN
+        FOR r IN (SELECT typname FROM pg_type t JOIN pg_namespace n ON t.typnamespace = n.oid WHERE n.nspname = 'public' AND t.typtype = 'e') LOOP
+          EXECUTE 'DROP TYPE IF EXISTS "' || r.typname || '" CASCADE';
+        END LOOP;
+      END $$`,
+    ];
+  }
+
   // ===========================================================================
   // SCHEMA INTROSPECTION HELPERS
   // ===========================================================================
