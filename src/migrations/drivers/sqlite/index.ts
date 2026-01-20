@@ -492,72 +492,36 @@ export class SQLite3MigrationDriver extends MigrationDriver {
   generateDropEnum(op: DropEnumOperation, context?: DDLContext): string {
     // Dropping an enum means removing CHECK constraints from dependent columns
     // This requires table recreation for each dependent table
-    const statements: string[] = [];
     const { enumName, dependentColumns } = op;
 
-    // Use dependentColumns metadata when available (preferred)
-    if (dependentColumns && dependentColumns.length > 0) {
-      for (const dep of dependentColumns) {
-        const currentTable = this.getCurrentTable(dep.tableName, context);
-        if (!currentTable) {
-          statements.push(
-            `-- SQLite: table "${dep.tableName}" not found for enum "${enumName}"`
-          );
-          continue;
-        }
+    if (!dependentColumns || dependentColumns.length === 0) {
+      return `-- SQLite: no dependent columns for enum "${enumName}"`;
+    }
 
-        // Change the column type to plain TEXT (remove CHECK constraint)
-        const newColumns = currentTable.columns.map((col) => {
-          if (col.name === dep.columnName && col.type.includes("CHECK")) {
-            return { ...col, type: "TEXT" };
-          }
-          return col;
-        });
+    const statements: string[] = [];
 
-        const newTable: TableDef = { ...currentTable, columns: newColumns };
-        statements.push(
-          this.generateTableRecreation(dep.tableName, newTable, currentTable)
+    for (const dep of dependentColumns) {
+      const currentTable = this.getCurrentTable(dep.tableName, context);
+      if (!currentTable) {
+        throw new MigrationError(
+          `Table "${dep.tableName}" not found for enum "${enumName}"`,
+          VibORMErrorCode.INTERNAL_ERROR
         );
       }
 
-      return statements.length > 0
-        ? statements.join(";\n")
-        : `-- SQLite: no columns to update for enum "${enumName}"`;
+      // Change the column type to plain TEXT (remove CHECK constraint)
+      const newColumns = currentTable.columns.map((col) => {
+        if (col.name === dep.columnName && col.type.includes("CHECK")) {
+          return { ...col, type: "TEXT" };
+        }
+        return col;
+      });
+
+      const newTable: TableDef = { ...currentTable, columns: newColumns };
+      statements.push(
+        this.generateTableRecreation(dep.tableName, newTable, currentTable)
+      );
     }
-
-    // Fallback: parse enum name to find table/column (legacy behavior)
-    // LIMITATION: This regex is ambiguous for names with underscores
-    const match = enumName.match(/^(.+)_([^_]+)_enum$/);
-    if (!match) {
-      return `-- SQLite: cannot parse enum name "${enumName}" and no dependentColumns provided`;
-    }
-
-    const tableName = match[1]!;
-    const columnName = match[2]!;
-    const currentTable = this.getCurrentTable(tableName, context);
-
-    if (!currentTable) {
-      return `-- SQLite: table "${tableName}" not found for enum "${enumName}" (naming may be ambiguous)`;
-    }
-
-    // Verify column exists with CHECK constraint
-    const targetColumn = currentTable.columns.find(
-      (col) => col.name === columnName && col.type.includes("CHECK")
-    );
-    if (!targetColumn) {
-      return `-- SQLite: column "${columnName}" with CHECK constraint not found in "${tableName}" for enum "${enumName}"`;
-    }
-
-    // Change the column type to plain TEXT (remove CHECK constraint)
-    const newColumns = currentTable.columns.map((col) => {
-      if (col.name === columnName && col.type.includes("CHECK")) {
-        return { ...col, type: "TEXT" };
-      }
-      return col;
-    });
-
-    const newTable: TableDef = { ...currentTable, columns: newColumns };
-    statements.push(this.generateTableRecreation(tableName, newTable, currentTable));
 
     return statements.join(";\n");
   }
