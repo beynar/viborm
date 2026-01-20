@@ -36,20 +36,54 @@ export const post = s.model({
 
 ## 2. Create the Client
 
-Initialize your database client:
+Initialize your database client with your preferred database:
 
+<Tabs items={["postgres.js", "node-postgres", "SQLite", "PGlite"]}>
+  <Tab value="postgres.js">
 ```ts title="src/db/client.ts"
-import { createClient } from "viborm";
-import { PostgresAdapter } from "viborm/adapters/postgres";
-import { user, post } from "./schema";
+import { createClient } from "viborm/drivers/postgres";
+import * as schema from "./schema";
 
 export const db = createClient({
-  schema: { user, post },
-  adapter: new PostgresAdapter({
-    connectionString: process.env.DATABASE_URL,
-  }),
+  schema,
+  databaseUrl: process.env.DATABASE_URL,
 });
 ```
+  </Tab>
+  <Tab value="node-postgres">
+```ts title="src/db/client.ts"
+import { createClient } from "viborm/drivers/pg";
+import * as schema from "./schema";
+
+export const db = createClient({
+  schema,
+  databaseUrl: process.env.DATABASE_URL,
+});
+```
+  </Tab>
+  <Tab value="SQLite">
+```ts title="src/db/client.ts"
+import { createClient } from "viborm/drivers/sqlite3";
+import * as schema from "./schema";
+
+export const db = createClient({
+  schema,
+  options: { filename: "./data.db" },
+});
+```
+  </Tab>
+  <Tab value="PGlite">
+```ts title="src/db/client.ts"
+import { createClient } from "viborm/drivers/pglite";
+import * as schema from "./schema";
+
+export const db = createClient({
+  schema,
+  dataDir: "./data",
+});
+```
+  </Tab>
+</Tabs>
 
 ## 3. Query Your Data
 
@@ -145,4 +179,3 @@ await db.user.findMany({
     href="/docs/client/filtering"
   />
 </Cards>
-

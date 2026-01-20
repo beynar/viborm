@@ -30,7 +30,20 @@ export interface PostgresDriverOptions {
   options?: PostgresOptions;
   pgvector?: boolean;
   postgis?: boolean;
+  databaseUrl?: string;
 }
+
+
+const parseDatabaseUrl = (url: string): PostgresOptions => {
+  const parsed = new URL(url);
+  return {
+    host: parsed.hostname,
+    port: parsed.port ? parseInt(parsed.port) : 5432,
+    database: parsed.pathname.slice(1), // Remove leading "/"
+    user: parsed.username || undefined,
+    password: parsed.password || undefined,
+  };
+};
 
 export type PostgresClientConfig<C extends DriverConfig> = PostgresDriverOptions &
   C;
@@ -127,7 +140,11 @@ export class PostgresDriver extends Driver<
 export function createClient<C extends DriverConfig>(
   config: PostgresClientConfig<C>
 ) {
-  const { client, options, pgvector, postgis, ...restConfig } = config;
+  const { client, options ={}, pgvector, postgis, databaseUrl, ...restConfig } = config;
+
+  if (databaseUrl) {
+    Object.assign(options, parseDatabaseUrl(databaseUrl));
+  }
 
   const driver = new PostgresDriver({
     client,

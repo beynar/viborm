@@ -287,6 +287,8 @@ async function resetDatabase(
   });
 
   // Drop all tables in reverse order (for FK dependencies)
+  // NOTE: Reverse order helps with simple FK chains but doesn't handle circular dependencies.
+  // PostgreSQL uses CASCADE to handle this. SQLite/MySQL may fail on circular FKs.
   const tablesToDrop = [...current.tables].reverse();
   for (const table of tablesToDrop) {
     const dropSql = migrationDriver.generateDropTableSQL(table.name, true);
@@ -362,8 +364,20 @@ function detectEnumValueRemovals(
           const table = currentSchema.tables.find(
             (t) => t.name === dep.tableName
           );
-          const column = table?.columns.find((c) => c.name === dep.columnName);
-          const isNullable = column?.nullable ?? true;
+          if (!table) {
+            throw new MigrationError(
+              `Table "${dep.tableName}" not found in current schema for enum "${op.enumName}"`,
+              VibORMErrorCode.INTERNAL_ERROR
+            );
+          }
+          const column = table.columns.find((c) => c.name === dep.columnName);
+          if (!column) {
+            throw new MigrationError(
+              `Column "${dep.columnName}" not found in table "${dep.tableName}" for enum "${op.enumName}"`,
+              VibORMErrorCode.INTERNAL_ERROR
+            );
+          }
+          const isNullable = column.nullable;
 
           removals.push({
             enumName: op.enumName,
