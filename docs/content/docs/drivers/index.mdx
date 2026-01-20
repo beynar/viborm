@@ -1,0 +1,66 @@
+---
+title: Database Drivers
+description: Overview of available database drivers for VibORM
+---
+
+VibORM supports multiple database drivers across three dialects: PostgreSQL, MySQL, and SQLite.
+
+## PostgreSQL Drivers
+
+| Driver | Package | Best For |
+|--------|---------|----------|
+| [pg](/docs/drivers/pg) | `pg` | Traditional Node.js apps with connection pooling |
+| [postgres](/docs/drivers/postgres) | `postgres` | Modern apps using postgres.js |
+| [pglite](/docs/drivers/pglite) | `@electric-sql/pglite` | Local/embedded PostgreSQL (WASM) |
+| [neon-http](/docs/drivers/neon-http) | `@neondatabase/serverless` | Serverless/edge deployments |
+| [bun-sql](/docs/drivers/bun-sql) | `bun:sql` | Bun runtime applications |
+
+## MySQL Drivers
+
+| Driver | Package | Best For |
+|--------|---------|----------|
+| [mysql2](/docs/drivers/mysql2) | `mysql2` | Traditional Node.js MySQL apps |
+| [planetscale](/docs/drivers/planetscale) | `@planetscale/database` | PlanetScale serverless MySQL |
+
+## SQLite Drivers
+
+| Driver | Package | Best For |
+|--------|---------|----------|
+| [sqlite3](/docs/drivers/sqlite3) | `better-sqlite3` | Node.js apps with local SQLite |
+| [libsql](/docs/drivers/libsql) | `@libsql/client` | Turso cloud or local libSQL |
+| [bun-sqlite](/docs/drivers/bun-sqlite) | `bun:sqlite` | Bun runtime with SQLite |
+| [d1](/docs/drivers/d1) | Cloudflare Workers | Cloudflare D1 in Workers |
+| [d1-http](/docs/drivers/d1-http) | HTTP API | Cloudflare D1 from any environment |
+
+## Feature Matrix
+
+| Driver | Dynamic Transactions | Batch Mode | Migration Atomicity | Environment |
+|--------|---------------------|------------|---------------------|-------------|
+| pg | ✅ Full | ✅ Full | ✅ Full | Node.js |
+| postgres | ✅ Full | ✅ Full | ✅ Full | Node.js |
+| pglite | ✅ Full | ✅ Full | ✅ Full | Any (WASM) |
+| neon-http | ⚠️ Sequential | ✅ Full | ✅ Full | Any |
+| bun-sql | ✅ Full | ✅ Full | ✅ Full | Bun |
+| mysql2 | ✅ Full | ✅ Full | ✅ Full | Node.js |
+| planetscale | ✅ Full | ✅ Full | ✅ Full | Any |
+| sqlite3 | ✅ Full | ✅ Full | ✅ Full | Node.js |
+| libsql | ✅ Full | ✅ Full | ✅ Full | Any |
+| bun-sqlite | ✅ Full | ✅ Full | ✅ Full | Bun |
+| d1 | ⚠️ Sequential | ✅ Full | ✅ Full | Workers |
+| d1-http | ⚠️ Sequential | ✅ Full | ✅ Full | Any |
+
+<Callout type="info">
+**Dynamic Transactions** use the callback API: `$transaction(async (tx) => { ... })`
+
+**Batch Mode** uses the array API: `$transaction([op1, op2, ...])`
+
+Drivers marked "Sequential" for dynamic transactions will execute operations one-by-one without isolation. Use batch mode for atomic operations on these drivers.
+</Callout>
+
+## Choosing a Driver
+
+- **Node.js traditional**: Use `pg`, `mysql2`, or `sqlite3`
+- **Serverless/Edge**: Use `neon-http`, `planetscale`, `libsql`, or `d1`
+- **Bun runtime**: Use `bun-sql` or `bun-sqlite`
+- **Cloudflare Workers**: Use `d1` (bindings) or `d1-http`
+- **Local development**: Use `pglite`, `sqlite3`, or `bun-sqlite`

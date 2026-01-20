@@ -1,0 +1,113 @@
+---
+title: Neon HTTP
+description: Serverless PostgreSQL driver for Neon
+---
+
+## Installation
+
+```bash
+pnpm add @neondatabase/serverless
+```
+
+## Configuration
+
+```typescript
+import { createClient } from "viborm/drivers/neon-http";
+
+const client = createClient({
+  databaseUrl: process.env.DATABASE_URL,
+  schema,
+});
+```
+
+## Options
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `databaseUrl` | `string` | PostgreSQL connection URL |
+| `options.fetchOptions` | `RequestInit` | Custom fetch options |
+| `options.arrayMode` | `boolean` | Return rows as arrays |
+| `options.fullResults` | `boolean` | Return full result metadata |
+| `pgvector` | `boolean` | Enable pgvector support |
+| `postgis` | `boolean` | Enable PostGIS support |
+
+### With pgvector
+
+```typescript
+import { createClient } from "viborm/drivers/neon-http";
+
+const client = createClient({
+  databaseUrl: process.env.DATABASE_URL,
+  pgvector: true,
+  schema,
+});
+```
+
+## Serverless Usage
+
+Neon HTTP is optimized for serverless/edge environments:
+
+```typescript
+// Vercel Edge, Cloudflare Workers, etc.
+export default async function handler(request: Request) {
+  const client = createClient({
+    databaseUrl: process.env.DATABASE_URL,
+    schema,
+  });
+
+  const users = await client.user.findMany();
+  return Response.json(users);
+}
+```
+
+## Transactions & Batching
+
+Neon HTTP does **not** support traditional dynamic transactions (each HTTP request is a separate connection), but VibORM provides full support for **batch mode** using Neon's `transaction()` function.
+
+### Batch Mode (Recommended)
+
+Use the array API for atomic operations - VibORM uses Neon's `transaction()` function under the hood:
+
+```typescript
+// Atomic execution using Neon's transaction() function
+const [user, post] = await client.$transaction([
+  client.user.create({ data: { name: "Alice", email: "alice@example.com" } }),
+  client.post.create({ data: { title: "Hello", authorId: "preset-id" } }),
+]);
+```
+
+### Dynamic Transactions
+
+Dynamic transactions (callback API) will execute sequentially with a warning:
+
+```typescript
+// Warning: Operations execute without isolation on Neon HTTP
+await client.$transaction(async (tx) => {
+  const user = await tx.user.create({ data: { name: "Alice" } });
+  await tx.post.create({ data: { title: "Hello", authorId: user.id } });
+});
+```
+
+<Callout type="warn">
+For Neon HTTP, prefer batch mode (`$transaction([...])`) over callback mode when operations are independent. Batch mode provides atomicity through Neon's `transaction()` function.
+</Callout>
+
+### Migrations
+
+Migrations run atomically on Neon HTTP using the `transaction()` function - all statements succeed or none are applied.
+
+## Capabilities
+
+| Feature | Support |
+|---------|---------|
+| Dynamic transactions | Sequential with warning |
+| Batch mode | Full (`transaction()` function) |
+| Migration atomicity | Full |
+
+## Limitations
+
+- **No transaction isolation** - Other connections may see intermediate state
+- **No read-your-writes in batch** - Operations must be independent
+- HTTP-based: slightly higher latency than traditional connections
+- Best suited for serverless environments with simple queries
+- For full transaction support, use `@neondatabase/serverless` Pool with WebSockets

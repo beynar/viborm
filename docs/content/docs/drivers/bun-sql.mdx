@@ -1,0 +1,88 @@
+---
+title: Bun SQL
+description: PostgreSQL driver using Bun's built-in SQL client
+---
+
+## Requirements
+
+- Bun runtime
+
+## Configuration
+
+```typescript
+import { createClient } from "viborm/drivers/bun-sql";
+
+const client = createClient({
+  databaseUrl: process.env.DATABASE_URL,
+  schema,
+});
+```
+
+## Options
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `client` | `SQL` | Existing Bun SQL client |
+| `databaseUrl` | `string` | PostgreSQL connection URL |
+| `options` | `object` | Connection options |
+| `pgvector` | `boolean` | Enable pgvector support |
+| `postgis` | `boolean` | Enable PostGIS support |
+
+### Options Object
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `hostname` | `string` | Database host |
+| `port` | `number` | Database port |
+| `username` | `string` | Database user |
+| `password` | `string` | Database password |
+| `database` | `string` | Database name |
+| `tls` | `boolean \| object` | TLS configuration |
+| `max` | `number` | Maximum connections |
+| `idleTimeout` | `number` | Idle connection timeout |
+| `maxLifetime` | `number` | Maximum connection lifetime |
+
+### Using Options
+
+```typescript
+import { createClient } from "viborm/drivers/bun-sql";
+
+const client = createClient({
+  options: {
+    hostname: "localhost",
+    port: 5432,
+    username: "postgres",
+    password: "password",
+    database: "mydb",
+  },
+  schema,
+});
+```
+
+### With pgvector
+
+```typescript
+import { createClient } from "viborm/drivers/bun-sql";
+
+const client = createClient({
+  databaseUrl: process.env.DATABASE_URL,
+  pgvector: true,
+  schema,
+});
+```
+
+## Transactions
+
+Bun SQL supports full transactions with savepoints for nested transactions.
+
+```typescript
+await client.$transaction(async () => {
+  await client.user.create({ data: { name: "Alice" } });
+  await client.post.create({ data: { title: "Hello", authorId: "..." } });
+});
+```
+
+## Limitations
+
+- Only available in Bun runtime
+- API similar to postgres.js

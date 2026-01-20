@@ -1,0 +1,94 @@
+---
+title: Cloudflare D1
+description: SQLite driver for Cloudflare D1 using Worker bindings
+---
+
+## Requirements
+
+- Cloudflare Workers environment
+
+## Configuration
+
+```typescript
+import { createClient } from "viborm/drivers/d1";
+
+export default {
+  async fetch(request: Request, env: Env) {
+    const client = createClient({
+      database: env.DB, // D1 binding from wrangler.toml
+      schema,
+    });
+
+    const users = await client.user.findMany();
+    return Response.json(users);
+  },
+};
+```
+
+## Options
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `database` | `D1Database` | D1 database binding from Worker env |
+
+### wrangler.toml
+
+```toml
+[[d1_databases]]
+binding = "DB"
+database_name = "my-database"
+database_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+```
+
+## Transactions & Batching
+
+D1 does **not** support traditional dynamic transactions, but VibORM provides full support for **batch mode** using D1's native `batch()` API.
+
+### Batch Mode (Recommended)
+
+Use the array API for atomic operations - VibORM uses D1's native `batch()` under the hood:
+
+```typescript
+// Atomic execution using D1's native batch()
+const [user, post] = await client.$transaction([
+  client.user.create({ data: { name: "Alice", email: "alice@example.com" } }),
+  client.post.create({ data: { title: "Hello", authorId: "preset-id" } }),
+]);
+```
+
+### Dynamic Transactions
+
+Dynamic transactions (callback API) will execute sequentially with a warning:
+
+```typescript
+// Warning: Operations execute without isolation on D1
+await client.$transaction(async (tx) => {
+  const user = await tx.user.create({ data: { name: "Alice" } });
+  await tx.post.create({ data: { title: "Hello", authorId: user.id } });
+});
+```
+
+<Callout type="warn">
+For D1, prefer batch mode (`$transaction([...])`) over callback mode when operations are independent. Batch mode provides atomicity through D1's native `batch()` API.
+</Callout>
+
+### Migrations
+
+Migrations run atomically on D1 using the native `batch()` API - all statements succeed or none are applied.
+
+## Capabilities
+
+| Feature | Support |
+|---------|---------|
+| Dynamic transactions | Sequential with warning |
+| Batch mode | Full (native `batch()`) |
+| Migration atomicity | Full |
+
+## Limitations
+
+- **No transaction isolation** - Other connections may see intermediate state
+- **No read-your-writes in batch** - Operations must be independent
+- Only available in Cloudflare Workers
+- SQLite dialect - no `LATERAL` joins, limited `FULL OUTER JOIN`
+- JSON columns return as strings and are parsed automatically
+- Boolean values stored as integers (0/1)
