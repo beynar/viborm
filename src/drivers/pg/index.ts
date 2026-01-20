@@ -27,9 +27,10 @@ export interface PgDriverOptions {
   options?: PoolConfig;
   pgvector?: boolean;
   postgis?: boolean;
+  databaseUrl?: string;
 }
 
-export type PgClientConfig<C extends DriverConfig> = PgDriverOptions & C;
+export type PgClientConfig<C extends DriverConfig> = PgDriverOptions & C
 
 // ============================================================
 // DRIVER IMPLEMENTATION
@@ -140,9 +141,10 @@ export class PgDriver extends Driver<Pool, PoolClient> {
 // ============================================================
 
 export function createClient<C extends DriverConfig>(config: PgClientConfig<C>) {
-  const { pool, options, pgvector, postgis, ...restConfig } = config;
+  const { pool, options = {}, pgvector, postgis, databaseUrl, ...restConfig } = config;
 
   const driverOptions: PgDriverOptions = {};
+  if(databaseUrl !== undefined) options.connectionString = databaseUrl;
   if (pool) driverOptions.pool = pool;
   if (options) driverOptions.options = options;
   if (pgvector !== undefined) driverOptions.pgvector = pgvector;

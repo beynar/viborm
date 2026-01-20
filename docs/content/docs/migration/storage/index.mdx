@@ -1,0 +1,194 @@
+---
+title: Storage Drivers
+description: Abstract storage for migration files, journals, and snapshots
+icon: HardDrive
+---
+
+## What Storage Drivers Do
+
+- **Store migration SQL files** - Up and down migrations
+- **Store the journal** - Index of all migrations with checksums
+- **Store schema snapshots** - Current schema state for diffing
+- **Handle backups** - Archive migrations before modification
+
+## Available Drivers
+
+| Driver | Storage | Best For |
+|--------|---------|----------|
+| [Filesystem](/docs/migration/storage/filesystem) | Local files | Development, CI/CD, version control |
+
+## Abstract Interface
+
+All storage drivers implement three core methods:
+
+```ts
+abstract class MigrationStorageDriver {
+  abstract get(path: string): Promise<string | null>;
+  abstract put(path: string, content: string): Promise<void>;
+  abstract delete(path: string): Promise<void>;
+}
+```
+
+| Method | Description |
+|--------|-------------|
+| `get(path)` | Read content from path, returns `null` if not found |
+| `put(path, content)` | Write content to path, creates directories as needed |
+| `delete(path)` | Delete file at path, no-op if not found |
+
+## High-Level Operations
+
+The base class provides high-level operations built on the three core methods:
+
+### Journal Management
+
+```ts
+// Read the migration journal
+const journal = await storage.readJournal();
+
+// Write the journal
+await storage.writeJournal(journal);
+
+// Get or create journal
+const journal = await storage.getOrCreateJournal("postgresql");
+```
+
+### Snapshot Management
+
+```ts
+// Read the schema snapshot
+const snapshot = await storage.readSnapshot();
+
+// Write the snapshot
+await storage.writeSnapshot(snapshot);
+
+// Get snapshot or empty
+const snapshot = await storage.getSnapshotOrEmpty();
+```
+
+### Migration Files
+
+```ts
+// Read a migration
+const sql = await storage.readMigration(entry);
+
+// Write a migration
+await storage.writeMigration(entry, sql);
+
+// Delete a migration
+await storage.deleteMigration(entry);
+
+// Check if migration exists
+const exists = await storage.migrationExists(entry);
+```
+
+### Down Migrations
+
+```ts
+// Read down migration
+const downSql = await storage.readDownMigration(entry);
+
+// Write down migration
+await storage.writeDownMigration(entry, downSql);
+```
+
+### Backup Operations
+
+```ts
+// Backup a migration (copies to _backup/)
+await storage.backupMigration(entry);
+
+// Archive a migration (moves to _archive/)
+await storage.archiveMigration(entry);
+```
+
+## Directory Structure
+
+The filesystem driver uses this structure:
+
+```
+migrations/
+├── 0000_initial.sql              # Up migrations
+├── 0001_add-users.sql
+├── 0002_add-posts.sql
+└── meta/
+    ├── _journal.json             # Migration index
+    ├── _snapshot.json            # Current schema
+    ├── _down/                    # Down migrations
+    │   ├── 0000_initial.sql
+    │   ├── 0001_add-users.sql
+    │   └── 0002_add-posts.sql
+    ├── _backup/                  # Backups before modification
+    └── _archive/                 # Archived migrations
+```
+
+## Custom Storage Drivers
+
+To implement a custom storage driver, extend `MigrationStorageDriver`:
+
+```ts
+import { MigrationStorageDriver } from "viborm/migrations";
+
+class S3StorageDriver extends MigrationStorageDriver {
+  constructor(
+    private bucket: string,
+    private prefix: string = "migrations"
+  ) {
+    super("s3");
+  }
+
+  async get(path: string): Promise<string | null> {
+    const key = `${this.prefix}/${path}`;
+    try {
+      const response = await s3.getObject({ Bucket: this.bucket, Key: key });
+      return response.Body?.toString("utf-8") ?? null;
+    } catch (e) {
+      if (e.name === "NoSuchKey") return null;
+      throw e;
+    }
+  }
+
+  async put(path: string, content: string): Promise<void> {
+    const key = `${this.prefix}/${path}`;
+    await s3.putObject({
+      Bucket: this.bucket,
+      Key: key,
+      Body: content,
+      ContentType: "text/plain",
+    });
+  }
+
+  async delete(path: string): Promise<void> {
+    const key = `${this.prefix}/${path}`;
+    try {
+      await s3.deleteObject({ Bucket: this.bucket, Key: key });
+    } catch (e) {
+      if (e.name !== "NoSuchKey") throw e;
+    }
+  }
+}
+```
+
+Use your custom driver:
+
+```ts
+const storage = new S3StorageDriver("my-bucket", "migrations");
+
+const migrations = createMigrationClient(client, {
+  storageDriver: storage,
+});
+```
+
+## Next Steps
+
+<Cards>
+  <Card
+    title="Filesystem Storage"
+    description="Store migrations on local filesystem"
+    href="/docs/migration/storage/filesystem"
+  />
+  <Card
+    title="Migration Client"
+    description="Using storage with the client"
+    href="/docs/migration/client"
+  />
+</Cards>

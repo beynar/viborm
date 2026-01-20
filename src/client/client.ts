@@ -4,11 +4,10 @@ import type {
   WithCacheOptions,
 } from "@cache";
 import { type CacheExecutionOptions, withCacheSchema } from "@cache";
-import { CacheOperationNotCacheableError } from "@errors";
+import { CacheOperationNotCacheableError, NotFoundError, type VibORMError } from "@errors";
 import { parse } from "@validation";
 import type { WaitUntilFn } from "./types";
 import type { AnyDriver, QueryResult, TransactionOptions } from "@drivers";
-import { NotFoundError, type VibORMError } from "@errors";
 import {
   ATTR_DB_COLLECTION,
   ATTR_DB_OPERATION_NAME,
@@ -133,6 +132,8 @@ export type VibORMClient<C extends VibORMConfig> = Client<C> &
     {
       /** Access the underlying driver */
       $driver: AnyDriver;
+      /** Access the schema (models) */
+      $schema: C["schema"];
       /** Execute a raw SQL query */
       $executeRaw: <T = Record<string, unknown>>(
         query: Sql
@@ -383,6 +384,10 @@ export class VibORM<C extends VibORMConfig> {
         // Utility methods
         if (prop === "$driver") {
           return orm.driver;
+        }
+
+        if (prop === "$schema") {
+          return orm.schema;
         }
 
         if (prop === "$executeRaw") {

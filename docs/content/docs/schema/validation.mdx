@@ -1,63 +1,69 @@
 ---
 title: Schema Validation
-description: Validate schema correctness before runtime
+description: Comprehensive validation system that checks your schema for errors before runtime
 icon: ShieldCheck
 ---
 
-# Schema Validation
+import { Callout } from "fumadocs-ui/components/callout";
 
-VibORM includes a comprehensive validation system that checks your schema for errors before runtime.
+## Automatic Validation
 
-## Quick Start
+<Callout type="info" title="CLI Validation">
+Schema validation runs automatically when using CLI commands like `viborm push` or `viborm migrate`. You don't need to call validation manually unless you want to validate at application startup.
+</Callout>
 
-```ts
-import { validateSchemaOrThrow } from "viborm";
+## Manual Validation
 
-// Validate all models
-validateSchemaOrThrow([user, post, comment]);
-```
+### `validateSchema(schema)`
 
-## Validation Functions
-
-### `validateSchema(models)`
-
-Returns a validation result with all errors:
+Returns a validation result with all errors and warnings:
 
 ```ts
 import { validateSchema } from "viborm";
+import * as schema from "./schema";
 
-const result = validateSchema([user, post]);
+const result = validateSchema(schema);
 
 if (!result.valid) {
   for (const error of result.errors) {
-    console.log(`[${error.code}] ${error.model}: ${error.message}`);
+    console.log(`[${error.code}] ${error.message}`);
   }
+}
+
+// Also check warnings
+for (const warning of result.warnings) {
+  console.log(`[${warning.code}] Warning: ${warning.message}`);
 }
 ```
 
-### `validateSchemaOrThrow(models)`
+### `validateSchemaOrThrow(schema)`
 
 Throws on the first error (useful for startup):
 
 ```ts
 import { validateSchemaOrThrow } from "viborm";
+import * as schema from "./schema";
 
 // Throws if invalid
-validateSchemaOrThrow([user, post]);
+validateSchemaOrThrow(schema);
 ```
 
 ### `SchemaValidator` Class
 
-For custom validation:
+For custom validation with specific rules:
 
 ```ts
-import { SchemaValidator } from "viborm";
+import { SchemaValidator, fkRules, relationRules } from "viborm";
+import * as schema from "./schema";
 
-const validator = new SchemaValidator([user, post], {
-  database: "postgres",  // Optional: enable DB-specific rules
-});
+const validator = new SchemaValidator()
+  .registerAll(schema);
 
+// Validate with all rules
 const result = validator.validate();
+
+// Or validate with specific rules only
+const fkResult = validator.validate([...fkRules, ...relationRules]);
 ```
 
 ## Rule Categories
@@ -88,7 +94,7 @@ const result = validator.validate();
 
 | Code | Rule | Description |
 |------|------|-------------|
-| F001 | `noduplicateFields` | No duplicate field names |
+| F001 | `noDuplicateFields` | No duplicate field names |
 | F002 | `modelHasId` | Model must have exactly one ID (field or compound) |
 | F003 | `defaultTypeMatch` | Default value must match field type |
 | F004 | `arrayFieldsSupported` | Array fields only on supported DBs |
@@ -169,32 +175,36 @@ const result = validator.validate();
 interface ValidationError {
   code: string;        // e.g., "F002"
   severity: "error" | "warning";
-  model: string;       // Model name
-  field?: string;      // Field name (if applicable)
   message: string;     // Human-readable message
+  model?: string;      // Model name (if applicable)
+  field?: string;      // Field name (if applicable)
+  relation?: string;   // Relation name (if applicable)
 }
 
 interface ValidationResult {
   valid: boolean;
   errors: ValidationError[];
+  warnings: ValidationError[];
 }
 ```
 
 ## Example Errors
 
 ```ts
-const result = validateSchema([user, post]);
+import { validateSchema } from "viborm";
+import * as schema from "./schema";
+
+const result = validateSchema(schema);
 
 // Example errors:
-// [F002] User: Model must have exactly one ID field
+// [F002] Model 'user' must have exactly one ID field
 // [FK003] Post.authorId: FK type 'int' doesn't match reference type 'string'
 // [RA004] Comment.postId: SET NULL requires nullable FK field
 ```
 
 ## Best Practices
 
-1. **Validate on startup** — Catch errors early
-2. **Use `validateSchemaOrThrow`** — Fail fast in development
-3. **Check warnings** — Warnings may indicate issues
-4. **Database-specific validation** — Pass `database` option for DB rules
-
+1. **Let CLI validate** — CLI commands validate automatically
+2. **Validate on startup** — Call `validateSchemaOrThrow` in production for early error detection
+3. **Check warnings** — Warnings may indicate potential issues
+4. **Use specific rules** — For performance, validate with only the rules you need

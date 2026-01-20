@@ -22,8 +22,7 @@ export class EnumField<State extends FieldState<"enum">> {
   }
 
   get enumValues() {
-    return (this.state.base as EnumSchema<string[], any, any>)
-      .values as EnumValues<typeof this.state.base>;
+    return ("values" in this.state.base ? this.state.base.values : []) as EnumValues<State["base"]>;
   }
 
   nullable() {
@@ -34,7 +33,7 @@ export class EnumField<State extends FieldState<"enum">> {
         default: null,
         optional: true,
         base: v.enum<
-          EnumValues<typeof this.state.base>,
+          typeof this.enumValues,
           {
             nullable: true;
             array: State["array"];
@@ -53,7 +52,7 @@ export class EnumField<State extends FieldState<"enum">> {
       updateState(this, {
         array: true,
         base: v.enum<
-          EnumValues<typeof this.state.base>,
+          typeof this.enumValues,
           {
             nullable: State["nullable"];
             array: true;
@@ -80,6 +79,22 @@ export class EnumField<State extends FieldState<"enum">> {
 
   map(columnName: string) {
     return new EnumField(updateState(this, { columnName }), this._nativeType);
+  }
+
+  /**
+   * Set a custom name for the enum type in the database.
+   * This allows reusing the same enum across multiple tables.
+   *
+   * @example
+   * ```ts
+   * const Status = s.enum(["PENDING", "ACTIVE"]).name("status");
+   *
+   * const user = s.model({ status: Status });
+   * const order = s.model({ status: Status }); // Same "status" enum type
+   * ```
+   */
+  name(enumName: string) {
+    return new EnumField(updateState(this, { enumName }), this._nativeType);
   }
 
   get ["~"]() {

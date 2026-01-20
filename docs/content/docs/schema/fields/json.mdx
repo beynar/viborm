@@ -1,12 +1,8 @@
 ---
 title: JSON Field
-description: JSON field type for structured data
+description: JSON field type for structured data — untyped or typed with a StandardSchema validator
 icon: Braces
 ---
-
-# JSON Field
-
-The JSON field type stores structured data as JSON. It can be untyped (`unknown`) or typed with a StandardSchema validator.
 
 ## Basic Usage
 
@@ -54,14 +50,14 @@ import { TYPES } from "viborm";
 s.json(TYPES.PG.JSON.JSON) // JSON (text-based)
 s.json(TYPES.PG.JSON.JSONB) // JSONB (binary, indexable, default)
 
-````
+```
   </Tab>
   <Tab value="MySQL">
 ```ts
 import { TYPES } from "viborm";
 
 s.json(TYPES.MYSQL.JSON.JSON)  // JSON
-````
+```
 
   </Tab>
   <Tab value="SQLite">
@@ -70,7 +66,7 @@ import { TYPES } from "viborm";
 
 s.json(TYPES.SQLITE.JSON.TEXT) // TEXT (stored as string)
 
-````
+```
   </Tab>
 </Tabs>
 
@@ -91,7 +87,7 @@ s.json(TYPES.SQLITE.JSON.TEXT) // TEXT (stored as string)
 ```ts
 const metadata = s.json().default({});
 const tags = s.json().default([]);
-````
+```
 
 ### Typed with Valibot
 

@@ -1,12 +1,11 @@
 ---
 title: Enum Field
-description: Enum field type for constrained string values
+description: Enum field type that restricts values to a predefined set of options
 icon: List
 ---
 
-# Enum Field
-
-The Enum field type restricts values to a predefined set of options.
+import { Tabs, Tab } from "fumadocs-ui/components/tabs";
+import { Callout } from "fumadocs-ui/components/callout";
 
 ## Basic Usage
 
@@ -21,11 +20,42 @@ s.enum(["PENDING", "ACTIVE"]).nullable(); // Enum | null
 
 ```ts
 s.enum(["USER", "ADMIN", "MODERATOR"])
-  .nullable() // Allow NULL
-  .schema(schema) // Custom StandardSchema validator (e.g., branded types)
-  .default("USER") // Default value (must be in enum)
-  .map("column_name"); // Custom column name
+  .name("role")         // Set database enum type name (for reuse across tables)
+  .nullable()           // Allow NULL
+  .schema(schema)       // Custom StandardSchema validator (e.g., branded types)
+  .default("USER")      // Default value (must be in enum)
+  .map("column_name");  // Custom column name
 ```
+
+### Naming Enums for Reuse
+
+By default, VibORM generates enum type names based on the table and column (e.g., `user_status_enum`). Use `.name()` to create a shared enum type that can be reused across multiple tables:
+
+```ts
+// Define a named enum at the top level
+const Status = s.enum(["PENDING", "ACTIVE", "INACTIVE"]).name("status");
+
+// Use it in multiple models - same PostgreSQL enum type
+const user = s.model({
+  id: s.string().id(),
+  status: Status.default("PENDING"), // Uses "status" enum type
+});
+
+const order = s.model({
+  id: s.string().id(),
+  status: Status.default("PENDING"), // Same "status" enum type
+});
+```
+
+Without `.name()`, each column would create its own enum type:
+- `user_status_enum` for users.status
+- `order_status_enum` for orders.status
+
+With `.name("status")`, both columns share the same `status` enum type.
+
+<Callout type="info" title="Migration Behavior">
+Named enums are tracked as a single type. When you modify the enum values, VibORM generates one `ALTER TYPE` instead of multiple.
+</Callout>
 
 ### Custom Schema Validation
 

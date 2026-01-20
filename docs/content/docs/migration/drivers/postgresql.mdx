@@ -1,0 +1,249 @@
+---
+title: PostgreSQL Driver
+description: Full PostgreSQL migration support including native enums, arrays, and advanced index types
+icon: Server
+---
+
+## Capabilities
+
+| Feature | Supported |
+|---------|-----------|
+| Native enums | Yes |
+| Native arrays | Yes |
+| Index types | btree, hash, gin, gist |
+| Advisory locks | Yes |
+| Transactions | Full support |
+
+## Type Mappings
+
+| VibORM Type | PostgreSQL Type |
+|-------------|-----------------|
+| `string()` | `text` |
+| `string().max(n)` | `varchar(n)` |
+| `int()` | `integer` |
+| `bigint()` | `bigint` |
+| `float()` | `double precision` |
+| `boolean()` | `boolean` |
+| `datetime()` | `timestamp` |
+| `datetime().withTimezone()` | `timestamptz` |
+| `json()` | `jsonb` |
+| `blob()` | `bytea` |
+| `uuid()` | `uuid` |
+| `enumField()` | Native enum type |
+| Array types | Native arrays (`text[]`, etc.) |
+
+## Auto-Increment
+
+PostgreSQL uses `SERIAL` and `BIGSERIAL` types for auto-increment:
+
+```ts
+const User = model("users", {
+  id: int().primaryKey().autoIncrement(),
+});
+```
+
+Generates:
+
+```sql
+CREATE TABLE "users" (
+  "id" serial PRIMARY KEY
+);
+```
+
+## UUID Generation
+
+```ts
+const User = model("users", {
+  id: uuid().primaryKey().default("gen_random_uuid()"),
+});
+```
+
+Generates:
+
+```sql
+CREATE TABLE "users" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid()
+);
+```
+
+## Native Enums
+
+PostgreSQL supports native enum types:
+
+```ts
+const User = model("users", {
+  status: enumField(["active", "inactive", "pending"]),
+});
+```
+
+Generates:
+
+```sql
+CREATE TYPE "users_status_enum" AS ENUM ('active', 'inactive', 'pending');
+
+CREATE TABLE "users" (
+  "status" "users_status_enum" NOT NULL
+);
+```
+
+### Enum Operations
+
+**Add value:**
+
+```sql
+ALTER TYPE "users_status_enum" ADD VALUE 'suspended';
+```
+
+<Callout type="warn" title="Transaction Limitation">
+`ALTER TYPE ... ADD VALUE` cannot run inside a transaction block. VibORM handles this by executing enum additions outside the main transaction.
+</Callout>
+
+**Remove value:** Requires enum recreation (handled automatically).
+
+## Native Arrays
+
+PostgreSQL supports native array types:
+
+```ts
+const User = model("users", {
+  tags: string().array(),
+  scores: int().array(),
+});
+```
+
+Generates:
+
+```sql
+CREATE TABLE "users" (
+  "tags" text[] NOT NULL,
+  "scores" integer[] NOT NULL
+);
+```
+
+## Index Types
+
+PostgreSQL supports multiple index types:
+
+### B-tree (default)
+
+Standard index for equality and range queries:
+
+```ts
+const User = model("users", {
+  email: string().unique(),
+}).index("email_idx", ["email"]);
+```
+
+### Hash
+
+Optimized for equality comparisons only:
+
+```ts
+.index("email_hash_idx", ["email"], { type: "hash" })
+```
+
+### GIN
+
+Generalized Inverted Index for arrays and full-text search:
+
+```ts
+.index("tags_idx", ["tags"], { type: "gin" })
+```
+
+### GiST
+
+Generalized Search Tree for geometric and range types:
+
+```ts
+.index("location_idx", ["location"], { type: "gist" })
+```
+
+## Partial Indexes
+
+PostgreSQL supports partial indexes with WHERE clauses:
+
+```ts
+.index("active_users_idx", ["email"], {
+  where: '"status" = \'active\''
+})
+```
+
+Generates:
+
+```sql
+CREATE INDEX "active_users_idx" ON "users" ("email")
+WHERE "status" = 'active';
+```
+
+## Advisory Locks
+
+The PostgreSQL driver uses advisory locks to prevent concurrent migrations:
+
+```sql
+SELECT pg_advisory_lock(123456789);
+-- ... run migrations ...
+SELECT pg_advisory_unlock(123456789);
+```
+
+This ensures only one migration process runs at a time, even across multiple application instances.
+
+## DDL Examples
+
+### Create Table
+
+```sql
+CREATE TABLE "users" (
+  "id" serial PRIMARY KEY,
+  "email" text NOT NULL,
+  "name" text,
+  "created_at" timestamp DEFAULT NOW()
+);
+```
+
+### Alter Column
+
+```sql
+-- Change type
+ALTER TABLE "users"
+ALTER COLUMN "name" TYPE varchar(255)
+USING "name"::varchar(255);
+
+-- Change nullability
+ALTER TABLE "users"
+ALTER COLUMN "name" SET NOT NULL;
+
+-- Change default
+ALTER TABLE "users"
+ALTER COLUMN "created_at" SET DEFAULT NOW();
+```
+
+### Add Foreign Key
+
+```sql
+ALTER TABLE "posts"
+ADD CONSTRAINT "posts_user_id_fkey"
+FOREIGN KEY ("user_id") REFERENCES "users" ("id")
+ON DELETE CASCADE;
+```
+
+## Limitations
+
+| Limitation | Workaround |
+|------------|------------|
+| `ADD VALUE` in transaction | Executed outside transaction |
+| Enum value removal | Enum recreation |
+
+## Next Steps
+
+<Cards>
+  <Card
+    title="SQLite Driver"
+    description="SQLite-specific features"
+    href="/docs/migration/drivers/sqlite"
+  />
+  <Card
+    title="Migration Drivers"
+    description="Driver overview"
+    href="/docs/migration/drivers"
+  />
+</Cards>

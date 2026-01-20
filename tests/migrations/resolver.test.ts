@@ -10,7 +10,16 @@ import {
   createPredefinedResolver,
   createResolver,
   strictResolver,
+  // Unified resolvers
+  lenientResolver,
+  addDropResolver,
+  rejectAllResolver,
 } from "../../src/migrations/resolver";
+import {
+  createDestructiveChange,
+  createAmbiguousChange,
+  createEnumValueRemovalChange,
+} from "../../src/migrations/types";
 import type {
   AmbiguousChange,
   ChangeResolution,
@@ -259,5 +268,210 @@ describe("createPredefinedResolver", () => {
     const resolutions = await resolver(changes);
 
     expect(resolutions.has(changes[0]!)).toBe(false);
+  });
+});
+
+// =============================================================================
+// UNIFIED RESOLVE CALLBACK TESTS
+// =============================================================================
+
+describe("rejectAllResolver", () => {
+  it("should reject destructive changes", async () => {
+    const change = createDestructiveChange({
+      operation: "dropTable",
+      table: "users",
+      description: "Drop table users",
+    });
+
+    const result = await rejectAllResolver(change);
+    expect(result).toBe("reject");
+  });
+
+  it("should reject ambiguous changes", async () => {
+    const change = createAmbiguousChange({
+      operation: "renameColumn",
+      table: "users",
+      oldName: "username",
+      newName: "name",
+      description: "Column rename",
+    });
+
+    const result = await rejectAllResolver(change);
+    expect(result).toBe("reject");
+  });
+
+  it("should reject enum value removal changes", async () => {
+    const change = createEnumValueRemovalChange({
+      enumName: "Status",
+      tableName: "users",
+      columnName: "status",
+      isNullable: true,
+      removedValues: ["PENDING"],
+      availableValues: ["ACTIVE", "INACTIVE"],
+      description: "Removing PENDING from Status enum",
+    });
+
+    const result = await rejectAllResolver(change);
+    expect(result).toBe("reject");
+  });
+});
+
+describe("lenientResolver", () => {
+  it("should proceed with destructive changes", async () => {
+    const change = createDestructiveChange({
+      operation: "dropColumn",
+      table: "users",
+      column: "email",
+      description: "Drop column email",
+    });
+
+    const result = await lenientResolver(change);
+    expect(result).toBe("proceed");
+  });
+
+  it("should rename ambiguous changes", async () => {
+    const change = createAmbiguousChange({
+      operation: "renameTable",
+      table: "accounts",
+      oldName: "users",
+      newName: "accounts",
+      description: "Table rename",
+    });
+
+    const result = await lenientResolver(change);
+    expect(result).toBe("rename");
+  });
+
+  it("should use null for enum value removal changes", async () => {
+    const change = createEnumValueRemovalChange({
+      enumName: "Priority",
+      tableName: "tasks",
+      columnName: "priority",
+      isNullable: true,
+      removedValues: ["LOW", "MEDIUM"],
+      availableValues: ["HIGH", "CRITICAL"],
+      description: "Removing LOW and MEDIUM from Priority enum",
+    });
+
+    const result = await lenientResolver(change);
+    expect(result).toBe("enumMapped");
+    expect(change._useNullDefault).toBe(true);
+  });
+});
+
+describe("addDropResolver", () => {
+  it("should proceed with destructive changes", async () => {
+    const change = createDestructiveChange({
+      operation: "alterColumn",
+      table: "users",
+      column: "age",
+      description: "Alter column age",
+    });
+
+    const result = await addDropResolver(change);
+    expect(result).toBe("proceed");
+  });
+
+  it("should use addAndDrop for ambiguous changes", async () => {
+    const change = createAmbiguousChange({
+      operation: "renameColumn",
+      table: "users",
+      column: "name",
+      oldName: "username",
+      newName: "name",
+      description: "Column rename",
+    });
+
+    const result = await addDropResolver(change);
+    expect(result).toBe("addAndDrop");
+  });
+
+  it("should use null for enum value removal changes", async () => {
+    const change = createEnumValueRemovalChange({
+      enumName: "Role",
+      tableName: "users",
+      columnName: "role",
+      isNullable: true,
+      removedValues: ["GUEST"],
+      availableValues: ["USER", "ADMIN"],
+      description: "Removing GUEST from Role enum",
+    });
+
+    const result = await addDropResolver(change);
+    expect(result).toBe("enumMapped");
+    expect(change._useNullDefault).toBe(true);
+  });
+});
+
+describe("EnumValueRemovalChange methods", () => {
+  it("mapValues should store mappings", async () => {
+    const change = createEnumValueRemovalChange({
+      enumName: "Status",
+      tableName: "orders",
+      columnName: "status",
+      isNullable: true,
+      removedValues: ["PENDING", "DRAFT"],
+      availableValues: ["ACTIVE", "INACTIVE"],
+      description: "Removing values",
+    });
+
+    const result = change.mapValues({
+      PENDING: "INACTIVE",
+      DRAFT: null,
+    });
+
+    expect(result).toBe("enumMapped");
+    expect(change._mappings).toEqual({
+      PENDING: "INACTIVE",
+      DRAFT: null,
+    });
+  });
+
+  it("useNull should set _useNullDefault flag", async () => {
+    const change = createEnumValueRemovalChange({
+      enumName: "Status",
+      tableName: "orders",
+      columnName: "status",
+      isNullable: true,
+      removedValues: ["PENDING"],
+      availableValues: ["ACTIVE"],
+      description: "Removing values",
+    });
+
+    const result = change.useNull();
+
+    expect(result).toBe("enumMapped");
+    expect(change._useNullDefault).toBe(true);
+  });
+
+  it("reject should return reject", async () => {
+    const change = createEnumValueRemovalChange({
+      enumName: "Status",
+      tableName: "orders",
+      columnName: "status",
+      isNullable: false,
+      removedValues: ["PENDING"],
+      availableValues: ["ACTIVE"],
+      description: "Removing values",
+    });
+
+    const result = change.reject();
+    expect(result).toBe("reject");
+  });
+
+  it("should include per-column properties", () => {
+    const change = createEnumValueRemovalChange({
+      enumName: "Status",
+      tableName: "orders",
+      columnName: "order_status",
+      isNullable: false,
+      removedValues: ["PENDING"],
+      availableValues: ["ACTIVE"],
+      description: "Removing values",
+    });
+
+    expect(change.tableName).toBe("orders");
+    expect(change.columnName).toBe("order_status");
+    expect(change.isNullable).toBe(false);
   });
 });

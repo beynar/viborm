@@ -1,0 +1,403 @@
+---
+title: Push
+description: Synchronize your schema directly to the database without migration files — compares models against database state and applies changes
+icon: Zap
+---
+
+## When to Use Push
+
+- **Development environment** - Rapid iteration without migration files
+- **Prototyping** - Quick schema experiments
+- **CI test databases** - Fresh schema for each test run
+- **Non-versioned workflows** - When you don't need migration history
+
+<Callout type="warn" title="Not for Production">
+Push doesn't create migration files, so changes aren't versioned. Use [file-based migrations](/docs/migration/migrate) for production deployments.
+</Callout>
+
+## Basic Usage
+
+<Tabs items={["CLI", "Migration Client"]}>
+  <Tab value="CLI">
+```bash
+# Push schema changes to database
+npx viborm push
+```
+  </Tab>
+  <Tab value="Migration Client">
+```ts title="src/db/push.ts"
+import { createMigrationClient } from "viborm/migrations";
+import { client } from "./client";
+
+const migrations = createMigrationClient(client);
+
+const result = await migrations.push();
+
+if (result.applied) {
+  console.log(`Applied ${result.operations.length} changes`);
+}
+```
+  </Tab>
+</Tabs>
+
+## Dry Run Mode
+
+Preview changes without applying them:
+
+<Tabs items={["CLI", "Migration Client"]}>
+  <Tab value="CLI">
+```bash
+# Preview changes without applying
+npx viborm push --dry-run
+```
+  </Tab>
+  <Tab value="Migration Client">
+```ts
+const result = await migrations.push({ dryRun: true });
+
+console.log("Would apply:");
+for (const sql of result.sql) {
+  console.log(sql);
+}
+// result.applied === false
+```
+  </Tab>
+</Tabs>
+
+## Resolving Changes
+
+When push detects **destructive changes** (dropping tables/columns), **ambiguous changes** (potential renames), or **enum value removals**, it calls the `resolve` callback for each one.
+
+<Tabs items={["CLI", "Migration Client"]}>
+  <Tab value="CLI">
+```bash
+# CLI prompts interactively for each change
+npx viborm push
+
+# Auto-accept all changes without prompting
+npx viborm push --force
+
+# Fail on any changes requiring resolution
+npx viborm push --strict
+```
+  </Tab>
+  <Tab value="Migration Client">
+```ts
+const result = await migrations.push({
+  resolve: async (change) => {
+    console.log(change.description);
+
+    if (change.type === "destructive") {
+      // Destructive changes have: proceed(), reject()
+      return confirm("Accept data loss?") ? change.proceed() : change.reject();
+    }
+
+    if (change.type === "ambiguous") {
+      // Ambiguous changes have: rename(), addAndDrop(), reject()
+      return change.rename();
+    }
+
+    if (change.type === "enumValueRemoval") {
+      // Enum value removals have: mapValues(), reject()
+      return change.mapValues({
+        'OLD_VALUE': 'NEW_VALUE',
+        'DEPRECATED': null,  // Set to NULL
+      });
+    }
+  },
+});
+```
+  </Tab>
+</Tabs>
+
+### ResolveChange Interface
+
+Each change type has specific methods available:
+
+```ts
+// Destructive changes (dropTable, dropColumn, alterColumn)
+interface DestructiveResolveChange {
+  type: "destructive";
+  operation: "dropTable" | "dropColumn" | "alterColumn";
+  table: string;
+  column?: string;
+  description: string;
+
+  proceed(): ResolveResult;  // Accept the data loss
+  reject(): ResolveResult;   // Abort the operation
+}
+
+// Ambiguous changes (renameTable, renameColumn)
+interface AmbiguousResolveChange {
+  type: "ambiguous";
+  operation: "renameTable" | "renameColumn";
+  table: string;
+  column?: string;
+  oldName?: string;
+  newName?: string;
+  oldType?: string;
+  newType?: string;
+  description: string;
+
+  rename(): ResolveResult;      // Treat as rename (preserves data)
+  addAndDrop(): ResolveResult;  // Treat as separate add + drop (data loss)
+  reject(): ResolveResult;      // Abort the operation
+}
+
+// Enum value removal changes (per-column)
+interface EnumValueRemovalChange {
+  type: "enumValueRemoval";
+  enumName: string;
+  tableName: string;            // Table containing the column
+  columnName: string;           // Column using the enum
+  isNullable: boolean;          // Whether the column is nullable
+  removedValues: string[];      // Values being removed
+  availableValues: string[];    // Values to map to
+  description: string;
+
+  mapValues(replacements: Record<string, string | null>): ResolveResult;
+  useNull(): ResolveResult;     // Set all removed values to NULL (nullable columns only)
+  reject(): ResolveResult;      // Abort the operation
+}
+```
+
+### Resolution Methods
+
+| Change Type | Available Methods | Description |
+|-------------|-------------------|-------------|
+| `destructive` | `change.proceed()` | Accept the data loss |
+| `destructive` | `change.reject()` | Abort the operation |
+| `ambiguous` | `change.rename()` | Treat as rename (preserves data) |
+| `ambiguous` | `change.addAndDrop()` | Treat as separate add + drop (data loss) |
+| `ambiguous` | `change.reject()` | Abort the operation |
+| `enumValueRemoval` | `change.mapValues({...})` | Map old values to new values or NULL |
+| `enumValueRemoval` | `change.useNull()` | Set all removed values to NULL |
+| `enumValueRemoval` | `change.reject()` | Abort the operation |
+
+<Callout type="info" title="Per-Column Resolution">
+Enum value removals are resolved per-column, allowing different mappings for different columns using the same enum. This lets you map `PENDING` to `INACTIVE` in one column but to `NULL` in another.
+</Callout>
+
+### Built-in Resolvers
+
+```ts
+import { lenientResolver, addDropResolver, rejectAllResolver } from "viborm/migrations";
+
+// Accept destructive, rename ambiguous, map enums to NULL
+await migrations.push({ resolve: lenientResolver });
+
+// Accept destructive, add+drop for ambiguous, map enums to NULL
+await migrations.push({ resolve: addDropResolver });
+
+// Reject all changes (useful for CI)
+await migrations.push({ resolve: rejectAllResolver });
+```
+
+The built-in resolvers handle all change types:
+
+```ts
+// lenientResolver implementation
+const lenientResolver = async (change) => {
+  if (change.type === "destructive") return change.proceed();
+  if (change.type === "ambiguous") return change.rename();
+  // enumValueRemoval: set all to null
+  return change.useNull();
+};
+
+// addDropResolver implementation
+const addDropResolver = async (change) => {
+  if (change.type === "destructive") return change.proceed();
+  if (change.type === "ambiguous") return change.addAndDrop();
+  // enumValueRemoval: set all to null
+  return change.useNull();
+};
+
+// rejectAllResolver implementation
+const rejectAllResolver = async (change) => change.reject();
+```
+
+## Force Mode
+
+Skip all resolution prompts and auto-accept everything:
+
+- **Destructive changes**: Proceeds (accepts data loss)
+- **Ambiguous changes**: Treats as add+drop (not rename, accepts data loss)
+- **Enum value removals**: Sets all to NULL
+
+<Tabs items={["CLI", "Migration Client"]}>
+  <Tab value="CLI">
+```bash
+npx viborm push --force
+```
+  </Tab>
+  <Tab value="Migration Client">
+```ts
+await migrations.push({ force: true });
+```
+  </Tab>
+</Tabs>
+
+<Callout type="warn" title="Data Loss">
+Force mode accepts all data loss. Use only when you're certain you don't need the data.
+</Callout>
+
+### Combining Force with Resolver
+
+You can use both `force: true` and a `resolve` callback together. The resolver takes precedence - if it returns a result, that's used. If it returns `undefined` (doesn't handle the change), force mode kicks in automatically.
+
+This is useful for protecting specific tables or columns while auto-accepting everything else:
+
+```ts
+await migrations.push({
+  force: true,
+  resolve: async (change) => {
+    // Protect the users table from being dropped
+    if (change.type === "destructive" && change.table === "users") {
+      return change.reject();
+    }
+
+    // Protect specific renames from being treated as add+drop
+    if (change.type === "ambiguous" && change.table === "accounts") {
+      return change.rename();
+    }
+
+    // Return undefined to let force handle everything else
+  },
+});
+```
+
+| `force` | `resolve` | Behavior |
+|---------|-----------|----------|
+| `false` | `undefined` | Throw error if unresolved changes |
+| `true` | `undefined` | Auto-accept all changes |
+| `false` | provided | Resolver must handle all changes |
+| `true` | provided | Resolver handles what it returns, force handles the rest |
+
+## Force Reset
+
+Reset the database before pushing (drops all tables and pushes fresh schema):
+
+<Tabs items={["CLI", "Migration Client"]}>
+  <Tab value="CLI">
+```bash
+# Drop all tables and push fresh schema
+npx viborm push --force-reset
+```
+  </Tab>
+  <Tab value="Migration Client">
+```ts
+// forceReset drops all tables, then pushes fresh schema
+await migrations.push({ forceReset: true });
+```
+  </Tab>
+</Tabs>
+
+<Callout type="warn" title="Destructive Operation">
+Force reset drops all tables and data. Use with extreme caution and never in production.
+</Callout>
+
+<Callout type="info" title="Storage-Aware">
+When a storage driver is configured, `forceReset` also clears the migration journal to keep it in sync. Without a storage driver, it only drops tables.
+</Callout>
+
+## CLI Options
+
+| Option | Description |
+|--------|-------------|
+| `--dry-run` | Preview SQL without executing |
+| `--force` | Skip all resolution prompts |
+| `--force-reset` | Drop all tables before pushing |
+| `--strict` | Require confirmation before executing |
+| `--verbose` | Show detailed output |
+| `--config <path>` | Path to config file |
+
+## API Options
+
+```ts
+interface PushOptions {
+  force?: boolean;
+  forceReset?: boolean;
+  dryRun?: boolean;
+  resolve?: ResolveCallback;
+}
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `force` | `boolean` | `false` | Auto-accept all changes. Can be combined with `resolve` to auto-accept unhandled changes. |
+| `forceReset` | `boolean` | `false` | Drop all tables before pushing |
+| `dryRun` | `boolean` | `false` | Preview SQL without executing |
+| `resolve` | `ResolveCallback` | - | Callback for resolving changes. Return `undefined` to let `force` handle it. |
+
+## API Result
+
+```ts
+interface PushResult {
+  operations: DiffOperation[];
+  applied: boolean;
+  sql: string[];
+}
+```
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `operations` | `DiffOperation[]` | All operations that were applied |
+| `applied` | `boolean` | Whether changes were actually applied |
+| `sql` | `string[]` | Generated SQL statements |
+
+## Enum Value Removal
+
+When removing enum values, you must specify what to do with existing data. Each column using the enum is resolved separately, allowing different mappings per column:
+
+```ts
+const result = await migrations.push({
+  resolve: async (change) => {
+    if (change.type === "enumValueRemoval") {
+      // Each call is for a specific column
+      console.log(`Column: ${change.tableName}.${change.columnName}`);
+      console.log(`Removing: ${change.removedValues.join(", ")}`);
+      console.log(`Available: ${change.availableValues.join(", ")}`);
+
+      // For nullable columns, can use useNull() for convenience
+      if (change.isNullable) {
+        return change.useNull();
+      }
+
+      // Map removed values to new values
+      return change.mapValues({
+        'PENDING': 'INACTIVE',    // Map to another value
+        'OLD_STATUS': null,       // Set to NULL (only if column is nullable)
+      });
+    }
+
+    // Handle other change types...
+    if (change.type === "destructive") return change.proceed();
+    if (change.type === "ambiguous") return change.rename();
+  },
+});
+```
+
+The `EnumValueRemovalChange` provides:
+- `enumName`: The enum being modified
+- `tableName`: The table containing the column
+- `columnName`: The column using this enum
+- `isNullable`: Whether the column allows NULL
+- `removedValues`: Array of values being removed
+- `availableValues`: Array of values you can map to
+- `mapValues(replacements)`: Method to specify the mapping
+- `useNull()`: Set all removed values to NULL (for nullable columns)
+
+## Next Steps
+
+<Cards>
+  <Card
+    title="Migrate"
+    description="File-based migrations for production"
+    href="/docs/migration/migrate"
+  />
+  <Card
+    title="Migration Drivers"
+    description="Database-specific DDL generation"
+    href="/docs/migration/drivers"
+  />
+</Cards>

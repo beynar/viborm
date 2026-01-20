@@ -1,12 +1,8 @@
 ---
 title: String Field
-description: String field type for text data
+description: String field type for text data with auto-generation, validation, and native type options
 icon: Type
 ---
-
-# String Field
-
-The string field type represents text data.
 
 ## Basic Usage
 
@@ -74,7 +70,7 @@ s.string(TYPES.PG.STRING.CIDR) // IP network
 s.string(TYPES.PG.STRING.MACADDR) // MAC address
 s.string(TYPES.PG.STRING.TSVECTOR) // Full-text search
 
-````
+```
   </Tab>
   <Tab value="MySQL">
 ```ts
@@ -86,7 +82,7 @@ s.string(TYPES.MYSQL.STRING.TEXT)          // TEXT
 s.string(TYPES.MYSQL.STRING.TINYTEXT)      // TINYTEXT
 s.string(TYPES.MYSQL.STRING.MEDIUMTEXT)    // MEDIUMTEXT
 s.string(TYPES.MYSQL.STRING.LONGTEXT)      // LONGTEXT
-````
+```
 
   </Tab>
   <Tab value="SQLite">
@@ -95,7 +91,7 @@ import { TYPES } from "viborm";
 
 s.string(TYPES.SQLITE.STRING.TEXT) // TEXT (only option)
 
-````
+```
   </Tab>
 </Tabs>
 
@@ -130,4 +126,4 @@ const bio = s.string().nullable().default(null);
 
 // Tags array (PostgreSQL)
 const tags = s.string().array().default([]);
-````
+```

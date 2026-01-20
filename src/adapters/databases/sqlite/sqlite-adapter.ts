@@ -1,7 +1,6 @@
 import { unsupportedGeospatial, unsupportedVector } from "@errors";
 import { type Sql, sql } from "@sql";
 import type { DatabaseAdapter, QueryParts } from "../../database-adapter";
-import { sqliteMigrations } from "./migrations";
 
 /**
  * SQLite Database Adapter
@@ -590,12 +589,6 @@ export class SQLiteAdapter implements DatabaseAdapter {
   };
 
   lastInsertId = (): Sql => sql.raw`last_insert_rowid()`;
-
-  // ============================================================
-  // MIGRATIONS
-  // ============================================================
-
-  migrations = sqliteMigrations;
 
   // ============================================================
   // VECTOR (not natively supported in SQLite)

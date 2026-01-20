@@ -1,0 +1,129 @@
+---
+title: Migrations
+description: Manage database schema changes with VibORM migrations
+icon: Database
+---
+
+VibORM provides two approaches for managing database schema changes:
+
+- **Push** - Direct schema synchronization, ideal for development
+- **Migrate** - File-based migrations with version control, ideal for production
+
+Both approaches work by comparing your VibORM schema definitions against the current database state and generating the necessary DDL to synchronize them.
+
+## Choose Your Approach
+
+| | Push | Migrate |
+|--|------|---------|
+| **Use case** | Development, prototyping | Production, team collaboration |
+| **Version control** | No migration files | Yes, SQL files committed to git |
+| **Rollback** | Manual | Supported via down migrations |
+| **CI/CD** | Not recommended | Fully supported |
+
+## CLI vs API
+
+VibORM migrations can be used via the **CLI** or programmatically via the **Migration Client API**.
+
+### CLI
+
+The CLI is the recommended way to manage migrations during development:
+
+```bash
+# Push schema directly to database
+npx viborm push
+
+# Generate a new migration file
+npx viborm migrate generate --name add-users
+
+# Apply pending migrations
+npx viborm migrate apply
+
+# Check migration status
+npx viborm migrate status
+```
+
+### Migration Client API
+
+For programmatic control (scripts, CI/CD, custom tooling), use the migration client:
+
+```ts title="src/db/migrations.ts"
+import { createMigrationClient } from "viborm/migrations";
+import { createFsStorageDriver } from "viborm/migrations/storage/fs";
+import { client } from "./client";
+
+const migrations = createMigrationClient(client, {
+  storageDriver: createFsStorageDriver("./migrations"),
+});
+
+// File-based migration operations (require storage driver)
+await migrations.generate({ name: "add-users" });
+await migrations.apply();
+await migrations.status();
+
+// Push works with or without storage driver
+await migrations.push({
+  resolve: async (change) => {
+    // Handle destructive or ambiguous changes
+    if (change.type === "destructive") {
+      return "proceed"; // or "reject"
+    }
+    return "rename"; // or "addAndDrop" or "reject"
+  },
+});
+```
+
+<Callout type="info" title="Storage Driver Required">
+File-based operations (`generate`, `apply`, `status`, `reset`, `rollback`) require a storage driver. The `push()` method works without a storage driver since it doesn't use migration files.
+</Callout>
+
+### Migration Client Options
+
+```ts
+interface MigrationClientOptions {
+  /** Storage driver for migration files (required for file-based operations) */
+  storageDriver?: MigrationStorageDriver;
+  /** Migration tracking table name (default: _viborm_migrations) */
+  tableName?: string;
+}
+```
+
+## How It Works
+
+Both push and migrate follow the same core process:
+
+```
+┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
+│  VibORM Schema  │ ──▶ │   Schema Diff    │ ──▶ │  DDL Generation │
+│   (your code)   │     │  (detect changes)│     │ (database SQL)  │
+└─────────────────┘     └──────────────────┘     └─────────────────┘
+```
+
+1. **Serialize** your VibORM models into a schema snapshot
+2. **Compare** against the current database state (push) or previous snapshot (migrate)
+3. **Generate** database-specific DDL using the appropriate migration driver
+4. **Execute** the DDL (push) or write to a migration file (migrate)
+
+## Next Steps
+
+<Cards>
+  <Card
+    title="Push"
+    description="Direct schema synchronization for development"
+    href="/docs/migration/push"
+  />
+  <Card
+    title="Migrate"
+    description="File-based migrations for production"
+    href="/docs/migration/migrate"
+  />
+  <Card
+    title="Storage Drivers"
+    description="Where migration files are stored"
+    href="/docs/migration/storage"
+  />
+  <Card
+    title="Migration Drivers"
+    description="Database-specific DDL generation"
+    href="/docs/migration/drivers"
+  />
+</Cards>

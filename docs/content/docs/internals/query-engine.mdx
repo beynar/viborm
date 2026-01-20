@@ -1,14 +1,10 @@
 ---
 title: L6 - Query Engine
-description: Database-agnostic query building
+description: Transform VibORM queries into SQL without knowing which database you're using
 icon: Database
 ---
 
-# L6: Query Engine Layer
-
 **Location:** `src/query-engine/`
-
-The query engine transforms VibORM queries into SQL. Critically, it does this **without knowing which database you're using** - all dialect-specific SQL is delegated to adapters.
 
 ## Why This Layer Exists
 

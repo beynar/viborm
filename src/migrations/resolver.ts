@@ -9,8 +9,13 @@ import type {
   AmbiguousChange,
   ChangeResolution,
   DiffOperation,
+  DiffResult,
+  ResolveCallback,
+  ResolveChange,
   Resolver,
+  SchemaSnapshot,
 } from "./types";
+import { sortOperations } from "./utils";
 
 // =============================================================================
 // RESOLUTION APPLICATION
@@ -113,6 +118,49 @@ export function applyResolutions(
   }
 
   return operations;
+}
+
+/**
+ * Resolves ambiguous changes and returns the final operations list.
+ * Handles both rename and addAndDrop resolutions, including adding
+ * createTable operations for table renames resolved as addAndDrop.
+ *
+ * @param diffResult - The result from the differ containing operations and ambiguous changes
+ * @param desiredSnapshot - The desired schema snapshot (used for table definitions)
+ * @param resolver - The resolver function to use for ambiguous changes
+ * @returns Sorted list of final operations
+ */
+export async function resolveAmbiguousChanges(
+  diffResult: DiffResult,
+  desiredSnapshot: SchemaSnapshot,
+  resolver: Resolver
+): Promise<DiffOperation[]> {
+  let finalOperations = [...diffResult.operations];
+
+  if (diffResult.ambiguousChanges.length === 0) {
+    return finalOperations;
+  }
+
+  const resolutions = await resolver(diffResult.ambiguousChanges);
+  const resolvedOps = applyResolutions(diffResult.ambiguousChanges, resolutions);
+  finalOperations.push(...resolvedOps);
+
+  // For table renames resolved as addAndDrop, add the createTable
+  for (const change of diffResult.ambiguousChanges) {
+    if (change.type === "ambiguousTable") {
+      const resolution = resolutions.get(change);
+      if (resolution?.type === "addAndDrop") {
+        const newTable = desiredSnapshot.tables.find(
+          (t) => t.name === change.addedTable
+        );
+        if (newTable) {
+          finalOperations.push({ type: "createTable", table: newTable });
+        }
+      }
+    }
+  }
+
+  return sortOperations(finalOperations);
 }
 
 // =============================================================================
@@ -251,4 +299,73 @@ export function formatAmbiguousChanges(changes: AmbiguousChange[]): string {
   }
 
   return changes.map(formatAmbiguousChange).join("\n\n");
+}
+
+// =============================================================================
+// UNIFIED RESOLVE CALLBACKS
+// =============================================================================
+
+/**
+ * Rejects all changes requiring resolution.
+ * Useful for CI/CD pipelines where human intervention is not possible.
+ */
+export const rejectAllResolver: ResolveCallback = async (change) =>
+  change.reject();
+
+/**
+ * Accepts destructive changes, treats ambiguous changes as renames,
+ * and maps enum value removals to NULL.
+ * Useful for development when you know all changes are intentional renames.
+ */
+export const lenientResolver: ResolveCallback = async (change) => {
+  if (change.type === "destructive") {
+    return change.proceed();
+  }
+  if (change.type === "ambiguous") {
+    return change.rename();
+  }
+
+  // enumValueRemoval: set all removed values to null
+  return change.useNull();
+};
+
+/**
+ * Accepts destructive changes, treats ambiguous changes as add+drop,
+ * and maps enum value removals to NULL.
+ * Useful when you don't care about preserving data in ambiguous scenarios.
+ */
+export const addDropResolver: ResolveCallback = async (change) => {
+  if (change.type === "destructive") {
+    return change.proceed();
+  }
+  if (change.type === "ambiguous") {
+    return change.addAndDrop();
+  }
+  // enumValueRemoval: set all removed values to null
+  return change.useNull();
+};
+
+/**
+ * Creates a unified resolver from a decision function.
+ *
+ * @example
+ * ```ts
+ * const resolver = createUnifiedResolver(async (change) => {
+ *   if (change.type === "destructive") {
+ *     return confirm(`Accept: ${change.description}?`) ? change.proceed() : change.reject();
+ *   }
+ *   if (change.type === "ambiguous") {
+ *     return change.rename();
+ *   }
+ *   if (change.type === "enumValueRemoval") {
+ *     return change.mapValues({ 'OLD': 'NEW' });
+ *   }
+ *   return change.reject();
+ * });
+ * ```
+ */
+export function createUnifiedResolver(
+  decide: (change: ResolveChange) => Promise<"proceed" | "reject" | "rename" | "addAndDrop" | "enumMapped">
+): ResolveCallback {
+  return decide;
 }

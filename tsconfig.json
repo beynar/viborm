@@ -95,7 +95,8 @@
   "include": [
     "src/**/*.ts",
     "tests/**/*.ts",
-    "demo.ts"
+    "demo.ts",
+    "scripts/*.ts"
   ],
   "exclude": [
     "dist",

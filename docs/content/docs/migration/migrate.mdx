@@ -1,0 +1,431 @@
+---
+title: Migrate
+description: File-based migrations with version control for production — each migration stored as a SQL file committable to git
+icon: GitBranch
+---
+
+## When to Use Migrate
+
+- **Production deployments** - Versioned, repeatable schema changes
+- **Team collaboration** - Migration files in version control
+- **CI/CD pipelines** - Automated migration deployment
+- **Rollback support** - Down migrations for reverting changes
+
+## Workflow Overview
+
+```
+1. Make changes to your VibORM models
+2. Generate a migration file
+3. Review the generated SQL
+4. Apply the migration to database
+```
+
+## Generate Migrations
+
+Generate a new migration by comparing your current models against the previous snapshot:
+
+<Tabs items={["CLI", "Migration Client"]}>
+  <Tab value="CLI">
+```bash
+# Generate a migration with auto-generated name
+npx viborm migrate generate
+
+# Generate with a custom name
+npx viborm migrate generate --name add-users-table
+
+# Preview without creating files
+npx viborm migrate generate --dry-run
+```
+  </Tab>
+  <Tab value="Migration Client">
+```ts
+import { createMigrationClient } from "viborm/migrations";
+import { createFsStorageDriver } from "viborm/migrations/storage/fs";
+import { client } from "./client";
+
+const migrations = createMigrationClient(client, {
+  storageDriver: createFsStorageDriver("./migrations"),
+});
+
+// Generate with custom name
+const result = await migrations.generate({
+  name: "add-users-table",
+});
+
+if (result.hasChanges) {
+  console.log(`Created: ${result.migrationPath}`);
+  console.log(`Operations: ${result.operations.length}`);
+} else {
+  console.log("No changes detected");
+}
+
+// Preview without creating files
+const preview = await migrations.preview();
+```
+  </Tab>
+</Tabs>
+
+### Generate Options
+
+| Option | CLI | API | Description |
+|--------|-----|-----|-------------|
+| Name | `--name <name>` | `name: string` | Custom migration name |
+| Table name | `--table-name <name>` | `tableName: string` | Migrations tracking table name |
+| Dry run | `--dry-run` | `dryRun: boolean` | Preview without creating files |
+| Resolver | - | `resolver: Resolver` | Handle ambiguous changes |
+
+## Check Migration Status
+
+View which migrations have been applied:
+
+<Tabs items={["CLI", "Migration Client"]}>
+  <Tab value="CLI">
+```bash
+# Show migration status
+npx viborm migrate status
+```
+
+Output:
+```
+Migration Status:
+  [x] 0000_initial.sql (applied 2024-01-15)
+  [x] 0001_add-users.sql (applied 2024-01-16)
+  [ ] 0002_add-posts.sql (pending)
+```
+  </Tab>
+  <Tab value="Migration Client">
+```ts
+const statuses = await migrations.status();
+
+for (const status of statuses) {
+  const state = status.appliedAt ? "applied" : "pending";
+  const date = status.appliedAt?.toLocaleDateString() ?? "";
+  console.log(`${status.entry.name}: ${state} ${date}`);
+}
+
+// Get only pending migrations
+const pending = await migrations.pending();
+console.log(`${pending.length} migrations pending`);
+```
+  </Tab>
+</Tabs>
+
+### Status Options
+
+| Option | CLI | API | Description |
+|--------|-----|-----|-------------|
+| Table name | `--table-name <name>` | `tableName: string` | Migrations tracking table name |
+
+## Apply Migrations
+
+Apply pending migrations to the database:
+
+<Tabs items={["CLI", "Migration Client"]}>
+  <Tab value="CLI">
+```bash
+# Apply all pending migrations
+npx viborm migrate apply
+
+# Apply up to a specific migration index
+npx viborm migrate apply --to 5
+
+# Preview without applying
+npx viborm migrate apply --dry-run
+```
+  </Tab>
+  <Tab value="Migration Client">
+```ts
+// Apply all pending
+const result = await migrations.apply();
+console.log(`Applied ${result.applied.length} migrations`);
+
+// Apply up to a specific migration index
+await migrations.apply({ to: 5 });
+
+// Preview without applying
+await migrations.apply({ dryRun: true });
+```
+  </Tab>
+</Tabs>
+
+### Apply Options
+
+| Option | CLI | API | Description |
+|--------|-----|-----|-------------|
+| To | `--to <index>` | `to: number` | Apply up to this migration index |
+| Table name | `--table-name <name>` | `tableName: string` | Migrations tracking table name |
+| Dry run | `--dry-run` | `dryRun: boolean` | Preview without applying |
+| Force | `--force` | - | Skip confirmation prompts |
+
+## Roll Back Migrations
+
+Roll back applied migrations:
+
+<Tabs items={["CLI", "Migration Client"]}>
+  <Tab value="CLI">
+```bash
+# Roll back the last migration
+npx viborm migrate down --steps 1
+
+# Roll back to a specific migration (exclusive)
+npx viborm migrate down --to add-users
+
+# Preview without executing
+npx viborm migrate down --steps 1 --dry-run
+```
+  </Tab>
+  <Tab value="Migration Client">
+```ts
+// Roll back the last migration
+const result = await migrations.down({ steps: 1 });
+console.log(`Rolled back: ${result.rolledBack.length} migrations`);
+
+// Roll back to a specific point
+await migrations.down({ to: "add-users" });
+
+// Preview
+await migrations.down({ steps: 1, dryRun: true });
+```
+  </Tab>
+</Tabs>
+
+### Down Options
+
+| Option | CLI | API | Description |
+|--------|-----|-----|-------------|
+| Steps | `--steps <n>` | `steps: number` | Number of migrations to roll back |
+| To | `--to <name>` | `to: string` | Roll back to this migration (exclusive) |
+| Dry run | `--dry-run` | `dryRun: boolean` | Preview without executing |
+
+## Reset Database
+
+Reset drops all tables and re-applies all migrations from scratch:
+
+<Tabs items={["CLI", "Migration Client"]}>
+  <Tab value="CLI">
+```bash
+# Drop migration tracking table only
+npx viborm migrate drop
+
+# Drop with custom tracking table
+npx viborm migrate drop --table-name _custom_migrations
+
+# Drop the last N migrations from tracking
+npx viborm migrate drop --count 3
+```
+  </Tab>
+  <Tab value="Migration Client">
+```ts
+// Rollback removes from tracking only (doesn't drop tables)
+await migrations.rollback({ count: 1 });
+
+// Reset:
+// 1. Drops ALL tables (except system tables)
+// 2. Drops all enums
+// 3. Clears migration tracking table
+// 4. Re-applies all migrations from journal
+await migrations.reset();
+```
+  </Tab>
+</Tabs>
+
+### Drop Options
+
+| Option | CLI | API | Description |
+|--------|-----|-----|-------------|
+| Last | `--last` | - | Drop only the last migration |
+| Count | `--count <n>` | `count: number` | Drop the last N migrations |
+| Table name | `--table-name <name>` | `tableName: string` | Migrations tracking table name |
+| Force | `--force` | - | Skip confirmation prompts |
+
+<Callout type="warn" title="Destructive Operation">
+`reset()` drops ALL tables and data, then re-applies all migrations from scratch. Use with extreme caution and never in production.
+</Callout>
+
+## Squash Migrations
+
+Combine multiple migrations into one:
+
+```ts
+// List migrations to review
+const entries = await migrations.list();
+console.log(entries.map(e => `${e.idx}: ${e.name}`));
+
+// Squash development migrations
+const result = await migrations.squash({
+  from: 0,
+  to: 5,
+  name: "initial-schema",
+  cleanup: true, // Delete original files
+});
+
+console.log(`Squashed into: ${result.newEntry.name}`);
+```
+
+### Squash Options
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `from` | `number` | Starting migration index |
+| `to` | `number` | Ending migration index (inclusive) |
+| `name` | `string` | Name for the squashed migration |
+| `cleanup` | `boolean` | Delete original migration files |
+| `dryRun` | `boolean` | Preview without squashing |
+
+## Migration File Structure
+
+```
+migrations/
+├── 0000_initial.sql
+├── 0001_add-users.sql
+├── 0002_add-posts.sql
+└── meta/
+    ├── _journal.json
+    ├── _snapshot.json
+    └── _down/
+        ├── 0000_initial.sql
+        ├── 0001_add-users.sql
+        └── 0002_add-posts.sql
+```
+
+### Up Migration
+
+The main SQL file contains the forward migration:
+
+```sql title="migrations/0001_add-users.sql"
+CREATE TABLE "users" (
+  "id" serial PRIMARY KEY,
+  "email" text NOT NULL,
+  "created_at" timestamp DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX "users_email_idx" ON "users" ("email");
+```
+
+### Down Migration
+
+The down file contains the rollback SQL:
+
+```sql title="migrations/meta/_down/0001_add-users.sql"
+DROP INDEX "users_email_idx";
+DROP TABLE "users";
+```
+
+### Journal
+
+Tracks migration metadata:
+
+```json title="migrations/meta/_journal.json"
+{
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "name": "initial",
+      "version": "0000",
+      "checksum": "abc123..."
+    }
+  ]
+}
+```
+
+### Snapshot
+
+Stores the schema state after migrations:
+
+```json title="migrations/meta/_snapshot.json"
+{
+  "tables": [...],
+  "enums": [...]
+}
+```
+
+## Reading Migration Data
+
+Access migration data programmatically:
+
+```ts
+// List all migrations
+const entries = await migrations.list();
+
+// Get full journal
+const journal = await migrations.journal();
+
+// Get schema snapshot
+const snapshot = await migrations.snapshot();
+
+// Read migration SQL content
+const sql = await migrations.read(entries[0]);
+```
+
+## Error Handling
+
+```ts
+import { MigrationError, isMigrationError } from "viborm/migrations";
+
+try {
+  await migrations.apply();
+} catch (error) {
+  if (isMigrationError(error)) {
+    console.error(`Migration error: ${error.code}`);
+    console.error(error.message);
+  }
+}
+```
+
+| Error Code | Description |
+|------------|-------------|
+| `MIGRATION_STORAGE_REQUIRED` | Operation requires a storage driver but none was provided |
+| `MIGRATION_CHECKSUM_MISMATCH` | Migration file was modified after being applied |
+| `MIGRATION_NOT_FOUND` | Referenced migration doesn't exist |
+| `MIGRATION_ALREADY_APPLIED` | Migration was already applied |
+
+## CI/CD Integration
+
+Example GitHub Actions workflow:
+
+```yaml title=".github/workflows/migrate.yml"
+- name: Apply migrations
+  run: npx viborm migrate apply
+  env:
+    DATABASE_URL: ${{ secrets.DATABASE_URL }}
+```
+
+For programmatic deployments:
+
+```ts title="scripts/deploy.ts"
+import { createMigrationClient } from "viborm/migrations";
+import { createFsStorageDriver } from "viborm/migrations/storage/fs";
+import { client } from "./db/client";
+
+const migrations = createMigrationClient(client, {
+  storageDriver: createFsStorageDriver("./migrations"),
+});
+
+const pending = await migrations.pending();
+if (pending.length > 0) {
+  console.log(`Applying ${pending.length} migrations...`);
+  await migrations.apply();
+  console.log("Done!");
+}
+```
+
+## Next Steps
+
+<Cards>
+  <Card
+    title="Push"
+    description="Direct schema sync for development"
+    href="/docs/migration/push"
+  />
+  <Card
+    title="Storage Drivers"
+    description="Custom migration storage backends"
+    href="/docs/migration/storage"
+  />
+  <Card
+    title="Migration Drivers"
+    description="Database-specific DDL generation"
+    href="/docs/migration/drivers"
+  />
+</Cards>
