@@ -25,7 +25,6 @@ import {
   type QueryContext,
   type RelationInfo,
 } from "../types";
-import { withTransactionIfSupported } from "../utils/transaction-helper";
 
 // ============================================================
 // TYPES
@@ -211,7 +210,7 @@ export async function executeNestedCreate(
   }
 
   // Execute in transaction if supported
-  return withTransactionIfSupported(driver, async () => {
+  return driver.withTransaction(async (txDriver) => {
     const txCtx: TransactionContext = {
       generatedIds: new Map(),
       createdRecords: new Map(),
@@ -233,7 +232,7 @@ export async function executeNestedCreate(
     // Step 1: Process relations where current holds FK (create related first)
     for (const [relationName, mutation] of currentHoldsFK) {
       await processRelationMutation(
-        driver,
+        txDriver,
         ctx,
         relationName,
         mutation,
@@ -244,7 +243,7 @@ export async function executeNestedCreate(
     }
 
     // Step 2: Create current record
-    const parentRecord = await executeSimpleInsert(driver, ctx, scalar);
+    const parentRecord = await executeSimpleInsert(txDriver, ctx, scalar);
     const parentPk = getPrimaryKeyField(ctx.model);
     const parentId = parentRecord[parentPk];
     txCtx.generatedIds.set("__parent__", parentId);
@@ -252,7 +251,7 @@ export async function executeNestedCreate(
     // Step 3: Process relations where related holds FK (create related after)
     for (const [relationName, mutation] of relatedHoldsFK) {
       await processRelationMutation(
-        driver,
+        txDriver,
         ctx,
         relationName,
         mutation,
@@ -317,7 +316,7 @@ export async function executeNestedUpdate(
   }
 
   // Execute in transaction if supported
-  return withTransactionIfSupported(driver, async () => {
+  return driver.withTransaction(async (txDriver) => {
     const txCtx: TransactionContext = {
       generatedIds: new Map(),
       createdRecords: new Map(),
@@ -331,7 +330,7 @@ export async function executeNestedUpdate(
     // For updates, all relation operations happen "after" since parent exists
     for (const [relationName, mutation] of Object.entries(relations)) {
       await processRelationMutation(
-        driver,
+        txDriver,
         ctx,
         relationName,
         mutation,

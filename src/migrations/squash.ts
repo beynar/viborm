@@ -164,13 +164,13 @@ export async function squash(
     );
 
     if (squashedAppliedEntries.length > 0) {
-      await ctx.transaction(async () => {
+      await ctx.transaction(async (txCtx) => {
         // Delete old entries from tracking table
         for (const entry of squashedAppliedEntries) {
-          await ctx.deleteMigration(entry.name);
+          await txCtx.deleteMigration(entry.name);
         }
         // Insert new squashed entry
-        await ctx.markMigrationApplied(newEntry);
+        await txCtx.markMigrationApplied(newEntry);
       });
     }
 

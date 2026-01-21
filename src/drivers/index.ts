@@ -36,7 +36,7 @@ export type {
   QueryExecutionContext,
 } from "./driver";
 // Base driver for custom implementations
-export { Driver } from "./driver";
+export { Driver, TransactionBoundDriver } from "./driver";
 // LibSQL driver (Turso)
 export type { LibSQLDriverOptions, LibSQLOptions } from "./libsql";
 export { LibSQLDriver } from "./libsql";

@@ -155,6 +155,7 @@ export class BunSQLiteDriver extends Driver<
 
     // Start a new transaction
     client.exec("BEGIN");
+    this.inTransaction = true;
     try {
       const result = await fn(client);
       client.exec("COMMIT");
@@ -162,6 +163,8 @@ export class BunSQLiteDriver extends Driver<
     } catch (error) {
       client.exec("ROLLBACK");
       throw error;
+    } finally {
+      this.inTransaction = false;
     }
   }
 }

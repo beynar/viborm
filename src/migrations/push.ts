@@ -265,9 +265,9 @@ export async function push(
 
     // Execute remaining statements in a transaction for atomicity
     if (transactionalStatements.length > 0) {
-      await driver._transaction(async () => {
+      await driver.withTransaction(async (txDriver) => {
         for (const statement of transactionalStatements) {
-          await driver._executeRaw(statement + ";");
+          await txDriver._executeRaw(statement + ";");
         }
       });
     }

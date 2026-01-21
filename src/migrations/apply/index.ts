@@ -141,9 +141,9 @@ export async function apply(
 
     try {
       // Execute migration in a transaction
-      await ctx.transaction(async () => {
-        await ctx.executeMigrationStatements(statements);
-        await ctx.markMigrationApplied(entry);
+      await ctx.transaction(async (txCtx) => {
+        await txCtx.executeMigrationStatements(statements);
+        await txCtx.markMigrationApplied(entry);
       });
 
       applied.push(entry);

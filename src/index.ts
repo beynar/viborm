@@ -21,11 +21,14 @@ export { createClient } from "@client/client.js";
 export {
   isPendingOperation,
   PendingOperation,
-  type QueryMetadata,
-  type ResultParser,
   type UnwrapPendingOperation,
   type UnwrapPendingOperations,
 } from "@client/pending-operation.js";
+export type {
+  QueryMetadata,
+  RawQueryResult,
+  ResultParser,
+} from "@query-engine/types.js";
 export type {
   CacheableOperations,
   CachedClient,

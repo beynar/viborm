@@ -12,6 +12,8 @@ import {
   ATTR_DB_DRIVER,
   ATTR_DB_OPERATION_NAME,
   ATTR_DB_SYSTEM,
+  SPAN_CONNECT,
+  SPAN_DISCONNECT,
   SPAN_EXECUTE,
   SPAN_TRANSACTION,
 } from "@instrumentation/spans";
@@ -24,6 +26,7 @@ import type {
   QueryResult,
   TransactionOptions,
 } from "./types";
+
 
 // ============================================================
 // DRIVER INTERFACE
@@ -98,8 +101,7 @@ export abstract class Driver<TClient, TTransaction> {
   readonly driverName: string;
   abstract readonly adapter: DatabaseAdapter;
   readonly result?: DriverResultParser;
-  protected client: TClient | null = null;
-  protected transactions: TTransaction[] = [];
+  protected client: TClient | TTransaction | null = null;
   protected inTransaction = false;
   private initPromise: Promise<TClient> | null = null;
   private isDisconnecting = false;
@@ -111,7 +113,7 @@ export abstract class Driver<TClient, TTransaction> {
   // ============================================================
 
   protected abstract initClient(): Promise<TClient>;
-  protected abstract closeClient(client: TClient): Promise<void>;
+  protected abstract closeClient(client: TClient | TTransaction): Promise<void>;
   /**
    * Execute a query. Receives client, SQL string, and params.
    */
@@ -143,6 +145,7 @@ export abstract class Driver<TClient, TTransaction> {
     this.dialect = dialect;
     this.driverName = driverName;
   }
+
 
   /**
    * Set instrumentation context
@@ -241,10 +244,6 @@ export abstract class Driver<TClient, TTransaction> {
     if (this.isDisconnecting) {
       throw new Error("Driver is disconnecting");
     }
-    const transaction = this.transactions.at(-1);
-    if (transaction) {
-      return transaction;
-    }
 
     if (this.client) return this.client;
 
@@ -325,6 +324,9 @@ export abstract class Driver<TClient, TTransaction> {
     );
   }
 
+  /**
+   * Execute raw SQL with instrumentation.
+   */
   async _executeRaw<T = Record<string, unknown>>(
     sql: string,
     params?: unknown[]
@@ -335,25 +337,23 @@ export abstract class Driver<TClient, TTransaction> {
     );
   }
 
+  /**
+   * Execute a function within a transaction.
+   *
+   * The callback receives the raw transaction object. Use `TransactionBoundDriver`
+   * to create a driver that executes all operations within this transaction.
+   *
+   * @param fn - Callback that receives the transaction object
+   * @param options - Transaction options (isolation level, etc.)
+   */
   async _transaction<T>(
-    fn: () => Promise<T>,
+    fn: (tx: TTransaction) => Promise<T>,
     options?: TransactionOptions
   ): Promise<T> {
     const client = await this.getClient();
 
     const runTransaction = async () => {
-      const result = await this.transaction(
-        client,
-        (tx) => {
-          this.inTransaction = true;
-          this.transactions.push(tx);
-          return fn();
-        },
-        options
-      );
-      this.transactions.pop();
-      this.inTransaction = !!this.transactions.length;
-      return result;
+      return this.transaction(client, fn, options);
     };
 
     if (!this.instrumentation?.tracer) {
@@ -367,6 +367,41 @@ export abstract class Driver<TClient, TTransaction> {
       },
       runTransaction
     );
+  }
+
+  /**
+   * Execute a function with a transaction-bound driver.
+   *
+   * This is a convenience method that wraps `_transaction` and provides
+   * a `TransactionBoundDriver` to the callback, so all operations
+   * automatically execute within the transaction.
+   *
+   * If the driver doesn't support transactions, the callback is executed
+   * directly with the current driver (no transaction wrapping).
+   *
+   * @param fn - Callback that receives a transaction-bound driver
+   * @param options - Transaction options (isolation level, etc.)
+   *
+   * @example
+   * ```typescript
+   * await driver.withTransaction(async (txDriver) => {
+   *   await txDriver._execute(query1);
+   *   await txDriver._execute(query2);
+   *   // Both queries run in the same transaction
+   * });
+   * ```
+   */
+  async withTransaction<T>(
+    fn: (txDriver: Driver<TClient, TTransaction>) => Promise<T>,
+    options?: TransactionOptions
+  ): Promise<T> {
+    if (!this.supportsTransactions) {
+      return fn(this);
+    }
+    return this._transaction((tx) => {
+      const txDriver = new TransactionBoundDriver(this, tx);
+      return fn(txDriver);
+    }, options);
   }
 
   // ============================================================
@@ -395,7 +430,9 @@ export abstract class Driver<TClient, TTransaction> {
    * 1. Transaction-wrapped sequential execution (if transactions supported)
    * 2. Sequential execution with warning (no atomicity)
    */
-  async _executeBatch<T>(queries: BatchQuery[]): Promise<Array<QueryResult<T>>> {
+  async _executeBatch<T>(
+    queries: BatchQuery[]
+  ): Promise<Array<QueryResult<T>>> {
     if (queries.length === 0) {
       return [];
     }
@@ -407,11 +444,10 @@ export abstract class Driver<TClient, TTransaction> {
       return this.executeBatch<T>(client, queries);
     }
 
-    // If driver supports transactions, wrap batch in a transaction for atomicity
-    if (this.supportsTransactions) {
-      return this._transaction(async () => {
-        const txClient = await this.getClient();
-        return this.executeBatch<T>(txClient, queries);
+    // If driver supports transactions and we're not already in one, wrap in transaction
+    if (this.supportsTransactions && !this.inTransaction) {
+      return this._transaction(async (tx) => {
+        return this.executeBatch<T>(tx, queries);
       });
     }
 
@@ -424,25 +460,67 @@ export abstract class Driver<TClient, TTransaction> {
     return this.executeBatch<T>(client, queries);
   }
 
-  async disconnect(): Promise<void> {
-    this.isDisconnecting = true;
+  /**
+   * Connect to the database with instrumentation.
+   */
+  async _connect(): Promise<void> {
+    const doConnect = async () => {
+      await this.getClient();
+    };
 
-    if (this.initPromise) {
-      try {
-        await this.initPromise;
-      } catch {
-        // Ignore init errors during disconnect
+    if (!this.instrumentation?.tracer) {
+      return doConnect();
+    }
+
+    return this.instrumentation.tracer.startActiveSpan(
+      {
+        name: SPAN_CONNECT,
+        attributes: this.getBaseAttributes(),
+      },
+      doConnect
+    );
+  }
+
+  /**
+   * Disconnect from the database with instrumentation.
+   */
+  async _disconnect(): Promise<void> {
+    const doDisconnect = async () => {
+      this.isDisconnecting = true;
+
+      if (this.initPromise) {
+        try {
+          await this.initPromise;
+        } catch {
+          // Ignore init errors during disconnect
+        }
       }
+
+      if (this.client) {
+        await this.closeClient(this.client);
+      }
+
+      this.client = null;
+      this.initPromise = null;
+      this.isDisconnecting = false;
+      this.inTransaction = false;
+    };
+
+    if (!this.instrumentation?.tracer) {
+      return doDisconnect();
     }
 
-    if (this.client) {
-      await this.closeClient(this.client);
-    }
+    return this.instrumentation.tracer.startActiveSpan(
+      {
+        name: SPAN_DISCONNECT,
+        attributes: this.getBaseAttributes(),
+      },
+      doDisconnect
+    );
+  }
 
-    this.client = null;
-    this.initPromise = null;
-    this.isDisconnecting = false;
-    this.transactions = [];
+  async disconnect(): Promise<void> {
+    return this._disconnect();
   }
 }
 
@@ -450,3 +528,84 @@ export abstract class Driver<TClient, TTransaction> {
  * Type alias for any driver (used when concrete types are not needed)
  */
 export type AnyDriver = Driver<unknown, unknown>;
+
+// ============================================================
+// TRANSACTION-BOUND DRIVER
+// ============================================================
+
+/**
+ * A driver wrapper that binds all operations to a specific transaction.
+ *
+ * This provides proper transaction isolation without prototype cloning.
+ * Each TransactionBoundDriver has its own instrumentation context for
+ * correct span parenting.
+ *
+ * @example
+ * ```typescript
+ * await driver._transaction(async (tx) => {
+ *   const txDriver = new TransactionBoundDriver(driver, tx);
+ *   await txDriver._execute(sql); // Executes within the transaction
+ * });
+ * ```
+ */
+export class TransactionBoundDriver<
+  TClient,
+  TTransaction,
+> extends Driver<TClient, TTransaction> {
+  private readonly baseDriver: Driver<TClient, TTransaction>;
+  private readonly tx: TTransaction;
+  readonly adapter: DatabaseAdapter;
+  override readonly inTransaction = true;
+
+  constructor(baseDriver: Driver<TClient, TTransaction>, tx: TTransaction) {
+    super(baseDriver.dialect, baseDriver.driverName);
+    this.baseDriver = baseDriver;
+    this.tx = tx;
+    this.adapter = baseDriver.adapter;
+    // Copy instrumentation - each tx driver gets its own context for proper span parenting
+    this.instrumentation = baseDriver["instrumentation"];
+  }
+
+  // Always return the bound transaction
+  protected override async getClient(): Promise<TClient | TTransaction> {
+    return this.tx;
+  }
+
+  // Delegate abstract methods to base driver
+  protected override initClient(): Promise<TClient> {
+    throw new Error("TransactionBoundDriver does not initialize clients");
+  }
+
+  protected override closeClient(): Promise<void> {
+    return Promise.resolve(); // No-op
+  }
+
+  protected override execute<T>(
+    client: TClient | TTransaction,
+    sql: string,
+    params: unknown[]
+  ): Promise<QueryResult<T>> {
+    return this.baseDriver["execute"](client, sql, params);
+  }
+
+  protected override executeRaw<T>(
+    client: TClient | TTransaction,
+    sql: string,
+    params?: unknown[]
+  ): Promise<QueryResult<T>> {
+    return this.baseDriver["executeRaw"](client, sql, params);
+  }
+
+  protected override transaction<T>(
+    client: TClient | TTransaction,
+    fn: (tx: TTransaction) => Promise<T>,
+    options?: TransactionOptions
+  ): Promise<T> {
+    // Delegate to base driver for nested transaction / savepoint handling
+    return this.baseDriver["transaction"](client, fn, options);
+  }
+
+  override async disconnect(): Promise<void> {
+    // No-op - base driver owns the connection
+  }
+}

@@ -17,6 +17,51 @@ export {
 } from "@errors";
 // Re-export Sql for convenience
 export { Sql } from "@sql";
+import type { Sql } from "@sql";
+
+// ============================================================
+// BATCH EXECUTION TYPES
+// ============================================================
+
+/**
+ * Raw result from database execution
+ * - For regular queries: array of rows
+ * - For batch operations (createMany, etc.): object with rowCount
+ */
+export type RawQueryResult = unknown[] | { rowCount: number };
+
+/**
+ * Result parser function type
+ * Transforms raw database result into typed application objects
+ */
+export type ResultParser<T> = (raw: RawQueryResult) => T;
+
+/**
+ * Query metadata for batch execution
+ * Contains precomputed SQL, validated args, and result parser
+ */
+export interface QueryMetadata<T> {
+  /** The compiled SQL query (null for nested writes that can't be precomputed) */
+  sql: Sql | null;
+  /** Validated and cleaned arguments (validation already performed) */
+  validatedArgs: Record<string, unknown>;
+  /** Function to parse raw results into typed objects */
+  parseResult: ResultParser<T>;
+  /** Whether this is a batch operation (returns rowCount instead of rows) */
+  isBatchOperation?: boolean;
+}
+
+/**
+ * Options for engine.prepare()
+ */
+export interface PrepareOptions {
+  /** Throw NotFoundError if result is null (for OrThrow variants) */
+  throwIfNotFound?: boolean;
+  /** Original operation name for error messages */
+  originalOperation?: string;
+  /** Skip SPAN_OPERATION wrapper (when caller provides its own, e.g., cache driver) */
+  skipSpan?: boolean;
+}
 
 /**
  * All supported operations

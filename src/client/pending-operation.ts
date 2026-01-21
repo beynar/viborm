@@ -10,25 +10,8 @@
  * allowing them to be collected and executed together in a batch or transaction.
  */
 
-import type { Sql } from "@sql";
-
-/**
- * Result parser function type
- * Transforms raw database rows into typed application objects
- */
-export type ResultParser<T> = (rows: unknown[]) => T;
-
-/**
- * Query metadata for batch execution
- */
-export interface QueryMetadata<T> {
-  /** The compiled SQL query */
-  sql: Sql;
-  /** Function to parse raw results into typed objects */
-  parseResult: ResultParser<T>;
-  /** Whether this is a batch operation (returns rowCount instead of rows) */
-  isBatchOperation?: boolean;
-}
+import type { AnyDriver } from "@drivers";
+import type { QueryMetadata, ResultParser } from "@query-engine/types";
 
 /**
  * Symbol to identify PendingOperation instances
@@ -71,17 +54,27 @@ export class PendingOperation<T> implements PromiseLike<T> {
   }
 
   /**
-   * Get the query metadata for batch execution
+   * Check if this operation can be batched (has precomputed SQL)
+   * Operations with nested writes cannot be batched as they require
+   * multiple queries with runtime-dependent values.
    */
-  getMetadata(): QueryMetadata<T> {
-    return this.metadata;
+  canBatch(): boolean {
+    return this.metadata.sql !== null;
   }
 
   /**
-   * Get the SQL query for batch execution
+   * Get SQL string for batch execution with driver-specific placeholders
+   * @param placeholderType - "?" for SQLite/MySQL, "$n" for PostgreSQL
    */
-  getSql(): Sql {
-    return this.metadata.sql;
+  getSqlString(placeholderType: "?" | "$n"): string | null {
+    return this.metadata.sql?.toStatement(placeholderType) ?? null;
+  }
+
+  /**
+   * Get query parameters for batch execution
+   */
+  getParams(): unknown[] {
+    return this.metadata.sql?.values ?? [];
   }
 
   /**
@@ -99,10 +92,68 @@ export class PendingOperation<T> implements PromiseLike<T> {
   }
 
   /**
+   * Get pre-validated args from prepareMetadata
+   */
+  getValidatedArgs(): Record<string, unknown> {
+    return this.metadata.validatedArgs;
+  }
+
+  /**
    * Execute the operation immediately
    */
   execute(): Promise<T> {
     return this.executor();
+  }
+
+  /**
+   * Execute the operation with a specific driver.
+   * Used for transaction-bound execution where we need to use the txDriver.
+   *
+   * For batchable operations (with precomputed SQL), executes directly on the driver.
+   * For non-batchable operations (nested writes), falls back to the default executor
+   * since the executor already handles transaction context via the driver's clone.
+   */
+  async executeWith(driver: AnyDriver): Promise<T> {
+    // For batchable operations, we can execute directly on the provided driver
+    if (this.metadata.sql) {
+      const result = await driver._execute<Record<string, unknown>>(
+        this.metadata.sql
+      );
+      // Use the result parser to transform the result
+      const input = this.metadata.isBatchOperation
+        ? { rowCount: result.rowCount }
+        : result.rows;
+      return this.metadata.parseResult(input);
+    }
+
+    // For non-batchable operations (nested writes), fall back to default executor
+    // The executor handles transactions internally via withTransactionIfSupported
+    return this.executor();
+  }
+
+  /**
+   * Wrap the executor with post-processing.
+   * Returns a new PendingOperation (immutable pattern).
+   *
+   * Used by the client to add cache invalidation after mutations.
+   *
+   * @example
+   * ```ts
+   * const wrapped = pendingOp.wrapExecutor(async (execute) => {
+   *   const result = await execute();
+   *   await cache.invalidate(modelName);
+   *   return result;
+   * });
+   * ```
+   */
+  wrapExecutor<U>(
+    wrapper: (execute: () => Promise<T>) => Promise<U>
+  ): PendingOperation<U> {
+    const originalExecutor = this.executor;
+    return new PendingOperation(
+      () => wrapper(originalExecutor),
+      this.metadata as unknown as QueryMetadata<U>
+    );
   }
 
   /**

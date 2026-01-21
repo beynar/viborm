@@ -119,17 +119,20 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
         client.exec(`ROLLBACK TO SAVEPOINT ${savepointName}`);
         throw error;
       }
-    } else {
-      // Start a new transaction
-      client.exec("BEGIN");
-      try {
-        const result = await fn(client);
-        client.exec("COMMIT");
-        return result;
-      } catch (error) {
-        client.exec("ROLLBACK");
-        throw error;
-      }
+    }
+
+    // Start a new transaction
+    client.exec("BEGIN");
+    this.inTransaction = true;
+    try {
+      const result = await fn(client);
+      client.exec("COMMIT");
+      return result;
+    } catch (error) {
+      client.exec("ROLLBACK");
+      throw error;
+    } finally {
+      this.inTransaction = false;
     }
   }
 }

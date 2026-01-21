@@ -192,11 +192,24 @@ type Operation<
   : <Arg extends Payload>(args: Arg) => PendingOperation<OperationResult<O, M, Arg>>;
 
 /**
+ * Cached operation type - returns Promise directly (not batchable)
+ */
+type CachedOperation<
+  O extends Operations,
+  M extends Model<any>,
+  Payload = OperationPayload<O, M>,
+> = undefined extends Payload
+  ? <Arg extends Payload>(
+      args?: Exclude<Arg, undefined>
+    ) => Promise<OperationResult<O, M, Arg>>
+  : <Arg extends Payload>(args: Arg) => Promise<OperationResult<O, M, Arg>>;
+
+/**
  * Cached client type - provides typed access to only cacheable (read) operations
- * Mutations are excluded at the type level
+ * Returns Promises directly (not PendingOperation) - cache operations are not batchable
  */
 export type CachedClient<S extends Schema> = {
   [K in keyof S]: {
-    [O in CacheableOperations]: Operation<O, S[K], VibORMConfig>;
+    [O in CacheableOperations]: CachedOperation<O, S[K]>;
   };
 };

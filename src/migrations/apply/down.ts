@@ -126,18 +126,18 @@ export async function down(
 
   // Execute rollback with lock, wrapped in a single transaction for atomicity
   return ctx.withLock(async () => {
-    return ctx.transaction(async () => {
+    return ctx.transaction(async (txCtx) => {
       const rolledBack: MigrationEntry[] = [];
 
       for (const entry of toRollback) {
         // Try to execute down SQL if available
-        const downSql = await readDownSql(ctx, entry);
+        const downSql = await readDownSql(txCtx, entry);
         if (downSql) {
           const statements = parseDownStatements(downSql);
-          await ctx.executeMigrationStatements(statements);
+          await txCtx.executeMigrationStatements(statements);
         }
         // Remove from tracking
-        await ctx.markMigrationRolledBack(entry.name);
+        await txCtx.markMigrationRolledBack(entry.name);
         rolledBack.push(entry);
       }
 
