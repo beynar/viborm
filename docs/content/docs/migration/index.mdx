@@ -117,7 +117,7 @@ VibORM automatically uses the best available method for atomic execution based o
 | **PlanetScale** | Transaction wrapper |
 
 <Callout type="info">
-All drivers provide **atomicity** (all-or-nothing) for migrations. Drivers using batch execution (D1, Neon-HTTP) don't provide isolation during migration, but this is rarely a concern since migrations typically run in controlled environments.
+All drivers provide **atomicity** (all-or-nothing) for migrations. Neon-HTTP uses `transaction()` with full PostgreSQL transaction semantics, providing transaction isolation by default (ReadCommitted) with configurable levels (ReadUncommitted, ReadCommitted, RepeatableRead, Serializable). Only D1 and D1-HTTP use batch execution without isolation guarantees, but this is rarely a concern since migrations typically run in controlled environments.
 </Callout>
 
 ### What Atomicity Means

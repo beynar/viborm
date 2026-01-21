@@ -260,6 +260,8 @@ export class QueryEngine {
       validatedArgs: validated,
       parseResult: (rows) => parseResult(ctx, baseOperation, rows) as T,
       isBatchOperation: isBatchOperation(baseOperation),
+      model: modelName,
+      operation: baseOperation,
     };
 
     // Create the executor with full instrumentation
@@ -279,6 +281,10 @@ export class QueryEngine {
    * Create an executor function with full instrumentation.
    * The executor handles: SPAN_OPERATION wrapping, all sub-spans,
    * OrThrow semantics, exist conversion, and error logging.
+   *
+   * The returned executor accepts an optional driver override for transaction-bound
+   * execution. When provided, nested writes will use that driver (and its transaction
+   * context) instead of the base driver.
    */
   private createExecutor<T>(
     ctx: QueryContext,
@@ -287,7 +293,7 @@ export class QueryEngine {
     validatedArgs: Record<string, unknown>,
     precomputedSql: Sql | null,
     options?: PrepareOptions
-  ): () => Promise<T> {
+  ): (driverOverride?: AnyDriver) => Promise<T> {
     const tracer = this.instrumentation?.tracer;
     const logger = this.instrumentation?.logger;
     const modelName = model["~"].names.ts ?? "unknown";
@@ -301,7 +307,10 @@ export class QueryEngine {
       [ATTR_DB_OPERATION_NAME]: displayOperation,
     };
 
-    return async (): Promise<T> => {
+    return async (driverOverride?: AnyDriver): Promise<T> => {
+      // Use override driver if provided (for transaction-bound execution)
+      const driver = driverOverride ?? this.driver;
+
       // Core execution logic wrapped in SPAN_OPERATION
       const executeCore = async (): Promise<T> => {
         try {
@@ -318,7 +327,8 @@ export class QueryEngine {
             const result = await this.executeWithNestedWrites<T>(
               ctx,
               operation,
-              validatedArgs
+              validatedArgs,
+              driver
             );
             return this.applyPostProcessing<T>(result, operation, options, modelName);
           }
@@ -332,11 +342,11 @@ export class QueryEngine {
           }
 
           // Set context on driver for logging
-          this.driver.setContext({ model: modelName, operation });
+          driver.setContext({ model: modelName, operation });
 
           try {
             // Execute query
-            const result = await this.driver._execute(precomputedSql);
+            const result = await driver._execute(precomputedSql);
 
             // Parse result
             const parseInput = isBatchOperation(operation)
@@ -352,7 +362,7 @@ export class QueryEngine {
 
             return this.applyPostProcessing<T>(parsed, operation, options, modelName);
           } finally {
-            this.driver.clearContext();
+            driver.clearContext();
           }
         } catch (error) {
           // Error logging
@@ -633,17 +643,22 @@ export class QueryEngine {
 
   /**
    * Execute a mutation with nested write operations
+   *
+   * @param ctx - Query context
+   * @param operation - The operation type
+   * @param args - Validated arguments
+   * @param driver - Driver to use (may be transaction-bound for proper nesting)
    */
   private async executeWithNestedWrites<T>(
     ctx: QueryContext,
     operation: Operation,
-    args: Record<string, unknown>
+    args: Record<string, unknown>,
+    driver: AnyDriver = this.driver
   ): Promise<T> {
-    const driver = this.driver;
     const modelName = ctx.model["~"].names.ts ?? "unknown";
 
     // Set context for the entire nested write operation
-    this.driver.setContext({ model: modelName, operation });
+    driver.setContext({ model: modelName, operation });
 
     try {
       switch (operation) {
@@ -882,7 +897,7 @@ export class QueryEngine {
       }
     } finally {
       // Clear context after nested writes complete
-      this.driver.clearContext();
+      driver.clearContext();
     }
   }
 

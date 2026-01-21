@@ -11,9 +11,15 @@ import {
 } from "@drivers";
 import { CacheOperationNotCacheableError } from "@errors";
 import {
+  ATTR_DB_COLLECTION,
+  ATTR_DB_OPERATION_NAME,
   createInstrumentationContext,
   type InstrumentationConfig,
   type InstrumentationContext,
+  SPAN_BUILD,
+  SPAN_OPERATION,
+  SPAN_PARSE,
+  SPAN_VALIDATE,
 } from "@instrumentation";
 
 /**
@@ -417,6 +423,106 @@ export class VibORM<C extends VibORMConfig> {
                 // Prepare results array
                 const results: unknown[] = new Array(operations.length);
 
+                const tracer = orm.instrumentation?.tracer;
+
+                // Helper to execute a single operation with tracing spans
+                const executeWithSpans = async (
+                  op: PendingOperation<unknown>,
+                  rawResult: { rows: Record<string, unknown>[]; rowCount: number }
+                ): Promise<unknown> => {
+                  const model = op.getModel() ?? "-";
+                  const opName = op.getOperation() ?? "-";
+                  const spanAttrs = {
+                    ...driver.getBaseAttributes(),
+                    [ATTR_DB_COLLECTION]: model,
+                    [ATTR_DB_OPERATION_NAME]: opName,
+                  };
+
+                  const executeCore = () => {
+                    // Record validation span (no-op - validation already done at prepare time)
+                    if (tracer) {
+                      tracer.startActiveSpanSync(
+                        { name: SPAN_VALIDATE, attributes: spanAttrs },
+                        () => {}
+                      );
+                    }
+
+                    // Record build span (SQL already built at prepare time)
+                    if (tracer) {
+                      tracer.startActiveSpanSync(
+                        { name: SPAN_BUILD, attributes: spanAttrs },
+                        () => {}
+                      );
+                    }
+
+                    // Parse result with tracing
+                    const parser = op.getResultParser();
+                    const input = op.isBatchOperation()
+                      ? { rowCount: rawResult.rowCount }
+                      : rawResult.rows;
+
+                    return tracer
+                      ? tracer.startActiveSpanSync(
+                          { name: SPAN_PARSE, attributes: spanAttrs },
+                          () => parser(input)
+                        )
+                      : parser(input);
+                  };
+
+                  // Wrap with SPAN_OPERATION
+                  if (tracer) {
+                    return tracer.startActiveSpan(
+                      { name: SPAN_OPERATION, attributes: spanAttrs },
+                      async () => executeCore()
+                    );
+                  }
+                  return executeCore();
+                };
+
+                // Helper to execute a single batchable op with full tracing spans
+                const executeOpWithTracing = async (
+                  op: PendingOperation<unknown>
+                ): Promise<unknown> => {
+                  const model = op.getModel() ?? "-";
+                  const opName = op.getOperation() ?? "-";
+                  const spanAttrs = {
+                    ...driver.getBaseAttributes(),
+                    [ATTR_DB_COLLECTION]: model,
+                    [ATTR_DB_OPERATION_NAME]: opName,
+                  };
+
+                  const executeCore = async () => {
+                    // Record validation span (validation already done at prepare time)
+                    if (tracer) {
+                      tracer.startActiveSpanSync(
+                        { name: SPAN_VALIDATE, attributes: spanAttrs },
+                        () => {}
+                      );
+                    }
+
+                    // Record build span (SQL already built at prepare time)
+                    if (tracer) {
+                      tracer.startActiveSpanSync(
+                        { name: SPAN_BUILD, attributes: spanAttrs },
+                        () => {}
+                      );
+                    }
+
+                    // Execute - this creates SPAN_EXECUTE via driver._execute
+                    const result = await op.executeWith(driver);
+                    return result;
+                  };
+
+                  // Wrap with SPAN_OPERATION
+                  if (tracer) {
+                    return tracer.startActiveSpan(
+                      { name: SPAN_OPERATION, attributes: spanAttrs },
+                      executeCore
+                    );
+                  }
+                  return executeCore();
+                };
+
                 // Execute batchable and non-batchable in parallel
                 const [batchResults, nonBatchResults] = await Promise.all([
                   // Batchable operations - use native batch if supported
@@ -431,23 +537,21 @@ export class VibORM<C extends VibORMConfig> {
                           }));
                           const rawResults =
                             await driver._executeBatch(queries);
-                          return rawResults.map((result, i) => {
-                            const op = batchable[i]!.op;
-                            const parser = op.getResultParser();
-                            // For batch operations (createMany, etc.), pass rowCount
-                            // For regular operations, pass rows
-                            const input = op.isBatchOperation()
-                              ? { rowCount: result.rowCount }
-                              : result.rows;
-                            return parser(input);
-                          });
+                          // Process each result with spans
+                          return Promise.all(
+                            rawResults.map((result, i) =>
+                              executeWithSpans(batchable[i]!.op, result)
+                            )
+                          );
                         })()
-                      : Promise.all(
-                          batchable.map(({ op }) => op.executeWith(driver))
+                      : // No native batch - execute sequentially with full tracing
+                        Promise.all(
+                          batchable.map(({ op }) => executeOpWithTracing(op))
                         )
                     : Promise.resolve([]),
 
                   // Non-batchable operations (nested writes) - execute in parallel
+                  // These go through the executor which has full tracing
                   Promise.all(
                     nonBatchable.map(({ op }) => op.executeWith(driver))
                   ),

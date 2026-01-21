@@ -67,9 +67,9 @@ const client = createClient({
 better-sqlite3 supports full transactions with savepoints for nested transactions.
 
 ```typescript
-await client.$transaction(async () => {
-  await client.user.create({ data: { name: "Alice" } });
-  await client.post.create({ data: { title: "Hello", authorId: "..." } });
+await client.$transaction(async (tx) => {
+  await tx.user.create({ data: { name: "Alice" } });
+  await tx.post.create({ data: { title: "Hello", authorId: "..." } });
 });
 ```
 

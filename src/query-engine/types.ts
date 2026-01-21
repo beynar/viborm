@@ -49,6 +49,10 @@ export interface QueryMetadata<T> {
   parseResult: ResultParser<T>;
   /** Whether this is a batch operation (returns rowCount instead of rows) */
   isBatchOperation?: boolean;
+  /** Model name for tracing */
+  model?: string;
+  /** Operation name for tracing */
+  operation?: string;
 }
 
 /**

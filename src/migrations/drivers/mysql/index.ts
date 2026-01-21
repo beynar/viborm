@@ -30,6 +30,21 @@ import {
   type RenameColumnOperation,
   type RenameTableOperation,
 } from "../base";
+
+/**
+ * MySQL-specific DropIndexOperation that requires tableName.
+ * MySQL's DROP INDEX syntax requires ON tableName.
+ */
+type MySqlDropIndexOperation = DropIndexOperation & { tableName: string };
+
+/**
+ * Type guard to check if a DropIndexOperation has the required tableName for MySQL.
+ */
+function isMySqlDropIndexOp(
+  op: DropIndexOperation
+): op is MySqlDropIndexOperation {
+  return typeof (op as MySqlDropIndexOperation).tableName === "string";
+}
 import { getMySQLType } from "../type-mapping";
 import type { MigrationCapabilities } from "../types";
 import { introspect } from "./introspect";
@@ -303,14 +318,13 @@ export class MySQLMigrationDriver extends MigrationDriver {
 
   generateDropIndex(op: DropIndexOperation): string {
     // MySQL DROP INDEX always requires the table name
-    const tableName = (op as { tableName?: string }).tableName;
-    if (!tableName) {
+    if (!isMySqlDropIndexOp(op)) {
       throw new MigrationError(
         `MySQL DROP INDEX requires tableName. Index: "${op.indexName}"`,
         VibORMErrorCode.INVALID_INPUT
       );
     }
-    return `DROP INDEX ${this.escapeIdentifier(op.indexName)} ON ${this.escapeIdentifier(tableName)}`;
+    return `DROP INDEX ${this.escapeIdentifier(op.indexName)} ON ${this.escapeIdentifier(op.tableName)}`;
   }
 
   // ===========================================================================

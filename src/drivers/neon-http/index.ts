@@ -58,7 +58,7 @@ type NeonTxFn = (sql: string, params?: unknown[]) => unknown;
 
 export class NeonHTTPDriver extends Driver<NeonQueryFn, NeonTxFn> {
   readonly adapter: DatabaseAdapter;
-  readonly supportsTransactions = false;
+  readonly supportsTransactions = true;
   readonly supportsBatch = true;
 
   private readonly driverOptions: NeonHTTPDriverOptions;
@@ -142,23 +142,48 @@ export class NeonHTTPDriver extends Driver<NeonQueryFn, NeonTxFn> {
   protected async transaction<T>(
     client: NeonQueryFn | NeonTxFn,
     fn: (tx: NeonTxFn) => Promise<T>,
-    _options?: TransactionOptions
+    options?: TransactionOptions
   ): Promise<T> {
-    // Neon HTTP does not support true transactions.
-    // Each HTTP request is a separate connection, so BEGIN/COMMIT/ROLLBACK
-    // cannot maintain transaction state across requests.
-    // For transaction support, use the @neondatabase/serverless Pool with WebSockets.
-    console.warn(
-      "Neon HTTP driver does not support transactions. " +
-        "Each query executes in its own connection. " +
-        "For transaction support, use @neondatabase/serverless Pool with WebSockets."
+    // Use Neon's transaction() function which provides full PostgreSQL transaction semantics
+    // with configurable isolation levels (ReadUncommitted, ReadCommitted, RepeatableRead, Serializable)
+    const neonClient = client as NeonQueryFn;
+
+    // Map VibORM isolation level to Neon format
+    const isolationLevel = options?.isolationLevel
+      ? this.mapIsolationLevel(options.isolationLevel)
+      : undefined;
+
+    // Neon's transaction() with callback mode executes all queries atomically
+    // The callback receives a transaction-bound query function
+    return neonClient.transaction<T>(
+      (txFn) => fn(txFn as unknown as NeonTxFn),
+      isolationLevel ? { isolationLevel } : undefined
     );
-    return fn(client as NeonTxFn);
+  }
+
+  /**
+   * Map VibORM isolation level to Neon isolation level format
+   */
+  private mapIsolationLevel(
+    level: string
+  ): "ReadUncommitted" | "ReadCommitted" | "RepeatableRead" | "Serializable" {
+    switch (level.toLowerCase().replace(/[^a-z]/g, "")) {
+      case "readuncommitted":
+        return "ReadUncommitted";
+      case "readcommitted":
+        return "ReadCommitted";
+      case "repeatableread":
+        return "RepeatableRead";
+      case "serializable":
+        return "Serializable";
+      default:
+        return "ReadCommitted";
+    }
   }
 
   /**
    * Execute multiple queries atomically using Neon's transaction() function.
-   * This provides atomic batch execution even though dynamic transactions aren't supported.
+   * This provides atomic batch execution with full PostgreSQL transaction semantics.
    */
   protected async executeBatch<T>(
     client: NeonQueryFn,

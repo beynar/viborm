@@ -81,9 +81,9 @@ const client = createClient({
 pg supports full transactions with savepoints for nested transactions and isolation levels.
 
 ```typescript
-await client.$transaction(async () => {
-  await client.user.create({ data: { name: "Alice" } });
-  await client.post.create({ data: { title: "Hello", authorId: "..." } });
+await client.$transaction(async (tx) => {
+  await tx.user.create({ data: { name: "Alice" } });
+  await tx.post.create({ data: { title: "Hello", authorId: "..." } });
 }, { isolationLevel: "serializable" });
 ```
 

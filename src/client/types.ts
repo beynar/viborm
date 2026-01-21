@@ -189,7 +189,7 @@ type Operation<
   ? <Arg extends RemoveCacheKey<C, Payload>>(
       args?: Exclude<Arg, undefined>
     ) => PendingOperation<OperationResult<O, M, Arg>>
-  : <Arg extends Payload>(args: Arg) => PendingOperation<OperationResult<O, M, Arg>>;
+  : <Arg extends RemoveCacheKey<C, Payload>>(args: Arg) => PendingOperation<OperationResult<O, M, Arg>>;
 
 /**
  * Cached operation type - returns Promise directly (not batchable)

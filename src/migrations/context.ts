@@ -231,6 +231,9 @@ export class MigrationContext {
       // Create a transaction-bound context
       const txCtx = Object.create(this) as MigrationContext;
       (txCtx as { driver: AnyDriver }).driver = txDriver;
+      // Recreate executor bound to transaction driver
+      (txCtx as { executor: QueryExecutor }).executor =
+        createQueryExecutor(txDriver);
       return fn(txCtx);
     });
   }

@@ -317,6 +317,30 @@ async function main() {
     console.log(u);
   });
 
+  console.log("\n--- Batch Transaction ---\n");
+
+  // Batch transaction: multiple operations executed together
+  const [allUsers, userCount] = await client.$transaction([
+    client.user.findMany(),
+    client.user.count(),
+  ]);
+
+  console.log(`Found ${userCount} users:`, allUsers);
+
+  // Another batch with create operations
+  await client.$transaction([
+    client.user.create({
+      data: { id: "user-2", name: "Bob", email: "bob@example.com" },
+    }),
+    client.user.create({
+      data: { id: "user-3", name: "Charlie", email: "charlie@example.com" },
+    }),
+  ]);
+
+  // Verify the batch creates worked
+  const finalCount = await client.user.count();
+  console.log(`Total users after batch create: ${finalCount}`);
+
   // console.log("\n--- create ---\n");
   // await client.user.create({
   //   data: { id: "user-1", name: "Alice", email: "alice@example.com" },

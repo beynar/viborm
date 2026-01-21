@@ -131,6 +131,55 @@ ORDER BY tc.TABLE_NAME, tc.CONSTRAINT_NAME, kcu.ORDINAL_POSITION
 
 const ENUM_VALUES_REGEX = /enum\((.+)\)/i;
 
+/**
+ * Parse enum values from MySQL COLUMN_TYPE string.
+ * Handles values containing commas and escaped quotes (doubled single quotes).
+ * Example: "enum('a,b','it''s','c')" -> ['a,b', "it's", 'c']
+ */
+function parseEnumValues(columnType: string): string[] | null {
+  const match = columnType.match(ENUM_VALUES_REGEX);
+  if (!match?.[1]) return null;
+
+  const content = match[1];
+  const values: string[] = [];
+  let i = 0;
+
+  while (i < content.length) {
+    // Skip whitespace and commas
+    while (i < content.length && (content[i] === " " || content[i] === ",")) {
+      i++;
+    }
+    if (i >= content.length) break;
+
+    // Expect opening quote
+    if (content[i] !== "'") {
+      i++;
+      continue;
+    }
+    i++; // Skip opening quote
+
+    // Collect value until closing quote (handle escaped quotes '')
+    let value = "";
+    while (i < content.length) {
+      if (content[i] === "'" && content[i + 1] === "'") {
+        // Escaped quote - add single quote and skip both
+        value += "'";
+        i += 2;
+      } else if (content[i] === "'") {
+        // Closing quote
+        i++;
+        break;
+      } else {
+        value += content[i];
+        i++;
+      }
+    }
+    values.push(value);
+  }
+
+  return values.length > 0 ? values : null;
+}
+
 // =============================================================================
 // HELPER FUNCTIONS
 // =============================================================================
@@ -238,11 +287,9 @@ export async function introspect(
         const enumName = `${tableName}_${col.COLUMN_NAME}_enum`;
         if (!seenEnums.has(enumName)) {
           // Parse enum values from COLUMN_TYPE: enum('val1','val2')
-          const match = col.COLUMN_TYPE.match(ENUM_VALUES_REGEX);
-          if (match?.[1]) {
-            const values = match[1]
-              .split(",")
-              .map((v) => v.trim().replace(/^'|'$/g, ""));
+          // Uses stateful parser to handle commas and escaped quotes in values
+          const values = parseEnumValues(col.COLUMN_TYPE);
+          if (values) {
             enumDefs.push({ name: enumName, values });
             seenEnums.add(enumName);
           }

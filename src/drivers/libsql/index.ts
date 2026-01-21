@@ -90,7 +90,7 @@ export class LibSQLDriver extends Driver<Client, Transaction> {
     const result = await client.execute({ sql, args: values as any });
     return {
       rows: result.rows as T[],
-      rowCount: result.rowsAffected,
+      rowCount: result.rowsAffected ?? result.rows.length,
     };
   }
 
@@ -104,7 +104,7 @@ export class LibSQLDriver extends Driver<Client, Transaction> {
     const result = await client.execute({ sql, args: values as any });
     return {
       rows: result.rows as T[],
-      rowCount: result.rowsAffected,
+      rowCount: result.rowsAffected ?? result.rows.length,
     };
   }
 

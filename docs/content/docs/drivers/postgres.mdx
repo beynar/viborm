@@ -79,9 +79,9 @@ const client = createClient({
 postgres.js supports full transactions with automatic savepoints for nested transactions.
 
 ```typescript
-await client.$transaction(async () => {
-  await client.user.create({ data: { name: "Alice" } });
-  await client.post.create({ data: { title: "Hello", authorId: "..." } });
+await client.$transaction(async (tx) => {
+  await tx.user.create({ data: { name: "Alice" } });
+  await tx.post.create({ data: { title: "Hello", authorId: "..." } });
 });
 ```
 

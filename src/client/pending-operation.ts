@@ -39,18 +39,40 @@ export class PendingOperation<T> implements PromiseLike<T> {
   readonly [PENDING_OPERATION_SYMBOL] = true;
 
   /**
-   * The executor function that performs the actual database operation
+   * The executor function that performs the actual database operation.
+   * Accepts an optional driver override for transaction-bound execution.
    */
-  private readonly executor: () => Promise<T>;
+  private readonly executor: (driverOverride?: AnyDriver) => Promise<T>;
 
   /**
    * Query metadata for batch execution
    */
   private readonly metadata: QueryMetadata<T>;
 
-  constructor(executor: () => Promise<T>, metadata: QueryMetadata<T>) {
+  /**
+   * Cached promise for direct execution via then/catch/finally.
+   * Ensures executor() is only called once even if multiple
+   * PromiseLike methods are chained on the same instance.
+   */
+  private _promise: Promise<T> | null = null;
+
+  constructor(
+    executor: (driverOverride?: AnyDriver) => Promise<T>,
+    metadata: QueryMetadata<T>
+  ) {
     this.executor = executor;
     this.metadata = metadata;
+  }
+
+  /**
+   * Get or create the cached promise for direct execution.
+   * This ensures the executor is only called once.
+   */
+  private getPromise(): Promise<T> {
+    if (!this._promise) {
+      this._promise = this.executor();
+    }
+    return this._promise;
   }
 
   /**
@@ -99,6 +121,20 @@ export class PendingOperation<T> implements PromiseLike<T> {
   }
 
   /**
+   * Get model name for tracing
+   */
+  getModel(): string | undefined {
+    return this.metadata.model;
+  }
+
+  /**
+   * Get operation name for tracing
+   */
+  getOperation(): string | undefined {
+    return this.metadata.operation;
+  }
+
+  /**
    * Execute the operation immediately
    */
   execute(): Promise<T> {
@@ -109,26 +145,30 @@ export class PendingOperation<T> implements PromiseLike<T> {
    * Execute the operation with a specific driver.
    * Used for transaction-bound execution where we need to use the txDriver.
    *
-   * For batchable operations (with precomputed SQL), executes directly on the driver.
-   * For non-batchable operations (nested writes), falls back to the default executor
-   * since the executor already handles transaction context via the driver's clone.
+   * For batchable operations (with precomputed SQL), executes directly on the driver
+   * with tracing spans for operation/validate/build/execute/parse.
+   * For non-batchable operations (nested writes), passes the driver to the executor
+   * so nested writes use the transaction context (savepoints) instead of new transactions.
    */
   async executeWith(driver: AnyDriver): Promise<T> {
-    // For batchable operations, we can execute directly on the provided driver
-    if (this.metadata.sql) {
-      const result = await driver._execute<Record<string, unknown>>(
-        this.metadata.sql
-      );
-      // Use the result parser to transform the result
-      const input = this.metadata.isBatchOperation
-        ? { rowCount: result.rowCount }
-        : result.rows;
-      return this.metadata.parseResult(input);
+    // For non-batchable operations (nested writes), pass driver to executor
+    // which has full tracing via the query engine
+    if (!this.metadata.sql) {
+      return this.executor(driver);
     }
 
-    // For non-batchable operations (nested writes), fall back to default executor
-    // The executor handles transactions internally via withTransactionIfSupported
-    return this.executor();
+    // For batchable operations, execute directly on the provided driver
+    // The driver's _execute already creates SPAN_EXECUTE, we just need to
+    // execute and parse the result
+    const result = await driver._execute<Record<string, unknown>>(
+      this.metadata.sql
+    );
+
+    // Use the result parser to transform the result
+    const input = this.metadata.isBatchOperation
+      ? { rowCount: result.rowCount }
+      : result.rows;
+    return this.metadata.parseResult(input);
   }
 
   /**
@@ -164,7 +204,7 @@ export class PendingOperation<T> implements PromiseLike<T> {
     onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | null,
     onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null
   ): Promise<TResult1 | TResult2> {
-    return this.executor().then(onfulfilled, onrejected);
+    return this.getPromise().then(onfulfilled, onrejected);
   }
 
   /**
@@ -173,14 +213,14 @@ export class PendingOperation<T> implements PromiseLike<T> {
   catch<TResult = never>(
     onrejected?: ((reason: unknown) => TResult | PromiseLike<TResult>) | null
   ): Promise<T | TResult> {
-    return this.executor().catch(onrejected);
+    return this.getPromise().catch(onrejected);
   }
 
   /**
    * Implement finally() for cleanup
    */
   finally(onfinally?: (() => void) | null): Promise<T> {
-    return this.executor().finally(onfinally);
+    return this.getPromise().finally(onfinally);
   }
 }
 
