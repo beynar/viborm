@@ -268,7 +268,9 @@ async function main() {
         error: true,
         cache: true,
       },
-      tracing: true,
+      tracing: {
+        includeSql: false,
+      },
     },
   });
   const clientInstantEnd = performance.now();

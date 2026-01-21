@@ -72,6 +72,25 @@ export interface TracerWrapper {
   startActiveSpanSync<T>(options: VibORMSpanOptions, fn: (span?: Span) => T): T;
 
   /**
+   * Record a span that already completed (with custom start/end times)
+   * Useful for recording work that happened before the span context was available
+   */
+  recordSpan(
+    options: VibORMSpanOptions,
+    startTime: number,
+    endTime: number
+  ): void;
+
+  /**
+   * Capture timing for a synchronous operation to record as a span later.
+   * Returns the result and a function to record the span in the correct context.
+   */
+  capture<T>(fn: () => T): {
+    result: T;
+    record: (options: VibORMSpanOptions) => void;
+  };
+
+  /**
    * Check if tracing is enabled (OTel loaded and configured)
    */
   isEnabled(): boolean;
@@ -234,6 +253,37 @@ export function createTracerWrapper(
           span.end();
         }
       });
+    },
+
+    recordSpan(
+      options: VibORMSpanOptions,
+      startTime: number,
+      endTime: number
+    ): void {
+      if (!otel || shouldIgnoreSpan(options.name)) return;
+
+      const attributes = buildAttributes(options);
+      const kind = options.kind ?? otel.SpanKind.INTERNAL;
+      const span = getTracer(otel).startSpan(
+        options.name,
+        { kind, attributes, startTime },
+        otel.context.active()
+      );
+      span.setStatus({ code: otel.SpanStatusCode.OK });
+      span.end(endTime);
+    },
+
+    capture<T>(fn: () => T): {
+      result: T;
+      record: (options: VibORMSpanOptions) => void;
+    } {
+      const startTime = performance.timeOrigin + performance.now();
+      const result = fn();
+      const endTime = performance.timeOrigin + performance.now();
+      return {
+        result,
+        record: (options) => this.recordSpan(options, startTime, endTime),
+      };
     },
 
     isEnabled(): boolean {

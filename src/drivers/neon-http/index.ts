@@ -100,6 +100,7 @@ export class NeonHTTPDriver extends Driver<NeonQuery, NeonTx> {
     const client = neon(this.driverOptions.databaseUrl, {
       fetchOptions: this.driverOptions.options?.fetchOptions,
       fullResults: true,
+      arrayMode: false,
     });
 
     return client;

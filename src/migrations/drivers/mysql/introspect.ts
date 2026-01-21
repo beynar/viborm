@@ -133,8 +133,9 @@ const ENUM_VALUES_REGEX = /enum\((.+)\)/i;
 
 /**
  * Parse enum values from MySQL COLUMN_TYPE string.
- * Handles values containing commas and escaped quotes (doubled single quotes).
+ * Handles values containing commas, doubled single quotes (''), and backslash escapes (\').
  * Example: "enum('a,b','it''s','c')" -> ['a,b', "it's", 'c']
+ * Example: "enum('it\\'s')" -> ["it's"]
  */
 function parseEnumValues(columnType: string): string[] | null {
   const match = columnType.match(ENUM_VALUES_REGEX);
@@ -158,11 +159,15 @@ function parseEnumValues(columnType: string): string[] | null {
     }
     i++; // Skip opening quote
 
-    // Collect value until closing quote (handle escaped quotes '')
+    // Collect value until closing quote (handle escaped quotes '' and \')
     let value = "";
     while (i < content.length) {
-      if (content[i] === "'" && content[i + 1] === "'") {
-        // Escaped quote - add single quote and skip both
+      if (content[i] === "\\" && i + 1 < content.length) {
+        // Backslash escape - append next char and skip both
+        value += content[i + 1];
+        i += 2;
+      } else if (content[i] === "'" && content[i + 1] === "'") {
+        // Doubled quote escape - add single quote and skip both
         value += "'";
         i += 2;
       } else if (content[i] === "'") {
@@ -205,7 +210,21 @@ function formatColumnType(col: MySQLColumn): string {
     return col.COLUMN_TYPE; // e.g., "enum('active','inactive')"
   }
 
-  // Handle precision types
+  // For types with modifiers (unsigned, zerofill) or size info in COLUMN_TYPE,
+  // prefer COLUMN_TYPE to preserve full type specification
+  // Examples: "int unsigned", "bigint unsigned zerofill", "varbinary(255)", "bit(8)", "timestamp(6)"
+  const columnType = col.COLUMN_TYPE.toLowerCase();
+  const hasModifiers =
+    columnType.includes("unsigned") ||
+    columnType.includes("zerofill") ||
+    // Has parentheses with size/precision info (but not enum which is handled above)
+    (columnType.includes("(") && col.DATA_TYPE !== "enum");
+
+  if (hasModifiers) {
+    return col.COLUMN_TYPE;
+  }
+
+  // Fallback: construct from DATA_TYPE with precision info
   if (col.DATA_TYPE === "varchar" && col.CHARACTER_MAXIMUM_LENGTH) {
     return `VARCHAR(${col.CHARACTER_MAXIMUM_LENGTH})`;
   }
@@ -284,7 +303,9 @@ export async function introspect(
     for (const col of columnsByTable.get(tableName) || []) {
       // Extract enum values if this is an enum column
       if (col.DATA_TYPE === "enum") {
-        const enumName = `${tableName}_${col.COLUMN_NAME}_enum`;
+        // Use $ as delimiter since it's valid in identifiers but rare in practice
+        // This prevents collision between e.g. "user_status.type" and "user.status_type"
+        const enumName = `${tableName}$${col.COLUMN_NAME}$enum`;
         if (!seenEnums.has(enumName)) {
           // Parse enum values from COLUMN_TYPE: enum('val1','val2')
           // Uses stateful parser to handle commas and escaped quotes in values

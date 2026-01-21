@@ -27,7 +27,6 @@ import type {
   TransactionOptions,
 } from "./types";
 
-
 // ============================================================
 // DRIVER INTERFACE
 // ============================================================
@@ -145,7 +144,6 @@ export abstract class Driver<TClient, TTransaction> {
     this.dialect = dialect;
     this.driverName = driverName;
   }
-
 
   /**
    * Set instrumentation context
@@ -416,8 +414,8 @@ export abstract class Driver<TClient, TTransaction> {
   protected async executeBatch<T>(
     client: TClient | TTransaction,
     queries: BatchQuery[]
-  ): Promise<Array<QueryResult<T>>> {
-    const results: Array<QueryResult<T>> = [];
+  ): Promise<QueryResult<T>[]> {
+    const results: QueryResult<T>[] = [];
     for (const query of queries) {
       results.push(await this.executeRaw<T>(client, query.sql, query.params));
     }
@@ -430,9 +428,7 @@ export abstract class Driver<TClient, TTransaction> {
    * 1. Transaction-wrapped sequential execution (if transactions supported)
    * 2. Sequential execution with warning (no atomicity)
    */
-  async _executeBatch<T>(
-    queries: BatchQuery[]
-  ): Promise<Array<QueryResult<T>>> {
+  async _executeBatch<T>(queries: BatchQuery[]): Promise<QueryResult<T>[]> {
     if (queries.length === 0) {
       return [];
     }
@@ -548,10 +544,10 @@ export type AnyDriver = Driver<unknown, unknown>;
  * });
  * ```
  */
-export class TransactionBoundDriver<
+export class TransactionBoundDriver<TClient, TTransaction> extends Driver<
   TClient,
-  TTransaction,
-> extends Driver<TClient, TTransaction> {
+  TTransaction
+> {
   private readonly baseDriver: Driver<TClient, TTransaction>;
   private readonly tx: TTransaction;
   readonly adapter: DatabaseAdapter;

@@ -88,8 +88,7 @@ export class D1Driver extends Driver<D1Database, D1Database> {
     sql: string,
     params?: unknown[]
   ): Promise<QueryResult<T>> {
-    const values = params ? convertValuesForSQLite(params) : [];
-    return this.execute<T>(client, sql, values);
+    return this.execute<T>(client, sql, params ?? []);
   }
 
   protected async transaction<T>(
@@ -127,7 +126,7 @@ export class D1Driver extends Driver<D1Database, D1Database> {
     // Map results to QueryResult format
     return results.map((result) => ({
       rows: result.results,
-      rowCount: result.meta.changes || result.results.length,
+      rowCount: result.meta.changes ?? result.results.length,
     }));
   }
 }

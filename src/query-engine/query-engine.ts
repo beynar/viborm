@@ -18,6 +18,7 @@ import {
   SPAN_OPERATION,
   SPAN_PARSE,
   SPAN_VALIDATE,
+  type VibORMSpanOptions,
 } from "@instrumentation";
 import type { Model } from "@schema/model";
 import type { Sql } from "@sql";
@@ -237,12 +238,17 @@ export class QueryEngine {
       originalOperation: options?.originalOperation ?? operation,
     };
 
-    // Validate input eagerly (fail fast) - only place validation happens
-    const validated = validate<Record<string, unknown>>(
-      model,
-      baseOperation,
-      args
-    );
+    // Validate input eagerly (fail fast) - capture timing for span
+    const tracer = this.instrumentation?.tracer;
+    const validation = tracer
+      ? tracer.capture(() =>
+          validate<Record<string, unknown>>(model, baseOperation, args)
+        )
+      : {
+          result: validate<Record<string, unknown>>(model, baseOperation, args),
+          record: undefined,
+        };
+    const validated = validation.result;
 
     // Create context for SQL building and result parsing
     const ctx = createQueryContext(
@@ -255,10 +261,21 @@ export class QueryEngine {
     // Check if this has nested writes (can't precompute SQL)
     const hasNested = this.hasNestedWrites(baseOperation, validated);
 
-    // Build SQL if possible (non-nested operations)
-    const sql = hasNested
-      ? null
-      : this.buildOperation(ctx, baseOperation, validated);
+    // Build SQL if possible (non-nested operations) - capture timing for span
+    let sql: ReturnType<typeof this.buildOperation> | null = null;
+    let recordBuild: ((options: VibORMSpanOptions) => void) | undefined;
+    if (!hasNested) {
+      const build = tracer
+        ? tracer.capture(() =>
+            this.buildOperation(ctx, baseOperation, validated)
+          )
+        : {
+            result: this.buildOperation(ctx, baseOperation, validated),
+            record: undefined,
+          };
+      sql = build.result;
+      recordBuild = build.record;
+    }
 
     // Create metadata for batch execution
     // Wrap parseResult with applyPostProcessing for OrThrow and exist conversion
@@ -286,7 +303,9 @@ export class QueryEngine {
       baseOperation,
       validated,
       sql,
-      prepareOptions
+      prepareOptions,
+      validation.record,
+      recordBuild
     );
 
     return new PendingOperation(executor, metadata);
@@ -307,7 +326,9 @@ export class QueryEngine {
     operation: Operation,
     validatedArgs: Record<string, unknown>,
     precomputedSql: Sql | null,
-    options?: PrepareOptions
+    options?: PrepareOptions,
+    recordValidation?: (options: VibORMSpanOptions) => void,
+    recordBuild?: (options: VibORMSpanOptions) => void
   ): (driverOverride?: AnyDriver) => Promise<T> {
     const tracer = this.instrumentation?.tracer;
     const logger = this.instrumentation?.logger;
@@ -329,13 +350,8 @@ export class QueryEngine {
       // Core execution logic wrapped in SPAN_OPERATION
       const executeCore = async (): Promise<T> => {
         try {
-          // Record validation span (no-op - validation already done at prepare time)
-          if (tracer) {
-            tracer.startActiveSpanSync(
-              { name: SPAN_VALIDATE, attributes: spanAttrs },
-              () => {}
-            );
-          }
+          // Record validation span with actual timing from prepare()
+          recordValidation?.({ name: SPAN_VALIDATE, attributes: spanAttrs });
 
           // Handle nested writes separately
           if (precomputedSql === null) {
@@ -353,13 +369,8 @@ export class QueryEngine {
             );
           }
 
-          // Record build span (SQL already built, but record for tracing)
-          if (tracer) {
-            tracer.startActiveSpanSync(
-              { name: SPAN_BUILD, attributes: spanAttrs },
-              () => {}
-            );
-          }
+          // Record build span with actual timing from prepare()
+          recordBuild?.({ name: SPAN_BUILD, attributes: spanAttrs });
 
           // Set context on driver for logging
           driver.setContext({ model: modelName, operation });
