@@ -6,7 +6,9 @@
  */
 
 import type { DatabaseAdapter } from "@adapters";
+import { PendingOperation } from "@client/pending-operation";
 import type { AnyDriver } from "@drivers";
+import { NotFoundError } from "@errors";
 import {
   ATTR_DB_COLLECTION,
   ATTR_DB_OPERATION_NAME,
@@ -17,8 +19,6 @@ import {
   SPAN_PARSE,
   SPAN_VALIDATE,
 } from "@instrumentation";
-import { NotFoundError } from "@errors";
-import { PendingOperation } from "@client/pending-operation";
 import type { Model } from "@schema/model";
 import type { Sql } from "@sql";
 import { getPrimaryKeyField } from "./builders/correlation-utils";
@@ -55,8 +55,8 @@ import {
   type Operation,
   type PrepareOptions,
   type QueryContext,
-  type QueryMetadata,
   QueryEngineError,
+  type QueryMetadata,
 } from "./types";
 
 import { validate } from "./validator";
@@ -238,7 +238,11 @@ export class QueryEngine {
     };
 
     // Validate input eagerly (fail fast) - only place validation happens
-    const validated = validate<Record<string, unknown>>(model, baseOperation, args);
+    const validated = validate<Record<string, unknown>>(
+      model,
+      baseOperation,
+      args
+    );
 
     // Create context for SQL building and result parsing
     const ctx = createQueryContext(
@@ -252,13 +256,24 @@ export class QueryEngine {
     const hasNested = this.hasNestedWrites(baseOperation, validated);
 
     // Build SQL if possible (non-nested operations)
-    const sql = hasNested ? null : this.buildOperation(ctx, baseOperation, validated);
+    const sql = hasNested
+      ? null
+      : this.buildOperation(ctx, baseOperation, validated);
 
     // Create metadata for batch execution
+    // Wrap parseResult with applyPostProcessing for OrThrow and exist conversion
     const metadata: QueryMetadata<T> = {
       sql,
       validatedArgs: validated,
-      parseResult: (rows) => parseResult(ctx, baseOperation, rows) as T,
+      parseResult: (rows) => {
+        const result = parseResult(ctx, baseOperation, rows) as T;
+        return this.applyPostProcessing(
+          result,
+          baseOperation,
+          prepareOptions,
+          modelName
+        );
+      },
       isBatchOperation: isBatchOperation(baseOperation),
       model: modelName,
       operation: baseOperation,
@@ -330,7 +345,12 @@ export class QueryEngine {
               validatedArgs,
               driver
             );
-            return this.applyPostProcessing<T>(result, operation, options, modelName);
+            return this.applyPostProcessing<T>(
+              result,
+              operation,
+              options,
+              modelName
+            );
           }
 
           // Record build span (SQL already built, but record for tracing)
@@ -360,7 +380,12 @@ export class QueryEngine {
                 )
               : parseResult<T>(ctx, operation, parseInput);
 
-            return this.applyPostProcessing<T>(parsed, operation, options, modelName);
+            return this.applyPostProcessing<T>(
+              parsed,
+              operation,
+              options,
+              modelName
+            );
           } finally {
             driver.clearContext();
           }
@@ -516,7 +541,12 @@ export class QueryEngine {
     validatedArgs: Record<string, unknown>,
     recordValidateSpan = true
   ): Promise<T> {
-    return this.executeCore<T>(model, operation, validatedArgs, recordValidateSpan);
+    return this.executeCore<T>(
+      model,
+      operation,
+      validatedArgs,
+      recordValidateSpan
+    );
   }
 
   /**
@@ -768,7 +798,12 @@ export class QueryEngine {
               }
 
               // Handle relation mutations (connect, disconnect, create, delete)
-              await executeNestedUpdate(txDriver, ctx, updatedRecord, relations);
+              await executeNestedUpdate(
+                txDriver,
+                ctx,
+                updatedRecord,
+                relations
+              );
 
               // Re-fetch with includes if needed
               if (args.include || args.select) {
@@ -830,7 +865,9 @@ export class QueryEngine {
                 where: pkWhere,
               });
               const updatedResult =
-                await txDriver._execute<Record<string, unknown>>(refetchByPkSql);
+                await txDriver._execute<Record<string, unknown>>(
+                  refetchByPkSql
+                );
               const updatedRecord = updatedResult.rows[0];
 
               if (!updatedRecord) {

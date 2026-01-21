@@ -217,8 +217,8 @@ export async function executeNestedCreate(
     };
 
     // Separate relations by FK direction
-    const currentHoldsFK: Array<[string, RelationMutation]> = [];
-    const relatedHoldsFK: Array<[string, RelationMutation]> = [];
+    const currentHoldsFK: [string, RelationMutation][] = [];
+    const relatedHoldsFK: [string, RelationMutation][] = [];
 
     for (const [name, mutation] of Object.entries(relations)) {
       const fkDir = getFkDirection(ctx, mutation.relationInfo);
@@ -385,8 +385,7 @@ async function processRelationMutation(
         relationInfo,
         createData,
         timing,
-        parentData,
-        txCtx
+        parentData
       );
       createdRecords.push(record);
     }
@@ -491,8 +490,7 @@ async function executeRelationCreate(
   relationInfo: RelationInfo,
   createData: Record<string, unknown>,
   timing: "before" | "after",
-  parentData: Record<string, unknown>,
-  txCtx: TransactionContext
+  parentData: Record<string, unknown>
 ): Promise<Record<string, unknown>> {
   const { targetModel } = relationInfo;
   const fkDir = getFkDirection(ctx, relationInfo);
@@ -657,8 +655,7 @@ async function executeConnectOrCreate(
     relationInfo,
     input.create,
     timing,
-    parentData,
-    txCtx
+    parentData
   );
 }
 

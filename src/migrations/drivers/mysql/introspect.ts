@@ -213,7 +213,7 @@ function formatColumnType(col: MySQLColumn): string {
     return `CHAR(${col.CHARACTER_MAXIMUM_LENGTH})`;
   }
   if (col.DATA_TYPE === "decimal" && col.NUMERIC_PRECISION) {
-    if (col.NUMERIC_SCALE) {
+    if (col.NUMERIC_SCALE !== null && col.NUMERIC_SCALE !== undefined) {
       return `DECIMAL(${col.NUMERIC_PRECISION},${col.NUMERIC_SCALE})`;
     }
     return `DECIMAL(${col.NUMERIC_PRECISION})`;

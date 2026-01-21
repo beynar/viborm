@@ -72,7 +72,6 @@ await client.$transaction(async (tx) => {
 ## Limitations
 
 - Only available in Bun runtime
-- SQLite dialect - no `LATERAL` joins, limited `FULL OUTER JOIN`
-- JSON columns return as strings and are parsed automatically
+- JSON columns return as strings (VibORM auto-parses JSON relations via `tryParseJsonString()`)
 - Boolean values stored as integers (0/1)
 - Synchronous API internally (async wrapper)

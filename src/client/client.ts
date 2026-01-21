@@ -4,11 +4,7 @@ import type {
   WithCacheOptions,
 } from "@cache";
 import { type CacheExecutionOptions, withCacheSchema } from "@cache";
-import {
-  type AnyDriver,
-  type QueryResult,
-  type TransactionOptions,
-} from "@drivers";
+import type { AnyDriver, QueryResult, TransactionOptions } from "@drivers";
 import { CacheOperationNotCacheableError } from "@errors";
 import {
   ATTR_DB_COLLECTION,
@@ -30,12 +26,13 @@ function isInstrumentationContext(
 ): value is InstrumentationContext {
   return value !== undefined && "config" in value;
 }
+
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import type { ModelRegistry } from "@query-engine/types";
 import { hydrateSchemaNames } from "@schema/hydration";
 import type { Sql } from "@sql";
 import { parse } from "@validation";
-import { isPendingOperation, PendingOperation } from "./pending-operation";
+import { isPendingOperation, type PendingOperation } from "./pending-operation";
 import type {
   CacheableOperations,
   CachedClient,
@@ -309,7 +306,9 @@ export class VibORM<C extends VibORMConfig> {
       // Return rejected Promise to maintain async behavior consistency
       if (!isCacheableOperation(operation)) {
         return Promise.reject(
-          new CacheOperationNotCacheableError(operation, [...CACHEABLE_OPERATIONS])
+          new CacheOperationNotCacheableError(operation, [
+            ...CACHEABLE_OPERATIONS,
+          ])
         );
       }
 
@@ -327,9 +326,14 @@ export class VibORM<C extends VibORMConfig> {
         args,
         () =>
           this.engine
-            .prepare(model, operation, (args ?? {}) as Record<string, unknown>, {
-              skipSpan: true, // Cache driver provides its own SPAN_OPERATION
-            })
+            .prepare(
+              model,
+              operation,
+              (args ?? {}) as Record<string, unknown>,
+              {
+                skipSpan: true, // Cache driver provides its own SPAN_OPERATION
+              }
+            )
             .execute(),
         options
       );
@@ -428,7 +432,7 @@ export class VibORM<C extends VibORMConfig> {
                 // Helper to execute a single operation with tracing spans
                 const executeWithSpans = async (
                   op: PendingOperation<unknown>,
-                  rawResult: { rows: Record<string, unknown>[]; rowCount: number }
+                  rawResult: QueryResult<Record<string, unknown>>
                 ): Promise<unknown> => {
                   const model = op.getModel() ?? "-";
                   const opName = op.getOperation() ?? "-";
@@ -438,7 +442,7 @@ export class VibORM<C extends VibORMConfig> {
                     [ATTR_DB_OPERATION_NAME]: opName,
                   };
 
-                  const executeCore = () => {
+                  const executeCore = async () => {
                     // Record validation span (no-op - validation already done at prepare time)
                     if (tracer) {
                       tracer.startActiveSpanSync(
@@ -461,12 +465,19 @@ export class VibORM<C extends VibORMConfig> {
                       ? { rowCount: rawResult.rowCount }
                       : rawResult.rows;
 
-                    return tracer
+                    const result = tracer
                       ? tracer.startActiveSpanSync(
                           { name: SPAN_PARSE, attributes: spanAttrs },
                           () => parser(input)
                         )
                       : parser(input);
+
+                    // Invoke cache invalidation for mutations (bypassed by native batch path)
+                    if (orm.cache && isMutationOperation(opName)) {
+                      await orm.cache._invalidate(model);
+                    }
+
+                    return result;
                   };
 
                   // Wrap with SPAN_OPERATION
@@ -510,6 +521,12 @@ export class VibORM<C extends VibORMConfig> {
 
                     // Execute - this creates SPAN_EXECUTE via driver._execute
                     const result = await op.executeWith(driver);
+
+                    // Invoke cache invalidation for mutations (bypassed by executeWith for batchable ops)
+                    if (orm.cache && isMutationOperation(opName)) {
+                      await orm.cache._invalidate(model);
+                    }
+
                     return result;
                   };
 
@@ -536,7 +553,9 @@ export class VibORM<C extends VibORMConfig> {
                             params: op.getParams(),
                           }));
                           const rawResults =
-                            await driver._executeBatch(queries);
+                            await driver._executeBatch<Record<string, unknown>>(
+                              queries
+                            );
                           // Process each result with spans
                           return Promise.all(
                             rawResults.map((result, i) =>

@@ -191,7 +191,8 @@ export class PendingOperation<T> implements PromiseLike<T> {
   ): PendingOperation<U> {
     const originalExecutor = this.executor;
     return new PendingOperation(
-      () => wrapper(originalExecutor),
+      (driverOverride?: AnyDriver) =>
+        wrapper(() => originalExecutor(driverOverride)),
       this.metadata as unknown as QueryMetadata<U>
     );
   }
@@ -247,6 +248,8 @@ export type UnwrapPendingOperation<T> =
 /**
  * Utility type to unwrap an array of PendingOperations
  */
-export type UnwrapPendingOperations<T extends readonly PendingOperation<unknown>[]> = {
+export type UnwrapPendingOperations<
+  T extends readonly PendingOperation<unknown>[],
+> = {
   [K in keyof T]: UnwrapPendingOperation<T[K]>;
 };

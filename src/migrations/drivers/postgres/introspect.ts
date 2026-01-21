@@ -181,7 +181,7 @@ function formatColumnType(col: PgColumn): string {
     return `char(${col.character_maximum_length})`;
   }
   if (col.data_type === "numeric" && col.numeric_precision) {
-    if (col.numeric_scale) {
+    if (col.numeric_scale !== null && col.numeric_scale !== undefined) {
       return `numeric(${col.numeric_precision},${col.numeric_scale})`;
     }
     return `numeric(${col.numeric_precision})`;

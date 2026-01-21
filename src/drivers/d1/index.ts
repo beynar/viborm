@@ -12,47 +12,10 @@ import {
   type DriverConfig,
   type VibORMClient,
 } from "@client/client";
+import type { D1Database } from "@cloudflare/workers-types";
 import { Driver, type DriverResultParser } from "../driver";
 import { convertValuesForSQLite, sqliteResultParser } from "../shared";
 import type { BatchQuery, QueryResult, TransactionOptions } from "../types";
-
-// ============================================================
-// TYPE DECLARATIONS FOR D1
-// ============================================================
-
-// D1 types from Cloudflare Workers
-interface D1Database {
-  prepare(query: string): D1PreparedStatement;
-  batch<T = unknown>(statements: D1PreparedStatement[]): Promise<D1Result<T>[]>;
-  exec(query: string): Promise<D1ExecResult>;
-}
-
-interface D1PreparedStatement {
-  bind(...values: unknown[]): D1PreparedStatement;
-  first<T = unknown>(column?: string): Promise<T | null>;
-  run<T = unknown>(): Promise<D1Result<T>>;
-  all<T = unknown>(): Promise<D1Result<T>>;
-  raw<T = unknown>(): Promise<T[]>;
-}
-
-interface D1Result<T = unknown> {
-  results: T[];
-  success: boolean;
-  meta: D1ResultMeta;
-}
-
-interface D1ResultMeta {
-  duration: number;
-  changes: number;
-  last_row_id: number;
-  rows_read: number;
-  rows_written: number;
-}
-
-interface D1ExecResult {
-  count: number;
-  duration: number;
-}
 
 // ============================================================
 // EXPORTED OPTIONS
@@ -154,9 +117,7 @@ export class D1Driver extends Driver<D1Database, D1Database> {
   ): Promise<Array<QueryResult<T>>> {
     // Prepare all statements
     const statements = queries.map((query) => {
-      const values = query.params
-        ? convertValuesForSQLite(query.params)
-        : [];
+      const values = query.params ? convertValuesForSQLite(query.params) : [];
       return client.prepare(query.sql).bind(...values);
     });
 
