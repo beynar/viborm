@@ -17,16 +17,13 @@ import {
 
 /**
  * Check if a value is an InstrumentationContext (already processed)
- * Uses tracer/logger properties which are unique to InstrumentationContext
+ * InstrumentationContext has 'config' and 'tracer' properties,
+ * while InstrumentationConfig only has 'tracing' and 'logging'
  */
 function isInstrumentationContext(
   value: InstrumentationConfig | InstrumentationContext | undefined
 ): value is InstrumentationContext {
-  return (
-    value !== undefined &&
-    "config" in value &&
-    ("tracer" in value || "logger" in value)
-  );
+  return value !== undefined && "config" in value && "tracer" in value;
 }
 
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
@@ -496,16 +493,57 @@ export class VibORM<C extends VibORMConfig> {
             // Callback = dynamic transaction mode
             const fn = input as (tx: Client<C>) => Promise<T>;
 
-            return orm.driver.withTransaction((txDriver) => {
+            // Helper to create a transaction client with $transaction support
+            const createTxClient = (txDriver: AnyDriver): Client<C> => {
               const txOrm = new VibORM({
-                driver: txDriver as AnyDriver,
+                driver: txDriver,
                 schema: orm.schema,
                 cache: orm.cache,
                 instrumentation: orm.instrumentation,
                 waitUntil: orm.waitUntil,
                 cacheVersion: orm.cacheVersion,
               });
-              const txClient = txOrm.createClient();
+              const baseClient = txOrm.createClient();
+
+              // Wrap with proxy to intercept $transaction
+              return new Proxy(baseClient, {
+                get(target, prop) {
+                  if (prop === "$transaction") {
+                    return <NT>(
+                      nestedInput:
+                        | ((nestedTx: Client<C>) => Promise<NT>)
+                        | PendingOperation<unknown>[],
+                      nestedOptions?: TransactionOptions
+                    ) => {
+                      if (Array.isArray(nestedInput)) {
+                        // Batch mode in nested transaction
+                        return txDriver.withTransaction(async () => {
+                          const results: unknown[] = [];
+                          for (const op of nestedInput as PendingOperation<unknown>[]) {
+                            results.push(await op.executeWith(txDriver));
+                          }
+                          return results;
+                        }, nestedOptions);
+                      }
+                      // Callback mode - create nested client recursively
+                      return txDriver.withTransaction((nestedTxDriver) => {
+                        const nestedClient = createTxClient(
+                          nestedTxDriver as AnyDriver
+                        );
+                        return (nestedInput as (tx: Client<C>) => Promise<NT>)(
+                          nestedClient
+                        );
+                      }, nestedOptions);
+                    };
+                  }
+                  // Forward all other property access to the base client
+                  return Reflect.get(target, prop);
+                },
+              }) as Client<C>;
+            };
+
+            return orm.driver.withTransaction((txDriver) => {
+              const txClient = createTxClient(txDriver as AnyDriver);
               return fn(txClient);
             }, options);
           };

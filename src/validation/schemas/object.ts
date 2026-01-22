@@ -244,18 +244,19 @@ function createObjectValidator(
       const hasOptionalOption = schemaAny.options?.optional === true;
       const hasDefaultOption = schemaAny.options?.default !== undefined;
       const hasDefaultProp = schemaAny.default !== undefined;
-      // Check for transform (coerce) wrapping optional with default
-      const isTransformWithOptionalDefault =
+      // Check for transform (coerce) wrapping a schema with default
+      // Handles both: v.coerce(v.optional(x, default), fn) and v.coerce(v.number({ default }), fn)
+      const isTransformWithDefault =
         schemaAny.type === "transform" &&
-        schemaAny.wrapped?.type === "optional" &&
-        schemaAny.wrapped?.default !== undefined;
+        (schemaAny.wrapped?.default !== undefined ||
+          schemaAny.wrapped?.options?.default !== undefined);
 
       acceptsUndefined[i] =
         isOptionalWrapper ||
         hasOptionalOption ||
         hasDefaultOption ||
         hasDefaultProp ||
-        isTransformWithOptionalDefault;
+        isTransformWithDefault;
     }
   };
 

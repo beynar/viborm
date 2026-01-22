@@ -21,6 +21,7 @@ import { getNoopTracer } from "@instrumentation/tracer";
 import type { Operation } from "@query-engine/types";
 import type { RelationType } from "@schema/relation/types";
 import type { Sql } from "@sql";
+import { SavepointQueue } from "./savepoint-queue";
 import type {
   BatchQuery,
   Dialect,
@@ -570,6 +571,7 @@ export class TransactionBoundDriver<TClient, TTransaction> extends Driver<
 > {
   private readonly baseDriver: Driver<TClient, TTransaction>;
   private readonly tx: TTransaction;
+  private readonly savepointQueue = new SavepointQueue();
   readonly adapter: DatabaseAdapter;
   override readonly result?: DriverResultParser;
   override readonly inTransaction = true;
@@ -618,13 +620,38 @@ export class TransactionBoundDriver<TClient, TTransaction> extends Driver<
     return this.baseDriver["executeRaw"](client, sql, params);
   }
 
-  protected override transaction<T>(
-    client: TClient | TTransaction,
+  protected override async transaction<T>(
+    _client: TClient | TTransaction,
     fn: (tx: TTransaction) => Promise<T>,
-    options?: TransactionOptions
+    _options?: TransactionOptions
   ): Promise<T> {
-    // Delegate to base driver for nested transaction / savepoint handling
-    return this.baseDriver["transaction"](client, fn, options);
+    // Queue savepoint operations to serialize concurrent nested transactions.
+    // This prevents savepoint stack conflicts when multiple nested transactions
+    // are started concurrently (e.g., via Promise.all).
+    return this.savepointQueue.enqueue(async () => {
+      const savepointName = `sp_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+
+      // Use the bound transaction for savepoint operations
+      await this.baseDriver["executeRaw"](
+        this.tx,
+        `SAVEPOINT ${savepointName}`
+      );
+
+      try {
+        const result = await fn(this.tx);
+        await this.baseDriver["executeRaw"](
+          this.tx,
+          `RELEASE SAVEPOINT ${savepointName}`
+        );
+        return result;
+      } catch (error) {
+        await this.baseDriver["executeRaw"](
+          this.tx,
+          `ROLLBACK TO SAVEPOINT ${savepointName}`
+        );
+        throw error;
+      }
+    });
   }
 
   override async disconnect(): Promise<void> {

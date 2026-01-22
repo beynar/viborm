@@ -1120,6 +1120,40 @@ describe("MySQL DDL Generation", () => {
         "CREATE FULLTEXT INDEX `idx_posts_content` ON `posts` (`content`)"
       );
     });
+
+    it("should throw error when UNIQUE is combined with FULLTEXT", () => {
+      const op: DiffOperation = {
+        type: "createIndex",
+        tableName: "posts",
+        index: {
+          name: "idx_posts_content",
+          columns: ["content"],
+          unique: true,
+          type: "fulltext",
+        },
+      };
+
+      expect(() => generateDDL(op)).toThrow(
+        "Cannot combine UNIQUE with FULLTEXT"
+      );
+    });
+
+    it("should throw error when UNIQUE is combined with SPATIAL", () => {
+      const op: DiffOperation = {
+        type: "createIndex",
+        tableName: "locations",
+        index: {
+          name: "idx_locations_geo",
+          columns: ["geo"],
+          unique: true,
+          type: "spatial",
+        },
+      };
+
+      expect(() => generateDDL(op)).toThrow(
+        "Cannot combine UNIQUE with SPATIAL"
+      );
+    });
   });
 
   describe("dropIndex", () => {

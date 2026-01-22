@@ -184,8 +184,8 @@ export class MySQLMigrationDriver extends MigrationDriver {
       parts.push("NOT NULL");
     }
 
-    // DEFAULT clause (skip for auto-increment columns and TEXT/BLOB types)
-    // MySQL doesn't allow DEFAULT values for TEXT/BLOB columns
+    // DEFAULT clause (skip for auto-increment columns and types that don't support simple DEFAULT)
+    // MySQL doesn't allow DEFAULT values for TEXT/BLOB, JSON, and spatial types
     if (column.default !== undefined && !column.autoIncrement) {
       const upperType = column.type.toUpperCase();
       const isTextOrBlob =
@@ -197,8 +197,18 @@ export class MySQLMigrationDriver extends MigrationDriver {
         upperType === "TINYBLOB" ||
         upperType === "MEDIUMBLOB" ||
         upperType === "LONGBLOB";
+      const isJson = upperType.includes("JSON");
+      const isSpatial =
+        upperType === "GEOMETRY" ||
+        upperType === "POINT" ||
+        upperType === "LINESTRING" ||
+        upperType === "POLYGON" ||
+        upperType === "MULTIPOINT" ||
+        upperType === "MULTILINESTRING" ||
+        upperType === "MULTIPOLYGON" ||
+        upperType === "GEOMETRYCOLLECTION";
 
-      if (!isTextOrBlob) {
+      if (!(isTextOrBlob || isJson || isSpatial)) {
         parts.push(`DEFAULT ${column.default}`);
       }
     }
@@ -339,7 +349,16 @@ export class MySQLMigrationDriver extends MigrationDriver {
     // btree is default, no prefix or suffix needed
 
     // UNIQUE cannot be combined with FULLTEXT or SPATIAL in MySQL
-    const unique = index.unique && !indexPrefix ? "UNIQUE " : "";
+    if (index.unique && indexPrefix) {
+      throw new MigrationError(
+        `Cannot combine UNIQUE with ${index.type?.toUpperCase()} index "${index.name}". ` +
+          `MySQL does not support UNIQUE ${index.type?.toUpperCase()} indexes. ` +
+          `Either remove 'unique: true' from the index definition, or create a separate unique index.`,
+        VibORMErrorCode.MIGRATION_DDL_ERROR,
+        { meta: { indexName: index.name, indexType: index.type } }
+      );
+    }
+    const unique = index.unique ? "UNIQUE " : "";
 
     return `CREATE ${unique}${indexPrefix}INDEX ${this.escapeIdentifier(index.name)} ON ${this.escapeIdentifier(tableName)} (${cols})${usingSuffix}`;
   }

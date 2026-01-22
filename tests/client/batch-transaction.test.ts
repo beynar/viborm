@@ -721,3 +721,324 @@ describe("transaction semantics", () => {
     expect(final?.name).toBe("Modified");
   });
 });
+
+// =============================================================================
+// NESTED TRANSACTIONS (SAVEPOINTS)
+// =============================================================================
+
+describe("nested transactions", () => {
+  test("nested transaction commits when both succeed", async () => {
+    await client.$transaction(async (tx) => {
+      await tx.user.create({
+        data: { id: "outer-1", name: "Outer User", email: "outer@test.com" },
+      });
+
+      await tx.$transaction(async (nestedTx) => {
+        await nestedTx.user.create({
+          data: {
+            id: "nested-1",
+            name: "Nested User",
+            email: "nested@test.com",
+          },
+        });
+      });
+    });
+
+    const allUsers = await client.user.findMany();
+    expect(allUsers).toHaveLength(2);
+    expect(allUsers.map((u) => u.id).sort()).toEqual(["nested-1", "outer-1"]);
+  });
+
+  test("nested transaction rollback does not affect outer transaction", async () => {
+    await client.$transaction(async (tx) => {
+      await tx.user.create({
+        data: {
+          id: "outer-only",
+          name: "Outer Only",
+          email: "outeronly@test.com",
+        },
+      });
+
+      // Nested transaction that fails - should only rollback nested changes
+      try {
+        await tx.$transaction(async (nestedTx) => {
+          await nestedTx.user.create({
+            data: {
+              id: "nested-fail",
+              name: "Nested Fail",
+              email: "nestedfail@test.com",
+            },
+          });
+          throw new Error("Nested transaction error");
+        });
+      } catch {
+        // Expected - nested transaction failed
+      }
+
+      // Outer transaction continues - create another user
+      await tx.user.create({
+        data: {
+          id: "outer-after",
+          name: "Outer After",
+          email: "outerafter@test.com",
+        },
+      });
+    });
+
+    // Only outer users should exist, nested-fail should be rolled back
+    const allUsers = await client.user.findMany();
+    expect(allUsers).toHaveLength(2);
+    expect(allUsers.map((u) => u.id).sort()).toEqual([
+      "outer-after",
+      "outer-only",
+    ]);
+  });
+
+  test("outer transaction rollback also rolls back nested commits", async () => {
+    try {
+      await client.$transaction(async (tx) => {
+        await tx.user.create({
+          data: {
+            id: "outer-rollback",
+            name: "Outer Rollback",
+            email: "outerrollback@test.com",
+          },
+        });
+
+        // Nested transaction succeeds
+        await tx.$transaction(async (nestedTx) => {
+          await nestedTx.user.create({
+            data: {
+              id: "nested-rollback",
+              name: "Nested Rollback",
+              email: "nestedrollback@test.com",
+            },
+          });
+        });
+
+        // Outer transaction fails after nested succeeds
+        throw new Error("Outer transaction error");
+      });
+    } catch {
+      // Expected
+    }
+
+    // Both users should be rolled back
+    const allUsers = await client.user.findMany();
+    expect(allUsers).toHaveLength(0);
+  });
+
+  test("deeply nested transactions work correctly", async () => {
+    await client.$transaction(async (tx1) => {
+      await tx1.user.create({
+        data: { id: "level-1", name: "Level 1", email: "level1@test.com" },
+      });
+
+      await tx1.$transaction(async (tx2) => {
+        await tx2.user.create({
+          data: { id: "level-2", name: "Level 2", email: "level2@test.com" },
+        });
+
+        await tx2.$transaction(async (tx3) => {
+          await tx3.user.create({
+            data: { id: "level-3", name: "Level 3", email: "level3@test.com" },
+          });
+        });
+      });
+    });
+
+    const allUsers = await client.user.findMany();
+    expect(allUsers).toHaveLength(3);
+    expect(allUsers.map((u) => u.id).sort()).toEqual([
+      "level-1",
+      "level-2",
+      "level-3",
+    ]);
+  });
+
+  test("nested transaction can read changes from outer transaction", async () => {
+    let nestedSawOuterChanges = false;
+
+    await client.$transaction(async (tx) => {
+      await tx.user.create({
+        data: {
+          id: "outer-visible",
+          name: "Outer Visible",
+          email: "outervisible@test.com",
+        },
+      });
+
+      await tx.$transaction(async (nestedTx) => {
+        // Should see uncommitted changes from outer transaction
+        const user = await nestedTx.user.findUnique({
+          where: { id: "outer-visible" },
+        });
+        nestedSawOuterChanges = user !== null;
+      });
+    });
+
+    expect(nestedSawOuterChanges).toBe(true);
+  });
+});
+
+// =============================================================================
+// CONCURRENT NESTED TRANSACTIONS
+// =============================================================================
+
+describe("concurrent nested transactions", () => {
+  // Concurrent nested transactions are automatically serialized by SavepointQueue
+  // to prevent savepoint stack conflicts. Users can safely use Promise.all().
+
+  test("multiple concurrent nested transactions in same outer transaction", async () => {
+    await client.$transaction(async (tx) => {
+      await tx.user.create({
+        data: {
+          id: "outer-concurrent",
+          name: "Outer",
+          email: "outerconcurrent@test.com",
+        },
+      });
+
+      // Run multiple nested transactions concurrently - SavepointQueue serializes them
+      await Promise.all([
+        tx.$transaction(async (nested1) => {
+          await nested1.user.create({
+            data: {
+              id: "concurrent-nested-1",
+              name: "Concurrent Nested 1",
+              email: "cn1@test.com",
+            },
+          });
+        }),
+        tx.$transaction(async (nested2) => {
+          await nested2.user.create({
+            data: {
+              id: "concurrent-nested-2",
+              name: "Concurrent Nested 2",
+              email: "cn2@test.com",
+            },
+          });
+        }),
+        tx.$transaction(async (nested3) => {
+          await nested3.user.create({
+            data: {
+              id: "concurrent-nested-3",
+              name: "Concurrent Nested 3",
+              email: "cn3@test.com",
+            },
+          });
+        }),
+      ]);
+    });
+
+    const allUsers = await client.user.findMany();
+    expect(allUsers).toHaveLength(4);
+  });
+
+  test("one failing concurrent nested transaction does not affect others", async () => {
+    await client.$transaction(async (tx) => {
+      await tx.user.create({
+        data: {
+          id: "outer-mixed",
+          name: "Outer Mixed",
+          email: "outermixed@test.com",
+        },
+      });
+
+      const results = await Promise.allSettled([
+        tx.$transaction(async (nested1) => {
+          await nested1.user.create({
+            data: {
+              id: "mixed-success-1",
+              name: "Mixed Success 1",
+              email: "ms1@test.com",
+            },
+          });
+          return "success-1";
+        }),
+        tx.$transaction(async (nested2) => {
+          await nested2.user.create({
+            data: {
+              id: "mixed-fail",
+              name: "Mixed Fail",
+              email: "mf@test.com",
+            },
+          });
+          throw new Error("Intentional nested failure");
+        }),
+        tx.$transaction(async (nested3) => {
+          await nested3.user.create({
+            data: {
+              id: "mixed-success-2",
+              name: "Mixed Success 2",
+              email: "ms2@test.com",
+            },
+          });
+          return "success-2";
+        }),
+      ]);
+
+      expect(results[0].status).toBe("fulfilled");
+      expect(results[1].status).toBe("rejected");
+      expect(results[2].status).toBe("fulfilled");
+    });
+
+    // Outer + 2 successful nested transactions (mixed-fail was rolled back)
+    const allUsers = await client.user.findMany();
+    expect(allUsers).toHaveLength(3);
+    const userIds = allUsers.map((u) => u.id).sort();
+    expect(userIds).toEqual([
+      "mixed-success-1",
+      "mixed-success-2",
+      "outer-mixed",
+    ]);
+  });
+
+  test("concurrent outer transactions with nested transactions", async () => {
+    const results = await Promise.all([
+      client.$transaction(async (tx1) => {
+        await tx1.user.create({
+          data: {
+            id: "parallel-outer-1",
+            name: "Parallel Outer 1",
+            email: "po1@test.com",
+          },
+        });
+        await tx1.$transaction(async (nested) => {
+          await nested.user.create({
+            data: {
+              id: "parallel-nested-1",
+              name: "Parallel Nested 1",
+              email: "pn1@test.com",
+            },
+          });
+        });
+        return "tx1-done";
+      }),
+      client.$transaction(async (tx2) => {
+        await tx2.user.create({
+          data: {
+            id: "parallel-outer-2",
+            name: "Parallel Outer 2",
+            email: "po2@test.com",
+          },
+        });
+        await tx2.$transaction(async (nested) => {
+          await nested.user.create({
+            data: {
+              id: "parallel-nested-2",
+              name: "Parallel Nested 2",
+              email: "pn2@test.com",
+            },
+          });
+        });
+        return "tx2-done";
+      }),
+    ]);
+
+    expect(results).toEqual(["tx1-done", "tx2-done"]);
+
+    const allUsers = await client.user.findMany();
+    expect(allUsers).toHaveLength(4);
+  });
+});

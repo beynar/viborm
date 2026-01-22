@@ -939,15 +939,8 @@ export class QueryEngine {
       // Parse result
       const parsed = parseResult<T>(ctx, operation, parseInput);
 
-      // Handle throwIfNotFound
-      if (options?.throwIfNotFound && parsed === null) {
-        throw new NotFoundError(
-          modelName,
-          options.originalOperation ?? operation
-        );
-      }
-
-      return parsed;
+      // Apply post-processing (throwIfNotFound, exist conversion)
+      return this.applyPostProcessing(parsed, operation, options, modelName);
     };
   }
 }
