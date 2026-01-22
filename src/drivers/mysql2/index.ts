@@ -16,7 +16,6 @@ import type {
   PoolConnection,
   PoolOptions,
   ResultSetHeader,
-  RowDataPacket,
 } from "mysql2/promise";
 import { Driver, type DriverResultParser } from "../driver";
 import { mysqlResultParser, parseMySQLUrl } from "../shared";
@@ -58,7 +57,18 @@ export class MySQL2Driver extends Driver<Pool, PoolConnection> {
 
   protected async initClient(): Promise<Pool> {
     const mysql = await import("mysql2/promise");
-    return mysql.createPool(this.driverOptions.options ?? {});
+
+    let options = this.driverOptions.options ?? {};
+
+    // Parse databaseUrl if provided (same logic as createClient)
+    if (this.driverOptions.databaseUrl) {
+      options = {
+        ...options,
+        ...parseMySQLUrl(this.driverOptions.databaseUrl),
+      };
+    }
+
+    return mysql.createPool(options);
   }
 
   protected async closeClient(pool: Pool): Promise<void> {
@@ -70,10 +80,21 @@ export class MySQL2Driver extends Driver<Pool, PoolConnection> {
     sql: string,
     params: unknown[]
   ): Promise<QueryResult<T>> {
-    const [rows] = await client.execute<RowDataPacket[]>(sql, params);
+    const [result] = await client.execute(sql, params);
+
+    // Check if this is a SELECT query (returns rows) or mutation (returns ResultSetHeader)
+    if (Array.isArray(result)) {
+      return {
+        rows: result as T[],
+        rowCount: result.length,
+      };
+    }
+
+    // Mutation query - result is ResultSetHeader
+    const header = result as ResultSetHeader;
     return {
-      rows: rows as T[],
-      rowCount: rows.length,
+      rows: [] as T[],
+      rowCount: header.affectedRows,
     };
   }
 

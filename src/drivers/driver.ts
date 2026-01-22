@@ -574,6 +574,7 @@ export class TransactionBoundDriver<TClient, TTransaction> extends Driver<
   private readonly baseDriver: Driver<TClient, TTransaction>;
   private readonly tx: TTransaction;
   readonly adapter: DatabaseAdapter;
+  override readonly result?: DriverResultParser;
   override readonly inTransaction = true;
   override readonly supportsTransactions: boolean;
   override readonly supportsBatch: boolean;
@@ -583,6 +584,7 @@ export class TransactionBoundDriver<TClient, TTransaction> extends Driver<
     this.baseDriver = baseDriver;
     this.tx = tx;
     this.adapter = baseDriver.adapter;
+    this.result = baseDriver.result;
     this.supportsTransactions = baseDriver.supportsTransactions;
     this.supportsBatch = baseDriver.supportsBatch;
     // Copy instrumentation - each tx driver gets its own context for proper span parenting

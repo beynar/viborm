@@ -82,7 +82,7 @@ export type DiffOperation =
       to: ColumnDef;
     }
   | { type: "createIndex"; tableName: string; index: IndexDef }
-  | { type: "dropIndex"; indexName: string }
+  | { type: "dropIndex"; tableName: string; indexName: string }
   | { type: "addForeignKey"; tableName: string; fk: ForeignKeyDef }
   | { type: "dropForeignKey"; tableName: string; fkName: string }
   | {
@@ -583,7 +583,7 @@ export interface PushResult {
 // MIGRATION JOURNAL (tracks generated migrations)
 // =============================================================================
 
-export type Dialect = "postgresql" | "sqlite";
+export type Dialect = "postgresql" | "sqlite" | "mysql";
 
 export interface MigrationJournal {
   /** Schema version for the journal format */

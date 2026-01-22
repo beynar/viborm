@@ -213,10 +213,10 @@ function diffTable(
   for (const [name, idx] of currentIndexes) {
     const desiredIdx = desiredIndexes.get(name);
     if (!desiredIdx) {
-      operations.push({ type: "dropIndex", indexName: name });
+      operations.push({ type: "dropIndex", tableName, indexName: name });
     } else if (!indexesEqual(idx, desiredIdx)) {
       // Index changed - drop and recreate
-      operations.push({ type: "dropIndex", indexName: name });
+      operations.push({ type: "dropIndex", tableName, indexName: name });
       operations.push({ type: "createIndex", tableName, index: desiredIdx });
     }
   }

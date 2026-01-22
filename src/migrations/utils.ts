@@ -38,9 +38,12 @@ export function normalizeDialect(dialect: string): Dialect {
   if (dialect === "sqlite") {
     return "sqlite";
   }
+  if (dialect === "mysql") {
+    return "mysql";
+  }
   throw new MigrationError(
     `Unsupported dialect for migrations: "${dialect}". ` +
-      "Supported dialects: postgresql, sqlite.",
+      "Supported dialects: postgresql, sqlite, mysql.",
     VibORMErrorCode.MIGRATION_DIALECT_MISMATCH,
     { meta: { dialect } }
   );
