@@ -130,6 +130,39 @@ export class MySQLMigrationDriver extends MigrationDriver {
   // ===========================================================================
 
   /**
+   * MySQL integer types that support AUTO_INCREMENT.
+   * Includes variations with UNSIGNED modifier.
+   */
+  private static readonly AUTO_INCREMENT_TYPES = new Set([
+    "tinyint",
+    "smallint",
+    "mediumint",
+    "int",
+    "integer",
+    "bigint",
+  ]);
+
+  /**
+   * Validates that a column type is compatible with AUTO_INCREMENT.
+   * Returns true if valid, throws MigrationError if invalid.
+   */
+  private validateAutoIncrementType(column: ColumnDef): void {
+    // Extract base type (e.g., "INT UNSIGNED" -> "int", "BIGINT(20)" -> "bigint")
+    const baseType = column.type.toLowerCase().split(/[\s(]/)[0] ?? "";
+
+    if (!MySQLMigrationDriver.AUTO_INCREMENT_TYPES.has(baseType)) {
+      throw new MigrationError(
+        "MySQL AUTO_INCREMENT requires an integer type (TINYINT, SMALLINT, MEDIUMINT, INT, INTEGER, BIGINT). " +
+          `Column "${column.name}" has type "${column.type}" which is not compatible with AUTO_INCREMENT.`,
+        VibORMErrorCode.INVALID_INPUT,
+        {
+          meta: { column: column.name, type: column.type, autoIncrement: true },
+        }
+      );
+    }
+  }
+
+  /**
    * Generates a column definition string for MySQL.
    */
   protected override generateColumnDef(column: ColumnDef): string {
@@ -137,13 +170,10 @@ export class MySQLMigrationDriver extends MigrationDriver {
 
     // Handle auto-increment (MySQL uses AUTO_INCREMENT keyword)
     if (column.autoIncrement) {
-      // MySQL requires INT/BIGINT for AUTO_INCREMENT
-      const type = column.type.toUpperCase();
-      if (type.includes("BIGINT")) {
-        parts.push("BIGINT");
-      } else {
-        parts.push("INT");
-      }
+      // Validate that the column type supports AUTO_INCREMENT
+      this.validateAutoIncrementType(column);
+      // Preserve the original type (including modifiers like UNSIGNED)
+      parts.push(column.type);
       parts.push("AUTO_INCREMENT");
     } else {
       parts.push(column.type);
@@ -290,16 +320,28 @@ export class MySQLMigrationDriver extends MigrationDriver {
     // Validate index type
     this.validateIndexType(index.type, index.name);
 
-    const unique = index.unique ? "UNIQUE " : "";
     const cols = index.columns.map((c) => this.escapeIdentifier(c)).join(", ");
 
-    // MySQL index type syntax
-    let indexType = "";
-    if (index.type && index.type !== "btree") {
-      indexType = ` USING ${index.type.toUpperCase()}`;
-    }
+    // MySQL index type syntax varies by type:
+    // - FULLTEXT and SPATIAL are prefixes: CREATE FULLTEXT INDEX ...
+    // - HASH uses USING clause: CREATE INDEX ... USING HASH
+    // - BTREE is default, no clause needed
+    let indexPrefix = "";
+    let usingSuffix = "";
 
-    return `CREATE ${unique}INDEX ${this.escapeIdentifier(index.name)} ON ${this.escapeIdentifier(tableName)} (${cols})${indexType}`;
+    if (index.type === "fulltext") {
+      indexPrefix = "FULLTEXT ";
+    } else if (index.type === "spatial") {
+      indexPrefix = "SPATIAL ";
+    } else if (index.type === "hash") {
+      usingSuffix = " USING HASH";
+    }
+    // btree is default, no prefix or suffix needed
+
+    // UNIQUE cannot be combined with FULLTEXT or SPATIAL in MySQL
+    const unique = index.unique && !indexPrefix ? "UNIQUE " : "";
+
+    return `CREATE ${unique}${indexPrefix}INDEX ${this.escapeIdentifier(index.name)} ON ${this.escapeIdentifier(tableName)} (${cols})${usingSuffix}`;
   }
 
   generateDropIndex(op: DropIndexOperation): string {

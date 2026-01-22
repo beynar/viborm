@@ -108,6 +108,20 @@ export class SQLite3MigrationDriver extends MigrationDriver {
   // ===========================================================================
 
   protected generateColumnDef(column: ColumnDef): string {
+    // SQLite auto-increment only works with INTEGER PRIMARY KEY
+    // Validate that autoIncrement columns use INTEGER type
+    if (column.autoIncrement && column.type.toUpperCase() !== "INTEGER") {
+      throw new MigrationError(
+        "SQLite auto-increment requires INTEGER type. " +
+          `Column "${column.name}" has type "${column.type}" which is not compatible with auto-increment. ` +
+          "Note: SQLite auto-increment is implicit when using INTEGER PRIMARY KEY.",
+        VibORMErrorCode.INVALID_INPUT,
+        {
+          meta: { column: column.name, type: column.type, autoIncrement: true },
+        }
+      );
+    }
+
     const parts: string[] = [this.escapeIdentifier(column.name), column.type];
 
     if (!column.nullable) {

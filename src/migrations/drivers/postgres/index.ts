@@ -6,6 +6,7 @@
  */
 
 import type { Field, FieldState } from "@schema/fields";
+import { MigrationError, VibORMErrorCode } from "../../../errors";
 import type { ColumnDef } from "../../types";
 import {
   type AddColumnOperation,
@@ -106,21 +107,45 @@ export class PostgresMigrationDriver extends MigrationDriver {
   // ===========================================================================
 
   /**
+   * PostgreSQL integer types that support SERIAL auto-increment.
+   */
+  private static readonly SERIAL_TYPE_MAP: Record<string, string> = {
+    integer: "SERIAL",
+    int4: "SERIAL",
+    int: "SERIAL",
+    bigint: "BIGSERIAL",
+    int8: "BIGSERIAL",
+    smallint: "SMALLSERIAL",
+    int2: "SMALLSERIAL",
+  };
+
+  /**
    * Formats the column type for PostgreSQL.
    * Handles SERIAL types for auto-increment and enum type escaping.
    */
   protected override formatColumnType(column: ColumnDef): string {
     // Handle auto-increment with SERIAL types
     if (column.autoIncrement) {
-      if (column.type === "integer" || column.type === "int4") {
-        return "SERIAL";
+      const normalizedType = column.type.toLowerCase();
+      const serialType =
+        PostgresMigrationDriver.SERIAL_TYPE_MAP[normalizedType];
+
+      if (!serialType) {
+        throw new MigrationError(
+          "PostgreSQL auto-increment (SERIAL) requires an integer type (INTEGER, BIGINT, SMALLINT). " +
+            `Column "${column.name}" has type "${column.type}" which is not compatible with auto-increment.`,
+          VibORMErrorCode.INVALID_INPUT,
+          {
+            meta: {
+              column: column.name,
+              type: column.type,
+              autoIncrement: true,
+            },
+          }
+        );
       }
-      if (column.type === "bigint" || column.type === "int8") {
-        return "BIGSERIAL";
-      }
-      if (column.type === "smallint" || column.type === "int2") {
-        return "SMALLSERIAL";
-      }
+
+      return serialType;
     }
 
     // Handle enum types (need to be escaped as identifiers)

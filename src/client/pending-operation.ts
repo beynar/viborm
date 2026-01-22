@@ -13,7 +13,7 @@
  */
 
 import type { AnyDriver } from "@drivers";
-import type { QueryMetadata } from "@query-engine/types";
+import type { PreparedQuery, QueryMetadata } from "@query-engine/types";
 
 /**
  * Symbol to identify PendingOperation instances
@@ -120,6 +120,42 @@ export class PendingOperation<T> implements PromiseLike<T> {
    */
   executeWith(driver: AnyDriver): Promise<T> {
     return this.metadata.execute(driver);
+  }
+
+  /**
+   * Prepare the query for batch execution.
+   * Validates and builds SQL without executing.
+   *
+   * Returns undefined if:
+   * - The operation has nested writes (requires multiple queries)
+   * - The prepare function is not available
+   *
+   * @param driver - Optional driver to use for SQL dialect
+   * @returns PreparedQuery with sql and params, or undefined if not batchable
+   */
+  prepare(driver?: AnyDriver): PreparedQuery | undefined {
+    if (!this.metadata.prepare) {
+      return undefined;
+    }
+    return this.metadata.prepare(driver);
+  }
+
+  /**
+   * Parse raw query result into typed result.
+   * Used after batch execution to transform the raw result.
+   *
+   * @param raw - Raw query result from driver
+   * @returns Typed result
+   */
+  parseResult(raw: { rows: unknown[]; rowCount: number }): T {
+    if (!this.metadata.parseResult) {
+      // Fallback: return rows as-is for queries, rowCount for batch operations
+      if (this.metadata.isBatchOperation) {
+        return { count: raw.rowCount } as T;
+      }
+      return raw.rows as T;
+    }
+    return this.metadata.parseResult(raw);
   }
 
   /**

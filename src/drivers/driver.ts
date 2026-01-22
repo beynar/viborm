@@ -400,11 +400,8 @@ export abstract class Driver<TClient, TTransaction> {
     options?: TransactionOptions
   ): Promise<T> {
     if (!this.supportsTransactions) {
-      console.warn(
-        `${this.driverName} does not support transactions. ` +
-          "Operations will execute without transaction isolation. " +
-          "Use $transaction([...]) array mode for atomic batch operations."
-      );
+      // Don't warn here - warning is handled at $transaction level with more context
+      // about whether native batch is available
       return fn(this);
     }
     return this._transaction((tx) => {

@@ -227,6 +227,11 @@ function createObjectValidator(
         type?: string;
         options?: { optional?: boolean; default?: unknown };
         default?: unknown;
+        wrapped?: {
+          type?: string;
+          default?: unknown;
+          options?: { optional?: boolean; default?: unknown };
+        };
       };
 
       // Schema accepts undefined if:
@@ -234,16 +239,23 @@ function createObjectValidator(
       // 2. It has options.optional: true (like string({ optional: true }))
       // 3. It has options.default (like number({ default: 18 }))
       // 4. It has a default property directly (optional wrapper with default)
+      // 5. It's a transform wrapper that wraps an optional schema with default
       const isOptionalWrapper = schemaAny.type === "optional";
       const hasOptionalOption = schemaAny.options?.optional === true;
       const hasDefaultOption = schemaAny.options?.default !== undefined;
       const hasDefaultProp = schemaAny.default !== undefined;
+      // Check for transform (coerce) wrapping optional with default
+      const isTransformWithOptionalDefault =
+        schemaAny.type === "transform" &&
+        schemaAny.wrapped?.type === "optional" &&
+        schemaAny.wrapped?.default !== undefined;
 
       acceptsUndefined[i] =
         isOptionalWrapper ||
         hasOptionalOption ||
         hasDefaultOption ||
-        hasDefaultProp;
+        hasDefaultProp ||
+        isTransformWithOptionalDefault;
     }
   };
 

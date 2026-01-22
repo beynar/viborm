@@ -278,6 +278,7 @@ describe("diff", () => {
 
       expect(result.operations).toContainEqual({
         type: "dropIndex",
+        tableName: "users",
         indexName: "idx_users_email",
       });
     });

@@ -16,7 +16,10 @@ import type { DiffOperation, SchemaSnapshot } from "../../src/migrations/types";
 // =============================================================================
 
 describe("SQLite3 DDL Generation", () => {
-  function generateDDL(op: DiffOperation, context?: { currentSchema?: SchemaSnapshot }): string {
+  function generateDDL(
+    op: DiffOperation,
+    context?: { currentSchema?: SchemaSnapshot }
+  ): string {
     return sqlite3MigrationDriver.generateDDL(op, context);
   }
 
@@ -69,7 +72,12 @@ describe("SQLite3 DDL Generation", () => {
         table: {
           name: "users",
           columns: [
-            { name: "id", type: "INTEGER", nullable: false, autoIncrement: true },
+            {
+              name: "id",
+              type: "INTEGER",
+              nullable: false,
+              autoIncrement: true,
+            },
           ],
           primaryKey: { columns: ["id"], name: "users_pkey" },
           indexes: [],
@@ -92,7 +100,12 @@ describe("SQLite3 DDL Generation", () => {
         table: {
           name: "users",
           columns: [
-            { name: "status", type: "TEXT", nullable: false, default: "'active'" },
+            {
+              name: "status",
+              type: "TEXT",
+              nullable: false,
+              default: "'active'",
+            },
           ],
           indexes: [],
           foreignKeys: [],
@@ -171,7 +184,9 @@ describe("SQLite3 DDL Generation", () => {
       const ddl = generateDDL(op);
 
       expect(ddl).toContain('CREATE TABLE "users"');
-      expect(ddl).toContain('CREATE INDEX "idx_users_email" ON "users" ("email")');
+      expect(ddl).toContain(
+        'CREATE INDEX "idx_users_email" ON "users" ("email")'
+      );
     });
   });
 
@@ -253,7 +268,9 @@ describe("SQLite3 DDL Generation", () => {
 
       const ddl = generateDDL(op);
 
-      expect(ddl).toBe('ALTER TABLE "users" RENAME COLUMN "username" TO "name"');
+      expect(ddl).toBe(
+        'ALTER TABLE "users" RENAME COLUMN "username" TO "name"'
+      );
     });
   });
 
@@ -316,7 +333,9 @@ describe("SQLite3 DDL Generation", () => {
 
       const ddl = generateDDL(op);
 
-      expect(ddl).toBe('CREATE UNIQUE INDEX "idx_users_email" ON "users" ("email")');
+      expect(ddl).toBe(
+        'CREATE UNIQUE INDEX "idx_users_email" ON "users" ("email")'
+      );
     });
 
     it("should generate multi-column index", () => {
@@ -361,7 +380,9 @@ describe("SQLite3 DDL Generation", () => {
 
       const ddl = generateDDL(op);
 
-      expect(ddl).toBe('CREATE UNIQUE INDEX "users_email_key" ON "users" ("email")');
+      expect(ddl).toBe(
+        'CREATE UNIQUE INDEX "users_email_key" ON "users" ("email")'
+      );
     });
   });
 
@@ -388,7 +409,9 @@ describe("SQLite3 DDL Generation", () => {
 
       const ddl = generateDDL(op);
 
-      expect(ddl).toContain("-- SQLite: enum CHECK constraint is part of column definition");
+      expect(ddl).toContain(
+        "-- SQLite: enum CHECK constraint is part of column definition"
+      );
     });
   });
 
@@ -400,7 +423,9 @@ describe("SQLite3 DDL Generation", () => {
         ["active", "inactive", "pending"]
       );
 
-      expect(result).toBe("TEXT CHECK(\"status\" IN ('active', 'inactive', 'pending'))");
+      expect(result).toBe(
+        "TEXT CHECK(\"status\" IN ('active', 'inactive', 'pending'))"
+      );
     });
 
     it("should escape single quotes in values", () => {
@@ -410,13 +435,16 @@ describe("SQLite3 DDL Generation", () => {
         ["it's active", "normal"]
       );
 
-      expect(result).toBe("TEXT CHECK(\"status\" IN ('it''s active', 'normal'))");
+      expect(result).toBe(
+        "TEXT CHECK(\"status\" IN ('it''s active', 'normal'))"
+      );
     });
   });
 
   describe("migration tracking", () => {
     it("should generate CREATE TABLE for tracking table", () => {
-      const ddl = sqlite3MigrationDriver.generateCreateTrackingTable("_migrations");
+      const ddl =
+        sqlite3MigrationDriver.generateCreateTrackingTable("_migrations");
 
       expect(ddl).toContain('CREATE TABLE IF NOT EXISTS "_migrations"');
       expect(ddl).toContain("INTEGER PRIMARY KEY AUTOINCREMENT");
@@ -424,14 +452,18 @@ describe("SQLite3 DDL Generation", () => {
     });
 
     it("should generate INSERT for migration", () => {
-      const { sql, paramCount } = sqlite3MigrationDriver.generateInsertMigration("_migrations");
+      const { sql, paramCount } =
+        sqlite3MigrationDriver.generateInsertMigration("_migrations");
 
-      expect(sql).toBe('INSERT INTO "_migrations" (name, checksum) VALUES (?, ?)');
+      expect(sql).toBe(
+        'INSERT INTO "_migrations" (name, checksum) VALUES (?, ?)'
+      );
       expect(paramCount).toBe(2);
     });
 
     it("should generate DELETE for migration", () => {
-      const { sql, paramCount } = sqlite3MigrationDriver.generateDeleteMigration("_migrations");
+      const { sql, paramCount } =
+        sqlite3MigrationDriver.generateDeleteMigration("_migrations");
 
       expect(sql).toBe('DELETE FROM "_migrations" WHERE name = ?');
       expect(paramCount).toBe(1);
@@ -440,11 +472,11 @@ describe("SQLite3 DDL Generation", () => {
 
   describe("locking", () => {
     it("should return null for acquire lock (file-based)", () => {
-      expect(sqlite3MigrationDriver.generateAcquireLock(12345)).toBeNull();
+      expect(sqlite3MigrationDriver.generateAcquireLock(12_345)).toBeNull();
     });
 
     it("should return null for release lock (file-based)", () => {
-      expect(sqlite3MigrationDriver.generateReleaseLock(12345)).toBeNull();
+      expect(sqlite3MigrationDriver.generateReleaseLock(12_345)).toBeNull();
     });
   });
 });
@@ -454,7 +486,10 @@ describe("SQLite3 DDL Generation", () => {
 // =============================================================================
 
 describe("LibSQL DDL Generation", () => {
-  function generateDDL(op: DiffOperation, context?: { currentSchema?: SchemaSnapshot }): string {
+  function generateDDL(
+    op: DiffOperation,
+    context?: { currentSchema?: SchemaSnapshot }
+  ): string {
     return libsqlMigrationDriver.generateDDL(op, context);
   }
 
@@ -494,7 +529,9 @@ describe("LibSQL DDL Generation", () => {
       const ddl = generateDDL(op);
 
       // LibSQL uses native ALTER COLUMN, not table recreation
-      expect(ddl).toBe('ALTER TABLE "users" ALTER COLUMN "age" TO "age" INTEGER NOT NULL');
+      expect(ddl).toBe(
+        'ALTER TABLE "users" ALTER COLUMN "age" TO "age" INTEGER NOT NULL'
+      );
       expect(ddl).not.toContain("PRAGMA");
       expect(ddl).not.toContain("__new_");
     });
@@ -510,7 +547,9 @@ describe("LibSQL DDL Generation", () => {
 
       const ddl = generateDDL(op);
 
-      expect(ddl).toBe('ALTER TABLE "users" ALTER COLUMN "email" TO "email" TEXT');
+      expect(ddl).toBe(
+        'ALTER TABLE "users" ALTER COLUMN "email" TO "email" TEXT'
+      );
       expect(ddl).not.toContain("NOT NULL");
     });
 
@@ -520,7 +559,12 @@ describe("LibSQL DDL Generation", () => {
         tableName: "users",
         columnName: "status",
         from: { name: "status", type: "TEXT", nullable: false },
-        to: { name: "status", type: "TEXT", nullable: false, default: "'active'" },
+        to: {
+          name: "status",
+          type: "TEXT",
+          nullable: false,
+          default: "'active'",
+        },
       };
 
       const ddl = generateDDL(op);
@@ -700,9 +744,15 @@ describe("LibSQL DDL Generation", () => {
 
   describe("capabilities", () => {
     it("should report correct capabilities", () => {
-      expect(libsqlMigrationDriver.capabilities.supportsNativeEnums).toBe(false);
-      expect(libsqlMigrationDriver.capabilities.supportsNativeArrays).toBe(false);
-      expect(libsqlMigrationDriver.capabilities.supportsIndexTypes).toEqual(["btree"]);
+      expect(libsqlMigrationDriver.capabilities.supportsNativeEnums).toBe(
+        false
+      );
+      expect(libsqlMigrationDriver.capabilities.supportsNativeArrays).toBe(
+        false
+      );
+      expect(libsqlMigrationDriver.capabilities.supportsIndexTypes).toEqual([
+        "btree",
+      ]);
     });
 
     it("should have driverName as libsql", () => {
@@ -720,7 +770,10 @@ describe("LibSQL DDL Generation", () => {
 // =============================================================================
 
 describe("MySQL DDL Generation", () => {
-  function generateDDL(op: DiffOperation, context?: { currentSchema?: SchemaSnapshot }): string {
+  function generateDDL(
+    op: DiffOperation,
+    context?: { currentSchema?: SchemaSnapshot }
+  ): string {
     return mysqlMigrationDriver.generateDDL(op, context);
   }
 
@@ -798,7 +851,12 @@ describe("MySQL DDL Generation", () => {
         table: {
           name: "users",
           columns: [
-            { name: "id", type: "BIGINT", nullable: false, autoIncrement: true },
+            {
+              name: "id",
+              type: "BIGINT",
+              nullable: false,
+              autoIncrement: true,
+            },
           ],
           indexes: [],
           foreignKeys: [],
@@ -849,7 +907,12 @@ describe("MySQL DDL Generation", () => {
         table: {
           name: "posts",
           columns: [
-            { name: "content", type: "TEXT", nullable: true, default: "'default'" },
+            {
+              name: "content",
+              type: "TEXT",
+              nullable: true,
+              default: "'default'",
+            },
           ],
           indexes: [],
           foreignKeys: [],
@@ -923,7 +986,9 @@ describe("MySQL DDL Generation", () => {
 
       const ddl = generateDDL(op);
 
-      expect(ddl).toBe("ALTER TABLE `users` ADD COLUMN `email` VARCHAR(255) NOT NULL");
+      expect(ddl).toBe(
+        "ALTER TABLE `users` ADD COLUMN `email` VARCHAR(255) NOT NULL"
+      );
     });
   });
 
@@ -952,7 +1017,9 @@ describe("MySQL DDL Generation", () => {
 
       const ddl = generateDDL(op);
 
-      expect(ddl).toBe("ALTER TABLE `users` RENAME COLUMN `username` TO `name`");
+      expect(ddl).toBe(
+        "ALTER TABLE `users` RENAME COLUMN `username` TO `name`"
+      );
     });
   });
 
@@ -982,7 +1049,9 @@ describe("MySQL DDL Generation", () => {
 
       const ddl = generateDDL(op);
 
-      expect(ddl).toBe("ALTER TABLE `users` CHANGE COLUMN `old_name` `new_name` VARCHAR(100)");
+      expect(ddl).toBe(
+        "ALTER TABLE `users` CHANGE COLUMN `old_name` `new_name` VARCHAR(100)"
+      );
     });
   });
 
@@ -1008,7 +1077,9 @@ describe("MySQL DDL Generation", () => {
 
       const ddl = generateDDL(op);
 
-      expect(ddl).toBe("CREATE UNIQUE INDEX `idx_users_email` ON `users` (`email`)");
+      expect(ddl).toBe(
+        "CREATE UNIQUE INDEX `idx_users_email` ON `users` (`email`)"
+      );
     });
 
     it("should generate CREATE INDEX with HASH type", () => {
@@ -1025,7 +1096,9 @@ describe("MySQL DDL Generation", () => {
 
       const ddl = generateDDL(op);
 
-      expect(ddl).toBe("CREATE INDEX `idx_users_id` ON `users` (`id`) USING HASH");
+      expect(ddl).toBe(
+        "CREATE INDEX `idx_users_id` ON `users` (`id`) USING HASH"
+      );
     });
 
     it("should generate CREATE INDEX with FULLTEXT type", () => {
@@ -1042,7 +1115,10 @@ describe("MySQL DDL Generation", () => {
 
       const ddl = generateDDL(op);
 
-      expect(ddl).toBe("CREATE INDEX `idx_posts_content` ON `posts` (`content`) USING FULLTEXT");
+      // FULLTEXT is a prefix in MySQL, not a USING clause
+      expect(ddl).toBe(
+        "CREATE FULLTEXT INDEX `idx_posts_content` ON `posts` (`content`)"
+      );
     });
   });
 
@@ -1052,20 +1128,11 @@ describe("MySQL DDL Generation", () => {
         type: "dropIndex",
         indexName: "idx_users_email",
         tableName: "users",
-      } as DiffOperation & { tableName: string };
+      };
 
       const ddl = generateDDL(op);
 
       expect(ddl).toBe("DROP INDEX `idx_users_email` ON `users`");
-    });
-
-    it("should throw error when tableName is missing", () => {
-      const op: DiffOperation = {
-        type: "dropIndex",
-        indexName: "idx_users_email",
-      };
-
-      expect(() => generateDDL(op)).toThrow("MySQL DROP INDEX requires tableName");
     });
   });
 
@@ -1119,7 +1186,9 @@ describe("MySQL DDL Generation", () => {
 
       const ddl = generateDDL(op);
 
-      expect(ddl).toBe("ALTER TABLE `users` ADD CONSTRAINT `users_email_key` UNIQUE (`email`)");
+      expect(ddl).toBe(
+        "ALTER TABLE `users` ADD CONSTRAINT `users_email_key` UNIQUE (`email`)"
+      );
     });
   });
 
@@ -1154,12 +1223,17 @@ describe("MySQL DDL Generation", () => {
       const op: DiffOperation = {
         type: "addPrimaryKey",
         tableName: "order_items",
-        primaryKey: { columns: ["order_id", "product_id"], name: "order_items_pkey" },
+        primaryKey: {
+          columns: ["order_id", "product_id"],
+          name: "order_items_pkey",
+        },
       };
 
       const ddl = generateDDL(op);
 
-      expect(ddl).toBe("ALTER TABLE `order_items` ADD PRIMARY KEY (`order_id`, `product_id`)");
+      expect(ddl).toBe(
+        "ALTER TABLE `order_items` ADD PRIMARY KEY (`order_id`, `product_id`)"
+      );
     });
   });
 
@@ -1206,7 +1280,11 @@ describe("MySQL DDL Generation", () => {
           {
             name: "users",
             columns: [
-              { name: "status", type: "ENUM('active','inactive')", nullable: false },
+              {
+                name: "status",
+                type: "ENUM('active','inactive')",
+                nullable: false,
+              },
             ],
             indexes: [],
             foreignKeys: [],
@@ -1231,21 +1309,20 @@ describe("MySQL DDL Generation", () => {
 
   describe("getEnumColumnType", () => {
     it("should return ENUM with values", () => {
-      const result = mysqlMigrationDriver.getEnumColumnType(
-        "users",
-        "status",
-        ["active", "inactive", "pending"]
-      );
+      const result = mysqlMigrationDriver.getEnumColumnType("users", "status", [
+        "active",
+        "inactive",
+        "pending",
+      ]);
 
       expect(result).toBe("ENUM('active', 'inactive', 'pending')");
     });
 
     it("should escape single quotes in values", () => {
-      const result = mysqlMigrationDriver.getEnumColumnType(
-        "users",
-        "status",
-        ["it's active", "normal"]
-      );
+      const result = mysqlMigrationDriver.getEnumColumnType("users", "status", [
+        "it's active",
+        "normal",
+      ]);
 
       expect(result).toBe("ENUM('it''s active', 'normal')");
     });
@@ -1253,7 +1330,8 @@ describe("MySQL DDL Generation", () => {
 
   describe("migration tracking", () => {
     it("should generate CREATE TABLE for tracking table", () => {
-      const ddl = mysqlMigrationDriver.generateCreateTrackingTable("_migrations");
+      const ddl =
+        mysqlMigrationDriver.generateCreateTrackingTable("_migrations");
 
       expect(ddl).toContain("CREATE TABLE IF NOT EXISTS `_migrations`");
       expect(ddl).toContain("INT AUTO_INCREMENT PRIMARY KEY");
@@ -1262,14 +1340,18 @@ describe("MySQL DDL Generation", () => {
     });
 
     it("should generate INSERT for migration", () => {
-      const { sql, paramCount } = mysqlMigrationDriver.generateInsertMigration("_migrations");
+      const { sql, paramCount } =
+        mysqlMigrationDriver.generateInsertMigration("_migrations");
 
-      expect(sql).toBe("INSERT INTO `_migrations` (name, checksum) VALUES (?, ?)");
+      expect(sql).toBe(
+        "INSERT INTO `_migrations` (name, checksum) VALUES (?, ?)"
+      );
       expect(paramCount).toBe(2);
     });
 
     it("should generate DELETE for migration", () => {
-      const { sql, paramCount } = mysqlMigrationDriver.generateDeleteMigration("_migrations");
+      const { sql, paramCount } =
+        mysqlMigrationDriver.generateDeleteMigration("_migrations");
 
       expect(sql).toBe("DELETE FROM `_migrations` WHERE name = ?");
       expect(paramCount).toBe(1);
@@ -1278,12 +1360,12 @@ describe("MySQL DDL Generation", () => {
 
   describe("locking", () => {
     it("should generate GET_LOCK for acquire", () => {
-      const sql = mysqlMigrationDriver.generateAcquireLock(12345);
+      const sql = mysqlMigrationDriver.generateAcquireLock(12_345);
       expect(sql).toBe("SELECT GET_LOCK('viborm_migration_12345', 30)");
     });
 
     it("should generate RELEASE_LOCK for release", () => {
-      const sql = mysqlMigrationDriver.generateReleaseLock(12345);
+      const sql = mysqlMigrationDriver.generateReleaseLock(12_345);
       expect(sql).toBe("SELECT RELEASE_LOCK('viborm_migration_12345')");
     });
   });
@@ -1291,7 +1373,9 @@ describe("MySQL DDL Generation", () => {
   describe("capabilities", () => {
     it("should report correct capabilities", () => {
       expect(mysqlMigrationDriver.capabilities.supportsNativeEnums).toBe(true);
-      expect(mysqlMigrationDriver.capabilities.supportsNativeArrays).toBe(false);
+      expect(mysqlMigrationDriver.capabilities.supportsNativeArrays).toBe(
+        false
+      );
       expect(mysqlMigrationDriver.capabilities.supportsIndexTypes).toEqual([
         "btree",
         "hash",
@@ -1318,7 +1402,10 @@ describe("MySQL DDL Generation", () => {
         },
       }) as any;
 
-    const createFieldState = (type: string, overrides: Record<string, any> = {}) => ({
+    const createFieldState = (
+      type: string,
+      overrides: Record<string, any> = {}
+    ) => ({
       type,
       nullable: false,
       array: false,
@@ -1402,7 +1489,10 @@ describe("MySQL DDL Generation", () => {
 // =============================================================================
 
 describe("PostgreSQL DDL Generation", () => {
-  function generateDDL(op: DiffOperation, context?: { currentSchema?: SchemaSnapshot }): string {
+  function generateDDL(
+    op: DiffOperation,
+    context?: { currentSchema?: SchemaSnapshot }
+  ): string {
     return postgresMigrationDriver.generateDDL(op, context);
   }
 
@@ -1481,7 +1571,12 @@ describe("PostgreSQL DDL Generation", () => {
         table: {
           name: "users",
           columns: [
-            { name: "id", type: "integer", nullable: false, autoIncrement: true },
+            {
+              name: "id",
+              type: "integer",
+              nullable: false,
+              autoIncrement: true,
+            },
           ],
           indexes: [],
           foreignKeys: [],
@@ -1500,7 +1595,12 @@ describe("PostgreSQL DDL Generation", () => {
         table: {
           name: "users",
           columns: [
-            { name: "id", type: "bigint", nullable: false, autoIncrement: true },
+            {
+              name: "id",
+              type: "bigint",
+              nullable: false,
+              autoIncrement: true,
+            },
           ],
           indexes: [],
           foreignKeys: [],
@@ -1519,7 +1619,12 @@ describe("PostgreSQL DDL Generation", () => {
         table: {
           name: "users",
           columns: [
-            { name: "status", type: "TEXT", nullable: false, default: "'active'" },
+            {
+              name: "status",
+              type: "TEXT",
+              nullable: false,
+              default: "'active'",
+            },
           ],
           indexes: [],
           foreignKeys: [],
@@ -1596,7 +1701,9 @@ describe("PostgreSQL DDL Generation", () => {
       const ddl = generateDDL(op);
 
       expect(ddl).toContain('CREATE TABLE "posts"');
-      expect(ddl).toContain('ALTER TABLE "posts" ADD CONSTRAINT "fk_posts_user"');
+      expect(ddl).toContain(
+        'ALTER TABLE "posts" ADD CONSTRAINT "fk_posts_user"'
+      );
       expect(ddl).toContain('FOREIGN KEY ("user_id")');
       expect(ddl).toContain('REFERENCES "users" ("id")');
       expect(ddl).toContain("ON DELETE CASCADE");
@@ -1640,7 +1747,9 @@ describe("PostgreSQL DDL Generation", () => {
 
       const ddl = generateDDL(op);
 
-      expect(ddl).toBe('ALTER TABLE "users" ADD COLUMN "email" VARCHAR(255) NOT NULL');
+      expect(ddl).toBe(
+        'ALTER TABLE "users" ADD COLUMN "email" VARCHAR(255) NOT NULL'
+      );
     });
 
     it("should handle nullable columns", () => {
@@ -1681,7 +1790,9 @@ describe("PostgreSQL DDL Generation", () => {
 
       const ddl = generateDDL(op);
 
-      expect(ddl).toBe('ALTER TABLE "users" RENAME COLUMN "username" TO "name"');
+      expect(ddl).toBe(
+        'ALTER TABLE "users" RENAME COLUMN "username" TO "name"'
+      );
     });
   });
 
@@ -1697,7 +1808,9 @@ describe("PostgreSQL DDL Generation", () => {
 
       const ddl = generateDDL(op);
 
-      expect(ddl).toContain('ALTER TABLE "users" ALTER COLUMN "age" TYPE INTEGER');
+      expect(ddl).toContain(
+        'ALTER TABLE "users" ALTER COLUMN "age" TYPE INTEGER'
+      );
       expect(ddl).toContain('USING "age"::INTEGER');
     });
 
@@ -1726,7 +1839,9 @@ describe("PostgreSQL DDL Generation", () => {
 
       const ddl = generateDDL(op);
 
-      expect(ddl).toBe('ALTER TABLE "users" ALTER COLUMN "email" DROP NOT NULL');
+      expect(ddl).toBe(
+        'ALTER TABLE "users" ALTER COLUMN "email" DROP NOT NULL'
+      );
     });
 
     it("should generate SET DEFAULT for default change", () => {
@@ -1735,12 +1850,19 @@ describe("PostgreSQL DDL Generation", () => {
         tableName: "users",
         columnName: "status",
         from: { name: "status", type: "TEXT", nullable: false },
-        to: { name: "status", type: "TEXT", nullable: false, default: "'active'" },
+        to: {
+          name: "status",
+          type: "TEXT",
+          nullable: false,
+          default: "'active'",
+        },
       };
 
       const ddl = generateDDL(op);
 
-      expect(ddl).toBe('ALTER TABLE "users" ALTER COLUMN "status" SET DEFAULT \'active\'');
+      expect(ddl).toBe(
+        'ALTER TABLE "users" ALTER COLUMN "status" SET DEFAULT \'active\''
+      );
     });
 
     it("should generate DROP DEFAULT when removing default", () => {
@@ -1748,13 +1870,20 @@ describe("PostgreSQL DDL Generation", () => {
         type: "alterColumn",
         tableName: "users",
         columnName: "status",
-        from: { name: "status", type: "TEXT", nullable: false, default: "'active'" },
+        from: {
+          name: "status",
+          type: "TEXT",
+          nullable: false,
+          default: "'active'",
+        },
         to: { name: "status", type: "TEXT", nullable: false },
       };
 
       const ddl = generateDDL(op);
 
-      expect(ddl).toBe('ALTER TABLE "users" ALTER COLUMN "status" DROP DEFAULT');
+      expect(ddl).toBe(
+        'ALTER TABLE "users" ALTER COLUMN "status" DROP DEFAULT'
+      );
     });
 
     it("should generate multiple ALTER statements for combined changes", () => {
@@ -1768,9 +1897,15 @@ describe("PostgreSQL DDL Generation", () => {
 
       const ddl = generateDDL(op);
 
-      expect(ddl).toContain('ALTER TABLE "users" ALTER COLUMN "age" TYPE INTEGER');
-      expect(ddl).toContain('ALTER TABLE "users" ALTER COLUMN "age" SET NOT NULL');
-      expect(ddl).toContain('ALTER TABLE "users" ALTER COLUMN "age" SET DEFAULT 0');
+      expect(ddl).toContain(
+        'ALTER TABLE "users" ALTER COLUMN "age" TYPE INTEGER'
+      );
+      expect(ddl).toContain(
+        'ALTER TABLE "users" ALTER COLUMN "age" SET NOT NULL'
+      );
+      expect(ddl).toContain(
+        'ALTER TABLE "users" ALTER COLUMN "age" SET DEFAULT 0'
+      );
     });
   });
 
@@ -1796,7 +1931,9 @@ describe("PostgreSQL DDL Generation", () => {
 
       const ddl = generateDDL(op);
 
-      expect(ddl).toBe('CREATE UNIQUE INDEX "idx_users_email" ON "users" ("email")');
+      expect(ddl).toBe(
+        'CREATE UNIQUE INDEX "idx_users_email" ON "users" ("email")'
+      );
     });
 
     it("should generate CREATE INDEX with USING btree", () => {
@@ -1813,7 +1950,9 @@ describe("PostgreSQL DDL Generation", () => {
 
       const ddl = generateDDL(op);
 
-      expect(ddl).toBe('CREATE INDEX "idx_users_id" ON "users" USING btree ("id")');
+      expect(ddl).toBe(
+        'CREATE INDEX "idx_users_id" ON "users" USING btree ("id")'
+      );
     });
 
     it("should generate CREATE INDEX with USING hash", () => {
@@ -1830,7 +1969,9 @@ describe("PostgreSQL DDL Generation", () => {
 
       const ddl = generateDDL(op);
 
-      expect(ddl).toBe('CREATE INDEX "idx_users_id" ON "users" USING hash ("id")');
+      expect(ddl).toBe(
+        'CREATE INDEX "idx_users_id" ON "users" USING hash ("id")'
+      );
     });
 
     it("should generate CREATE INDEX with USING gin for JSONB", () => {
@@ -1847,7 +1988,9 @@ describe("PostgreSQL DDL Generation", () => {
 
       const ddl = generateDDL(op);
 
-      expect(ddl).toBe('CREATE INDEX "idx_users_metadata" ON "users" USING gin ("metadata")');
+      expect(ddl).toBe(
+        'CREATE INDEX "idx_users_metadata" ON "users" USING gin ("metadata")'
+      );
     });
 
     it("should generate CREATE INDEX with WHERE clause (partial index)", () => {
@@ -1864,7 +2007,9 @@ describe("PostgreSQL DDL Generation", () => {
 
       const ddl = generateDDL(op);
 
-      expect(ddl).toBe('CREATE INDEX "idx_active_users" ON "users" ("email") WHERE active = true');
+      expect(ddl).toBe(
+        'CREATE INDEX "idx_active_users" ON "users" ("email") WHERE active = true'
+      );
     });
 
     it("should generate multi-column index", () => {
@@ -1880,7 +2025,9 @@ describe("PostgreSQL DDL Generation", () => {
 
       const ddl = generateDDL(op);
 
-      expect(ddl).toBe('CREATE INDEX "idx_users_name_email" ON "users" ("name", "email")');
+      expect(ddl).toBe(
+        'CREATE INDEX "idx_users_name_email" ON "users" ("name", "email")'
+      );
     });
   });
 
@@ -1969,7 +2116,9 @@ describe("PostgreSQL DDL Generation", () => {
 
       const ddl = generateDDL(op);
 
-      expect(ddl).toBe('ALTER TABLE "users" ADD CONSTRAINT "users_email_key" UNIQUE ("email")');
+      expect(ddl).toBe(
+        'ALTER TABLE "users" ADD CONSTRAINT "users_email_key" UNIQUE ("email")'
+      );
     });
   });
 
@@ -1997,14 +2146,19 @@ describe("PostgreSQL DDL Generation", () => {
 
       const ddl = generateDDL(op);
 
-      expect(ddl).toBe('ALTER TABLE "users" ADD CONSTRAINT "users_pkey" PRIMARY KEY ("id")');
+      expect(ddl).toBe(
+        'ALTER TABLE "users" ADD CONSTRAINT "users_pkey" PRIMARY KEY ("id")'
+      );
     });
 
     it("should handle composite primary key", () => {
       const op: DiffOperation = {
         type: "addPrimaryKey",
         tableName: "order_items",
-        primaryKey: { columns: ["order_id", "product_id"], name: "order_items_pkey" },
+        primaryKey: {
+          columns: ["order_id", "product_id"],
+          name: "order_items_pkey",
+        },
       };
 
       const ddl = generateDDL(op);
@@ -2045,12 +2199,17 @@ describe("PostgreSQL DDL Generation", () => {
     it("should generate CREATE TYPE AS ENUM", () => {
       const op: DiffOperation = {
         type: "createEnum",
-        enumDef: { name: "status_enum", values: ["active", "inactive", "pending"] },
+        enumDef: {
+          name: "status_enum",
+          values: ["active", "inactive", "pending"],
+        },
       };
 
       const ddl = generateDDL(op);
 
-      expect(ddl).toBe("CREATE TYPE \"status_enum\" AS ENUM ('active', 'inactive', 'pending')");
+      expect(ddl).toBe(
+        "CREATE TYPE \"status_enum\" AS ENUM ('active', 'inactive', 'pending')"
+      );
     });
 
     it("should escape single quotes in enum values", () => {
@@ -2061,7 +2220,9 @@ describe("PostgreSQL DDL Generation", () => {
 
       const ddl = generateDDL(op);
 
-      expect(ddl).toBe("CREATE TYPE \"status_enum\" AS ENUM ('it''s active', 'normal')");
+      expect(ddl).toBe(
+        "CREATE TYPE \"status_enum\" AS ENUM ('it''s active', 'normal')"
+      );
     });
 
     it("should generate DROP TYPE", () => {
@@ -2095,9 +2256,7 @@ describe("PostgreSQL DDL Generation", () => {
         tables: [
           {
             name: "users",
-            columns: [
-              { name: "status", type: "status_enum", nullable: false },
-            ],
+            columns: [{ name: "status", type: "status_enum", nullable: false }],
             indexes: [],
             foreignKeys: [],
             uniqueConstraints: [],
@@ -2117,15 +2276,23 @@ describe("PostgreSQL DDL Generation", () => {
       const ddl = generateDDL(op, { currentSchema });
 
       // Should convert to text first
-      expect(ddl).toContain('ALTER TABLE "users" ALTER COLUMN "status" TYPE text');
+      expect(ddl).toContain(
+        'ALTER TABLE "users" ALTER COLUMN "status" TYPE text'
+      );
       // Should update values
-      expect(ddl).toContain('UPDATE "users" SET "status" = \'inactive\' WHERE "status" = \'pending\'');
+      expect(ddl).toContain(
+        'UPDATE "users" SET "status" = \'inactive\' WHERE "status" = \'pending\''
+      );
       // Should drop old enum
       expect(ddl).toContain('DROP TYPE "status_enum"');
       // Should create new enum
-      expect(ddl).toContain("CREATE TYPE \"status_enum\" AS ENUM ('active', 'inactive')");
+      expect(ddl).toContain(
+        "CREATE TYPE \"status_enum\" AS ENUM ('active', 'inactive')"
+      );
       // Should convert back to enum
-      expect(ddl).toContain('ALTER TABLE "users" ALTER COLUMN "status" TYPE "status_enum"');
+      expect(ddl).toContain(
+        'ALTER TABLE "users" ALTER COLUMN "status" TYPE "status_enum"'
+      );
     });
   });
 
@@ -2143,7 +2310,8 @@ describe("PostgreSQL DDL Generation", () => {
 
   describe("migration tracking", () => {
     it("should generate CREATE TABLE for tracking table", () => {
-      const ddl = postgresMigrationDriver.generateCreateTrackingTable("_migrations");
+      const ddl =
+        postgresMigrationDriver.generateCreateTrackingTable("_migrations");
 
       expect(ddl).toContain('CREATE TABLE IF NOT EXISTS "_migrations"');
       expect(ddl).toContain("SERIAL PRIMARY KEY");
@@ -2152,14 +2320,18 @@ describe("PostgreSQL DDL Generation", () => {
     });
 
     it("should generate INSERT for migration with $1, $2 placeholders", () => {
-      const { sql, paramCount } = postgresMigrationDriver.generateInsertMigration("_migrations");
+      const { sql, paramCount } =
+        postgresMigrationDriver.generateInsertMigration("_migrations");
 
-      expect(sql).toBe('INSERT INTO "_migrations" (name, checksum) VALUES ($1, $2)');
+      expect(sql).toBe(
+        'INSERT INTO "_migrations" (name, checksum) VALUES ($1, $2)'
+      );
       expect(paramCount).toBe(2);
     });
 
     it("should generate DELETE for migration with $1 placeholder", () => {
-      const { sql, paramCount } = postgresMigrationDriver.generateDeleteMigration("_migrations");
+      const { sql, paramCount } =
+        postgresMigrationDriver.generateDeleteMigration("_migrations");
 
       expect(sql).toBe('DELETE FROM "_migrations" WHERE name = $1');
       expect(paramCount).toBe(1);
@@ -2168,21 +2340,27 @@ describe("PostgreSQL DDL Generation", () => {
 
   describe("locking", () => {
     it("should generate pg_advisory_lock for acquire", () => {
-      const sql = postgresMigrationDriver.generateAcquireLock(12345);
+      const sql = postgresMigrationDriver.generateAcquireLock(12_345);
       expect(sql).toBe("SELECT pg_advisory_lock(12345)");
     });
 
     it("should generate pg_advisory_unlock for release", () => {
-      const sql = postgresMigrationDriver.generateReleaseLock(12345);
+      const sql = postgresMigrationDriver.generateReleaseLock(12_345);
       expect(sql).toBe("SELECT pg_advisory_unlock(12345)");
     });
   });
 
   describe("capabilities", () => {
     it("should report correct capabilities", () => {
-      expect(postgresMigrationDriver.capabilities.supportsNativeEnums).toBe(true);
-      expect(postgresMigrationDriver.capabilities.supportsAddEnumValueInTransaction).toBe(false);
-      expect(postgresMigrationDriver.capabilities.supportsNativeArrays).toBe(true);
+      expect(postgresMigrationDriver.capabilities.supportsNativeEnums).toBe(
+        true
+      );
+      expect(
+        postgresMigrationDriver.capabilities.supportsAddEnumValueInTransaction
+      ).toBe(false);
+      expect(postgresMigrationDriver.capabilities.supportsNativeArrays).toBe(
+        true
+      );
       expect(postgresMigrationDriver.capabilities.supportsIndexTypes).toEqual([
         "btree",
         "hash",
@@ -2201,7 +2379,10 @@ describe("PostgreSQL DDL Generation", () => {
   });
 
   describe("mapFieldType", () => {
-    const createMockField = (state: any, nativeType?: { db: string; type: string }) =>
+    const createMockField = (
+      state: any,
+      nativeType?: { db: string; type: string }
+    ) =>
       ({
         ["~"]: {
           state,
@@ -2209,7 +2390,10 @@ describe("PostgreSQL DDL Generation", () => {
         },
       }) as any;
 
-    const createFieldState = (type: string, overrides: Record<string, any> = {}) => ({
+    const createFieldState = (
+      type: string,
+      overrides: Record<string, any> = {}
+    ) => ({
       type,
       nullable: false,
       array: false,

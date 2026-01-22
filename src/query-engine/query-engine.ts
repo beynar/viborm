@@ -53,6 +53,7 @@ import {
   isBatchOperation,
   type ModelRegistry,
   type Operation,
+  type PreparedQuery,
   type PrepareOptions,
   type QueryContext,
   QueryEngineError,
@@ -193,6 +194,21 @@ export class QueryEngine {
       prepareOptions
     );
 
+    // Check if this operation has nested writes (can't be batched)
+    const hasNestedWrites = this.hasNestedWrites(baseOperation, args);
+
+    // Create prepare function for batch execution (only if no nested writes)
+    const prepareFunc = hasNestedWrites
+      ? undefined
+      : this.createPrepareFunction(model, baseOperation, args);
+
+    // Create parseResult function for batch execution
+    const parseResultFunc = this.createParseResultFunction<T>(
+      model,
+      baseOperation,
+      prepareOptions
+    );
+
     // Create metadata for batch execution
     // Note: hasNestedWrites check is done with raw args - it only looks at structure
     const metadata: QueryMetadata<T> = {
@@ -200,8 +216,10 @@ export class QueryEngine {
       operation: baseOperation,
       model: modelName,
       execute: executor,
+      prepare: prepareFunc,
+      parseResult: parseResultFunc,
       isBatchOperation: isBatchOperation(baseOperation),
-      hasNestedWrites: this.hasNestedWrites(baseOperation, args),
+      hasNestedWrites,
     };
 
     return new PendingOperation<T>(metadata);
@@ -832,6 +850,105 @@ export class QueryEngine {
       default:
         throw new QueryEngineError(`Unknown operation: ${operation}`);
     }
+  }
+
+  /**
+   * Create a prepare function that validates and builds SQL without executing.
+   * Used for batch execution on drivers that support native batching.
+   *
+   * @param model - The model to operate on
+   * @param operation - The operation type
+   * @param args - Raw arguments (will be validated)
+   */
+  private createPrepareFunction(
+    model: Model<any>,
+    operation: Operation,
+    args: Record<string, unknown>
+  ): (driverOverride?: AnyDriver) => PreparedQuery {
+    return (driverOverride?: AnyDriver): PreparedQuery => {
+      const driver = driverOverride ?? this.driver;
+
+      // Create context for SQL building
+      const ctx = createQueryContext(
+        this.adapter,
+        model,
+        this.registry,
+        driver
+      );
+
+      // Validate arguments
+      const validated = validate<Record<string, unknown>>(
+        model,
+        operation,
+        args
+      );
+
+      // For create/update, process connect operations to inline FK values
+      if (operation === "create" || operation === "update") {
+        const processedArgs = this.processConnectOperations(
+          ctx,
+          operation,
+          validated
+        );
+        const sql = this.buildOperation(ctx, operation, processedArgs);
+        return {
+          sql: sql.toStatement(driver.dialect === "postgresql" ? "$n" : "?"),
+          params: sql.values,
+        };
+      }
+
+      // Build SQL
+      const sql = this.buildOperation(ctx, operation, validated);
+
+      return {
+        sql: sql.toStatement(driver.dialect === "postgresql" ? "$n" : "?"),
+        params: sql.values,
+      };
+    };
+  }
+
+  /**
+   * Create a parseResult function for batch execution.
+   * Used to transform raw query results into typed results after batch execution.
+   *
+   * @param model - The model to operate on
+   * @param operation - The operation type
+   * @param options - Prepare options (for throwIfNotFound)
+   */
+  private createParseResultFunction<T>(
+    model: Model<any>,
+    operation: Operation,
+    options?: PrepareOptions
+  ): (raw: { rows: unknown[]; rowCount: number }) => T {
+    const modelName = model["~"].names.ts ?? "unknown";
+
+    return (raw: { rows: unknown[]; rowCount: number }): T => {
+      // Create context for result parsing
+      const ctx = createQueryContext(
+        this.adapter,
+        model,
+        this.registry,
+        this.driver
+      );
+
+      // Determine parse input based on operation type
+      const parseInput = isBatchOperation(operation)
+        ? { rowCount: raw.rowCount }
+        : raw.rows;
+
+      // Parse result
+      const parsed = parseResult<T>(ctx, operation, parseInput);
+
+      // Handle throwIfNotFound
+      if (options?.throwIfNotFound && parsed === null) {
+        throw new NotFoundError(
+          modelName,
+          options.originalOperation ?? operation
+        );
+      }
+
+      return parsed;
+    };
   }
 }
 

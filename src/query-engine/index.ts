@@ -99,6 +99,7 @@ export { parseCountResult, parseMutationCount, parseResult } from "./result";
 export type {
   ModelRegistry,
   Operation,
+  PreparedQuery,
   QueryContext,
   RelationInfo,
 } from "./types";

@@ -36,6 +36,16 @@ export type RawQueryResult = unknown[] | { rowCount: number };
 export type ResultParser<T> = (raw: RawQueryResult) => T;
 
 /**
+ * Prepared query ready for batch execution
+ */
+export interface PreparedQuery {
+  /** SQL string */
+  sql: string;
+  /** Query parameters */
+  params: unknown[];
+}
+
+/**
  * Query metadata for lazy execution
  *
  * Validation and SQL building are deferred to execution time.
@@ -50,6 +60,17 @@ export interface QueryMetadata<T> {
   model: string;
   /** Function to execute the operation (validates, builds SQL, executes, parses) */
   execute: (driverOverride?: AnyDriver) => Promise<T>;
+  /**
+   * Function to prepare the query (validate, build SQL) without executing.
+   * Returns the SQL string and parameters for batch execution.
+   * Only available for operations that can be batched (no nested writes).
+   */
+  prepare?: (driverOverride?: AnyDriver) => PreparedQuery;
+  /**
+   * Function to parse raw query result into typed result.
+   * Used after batch execution to transform the raw result.
+   */
+  parseResult?: (raw: { rows: unknown[]; rowCount: number }) => T;
   /** Whether this is a batch operation (returns rowCount instead of rows) */
   isBatchOperation: boolean;
   /** Whether this operation has nested writes (can't be batched) */

@@ -408,18 +408,84 @@ export class VibORM<C extends VibORMConfig> {
                 }
               }
 
-              // Execute all operations within a transaction
+              // Check driver capabilities for proper execution strategy
+              const driver = orm.driver;
+              const supportsTransactions = driver.supportsTransactions;
+              const supportsBatch = driver.supportsBatch;
+
+              // For batch-only drivers (D1, D1-HTTP, Neon-HTTP), use native batch execution
+              // This provides atomicity for operations that can be batched
+              if (!supportsTransactions && supportsBatch) {
+                // Check if all operations can be batched
+                const allCanBatch = operations.every((op) => op.canBatch());
+
+                if (allCanBatch) {
+                  // Prepare all queries for batch execution
+                  const batchQueries: { sql: string; params?: unknown[] }[] =
+                    [];
+                  for (const op of operations) {
+                    const prepared = op.prepare(driver);
+                    if (!prepared) {
+                      // Fallback to sequential execution if prepare fails
+                      break;
+                    }
+                    batchQueries.push(prepared);
+                  }
+
+                  // If all queries were prepared, execute as batch
+                  if (batchQueries.length === operations.length) {
+                    const batchResults =
+                      await driver._executeBatch(batchQueries);
+
+                    // Parse results using each operation's parseResult
+                    const results: unknown[] = [];
+                    for (let i = 0; i < operations.length; i++) {
+                      const op = operations[i];
+                      const raw = batchResults[i];
+                      if (op && raw) {
+                        results.push(
+                          op.parseResult({
+                            rows: raw.rows as unknown[],
+                            rowCount: raw.rowCount,
+                          })
+                        );
+                      }
+                    }
+
+                    return results;
+                  }
+                }
+
+                // If we can't batch all operations, warn and fall through to sequential
+                console.warn(
+                  `${driver.driverName} does not support transactions. ` +
+                    "Some operations have nested writes and cannot be batched atomically. " +
+                    "Operations will execute sequentially without full atomicity."
+                );
+              }
+
+              // For drivers that support neither transactions nor batch,
+              // warn about lack of atomicity
+              if (!(supportsTransactions || supportsBatch)) {
+                console.warn(
+                  `${driver.driverName} supports neither transactions nor batch operations. ` +
+                    "Operations will execute sequentially without atomicity guarantees. " +
+                    "If any operation fails, previous operations will remain committed."
+                );
+              }
+
+              // Execute all operations within a transaction (or sequentially for non-tx drivers)
               // Each operation's executor handles its own tracing (validate, build, execute, parse)
               // Cache invalidation is already handled by the wrapped executor (see createClient)
-              return orm.driver.withTransaction(async (txDriver) => {
-                const driver = txDriver as AnyDriver;
+              return driver.withTransaction(async (txDriver) => {
+                const txDriverTyped = txDriver as AnyDriver;
 
                 // Execute operations sequentially to maintain order
                 // Each executor already has full tracing via query engine
                 // Cache invalidation with proper options is handled by the mutation wrapper
                 const results: unknown[] = [];
                 for (const op of operations) {
-                  const result = await op.executeWith(driver);
+                  const result = await op.executeWith(txDriverTyped);
                   results.push(result);
                 }
 
