@@ -127,13 +127,16 @@ export class MySQL2Driver extends Driver<Pool, PoolConnection> {
 
     try {
       if (options?.isolationLevel) {
-        const isolationMap = {
+        const isolationMap: Record<string, string> = {
           read_uncommitted: "READ UNCOMMITTED",
           read_committed: "READ COMMITTED",
           repeatable_read: "REPEATABLE READ",
           serializable: "SERIALIZABLE",
         };
         const level = isolationMap[options.isolationLevel];
+        if (!level) {
+          throw new Error(`Unknown isolation level: ${options.isolationLevel}`);
+        }
         await connection.query(`SET TRANSACTION ISOLATION LEVEL ${level}`);
       }
 

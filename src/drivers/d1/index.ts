@@ -119,9 +119,10 @@ export class D1Driver extends Driver<D1Database, D1Database> {
     const results = await client.batch<T>(statements);
 
     // Map results to QueryResult format
+    // D1's meta.changes is 0 for SELECTs, so we use results.length for row count when no changes
     return results.map((result) => ({
       rows: result.results,
-      rowCount: result.meta.changes ?? result.results.length,
+      rowCount: result.meta.changes || result.results.length,
     }));
   }
 }

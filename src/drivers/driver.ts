@@ -451,8 +451,13 @@ export abstract class Driver<TClient, TTransaction> {
       return this.executeBatch<T>(client, queries);
     }
 
-    // If driver supports transactions and we're not already in one, wrap in transaction
-    if (this.supportsTransactions && !this.inTransaction) {
+    // If driver supports transactions, wrap in transaction (or use existing one)
+    if (this.supportsTransactions) {
+      // If already in a transaction, execute directly within it
+      if (this.inTransaction) {
+        return this.executeBatch<T>(client, queries);
+      }
+      // Otherwise, wrap in a new transaction
       return this._transaction(async (tx) => {
         return this.executeBatch<T>(tx, queries);
       });

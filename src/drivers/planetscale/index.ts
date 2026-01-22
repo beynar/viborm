@@ -109,24 +109,26 @@ export class PlanetScaleDriver extends Driver<PlanetScaleClient, Transaction> {
       return fn(client as Transaction);
     }
 
-    // Map isolation levels to MySQL format
-    const isolationMap: Record<string, string> = {
-      read_uncommitted: "READ UNCOMMITTED",
-      read_committed: "READ COMMITTED",
-      repeatable_read: "REPEATABLE READ",
-      serializable: "SERIALIZABLE",
-    };
+    const psClient = client as Client;
+
+    // Set isolation level BEFORE starting transaction (MySQL requirement)
+    if (options?.isolationLevel) {
+      const isolationMap: Record<string, string> = {
+        read_uncommitted: "READ UNCOMMITTED",
+        read_committed: "READ COMMITTED",
+        repeatable_read: "REPEATABLE READ",
+        serializable: "SERIALIZABLE",
+      };
+      const level = isolationMap[options.isolationLevel];
+      if (!level) {
+        throw new Error(`Unknown isolation level: ${options.isolationLevel}`);
+      }
+      // SET TRANSACTION must be executed before START TRANSACTION in MySQL
+      await psClient.execute(`SET TRANSACTION ISOLATION LEVEL ${level}`);
+    }
 
     // Use PlanetScale's transaction() method
-    const psClient = client as Client;
-    return psClient.transaction(async (tx) => {
-      // Set isolation level if specified
-      if (options?.isolationLevel) {
-        const level = isolationMap[options.isolationLevel];
-        await tx.execute(`SET TRANSACTION ISOLATION LEVEL ${level}`);
-      }
-      return fn(tx);
-    });
+    return psClient.transaction(fn);
   }
 }
 

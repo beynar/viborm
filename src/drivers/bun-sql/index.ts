@@ -155,6 +155,9 @@ export class BunSQLDriver extends Driver<BunSQL, BunSQLTransaction> {
         serializable: "SERIALIZABLE",
       };
       const level = isolationMap[options.isolationLevel];
+      if (!level) {
+        throw new Error(`Unknown isolation level: ${options.isolationLevel}`);
+      }
       return sql.begin(async (tx) => {
         await tx.unsafe(`SET TRANSACTION ISOLATION LEVEL ${level}`);
         return fn(tx);
