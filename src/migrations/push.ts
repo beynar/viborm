@@ -99,6 +99,8 @@ export interface PushOptions {
   _storageDriver?: import("./storage/driver").MigrationStorageDriver;
 }
 
+const MATCH_ALTER_TYPE_ADD_VALUE = /^ALTER\s+TYPE\s+.*\s+ADD\s+VALUE\s+/i;
+
 // =============================================================================
 // PUSH FUNCTION
 // =============================================================================
@@ -250,7 +252,7 @@ export async function push(
     for (const statement of sql) {
       if (
         !canAddValueInTransaction &&
-        statement.trim().match(/^ALTER\s+TYPE\s+.*\s+ADD\s+VALUE\s+/i)
+        statement.trim().match(MATCH_ALTER_TYPE_ADD_VALUE)
       ) {
         addValueStatements.push(statement);
       } else {
@@ -260,14 +262,14 @@ export async function push(
 
     // Execute ADD VALUE statements outside transaction first
     for (const statement of addValueStatements) {
-      await driver._executeRaw(statement + ";");
+      await driver._executeRaw(`${statement};`);
     }
 
     // Execute remaining statements in a transaction for atomicity
     if (transactionalStatements.length > 0) {
       await driver.withTransaction(async (txDriver) => {
         for (const statement of transactionalStatements) {
-          await txDriver._executeRaw(statement + ";");
+          await txDriver._executeRaw(`${statement};`);
         }
       });
     }
@@ -305,7 +307,7 @@ async function resetDatabase(
   const tablesToDrop = [...current.tables].reverse();
   for (const table of tablesToDrop) {
     const dropSql = migrationDriver.generateDropTableSQL(table.name, true);
-    await driver._executeRaw(dropSql + ";");
+    await driver._executeRaw(`${dropSql};`);
   }
 
   // Drop all enums (only for databases that support them)
@@ -313,7 +315,7 @@ async function resetDatabase(
     for (const enumDef of current.enums) {
       const dropSql = migrationDriver.generateDropEnumSQL(enumDef.name);
       if (dropSql) {
-        await driver._executeRaw(dropSql + ";");
+        await driver._executeRaw(`${dropSql};`);
       }
     }
   }

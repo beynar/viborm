@@ -42,7 +42,6 @@ export class LibSQLDriver extends Driver<Client, Transaction> {
   readonly result: DriverResultParser = sqliteResultParser;
 
   private readonly driverOptions: LibSQLDriverOptions;
-  private savepointCounter = 0;
 
   constructor(options: LibSQLDriverOptions = {}) {
     super("sqlite", "libsql");
@@ -113,11 +112,10 @@ export class LibSQLDriver extends Driver<Client, Transaction> {
     fn: (tx: Transaction) => Promise<T>,
     _options?: TransactionOptions
   ): Promise<T> {
-    // Check if we're in a nested transaction
-    if ("execute" in client && "commit" in client) {
-      // Already in a transaction - use savepoint
+    if (this.inTransaction) {
+      // Nested transaction - use savepoint
       const tx = client as Transaction;
-      const savepointName = `sp_${++this.savepointCounter}_${Date.now()}`;
+      const savepointName = `sp_${crypto.randomUUID().replace(/-/g, "")}`;
       await tx.execute(`SAVEPOINT ${savepointName}`);
 
       try {
@@ -133,6 +131,7 @@ export class LibSQLDriver extends Driver<Client, Transaction> {
     // Start new transaction from client
     const libsqlClient = client as Client;
     const tx = await libsqlClient.transaction("write");
+    this.inTransaction = true;
 
     try {
       const result = await fn(tx);
@@ -142,6 +141,7 @@ export class LibSQLDriver extends Driver<Client, Transaction> {
       await tx.rollback();
       throw error;
     }
+    // Note: this.inTransaction reset is handled by base Driver._transaction()
   }
 }
 

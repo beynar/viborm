@@ -42,7 +42,6 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
   readonly result: DriverResultParser = sqliteResultParser;
 
   private readonly driverOptions: SQLite3DriverOptions;
-  private savepointCounter = 0;
 
   constructor(options: SQLite3DriverOptions = {}) {
     super("sqlite", "sqlite3");
@@ -109,7 +108,7 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
   ): Promise<T> {
     if (this.inTransaction) {
       // Nested transaction - use savepoint
-      const savepointName = `sp_${++this.savepointCounter}_${Date.now()}`;
+      const savepointName = `sp_${crypto.randomUUID().replace(/-/g, "")}`;
       client.exec(`SAVEPOINT ${savepointName}`);
       try {
         const result = await fn(client);
@@ -131,9 +130,8 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
     } catch (error) {
       client.exec("ROLLBACK");
       throw error;
-    } finally {
-      this.inTransaction = false;
     }
+    // Note: this.inTransaction reset is handled by base Driver._transaction()
   }
 }
 

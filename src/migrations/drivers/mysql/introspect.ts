@@ -353,10 +353,13 @@ export async function introspect(
             name: indexName,
             columns: indexCols.map((idx) => idx.COLUMN_NAME),
             unique: firstCol.NON_UNIQUE === 0,
-            // MySQL uses BTREE, HASH, FULLTEXT, SPATIAL - normalize to supported types
+            // MySQL uses BTREE, HASH, FULLTEXT, SPATIAL - preserve all supported types
             type:
-              indexType === "btree" || indexType === "hash"
-                ? indexType
+              indexType === "btree" ||
+              indexType === "hash" ||
+              indexType === "fulltext" ||
+              indexType === "spatial"
+                ? (indexType as "btree" | "hash" | "fulltext" | "spatial")
                 : undefined,
           });
         }

@@ -135,6 +135,16 @@ export class PendingOperation<T> implements PromiseLike<T> {
   }
 
   /**
+   * Record pending spans (validation, build) with the given attributes.
+   * Called when the operation executes inside SPAN_OPERATION context.
+   */
+  recordPendingSpans(attrs: Record<string, string | undefined>): void {
+    for (const record of this.metadata.pendingSpans ?? []) {
+      record(attrs);
+    }
+  }
+
+  /**
    * Execute the operation immediately
    */
   execute(): Promise<T> {
@@ -186,14 +196,19 @@ export class PendingOperation<T> implements PromiseLike<T> {
    * });
    * ```
    */
-  wrapExecutor<U>(
-    wrapper: (execute: () => Promise<T>) => Promise<U>
-  ): PendingOperation<U> {
+  /**
+   * Note: The wrapper must return the same type T because the metadata
+   * (including parseResult) is preserved. Use this for side-effects like
+   * cache invalidation, not for result transformations.
+   */
+  wrapExecutor(
+    wrapper: (execute: () => Promise<T>) => Promise<T>
+  ): PendingOperation<T> {
     const originalExecutor = this.executor;
     return new PendingOperation(
       (driverOverride?: AnyDriver) =>
         wrapper(() => originalExecutor(driverOverride)),
-      this.metadata as unknown as QueryMetadata<U>
+      this.metadata
     );
   }
 

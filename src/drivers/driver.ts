@@ -349,9 +349,16 @@ export abstract class Driver<TClient, TTransaction> {
     options?: TransactionOptions
   ): Promise<T> {
     const client = await this.getClient();
+    const wasInTransaction = this.inTransaction;
 
     const runTransaction = async () => {
-      return this.transaction(client, fn, options);
+      // Don't set inTransaction here - let driver's transaction() see the original value
+      // Driver will set it to true after BEGIN, base class resets in finally
+      try {
+        return await this.transaction(client, fn, options);
+      } finally {
+        this.inTransaction = wasInTransaction;
+      }
     };
 
     if (!this.instrumentation?.tracer) {
@@ -448,11 +455,18 @@ export abstract class Driver<TClient, TTransaction> {
     }
 
     // No batch or transaction support - execute sequentially with warning
-    console.warn(
+    const message =
       `Driver "${this.driverName}" supports neither transactions nor batch. ` +
-        "Operations will execute sequentially without atomicity. " +
-        "If any operation fails, others may still complete."
-    );
+      "Operations will execute sequentially without atomicity. " +
+      "If any operation fails, others may still complete.";
+    if (this.instrumentation?.logger) {
+      this.instrumentation.logger.warn({
+        timestamp: new Date(),
+        meta: { message },
+      });
+    } else {
+      console.warn(message);
+    }
     return this.executeBatch<T>(client, queries);
   }
 
@@ -552,12 +566,16 @@ export class TransactionBoundDriver<TClient, TTransaction> extends Driver<
   private readonly tx: TTransaction;
   readonly adapter: DatabaseAdapter;
   override readonly inTransaction = true;
+  override readonly supportsTransactions: boolean;
+  override readonly supportsBatch: boolean;
 
   constructor(baseDriver: Driver<TClient, TTransaction>, tx: TTransaction) {
     super(baseDriver.dialect, baseDriver.driverName);
     this.baseDriver = baseDriver;
     this.tx = tx;
     this.adapter = baseDriver.adapter;
+    this.supportsTransactions = baseDriver.supportsTransactions;
+    this.supportsBatch = baseDriver.supportsBatch;
     // Copy instrumentation - each tx driver gets its own context for proper span parenting
     this.instrumentation = baseDriver["instrumentation"];
   }

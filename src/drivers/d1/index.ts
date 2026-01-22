@@ -113,7 +113,7 @@ export class D1Driver extends Driver<D1Database, D1Database> {
   protected async executeBatch<T>(
     client: D1Database,
     queries: BatchQuery[]
-  ): Promise<Array<QueryResult<T>>> {
+  ): Promise<QueryResult<T>[]> {
     // Prepare all statements
     const statements = queries.map((query) => {
       const values = query.params ? convertValuesForSQLite(query.params) : [];

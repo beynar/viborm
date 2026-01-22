@@ -46,7 +46,6 @@ export class MySQL2Driver extends Driver<Pool, PoolConnection> {
   readonly result: DriverResultParser = mysqlResultParser;
 
   private readonly driverOptions: MySQL2DriverOptions;
-  private savepointCounter = 0;
 
   constructor(options: MySQL2DriverOptions = {}) {
     super("mysql", "mysql2");
@@ -106,53 +105,50 @@ export class MySQL2Driver extends Driver<Pool, PoolConnection> {
     fn: (tx: PoolConnection) => Promise<T>,
     options?: TransactionOptions
   ): Promise<T> {
-    // Check if we're already in a transaction (client is PoolConnection)
-    const isNested =
-      "release" in client && typeof client.release === "function";
-
-    if (!isNested) {
-      // Start a new transaction from pool
-      const pool = client as Pool;
-      const connection = await pool.getConnection();
+    if (this.inTransaction) {
+      // Nested transaction - use savepoint
+      const connection = client as PoolConnection;
+      const savepointName = `sp_${crypto.randomUUID().replace(/-/g, "")}`;
+      await connection.query(`SAVEPOINT ${savepointName}`);
 
       try {
-        const beginStatement = "BEGIN";
-        if (options?.isolationLevel) {
-          const isolationMap = {
-            read_uncommitted: "READ UNCOMMITTED",
-            read_committed: "READ COMMITTED",
-            repeatable_read: "REPEATABLE READ",
-            serializable: "SERIALIZABLE",
-          };
-          const level = isolationMap[options.isolationLevel];
-          await connection.query(`SET TRANSACTION ISOLATION LEVEL ${level}`);
-        }
-
-        await connection.query(beginStatement);
         const result = await fn(connection);
-        await connection.query("COMMIT");
+        await connection.query(`RELEASE SAVEPOINT ${savepointName}`);
         return result;
       } catch (error) {
-        await connection.query("ROLLBACK");
+        await connection.query(`ROLLBACK TO SAVEPOINT ${savepointName}`);
         throw error;
-      } finally {
-        connection.release();
       }
     }
 
-    // Nested transaction - use savepoint
-    const connection = client as PoolConnection;
-    const savepointName = `sp_${++this.savepointCounter}_${Date.now()}`;
-    await connection.query(`SAVEPOINT ${savepointName}`);
+    // Start a new transaction from pool
+    const pool = client as Pool;
+    const connection = await pool.getConnection();
 
     try {
+      if (options?.isolationLevel) {
+        const isolationMap = {
+          read_uncommitted: "READ UNCOMMITTED",
+          read_committed: "READ COMMITTED",
+          repeatable_read: "REPEATABLE READ",
+          serializable: "SERIALIZABLE",
+        };
+        const level = isolationMap[options.isolationLevel];
+        await connection.query(`SET TRANSACTION ISOLATION LEVEL ${level}`);
+      }
+
+      await connection.query("BEGIN");
+      this.inTransaction = true;
       const result = await fn(connection);
-      await connection.query(`RELEASE SAVEPOINT ${savepointName}`);
+      await connection.query("COMMIT");
       return result;
     } catch (error) {
-      await connection.query(`ROLLBACK TO SAVEPOINT ${savepointName}`);
+      await connection.query("ROLLBACK");
       throw error;
+    } finally {
+      connection.release();
     }
+    // Note: this.inTransaction reset is handled by base Driver._transaction()
   }
 }
 

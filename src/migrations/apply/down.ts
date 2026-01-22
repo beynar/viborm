@@ -202,7 +202,7 @@ function parseDownStatements(sql: string): string[] {
     if (trimmed.startsWith("--")) {
       continue; // Skip comments
     }
-    current += line + "\n";
+    current += `${line}\n`;
 
     if (trimmed.endsWith(";")) {
       const stmt = current.trim();

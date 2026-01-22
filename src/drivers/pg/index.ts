@@ -40,7 +40,6 @@ export class PgDriver extends Driver<Pool, PoolClient> {
   readonly adapter: DatabaseAdapter;
 
   private readonly driverOptions: PgDriverOptions;
-  private savepointCounter = 0;
 
   constructor(options: PgDriverOptions = {}) {
     super("postgresql", "pg");
@@ -93,46 +92,50 @@ export class PgDriver extends Driver<Pool, PoolClient> {
     fn: (tx: PoolClient) => Promise<T>,
     options?: TransactionOptions
   ): Promise<T> {
-    if (client instanceof Pool) {
-      // Start a new transaction
-      const poolClient = await client.connect();
-
-      try {
-        let beginStatement = "BEGIN";
-        if (options?.isolationLevel) {
-          const isolationMap = {
-            ReadUncommitted: "READ UNCOMMITTED",
-            ReadCommitted: "READ COMMITTED",
-            RepeatableRead: "REPEATABLE READ",
-            Serializable: "SERIALIZABLE",
-          };
-          beginStatement = `BEGIN ISOLATION LEVEL ${isolationMap[options.isolationLevel]}`;
-        }
-
-        await poolClient.query(beginStatement);
-        const result = await fn(poolClient);
-        await poolClient.query("COMMIT");
-        return result;
-      } catch (error) {
-        await poolClient.query("ROLLBACK");
-        throw error;
-      } finally {
-        poolClient.release();
-      }
-    } else {
+    if (this.inTransaction) {
       // Nested transaction - use savepoint
-      const savepointName = `sp_${++this.savepointCounter}`;
-      await client.query(`SAVEPOINT ${savepointName}`);
+      const poolClient = client as PoolClient;
+      const savepointName = `sp_${crypto.randomUUID().replace(/-/g, "")}`;
+      await poolClient.query(`SAVEPOINT ${savepointName}`);
 
       try {
-        const result = await fn(client);
-        await client.query(`RELEASE SAVEPOINT ${savepointName}`);
+        const result = await fn(poolClient);
+        await poolClient.query(`RELEASE SAVEPOINT ${savepointName}`);
         return result;
       } catch (error) {
-        await client.query(`ROLLBACK TO SAVEPOINT ${savepointName}`);
+        await poolClient.query(`ROLLBACK TO SAVEPOINT ${savepointName}`);
         throw error;
       }
     }
+
+    // Start a new transaction
+    const pool = client as Pool;
+    const poolClient = await pool.connect();
+
+    try {
+      let beginStatement = "BEGIN";
+      if (options?.isolationLevel) {
+        const isolationMap = {
+          ReadUncommitted: "READ UNCOMMITTED",
+          ReadCommitted: "READ COMMITTED",
+          RepeatableRead: "REPEATABLE READ",
+          Serializable: "SERIALIZABLE",
+        };
+        beginStatement = `BEGIN ISOLATION LEVEL ${isolationMap[options.isolationLevel]}`;
+      }
+
+      await poolClient.query(beginStatement);
+      this.inTransaction = true;
+      const result = await fn(poolClient);
+      await poolClient.query("COMMIT");
+      return result;
+    } catch (error) {
+      await poolClient.query("ROLLBACK");
+      throw error;
+    } finally {
+      poolClient.release();
+    }
+    // Note: this.inTransaction reset is handled by base Driver._transaction()
   }
 }
 

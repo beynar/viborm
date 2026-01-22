@@ -33,7 +33,7 @@ export interface IndexDef {
   name: string;
   columns: string[];
   unique: boolean;
-  type?: "btree" | "hash" | "gin" | "gist" | undefined;
+  type?: "btree" | "hash" | "gin" | "gist" | "fulltext" | "spatial" | undefined;
   where?: string | undefined; // For partial indexes
 }
 

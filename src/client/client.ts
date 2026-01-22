@@ -12,19 +12,22 @@ import {
   createInstrumentationContext,
   type InstrumentationConfig,
   type InstrumentationContext,
-  SPAN_BUILD,
   SPAN_OPERATION,
   SPAN_PARSE,
-  SPAN_VALIDATE,
 } from "@instrumentation";
 
 /**
  * Check if a value is an InstrumentationContext (already processed)
+ * Uses tracer/logger properties which are unique to InstrumentationContext
  */
 function isInstrumentationContext(
   value: InstrumentationConfig | InstrumentationContext | undefined
 ): value is InstrumentationContext {
-  return value !== undefined && "config" in value;
+  return (
+    value !== undefined &&
+    "config" in value &&
+    ("tracer" in value || "logger" in value)
+  );
 }
 
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
@@ -392,6 +395,11 @@ export class VibORM<C extends VibORMConfig> {
             if (Array.isArray(input)) {
               const operations = input as PendingOperation<unknown>[];
 
+              // Early return for empty array
+              if (operations.length === 0) {
+                return [] as unknown[];
+              }
+
               // Validate all items are PendingOperations
               for (const op of operations) {
                 if (!isPendingOperation(op)) {
@@ -443,21 +451,8 @@ export class VibORM<C extends VibORMConfig> {
                   };
 
                   const executeCore = async () => {
-                    // Record validation span (no-op - validation already done at prepare time)
-                    if (tracer) {
-                      tracer.startActiveSpanSync(
-                        { name: SPAN_VALIDATE, attributes: spanAttrs },
-                        () => {}
-                      );
-                    }
-
-                    // Record build span (SQL already built at prepare time)
-                    if (tracer) {
-                      tracer.startActiveSpanSync(
-                        { name: SPAN_BUILD, attributes: spanAttrs },
-                        () => {}
-                      );
-                    }
+                    // Record pending spans (validation, build) with actual timing from prepare()
+                    op.recordPendingSpans(spanAttrs);
 
                     // Parse result with tracing
                     const parser = op.getResultParser();
@@ -503,21 +498,8 @@ export class VibORM<C extends VibORMConfig> {
                   };
 
                   const executeCore = async () => {
-                    // Record validation span (validation already done at prepare time)
-                    if (tracer) {
-                      tracer.startActiveSpanSync(
-                        { name: SPAN_VALIDATE, attributes: spanAttrs },
-                        () => {}
-                      );
-                    }
-
-                    // Record build span (SQL already built at prepare time)
-                    if (tracer) {
-                      tracer.startActiveSpanSync(
-                        { name: SPAN_BUILD, attributes: spanAttrs },
-                        () => {}
-                      );
-                    }
+                    // Record pending spans (validation, build) with actual timing from prepare()
+                    op.recordPendingSpans(spanAttrs);
 
                     // Execute - this creates SPAN_EXECUTE via driver._execute
                     const result = await op.executeWith(driver);

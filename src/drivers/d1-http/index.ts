@@ -168,7 +168,7 @@ export class D1HTTPDriver extends Driver<D1HTTPClient, D1HTTPClient> {
   protected async executeBatch<T>(
     client: D1HTTPClient,
     queries: BatchQuery[]
-  ): Promise<Array<QueryResult<T>>> {
+  ): Promise<QueryResult<T>[]> {
     const url = `${client.baseUrl}/accounts/${client.accountId}/d1/database/${client.databaseId}/query`;
 
     // Format queries for the batch API

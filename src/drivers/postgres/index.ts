@@ -66,7 +66,6 @@ export class PostgresDriver extends Driver<
   readonly adapter: DatabaseAdapter;
 
   private readonly driverOptions: PostgresDriverOptions;
-  private savepointCounter = 0;
 
   constructor(options: PostgresDriverOptions = {}) {
     super("postgresql", "postgres");
@@ -125,10 +124,12 @@ export class PostgresDriver extends Driver<
     // Since we don't use pipelining (returning arrays of promises), cast to T
     if (isTransaction(client)) {
       // Nested transaction - use savepoint
-      const savepointName = `sp_${++this.savepointCounter}`;
+      const savepointName = `sp_${crypto.randomUUID().replace(/-/g, "")}`;
       return client.savepoint(savepointName, fn) as Promise<T>;
     }
+    this.inTransaction = true;
     return client.begin(fn) as Promise<T>;
+    // Note: this.inTransaction reset is handled by base Driver._transaction()
   }
 }
 

@@ -277,6 +277,22 @@ export class QueryEngine {
       recordBuild = build.record;
     }
 
+    // Collect pending span recorders for batch execution
+    // Each recorder is bound to its span name, just needs attributes at call time
+    const pendingSpans: Array<
+      (attrs: Record<string, string | undefined>) => void
+    > = [];
+    if (validation.record) {
+      pendingSpans.push((attrs) =>
+        validation.record({ name: SPAN_VALIDATE, attributes: attrs })
+      );
+    }
+    if (recordBuild) {
+      pendingSpans.push((attrs) =>
+        recordBuild({ name: SPAN_BUILD, attributes: attrs })
+      );
+    }
+
     // Create metadata for batch execution
     // Wrap parseResult with applyPostProcessing for OrThrow and exist conversion
     const metadata: QueryMetadata<T> = {
@@ -294,6 +310,7 @@ export class QueryEngine {
       isBatchOperation: isBatchOperation(baseOperation),
       model: modelName,
       operation: baseOperation,
+      pendingSpans: pendingSpans.length > 0 ? pendingSpans : undefined,
     };
 
     // Create the executor with full instrumentation
@@ -335,7 +352,6 @@ export class QueryEngine {
     const modelName = model["~"].names.ts ?? "unknown";
     const tableName = model["~"].names.sql ?? modelName;
     const displayOperation = options?.originalOperation ?? operation;
-    const startTime = Date.now();
 
     const spanAttrs = {
       ...this.driver.getBaseAttributes(),
@@ -344,6 +360,8 @@ export class QueryEngine {
     };
 
     return async (driverOverride?: AnyDriver): Promise<T> => {
+      // Capture start time at execution, not prepare time
+      const startTime = Date.now();
       // Use override driver if provided (for transaction-bound execution)
       const driver = driverOverride ?? this.driver;
 
@@ -618,21 +636,28 @@ export class QueryEngine {
 
       // Parse result (synchronous - use sync span method)
       if (isBatchOperation(operation)) {
-        return tracer
+        const parsed = tracer
           ? tracer.startActiveSpanSync(
               { name: SPAN_PARSE, attributes: spanAttrs },
               () =>
                 parseResult<T>(ctx, operation, { rowCount: result.rowCount })
             )
           : parseResult<T>(ctx, operation, { rowCount: result.rowCount });
+        return this.applyPostProcessing(
+          parsed,
+          operation,
+          undefined,
+          modelName
+        );
       }
 
-      return tracer
+      const parsed = tracer
         ? tracer.startActiveSpanSync(
             { name: SPAN_PARSE, attributes: spanAttrs },
             () => parseResult<T>(ctx, operation, result.rows)
           )
         : parseResult<T>(ctx, operation, result.rows);
+      return this.applyPostProcessing(parsed, operation, undefined, modelName);
     } finally {
       // Clear context after execution
       this.driver.clearContext();

@@ -277,12 +277,14 @@ export function createTracerWrapper(
       result: T;
       record: (options: VibORMSpanOptions) => void;
     } {
+      // Bind recordSpan to avoid issues when capture is destructured
+      const recordSpan = this.recordSpan.bind(this);
       const startTime = performance.timeOrigin + performance.now();
       const result = fn();
       const endTime = performance.timeOrigin + performance.now();
       return {
         result,
-        record: (options) => this.recordSpan(options, startTime, endTime),
+        record: (options) => recordSpan(options, startTime, endTime),
       };
     },
 

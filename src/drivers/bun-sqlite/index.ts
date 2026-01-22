@@ -71,7 +71,6 @@ export class BunSQLiteDriver extends Driver<
   readonly result: DriverResultParser = sqliteResultParser;
 
   private readonly driverOptions: BunSQLiteDriverOptions;
-  private savepointCounter = 0;
 
   constructor(options: BunSQLiteDriverOptions = {}) {
     super("sqlite", "bun-sqlite");
@@ -141,7 +140,7 @@ export class BunSQLiteDriver extends Driver<
   ): Promise<T> {
     if (this.inTransaction) {
       // Nested transaction - use savepoint
-      const savepointName = `sp_${++this.savepointCounter}_${Date.now()}`;
+      const savepointName = `sp_${crypto.randomUUID().replace(/-/g, "")}`;
       client.exec(`SAVEPOINT ${savepointName}`);
       try {
         const result = await fn(client);
@@ -163,9 +162,8 @@ export class BunSQLiteDriver extends Driver<
     } catch (error) {
       client.exec("ROLLBACK");
       throw error;
-    } finally {
-      this.inTransaction = false;
     }
+    // Note: this.inTransaction reset is handled by base Driver._transaction()
   }
 }
 

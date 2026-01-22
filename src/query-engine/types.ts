@@ -17,6 +17,7 @@ export {
 } from "@errors";
 // Re-export Sql for convenience
 export { Sql } from "@sql";
+
 import type { Sql } from "@sql";
 
 // ============================================================
@@ -37,6 +38,14 @@ export type RawQueryResult = unknown[] | { rowCount: number };
 export type ResultParser<T> = (raw: RawQueryResult) => T;
 
 /**
+ * A deferred span recorder - records a span with captured timing when called.
+ * The span name is already bound; only attributes are needed at call time.
+ */
+export type DeferredSpanRecorder = (
+  attrs: Record<string, string | undefined>
+) => void;
+
+/**
  * Query metadata for batch execution
  * Contains precomputed SQL, validated args, and result parser
  */
@@ -53,6 +62,8 @@ export interface QueryMetadata<T> {
   model?: string;
   /** Operation name for tracing */
   operation?: string;
+  /** Deferred span recorders to call when operation executes (validation, build, etc.) */
+  pendingSpans?: DeferredSpanRecorder[];
 }
 
 /**

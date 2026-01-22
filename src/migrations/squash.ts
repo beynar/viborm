@@ -124,15 +124,18 @@ export async function squash(
   // Generate migration name
   const migrationName = name || `squash-${from}-to-${maxIdx}`;
 
+  // Create placeholder entry for initial content formatting (checksum computed from content)
+  const placeholderEntry: MigrationEntry = {
+    idx: 0,
+    version: "",
+    name: migrationName,
+    when: Date.now(),
+    checksum: "",
+  };
+
   // Create the new entry
   const content = formatMigrationContent(
-    {
-      idx: 0,
-      version: "",
-      name: migrationName,
-      when: Date.now(),
-      checksum: "",
-    },
+    placeholderEntry,
     allStatements,
     ctx.dialect
   );
