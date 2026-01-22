@@ -133,7 +133,7 @@ export class BunSQLDriver extends Driver<BunSQL, BunSQLTransaction> {
   protected async transaction<T>(
     client: BunSQL | BunSQLTransaction,
     fn: (tx: BunSQLTransaction) => Promise<T>,
-    _options?: TransactionOptions
+    options?: TransactionOptions
   ): Promise<T> {
     // Check if we're already in a transaction
     if ("savepoint" in client) {
@@ -144,6 +144,23 @@ export class BunSQLDriver extends Driver<BunSQL, BunSQLTransaction> {
 
     // Start new transaction
     const sql = client as BunSQL;
+
+    // Bun SQL's begin() doesn't support isolation level as argument
+    // Set it manually before the transaction if specified
+    if (options?.isolationLevel) {
+      const isolationMap: Record<string, string> = {
+        read_uncommitted: "READ UNCOMMITTED",
+        read_committed: "READ COMMITTED",
+        repeatable_read: "REPEATABLE READ",
+        serializable: "SERIALIZABLE",
+      };
+      const level = isolationMap[options.isolationLevel];
+      return sql.begin(async (tx) => {
+        await tx.unsafe(`SET TRANSACTION ISOLATION LEVEL ${level}`);
+        return fn(tx);
+      });
+    }
+
     return sql.begin(fn);
   }
 }

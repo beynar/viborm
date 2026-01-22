@@ -350,12 +350,14 @@ export async function introspect(
         indexCols.sort((a, b) => a.SEQ_IN_INDEX - b.SEQ_IN_INDEX);
         const firstCol = indexCols[0];
         if (firstCol) {
-          const indexType = firstCol.INDEX_TYPE.toLowerCase();
+          const rawIndexType = firstCol.INDEX_TYPE.toLowerCase();
+          // MySQL INFORMATION_SCHEMA reports RTREE for spatial indexes, normalize to "spatial"
+          const indexType = rawIndexType === "rtree" ? "spatial" : rawIndexType;
           indexes.push({
             name: indexName,
             columns: indexCols.map((idx) => idx.COLUMN_NAME),
             unique: firstCol.NON_UNIQUE === 0,
-            // MySQL uses BTREE, HASH, FULLTEXT, SPATIAL - preserve all supported types
+            // MySQL uses BTREE, HASH, FULLTEXT, SPATIAL (reported as RTREE) - preserve all supported types
             type:
               indexType === "btree" ||
               indexType === "hash" ||

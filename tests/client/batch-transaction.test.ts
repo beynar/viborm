@@ -253,6 +253,24 @@ describe("$transaction with array (batch mode)", () => {
       "$transaction array must contain only pending operations from client methods"
     );
   });
+
+  test("supports transaction options (isolation level)", async () => {
+    // Batch mode should accept and pass through transaction options
+    const [user] = await client.$transaction(
+      [
+        client.user.create({
+          data: { id: "1", name: "IsolationTest", email: "iso@test.com" },
+        }),
+      ],
+      { isolationLevel: "serializable" }
+    );
+
+    expect(user.name).toBe("IsolationTest");
+
+    // Verify the user was actually created
+    const found = await client.user.findUnique({ where: { id: "1" } });
+    expect(found?.name).toBe("IsolationTest");
+  });
 });
 
 describe("mixed operations", () => {

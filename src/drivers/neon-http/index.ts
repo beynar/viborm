@@ -132,15 +132,12 @@ export class NeonHTTPDriver extends Driver<NeonQuery, NeonTx> {
   }
 
   protected async transaction<T>(
-    _client: NeonQuery | NeonTx,
-    _fn: (tx: NeonTx) => Promise<T>
+    client: NeonQuery | NeonTx,
+    fn: (tx: NeonTx) => Promise<T>
   ): Promise<T> {
-    // Neon HTTP does not support interactive transactions.
-    // Use $transaction([...]) for batch transactions instead.
-    throw new Error(
-      "Neon HTTP driver does not support callback-style transactions. " +
-        "Use $transaction([op1, op2, ...]) for batch transactions instead."
-    );
+    // Neon HTTP does not support interactive transactions - just execute directly
+    // Warning is handled by base Driver.withTransaction()
+    return fn(client as NeonTx);
   }
 
   /**

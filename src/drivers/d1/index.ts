@@ -96,13 +96,8 @@ export class D1Driver extends Driver<D1Database, D1Database> {
     fn: (tx: D1Database) => Promise<T>,
     _options?: TransactionOptions
   ): Promise<T> {
-    // D1 does not support true transactions
-    // batch() provides atomicity but not isolation
-    // We execute the function directly - user code should use batch() for atomic operations
-    console.warn(
-      "D1 does not support transactions. Operations will execute without transaction isolation. " +
-        "Use batch() for atomic operations."
-    );
+    // D1 does not support true transactions - just execute directly
+    // Warning is handled by base Driver.withTransaction()
     return fn(client);
   }
 

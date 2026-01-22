@@ -57,7 +57,6 @@ export class PlanetScaleDriver extends Driver<PlanetScaleClient, Transaction> {
     if (options.client) {
       this.client = options.client;
     }
-
   }
 
   protected async initClient(): Promise<PlanetScaleClient> {
@@ -103,16 +102,29 @@ export class PlanetScaleDriver extends Driver<PlanetScaleClient, Transaction> {
   protected async transaction<T>(
     client: PlanetScaleClient | Transaction,
     fn: (tx: Transaction) => Promise<T>,
-    _options?: TransactionOptions
+    options?: TransactionOptions
   ): Promise<T> {
     // If we're already in a transaction, use the existing transaction context
     if ("execute" in client && !("transaction" in client)) {
       return fn(client as Transaction);
     }
 
+    // Map isolation levels to MySQL format
+    const isolationMap: Record<string, string> = {
+      read_uncommitted: "READ UNCOMMITTED",
+      read_committed: "READ COMMITTED",
+      repeatable_read: "REPEATABLE READ",
+      serializable: "SERIALIZABLE",
+    };
+
     // Use PlanetScale's transaction() method
     const psClient = client as Client;
     return psClient.transaction(async (tx) => {
+      // Set isolation level if specified
+      if (options?.isolationLevel) {
+        const level = isolationMap[options.isolationLevel];
+        await tx.execute(`SET TRANSACTION ISOLATION LEVEL ${level}`);
+      }
       return fn(tx);
     });
   }

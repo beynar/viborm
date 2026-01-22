@@ -154,10 +154,8 @@ export class D1HTTPDriver extends Driver<D1HTTPClient, D1HTTPClient> {
     fn: (tx: D1HTTPClient) => Promise<T>,
     _options?: TransactionOptions
   ): Promise<T> {
-    // D1 HTTP API does not support transactions
-    console.warn(
-      "D1 HTTP API does not support transactions. Operations will execute without transaction isolation."
-    );
+    // D1 HTTP API does not support transactions - just execute directly
+    // Warning is handled by base Driver.withTransaction()
     return fn(client);
   }
 

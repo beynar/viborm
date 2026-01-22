@@ -410,20 +410,16 @@ export class VibORM<C extends VibORMConfig> {
 
               // Execute all operations within a transaction
               // Each operation's executor handles its own tracing (validate, build, execute, parse)
+              // Cache invalidation is already handled by the wrapped executor (see createClient)
               return orm.driver.withTransaction(async (txDriver) => {
                 const driver = txDriver as AnyDriver;
 
                 // Execute operations sequentially to maintain order
                 // Each executor already has full tracing via query engine
+                // Cache invalidation with proper options is handled by the mutation wrapper
                 const results: unknown[] = [];
                 for (const op of operations) {
                   const result = await op.executeWith(driver);
-
-                  // Cache invalidation for mutations
-                  if (orm.cache && isMutationOperation(op.getOperation())) {
-                    await orm.cache._invalidate(op.getModel());
-                  }
-
                   results.push(result);
                 }
 

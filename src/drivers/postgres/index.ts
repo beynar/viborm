@@ -118,7 +118,7 @@ export class PostgresDriver extends Driver<
   protected async transaction<T>(
     client: PostgresClient | PostgresTransaction,
     fn: (tx: PostgresTransaction) => Promise<T>,
-    _options?: TransactionOptions
+    options?: TransactionOptions
   ): Promise<T> {
     // postgres.js begin()/savepoint() return Promise<UnwrapPromiseArray<T>>
     // Since we don't use pipelining (returning arrays of promises), cast to T
@@ -127,7 +127,22 @@ export class PostgresDriver extends Driver<
       const savepointName = `sp_${crypto.randomUUID().replace(/-/g, "")}`;
       return client.savepoint(savepointName, fn) as Promise<T>;
     }
+
     this.inTransaction = true;
+
+    // Handle isolation level if specified
+    if (options?.isolationLevel) {
+      // Map isolation levels to postgres.js format
+      const isolationMap = {
+        read_uncommitted: "read uncommitted",
+        read_committed: "read committed",
+        repeatable_read: "repeatable read",
+        serializable: "serializable",
+      } as const;
+      const level = isolationMap[options.isolationLevel];
+      return client.begin(level, fn) as Promise<T>;
+    }
+
     return client.begin(fn) as Promise<T>;
     // Note: this.inTransaction reset is handled by base Driver._transaction()
   }
