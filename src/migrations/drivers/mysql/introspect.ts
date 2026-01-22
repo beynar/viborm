@@ -303,9 +303,11 @@ export async function introspect(
     for (const col of columnsByTable.get(tableName) || []) {
       // Extract enum values if this is an enum column
       if (col.DATA_TYPE === "enum") {
-        // Use $ as delimiter since it's valid in identifiers but rare in practice
-        // This prevents collision between e.g. "user_status.type" and "user.status_type"
-        const enumName = `${tableName}$${col.COLUMN_NAME}$enum`;
+        // Use $ as delimiter and escape any $ in names to prevent collisions
+        // e.g. table "foo$bar" col "baz" -> "foo$$bar$baz$enum"
+        const escapedTable = tableName.replace(/\$/g, "$$");
+        const escapedCol = col.COLUMN_NAME.replace(/\$/g, "$$");
+        const enumName = `${escapedTable}$${escapedCol}$enum`;
         if (!seenEnums.has(enumName)) {
           // Parse enum values from COLUMN_TYPE: enum('val1','val2')
           // Uses stateful parser to handle commas and escaped quotes in values

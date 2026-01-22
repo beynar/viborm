@@ -3,6 +3,10 @@
  *
  * Wraps OpenTelemetry API with graceful fallback when not available.
  * Follows Drizzle's pattern: optional dependency, no-op when unavailable.
+ *
+ * Key design: createTracerWrapper() ALWAYS returns a tracer - either a real
+ * one (when OTel is available) or a no-op tracer. This eliminates the need
+ * for conditional `if (tracer)` checks throughout the codebase.
  */
 
 import {
@@ -54,11 +58,14 @@ export interface TracerWrapperConfig {
 
 /**
  * Tracer wrapper interface
+ *
+ * All methods are safe to call regardless of whether OTel is loaded.
+ * When OTel is not available, methods execute callbacks directly without tracing.
  */
 export interface TracerWrapper {
   /**
-   * Start an active span and execute callback within it
-   * Falls back to direct execution if OTel unavailable
+   * Start an active span and execute callback within it.
+   * When OTel unavailable, executes callback directly.
    */
   startActiveSpan<T>(
     options: VibORMSpanOptions,
@@ -66,29 +73,10 @@ export interface TracerWrapper {
   ): Promise<T>;
 
   /**
-   * Synchronous version for non-async operations
-   * Only works if OTel was pre-loaded, otherwise no-op
+   * Synchronous version for non-async operations.
+   * When OTel unavailable, executes callback directly.
    */
   startActiveSpanSync<T>(options: VibORMSpanOptions, fn: (span?: Span) => T): T;
-
-  /**
-   * Record a span that already completed (with custom start/end times)
-   * Useful for recording work that happened before the span context was available
-   */
-  recordSpan(
-    options: VibORMSpanOptions,
-    startTime: number,
-    endTime: number
-  ): void;
-
-  /**
-   * Capture timing for a synchronous operation to record as a span later.
-   * Returns the result and a function to record the span in the correct context.
-   */
-  capture<T>(fn: () => T): {
-    result: T;
-    record: (options: VibORMSpanOptions) => void;
-  };
 
   /**
    * Check if tracing is enabled (OTel loaded and configured)
@@ -97,9 +85,34 @@ export interface TracerWrapper {
 }
 
 /**
+ * No-op tracer that passes through callbacks without creating spans.
+ * Used when OpenTelemetry is not available.
+ */
+const noopTracer: TracerWrapper = {
+  async startActiveSpan<T>(
+    _options: VibORMSpanOptions,
+    fn: (span?: Span) => T | Promise<T>
+  ): Promise<T> {
+    return fn();
+  },
+
+  startActiveSpanSync<T>(
+    _options: VibORMSpanOptions,
+    fn: (span?: Span) => T
+  ): T {
+    return fn();
+  },
+
+  isEnabled(): boolean {
+    return false;
+  },
+};
+
+/**
  * Create a tracer wrapper instance
  *
  * All mutable state is scoped to this instance to support serverless environments.
+ * Always returns a valid TracerWrapper - either a real tracer or the no-op tracer.
  */
 export function createTracerWrapper(
   config?: TracerWrapperConfig
@@ -255,41 +268,17 @@ export function createTracerWrapper(
       });
     },
 
-    recordSpan(
-      options: VibORMSpanOptions,
-      startTime: number,
-      endTime: number
-    ): void {
-      if (!otel || shouldIgnoreSpan(options.name)) return;
-
-      const attributes = buildAttributes(options);
-      const kind = options.kind ?? otel.SpanKind.INTERNAL;
-      const span = getTracer(otel).startSpan(
-        options.name,
-        { kind, attributes, startTime },
-        otel.context.active()
-      );
-      span.setStatus({ code: otel.SpanStatusCode.OK });
-      span.end(endTime);
-    },
-
-    capture<T>(fn: () => T): {
-      result: T;
-      record: (options: VibORMSpanOptions) => void;
-    } {
-      // Bind recordSpan to avoid issues when capture is destructured
-      const recordSpan = this.recordSpan.bind(this);
-      const startTime = performance.timeOrigin + performance.now();
-      const result = fn();
-      const endTime = performance.timeOrigin + performance.now();
-      return {
-        result,
-        record: (options) => recordSpan(options, startTime, endTime),
-      };
-    },
-
     isEnabled(): boolean {
       return otel !== null;
     },
   };
+}
+
+/**
+ * Get the no-op tracer instance.
+ * Use this when you need a tracer that does nothing but still
+ * implements the TracerWrapper interface.
+ */
+export function getNoopTracer(): TracerWrapper {
+  return noopTracer;
 }

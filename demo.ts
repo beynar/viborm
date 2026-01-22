@@ -280,6 +280,7 @@ async function main() {
 
   console.log("\n--- findMany ---\n");
 
+  const query = client.user.findMany();
   await client.user.findMany({
     where: {
       AND: [

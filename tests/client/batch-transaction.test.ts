@@ -5,12 +5,22 @@
  * Verifies that operations can be awaited directly or batched together.
  */
 
-import { PGlite } from "@electric-sql/pglite";
-import { isPendingOperation, PendingOperation } from "@client/pending-operation";
 import { createClient } from "@client/client";
+import {
+  isPendingOperation,
+  PendingOperation,
+} from "@client/pending-operation";
 import { PGliteDriver } from "@drivers/pglite";
+import { PGlite } from "@electric-sql/pglite";
 import { s } from "@schema";
-import { describe, expect, test, beforeAll, afterAll, beforeEach } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from "vitest";
 
 // =============================================================================
 // TEST SCHEMA
@@ -27,7 +37,10 @@ const post = s.model({
   id: s.string().id(),
   title: s.string(),
   authorId: s.string(),
-  author: s.manyToOne(() => user).fields("authorId").references("id"),
+  author: s
+    .manyToOne(() => user)
+    .fields("authorId")
+    .references("id"),
 });
 
 const schema = { user, post };
@@ -37,7 +50,9 @@ const schema = { user, post };
 // =============================================================================
 
 let db: PGlite;
-let client: ReturnType<typeof createClient<{ schema: typeof schema; driver: PGliteDriver }>>;
+let client: ReturnType<
+  typeof createClient<{ schema: typeof schema; driver: PGliteDriver }>
+>;
 
 beforeAll(async () => {
   db = new PGlite();
@@ -113,20 +128,6 @@ describe("PendingOperation", () => {
       data: { id: "1", name: "Test", email: "test@test.com" },
     });
     expect(createOp.canBatch()).toBe(true);
-  });
-
-  test("getSqlString() returns precomputed SQL", () => {
-    const operation = client.user.findMany();
-    const sql = operation.getSqlString("$n");
-    expect(sql).toBeTruthy();
-    expect(sql).toContain("SELECT");
-    expect(sql).toContain('"user"');
-  });
-
-  test("getParams() returns query parameters", () => {
-    const operation = client.user.findUnique({ where: { id: "123" } });
-    const params = operation.getParams();
-    expect(params).toContain("123");
   });
 
   test("canBatch() returns false for nested writes", () => {
@@ -328,7 +329,11 @@ describe("concurrent transactions", () => {
       // This one will succeed
       client.$transaction(async (tx) => {
         await tx.user.create({
-          data: { id: "success-1", name: "Success 1", email: "success1@test.com" },
+          data: {
+            id: "success-1",
+            name: "Success 1",
+            email: "success1@test.com",
+          },
         });
         return "success-1";
       }),
@@ -342,7 +347,11 @@ describe("concurrent transactions", () => {
       // This one will succeed
       client.$transaction(async (tx) => {
         await tx.user.create({
-          data: { id: "success-2", name: "Success 2", email: "success2@test.com" },
+          data: {
+            id: "success-2",
+            name: "Success 2",
+            email: "success2@test.com",
+          },
         });
         return "success-2";
       }),
@@ -401,7 +410,11 @@ describe("sequential operations in transaction", () => {
 
     const allUsers = await client.user.findMany();
     expect(allUsers).toHaveLength(3);
-    expect(allUsers.map((u) => u.id).sort()).toEqual(["seq-1", "seq-2", "seq-3"]);
+    expect(allUsers.map((u) => u.id).sort()).toEqual([
+      "seq-1",
+      "seq-2",
+      "seq-3",
+    ]);
   });
 
   test("read-after-write within transaction sees uncommitted changes", async () => {
@@ -460,14 +473,26 @@ describe("error scenarios", () => {
     try {
       await client.$transaction(async (tx) => {
         await tx.user.create({
-          data: { id: "error-1", name: "Error User 1", email: "error@test.com" },
+          data: {
+            id: "error-1",
+            name: "Error User 1",
+            email: "error@test.com",
+          },
         });
         await tx.user.create({
-          data: { id: "error-2", name: "Error User 2", email: "error2@test.com" },
+          data: {
+            id: "error-2",
+            name: "Error User 2",
+            email: "error2@test.com",
+          },
         });
         // Violate unique constraint
         await tx.user.create({
-          data: { id: "error-3", name: "Error User 3", email: "error@test.com" },
+          data: {
+            id: "error-3",
+            name: "Error User 3",
+            email: "error@test.com",
+          },
         });
       });
     } catch {
@@ -482,16 +507,28 @@ describe("error scenarios", () => {
   test("constraint violation in batch mode triggers rollback", async () => {
     // Create a user to cause conflict
     await client.user.create({
-      data: { id: "existing-batch", name: "Existing", email: "existingbatch@test.com" },
+      data: {
+        id: "existing-batch",
+        name: "Existing",
+        email: "existingbatch@test.com",
+      },
     });
 
     try {
       await client.$transaction([
         client.user.create({
-          data: { id: "batch-new-1", name: "New 1", email: "batchnew1@test.com" },
+          data: {
+            id: "batch-new-1",
+            name: "New 1",
+            email: "batchnew1@test.com",
+          },
         }),
         client.user.create({
-          data: { id: "batch-new-2", name: "New 2", email: "existingbatch@test.com" }, // Conflict
+          data: {
+            id: "batch-new-2",
+            name: "New 2",
+            email: "existingbatch@test.com",
+          }, // Conflict
         }),
       ]);
     } catch {
@@ -508,7 +545,11 @@ describe("error scenarios", () => {
     try {
       await client.$transaction(async (tx) => {
         await tx.user.create({
-          data: { id: "thrown-1", name: "Thrown User", email: "thrown@test.com" },
+          data: {
+            id: "thrown-1",
+            name: "Thrown User",
+            email: "thrown@test.com",
+          },
         });
         throw new Error("Intentional error after create");
       });
@@ -524,7 +565,11 @@ describe("error scenarios", () => {
     try {
       await client.$transaction(async (tx) => {
         await tx.user.create({
-          data: { id: "async-err-1", name: "Async Error User", email: "asyncerr@test.com" },
+          data: {
+            id: "async-err-1",
+            name: "Async Error User",
+            email: "asyncerr@test.com",
+          },
         });
         // Simulate async error
         await new Promise((_, reject) =>
@@ -545,7 +590,11 @@ describe("error scenarios", () => {
     await expect(
       client.$transaction(async (tx) => {
         await tx.user.create({
-          data: { id: "preserve-1", name: "Preserve", email: "preserve@test.com" },
+          data: {
+            id: "preserve-1",
+            name: "Preserve",
+            email: "preserve@test.com",
+          },
         });
         throw new Error(errorMessage);
       })
@@ -572,7 +621,11 @@ describe("transaction semantics", () => {
   test("changes are visible after commit", async () => {
     await client.$transaction(async (tx) => {
       await tx.user.create({
-        data: { id: "commit-1", name: "Committed User", email: "commit@test.com" },
+        data: {
+          id: "commit-1",
+          name: "Committed User",
+          email: "commit@test.com",
+        },
       });
     });
 
@@ -586,7 +639,11 @@ describe("transaction semantics", () => {
     try {
       await client.$transaction(async (tx) => {
         await tx.user.create({
-          data: { id: "rollback-1", name: "Rolled Back User", email: "rollback@test.com" },
+          data: {
+            id: "rollback-1",
+            name: "Rolled Back User",
+            email: "rollback@test.com",
+          },
         });
         throw new Error("Force rollback");
       });
@@ -618,7 +675,11 @@ describe("transaction semantics", () => {
   test("transaction can read and update same record", async () => {
     // Create initial data
     await client.user.create({
-      data: { id: "read-update-1", name: "Original", email: "readupdate@test.com" },
+      data: {
+        id: "read-update-1",
+        name: "Original",
+        email: "readupdate@test.com",
+      },
     });
 
     await client.$transaction(async (tx) => {
@@ -630,11 +691,15 @@ describe("transaction semantics", () => {
         data: { name: "Modified" },
       });
 
-      const updated = await tx.user.findUnique({ where: { id: "read-update-1" } });
+      const updated = await tx.user.findUnique({
+        where: { id: "read-update-1" },
+      });
       expect(updated?.name).toBe("Modified");
     });
 
-    const final = await client.user.findUnique({ where: { id: "read-update-1" } });
+    const final = await client.user.findUnique({
+      where: { id: "read-update-1" },
+    });
     expect(final?.name).toBe("Modified");
   });
 });

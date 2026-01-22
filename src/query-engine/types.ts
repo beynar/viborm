@@ -18,8 +18,6 @@ export {
 // Re-export Sql for convenience
 export { Sql } from "@sql";
 
-import type { Sql } from "@sql";
-
 // ============================================================
 // BATCH EXECUTION TYPES
 // ============================================================
@@ -38,32 +36,24 @@ export type RawQueryResult = unknown[] | { rowCount: number };
 export type ResultParser<T> = (raw: RawQueryResult) => T;
 
 /**
- * A deferred span recorder - records a span with captured timing when called.
- * The span name is already bound; only attributes are needed at call time.
- */
-export type DeferredSpanRecorder = (
-  attrs: Record<string, string | undefined>
-) => void;
-
-/**
- * Query metadata for batch execution
- * Contains precomputed SQL, validated args, and result parser
+ * Query metadata for lazy execution
+ *
+ * Validation and SQL building are deferred to execution time.
+ * This enables proper span ordering and prepares for future prepared statement support.
  */
 export interface QueryMetadata<T> {
-  /** The compiled SQL query (null for nested writes that can't be precomputed) */
-  sql: Sql | null;
-  /** Validated and cleaned arguments (validation already performed) */
-  validatedArgs: Record<string, unknown>;
-  /** Function to parse raw results into typed objects */
-  parseResult: ResultParser<T>;
+  /** Raw arguments (not yet validated) */
+  args: Record<string, unknown>;
+  /** The operation type */
+  operation: Operation;
+  /** Model name */
+  model: string;
+  /** Function to execute the operation (validates, builds SQL, executes, parses) */
+  execute: (driverOverride?: AnyDriver) => Promise<T>;
   /** Whether this is a batch operation (returns rowCount instead of rows) */
-  isBatchOperation?: boolean;
-  /** Model name for tracing */
-  model?: string;
-  /** Operation name for tracing */
-  operation?: string;
-  /** Deferred span recorders to call when operation executes (validation, build, etc.) */
-  pendingSpans?: DeferredSpanRecorder[];
+  isBatchOperation: boolean;
+  /** Whether this operation has nested writes (can't be batched) */
+  hasNestedWrites: boolean;
 }
 
 /**

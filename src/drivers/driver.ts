@@ -17,6 +17,7 @@ import {
   SPAN_EXECUTE,
   SPAN_TRANSACTION,
 } from "@instrumentation/spans";
+import { getNoopTracer } from "@instrumentation/tracer";
 import type { Operation } from "@query-engine/types";
 import type { RelationType } from "@schema/relation/types";
 import type { Sql } from "@sql";
@@ -288,11 +289,10 @@ export abstract class Driver<TClient, TTransaction> {
       }
     };
 
-    if (!this.instrumentation?.tracer) {
-      return runAndLog();
-    }
+    // Get tracer (always defined - either real or no-op)
+    const tracer = this.instrumentation?.tracer ?? getNoopTracer();
 
-    return this.instrumentation.tracer.startActiveSpan(
+    return tracer.startActiveSpan(
       {
         name: SPAN_EXECUTE,
         attributes: this.getContextAttributes(),
@@ -361,11 +361,10 @@ export abstract class Driver<TClient, TTransaction> {
       }
     };
 
-    if (!this.instrumentation?.tracer) {
-      return runTransaction();
-    }
+    // Get tracer (always defined - either real or no-op)
+    const tracer = this.instrumentation?.tracer ?? getNoopTracer();
 
-    return this.instrumentation.tracer.startActiveSpan(
+    return tracer.startActiveSpan(
       {
         name: SPAN_TRANSACTION,
         attributes: this.getBaseAttributes(),
@@ -478,11 +477,10 @@ export abstract class Driver<TClient, TTransaction> {
       await this.getClient();
     };
 
-    if (!this.instrumentation?.tracer) {
-      return doConnect();
-    }
+    // Get tracer (always defined - either real or no-op)
+    const tracer = this.instrumentation?.tracer ?? getNoopTracer();
 
-    return this.instrumentation.tracer.startActiveSpan(
+    return tracer.startActiveSpan(
       {
         name: SPAN_CONNECT,
         attributes: this.getBaseAttributes(),
@@ -506,21 +504,22 @@ export abstract class Driver<TClient, TTransaction> {
         }
       }
 
-      if (this.client) {
-        await this.closeClient(this.client);
+      try {
+        if (this.client) {
+          await this.closeClient(this.client);
+        }
+      } finally {
+        this.client = null;
+        this.initPromise = null;
+        this.isDisconnecting = false;
+        this.inTransaction = false;
       }
-
-      this.client = null;
-      this.initPromise = null;
-      this.isDisconnecting = false;
-      this.inTransaction = false;
     };
 
-    if (!this.instrumentation?.tracer) {
-      return doDisconnect();
-    }
+    // Get tracer (always defined - either real or no-op)
+    const tracer = this.instrumentation?.tracer ?? getNoopTracer();
 
-    return this.instrumentation.tracer.startActiveSpan(
+    return tracer.startActiveSpan(
       {
         name: SPAN_DISCONNECT,
         attributes: this.getBaseAttributes(),

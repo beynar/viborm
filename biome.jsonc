@@ -1,37 +1,41 @@
 {
-  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
-  "extends": ["ultracite/biome/core"],
-  "linter": {
-    "rules": {
-      "suspicious": {
-        "noExplicitAny": "off",
-        "noAssignInExpressions": "off",
-        "useGuardForIn": "off",
-        "useAwait": "off"
-      },
-      "style": {
-        "noNamespace": "off",
-        "useConsistentTypeDefinitions": "off",
-        "noNonNullAssertion": "off",
-        "useBlockStatements": "off",
-        "noNestedTernary": "off",
-        "noEnum": "off"
-      },
-      "performance": {
-        "noBarrelFile": "off"
-      },
-      "complexity": {
-        "useLiteralKeys": "off",
-        "noExcessiveCognitiveComplexity": {
-          "level": "off",
-          "options": {
-            "maxAllowedComplexity": 45
-          }
-        }
-      },
-      "correctness": {
-        "noUnusedVariables": "info"
-      }
-    }
-  }
+	"$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+	"extends": [
+		"ultracite/biome/core"
+	],
+	"linter": {
+		"rules": {
+			"suspicious": {
+				"noExplicitAny": "off",
+				"noAssignInExpressions": "off",
+				"useGuardForIn": "off",
+				"useAwait": "off",
+				"noThenProperty": "off",
+				"noConfusingVoidType": "off"
+			},
+			"style": {
+				"noNamespace": "off",
+				"useConsistentTypeDefinitions": "off",
+				"noNonNullAssertion": "off",
+				"useBlockStatements": "off",
+				"noNestedTernary": "off",
+				"noEnum": "off"
+			},
+			"performance": {
+				"noBarrelFile": "off"
+			},
+			"complexity": {
+				"useLiteralKeys": "off",
+				"noExcessiveCognitiveComplexity": {
+					"level": "off",
+					"options": {
+						"maxAllowedComplexity": 45
+					}
+				}
+			},
+			"correctness": {
+				"noUnusedVariables": "info"
+			}
+		}
+	}
 }

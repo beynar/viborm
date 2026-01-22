@@ -7,14 +7,13 @@ import { type CacheExecutionOptions, withCacheSchema } from "@cache";
 import type { AnyDriver, QueryResult, TransactionOptions } from "@drivers";
 import { CacheOperationNotCacheableError } from "@errors";
 import {
-  ATTR_DB_COLLECTION,
-  ATTR_DB_OPERATION_NAME,
   createInstrumentationContext,
   type InstrumentationConfig,
   type InstrumentationContext,
-  SPAN_OPERATION,
-  SPAN_PARSE,
 } from "@instrumentation";
+
+// Note: Removed unused imports - ATTR_DB_COLLECTION, ATTR_DB_OPERATION_NAME, getNoopTracer, SPAN_OPERATION, SPAN_PARSE
+// These were used for manual batch tracing which is now handled by each operation's executor
 
 /**
  * Check if a value is an InstrumentationContext (already processed)
@@ -409,170 +408,27 @@ export class VibORM<C extends VibORMConfig> {
                 }
               }
 
-              // Separate batchable vs non-batchable operations with their indices
-              const batchable: Array<{
-                index: number;
-                op: PendingOperation<unknown>;
-              }> = [];
-              const nonBatchable: Array<{
-                index: number;
-                op: PendingOperation<unknown>;
-              }> = [];
+              // Execute all operations within a transaction
+              // Each operation's executor handles its own tracing (validate, build, execute, parse)
+              return orm.driver.withTransaction(async (txDriver) => {
+                const driver = txDriver as AnyDriver;
 
-              operations.forEach((op, index) => {
-                if (op.canBatch()) {
-                  batchable.push({ index, op });
-                } else {
-                  nonBatchable.push({ index, op });
+                // Execute operations sequentially to maintain order
+                // Each executor already has full tracing via query engine
+                const results: unknown[] = [];
+                for (const op of operations) {
+                  const result = await op.executeWith(driver);
+
+                  // Cache invalidation for mutations
+                  if (orm.cache && isMutationOperation(op.getOperation())) {
+                    await orm.cache._invalidate(op.getModel());
+                  }
+
+                  results.push(result);
                 }
-              });
-
-              // Execute function - handles both batch and non-batch
-              // Accepts optional driver for transaction-bound execution
-              const executeBatch = async (
-                driver: AnyDriver = orm.driver
-              ): Promise<unknown[]> => {
-                // Prepare results array
-                const results: unknown[] = new Array(operations.length);
-
-                const tracer = orm.instrumentation?.tracer;
-
-                // Helper to execute a single operation with tracing spans
-                const executeWithSpans = async (
-                  op: PendingOperation<unknown>,
-                  rawResult: QueryResult<Record<string, unknown>>
-                ): Promise<unknown> => {
-                  const model = op.getModel() ?? "-";
-                  const opName = op.getOperation() ?? "-";
-                  const spanAttrs = {
-                    ...driver.getBaseAttributes(),
-                    [ATTR_DB_COLLECTION]: model,
-                    [ATTR_DB_OPERATION_NAME]: opName,
-                  };
-
-                  const executeCore = async () => {
-                    // Record pending spans (validation, build) with actual timing from prepare()
-                    op.recordPendingSpans(spanAttrs);
-
-                    // Parse result with tracing
-                    const parser = op.getResultParser();
-                    const input = op.isBatchOperation()
-                      ? { rowCount: rawResult.rowCount }
-                      : rawResult.rows;
-
-                    const result = tracer
-                      ? tracer.startActiveSpanSync(
-                          { name: SPAN_PARSE, attributes: spanAttrs },
-                          () => parser(input)
-                        )
-                      : parser(input);
-
-                    // Invoke cache invalidation for mutations (bypassed by native batch path)
-                    if (orm.cache && isMutationOperation(opName)) {
-                      await orm.cache._invalidate(model);
-                    }
-
-                    return result;
-                  };
-
-                  // Wrap with SPAN_OPERATION
-                  if (tracer) {
-                    return tracer.startActiveSpan(
-                      { name: SPAN_OPERATION, attributes: spanAttrs },
-                      async () => executeCore()
-                    );
-                  }
-                  return executeCore();
-                };
-
-                // Helper to execute a single batchable op with full tracing spans
-                const executeOpWithTracing = async (
-                  op: PendingOperation<unknown>
-                ): Promise<unknown> => {
-                  const model = op.getModel() ?? "-";
-                  const opName = op.getOperation() ?? "-";
-                  const spanAttrs = {
-                    ...driver.getBaseAttributes(),
-                    [ATTR_DB_COLLECTION]: model,
-                    [ATTR_DB_OPERATION_NAME]: opName,
-                  };
-
-                  const executeCore = async () => {
-                    // Record pending spans (validation, build) with actual timing from prepare()
-                    op.recordPendingSpans(spanAttrs);
-
-                    // Execute - this creates SPAN_EXECUTE via driver._execute
-                    const result = await op.executeWith(driver);
-
-                    // Invoke cache invalidation for mutations (bypassed by executeWith for batchable ops)
-                    if (orm.cache && isMutationOperation(opName)) {
-                      await orm.cache._invalidate(model);
-                    }
-
-                    return result;
-                  };
-
-                  // Wrap with SPAN_OPERATION
-                  if (tracer) {
-                    return tracer.startActiveSpan(
-                      { name: SPAN_OPERATION, attributes: spanAttrs },
-                      executeCore
-                    );
-                  }
-                  return executeCore();
-                };
-
-                // Execute batchable and non-batchable in parallel
-                const [batchResults, nonBatchResults] = await Promise.all([
-                  // Batchable operations - use native batch if supported
-                  batchable.length > 0
-                    ? driver.supportsBatch
-                      ? (async () => {
-                          const queries = batchable.map(({ op }) => ({
-                            sql: op.getSqlString(
-                              driver.dialect === "postgresql" ? "$n" : "?"
-                            )!,
-                            params: op.getParams(),
-                          }));
-                          const rawResults =
-                            await driver._executeBatch<Record<string, unknown>>(
-                              queries
-                            );
-                          // Process each result with spans
-                          return Promise.all(
-                            rawResults.map((result, i) =>
-                              executeWithSpans(batchable[i]!.op, result)
-                            )
-                          );
-                        })()
-                      : // No native batch - execute sequentially with full tracing
-                        Promise.all(
-                          batchable.map(({ op }) => executeOpWithTracing(op))
-                        )
-                    : Promise.resolve([]),
-
-                  // Non-batchable operations (nested writes) - execute in parallel
-                  // These go through the executor which has full tracing
-                  Promise.all(
-                    nonBatchable.map(({ op }) => op.executeWith(driver))
-                  ),
-                ]);
-
-                // Place results back in original order
-                batchable.forEach(({ index }, i) => {
-                  results[index] = batchResults[i];
-                });
-                nonBatchable.forEach(({ index }, i) => {
-                  results[index] = nonBatchResults[i];
-                });
 
                 return results;
-              };
-
-              return orm.driver.withTransaction(
-                (txDriver) => executeBatch(txDriver as AnyDriver),
-                options
-              );
+              }, options);
             }
 
             // Callback = dynamic transaction mode
@@ -583,7 +439,7 @@ export class VibORM<C extends VibORMConfig> {
                 driver: txDriver as AnyDriver,
                 schema: orm.schema,
                 cache: orm.cache,
-                instrumentation: orm.instrumentation, // Pass context for operation spans
+                instrumentation: orm.instrumentation,
                 waitUntil: orm.waitUntil,
                 cacheVersion: orm.cacheVersion,
               });

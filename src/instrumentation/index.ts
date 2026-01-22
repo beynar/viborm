@@ -72,6 +72,7 @@ export {
 // Tracer wrapper
 export {
   createTracerWrapper,
+  getNoopTracer,
   type TracerWrapper,
   type TracerWrapperConfig,
   type VibORMSpanOptions,

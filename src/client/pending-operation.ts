@@ -8,10 +8,12 @@
  * This implements the Prisma-style "PrismaPromise" pattern where operations
  * like `client.user.findMany()` return immediately without executing,
  * allowing them to be collected and executed together in a batch or transaction.
+ *
+ * Validation and SQL building are DEFERRED to execution time.
  */
 
 import type { AnyDriver } from "@drivers";
-import type { QueryMetadata, ResultParser } from "@query-engine/types";
+import type { QueryMetadata } from "@query-engine/types";
 
 /**
  * Symbol to identify PendingOperation instances
@@ -39,28 +41,18 @@ export class PendingOperation<T> implements PromiseLike<T> {
   readonly [PENDING_OPERATION_SYMBOL] = true;
 
   /**
-   * The executor function that performs the actual database operation.
-   * Accepts an optional driver override for transaction-bound execution.
-   */
-  private readonly executor: (driverOverride?: AnyDriver) => Promise<T>;
-
-  /**
-   * Query metadata for batch execution
+   * Query metadata containing args, operation info, and executor
    */
   private readonly metadata: QueryMetadata<T>;
 
   /**
    * Cached promise for direct execution via then/catch/finally.
-   * Ensures executor() is only called once even if multiple
+   * Ensures execute() is only called once even if multiple
    * PromiseLike methods are chained on the same instance.
    */
   private _promise: Promise<T> | null = null;
 
-  constructor(
-    executor: (driverOverride?: AnyDriver) => Promise<T>,
-    metadata: QueryMetadata<T>
-  ) {
-    this.executor = executor;
+  constructor(metadata: QueryMetadata<T>) {
     this.metadata = metadata;
   }
 
@@ -70,115 +62,64 @@ export class PendingOperation<T> implements PromiseLike<T> {
    */
   private getPromise(): Promise<T> {
     if (!this._promise) {
-      this._promise = this.executor();
+      this._promise = this.metadata.execute();
     }
     return this._promise;
   }
 
   /**
-   * Check if this operation can be batched (has precomputed SQL)
+   * Check if this operation can be batched.
    * Operations with nested writes cannot be batched as they require
    * multiple queries with runtime-dependent values.
    */
   canBatch(): boolean {
-    return this.metadata.sql !== null;
+    return !this.metadata.hasNestedWrites;
   }
 
   /**
-   * Get SQL string for batch execution with driver-specific placeholders
-   * @param placeholderType - "?" for SQLite/MySQL, "$n" for PostgreSQL
-   */
-  getSqlString(placeholderType: "?" | "$n"): string | null {
-    return this.metadata.sql?.toStatement(placeholderType) ?? null;
-  }
-
-  /**
-   * Get query parameters for batch execution
-   */
-  getParams(): unknown[] {
-    return this.metadata.sql?.values ?? [];
-  }
-
-  /**
-   * Get the result parser for batch execution
-   */
-  getResultParser(): ResultParser<T> {
-    return this.metadata.parseResult;
-  }
-
-  /**
-   * Check if this is a batch operation (returns rowCount)
+   * Check if this is a batch operation (returns rowCount instead of rows)
    */
   isBatchOperation(): boolean {
-    return this.metadata.isBatchOperation ?? false;
+    return this.metadata.isBatchOperation;
   }
 
   /**
-   * Get pre-validated args from prepareMetadata
+   * Get raw args (not yet validated)
    */
-  getValidatedArgs(): Record<string, unknown> {
-    return this.metadata.validatedArgs;
+  getArgs(): Record<string, unknown> {
+    return this.metadata.args;
   }
 
   /**
    * Get model name for tracing
    */
-  getModel(): string | undefined {
+  getModel(): string {
     return this.metadata.model;
   }
 
   /**
    * Get operation name for tracing
    */
-  getOperation(): string | undefined {
+  getOperation(): string {
     return this.metadata.operation;
-  }
-
-  /**
-   * Record pending spans (validation, build) with the given attributes.
-   * Called when the operation executes inside SPAN_OPERATION context.
-   */
-  recordPendingSpans(attrs: Record<string, string | undefined>): void {
-    for (const record of this.metadata.pendingSpans ?? []) {
-      record(attrs);
-    }
   }
 
   /**
    * Execute the operation immediately
    */
   execute(): Promise<T> {
-    return this.executor();
+    return this.metadata.execute();
   }
 
   /**
    * Execute the operation with a specific driver.
    * Used for transaction-bound execution where we need to use the txDriver.
    *
-   * For batchable operations (with precomputed SQL), executes directly on the driver
-   * with tracing spans for operation/validate/build/execute/parse.
-   * For non-batchable operations (nested writes), passes the driver to the executor
-   * so nested writes use the transaction context (savepoints) instead of new transactions.
+   * Passes the driver to the executor so operations use the transaction
+   * context (savepoints) instead of new transactions.
    */
-  async executeWith(driver: AnyDriver): Promise<T> {
-    // For non-batchable operations (nested writes), pass driver to executor
-    // which has full tracing via the query engine
-    if (!this.metadata.sql) {
-      return this.executor(driver);
-    }
-
-    // For batchable operations, execute directly on the provided driver
-    // The driver's _execute already creates SPAN_EXECUTE, we just need to
-    // execute and parse the result
-    const result = await driver._execute<Record<string, unknown>>(
-      this.metadata.sql
-    );
-
-    // Use the result parser to transform the result
-    const input = this.metadata.isBatchOperation
-      ? { rowCount: result.rowCount }
-      : result.rows;
-    return this.metadata.parseResult(input);
+  executeWith(driver: AnyDriver): Promise<T> {
+    return this.metadata.execute(driver);
   }
 
   /**
@@ -196,20 +137,14 @@ export class PendingOperation<T> implements PromiseLike<T> {
    * });
    * ```
    */
-  /**
-   * Note: The wrapper must return the same type T because the metadata
-   * (including parseResult) is preserved. Use this for side-effects like
-   * cache invalidation, not for result transformations.
-   */
   wrapExecutor(
-    wrapper: (execute: () => Promise<T>) => Promise<T>
+    wrapper: (execute: (driver?: AnyDriver) => Promise<T>) => Promise<T>
   ): PendingOperation<T> {
-    const originalExecutor = this.executor;
-    return new PendingOperation(
-      (driverOverride?: AnyDriver) =>
-        wrapper(() => originalExecutor(driverOverride)),
-      this.metadata
-    );
+    return new PendingOperation({
+      ...this.metadata,
+      execute: (driverOverride?: AnyDriver) =>
+        wrapper((driver) => this.metadata.execute(driver ?? driverOverride)),
+    });
   }
 
   /**

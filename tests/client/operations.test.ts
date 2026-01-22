@@ -58,7 +58,7 @@ let client: Awaited<
 
 beforeAll(async () => {
   client = PGliteCreateClient({ schema });
-  await push(client.$driver, schema, { force: true });
+  await push(client, { force: true });
 });
 
 afterAll(async () => {

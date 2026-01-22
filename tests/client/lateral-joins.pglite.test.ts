@@ -94,7 +94,7 @@ beforeAll(async () => {
   const pglite = new PGlite();
   client = await PGliteCreateClient({ schema, client: pglite });
   // Migration now automatically creates junction tables for many-to-many relations
-  await push(client.$driver, schema, { force: true });
+  await push(client, { force: true });
 });
 
 afterAll(async () => {

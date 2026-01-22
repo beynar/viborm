@@ -18,7 +18,6 @@ import {
   SPAN_OPERATION,
   SPAN_PARSE,
   SPAN_VALIDATE,
-  type VibORMSpanOptions,
 } from "@instrumentation";
 import type { Model } from "@schema/model";
 import type { Sql } from "@sql";
@@ -151,68 +150,17 @@ export class QueryEngine {
   }
 
   /**
-   * Prepare an operation and return query metadata for batch execution.
-   * For simple operations: precomputes SQL.
-   * For nested writes: returns null SQL (can't be precomputed).
-   *
-   * This is used by the client to get precomputed SQL for native batch execution
-   * on drivers that support it (D1, Neon-HTTP).
-   *
-   * Note: This only builds query metadata, not an executor. The client creates
-   * the executor that routes through executeWithValidatedArgs for proper instrumentation.
-   *
-   * Note: Validation span is not recorded here because this runs before the
-   * viborm.operation span starts. The span will be recorded in executeCore().
-   */
-  prepareMetadata(
-    model: Model<any>,
-    operation: Operation,
-    args: Record<string, unknown>
-  ): QueryMetadata<unknown> {
-    // Validate input eagerly (fail fast) - only place validation happens
-    const validated = validate<Record<string, unknown>>(model, operation, args);
-
-    // Create context
-    const ctx = createQueryContext(
-      this.adapter,
-      model,
-      this.registry,
-      this.driver
-    );
-
-    // Check if this has nested writes - can't precompute
-    if (this.hasNestedWrites(operation, validated)) {
-      return {
-        sql: null,
-        validatedArgs: validated,
-        parseResult: (rows) => rows,
-        isBatchOperation: isBatchOperation(operation),
-      };
-    }
-
-    // Build SQL eagerly
-    const sql = this.buildOperation(ctx, operation, validated);
-
-    return {
-      sql,
-      validatedArgs: validated,
-      parseResult: (rows) => parseResult(ctx, operation, rows),
-      isBatchOperation: isBatchOperation(operation),
-    };
-  }
-
-  /**
    * Prepare an operation and return a PendingOperation ready for execution.
    *
    * This is the primary entry point for creating database operations.
-   * The returned PendingOperation contains a full executor with instrumentation.
+   * The returned PendingOperation contains metadata and an executor.
    *
-   * Handles: validation, SQL building, execution, parsing, all instrumentation spans,
-   * OrThrow semantics, and exist operation conversion.
+   * Validation and SQL building are DEFERRED to execution time.
+   * This enables proper span ordering and prepares for future prepared statement support.
    *
    * @param model - The model to operate on
    * @param operation - The base operation (without OrThrow suffix)
-   * @param args - Raw operation arguments (will be validated)
+   * @param args - Raw operation arguments (will be validated at execution time)
    * @param options - Prepare options (throwIfNotFound, originalOperation)
    */
   prepare<T>(
@@ -222,7 +170,6 @@ export class QueryEngine {
     options?: PrepareOptions
   ): PendingOperation<T> {
     const modelName = model["~"].names.ts ?? "unknown";
-    const tableName = model["~"].names.sql ?? modelName;
 
     // Strip OrThrow suffix if present
     const OR_THROW_SUFFIX = "OrThrow";
@@ -238,114 +185,44 @@ export class QueryEngine {
       originalOperation: options?.originalOperation ?? operation,
     };
 
-    // Validate input eagerly (fail fast) - capture timing for span
-    const tracer = this.instrumentation?.tracer;
-    const validation = tracer
-      ? tracer.capture(() =>
-          validate<Record<string, unknown>>(model, baseOperation, args)
-        )
-      : {
-          result: validate<Record<string, unknown>>(model, baseOperation, args),
-          record: undefined,
-        };
-    const validated = validation.result;
-
-    // Create context for SQL building and result parsing
-    const ctx = createQueryContext(
-      this.adapter,
-      model,
-      this.registry,
-      this.driver
-    );
-
-    // Check if this has nested writes (can't precompute SQL)
-    const hasNested = this.hasNestedWrites(baseOperation, validated);
-
-    // Build SQL if possible (non-nested operations) - capture timing for span
-    let sql: ReturnType<typeof this.buildOperation> | null = null;
-    let recordBuild: ((options: VibORMSpanOptions) => void) | undefined;
-    if (!hasNested) {
-      const build = tracer
-        ? tracer.capture(() =>
-            this.buildOperation(ctx, baseOperation, validated)
-          )
-        : {
-            result: this.buildOperation(ctx, baseOperation, validated),
-            record: undefined,
-          };
-      sql = build.result;
-      recordBuild = build.record;
-    }
-
-    // Collect pending span recorders for batch execution
-    // Each recorder is bound to its span name, just needs attributes at call time
-    const pendingSpans: Array<
-      (attrs: Record<string, string | undefined>) => void
-    > = [];
-    if (validation.record) {
-      pendingSpans.push((attrs) =>
-        validation.record({ name: SPAN_VALIDATE, attributes: attrs })
-      );
-    }
-    if (recordBuild) {
-      pendingSpans.push((attrs) =>
-        recordBuild({ name: SPAN_BUILD, attributes: attrs })
-      );
-    }
-
-    // Create metadata for batch execution
-    // Wrap parseResult with applyPostProcessing for OrThrow and exist conversion
-    const metadata: QueryMetadata<T> = {
-      sql,
-      validatedArgs: validated,
-      parseResult: (rows) => {
-        const result = parseResult(ctx, baseOperation, rows) as T;
-        return this.applyPostProcessing(
-          result,
-          baseOperation,
-          prepareOptions,
-          modelName
-        );
-      },
-      isBatchOperation: isBatchOperation(baseOperation),
-      model: modelName,
-      operation: baseOperation,
-      pendingSpans: pendingSpans.length > 0 ? pendingSpans : undefined,
-    };
-
-    // Create the executor with full instrumentation
+    // Create the executor (validation and SQL building happen at execution time)
     const executor = this.createExecutor<T>(
-      ctx,
       model,
       baseOperation,
-      validated,
-      sql,
-      prepareOptions,
-      validation.record,
-      recordBuild
+      args,
+      prepareOptions
     );
 
-    return new PendingOperation(executor, metadata);
+    // Create metadata for batch execution
+    // Note: hasNestedWrites check is done with raw args - it only looks at structure
+    const metadata: QueryMetadata<T> = {
+      args,
+      operation: baseOperation,
+      model: modelName,
+      execute: executor,
+      isBatchOperation: isBatchOperation(baseOperation),
+      hasNestedWrites: this.hasNestedWrites(baseOperation, args),
+    };
+
+    return new PendingOperation<T>(metadata);
   }
 
   /**
    * Create an executor function with full instrumentation.
-   * The executor handles: SPAN_OPERATION wrapping, all sub-spans,
-   * OrThrow semantics, exist conversion, and error logging.
    *
-   * The returned executor accepts an optional driver override for transaction-bound
-   * execution. When provided, nested writes will use that driver (and its transaction
-   * context) instead of the base driver.
+   * The executor performs validation and SQL building at execution time,
+   * ensuring all spans occur within SPAN_OPERATION.
+   *
+   * @param model - The model to operate on
+   * @param operation - The operation type
+   * @param args - Raw arguments (will be validated)
+   * @param options - Prepare options
    */
   private createExecutor<T>(
-    ctx: QueryContext,
     model: Model<any>,
     operation: Operation,
-    validatedArgs: Record<string, unknown>,
-    precomputedSql: Sql | null,
-    options?: PrepareOptions,
-    recordValidation?: (options: VibORMSpanOptions) => void,
-    recordBuild?: (options: VibORMSpanOptions) => void
+    args: Record<string, unknown>,
+    options?: PrepareOptions
   ): (driverOverride?: AnyDriver) => Promise<T> {
     const tracer = this.instrumentation?.tracer;
     const logger = this.instrumentation?.logger;
@@ -360,23 +237,33 @@ export class QueryEngine {
     };
 
     return async (driverOverride?: AnyDriver): Promise<T> => {
-      // Capture start time at execution, not prepare time
       const startTime = Date.now();
-      // Use override driver if provided (for transaction-bound execution)
       const driver = driverOverride ?? this.driver;
 
-      // Core execution logic wrapped in SPAN_OPERATION
       const executeCore = async (): Promise<T> => {
         try {
-          // Record validation span with actual timing from prepare()
-          recordValidation?.({ name: SPAN_VALIDATE, attributes: spanAttrs });
+          // Create context for SQL building and result parsing
+          const ctx = createQueryContext(
+            this.adapter,
+            model,
+            this.registry,
+            driver
+          );
 
-          // Handle nested writes separately
-          if (precomputedSql === null) {
+          // Validate at execution time (inside SPAN_OPERATION)
+          const validated = tracer
+            ? tracer.startActiveSpanSync(
+                { name: SPAN_VALIDATE, attributes: spanAttrs },
+                () => validate<Record<string, unknown>>(model, operation, args)
+              )
+            : validate<Record<string, unknown>>(model, operation, args);
+
+          // Check for nested writes
+          if (this.hasNestedWrites(operation, validated)) {
             const result = await this.executeWithNestedWrites<T>(
               ctx,
               operation,
-              validatedArgs,
+              validated,
               driver
             );
             return this.applyPostProcessing<T>(
@@ -387,15 +274,20 @@ export class QueryEngine {
             );
           }
 
-          // Record build span with actual timing from prepare()
-          recordBuild?.({ name: SPAN_BUILD, attributes: spanAttrs });
+          // Build SQL at execution time (inside SPAN_OPERATION)
+          const sql = tracer
+            ? tracer.startActiveSpanSync(
+                { name: SPAN_BUILD, attributes: spanAttrs },
+                () => this.buildOperation(ctx, operation, validated)
+              )
+            : this.buildOperation(ctx, operation, validated);
 
           // Set context on driver for logging
           driver.setContext({ model: modelName, operation });
 
           try {
             // Execute query
-            const result = await driver._execute(precomputedSql);
+            const result = await driver._execute(sql);
 
             // Parse result
             const parseInput = isBatchOperation(operation)
@@ -419,7 +311,6 @@ export class QueryEngine {
             driver.clearContext();
           }
         } catch (error) {
-          // Error logging
           if (error instanceof Error && !("logged" in error)) {
             logger?.error(
               createErrorLogEvent({
@@ -434,8 +325,8 @@ export class QueryEngine {
         }
       };
 
-      // Wrap with SPAN_OPERATION (unless skipSpan is set, e.g., cache driver provides its own)
-      if (tracer && !options?.skipSpan) {
+      // Wrap with SPAN_OPERATION (unless skipSpan is set)
+      if (!options?.skipSpan && tracer) {
         return tracer.startActiveSpan(
           { name: SPAN_OPERATION, attributes: spanAttrs },
           executeCore
@@ -529,139 +420,15 @@ export class QueryEngine {
   }
 
   /**
-   * Execute an operation and return parsed results
-   * Note: Validates args - if you have pre-validated args, use executeWithValidatedArgs instead
+   * Execute an operation and return parsed results.
+   * This is a convenience method that creates a PendingOperation and executes it.
    */
   async execute<T>(
     model: Model<any>,
     operation: Operation,
     args: Record<string, unknown>
   ): Promise<T> {
-    const tracer = this.instrumentation?.tracer;
-    const modelName = model["~"].names.ts ?? "unknown";
-    const tableName = model["~"].names.sql ?? modelName;
-    const spanAttrs = {
-      ...this.driver.getBaseAttributes(),
-      [ATTR_DB_COLLECTION]: tableName,
-      [ATTR_DB_OPERATION_NAME]: operation,
-    };
-
-    // Validate input (synchronous - use sync span method)
-    const validated = tracer
-      ? tracer.startActiveSpanSync(
-          { name: SPAN_VALIDATE, attributes: spanAttrs },
-          () => validate<Record<string, unknown>>(model, operation, args)
-        )
-      : validate<Record<string, unknown>>(model, operation, args);
-
-    return this.executeCore<T>(model, operation, validated);
-  }
-
-  /**
-   * Execute an operation with pre-validated args (skips validation)
-   * Use this when args have already been validated by prepareMetadata()
-   *
-   * @param recordValidateSpan - If true, records a validation span for tracing
-   *   (even though validation already happened at prepare time)
-   */
-  async executeWithValidatedArgs<T>(
-    model: Model<any>,
-    operation: Operation,
-    validatedArgs: Record<string, unknown>,
-    recordValidateSpan = true
-  ): Promise<T> {
-    return this.executeCore<T>(
-      model,
-      operation,
-      validatedArgs,
-      recordValidateSpan
-    );
-  }
-
-  /**
-   * Core execution logic (assumes args are already validated)
-   *
-   * @param recordValidateSpan - If true, records a validation span for tracing
-   */
-  private async executeCore<T>(
-    model: Model<any>,
-    operation: Operation,
-    validated: Record<string, unknown>,
-    recordValidateSpan = false
-  ): Promise<T> {
-    const tracer = this.instrumentation?.tracer;
-    const modelName = model["~"].names.ts ?? "unknown";
-    const tableName = model["~"].names.sql ?? modelName;
-    const spanAttrs = {
-      ...this.driver.getBaseAttributes(),
-      [ATTR_DB_COLLECTION]: tableName,
-      [ATTR_DB_OPERATION_NAME]: operation,
-    };
-
-    // Record validation span if requested (validation already happened at prepare time)
-    if (recordValidateSpan && tracer) {
-      tracer.startActiveSpanSync(
-        { name: SPAN_VALIDATE, attributes: spanAttrs },
-        () => {} // No-op - validation already done
-      );
-    }
-
-    // Create context once and reuse for both building and parsing
-    const ctx = createQueryContext(
-      this.adapter,
-      model,
-      this.registry,
-      this.driver
-    );
-
-    // Check if this is a mutation with nested writes
-    if (this.hasNestedWrites(operation, validated)) {
-      return this.executeWithNestedWrites<T>(ctx, operation, validated);
-    }
-
-    // Build SQL (synchronous - use sync span method)
-    const sqlQuery = tracer
-      ? tracer.startActiveSpanSync(
-          { name: SPAN_BUILD, attributes: spanAttrs },
-          () => this.buildOperation(ctx, operation, validated)
-        )
-      : this.buildOperation(ctx, operation, validated);
-
-    // Set context on driver for logging
-    this.driver.setContext({ model: modelName, operation });
-
-    try {
-      // Execute query - driver handles logging with context
-      const result = await this.driver._execute(sqlQuery);
-
-      // Parse result (synchronous - use sync span method)
-      if (isBatchOperation(operation)) {
-        const parsed = tracer
-          ? tracer.startActiveSpanSync(
-              { name: SPAN_PARSE, attributes: spanAttrs },
-              () =>
-                parseResult<T>(ctx, operation, { rowCount: result.rowCount })
-            )
-          : parseResult<T>(ctx, operation, { rowCount: result.rowCount });
-        return this.applyPostProcessing(
-          parsed,
-          operation,
-          undefined,
-          modelName
-        );
-      }
-
-      const parsed = tracer
-        ? tracer.startActiveSpanSync(
-            { name: SPAN_PARSE, attributes: spanAttrs },
-            () => parseResult<T>(ctx, operation, result.rows)
-          )
-        : parseResult<T>(ctx, operation, result.rows);
-      return this.applyPostProcessing(parsed, operation, undefined, modelName);
-    } finally {
-      // Clear context after execution
-      this.driver.clearContext();
-    }
+    return this.prepare<T>(model, operation, args).execute();
   }
 
   /**

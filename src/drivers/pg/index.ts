@@ -116,10 +116,10 @@ export class PgDriver extends Driver<Pool, PoolClient> {
       let beginStatement = "BEGIN";
       if (options?.isolationLevel) {
         const isolationMap = {
-          ReadUncommitted: "READ UNCOMMITTED",
-          ReadCommitted: "READ COMMITTED",
-          RepeatableRead: "REPEATABLE READ",
-          Serializable: "SERIALIZABLE",
+          read_uncommitted: "READ UNCOMMITTED",
+          read_committed: "READ COMMITTED",
+          repeatable_read: "REPEATABLE READ",
+          serializable: "SERIALIZABLE",
         };
         beginStatement = `BEGIN ISOLATION LEVEL ${isolationMap[options.isolationLevel]}`;
       }

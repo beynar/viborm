@@ -150,7 +150,7 @@ export async function squash(
 
   if (dryRun) {
     return {
-      entry: newEntry,
+      entry: { ...newEntry, idx: from },
       squashedCount: entriesToSquash.length,
       sql: allStatements,
     };

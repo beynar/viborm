@@ -49,7 +49,7 @@ const schema = { user, post };
 
 async function setupDatabaseRaw(driver: PostgresDriver) {
   // Create tables with raw SQL (for testing driver directly without client)
-  await driver.executeRaw(`
+  await driver._executeRaw(`
     CREATE TABLE IF NOT EXISTS "postgresjs_test_users" (
       "id" TEXT PRIMARY KEY NOT NULL,
       "name" TEXT,
@@ -58,7 +58,7 @@ async function setupDatabaseRaw(driver: PostgresDriver) {
     )
   `);
 
-  await driver.executeRaw(`
+  await driver._executeRaw(`
     CREATE TABLE IF NOT EXISTS "postgresjs_test_posts" (
       "id" TEXT PRIMARY KEY NOT NULL,
       "title" TEXT NOT NULL,
@@ -70,8 +70,8 @@ async function setupDatabaseRaw(driver: PostgresDriver) {
   `);
 
   // Clean up any existing data
-  await driver.executeRaw(`DELETE FROM "postgresjs_test_posts"`);
-  await driver.executeRaw(`DELETE FROM "postgresjs_test_users"`);
+  await driver._executeRaw(`DELETE FROM "postgresjs_test_posts"`);
+  await driver._executeRaw(`DELETE FROM "postgresjs_test_users"`);
 }
 
 // =============================================================================
@@ -125,7 +125,7 @@ describeIf("postgres.js Driver", () => {
     });
 
     test("executes INSERT and returns row count", async () => {
-      const result = await driver.executeRaw(
+      const result = await driver._executeRaw(
         `INSERT INTO "postgresjs_test_users" ("id", "email", "name") VALUES ($1, $2, $3)`,
         ["user-1", "test@example.com", "Test User"]
       );
@@ -133,12 +133,12 @@ describeIf("postgres.js Driver", () => {
     });
 
     test("executes SELECT and returns rows", async () => {
-      await driver.executeRaw(
+      await driver._executeRaw(
         `INSERT INTO "postgresjs_test_users" ("id", "email", "name") VALUES ($1, $2, $3)`,
         ["user-1", "test@example.com", "Test User"]
       );
 
-      const result = await driver.executeRaw<{ id: string; email: string }>(
+      const result = await driver._executeRaw<{ id: string; email: string }>(
         `SELECT * FROM "postgresjs_test_users" WHERE "id" = $1`,
         ["user-1"]
       );
@@ -148,12 +148,12 @@ describeIf("postgres.js Driver", () => {
     });
 
     test("executes UPDATE and returns affected count", async () => {
-      await driver.executeRaw(
+      await driver._executeRaw(
         `INSERT INTO "postgresjs_test_users" ("id", "email", "name") VALUES ($1, $2, $3)`,
         ["user-1", "test@example.com", "Test User"]
       );
 
-      const result = await driver.executeRaw(
+      const result = await driver._executeRaw(
         `UPDATE "postgresjs_test_users" SET "name" = $1 WHERE "id" = $2`,
         ["Updated Name", "user-1"]
       );
@@ -162,12 +162,12 @@ describeIf("postgres.js Driver", () => {
     });
 
     test("executes DELETE and returns affected count", async () => {
-      await driver.executeRaw(
+      await driver._executeRaw(
         `INSERT INTO "postgresjs_test_users" ("id", "email", "name") VALUES ($1, $2, $3)`,
         ["user-1", "test@example.com", "Test User"]
       );
 
-      const result = await driver.executeRaw(
+      const result = await driver._executeRaw(
         `DELETE FROM "postgresjs_test_users" WHERE "id" = $1`,
         ["user-1"]
       );
@@ -191,18 +191,18 @@ describeIf("postgres.js Driver", () => {
     });
 
     test("commits transaction on success", async () => {
-      await driver.transaction(async (tx) => {
-        await tx.executeRaw(
+      await driver.withTransaction(async (txDriver) => {
+        await txDriver._executeRaw(
           `INSERT INTO "postgresjs_test_users" ("id", "email", "name") VALUES ($1, $2, $3)`,
           ["user-1", "test@example.com", "Test User"]
         );
-        await tx.executeRaw(
+        await txDriver._executeRaw(
           `INSERT INTO "postgresjs_test_users" ("id", "email", "name") VALUES ($1, $2, $3)`,
           ["user-2", "test2@example.com", "Test User 2"]
         );
       });
 
-      const result = await driver.executeRaw<{ count: string }>(
+      const result = await driver._executeRaw<{ count: string }>(
         `SELECT COUNT(*) as count FROM "postgresjs_test_users"`
       );
       expect(Number.parseInt(result.rows[0]?.count ?? "0")).toBe(2);
@@ -210,8 +210,8 @@ describeIf("postgres.js Driver", () => {
 
     test("rolls back transaction on error", async () => {
       await expect(
-        driver.transaction(async (tx) => {
-          await tx.executeRaw(
+        driver.withTransaction(async (txDriver) => {
+          await txDriver._executeRaw(
             `INSERT INTO "postgresjs_test_users" ("id", "email", "name") VALUES ($1, $2, $3)`,
             ["user-1", "test@example.com", "Test User"]
           );
@@ -219,23 +219,23 @@ describeIf("postgres.js Driver", () => {
         })
       ).rejects.toThrow("Intentional error");
 
-      const result = await driver.executeRaw<{ count: string }>(
+      const result = await driver._executeRaw<{ count: string }>(
         `SELECT COUNT(*) as count FROM "postgresjs_test_users"`
       );
       expect(Number.parseInt(result.rows[0]?.count ?? "0")).toBe(0);
     });
 
     test("supports nested transactions with savepoints", async () => {
-      await driver.transaction(async (tx) => {
-        await tx.executeRaw(
+      await driver.withTransaction(async (txDriver) => {
+        await txDriver._executeRaw(
           `INSERT INTO "postgresjs_test_users" ("id", "email", "name") VALUES ($1, $2, $3)`,
           ["user-1", "test@example.com", "Test User"]
         );
 
         // Nested transaction that fails
         await expect(
-          tx.transaction(async (nestedTx) => {
-            await nestedTx.executeRaw(
+          txDriver.withTransaction(async (nestedTxDriver) => {
+            await nestedTxDriver._executeRaw(
               `INSERT INTO "postgresjs_test_users" ("id", "email", "name") VALUES ($1, $2, $3)`,
               ["user-2", "test2@example.com", "Test User 2"]
             );
@@ -246,7 +246,7 @@ describeIf("postgres.js Driver", () => {
         // First insert should still be there
       });
 
-      const result = await driver.executeRaw<{ count: string }>(
+      const result = await driver._executeRaw<{ count: string }>(
         `SELECT COUNT(*) as count FROM "postgresjs_test_users"`
       );
       // Only user-1 should exist (user-2 was rolled back by nested transaction)
@@ -254,9 +254,9 @@ describeIf("postgres.js Driver", () => {
     });
 
     test("supports isolation levels", async () => {
-      await driver.transaction(
-        async (tx) => {
-          await tx.executeRaw(
+      await driver.withTransaction(
+        async (txDriver) => {
+          await txDriver._executeRaw(
             `INSERT INTO "postgresjs_test_users" ("id", "email", "name") VALUES ($1, $2, $3)`,
             ["user-1", "test@example.com", "Test User"]
           );
@@ -264,7 +264,7 @@ describeIf("postgres.js Driver", () => {
         { isolationLevel: "Serializable" }
       );
 
-      const result = await driver.executeRaw<{ count: string }>(
+      const result = await driver._executeRaw<{ count: string }>(
         `SELECT COUNT(*) as count FROM "postgresjs_test_users"`
       );
       expect(Number.parseInt(result.rows[0]?.count ?? "0")).toBe(1);
@@ -293,7 +293,7 @@ describeIf("postgres.js Driver", () => {
       });
 
       // Push schema to create tables
-      await push(client.$driver, schema, { force: true });
+      await push(client, { force: true });
 
       // Create user
       const newUser = await client.user.create({
@@ -361,7 +361,7 @@ describeIf("postgres.js Driver", () => {
       });
 
       // Push schema to create tables
-      await push(client.$driver, schema, { force: true });
+      await push(client, { force: true });
 
       // Successful transaction
       await client.$transaction(async (tx) => {
