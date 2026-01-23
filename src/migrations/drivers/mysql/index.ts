@@ -41,8 +41,8 @@ export class MySQLMigrationDriver extends MigrationDriver {
 
   readonly capabilities: MigrationCapabilities = {
     supportsNativeEnums: true, // MySQL has inline ENUM type
-    supportsAddEnumValueInTransaction: true, // MODIFY COLUMN works in transactions
-    supportsIndexTypes: ["btree", "hash", "fulltext", "spatial"],
+    supportsAddEnumValueInTransaction: false, // MODIFY COLUMN is DDL and causes implicit commit
+    supportsIndexTypes: ["btree", "fulltext", "spatial"], // InnoDB does not support user-defined HASH indexes
     supportsNativeArrays: false, // Use JSON instead
   };
 
@@ -199,14 +199,14 @@ export class MySQLMigrationDriver extends MigrationDriver {
         upperType === "LONGBLOB";
       const isJson = upperType.includes("JSON");
       const isSpatial =
-        upperType === "GEOMETRY" ||
-        upperType === "POINT" ||
-        upperType === "LINESTRING" ||
-        upperType === "POLYGON" ||
-        upperType === "MULTIPOINT" ||
-        upperType === "MULTILINESTRING" ||
-        upperType === "MULTIPOLYGON" ||
-        upperType === "GEOMETRYCOLLECTION";
+        /^GEOMETRY\b/.test(upperType) ||
+        /^POINT\b/.test(upperType) ||
+        /^LINESTRING\b/.test(upperType) ||
+        /^POLYGON\b/.test(upperType) ||
+        /^MULTIPOINT\b/.test(upperType) ||
+        /^MULTILINESTRING\b/.test(upperType) ||
+        /^MULTIPOLYGON\b/.test(upperType) ||
+        /^GEOMETRYCOLLECTION\b/.test(upperType);
 
       if (!(isTextOrBlob || isJson || isSpatial)) {
         parts.push(`DEFAULT ${column.default}`);

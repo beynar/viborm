@@ -37,6 +37,7 @@ export enum VibORMErrorCode {
   TRANSACTION_TIMEOUT = "V5002",
   DEADLOCK = "V5003",
   SERIALIZATION_FAILURE = "V5004",
+  INVALID_TRANSACTION_INPUT = "V5005",
 
   // Not found errors (6xxx)
   RECORD_NOT_FOUND = "V6001",
@@ -320,6 +321,20 @@ export class TransactionError extends VibORMError {
     if (options?.meta) opts.meta = options.meta;
     super(message, options?.code ?? VibORMErrorCode.TRANSACTION_FAILED, opts);
     this.name = "TransactionError";
+  }
+}
+
+/**
+ * Invalid input passed to $transaction array mode
+ */
+export class InvalidTransactionInputError extends VibORMError {
+  constructor(options?: { meta?: VibORMErrorMeta }) {
+    super(
+      "$transaction array must contain only pending operations from client methods",
+      VibORMErrorCode.INVALID_TRANSACTION_INPUT,
+      { meta: options?.meta }
+    );
+    this.name = "InvalidTransactionInputError";
   }
 }
 

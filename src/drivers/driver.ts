@@ -649,6 +649,11 @@ export class TransactionBoundDriver<TClient, TTransaction> extends Driver<
           this.tx,
           `ROLLBACK TO SAVEPOINT ${savepointName}`
         );
+        // Release savepoint after rollback to free resources and prevent accumulation
+        await this.baseDriver["executeRaw"](
+          this.tx,
+          `RELEASE SAVEPOINT ${savepointName}`
+        );
         throw error;
       }
     });

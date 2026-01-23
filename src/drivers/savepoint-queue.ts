@@ -23,6 +23,7 @@
  */
 export class SavepointQueue {
   private queue: Array<() => Promise<void>> = [];
+  private head = 0;
   private processing = false;
 
   /**
@@ -59,14 +60,18 @@ export class SavepointQueue {
   /**
    * Process all queued operations sequentially.
    * Each operation completes fully before the next starts.
+   * Uses index-based iteration to avoid O(n) shift() operations.
    */
   private async flush(): Promise<void> {
-    while (this.queue.length > 0) {
-      const op = this.queue.shift();
+    while (this.head < this.queue.length) {
+      const op = this.queue[this.head++];
       if (op) {
         await op();
       }
     }
+    // Reset queue after processing to free memory
+    this.queue = [];
+    this.head = 0;
     this.processing = false;
   }
 }

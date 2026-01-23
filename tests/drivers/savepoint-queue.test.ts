@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { SavepointQueue } from "../../src/drivers/savepoint-queue";
 
 describe("SavepointQueue", () => {

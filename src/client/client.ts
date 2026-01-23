@@ -5,7 +5,10 @@ import type {
 } from "@cache";
 import { type CacheExecutionOptions, withCacheSchema } from "@cache";
 import type { AnyDriver, QueryResult, TransactionOptions } from "@drivers";
-import { CacheOperationNotCacheableError } from "@errors";
+import {
+  CacheOperationNotCacheableError,
+  InvalidTransactionInputError,
+} from "@errors";
 import {
   createInstrumentationContext,
   type InstrumentationConfig,
@@ -399,9 +402,7 @@ export class VibORM<C extends VibORMConfig> {
               // Validate all items are PendingOperations
               for (const op of operations) {
                 if (!isPendingOperation(op)) {
-                  throw new Error(
-                    "$transaction array must contain only pending operations from client methods"
-                  );
+                  throw new InvalidTransactionInputError();
                 }
               }
 
@@ -437,16 +438,14 @@ export class VibORM<C extends VibORMConfig> {
                     // Parse results using each operation's parseResult
                     const results: unknown[] = [];
                     for (let i = 0; i < operations.length; i++) {
-                      const op = operations[i];
-                      const raw = batchResults[i];
-                      if (op && raw) {
-                        results.push(
-                          op.parseResult({
-                            rows: raw.rows as unknown[],
-                            rowCount: raw.rowCount,
-                          })
-                        );
-                      }
+                      const op = operations[i]!;
+                      const raw = batchResults[i]!;
+                      results.push(
+                        op.parseResult({
+                          rows: raw.rows as unknown[],
+                          rowCount: raw.rowCount,
+                        })
+                      );
                     }
 
                     return results;
@@ -517,13 +516,24 @@ export class VibORM<C extends VibORMConfig> {
                     ) => {
                       if (Array.isArray(nestedInput)) {
                         // Batch mode in nested transaction
-                        return txDriver.withTransaction(async () => {
-                          const results: unknown[] = [];
-                          for (const op of nestedInput as PendingOperation<unknown>[]) {
-                            results.push(await op.executeWith(txDriver));
+                        // Validate all items are PendingOperations
+                        for (const op of nestedInput) {
+                          if (!isPendingOperation(op)) {
+                            throw new InvalidTransactionInputError();
                           }
-                          return results;
-                        }, nestedOptions);
+                        }
+                        return txDriver.withTransaction(
+                          async (nestedTxDriver) => {
+                            const results: unknown[] = [];
+                            for (const op of nestedInput as PendingOperation<unknown>[]) {
+                              results.push(
+                                await op.executeWith(nestedTxDriver)
+                              );
+                            }
+                            return results;
+                          },
+                          nestedOptions
+                        );
                       }
                       // Callback mode - create nested client recursively
                       return txDriver.withTransaction((nestedTxDriver) => {
