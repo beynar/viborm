@@ -70,7 +70,7 @@ s.dateTime(); // DateTimeField<Date>
 The `Model<TFields>` class aggregates all field types:
 
 ```typescript
-const userModel = s.model("user", {
+const userModel = s.model({
   id: s.string().auto.uuid(), // StringField<string>
   name: s.string().nullable(), // StringField<string | null>
   age: s.int().min(0), // NumberField<number>
@@ -128,12 +128,12 @@ This allows the type system to work with any field while maintaining specificity
 Relations work seamlessly with the field system:
 
 ```typescript
-const userModel = s.model("user", {
+const userModel = s.model({
   id: s.string().id(),
   posts: s.relation.many(() => postModel), // Relation<PostType[]>
 });
 
-const postModel = s.model("post", {
+const postModel = s.model({
   id: s.string().id(),
   author: s.relation.one(() => userModel), // Relation<UserType>
   authorId: s.string(),
@@ -159,7 +159,7 @@ type UserRelations = ModelRelations<typeof userModel.fieldDefinitions>;
 ### Valid Combinations
 
 ```typescript
-const user = s.model("user", {
+const user = s.model({
   // ✅ All field-appropriate methods
   name: s
     .string()
@@ -179,7 +179,7 @@ const user = s.model("user", {
 ```typescript
 // ❌ These would cause TypeScript compilation errors:
 
-const invalidModel = s.model("invalid", {
+const invalidModel = s.model({
   // name: s.string().increment(),    // increment() not available on strings
   // age: s.int().regex(/\d+/),       // regex() not available on numbers
   // isActive: s.boolean().min(0),    // min() not available on booleans
@@ -220,7 +220,7 @@ const invalidModel = s.model("invalid", {
 ```typescript
 import { s } from "viborm";
 
-const user = s.model("user", {
+const user = s.model({
   id: s.string().id().auto.ulid(),
   email: s.string().regex(/^[^\s@]+@[^\s@]+\.[^\s@]+$/),
   age: s.int().min(13).max(120).nullable(),
@@ -244,7 +244,7 @@ type User = typeof user.infer;
 ### Complex Relations
 
 ```typescript
-const post = s.model("post", {
+const post = s.model({
   id: s.string().id().auto.ulid(),
   title: s.string().min(1).max(200),
   content: s.string(),
@@ -255,7 +255,7 @@ const post = s.model("post", {
   tags: s.relation.many(() => tag),
 });
 
-const tag = s.model("tag", {
+const tag = s.model({
   id: s.string().id().auto.ulid(),
   name: s.string().unique(),
   posts: s.relation.many(() => post),

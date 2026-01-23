@@ -169,13 +169,13 @@ flowchart TB
 ```
 
 ```typescript
-const user = s.model("user", {
+const user = s.model({
   id: s.string().id().uuid(),
   posts: s.relation.oneToMany(() => post),
   profile: s.relation.oneToOne(() => profile),
 });
 
-const post = s.model("post", {
+const post = s.model({
   id: s.string().id().uuid(),
   author: s.relation.manyToOne(() => user),
   tags: s.relation.manyToMany(() => tag),
@@ -250,6 +250,3 @@ s.relation.manyToMany(() => Model)
 s.relation({ onDelete: "CASCADE", junctionTable: "custom_name" })
   .manyToMany(() => Model)
 ```
-
-
-

@@ -114,7 +114,7 @@ type FieldTypes = {
 All field types work seamlessly in model definitions:
 
 ```typescript
-const userModel = s.model("user", {
+const userModel = s.model({
   // All field types with chainable methods work perfectly
   id: s.string().id(),
   email: s.string().unique().email(),

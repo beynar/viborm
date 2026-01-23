@@ -508,7 +508,7 @@ interface SchemaBuilder {
 }
 
 // Usage example that maintains type safety
-const userModel = s.model("user", {
+const userModel = s.model({
   id: s.string().id().auto(),
   email: s.string().unique(),
   name: s.string().optional(),

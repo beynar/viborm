@@ -82,7 +82,7 @@ const result = await ageField.validate(
 ### Basic Usage
 
 ```typescript
-const userModel = s.model("user", {
+const userModel = s.model({
   name: s.string(),
   email: s.string(),
   age: s.int(),
@@ -107,7 +107,7 @@ const result = await userModel.validate(
 ### Cross-Field Validation
 
 ```typescript
-const registrationModel = s.model("registration", {
+const registrationModel = s.model({
   password: s.string(),
   confirmPassword: s.string(),
   email: s.string(),

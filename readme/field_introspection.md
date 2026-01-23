@@ -73,7 +73,7 @@ console.log(statusField.enumValues); // ["active", "inactive", "pending"]
 Model instances expose their internal structure:
 
 ```typescript
-const userModel = s.model("user", {
+const userModel = s.model({
   id: s.string().id().auto.uuid(),
   name: s.string(),
   email: s.string().unique(),

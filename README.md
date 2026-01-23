@@ -205,11 +205,11 @@ const posts = await orm.$withCache({ ttl: "5 minutes", swr: "1 hour" }).post.fin
 // Auto-invalidate model cache after mutations
 await orm.user.create({
   data: { name: "Alice", email: "alice@example.com" },
-  cache: { autoInvalidate: true }
+  cache: { autoInvalidate: true }  // Invalidates all user:* cache keys
 });
 
-// Manual invalidation with patterns
-await orm.$invalidate(["user:*", "post:list"]);
+// Manual prefix invalidation with wildcard patterns
+await orm.$invalidate("user:*", "post:findMany:*");
 ```
 
 ### Cache Drivers
@@ -351,8 +351,8 @@ src/
 │                          PostgreSQL, MySQL, SQLite dialect implementations
 │
 ├── drivers/           L8  Connection management, query execution
-│                          13 drivers: pglite, pg, postgres, neon-http,
-│                          mysql2, planetscale, sqlite3, libsql, d1, bun-sqlite
+│                          12 drivers: pglite, pg, postgres, neon-http, bun-sql,
+│                          mysql2, planetscale, sqlite3, libsql, d1, d1-http, bun-sqlite
 │
 ├── client/            L9  Type inference, ORM interface
 │                          Recursive proxy pattern, result types

@@ -84,10 +84,16 @@ function isMutationOperation(
 }
 
 /**
- * Resolve SWR option to a TTL value or false
- * - true: 2x TTL (default stale window)
+ * Resolve SWR option to a storage TTL value or false
+ *
+ * The `swr` parameter represents the "stale window" - how long data can be
+ * served stale while revalidating in the background. The storage TTL must be
+ * `ttl + staleWindow` to keep data available during the stale window.
+ *
+ * @returns Storage TTL in ms (ttl + staleWindow), or false if SWR disabled
+ * - true: ttl * 2 (stale window equals ttl, so storage = ttl + ttl)
  * - false/undefined: SWR disabled
- * - number: custom stale window TTL (already parsed by schema)
+ * - number: custom stale window, storage = ttl + swr
  */
 function resolveSwr(
   swr: boolean | number | undefined,
@@ -97,9 +103,11 @@ function resolveSwr(
     return false;
   }
   if (swr === true) {
+    // Default: stale window = ttl, so storage = ttl + ttl = 2x
     return ttlMs * 2;
   }
-  return swr;
+  // Custom stale window: storage = ttl + staleWindow
+  return ttlMs + swr;
 }
 
 /**

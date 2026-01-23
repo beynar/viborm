@@ -9,7 +9,7 @@
 import { createClient as PgCreateClient, PgDriver } from "@drivers/pg";
 import { push } from "@migrations";
 import { s } from "@schema";
-
+import { VibORM } from "@client/client";
 // =============================================================================
 // SCHEMA DEFINITION
 // =============================================================================
@@ -69,7 +69,7 @@ describeIf("pg Driver", () => {
   describe("Driver Creation", () => {
     test("creates driver with connection string", async () => {
       const driver = new PgDriver({
-        connectionString: TEST_CONNECTION_STRING,
+        databaseUrl: TEST_CONNECTION_STRING,
       });
       expect(driver.dialect).toBe("postgresql");
       expect(driver.adapter).toBeDefined();
@@ -98,7 +98,7 @@ describeIf("pg Driver", () => {
 
     beforeEach(async () => {
       driver = new PgDriver({
-        connectionString: TEST_CONNECTION_STRING,
+        databaseUrl: TEST_CONNECTION_STRING,
       });
       await setupDatabase(driver);
     });
@@ -164,7 +164,7 @@ describeIf("pg Driver", () => {
 
     beforeEach(async () => {
       driver = new PgDriver({
-        connectionString: TEST_CONNECTION_STRING,
+        databaseUrl: TEST_CONNECTION_STRING,
       });
       await setupDatabase(driver);
     });
@@ -244,7 +244,7 @@ describeIf("pg Driver", () => {
             ["user-1", "test@example.com", "Test User"]
           );
         },
-        { isolationLevel: "Serializable" }
+        { isolationLevel: "serializable" }
       );
 
       const result = await driver._executeRaw<{ count: string }>(
@@ -258,7 +258,7 @@ describeIf("pg Driver", () => {
     test("creates client with schema", async () => {
       const client = await PgCreateClient({
         schema,
-        connectionString: TEST_CONNECTION_STRING,
+        databaseUrl: TEST_CONNECTION_STRING,
       });
 
       expect(client.user).toBeDefined();
@@ -272,7 +272,7 @@ describeIf("pg Driver", () => {
     test("performs CRUD operations via client", async () => {
       const client = await PgCreateClient({
         schema,
-        connectionString: TEST_CONNECTION_STRING,
+        databaseUrl: TEST_CONNECTION_STRING,
       });
 
       // Push schema to create tables
@@ -340,7 +340,7 @@ describeIf("pg Driver", () => {
     test("performs transactions via client", async () => {
       const client = await PgCreateClient({
         schema,
-        connectionString: TEST_CONNECTION_STRING,
+        databaseUrl: TEST_CONNECTION_STRING,
       });
 
       // Push schema to create tables

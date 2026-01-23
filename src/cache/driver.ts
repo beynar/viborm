@@ -60,9 +60,9 @@ export interface CacheSetOptions {
  * Options for cached execution (internal, after parsing)
  */
 export interface CacheExecutionOptions {
-  /** Time to live in milliseconds */
+  /** Time to live in milliseconds (freshness duration) */
   ttlMs: number;
-  /** SWR storage TTL in ms, or false to disable SWR */
+  /** SWR storage TTL in ms (ttl + staleWindow), or false to disable SWR */
   swr: number | false;
   /** Bypass cache read and force fresh fetch */
   bypass: boolean;
