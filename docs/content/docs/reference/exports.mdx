@@ -1,0 +1,777 @@
+---
+title: Exports Reference
+description: Complete reference of all VibORM export paths and their contents
+---
+
+# Exports Reference
+
+VibORM uses multiple entry points to enable tree-shaking. Import only what you need to minimize bundle size.
+
+## Quick Overview
+
+| Entry Point | Size | Description |
+|-------------|------|-------------|
+| `viborm` | ~1 KB | Main entry - client creation, errors, utilities |
+| `viborm/schema` | ~33 KB | Schema builder and native types |
+| `viborm/pg` | ~2 KB | PostgreSQL driver (node-postgres) |
+| `viborm/postgres` | ~2 KB | PostgreSQL driver (postgres.js) |
+| `viborm/pglite` | ~1 KB | PGlite driver |
+| `viborm/mysql2` | ~2 KB | MySQL driver |
+| `viborm/sqlite3` | ~1 KB | SQLite driver (better-sqlite3) |
+| `viborm/cache` | ~0.3 KB | Cache types and utilities |
+| `viborm/cache/memory` | ~0.7 KB | In-memory cache driver |
+| `viborm/validation` | ~1 KB | Validation library |
+| `viborm/instrumentation` | ~1 KB | OpenTelemetry integration |
+| `viborm/migrations` | ~7 KB | Migration utilities |
+
+---
+
+## viborm
+
+Main entry point for creating clients and handling errors.
+
+```ts
+import { createClient, validateSchema, getSchemas } from "viborm";
+```
+
+### Functions
+
+| Export | Description |
+|--------|-------------|
+| `createClient` | Creates a VibORM client instance with the provided configuration |
+| `validateSchema` | Validates a schema and returns validation results with errors/warnings |
+| `validateSchemaOrThrow` | Validates a schema and throws on validation errors |
+| `getSchemas` | Creates a proxy to access model query schemas (e.g., `getSchemas(schema).user.where`) |
+| `isPendingOperation` | Type guard to check if a value is a `PendingOperation` |
+| `isVibORMError` | Type guard to check if an error is a `VibORMError` |
+| `isRetryableError` | Checks if an error is retryable (transient database errors) |
+| `wrapError` | Wraps an unknown error into a `VibORMError` |
+
+### Classes
+
+| Export | Description |
+|--------|-------------|
+| `PendingOperation` | Represents a deferred database operation (used in transactions) |
+| `VibORMError` | Base error class for all VibORM errors |
+| `ConnectionError` | Error connecting to the database |
+| `QueryError` | Error executing a query |
+| `ValidationError` | Schema or input validation error |
+| `TransactionError` | Transaction-related error |
+| `UniqueConstraintError` | Unique constraint violation |
+| `ForeignKeyError` | Foreign key constraint violation |
+| `NotFoundError` | Record not found (for `findUniqueOrThrow`, etc.) |
+| `NestedWriteError` | Error in nested create/update operations |
+| `FeatureNotSupportedError` | Feature not supported by the current driver |
+
+### Enums & Constants
+
+| Export | Description |
+|--------|-------------|
+| `VibORMErrorCode` | Enum of all error codes |
+
+### Types
+
+| Export | Description |
+|--------|-------------|
+| `VibORMClient` | Type of the client returned by `createClient` |
+| `VibORMConfig` | Configuration options for `createClient` |
+| `ValidationResult` | Result of schema validation |
+| `SchemaValidationError` | Individual validation error |
+| `ValidationRule` | Schema validation rule definition |
+| `Severity` | Validation severity (`"error"` or `"warning"`) |
+| `QueryMetadata` | Metadata about executed queries |
+| `RawQueryResult` | Raw result from database driver |
+| `ResultParser` | Parser for transforming raw results |
+| `UnwrapPendingOperation` | Utility type to unwrap `PendingOperation<T>` to `T` |
+| `UnwrapPendingOperations` | Utility type to unwrap array of pending operations |
+
+---
+
+## viborm/schema
+
+Schema definition using the `s` builder.
+
+```ts
+import { s, PG, MYSQL, SQLITE } from "viborm/schema";
+```
+
+### Schema Builder
+
+| Export | Description |
+|--------|-------------|
+| `s` | Schema builder object with all field and model methods |
+
+The `s` object provides:
+
+```ts
+// Fields
+s.string()      // String field
+s.int()         // Integer field
+s.float()       // Float field
+s.boolean()     // Boolean field
+s.datetime()    // DateTime field
+s.json()        // JSON field
+s.bigint()      // BigInt field
+s.bytes()       // Binary/Blob field
+s.enum()        // Enum field
+s.vector()      // Vector field (for embeddings)
+
+// Relations
+s.oneToOne()    // One-to-one relation
+s.oneToMany()   // One-to-many relation
+s.manyToMany()  // Many-to-many relation
+
+// Model
+s.model()       // Define a model
+```
+
+### Native Types
+
+| Export | Description |
+|--------|-------------|
+| `PG` | PostgreSQL native type mappings |
+| `MYSQL` | MySQL native type mappings |
+| `SQLITE` | SQLite native type mappings |
+
+Example usage:
+
+```ts
+const user = s.model({
+  id: s.string().id().ulid(),
+  balance: s.float().native(PG.DoublePrecision, MYSQL.Double),
+  metadata: s.json().native(PG.Jsonb),
+});
+```
+
+### Utility Functions
+
+| Export | Description |
+|--------|-------------|
+| `hydrateSchemaNames` | Hydrates SQL names for all models and fields in a schema |
+| `isSchemaHydrated` | Checks if a schema has been hydrated |
+| `getModelSqlName` | Gets the SQL table name for a model |
+| `getFieldSqlName` | Gets the SQL column name for a field |
+
+### Types
+
+| Export | Description |
+|--------|-------------|
+| `Model` | Model type |
+| `ModelState` | Internal model state |
+| `AnyModel` | Any model type |
+| `Field` | Field type |
+| `NumberField` | Number field type |
+| `AnyRelation` | Any relation type |
+| `Getter` | Lazy getter function type |
+| `ReferentialAction` | Referential action (`Cascade`, `SetNull`, etc.) |
+| `RelationType` | Relation type (`oneToOne`, `oneToMany`, `manyToMany`) |
+| `NativeType` | Native type definition |
+
+---
+
+## viborm/driver
+
+Base driver classes and error types for building custom drivers.
+
+```ts
+import { Driver, TransactionBoundDriver } from "viborm/driver";
+```
+
+### Classes
+
+| Export | Description |
+|--------|-------------|
+| `Driver` | Abstract base class for database drivers |
+| `TransactionBoundDriver` | Driver bound to a specific transaction |
+| `ConnectionError` | Error connecting to the database |
+| `QueryError` | Error executing a query |
+| `TransactionError` | Transaction-related error |
+| `UniqueConstraintError` | Unique constraint violation |
+| `ForeignKeyError` | Foreign key constraint violation |
+| `FeatureNotSupportedError` | Feature not supported by the driver |
+
+### Functions
+
+| Export | Description |
+|--------|-------------|
+| `isRetryableError` | Checks if an error is retryable |
+
+### Types
+
+| Export | Description |
+|--------|-------------|
+| `AnyDriver` | Any driver type |
+| `DriverResultParser` | Parser for driver results |
+| `QueryExecutionContext` | Context for query execution |
+| `Dialect` | Database dialect (`postgres`, `mysql`, `sqlite`) |
+| `IsolationLevel` | Transaction isolation level |
+| `LogFunction` | Logging function type |
+| `QueryResult` | Query result type |
+| `TransactionOptions` | Transaction options |
+
+---
+
+## viborm/pg
+
+PostgreSQL driver using [node-postgres](https://node-postgres.com/).
+
+```ts
+import { PgDriver, createClient } from "viborm/pg";
+```
+
+| Export | Description |
+|--------|-------------|
+| `PgDriver` | PostgreSQL driver class |
+| `createClient` | Creates a client with PostgreSQL driver pre-configured |
+
+```ts
+import { createClient } from "viborm/pg";
+import { s } from "viborm/schema";
+
+const client = createClient({
+  schema: { user },
+  options: {
+    host: "localhost",
+    database: "mydb",
+  },
+});
+```
+
+---
+
+## viborm/postgres
+
+PostgreSQL driver using [postgres.js](https://github.com/porsager/postgres).
+
+```ts
+import { PostgresDriver, createClient } from "viborm/postgres";
+```
+
+| Export | Description |
+|--------|-------------|
+| `PostgresDriver` | postgres.js driver class |
+| `createClient` | Creates a client with postgres.js driver pre-configured |
+
+---
+
+## viborm/pglite
+
+[PGlite](https://github.com/electric-sql/pglite) driver for embedded PostgreSQL.
+
+```ts
+import { PgliteDriver, createClient } from "viborm/pglite";
+```
+
+| Export | Description |
+|--------|-------------|
+| `PgliteDriver` | PGlite driver class |
+| `createClient` | Creates a client with PGlite driver pre-configured |
+
+---
+
+## viborm/neon-http
+
+[Neon](https://neon.tech/) serverless PostgreSQL driver over HTTP.
+
+```ts
+import { NeonHttpDriver, createClient } from "viborm/neon-http";
+```
+
+| Export | Description |
+|--------|-------------|
+| `NeonHttpDriver` | Neon HTTP driver class |
+| `createClient` | Creates a client with Neon HTTP driver pre-configured |
+
+---
+
+## viborm/bun-sql
+
+Bun's built-in PostgreSQL driver.
+
+```ts
+import { BunSqlDriver, createClient } from "viborm/bun-sql";
+```
+
+| Export | Description |
+|--------|-------------|
+| `BunSqlDriver` | Bun SQL driver class |
+| `createClient` | Creates a client with Bun SQL driver pre-configured |
+
+---
+
+## viborm/mysql2
+
+MySQL driver using [mysql2](https://github.com/sidorares/node-mysql2).
+
+```ts
+import { Mysql2Driver, createClient } from "viborm/mysql2";
+```
+
+| Export | Description |
+|--------|-------------|
+| `Mysql2Driver` | MySQL2 driver class |
+| `createClient` | Creates a client with MySQL2 driver pre-configured |
+
+---
+
+## viborm/planetscale
+
+[PlanetScale](https://planetscale.com/) serverless MySQL driver.
+
+```ts
+import { PlanetscaleDriver, createClient } from "viborm/planetscale";
+```
+
+| Export | Description |
+|--------|-------------|
+| `PlanetscaleDriver` | PlanetScale driver class |
+| `createClient` | Creates a client with PlanetScale driver pre-configured |
+
+---
+
+## viborm/sqlite3
+
+SQLite driver using [better-sqlite3](https://github.com/WiseLibs/better-sqlite3).
+
+```ts
+import { SQLite3Driver, createClient } from "viborm/sqlite3";
+```
+
+| Export | Description |
+|--------|-------------|
+| `SQLite3Driver` | SQLite3 driver class |
+| `createClient` | Creates a client with SQLite3 driver pre-configured |
+
+---
+
+## viborm/libsql
+
+[LibSQL/Turso](https://turso.tech/) driver.
+
+```ts
+import { LibsqlDriver, createClient } from "viborm/libsql";
+```
+
+| Export | Description |
+|--------|-------------|
+| `LibsqlDriver` | LibSQL driver class |
+| `createClient` | Creates a client with LibSQL driver pre-configured |
+
+---
+
+## viborm/bun-sqlite
+
+Bun's built-in SQLite driver.
+
+```ts
+import { BunSqliteDriver, createClient } from "viborm/bun-sqlite";
+```
+
+| Export | Description |
+|--------|-------------|
+| `BunSqliteDriver` | Bun SQLite driver class |
+| `createClient` | Creates a client with Bun SQLite driver pre-configured |
+
+---
+
+## viborm/d1
+
+Cloudflare D1 driver (binding).
+
+```ts
+import { D1Driver, createClient } from "viborm/d1";
+```
+
+| Export | Description |
+|--------|-------------|
+| `D1Driver` | D1 driver class |
+| `createClient` | Creates a client with D1 driver pre-configured |
+
+---
+
+## viborm/d1-http
+
+Cloudflare D1 driver over HTTP API.
+
+```ts
+import { D1HttpDriver, createClient } from "viborm/d1-http";
+```
+
+| Export | Description |
+|--------|-------------|
+| `D1HttpDriver` | D1 HTTP driver class |
+| `createClient` | Creates a client with D1 HTTP driver pre-configured |
+
+---
+
+## viborm/cache
+
+Cache types and utilities.
+
+```ts
+import { CacheDriver, generateCacheKey } from "viborm/cache";
+```
+
+### Classes
+
+| Export | Description |
+|--------|-------------|
+| `CacheDriver` | Abstract base class for cache drivers |
+
+### Functions
+
+| Export | Description |
+|--------|-------------|
+| `generateCacheKey` | Generates a cache key from operation parameters |
+| `generateCachePrefix` | Generates a cache key prefix for a model |
+| `parseTTL` | Parses TTL string (e.g., `"1h"`, `"30m"`) to milliseconds |
+
+### Constants
+
+| Export | Description |
+|--------|-------------|
+| `CACHE_PREFIX` | Default cache key prefix |
+| `DEFAULT_CACHE_TTL` | Default TTL in milliseconds |
+
+### Schemas
+
+| Export | Description |
+|--------|-------------|
+| `cacheInvalidationSchema` | Validation schema for cache invalidation options |
+| `withCacheSchema` | Validation schema for cache options |
+
+### Types
+
+| Export | Description |
+|--------|-------------|
+| `AnyCacheDriver` | Any cache driver type |
+| `CacheEntry` | Cache entry with value and metadata |
+| `CacheExecutionOptions` | Options for cache operations |
+| `CacheSetOptions` | Options for setting cache values |
+| `CacheInvalidationOptions` | Options for cache invalidation |
+| `CacheInvalidationSchema` | Schema type for invalidation |
+| `WithCacheOptions` | Options for cached queries |
+| `WithCacheSchema` | Schema type for cache options |
+
+---
+
+## viborm/cache/memory
+
+In-memory cache driver.
+
+```ts
+import { MemoryCache } from "viborm/cache/memory";
+```
+
+| Export | Description |
+|--------|-------------|
+| `MemoryCache` | In-memory cache implementation with TTL support |
+
+```ts
+import { MemoryCache } from "viborm/cache/memory";
+
+const cache = new MemoryCache();
+const client = createClient({
+  schema: { user },
+  driver: new PgDriver({ ... }),
+  cache,
+});
+```
+
+---
+
+## viborm/cache/cloudflare-kv
+
+Cloudflare KV cache driver.
+
+```ts
+import { CloudflareKVCache } from "viborm/cache/cloudflare-kv";
+```
+
+| Export | Description |
+|--------|-------------|
+| `CloudflareKVCache` | Cloudflare KV cache implementation |
+
+---
+
+## viborm/client
+
+Advanced client types for TypeScript.
+
+```ts
+import type { Client, Schema } from "viborm/client";
+```
+
+### Classes
+
+| Export | Description |
+|--------|-------------|
+| `PendingOperation` | Represents a deferred database operation |
+
+### Functions
+
+| Export | Description |
+|--------|-------------|
+| `isPendingOperation` | Type guard for `PendingOperation` |
+
+### Types
+
+| Export | Description |
+|--------|-------------|
+| `Client` | Base client type |
+| `CachedClient` | Client with caching enabled |
+| `Schema` | Schema type constraint |
+| `Operations` | All model operations |
+| `CacheableOperations` | Operations that support caching |
+| `MutationOperations` | Mutation operations |
+| `OperationPayload` | Input type for an operation |
+| `OperationResult` | Result type for an operation |
+| `WaitUntilFn` | Function type for `waitUntil` (Cloudflare) |
+| `InferSelectInclude` | Infers result type from select/include |
+| `BatchPayload` | Result of batch operations |
+| `CountResultType` | Result of count operations |
+| `AggregateResultType` | Result of aggregate operations |
+| `GroupByResultType` | Result of groupBy operations |
+| `UnwrapPendingOperation` | Unwraps `PendingOperation<T>` to `T` |
+| `UnwrapPendingOperations` | Unwraps array of pending operations |
+
+---
+
+## viborm/instrumentation
+
+OpenTelemetry integration for tracing and monitoring.
+
+```ts
+import { SPAN_OPERATION, ATTR_DB_SYSTEM } from "viborm/instrumentation";
+```
+
+### Span Names
+
+| Export | Description |
+|--------|-------------|
+| `SPAN_OPERATION` | Top-level operation span |
+| `SPAN_VALIDATE` | Input validation span |
+| `SPAN_BUILD` | Query building span |
+| `SPAN_EXECUTE` | Query execution span |
+| `SPAN_PARSE` | Result parsing span |
+| `SPAN_TRANSACTION` | Transaction span |
+| `SPAN_CONNECT` | Connection span |
+| `SPAN_DISCONNECT` | Disconnection span |
+| `SPAN_CACHE_GET` | Cache get span |
+| `SPAN_CACHE_SET` | Cache set span |
+| `SPAN_CACHE_DELETE` | Cache delete span |
+| `SPAN_CACHE_CLEAR` | Cache clear span |
+| `SPAN_CACHE_INVALIDATE` | Cache invalidation span |
+
+### Attributes
+
+| Export | Description |
+|--------|-------------|
+| `ATTR_DB_SYSTEM` | Database system (e.g., `postgresql`) |
+| `ATTR_DB_NAMESPACE` | Database name |
+| `ATTR_DB_COLLECTION` | Table/collection name |
+| `ATTR_DB_OPERATION_NAME` | Operation name (e.g., `findMany`) |
+| `ATTR_DB_QUERY_TEXT` | SQL query text |
+| `ATTR_DB_QUERY_SUMMARY` | Query summary |
+| `ATTR_DB_BATCH_SIZE` | Batch size |
+| `ATTR_DB_ROWS_RETURNED` | Number of rows returned |
+| `ATTR_ERROR_TYPE` | Error type |
+| `ATTR_SERVER_ADDRESS` | Server address |
+| `ATTR_SERVER_PORT` | Server port |
+| `ATTR_DB_DRIVER` | Driver name |
+| `ATTR_DB_QUERY_PARAMETER_PREFIX` | Query parameter prefix |
+| `ATTR_CACHE_DRIVER` | Cache driver name |
+| `ATTR_CACHE_KEY` | Cache key |
+| `ATTR_CACHE_RESULT` | Cache result (hit/miss) |
+| `ATTR_CACHE_TTL` | Cache TTL |
+
+### Types
+
+| Export | Description |
+|--------|-------------|
+| `InstrumentationConfig` | Full instrumentation config |
+| `TracingConfig` | Tracing configuration |
+| `LoggingConfig` | Logging configuration |
+| `LogCallback` | Log callback function |
+| `LogEvent` | Log event type |
+| `LogLevel` | Log level (`debug`, `info`, `warn`, `error`) |
+| `VibORMSpanName` | Union of all span names |
+
+---
+
+## viborm/validation
+
+Validation library for runtime type checking.
+
+```ts
+import { v } from "viborm/validation";
+```
+
+### Validation Builder
+
+| Export | Description |
+|--------|-------------|
+| `v` | Validation builder object |
+
+The `v` object provides:
+
+```ts
+// Primitives
+v.string()      // String schema
+v.number()      // Number schema
+v.integer()     // Integer schema
+v.boolean()     // Boolean schema
+v.bigint()      // BigInt schema
+v.date()        // Date schema
+
+// Complex
+v.object()      // Object schema
+v.array()       // Array schema
+v.union()       // Union schema
+v.literal()     // Literal schema
+v.enum()        // Enum schema
+v.nullable()    // Nullable wrapper
+v.optional()    // Optional wrapper
+
+// Utilities
+v.lazy()        // Lazy evaluation (for recursive types)
+v.custom()      // Custom validation
+```
+
+---
+
+## viborm/migrations
+
+Database migration utilities.
+
+```ts
+import { createMigrationClient, push, diff } from "viborm/migrations";
+```
+
+### Client
+
+| Export | Description |
+|--------|-------------|
+| `createMigrationClient` | Creates a migration client |
+| `MigrationContext` | Migration execution context |
+
+### Operations
+
+| Export | Description |
+|--------|-------------|
+| `apply` | Applies pending migrations |
+| `pending` | Lists pending migrations |
+| `rollback` | Rolls back migrations |
+| `status` | Gets migration status |
+| `down` | Runs down migrations |
+| `push` | Pushes schema changes directly (dev mode) |
+| `reset` | Resets database and re-applies migrations |
+| `squash` | Squashes multiple migrations into one |
+
+### Generation
+
+| Export | Description |
+|--------|-------------|
+| `generate` | Generates a new migration file |
+| `preview` | Previews migration without writing |
+| `diff` | Computes diff between schemas |
+| `hasDestructiveOperations` | Checks for destructive changes |
+| `getDestructiveOperationDescriptions` | Gets descriptions of destructive changes |
+
+### DDL
+
+| Export | Description |
+|--------|-------------|
+| `generateDDL` | Generates DDL statements from diff |
+| `introspect` | Introspects current database schema |
+| `formatOperation` | Formats a single diff operation |
+| `formatOperations` | Formats multiple diff operations |
+
+### Resolvers
+
+| Export | Description |
+|--------|-------------|
+| `createResolver` | Creates a custom resolver |
+| `createUnifiedResolver` | Creates a unified resolver |
+| `createPredefinedResolver` | Creates a resolver with predefined answers |
+| `addDropResolver` | Resolver that adds/drops (no renames) |
+| `alwaysAddDropResolver` | Always add/drop resolver |
+| `alwaysRenameResolver` | Always rename resolver |
+| `lenientResolver` | Lenient resolver (allows destructive) |
+| `strictResolver` | Strict resolver (rejects destructive) |
+| `rejectAllResolver` | Rejects all ambiguous changes |
+| `applyResolutions` | Applies resolutions to diff |
+| `resolveAmbiguousChanges` | Resolves ambiguous changes interactively |
+| `formatAmbiguousChange` | Formats an ambiguous change |
+| `formatAmbiguousChanges` | Formats multiple ambiguous changes |
+
+### Serialization
+
+| Export | Description |
+|--------|-------------|
+| `serializeModels` | Serializes models to snapshot format |
+| `getTableName` | Gets SQL table name for a model |
+| `getColumnName` | Gets SQL column name for a field |
+
+### Storage
+
+| Export | Description |
+|--------|-------------|
+| `MigrationStorageDriver` | Abstract base for migration storage |
+
+### Utilities
+
+| Export | Description |
+|--------|-------------|
+| `DEFAULT_MIGRATIONS_DIR` | Default migrations directory |
+| `DEFAULT_TABLE_NAME` | Default migrations table name |
+| `formatMigrationFilename` | Formats migration filename |
+| `generateMigrationName` | Generates migration name |
+| `normalizeDialect` | Normalizes dialect string |
+| `sortOperations` | Sorts operations for execution order |
+
+### Errors
+
+| Export | Description |
+|--------|-------------|
+| `MigrationError` | Migration-specific error |
+| `isMigrationError` | Type guard for `MigrationError` |
+
+### Types
+
+| Export | Description |
+|--------|-------------|
+| `DiffOperation` | Single diff operation |
+| `DiffResult` | Result of schema diff |
+| `MigrationEntry` | Migration file entry |
+| `AppliedMigration` | Applied migration record |
+| `SchemaSnapshot` | Schema snapshot |
+| `TableDef` | Table definition |
+| `ColumnDef` | Column definition |
+| `IndexDef` | Index definition |
+| `ForeignKeyDef` | Foreign key definition |
+| `PrimaryKeyDef` | Primary key definition |
+| `UniqueConstraintDef` | Unique constraint definition |
+| `EnumDef` | Enum definition |
+| `AmbiguousChange` | Ambiguous change (rename vs add/drop) |
+| `Resolver` | Resolver function type |
+| `UnifiedResolver` | Unified resolver type |
+| ... and more |
+
+---
+
+## viborm/adapters
+
+Database adapters (advanced/internal use).
+
+```ts
+import { PostgresAdapter, MySQLAdapter, SQLiteAdapter } from "viborm/adapters";
+```
+
+| Export | Description |
+|--------|-------------|
+| `PostgresAdapter` | PostgreSQL SQL adapter |
+| `MySQLAdapter` | MySQL SQL adapter |
+| `SQLiteAdapter` | SQLite SQL adapter |
+
+These are used internally by drivers to generate database-specific SQL.
