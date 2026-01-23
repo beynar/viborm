@@ -8,6 +8,7 @@ import type { AnyDriver, QueryResult, TransactionOptions } from "@drivers";
 import {
   CacheOperationNotCacheableError,
   InvalidTransactionInputError,
+  PendingOperationError,
 } from "@errors";
 import {
   createInstrumentationContext,
@@ -398,6 +399,9 @@ export class VibORM<C extends VibORMConfig> {
               | PendingOperation<unknown>[],
             options?: TransactionOptions
           ): Promise<T | unknown[]> => {
+            // Client ID for validating operations belong to this client
+            const expectedClientId = orm.clientId;
+
             // Array of PendingOperations = batch mode
             if (Array.isArray(input)) {
               const operations = input as PendingOperation<unknown>[];
@@ -408,7 +412,6 @@ export class VibORM<C extends VibORMConfig> {
               }
 
               // Validate all items are PendingOperations from this client
-              const expectedClientId = orm.clientId;
               for (const op of operations) {
                 if (!isPendingOperation(op)) {
                   throw new InvalidTransactionInputError();
@@ -520,6 +523,9 @@ export class VibORM<C extends VibORMConfig> {
               });
               const baseClient = txOrm.createClient();
 
+              // Use the transaction client's clientId for nested validation
+              const txClientId = txOrm.clientId;
+
               // Wrap with proxy to intercept $transaction
               return new Proxy(baseClient, {
                 get(target, prop) {
@@ -532,13 +538,13 @@ export class VibORM<C extends VibORMConfig> {
                     ) => {
                       if (Array.isArray(nestedInput)) {
                         // Batch mode in nested transaction
-                        // Validate all items are PendingOperations from this client
+                        // Validate all items are PendingOperations from this transaction client
                         for (const op of nestedInput) {
                           if (!isPendingOperation(op)) {
                             throw new InvalidTransactionInputError();
                           }
-                          // Verify operation belongs to this client
-                          if (op.getClientId() !== expectedClientId) {
+                          // Verify operation belongs to this transaction client
+                          if (op.getClientId() !== txClientId) {
                             throw PendingOperationError.clientMismatch(
                               op.getModel(),
                               op.getOperation()

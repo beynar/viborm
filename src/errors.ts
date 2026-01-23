@@ -55,11 +55,6 @@ export enum VibORMErrorCode {
   FEATURE_NOT_SUPPORTED = "V8001",
   DRIVER_NOT_SUPPORTED = "V8002",
 
-  // Pending operation errors (12xxx)
-  OPERATION_ALREADY_EXECUTED = "V12001",
-  OPERATION_EXECUTION_CONFLICT = "V12002",
-  OPERATION_CLIENT_MISMATCH = "V12003",
-
   // Cache errors (10xxx)
   CACHE_INVALID_TTL = "V10001",
   CACHE_INVALID_KEY = "V10002",
@@ -77,6 +72,11 @@ export enum VibORMErrorCode {
   MIGRATION_INVALID_STATE = "V11009",
   MIGRATION_DESTRUCTIVE_REJECTED = "V11010",
   MIGRATION_STORAGE_REQUIRED = "V11011",
+
+  // Pending operation errors (12xxx)
+  OPERATION_ALREADY_EXECUTED = "V12001",
+  OPERATION_EXECUTION_CONFLICT = "V12002",
+  OPERATION_CLIENT_MISMATCH = "V12003",
 
   // Internal errors (9xxx)
   INTERNAL_ERROR = "V9001",
@@ -432,7 +432,8 @@ export class PendingOperationError extends VibORMError {
     message: string,
     code:
       | VibORMErrorCode.OPERATION_ALREADY_EXECUTED
-      | VibORMErrorCode.OPERATION_EXECUTION_CONFLICT,
+      | VibORMErrorCode.OPERATION_EXECUTION_CONFLICT
+      | VibORMErrorCode.OPERATION_CLIENT_MISMATCH,
     options?: { meta?: VibORMErrorMeta }
   ) {
     super(message, code, { meta: options?.meta });
