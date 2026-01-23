@@ -531,8 +531,14 @@ export abstract class CacheDriver {
 
   /**
    * Prefix a key with the cache prefix (including version if set)
+   * Skips prefixing if the key is already prefixed (starts with CACHE_PREFIX)
    */
   private prefixKey(key: string): string {
+    // Skip prefixing if already prefixed (e.g., from generateCacheKey for manual invalidation)
+    if (key.startsWith(`${CACHE_PREFIX}:`)) {
+      return key;
+    }
+
     const base =
       this.version !== undefined
         ? `${CACHE_PREFIX}:v${this.version}`
