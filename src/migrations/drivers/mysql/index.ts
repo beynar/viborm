@@ -334,19 +334,16 @@ export class MySQLMigrationDriver extends MigrationDriver {
 
     // MySQL index type syntax varies by type:
     // - FULLTEXT and SPATIAL are prefixes: CREATE FULLTEXT INDEX ...
-    // - HASH uses USING clause: CREATE INDEX ... USING HASH
     // - BTREE is default, no clause needed
+    // Note: HASH indexes are not supported by InnoDB (only MEMORY engine supports them)
     let indexPrefix = "";
-    let usingSuffix = "";
 
     if (index.type === "fulltext") {
       indexPrefix = "FULLTEXT ";
     } else if (index.type === "spatial") {
       indexPrefix = "SPATIAL ";
-    } else if (index.type === "hash") {
-      usingSuffix = " USING HASH";
     }
-    // btree is default, no prefix or suffix needed
+    // btree is default, no prefix needed
 
     // UNIQUE cannot be combined with FULLTEXT or SPATIAL in MySQL
     if (index.unique && indexPrefix) {
@@ -360,7 +357,7 @@ export class MySQLMigrationDriver extends MigrationDriver {
     }
     const unique = index.unique ? "UNIQUE " : "";
 
-    return `CREATE ${unique}${indexPrefix}INDEX ${this.escapeIdentifier(index.name)} ON ${this.escapeIdentifier(tableName)} (${cols})${usingSuffix}`;
+    return `CREATE ${unique}${indexPrefix}INDEX ${this.escapeIdentifier(index.name)} ON ${this.escapeIdentifier(tableName)} (${cols})`;
   }
 
   generateDropIndex(op: DropIndexOperation): string {
