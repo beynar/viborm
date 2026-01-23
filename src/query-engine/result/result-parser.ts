@@ -542,16 +542,6 @@ function parseCountResultDefault(
 }
 
 /**
- * Parse count result (exported for external use)
- * @deprecated Use parseResult with 'count' operation instead
- */
-export function parseCountResult(
-  raw: unknown
-): number | Record<string, number> {
-  return parseCountResultDefault(raw);
-}
-
-/**
  * Parse mutation result to get affected count
  */
 export function parseMutationCount(raw: unknown): { count: number } {

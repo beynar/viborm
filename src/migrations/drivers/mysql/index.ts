@@ -8,6 +8,23 @@
 import type { Field, FieldState } from "@schema/fields";
 import { MigrationError, VibORMErrorCode } from "../../../errors";
 import type { ColumnDef } from "../../types";
+
+// Regex patterns for spatial type detection
+const SPATIAL_TYPE_PATTERNS = [
+  /^GEOMETRY\b/,
+  /^POINT\b/,
+  /^LINESTRING\b/,
+  /^POLYGON\b/,
+  /^MULTIPOINT\b/,
+  /^MULTILINESTRING\b/,
+  /^MULTIPOLYGON\b/,
+  /^GEOMETRYCOLLECTION\b/,
+] as const;
+
+// Regex pattern for extracting base type from column type string
+// e.g., "INT UNSIGNED" -> "int", "BIGINT(20)" -> "bigint"
+const BASE_TYPE_PATTERN = /[\s(]/;
+
 import {
   type AddColumnOperation,
   type AddForeignKeyOperation,
@@ -148,7 +165,8 @@ export class MySQLMigrationDriver extends MigrationDriver {
    */
   private validateAutoIncrementType(column: ColumnDef): void {
     // Extract base type (e.g., "INT UNSIGNED" -> "int", "BIGINT(20)" -> "bigint")
-    const baseType = column.type.toLowerCase().split(/[\s(]/)[0] ?? "";
+    const baseType =
+      column.type.toLowerCase().split(BASE_TYPE_PATTERN)[0] ?? "";
 
     if (!MySQLMigrationDriver.AUTO_INCREMENT_TYPES.has(baseType)) {
       throw new MigrationError(
@@ -198,15 +216,9 @@ export class MySQLMigrationDriver extends MigrationDriver {
         upperType === "MEDIUMBLOB" ||
         upperType === "LONGBLOB";
       const isJson = upperType.includes("JSON");
-      const isSpatial =
-        /^GEOMETRY\b/.test(upperType) ||
-        /^POINT\b/.test(upperType) ||
-        /^LINESTRING\b/.test(upperType) ||
-        /^POLYGON\b/.test(upperType) ||
-        /^MULTIPOINT\b/.test(upperType) ||
-        /^MULTILINESTRING\b/.test(upperType) ||
-        /^MULTIPOLYGON\b/.test(upperType) ||
-        /^GEOMETRYCOLLECTION\b/.test(upperType);
+      const isSpatial = SPATIAL_TYPE_PATTERNS.some((pattern) =>
+        pattern.test(upperType)
+      );
 
       if (!(isTextOrBlob || isJson || isSpatial)) {
         parts.push(`DEFAULT ${column.default}`);
@@ -351,7 +363,7 @@ export class MySQLMigrationDriver extends MigrationDriver {
         `Cannot combine UNIQUE with ${index.type?.toUpperCase()} index "${index.name}". ` +
           `MySQL does not support UNIQUE ${index.type?.toUpperCase()} indexes. ` +
           `Either remove 'unique: true' from the index definition, or create a separate unique index.`,
-        VibORMErrorCode.MIGRATION_DDL_ERROR,
+        VibORMErrorCode.MIGRATION_FAILED,
         { meta: { indexName: index.name, indexType: index.type } }
       );
     }

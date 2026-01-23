@@ -55,6 +55,10 @@ export enum VibORMErrorCode {
   FEATURE_NOT_SUPPORTED = "V8001",
   DRIVER_NOT_SUPPORTED = "V8002",
 
+  // Pending operation errors (12xxx)
+  OPERATION_ALREADY_EXECUTED = "V12001",
+  OPERATION_EXECUTION_CONFLICT = "V12002",
+
   // Cache errors (10xxx)
   CACHE_INVALID_TTL = "V10001",
   CACHE_INVALID_KEY = "V10002",
@@ -410,6 +414,85 @@ export class FeatureNotSupportedError extends VibORMError {
     });
     this.name = "FeatureNotSupportedError";
   }
+}
+
+// ============================================================
+// PENDING OPERATION ERRORS
+// ============================================================
+
+/**
+ * Pending operation execution errors
+ *
+ * Thrown when attempting to execute a PendingOperation in an invalid way,
+ * such as awaiting after executeWith() or calling executeWith() after await.
+ */
+export class PendingOperationError extends VibORMError {
+  constructor(
+    message: string,
+    code:
+      | VibORMErrorCode.OPERATION_ALREADY_EXECUTED
+      | VibORMErrorCode.OPERATION_EXECUTION_CONFLICT,
+    options?: { meta?: VibORMErrorMeta }
+  ) {
+    super(message, code, { meta: options?.meta });
+    this.name = "PendingOperationError";
+  }
+
+  /**
+   * Create error for attempting to await after executeWith()
+   */
+  static alreadyExecutedWithDriver(
+    model: string,
+    operation: string
+  ): PendingOperationError {
+    return new PendingOperationError(
+      "Cannot await a PendingOperation that was already executed with executeWith(). " +
+        `The ${model}.${operation}() operation was already executed in a transaction context. ` +
+        "Create a new operation if you need to execute outside the transaction.",
+      VibORMErrorCode.OPERATION_ALREADY_EXECUTED,
+      { meta: { model, operation } }
+    );
+  }
+
+  /**
+   * Create error for attempting executeWith() after await
+   */
+  static alreadyExecutedDefault(
+    model: string,
+    operation: string
+  ): PendingOperationError {
+    return new PendingOperationError(
+      "Cannot call executeWith() on a PendingOperation that was already awaited. " +
+        `The ${model}.${operation}() operation was already executed outside a transaction. ` +
+        "Create a new operation for transaction execution.",
+      VibORMErrorCode.OPERATION_EXECUTION_CONFLICT,
+      { meta: { model, operation } }
+    );
+  }
+
+  /**
+   * Create error for attempting executeWith() with a different driver
+   */
+  static differentDriverConflict(
+    model: string,
+    operation: string
+  ): PendingOperationError {
+    return new PendingOperationError(
+      "Cannot call executeWith() with a different driver. " +
+        `The ${model}.${operation}() operation was already executed in another transaction context.`,
+      VibORMErrorCode.OPERATION_EXECUTION_CONFLICT,
+      { meta: { model, operation } }
+    );
+  }
+}
+
+/**
+ * Type guard for pending operation errors
+ */
+export function isPendingOperationError(
+  error: unknown
+): error is PendingOperationError {
+  return error instanceof PendingOperationError;
 }
 
 // ============================================================

@@ -1082,7 +1082,7 @@ describe("MySQL DDL Generation", () => {
       );
     });
 
-    it("should generate CREATE INDEX with HASH type", () => {
+    it("should throw error for HASH index type (not supported by InnoDB)", () => {
       const op: DiffOperation = {
         type: "createIndex",
         tableName: "users",
@@ -1094,10 +1094,8 @@ describe("MySQL DDL Generation", () => {
         },
       };
 
-      const ddl = generateDDL(op);
-
-      expect(ddl).toBe(
-        "CREATE INDEX `idx_users_id` ON `users` (`id`) USING HASH"
+      expect(() => generateDDL(op)).toThrow(
+        'Index "idx_users_id" uses unsupported index type "hash"'
       );
     });
 
@@ -1412,7 +1410,6 @@ describe("MySQL DDL Generation", () => {
       );
       expect(mysqlMigrationDriver.capabilities.supportsIndexTypes).toEqual([
         "btree",
-        "hash",
         "fulltext",
         "spatial",
       ]);

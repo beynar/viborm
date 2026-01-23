@@ -46,11 +46,19 @@ export class PendingOperation<T> implements PromiseLike<T> {
   private readonly metadata: QueryMetadata<T>;
 
   /**
-   * Cached promise for direct execution via then/catch/finally.
+   * Cached promise for execution.
    * Ensures execute() is only called once even if multiple
    * PromiseLike methods are chained on the same instance.
    */
   private _promise: Promise<T> | null = null;
+
+  /**
+   * Tracks how this operation was executed to prevent mixing execution modes.
+   * - null: Not yet executed
+   * - "default": Executed via await/then/execute() (no driver override)
+   * - AnyDriver: Executed via executeWith(driver) in a transaction context
+   */
+  private _executedWith: AnyDriver | "default" | null = null;
 
   constructor(metadata: QueryMetadata<T>) {
     this.metadata = metadata;
@@ -59,9 +67,19 @@ export class PendingOperation<T> implements PromiseLike<T> {
   /**
    * Get or create the cached promise for direct execution.
    * This ensures the executor is only called once.
+   * Throws if already executed with a specific driver (transaction context).
    */
   private getPromise(): Promise<T> {
+    // Check for conflict: was already executed in a transaction context
+    if (this._executedWith !== null && this._executedWith !== "default") {
+      throw PendingOperationError.alreadyExecutedWithDriver(
+        this.metadata.model,
+        this.metadata.operation
+      );
+    }
+
     if (!this._promise) {
+      this._executedWith = "default";
       this._promise = this.metadata.execute();
     }
     return this._promise;
@@ -105,10 +123,11 @@ export class PendingOperation<T> implements PromiseLike<T> {
   }
 
   /**
-   * Execute the operation immediately
+   * Execute the operation immediately.
+   * Memoized - calling multiple times returns the same promise.
    */
   execute(): Promise<T> {
-    return this.metadata.execute();
+    return this.getPromise();
   }
 
   /**
@@ -117,9 +136,32 @@ export class PendingOperation<T> implements PromiseLike<T> {
    *
    * Passes the driver to the executor so operations use the transaction
    * context (savepoints) instead of new transactions.
+   *
+   * Memoized per-driver - calling with the same driver returns the cached promise.
+   * Throws if already executed with a different driver or via await/execute().
    */
   executeWith(driver: AnyDriver): Promise<T> {
-    return this.metadata.execute(driver);
+    // Check for conflict: was already executed via await/execute()
+    if (this._executedWith === "default") {
+      throw PendingOperationError.alreadyExecutedDefault(
+        this.metadata.model,
+        this.metadata.operation
+      );
+    }
+
+    // Check for conflict: was already executed with a different driver
+    if (this._executedWith !== null && this._executedWith !== driver) {
+      throw PendingOperationError.differentDriverConflict(
+        this.metadata.model,
+        this.metadata.operation
+      );
+    }
+
+    if (!this._promise) {
+      this._executedWith = driver;
+      this._promise = this.metadata.execute(driver);
+    }
+    return this._promise;
   }
 
   /**

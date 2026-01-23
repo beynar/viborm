@@ -559,7 +559,7 @@ export abstract class MigrationDriver {
    * @param enumName - The enum name
    * @returns SQL DROP TYPE statement or null
    */
-  generateDropEnumSQL(enumName: string): string | null {
+  generateDropEnumSQL(_enumName: string): string | null {
     return null; // Override in PostgreSQL driver
   }
 
