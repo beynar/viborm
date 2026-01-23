@@ -44,10 +44,14 @@ import { s } from "viborm";
 
 // Schema Definition
 const user = s.model({
-  id: s.string().id().auto.ulid(),
+  id: s.string().id().ulid(),
   name: s.string(),
-  email: s.string().schema(emailRegex),
-  friends: s.relation.many(() => user),
+  email: s.string(),
+  // Self-referential many-to-many
+  friends: s.manyToMany(() => user)
+    .through("user_friends")
+    .A("userId")
+    .B("friendId"),
 });
 
 // Query API Usage

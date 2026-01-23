@@ -130,13 +130,15 @@ Relations work seamlessly with the field system:
 ```typescript
 const userModel = s.model({
   id: s.string().id(),
-  posts: s.relation.many(() => postModel), // Relation<PostType[]>
+  posts: s.oneToMany(() => postModel), // One-to-many relation
 });
 
 const postModel = s.model({
   id: s.string().id(),
-  author: s.relation.one(() => userModel), // Relation<UserType>
   authorId: s.string(),
+  author: s.manyToOne(() => userModel) // Many-to-one relation
+    .fields("authorId")
+    .references("id"),
 });
 ```
 
@@ -245,20 +247,28 @@ type User = typeof user.infer;
 
 ```typescript
 const post = s.model({
-  id: s.string().id().auto.ulid(),
-  title: s.string().min(1).max(200),
+  id: s.string().id().ulid(),
+  title: s.string(),
   content: s.string(),
   published: s.boolean().default(false),
   publishedAt: s.dateTime().nullable(),
-  author: s.relation.one(() => user),
   authorId: s.string(),
-  tags: s.relation.many(() => tag),
+  author: s.manyToOne(() => user)
+    .fields("authorId")
+    .references("id"),
+  tags: s.manyToMany(() => tag)
+    .through("post_tags")
+    .A("postId")
+    .B("tagId"),
 });
 
 const tag = s.model({
-  id: s.string().id().auto.ulid(),
+  id: s.string().id().ulid(),
   name: s.string().unique(),
-  posts: s.relation.many(() => post),
+  posts: s.manyToMany(() => post)
+    .through("post_tags")
+    .A("tagId")
+    .B("postId"),
 });
 
 // Full type inference across relations:
