@@ -18,7 +18,7 @@ export const user = s.model({
   name: s.string(),
   createdAt: s.dateTime().default(() => new Date()),
   posts: s.oneToMany(() => post),
-}).map("users");
+});
 
 // Post model
 export const post = s.model({
@@ -31,7 +31,7 @@ export const post = s.model({
     .fields("authorId")
     .references("id"),
   createdAt: s.dateTime().default(() => new Date()),
-}).map("posts");
+});
 ```
 
 ## 2. Create the Client

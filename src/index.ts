@@ -1,66 +1,87 @@
-// VibORM - Main Entry Point
-// TypeScript ORM for Postgres and MySQL
+/**
+ * VibORM - Main Entry Point
+ *
+ * TypeScript ORM for PostgreSQL, MySQL, and SQLite.
+ *
+ * Import paths:
+ * - "viborm" - Client creation and errors (this file)
+ * - "viborm/schema" - Schema builder (s, PG, MYSQL, SQLITE)
+ * - "viborm/pg" - PostgreSQL driver (node-postgres)
+ * - "viborm/postgres" - PostgreSQL driver (postgres.js)
+ * - "viborm/pglite" - PGlite driver
+ * - "viborm/mysql2" - MySQL driver
+ * - "viborm/sqlite3" - SQLite driver (better-sqlite3)
+ * - "viborm/cache" - Cache types and utilities
+ * - "viborm/cache/memory" - In-memory cache driver
+ * - "viborm/cache/cloudflare-kv" - Cloudflare KV cache driver
+ * - "viborm/migrations" - Migration utilities
+ * - "viborm/client" - Advanced client types
+ * - "viborm/validation" - Validation library
+ * - "viborm/instrumentation" - OpenTelemetry integration
+ */
 
-export type {
-  CacheEntry,
-  CacheInvalidationOptions,
-  CacheSetOptions,
-  WithCacheOptions,
-} from "@cache/index.js";
-// Cache
-export {
-  CacheDriver,
-  CloudflareKVCache,
-  generateCacheKey,
-  generateCachePrefix,
-  MemoryCache,
-  parseTTL,
-} from "@cache/index.js";
-export type { VibORMClient, VibORMConfig } from "@client/client.js";
-export { createClient } from "@client/client.js";
+// =============================================================================
+// CLIENT
+// =============================================================================
+
+export type { VibORMClient, VibORMConfig } from "./client/client.js";
+export { createClient } from "./client/client.js";
+
+// Pending operations (for transaction batching)
 export {
   isPendingOperation,
   PendingOperation,
   type UnwrapPendingOperation,
   type UnwrapPendingOperations,
-} from "@client/pending-operation.js";
-export type {
-  QueryMetadata,
-  RawQueryResult,
-  ResultParser,
-} from "@query-engine/types.js";
-export type {
-  CacheableOperations,
-  CachedClient,
-  MutationOperations,
-  WaitUntilFn,
-} from "@client/types.js";
-// Instrumentation
-export type {
-  InstrumentationConfig,
-  LogCallback,
-  LogEvent,
-  LoggingConfig,
-  LogLevel,
-  TracingConfig,
-} from "@instrumentation";
-// Errors
+} from "./client/pending-operation.js";
+
+// =============================================================================
+// ERRORS
+// =============================================================================
+
 export {
+  // Base error
+  VibORMError,
+  VibORMErrorCode,
+  isVibORMError,
+  wrapError,
+  // Specific errors
   ConnectionError,
   FeatureNotSupportedError,
   ForeignKeyError,
-  isRetryableError,
-  isVibORMError,
   NestedWriteError,
   NotFoundError,
   QueryError,
   TransactionError,
   UniqueConstraintError,
   ValidationError,
-  VibORMError,
-  VibORMErrorCode,
-  wrapError,
+  // Utilities
+  isRetryableError,
 } from "./errors.js";
 
-// Main exports - Schema Builder
-export { s } from "./schema/index.js";
+// =============================================================================
+// QUERY ENGINE TYPES (for advanced usage)
+// =============================================================================
+
+export type {
+  QueryMetadata,
+  RawQueryResult,
+  ResultParser,
+} from "./query-engine/types.js";
+
+// =============================================================================
+// SCHEMA UTILITIES
+// =============================================================================
+
+// Schema validation
+export { validateSchema, validateSchemaOrThrow } from "./schema/validation/index.js";
+
+export type {
+  ValidationResult,
+  ValidationError as SchemaValidationError,
+  ValidationRule,
+  Severity,
+} from "./schema/validation/index.js";
+
+// Schema introspection
+export { getSchemas } from "./schema/schemas.js";

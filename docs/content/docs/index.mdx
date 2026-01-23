@@ -40,7 +40,7 @@ We also have **deep Standard Schema integration**. You can extend field definiti
 ```typescript
 import { z } from "zod";
 
-const user = s.model("user", {
+const user = s.model({
   // Add custom validation beyond what the database enforces
   email: s.string().schema(z.string().email()),
   
@@ -69,7 +69,7 @@ We tried to reproduce Prisma's schema DDL in pure TypeScript - not like Drizzle 
 
 ```typescript
 // What we wanted - relations declared within the model
-const user = s.model("user", {
+const user = s.model({
   id: s.string().id(),
   posts: s.oneToMany(() => post),  // Relation here, not in a separate file
 });
@@ -87,14 +87,14 @@ This is what "from first principles" means for us: starting with the schema defi
 import { s, createClient } from "viborm";
 
 // Define schema - types are inferred from this
-const user = s.model("user", {
+const user = s.model({
   id: s.string().id().ulid(),
   email: s.string().unique(),
   name: s.string().nullable(),
   posts: s.oneToMany(() => post),
 });
 
-const post = s.model("post", {
+const post = s.model({
   id: s.string().id().ulid(),
   title: s.string(),
   authorId: s.string(),

@@ -19,7 +19,22 @@ function buildPrefix(version?: string | number): string {
 }
 
 /**
+ * Generate an unprefixed cache key (internal use)
+ * Key structure: <model>:<operation>:<hash>
+ */
+export function generateUnprefixedCacheKey(
+  modelName: string,
+  operation: string,
+  args: unknown
+): string {
+  const argsHash = hashArgs(args);
+  return `${modelName}:${operation}:${argsHash}`;
+}
+
+/**
  * Generate a deterministic cache key from operation parameters
+ *
+ * Returns a FULLY PREFIXED key for external use (manual invalidation, etc.)
  *
  * Key structure: viborm[:v<version>]:<model>:<operation>:<hash>
  *
@@ -44,6 +59,8 @@ export function generateCacheKey(
 /**
  * Generate prefix for cache invalidation
  * Used to clear all cached queries for a model
+ *
+ * Returns a FULLY PREFIXED prefix for external use.
  */
 export function generateCachePrefix(
   modelName?: string,

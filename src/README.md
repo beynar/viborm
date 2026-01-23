@@ -74,23 +74,22 @@ Multi-layered validation system:
 import { s } from "./schema";
 
 // Define a model
-const user = s.model("user", {
-  id: s.string().id().auto.ulid(),
-  name: s.string().minLength(2).maxLength(50),
-  email: s.string().unique().schema(emailRegex),
-  age: s.int().min(0).max(120),
-  posts: s.relation.many(() => post),
+const user = s.model({
+  id: s.string().id().ulid(),
+  name: s.string(),
+  email: s.string().unique(),
+  age: s.int(),
+  posts: s.oneToMany(() => post),
 });
 
-const post = s.model("post", {
-  id: s.string().id().auto.uuid(),
+const post = s.model({
+  id: s.string().id().ulid(),
   title: s.string(),
   content: s.string(),
   authorId: s.string(),
-  author: s.relation
-    .one(() => user)
-    .on("authorId")
-    .ref("id"),
+  author: s.manyToOne(() => user)
+    .fields("authorId")
+    .references("id"),
 });
 
 // Query usage (when connected to adapter)

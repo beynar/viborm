@@ -14,7 +14,7 @@ const user = s.model({
   email: s.string().unique(),
   name: s.string().nullable(),
   posts: s.oneToMany(() => post),
-}).map("users");
+});
 ```
 
 ## Key Concepts

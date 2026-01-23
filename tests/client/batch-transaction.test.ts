@@ -12,6 +12,7 @@ import {
 } from "@client/pending-operation";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite } from "@electric-sql/pglite";
+import { push } from "@migrations";
 import { s } from "@schema";
 import {
   afterAll,
@@ -59,21 +60,8 @@ beforeAll(async () => {
   const driver = new PGliteDriver({ client: db });
   client = createClient({ schema, driver });
 
-  // Create tables manually for tests
-  await client.$queryRaw(`
-    CREATE TABLE IF NOT EXISTS "user" (
-      "id" TEXT PRIMARY KEY,
-      "name" TEXT NOT NULL,
-      "email" TEXT NOT NULL UNIQUE
-    )
-  `);
-  await client.$queryRaw(`
-    CREATE TABLE IF NOT EXISTS "post" (
-      "id" TEXT PRIMARY KEY,
-      "title" TEXT NOT NULL,
-      "authorId" TEXT NOT NULL
-    )
-  `);
+  // Use push() to create tables via the migration engine
+  await push(client, { force: true });
 });
 
 afterAll(async () => {

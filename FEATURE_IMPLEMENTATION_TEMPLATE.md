@@ -57,7 +57,7 @@ Here's how types flow through VibORM:
 │                    THE VIBORM TYPE SYSTEM                           │
 ├─────────────────────────────────────────────────────────────────────┤
 │                                                                     │
-│  1. User defines schema:     const User = s.model("user", {...})   │
+│  1. User defines schema:     const User = s.model({...})           │
 │                                       │                             │
 │                                       ▼                             │
 │  2. Schema holds state:      User["~"].state (fields, relations)   │

@@ -96,7 +96,7 @@ const fresh = client.$withCache({ bypass: true });
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `ttl` | `string \| number` | `300000` (5 min) | Cache duration. String format: "1 hour", "30 seconds", etc. |
-| `swr` | `boolean` | `false` | Enable stale-while-revalidate pattern |
+| `swr` | `boolean \| string \| number` | `false` | Enable stale-while-revalidate. When `true`, uses 2x TTL. Can also specify a custom SWR window duration. |
 | `key` | `string` | auto-generated | Custom cache key (overrides automatic key generation) |
 | `bypass` | `boolean` | `false` | Skip cache read and force fresh fetch (still writes to cache) |
 
@@ -163,8 +163,21 @@ const users3 = await cached.user.findMany(); // ~1ms (stale data returned)
 ### How SWR Works
 
 1. **Fresh hit** (age < TTL): Return cached data immediately
-2. **Stale hit** (TTL < age < 2×TTL): Return stale data, refresh in background
-3. **Miss** (age > 2×TTL or not cached): Execute query, cache result
+2. **Stale hit** (TTL < age < SWR window): Return stale data, refresh in background
+3. **Miss** (age > SWR window or not cached): Execute query, cache result
+
+By default, the SWR window is 2× the TTL. You can customize this:
+
+```typescript
+// Default: SWR window is 2x TTL (10 minutes total storage)
+const cached = client.$withCache({ ttl: "5 minutes", swr: true });
+
+// Custom SWR window of 1 hour (stored for 1 hour total)
+const cached = client.$withCache({ ttl: "5 minutes", swr: "1 hour" });
+
+// Custom SWR window in milliseconds
+const cached = client.$withCache({ ttl: 300000, swr: 3600000 });
+```
 
 ### Serverless Environments
 

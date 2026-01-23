@@ -2,6 +2,7 @@ import { MemoryCache } from "@cache/drivers/memory";
 import { VibORM } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite } from "@electric-sql/pglite";
+import { push } from "@migrations";
 import { s } from "@schema";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 
@@ -22,13 +23,9 @@ beforeAll(async () => {
   pglite = new PGlite();
   driver = new PGliteDriver({ client: pglite });
 
-  await pglite.exec(`
-    CREATE TABLE IF NOT EXISTS "user" (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      email TEXT NOT NULL UNIQUE
-    )
-  `);
+  // Use push() to create tables via the migration engine
+  const tempClient = VibORM.create({ schema, driver });
+  await push(tempClient, { force: true });
 });
 
 beforeEach(async () => {
@@ -248,6 +245,163 @@ describe("Cache", () => {
   });
 
   describe("SWR (stale-while-revalidate)", () => {
+    it("swr: true defaults to 2x TTL for stale window", async () => {
+      const cache = new MemoryCache();
+      const client = VibORM.create({
+        schema,
+        driver,
+        cache,
+      });
+
+      await client.user.create({
+        data: { id: "1", name: "Alice", email: "alice@test.com" },
+      });
+
+      // Cache with ttl: 30ms, swr: true should use 60ms (2x) as storage TTL
+      await client
+        .$withCache({ key: "swr-default-ttl", ttl: 30, swr: true })
+        .user.findMany();
+
+      // Wait past TTL (30ms) but within 2x TTL (60ms) - data should still be in storage
+      await new Promise((r) => setTimeout(r, 40));
+
+      // Add more data
+      await pglite.exec(
+        `INSERT INTO "user" VALUES ('swr-default-1', 'DefaultBob', 'defaultbob@test.com')`
+      );
+
+      // Should return stale data (SWR serves from storage)
+      const staleResult = await client
+        .$withCache({ key: "swr-default-ttl", ttl: 30, swr: true })
+        .user.findMany();
+      expect(staleResult).toHaveLength(1);
+
+      // Cleanup
+      await pglite.exec(`DELETE FROM "user" WHERE id = 'swr-default-1'`);
+    });
+
+    it("swr: false disables stale-while-revalidate", async () => {
+      const cache = new MemoryCache();
+      const client = VibORM.create({
+        schema,
+        driver,
+        cache,
+      });
+
+      await client.user.create({
+        data: { id: "1", name: "Alice", email: "alice@test.com" },
+      });
+
+      // Cache with swr: false
+      await client
+        .$withCache({ key: "swr-disabled", ttl: 30, swr: false })
+        .user.findMany();
+
+      // Wait past TTL
+      await new Promise((r) => setTimeout(r, 50));
+
+      // Add more data
+      await pglite.exec(
+        `INSERT INTO "user" VALUES ('swr-disabled-1', 'DisabledBob', 'disabledbob@test.com')`
+      );
+
+      // With SWR disabled, stale data should NOT be returned - fresh fetch happens
+      const result = await client
+        .$withCache({ key: "swr-disabled", ttl: 30, swr: false })
+        .user.findMany();
+      expect(result).toHaveLength(2); // Gets fresh data, not stale
+
+      // Cleanup
+      await pglite.exec(`DELETE FROM "user" WHERE id = 'swr-disabled-1'`);
+    });
+
+    it("accepts custom SWR TTL as number", async () => {
+      const cache = new MemoryCache();
+      const client = VibORM.create({
+        schema,
+        driver,
+        cache,
+      });
+
+      await client.user.create({
+        data: { id: "1", name: "Alice", email: "alice@test.com" },
+      });
+
+      // Initial cache with ttl: 30ms and custom swr: 100ms (instead of default 60ms)
+      await client
+        .$withCache({ key: "swr-custom-ttl", ttl: 30, swr: 100 })
+        .user.findMany();
+
+      // Wait for cache to become stale (past 30ms TTL)
+      await new Promise((r) => setTimeout(r, 50));
+
+      // Add more data AFTER cache is stale
+      await pglite.exec(
+        `INSERT INTO "user" VALUES ('swr-custom-1', 'Bob', 'bob-custom@test.com')`
+      );
+
+      // Should return stale data immediately (SWR pattern)
+      const staleResult = await client
+        .$withCache({ key: "swr-custom-ttl", ttl: 30, swr: 100 })
+        .user.findMany();
+      expect(staleResult).toHaveLength(1);
+
+      // Wait for background revalidation
+      await new Promise((r) => setTimeout(r, 100));
+
+      // Now should have fresh data
+      const freshResult = await client
+        .$withCache({ key: "swr-custom-ttl", ttl: 30, swr: 100 })
+        .user.findMany();
+      expect(freshResult).toHaveLength(2);
+
+      // Cleanup
+      await pglite.exec(`DELETE FROM "user" WHERE id = 'swr-custom-1'`);
+    });
+
+    it("accepts custom SWR TTL as string", async () => {
+      const cache = new MemoryCache();
+      const client = VibORM.create({
+        schema,
+        driver,
+        cache,
+      });
+
+      await client.user.create({
+        data: { id: "1", name: "Alice", email: "alice@test.com" },
+      });
+
+      // Initial cache with string TTL for swr
+      await client
+        .$withCache({ key: "swr-string-ttl", ttl: 30, swr: "200ms" })
+        .user.findMany();
+
+      // Wait for cache to become stale
+      await new Promise((r) => setTimeout(r, 50));
+
+      // Add more data
+      await pglite.exec(
+        `INSERT INTO "user" VALUES ('swr-string-1', 'Charlie', 'charlie@test.com')`
+      );
+
+      // Should return stale data
+      const staleResult = await client
+        .$withCache({ key: "swr-string-ttl", ttl: 30, swr: "200ms" })
+        .user.findMany();
+      expect(staleResult).toHaveLength(1);
+
+      // Wait for revalidation
+      await new Promise((r) => setTimeout(r, 100));
+
+      const freshResult = await client
+        .$withCache({ key: "swr-string-ttl", ttl: 30, swr: "200ms" })
+        .user.findMany();
+      expect(freshResult).toHaveLength(2);
+
+      // Cleanup
+      await pglite.exec(`DELETE FROM "user" WHERE id = 'swr-string-1'`);
+    });
+
     it("returns stale data and revalidates in background", async () => {
       const cache = new MemoryCache();
       const client = VibORM.create({
@@ -588,7 +742,7 @@ describe("Cache", () => {
 
       // @ts-expect-error - Testing runtime validation of invalid options
       expect(() => client.$withCache({ swr: "yes" })).toThrow(
-        "Invalid cache options"
+        "Invalid TTL format"
       );
     });
   });

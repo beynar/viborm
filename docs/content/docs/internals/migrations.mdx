@@ -11,7 +11,7 @@ icon: GitBranch
 Your TypeScript schema is the source of truth:
 
 ```typescript
-const user = s.model("user", {
+const user = s.model({
   id: s.string().id().ulid(),
   email: s.string().unique(),
   name: s.string().nullable(),  // ← Add this field

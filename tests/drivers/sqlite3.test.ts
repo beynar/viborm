@@ -4,6 +4,7 @@
  * Tests the better-sqlite3 driver implementation with a simple schema.
  */
 
+import { VibORM } from "@client/client";
 import {
   createClient as SQLite3CreateClient,
   SQLite3Driver,
@@ -42,30 +43,16 @@ const post = s
 const schema = { user, post };
 
 // =============================================================================
-// HELPER: Setup database with raw SQL (for driver-level tests)
+// HELPER: Setup database using push() migration
 // =============================================================================
 
-async function setupDatabaseRaw(driver: SQLite3Driver) {
-  // Create tables with raw SQL (for testing driver directly without client)
-  await driver._executeRaw(`
-    CREATE TABLE IF NOT EXISTS "users" (
-      "id" TEXT PRIMARY KEY NOT NULL,
-      "name" TEXT,
-      "email" TEXT NOT NULL,
-      "age" INTEGER
-    )
-  `);
-
-  await driver._executeRaw(`
-    CREATE TABLE IF NOT EXISTS "posts" (
-      "id" TEXT PRIMARY KEY NOT NULL,
-      "title" TEXT NOT NULL,
-      "content" TEXT,
-      "published" INTEGER NOT NULL DEFAULT 0,
-      "authorId" TEXT NOT NULL,
-      FOREIGN KEY ("authorId") REFERENCES "users"("id")
-    )
-  `);
+async function setupDatabase(driver: SQLite3Driver) {
+  // Create a temporary client to use push() for migrations
+  const tempClient = VibORM.create({
+    schema,
+    driver,
+  });
+  await push(tempClient, { force: true });
 
   // Clean up any existing data
   await driver._executeRaw(`DELETE FROM "posts"`);
@@ -104,7 +91,7 @@ describe("SQLite3 Driver", () => {
       driver = new SQLite3Driver({
         options: { filename: ":memory:" },
       });
-      await setupDatabaseRaw(driver);
+      await setupDatabase(driver);
     });
 
     afterEach(async () => {
@@ -170,7 +157,7 @@ describe("SQLite3 Driver", () => {
       driver = new SQLite3Driver({
         options: { filename: ":memory:" },
       });
-      await setupDatabaseRaw(driver);
+      await setupDatabase(driver);
     });
 
     afterEach(async () => {

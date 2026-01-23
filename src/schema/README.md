@@ -55,18 +55,17 @@ const user = s.model({
   email: s.string(TYPES.PG.STRING.CITEXT).unique(),
   name: s.string().nullable(),
   createdAt: s.dateTime().default(() => new Date()),
-  posts: s.relation.oneToMany(() => post),
-}).map("users");
+  posts: s.oneToMany(() => post),
+});
 
 const post = s.model({
   id: s.string().id().ulid(),
   title: s.string(),
   authorId: s.string(),
-  author: s.relation
+  author: s.manyToOne(() => user)
     .fields("authorId")
-    .references("id")
-    .manyToOne(() => user),
-}).map("posts");
+    .references("id"),
+});
 ```
 
 ### Key Principles
@@ -298,7 +297,7 @@ const user = s.model({
   id: s.string().id().ulid(),
   name: s.string(),
   email: s.string().unique(),
-  posts: s.relation.oneToMany(() => post),
+  posts: s.oneToMany(() => post),
 });
 ```
 
@@ -372,36 +371,34 @@ VibORM uses a **config-first, getter-last** pattern for relations:
 
 | Relation | Returns | Example |
 |----------|---------|---------|
-| `s.relation.oneToOne()` | Single object or null | User → Profile |
-| `s.relation.oneToMany()` | Array | User → Posts |
-| `s.relation.manyToOne()` | Single object or null | Post → Author |
-| `s.relation.manyToMany()` | Array | Post ↔ Tags |
+| `s.oneToOne()` | Single object or null | User → Profile |
+| `s.oneToMany()` | Array | User → Posts |
+| `s.manyToOne()` | Single object or null | Post → Author |
+| `s.manyToMany()` | Array | Post ↔ Tags |
 
 ### Relation Configuration
 
 ```ts
-// Owner side (has foreign key) - config BEFORE terminal method
-s.relation
+// Owner side (has foreign key)
+s.manyToOne(() => user)
   .fields("authorId")              // FK field on this model
   .references("id")                // Referenced field on target
   .onDelete("cascade")             // cascade | setNull | restrict | noAction
   .onUpdate("cascade")
   .optional()                      // Allow NULL (to-one only)
-  .manyToOne(() => user)           // Terminal method - ALWAYS LAST
 
 // Inverse side (no FK)
-s.relation.oneToMany(() => post)   // No configuration needed
+s.oneToMany(() => post)            // No configuration needed
 ```
 
 ### Many-to-Many Relations
 
 ```ts
 const post = s.model({
-  tags: s.relation
+  tags: s.manyToMany(() => tag)
     .through("post_tags")          // Junction table name
     .A("postId")                   // Source FK column
-    .B("tagId")                    // Target FK column
-    .manyToMany(() => tag),        // Terminal method - ALWAYS LAST
+    .B("tagId"),                   // Target FK column
 });
 ```
 
@@ -689,7 +686,7 @@ model["~"].infer         // Phantom type for inference
 ### Relation Internals
 
 ```ts
-const rel = s.relation.fields("authorId").references("id").manyToOne(() => user);
+const rel = s.manyToOne(() => user).fields("authorId").references("id");
 
 rel["~"].getter          // () => Model (lazy reference)
 rel["~"].relationType    // "manyToOne"
@@ -722,4 +719,3 @@ The schema module provides:
 ✅ **Future-proof architecture** with single-state generics
 
 For more details on specific components, explore the source files or refer to the test suite in `/tests/schema/`.
-

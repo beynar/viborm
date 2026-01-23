@@ -84,6 +84,33 @@ function isMutationOperation(
 }
 
 /**
+ * Resolve SWR option to a storage TTL value or false
+ *
+ * The `swr` parameter represents the "stale window" - how long data can be
+ * served stale while revalidating in the background. The storage TTL must be
+ * `ttl + staleWindow` to keep data available during the stale window.
+ *
+ * @returns Storage TTL in ms (ttl + staleWindow), or false if SWR disabled
+ * - true: ttl * 2 (stale window equals ttl, so storage = ttl + ttl)
+ * - false/undefined: SWR disabled
+ * - number: custom stale window, storage = ttl + swr
+ */
+function resolveSwr(
+  swr: boolean | number | undefined,
+  ttlMs: number
+): number | false {
+  if (swr === undefined || swr === false) {
+    return false;
+  }
+  if (swr === true) {
+    // Default: stale window = ttl, so storage = ttl + ttl = 2x
+    return ttlMs * 2;
+  }
+  // Custom stale window: storage = ttl + staleWindow
+  return ttlMs + swr;
+}
+
+/**
  * Check if an operation is cacheable
  */
 function isCacheableOperation(
@@ -299,10 +326,13 @@ export class VibORM<C extends VibORMConfig> {
     }
     const { bypass, key, ttl, swr } = parsed.value;
 
+    // Resolve SWR to number | false
+    const resolvedSwr = resolveSwr(swr, ttl);
+
     // Build execution options
     const options: CacheExecutionOptions = {
       ttlMs: ttl,
-      swr,
+      swr: resolvedSwr,
       bypass,
       key,
       waitUntil: this.waitUntil,

@@ -4,31 +4,99 @@
 	"description": "Type-safe ORM for PostgreSQL and MySQL with Prisma-like API",
 	"main": "./dist/index.mjs",
 	"module": "./dist/index.mjs",
-	"types": "./dist/index.d.ts",
+	"types": "./dist/index.d.mts",
 	"exports": {
 		".": {
-			"types": "./dist/index.d.ts",
+			"types": "./dist/index.d.mts",
 			"import": "./dist/index.mjs"
 		},
-		"./adapters": {
-			"types": "./dist/adapters.d.ts",
-			"import": "./dist/adapters.mjs"
+		"./schema": {
+			"types": "./dist/schema.d.mts",
+			"import": "./dist/schema.mjs"
 		},
-		"./drivers": {
-			"types": "./dist/drivers.d.ts",
-			"import": "./dist/drivers.mjs"
+		"./driver": {
+			"types": "./dist/driver.d.mts",
+			"import": "./dist/driver.mjs"
 		},
-		"./drivers/pglite": {
-			"types": "./dist/drivers/pglite.d.ts",
-			"import": "./dist/drivers/pglite.mjs"
+		"./pg": {
+			"types": "./dist/pg.d.mts",
+			"import": "./dist/pg.mjs"
+		},
+		"./postgres": {
+			"types": "./dist/postgres.d.mts",
+			"import": "./dist/postgres.mjs"
+		},
+		"./pglite": {
+			"types": "./dist/pglite.d.mts",
+			"import": "./dist/pglite.mjs"
+		},
+		"./neon-http": {
+			"types": "./dist/neon-http.d.mts",
+			"import": "./dist/neon-http.mjs"
+		},
+		"./bun-sql": {
+			"types": "./dist/bun-sql.d.mts",
+			"import": "./dist/bun-sql.mjs"
+		},
+		"./mysql2": {
+			"types": "./dist/mysql2.d.mts",
+			"import": "./dist/mysql2.mjs"
+		},
+		"./planetscale": {
+			"types": "./dist/planetscale.d.mts",
+			"import": "./dist/planetscale.mjs"
+		},
+		"./sqlite3": {
+			"types": "./dist/sqlite3.d.mts",
+			"import": "./dist/sqlite3.mjs"
+		},
+		"./libsql": {
+			"types": "./dist/libsql.d.mts",
+			"import": "./dist/libsql.mjs"
+		},
+		"./d1": {
+			"types": "./dist/d1.d.mts",
+			"import": "./dist/d1.mjs"
+		},
+		"./d1-http": {
+			"types": "./dist/d1-http.d.mts",
+			"import": "./dist/d1-http.mjs"
+		},
+		"./bun-sqlite": {
+			"types": "./dist/bun-sqlite.d.mts",
+			"import": "./dist/bun-sqlite.mjs"
+		},
+		"./cache": {
+			"types": "./dist/cache.d.mts",
+			"import": "./dist/cache.mjs"
+		},
+		"./cache/memory": {
+			"types": "./dist/cache/memory.d.mts",
+			"import": "./dist/cache/memory.mjs"
+		},
+		"./cache/cloudflare-kv": {
+			"types": "./dist/cache/cloudflare-kv.d.mts",
+			"import": "./dist/cache/cloudflare-kv.mjs"
 		},
 		"./migrations": {
-			"types": "./dist/migrations.d.ts",
+			"types": "./dist/migrations.d.mts",
 			"import": "./dist/migrations.mjs"
 		},
+		"./client": {
+			"types": "./dist/client.d.mts",
+			"import": "./dist/client.mjs"
+		},
 		"./validation": {
-			"types": "./dist/validation.d.ts",
+			"types": "./dist/validation.d.mts",
 			"import": "./dist/validation.mjs"
+		},
+		"./instrumentation": {
+			"types": "./dist/instrumentation.d.mts",
+			"import": "./dist/instrumentation.mjs"
+		},
+		"./adapters": {
+			"types": "./dist/adapters.d.mts",
+			"import": "./dist/adapters.mjs"
 		}
 	},
 	"bin": {
@@ -61,6 +129,7 @@
 		"typescript",
 		"postgres",
 		"mysql",
+		"sqlite",
 		"type-safe",
 		"prisma-like"
 	],
@@ -170,20 +239,26 @@
 			"gzip": false
 		},
 		{
-			"name": "Adapters",
-			"path": "dist/adapters.mjs",
+			"name": "Schema",
+			"path": "dist/schema.mjs",
 			"brotli": false,
 			"gzip": false
 		},
 		{
-			"name": "Drivers",
-			"path": "dist/drivers.mjs",
+			"name": "Driver (pg)",
+			"path": "dist/pg.mjs",
 			"brotli": false,
 			"gzip": false
 		},
 		{
-			"name": "Drivers (PGlite)",
-			"path": "dist/drivers/pglite.mjs",
+			"name": "Driver (pglite)",
+			"path": "dist/pglite.mjs",
+			"brotli": false,
+			"gzip": false
+		},
+		{
+			"name": "Cache",
+			"path": "dist/cache.mjs",
 			"brotli": false,
 			"gzip": false
 		},

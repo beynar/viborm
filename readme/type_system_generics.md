@@ -70,7 +70,7 @@ s.dateTime(); // DateTimeField<Date>
 The `Model<TFields>` class aggregates all field types:
 
 ```typescript
-const userModel = s.model("user", {
+const userModel = s.model({
   id: s.string().auto.uuid(), // StringField<string>
   name: s.string().nullable(), // StringField<string | null>
   age: s.int().min(0), // NumberField<number>
@@ -128,15 +128,17 @@ This allows the type system to work with any field while maintaining specificity
 Relations work seamlessly with the field system:
 
 ```typescript
-const userModel = s.model("user", {
+const userModel = s.model({
   id: s.string().id(),
-  posts: s.relation.many(() => postModel), // Relation<PostType[]>
+  posts: s.oneToMany(() => postModel), // One-to-many relation
 });
 
-const postModel = s.model("post", {
+const postModel = s.model({
   id: s.string().id(),
-  author: s.relation.one(() => userModel), // Relation<UserType>
   authorId: s.string(),
+  author: s.manyToOne(() => userModel) // Many-to-one relation
+    .fields("authorId")
+    .references("id"),
 });
 ```
 
@@ -159,7 +161,7 @@ type UserRelations = ModelRelations<typeof userModel.fieldDefinitions>;
 ### Valid Combinations
 
 ```typescript
-const user = s.model("user", {
+const user = s.model({
   // ✅ All field-appropriate methods
   name: s
     .string()
@@ -179,7 +181,7 @@ const user = s.model("user", {
 ```typescript
 // ❌ These would cause TypeScript compilation errors:
 
-const invalidModel = s.model("invalid", {
+const invalidModel = s.model({
   // name: s.string().increment(),    // increment() not available on strings
   // age: s.int().regex(/\d+/),       // regex() not available on numbers
   // isActive: s.boolean().min(0),    // min() not available on booleans
@@ -220,8 +222,8 @@ const invalidModel = s.model("invalid", {
 ```typescript
 import { s } from "viborm";
 
-const user = s.model("user", {
-  id: s.string().id().auto.ulid(),
+const user = s.model({
+  id: s.string().id().ulid(),
   email: s.string().regex(/^[^\s@]+@[^\s@]+\.[^\s@]+$/),
   age: s.int().min(13).max(120).nullable(),
   preferences: s.json<{ theme: string; notifications: boolean }>(),
@@ -244,21 +246,29 @@ type User = typeof user.infer;
 ### Complex Relations
 
 ```typescript
-const post = s.model("post", {
-  id: s.string().id().auto.ulid(),
-  title: s.string().min(1).max(200),
+const post = s.model({
+  id: s.string().id().ulid(),
+  title: s.string(),
   content: s.string(),
   published: s.boolean().default(false),
   publishedAt: s.dateTime().nullable(),
-  author: s.relation.one(() => user),
   authorId: s.string(),
-  tags: s.relation.many(() => tag),
+  author: s.manyToOne(() => user)
+    .fields("authorId")
+    .references("id"),
+  tags: s.manyToMany(() => tag)
+    .through("post_tags")
+    .A("postId")
+    .B("tagId"),
 });
 
-const tag = s.model("tag", {
-  id: s.string().id().auto.ulid(),
+const tag = s.model({
+  id: s.string().id().ulid(),
   name: s.string().unique(),
-  posts: s.relation.many(() => post),
+  posts: s.manyToMany(() => post)
+    .through("post_tags")
+    .A("tagId")
+    .B("postId"),
 });
 
 // Full type inference across relations:

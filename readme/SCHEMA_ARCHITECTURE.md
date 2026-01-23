@@ -169,16 +169,25 @@ flowchart TB
 ```
 
 ```typescript
-const user = s.model("user", {
+const user = s.model({
   id: s.string().id().uuid(),
-  posts: s.relation.oneToMany(() => post),
-  profile: s.relation.oneToOne(() => profile),
+  posts: s.oneToMany(() => post),
+  profile: s.oneToOne(() => profile)
+    .fields("profileId")
+    .references("id"),
+  profileId: s.string().nullable(),
 });
 
-const post = s.model("post", {
+const post = s.model({
   id: s.string().id().uuid(),
-  author: s.relation.manyToOne(() => user),
-  tags: s.relation.manyToMany(() => tag),
+  authorId: s.string(),
+  author: s.manyToOne(() => user)
+    .fields("authorId")
+    .references("id"),
+  tags: s.manyToMany(() => tag)
+    .through("post_tags")
+    .A("postId")
+    .B("tagId"),
 });
 ```
 
@@ -241,15 +250,23 @@ s.vector(dimensions?)
 .now() / .updatedAt() // DateTime
 
 // Relations
-s.relation.oneToOne(() => Model)
-s.relation.oneToMany(() => Model)
-s.relation.manyToOne(() => Model)
-s.relation.manyToMany(() => Model)
+s.oneToOne(() => Model)
+  .fields("foreignKeyField")
+  .references("targetField")
+  .optional()
+  .onDelete("cascade")
 
-// With options
-s.relation({ onDelete: "CASCADE", junctionTable: "custom_name" })
-  .manyToMany(() => Model)
+s.oneToMany(() => Model)
+  .name("customName")
+
+s.manyToOne(() => Model)
+  .fields("foreignKeyField")
+  .references("targetField")
+  .onDelete("cascade")
+
+s.manyToMany(() => Model)
+  .through("junction_table")
+  .A("sourceField")
+  .B("targetField")
+  .onDelete("cascade")
 ```
-
-
-

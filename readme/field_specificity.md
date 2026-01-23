@@ -114,7 +114,7 @@ anyField
 
 ```typescript
 // ✅ Valid combinations
-const user = s.model("user", {
+const user = s.model({
   name: s.string().min(1).max(100),
   age: s.int().min(0).max(120),
   isActive: s.boolean().default(true),
@@ -137,7 +137,7 @@ IDEs now show only relevant methods for each field type:
 ### 3. Proper Type Inference
 
 ```typescript
-const userModel = s.model("user", {
+const userModel = s.model({
   id: s.string().auto.uuid(), // StringField<string>
   name: s.string().nullable(), // StringField<string | null>
   age: s.int().min(0), // NumberField<number>

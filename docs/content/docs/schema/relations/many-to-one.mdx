@@ -16,13 +16,13 @@ const post = s.model({
   author: s.manyToOne(() => user)
     .fields("authorId")
     .references("id"),
-}).map("posts");
+});
 
 const user = s.model({
   id: s.string().id().ulid(),
   email: s.string().unique(),
   posts: s.oneToMany(() => post),  // Inverse side
-}).map("users");
+});
 ```
 
 ## Characteristics
@@ -144,7 +144,7 @@ const post = s.model({
     .references("id")
     .optional()
     .onDelete("setNull"),
-}).map("posts");
+});
 ```
 
 ## Querying Many-to-One
@@ -255,5 +255,5 @@ const comment = s.model({
     .references("id")
     .optional(),
   replies: s.oneToMany(() => comment),
-}).map("comments");
+});
 ```

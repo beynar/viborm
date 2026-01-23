@@ -105,8 +105,8 @@ VibORM infers types directly from your schema definition:
 
 ```typescript
 const schema = s.schema({
-  user: s.model("user", { ... }),
-  post: s.model("post", { ... }),
+  user: s.model({ ... }),
+  post: s.model({ ... }),
 });
 
 const orm = client(schema);  // Types inferred immediately

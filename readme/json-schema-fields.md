@@ -16,7 +16,7 @@ JSON fields in VibORM can operate in two modes:
 ```ts
 import { s } from "viborm";
 
-const user = s.model("user", {
+const user = s.model({
   id: s.string().id(),
   metadata: s.json(), // type: any
   settings: s.json().nullable(), // type: any | null
@@ -63,7 +63,7 @@ const userPreferencesSchema: StandardSchemaV1<
   },
 };
 
-const user = s.model("user", {
+const user = s.model({
   id: s.string().id(),
   preferences: s.json(userPreferencesSchema), // Strongly typed!
   config: s.json(configSchema).nullable(), // ConfigType | null
@@ -255,7 +255,7 @@ const productAttributesSchema: StandardSchemaV1<
   },
 };
 
-const productModel = s.model("product", {
+const productModel = s.model({
   id: s.string().id().auto.ulid(),
   name: s.string(),
   price: s.decimal(),

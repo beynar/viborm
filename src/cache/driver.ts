@@ -23,7 +23,7 @@ import {
   SPAN_OPERATION,
   type VibORMSpanName,
 } from "@instrumentation/spans";
-import { CACHE_PREFIX, generateCacheKey, generateCachePrefix } from "./key";
+import { CACHE_PREFIX, generateUnprefixedCacheKey } from "./key";
 import type { CacheInvalidationOptions } from "./schema";
 
 /**
@@ -52,16 +52,18 @@ export interface CacheEntry<T = unknown> {
 export interface CacheSetOptions {
   /** Time to live in milliseconds */
   ttl: number;
+  /** SWR storage TTL in milliseconds (if provided, used as storage TTL instead of ttl) */
+  swrTtl?: number;
 }
 
 /**
  * Options for cached execution (internal, after parsing)
  */
 export interface CacheExecutionOptions {
-  /** Time to live in milliseconds */
+  /** Time to live in milliseconds (freshness duration) */
   ttlMs: number;
-  /** Enable stale-while-revalidate pattern */
-  swr: boolean;
+  /** SWR storage TTL in ms (ttl + staleWindow), or false to disable SWR */
+  swr: number | false;
   /** Bypass cache read and force fresh fetch */
   bypass: boolean;
   /** Custom cache key override */
@@ -157,9 +159,9 @@ export abstract class CacheDriver {
     executor: () => Promise<T>,
     options: CacheExecutionOptions
   ): Promise<T> {
-    // Generate cache key
+    // Generate cache key (unprefixed - prefixKey() adds the prefix)
     const cacheKey =
-      options.key ?? generateCacheKey(modelName, operation, args, this.version);
+      options.key ?? generateUnprefixedCacheKey(modelName, operation, args);
 
     // Core execution logic
     const executeCore = async (): Promise<T> => {
@@ -184,7 +186,7 @@ export abstract class CacheDriver {
           return cached.value;
         }
 
-        if (options.swr) {
+        if (options.swr !== false) {
           // Stale but SWR enabled - return stale and revalidate in background
           this.revalidateInBackground(
             modelName,
@@ -233,11 +235,12 @@ export abstract class CacheDriver {
     value: T,
     options: CacheExecutionOptions
   ): void {
-    const cachePromise = this._set(key, value, { ttl: options.ttlMs }).catch(
-      (error) => {
-        this.logCacheEvent(key, "miss", "cache-set-failed", error);
-      }
-    );
+    const cachePromise = this._set(key, value, {
+      ttl: options.ttlMs,
+      swrTtl: options.swr !== false ? options.swr : undefined,
+    }).catch((error) => {
+      this.logCacheEvent(key, "miss", "cache-set-failed", error);
+    });
 
     if (options.waitUntil) {
       options.waitUntil(cachePromise);
@@ -273,7 +276,10 @@ export abstract class CacheDriver {
         this.logCacheEvent(cacheKey, "revalidate", "start");
 
         const result = await executor();
-        await this._set(cacheKey, result, { ttl: options.ttlMs });
+        await this._set(cacheKey, result, {
+          ttl: options.ttlMs,
+          swrTtl: options.swr !== false ? options.swr : undefined,
+        });
 
         this.logCacheEvent(cacheKey, "revalidate", "success");
       } catch (error) {
@@ -401,8 +407,8 @@ export abstract class CacheDriver {
       ttl: options.ttl,
     };
 
-    // Double TTL for storage to allow SWR to serve stale content
-    const storageTtl = options.ttl * 2;
+    // Use SWR TTL if provided, otherwise just use regular TTL
+    const storageTtl = options.swrTtl ?? options.ttl;
 
     return this.withSpan(
       SPAN_CACHE_SET,
@@ -479,11 +485,10 @@ export abstract class CacheDriver {
     return this.withSpan(SPAN_CACHE_INVALIDATE, modelName, async () => {
       const promises: Promise<void>[] = [];
 
-      // Auto-invalidate model cache if enabled (uses driver's version)
+      // Auto-invalidate model cache if enabled
       if (options?.autoInvalidate) {
-        const prefix = generateCachePrefix(modelName, this.version);
-        // Call clear() directly - prefix is already complete, _clear would double-prefix
-        promises.push(this.clear(prefix));
+        // Use modelName directly as unprefixed prefix - _clear() will add the full prefix
+        promises.push(this._clear(modelName));
       }
 
       // Custom invalidation - detect prefix (ends with *) vs specific key
@@ -526,10 +531,19 @@ export abstract class CacheDriver {
 
   /**
    * Prefix a key with the cache prefix (including version if set)
+   * Skips prefixing if the key is already prefixed (starts with CACHE_PREFIX)
    */
   private prefixKey(key: string): string {
-    const prefix = generateCachePrefix(undefined, this.version);
-    return `${prefix}:${key}`;
+    // Skip prefixing if already prefixed (e.g., from generateCacheKey for manual invalidation)
+    if (key.startsWith(`${CACHE_PREFIX}:`)) {
+      return key;
+    }
+
+    const base =
+      this.version !== undefined
+        ? `${CACHE_PREFIX}:v${this.version}`
+        : CACHE_PREFIX;
+    return key ? `${base}:${key}` : base;
   }
 }
 

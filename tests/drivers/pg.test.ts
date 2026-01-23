@@ -9,7 +9,7 @@
 import { createClient as PgCreateClient, PgDriver } from "@drivers/pg";
 import { push } from "@migrations";
 import { s } from "@schema";
-
+import { VibORM } from "@client/client";
 // =============================================================================
 // SCHEMA DEFINITION
 // =============================================================================
@@ -41,30 +41,16 @@ const post = s
 const schema = { user, post };
 
 // =============================================================================
-// HELPER: Setup database with raw SQL (for driver-level tests)
+// HELPER: Setup database using push() migration
 // =============================================================================
 
-async function setupDatabaseRaw(driver: PgDriver) {
-  // Create tables with raw SQL (for testing driver directly without client)
-  await driver._executeRaw(`
-    CREATE TABLE IF NOT EXISTS "pg_test_users" (
-      "id" TEXT PRIMARY KEY NOT NULL,
-      "name" TEXT,
-      "email" TEXT NOT NULL,
-      "age" INTEGER
-    )
-  `);
-
-  await driver._executeRaw(`
-    CREATE TABLE IF NOT EXISTS "pg_test_posts" (
-      "id" TEXT PRIMARY KEY NOT NULL,
-      "title" TEXT NOT NULL,
-      "content" TEXT,
-      "published" BOOLEAN NOT NULL DEFAULT FALSE,
-      "authorId" TEXT NOT NULL,
-      FOREIGN KEY ("authorId") REFERENCES "pg_test_users"("id")
-    )
-  `);
+async function setupDatabase(driver: PgDriver) {
+  // Create a temporary client to use push() for migrations
+  const tempClient = VibORM.create({
+    schema,
+    driver,
+  });
+  await push(tempClient, { force: true });
 
   // Clean up any existing data
   await driver._executeRaw(`DELETE FROM "pg_test_posts"`);
@@ -83,7 +69,7 @@ describeIf("pg Driver", () => {
   describe("Driver Creation", () => {
     test("creates driver with connection string", async () => {
       const driver = new PgDriver({
-        connectionString: TEST_CONNECTION_STRING,
+        databaseUrl: TEST_CONNECTION_STRING,
       });
       expect(driver.dialect).toBe("postgresql");
       expect(driver.adapter).toBeDefined();
@@ -112,9 +98,9 @@ describeIf("pg Driver", () => {
 
     beforeEach(async () => {
       driver = new PgDriver({
-        connectionString: TEST_CONNECTION_STRING,
+        databaseUrl: TEST_CONNECTION_STRING,
       });
-      await setupDatabaseRaw(driver);
+      await setupDatabase(driver);
     });
 
     afterEach(async () => {
@@ -178,9 +164,9 @@ describeIf("pg Driver", () => {
 
     beforeEach(async () => {
       driver = new PgDriver({
-        connectionString: TEST_CONNECTION_STRING,
+        databaseUrl: TEST_CONNECTION_STRING,
       });
-      await setupDatabaseRaw(driver);
+      await setupDatabase(driver);
     });
 
     afterEach(async () => {
@@ -258,7 +244,7 @@ describeIf("pg Driver", () => {
             ["user-1", "test@example.com", "Test User"]
           );
         },
-        { isolationLevel: "Serializable" }
+        { isolationLevel: "serializable" }
       );
 
       const result = await driver._executeRaw<{ count: string }>(
@@ -272,7 +258,7 @@ describeIf("pg Driver", () => {
     test("creates client with schema", async () => {
       const client = await PgCreateClient({
         schema,
-        connectionString: TEST_CONNECTION_STRING,
+        databaseUrl: TEST_CONNECTION_STRING,
       });
 
       expect(client.user).toBeDefined();
@@ -286,7 +272,7 @@ describeIf("pg Driver", () => {
     test("performs CRUD operations via client", async () => {
       const client = await PgCreateClient({
         schema,
-        connectionString: TEST_CONNECTION_STRING,
+        databaseUrl: TEST_CONNECTION_STRING,
       });
 
       // Push schema to create tables
@@ -354,7 +340,7 @@ describeIf("pg Driver", () => {
     test("performs transactions via client", async () => {
       const client = await PgCreateClient({
         schema,
-        connectionString: TEST_CONNECTION_STRING,
+        databaseUrl: TEST_CONNECTION_STRING,
       });
 
       // Push schema to create tables

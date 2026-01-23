@@ -33,7 +33,7 @@ const user = s.model({
   email: s.string().unique(),
   profile: s.oneToOne(() => profile).optional(),
   posts: s.oneToMany(() => post),
-}).map("users");
+});
 
 const profile = s.model({
   id: s.string().id().ulid(),
@@ -42,7 +42,7 @@ const profile = s.model({
   user: s.oneToOne(() => user)
     .fields("userId")
     .references("id"),
-}).map("profiles");
+});
 
 const post = s.model({
   id: s.string().id().ulid(),
@@ -52,13 +52,13 @@ const post = s.model({
     .fields("authorId")
     .references("id"),
   tags: s.manyToMany(() => tag),
-}).map("posts");
+});
 
 const tag = s.model({
   id: s.string().id().ulid(),
   name: s.string().unique(),
   posts: s.manyToMany(() => post),
-}).map("tags");
+});
 ```
 
 ## Methods by Relation Type

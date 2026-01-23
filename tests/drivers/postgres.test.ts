@@ -6,6 +6,7 @@
  * Skip in CI unless PostgreSQL is available.
  */
 
+import { createClient } from "@client/client";
 import {
   createClient as PostgresCreateClient,
   PostgresDriver,
@@ -44,30 +45,16 @@ const post = s
 const schema = { user, post };
 
 // =============================================================================
-// HELPER: Setup database with raw SQL (for driver-level tests)
+// HELPER: Setup database using push() migration
 // =============================================================================
 
-async function setupDatabaseRaw(driver: PostgresDriver) {
-  // Create tables with raw SQL (for testing driver directly without client)
-  await driver._executeRaw(`
-    CREATE TABLE IF NOT EXISTS "postgresjs_test_users" (
-      "id" TEXT PRIMARY KEY NOT NULL,
-      "name" TEXT,
-      "email" TEXT NOT NULL,
-      "age" INTEGER
-    )
-  `);
-
-  await driver._executeRaw(`
-    CREATE TABLE IF NOT EXISTS "postgresjs_test_posts" (
-      "id" TEXT PRIMARY KEY NOT NULL,
-      "title" TEXT NOT NULL,
-      "content" TEXT,
-      "published" BOOLEAN NOT NULL DEFAULT FALSE,
-      "authorId" TEXT NOT NULL,
-      FOREIGN KEY ("authorId") REFERENCES "postgresjs_test_users"("id")
-    )
-  `);
+async function setupDatabase(driver: PostgresDriver) {
+  // Create a temporary client to use push() for migrations
+  const tempClient = createClient({
+    schema,
+    driver,
+  });
+  await push(tempClient, { force: true });
 
   // Clean up any existing data
   await driver._executeRaw(`DELETE FROM "postgresjs_test_posts"`);
@@ -86,7 +73,7 @@ describeIf("postgres.js Driver", () => {
   describe("Driver Creation", () => {
     test("creates driver with connection string", async () => {
       const driver = new PostgresDriver({
-        connectionString: TEST_CONNECTION_STRING,
+        databaseUrl: TEST_CONNECTION_STRING,
       });
       expect(driver.dialect).toBe("postgresql");
       expect(driver.adapter).toBeDefined();
@@ -115,9 +102,9 @@ describeIf("postgres.js Driver", () => {
 
     beforeEach(async () => {
       driver = new PostgresDriver({
-        connectionString: TEST_CONNECTION_STRING,
+        databaseUrl: TEST_CONNECTION_STRING,
       });
-      await setupDatabaseRaw(driver);
+      await setupDatabase(driver);
     });
 
     afterEach(async () => {
@@ -181,9 +168,9 @@ describeIf("postgres.js Driver", () => {
 
     beforeEach(async () => {
       driver = new PostgresDriver({
-        connectionString: TEST_CONNECTION_STRING,
+        databaseUrl: TEST_CONNECTION_STRING,
       });
-      await setupDatabaseRaw(driver);
+      await setupDatabase(driver);
     });
 
     afterEach(async () => {
@@ -261,7 +248,7 @@ describeIf("postgres.js Driver", () => {
             ["user-1", "test@example.com", "Test User"]
           );
         },
-        { isolationLevel: "Serializable" }
+        { isolationLevel: "serializable" }
       );
 
       const result = await driver._executeRaw<{ count: string }>(
@@ -275,7 +262,7 @@ describeIf("postgres.js Driver", () => {
     test("creates client with schema", async () => {
       const client = await PostgresCreateClient({
         schema,
-        connectionString: TEST_CONNECTION_STRING,
+        databaseUrl: TEST_CONNECTION_STRING,
       });
 
       expect(client.user).toBeDefined();
@@ -289,7 +276,7 @@ describeIf("postgres.js Driver", () => {
     test("performs CRUD operations via client", async () => {
       const client = await PostgresCreateClient({
         schema,
-        connectionString: TEST_CONNECTION_STRING,
+        databaseUrl: TEST_CONNECTION_STRING,
       });
 
       // Push schema to create tables
@@ -357,7 +344,7 @@ describeIf("postgres.js Driver", () => {
     test("performs transactions via client", async () => {
       const client = await PostgresCreateClient({
         schema,
-        connectionString: TEST_CONNECTION_STRING,
+        databaseUrl: TEST_CONNECTION_STRING,
       });
 
       // Push schema to create tables
