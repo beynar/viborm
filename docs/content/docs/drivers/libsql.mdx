@@ -1,0 +1,84 @@
+---
+title: LibSQL (Turso)
+description: SQLite driver for Turso and libSQL
+---
+
+## Installation
+
+```bash
+pnpm add @libsql/client
+```
+
+## Configuration
+
+```typescript
+import { createClient } from "viborm/drivers/libsql";
+
+const client = createClient({
+  databaseUrl: process.env.TURSO_DATABASE_URL,
+  authToken: process.env.TURSO_AUTH_TOKEN,
+  schema,
+});
+```
+
+## Options
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `client` | `Client` | Existing libSQL client |
+| `databaseUrl` | `string` | Database URL (Turso cloud or local file) |
+| `dataDir` | `string` | Local file path (alternative to databaseUrl) |
+| `authToken` | `string` | Authentication token for Turso |
+| `options` | `Config` | Additional libSQL configuration |
+
+### Local Development
+
+```typescript
+import { createClient } from "viborm/drivers/libsql";
+
+// In-memory database (default)
+const client = createClient({
+  schema,
+});
+
+// Local file with dataDir
+const client = createClient({
+  dataDir: "./local.db",
+  schema,
+});
+
+// Or with databaseUrl
+const client = createClient({
+  databaseUrl: "file:./local.db",
+  schema,
+});
+```
+
+### Turso Cloud
+
+```typescript
+import { createClient } from "viborm/drivers/libsql";
+
+const client = createClient({
+  databaseUrl: "libsql://your-database.turso.io",
+  authToken: process.env.TURSO_AUTH_TOKEN,
+  schema,
+});
+```
+
+## Transactions
+
+LibSQL supports full transactions with savepoints for nested transactions.
+
+```typescript
+await client.$transaction(async (tx) => {
+  await tx.user.create({ data: { name: "Alice" } });
+  await tx.post.create({ data: { title: "Hello", authorId: "..." } });
+});
+```
+
+## Limitations
+
+- SQLite dialect - no `LATERAL` joins, limited `FULL OUTER JOIN`
+- JSON columns return as strings and are parsed automatically
+- Boolean values stored as integers (0/1)

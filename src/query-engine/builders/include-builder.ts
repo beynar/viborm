@@ -317,10 +317,15 @@ function buildLateralInclude(
     const aggExpr = adapter.json.agg(jsonColumn);
     const aliasedAggExpr = adapter.identifiers.aliased(aggExpr, resultColAlias);
 
-    const lateralSubquery = sql.join([
-      adapter.clauses.select(aliasedAggExpr),
-      adapter.clauses.from(sql`(${innerQuery}) ${adapter.identifiers.escape(innerAlias)}`),
-    ], " ");
+    const lateralSubquery = sql.join(
+      [
+        adapter.clauses.select(aliasedAggExpr),
+        adapter.clauses.from(
+          sql`(${innerQuery}) ${adapter.identifiers.escape(innerAlias)}`
+        ),
+      ],
+      " "
+    );
     const lateralJoin = adapter.joins.lateralLeft(
       lateralSubquery,
       lateralAlias
@@ -383,10 +388,15 @@ function buildToManySubquery(
   const subAlias = ctx.nextAlias();
   const jsonColumn = adapter.identifiers.column(subAlias, jsonColAlias);
   return adapter.subqueries.scalar(
-    sql.join([
-      adapter.clauses.select(adapter.json.agg(jsonColumn)),
-      adapter.clauses.from(sql`(${innerQuery}) ${adapter.identifiers.escape(subAlias)}`),
-    ], " ")
+    sql.join(
+      [
+        adapter.clauses.select(adapter.json.agg(jsonColumn)),
+        adapter.clauses.from(
+          sql`(${innerQuery}) ${adapter.identifiers.escape(subAlias)}`
+        ),
+      ],
+      " "
+    )
   );
 }
 
@@ -508,10 +518,15 @@ function buildManyToManyLateralInclude(
   const resultColAlias = "_result";
   const aliasedAggExpr = adapter.identifiers.aliased(aggExpr, resultColAlias);
 
-  const lateralSubquery = sql.join([
-    adapter.clauses.select(aliasedAggExpr),
-    adapter.clauses.from(sql`(${innerQuery}) ${adapter.identifiers.escape(innerAlias)}`),
-  ], " ");
+  const lateralSubquery = sql.join(
+    [
+      adapter.clauses.select(aliasedAggExpr),
+      adapter.clauses.from(
+        sql`(${innerQuery}) ${adapter.identifiers.escape(innerAlias)}`
+      ),
+    ],
+    " "
+  );
   const lateralJoin = adapter.joins.lateralLeft(lateralSubquery, lateralAlias);
   const column = adapter.identifiers.column(lateralAlias, resultColAlias);
 
@@ -598,9 +613,14 @@ function buildManyToManyInclude(
   const subAlias = ctx.nextAlias();
   const jsonColumn = adapter.identifiers.column(subAlias, jsonColAlias);
   return adapter.subqueries.scalar(
-    sql.join([
-      adapter.clauses.select(adapter.json.agg(jsonColumn)),
-      adapter.clauses.from(sql`(${innerQuery}) ${adapter.identifiers.escape(subAlias)}`),
-    ], " ")
+    sql.join(
+      [
+        adapter.clauses.select(adapter.json.agg(jsonColumn)),
+        adapter.clauses.from(
+          sql`(${innerQuery}) ${adapter.identifiers.escape(subAlias)}`
+        ),
+      ],
+      " "
+    )
   );
 }

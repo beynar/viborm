@@ -81,9 +81,7 @@ export class Sql {
       if (this._stmt$n !== undefined) return this._stmt$n;
     } else if (placeholder === ":n") {
       if (this._stmt$ !== undefined) return this._stmt$;
-    } else {
-      if (this._stmtQ !== undefined) return this._stmtQ;
-    }
+    } else if (this._stmtQ !== undefined) return this._stmtQ;
 
     // Build the statement
     const strings = this.strings;

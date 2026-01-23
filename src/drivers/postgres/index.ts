@@ -11,11 +11,11 @@ import {
   type DriverConfig,
   type VibORMClient,
 } from "@client/client";
+import { unsupportedGeospatial, unsupportedVector } from "@errors";
 import postgres, {
   type Options as PostgresOptionsType,
   type Sql as PostgresSql,
 } from "postgres";
-import { unsupportedGeospatial, unsupportedVector } from "@errors";
 import { Driver } from "../driver";
 import type { QueryResult, TransactionOptions } from "../types";
 
@@ -33,20 +33,19 @@ export interface PostgresDriverOptions {
   databaseUrl?: string;
 }
 
-
 const parseDatabaseUrl = (url: string): PostgresOptions => {
   const parsed = new URL(url);
   return {
     host: parsed.hostname,
-    port: parsed.port ? parseInt(parsed.port) : 5432,
+    port: parsed.port ? Number.parseInt(parsed.port, 10) : 5432,
     database: parsed.pathname.slice(1), // Remove leading "/"
     user: parsed.username || undefined,
     password: parsed.password || undefined,
   };
 };
 
-export type PostgresClientConfig<C extends DriverConfig> = PostgresDriverOptions &
-  C;
+export type PostgresClientConfig<C extends DriverConfig> =
+  PostgresDriverOptions & C;
 
 type PostgresClient = PostgresSql<Record<string, unknown>>;
 
@@ -67,7 +66,6 @@ export class PostgresDriver extends Driver<
   readonly adapter: DatabaseAdapter;
 
   private readonly driverOptions: PostgresDriverOptions;
-  private savepointCounter = 0;
 
   constructor(options: PostgresDriverOptions = {}) {
     super("postgresql", "postgres");
@@ -120,16 +118,33 @@ export class PostgresDriver extends Driver<
   protected async transaction<T>(
     client: PostgresClient | PostgresTransaction,
     fn: (tx: PostgresTransaction) => Promise<T>,
-    _options?: TransactionOptions
+    options?: TransactionOptions
   ): Promise<T> {
     // postgres.js begin()/savepoint() return Promise<UnwrapPromiseArray<T>>
     // Since we don't use pipelining (returning arrays of promises), cast to T
     if (isTransaction(client)) {
       // Nested transaction - use savepoint
-      const savepointName = `sp_${++this.savepointCounter}`;
+      const savepointName = `sp_${crypto.randomUUID().replace(/-/g, "")}`;
       return client.savepoint(savepointName, fn) as Promise<T>;
     }
+
+    this.inTransaction = true;
+
+    // Handle isolation level if specified
+    if (options?.isolationLevel) {
+      // Map isolation levels to postgres.js format
+      const isolationMap = {
+        read_uncommitted: "read uncommitted",
+        read_committed: "read committed",
+        repeatable_read: "repeatable read",
+        serializable: "serializable",
+      } as const;
+      const level = isolationMap[options.isolationLevel];
+      return client.begin(level, fn) as Promise<T>;
+    }
+
     return client.begin(fn) as Promise<T>;
+    // Note: this.inTransaction reset is handled by base Driver._transaction()
   }
 }
 
@@ -140,7 +155,14 @@ export class PostgresDriver extends Driver<
 export function createClient<C extends DriverConfig>(
   config: PostgresClientConfig<C>
 ) {
-  const { client, options ={}, pgvector, postgis, databaseUrl, ...restConfig } = config;
+  const {
+    client,
+    options = {},
+    pgvector,
+    postgis,
+    databaseUrl,
+    ...restConfig
+  } = config;
 
   if (databaseUrl) {
     Object.assign(options, parseDatabaseUrl(databaseUrl));

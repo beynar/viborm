@@ -6,6 +6,7 @@
  * Handles both storage operations and cache orchestration (hit/miss/stale/SWR).
  */
 
+import type { WaitUntilFn } from "@client/types";
 import type { InstrumentationContext } from "@instrumentation/context";
 import {
   ATTR_CACHE_DRIVER,
@@ -20,9 +21,8 @@ import {
   SPAN_CACHE_INVALIDATE,
   SPAN_CACHE_SET,
   SPAN_OPERATION,
-  VibORMSpanName,
+  type VibORMSpanName,
 } from "@instrumentation/spans";
-import type { WaitUntilFn } from "@client/types";
 import { CACHE_PREFIX, generateCacheKey, generateCachePrefix } from "./key";
 import type { CacheInvalidationOptions } from "./schema";
 
@@ -343,7 +343,9 @@ export abstract class CacheDriver {
   private withSpan<T>(
     spanName: VibORMSpanName,
     key: string,
-    execute: (span?: { setAttribute: (key: string, value: string) => void }) => Promise<T>,
+    execute: (span?: {
+      setAttribute: (key: string, value: string) => void;
+    }) => Promise<T>,
     extraAttributes?: Record<string, string>
   ): Promise<T> {
     if (!this.instrumentation?.tracer) {

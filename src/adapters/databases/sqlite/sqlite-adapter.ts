@@ -486,7 +486,12 @@ export class SQLiteAdapter implements DatabaseAdapter {
   // ============================================================
 
   mutations = {
-    insert: (table: Sql, columns: string[], values: Sql[][], prefix?: Sql): Sql => {
+    insert: (
+      table: Sql,
+      columns: string[],
+      values: Sql[][],
+      prefix?: Sql
+    ): Sql => {
       const cols = columns.map((c) => sql.raw`"${c}"`);
       const rows = values.map((row) => sql`(${sql.join(row, ", ")})`);
       const prefixPart = prefix ? sql`${prefix} ` : sql``;
@@ -523,9 +528,11 @@ export class SQLiteAdapter implements DatabaseAdapter {
 
     onConflictUpdate: (sets: Sql): Sql => sql`UPDATE SET ${sets}`,
 
-    skipDuplicates: () => ({ prefix: sql``, suffix: sql`ON CONFLICT DO NOTHING` }),
+    skipDuplicates: () => ({
+      prefix: sql``,
+      suffix: sql`ON CONFLICT DO NOTHING`,
+    }),
   };
-
 
   // ============================================================
   // JOINS

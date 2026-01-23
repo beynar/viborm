@@ -6,12 +6,16 @@
  */
 
 import type { DatabaseAdapter } from "@adapters";
-import type { AnyDriver, QueryExecutionContext } from "@drivers";
+import { PendingOperation } from "@client/pending-operation";
+import type { AnyDriver } from "@drivers";
+import { NotFoundError } from "@errors";
 import {
   ATTR_DB_COLLECTION,
   ATTR_DB_OPERATION_NAME,
+  createErrorLogEvent,
   type InstrumentationContext,
   SPAN_BUILD,
+  SPAN_OPERATION,
   SPAN_PARSE,
   SPAN_VALIDATE,
 } from "@instrumentation";
@@ -49,21 +53,14 @@ import {
   isBatchOperation,
   type ModelRegistry,
   type Operation,
+  type PreparedQuery,
+  type PrepareOptions,
   type QueryContext,
   QueryEngineError,
+  type QueryMetadata,
 } from "./types";
-import { withTransactionIfSupported } from "./utils/transaction-helper";
-import { validate } from "./validator";
 
-/**
- * Type guard to check if driver supports context methods
- */
-function hasContextSupport(driver: AnyDriver): driver is AnyDriver & {
-  setContext(ctx: QueryExecutionContext): void;
-  clearContext(): void;
-} {
-  return "setContext" in driver && "clearContext" in driver;
-}
+import { validate } from "./validator";
 
 /**
  * Query Engine class
@@ -80,6 +77,12 @@ export class QueryEngine {
   private readonly driver: AnyDriver;
   private readonly instrumentation: InstrumentationContext | undefined;
 
+  /**
+   * Unique identifier for this engine instance.
+   * Used to verify that operations belong to the same client in $transaction.
+   */
+  readonly clientId: symbol;
+
   constructor(
     driver: AnyDriver,
     registry: ModelRegistry,
@@ -89,6 +92,7 @@ export class QueryEngine {
     this.adapter = driver.adapter;
     this.registry = registry;
     this.instrumentation = instrumentation;
+    this.clientId = Symbol("viborm.client");
   }
 
   /**
@@ -154,6 +158,237 @@ export class QueryEngine {
   }
 
   /**
+   * Prepare an operation and return a PendingOperation ready for execution.
+   *
+   * This is the primary entry point for creating database operations.
+   * The returned PendingOperation contains metadata and an executor.
+   *
+   * Validation and SQL building are DEFERRED to execution time.
+   * This enables proper span ordering and prepares for future prepared statement support.
+   *
+   * @param model - The model to operate on
+   * @param operation - The base operation (without OrThrow suffix)
+   * @param args - Raw operation arguments (will be validated at execution time)
+   * @param options - Prepare options (throwIfNotFound, originalOperation)
+   */
+  prepare<T>(
+    model: Model<any>,
+    operation: Operation | `${Operation}OrThrow`,
+    args: Record<string, unknown>,
+    options?: PrepareOptions
+  ): PendingOperation<T> {
+    const modelName = model["~"].names.ts ?? "unknown";
+
+    // Strip OrThrow suffix if present
+    const OR_THROW_SUFFIX = "OrThrow";
+    const isOrThrow = operation.endsWith(OR_THROW_SUFFIX);
+    const baseOperation = isOrThrow
+      ? (operation.slice(0, -OR_THROW_SUFFIX.length) as Operation)
+      : (operation as Operation);
+
+    // Merge OrThrow into options
+    const prepareOptions: PrepareOptions = {
+      ...options,
+      throwIfNotFound: isOrThrow || options?.throwIfNotFound,
+      originalOperation: options?.originalOperation ?? operation,
+    };
+
+    // Create the executor (validation and SQL building happen at execution time)
+    const executor = this.createExecutor<T>(
+      model,
+      baseOperation,
+      args,
+      prepareOptions
+    );
+
+    // Check if this operation has nested writes (can't be batched)
+    const hasNestedWrites = this.hasNestedWrites(baseOperation, args);
+
+    // Create prepare function for batch execution (only if no nested writes)
+    const prepareFunc = hasNestedWrites
+      ? undefined
+      : this.createPrepareFunction(model, baseOperation, args);
+
+    // Create parseResult function for batch execution
+    const parseResultFunc = this.createParseResultFunction<T>(
+      model,
+      baseOperation,
+      prepareOptions
+    );
+
+    // Create metadata for batch execution
+    // Note: hasNestedWrites check is done with raw args - it only looks at structure
+    const metadata: QueryMetadata<T> = {
+      clientId: this.clientId,
+      args,
+      operation: baseOperation,
+      model: modelName,
+      execute: executor,
+      prepare: prepareFunc,
+      parseResult: parseResultFunc,
+      isBatchOperation: isBatchOperation(baseOperation),
+      hasNestedWrites,
+    };
+
+    return new PendingOperation<T>(metadata);
+  }
+
+  /**
+   * Create an executor function with full instrumentation.
+   *
+   * The executor performs validation and SQL building at execution time,
+   * ensuring all spans occur within SPAN_OPERATION.
+   *
+   * @param model - The model to operate on
+   * @param operation - The operation type
+   * @param args - Raw arguments (will be validated)
+   * @param options - Prepare options
+   */
+  private createExecutor<T>(
+    model: Model<any>,
+    operation: Operation,
+    args: Record<string, unknown>,
+    options?: PrepareOptions
+  ): (driverOverride?: AnyDriver) => Promise<T> {
+    const tracer = this.instrumentation?.tracer;
+    const logger = this.instrumentation?.logger;
+    const modelName = model["~"].names.ts ?? "unknown";
+    const tableName = model["~"].names.sql ?? modelName;
+    const displayOperation = options?.originalOperation ?? operation;
+
+    const spanAttrs = {
+      ...this.driver.getBaseAttributes(),
+      [ATTR_DB_COLLECTION]: tableName,
+      [ATTR_DB_OPERATION_NAME]: displayOperation,
+    };
+
+    return async (driverOverride?: AnyDriver): Promise<T> => {
+      const startTime = Date.now();
+      const driver = driverOverride ?? this.driver;
+
+      const executeCore = async (): Promise<T> => {
+        try {
+          // Create context for SQL building and result parsing
+          const ctx = createQueryContext(
+            this.adapter,
+            model,
+            this.registry,
+            driver
+          );
+
+          // Validate at execution time (inside SPAN_OPERATION)
+          const validated = tracer
+            ? tracer.startActiveSpanSync(
+                { name: SPAN_VALIDATE, attributes: spanAttrs },
+                () => validate<Record<string, unknown>>(model, operation, args)
+              )
+            : validate<Record<string, unknown>>(model, operation, args);
+
+          // Check for nested writes
+          if (this.hasNestedWrites(operation, validated)) {
+            const result = await this.executeWithNestedWrites<T>(
+              ctx,
+              operation,
+              validated,
+              driver
+            );
+            return this.applyPostProcessing<T>(
+              result,
+              operation,
+              options,
+              modelName
+            );
+          }
+
+          // Build SQL at execution time (inside SPAN_OPERATION)
+          const sql = tracer
+            ? tracer.startActiveSpanSync(
+                { name: SPAN_BUILD, attributes: spanAttrs },
+                () => this.buildOperation(ctx, operation, validated)
+              )
+            : this.buildOperation(ctx, operation, validated);
+
+          // Set context on driver for logging
+          driver.setContext({ model: modelName, operation });
+
+          try {
+            // Execute query
+            const result = await driver._execute(sql);
+
+            // Parse result
+            const parseInput = isBatchOperation(operation)
+              ? { rowCount: result.rowCount }
+              : result.rows;
+
+            const parsed = tracer
+              ? tracer.startActiveSpanSync(
+                  { name: SPAN_PARSE, attributes: spanAttrs },
+                  () => parseResult<T>(ctx, operation, parseInput)
+                )
+              : parseResult<T>(ctx, operation, parseInput);
+
+            return this.applyPostProcessing<T>(
+              parsed,
+              operation,
+              options,
+              modelName
+            );
+          } finally {
+            driver.clearContext();
+          }
+        } catch (error) {
+          if (error instanceof Error && !("logged" in error)) {
+            logger?.error(
+              createErrorLogEvent({
+                error,
+                model: modelName,
+                operation,
+                duration: Date.now() - startTime,
+              })
+            );
+          }
+          throw error;
+        }
+      };
+
+      // Wrap with SPAN_OPERATION (unless skipSpan is set)
+      if (!options?.skipSpan && tracer) {
+        return tracer.startActiveSpan(
+          { name: SPAN_OPERATION, attributes: spanAttrs },
+          executeCore
+        );
+      }
+
+      return executeCore();
+    };
+  }
+
+  /**
+   * Apply post-processing: OrThrow check and exist conversion
+   */
+  private applyPostProcessing<T>(
+    result: T,
+    operation: Operation,
+    options: PrepareOptions | undefined,
+    modelName: string
+  ): T {
+    // Handle OrThrow
+    if (options?.throwIfNotFound && result === null) {
+      throw new NotFoundError(
+        modelName,
+        options.originalOperation ?? operation
+      );
+    }
+
+    // Handle exist operation (convert count to boolean)
+    if (operation === "exist") {
+      return ((result as number) > 0) as unknown as T;
+    }
+
+    return result;
+  }
+
+  /**
    * Process connect operations in data to inline FK values
    * This allows build() to generate correct SQL for simple connect cases
    * without needing a transaction.
@@ -211,97 +446,15 @@ export class QueryEngine {
   }
 
   /**
-   * Set context on driver if supported
-   */
-  private setDriverContext(model: string, operation: Operation): void {
-    if (this.driver && hasContextSupport(this.driver)) {
-      this.driver.setContext({ model, operation });
-    }
-  }
-
-  /**
-   * Clear context on driver if supported
-   */
-  private clearDriverContext(): void {
-    if (this.driver && hasContextSupport(this.driver)) {
-      this.driver.clearContext();
-    }
-  }
-
-  /**
-   * Execute an operation and return parsed results
+   * Execute an operation and return parsed results.
+   * This is a convenience method that creates a PendingOperation and executes it.
    */
   async execute<T>(
     model: Model<any>,
     operation: Operation,
     args: Record<string, unknown>
   ): Promise<T> {
-    const tracer = this.instrumentation?.tracer;
-    const modelName = model["~"].names.ts ?? "unknown";
-    const tableName = model["~"].names.sql ?? modelName;
-    const spanAttrs = {
-      ...this.driver.getBaseAttributes(),
-      [ATTR_DB_COLLECTION]: tableName,
-      [ATTR_DB_OPERATION_NAME]: operation,
-    };
-
-    // Validate input (synchronous - use sync span method)
-    const validated = tracer
-      ? tracer.startActiveSpanSync(
-          { name: SPAN_VALIDATE, attributes: spanAttrs },
-          () => validate<Record<string, unknown>>(model, operation, args)
-        )
-      : validate<Record<string, unknown>>(model, operation, args);
-
-    // Create context once and reuse for both building and parsing
-    const ctx = createQueryContext(
-      this.adapter,
-      model,
-      this.registry,
-      this.driver
-    );
-
-    // Check if this is a mutation with nested writes
-    if (this.hasNestedWrites(operation, validated)) {
-      return this.executeWithNestedWrites<T>(ctx, operation, validated);
-    }
-
-    // Build SQL (synchronous - use sync span method)
-    const sqlQuery = tracer
-      ? tracer.startActiveSpanSync(
-          { name: SPAN_BUILD, attributes: spanAttrs },
-          () => this.buildOperation(ctx, operation, validated)
-        )
-      : this.buildOperation(ctx, operation, validated);
-
-    // Set context on driver for logging
-    this.setDriverContext(modelName, operation);
-
-    try {
-      // Execute query - driver handles logging with context
-      const result = await this.driver._execute(sqlQuery);
-
-      // Parse result (synchronous - use sync span method)
-      if (isBatchOperation(operation)) {
-        return tracer
-          ? tracer.startActiveSpanSync(
-              { name: SPAN_PARSE, attributes: spanAttrs },
-              () =>
-                parseResult<T>(ctx, operation, { rowCount: result.rowCount })
-            )
-          : parseResult<T>(ctx, operation, { rowCount: result.rowCount });
-      }
-
-      return tracer
-        ? tracer.startActiveSpanSync(
-            { name: SPAN_PARSE, attributes: spanAttrs },
-            () => parseResult<T>(ctx, operation, result.rows)
-          )
-        : parseResult<T>(ctx, operation, result.rows);
-    } finally {
-      // Clear context after execution
-      this.clearDriverContext();
-    }
+    return this.prepare<T>(model, operation, args).execute();
   }
 
   /**
@@ -328,13 +481,16 @@ export class QueryEngine {
     for (const value of Object.values(data)) {
       if (value && typeof value === "object" && !Array.isArray(value)) {
         const obj = value as Record<string, unknown>;
+        // Check for relation mutation keywords
+        // Note: "set" is also used for scalar updates like { set: "value" }
+        // Relation "set" is always an array: { set: [...] }
         if (
           "connect" in obj ||
           "create" in obj ||
           "connectOrCreate" in obj ||
           "disconnect" in obj ||
           "delete" in obj ||
-          "set" in obj
+          ("set" in obj && Array.isArray(obj.set))
         ) {
           return true;
         }
@@ -346,17 +502,22 @@ export class QueryEngine {
 
   /**
    * Execute a mutation with nested write operations
+   *
+   * @param ctx - Query context
+   * @param operation - The operation type
+   * @param args - Validated arguments
+   * @param driver - Driver to use (may be transaction-bound for proper nesting)
    */
   private async executeWithNestedWrites<T>(
     ctx: QueryContext,
     operation: Operation,
-    args: Record<string, unknown>
+    args: Record<string, unknown>,
+    driver: AnyDriver = this.driver
   ): Promise<T> {
-    const driver = this.driver;
     const modelName = ctx.model["~"].names.ts ?? "unknown";
 
     // Set context for the entire nested write operation
-    this.setDriverContext(modelName, operation);
+    driver.setContext({ model: modelName, operation });
 
     try {
       switch (operation) {
@@ -448,17 +609,17 @@ export class QueryEngine {
             Object.keys(relations).length > 0 &&
             needsTransaction(relations)
           ) {
-            return withTransactionIfSupported(driver, async () => {
+            return driver.withTransaction(async (txDriver) => {
               // First, update the scalar fields
               if (Object.keys(scalar).length > 0) {
                 const updateSql = buildUpdate(ctx, { where, data: scalar });
-                await driver._execute(updateSql);
+                await txDriver._execute(updateSql);
               }
 
               // Get the updated record for FK operations
               const selectSql = buildFindUniqueQuery(ctx, { where });
               const selectResult =
-                await driver._execute<Record<string, unknown>>(selectSql);
+                await txDriver._execute<Record<string, unknown>>(selectSql);
               const updatedRecord = selectResult.rows[0];
 
               if (!updatedRecord) {
@@ -466,7 +627,12 @@ export class QueryEngine {
               }
 
               // Handle relation mutations (connect, disconnect, create, delete)
-              await executeNestedUpdate(driver, ctx, updatedRecord, relations);
+              await executeNestedUpdate(
+                txDriver,
+                ctx,
+                updatedRecord,
+                relations
+              );
 
               // Re-fetch with includes if needed
               if (args.include || args.select) {
@@ -476,7 +642,7 @@ export class QueryEngine {
                   include: args.include as Record<string, unknown> | undefined,
                 } as { where: Record<string, unknown> });
                 const refetchResult =
-                  await driver._execute<Record<string, unknown>>(refetchSql);
+                  await txDriver._execute<Record<string, unknown>>(refetchSql);
                 return parseResult<T>(ctx, "findUnique", refetchResult.rows);
               }
 
@@ -498,13 +664,13 @@ export class QueryEngine {
 
         case "upsert": {
           // Upsert with nested writes - delegate to transaction
-          return withTransactionIfSupported(driver, async () => {
+          return driver.withTransaction(async (txDriver) => {
             const where = args.where as Record<string, unknown>;
 
             // Check if record exists
             const selectSql = buildFindUniqueQuery(ctx, { where });
             const selectResult =
-              await driver._execute<Record<string, unknown>>(selectSql);
+              await txDriver._execute<Record<string, unknown>>(selectSql);
 
             if (selectResult.rows.length > 0) {
               // Record exists - do update with nested operations
@@ -520,7 +686,7 @@ export class QueryEngine {
               // Update scalar fields
               if (Object.keys(scalar).length > 0) {
                 const updateSql = buildUpdate(ctx, { where, data: scalar });
-                await driver._execute(updateSql);
+                await txDriver._execute(updateSql);
               }
 
               // Get the updated record for nested operations (use PK, not original where)
@@ -528,7 +694,9 @@ export class QueryEngine {
                 where: pkWhere,
               });
               const updatedResult =
-                await driver._execute<Record<string, unknown>>(refetchByPkSql);
+                await txDriver._execute<Record<string, unknown>>(
+                  refetchByPkSql
+                );
               const updatedRecord = updatedResult.rows[0];
 
               if (!updatedRecord) {
@@ -539,7 +707,12 @@ export class QueryEngine {
 
               // Handle nested relation mutations (connect, disconnect, create, delete)
               if (Object.keys(relations).length > 0) {
-                await executeNestedUpdate(driver, ctx, updatedRecord, relations);
+                await executeNestedUpdate(
+                  txDriver,
+                  ctx,
+                  updatedRecord,
+                  relations
+                );
               }
 
               // Re-fetch to get final state (use PK in case update changed where clause fields)
@@ -549,12 +722,16 @@ export class QueryEngine {
                 include: args.include as Record<string, unknown> | undefined,
               } as { where: Record<string, unknown> });
               const refetchResult =
-                await driver._execute<Record<string, unknown>>(refetchSql);
+                await txDriver._execute<Record<string, unknown>>(refetchSql);
               return parseResult<T>(ctx, "findUnique", refetchResult.rows);
             }
             // Record doesn't exist - do create
             const createData = args.create as Record<string, unknown>;
-            const createResult = await executeNestedCreate(driver, ctx, createData);
+            const createResult = await executeNestedCreate(
+              txDriver,
+              ctx,
+              createData
+            );
 
             // Handle include/select for return value (same as create operation)
             if (args.include || args.select) {
@@ -567,7 +744,7 @@ export class QueryEngine {
                   include: args.include as Record<string, unknown> | undefined,
                 } as { where: Record<string, unknown> });
                 const refetchResult =
-                  await driver._execute<Record<string, unknown>>(refetchSql);
+                  await txDriver._execute<Record<string, unknown>>(refetchSql);
                 if (refetchResult.rows.length > 0) {
                   return parseResult<T>(ctx, "findUnique", refetchResult.rows);
                 }
@@ -586,7 +763,7 @@ export class QueryEngine {
       }
     } finally {
       // Clear context after nested writes complete
-      this.clearDriverContext();
+      driver.clearContext();
     }
   }
 
@@ -681,6 +858,98 @@ export class QueryEngine {
       default:
         throw new QueryEngineError(`Unknown operation: ${operation}`);
     }
+  }
+
+  /**
+   * Create a prepare function that validates and builds SQL without executing.
+   * Used for batch execution on drivers that support native batching.
+   *
+   * @param model - The model to operate on
+   * @param operation - The operation type
+   * @param args - Raw arguments (will be validated)
+   */
+  private createPrepareFunction(
+    model: Model<any>,
+    operation: Operation,
+    args: Record<string, unknown>
+  ): (driverOverride?: AnyDriver) => PreparedQuery {
+    return (driverOverride?: AnyDriver): PreparedQuery => {
+      const driver = driverOverride ?? this.driver;
+
+      // Create context for SQL building
+      const ctx = createQueryContext(
+        this.adapter,
+        model,
+        this.registry,
+        driver
+      );
+
+      // Validate arguments
+      const validated = validate<Record<string, unknown>>(
+        model,
+        operation,
+        args
+      );
+
+      // For create/update, process connect operations to inline FK values
+      if (operation === "create" || operation === "update") {
+        const processedArgs = this.processConnectOperations(
+          ctx,
+          operation,
+          validated
+        );
+        const sql = this.buildOperation(ctx, operation, processedArgs);
+        return {
+          sql: sql.toStatement(driver.dialect === "postgresql" ? "$n" : "?"),
+          params: sql.values,
+        };
+      }
+
+      // Build SQL
+      const sql = this.buildOperation(ctx, operation, validated);
+
+      return {
+        sql: sql.toStatement(driver.dialect === "postgresql" ? "$n" : "?"),
+        params: sql.values,
+      };
+    };
+  }
+
+  /**
+   * Create a parseResult function for batch execution.
+   * Used to transform raw query results into typed results after batch execution.
+   *
+   * @param model - The model to operate on
+   * @param operation - The operation type
+   * @param options - Prepare options (for throwIfNotFound)
+   */
+  private createParseResultFunction<T>(
+    model: Model<any>,
+    operation: Operation,
+    options?: PrepareOptions
+  ): (raw: { rows: unknown[]; rowCount: number }) => T {
+    const modelName = model["~"].names.ts ?? "unknown";
+
+    return (raw: { rows: unknown[]; rowCount: number }): T => {
+      // Create context for result parsing
+      const ctx = createQueryContext(
+        this.adapter,
+        model,
+        this.registry,
+        this.driver
+      );
+
+      // Determine parse input based on operation type
+      const parseInput = isBatchOperation(operation)
+        ? { rowCount: raw.rowCount }
+        : raw.rows;
+
+      // Parse result
+      const parsed = parseResult<T>(ctx, operation, parseInput);
+
+      // Apply post-processing (throwIfNotFound, exist conversion)
+      return this.applyPostProcessing(parsed, operation, options, modelName);
+    };
   }
 }
 

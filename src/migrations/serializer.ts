@@ -10,7 +10,6 @@
  * - Enum handling (capabilities.supportsNativeEnums, getEnumColumnType)
  */
 
-import type { MigrationDriver } from "./drivers";
 import type { Field } from "../schema/fields/base";
 import type { AnyModel } from "../schema/model";
 import type { AnyRelation } from "../schema/relation";
@@ -18,6 +17,7 @@ import {
   getJunctionFieldNames,
   getJunctionTableName,
 } from "../schema/relation/helpers";
+import type { MigrationDriver } from "./drivers";
 import type {
   ColumnDef,
   EnumDef,
@@ -97,7 +97,11 @@ export function serializeModels(
           // Use explicit enum name if provided, otherwise auto-generate
           const enumName = fieldState.enumName
             ? fieldState.enumName
-            : migrationDriver.getEnumColumnType(tableName, columnName, enumValues);
+            : migrationDriver.getEnumColumnType(
+                tableName,
+                columnName,
+                enumValues
+              );
 
           if (!enumsSet.has(enumName)) {
             enums.push({
@@ -298,10 +302,7 @@ export function serializeModels(
 
       // Get PK types from source and target models
       const sourcePkField = getPrimaryKeyFieldDef(model, migrationDriver);
-      const targetPkField = getPrimaryKeyFieldDef(
-        targetModel,
-        migrationDriver
-      );
+      const targetPkField = getPrimaryKeyFieldDef(targetModel, migrationDriver);
 
       junctionTables.set(junctionTableName, {
         name: junctionTableName,

@@ -103,6 +103,31 @@ Both push and migrate follow the same core process:
 3. **Generate** database-specific DDL using the appropriate migration driver
 4. **Execute** the DDL (push) or write to a migration file (migrate)
 
+## Atomicity
+
+Migrations in VibORM are executed **atomically** - either all statements succeed or none are applied. This is critical for maintaining database integrity.
+
+VibORM automatically uses the best available method for atomic execution based on your driver:
+
+| Driver Type | Atomicity Method |
+|------------|------------------|
+| **PostgreSQL, MySQL, SQLite** | Transaction wrapper |
+| **D1, D1-HTTP** | Native `batch()` API |
+| **Neon-HTTP** | `transaction()` function |
+| **PlanetScale** | Transaction wrapper |
+
+<Callout type="info">
+All drivers provide **atomicity** (all-or-nothing) for migrations. Neon-HTTP uses `transaction()` with full PostgreSQL transaction semantics, providing transaction isolation by default (ReadCommitted) with configurable levels (ReadUncommitted, ReadCommitted, RepeatableRead, Serializable). Only D1 and D1-HTTP use batch execution without isolation guarantees, but this is rarely a concern since migrations typically run in controlled environments.
+</Callout>
+
+### What Atomicity Means
+
+- **If migration succeeds**: All schema changes are applied
+- **If migration fails**: No schema changes are applied (rolled back)
+- **Your database is never left in a partially migrated state**
+
+This applies to both `push` and `migrate apply` commands.
+
 ## Next Steps
 
 <Cards>

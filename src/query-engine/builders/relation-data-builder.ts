@@ -15,7 +15,12 @@ import {
   getTableName,
   isRelation,
 } from "../context";
-import { NestedWriteError, QueryEngineError, type QueryContext, type RelationInfo } from "../types";
+import {
+  NestedWriteError,
+  type QueryContext,
+  QueryEngineError,
+  type RelationInfo,
+} from "../types";
 import { getPrimaryKeyFields } from "./correlation-utils";
 import { buildWhereUnique } from "./where-builder";
 

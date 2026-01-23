@@ -1,0 +1,95 @@
+---
+title: pg (node-postgres)
+description: PostgreSQL driver using node-postgres with connection pooling
+---
+
+## Installation
+
+```bash
+pnpm add pg
+```
+
+## Configuration
+
+```typescript
+import { createClient } from "viborm/drivers/pg";
+
+const client = createClient({
+  databaseUrl: process.env.DATABASE_URL,
+  schema,
+});
+```
+
+## Options
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `pool` | `Pool` | Existing pg Pool instance |
+| `options` | `PoolConfig` | pg pool configuration |
+| `databaseUrl` | `string` | PostgreSQL connection URL |
+| `pgvector` | `boolean` | Enable pgvector support |
+| `postgis` | `boolean` | Enable PostGIS support |
+
+### Using Pool Options
+
+```typescript
+import { createClient } from "viborm/drivers/pg";
+
+const client = createClient({
+  options: {
+    host: "localhost",
+    port: 5432,
+    user: "postgres",
+    password: "password",
+    database: "mydb",
+    max: 20,
+  },
+  schema,
+});
+```
+
+### Using Existing Pool
+
+```typescript
+import { Pool } from "pg";
+import { createClient } from "viborm/drivers/pg";
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+});
+
+const client = createClient({
+  pool,
+  schema,
+});
+```
+
+### With pgvector
+
+```typescript
+import { createClient } from "viborm/drivers/pg";
+
+const client = createClient({
+  databaseUrl: process.env.DATABASE_URL,
+  pgvector: true,
+  schema,
+});
+```
+
+## Transactions
+
+pg supports full transactions with savepoints for nested transactions and isolation levels.
+
+```typescript
+await client.$transaction(async (tx) => {
+  await tx.user.create({ data: { name: "Alice" } });
+  await tx.post.create({ data: { title: "Hello", authorId: "..." } });
+}, { isolationLevel: "serializable" });
+```
+
+## Features
+
+- Connection pooling
+- Full transaction support with isolation levels
+- Savepoints for nested transactions
+- pgvector and PostGIS extensions

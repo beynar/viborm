@@ -21,26 +21,23 @@ export interface MigrationClient {
   $schema: Record<string, AnyModel>;
 }
 
+import { MigrationError, VibORMErrorCode } from "../errors";
 import { diff } from "./differ";
-import { type MigrationDriver, getMigrationDriver } from "./drivers";
-
+import { getMigrationDriver, type MigrationDriver } from "./drivers";
 import { alwaysAddDropResolver, resolveAmbiguousChanges } from "./resolver";
 import { serializeModels } from "./serializer";
-import { MigrationError, VibORMErrorCode } from "../errors";
 import {
   type AmbiguousChange,
   type ChangeResolution,
+  createAmbiguousChange,
+  createDestructiveChange,
+  createEnumValueRemovalChange,
   type DiffOperation,
-  type EnumValueRemovalChange,
   type PushResult,
   type ResolveCallback,
   type ResolveChange,
-  type ResolveResult,
   type Resolver,
   type SchemaSnapshot,
-  createDestructiveChange,
-  createAmbiguousChange,
-  createEnumValueRemovalChange,
 } from "./types";
 
 // =============================================================================
@@ -102,6 +99,8 @@ export interface PushOptions {
   _storageDriver?: import("./storage/driver").MigrationStorageDriver;
 }
 
+const MATCH_ALTER_TYPE_ADD_VALUE = /^ALTER\s+TYPE\s+.*\s+ADD\s+VALUE\s+/i;
+
 // =============================================================================
 // PUSH FUNCTION
 // =============================================================================
@@ -149,11 +148,16 @@ export async function push(
   let finalOperations: DiffOperation[];
 
   // Detect enum value removals that need resolution (per-column)
-  const allEnumRemovals = detectEnumValueRemovals(diffResult.operations, current);
+  const allEnumRemovals = detectEnumValueRemovals(
+    diffResult.operations,
+    current
+  );
 
   // Separate removals: nullable columns can be auto-resolved to NULL
   const autoResolvableRemovals = allEnumRemovals.filter((r) => r.isNullable);
-  const enumRemovalsNeedingResolution = allEnumRemovals.filter((r) => !r.isNullable);
+  const enumRemovalsNeedingResolution = allEnumRemovals.filter(
+    (r) => !r.isNullable
+  );
 
   if (options.resolve) {
     // Resolver provided - use it for all changes
@@ -166,7 +170,10 @@ export async function push(
       force // Pass force flag to auto-accept unhandled changes
     );
     // Auto-resolve nullable column enum removals
-    finalOperations = applyForceEnumResolutions(finalOperations, autoResolvableRemovals);
+    finalOperations = applyForceEnumResolutions(
+      finalOperations,
+      autoResolvableRemovals
+    );
   } else if (force) {
     // Force mode without resolver: auto-accept destructive, treat ambiguous as add+drop
     finalOperations = await resolveAmbiguousChanges(
@@ -175,15 +182,23 @@ export async function push(
       alwaysAddDropResolver
     );
     // Auto-resolve ALL enum value removals: set removed values to NULL
-    finalOperations = applyForceEnumResolutions(finalOperations, allEnumRemovals);
+    finalOperations = applyForceEnumResolutions(
+      finalOperations,
+      allEnumRemovals
+    );
   } else {
     // No resolve callback and not force: check if resolution is needed
     const destructiveOps = diffResult.operations.filter(isDestructiveOperation);
     const hasAmbiguous = diffResult.ambiguousChanges.length > 0;
     // Only non-nullable columns require resolution
-    const hasEnumRemovalsNeedingResolution = enumRemovalsNeedingResolution.length > 0;
+    const hasEnumRemovalsNeedingResolution =
+      enumRemovalsNeedingResolution.length > 0;
 
-    if (destructiveOps.length > 0 || hasAmbiguous || hasEnumRemovalsNeedingResolution) {
+    if (
+      destructiveOps.length > 0 ||
+      hasAmbiguous ||
+      hasEnumRemovalsNeedingResolution
+    ) {
       const descriptions: string[] = [];
 
       for (const op of destructiveOps) {
@@ -237,7 +252,7 @@ export async function push(
     for (const statement of sql) {
       if (
         !canAddValueInTransaction &&
-        statement.trim().match(/^ALTER\s+TYPE\s+.*\s+ADD\s+VALUE\s+/i)
+        statement.trim().match(MATCH_ALTER_TYPE_ADD_VALUE)
       ) {
         addValueStatements.push(statement);
       } else {
@@ -247,14 +262,14 @@ export async function push(
 
     // Execute ADD VALUE statements outside transaction first
     for (const statement of addValueStatements) {
-      await driver._executeRaw(statement + ";");
+      await driver._executeRaw(`${statement};`);
     }
 
     // Execute remaining statements in a transaction for atomicity
     if (transactionalStatements.length > 0) {
-      await driver._transaction(async () => {
+      await driver.withTransaction(async (txDriver) => {
         for (const statement of transactionalStatements) {
-          await driver._executeRaw(statement + ";");
+          await txDriver._executeRaw(`${statement};`);
         }
       });
     }
@@ -292,7 +307,7 @@ async function resetDatabase(
   const tablesToDrop = [...current.tables].reverse();
   for (const table of tablesToDrop) {
     const dropSql = migrationDriver.generateDropTableSQL(table.name, true);
-    await driver._executeRaw(dropSql + ";");
+    await driver._executeRaw(`${dropSql};`);
   }
 
   // Drop all enums (only for databases that support them)
@@ -300,7 +315,7 @@ async function resetDatabase(
     for (const enumDef of current.enums) {
       const dropSql = migrationDriver.generateDropEnumSQL(enumDef.name);
       if (dropSql) {
-        await driver._executeRaw(dropSql + ";");
+        await driver._executeRaw(`${dropSql};`);
       }
     }
   }
@@ -426,7 +441,10 @@ function applyForceEnumResolutions(
     }
 
     // Build per-column value replacements (all set to null in force mode)
-    const columnValueReplacements: Record<string, Record<string, string | null>> = {
+    const columnValueReplacements: Record<
+      string,
+      Record<string, string | null>
+    > = {
       ...op.columnValueReplacements,
     };
 
@@ -469,7 +487,10 @@ async function resolveWithCallback(
   const finalOperations: DiffOperation[] = [];
   const ambiguousResolutions = new Map<AmbiguousChange, ChangeResolution>();
   // Per-column mappings: Map<enumName, Map<"tableName.columnName", mappings>>
-  const columnMappings = new Map<string, Map<string, Record<string, string | null>>>();
+  const columnMappings = new Map<
+    string,
+    Map<string, Record<string, string | null>>
+  >();
 
   // 1. Process non-destructive, non-enum operations (pass through)
   for (const op of diffResult.operations) {
@@ -641,7 +662,10 @@ async function resolveWithCallback(
       const enumColMappings = columnMappings.get(op.enumName);
       if (enumColMappings && enumColMappings.size > 0) {
         // Convert Map to Record for columnValueReplacements
-        const columnValueReplacements: Record<string, Record<string, string | null>> = {
+        const columnValueReplacements: Record<
+          string,
+          Record<string, string | null>
+        > = {
           ...op.columnValueReplacements,
         };
         for (const [colKey, mappings] of enumColMappings) {
@@ -676,7 +700,8 @@ function isDestructiveOperation(op: DiffOperation): boolean {
   }
   if (op.type === "alterColumn") {
     // Type changes or making non-nullable are potentially destructive
-    const typeChanged = normalizeType(op.from.type) !== normalizeType(op.to.type);
+    const typeChanged =
+      normalizeType(op.from.type) !== normalizeType(op.to.type);
     const madeNonNullable = op.from.nullable && !op.to.nullable;
     return typeChanged || madeNonNullable;
   }

@@ -82,7 +82,11 @@ function createParseRelationChain(ctx: QueryContext, relation: AnyRelation) {
 /**
  * Get or create the cached parseRelation chain for a relation
  */
-function getParseRelationChain(ctx: QueryContext, relationName: string, relation: AnyRelation) {
+function getParseRelationChain(
+  ctx: QueryContext,
+  relationName: string,
+  relation: AnyRelation
+) {
   ctx._parseRelationChains ??= new Map();
   let chain = ctx._parseRelationChains.get(relationName);
   if (!chain) {
@@ -535,16 +539,6 @@ function parseCountResultDefault(
   }
 
   return 0;
-}
-
-/**
- * Parse count result (exported for external use)
- * @deprecated Use parseResult with 'count' operation instead
- */
-export function parseCountResult(
-  raw: unknown
-): number | Record<string, number> {
-  return parseCountResultDefault(raw);
 }
 
 /**

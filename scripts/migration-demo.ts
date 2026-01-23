@@ -11,11 +11,11 @@
  */
 
 import { PGlite } from "@electric-sql/pglite";
-import { PGliteDriver } from "../src/drivers/pglite";
 import { createClient } from "../src/client/client";
-import { s } from "../src/schema";
+import { PGliteDriver } from "../src/drivers/pglite";
 import { createMigrationClient } from "../src/migrations/client";
 import { lenientResolver } from "../src/migrations/resolver";
+import { s } from "../src/schema";
 
 // =============================================================================
 // SCHEMA V1: Initial schema
@@ -51,7 +51,7 @@ const userV2 = s.model({
   email: s.string().unique(),
   status: StatusV2.default("ACTIVE"),
   // New column
-  createdAt: s.dateTime().now()
+  createdAt: s.dateTime().now(),
 });
 
 const postV2 = s.model({
@@ -128,8 +128,10 @@ async function demo2_forceMode() {
   for (const op of result.operations) {
     if (op.type === "alterEnum") {
       console.log(`  - ${op.type}: ${op.enumName}`);
-      if (op.addValues?.length) console.log(`      add: ${op.addValues.join(", ")}`);
-      if (op.removeValues?.length) console.log(`      remove: ${op.removeValues.join(", ")}`);
+      if (op.addValues?.length)
+        console.log(`      add: ${op.addValues.join(", ")}`);
+      if (op.removeValues?.length)
+        console.log(`      remove: ${op.removeValues.join(", ")}`);
     } else {
       console.log(`  - ${op.type}`);
     }
@@ -175,9 +177,9 @@ async function demo3_forceWithResolver() {
         console.log("  -> Treating as RENAME (preserving data)\n");
         return change.rename();
       }
-      
+
       if (change.type === "enumValueRemoval") {
-        return change.useNull()
+        return change.useNull();
       }
 
       // Let force handle everything else
@@ -223,7 +225,9 @@ async function demo4_enumResolution() {
     dryRun: true,
     resolve: async (change) => {
       if (change.type === "enumValueRemoval") {
-        console.log(`Enum removal for ${change.tableName}.${change.columnName}:`);
+        console.log(
+          `Enum removal for ${change.tableName}.${change.columnName}:`
+        );
         console.log(`  Enum: ${change.enumName}`);
         console.log(`  Removing: ${change.removedValues.join(", ")}`);
         console.log(`  Available: ${change.availableValues.join(", ")}`);
@@ -277,7 +281,9 @@ async function demo5_builtInResolvers() {
   });
   const migrations = createMigrationClient(clientV2);
 
-  console.log("Using lenientResolver (rename ambiguous, proceed destructive, null enums)...\n");
+  console.log(
+    "Using lenientResolver (rename ambiguous, proceed destructive, null enums)...\n"
+  );
 
   const result = await migrations.push({
     dryRun: true,
@@ -287,7 +293,9 @@ async function demo5_builtInResolvers() {
   console.log("Operations:");
   for (const op of result.operations) {
     if (op.type === "renameColumn") {
-      console.log(`  - renameColumn: ${op.from} -> ${op.to} in ${op.tableName}`);
+      console.log(
+        `  - renameColumn: ${op.from} -> ${op.to} in ${op.tableName}`
+      );
     } else if (op.type === "alterEnum") {
       console.log(`  - alterEnum: ${op.enumName}`);
     } else {

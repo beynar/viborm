@@ -44,3 +44,25 @@ export type LogFunction = (
   params: unknown[],
   duration: number
 ) => void;
+
+// =============================================================================
+// BATCH EXECUTION TYPES
+// =============================================================================
+
+/**
+ * A single query in a batch operation
+ */
+export interface BatchQuery {
+  /** SQL string */
+  sql: string;
+  /** Query parameters */
+  params?: unknown[];
+}
+
+/**
+ * Options for batch execution
+ */
+export interface BatchOptions {
+  /** Whether to wrap in a transaction (for drivers that support it) */
+  atomic?: boolean;
+}

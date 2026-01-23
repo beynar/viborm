@@ -94,11 +94,12 @@ export {
   QueryEngine,
 } from "./query-engine";
 // Result parsing
-export { parseCountResult, parseMutationCount, parseResult } from "./result";
+export { parseMutationCount, parseResult } from "./result";
 // Types
 export type {
   ModelRegistry,
   Operation,
+  PreparedQuery,
   QueryContext,
   RelationInfo,
 } from "./types";

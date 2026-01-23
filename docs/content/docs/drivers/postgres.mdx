@@ -1,0 +1,94 @@
+---
+title: postgres.js
+description: Modern PostgreSQL driver using postgres.js
+---
+
+## Installation
+
+```bash
+pnpm add postgres
+```
+
+## Configuration
+
+```typescript
+import { createClient } from "viborm/drivers/postgres";
+
+const client = createClient({
+  databaseUrl: process.env.DATABASE_URL,
+  schema,
+});
+```
+
+## Options
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `client` | `Sql` | Existing postgres.js client |
+| `options` | `Options` | postgres.js configuration |
+| `databaseUrl` | `string` | PostgreSQL connection URL |
+| `pgvector` | `boolean` | Enable pgvector support |
+| `postgis` | `boolean` | Enable PostGIS support |
+
+### Using Options
+
+```typescript
+import { createClient } from "viborm/drivers/postgres";
+
+const client = createClient({
+  options: {
+    host: "localhost",
+    port: 5432,
+    user: "postgres",
+    password: "password",
+    database: "mydb",
+    max: 10,
+  },
+  schema,
+});
+```
+
+### Using Existing Client
+
+```typescript
+import postgres from "postgres";
+import { createClient } from "viborm/drivers/postgres";
+
+const sql = postgres(process.env.DATABASE_URL);
+
+const client = createClient({
+  client: sql,
+  schema,
+});
+```
+
+### With pgvector
+
+```typescript
+import { createClient } from "viborm/drivers/postgres";
+
+const client = createClient({
+  databaseUrl: process.env.DATABASE_URL,
+  pgvector: true,
+  schema,
+});
+```
+
+## Transactions
+
+postgres.js supports full transactions with automatic savepoints for nested transactions.
+
+```typescript
+await client.$transaction(async (tx) => {
+  await tx.user.create({ data: { name: "Alice" } });
+  await tx.post.create({ data: { title: "Hello", authorId: "..." } });
+});
+```
+
+## Features
+
+- Modern async/await API
+- Automatic connection management
+- Full transaction support with savepoints
+- pgvector and PostGIS extensions
+- High performance

@@ -5,8 +5,8 @@
  * These operations are executed within a transaction when needed.
  */
 
-import type { AnyDriver } from "@drivers";
 import type { DatabaseAdapter } from "@adapters";
+import type { AnyDriver } from "@drivers";
 import type { Model } from "@schema/model";
 import { type Sql, sql } from "@sql";
 import { getPrimaryKeyField } from "../builders/correlation-utils";
@@ -20,8 +20,11 @@ import {
 import { buildValues } from "../builders/values-builder";
 import { buildWhereUnique } from "../builders/where-builder";
 import { createChildContext, getColumnName, getTableName } from "../context";
-import { NestedWriteError, type QueryContext, type RelationInfo } from "../types";
-import { withTransactionIfSupported } from "../utils/transaction-helper";
+import {
+  NestedWriteError,
+  type QueryContext,
+  type RelationInfo,
+} from "../types";
 
 // ============================================================
 // TYPES
@@ -207,15 +210,15 @@ export async function executeNestedCreate(
   }
 
   // Execute in transaction if supported
-  return withTransactionIfSupported(driver, async () => {
+  return driver.withTransaction(async (txDriver) => {
     const txCtx: TransactionContext = {
       generatedIds: new Map(),
       createdRecords: new Map(),
     };
 
     // Separate relations by FK direction
-    const currentHoldsFK: Array<[string, RelationMutation]> = [];
-    const relatedHoldsFK: Array<[string, RelationMutation]> = [];
+    const currentHoldsFK: [string, RelationMutation][] = [];
+    const relatedHoldsFK: [string, RelationMutation][] = [];
 
     for (const [name, mutation] of Object.entries(relations)) {
       const fkDir = getFkDirection(ctx, mutation.relationInfo);
@@ -229,7 +232,7 @@ export async function executeNestedCreate(
     // Step 1: Process relations where current holds FK (create related first)
     for (const [relationName, mutation] of currentHoldsFK) {
       await processRelationMutation(
-        driver,
+        txDriver,
         ctx,
         relationName,
         mutation,
@@ -240,7 +243,7 @@ export async function executeNestedCreate(
     }
 
     // Step 2: Create current record
-    const parentRecord = await executeSimpleInsert(driver, ctx, scalar);
+    const parentRecord = await executeSimpleInsert(txDriver, ctx, scalar);
     const parentPk = getPrimaryKeyField(ctx.model);
     const parentId = parentRecord[parentPk];
     txCtx.generatedIds.set("__parent__", parentId);
@@ -248,7 +251,7 @@ export async function executeNestedCreate(
     // Step 3: Process relations where related holds FK (create related after)
     for (const [relationName, mutation] of relatedHoldsFK) {
       await processRelationMutation(
-        driver,
+        txDriver,
         ctx,
         relationName,
         mutation,
@@ -313,7 +316,7 @@ export async function executeNestedUpdate(
   }
 
   // Execute in transaction if supported
-  return withTransactionIfSupported(driver, async () => {
+  return driver.withTransaction(async (txDriver) => {
     const txCtx: TransactionContext = {
       generatedIds: new Map(),
       createdRecords: new Map(),
@@ -327,7 +330,7 @@ export async function executeNestedUpdate(
     // For updates, all relation operations happen "after" since parent exists
     for (const [relationName, mutation] of Object.entries(relations)) {
       await processRelationMutation(
-        driver,
+        txDriver,
         ctx,
         relationName,
         mutation,
@@ -382,8 +385,7 @@ async function processRelationMutation(
         relationInfo,
         createData,
         timing,
-        parentData,
-        txCtx
+        parentData
       );
       createdRecords.push(record);
     }
@@ -488,8 +490,7 @@ async function executeRelationCreate(
   relationInfo: RelationInfo,
   createData: Record<string, unknown>,
   timing: "before" | "after",
-  parentData: Record<string, unknown>,
-  txCtx: TransactionContext
+  parentData: Record<string, unknown>
 ): Promise<Record<string, unknown>> {
   const { targetModel } = relationInfo;
   const fkDir = getFkDirection(ctx, relationInfo);
@@ -611,12 +612,17 @@ async function executeConnectOrCreate(
   }
 
   // SELECT to check existence and fetch full record
-  const selectSql = sql.join([
-    adapter.clauses.select(sql`*`),
-    adapter.clauses.from(sql`${adapter.identifiers.escape(targetTable)} ${adapter.identifiers.escape(alias)}`),
-    adapter.clauses.where(whereClause),
-    adapter.clauses.limit(adapter.literals.value(1)),
-  ], " ");
+  const selectSql = sql.join(
+    [
+      adapter.clauses.select(sql`*`),
+      adapter.clauses.from(
+        sql`${adapter.identifiers.escape(targetTable)} ${adapter.identifiers.escape(alias)}`
+      ),
+      adapter.clauses.where(whereClause),
+      adapter.clauses.limit(adapter.literals.value(1)),
+    ],
+    " "
+  );
 
   const result = await tx._execute<Record<string, unknown>>(selectSql);
 
@@ -634,7 +640,8 @@ async function executeConnectOrCreate(
         txCtx
       );
       // Re-fetch to get updated FK values
-      const refetchResult = await tx._execute<Record<string, unknown>>(selectSql);
+      const refetchResult =
+        await tx._execute<Record<string, unknown>>(selectSql);
       return refetchResult.rows[0] ?? result.rows[0]!;
     }
 
@@ -648,8 +655,7 @@ async function executeConnectOrCreate(
     relationInfo,
     input.create,
     timing,
-    parentData,
-    txCtx
+    parentData
   );
 }
 

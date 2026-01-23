@@ -1,0 +1,112 @@
+---
+title: PlanetScale
+description: Serverless MySQL driver for PlanetScale
+---
+
+## Installation
+
+```bash
+pnpm add @planetscale/database
+```
+
+## Configuration
+
+```typescript
+import { createClient } from "viborm/drivers/planetscale";
+
+const client = createClient({
+  databaseUrl: process.env.DATABASE_URL,
+  schema,
+});
+```
+
+## Options
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `client` | `Client` | Existing PlanetScale client |
+| `databaseUrl` | `string` | PlanetScale connection URL |
+| `options` | `Config` | PlanetScale configuration options |
+
+### Using Options
+
+```typescript
+import { createClient } from "viborm/drivers/planetscale";
+
+const client = createClient({
+  options: {
+    host: process.env.DATABASE_HOST,
+    username: process.env.DATABASE_USERNAME,
+    password: process.env.DATABASE_PASSWORD,
+  },
+  schema,
+});
+```
+
+## Transactions & Batching
+
+PlanetScale driver supports **full transactions** via the `@planetscale/database` Client's `transaction()` method.
+
+### Dynamic Transactions
+
+Use the callback API when operations need to depend on each other:
+
+```typescript
+await client.$transaction(async (tx) => {
+  const user = await tx.user.create({
+    data: { name: "Alice", email: "alice@example.com" },
+  });
+
+  await tx.post.create({
+    data: { title: "Hello", authorId: user.id },
+  });
+});
+```
+
+### Batch Mode
+
+Use the array API for independent operations:
+
+```typescript
+const [users, posts] = await client.$transaction([
+  client.user.findMany(),
+  client.post.findMany(),
+]);
+```
+
+### Migrations
+
+Migrations run atomically using transactions - all statements succeed or none are applied.
+
+## Capabilities
+
+| Feature | Support |
+|---------|---------|
+| Dynamic transactions | Full |
+| Batch mode | Full (transaction wrapper) |
+| Migration atomicity | Full |
+
+## Limitations
+
+- No `RETURNING` clause - uses `LAST_INSERT_ID()`
+- JSON columns return as strings and are parsed automatically
+- Boolean values stored as `TINYINT(1)`
+
+## Serverless Usage
+
+PlanetScale driver is optimized for serverless environments:
+
+```typescript
+// Cloudflare Workers, Vercel Edge, etc.
+export default {
+  async fetch(request: Request) {
+    const client = createClient({
+      databaseUrl: process.env.DATABASE_URL,
+      schema,
+    });
+
+    const users = await client.user.findMany();
+    return Response.json(users);
+  },
+};
+```

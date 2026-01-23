@@ -29,6 +29,7 @@ export type { PGliteOptions } from "@electric-sql/pglite";
 
 export interface PGliteDriverOptions {
   client?: PGlite;
+  dataDir?: string;
   options?: PGliteOptions;
   pgvector?: boolean;
   postgis?: boolean;
@@ -60,7 +61,14 @@ export class PGliteDriver extends Driver<PGlite, Transaction> {
   }
 
   protected async initClient(): Promise<PGlite> {
-    return PGlite.create(this.driverOptions.options || {});
+    const dataDir = this.driverOptions.dataDir;
+    const options = this.driverOptions.options ?? {};
+
+    // PGlite.create accepts dataDir as first argument or in options
+    if (dataDir) {
+      return PGlite.create(dataDir, options);
+    }
+    return PGlite.create(options);
   }
 
   protected async closeClient(client: PGlite): Promise<void> {
@@ -110,15 +118,15 @@ export class PGliteDriver extends Driver<PGlite, Transaction> {
 // ============================================================
 
 export function createClient<C extends DriverConfig>(config: PGliteConfig<C>) {
-  const { client, options, pgvector, postgis, ...restConfig } = config;
+  const { client, dataDir, options, pgvector, postgis, ...restConfig } = config;
 
-  const driverOptions: PGliteDriverOptions = {};
-  if (client) driverOptions.client = client;
-  if (options) driverOptions.options = options;
-  if (pgvector !== undefined) driverOptions.pgvector = pgvector;
-  if (postgis !== undefined) driverOptions.postgis = postgis;
-
-  const driver = new PGliteDriver(driverOptions);
+  const driver = new PGliteDriver({
+    client,
+    dataDir,
+    options,
+    pgvector,
+    postgis,
+  });
 
   return baseCreateClient({
     ...restConfig,

@@ -187,7 +187,10 @@ export abstract class MigrationStorageDriver {
   /**
    * Write a down migration file.
    */
-  async writeDownMigration(entry: MigrationEntry, content: string): Promise<void> {
+  async writeDownMigration(
+    entry: MigrationEntry,
+    content: string
+  ): Promise<void> {
     const path = `meta/_down/${formatMigrationFilename(entry)}`;
     await this.put(path, content);
   }
@@ -268,7 +271,9 @@ export function createEmptySnapshot(): SchemaSnapshot {
 /**
  * Get the next migration index.
  */
-export function getNextMigrationIndex(journal: MigrationJournal | null): number {
+export function getNextMigrationIndex(
+  journal: MigrationJournal | null
+): number {
   if (!journal || journal.entries.length === 0) {
     return 0;
   }

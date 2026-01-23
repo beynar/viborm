@@ -2,4 +2,4 @@
  * Storage Drivers
  */
 
-export { FsStorageDriver, createFsStorageDriver } from "./fs";
+export { createFsStorageDriver, FsStorageDriver } from "./fs";

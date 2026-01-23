@@ -13,4 +13,4 @@
  * ```
  */
 
-export { FsStorageDriver, createFsStorageDriver } from "./drivers/fs";
+export { createFsStorageDriver, FsStorageDriver } from "./drivers/fs";

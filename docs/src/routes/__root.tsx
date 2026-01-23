@@ -8,7 +8,6 @@ import { RootProvider } from "fumadocs-ui/provider/tanstack";
 import type * as React from "react";
 import appCss from "@/styles/app.css?inline";
 
-
 export const Route = createRootRoute({
   head: () => ({
     meta: [

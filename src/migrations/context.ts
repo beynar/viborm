@@ -5,20 +5,20 @@
  * like locking, tracking, and query execution.
  */
 
-import { MigrationError, VibORMErrorCode } from "../errors";
 import type { AnyDriver } from "../drivers/driver";
+import { MigrationError, VibORMErrorCode } from "../errors";
 import { getMigrationDriver, type MigrationDriver } from "./drivers";
 import type { MigrationClient } from "./push";
-import { MigrationStorageDriver } from "./storage";
+import type { MigrationStorageDriver } from "./storage";
 import type { AppliedMigration, Dialect, MigrationEntry } from "./types";
 import {
   createQueryExecutor,
   DEFAULT_MIGRATIONS_DIR,
   DEFAULT_TABLE_NAME,
   normalizeDialect,
+  type QueryExecutor,
   validateMigrationsDir,
   validateTableName,
-  type QueryExecutor,
 } from "./utils";
 
 // =============================================================================
@@ -42,7 +42,7 @@ export interface MigrationContextOptions {
  * Lock ID for PostgreSQL advisory locks.
  * Hash of "viborm_migrations" to avoid collisions.
  */
-const MIGRATION_LOCK_ID = 0x7669626f726d; // "viborm" in hex, truncated
+const MIGRATION_LOCK_ID = 0x76_69_62_6f_72_6d; // "viborm" in hex, truncated
 
 // =============================================================================
 // MIGRATION CONTEXT
@@ -75,7 +75,10 @@ export class MigrationContext {
     this.migrationsDir = validateMigrationsDir(dir);
     this.tableName = validateTableName(tableName);
     this.executor = createQueryExecutor(this.driver);
-    this.migrationDriver = getMigrationDriver(this.driver.driverName, this.dialect);
+    this.migrationDriver = getMigrationDriver(
+      this.driver.driverName,
+      this.dialect
+    );
     this.storage = storageDriver;
   }
 
@@ -87,7 +90,9 @@ export class MigrationContext {
    * Ensures the migrations tracking table exists.
    */
   async ensureTrackingTable(): Promise<void> {
-    const ddl = this.migrationDriver.generateCreateTrackingTable(this.tableName);
+    const ddl = this.migrationDriver.generateCreateTrackingTable(
+      this.tableName
+    );
     await this.driver._executeRaw(ddl);
   }
 
@@ -101,7 +106,9 @@ export class MigrationContext {
   async getAppliedMigrations(): Promise<AppliedMigration[]> {
     await this.ensureTrackingTable();
 
-    const sqlStr = this.migrationDriver.generateSelectAppliedMigrations(this.tableName);
+    const sqlStr = this.migrationDriver.generateSelectAppliedMigrations(
+      this.tableName
+    );
 
     const rows = (await this.executor(sqlStr)) as Array<{
       name: string;
@@ -123,7 +130,9 @@ export class MigrationContext {
    * Mark a migration as applied in the database.
    */
   async markMigrationApplied(entry: MigrationEntry): Promise<void> {
-    const { sql } = this.migrationDriver.generateInsertMigration(this.tableName);
+    const { sql } = this.migrationDriver.generateInsertMigration(
+      this.tableName
+    );
     await this.executor(sql, [entry.name, entry.checksum]);
   }
 
@@ -131,7 +140,9 @@ export class MigrationContext {
    * Mark a migration as rolled back (remove from tracking table).
    */
   async markMigrationRolledBack(name: string): Promise<void> {
-    const { sql } = this.migrationDriver.generateDeleteMigration(this.tableName);
+    const { sql } = this.migrationDriver.generateDeleteMigration(
+      this.tableName
+    );
     await this.executor(sql, [name]);
   }
 
@@ -184,7 +195,8 @@ export class MigrationContext {
     // Clear the flag first to avoid retrying on error
     this._hasLock = false;
 
-    const unlockSql = this.migrationDriver.generateReleaseLock(MIGRATION_LOCK_ID);
+    const unlockSql =
+      this.migrationDriver.generateReleaseLock(MIGRATION_LOCK_ID);
     if (unlockSql) {
       try {
         await this.driver._executeRaw(unlockSql);
@@ -212,9 +224,18 @@ export class MigrationContext {
 
   /**
    * Execute a function within a transaction.
+   * The callback receives a transaction-bound context.
    */
-  async transaction<T>(fn: () => Promise<T>): Promise<T> {
-    return this.driver._transaction(fn);
+  async transaction<T>(fn: (txCtx: MigrationContext) => Promise<T>): Promise<T> {
+    return this.driver.withTransaction((txDriver) => {
+      // Create a transaction-bound context
+      const txCtx = Object.create(this) as MigrationContext;
+      (txCtx as { driver: AnyDriver }).driver = txDriver;
+      // Recreate executor bound to transaction driver
+      (txCtx as { executor: QueryExecutor }).executor =
+        createQueryExecutor(txDriver);
+      return fn(txCtx);
+    });
   }
 
   /**
@@ -232,16 +253,31 @@ export class MigrationContext {
    * Executes parsed SQL statements from a migration file.
    * Filters out empty lines and comments, ensures semicolons.
    *
+   * Uses the following priority for atomicity:
+   * 1. Native batch (if driver.supportsBatch) - D1, D1-HTTP, Neon-HTTP
+   * 2. Transaction wrapper (if driver.supportsTransactions) - most drivers
+   * 3. Sequential execution with warning (no atomicity)
+   *
    * @param statements - Array of SQL statements to execute
    */
   async executeMigrationStatements(statements: string[]): Promise<void> {
-    for (const stmt of statements) {
-      const trimmed = stmt.trim();
-      if (!trimmed || trimmed.startsWith("--")) {
-        continue;
-      }
-      const sql = trimmed.endsWith(";") ? trimmed : `${trimmed};`;
-      await this.executeRaw(sql);
+    // Filter and normalize statements
+    const queries = statements
+      .map((stmt) => stmt.trim())
+      .filter((stmt) => stmt && !stmt.startsWith("--"))
+      .map((stmt) => ({
+        sql: stmt.endsWith(";") ? stmt : `${stmt};`,
+        params: [],
+      }));
+
+    if (queries.length === 0) {
+      return;
     }
+
+    // Use driver's _executeBatch which handles priority automatically:
+    // 1. Native batch if supportsBatch
+    // 2. Transaction wrapper if supportsTransactions
+    // 3. Sequential execution (with warning in _executeBatch)
+    await this.driver._executeBatch(queries);
   }
 }

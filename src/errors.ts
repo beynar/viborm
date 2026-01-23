@@ -37,6 +37,7 @@ export enum VibORMErrorCode {
   TRANSACTION_TIMEOUT = "V5002",
   DEADLOCK = "V5003",
   SERIALIZATION_FAILURE = "V5004",
+  INVALID_TRANSACTION_INPUT = "V5005",
 
   // Not found errors (6xxx)
   RECORD_NOT_FOUND = "V6001",
@@ -71,6 +72,11 @@ export enum VibORMErrorCode {
   MIGRATION_INVALID_STATE = "V11009",
   MIGRATION_DESTRUCTIVE_REJECTED = "V11010",
   MIGRATION_STORAGE_REQUIRED = "V11011",
+
+  // Pending operation errors (12xxx)
+  OPERATION_ALREADY_EXECUTED = "V12001",
+  OPERATION_EXECUTION_CONFLICT = "V12002",
+  OPERATION_CLIENT_MISMATCH = "V12003",
 
   // Internal errors (9xxx)
   INTERNAL_ERROR = "V9001",
@@ -323,6 +329,20 @@ export class TransactionError extends VibORMError {
   }
 }
 
+/**
+ * Invalid input passed to $transaction array mode
+ */
+export class InvalidTransactionInputError extends VibORMError {
+  constructor(options?: { meta?: VibORMErrorMeta }) {
+    super(
+      "$transaction array must contain only pending operations from client methods",
+      VibORMErrorCode.INVALID_TRANSACTION_INPUT,
+      { meta: options?.meta }
+    );
+    this.name = "InvalidTransactionInputError";
+  }
+}
+
 // ============================================================
 // NOT FOUND ERRORS
 // ============================================================
@@ -395,6 +415,102 @@ export class FeatureNotSupportedError extends VibORMError {
     });
     this.name = "FeatureNotSupportedError";
   }
+}
+
+// ============================================================
+// PENDING OPERATION ERRORS
+// ============================================================
+
+/**
+ * Pending operation execution errors
+ *
+ * Thrown when attempting to execute a PendingOperation in an invalid way,
+ * such as awaiting after executeWith() or calling executeWith() after await.
+ */
+export class PendingOperationError extends VibORMError {
+  constructor(
+    message: string,
+    code:
+      | VibORMErrorCode.OPERATION_ALREADY_EXECUTED
+      | VibORMErrorCode.OPERATION_EXECUTION_CONFLICT
+      | VibORMErrorCode.OPERATION_CLIENT_MISMATCH,
+    options?: { meta?: VibORMErrorMeta }
+  ) {
+    super(message, code, { meta: options?.meta });
+    this.name = "PendingOperationError";
+  }
+
+  /**
+   * Create error for attempting to await after executeWith()
+   */
+  static alreadyExecutedWithDriver(
+    model: string,
+    operation: string
+  ): PendingOperationError {
+    return new PendingOperationError(
+      "Cannot await a PendingOperation that was already executed with executeWith(). " +
+        `The ${model}.${operation}() operation was already executed in a transaction context. ` +
+        "Create a new operation if you need to execute outside the transaction.",
+      VibORMErrorCode.OPERATION_ALREADY_EXECUTED,
+      { meta: { model, operation } }
+    );
+  }
+
+  /**
+   * Create error for attempting executeWith() after await
+   */
+  static alreadyExecutedDefault(
+    model: string,
+    operation: string
+  ): PendingOperationError {
+    return new PendingOperationError(
+      "Cannot call executeWith() on a PendingOperation that was already awaited. " +
+        `The ${model}.${operation}() operation was already executed outside a transaction. ` +
+        "Create a new operation for transaction execution.",
+      VibORMErrorCode.OPERATION_EXECUTION_CONFLICT,
+      { meta: { model, operation } }
+    );
+  }
+
+  /**
+   * Create error for attempting executeWith() with a different driver
+   */
+  static differentDriverConflict(
+    model: string,
+    operation: string
+  ): PendingOperationError {
+    return new PendingOperationError(
+      "Cannot call executeWith() with a different driver. " +
+        `The ${model}.${operation}() operation was already executed in another transaction context.`,
+      VibORMErrorCode.OPERATION_EXECUTION_CONFLICT,
+      { meta: { model, operation } }
+    );
+  }
+
+  /**
+   * Create error for operations from different clients in $transaction
+   */
+  static clientMismatch(
+    model: string,
+    operation: string
+  ): PendingOperationError {
+    return new PendingOperationError(
+      `Cannot execute ${model}.${operation}() in this transaction: ` +
+        "the operation was created by a different client instance. " +
+        "All operations in $transaction([...]) must come from the same client.",
+      VibORMErrorCode.OPERATION_CLIENT_MISMATCH,
+      { meta: { model, operation } }
+    );
+  }
+}
+
+/**
+ * Type guard for pending operation errors
+ */
+export function isPendingOperationError(
+  error: unknown
+): error is PendingOperationError {
+  return error instanceof PendingOperationError;
 }
 
 // ============================================================

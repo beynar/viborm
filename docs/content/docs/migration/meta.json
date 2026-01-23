@@ -1,10 +1,4 @@
 {
   "title": "Migrations",
-  "pages": [
-    "index",
-    "push",
-    "migrate",
-    "storage",
-    "drivers"
-  ]
+  "pages": ["index", "push", "migrate", "storage", "drivers"]
 }

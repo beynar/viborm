@@ -1,0 +1,90 @@
+---
+title: PGlite
+description: Embedded PostgreSQL using WebAssembly
+---
+
+## Installation
+
+```bash
+pnpm add @electric-sql/pglite
+```
+
+## Configuration
+
+```typescript
+import { createClient } from "viborm/drivers/pglite";
+
+const client = createClient({
+  schema,
+});
+```
+
+## Options
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `client` | `PGlite` | Existing PGlite instance |
+| `dataDir` | `string` | Data directory for persistence |
+| `options` | `PGliteOptions` | PGlite configuration |
+| `pgvector` | `boolean` | Enable pgvector support |
+| `postgis` | `boolean` | Enable PostGIS support |
+
+### In-Memory Database
+
+```typescript
+import { createClient } from "viborm/drivers/pglite";
+
+// Default is in-memory
+const client = createClient({
+  schema,
+});
+```
+
+### Persistent Database
+
+```typescript
+import { createClient } from "viborm/drivers/pglite";
+
+const client = createClient({
+  dataDir: "./pglite-data",
+  schema,
+});
+```
+
+### Using Existing Instance
+
+```typescript
+import { PGlite } from "@electric-sql/pglite";
+import { createClient } from "viborm/drivers/pglite";
+
+const pg = new PGlite();
+
+const client = createClient({
+  client: pg,
+  schema,
+});
+```
+
+## Use Cases
+
+- **Local development**: Full PostgreSQL without Docker
+- **Testing**: Fast, isolated database per test
+- **Browser**: PostgreSQL in the browser via WASM
+- **Edge**: Serverless functions with embedded database
+
+## Transactions
+
+PGlite supports transactions but nested transactions have limitations.
+
+```typescript
+await client.$transaction(async (tx) => {
+  await tx.user.create({ data: { name: "Alice" } });
+  await tx.post.create({ data: { title: "Hello", authorId: "..." } });
+});
+```
+
+## Limitations
+
+- WASM-based: may have performance overhead for heavy workloads
+- Limited nested transaction support
+- Some PostgreSQL extensions not available

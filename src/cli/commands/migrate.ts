@@ -59,7 +59,8 @@ function generateCommand(): Command {
 
         // 2. Resolve storage driver: CLI option > config > default
         const dir = options.out || migrations?.dir || "./migrations";
-        const storageDriver = migrations?.storageDriver || createFsStorageDriver(dir);
+        const storageDriver =
+          migrations?.storageDriver || createFsStorageDriver(dir);
 
         // 3. Generate migration
         spinner.start("Analyzing schema changes...");
@@ -145,7 +146,8 @@ function applyCommand(): Command {
 
         // 3. Resolve storage driver: CLI option > config > default
         const dir = options.dir || migrations?.dir || "./migrations";
-        const storageDriver = migrations?.storageDriver || createFsStorageDriver(dir);
+        const storageDriver =
+          migrations?.storageDriver || createFsStorageDriver(dir);
         const tableName = options.tableName || migrations?.tableName;
 
         // 4. Get pending migrations first
@@ -203,7 +205,8 @@ function applyCommand(): Command {
         const result = await apply(client, {
           storageDriver,
           tableName,
-          to: options.to !== undefined ? Number.parseInt(options.to) : undefined,
+          to:
+            options.to !== undefined ? Number.parseInt(options.to) : undefined,
           dryRun: false,
         });
 
@@ -267,7 +270,8 @@ function statusCommand(): Command {
 
         // 3. Resolve storage driver: CLI option > config > default
         const dir = options.dir || migrations?.dir || "./migrations";
-        const storageDriver = migrations?.storageDriver || createFsStorageDriver(dir);
+        const storageDriver =
+          migrations?.storageDriver || createFsStorageDriver(dir);
         const tableName = options.tableName || migrations?.tableName;
 
         // 4. Get status
@@ -343,7 +347,8 @@ function dropCommand(): Command {
 
         // 3. Resolve storage driver: CLI option > config > default
         const dir = options.dir || migrations?.dir || "./migrations";
-        const storageDriver = migrations?.storageDriver || createFsStorageDriver(dir);
+        const storageDriver =
+          migrations?.storageDriver || createFsStorageDriver(dir);
         const tableName = options.tableName || migrations?.tableName;
 
         // 4. Determine count
@@ -436,8 +441,7 @@ function displayMigrationStatus(statuses: MigrationStatus[]): void {
   const pendingCount = statuses.length - appliedCount;
 
   p.note(
-    lines.join("\n") +
-      `\n\nApplied: ${appliedCount}, Pending: ${pendingCount}`,
+    lines.join("\n") + `\n\nApplied: ${appliedCount}, Pending: ${pendingCount}`,
     "Migration status"
   );
 }

@@ -4,25 +4,38 @@ import type {
   WithCacheOptions,
 } from "@cache";
 import { type CacheExecutionOptions, withCacheSchema } from "@cache";
-import { CacheOperationNotCacheableError, NotFoundError, type VibORMError } from "@errors";
-import { parse } from "@validation";
-import type { WaitUntilFn } from "./types";
 import type { AnyDriver, QueryResult, TransactionOptions } from "@drivers";
 import {
-  ATTR_DB_COLLECTION,
-  ATTR_DB_OPERATION_NAME,
-  createErrorLogEvent,
+  CacheOperationNotCacheableError,
+  InvalidTransactionInputError,
+  PendingOperationError,
+} from "@errors";
+import {
   createInstrumentationContext,
   type InstrumentationConfig,
   type InstrumentationContext,
-  SPAN_CONNECT,
-  SPAN_DISCONNECT,
-  SPAN_OPERATION,
 } from "@instrumentation";
+
+// Note: Removed unused imports - ATTR_DB_COLLECTION, ATTR_DB_OPERATION_NAME, getNoopTracer, SPAN_OPERATION, SPAN_PARSE
+// These were used for manual batch tracing which is now handled by each operation's executor
+
+/**
+ * Check if a value is an InstrumentationContext (already processed)
+ * InstrumentationContext has 'config' and 'tracer' properties,
+ * while InstrumentationConfig only has 'tracing' and 'logging'
+ */
+function isInstrumentationContext(
+  value: InstrumentationConfig | InstrumentationContext | undefined
+): value is InstrumentationContext {
+  return value !== undefined && "config" in value && "tracer" in value;
+}
+
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
-import type { ModelRegistry, Operation } from "@query-engine/types";
+import type { ModelRegistry } from "@query-engine/types";
 import { hydrateSchemaNames } from "@schema/hydration";
 import type { Sql } from "@sql";
+import { parse } from "@validation";
+import { isPendingOperation, type PendingOperation } from "./pending-operation";
 import type {
   CacheableOperations,
   CachedClient,
@@ -30,6 +43,7 @@ import type {
   MutationOperations,
   Operations,
   Schema,
+  WaitUntilFn,
 } from "./types";
 
 /**
@@ -80,14 +94,15 @@ function isCacheableOperation(
 
 /**
  * Create a recursive proxy for model operations
+ * Operations return the result of createOperation (PendingOperation or Promise)
  */
-function createModelProxy<S extends Schema>(
+function createModelProxy<S extends Schema, R>(
   schema: S,
-  executeOperation: (opts: {
+  createOperation: (opts: {
     modelName: keyof S;
     operation: Operations;
     args: unknown;
-  }) => Promise<unknown>,
+  }) => R,
   path: string[] = []
 ): unknown {
   // biome-ignore lint: <it's ok>
@@ -98,12 +113,12 @@ function createModelProxy<S extends Schema>(
       // This allows the proxy to be returned from async functions without
       // being treated as a thenable
       if (key === "then") return undefined;
-      return createModelProxy(schema, executeOperation, [...path, key]);
+      return createModelProxy(schema, createOperation, [...path, key]);
     },
     apply(_target, _thisArg, [args]) {
       const modelName = path[0] as keyof S;
       const operation = path[1] as Operations;
-      return executeOperation({ modelName, operation, args });
+      return createOperation({ modelName, operation, args });
     },
   });
 }
@@ -115,14 +130,14 @@ export interface VibORMConfig {
   schema: Schema;
   driver: AnyDriver;
   cache?: CacheDriver;
-  instrumentation?: InstrumentationConfig;
+  /** Instrumentation config (for initial setup) or context (for internal reuse) */
+  instrumentation?: InstrumentationConfig | InstrumentationContext;
   waitUntil?: WaitUntilFn;
   /** Cache version for invalidating cache on schema changes */
   cacheVersion?: number | string;
 }
 
-export interface DriverConfig extends Omit<VibORMConfig, "driver"> { }
-
+export interface DriverConfig extends Omit<VibORMConfig, "driver"> {}
 
 /**
  * Extended client type with utility methods
@@ -143,11 +158,37 @@ export type VibORMClient<C extends VibORMConfig> = Client<C> &
         sql: string,
         params?: unknown[]
       ) => Promise<QueryResult<T>>;
-      /** Run operations in a transaction */
-      $transaction: <T>(
-        fn: (tx: Client<C>) => Promise<T>,
-        options?: TransactionOptions
-      ) => Promise<T>;
+      /**
+       * Run operations in a transaction or batch
+       *
+       * @example Dynamic transaction (callback) - operations can depend on each other
+       * ```ts
+       * await client.$transaction(async (tx) => {
+       *   const user = await tx.user.create({ data: { name: "Alice" } });
+       *   await tx.post.create({ data: { title: "Hello", authorId: user.id } });
+       * });
+       * ```
+       *
+       * @example Batch (array) - independent operations, atomic execution
+       * ```ts
+       * const [users, posts] = await client.$transaction([
+       *   client.user.findMany(),
+       *   client.post.findMany(),
+       * ]);
+       * ```
+       */
+      $transaction: {
+        // Overload 1: Dynamic transaction (callback)
+        <T>(
+          fn: (tx: Client<C>) => Promise<T>,
+          options?: TransactionOptions
+        ): Promise<T>;
+        // Overload 2: Batch of independent operations (Prisma-style)
+        <T extends PendingOperation<unknown>[]>(
+          operations: [...T],
+          options?: TransactionOptions
+        ): Promise<{ [K in keyof T]: Awaited<T[K]> }>;
+      };
       /** Connect to the database */
       $connect: () => Promise<void>;
       /** Disconnect from the database */
@@ -173,13 +214,24 @@ export class VibORM<C extends VibORMConfig> {
   private readonly registry: ModelRegistry;
   private readonly engine: QueryEngine;
 
+  /**
+   * Unique identifier for this client instance.
+   * Used to verify operations belong to the same client in $transaction.
+   */
+  get clientId(): symbol {
+    return this.engine.clientId;
+  }
+
   constructor(config: C) {
     this.driver = config.driver;
     this.schema = config.schema as C["schema"];
     this.cache = config.cache as C["cache"];
-    this.instrumentation = config.instrumentation
-      ? createInstrumentationContext(config.instrumentation)
-      : undefined;
+    // Accept either InstrumentationConfig (initial setup) or InstrumentationContext (internal reuse)
+    this.instrumentation = isInstrumentationContext(config.instrumentation)
+      ? config.instrumentation
+      : config.instrumentation
+        ? createInstrumentationContext(config.instrumentation)
+        : undefined;
     this.waitUntil = config.waitUntil;
     this.cacheVersion = config.cacheVersion;
 
@@ -193,108 +245,39 @@ export class VibORM<C extends VibORMConfig> {
   }
 
   /**
-   * Execute an operation with full instrumentation
-   *
-   * @param modelName - Model name
-   * @param operation - Operation name
-   * @param args - Operation arguments
-   * @param options - Execution options
-   * @param options.skipSpan - Skip operation span (cache driver adds its own)
-   * @param options.skipCacheInvalidation - Skip cache invalidation (for cached reads)
-   */
-  private async executeOperation(
-    modelName: string,
-    operation: Operations,
-    args: unknown,
-    options?: { skipSpan?: boolean; skipCacheInvalidation?: boolean }
-  ): Promise<unknown> {
-    const model = this.schema[modelName as keyof C["schema"]];
-    if (!model) {
-      throw new Error(`Model "${modelName}" not found in schema`);
-    }
-
-    // Strip "OrThrow" suffix for query engine (it only knows base operations)
-    const OR_THROW_SUFFIX = "OrThrow";
-    const baseOperation = operation.endsWith(OR_THROW_SUFFIX)
-      ? (operation.slice(0, -OR_THROW_SUFFIX.length) as Operation)
-      : (operation as Operation);
-
-    const tableName = model["~"].names.sql ?? modelName;
-    const startTime = Date.now();
-
-    const { cache, ...cleanArgs } = (args ?? {}) as (Record<string, unknown> & {cache?: CacheInvalidationOptions});
-
-    // Core execution logic
-    const executeCore = async () => {
-      try {
-        const result = await this.engine.execute(
-          model,
-          baseOperation,
-          cleanArgs as Record<string, unknown>
-        );
-
-        if (operation.endsWith("OrThrow") && result === null) {
-          throw new NotFoundError(modelName, operation);
-        }
-
-        // Handle exist operation (convert count to boolean)
-        const finalResult =
-          operation === "exist" ? (result as number) > 0 : result;
-
-        // Cache invalidation for mutations (unless skipped)
-        if (
-          !options?.skipCacheInvalidation &&
-          this.cache &&
-          isMutationOperation(operation)
-        ) {
-          await this.cache._invalidate(modelName, cache);
-        }
-
-        return finalResult;
-      } catch (error) {
-        if (error instanceof Error) {
-          if (!("logged" in error)) {
-            this.instrumentation?.logger?.error(
-              createErrorLogEvent({
-                error: error,
-                model: modelName,
-                operation: baseOperation,
-                duration: Date.now() - startTime,
-              })
-            );
-          }
-          throw error;
-        }
-      }
-    };
-
-    // Wrap with tracing if available (unless skipped)
-    if (!options?.skipSpan && this.instrumentation?.tracer) {
-      return this.instrumentation.tracer.startActiveSpan(
-        {
-          name: SPAN_OPERATION,
-          attributes: {
-            ...this.driver.getBaseAttributes(),
-            [ATTR_DB_COLLECTION]: tableName,
-            [ATTR_DB_OPERATION_NAME]: operation,
-          },
-        },
-        executeCore
-      );
-    }
-
-    return executeCore();
-  }
-
-  /**
    * Create the client with model proxies and utility methods
+   * Model operations return PendingOperation for deferred execution
    */
   private createClient(): Client<C> {
-    return createModelProxy(
-      this.schema,
-      ({ modelName, operation, args }) =>
-        this.executeOperation(String(modelName), operation, args)
-    ) as Client<C>;
+    return createModelProxy(this.schema, ({ modelName, operation, args }) => {
+      const modelNameStr = String(modelName);
+      const model = this.schema[modelNameStr as keyof C["schema"]];
+      if (!model) {
+        throw new Error(`Model "${modelNameStr}" not found in schema`);
+      }
+
+      // Extract cache invalidation options from args (client-level concern)
+      const { cache: cacheOptions, ...cleanArgs } = (args ?? {}) as Record<
+        string,
+        unknown
+      > & {
+        cache?: CacheInvalidationOptions;
+      };
+
+      // Engine handles OrThrow suffix internally
+      const pendingOp = this.engine.prepare(model, operation, cleanArgs);
+
+      // Wrap with cache invalidation for mutations (client-level concern)
+      if (this.cache && isMutationOperation(operation)) {
+        return pendingOp.wrapExecutor(async (execute) => {
+          const result = await execute();
+          await this.cache!._invalidate(modelNameStr, cacheOptions);
+          return result;
+        });
+      }
+
+      return pendingOp;
+    }) as Client<C>;
   }
 
   /**
@@ -308,15 +291,13 @@ export class VibORM<C extends VibORMConfig> {
       );
     }
 
-    // Validate and apply defaults using schema
     const parsed = parse(withCacheSchema, config);
     if (parsed.issues) {
       throw new Error(
         `Invalid cache options: ${parsed.issues.map((i) => i.message).join(", ")}`
       );
     }
-    // Schema applies defaults, but TypeScript doesn't know that
-    const {bypass, key, ttl, swr} = parsed.value;
+    const { bypass, key, ttl, swr } = parsed.value;
 
     // Build execution options
     const options: CacheExecutionOptions = {
@@ -328,34 +309,46 @@ export class VibORM<C extends VibORMConfig> {
       dbAttributes: this.driver.getBaseAttributes(),
     };
     // Create proxy that validates cacheable operations and delegates to cache driver
-    return createModelProxy(
-      this.schema,
-      async ({ modelName, operation, args }) => {
-        const modelNameStr = String(modelName);
+    // Returns Promises directly (not PendingOperation) - cache operations are not batchable
+    return createModelProxy(this.schema, ({ modelName, operation, args }) => {
+      const modelNameStr = String(modelName);
 
-        // Runtime check - only cacheable operations allowed
-        if (!isCacheableOperation(operation)) {
-          throw new CacheOperationNotCacheableError(operation, [
+      // Runtime check - only cacheable operations allowed
+      // Return rejected Promise to maintain async behavior consistency
+      if (!isCacheableOperation(operation)) {
+        return Promise.reject(
+          new CacheOperationNotCacheableError(operation, [
             ...CACHEABLE_OPERATIONS,
-          ]);
-        }
-
-        // Delegate to cache driver for all orchestration
-        // skipSpan: cache driver adds its own operation span
-        // skipCacheInvalidation: read operations don't need invalidation
-        return this.cache!._executeCached(
-          modelNameStr,
-          operation,
-          args,
-          () =>
-            this.executeOperation(modelNameStr, operation, args, {
-              skipSpan: true,
-              skipCacheInvalidation: true,
-            }),
-          options
+          ])
         );
       }
-    ) as CachedClient<C["schema"]>;
+
+      const model = this.schema[modelNameStr as keyof C["schema"]];
+      if (!model) {
+        return Promise.reject(
+          new Error(`Model "${modelNameStr}" not found in schema`)
+        );
+      }
+
+      // Execute via cache with lazy executor - only prepares on cache miss
+      return this.cache!._executeCached(
+        modelNameStr,
+        operation,
+        args,
+        () =>
+          this.engine
+            .prepare(
+              model,
+              operation,
+              (args ?? {}) as Record<string, unknown>,
+              {
+                skipSpan: true, // Cache driver provides its own SPAN_OPERATION
+              }
+            )
+            .execute(),
+        options
+      );
+    }) as CachedClient<C["schema"]>;
   }
 
   /**
@@ -400,49 +393,262 @@ export class VibORM<C extends VibORMConfig> {
         }
 
         if (prop === "$transaction") {
-          return <T>(
-            fn: (tx: Client<C>) => Promise<T>,
+          return async <T>(
+            input:
+              | ((tx: Client<C>) => Promise<T>)
+              | PendingOperation<unknown>[],
             options?: TransactionOptions
-          ) =>
-            orm.driver._transaction(() => {
-              const txClient = orm.createClient();
+          ): Promise<T | unknown[]> => {
+            // Client ID for validating operations belong to this client
+            const expectedClientId = orm.clientId;
+
+            // Array of PendingOperations = batch mode
+            if (Array.isArray(input)) {
+              const operations = input as PendingOperation<unknown>[];
+
+              // Early return for empty array
+              if (operations.length === 0) {
+                return [] as unknown[];
+              }
+
+              // Validate all items are PendingOperations from this client
+              for (const op of operations) {
+                if (!isPendingOperation(op)) {
+                  throw new InvalidTransactionInputError();
+                }
+                // Verify operation belongs to this client
+                if (op.getClientId() !== expectedClientId) {
+                  throw PendingOperationError.clientMismatch(
+                    op.getModel(),
+                    op.getOperation()
+                  );
+                }
+              }
+
+              // Check driver capabilities for proper execution strategy
+              const driver = orm.driver;
+              const supportsTransactions = driver.supportsTransactions;
+              const supportsBatch = driver.supportsBatch;
+
+              // For batch-only drivers (D1, D1-HTTP, Neon-HTTP), use native batch execution
+              // This provides atomicity for operations that can be batched
+              if (!supportsTransactions && supportsBatch) {
+                // Check if all operations can be batched
+                const allCanBatch = operations.every((op) => op.canBatch());
+
+                if (allCanBatch) {
+                  // Prepare all queries for batch execution
+                  const batchQueries: { sql: string; params?: unknown[] }[] =
+                    [];
+                  for (const op of operations) {
+                    const prepared = op.prepare(driver);
+                    if (!prepared) {
+                      // Fallback to sequential execution if prepare fails
+                      break;
+                    }
+                    batchQueries.push(prepared);
+                  }
+
+                  // If all queries were prepared, execute as batch
+                  if (batchQueries.length === operations.length) {
+                    const batchResults =
+                      await driver._executeBatch(batchQueries);
+
+                    // Parse results using each operation's parseResult
+                    const results: unknown[] = [];
+                    for (let i = 0; i < operations.length; i++) {
+                      const op = operations[i]!;
+                      const raw = batchResults[i]!;
+                      results.push(
+                        op.parseResult({
+                          rows: raw.rows as unknown[],
+                          rowCount: raw.rowCount,
+                        })
+                      );
+                    }
+
+                    return results;
+                  }
+                }
+
+                // If we can't batch all operations, warn and fall through to sequential
+                console.warn(
+                  `${driver.driverName} does not support transactions. ` +
+                    "Some operations have nested writes and cannot be batched atomically. " +
+                    "Operations will execute sequentially without full atomicity."
+                );
+              }
+
+              // For drivers that support neither transactions nor batch,
+              // warn about lack of atomicity
+              if (!(supportsTransactions || supportsBatch)) {
+                console.warn(
+                  `${driver.driverName} supports neither transactions nor batch operations. ` +
+                    "Operations will execute sequentially without atomicity guarantees. " +
+                    "If any operation fails, previous operations will remain committed."
+                );
+              }
+
+              // Execute all operations within a transaction (or sequentially for non-tx drivers)
+              // Each operation's executor handles its own tracing (validate, build, execute, parse)
+              // Cache invalidation is already handled by the wrapped executor (see createClient)
+              return driver.withTransaction(async (txDriver) => {
+                const txDriverTyped = txDriver as AnyDriver;
+
+                // Execute operations sequentially to maintain order
+                // Each executor already has full tracing via query engine
+                // Cache invalidation with proper options is handled by the mutation wrapper
+                const results: unknown[] = [];
+                for (const op of operations) {
+                  const result = await op.executeWith(txDriverTyped);
+                  results.push(result);
+                }
+
+                return results;
+              }, options);
+            }
+
+            // Callback = dynamic transaction mode
+            const fn = input as (tx: Client<C>) => Promise<T>;
+
+            // Helper to create a transaction client with $transaction support
+            const createTxClient = (txDriver: AnyDriver): Client<C> => {
+              const txOrm = new VibORM({
+                driver: txDriver,
+                schema: orm.schema,
+                cache: orm.cache,
+                instrumentation: orm.instrumentation,
+                waitUntil: orm.waitUntil,
+                cacheVersion: orm.cacheVersion,
+              });
+              const baseClient = txOrm.createClient();
+
+              // Use the transaction client's clientId for nested validation
+              const txClientId = txOrm.clientId;
+
+              // Wrap with proxy to intercept $transaction
+              return new Proxy(baseClient, {
+                get(target, prop) {
+                  if (prop === "$transaction") {
+                    return async <NT>(
+                      nestedInput:
+                        | ((nestedTx: Client<C>) => Promise<NT>)
+                        | PendingOperation<unknown>[],
+                      nestedOptions?: TransactionOptions
+                    ) => {
+                      if (Array.isArray(nestedInput)) {
+                        // Batch mode in nested transaction
+                        // Validate all items are PendingOperations from this transaction client
+                        const nestedOperations =
+                          nestedInput as PendingOperation<unknown>[];
+                        for (const op of nestedOperations) {
+                          if (!isPendingOperation(op)) {
+                            throw new InvalidTransactionInputError();
+                          }
+                          // Verify operation belongs to this transaction client
+                          if (op.getClientId() !== txClientId) {
+                            throw PendingOperationError.clientMismatch(
+                              op.getModel(),
+                              op.getOperation()
+                            );
+                          }
+                        }
+
+                        // For batch-only drivers (no real transactions), use native batch
+                        // execution for nested batches to preserve atomicity optimization
+                        if (
+                          !txDriver.supportsTransactions &&
+                          txDriver.supportsBatch
+                        ) {
+                          const allCanBatch = nestedOperations.every((op) =>
+                            op.canBatch()
+                          );
+
+                          if (allCanBatch) {
+                            const batchQueries: {
+                              sql: string;
+                              params?: unknown[];
+                            }[] = [];
+                            for (const op of nestedOperations) {
+                              const prepared = op.prepare(
+                                txDriver as AnyDriver
+                              );
+                              if (!prepared) {
+                                break;
+                              }
+                              batchQueries.push(prepared);
+                            }
+
+                            if (
+                              batchQueries.length === nestedOperations.length
+                            ) {
+                              const batchResults =
+                                await txDriver._executeBatch(batchQueries);
+
+                              const results: unknown[] = [];
+                              for (
+                                let i = 0;
+                                i < nestedOperations.length;
+                                i++
+                              ) {
+                                const op = nestedOperations[i]!;
+                                const raw = batchResults[i]!;
+                                results.push(
+                                  op.parseResult({
+                                    rows: raw.rows as unknown[],
+                                    rowCount: raw.rowCount,
+                                  })
+                                );
+                              }
+                              return results;
+                            }
+                          }
+                          // Fall through to sequential execution if batch prep fails
+                        }
+
+                        return txDriver.withTransaction(
+                          async (nestedTxDriver) => {
+                            const results: unknown[] = [];
+                            for (const op of nestedOperations) {
+                              results.push(
+                                await op.executeWith(nestedTxDriver)
+                              );
+                            }
+                            return results;
+                          },
+                          nestedOptions
+                        );
+                      }
+                      // Callback mode - create nested client recursively
+                      return txDriver.withTransaction((nestedTxDriver) => {
+                        const nestedClient = createTxClient(
+                          nestedTxDriver as AnyDriver
+                        );
+                        return (nestedInput as (tx: Client<C>) => Promise<NT>)(
+                          nestedClient
+                        );
+                      }, nestedOptions);
+                    };
+                  }
+                  // Forward all other property access to the base client
+                  return Reflect.get(target, prop);
+                },
+              }) as Client<C>;
+            };
+
+            return orm.driver.withTransaction((txDriver) => {
+              const txClient = createTxClient(txDriver as AnyDriver);
               return fn(txClient);
             }, options);
+          };
         }
 
         if (prop === "$connect") {
-          return async () => {
-            const doConnect = () => orm.driver.connect?.() ?? Promise.resolve();
-
-            if (orm.instrumentation?.tracer) {
-              return orm.instrumentation.tracer.startActiveSpan(
-                {
-                  name: SPAN_CONNECT,
-                  attributes: orm.driver.getBaseAttributes(),
-                },
-                doConnect
-              );
-            }
-            return doConnect();
-          };
+          return () => orm.driver._connect();
         }
 
         if (prop === "$disconnect") {
-          return async () => {
-            const doDisconnect = () =>
-              orm.driver.disconnect?.() ?? Promise.resolve();
-
-            if (orm.instrumentation?.tracer) {
-              return orm.instrumentation.tracer.startActiveSpan(
-                {
-                  name: SPAN_DISCONNECT,
-                  attributes: orm.driver.getBaseAttributes(),
-                },
-                doDisconnect
-              );
-            }
-            return doDisconnect();
-          };
+          return () => orm.driver._disconnect();
         }
 
         if (prop === "$withCache") {

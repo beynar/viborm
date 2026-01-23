@@ -47,7 +47,7 @@ const schema = { user, post };
 
 async function setupDatabaseRaw(driver: SQLite3Driver) {
   // Create tables with raw SQL (for testing driver directly without client)
-  await driver.executeRaw(`
+  await driver._executeRaw(`
     CREATE TABLE IF NOT EXISTS "users" (
       "id" TEXT PRIMARY KEY NOT NULL,
       "name" TEXT,
@@ -56,7 +56,7 @@ async function setupDatabaseRaw(driver: SQLite3Driver) {
     )
   `);
 
-  await driver.executeRaw(`
+  await driver._executeRaw(`
     CREATE TABLE IF NOT EXISTS "posts" (
       "id" TEXT PRIMARY KEY NOT NULL,
       "title" TEXT NOT NULL,
@@ -68,8 +68,8 @@ async function setupDatabaseRaw(driver: SQLite3Driver) {
   `);
 
   // Clean up any existing data
-  await driver.executeRaw(`DELETE FROM "posts"`);
-  await driver.executeRaw(`DELETE FROM "users"`);
+  await driver._executeRaw(`DELETE FROM "posts"`);
+  await driver._executeRaw(`DELETE FROM "users"`);
 }
 
 // =============================================================================
@@ -112,7 +112,7 @@ describe("SQLite3 Driver", () => {
     });
 
     test("executes INSERT and returns row count", async () => {
-      const result = await driver.executeRaw(
+      const result = await driver._executeRaw(
         `INSERT INTO "users" ("id", "email", "name") VALUES (?, ?, ?)`,
         ["user-1", "test@example.com", "Test User"]
       );
@@ -120,12 +120,12 @@ describe("SQLite3 Driver", () => {
     });
 
     test("executes SELECT and returns rows", async () => {
-      await driver.executeRaw(
+      await driver._executeRaw(
         `INSERT INTO "users" ("id", "email", "name") VALUES (?, ?, ?)`,
         ["user-1", "test@example.com", "Test User"]
       );
 
-      const result = await driver.executeRaw<{ id: string; email: string }>(
+      const result = await driver._executeRaw<{ id: string; email: string }>(
         `SELECT * FROM "users" WHERE "id" = ?`,
         ["user-1"]
       );
@@ -135,12 +135,12 @@ describe("SQLite3 Driver", () => {
     });
 
     test("executes UPDATE and returns affected count", async () => {
-      await driver.executeRaw(
+      await driver._executeRaw(
         `INSERT INTO "users" ("id", "email", "name") VALUES (?, ?, ?)`,
         ["user-1", "test@example.com", "Test User"]
       );
 
-      const result = await driver.executeRaw(
+      const result = await driver._executeRaw(
         `UPDATE "users" SET "name" = ? WHERE "id" = ?`,
         ["Updated Name", "user-1"]
       );
@@ -149,12 +149,12 @@ describe("SQLite3 Driver", () => {
     });
 
     test("executes DELETE and returns affected count", async () => {
-      await driver.executeRaw(
+      await driver._executeRaw(
         `INSERT INTO "users" ("id", "email", "name") VALUES (?, ?, ?)`,
         ["user-1", "test@example.com", "Test User"]
       );
 
-      const result = await driver.executeRaw(
+      const result = await driver._executeRaw(
         `DELETE FROM "users" WHERE "id" = ?`,
         ["user-1"]
       );
@@ -178,18 +178,18 @@ describe("SQLite3 Driver", () => {
     });
 
     test("commits transaction on success", async () => {
-      await driver.transaction(async (tx) => {
-        await tx.executeRaw(
+      await driver.withTransaction(async (txDriver) => {
+        await txDriver._executeRaw(
           `INSERT INTO "users" ("id", "email", "name") VALUES (?, ?, ?)`,
           ["user-1", "test@example.com", "Test User"]
         );
-        await tx.executeRaw(
+        await txDriver._executeRaw(
           `INSERT INTO "users" ("id", "email", "name") VALUES (?, ?, ?)`,
           ["user-2", "test2@example.com", "Test User 2"]
         );
       });
 
-      const result = await driver.executeRaw<{ count: number }>(
+      const result = await driver._executeRaw<{ count: number }>(
         `SELECT COUNT(*) as count FROM "users"`
       );
       expect(result.rows[0]?.count).toBe(2);
@@ -197,8 +197,8 @@ describe("SQLite3 Driver", () => {
 
     test("rolls back transaction on error", async () => {
       await expect(
-        driver.transaction(async (tx) => {
-          await tx.executeRaw(
+        driver.withTransaction(async (txDriver) => {
+          await txDriver._executeRaw(
             `INSERT INTO "users" ("id", "email", "name") VALUES (?, ?, ?)`,
             ["user-1", "test@example.com", "Test User"]
           );
@@ -206,23 +206,23 @@ describe("SQLite3 Driver", () => {
         })
       ).rejects.toThrow("Intentional error");
 
-      const result = await driver.executeRaw<{ count: number }>(
+      const result = await driver._executeRaw<{ count: number }>(
         `SELECT COUNT(*) as count FROM "users"`
       );
       expect(result.rows[0]?.count).toBe(0);
     });
 
     test("supports nested transactions with savepoints", async () => {
-      await driver.transaction(async (tx) => {
-        await tx.executeRaw(
+      await driver.withTransaction(async (txDriver) => {
+        await txDriver._executeRaw(
           `INSERT INTO "users" ("id", "email", "name") VALUES (?, ?, ?)`,
           ["user-1", "test@example.com", "Test User"]
         );
 
         // Nested transaction that fails
         await expect(
-          tx.transaction(async (nestedTx) => {
-            await nestedTx.executeRaw(
+          txDriver.withTransaction(async (nestedTxDriver) => {
+            await nestedTxDriver._executeRaw(
               `INSERT INTO "users" ("id", "email", "name") VALUES (?, ?, ?)`,
               ["user-2", "test2@example.com", "Test User 2"]
             );
@@ -233,7 +233,7 @@ describe("SQLite3 Driver", () => {
         // First insert should still be there
       });
 
-      const result = await driver.executeRaw<{ count: number }>(
+      const result = await driver._executeRaw<{ count: number }>(
         `SELECT COUNT(*) as count FROM "users"`
       );
       // Only user-1 should exist (user-2 was rolled back by nested transaction)
@@ -263,7 +263,7 @@ describe("SQLite3 Driver", () => {
       });
 
       // Push schema to create tables
-      await push(client.$driver, schema, { force: true });
+      await push(client, { force: true });
 
       // Create user
       const newUser = await client.user.create({
@@ -331,7 +331,7 @@ describe("SQLite3 Driver", () => {
       });
 
       // Push schema to create tables
-      await push(client.$driver, schema, { force: true });
+      await push(client, { force: true });
 
       // Successful transaction
       await client.$transaction(async (tx) => {
@@ -369,7 +369,7 @@ describe("SQLite3 Driver", () => {
       });
 
       // Push schema to create tables
-      await push(client.$driver, schema, { force: true });
+      await push(client, { force: true });
 
       // Transaction that fails
       await expect(
@@ -404,7 +404,7 @@ describe("SQLite3 Driver", () => {
       });
 
       // Push schema to create tables
-      await push(client.$driver, schema, { force: true });
+      await push(client, { force: true });
 
       // Seed data
       await client.user.createMany({

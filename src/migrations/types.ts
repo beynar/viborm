@@ -33,7 +33,7 @@ export interface IndexDef {
   name: string;
   columns: string[];
   unique: boolean;
-  type?: "btree" | "hash" | "gin" | "gist" | undefined;
+  type?: "btree" | "hash" | "gin" | "gist" | "fulltext" | "spatial" | undefined;
   where?: string | undefined; // For partial indexes
 }
 
@@ -82,7 +82,7 @@ export type DiffOperation =
       to: ColumnDef;
     }
   | { type: "createIndex"; tableName: string; index: IndexDef }
-  | { type: "dropIndex"; indexName: string }
+  | { type: "dropIndex"; tableName: string; indexName: string }
   | { type: "addForeignKey"; tableName: string; fk: ForeignKeyDef }
   | { type: "dropForeignKey"; tableName: string; fkName: string }
   | {
@@ -372,7 +372,11 @@ export type ResolveChange =
  */
 export type ResolveCallback = (
   change: ResolveChange
-) => Promise<ResolveResult | undefined | void> | ResolveResult | undefined | void;
+) =>
+  | Promise<ResolveResult | undefined | void>
+  | ResolveResult
+  | undefined
+  | void;
 
 /**
  * Create a destructive change object with resolution methods.
@@ -579,7 +583,7 @@ export interface PushResult {
 // MIGRATION JOURNAL (tracks generated migrations)
 // =============================================================================
 
-export type Dialect = "postgresql" | "sqlite";
+export type Dialect = "postgresql" | "sqlite" | "mysql";
 
 export interface MigrationJournal {
   /** Schema version for the journal format */

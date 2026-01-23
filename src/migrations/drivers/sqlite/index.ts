@@ -7,8 +7,7 @@
 
 import type { Field, FieldState } from "@schema/fields";
 import { MigrationError, VibORMErrorCode } from "../../../errors";
-import type { ColumnDef, SchemaSnapshot, TableDef } from "../../types";
-import { getSQLiteType } from "../type-mapping";
+import type { ColumnDef, TableDef } from "../../types";
 import {
   type AddColumnOperation,
   type AddForeignKeyOperation,
@@ -31,6 +30,7 @@ import {
   type RenameColumnOperation,
   type RenameTableOperation,
 } from "../base";
+import { getSQLiteType } from "../type-mapping";
 import type { MigrationCapabilities } from "../types";
 import { introspect } from "./introspect";
 
@@ -47,7 +47,7 @@ import { introspect } from "./introspect";
  */
 export class SQLite3MigrationDriver extends MigrationDriver {
   readonly dialect = "sqlite" as const;
-  readonly driverName = "sqlite3";
+  readonly driverName: string = "sqlite3";
 
   readonly capabilities: MigrationCapabilities = {
     supportsNativeEnums: false,
@@ -97,7 +97,9 @@ export class SQLite3MigrationDriver extends MigrationDriver {
     values: string[]
   ): string {
     // SQLite uses TEXT with CHECK constraint for enum validation
-    const escapedValues = values.map((v) => `'${v.replace(/'/g, "''")}'`).join(", ");
+    const escapedValues = values
+      .map((v) => `'${v.replace(/'/g, "''")}'`)
+      .join(", ");
     return `TEXT CHECK(${this.escapeIdentifier(columnName)} IN (${escapedValues}))`;
   }
 
@@ -106,6 +108,20 @@ export class SQLite3MigrationDriver extends MigrationDriver {
   // ===========================================================================
 
   protected generateColumnDef(column: ColumnDef): string {
+    // SQLite auto-increment only works with INTEGER PRIMARY KEY
+    // Validate that autoIncrement columns use INTEGER type
+    if (column.autoIncrement && column.type.toUpperCase() !== "INTEGER") {
+      throw new MigrationError(
+        "SQLite auto-increment requires INTEGER type. " +
+          `Column "${column.name}" has type "${column.type}" which is not compatible with auto-increment. ` +
+          "Note: SQLite auto-increment is implicit when using INTEGER PRIMARY KEY.",
+        VibORMErrorCode.INVALID_INPUT,
+        {
+          meta: { column: column.name, type: column.type, autoIncrement: true },
+        }
+      );
+    }
+
     const parts: string[] = [this.escapeIdentifier(column.name), column.type];
 
     if (!column.nullable) {
@@ -185,7 +201,7 @@ export class SQLite3MigrationDriver extends MigrationDriver {
         // New NOT NULL column without default - INSERT will fail
         throw new MigrationError(
           `Cannot add NOT NULL column "${col.name}" without a default value during table recreation. ` +
-            `SQLite requires a default value or nullable column for table recreation.`,
+            "SQLite requires a default value or nullable column for table recreation.",
           VibORMErrorCode.FEATURE_NOT_SUPPORTED
         );
       }
@@ -292,7 +308,10 @@ export class SQLite3MigrationDriver extends MigrationDriver {
   /**
    * Gets the current table definition from the schema context.
    */
-  protected getCurrentTable(tableName: string, context?: DDLContext): TableDef | undefined {
+  protected getCurrentTable(
+    tableName: string,
+    context?: DDLContext
+  ): TableDef | undefined {
     return context?.currentSchema?.tables.find((t) => t.name === tableName);
   }
 
@@ -307,7 +326,11 @@ export class SQLite3MigrationDriver extends MigrationDriver {
     // Create indexes separately
     for (const idx of table.indexes) {
       statements.push(
-        this.generateCreateIndex({ type: "createIndex", tableName: table.name, index: idx })
+        this.generateCreateIndex({
+          type: "createIndex",
+          tableName: table.name,
+          index: idx,
+        })
       );
     }
 
@@ -347,7 +370,7 @@ export class SQLite3MigrationDriver extends MigrationDriver {
     if (!currentTable) {
       throw new Error(
         `Cannot alter column: table "${op.tableName}" not found in current schema. ` +
-          `Pass currentSchema in DDLContext or call setCurrentSchema() before generating DDL.`
+          "Pass currentSchema in DDLContext or call setCurrentSchema() before generating DDL."
       );
     }
 
@@ -391,12 +414,15 @@ export class SQLite3MigrationDriver extends MigrationDriver {
   // DDL GENERATION - Foreign Key Operations (require table recreation)
   // ===========================================================================
 
-  generateAddForeignKey(op: AddForeignKeyOperation, context?: DDLContext): string {
+  generateAddForeignKey(
+    op: AddForeignKeyOperation,
+    context?: DDLContext
+  ): string {
     const currentTable = this.getCurrentTable(op.tableName, context);
     if (!currentTable) {
       throw new Error(
         `Cannot add foreign key: table "${op.tableName}" not found in current schema. ` +
-          `Pass currentSchema in DDLContext or call setCurrentSchema() before generating DDL.`
+          "Pass currentSchema in DDLContext or call setCurrentSchema() before generating DDL."
       );
     }
 
@@ -408,18 +434,23 @@ export class SQLite3MigrationDriver extends MigrationDriver {
     return this.generateTableRecreation(op.tableName, newTable, currentTable);
   }
 
-  generateDropForeignKey(op: DropForeignKeyOperation, context?: DDLContext): string {
+  generateDropForeignKey(
+    op: DropForeignKeyOperation,
+    context?: DDLContext
+  ): string {
     const currentTable = this.getCurrentTable(op.tableName, context);
     if (!currentTable) {
       throw new Error(
         `Cannot drop foreign key: table "${op.tableName}" not found in current schema. ` +
-          `Pass currentSchema in DDLContext or call setCurrentSchema() before generating DDL.`
+          "Pass currentSchema in DDLContext or call setCurrentSchema() before generating DDL."
       );
     }
 
     const newTable: TableDef = {
       ...currentTable,
-      foreignKeys: currentTable.foreignKeys.filter((fk) => fk.name !== op.fkName),
+      foreignKeys: currentTable.foreignKeys.filter(
+        (fk) => fk.name !== op.fkName
+      ),
     };
 
     return this.generateTableRecreation(op.tableName, newTable, currentTable);
@@ -445,12 +476,15 @@ export class SQLite3MigrationDriver extends MigrationDriver {
   // DDL GENERATION - Primary Key Operations (require table recreation)
   // ===========================================================================
 
-  generateAddPrimaryKey(op: AddPrimaryKeyOperation, context?: DDLContext): string {
+  generateAddPrimaryKey(
+    op: AddPrimaryKeyOperation,
+    context?: DDLContext
+  ): string {
     const currentTable = this.getCurrentTable(op.tableName, context);
     if (!currentTable) {
       throw new Error(
         `Cannot add primary key: table "${op.tableName}" not found in current schema. ` +
-          `Pass currentSchema in DDLContext or call setCurrentSchema() before generating DDL.`
+          "Pass currentSchema in DDLContext or call setCurrentSchema() before generating DDL."
       );
     }
 
@@ -462,12 +496,15 @@ export class SQLite3MigrationDriver extends MigrationDriver {
     return this.generateTableRecreation(op.tableName, newTable, currentTable);
   }
 
-  generateDropPrimaryKey(op: DropPrimaryKeyOperation, context?: DDLContext): string {
+  generateDropPrimaryKey(
+    op: DropPrimaryKeyOperation,
+    context?: DDLContext
+  ): string {
     const currentTable = this.getCurrentTable(op.tableName, context);
     if (!currentTable) {
       throw new Error(
         `Cannot drop primary key: table "${op.tableName}" not found in current schema. ` +
-          `Pass currentSchema in DDLContext or call setCurrentSchema() before generating DDL.`
+          "Pass currentSchema in DDLContext or call setCurrentSchema() before generating DDL."
       );
     }
 
@@ -541,7 +578,9 @@ export class SQLite3MigrationDriver extends MigrationDriver {
     }
 
     // Generate new CHECK constraint
-    const escapedValues = newValues.map((v) => `'${v.replace(/'/g, "''")}'`).join(", ");
+    const escapedValues = newValues
+      .map((v) => `'${v.replace(/'/g, "''")}'`)
+      .join(", ");
 
     for (const dep of dependentColumns) {
       const currentTable = this.getCurrentTable(dep.tableName, context);
@@ -562,7 +601,9 @@ export class SQLite3MigrationDriver extends MigrationDriver {
       });
 
       const newTable: TableDef = { ...currentTable, columns: newColumns };
-      statements.push(this.generateTableRecreation(dep.tableName, newTable, currentTable));
+      statements.push(
+        this.generateTableRecreation(dep.tableName, newTable, currentTable)
+      );
     }
 
     return statements.join(";\n\n");
@@ -582,7 +623,10 @@ export class SQLite3MigrationDriver extends MigrationDriver {
 )`;
   }
 
-  generateInsertMigration(tableName: string): { sql: string; paramCount: number } {
+  generateInsertMigration(tableName: string): {
+    sql: string;
+    paramCount: number;
+  } {
     const table = this.escapeIdentifier(tableName);
     return {
       sql: `INSERT INTO ${table} (name, checksum) VALUES (?, ?)`,
@@ -590,7 +634,10 @@ export class SQLite3MigrationDriver extends MigrationDriver {
     };
   }
 
-  generateDeleteMigration(tableName: string): { sql: string; paramCount: number } {
+  generateDeleteMigration(tableName: string): {
+    sql: string;
+    paramCount: number;
+  } {
     const table = this.escapeIdentifier(tableName);
     return {
       sql: `DELETE FROM ${table} WHERE name = ?`,

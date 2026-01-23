@@ -135,14 +135,17 @@ export async function resolveAmbiguousChanges(
   desiredSnapshot: SchemaSnapshot,
   resolver: Resolver
 ): Promise<DiffOperation[]> {
-  let finalOperations = [...diffResult.operations];
+  const finalOperations = [...diffResult.operations];
 
   if (diffResult.ambiguousChanges.length === 0) {
     return finalOperations;
   }
 
   const resolutions = await resolver(diffResult.ambiguousChanges);
-  const resolvedOps = applyResolutions(diffResult.ambiguousChanges, resolutions);
+  const resolvedOps = applyResolutions(
+    diffResult.ambiguousChanges,
+    resolutions
+  );
   finalOperations.push(...resolvedOps);
 
   // For table renames resolved as addAndDrop, add the createTable
@@ -365,7 +368,9 @@ export const addDropResolver: ResolveCallback = async (change) => {
  * ```
  */
 export function createUnifiedResolver(
-  decide: (change: ResolveChange) => Promise<"proceed" | "reject" | "rename" | "addAndDrop" | "enumMapped">
+  decide: (
+    change: ResolveChange
+  ) => Promise<"proceed" | "reject" | "rename" | "addAndDrop" | "enumMapped">
 ): ResolveCallback {
   return decide;
 }

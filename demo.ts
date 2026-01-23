@@ -235,6 +235,7 @@ function formatDuration(microseconds: number): string {
 
 import { MemoryCache } from "@cache";
 import { PGlite } from "@electric-sql/pglite";
+import { push } from "@migrations/push";
 import { VibORM } from "./src/client/client";
 import { PGliteDriver } from "./src/drivers/pglite";
 import { s } from "./src/schema";
@@ -246,16 +247,8 @@ const user = s.model({
 });
 
 const pglite = new PGlite();
-const driver = new PGliteDriver({ client: pglite });
+const driver = new PGliteDriver({ client: pglite, dataDir: "memory://" });
 async function main() {
-  await pglite.exec(`
-    CREATE TABLE IF NOT EXISTS "user" (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      email TEXT NOT NULL UNIQUE
-    )
-  `);
-
   const clientInstantStart = performance.now();
   const client = VibORM.create({
     schema: { user },
@@ -268,57 +261,83 @@ async function main() {
         error: true,
         cache: true,
       },
-      tracing: true,
+      tracing: {
+        includeSql: false,
+      },
     },
   });
+
   const clientInstantEnd = performance.now();
-  console.log(`Client creation took ${clientInstantEnd - clientInstantStart}ms`);
+  await push(client);
+  console.log(
+    `Client creation took ${clientInstantEnd - clientInstantStart}ms`
+  );
 
   console.log("\n--- findMany ---\n");
 
-  await client
-    .user.findMany({
-      where: {
-        AND: [{
+  const query = client.user.findMany();
+  await client.user.findMany({
+    where: {
+      AND: [
+        {
           email: {
-            contains: "example.com"
+            contains: "example.com",
           },
           id: {
-            endsWith: "123"
+            endsWith: "123",
           },
-
-        }],
-        OR: [{
+        },
+      ],
+      OR: [
+        {
           name: {
-            startsWith: "Alice"
-          }
-        }]
-      },
-
-
-    });
+            startsWith: "Alice",
+          },
+        },
+      ],
+    },
+  });
   await client
     .$withCache({ key: "users", ttl: "1 second", swr: true })
     .user.findMany();
   await new Promise((resolve) => setTimeout(resolve, 1200));
   await client.$withCache({ key: "users", swr: true }).user.findMany();
 
+  await client.$transaction(async (tx) => {
+    await tx.user.create({
+      data: { id: "user-1", name: "Alice", email: "alice@example.com" },
+    });
 
-  await client.$transaction(async tx => {
+    const u = await tx.user.findUnique({
+      where: { id: "user-1" },
+    });
 
+    console.log(u);
+  });
 
+  console.log("\n--- Batch Transaction ---\n");
 
-  await tx.user.create({
-    data: { id: "user-1", name: "Alice", email: "alice@example.com" },
-  })
+  // Batch transaction: multiple operations executed together
+  const [allUsers, userCount] = await client.$transaction([
+    client.user.findMany(),
+    client.user.count(),
+  ]);
 
-  const u = await tx.user.findUnique({
-    where: { id: "user-1" }
+  console.log(`Found ${userCount} users:`, allUsers);
 
-  })
+  // Another batch with create operations
+  await client.$transaction([
+    client.user.create({
+      data: { id: "user-2", name: "Bob", email: "bob@example.com" },
+    }),
+    client.user.create({
+      data: { id: "user-3", name: "Charlie", email: "charlie@example.com" },
+    }),
+  ]);
 
-    console.log(u)
-    })
+  // Verify the batch creates worked
+  const finalCount = await client.user.count();
+  console.log(`Total users after batch create: ${finalCount}`);
 
   // console.log("\n--- create ---\n");
   // await client.user.create({

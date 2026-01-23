@@ -272,7 +272,9 @@ export class Model<State extends ModelState> {
       state: this.state,
       /** Cached model schemas (computed once on first access) */
       get schemas() {
-        return (model._schemas ??= new ModelSchemas(model.state) as ModelSchemas<State>);
+        return (model._schemas ??= new ModelSchemas(
+          model.state
+        ) as ModelSchemas<State>);
       },
       names: this._names,
       nameRegistry: this._nameRegistry,

@@ -1,6 +1,9 @@
 // Mutation operation args schema factories
 
-import { type CacheInvalidationSchema, cacheInvalidationSchema } from "@cache/schema";
+import {
+  type CacheInvalidationSchema,
+  cacheInvalidationSchema,
+} from "@cache/schema";
 import v, { type V } from "@validation";
 import type { ModelState } from "../../model";
 import type { CoreSchemas } from "../core";

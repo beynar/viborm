@@ -9,7 +9,7 @@ import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { Driver } from "@drivers";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
-import { s, hydrateSchemaNames } from "@schema";
+import { hydrateSchemaNames, s } from "@schema";
 import { beforeAll, describe, expect, test } from "vitest";
 
 // =============================================================================
@@ -38,7 +38,10 @@ class MockDriver extends Driver<null, null> {
     return { rows: [], rowCount: 0 };
   }
 
-  protected async transaction<T>(_client: null, fn: () => Promise<T>): Promise<T> {
+  protected async transaction<T>(
+    _client: null,
+    fn: () => Promise<T>
+  ): Promise<T> {
     return fn();
   }
 }

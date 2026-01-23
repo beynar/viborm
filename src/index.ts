@@ -1,24 +1,40 @@
 // VibORM - Main Entry Point
 // TypeScript ORM for Postgres and MySQL
 
-export type { VibORMClient, VibORMConfig } from "@client/client.js";
-export { createClient } from "@client/client.js";
-export type { CachedClient, CacheableOperations, MutationOperations, WaitUntilFn } from "@client/types.js";
+export type {
+  CacheEntry,
+  CacheInvalidationOptions,
+  CacheSetOptions,
+  WithCacheOptions,
+} from "@cache/index.js";
 // Cache
 export {
   CacheDriver,
   CloudflareKVCache,
-  MemoryCache,
   generateCacheKey,
   generateCachePrefix,
+  MemoryCache,
   parseTTL,
 } from "@cache/index.js";
+export type { VibORMClient, VibORMConfig } from "@client/client.js";
+export { createClient } from "@client/client.js";
+export {
+  isPendingOperation,
+  PendingOperation,
+  type UnwrapPendingOperation,
+  type UnwrapPendingOperations,
+} from "@client/pending-operation.js";
 export type {
-  CacheEntry,
-  CacheSetOptions,
-  WithCacheOptions,
-  CacheInvalidationOptions,
-} from "@cache/index.js";
+  QueryMetadata,
+  RawQueryResult,
+  ResultParser,
+} from "@query-engine/types.js";
+export type {
+  CacheableOperations,
+  CachedClient,
+  MutationOperations,
+  WaitUntilFn,
+} from "@client/types.js";
 // Instrumentation
 export type {
   InstrumentationConfig,

@@ -6,8 +6,8 @@
  */
 
 import type { Field, FieldState } from "@schema/fields";
-import type { ColumnDef, SchemaSnapshot } from "../../types";
-import { getPostgresType } from "../type-mapping";
+import { MigrationError, VibORMErrorCode } from "../../../errors";
+import type { ColumnDef } from "../../types";
 import {
   type AddColumnOperation,
   type AddForeignKeyOperation,
@@ -30,6 +30,7 @@ import {
   type RenameColumnOperation,
   type RenameTableOperation,
 } from "../base";
+import { getPostgresType } from "../type-mapping";
 import type { MigrationCapabilities } from "../types";
 import { introspect } from "./introspect";
 
@@ -106,21 +107,45 @@ export class PostgresMigrationDriver extends MigrationDriver {
   // ===========================================================================
 
   /**
+   * PostgreSQL integer types that support SERIAL auto-increment.
+   */
+  private static readonly SERIAL_TYPE_MAP: Record<string, string> = {
+    integer: "SERIAL",
+    int4: "SERIAL",
+    int: "SERIAL",
+    bigint: "BIGSERIAL",
+    int8: "BIGSERIAL",
+    smallint: "SMALLSERIAL",
+    int2: "SMALLSERIAL",
+  };
+
+  /**
    * Formats the column type for PostgreSQL.
    * Handles SERIAL types for auto-increment and enum type escaping.
    */
   protected override formatColumnType(column: ColumnDef): string {
     // Handle auto-increment with SERIAL types
     if (column.autoIncrement) {
-      if (column.type === "integer" || column.type === "int4") {
-        return "SERIAL";
+      const normalizedType = column.type.toLowerCase();
+      const serialType =
+        PostgresMigrationDriver.SERIAL_TYPE_MAP[normalizedType];
+
+      if (!serialType) {
+        throw new MigrationError(
+          "PostgreSQL auto-increment (SERIAL) requires an integer type (INTEGER, BIGINT, SMALLINT). " +
+            `Column "${column.name}" has type "${column.type}" which is not compatible with auto-increment.`,
+          VibORMErrorCode.INVALID_INPUT,
+          {
+            meta: {
+              column: column.name,
+              type: column.type,
+              autoIncrement: true,
+            },
+          }
+        );
       }
-      if (column.type === "bigint" || column.type === "int8") {
-        return "BIGSERIAL";
-      }
-      if (column.type === "smallint" || column.type === "int2") {
-        return "SMALLSERIAL";
-      }
+
+      return serialType;
     }
 
     // Handle enum types (need to be escaped as identifiers)
@@ -170,13 +195,21 @@ export class PostgresMigrationDriver extends MigrationDriver {
 
     for (const idx of table.indexes) {
       statements.push(
-        this.generateCreateIndex({ type: "createIndex", tableName: table.name, index: idx })
+        this.generateCreateIndex({
+          type: "createIndex",
+          tableName: table.name,
+          index: idx,
+        })
       );
     }
 
     for (const fk of table.foreignKeys) {
       statements.push(
-        this.generateAddForeignKey({ type: "addForeignKey", tableName: table.name, fk })
+        this.generateAddForeignKey({
+          type: "addForeignKey",
+          tableName: table.name,
+          fk,
+        })
       );
     }
 
@@ -222,17 +255,25 @@ export class PostgresMigrationDriver extends MigrationDriver {
 
     if (from.nullable !== to.nullable) {
       if (to.nullable) {
-        statements.push(`ALTER TABLE ${table} ALTER COLUMN ${col} DROP NOT NULL`);
+        statements.push(
+          `ALTER TABLE ${table} ALTER COLUMN ${col} DROP NOT NULL`
+        );
       } else {
-        statements.push(`ALTER TABLE ${table} ALTER COLUMN ${col} SET NOT NULL`);
+        statements.push(
+          `ALTER TABLE ${table} ALTER COLUMN ${col} SET NOT NULL`
+        );
       }
     }
 
     if (from.default !== to.default) {
       if (to.default === undefined) {
-        statements.push(`ALTER TABLE ${table} ALTER COLUMN ${col} DROP DEFAULT`);
+        statements.push(
+          `ALTER TABLE ${table} ALTER COLUMN ${col} DROP DEFAULT`
+        );
       } else {
-        statements.push(`ALTER TABLE ${table} ALTER COLUMN ${col} SET DEFAULT ${to.default}`);
+        statements.push(
+          `ALTER TABLE ${table} ALTER COLUMN ${col} SET DEFAULT ${to.default}`
+        );
       }
     }
 
@@ -264,16 +305,28 @@ export class PostgresMigrationDriver extends MigrationDriver {
   // DDL GENERATION - Foreign Key Operations
   // ===========================================================================
 
-  generateAddForeignKey(op: AddForeignKeyOperation, _context?: DDLContext): string {
+  generateAddForeignKey(
+    op: AddForeignKeyOperation,
+    _context?: DDLContext
+  ): string {
     const { tableName, fk } = op;
     const cols = fk.columns.map((c) => this.escapeIdentifier(c)).join(", ");
-    const refCols = fk.referencedColumns.map((c) => this.escapeIdentifier(c)).join(", ");
-    const onDelete = fk.onDelete ? ` ON DELETE ${this.formatReferentialAction(fk.onDelete)}` : "";
-    const onUpdate = fk.onUpdate ? ` ON UPDATE ${this.formatReferentialAction(fk.onUpdate)}` : "";
+    const refCols = fk.referencedColumns
+      .map((c) => this.escapeIdentifier(c))
+      .join(", ");
+    const onDelete = fk.onDelete
+      ? ` ON DELETE ${this.formatReferentialAction(fk.onDelete)}`
+      : "";
+    const onUpdate = fk.onUpdate
+      ? ` ON UPDATE ${this.formatReferentialAction(fk.onUpdate)}`
+      : "";
     return `ALTER TABLE ${this.escapeIdentifier(tableName)} ADD CONSTRAINT ${this.escapeIdentifier(fk.name)} FOREIGN KEY (${cols}) REFERENCES ${this.escapeIdentifier(fk.referencedTable)} (${refCols})${onDelete}${onUpdate}`;
   }
 
-  generateDropForeignKey(op: DropForeignKeyOperation, _context?: DDLContext): string {
+  generateDropForeignKey(
+    op: DropForeignKeyOperation,
+    _context?: DDLContext
+  ): string {
     return `ALTER TABLE ${this.escapeIdentifier(op.tableName)} DROP CONSTRAINT ${this.escapeIdentifier(op.fkName)}`;
   }
 
@@ -283,7 +336,9 @@ export class PostgresMigrationDriver extends MigrationDriver {
 
   generateAddUniqueConstraint(op: AddUniqueConstraintOperation): string {
     const { tableName, constraint } = op;
-    const cols = constraint.columns.map((c) => this.escapeIdentifier(c)).join(", ");
+    const cols = constraint.columns
+      .map((c) => this.escapeIdentifier(c))
+      .join(", ");
     return `ALTER TABLE ${this.escapeIdentifier(tableName)} ADD CONSTRAINT ${this.escapeIdentifier(constraint.name)} UNIQUE (${cols})`;
   }
 
@@ -295,16 +350,24 @@ export class PostgresMigrationDriver extends MigrationDriver {
   // DDL GENERATION - Primary Key Operations
   // ===========================================================================
 
-  generateAddPrimaryKey(op: AddPrimaryKeyOperation, _context?: DDLContext): string {
+  generateAddPrimaryKey(
+    op: AddPrimaryKeyOperation,
+    _context?: DDLContext
+  ): string {
     const { tableName, primaryKey } = op;
-    const cols = primaryKey.columns.map((c) => this.escapeIdentifier(c)).join(", ");
+    const cols = primaryKey.columns
+      .map((c) => this.escapeIdentifier(c))
+      .join(", ");
     const name = primaryKey.name
       ? this.escapeIdentifier(primaryKey.name)
       : this.escapeIdentifier(`${tableName}_pkey`);
     return `ALTER TABLE ${this.escapeIdentifier(tableName)} ADD CONSTRAINT ${name} PRIMARY KEY (${cols})`;
   }
 
-  generateDropPrimaryKey(op: DropPrimaryKeyOperation, _context?: DDLContext): string {
+  generateDropPrimaryKey(
+    op: DropPrimaryKeyOperation,
+    _context?: DDLContext
+  ): string {
     return `ALTER TABLE ${this.escapeIdentifier(op.tableName)} DROP CONSTRAINT ${this.escapeIdentifier(op.constraintName)}`;
   }
 
@@ -336,7 +399,10 @@ export class PostgresMigrationDriver extends MigrationDriver {
 )`;
   }
 
-  generateInsertMigration(tableName: string): { sql: string; paramCount: number } {
+  generateInsertMigration(tableName: string): {
+    sql: string;
+    paramCount: number;
+  } {
     const table = this.escapeIdentifier(tableName);
     return {
       sql: `INSERT INTO ${table} (name, checksum) VALUES ($1, $2)`,
@@ -344,7 +410,10 @@ export class PostgresMigrationDriver extends MigrationDriver {
     };
   }
 
-  generateDeleteMigration(tableName: string): { sql: string; paramCount: number } {
+  generateDeleteMigration(tableName: string): {
+    sql: string;
+    paramCount: number;
+  } {
     const table = this.escapeIdentifier(tableName);
     return {
       sql: `DELETE FROM ${table} WHERE name = $1`,
@@ -459,7 +528,8 @@ export class PostgresMigrationDriver extends MigrationDriver {
 
           if (replacement !== undefined) {
             for (const { tableName, columnName } of dependentColumns) {
-              const newValue = replacement === null ? "NULL" : this.escapeValue(replacement);
+              const newValue =
+                replacement === null ? "NULL" : this.escapeValue(replacement);
               statements.push(
                 `UPDATE ${this.escapeIdentifier(tableName)} SET ${this.escapeIdentifier(columnName)} = ${newValue} WHERE ${this.escapeIdentifier(columnName)} = ${this.escapeValue(removedValue)}`
               );

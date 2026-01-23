@@ -85,14 +85,16 @@ const schema = {
 // TEST SETUP
 // =============================================================================
 
-let client: Awaited<ReturnType<typeof PGliteCreateClient<{ schema: typeof schema }>>>;
+let client: Awaited<
+  ReturnType<typeof PGliteCreateClient<{ schema: typeof schema }>>
+>;
 
 beforeAll(async () => {
   const { PGlite } = await import("@electric-sql/pglite");
   const pglite = new PGlite();
   client = await PGliteCreateClient({ schema, client: pglite });
   // Migration now automatically creates junction tables for many-to-many relations
-  await push(client.$driver, schema, { force: true });
+  await push(client, { force: true });
 });
 
 afterAll(async () => {

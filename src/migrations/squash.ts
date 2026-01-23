@@ -7,9 +7,12 @@
 
 import { MigrationError, VibORMErrorCode } from "../errors";
 import { MigrationContext, type MigrationContextOptions } from "./context";
-import { formatMigrationContent, parseStatements } from "./generate/file-writer";
-import { createMigrationEntry, formatMigrationFilename } from "./storage";
+import {
+  formatMigrationContent,
+  parseStatements,
+} from "./generate/file-writer";
 import type { MigrationClient } from "./push";
+import { createMigrationEntry, formatMigrationFilename } from "./storage";
 import type { MigrationEntry, MigrationJournal } from "./types";
 
 // =============================================================================
@@ -121,20 +124,33 @@ export async function squash(
   // Generate migration name
   const migrationName = name || `squash-${from}-to-${maxIdx}`;
 
+  // Create placeholder entry for initial content formatting (checksum computed from content)
+  const placeholderEntry: MigrationEntry = {
+    idx: 0,
+    version: "",
+    name: migrationName,
+    when: Date.now(),
+    checksum: "",
+  };
+
   // Create the new entry
   const content = formatMigrationContent(
-    { idx: 0, version: "", name: migrationName, when: Date.now(), checksum: "" },
+    placeholderEntry,
     allStatements,
     ctx.dialect
   );
   const newEntry = createMigrationEntry(0, migrationName, content);
 
   // Re-format with actual checksum
-  const finalContent = formatMigrationContent(newEntry, allStatements, ctx.dialect);
+  const finalContent = formatMigrationContent(
+    newEntry,
+    allStatements,
+    ctx.dialect
+  );
 
   if (dryRun) {
     return {
-      entry: newEntry,
+      entry: { ...newEntry, idx: from },
       squashedCount: entriesToSquash.length,
       sql: allStatements,
     };
@@ -151,13 +167,13 @@ export async function squash(
     );
 
     if (squashedAppliedEntries.length > 0) {
-      await ctx.transaction(async () => {
+      await ctx.transaction(async (txCtx) => {
         // Delete old entries from tracking table
         for (const entry of squashedAppliedEntries) {
-          await ctx.deleteMigration(entry.name);
+          await txCtx.deleteMigration(entry.name);
         }
         // Insert new squashed entry
-        await ctx.markMigrationApplied(newEntry);
+        await txCtx.markMigrationApplied(newEntry);
       });
     }
 

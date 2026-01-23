@@ -1,0 +1,82 @@
+---
+title: MySQL2
+description: MySQL driver using mysql2 with connection pooling
+---
+
+## Installation
+
+```bash
+pnpm add mysql2
+```
+
+## Configuration
+
+```typescript
+import { createClient } from "viborm/drivers/mysql2";
+
+const client = createClient({
+  databaseUrl: "mysql://user:password@localhost:3306/database",
+  schema,
+});
+```
+
+## Options
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `pool` | `Pool` | Existing mysql2 pool instance |
+| `options` | `PoolOptions` | mysql2 pool configuration |
+| `databaseUrl` | `string` | MySQL connection URL |
+
+### Using Pool Options
+
+```typescript
+import { createClient } from "viborm/drivers/mysql2";
+
+const client = createClient({
+  options: {
+    host: "localhost",
+    port: 3306,
+    user: "root",
+    password: "password",
+    database: "mydb",
+    connectionLimit: 10,
+  },
+  schema,
+});
+```
+
+### Using Existing Pool
+
+```typescript
+import { createPool } from "mysql2/promise";
+import { createClient } from "viborm/drivers/mysql2";
+
+const pool = createPool({
+  host: "localhost",
+  user: "root",
+  database: "mydb",
+});
+
+const client = createClient({
+  pool,
+  schema,
+});
+```
+
+## Transactions
+
+MySQL2 supports full transactions with savepoints for nested transactions.
+
+```typescript
+await client.$transaction(async (tx) => {
+  await tx.user.create({ data: { name: "Alice" } });
+  await tx.post.create({ data: { title: "Hello", authorId: "..." } });
+});
+```
+
+## Limitations
+
+- No `RETURNING` clause - VibORM uses `LAST_INSERT_ID()` for inserts
+- JSON columns return as strings and are parsed automatically
+- Boolean values stored as `TINYINT(1)`

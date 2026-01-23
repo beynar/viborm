@@ -96,7 +96,9 @@ const schema = { parentModel, childModel };
 // TEST SETUP
 // =============================================================================
 
-let client: Awaited<ReturnType<typeof PGliteCreateClient<{ schema: typeof schema }>>>;
+let client: Awaited<
+  ReturnType<typeof PGliteCreateClient<{ schema: typeof schema }>>
+>;
 
 // Test data
 const testDate = new Date("2024-06-15T14:30:00.000Z");
@@ -107,7 +109,7 @@ beforeAll(async () => {
   const { PGlite } = await import("@electric-sql/pglite");
   const pglite = new PGlite();
   client = await PGliteCreateClient({ schema, client: pglite });
-  await push(client.$driver, schema, { force: true });
+  await push(client, { force: true });
 });
 
 afterAll(async () => {

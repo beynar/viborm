@@ -11,7 +11,6 @@
 
 // Driver base class and helpers (no node:fs dependency)
 export {
-  MigrationStorageDriver,
   addJournalEntry,
   calculateChecksum,
   createEmptyJournal,
@@ -21,6 +20,7 @@ export {
   formatMigrationPath,
   generateVersion,
   getNextMigrationIndex,
+  MigrationStorageDriver,
   toKebabCase,
   validateJournalDialect,
 } from "./driver";

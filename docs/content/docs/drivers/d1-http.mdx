@@ -1,0 +1,94 @@
+---
+title: Cloudflare D1 HTTP
+description: SQLite driver for Cloudflare D1 using the REST API
+---
+
+## Configuration
+
+```typescript
+import { createClient } from "viborm/drivers/d1-http";
+
+const client = createClient({
+  accountId: process.env.CLOUDFLARE_ACCOUNT_ID,
+  databaseId: process.env.D1_DATABASE_ID,
+  apiToken: process.env.CLOUDFLARE_API_TOKEN,
+  schema,
+});
+```
+
+## Options
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `accountId` | `string` | Cloudflare account ID |
+| `databaseId` | `string` | D1 database ID |
+| `apiToken` | `string` | Cloudflare API token with D1 permissions |
+| `baseUrl` | `string` | API base URL (default: `https://api.cloudflare.com/client/v4`) |
+
+### API Token Permissions
+
+Create an API token with the following permissions:
+- Account > D1 > Edit
+
+## Use Cases
+
+Use D1 HTTP when you need to access D1 from:
+- Node.js applications
+- Serverless functions (AWS Lambda, Vercel, etc.)
+- Any environment outside Cloudflare Workers
+
+For Cloudflare Workers, prefer the [D1 bindings driver](/docs/drivers/d1).
+
+## Transactions & Batching
+
+D1 HTTP API does **not** support traditional dynamic transactions, but VibORM provides full support for **batch mode** using D1's HTTP batch endpoint.
+
+### Batch Mode (Recommended)
+
+Use the array API for atomic operations - VibORM sends all queries in a single HTTP request:
+
+```typescript
+// Atomic execution using D1 HTTP batch endpoint
+const [user, post] = await client.$transaction([
+  client.user.create({ data: { name: "Alice", email: "alice@example.com" } }),
+  client.post.create({ data: { title: "Hello", authorId: "preset-id" } }),
+]);
+```
+
+### Dynamic Transactions
+
+Dynamic transactions (callback API) will execute sequentially with a warning:
+
+```typescript
+// Warning: Operations execute without isolation
+await client.$transaction(async (tx) => {
+  const user = await tx.user.create({ data: { name: "Alice" } });
+  await tx.post.create({ data: { title: "Hello", authorId: user.id } });
+});
+```
+
+<Callout type="warn">
+For D1 HTTP, prefer batch mode (`$transaction([...])`) over callback mode when operations are independent. Batch mode provides atomicity through D1's HTTP batch endpoint.
+</Callout>
+
+### Migrations
+
+Migrations run atomically on D1 HTTP using the batch endpoint - all statements succeed or none are applied.
+
+## Capabilities
+
+| Feature | Support |
+|---------|---------|
+| Dynamic transactions | Sequential with warning |
+| Batch mode | Full (HTTP batch endpoint) |
+| Migration atomicity | Full |
+
+## Limitations
+
+- **No transaction isolation** - Other connections may see intermediate state
+- **No read-your-writes in batch** - Operations must be independent
+- Higher latency than D1 bindings (HTTP overhead)
+- Requires API token management
+- SQLite dialect - no `LATERAL` joins, limited `FULL OUTER JOIN`
+- JSON columns return as strings and are parsed automatically
+- Boolean values stored as integers (0/1)

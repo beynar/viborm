@@ -126,7 +126,10 @@ export function createPerfTracker(enabled = true): PerfTracker {
     }
   }
 
-  async function measureAsync<T>(name: string, fn: () => Promise<T>): Promise<T> {
+  async function measureAsync<T>(
+    name: string,
+    fn: () => Promise<T>
+  ): Promise<T> {
     if (!enabled) return fn();
 
     start(name);
@@ -226,7 +229,7 @@ export function createPerfTracker(enabled = true): PerfTracker {
 export function formatPerfReport(report: PerfReport): string {
   const lines: string[] = [];
 
-  lines.push(`\n=== Performance Report ===`);
+  lines.push("\n=== Performance Report ===");
   lines.push(`Total: ${report.totalMs.toFixed(3)}ms\n`);
 
   // Timeline view

@@ -185,14 +185,16 @@ const schema = { allFieldsModel };
 // TEST SETUP
 // =============================================================================
 
-let client: Awaited<ReturnType<typeof PGliteCreateClient<{ schema: typeof schema }>>>;
+let client: Awaited<
+  ReturnType<typeof PGliteCreateClient<{ schema: typeof schema }>>
+>;
 
 beforeAll(async () => {
   // Use in-memory PGlite
   const { PGlite } = await import("@electric-sql/pglite");
   const pglite = new PGlite();
   client = await PGliteCreateClient({ schema, client: pglite });
-  await push(client.$driver, schema, { force: true });
+  await push(client, { force: true });
 });
 
 afterAll(async () => {

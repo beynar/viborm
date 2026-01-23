@@ -7,8 +7,8 @@
 
 import * as p from "@clack/prompts";
 import { Command } from "commander";
-import { MigrationError, isMigrationError } from "../errors";
-import { formatDuration, loadConfig, type LoadedConfig } from "./utils";
+import { isMigrationError } from "../errors";
+import { formatDuration, type LoadedConfig, loadConfig } from "./utils";
 
 // =============================================================================
 // TYPES

@@ -3,9 +3,17 @@
  *
  * Wraps OpenTelemetry API with graceful fallback when not available.
  * Follows Drizzle's pattern: optional dependency, no-op when unavailable.
+ *
+ * Key design: createTracerWrapper() ALWAYS returns a tracer - either a real
+ * one (when OTel is available) or a no-op tracer. This eliminates the need
+ * for conditional `if (tracer)` checks throughout the codebase.
  */
 
-import { ATTR_DB_QUERY_PARAMETER_PREFIX, ATTR_DB_QUERY_TEXT, type VibORMSpanName } from "./spans";
+import {
+  ATTR_DB_QUERY_PARAMETER_PREFIX,
+  ATTR_DB_QUERY_TEXT,
+  type VibORMSpanName,
+} from "./spans";
 
 /**
  * OpenTelemetry types (imported dynamically)
@@ -50,11 +58,14 @@ export interface TracerWrapperConfig {
 
 /**
  * Tracer wrapper interface
+ *
+ * All methods are safe to call regardless of whether OTel is loaded.
+ * When OTel is not available, methods execute callbacks directly without tracing.
  */
 export interface TracerWrapper {
   /**
-   * Start an active span and execute callback within it
-   * Falls back to direct execution if OTel unavailable
+   * Start an active span and execute callback within it.
+   * When OTel unavailable, executes callback directly.
    */
   startActiveSpan<T>(
     options: VibORMSpanOptions,
@@ -62,8 +73,8 @@ export interface TracerWrapper {
   ): Promise<T>;
 
   /**
-   * Synchronous version for non-async operations
-   * Only works if OTel was pre-loaded, otherwise no-op
+   * Synchronous version for non-async operations.
+   * When OTel unavailable, executes callback directly.
    */
   startActiveSpanSync<T>(options: VibORMSpanOptions, fn: (span?: Span) => T): T;
 
@@ -74,9 +85,34 @@ export interface TracerWrapper {
 }
 
 /**
+ * No-op tracer that passes through callbacks without creating spans.
+ * Used when OpenTelemetry is not available.
+ */
+const noopTracer: TracerWrapper = {
+  async startActiveSpan<T>(
+    _options: VibORMSpanOptions,
+    fn: (span?: Span) => T | Promise<T>
+  ): Promise<T> {
+    return fn();
+  },
+
+  startActiveSpanSync<T>(
+    _options: VibORMSpanOptions,
+    fn: (span?: Span) => T
+  ): T {
+    return fn();
+  },
+
+  isEnabled(): boolean {
+    return false;
+  },
+};
+
+/**
  * Create a tracer wrapper instance
  *
  * All mutable state is scoped to this instance to support serverless environments.
+ * Always returns a valid TracerWrapper - either a real tracer or the no-op tracer.
  */
 export function createTracerWrapper(
   config?: TracerWrapperConfig
@@ -236,4 +272,13 @@ export function createTracerWrapper(
       return otel !== null;
     },
   };
+}
+
+/**
+ * Get the no-op tracer instance.
+ * Use this when you need a tracer that does nothing but still
+ * implements the TracerWrapper interface.
+ */
+export function getNoopTracer(): TracerWrapper {
+  return noopTracer;
 }

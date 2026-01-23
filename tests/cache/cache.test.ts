@@ -1,9 +1,9 @@
-import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { MemoryCache } from "@cache/drivers/memory";
-import { PGlite } from "@electric-sql/pglite";
-import { VibORM, type VibORMClient } from "@client/client";
+import { VibORM } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
+import { PGlite } from "@electric-sql/pglite";
 import { s } from "@schema";
+import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 // Test schema
 const user = s.model({
@@ -58,7 +58,9 @@ describe("Cache", () => {
       expect(result1).toHaveLength(1);
 
       // Add more data directly to DB (bypass ORM)
-      await pglite.exec(`INSERT INTO "user" VALUES ('2', 'Bob', 'bob@test.com')`);
+      await pglite.exec(
+        `INSERT INTO "user" VALUES ('2', 'Bob', 'bob@test.com')`
+      );
 
       // Second call - cache hit (should still return 1 user)
       const result2 = await client
@@ -137,14 +139,20 @@ describe("Cache", () => {
         data: { id: "1", name: "Alice", email: "alice@test.com" },
       });
 
-      const count1 = await client.$withCache({ key: "user-count" }).user.count();
+      const count1 = await client
+        .$withCache({ key: "user-count" })
+        .user.count();
       expect(count1).toBe(1);
 
       // Add more data directly
-      await pglite.exec(`INSERT INTO "user" VALUES ('2', 'Bob', 'bob@test.com')`);
+      await pglite.exec(
+        `INSERT INTO "user" VALUES ('2', 'Bob', 'bob@test.com')`
+      );
 
       // Cache hit - should still return 1
-      const count2 = await client.$withCache({ key: "user-count" }).user.count();
+      const count2 = await client
+        .$withCache({ key: "user-count" })
+        .user.count();
       expect(count2).toBe(1);
     });
 
@@ -196,7 +204,9 @@ describe("Cache", () => {
       expect(result1).toHaveLength(1);
 
       // Add more data
-      await pglite.exec(`INSERT INTO "user" VALUES ('2', 'Bob', 'bob@test.com')`);
+      await pglite.exec(
+        `INSERT INTO "user" VALUES ('2', 'Bob', 'bob@test.com')`
+      );
 
       // Wait for TTL to expire
       await new Promise((r) => setTimeout(r, 100));
@@ -227,7 +237,9 @@ describe("Cache", () => {
       expect(result).toHaveLength(1);
 
       // Should be cached
-      await pglite.exec(`INSERT INTO "user" VALUES ('2', 'Bob', 'bob@test.com')`);
+      await pglite.exec(
+        `INSERT INTO "user" VALUES ('2', 'Bob', 'bob@test.com')`
+      );
       const result2 = await client
         .$withCache({ key: "string-ttl", ttl: "1 hour" })
         .user.findMany();
@@ -257,7 +269,9 @@ describe("Cache", () => {
       await new Promise((r) => setTimeout(r, 50));
 
       // Add more data AFTER cache is stale
-      await pglite.exec(`INSERT INTO "user" VALUES ('2', 'Bob', 'bob@test.com')`);
+      await pglite.exec(
+        `INSERT INTO "user" VALUES ('2', 'Bob', 'bob@test.com')`
+      );
 
       // Should return stale data immediately (SWR pattern)
       const staleResult = await client
@@ -293,7 +307,9 @@ describe("Cache", () => {
       await client.$withCache({ key: "bypass-test" }).user.findMany();
 
       // Add more data
-      await pglite.exec(`INSERT INTO "user" VALUES ('2', 'Bob', 'bob@test.com')`);
+      await pglite.exec(
+        `INSERT INTO "user" VALUES ('2', 'Bob', 'bob@test.com')`
+      );
 
       // Bypass should get fresh data
       const bypassResult = await client
@@ -365,7 +381,9 @@ describe("Cache", () => {
       });
 
       // Use a fresh key to verify new data is fetched
-      const result = await client.$withCache({ key: "user:fresh" }).user.findMany();
+      const result = await client
+        .$withCache({ key: "user:fresh" })
+        .user.findMany();
       expect(result).toHaveLength(2);
     });
 
@@ -388,10 +406,14 @@ describe("Cache", () => {
       await client.$invalidate("my-users");
 
       // Add more data
-      await pglite.exec(`INSERT INTO "user" VALUES ('2', 'Bob', 'bob@test.com')`);
+      await pglite.exec(
+        `INSERT INTO "user" VALUES ('2', 'Bob', 'bob@test.com')`
+      );
 
       // Should get fresh data
-      const result = await client.$withCache({ key: "my-users" }).user.findMany();
+      const result = await client
+        .$withCache({ key: "my-users" })
+        .user.findMany();
       expect(result).toHaveLength(2);
     });
 
@@ -415,13 +437,19 @@ describe("Cache", () => {
       await client.$invalidate("users:*");
 
       // Add more data
-      await pglite.exec(`INSERT INTO "user" VALUES ('2', 'Bob', 'bob@test.com')`);
+      await pglite.exec(
+        `INSERT INTO "user" VALUES ('2', 'Bob', 'bob@test.com')`
+      );
 
       // Both should get fresh data
-      const result = await client.$withCache({ key: "users:all" }).user.findMany();
+      const result = await client
+        .$withCache({ key: "users:all" })
+        .user.findMany();
       expect(result).toHaveLength(2);
 
-      const count = await client.$withCache({ key: "users:count" }).user.count();
+      const count = await client
+        .$withCache({ key: "users:count" })
+        .user.count();
       expect(count).toBe(2);
     });
   });
@@ -432,7 +460,9 @@ describe("Cache", () => {
       const cache1 = new MemoryCache();
       const cache2 = new MemoryCache();
 
-      await pglite.exec(`INSERT INTO "user" VALUES ('1', 'Alice', 'alice@test.com')`);
+      await pglite.exec(
+        `INSERT INTO "user" VALUES ('1', 'Alice', 'alice@test.com')`
+      );
 
       // Client with version 1
       const client1 = VibORM.create({
@@ -451,25 +481,35 @@ describe("Cache", () => {
       });
 
       // Cache with client1
-      const result1 = await client1.$withCache({ key: "users" }).user.findMany();
+      const result1 = await client1
+        .$withCache({ key: "users" })
+        .user.findMany();
       expect(result1).toHaveLength(1);
 
       // Add more data
-      await pglite.exec(`INSERT INTO "user" VALUES ('2', 'Bob', 'bob@test.com')`);
+      await pglite.exec(
+        `INSERT INTO "user" VALUES ('2', 'Bob', 'bob@test.com')`
+      );
 
       // Client2 should miss cache (different cache instance)
-      const result2 = await client2.$withCache({ key: "users" }).user.findMany();
+      const result2 = await client2
+        .$withCache({ key: "users" })
+        .user.findMany();
       expect(result2).toHaveLength(2);
 
       // Client1 should still have cached data
-      const result1Cached = await client1.$withCache({ key: "users" }).user.findMany();
+      const result1Cached = await client1
+        .$withCache({ key: "users" })
+        .user.findMany();
       expect(result1Cached).toHaveLength(1);
     });
 
     it("same cache with different versions isolates keys", async () => {
       const sharedCache = new MemoryCache();
 
-      await pglite.exec(`INSERT INTO "user" VALUES ('1', 'Alice', 'alice@test.com')`);
+      await pglite.exec(
+        `INSERT INTO "user" VALUES ('1', 'Alice', 'alice@test.com')`
+      );
 
       // Client with version 1
       const client1 = VibORM.create({
@@ -483,7 +523,9 @@ describe("Cache", () => {
       await client1.$withCache({ key: "users" }).user.findMany();
 
       // Add more data
-      await pglite.exec(`INSERT INTO "user" VALUES ('2', 'Bob', 'bob@test.com')`);
+      await pglite.exec(
+        `INSERT INTO "user" VALUES ('2', 'Bob', 'bob@test.com')`
+      );
 
       // Client with version 2 (same cache)
       const client2 = VibORM.create({
@@ -494,7 +536,9 @@ describe("Cache", () => {
       });
 
       // Version 2 should miss (different version prefix)
-      const result2 = await client2.$withCache({ key: "users" }).user.findMany();
+      const result2 = await client2
+        .$withCache({ key: "users" })
+        .user.findMany();
       expect(result2).toHaveLength(2);
     });
   });
@@ -508,9 +552,7 @@ describe("Cache", () => {
       });
 
       // @ts-expect-error - Testing runtime error when cache not configured
-      expect(() => client.$withCache()).toThrow(
-        "Cache driver not configured"
-      );
+      expect(() => client.$withCache()).toThrow("Cache driver not configured");
     });
 
     it("throws on non-cacheable operations", async () => {
@@ -524,8 +566,11 @@ describe("Cache", () => {
       const cachedClient = client.$withCache();
 
       // @ts-expect-error - Testing runtime error for non-cacheable operation
-      await expect(cachedClient.user.create({ data: { id: "1", name: "Test", email: "test@test.com" } }))
-        .rejects.toThrow();
+      await expect(
+        cachedClient.user.create({
+          data: { id: "1", name: "Test", email: "test@test.com" },
+        })
+      ).rejects.toThrow();
     });
 
     it("throws on invalid cache options", () => {
@@ -537,10 +582,14 @@ describe("Cache", () => {
       });
 
       // @ts-expect-error - Testing runtime validation of invalid options
-      expect(() => client.$withCache({ ttl: {} })).toThrow("Invalid cache options");
+      expect(() => client.$withCache({ ttl: {} })).toThrow(
+        "Invalid cache options"
+      );
 
       // @ts-expect-error - Testing runtime validation of invalid options
-      expect(() => client.$withCache({ swr: "yes" })).toThrow("Invalid cache options");
+      expect(() => client.$withCache({ swr: "yes" })).toThrow(
+        "Invalid cache options"
+      );
     });
   });
 

@@ -9,15 +9,87 @@ import type { AnyDriver } from "@drivers/driver";
 import type { Model } from "@schema/model";
 import type { AnyRelation } from "@schema/relation";
 
+// Re-export errors from unified error hierarchy
+export {
+  NestedWriteError,
+  QueryEngineError,
+  ValidationError,
+} from "@errors";
 // Re-export Sql for convenience
 export { Sql } from "@sql";
 
-// Re-export errors from unified error hierarchy
-export {
-	ValidationError,
-	QueryEngineError,
-	NestedWriteError,
-} from "@errors";
+// ============================================================
+// BATCH EXECUTION TYPES
+// ============================================================
+
+/**
+ * Raw result from database execution
+ * - For regular queries: array of rows
+ * - For batch operations (createMany, etc.): object with rowCount
+ */
+export type RawQueryResult = unknown[] | { rowCount: number };
+
+/**
+ * Result parser function type
+ * Transforms raw database result into typed application objects
+ */
+export type ResultParser<T> = (raw: RawQueryResult) => T;
+
+/**
+ * Prepared query ready for batch execution
+ */
+export interface PreparedQuery {
+  /** SQL string */
+  sql: string;
+  /** Query parameters */
+  params: unknown[];
+}
+
+/**
+ * Query metadata for lazy execution
+ *
+ * Validation and SQL building are deferred to execution time.
+ * This enables proper span ordering and prepares for future prepared statement support.
+ */
+export interface QueryMetadata<T> {
+  /** Unique identifier for the client that created this operation */
+  clientId: symbol;
+  /** Raw arguments (not yet validated) */
+  args: Record<string, unknown>;
+  /** The operation type */
+  operation: Operation;
+  /** Model name */
+  model: string;
+  /** Function to execute the operation (validates, builds SQL, executes, parses) */
+  execute: (driverOverride?: AnyDriver) => Promise<T>;
+  /**
+   * Function to prepare the query (validate, build SQL) without executing.
+   * Returns the SQL string and parameters for batch execution.
+   * Only available for operations that can be batched (no nested writes).
+   */
+  prepare?: (driverOverride?: AnyDriver) => PreparedQuery;
+  /**
+   * Function to parse raw query result into typed result.
+   * Used after batch execution to transform the raw result.
+   */
+  parseResult?: (raw: { rows: unknown[]; rowCount: number }) => T;
+  /** Whether this is a batch operation (returns rowCount instead of rows) */
+  isBatchOperation: boolean;
+  /** Whether this operation has nested writes (can't be batched) */
+  hasNestedWrites: boolean;
+}
+
+/**
+ * Options for engine.prepare()
+ */
+export interface PrepareOptions {
+  /** Throw NotFoundError if result is null (for OrThrow variants) */
+  throwIfNotFound?: boolean;
+  /** Original operation name for error messages */
+  originalOperation?: string;
+  /** Skip SPAN_OPERATION wrapper (when caller provides its own, e.g., cache driver) */
+  skipSpan?: boolean;
+}
 
 /**
  * All supported operations
@@ -100,7 +172,6 @@ export interface RelationInfo {
   /** Referenced fields on target model */
   references: string[] | undefined;
 }
-
 
 // ============================================================
 // NARROWER TYPE DEFINITIONS

@@ -79,40 +79,42 @@ export async function reset(
 
   return ctx.withLock(async () => {
     // Wrap entire reset in transaction for atomicity
-    return ctx.transaction(async () => {
+    return ctx.transaction(async (txCtx) => {
       const dropped: string[] = [];
       const applied: MigrationEntry[] = [];
 
       // 1. Drop all tables (except system tables)
-      const tables = await getTableNames(ctx);
+      const tables = await getTableNames(txCtx);
 
       // Drop in reverse order to handle foreign key dependencies
       for (const table of tables.reverse()) {
-        if (table === ctx.tableName) {
+        if (table === txCtx.tableName) {
           continue; // Skip migration table, will handle last
         }
 
-        const dropSql = ctx.migrationDriver.generateDropTableSQL(table, true);
-        await ctx.executeRaw(dropSql);
+        const dropSql = txCtx.migrationDriver.generateDropTableSQL(table, true);
+        await txCtx.executeRaw(dropSql);
         dropped.push(table);
       }
 
       // 2. Drop enums (if supported by database)
-      const enums = await getEnumNames(ctx);
+      const enums = await getEnumNames(txCtx);
       for (const enumName of enums) {
-        const dropEnumSql = ctx.migrationDriver.generateDropEnumSQL(enumName);
+        const dropEnumSql = txCtx.migrationDriver.generateDropEnumSQL(enumName);
         if (dropEnumSql) {
-          await ctx.executeRaw(dropEnumSql);
+          await txCtx.executeRaw(dropEnumSql);
         }
       }
 
       // 3. Clear migration tracking table (don't drop, just clear)
-      const clearSql = ctx.migrationDriver.generateClearMigrations(ctx.tableName);
-      await ctx.executeRaw(clearSql);
+      const clearSql = txCtx.migrationDriver.generateClearMigrations(
+        txCtx.tableName
+      );
+      await txCtx.executeRaw(clearSql);
 
       // 4. Re-apply all migrations
       for (const entry of journal.entries) {
-        const content = await ctx.storage.readMigration(entry);
+        const content = await txCtx.storage.readMigration(entry);
         if (!content) {
           throw new MigrationError(
             `Migration file not found: ${entry.name}`,
@@ -122,8 +124,8 @@ export async function reset(
         }
 
         const statements = parseStatements(content);
-        await ctx.executeMigrationStatements(statements);
-        await ctx.markMigrationApplied(entry);
+        await txCtx.executeMigrationStatements(statements);
+        await txCtx.markMigrationApplied(entry);
         applied.push(entry);
       }
 
@@ -144,7 +146,7 @@ export async function reset(
  */
 async function getTableNames(ctx: MigrationContext): Promise<string[]> {
   const sql = ctx.migrationDriver.generateListTables();
-  const rows = await ctx.executor(sql) as Array<{ name: string }>;
+  const rows = (await ctx.executor(sql)) as Array<{ name: string }>;
   return rows.map((r) => r.name);
 }
 
@@ -157,6 +159,6 @@ async function getEnumNames(ctx: MigrationContext): Promise<string[]> {
     return [];
   }
 
-  const rows = await ctx.executor(sql) as Array<{ name: string }>;
+  const rows = (await ctx.executor(sql)) as Array<{ name: string }>;
   return rows.map((r) => r.name);
 }

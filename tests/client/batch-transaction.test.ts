@@ -1,0 +1,1044 @@
+/**
+ * Batch Transaction Tests
+ *
+ * Tests for the Prisma-style $transaction([...]) batch API.
+ * Verifies that operations can be awaited directly or batched together.
+ */
+
+import { createClient } from "@client/client";
+import {
+  isPendingOperation,
+  PendingOperation,
+} from "@client/pending-operation";
+import { PGliteDriver } from "@drivers/pglite";
+import { PGlite } from "@electric-sql/pglite";
+import { s } from "@schema";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from "vitest";
+
+// =============================================================================
+// TEST SCHEMA
+// =============================================================================
+
+const user = s.model({
+  id: s.string().id(),
+  name: s.string(),
+  email: s.string().unique(),
+  posts: s.oneToMany(() => post),
+});
+
+const post = s.model({
+  id: s.string().id(),
+  title: s.string(),
+  authorId: s.string(),
+  author: s
+    .manyToOne(() => user)
+    .fields("authorId")
+    .references("id"),
+});
+
+const schema = { user, post };
+
+// =============================================================================
+// TEST SETUP
+// =============================================================================
+
+let db: PGlite;
+let client: ReturnType<
+  typeof createClient<{ schema: typeof schema; driver: PGliteDriver }>
+>;
+
+beforeAll(async () => {
+  db = new PGlite();
+  const driver = new PGliteDriver({ client: db });
+  client = createClient({ schema, driver });
+
+  // Create tables manually for tests
+  await client.$queryRaw(`
+    CREATE TABLE IF NOT EXISTS "user" (
+      "id" TEXT PRIMARY KEY,
+      "name" TEXT NOT NULL,
+      "email" TEXT NOT NULL UNIQUE
+    )
+  `);
+  await client.$queryRaw(`
+    CREATE TABLE IF NOT EXISTS "post" (
+      "id" TEXT PRIMARY KEY,
+      "title" TEXT NOT NULL,
+      "authorId" TEXT NOT NULL
+    )
+  `);
+});
+
+afterAll(async () => {
+  await client.$disconnect();
+});
+
+beforeEach(async () => {
+  // Clean up data between tests
+  await client.$queryRaw(`DELETE FROM "post"`);
+  await client.$queryRaw(`DELETE FROM "user"`);
+});
+
+// =============================================================================
+// TESTS
+// =============================================================================
+
+describe("PendingOperation", () => {
+  test("model operations return PendingOperation", () => {
+    const operation = client.user.findMany();
+    expect(isPendingOperation(operation)).toBe(true);
+    expect(operation).toBeInstanceOf(PendingOperation);
+  });
+
+  test("PendingOperation can be awaited directly", async () => {
+    // Create a user first
+    await client.user.create({
+      data: { id: "1", name: "Alice", email: "alice@test.com" },
+    });
+
+    // findMany returns PendingOperation that can be awaited
+    const users = await client.user.findMany();
+    expect(users).toHaveLength(1);
+    expect(users[0]!.name).toBe("Alice");
+  });
+
+  test("PendingOperation has execute() method", async () => {
+    await client.user.create({
+      data: { id: "1", name: "Bob", email: "bob@test.com" },
+    });
+
+    const operation = client.user.findMany();
+    const users = await operation.execute();
+    expect(users).toHaveLength(1);
+    expect(users[0]!.name).toBe("Bob");
+  });
+
+  test("canBatch() returns true for simple operations", () => {
+    const findOp = client.user.findMany();
+    expect(findOp.canBatch()).toBe(true);
+
+    const createOp = client.user.create({
+      data: { id: "1", name: "Test", email: "test@test.com" },
+    });
+    expect(createOp.canBatch()).toBe(true);
+  });
+
+  test("canBatch() returns false for nested writes", () => {
+    // Create with nested relation data cannot be precomputed
+    // because it requires multiple queries with runtime-dependent values
+    const nestedCreateOp = client.user.create({
+      data: {
+        id: "1",
+        name: "Test",
+        email: "test@test.com",
+        posts: {
+          create: [{ id: "p1", title: "Post 1", authorId: "1" }],
+        },
+      },
+    });
+    expect(nestedCreateOp.canBatch()).toBe(false);
+  });
+
+  test("canBatch() returns true for simple create without nested writes", () => {
+    const simpleCreateOp = client.user.create({
+      data: { id: "1", name: "Test", email: "test@test.com" },
+    });
+    expect(simpleCreateOp.canBatch()).toBe(true);
+  });
+});
+
+describe("$transaction with callback", () => {
+  test("executes operations within a transaction", async () => {
+    await client.$transaction(async (tx) => {
+      await tx.user.create({
+        data: { id: "1", name: "Charlie", email: "charlie@test.com" },
+      });
+      await tx.post.create({
+        data: { id: "1", title: "Hello World", authorId: "1" },
+      });
+    });
+
+    const users = await client.user.findMany();
+    const posts = await client.post.findMany();
+    expect(users).toHaveLength(1);
+    expect(posts).toHaveLength(1);
+  });
+
+  test("rolls back on error", async () => {
+    try {
+      await client.$transaction(async (tx) => {
+        await tx.user.create({
+          data: { id: "1", name: "Dave", email: "dave@test.com" },
+        });
+        // This should fail due to duplicate email
+        await tx.user.create({
+          data: { id: "2", name: "Dave2", email: "dave@test.com" },
+        });
+      });
+    } catch {
+      // Expected to fail
+    }
+
+    // Neither user should be created due to rollback
+    const users = await client.user.findMany();
+    expect(users).toHaveLength(0);
+  });
+});
+
+describe("$transaction with array (batch mode)", () => {
+  test("executes multiple operations atomically", async () => {
+    // Create users first
+    await client.user.create({
+      data: { id: "1", name: "Eve", email: "eve@test.com" },
+    });
+    await client.user.create({
+      data: { id: "2", name: "Frank", email: "frank@test.com" },
+    });
+
+    // Batch read operations
+    const [users, posts] = await client.$transaction([
+      client.user.findMany(),
+      client.post.findMany(),
+    ]);
+
+    expect(users).toHaveLength(2);
+    expect(posts).toHaveLength(0);
+  });
+
+  test("batches write operations", async () => {
+    const [user1, user2] = await client.$transaction([
+      client.user.create({
+        data: { id: "1", name: "Grace", email: "grace@test.com" },
+      }),
+      client.user.create({
+        data: { id: "2", name: "Henry", email: "henry@test.com" },
+      }),
+    ]);
+
+    expect(user1.name).toBe("Grace");
+    expect(user2.name).toBe("Henry");
+
+    const allUsers = await client.user.findMany();
+    expect(allUsers).toHaveLength(2);
+  });
+
+  test("returns results in correct order", async () => {
+    await client.user.create({
+      data: { id: "1", name: "Ivy", email: "ivy@test.com" },
+    });
+
+    const [count, users, firstUser] = await client.$transaction([
+      client.user.count(),
+      client.user.findMany(),
+      client.user.findFirst(),
+    ]);
+
+    expect(count).toBe(1);
+    expect(users).toHaveLength(1);
+    expect(firstUser?.name).toBe("Ivy");
+  });
+
+  test("rejects non-PendingOperation items", async () => {
+    await expect(
+      // @ts-expect-error - intentionally passing wrong type
+      client.$transaction([Promise.resolve("not a pending operation")])
+    ).rejects.toThrow(
+      "$transaction array must contain only pending operations from client methods"
+    );
+  });
+
+  test("supports transaction options (isolation level)", async () => {
+    // Batch mode should accept and pass through transaction options
+    const [user] = await client.$transaction(
+      [
+        client.user.create({
+          data: { id: "1", name: "IsolationTest", email: "iso@test.com" },
+        }),
+      ],
+      { isolationLevel: "serializable" }
+    );
+
+    expect(user.name).toBe("IsolationTest");
+
+    // Verify the user was actually created
+    const found = await client.user.findUnique({ where: { id: "1" } });
+    expect(found?.name).toBe("IsolationTest");
+  });
+});
+
+describe("mixed operations", () => {
+  test("operations work independently after batch", async () => {
+    // Batch some operations
+    await client.$transaction([
+      client.user.create({
+        data: { id: "1", name: "Jack", email: "jack@test.com" },
+      }),
+    ]);
+
+    // Regular operation should still work
+    const user = await client.user.findFirst({ where: { id: "1" } });
+    expect(user?.name).toBe("Jack");
+
+    // Another batch
+    await client.$transaction([
+      client.user.update({
+        where: { id: "1" },
+        data: { name: "Jack Updated" },
+      }),
+    ]);
+
+    const updatedUser = await client.user.findFirst({ where: { id: "1" } });
+    expect(updatedUser?.name).toBe("Jack Updated");
+  });
+});
+
+// =============================================================================
+// CONCURRENT TRANSACTIONS
+// =============================================================================
+
+describe("concurrent transactions", () => {
+  test("multiple transactions can run in parallel without interference", async () => {
+    // Run 3 transactions concurrently, each creating a different user
+    const results = await Promise.all([
+      client.$transaction(async (tx) => {
+        await tx.user.create({
+          data: { id: "concurrent-1", name: "User 1", email: "user1@test.com" },
+        });
+        return tx.user.findUnique({ where: { id: "concurrent-1" } });
+      }),
+      client.$transaction(async (tx) => {
+        await tx.user.create({
+          data: { id: "concurrent-2", name: "User 2", email: "user2@test.com" },
+        });
+        return tx.user.findUnique({ where: { id: "concurrent-2" } });
+      }),
+      client.$transaction(async (tx) => {
+        await tx.user.create({
+          data: { id: "concurrent-3", name: "User 3", email: "user3@test.com" },
+        });
+        return tx.user.findUnique({ where: { id: "concurrent-3" } });
+      }),
+    ]);
+
+    // Each transaction should have returned its own user
+    expect(results[0]?.name).toBe("User 1");
+    expect(results[1]?.name).toBe("User 2");
+    expect(results[2]?.name).toBe("User 3");
+
+    // All users should exist in the database
+    const allUsers = await client.user.findMany();
+    expect(allUsers).toHaveLength(3);
+  });
+
+  test("one failing transaction does not affect others", async () => {
+    // Create a user first to cause a conflict
+    await client.user.create({
+      data: { id: "existing", name: "Existing", email: "existing@test.com" },
+    });
+
+    const results = await Promise.allSettled([
+      // This one will succeed
+      client.$transaction(async (tx) => {
+        await tx.user.create({
+          data: {
+            id: "success-1",
+            name: "Success 1",
+            email: "success1@test.com",
+          },
+        });
+        return "success-1";
+      }),
+      // This one will fail due to duplicate email
+      client.$transaction(async (tx) => {
+        await tx.user.create({
+          data: { id: "fail-1", name: "Fail 1", email: "existing@test.com" },
+        });
+        return "fail-1";
+      }),
+      // This one will succeed
+      client.$transaction(async (tx) => {
+        await tx.user.create({
+          data: {
+            id: "success-2",
+            name: "Success 2",
+            email: "success2@test.com",
+          },
+        });
+        return "success-2";
+      }),
+    ]);
+
+    // Check results
+    expect(results[0].status).toBe("fulfilled");
+    expect(results[1].status).toBe("rejected");
+    expect(results[2].status).toBe("fulfilled");
+
+    // Only successful transactions should have committed
+    const allUsers = await client.user.findMany();
+    const userIds = allUsers.map((u) => u.id).sort();
+    expect(userIds).toEqual(["existing", "success-1", "success-2"]);
+  });
+
+  test("concurrent batch transactions work correctly", async () => {
+    const results = await Promise.all([
+      client.$transaction([
+        client.user.create({
+          data: { id: "batch-1", name: "Batch 1", email: "batch1@test.com" },
+        }),
+      ]),
+      client.$transaction([
+        client.user.create({
+          data: { id: "batch-2", name: "Batch 2", email: "batch2@test.com" },
+        }),
+      ]),
+    ]);
+
+    expect(results[0][0].name).toBe("Batch 1");
+    expect(results[1][0].name).toBe("Batch 2");
+
+    const allUsers = await client.user.findMany();
+    expect(allUsers).toHaveLength(2);
+  });
+});
+
+// =============================================================================
+// SEQUENTIAL OPERATIONS IN TRANSACTION
+// =============================================================================
+
+describe("sequential operations in transaction", () => {
+  test("multiple sequential creates in transaction", async () => {
+    await client.$transaction(async (tx) => {
+      await tx.user.create({
+        data: { id: "seq-1", name: "User 1", email: "seq1@test.com" },
+      });
+      await tx.user.create({
+        data: { id: "seq-2", name: "User 2", email: "seq2@test.com" },
+      });
+      await tx.user.create({
+        data: { id: "seq-3", name: "User 3", email: "seq3@test.com" },
+      });
+    });
+
+    const allUsers = await client.user.findMany();
+    expect(allUsers).toHaveLength(3);
+    expect(allUsers.map((u) => u.id).sort()).toEqual([
+      "seq-1",
+      "seq-2",
+      "seq-3",
+    ]);
+  });
+
+  test("read-after-write within transaction sees uncommitted changes", async () => {
+    await client.$transaction(async (tx) => {
+      await tx.user.create({
+        data: { id: "raw-1", name: "RAW User", email: "raw@test.com" },
+      });
+
+      // Should see the uncommitted user within the same transaction
+      const user = await tx.user.findUnique({ where: { id: "raw-1" } });
+      expect(user).not.toBeNull();
+      expect(user?.name).toBe("RAW User");
+    });
+  });
+
+  test("update after create within transaction", async () => {
+    const result = await client.$transaction(async (tx) => {
+      const created = await tx.user.create({
+        data: { id: "update-1", name: "Original", email: "update@test.com" },
+      });
+
+      const updated = await tx.user.update({
+        where: { id: created.id },
+        data: { name: "Updated" },
+      });
+
+      return updated;
+    });
+
+    expect(result.name).toBe("Updated");
+
+    const user = await client.user.findUnique({ where: { id: "update-1" } });
+    expect(user?.name).toBe("Updated");
+  });
+
+  test("delete after create within transaction", async () => {
+    await client.$transaction(async (tx) => {
+      await tx.user.create({
+        data: { id: "delete-1", name: "To Delete", email: "delete@test.com" },
+      });
+
+      await tx.user.delete({ where: { id: "delete-1" } });
+    });
+
+    const user = await client.user.findUnique({ where: { id: "delete-1" } });
+    expect(user).toBeNull();
+  });
+});
+
+// =============================================================================
+// ERROR SCENARIOS
+// =============================================================================
+
+describe("error scenarios", () => {
+  test("constraint violation triggers rollback in callback mode", async () => {
+    try {
+      await client.$transaction(async (tx) => {
+        await tx.user.create({
+          data: {
+            id: "error-1",
+            name: "Error User 1",
+            email: "error@test.com",
+          },
+        });
+        await tx.user.create({
+          data: {
+            id: "error-2",
+            name: "Error User 2",
+            email: "error2@test.com",
+          },
+        });
+        // Violate unique constraint
+        await tx.user.create({
+          data: {
+            id: "error-3",
+            name: "Error User 3",
+            email: "error@test.com",
+          },
+        });
+      });
+    } catch {
+      // Expected
+    }
+
+    // All operations should be rolled back
+    const allUsers = await client.user.findMany();
+    expect(allUsers).toHaveLength(0);
+  });
+
+  test("constraint violation in batch mode triggers rollback", async () => {
+    // Create a user to cause conflict
+    await client.user.create({
+      data: {
+        id: "existing-batch",
+        name: "Existing",
+        email: "existingbatch@test.com",
+      },
+    });
+
+    try {
+      await client.$transaction([
+        client.user.create({
+          data: {
+            id: "batch-new-1",
+            name: "New 1",
+            email: "batchnew1@test.com",
+          },
+        }),
+        client.user.create({
+          data: {
+            id: "batch-new-2",
+            name: "New 2",
+            email: "existingbatch@test.com",
+          }, // Conflict
+        }),
+      ]);
+    } catch {
+      // Expected
+    }
+
+    // Only the pre-existing user should remain
+    const allUsers = await client.user.findMany();
+    expect(allUsers).toHaveLength(1);
+    expect(allUsers[0]?.id).toBe("existing-batch");
+  });
+
+  test("thrown error in transaction callback triggers rollback", async () => {
+    try {
+      await client.$transaction(async (tx) => {
+        await tx.user.create({
+          data: {
+            id: "thrown-1",
+            name: "Thrown User",
+            email: "thrown@test.com",
+          },
+        });
+        throw new Error("Intentional error after create");
+      });
+    } catch {
+      // Expected
+    }
+
+    const allUsers = await client.user.findMany();
+    expect(allUsers).toHaveLength(0);
+  });
+
+  test("async error in transaction callback triggers rollback", async () => {
+    try {
+      await client.$transaction(async (tx) => {
+        await tx.user.create({
+          data: {
+            id: "async-err-1",
+            name: "Async Error User",
+            email: "asyncerr@test.com",
+          },
+        });
+        // Simulate async error
+        await new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("Async error")), 10)
+        );
+      });
+    } catch {
+      // Expected
+    }
+
+    const allUsers = await client.user.findMany();
+    expect(allUsers).toHaveLength(0);
+  });
+
+  test("error message is preserved when transaction fails", async () => {
+    const errorMessage = "Custom error message for testing";
+
+    await expect(
+      client.$transaction(async (tx) => {
+        await tx.user.create({
+          data: {
+            id: "preserve-1",
+            name: "Preserve",
+            email: "preserve@test.com",
+          },
+        });
+        throw new Error(errorMessage);
+      })
+    ).rejects.toThrow(errorMessage);
+  });
+
+  test("transaction returns value on success", async () => {
+    const result = await client.$transaction(async (tx) => {
+      const user = await tx.user.create({
+        data: { id: "return-1", name: "Return User", email: "return@test.com" },
+      });
+      return { created: true, userId: user.id };
+    });
+
+    expect(result).toEqual({ created: true, userId: "return-1" });
+  });
+});
+
+// =============================================================================
+// TRANSACTION SEMANTICS
+// =============================================================================
+
+describe("transaction semantics", () => {
+  test("changes are visible after commit", async () => {
+    await client.$transaction(async (tx) => {
+      await tx.user.create({
+        data: {
+          id: "commit-1",
+          name: "Committed User",
+          email: "commit@test.com",
+        },
+      });
+    });
+
+    // After transaction completes, changes should be visible
+    const user = await client.user.findUnique({ where: { id: "commit-1" } });
+    expect(user).not.toBeNull();
+    expect(user?.name).toBe("Committed User");
+  });
+
+  test("changes are not visible after rollback", async () => {
+    try {
+      await client.$transaction(async (tx) => {
+        await tx.user.create({
+          data: {
+            id: "rollback-1",
+            name: "Rolled Back User",
+            email: "rollback@test.com",
+          },
+        });
+        throw new Error("Force rollback");
+      });
+    } catch {
+      // Expected
+    }
+
+    // After rollback, changes should not be visible
+    const user = await client.user.findUnique({ where: { id: "rollback-1" } });
+    expect(user).toBeNull();
+  });
+
+  test("transaction sees its own uncommitted changes", async () => {
+    let sawOwnChanges = false;
+
+    await client.$transaction(async (tx) => {
+      await tx.user.create({
+        data: { id: "self-1", name: "Self User", email: "self@test.com" },
+      });
+
+      // Query within same transaction should see uncommitted data
+      const user = await tx.user.findUnique({ where: { id: "self-1" } });
+      sawOwnChanges = user !== null;
+    });
+
+    expect(sawOwnChanges).toBe(true);
+  });
+
+  test("transaction can read and update same record", async () => {
+    // Create initial data
+    await client.user.create({
+      data: {
+        id: "read-update-1",
+        name: "Original",
+        email: "readupdate@test.com",
+      },
+    });
+
+    await client.$transaction(async (tx) => {
+      const user = await tx.user.findUnique({ where: { id: "read-update-1" } });
+      expect(user?.name).toBe("Original");
+
+      await tx.user.update({
+        where: { id: "read-update-1" },
+        data: { name: "Modified" },
+      });
+
+      const updated = await tx.user.findUnique({
+        where: { id: "read-update-1" },
+      });
+      expect(updated?.name).toBe("Modified");
+    });
+
+    const final = await client.user.findUnique({
+      where: { id: "read-update-1" },
+    });
+    expect(final?.name).toBe("Modified");
+  });
+});
+
+// =============================================================================
+// NESTED TRANSACTIONS (SAVEPOINTS)
+// =============================================================================
+
+describe("nested transactions", () => {
+  test("nested transaction commits when both succeed", async () => {
+    await client.$transaction(async (tx) => {
+      await tx.user.create({
+        data: { id: "outer-1", name: "Outer User", email: "outer@test.com" },
+      });
+
+      await tx.$transaction(async (nestedTx) => {
+        await nestedTx.user.create({
+          data: {
+            id: "nested-1",
+            name: "Nested User",
+            email: "nested@test.com",
+          },
+        });
+      });
+    });
+
+    const allUsers = await client.user.findMany();
+    expect(allUsers).toHaveLength(2);
+    expect(allUsers.map((u) => u.id).sort()).toEqual(["nested-1", "outer-1"]);
+  });
+
+  test("nested transaction rollback does not affect outer transaction", async () => {
+    await client.$transaction(async (tx) => {
+      await tx.user.create({
+        data: {
+          id: "outer-only",
+          name: "Outer Only",
+          email: "outeronly@test.com",
+        },
+      });
+
+      // Nested transaction that fails - should only rollback nested changes
+      try {
+        await tx.$transaction(async (nestedTx) => {
+          await nestedTx.user.create({
+            data: {
+              id: "nested-fail",
+              name: "Nested Fail",
+              email: "nestedfail@test.com",
+            },
+          });
+          throw new Error("Nested transaction error");
+        });
+      } catch {
+        // Expected - nested transaction failed
+      }
+
+      // Outer transaction continues - create another user
+      await tx.user.create({
+        data: {
+          id: "outer-after",
+          name: "Outer After",
+          email: "outerafter@test.com",
+        },
+      });
+    });
+
+    // Only outer users should exist, nested-fail should be rolled back
+    const allUsers = await client.user.findMany();
+    expect(allUsers).toHaveLength(2);
+    expect(allUsers.map((u) => u.id).sort()).toEqual([
+      "outer-after",
+      "outer-only",
+    ]);
+  });
+
+  test("outer transaction rollback also rolls back nested commits", async () => {
+    try {
+      await client.$transaction(async (tx) => {
+        await tx.user.create({
+          data: {
+            id: "outer-rollback",
+            name: "Outer Rollback",
+            email: "outerrollback@test.com",
+          },
+        });
+
+        // Nested transaction succeeds
+        await tx.$transaction(async (nestedTx) => {
+          await nestedTx.user.create({
+            data: {
+              id: "nested-rollback",
+              name: "Nested Rollback",
+              email: "nestedrollback@test.com",
+            },
+          });
+        });
+
+        // Outer transaction fails after nested succeeds
+        throw new Error("Outer transaction error");
+      });
+    } catch {
+      // Expected
+    }
+
+    // Both users should be rolled back
+    const allUsers = await client.user.findMany();
+    expect(allUsers).toHaveLength(0);
+  });
+
+  test("deeply nested transactions work correctly", async () => {
+    await client.$transaction(async (tx1) => {
+      await tx1.user.create({
+        data: { id: "level-1", name: "Level 1", email: "level1@test.com" },
+      });
+
+      await tx1.$transaction(async (tx2) => {
+        await tx2.user.create({
+          data: { id: "level-2", name: "Level 2", email: "level2@test.com" },
+        });
+
+        await tx2.$transaction(async (tx3) => {
+          await tx3.user.create({
+            data: { id: "level-3", name: "Level 3", email: "level3@test.com" },
+          });
+        });
+      });
+    });
+
+    const allUsers = await client.user.findMany();
+    expect(allUsers).toHaveLength(3);
+    expect(allUsers.map((u) => u.id).sort()).toEqual([
+      "level-1",
+      "level-2",
+      "level-3",
+    ]);
+  });
+
+  test("nested transaction can read changes from outer transaction", async () => {
+    let nestedSawOuterChanges = false;
+
+    await client.$transaction(async (tx) => {
+      await tx.user.create({
+        data: {
+          id: "outer-visible",
+          name: "Outer Visible",
+          email: "outervisible@test.com",
+        },
+      });
+
+      await tx.$transaction(async (nestedTx) => {
+        // Should see uncommitted changes from outer transaction
+        const user = await nestedTx.user.findUnique({
+          where: { id: "outer-visible" },
+        });
+        nestedSawOuterChanges = user !== null;
+      });
+    });
+
+    expect(nestedSawOuterChanges).toBe(true);
+  });
+});
+
+// =============================================================================
+// CONCURRENT NESTED TRANSACTIONS
+// =============================================================================
+
+describe("concurrent nested transactions", () => {
+  // Concurrent nested transactions are automatically serialized by SavepointQueue
+  // to prevent savepoint stack conflicts. Users can safely use Promise.all().
+
+  test("multiple concurrent nested transactions in same outer transaction", async () => {
+    await client.$transaction(async (tx) => {
+      await tx.user.create({
+        data: {
+          id: "outer-concurrent",
+          name: "Outer",
+          email: "outerconcurrent@test.com",
+        },
+      });
+
+      // Run multiple nested transactions concurrently - SavepointQueue serializes them
+      await Promise.all([
+        tx.$transaction(async (nested1) => {
+          await nested1.user.create({
+            data: {
+              id: "concurrent-nested-1",
+              name: "Concurrent Nested 1",
+              email: "cn1@test.com",
+            },
+          });
+        }),
+        tx.$transaction(async (nested2) => {
+          await nested2.user.create({
+            data: {
+              id: "concurrent-nested-2",
+              name: "Concurrent Nested 2",
+              email: "cn2@test.com",
+            },
+          });
+        }),
+        tx.$transaction(async (nested3) => {
+          await nested3.user.create({
+            data: {
+              id: "concurrent-nested-3",
+              name: "Concurrent Nested 3",
+              email: "cn3@test.com",
+            },
+          });
+        }),
+      ]);
+    });
+
+    const allUsers = await client.user.findMany();
+    expect(allUsers).toHaveLength(4);
+  });
+
+  test("one failing concurrent nested transaction does not affect others", async () => {
+    await client.$transaction(async (tx) => {
+      await tx.user.create({
+        data: {
+          id: "outer-mixed",
+          name: "Outer Mixed",
+          email: "outermixed@test.com",
+        },
+      });
+
+      const results = await Promise.allSettled([
+        tx.$transaction(async (nested1) => {
+          await nested1.user.create({
+            data: {
+              id: "mixed-success-1",
+              name: "Mixed Success 1",
+              email: "ms1@test.com",
+            },
+          });
+          return "success-1";
+        }),
+        tx.$transaction(async (nested2) => {
+          await nested2.user.create({
+            data: {
+              id: "mixed-fail",
+              name: "Mixed Fail",
+              email: "mf@test.com",
+            },
+          });
+          throw new Error("Intentional nested failure");
+        }),
+        tx.$transaction(async (nested3) => {
+          await nested3.user.create({
+            data: {
+              id: "mixed-success-2",
+              name: "Mixed Success 2",
+              email: "ms2@test.com",
+            },
+          });
+          return "success-2";
+        }),
+      ]);
+
+      expect(results[0].status).toBe("fulfilled");
+      expect(results[1].status).toBe("rejected");
+      expect(results[2].status).toBe("fulfilled");
+    });
+
+    // Outer + 2 successful nested transactions (mixed-fail was rolled back)
+    const allUsers = await client.user.findMany();
+    expect(allUsers).toHaveLength(3);
+    const userIds = allUsers.map((u) => u.id).sort();
+    expect(userIds).toEqual([
+      "mixed-success-1",
+      "mixed-success-2",
+      "outer-mixed",
+    ]);
+  });
+
+  test("concurrent outer transactions with nested transactions", async () => {
+    const results = await Promise.all([
+      client.$transaction(async (tx1) => {
+        await tx1.user.create({
+          data: {
+            id: "parallel-outer-1",
+            name: "Parallel Outer 1",
+            email: "po1@test.com",
+          },
+        });
+        await tx1.$transaction(async (nested) => {
+          await nested.user.create({
+            data: {
+              id: "parallel-nested-1",
+              name: "Parallel Nested 1",
+              email: "pn1@test.com",
+            },
+          });
+        });
+        return "tx1-done";
+      }),
+      client.$transaction(async (tx2) => {
+        await tx2.user.create({
+          data: {
+            id: "parallel-outer-2",
+            name: "Parallel Outer 2",
+            email: "po2@test.com",
+          },
+        });
+        await tx2.$transaction(async (nested) => {
+          await nested.user.create({
+            data: {
+              id: "parallel-nested-2",
+              name: "Parallel Nested 2",
+              email: "pn2@test.com",
+            },
+          });
+        });
+        return "tx2-done";
+      }),
+    ]);
+
+    expect(results).toEqual(["tx1-done", "tx2-done"]);
+
+    const allUsers = await client.user.findMany();
+    expect(allUsers).toHaveLength(4);
+  });
+});

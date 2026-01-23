@@ -1,0 +1,186 @@
+---
+title: Transactions & Batching
+description: Execute multiple operations atomically with transactions or batch mode
+icon: Layers
+---
+
+VibORM provides two ways to execute multiple operations atomically:
+
+1. **Dynamic Transactions** - Operations can depend on each other (callback API)
+2. **Batch Mode** - Independent operations executed atomically (array API)
+
+## Dynamic Transactions
+
+Use the callback API when operations need to depend on each other:
+
+```ts
+await client.$transaction(async (tx) => {
+  // Create a user
+  const user = await tx.user.create({
+    data: { name: "Alice", email: "alice@example.com" },
+  });
+
+  // Use the created user's ID in the next operation
+  await tx.post.create({
+    data: {
+      title: "Hello World",
+      authorId: user.id,  // Depends on previous operation
+    },
+  });
+});
+```
+
+### Transaction Options
+
+```ts
+await client.$transaction(
+  async (tx) => {
+    // ... operations
+  },
+  {
+    isolationLevel: "serializable",  // PostgreSQL only
+    timeout: 5000,                    // Max duration in ms
+  }
+);
+```
+
+## Batch Mode (Prisma-style)
+
+Use the array API for independent operations that should execute atomically:
+
+```ts
+const [users, posts, count] = await client.$transaction([
+  client.user.findMany({ where: { active: true } }),
+  client.post.findMany({ where: { published: true } }),
+  client.user.count(),
+]);
+```
+
+### Batch Writes
+
+```ts
+const [user1, user2] = await client.$transaction([
+  client.user.create({ data: { name: "Alice", email: "alice@example.com" } }),
+  client.user.create({ data: { name: "Bob", email: "bob@example.com" } }),
+]);
+
+console.log(user1.name); // "Alice"
+console.log(user2.name); // "Bob"
+```
+
+### Mixed Operations
+
+```ts
+const [newUser, allPosts, userCount] = await client.$transaction([
+  client.user.create({ data: { name: "Charlie", email: "charlie@example.com" } }),
+  client.post.findMany(),
+  client.user.count(),
+]);
+```
+
+## How Operations Work
+
+All model operations in VibORM return a `PendingOperation` object that implements `PromiseLike`. This means:
+
+```ts
+// Direct await - executes immediately
+const users = await client.user.findMany();
+
+// Store without awaiting - creates a pending operation
+const findUsersOp = client.user.findMany();
+
+// Execute later via await
+const users = await findUsersOp;
+
+// Or batch multiple operations
+const [users, posts] = await client.$transaction([
+  findUsersOp,
+  client.post.findMany(),
+]);
+```
+
+## Driver Support
+
+Different drivers have different capabilities for atomic execution:
+
+| Driver | Dynamic Transactions | Batch Mode | How Batch Works |
+|--------|---------------------|------------|-----------------|
+| **pg** | Full | Full | Transaction wrapper |
+| **postgres** | Full | Full | Transaction wrapper |
+| **pglite** | Full | Full | Transaction wrapper |
+| **mysql2** | Full | Full | Transaction wrapper |
+| **sqlite3** | Full | Full | Transaction wrapper |
+| **libsql** | Full | Full | Transaction wrapper |
+| **bun-sqlite** | Full | Full | Transaction wrapper |
+| **planetscale** | Full | Full | Transaction wrapper |
+| **d1** | Sequential* | Full | Native `batch()` API |
+| **d1-http** | Sequential* | Full | HTTP batch endpoint |
+| **neon-http** | Sequential* | Full | `transaction()` function |
+
+<Callout type="warn">
+*Drivers marked "Sequential" for dynamic transactions will execute operations one-by-one without isolation. Use batch mode for atomic operations on these drivers.
+</Callout>
+
+### Understanding the Difference
+
+**Dynamic transactions** provide:
+- Atomicity (all-or-nothing)
+- Isolation (changes not visible until commit)
+- Read-your-writes (can use results from previous operations)
+
+**Batch mode** provides:
+- Atomicity (all-or-nothing)
+- No isolation (other connections may see partial state)
+- No read-your-writes (operations must be independent)
+
+## Choosing the Right Approach
+
+### Use Dynamic Transactions When:
+
+- Operations depend on each other's results
+- You need isolation from other connections
+- You're using a driver that supports transactions
+
+```ts
+// Good: user.id is needed for posts
+await client.$transaction(async (tx) => {
+  const user = await tx.user.create({ data: { name: "Alice" } });
+  await tx.post.createMany({
+    data: [
+      { title: "Post 1", authorId: user.id },
+      { title: "Post 2", authorId: user.id },
+    ],
+  });
+});
+```
+
+### Use Batch Mode When:
+
+- Operations are independent
+- You want better performance (single round-trip on some drivers)
+- You're using a driver without full transaction support (D1, Neon-HTTP)
+
+```ts
+// Good: independent operations
+const [users, posts, stats] = await client.$transaction([
+  client.user.findMany(),
+  client.post.findMany({ where: { published: true } }),
+  client.user.aggregate({ _count: true, _avg: { age: true } }),
+]);
+```
+
+## Error Handling
+
+Both transaction modes provide automatic rollback when any operation fails. The transaction is rolled back at the database level before the error is thrown to your code.
+
+## Migrations and Atomicity
+
+When running migrations, VibORM automatically uses the best available method for atomic execution:
+
+1. **Native batch** - For D1, D1-HTTP, Neon-HTTP
+2. **Transaction wrapper** - For drivers with transaction support
+3. **Sequential** - Fallback with warning (shouldn't happen with current drivers)
+
+This ensures migrations are atomic (all-or-nothing) regardless of the driver being used.
+
+See [Migration Atomicity](/docs/migration#atomicity) for more details.

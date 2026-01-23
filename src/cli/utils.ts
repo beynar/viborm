@@ -11,7 +11,10 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import type { VibORMClient, VibORMConfig as ClientConfig } from "../client/client";
+import type {
+  VibORMConfig as ClientConfig,
+  VibORMClient,
+} from "../client/client";
 import type { AnyDriver } from "../drivers/driver";
 import type { MigrationStorageDriver } from "../migrations/storage/driver";
 import type { AnyModel } from "../schema/model";
@@ -149,7 +152,7 @@ export async function loadConfig(
       `Missing "client" in ${configPath}.\n\n` +
         "Your config should include a VibORM client:\n\n" +
         `  import { createClient } from "viborm";\n` +
-        `  const client = createClient({ driver, schema });\n\n` +
+        "  const client = createClient({ driver, schema });\n\n" +
         "  export default defineConfig({\n" +
         "    client,\n" +
         "  });\n"

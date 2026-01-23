@@ -4,6 +4,7 @@
     "index",
     "queries",
     "mutations",
+    "transactions",
     "filtering",
     "relations",
     "selecting",

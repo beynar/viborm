@@ -1,7 +1,4 @@
 {
   "title": "Cache",
-  "pages": [
-    "index",
-    "drivers"
-  ]
+  "pages": ["index", "drivers"]
 }

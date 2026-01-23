@@ -5,8 +5,8 @@
  * Tests CRUD operations, queries, aggregations, transactions, and raw SQL.
  */
 
-import { NotFoundError } from "@errors";
 import { createClient as PGliteCreateClient } from "@drivers/pglite";
+import { NotFoundError } from "@errors";
 import { push } from "@migrations";
 import { s } from "@schema";
 import { sql } from "@sql";
@@ -52,11 +52,13 @@ const schema = { user, post };
 // TEST SETUP
 // =============================================================================
 
-let client: Awaited<ReturnType<typeof PGliteCreateClient<{schema:typeof schema}>>>;
+let client: Awaited<
+  ReturnType<typeof PGliteCreateClient<{ schema: typeof schema }>>
+>;
 
 beforeAll(async () => {
   client = PGliteCreateClient({ schema });
-  await push(client.$driver, schema, { force: true });
+  await push(client, { force: true });
 });
 
 afterAll(async () => {
@@ -197,11 +199,14 @@ describe("Find Operations", () => {
     });
 
     test("throws NotFoundError when not found", async () => {
-      await expect(
-        client.user.findFirstOrThrow({
+      try {
+        await client.user.findFirstOrThrow({
           where: { name: "NonExistent" },
-        })
-      ).rejects.toThrow(NotFoundError);
+        });
+        expect.unreachable("Should have thrown NotFoundError");
+      } catch (error) {
+        expect(error).toBeInstanceOf(NotFoundError);
+      }
     });
   });
 
@@ -323,11 +328,14 @@ describe("Find Operations", () => {
     });
 
     test("throws NotFoundError when not found", async () => {
-      await expect(
-        client.user.findUniqueOrThrow({
+      try {
+        await client.user.findUniqueOrThrow({
           where: { id: "nonexistent" },
-        })
-      ).rejects.toThrow(NotFoundError);
+        });
+        expect.unreachable("Should have thrown NotFoundError");
+      } catch (error) {
+        expect(error).toBeInstanceOf(NotFoundError);
+      }
     });
   });
 });

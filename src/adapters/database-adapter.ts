@@ -296,7 +296,12 @@ export interface DatabaseAdapter {
    */
   mutations: {
     /** INSERT INTO table (cols) VALUES (...), with optional prefix (e.g., IGNORE for MySQL) */
-    insert: (table: Sql, columns: string[], values: Sql[][], prefix?: Sql) => Sql;
+    insert: (
+      table: Sql,
+      columns: string[],
+      values: Sql[][],
+      prefix?: Sql
+    ) => Sql;
     /** UPDATE table SET ... WHERE ... */
     update: (table: Sql, sets: Sql, where?: Sql) => Sql;
     /** DELETE FROM table WHERE ... */
@@ -390,8 +395,6 @@ export interface DatabaseAdapter {
     /** EXCEPT / MINUS */
     except: (left: Sql, right: Sql) => Sql;
   };
-
-
 
   /**
    * VECTOR
@@ -537,8 +540,6 @@ export interface DatabaseAdapter {
     ) => unknown;
   };
 }
-
-
 
 /**
  * Type for query parts assembly

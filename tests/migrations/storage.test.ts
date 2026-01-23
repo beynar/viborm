@@ -10,7 +10,11 @@ import {
   createFsStorageDriver,
   FsStorageDriver,
 } from "../../src/migrations/storage/fs";
-import type { MigrationEntry, MigrationJournal, SchemaSnapshot } from "../../src/migrations/types";
+import type {
+  MigrationEntry,
+  MigrationJournal,
+  SchemaSnapshot,
+} from "../../src/migrations/types";
 
 // =============================================================================
 // HELPERS
