@@ -530,7 +530,7 @@ export class VibORM<C extends VibORMConfig> {
               return new Proxy(baseClient, {
                 get(target, prop) {
                   if (prop === "$transaction") {
-                    return <NT>(
+                    return async <NT>(
                       nestedInput:
                         | ((nestedTx: Client<C>) => Promise<NT>)
                         | PendingOperation<unknown>[],
@@ -539,7 +539,9 @@ export class VibORM<C extends VibORMConfig> {
                       if (Array.isArray(nestedInput)) {
                         // Batch mode in nested transaction
                         // Validate all items are PendingOperations from this transaction client
-                        for (const op of nestedInput) {
+                        const nestedOperations =
+                          nestedInput as PendingOperation<unknown>[];
+                        for (const op of nestedOperations) {
                           if (!isPendingOperation(op)) {
                             throw new InvalidTransactionInputError();
                           }
@@ -551,10 +553,63 @@ export class VibORM<C extends VibORMConfig> {
                             );
                           }
                         }
+
+                        // For batch-only drivers (no real transactions), use native batch
+                        // execution for nested batches to preserve atomicity optimization
+                        if (
+                          !txDriver.supportsTransactions &&
+                          txDriver.supportsBatch
+                        ) {
+                          const allCanBatch = nestedOperations.every((op) =>
+                            op.canBatch()
+                          );
+
+                          if (allCanBatch) {
+                            const batchQueries: {
+                              sql: string;
+                              params?: unknown[];
+                            }[] = [];
+                            for (const op of nestedOperations) {
+                              const prepared = op.prepare(
+                                txDriver as AnyDriver
+                              );
+                              if (!prepared) {
+                                break;
+                              }
+                              batchQueries.push(prepared);
+                            }
+
+                            if (
+                              batchQueries.length === nestedOperations.length
+                            ) {
+                              const batchResults =
+                                await txDriver._executeBatch(batchQueries);
+
+                              const results: unknown[] = [];
+                              for (
+                                let i = 0;
+                                i < nestedOperations.length;
+                                i++
+                              ) {
+                                const op = nestedOperations[i]!;
+                                const raw = batchResults[i]!;
+                                results.push(
+                                  op.parseResult({
+                                    rows: raw.rows as unknown[],
+                                    rowCount: raw.rowCount,
+                                  })
+                                );
+                              }
+                              return results;
+                            }
+                          }
+                          // Fall through to sequential execution if batch prep fails
+                        }
+
                         return txDriver.withTransaction(
                           async (nestedTxDriver) => {
                             const results: unknown[] = [];
-                            for (const op of nestedInput as PendingOperation<unknown>[]) {
+                            for (const op of nestedOperations) {
                               results.push(
                                 await op.executeWith(nestedTxDriver)
                               );

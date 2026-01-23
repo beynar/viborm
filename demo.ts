@@ -235,6 +235,7 @@ function formatDuration(microseconds: number): string {
 
 import { MemoryCache } from "@cache";
 import { PGlite } from "@electric-sql/pglite";
+import { push } from "@migrations/push";
 import { VibORM } from "./src/client/client";
 import { PGliteDriver } from "./src/drivers/pglite";
 import { s } from "./src/schema";
@@ -246,16 +247,8 @@ const user = s.model({
 });
 
 const pglite = new PGlite();
-const driver = new PGliteDriver({ client: pglite });
+const driver = new PGliteDriver({ client: pglite, dataDir: "memory://" });
 async function main() {
-  await pglite.exec(`
-    CREATE TABLE IF NOT EXISTS "user" (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      email TEXT NOT NULL UNIQUE
-    )
-  `);
-
   const clientInstantStart = performance.now();
   const client = VibORM.create({
     schema: { user },
@@ -273,7 +266,9 @@ async function main() {
       },
     },
   });
+
   const clientInstantEnd = performance.now();
+  await push(client);
   console.log(
     `Client creation took ${clientInstantEnd - clientInstantStart}ms`
   );
