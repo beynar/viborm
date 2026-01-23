@@ -223,7 +223,7 @@ const invalidModel = s.model({
 import { s } from "viborm";
 
 const user = s.model({
-  id: s.string().id().auto.ulid(),
+  id: s.string().id().ulid(),
   email: s.string().regex(/^[^\s@]+@[^\s@]+\.[^\s@]+$/),
   age: s.int().min(13).max(120).nullable(),
   preferences: s.json<{ theme: string; notifications: boolean }>(),

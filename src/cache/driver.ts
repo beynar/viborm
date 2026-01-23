@@ -23,7 +23,7 @@ import {
   SPAN_OPERATION,
   type VibORMSpanName,
 } from "@instrumentation/spans";
-import { CACHE_PREFIX, generateCacheKey, generateCachePrefix } from "./key";
+import { CACHE_PREFIX, generateUnprefixedCacheKey } from "./key";
 import type { CacheInvalidationOptions } from "./schema";
 
 /**
@@ -159,9 +159,9 @@ export abstract class CacheDriver {
     executor: () => Promise<T>,
     options: CacheExecutionOptions
   ): Promise<T> {
-    // Generate cache key
+    // Generate cache key (unprefixed - prefixKey() adds the prefix)
     const cacheKey =
-      options.key ?? generateCacheKey(modelName, operation, args, this.version);
+      options.key ?? generateUnprefixedCacheKey(modelName, operation, args);
 
     // Core execution logic
     const executeCore = async (): Promise<T> => {
@@ -485,11 +485,10 @@ export abstract class CacheDriver {
     return this.withSpan(SPAN_CACHE_INVALIDATE, modelName, async () => {
       const promises: Promise<void>[] = [];
 
-      // Auto-invalidate model cache if enabled (uses driver's version)
+      // Auto-invalidate model cache if enabled
       if (options?.autoInvalidate) {
-        const prefix = generateCachePrefix(modelName, this.version);
-        // Call clear() directly - prefix is already complete, _clear would double-prefix
-        promises.push(this.clear(prefix));
+        // Use modelName directly as unprefixed prefix - _clear() will add the full prefix
+        promises.push(this._clear(modelName));
       }
 
       // Custom invalidation - detect prefix (ends with *) vs specific key
@@ -534,8 +533,11 @@ export abstract class CacheDriver {
    * Prefix a key with the cache prefix (including version if set)
    */
   private prefixKey(key: string): string {
-    const prefix = generateCachePrefix(undefined, this.version);
-    return `${prefix}:${key}`;
+    const base =
+      this.version !== undefined
+        ? `${CACHE_PREFIX}:v${this.version}`
+        : CACHE_PREFIX;
+    return key ? `${base}:${key}` : base;
   }
 }
 
