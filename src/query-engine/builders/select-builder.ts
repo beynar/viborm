@@ -54,6 +54,36 @@ interface SelectPairsResult {
 }
 
 /**
+ * Cast BigInt fields to TEXT for JSON serialization to preserve precision.
+ *
+ * JSON doesn't have a native BigInt type, so databases convert BigInt to JSON numbers,
+ * which lose precision for values > Number.MAX_SAFE_INTEGER.
+ * Casting to TEXT preserves the full precision, and the result parser converts back to BigInt.
+ *
+ * @param ctx - Query context
+ * @param pairs - Field name and expression pairs
+ * @returns Pairs with BigInt fields cast to TEXT
+ */
+function castBigIntPairsForJson(
+  ctx: QueryContext,
+  pairs: [string, Sql][]
+): [string, Sql][] {
+  const scalars = ctx.model["~"].state.scalars;
+
+  return pairs.map(([fieldName, expr]) => {
+    const field = scalars[fieldName];
+    if (field) {
+      const fieldType = field["~"].state.type;
+      if (fieldType === "bigint") {
+        // Cast BigInt to TEXT to preserve precision in JSON
+        return [fieldName, ctx.adapter.expressions.cast(expr, "text")];
+      }
+    }
+    return [fieldName, expr];
+  });
+}
+
+/**
  * Build SELECT columns from select/include inputs.
  *
  * @param ctx - Query context
@@ -76,7 +106,9 @@ export function buildSelect(
 
   // Return JSON object if requested
   if (options.asJson) {
-    return ctx.adapter.json.objectFromColumns(pairs);
+    // Cast BigInt fields to TEXT to preserve precision in JSON serialization
+    const jsonPairs = castBigIntPairsForJson(ctx, pairs);
+    return ctx.adapter.json.objectFromColumns(jsonPairs);
   }
 
   // Convert pairs to aliased columns
@@ -242,7 +274,9 @@ export function buildSelectWithAliases(
   // Build SQL
   let sqlResult: Sql;
   if (options.asJson) {
-    sqlResult = ctx.adapter.json.objectFromColumns(pairs);
+    // Cast BigInt fields to TEXT to preserve precision in JSON serialization
+    const jsonPairs = castBigIntPairsForJson(ctx, pairs);
+    sqlResult = ctx.adapter.json.objectFromColumns(jsonPairs);
   } else {
     const columns = pairs.map(([name, expr]) =>
       ctx.adapter.identifiers.aliased(expr, name)
