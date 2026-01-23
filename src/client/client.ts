@@ -213,6 +213,14 @@ export class VibORM<C extends VibORMConfig> {
   private readonly registry: ModelRegistry;
   private readonly engine: QueryEngine;
 
+  /**
+   * Unique identifier for this client instance.
+   * Used to verify operations belong to the same client in $transaction.
+   */
+  get clientId(): symbol {
+    return this.engine.clientId;
+  }
+
   constructor(config: C) {
     this.driver = config.driver;
     this.schema = config.schema as C["schema"];
@@ -399,10 +407,18 @@ export class VibORM<C extends VibORMConfig> {
                 return [] as unknown[];
               }
 
-              // Validate all items are PendingOperations
+              // Validate all items are PendingOperations from this client
+              const expectedClientId = orm.clientId;
               for (const op of operations) {
                 if (!isPendingOperation(op)) {
                   throw new InvalidTransactionInputError();
+                }
+                // Verify operation belongs to this client
+                if (op.getClientId() !== expectedClientId) {
+                  throw PendingOperationError.clientMismatch(
+                    op.getModel(),
+                    op.getOperation()
+                  );
                 }
               }
 
@@ -516,10 +532,17 @@ export class VibORM<C extends VibORMConfig> {
                     ) => {
                       if (Array.isArray(nestedInput)) {
                         // Batch mode in nested transaction
-                        // Validate all items are PendingOperations
+                        // Validate all items are PendingOperations from this client
                         for (const op of nestedInput) {
                           if (!isPendingOperation(op)) {
                             throw new InvalidTransactionInputError();
+                          }
+                          // Verify operation belongs to this client
+                          if (op.getClientId() !== expectedClientId) {
+                            throw PendingOperationError.clientMismatch(
+                              op.getModel(),
+                              op.getOperation()
+                            );
                           }
                         }
                         return txDriver.withTransaction(

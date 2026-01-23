@@ -334,13 +334,9 @@ export abstract class MigrationDriver {
       return this.formatBooleanDefault(defaultVal);
     }
 
-    // Arrays and objects are not supported as SQL defaults
+    // Arrays and objects are handled at application level, not as SQL defaults
     if (typeof defaultVal === "object") {
-      throw new MigrationError(
-        "Object/array defaults are not supported as SQL DEFAULT values. " +
-          "Use a function default to generate these at runtime.",
-        VibORMErrorCode.INVALID_INPUT
-      );
+      return undefined;
     }
 
     return undefined;

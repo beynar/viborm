@@ -52,6 +52,8 @@ export interface PreparedQuery {
  * This enables proper span ordering and prepares for future prepared statement support.
  */
 export interface QueryMetadata<T> {
+  /** Unique identifier for the client that created this operation */
+  clientId: symbol;
   /** Raw arguments (not yet validated) */
   args: Record<string, unknown>;
   /** The operation type */

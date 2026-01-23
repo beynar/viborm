@@ -13,6 +13,7 @@
  */
 
 import type { AnyDriver } from "@drivers";
+import { PendingOperationError } from "@errors";
 import type { PreparedQuery, QueryMetadata } from "@query-engine/types";
 
 /**
@@ -120,6 +121,13 @@ export class PendingOperation<T> implements PromiseLike<T> {
    */
   getOperation(): string {
     return this.metadata.operation;
+  }
+
+  /**
+   * Get client ID for origin validation
+   */
+  getClientId(): symbol {
+    return this.metadata.clientId;
   }
 
   /**

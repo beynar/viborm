@@ -199,11 +199,14 @@ describe("Find Operations", () => {
     });
 
     test("throws NotFoundError when not found", async () => {
-      await expect(
-        client.user.findFirstOrThrow({
+      try {
+        await client.user.findFirstOrThrow({
           where: { name: "NonExistent" },
-        })
-      ).rejects.toThrow(NotFoundError);
+        });
+        expect.unreachable("Should have thrown NotFoundError");
+      } catch (error) {
+        expect(error).toBeInstanceOf(NotFoundError);
+      }
     });
   });
 
@@ -325,11 +328,14 @@ describe("Find Operations", () => {
     });
 
     test("throws NotFoundError when not found", async () => {
-      await expect(
-        client.user.findUniqueOrThrow({
+      try {
+        await client.user.findUniqueOrThrow({
           where: { id: "nonexistent" },
-        })
-      ).rejects.toThrow(NotFoundError);
+        });
+        expect.unreachable("Should have thrown NotFoundError");
+      } catch (error) {
+        expect(error).toBeInstanceOf(NotFoundError);
+      }
     });
   });
 });

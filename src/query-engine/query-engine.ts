@@ -77,6 +77,12 @@ export class QueryEngine {
   private readonly driver: AnyDriver;
   private readonly instrumentation: InstrumentationContext | undefined;
 
+  /**
+   * Unique identifier for this engine instance.
+   * Used to verify that operations belong to the same client in $transaction.
+   */
+  readonly clientId: symbol;
+
   constructor(
     driver: AnyDriver,
     registry: ModelRegistry,
@@ -86,6 +92,7 @@ export class QueryEngine {
     this.adapter = driver.adapter;
     this.registry = registry;
     this.instrumentation = instrumentation;
+    this.clientId = Symbol("viborm.client");
   }
 
   /**
@@ -212,6 +219,7 @@ export class QueryEngine {
     // Create metadata for batch execution
     // Note: hasNestedWrites check is done with raw args - it only looks at structure
     const metadata: QueryMetadata<T> = {
+      clientId: this.clientId,
       args,
       operation: baseOperation,
       model: modelName,

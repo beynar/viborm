@@ -58,6 +58,7 @@ export enum VibORMErrorCode {
   // Pending operation errors (12xxx)
   OPERATION_ALREADY_EXECUTED = "V12001",
   OPERATION_EXECUTION_CONFLICT = "V12002",
+  OPERATION_CLIENT_MISMATCH = "V12003",
 
   // Cache errors (10xxx)
   CACHE_INVALID_TTL = "V10001",
@@ -481,6 +482,22 @@ export class PendingOperationError extends VibORMError {
       "Cannot call executeWith() with a different driver. " +
         `The ${model}.${operation}() operation was already executed in another transaction context.`,
       VibORMErrorCode.OPERATION_EXECUTION_CONFLICT,
+      { meta: { model, operation } }
+    );
+  }
+
+  /**
+   * Create error for operations from different clients in $transaction
+   */
+  static clientMismatch(
+    model: string,
+    operation: string
+  ): PendingOperationError {
+    return new PendingOperationError(
+      `Cannot execute ${model}.${operation}() in this transaction: ` +
+        "the operation was created by a different client instance. " +
+        "All operations in $transaction([...]) must come from the same client.",
+      VibORMErrorCode.OPERATION_CLIENT_MISMATCH,
       { meta: { model, operation } }
     );
   }
