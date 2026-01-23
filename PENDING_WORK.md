@@ -53,8 +53,8 @@ Query result caching is not yet implemented.
 Full implementation plan for polymorphic relations allowing models to belong to multiple types:
 
 ```typescript
-const comment = s.model("comment", {
-  commentable: s.relation.polymorphic(() => ({
+const comment = s.model({
+  commentable: s.polymorphic(() => ({
     post: Post,
     video: Video,
     photo: Photo,

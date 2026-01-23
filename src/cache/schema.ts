@@ -48,7 +48,7 @@ export const DEFAULT_CACHE_TTL = 5 * 60 * 1000;
 
 export type WithCacheSchemaEntries = {
   ttl: V.Optional<V.Union<[V.String, V.Number]>>;
-  swr: V.Boolean<{ optional: true }>;
+  swr: V.Optional<V.Union<[V.Boolean, V.String, V.Number]>>;
   key: V.String<{ optional: true }>;
   bypass: V.Boolean<{ optional: true }>;
 };
@@ -74,9 +74,21 @@ export const withCacheSchema = v.object(
     /**
      * Enable stale-while-revalidate pattern
      * When true, returns stale data immediately and revalidates in background
+     * Can be a boolean or a TTL value (number in ms or string like "1 hour")
+     * - true: uses 2x TTL as the stale window (default behavior)
+     * - false/undefined: SWR disabled
+     * - number/string: custom stale window TTL (coerced to number)
      * @default false
      */
-    swr: v.boolean({ optional: true }),
+    swr: v.coerce(
+      v.optional(v.union([v.boolean(), v.string(), v.number()])),
+      (value: boolean | string | number | undefined) => {
+        if (value === undefined || typeof value === "boolean") {
+          return value;
+        }
+        return parseTTL(value);
+      }
+    ),
     /**
      * Custom cache key override
      * If not provided, key is generated from model, operation, and args

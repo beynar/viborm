@@ -11,7 +11,7 @@ icon: Network
 VibORM infers TypeScript types **from runtime validation schemas** - a single source of truth for both compile-time types AND runtime validation.
 
 ```typescript
-const user = s.model("user", {
+const user = s.model({
   id: s.string().id().ulid(),
   name: s.string(),
   email: s.string().unique(),
@@ -73,10 +73,10 @@ TypeScript tracks the State generic through each transformation. If we mutated t
 Relations use thunks `() => Model` to break circular dependencies:
 
 ```typescript
-const user = s.model("user", {
+const user = s.model({
   posts: s.oneToMany(() => post),  // Thunk defers evaluation
 });
-const post = s.model("post", {
+const post = s.model({
   author: s.manyToOne(() => user),
 });
 ```

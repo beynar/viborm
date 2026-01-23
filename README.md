@@ -17,13 +17,13 @@ import { s } from "viborm";
 import { createClient } from "viborm/drivers/pglite";
 
 // Schema carries type information
-const user = s.model("user", {
+const user = s.model({
   id: s.string().id().ulid(),
   email: s.string().unique(),
   posts: s.oneToMany(() => post),
 });
 
-const post = s.model("post", {
+const post = s.model({
   id: s.string().id().ulid(),
   title: s.string(),
   authorId: s.string(),
@@ -57,7 +57,7 @@ pnpm add viborm @electric-sql/pglite
 // schema.ts
 import { s } from "viborm";
 
-export const user = s.model("user", {
+export const user = s.model({
   id: s.string().id().ulid(),
   name: s.string(),
   email: s.string().unique(),
@@ -65,7 +65,7 @@ export const user = s.model("user", {
   posts: s.oneToMany(() => post),
 });
 
-export const post = s.model("post", {
+export const post = s.model({
   id: s.string().id().ulid(),
   title: s.string(),
   content: s.string().nullable(),
@@ -125,6 +125,210 @@ await orm.user.delete({
 
 ---
 
+## Transactions
+
+VibORM supports transactions with two modes:
+
+### Callback Mode (Dynamic)
+
+```typescript
+const result = await orm.$transaction(async (tx) => {
+  const user = await tx.user.create({
+    data: { name: "Alice", email: "alice@example.com" }
+  });
+  
+  await tx.post.create({
+    data: { title: "First Post", authorId: user.id }
+  });
+  
+  return user;
+});
+// If any operation fails, all changes are rolled back
+```
+
+### Batch Mode (Array)
+
+```typescript
+const [user, post] = await orm.$transaction([
+  orm.user.create({ data: { name: "Bob", email: "bob@example.com" } }),
+  orm.post.create({ data: { title: "Hello", authorId: "user-id" } })
+]);
+// All operations execute in a single transaction
+```
+
+---
+
+## Caching
+
+VibORM includes built-in query caching with TTL and stale-while-revalidate (SWR) support.
+
+### Setup
+
+```typescript
+import { createClient } from "viborm/drivers/pglite";
+import { MemoryCache } from "viborm/cache";
+
+const orm = createClient({
+  schema,
+  cache: new MemoryCache(),
+});
+```
+
+### Basic Caching
+
+```typescript
+// Cache for 5 minutes (default)
+const users = await orm.$withCache().user.findMany();
+
+// Custom TTL
+const posts = await orm.$withCache({ ttl: "1 hour" }).post.findMany();
+
+// TTL in milliseconds
+const recent = await orm.$withCache({ ttl: 30000 }).user.findMany();
+```
+
+### Stale-While-Revalidate (SWR)
+
+SWR returns stale data immediately while revalidating in the background:
+
+```typescript
+// Enable SWR with default 2x TTL stale window
+const users = await orm.$withCache({ ttl: "5 minutes", swr: true }).user.findMany();
+
+// Custom SWR window
+const posts = await orm.$withCache({ ttl: "5 minutes", swr: "1 hour" }).post.findMany();
+```
+
+### Cache Invalidation
+
+```typescript
+// Auto-invalidate model cache after mutations
+await orm.user.create({
+  data: { name: "Alice", email: "alice@example.com" },
+  cache: { autoInvalidate: true }
+});
+
+// Manual invalidation with patterns
+await orm.$invalidate(["user:*", "post:list"]);
+```
+
+### Cache Drivers
+
+| Driver | Use Case |
+|--------|----------|
+| `MemoryCache` | Development, single-instance deployments |
+| `CloudflareKVCache` | Cloudflare Workers with KV |
+
+---
+
+## Instrumentation
+
+VibORM supports OpenTelemetry tracing and structured logging.
+
+### Setup
+
+```typescript
+import { createClient } from "viborm/drivers/pglite";
+
+const orm = createClient({
+  schema,
+  instrumentation: {
+    tracing: {
+      enabled: true,
+      // Optional: customize tracer
+    },
+    logging: {
+      query: true,    // Log SQL queries
+      cache: true,    // Log cache hits/misses
+      warning: true,  // Log warnings
+      error: true,    // Log errors
+    }
+  }
+});
+```
+
+### Serverless Support
+
+For serverless environments, provide a `waitUntil` function to ensure background operations complete:
+
+```typescript
+// Cloudflare Workers
+export default {
+  async fetch(request, env, ctx) {
+    const orm = createClient({
+      schema,
+      waitUntil: ctx.waitUntil.bind(ctx),
+    });
+    // ...
+  }
+};
+```
+
+---
+
+## Field Types
+
+| Type | Description | Example |
+|------|-------------|---------|
+| `string()` | Text fields | `s.string().unique()` |
+| `int()` | 32-bit integers | `s.int().default(0)` |
+| `float()` | Floating-point | `s.float()` |
+| `decimal()` | High-precision decimals | `s.decimal()` |
+| `bigInt()` | 64-bit integers | `s.bigInt()` |
+| `boolean()` | Boolean values | `s.boolean().default(false)` |
+| `dateTime()` | Date and time | `s.dateTime().now()` |
+| `date()` | Date only | `s.date()` |
+| `time()` | Time only | `s.time()` |
+| `json()` | JSON with schema validation | `s.json(zodSchema)` |
+| `enum()` | Enumerated values | `s.enum(["ADMIN", "USER"])` |
+| `blob()` | Binary data (Uint8Array) | `s.blob()` |
+| `vector()` | Vector embeddings (pgvector) | `s.vector(1536)` |
+| `point()` | PostGIS point type | `s.point()` |
+
+### Auto-generation
+
+```typescript
+s.string().id().uuid()      // UUID v4
+s.string().id().ulid()      // ULID
+s.string().id().nanoid()    // NanoID
+s.string().id().cuid()      // CUID
+s.int().id().increment()    // Auto-increment
+s.dateTime().now()          // Current timestamp on create
+s.dateTime().updatedAt()    // Update timestamp on every update
+```
+
+---
+
+## Supported Drivers
+
+### PostgreSQL
+
+| Driver | Package | Use Case |
+|--------|---------|----------|
+| `pglite` | `@electric-sql/pglite` | Development, testing (WASM) |
+| `pg` | `pg` | Node.js with node-postgres |
+| `postgres` | `postgres` | Node.js with postgres.js |
+| `neon-http` | `@neondatabase/serverless` | Neon serverless (HTTP) |
+
+### MySQL
+
+| Driver | Package | Use Case |
+|--------|---------|----------|
+| `mysql2` | `mysql2` | Node.js with mysql2 |
+| `planetscale` | `@planetscale/database` | PlanetScale serverless |
+
+### SQLite
+
+| Driver | Package | Use Case |
+|--------|---------|----------|
+| `sqlite3` | `better-sqlite3` | Node.js (synchronous) |
+| `libsql` | `@libsql/client` | Turso / LibSQL |
+| `d1` | Cloudflare binding | Cloudflare D1 (Workers) |
+| `d1-http` | Cloudflare API | Cloudflare D1 (HTTP) |
+| `bun-sqlite` | Built-in | Bun runtime |
+
+---
+
 ## Repository Structure
 
 VibORM uses a **10-layer architecture**. Each layer has an `AGENTS.md` with detailed documentation.
@@ -147,10 +351,8 @@ src/
 │                          PostgreSQL, MySQL, SQLite dialect implementations
 │
 ├── drivers/           L8  Connection management, query execution
-│   ├── pglite/            PGlite (PostgreSQL in WASM)
-│   ├── pg/                node-postgres
-│   ├── postgres/          postgres.js
-│   └── sqlite3/           better-sqlite3
+│                          13 drivers: pglite, pg, postgres, neon-http,
+│                          mysql2, planetscale, sqlite3, libsql, d1, bun-sqlite
 │
 ├── client/            L9  Type inference, ORM interface
 │                          Recursive proxy pattern, result types
@@ -291,13 +493,13 @@ Most tests run against PGlite (in-memory PostgreSQL). Driver tests in `tests/dri
 - Nested writes (connect, disconnect, create, update, delete)
 - Select/include with typed results
 - All field types (string, int, float, boolean, dateTime, json, enum, etc.)
-- PostgreSQL and SQLite adapters
+- PostgreSQL, MySQL, and SQLite adapters
+- Query caching with TTL and SWR
+- Transactions (callback and batch modes)
+- OpenTelemetry instrumentation
 
 **Known limitations:**
 - MySQL migrations not yet implemented
-- Query caching not implemented
-- GroupBy HAVING needs schema support
-- Aggregate field typing is loose (`string[]` instead of actual field names)
 
 **Future features** (documented in `features-docs/`):
 - Polymorphic relations

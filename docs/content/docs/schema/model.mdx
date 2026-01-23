@@ -144,7 +144,6 @@ const user = s
     posts: s.oneToMany(() => post),
     profile: s.oneToOne(() => profile).optional(),
   })
-  .map("users")
   .index("email")
   .index(["role", "active"])
   .unique(["email", "orgId"]);

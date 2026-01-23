@@ -13,13 +13,13 @@ const post = s.model({
   id: s.string().id().ulid(),
   title: s.string(),
   tags: s.manyToMany(() => tag),
-}).map("posts");
+});
 
 const tag = s.model({
   id: s.string().id().ulid(),
   name: s.string().unique(),
   posts: s.manyToMany(() => post),
-}).map("tags");
+});
 ```
 
 VibORM automatically creates a junction table `post_tag` with `postId` and `tagId` columns.
@@ -116,7 +116,7 @@ const post = s.model({
     .through("post_tags")
     .A("post_id")
     .B("tag_id"),
-}).map("posts");
+});
 
 const tag = s.model({
   id: s.string().id().ulid(),
@@ -125,7 +125,7 @@ const tag = s.model({
     .through("post_tags")
     .A("tag_id")
     .B("post_id"),
-}).map("tags");
+});
 ```
 
 ## Complete Example
@@ -143,20 +143,20 @@ const user = s.model({
     .through("user_follows")
     .A("following_id")
     .B("follower_id"),
-}).map("users");
+});
 
 // Products and categories
 const product = s.model({
   id: s.string().id().ulid(),
   name: s.string(),
   categories: s.manyToMany(() => category),
-}).map("products");
+});
 
 const category = s.model({
   id: s.string().id().ulid(),
   name: s.string(),
   products: s.manyToMany(() => product),
-}).map("categories");
+});
 ```
 
 ## Querying Many-to-Many
@@ -293,13 +293,13 @@ const student = s.model({
   id: s.string().id().ulid(),
   name: s.string(),
   enrollments: s.oneToMany(() => enrollment),
-}).map("students");
+});
 
 const course = s.model({
   id: s.string().id().ulid(),
   title: s.string(),
   enrollments: s.oneToMany(() => enrollment),
-}).map("courses");
+});
 ```
 
 ### Self-Referential Many-to-Many
@@ -312,5 +312,5 @@ const user = s.model({
     .through("friendships")
     .A("user_id")
     .B("friend_id"),
-}).map("users");
+});
 ```

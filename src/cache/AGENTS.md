@@ -35,15 +35,15 @@ await orm.user.update({
 
 | File | Purpose | Modify When |
 |------|---------|-------------|
-| `driver.ts` | Abstract CacheDriver base class | Adding cache driver methods |
-| `client.ts` | CachedClient proxy for cached queries | Changing cached query behavior |
+| `driver.ts` | Abstract CacheDriver base class + orchestration | Adding cache driver methods, SWR logic |
 | `key.ts` | Cache key generation (deterministic hashing) | Changing key format |
 | `ttl.ts` | TTL string parsing ("1 hour" → ms) | Adding time units |
-| `schema.ts` | Cache invalidation options schema | Adding invalidation options |
-| `types.ts` | TypeScript types for cache options | Adding cache options |
+| `schema.ts` | Cache options schema (TTL, SWR, invalidation) | Adding cache options |
 | `index.ts` | Public exports | Adding new exports |
 | `drivers/memory.ts` | In-memory cache implementation | Memory-specific fixes |
 | `drivers/cloudflare-kv.ts` | Cloudflare KV implementation | KV-specific fixes |
+
+**Note:** The `CachedClient` proxy is created in `src/client/client.ts` via `$withCache()`, not in this module.
 
 ---
 

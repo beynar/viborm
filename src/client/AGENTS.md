@@ -165,6 +165,112 @@ We need to intercept: (1) model name, (2) operation name, (3) the actual call. E
 
 ---
 
+## Caching Integration
+
+The client integrates with the cache layer via `$withCache()`:
+
+```typescript
+// Basic caching with default TTL (5 minutes)
+const users = await orm.$withCache().user.findMany();
+
+// Custom TTL
+const posts = await orm.$withCache({ ttl: "1 hour" }).post.findMany();
+
+// Stale-while-revalidate pattern
+const data = await orm.$withCache({ 
+  ttl: "5 minutes", 
+  swr: true           // Returns stale data immediately, revalidates in background
+}).user.findMany();
+
+// Custom SWR window
+const data = await orm.$withCache({ 
+  ttl: "5 minutes", 
+  swr: "1 hour"       // Custom stale window instead of default 2x TTL
+}).user.findMany();
+```
+
+**Cache options:**
+- `ttl` - Time to live (number in ms or string like "1 hour")
+- `swr` - Enable SWR (boolean or custom TTL)
+- `bypass` - Force fresh fetch but still cache result
+- `key` - Custom cache key override
+
+**Cache invalidation in mutations:**
+```typescript
+await orm.user.update({
+  where: { id: "1" },
+  data: { name: "Alice" },
+  cache: { 
+    autoInvalidate: true,     // Invalidate all user cache entries
+    invalidate: ["user:*"]    // Or specify patterns manually
+  }
+});
+```
+
+**Manual invalidation:**
+```typescript
+await orm.$invalidate(["user:*", "post:list"]);
+```
+
+---
+
+## Transactions
+
+The client supports two transaction modes:
+
+### Callback Mode (Dynamic)
+
+```typescript
+const result = await orm.$transaction(async (tx) => {
+  const user = await tx.user.create({
+    data: { name: "Alice", email: "alice@example.com" }
+  });
+  
+  await tx.post.create({
+    data: { title: "First Post", authorId: user.id }
+  });
+  
+  return user;
+});
+// All operations in single transaction, auto-rollback on error
+```
+
+### Batch Mode (Array)
+
+```typescript
+const [user, post] = await orm.$transaction([
+  orm.user.create({ data: { name: "Bob", email: "bob@example.com" } }),
+  orm.post.create({ data: { title: "Hello", authorId: "user-id" } })
+]);
+// Operations are PendingOperations, executed together in transaction
+```
+
+**Transaction options:**
+```typescript
+await orm.$transaction(callback, {
+  isolationLevel: "serializable"  // Optional isolation level
+});
+```
+
+---
+
+## PendingOperation Pattern
+
+Operations return `PendingOperation` objects that defer execution until awaited:
+
+```typescript
+const op = orm.user.findMany();  // Returns PendingOperation (not executed yet)
+const users = await op;          // NOW executes
+
+// Enables batch transactions
+const [a, b] = await orm.$transaction([
+  orm.user.create({ data: {...} }),  // Both are PendingOperations
+  orm.post.create({ data: {...} })   // Executed together when array is awaited
+]);
+```
+
+---
+
 ## Related Layers
 
 | Layer | Relationship |
@@ -172,3 +278,4 @@ We need to intercept: (1) model name, (2) operation name, (3) the actual call. E
 | **Schema** ([schema/AGENTS.md](../schema/AGENTS.md)) | Provides model definitions with typed schemas |
 | **Validation** ([validation/AGENTS.md](../validation/AGENTS.md)) | Provides branded VibSchema for inference |
 | **Query Engine** ([query-engine/AGENTS.md](../query-engine/AGENTS.md)) | Executes queries, returns raw results |
+| **Cache** ([cache/AGENTS.md](../cache/AGENTS.md)) | Provides caching layer for `$withCache()` |

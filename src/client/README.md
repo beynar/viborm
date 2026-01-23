@@ -53,19 +53,18 @@ const user = s.model({
   id: s.string().id().ulid(),
   email: s.string().unique(),
   name: s.string().nullable(),
-  posts: s.relation.oneToMany(() => post),
-}).map("users");
+  posts: s.oneToMany(() => post),
+});
 
 const post = s.model({
   id: s.string().id().ulid(),
   title: s.string(),
   published: s.boolean().default(false),
   authorId: s.string(),
-  author: s.relation
+  author: s.manyToOne(() => user)
     .fields("authorId")
-    .references("id")
-    .manyToOne(() => user),
-}).map("posts");
+    .references("id"),
+});
 
 // Create client
 const client = createClient({
@@ -1157,4 +1156,3 @@ The VibORM client provides:
 ✅ **Nested writes** — Create/update related records in single operations  
 ✅ **Aggregations** — Count, sum, avg, min, max with grouping support  
 ✅ **Flexible pagination** — Offset-based and cursor-based options
-

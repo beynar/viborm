@@ -1,19 +1,55 @@
 import { defineConfig } from "tsdown";
 
 export default defineConfig({
-  // Multiple entry points: main library + CLI
+  // Multiple entry points for tree-shaking
   entry: {
+    // Main entry
     index: "./src/index.ts",
     cli: "./src/cli/index.ts",
-    // Subpath exports for tree-shaking (users can import specific parts)
-    adapters: "./src/adapters/index.ts",
-    drivers: "./src/drivers/index.ts",
-    "drivers/pglite": "./src/drivers/pglite/index.ts",
-    cache: "./src/cache/index.ts",
+
+    // Schema (viborm/schema)
+    schema: "./src/schema/exports.ts",
+
+    // Driver base (viborm/driver)
+    driver: "./src/drivers/exports.ts",
+
+    // PostgreSQL drivers (viborm/pg, viborm/postgres, etc.)
+    pg: "./src/drivers/pg/index.ts",
+    postgres: "./src/drivers/postgres/index.ts",
+    pglite: "./src/drivers/pglite/index.ts",
+    "neon-http": "./src/drivers/neon-http/index.ts",
+    "bun-sql": "./src/drivers/bun-sql/index.ts",
+
+    // MySQL drivers (viborm/mysql2, viborm/planetscale)
+    mysql2: "./src/drivers/mysql2/index.ts",
+    planetscale: "./src/drivers/planetscale/index.ts",
+
+    // SQLite drivers (viborm/sqlite3, viborm/libsql, etc.)
+    sqlite3: "./src/drivers/sqlite3/index.ts",
+    libsql: "./src/drivers/libsql/index.ts",
+    d1: "./src/drivers/d1/index.ts",
+    "d1-http": "./src/drivers/d1-http/index.ts",
+    "bun-sqlite": "./src/drivers/bun-sqlite/index.ts",
+
+    // Cache (viborm/cache, viborm/cache/memory, etc.)
+    cache: "./src/cache/exports.ts",
     "cache/memory": "./src/cache/drivers/memory.ts",
     "cache/cloudflare-kv": "./src/cache/drivers/cloudflare-kv.ts",
+
+    // Migrations (viborm/migrations)
     migrations: "./src/migrations/index.ts",
+
+    // Client types (viborm/client)
+    client: "./src/client/exports.ts",
+
+    // Validation (viborm/validation)
     validation: "./src/validation/index.ts",
+
+    // Instrumentation (viborm/instrumentation)
+    instrumentation: "./src/instrumentation/exports.ts",
+
+    // Adapters (internal, but exposed for advanced usage)
+    adapters: "./src/adapters/index.ts",
   },
 
   // Output format - ESM only since you're "type": "module"
@@ -50,6 +86,15 @@ export default defineConfig({
     // Peer dependencies
     "@electric-sql/pglite",
     "@cloudflare/workers-types",
+    "@neondatabase/serverless",
+    "@planetscale/database",
+    "@libsql/client",
+    "mysql2",
+    "better-sqlite3",
+    "postgres",
+    // Bun built-ins (only available in Bun runtime)
+    "bun:sqlite",
+    "bun:sql",
   ],
 
   // Shims for Node.js builtins when targeting edge runtimes

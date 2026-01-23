@@ -11,15 +11,15 @@ This document explores the design and implementation of polymorphic relations in
 ### Polymorphic "Belongs To" Side
 
 ```typescript
-const comment = s.model("comment", {
-  id: s.string().id().auto.ulid(),
+const comment = s.model({
+  id: s.string().id().ulid(),
   body: s.string(),
   
   // Polymorphic relation definition
-  commentable: s.relation.polymorphic(() => ({
-    post: Post,
-    video: Video,
-    photo: Photo,
+  commentable: s.polymorphic(() => ({
+    post: post,
+    video: video,
+    photo: photo,
   })),
 });
 ```
@@ -46,27 +46,27 @@ INDEX idx_commentable (commentable_type, commentable_id)
 ### Inverse Side ("Has Many" through polymorphic)
 
 ```typescript
-const post = s.model("post", {
-  id: s.string().id().auto.ulid(),
+const post = s.model({
+  id: s.string().id().ulid(),
   title: s.string(),
   
   // No explicit name needed - VibORM infers from polymorphic key
-  comments: s.relation.many(() => Comment),
+  comments: s.oneToMany(() => comment),
 });
 ```
 
 **Inference Logic:**
 
-When defining `s.relation.many(() => Comment)` on `Post`, VibORM:
+When defining `s.oneToMany(() => comment)` on `post`, VibORM:
 
-1. Inspects the `Comment` model
+1. Inspects the `comment` model
 2. Finds polymorphic relations
 3. Looks for a key matching `"post"` (the current model's name)
 4. If found → automatically links to that polymorphic relation
 
 ```typescript
 // This just works - "post" key exists in commentable's polymorphic definition
-comments: s.relation.many(() => Comment),
+comments: s.oneToMany(() => comment),
 ```
 
 **When is `name` required?**
@@ -74,25 +74,25 @@ comments: s.relation.many(() => Comment),
 Only when there's **ambiguity** - i.e., multiple polymorphic relations on the same model that reference the current model:
 
 ```typescript
-const comment = s.model("comment", {
-  // Two polymorphic relations, BOTH include Post
-  subject: s.relation.polymorphic(() => ({
-    post: Post,
-    video: Video,
+const comment = s.model({
+  // Two polymorphic relations, BOTH include post
+  subject: s.polymorphic(() => ({
+    post: post,
+    video: video,
   })),
-  mentionedIn: s.relation.polymorphic(() => ({
-    post: Post,      // Also references Post!
-    article: Article,
+  mentionedIn: s.polymorphic(() => ({
+    post: post,      // Also references post!
+    article: article,
   })),
 });
 
-const post = s.model("post", {
+const post = s.model({
   // ❌ Ambiguous: which polymorphic? Error without name
-  // comments: s.relation.many(() => Comment),
+  // comments: s.oneToMany(() => comment),
   
   // ✅ Explicit: specify which polymorphic relation
-  subjectComments: s.relation.many(() => Comment, { name: "subject" }),
-  mentionedComments: s.relation.many(() => Comment, { name: "mentionedIn" }),
+  subjectComments: s.oneToMany(() => comment, { name: "subject" }),
+  mentionedComments: s.oneToMany(() => comment, { name: "mentionedIn" }),
 });
 ```
 
@@ -152,10 +152,10 @@ for (const comment of comments) {
 
 ```typescript
 // From the polymorphic definition:
-s.relation.polymorphic(() => ({
-  post: Post,    // key: "post", model: Post
-  video: Video,  // key: "video", model: Video
-  photo: Photo,  // key: "photo", model: Photo
+s.polymorphic(() => ({
+  post: post,    // key: "post", model: post
+  video: video,  // key: "video", model: video
+  photo: photo,  // key: "photo", model: photo
 }))
 
 // Infer:
@@ -199,7 +199,7 @@ type CommentWithCommentable = {
 
 **For VibORM:**
 - Default to `VARCHAR` for simplicity
-- Offer an option for `ENUM` type in PostgreSQL: `s.relation.polymorphic(..., { typeStorage: "enum" })`
+- Offer an option for `ENUM` type in PostgreSQL: `s.polymorphic(..., { typeStorage: "enum" })`
 - Consider integer mapping for high-volume tables
 
 ### Con: Complex Queries
@@ -259,10 +259,10 @@ CREATE TABLE contents (
 **In VibORM (hypothetical API):**
 
 ```typescript
-const content = s.model("content", {
-  id: s.string().id().auto.ulid(),
+const content = s.model({
+  id: s.string().id().ulid(),
   title: s.string(),
-  createdAt: s.datetime().default.now(),
+  createdAt: s.datetime().default("now"),
 }).sti({
   discriminator: "type",
   variants: {
@@ -339,25 +339,25 @@ CREATE TABLE videos (
 **In VibORM (hypothetical API):**
 
 ```typescript
-const content = s.model("content", {
-  id: s.string().id().auto.ulid(),
+const content = s.model({
+  id: s.string().id().ulid(),
   title: s.string(),
-  createdAt: s.datetime().default.now(),
+  createdAt: s.datetime().default("now"),
 }).cti({
   discriminator: "type",
 });
 
-const post = content.extend("post", {
+const post = content.extend({
   body: s.string(),
 });
 
-const photo = content.extend("photo", {
+const photo = content.extend({
   url: s.string(),
   width: s.number().optional(),
   height: s.number().optional(),
 });
 
-const video = content.extend("video", {
+const video = content.extend({
   duration: s.number(),
   thumbnailUrl: s.string().optional(),
 });
@@ -399,6 +399,31 @@ const video = content.extend("video", {
 ---
 
 ## 5. Implementation Roadmap
+
+### Layer Impact Analysis
+
+Before diving into phases, here's how polymorphic relations affect each of VibORM's 12 layers:
+
+| Layer | Location | Affected? | Impact |
+|-------|----------|-----------|--------|
+| **L1: Validation** | `src/validation/` | ✅ Yes | Add `v.discriminatedUnion()` helper |
+| **L2: Fields** | `src/schema/fields/` | ❌ No | Polymorphic is a relation type, not a field type |
+| **L3: Query Schemas** | `src/schema/model/schemas/` | ✅ Yes | Add polymorphic to where, create, update, select schemas |
+| **L4: Relations** | `src/schema/relation/` | ✅ Yes | New `PolymorphicRelation` class |
+| **L5: Schema Validation** | `src/schema/validation/` | ✅ Yes | Add P001-P007 validation rules |
+| **L6: Query Engine** | `src/query-engine/` | ✅ Yes | Handle polymorphic in all builders |
+| **L7: Adapters** | `src/adapters/` | ✅ Yes | Add `polymorphic.buildTypeCase()` methods |
+| **L8: Drivers** | `src/drivers/` | ❌ No | No changes - drivers handle raw SQL execution |
+| **L9: Client** | `src/client/` | ✅ Yes | Add `InferPolymorphicResult` type helpers |
+| **L10: Cache** | `src/cache/` | ✅ Yes | Handle cache invalidation for polymorphic targets |
+| **L11: Instrumentation** | `src/instrumentation/` | ✅ Yes | Add span attributes for polymorphic operations |
+| **L12: Migrations** | `src/migrations/` | ✅ Yes | Generate DDL for `_type` and `_id` columns |
+
+**Layers NOT affected:**
+- **L2: Fields** - Polymorphic is a relation concept, not a field type. No changes needed.
+- **L8: Drivers** - Drivers execute raw SQL. The query engine and adapters handle the polymorphic SQL generation.
+
+---
 
 ### Phase 1: Schema Definition
 
@@ -448,7 +473,7 @@ For polymorphic, we need a **new relation type** with **multiple target models**
 // New relation class for polymorphic "belongs to"
 
 // The getter returns an object mapping keys to models (not getters)
-// This matches the API: s.relation.polymorphic(() => ({ post: Post, video: Video }))
+// This matches the API: s.polymorphic(() => ({ post: post, video: video }))
 export type PolymorphicModelsGetter<T extends Record<string, AnyModel>> = () => T;
 
 export interface PolymorphicRelationState<
@@ -507,24 +532,91 @@ export const polymorphic = <T extends Record<string, AnyModel>>(
 ```typescript
 // The outer () => is for lazy evaluation
 // Inside, models are direct references (not getters)
-commentable: s.relation.polymorphic(() => ({
-  post: Post,      // Direct model, not () => Post
-  video: Video,
-  photo: Photo,
+commentable: s.polymorphic(() => ({
+  post: post,      // Direct model, not () => post
+  video: video,
+  photo: photo,
 }))
 ```
 
 **2. `src/schema/relation/schemas/polymorphic/` (new directory)**
 
+Following the existing pattern for relation schemas (`toOne*` / `toMany*`), create polymorphic equivalents:
+
 ```
 polymorphic/
-├── index.ts          # Main export, getPolymorphicRelationSchemas()
+├── index.ts          # Main export: getPolymorphicRelationSchemas(), PolymorphicSchemas<S>
 ├── types.ts          # Type helpers for polymorphic schemas
 ├── filter.ts         # polymorphicFilterFactory - { type?, is?, isNot? }
 ├── create.ts         # polymorphicCreateFactory - { connect, create }
 ├── update.ts         # polymorphicUpdateFactory - { connect, disconnect? }
 ├── select-include.ts # polymorphicSelectFactory, polymorphicIncludeFactory
 └── helpers.ts        # getModelSchema() - get schema from resolved model
+```
+
+**Why no `order-by.ts` or `count-filter.ts`?**
+
+- **Order by**: For regular `toOne` relations, you can order by nested fields (e.g., `orderBy: { author: { name: 'asc' } }`). For polymorphic, the target could be `post`, `video`, or `photo` - they have different fields, so nested ordering doesn't make sense. Ordering by `_type` column could be done directly in the where clause.
+
+- **Count filter**: The `countFilterFactory` is used for `_count: { select: { posts: true } }` on **to-many** relations. Polymorphic is a **to-one** relationship (a comment has ONE commentable), so count-filter doesn't apply. The _inverse_ relation (`post.comments`) uses the regular `toManyCountFilter`.
+
+**Schema Factory Summary:**
+
+| Factory | Input Shape | Description |
+|---------|-------------|-------------|
+| `polymorphicFilterFactory` | `{ type?, is?, isNot? }` | Filter by type and/or target model conditions |
+| `polymorphicCreateFactory` | `{ connect?, create? }` | Connect to existing or create new target |
+| `polymorphicUpdateFactory` | `{ connect?, disconnect? }` | Change or remove polymorphic reference |
+| `polymorphicSelectFactory` | `true \| { [type]: boolean }` | Select polymorphic field |
+| `polymorphicIncludeFactory` | `true \| { [type]: { select?, include? } }` | Include with per-type nested options |
+
+**Bundle in `index.ts`:**
+
+```typescript
+// src/schema/relation/schemas/polymorphic/index.ts
+
+import type { PolymorphicRelationState } from "../../polymorphic-relation";
+import { polymorphicFilterFactory } from "./filter";
+import { polymorphicCreateFactory } from "./create";
+import { polymorphicUpdateFactory } from "./update";
+import { polymorphicSelectFactory, polymorphicIncludeFactory } from "./select-include";
+
+// =============================================================================
+// SCHEMA BUNDLE
+// =============================================================================
+
+export const getPolymorphicRelationSchemas = <S extends PolymorphicRelationState>(
+  state: S
+): PolymorphicSchemas<S> => {
+  return {
+    filter: polymorphicFilterFactory(state),
+    create: polymorphicCreateFactory(state),
+    update: polymorphicUpdateFactory(state),
+    select: polymorphicSelectFactory(state),
+    include: polymorphicIncludeFactory(state),
+  };
+};
+
+// =============================================================================
+// TYPE INFERENCE
+// =============================================================================
+
+export type PolymorphicSchemas<S extends PolymorphicRelationState> = {
+  filter: ReturnType<typeof polymorphicFilterFactory<S>>;
+  create: ReturnType<typeof polymorphicCreateFactory<S>>;
+  update: ReturnType<typeof polymorphicUpdateFactory<S>>;
+  select: ReturnType<typeof polymorphicSelectFactory<S>>;
+  include: ReturnType<typeof polymorphicIncludeFactory<S>>;
+};
+
+// Re-export all factories
+export {
+  polymorphicFilterFactory,
+  polymorphicCreateFactory,
+  polymorphicUpdateFactory,
+  polymorphicSelectFactory,
+  polymorphicIncludeFactory,
+};
 ```
 
 ---
@@ -1214,15 +1306,15 @@ export const polymorphicCreateFactory = <S extends PolymorphicRelationState>(sta
 
 ```typescript
 // Schema definition
-const commentable = s.relation.polymorphic(() => ({
-  post: Post,
-  video: Video,
-  photo: Photo,
+const commentable = s.polymorphic(() => ({
+  post: post,
+  video: video,
+  photo: photo,
 }));
 
 // Using discriminatedUnion in the schema factory
 const connectSchema = v.discriminatedUnion(
-  commentable["~"].state.getter,  // () => ({ post: Post, video: Video, photo: Photo })
+  commentable["~"].state.getter,  // () => ({ post: post, video: video, photo: photo })
   "~.schemas.whereUnique"
 );
 
@@ -1361,7 +1453,7 @@ export type PolymorphicResultOptional<T extends PolymorphicModelsMap> =
 
 #### Schema Validation Rules
 
-The existing validation system (`src/schema/validation/`) needs new rules for polymorphic relations. Currently, there's a `polymorphicRelationWarning` (CM004) that warns about manual `*_type + *_id` patterns - this should be updated to recognize valid `s.relation.polymorphic()` usage.
+The existing validation system (`src/schema/validation/`) needs new rules for polymorphic relations. Currently, there's a `polymorphicRelationWarning` (CM004) that warns about manual `*_type + *_id` patterns - this should be updated to recognize valid `s.polymorphic()` usage.
 
 **File to modify: `src/schema/validation/rules/relation.ts`**
 
@@ -1611,7 +1703,7 @@ export const polymorphicRules = [
 /**
  * CM004: Polymorphic relation pattern warning
  * 
- * UPDATED: Now recognizes valid polymorphic relations from s.relation.polymorphic()
+ * UPDATED: Now recognizes valid polymorphic relations from s.polymorphic()
  * Only warns about MANUAL *_type + *_id patterns without proper polymorphic definition
  */
 export function polymorphicRelationWarning(
@@ -1644,7 +1736,7 @@ export function polymorphicRelationWarning(
     if (idField && !validPolyFields.has(idField)) {
       errors.push({
         code: "CM004",
-        message: `'${fname}' + '${idField}' looks like manual polymorphic pattern. Use s.relation.polymorphic() instead`,
+        message: `'${fname}' + '${idField}' looks like manual polymorphic pattern. Use s.polymorphic() instead`,
         severity: "warning",
         model: name,
         field: fname,
@@ -1678,27 +1770,210 @@ export interface ValidationContext {
 
 ---
 
-### Phase 2: Database Schema Generation
+### Phase 2: Migration Layer Impact
 
-**Goal:** Generate correct SQL for polymorphic columns.
+**Goal:** Generate correct DDL for polymorphic columns and handle schema changes.
 
-**Tasks:**
+#### 2.1 Schema Introspection Changes
 
-1. **Modify schema introspection**
-   - Detect polymorphic relations during model analysis
-   - Generate virtual columns: `${fieldName}_type`, `${fieldName}_id`
+**File:** `src/migrations/introspection.ts` (MODIFY)
 
-2. **SQL generation for columns**
-   - `_type`: `VARCHAR(255)` or `ENUM` (PostgreSQL option)
-   - `_id`: Match the primary key type of target models (must be consistent!)
+The migration introspector needs to detect polymorphic relations and generate virtual columns:
 
-3. **Index generation**
-   - Auto-create composite index on `(type, id)`
-   - Option for partial indexes
+```typescript
+// When introspecting a model with polymorphic relations
+function introspectPolymorphicRelation(
+  model: Model<any>,
+  fieldName: string,
+  polyRelation: PolymorphicRelation<any>
+): ColumnDefinition[] {
+  const targetModels = polyRelation.getModels();
+  const targetKeys = polyRelation.getKeys();
+  
+  // Validate all targets have compatible PK types
+  const pkType = getConsistentPrimaryKeyType(targetModels);
+  
+  return [
+    {
+      name: `${fieldName}_type`,
+      type: "VARCHAR(255)",  // or ENUM for PostgreSQL with typeStorage: "enum"
+      nullable: polyRelation["~"].state.optional ?? false,
+    },
+    {
+      name: `${fieldName}_id`,
+      type: pkType,  // e.g., "VARCHAR(26)" for ULID, "BIGINT" for auto-increment
+      nullable: polyRelation["~"].state.optional ?? false,
+    },
+  ];
+}
+```
 
-4. **Validation**
-   - All target models must have compatible primary key types
-   - Circular polymorphic references detection
+#### 2.2 DDL Generation
+
+**File:** `src/migrations/ddl.ts` (MODIFY)
+
+Generate CREATE TABLE statements with polymorphic columns:
+
+```sql
+-- Example: comment model with polymorphic commentable
+CREATE TABLE "comment" (
+  "id" VARCHAR(26) PRIMARY KEY,
+  "body" TEXT NOT NULL,
+  "commentable_type" VARCHAR(255) NOT NULL,
+  "commentable_id" VARCHAR(26) NOT NULL,
+  "created_at" TIMESTAMP DEFAULT NOW()
+);
+
+-- Auto-generated composite index for efficient lookups
+CREATE INDEX "idx_comment_commentable" 
+ON "comment" ("commentable_type", "commentable_id");
+```
+
+#### 2.3 Migration Diff Detection
+
+**File:** `src/migrations/diff.ts` (MODIFY)
+
+The diff engine needs to detect polymorphic relation changes:
+
+| Change Type | Migration Action |
+|-------------|------------------|
+| Add polymorphic relation | `ADD COLUMN {name}_type`, `ADD COLUMN {name}_id`, `CREATE INDEX` |
+| Remove polymorphic relation | `DROP INDEX`, `DROP COLUMN {name}_type`, `DROP COLUMN {name}_id` |
+| Add target to polymorphic | No schema change (type column is VARCHAR) |
+| Remove target from polymorphic | No schema change, but may need data cleanup |
+| Rename polymorphic field | Rename both columns and index |
+| Change optional → required | `ALTER COLUMN SET NOT NULL` (both columns) |
+| Change required → optional | `ALTER COLUMN DROP NOT NULL` (both columns) |
+
+```typescript
+// Detecting polymorphic changes in diff
+function diffPolymorphicRelations(
+  oldModel: IntrospectedModel | null,
+  newModel: Model<any>
+): MigrationOperation[] {
+  const operations: MigrationOperation[] = [];
+  
+  for (const [fieldName, polyRel] of newModel["~"].polymorphicRelations) {
+    const oldTypeCol = oldModel?.columns.get(`${fieldName}_type`);
+    const oldIdCol = oldModel?.columns.get(`${fieldName}_id`);
+    
+    if (!oldTypeCol && !oldIdCol) {
+      // New polymorphic relation - add both columns
+      operations.push({
+        type: "addColumn",
+        table: getTableName(newModel),
+        column: { name: `${fieldName}_type`, type: "VARCHAR(255)", ... },
+      });
+      operations.push({
+        type: "addColumn", 
+        table: getTableName(newModel),
+        column: { name: `${fieldName}_id`, type: getPkType(polyRel), ... },
+      });
+      operations.push({
+        type: "createIndex",
+        table: getTableName(newModel),
+        columns: [`${fieldName}_type`, `${fieldName}_id`],
+        name: `idx_${getTableName(newModel)}_${fieldName}`,
+      });
+    }
+    // ... handle other change types
+  }
+  
+  return operations;
+}
+```
+
+#### 2.4 Database-Specific Considerations
+
+**PostgreSQL with ENUM type storage:**
+
+When using `{ typeStorage: "enum" }` option:
+
+```sql
+-- Initial migration creates the ENUM type
+CREATE TYPE "commentable_type_enum" AS ENUM ('post', 'video', 'photo');
+
+CREATE TABLE "comment" (
+  ...
+  "commentable_type" "commentable_type_enum" NOT NULL,
+  ...
+);
+
+-- Adding a new target type requires ALTER TYPE
+ALTER TYPE "commentable_type_enum" ADD VALUE 'article';
+```
+
+**MySQL:**
+
+```sql
+-- MySQL uses ENUM directly in column definition
+CREATE TABLE `comment` (
+  ...
+  `commentable_type` ENUM('post', 'video', 'photo') NOT NULL,
+  ...
+);
+
+-- Adding a new type requires ALTER TABLE
+ALTER TABLE `comment` 
+MODIFY `commentable_type` ENUM('post', 'video', 'photo', 'article') NOT NULL;
+```
+
+**SQLite:**
+
+SQLite doesn't support ENUM, so always uses VARCHAR with CHECK constraint:
+
+```sql
+CREATE TABLE "comment" (
+  ...
+  "commentable_type" TEXT NOT NULL CHECK("commentable_type" IN ('post', 'video', 'photo')),
+  ...
+);
+```
+
+#### 2.5 Migration Files to Modify
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/migrations/introspection.ts` | MODIFY | Detect polymorphic relations, generate virtual columns |
+| `src/migrations/diff.ts` | MODIFY | Detect polymorphic changes (add/remove/modify) |
+| `src/migrations/ddl.ts` | MODIFY | Generate CREATE/ALTER statements for polymorphic columns |
+| `src/migrations/drivers/postgres.ts` | MODIFY | Handle ENUM type creation/modification |
+| `src/migrations/drivers/mysql.ts` | MODIFY | Handle MySQL ENUM in column definition |
+| `src/migrations/drivers/sqlite.ts` | MODIFY | Handle CHECK constraints for type validation |
+
+#### 2.6 Migration Edge Cases
+
+**1. Changing PK type of a target model:**
+
+If `post` changes from `ULID` to `UUID`, all polymorphic relations pointing to it need migration:
+
+```sql
+-- This is a breaking change - requires careful handling
+ALTER TABLE "comment" 
+ALTER COLUMN "commentable_id" TYPE UUID USING "commentable_id"::UUID;
+```
+
+**Recommendation:** Validate PK type consistency at schema validation time (rule P002) to prevent this.
+
+**2. Orphaned records after target model deletion:**
+
+When removing a model from the schema that's referenced by polymorphic relations:
+
+```sql
+-- Clean up orphaned records before removing target
+DELETE FROM "comment" WHERE "commentable_type" = 'deleted_model';
+```
+
+**3. Renaming a polymorphic key:**
+
+If changing `post` to `blogPost` in the polymorphic definition:
+
+```sql
+-- Data migration required
+UPDATE "comment" 
+SET "commentable_type" = 'blogPost' 
+WHERE "commentable_type" = 'post';
+```
 
 ---
 
@@ -1945,6 +2220,150 @@ export interface ValidationContext {
 
 ---
 
+### Phase 9: Cache Layer (L10)
+
+**Goal:** Handle cache invalidation for polymorphic relations.
+
+**File:** `src/cache/` (MODIFY)
+
+#### 9.1 Cache Key Generation
+
+Polymorphic includes need unique cache keys that account for the discriminated union structure:
+
+```typescript
+// Cache key must include:
+// 1. The polymorphic field name
+// 2. Which types are being included (if selective)
+// 3. Nested include options per type
+
+// Example cache key components for:
+// include: { commentable: { post: { include: { author: true } } } }
+{
+  model: "comment",
+  operation: "findMany",
+  include: {
+    commentable: {
+      _polymorphic: true,
+      post: { include: { author: true } },
+      video: true,
+      photo: true,
+    }
+  }
+}
+```
+
+#### 9.2 Cache Invalidation
+
+Polymorphic relations require special invalidation logic because a change to ANY target model should invalidate queries that include the polymorphic relation:
+
+```typescript
+// When a Post is updated:
+// 1. Invalidate all Post queries (standard)
+// 2. Invalidate all Comment queries that include commentable (polymorphic includes Post)
+
+function getPolymorphicInvalidationTargets(
+  schema: Schema,
+  updatedModel: string
+): string[] {
+  const targets: string[] = [updatedModel];
+  
+  // Find all models with polymorphic relations that include updatedModel
+  for (const [modelName, model] of schema.models) {
+    for (const [fieldName, polyRel] of model["~"].polymorphicRelations) {
+      if (polyRel.hasKey(updatedModel.toLowerCase())) {
+        targets.push(modelName);
+      }
+    }
+  }
+  
+  return targets;
+}
+```
+
+#### 9.3 Files to Modify
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/cache/key.ts` | MODIFY | Handle polymorphic in cache key generation |
+| `src/cache/schema.ts` | MODIFY | Add polymorphic invalidation options |
+| `src/cache/client.ts` | MODIFY | Track polymorphic dependencies for invalidation |
+
+---
+
+### Phase 10: Instrumentation Layer (L11)
+
+**Goal:** Add observability for polymorphic operations.
+
+**File:** `src/instrumentation/` (MODIFY)
+
+#### 10.1 Span Attributes
+
+Following the existing VibORM instrumentation patterns (`SPAN_*` for span names, `ATTR_*` for attributes), add polymorphic-specific attributes:
+
+```typescript
+// In src/instrumentation/spans.ts
+
+// =============================================================================
+// Polymorphic Attributes
+// =============================================================================
+
+/** Polymorphic field name being queried (e.g., "commentable") */
+export const ATTR_POLYMORPHIC_FIELD = "viborm.polymorphic.field";
+
+/** Target types included in the query (e.g., ["post", "video", "photo"]) */
+export const ATTR_POLYMORPHIC_TYPES = "viborm.polymorphic.types";
+
+/** Whether selective per-type includes are used */
+export const ATTR_POLYMORPHIC_SELECTIVE = "viborm.polymorphic.selective";
+```
+
+These attributes would be recorded on existing spans like `SPAN_BUILD` and `SPAN_PARSE`:
+
+```typescript
+// During query building (SPAN_BUILD)
+span.setAttributes({
+  [ATTR_POLYMORPHIC_FIELD]: "commentable",
+  [ATTR_POLYMORPHIC_TYPES]: ["post", "video", "photo"],
+  [ATTR_POLYMORPHIC_SELECTIVE]: true,
+});
+
+// During result parsing (SPAN_PARSE)
+span.setAttributes({
+  [ATTR_DB_ROWS_RETURNED]: 100,
+  // Type distribution could be logged rather than traced (high cardinality)
+});
+```
+
+#### 10.2 Logging
+
+Add structured log events for polymorphic operations:
+
+```typescript
+// Log when resolving polymorphic includes
+logger.debug("Resolving polymorphic include", {
+  field: "commentable",
+  types: ["post", "video", "photo"],
+  selective: true,
+  perTypeIncludes: { post: { author: true }, video: { channel: true } },
+});
+
+// Log polymorphic type distribution in results (not traced - high cardinality)
+logger.debug("Polymorphic results resolved", {
+  field: "commentable",
+  distribution: { post: 45, video: 30, photo: 25 },
+  totalRecords: 100,
+});
+```
+
+#### 10.3 Files to Modify
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/instrumentation/spans.ts` | MODIFY | Add `ATTR_POLYMORPHIC_*` constants |
+| `src/instrumentation/tracer.ts` | MODIFY | Record polymorphic attributes on `SPAN_BUILD` and `SPAN_PARSE` |
+
+---
+
 ## 6. Design Decisions
 
 ### ✅ Polymorphic "Has One" - Supported
@@ -1953,17 +2372,17 @@ Polymorphic relations support both `many` and `one` cardinality:
 
 ```typescript
 // Example: A model can have one featured image from different sources
-const product = s.model("product", {
-  featuredImage: s.relation.polymorphic(() => ({
-    photo: Photo,
-    generatedImage: GeneratedImage,
-    stockImage: StockImage,
+const product = s.model({
+  featuredImage: s.polymorphic(() => ({
+    photo: photo,
+    generatedImage: generatedImage,
+    stockImage: stockImage,
   })),
 });
 
 // Inverse side
-const photo = s.model("photo", {
-  featuredOn: s.relation.one(() => Product),  // Has one, not many
+const photo = s.model({
+  featuredOn: s.oneToOne(() => product),  // Has one, not many
 });
 ```
 
@@ -2070,225 +2489,51 @@ This follows VibORM's existing pattern of scalar subqueries with `json_build_obj
 
 ---
 
-## 7. Blind Spots & Missing Pieces
+## 7. Implementation Notes
 
-After reviewing the document, these areas need additional consideration:
+Key considerations for implementers:
 
-### 7.1 Missing: Polymorphic Update Schema
+### 7.1 Optional Polymorphic Handling
 
-The document covers filter, create, select-include but **update schema is missing**. What operations should be supported?
+When `optional: true` is set:
+
+1. **Return type includes null:** `PolymorphicResult<T> | null`
+2. **Database columns are nullable:** `commentable_type VARCHAR(255) NULL`
+3. **Query supports null check:** `where: { commentable: null }`
+
+### 7.2 Excluded from OrderBy and _count
+
+Polymorphic relations are **excluded** from:
+
+- **OrderBy**: Cannot order by nested fields since targets have different schemas. Use `ORDER BY commentable_type` directly in raw queries if needed.
+- **_count**: Polymorphic is a to-one relation (0 or 1), so counting doesn't make sense. The inverse relation (`post.comments`) uses regular `toManyCountFilter`.
+
+### 7.3 Iteration Pattern
+
+When iterating over `polymorphicRelations` in validation rules:
 
 ```typescript
-// Polymorphic update operations
-update: {
-  commentable: {
-    // Change to a different target (disconnect old, connect new)
-    connect: { type: "video", id: "video_456" },
-    
-    // Or just disconnect (only if optional)
-    disconnect: true,
-  }
+// polymorphicRelations is a Record, not a Map
+for (const [name, polyRel] of Object.entries(model["~"].polymorphicRelations)) {
+  // Use getter to resolve lazy models
+  const models = polyRel.getModels();  // NOT polyRel["~"].state.models
+  // ...
 }
 ```
 
-**Note:** You cannot `update` the related record through polymorphic - that would require knowing which table to update. Use separate queries.
+### 7.4 Cannot Update Target Through Polymorphic
 
-**File to create:** `src/schema/relation/schemas/polymorphic/update.ts`
-
-```typescript
-export const polymorphicUpdateFactory = <S extends PolymorphicRelationState>(state: S) => {
-  const isOptional = state.optional ?? false;
-  
-  const baseSchema = v.object({
-    connect: v.discriminatedUnion(state.getter, "~.schemas.whereUnique"),
-  });
-  
-  if (isOptional) {
-    return baseSchema.extend({
-      disconnect: v.literal(true),
-    });
-  }
-  
-  return baseSchema;
-};
-```
-
-### 7.2 Missing: Optional Polymorphic Handling
-
-The document mentions `optional?: boolean` but doesn't fully explore:
-
-1. **Return type when null:**
-   ```typescript
-   type CommentableResult = PolymorphicResult<T> | null;
-   ```
-
-2. **Query behavior:**
-   ```typescript
-   where: {
-     commentable: null  // Find comments with no commentable set
-   }
-   ```
-
-3. **Database columns:**
-   ```sql
-   commentable_type VARCHAR(255) NULL,  -- NULL when optional
-   commentable_id   VARCHAR(26) NULL,
-   ```
-
-### 7.3 Missing: Polymorphic in OrderBy
-
-Can you order by a polymorphic relation? **Probably not directly.**
+The polymorphic update schema only supports `connect` and `disconnect`. You cannot update the related record's fields through polymorphic:
 
 ```typescript
-// This doesn't make sense - what field to order by?
-orderBy: { commentable: "asc" }  // ❌ Invalid
+// ✅ Allowed - change which record is referenced
+update: { commentable: { connect: { type: "video", id: "..." } } }
 
-// Could potentially order by type
-orderBy: { commentable: { type: "asc" } }  // Maybe?
+// ❌ Not allowed - update the referenced record's fields
+update: { commentable: { update: { title: "New title" } } }  // Which table?
 ```
 
-**Recommendation:** Exclude polymorphic from orderBy schema, or only allow ordering by `type`.
-
-### 7.4 Missing: Polymorphic in _count
-
-For polymorphic "belongs to" (like `commentable`), count doesn't make sense - it's always 0 or 1.
-
-```typescript
-select: {
-  _count: {
-    select: {
-      commentable: true  // ❌ Should this be allowed?
-    }
-  }
-}
-```
-
-**Recommendation:** Exclude polymorphic "belongs to" from `_count`. Only allow on inverse side (`post.comments`).
-
-### 7.5 Missing: Query Engine Integration
-
-The document covers SQL generation but doesn't detail:
-
-1. **QueryContext updates:**
-   ```typescript
-   interface QueryContext {
-     // ... existing ...
-     polymorphicRelations: Map<string, PolymorphicRelationInfo>;
-   }
-   ```
-
-2. **RelationInfo interface needs polymorphic variant:**
-   ```typescript
-   interface PolymorphicRelationInfo {
-     type: "polymorphic";
-     models: Record<string, AnyModel>;
-     typeColumn: string;
-     idColumn: string;
-   }
-   ```
-
-3. **New builder:** `src/query-engine/builders/polymorphic-include-builder.ts`
-
-### 7.6 Missing: Client Layer Types
-
-The document focuses on schema but doesn't cover result types:
-
-**Files to modify:**
-
-| File | Change |
-|------|--------|
-| `src/client/result-types.ts` | Add `InferPolymorphicResult<T>` type |
-| `src/client/types.ts` | Add polymorphic to operation arg types |
-
-```typescript
-// src/client/result-types.ts
-
-// Infer result type for polymorphic field
-export type InferPolymorphicResult<
-  T extends PolymorphicModelsMap,
-  Include extends PolymorphicIncludeArg<T> | undefined
-> = Include extends true
-  ? PolymorphicResult<T>
-  : Include extends Record<string, any>
-    ? PolymorphicSelectiveResult<T, Include>
-    : never;
-```
-
-### 7.7 Missing: MySQL vs PostgreSQL Differences
-
-The SQL examples use `json_build_object` (PostgreSQL). MySQL equivalent:
-
-```sql
--- PostgreSQL
-json_build_object('type', 'post', 'data', subquery)
-
--- MySQL
-JSON_OBJECT('type', 'post', 'data', subquery)
-```
-
-**Database adapter needs polymorphic JSON helpers:**
-
-```typescript
-// src/adapters/types.ts
-interface DatabaseAdapter {
-  // ... existing ...
-  polymorphic: {
-    buildTypeCase(typeColumn: string, branches: PolymorphicBranch[]): Sql;
-  };
-}
-```
-
-### 7.8 Missing: Error Types for Runtime
-
-The document mentions errors but doesn't define them:
-
-```typescript
-// src/query-engine/errors.ts
-
-export class PolymorphicTypeError extends Error {
-  code = "POLYMORPHIC_INVALID_TYPE";
-  constructor(
-    public field: string,
-    public receivedType: string,
-    public validTypes: string[]
-  ) {
-    super(`Invalid polymorphic type '${receivedType}' for '${field}'. Valid: ${validTypes.join(", ")}`);
-  }
-}
-
-export class PolymorphicOrphanError extends Error {
-  code = "POLYMORPHIC_ORPHAN";
-  constructor(
-    public field: string,
-    public type: string,
-    public id: string
-  ) {
-    super(`Polymorphic '${field}' references non-existent ${type}#${id}`);
-  }
-}
-```
-
-### 7.9 Validation Rules: Incorrect Iteration
-
-The validation rules use `for...of` on what would be an object:
-
-```typescript
-// WRONG - polymorphicRelations is a Record, not a Map
-for (const [pname, polyRel] of model["~"].polymorphicRelations) { ... }
-
-// CORRECT
-for (const [pname, polyRel] of Object.entries(model["~"].polymorphicRelations)) { ... }
-```
-
-Also, rules reference `polyRel["~"].state.models` but should call the getter:
-
-```typescript
-// WRONG
-const models = polyRel["~"].state.models;
-
-// CORRECT
-const models = polyRel.getModels();  // or polyRel["~"].state.getter()
-```
+To update the target, query it directly: `orm.post.update({ where: { id }, data: {...} })`
 
 ---
 
@@ -2314,7 +2559,7 @@ const models = polyRel.getModels();  // or polyRel["~"].state.getter()
 
 ## 9. Success Criteria
 
-- [ ] Can define polymorphic relation with `s.relation.polymorphic()`
+- [ ] Can define polymorphic relation with `s.polymorphic()`
 - [ ] Polymorphic "has one" inverse supported
 - [ ] Polymorphic "has many" inverse supported
 - [ ] Type inference works for discriminated unions (`{ type: T, data: TData }`)
@@ -2338,4 +2583,3 @@ const models = polyRel.getModels();  // or polyRel["~"].state.getter()
 - [TypeORM Polymorphic Relations Discussion](https://github.com/typeorm/typeorm/issues/729)
 - [Martin Fowler: Single Table Inheritance](https://martinfowler.com/eaaCatalog/singleTableInheritance.html)
 - [Martin Fowler: Class Table Inheritance](https://martinfowler.com/eaaCatalog/classTableInheritance.html)
-

@@ -84,6 +84,25 @@ function isMutationOperation(
 }
 
 /**
+ * Resolve SWR option to a TTL value or false
+ * - true: 2x TTL (default stale window)
+ * - false/undefined: SWR disabled
+ * - number: custom stale window TTL (already parsed by schema)
+ */
+function resolveSwr(
+  swr: boolean | number | undefined,
+  ttlMs: number
+): number | false {
+  if (swr === undefined || swr === false) {
+    return false;
+  }
+  if (swr === true) {
+    return ttlMs * 2;
+  }
+  return swr;
+}
+
+/**
  * Check if an operation is cacheable
  */
 function isCacheableOperation(
@@ -299,10 +318,13 @@ export class VibORM<C extends VibORMConfig> {
     }
     const { bypass, key, ttl, swr } = parsed.value;
 
+    // Resolve SWR to number | false
+    const resolvedSwr = resolveSwr(swr, ttl);
+
     // Build execution options
     const options: CacheExecutionOptions = {
       ttlMs: ttl,
-      swr,
+      swr: resolvedSwr,
       bypass,
       key,
       waitUntil: this.waitUntil,

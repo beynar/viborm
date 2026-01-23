@@ -41,30 +41,16 @@ const post = s
 const schema = { user, post };
 
 // =============================================================================
-// HELPER: Setup database with raw SQL (for driver-level tests)
+// HELPER: Setup database using push() migration
 // =============================================================================
 
-async function setupDatabaseRaw(driver: PgDriver) {
-  // Create tables with raw SQL (for testing driver directly without client)
-  await driver._executeRaw(`
-    CREATE TABLE IF NOT EXISTS "pg_test_users" (
-      "id" TEXT PRIMARY KEY NOT NULL,
-      "name" TEXT,
-      "email" TEXT NOT NULL,
-      "age" INTEGER
-    )
-  `);
-
-  await driver._executeRaw(`
-    CREATE TABLE IF NOT EXISTS "pg_test_posts" (
-      "id" TEXT PRIMARY KEY NOT NULL,
-      "title" TEXT NOT NULL,
-      "content" TEXT,
-      "published" BOOLEAN NOT NULL DEFAULT FALSE,
-      "authorId" TEXT NOT NULL,
-      FOREIGN KEY ("authorId") REFERENCES "pg_test_users"("id")
-    )
-  `);
+async function setupDatabase(driver: PgDriver) {
+  // Create a temporary client to use push() for migrations
+  const tempClient = VibORM.create({
+    schema,
+    driver,
+  });
+  await push(tempClient, { force: true });
 
   // Clean up any existing data
   await driver._executeRaw(`DELETE FROM "pg_test_posts"`);
@@ -114,7 +100,7 @@ describeIf("pg Driver", () => {
       driver = new PgDriver({
         connectionString: TEST_CONNECTION_STRING,
       });
-      await setupDatabaseRaw(driver);
+      await setupDatabase(driver);
     });
 
     afterEach(async () => {
@@ -180,7 +166,7 @@ describeIf("pg Driver", () => {
       driver = new PgDriver({
         connectionString: TEST_CONNECTION_STRING,
       });
-      await setupDatabaseRaw(driver);
+      await setupDatabase(driver);
     });
 
     afterEach(async () => {

@@ -9,7 +9,7 @@ icon: Layers
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                          User Code                                       │
-│   s.model("user", { name: s.string() })  →  orm.user.findMany({...})    │
+│   s.model({ name: s.string() })  →  orm.user.findMany({...})            │
 └─────────────────────────────────────────────────────────────────────────┘
                                     │
                                     ▼
@@ -61,7 +61,7 @@ Prisma requires `prisma generate` after every schema change. We wanted **instant
 
 ```typescript
 // VibORM: Types update instantly when you change this
-const user = s.model("user", {
+const user = s.model({
   email: s.string().unique(),  // Change here → types update immediately
 });
 ```

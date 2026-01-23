@@ -14,7 +14,7 @@ const user = s.model({
   id: s.string().id().ulid(),
   email: s.string().unique(),
   profile: s.oneToOne(() => profile).optional(),
-}).map("users");
+});
 
 // Profile belongs to one user
 const profile = s.model({
@@ -24,7 +24,7 @@ const profile = s.model({
   user: s.oneToOne(() => user)
     .fields("userId")
     .references("id"),
-}).map("profiles");
+});
 ```
 
 ## Which Side Owns the FK?
@@ -110,7 +110,7 @@ const user = s.model({
   email: s.string().unique(),
   // Non-owning side - no FK, can be optional
   profile: s.oneToOne(() => profile).optional(),
-}).map("users");
+});
 
 const profile = s.model({
   id: s.string().id().ulid(),
@@ -123,7 +123,7 @@ const profile = s.model({
     .fields("userId")
     .references("id")
     .onDelete("cascade"),
-}).map("profiles");
+});
 ```
 
 ## Querying One-to-One
@@ -181,5 +181,5 @@ const employee = s.model({
     .fields("managerId")
     .references("id")
     .optional(),
-}).map("employees");
+});
 ```

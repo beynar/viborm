@@ -83,10 +83,10 @@ Relations use thunks `() => Model` to break circular dependencies:
 
 ```typescript
 // User references Post, Post references User
-const user = s.model("user", {
+const user = s.model({
   posts: s.oneToMany(() => post),  // Thunk defers evaluation
 });
-const post = s.model("post", {
+const post = s.model({
   author: s.manyToOne(() => user),
 });
 ```
@@ -133,7 +133,7 @@ Client uses types:     orm.user.findMany({ where: { name: ... }})  // Fully type
 | Add new field type | [schema/fields/](src/schema/fields/AGENTS.md) | Update Field union in `base.ts` |
 | Add query operator (e.g., `contains`) | [query-engine/](src/query-engine/AGENTS.md) | + [adapters/](src/adapters/AGENTS.md) (all 3!) |
 | Fix type inference bug | [client/](src/client/AGENTS.md) | Check schema factories upstream |
-| Add migration operation | [migrations/](src/migrations/AGENTS.md) | + migration drivers (postgres, sqlite) |
+| Add migration operation | [migrations/](src/migrations/AGENTS.md) | + migration drivers (postgres, mysql, sqlite, libsql) |
 | Add storage driver | [migrations/](src/migrations/AGENTS.md) | Extend `MigrationStorageDriver` |
 | Add relation feature | [schema/relation/](src/schema/relation/AGENTS.md) | + relation schemas |
 | Add cache backend | [cache/](src/cache/AGENTS.md) | Export from main index |
@@ -158,7 +158,7 @@ Early versions used Zod-style `.infer`. With complex nested schemas, TypeScript 
 Sql fragments carry both the template string AND parameter values separately. This enables proper parameterization (prevents SQL injection) and composition (fragments can be nested).
 
 ### Why there's no `src/drivers/AGENTS.md`
-The driver layer is thin - just connection management and query execution. Most complexity lives in adapters (SQL generation) and query-engine (structure). Drivers rarely need modification.
+The driver layer handles connection management and query execution. While there are many drivers (13+: pglite, pg, postgres, neon-http, mysql2, planetscale, sqlite3, libsql, d1, d1-http, bun-sqlite, bun-sql), they follow a consistent pattern. Most complexity lives in adapters (SQL generation) and query-engine (structure).
 
 ### Why OTel is dynamically imported
 OpenTelemetry is an optional peer dependency. Most users don't need tracing. Dynamic `import()` with catch allows graceful degradation when `@opentelemetry/api` isn't installed.
@@ -231,17 +231,17 @@ relation["~"].targetModel // Thunk to target model
 import { s } from "viborm";
 
 // 1. Define schema (L2-L4)
-const user = s.model("user", {
+const user = s.model({
   id: s.string().id().ulid(),
   email: s.string().unique(),
   posts: s.oneToMany(() => post),
 });
 
-const post = s.model("post", {
+const post = s.model({
   id: s.string().id().ulid(),
   authorId: s.string(),
   author: s.manyToOne(() => user).fields("authorId").references("id"),
-}).map("posts");
+});
 
 // 2. Query with full type safety (L9 → L6 → L7 → L8)
 const users = await orm.user.findMany({

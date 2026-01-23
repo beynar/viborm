@@ -278,7 +278,9 @@ src/migrations/
 │   ├── base.ts        # MigrationDriver base class
 │   ├── types.ts       # Driver types
 │   ├── postgres/      # PostgreSQL driver
-│   └── sqlite/        # SQLite driver
+│   ├── mysql/         # MySQL driver
+│   ├── sqlite/        # SQLite driver
+│   └── libsql/        # LibSQL/Turso driver
 ├── storage/
 │   ├── index.ts       # Storage exports
 │   ├── driver.ts      # MigrationStorageDriver base

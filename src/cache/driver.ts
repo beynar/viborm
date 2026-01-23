@@ -52,6 +52,8 @@ export interface CacheEntry<T = unknown> {
 export interface CacheSetOptions {
   /** Time to live in milliseconds */
   ttl: number;
+  /** SWR storage TTL in milliseconds (if provided, used as storage TTL instead of ttl) */
+  swrTtl?: number;
 }
 
 /**
@@ -60,8 +62,8 @@ export interface CacheSetOptions {
 export interface CacheExecutionOptions {
   /** Time to live in milliseconds */
   ttlMs: number;
-  /** Enable stale-while-revalidate pattern */
-  swr: boolean;
+  /** SWR storage TTL in ms, or false to disable SWR */
+  swr: number | false;
   /** Bypass cache read and force fresh fetch */
   bypass: boolean;
   /** Custom cache key override */
@@ -184,7 +186,7 @@ export abstract class CacheDriver {
           return cached.value;
         }
 
-        if (options.swr) {
+        if (options.swr !== false) {
           // Stale but SWR enabled - return stale and revalidate in background
           this.revalidateInBackground(
             modelName,
@@ -233,11 +235,12 @@ export abstract class CacheDriver {
     value: T,
     options: CacheExecutionOptions
   ): void {
-    const cachePromise = this._set(key, value, { ttl: options.ttlMs }).catch(
-      (error) => {
-        this.logCacheEvent(key, "miss", "cache-set-failed", error);
-      }
-    );
+    const cachePromise = this._set(key, value, {
+      ttl: options.ttlMs,
+      swrTtl: options.swr !== false ? options.swr : undefined,
+    }).catch((error) => {
+      this.logCacheEvent(key, "miss", "cache-set-failed", error);
+    });
 
     if (options.waitUntil) {
       options.waitUntil(cachePromise);
@@ -273,7 +276,10 @@ export abstract class CacheDriver {
         this.logCacheEvent(cacheKey, "revalidate", "start");
 
         const result = await executor();
-        await this._set(cacheKey, result, { ttl: options.ttlMs });
+        await this._set(cacheKey, result, {
+          ttl: options.ttlMs,
+          swrTtl: options.swr !== false ? options.swr : undefined,
+        });
 
         this.logCacheEvent(cacheKey, "revalidate", "success");
       } catch (error) {
@@ -401,8 +407,8 @@ export abstract class CacheDriver {
       ttl: options.ttl,
     };
 
-    // Double TTL for storage to allow SWR to serve stale content
-    const storageTtl = options.ttl * 2;
+    // Use SWR TTL if provided, otherwise just use regular TTL
+    const storageTtl = options.swrTtl ?? options.ttl;
 
     return this.withSpan(
       SPAN_CACHE_SET,

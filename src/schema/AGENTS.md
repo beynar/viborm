@@ -13,7 +13,7 @@ VibORM's type safety comes from schema definitions carrying type information thr
 
 ```typescript
 // Schema definition
-const user = s.model("user", {
+const user = s.model({
   email: s.string().unique(),
   posts: s.oneToMany(() => post),
 });

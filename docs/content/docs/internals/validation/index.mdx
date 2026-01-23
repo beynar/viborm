@@ -19,11 +19,11 @@ We evaluated existing libraries but none handled recursive schemas well for our 
 ORM models reference each other. User has Posts, Post has Author (a User). This creates circular dependencies:
 
 ```typescript
-const user = s.model("user", {
+const user = s.model({
   posts: s.oneToMany(() => post),  // User → Post
 });
 
-const post = s.model("post", {
+const post = s.model({
   author: s.manyToOne(() => user),  // Post → User (circular!)
 });
 ```

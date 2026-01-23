@@ -164,7 +164,7 @@ export default {
         data: { name: "Alice", email: "alice@example.com" },
         cache: { autoInvalidate: true },
       });
-      return Response.json(user);
+      return response.json(user);
     }
 
     // Read from cache
@@ -172,7 +172,7 @@ export default {
       .$withCache({ ttl: "10 minutes" })
       .user.findMany();
 
-    return Response.json(users);
+    return response.json(users);
   }
 }
 ```

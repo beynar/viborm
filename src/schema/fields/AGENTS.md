@@ -34,7 +34,12 @@ Each method returns a NEW instance with updated State generic. This enables Type
 
 ## What Lives Here
 
-**Field Types:** string, number (int/float/decimal), boolean, datetime, bigint, enum, json, blob, vector, point
+**Field Types (14 total):**
+- **Text:** string
+- **Numeric:** int, float, decimal, bigInt
+- **Boolean:** boolean
+- **Temporal:** dateTime, date, time
+- **Complex:** json, enum, blob, vector, point
 
 **Each field directory contains:**
 - `field.ts` - Field class with State generic and chainable methods
