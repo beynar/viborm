@@ -39,6 +39,14 @@ export interface SeparatedData {
 }
 
 /**
+ * CreateMany input shape
+ */
+export interface CreateManyInput {
+  data: Record<string, unknown>[];
+  skipDuplicates?: boolean;
+}
+
+/**
  * A single relation mutation operation
  */
 export interface RelationMutation {
@@ -50,6 +58,8 @@ export interface RelationMutation {
   disconnect?: boolean | Record<string, unknown> | Record<string, unknown>[];
   /** Create new related record(s) */
   create?: Record<string, unknown> | Record<string, unknown>[];
+  /** Create many new related records */
+  createMany?: CreateManyInput;
   /** Connect if exists, otherwise create */
   connectOrCreate?: ConnectOrCreateInput | ConnectOrCreateInput[];
   /** Delete related record(s) */
@@ -156,6 +166,10 @@ function parseRelationMutation(
     mutation.create = input.create as
       | Record<string, unknown>
       | Record<string, unknown>[];
+  }
+
+  if ("createMany" in input) {
+    mutation.createMany = input.createMany as CreateManyInput;
   }
 
   if ("connectOrCreate" in input) {
@@ -512,6 +526,11 @@ export function needsTransaction(
   for (const mutation of Object.values(relations)) {
     // Create always needs transaction to get generated ID
     if (mutation.create) {
+      return true;
+    }
+
+    // CreateMany needs transaction to set FK values from parent
+    if (mutation.createMany) {
       return true;
     }
 

@@ -4,7 +4,7 @@ import { type V, v } from "@validation";
 import type { RelationState } from "../types";
 import {
   getTargetCreateSchema,
-  getTargetScalarCreateSchema,
+  getTargetNestedScalarCreateSchema,
   getTargetWhereUniqueSchema,
   type InferTargetSchema,
   singleOrArray,
@@ -61,7 +61,7 @@ export type ToManyCreateSchema<S extends RelationState> = V.Object<
   {
     create: () => V.SingleOrArray<InferTargetSchema<S, "create">>;
     createMany: V.Object<{
-      data: () => V.Array<InferTargetSchema<S, "scalarCreate">>;
+      data: () => V.Array<InferTargetSchema<S, "nestedScalarCreate">>;
       skipDuplicates: V.Boolean<{ optional: true }>;
     }>;
     connect: () => V.SingleOrArray<InferTargetSchema<S, "whereUnique">>;
@@ -84,8 +84,9 @@ export const toManyCreateFactory = <S extends RelationState>(
     {
       create: () => singleOrArray(getTargetCreateSchema(state)()),
       // createMany only accepts scalar fields - no nested relation mutations
+      // Uses nestedScalarCreate which marks FK fields as optional (derived from parent)
       createMany: v.object({
-        data: () => v.array(getTargetScalarCreateSchema(state)()),
+        data: () => v.array(getTargetNestedScalarCreateSchema(state)()),
         skipDuplicates: v.boolean({ optional: true }),
       }),
       connect: () => singleOrArray(getTargetWhereUniqueSchema(state)()),

@@ -4,8 +4,10 @@
 export {
   type CreateSchema,
   getCreateSchema,
+  getNestedScalarCreate,
   getRelationCreate,
   getScalarCreate,
+  type NestedScalarCreateSchema,
   type RelationCreateSchema,
   type ScalarCreateSchema,
 } from "./create";
@@ -59,6 +61,7 @@ export {
 import type { ModelState } from "../../model";
 import type {
   CreateSchema,
+  NestedScalarCreateSchema,
   RelationCreateSchema,
   ScalarCreateSchema,
 } from "./create";
@@ -89,6 +92,7 @@ export type CoreSchemas<T extends ModelState> = {
   compoundIdFilter: CompoundIdFilterSchema<T>;
   compoundConstraintFilter: CompoundConstraintFilterSchema<T>;
   scalarCreate: ScalarCreateSchema<T>;
+  nestedScalarCreate: NestedScalarCreateSchema<T>;
   relationCreate: RelationCreateSchema<T>;
   scalarUpdate: ScalarUpdateSchema<T>;
   relationUpdate: RelationUpdateSchema<T>;

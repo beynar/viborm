@@ -81,6 +81,50 @@ function getFkFields<T extends ModelState>(state: T): Set<string> {
 }
 
 /**
+ * Build nested scalar create schema - for createMany inside nested relations
+ *
+ * FK fields are optional because they will be derived from the parent record.
+ * This is used when createMany is called inside a parent's create operation.
+ */
+export type NestedScalarCreateSchema<T extends ModelState> = V.Object<
+  V.FromObject<T["scalars"], "~.schemas.create">["entries"],
+  {
+    atLeast: RequiredFieldKeys<T["fields"]>[];
+  }
+>;
+export const getNestedScalarCreate = <T extends ModelState>(
+  state: T
+): NestedScalarCreateSchema<T> => {
+  // Identify FK fields - these should be optional in nested creates
+  const fkFields = getFkFields(state);
+
+  // Get required scalar field names (non-FK fields without defaults or optional)
+  const requiredScalars = Object.keys(state.scalars).filter((key) => {
+    // FK fields are optional (will be set from parent)
+    if (fkFields.has(key)) return false;
+    // Check if field has default or is optional
+    const field = state.scalars[key] as any;
+    const fieldState = field?.["~"]?.state;
+    return !(fieldState.hasDefault || fieldState.optional);
+  }) as RequiredFieldKeys<T["fields"]>[];
+
+  // Build scalar schema with FK fields as optional
+  const scalarCreate = v.fromObject<T["scalars"], "~.schemas.create">(
+    state.scalars,
+    "~.schemas.create"
+  );
+
+  return v.object(
+    {
+      ...scalarCreate.entries,
+    },
+    {
+      atLeast: requiredScalars,
+    }
+  );
+};
+
+/**
  * Build full create schema - scalar + relation creates
  *
  * FK fields (like authorId) are optional because they can be derived from
