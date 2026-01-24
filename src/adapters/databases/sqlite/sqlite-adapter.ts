@@ -1,6 +1,6 @@
 import { unsupportedGeospatial, unsupportedVector } from "@errors";
 import { type Sql, sql } from "@sql";
-import type { DatabaseAdapter, QueryParts } from "../../database-adapter";
+import type { CastType, DatabaseAdapter, QueryParts } from "../../database-adapter";
 
 /**
  * SQLite Database Adapter
@@ -147,8 +147,16 @@ export class SQLiteAdapter implements DatabaseAdapter {
     coalesce: (...exprs: Sql[]): Sql => sql`COALESCE(${sql.join(exprs, ", ")})`,
     greatest: (...exprs: Sql[]): Sql => sql`MAX(${sql.join(exprs, ", ")})`,
     least: (...exprs: Sql[]): Sql => sql`MIN(${sql.join(exprs, ", ")})`,
-    cast: (expr: Sql, type: string): Sql =>
-      sql`CAST(${expr} AS ${sql.raw`${type}`})`,
+    cast: (expr: Sql, type: CastType): Sql => {
+      // SQLite type mappings
+      const typeMap: Record<CastType, string> = {
+        text: "TEXT",
+        integer: "INTEGER",
+        boolean: "INTEGER",
+        numeric: "NUMERIC",
+      };
+      return sql`CAST(${expr} AS ${sql.raw`${typeMap[type]}`})`;
+    },
   };
 
   // ============================================================

@@ -1,6 +1,14 @@
 import type { Sql } from "@sql";
 
 /**
+ * Logical cast types that adapters map to dialect-specific SQL types.
+ *
+ * Instead of hardcoding SQL type names like "TEXT" or "VARCHAR",
+ * use these logical types and let each adapter map to the correct syntax.
+ */
+export type CastType = "text" | "integer" | "boolean" | "numeric";
+
+/**
  * DatabaseAdapter Interface
  *
  * A monadic, composable interface for database-specific SQL generation.
@@ -121,7 +129,7 @@ export interface DatabaseAdapter {
     coalesce: (...exprs: Sql[]) => Sql;
     greatest: (...exprs: Sql[]) => Sql;
     least: (...exprs: Sql[]) => Sql;
-    cast: (expr: Sql, type: string) => Sql;
+    cast: (expr: Sql, type: CastType) => Sql;
   };
 
   /**
