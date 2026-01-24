@@ -50,20 +50,21 @@ const client = createClient({
   cache: new MemoryCache(),
 });
 
-
 client.$transaction(async (tx) => {
   await tx.user.exist({
     where: {
-      id:"2"
-    }
+      id: "2",
+    },
   });
 });
 
-const res=  client.$transaction([client.user.exist({
-  where: {
-    id:"2"
-  }
-})])
+const res = client.$transaction([
+  client.user.exist({
+    where: {
+      id: "2",
+    },
+  }),
+]);
 
 // Push schema (will be no-op if already in sync)
 const pushResult = await push(client, {

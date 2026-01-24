@@ -226,7 +226,9 @@ export class MigrationContext {
    * Execute a function within a transaction.
    * The callback receives a transaction-bound context.
    */
-  async transaction<T>(fn: (txCtx: MigrationContext) => Promise<T>): Promise<T> {
+  async transaction<T>(
+    fn: (txCtx: MigrationContext) => Promise<T>
+  ): Promise<T> {
     return this.driver.withTransaction((txDriver) => {
       // Create a transaction-bound context
       const txCtx = Object.create(this) as MigrationContext;

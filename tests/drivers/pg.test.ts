@@ -273,7 +273,11 @@ describeIf("pg Driver", () => {
       const client = await PgCreateClient({
         schema,
         databaseUrl: TEST_CONNECTION_STRING,
-      });
+			});
+      
+   
+      
+       
 
       // Push schema to create tables
       await push(client, { force: true });

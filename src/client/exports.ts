@@ -5,32 +5,31 @@
  * Import from "viborm/client"
  */
 
-// Client types
-export type {
-  Client,
-  CachedClient,
-  Schema,
-  Operations,
-  CacheableOperations,
-  MutationOperations,
-  OperationPayload,
-  OperationResult,
-  WaitUntilFn,
-} from "./types";
-
-// Result types
-export type {
-  InferSelectInclude,
-  BatchPayload,
-  CountResultType,
-  AggregateResultType,
-  GroupByResultType,
-} from "./result-types";
-
 // Pending operation
 export {
-  PendingOperation,
   isPendingOperation,
+  PendingOperation,
   type UnwrapPendingOperation,
   type UnwrapPendingOperations,
 } from "./pending-operation";
+
+// Result types
+export type {
+  AggregateResultType,
+  BatchPayload,
+  CountResultType,
+  GroupByResultType,
+  InferSelectInclude,
+} from "./result-types";
+// Client types
+export type {
+  CacheableOperations,
+  CachedClient,
+  Client,
+  MutationOperations,
+  OperationPayload,
+  OperationResult,
+  Operations,
+  Schema,
+  WaitUntilFn,
+} from "./types";

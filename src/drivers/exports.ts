@@ -5,8 +5,16 @@
  * Import from "viborm/driver"
  */
 
-// Base driver for custom implementations
-export { Driver, TransactionBoundDriver } from "./driver";
+// Errors (commonly needed with drivers)
+export {
+  ConnectionError,
+  FeatureNotSupportedError,
+  ForeignKeyError,
+  isRetryableError,
+  QueryError,
+  TransactionError,
+  UniqueConstraintError,
+} from "../errors";
 
 // Types
 export type {
@@ -14,7 +22,8 @@ export type {
   DriverResultParser,
   QueryExecutionContext,
 } from "./driver";
-
+// Base driver for custom implementations
+export { Driver, TransactionBoundDriver } from "./driver";
 export type {
   Dialect,
   IsolationLevel,
@@ -22,14 +31,3 @@ export type {
   QueryResult,
   TransactionOptions,
 } from "./types";
-
-// Errors (commonly needed with drivers)
-export {
-  ConnectionError,
-  FeatureNotSupportedError,
-  ForeignKeyError,
-  QueryError,
-  TransactionError,
-  UniqueConstraintError,
-  isRetryableError,
-} from "../errors";

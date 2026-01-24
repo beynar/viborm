@@ -40,23 +40,23 @@ export {
 // =============================================================================
 
 export {
-  // Base error
-  VibORMError,
-  VibORMErrorCode,
-  isVibORMError,
-  wrapError,
   // Specific errors
   ConnectionError,
   FeatureNotSupportedError,
   ForeignKeyError,
+  // Utilities
+  isRetryableError,
+  isVibORMError,
   NestedWriteError,
   NotFoundError,
   QueryError,
   TransactionError,
   UniqueConstraintError,
   ValidationError,
-  // Utilities
-  isRetryableError,
+  // Base error
+  VibORMError,
+  VibORMErrorCode,
+  wrapError,
 } from "./errors.js";
 
 // =============================================================================
@@ -73,15 +73,17 @@ export type {
 // SCHEMA UTILITIES
 // =============================================================================
 
-// Schema validation
-export { validateSchema, validateSchemaOrThrow } from "./schema/validation/index.js";
-
-export type {
-  ValidationResult,
-  ValidationError as SchemaValidationError,
-  ValidationRule,
-  Severity,
-} from "./schema/validation/index.js";
-
 // Schema introspection
 export { getSchemas } from "./schema/schemas.js";
+
+export type {
+  Severity,
+  ValidationError as SchemaValidationError,
+  ValidationResult,
+  ValidationRule,
+} from "./schema/validation/index.js";
+// Schema validation
+export {
+  validateSchema,
+  validateSchemaOrThrow,
+} from "./schema/validation/index.js";

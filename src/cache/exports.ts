@@ -11,8 +11,8 @@
 
 // Cache driver base
 export {
-  CacheDriver,
   type AnyCacheDriver,
+  CacheDriver,
   type CacheEntry,
   type CacheExecutionOptions,
   type CacheSetOptions,
@@ -20,8 +20,6 @@ export {
 
 // Cache utilities
 export { CACHE_PREFIX, generateCacheKey, generateCachePrefix } from "./key";
-export { parseTTL } from "./ttl";
-
 // Cache schemas
 export type {
   CacheInvalidationOptions,
@@ -34,3 +32,4 @@ export {
   DEFAULT_CACHE_TTL,
   withCacheSchema,
 } from "./schema";
+export { parseTTL } from "./ttl";

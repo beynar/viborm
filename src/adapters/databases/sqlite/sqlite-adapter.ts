@@ -1,6 +1,10 @@
 import { unsupportedGeospatial, unsupportedVector } from "@errors";
 import { type Sql, sql } from "@sql";
-import type { CastType, DatabaseAdapter, QueryParts } from "../../database-adapter";
+import type {
+  CastType,
+  DatabaseAdapter,
+  QueryParts,
+} from "../../database-adapter";
 
 /**
  * SQLite Database Adapter

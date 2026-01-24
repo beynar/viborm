@@ -1,278 +1,278 @@
 {
-	"name": "viborm",
-	"version": "0.1.0",
-	"description": "Type-safe ORM for PostgreSQL and MySQL with Prisma-like API",
-	"main": "./dist/index.mjs",
-	"module": "./dist/index.mjs",
-	"types": "./dist/index.d.mts",
-	"exports": {
-		".": {
-			"types": "./dist/index.d.mts",
-			"import": "./dist/index.mjs"
-		},
-		"./schema": {
-			"types": "./dist/schema.d.mts",
-			"import": "./dist/schema.mjs"
-		},
-		"./driver": {
-			"types": "./dist/driver.d.mts",
-			"import": "./dist/driver.mjs"
-		},
-		"./pg": {
-			"types": "./dist/pg.d.mts",
-			"import": "./dist/pg.mjs"
-		},
-		"./postgres": {
-			"types": "./dist/postgres.d.mts",
-			"import": "./dist/postgres.mjs"
-		},
-		"./pglite": {
-			"types": "./dist/pglite.d.mts",
-			"import": "./dist/pglite.mjs"
-		},
-		"./neon-http": {
-			"types": "./dist/neon-http.d.mts",
-			"import": "./dist/neon-http.mjs"
-		},
-		"./bun-sql": {
-			"types": "./dist/bun-sql.d.mts",
-			"import": "./dist/bun-sql.mjs"
-		},
-		"./mysql2": {
-			"types": "./dist/mysql2.d.mts",
-			"import": "./dist/mysql2.mjs"
-		},
-		"./planetscale": {
-			"types": "./dist/planetscale.d.mts",
-			"import": "./dist/planetscale.mjs"
-		},
-		"./sqlite3": {
-			"types": "./dist/sqlite3.d.mts",
-			"import": "./dist/sqlite3.mjs"
-		},
-		"./libsql": {
-			"types": "./dist/libsql.d.mts",
-			"import": "./dist/libsql.mjs"
-		},
-		"./d1": {
-			"types": "./dist/d1.d.mts",
-			"import": "./dist/d1.mjs"
-		},
-		"./d1-http": {
-			"types": "./dist/d1-http.d.mts",
-			"import": "./dist/d1-http.mjs"
-		},
-		"./bun-sqlite": {
-			"types": "./dist/bun-sqlite.d.mts",
-			"import": "./dist/bun-sqlite.mjs"
-		},
-		"./cache": {
-			"types": "./dist/cache.d.mts",
-			"import": "./dist/cache.mjs"
-		},
-		"./cache/memory": {
-			"types": "./dist/cache/memory.d.mts",
-			"import": "./dist/cache/memory.mjs"
-		},
-		"./cache/cloudflare-kv": {
-			"types": "./dist/cache/cloudflare-kv.d.mts",
-			"import": "./dist/cache/cloudflare-kv.mjs"
-		},
-		"./migrations": {
-			"types": "./dist/migrations.d.mts",
-			"import": "./dist/migrations.mjs"
-		},
-		"./client": {
-			"types": "./dist/client.d.mts",
-			"import": "./dist/client.mjs"
-		},
-		"./validation": {
-			"types": "./dist/validation.d.mts",
-			"import": "./dist/validation.mjs"
-		},
-		"./instrumentation": {
-			"types": "./dist/instrumentation.d.mts",
-			"import": "./dist/instrumentation.mjs"
-		},
-		"./adapters": {
-			"types": "./dist/adapters.d.mts",
-			"import": "./dist/adapters.mjs"
-		}
-	},
-	"bin": {
-		"viborm": "./dist/cli.mjs"
-	},
-	"files": [
-		"dist",
-		"README.md"
-	],
-	"sideEffects": false,
-	"scripts": {
-		"build": "tsc",
-		"dev": "tsc --watch",
-		"test": "vitest run",
-		"test:watch": "vitest",
-		"test:ui": "vitest --ui",
-		"test:types": "vitest run tests/types/",
-		"test:runtime": "vitest run tests/runtime/",
-		"type-check": "tsc --noEmit",
-		"db:run": "docker run -d --name baseorm -p 2222:5432 -e POSTGRES_DB=baseorm -e POSTGRES_PASSWORD=password postgres",
-		"db:push": "prisma db push",
-		"db:generate": "prisma generate",
-		"package:build": "tsdown",
-		"package:dev": "tsdown --watch",
-		"size": "size-limit",
-		"size:why": "size-limit --why"
-	},
-	"keywords": [
-		"orm",
-		"typescript",
-		"postgres",
-		"mysql",
-		"sqlite",
-		"type-safe",
-		"prisma-like"
-	],
-	"type": "module",
-	"author": "",
-	"license": "ISC",
-	"packageManager": "pnpm@10.11.0",
-	"@ark/attest-ts-default": "npm:typescript@5.8.3",
-	"devDependencies": {
-		"@ark/attest": "^0.56.0",
-		"@biomejs/biome": "2.3.11",
-		"@cloudflare/workers-types": "^4.20260103.0",
-		"@electric-sql/pglite": "^0.3.2",
-		"@libsql/client": "^0.14.0",
-		"@neondatabase/serverless": "^0.10.0",
-		"@opentelemetry/api": "^1.9.0",
-		"@opentelemetry/resources": "^2.4.0",
-		"@opentelemetry/sdk-node": "^0.210.0",
-		"@opentelemetry/sdk-trace-node": "^2.4.0",
-		"@planetscale/database": "^1.19.0",
-		"@size-limit/esbuild-why": "^12.0.0",
-		"@size-limit/file": "^11.2.0",
-		"@types/better-sqlite3": "^7.6.13",
-		"@types/bun": "^1.2.17",
-		"@types/node": "^22.15.21",
-		"@types/pg": "^8.16.0",
-		"@vitest/ui": "^3.1.4",
-		"better-sqlite3": "^12.6.0",
-		"mysql2": "^3.14.1",
-		"postgres": "^3.4.8",
-		"prisma": "^6.8.2",
-		"tsdown": "0.19.0-beta.4",
-		"type-fest": "^4.41.0",
-		"typescript": "^5.8.3",
-		"ultracite": "7.0.6",
-		"vitest": "^3.1.4",
-		"zod": "^4.1.13"
-	},
-	"engines": {
-		"node": ">=18"
-	},
-	"dependencies": {
-		"@clack/prompts": "^0.7.0",
-		"@opentelemetry/semantic-conventions": "^1.39.0",
-		"@paralleldrive/cuid2": "^3.0.4",
-		"@prisma/adapter-pg": "^6.8.2",
-		"@prisma/client": "6.8.2",
-		"@standard-schema/spec": "^1.0.0",
-		"arktype": "^2.1.27",
-		"commander": "^12.0.0",
-		"drizzle-orm": "^0.43.1",
-		"nanoid": "^5.1.5",
-		"pg": "^8.16.0",
-		"pglite-prisma-adapter": "^0.5.0",
-		"ulidx": "^2.4.1",
-		"valibot": "^1.2.0"
-	},
-	"peerDependencies": {
-		"@cloudflare/workers-types": "^4.20260103.0",
-		"@electric-sql/pglite": "^0.3.2",
-		"@libsql/client": "^0.14.0",
-		"@neondatabase/serverless": "^0.10.0",
-		"@opentelemetry/api": "^1.9.0",
-		"@planetscale/database": "^1.19.0",
-		"better-sqlite3": "^12.6.0",
-		"mysql2": "^3.14.1",
-		"pg": "^8.16.0",
-		"postgres": "^3.4.0"
-	},
-	"peerDependenciesMeta": {
-		"@cloudflare/workers-types": {
-			"optional": true
-		},
-		"@electric-sql/pglite": {
-			"optional": true
-		},
-		"@libsql/client": {
-			"optional": true
-		},
-		"@neondatabase/serverless": {
-			"optional": true
-		},
-		"@opentelemetry/api": {
-			"optional": true
-		},
-		"@planetscale/database": {
-			"optional": true
-		},
-		"better-sqlite3": {
-			"optional": true
-		},
-		"mysql2": {
-			"optional": true
-		},
-		"pg": {
-			"optional": true
-		},
-		"postgres": {
-			"optional": true
-		}
-	},
-	"size-limit": [
-		{
-			"name": "Main (viborm)",
-			"path": "dist/index.mjs",
-			"brotli": false,
-			"gzip": false
-		},
-		{
-			"name": "Schema",
-			"path": "dist/schema.mjs",
-			"brotli": false,
-			"gzip": false
-		},
-		{
-			"name": "Driver (pg)",
-			"path": "dist/pg.mjs",
-			"brotli": false,
-			"gzip": false
-		},
-		{
-			"name": "Driver (pglite)",
-			"path": "dist/pglite.mjs",
-			"brotli": false,
-			"gzip": false
-		},
-		{
-			"name": "Cache",
-			"path": "dist/cache.mjs",
-			"brotli": false,
-			"gzip": false
-		},
-		{
-			"name": "Migrations",
-			"path": "dist/migrations.mjs",
-			"brotli": false,
-			"gzip": false
-		},
-		{
-			"name": "Validation",
-			"path": "dist/validation.mjs",
-			"brotli": false,
-			"gzip": false
-		}
-	]
+  "name": "viborm",
+  "version": "0.1.0",
+  "description": "Type-safe ORM for PostgreSQL and MySQL with Prisma-like API",
+  "main": "./dist/index.mjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
+    },
+    "./schema": {
+      "types": "./dist/schema.d.mts",
+      "import": "./dist/schema.mjs"
+    },
+    "./driver": {
+      "types": "./dist/driver.d.mts",
+      "import": "./dist/driver.mjs"
+    },
+    "./pg": {
+      "types": "./dist/pg.d.mts",
+      "import": "./dist/pg.mjs"
+    },
+    "./postgres": {
+      "types": "./dist/postgres.d.mts",
+      "import": "./dist/postgres.mjs"
+    },
+    "./pglite": {
+      "types": "./dist/pglite.d.mts",
+      "import": "./dist/pglite.mjs"
+    },
+    "./neon-http": {
+      "types": "./dist/neon-http.d.mts",
+      "import": "./dist/neon-http.mjs"
+    },
+    "./bun-sql": {
+      "types": "./dist/bun-sql.d.mts",
+      "import": "./dist/bun-sql.mjs"
+    },
+    "./mysql2": {
+      "types": "./dist/mysql2.d.mts",
+      "import": "./dist/mysql2.mjs"
+    },
+    "./planetscale": {
+      "types": "./dist/planetscale.d.mts",
+      "import": "./dist/planetscale.mjs"
+    },
+    "./sqlite3": {
+      "types": "./dist/sqlite3.d.mts",
+      "import": "./dist/sqlite3.mjs"
+    },
+    "./libsql": {
+      "types": "./dist/libsql.d.mts",
+      "import": "./dist/libsql.mjs"
+    },
+    "./d1": {
+      "types": "./dist/d1.d.mts",
+      "import": "./dist/d1.mjs"
+    },
+    "./d1-http": {
+      "types": "./dist/d1-http.d.mts",
+      "import": "./dist/d1-http.mjs"
+    },
+    "./bun-sqlite": {
+      "types": "./dist/bun-sqlite.d.mts",
+      "import": "./dist/bun-sqlite.mjs"
+    },
+    "./cache": {
+      "types": "./dist/cache.d.mts",
+      "import": "./dist/cache.mjs"
+    },
+    "./cache/memory": {
+      "types": "./dist/cache/memory.d.mts",
+      "import": "./dist/cache/memory.mjs"
+    },
+    "./cache/cloudflare-kv": {
+      "types": "./dist/cache/cloudflare-kv.d.mts",
+      "import": "./dist/cache/cloudflare-kv.mjs"
+    },
+    "./migrations": {
+      "types": "./dist/migrations.d.mts",
+      "import": "./dist/migrations.mjs"
+    },
+    "./client": {
+      "types": "./dist/client.d.mts",
+      "import": "./dist/client.mjs"
+    },
+    "./validation": {
+      "types": "./dist/validation.d.mts",
+      "import": "./dist/validation.mjs"
+    },
+    "./instrumentation": {
+      "types": "./dist/instrumentation.d.mts",
+      "import": "./dist/instrumentation.mjs"
+    },
+    "./adapters": {
+      "types": "./dist/adapters.d.mts",
+      "import": "./dist/adapters.mjs"
+    }
+  },
+  "bin": {
+    "viborm": "./dist/cli.mjs"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:ui": "vitest --ui",
+    "test:types": "vitest run tests/types/",
+    "test:runtime": "vitest run tests/runtime/",
+    "type-check": "tsc --noEmit",
+    "db:run": "docker run -d --name baseorm -p 2222:5432 -e POSTGRES_DB=baseorm -e POSTGRES_PASSWORD=password postgres",
+    "db:push": "prisma db push",
+    "db:generate": "prisma generate",
+    "package:build": "tsdown",
+    "package:dev": "tsdown --watch",
+    "size": "size-limit",
+    "size:why": "size-limit --why"
+  },
+  "keywords": [
+    "orm",
+    "typescript",
+    "postgres",
+    "mysql",
+    "sqlite",
+    "type-safe",
+    "prisma-like"
+  ],
+  "type": "module",
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.11.0",
+  "@ark/attest-ts-default": "npm:typescript@5.8.3",
+  "devDependencies": {
+    "@ark/attest": "^0.56.0",
+    "@biomejs/biome": "2.3.11",
+    "@cloudflare/workers-types": "^4.20260103.0",
+    "@electric-sql/pglite": "^0.3.2",
+    "@libsql/client": "^0.14.0",
+    "@neondatabase/serverless": "^0.10.0",
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/resources": "^2.4.0",
+    "@opentelemetry/sdk-node": "^0.210.0",
+    "@opentelemetry/sdk-trace-node": "^2.4.0",
+    "@planetscale/database": "^1.19.0",
+    "@size-limit/esbuild-why": "^12.0.0",
+    "@size-limit/file": "^11.2.0",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/bun": "^1.2.17",
+    "@types/node": "^22.15.21",
+    "@types/pg": "^8.16.0",
+    "@vitest/ui": "^3.1.4",
+    "better-sqlite3": "^12.6.0",
+    "mysql2": "^3.14.1",
+    "postgres": "^3.4.8",
+    "prisma": "^6.8.2",
+    "tsdown": "0.19.0-beta.4",
+    "type-fest": "^4.41.0",
+    "typescript": "^5.8.3",
+    "ultracite": "7.0.6",
+    "vitest": "^3.1.4",
+    "zod": "^4.1.13"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@clack/prompts": "^0.7.0",
+    "@opentelemetry/semantic-conventions": "^1.39.0",
+    "@paralleldrive/cuid2": "^3.0.4",
+    "@prisma/adapter-pg": "^6.8.2",
+    "@prisma/client": "6.8.2",
+    "@standard-schema/spec": "^1.0.0",
+    "arktype": "^2.1.27",
+    "commander": "^12.0.0",
+    "drizzle-orm": "^0.43.1",
+    "nanoid": "^5.1.5",
+    "pg": "^8.16.0",
+    "pglite-prisma-adapter": "^0.5.0",
+    "ulidx": "^2.4.1",
+    "valibot": "^1.2.0"
+  },
+  "peerDependencies": {
+    "@cloudflare/workers-types": "^4.20260103.0",
+    "@electric-sql/pglite": "^0.3.2",
+    "@libsql/client": "^0.14.0",
+    "@neondatabase/serverless": "^0.10.0",
+    "@opentelemetry/api": "^1.9.0",
+    "@planetscale/database": "^1.19.0",
+    "better-sqlite3": "^12.6.0",
+    "mysql2": "^3.14.1",
+    "pg": "^8.16.0",
+    "postgres": "^3.4.0"
+  },
+  "peerDependenciesMeta": {
+    "@cloudflare/workers-types": {
+      "optional": true
+    },
+    "@electric-sql/pglite": {
+      "optional": true
+    },
+    "@libsql/client": {
+      "optional": true
+    },
+    "@neondatabase/serverless": {
+      "optional": true
+    },
+    "@opentelemetry/api": {
+      "optional": true
+    },
+    "@planetscale/database": {
+      "optional": true
+    },
+    "better-sqlite3": {
+      "optional": true
+    },
+    "mysql2": {
+      "optional": true
+    },
+    "pg": {
+      "optional": true
+    },
+    "postgres": {
+      "optional": true
+    }
+  },
+  "size-limit": [
+    {
+      "name": "Main (viborm)",
+      "path": "dist/index.mjs",
+      "brotli": false,
+      "gzip": false
+    },
+    {
+      "name": "Schema",
+      "path": "dist/schema.mjs",
+      "brotli": false,
+      "gzip": false
+    },
+    {
+      "name": "Driver (pg)",
+      "path": "dist/pg.mjs",
+      "brotli": false,
+      "gzip": false
+    },
+    {
+      "name": "Driver (pglite)",
+      "path": "dist/pglite.mjs",
+      "brotli": false,
+      "gzip": false
+    },
+    {
+      "name": "Cache",
+      "path": "dist/cache.mjs",
+      "brotli": false,
+      "gzip": false
+    },
+    {
+      "name": "Migrations",
+      "path": "dist/migrations.mjs",
+      "brotli": false,
+      "gzip": false
+    },
+    {
+      "name": "Validation",
+      "path": "dist/validation.mjs",
+      "brotli": false,
+      "gzip": false
+    }
+  ]
 }

@@ -5,26 +5,24 @@
  * Import from "viborm/schema"
  */
 
-// Schema Builder API
-export { s } from "./index";
+export type { Field, NumberField } from "./fields";
 
 // Native database types (PG, MYSQL, SQLITE)
-export { PG, MYSQL, SQLITE, type NativeType } from "./fields/native-types";
-
+export { MYSQL, type NativeType, PG, SQLITE } from "./fields/native-types";
+// Hydration utilities (for library authors)
+export {
+  getFieldSqlName,
+  getModelSqlName,
+  hydrateSchemaNames,
+  isSchemaHydrated,
+} from "./hydration";
+// Schema Builder API
+export { s } from "./index";
 // Model and field types for advanced usage
-export type { Model, ModelState, AnyModel } from "./model";
-export type { Field, NumberField } from "./fields";
+export type { AnyModel, Model, ModelState } from "./model";
 export type {
   AnyRelation,
   Getter,
   ReferentialAction,
   RelationType,
 } from "./relation";
-
-// Hydration utilities (for library authors)
-export {
-  hydrateSchemaNames,
-  isSchemaHydrated,
-  getModelSqlName,
-  getFieldSqlName,
-} from "./hydration";
