@@ -26,6 +26,7 @@ import {
   getCompoundIdFilter,
   getCreateSchema,
   getIncludeSchema,
+  getNestedScalarCreate,
   getOrderBySchema,
   getRelationCreate,
   getRelationFilter,
@@ -39,6 +40,7 @@ import {
   getWhereSchema,
   getWhereUniqueSchema,
   type IncludeSchema,
+  type NestedScalarCreateSchema,
   type OrderBySchema,
   type RelationCreateSchema,
   type RelationFilterSchema,
@@ -151,6 +153,7 @@ export class ModelSchemas<T extends ModelState> {
   private _compoundIdFilter?: CompoundIdFilterSchema<T>;
   private _compoundConstraintFilter?: CompoundConstraintFilterSchema<T>;
   private _scalarCreate?: ScalarCreateSchema<T>;
+  private _nestedScalarCreate?: NestedScalarCreateSchema<T>;
   private _relationCreate?: RelationCreateSchema<T>;
   private _scalarUpdate?: ScalarUpdateSchema<T>;
   private _relationUpdate?: RelationUpdateSchema<T>;
@@ -194,6 +197,10 @@ export class ModelSchemas<T extends ModelState> {
 
   get scalarCreate(): ScalarCreateSchema<T> {
     return (this._scalarCreate ??= getScalarCreate(this.state));
+  }
+
+  get nestedScalarCreate(): NestedScalarCreateSchema<T> {
+    return (this._nestedScalarCreate ??= getNestedScalarCreate(this.state));
   }
 
   get relationCreate(): RelationCreateSchema<T> {

@@ -390,4 +390,60 @@ describe("error handling", () => {
     expect(Array.isArray(relations.posts?.connect)).toBe(true);
     expect((relations.posts?.connect as unknown[])?.length).toBe(2);
   });
+
+  it("handles createMany mutation", () => {
+    const ctx = createQueryContext(adapter, UserWithPosts, registry);
+
+    const data = {
+      name: "Alice",
+      posts: {
+        createMany: {
+          data: [{ title: "Post 1" }, { title: "Post 2" }, { title: "Post 3" }],
+        },
+      },
+    };
+
+    const { scalar, relations } = separateData(ctx, data);
+
+    expect(scalar).toEqual({ name: "Alice" });
+    expect(relations.posts?.createMany).toBeDefined();
+    expect(relations.posts?.createMany?.data).toHaveLength(3);
+  });
+
+  it("handles createMany with skipDuplicates", () => {
+    const ctx = createQueryContext(adapter, UserWithPosts, registry);
+
+    const data = {
+      posts: {
+        createMany: {
+          data: [{ title: "Post 1" }],
+          skipDuplicates: true,
+        },
+      },
+    };
+
+    const { relations } = separateData(ctx, data);
+
+    expect(relations.posts?.createMany?.skipDuplicates).toBe(true);
+  });
+});
+
+// =============================================================================
+// NEEDS TRANSACTION WITH CREATEMANY TESTS
+// =============================================================================
+
+describe("needsTransaction with createMany", () => {
+  it("returns true when createMany is present", () => {
+    const ctx = createQueryContext(adapter, UserWithPosts, registry);
+    const data = {
+      posts: {
+        createMany: {
+          data: [{ title: "Hello" }],
+        },
+      },
+    };
+
+    const { relations } = separateData(ctx, data);
+    expect(needsTransaction(relations)).toBe(true);
+  });
 });

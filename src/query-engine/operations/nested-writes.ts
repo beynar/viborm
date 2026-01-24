@@ -12,6 +12,7 @@ import { type Sql, sql } from "@sql";
 import { getPrimaryKeyField } from "../builders/correlation-utils";
 import {
   type ConnectOrCreateInput,
+  type CreateManyInput,
   type FkDirection,
   getFkDirection,
   type RelationMutation,
@@ -398,6 +399,25 @@ async function processRelationMutation(
     }
   }
 
+  // Handle createMany
+  if (mutation.createMany && timing === "after") {
+    const createdRecords = await executeRelationCreateMany(
+      tx,
+      ctx,
+      relationInfo,
+      mutation.createMany,
+      parentData
+    );
+
+    // Store for return value (merge with existing if any)
+    const existing = txCtx.createdRecords.get(relationName);
+    if (Array.isArray(existing)) {
+      txCtx.createdRecords.set(relationName, [...existing, ...createdRecords]);
+    } else {
+      txCtx.createdRecords.set(relationName, createdRecords);
+    }
+  }
+
   // Handle connect (when FK is on other side)
   if (mutation.connect && timing === "after") {
     const connects = Array.isArray(mutation.connect)
@@ -522,6 +542,93 @@ async function executeRelationCreate(
 
   // Simple insert
   return executeSimpleInsert(tx, childCtx, scalar);
+}
+
+/**
+ * Execute a nested createMany for a relation
+ *
+ * Creates multiple related records in a single batch INSERT.
+ * FK values are derived from the parent record.
+ */
+async function executeRelationCreateMany(
+  tx: AnyDriver,
+  ctx: QueryContext,
+  relationInfo: RelationInfo,
+  createManyInput: CreateManyInput,
+  parentData: Record<string, unknown>
+): Promise<Record<string, unknown>[]> {
+  const { adapter } = ctx;
+  const { targetModel, name } = relationInfo;
+  const fkDir = getFkDirection(ctx, relationInfo);
+  const childCtx = createChildContext(ctx, targetModel, ctx.nextAlias());
+
+  // createMany is only valid for to-many relations where related holds FK
+  if (fkDir.holdsFK) {
+    throw new NestedWriteError(
+      `Cannot use createMany for relation '${name}' - ` +
+        "createMany is only supported for to-many relations where the related model holds the FK.",
+      name
+    );
+  }
+
+  const { data, skipDuplicates } = createManyInput;
+
+  if (!data || data.length === 0) {
+    return [];
+  }
+
+  // Add FK values from parent to each record
+  const dataWithFks = data.map((record) => {
+    const withFk = { ...record };
+    for (let i = 0; i < fkDir.fkFields.length; i++) {
+      const fkField = fkDir.fkFields[i]!;
+      const pkField = fkDir.pkFields[i]!;
+      // Only set FK if not already provided in the record
+      if (withFk[fkField] === undefined) {
+        withFk[fkField] = parentData[pkField];
+      }
+    }
+    return withFk;
+  });
+
+  // Build batch INSERT
+  const { columns, values } = buildValues(childCtx, dataWithFks);
+
+  if (columns.length === 0 || values.length === 0) {
+    throw new NestedWriteError(
+      `No data to insert for createMany on relation '${name}'`,
+      name
+    );
+  }
+
+  const targetTable = getTableName(targetModel);
+  const table = adapter.identifiers.escape(targetTable);
+
+  let insertSql: Sql;
+  if (skipDuplicates) {
+    const { prefix, suffix } = adapter.mutations.skipDuplicates();
+    insertSql = adapter.mutations.insert(table, columns, values, prefix);
+    insertSql = sql`${insertSql} ${suffix}`;
+  } else {
+    insertSql = adapter.mutations.insert(table, columns, values);
+  }
+
+  // Add RETURNING * to get the created records (if supported)
+  const returningSql = adapter.mutations.returning(sql`*`);
+  const hasReturning = returningSql.strings.join("").trim() !== "";
+
+  if (hasReturning) {
+    const finalSql = sql`${insertSql} ${returningSql}`;
+    const result = await tx._execute<Record<string, unknown>>(finalSql);
+    return result.rows;
+  }
+
+  // MySQL/SQLite without RETURNING - execute INSERT and return the input data
+  // (We can't easily refetch multiple records without their IDs)
+  await tx._execute(insertSql);
+
+  // Return the input data with FK values as a best-effort response
+  return dataWithFks;
 }
 
 /**

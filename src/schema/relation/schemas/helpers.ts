@@ -68,6 +68,15 @@ export const getTargetScalarCreateSchema = <S extends RelationState>(
 };
 
 /**
+ * Get the target model's nestedScalarCreate schema lazily (for nested createMany - FK fields optional)
+ */
+export const getTargetNestedScalarCreateSchema = <S extends RelationState>(
+  state: S
+) => {
+  return getTargetSchemas(state, "nestedScalarCreate");
+};
+
+/**
  * Get the target model's update schema lazily
  */
 export const getTargetUpdateSchema = <S extends RelationState>(state: S) => {
