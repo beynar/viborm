@@ -1,5 +1,5 @@
 import { type Sql, sql } from "@sql";
-import type { DatabaseAdapter, QueryParts } from "../../database-adapter";
+import type { CastType, DatabaseAdapter, QueryParts } from "../../database-adapter";
 import { convertBigIntToNumber } from "../../shared/result-parsing";
 
 /**
@@ -141,8 +141,16 @@ export class PostgresAdapter implements DatabaseAdapter {
     coalesce: (...exprs: Sql[]): Sql => sql`COALESCE(${sql.join(exprs, ", ")})`,
     greatest: (...exprs: Sql[]): Sql => sql`GREATEST(${sql.join(exprs, ", ")})`,
     least: (...exprs: Sql[]): Sql => sql`LEAST(${sql.join(exprs, ", ")})`,
-    cast: (expr: Sql, type: string): Sql =>
-      sql`CAST(${expr} AS ${sql.raw`${type}`})`,
+    cast: (expr: Sql, type: CastType): Sql => {
+      // PostgreSQL type mappings
+      const typeMap: Record<CastType, string> = {
+        text: "TEXT",
+        integer: "INTEGER",
+        boolean: "BOOLEAN",
+        numeric: "NUMERIC",
+      };
+      return sql`CAST(${expr} AS ${sql.raw`${typeMap[type]}`})`;
+    },
   };
 
   // ============================================================

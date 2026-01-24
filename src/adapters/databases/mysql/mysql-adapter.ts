@@ -1,6 +1,6 @@
 import { unsupportedGeospatial, unsupportedVector } from "@errors";
 import { type Sql, sql } from "@sql";
-import type { DatabaseAdapter, QueryParts } from "../../database-adapter";
+import type { CastType, DatabaseAdapter, QueryParts } from "../../database-adapter";
 import {
   normalizeCountResult,
   parseIntegerBoolean,
@@ -149,8 +149,16 @@ export class MySQLAdapter implements DatabaseAdapter {
     coalesce: (...exprs: Sql[]): Sql => sql`COALESCE(${sql.join(exprs, ", ")})`,
     greatest: (...exprs: Sql[]): Sql => sql`GREATEST(${sql.join(exprs, ", ")})`,
     least: (...exprs: Sql[]): Sql => sql`LEAST(${sql.join(exprs, ", ")})`,
-    cast: (expr: Sql, type: string): Sql =>
-      sql`CAST(${expr} AS ${sql.raw`${type}`})`,
+    cast: (expr: Sql, type: CastType): Sql => {
+      // MySQL type mappings - MySQL doesn't support TEXT in CAST
+      const typeMap: Record<CastType, string> = {
+        text: "CHAR",
+        integer: "SIGNED",
+        boolean: "UNSIGNED",
+        numeric: "DECIMAL",
+      };
+      return sql`CAST(${expr} AS ${sql.raw`${typeMap[type]}`})`;
+    },
   };
 
   // ============================================================

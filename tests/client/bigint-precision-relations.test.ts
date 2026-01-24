@@ -84,7 +84,7 @@ afterAll(async () => {
 // =============================================================================
 
 describe("BigInt Precision in Relations", () => {
-  test("setup: create test data with large BigInt values", async () => {
+  beforeAll(async () => {
     // Create author with large BigInt values
     await client.author.create({
       data: {
