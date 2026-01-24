@@ -119,10 +119,6 @@ function findInverseRelation(
   const sourceModel = ctx.model;
   const targetRelations = targetModel["~"].state.relations;
   const currentRelationName = relationInfo.relation["~"].state.name;
-  const currentRelationFieldName = relationInfo.name; // The field name (e.g., "subordinates")
-
-  // For self-referential relations, we need to be more careful about matching
-  const isSelfRef = targetModel === sourceModel;
 
   // Collect all potential inverses
   const potentialInverses: Array<{
@@ -175,24 +171,10 @@ function findInverseRelation(
     }
   }
 
-  // Strategy 2: For self-referential relations, try to match by field name convention
-  // e.g., "subordinates" would match a manyToOne that uses fields referencing this model
-  if (isSelfRef) {
-    // Look for an inverse whose references include the source model's primary key
-    // and whose fields are the FK that correlates with this relation
-    // This is a heuristic: if we're looking for the inverse of "subordinates",
-    // we need the manyToOne that has fields pointing to this model
-    // For oneToMany "subordinates": we want the manyToOne where
-    // - fields = [managerId] (the FK on the child)
-    // - references = [id] (the PK on the parent)
-    // The correlation would be: parent.id = child.managerId
-    // If none of the strategies work for self-referential relations,
-    // we cannot safely guess. Return the first one but log a warning.
-    // In production, users should use .name() to disambiguate.
-  }
+  // Note: Self-referential relations require explicit .name() for disambiguation,
+  // which is enforced by schema validation. Strategy 1 will always match for self-ref.
 
-  // Fallback: return the first match (original behavior)
-  // This may be incorrect for self-referential relations with multiple pairs
+  // Fallback: return the first match
   return {
     fields: potentialInverses[0]!.fields,
     references: potentialInverses[0]!.references,
