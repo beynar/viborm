@@ -365,6 +365,11 @@ export class PostgresAdapter implements DatabaseAdapter {
         fragments.push(sql`OFFSET ${parts.offset}`);
       }
 
+      // FOR UPDATE must come after LIMIT/OFFSET
+      if (parts.forUpdate) {
+        fragments.push(sql.raw`FOR UPDATE`);
+      }
+
       return sql.join(fragments, " ");
     },
   };
@@ -433,14 +438,24 @@ export class PostgresAdapter implements DatabaseAdapter {
 
     returning: (columns: Sql): Sql => sql`RETURNING ${columns}`,
 
-    onConflict: (target: Sql | null, action: Sql): Sql => {
+    onConflict: (target: Sql | null, action: Sql, targetWhere?: Sql): Sql => {
       if (target) {
+        if (targetWhere) {
+          // ON CONFLICT (id) WHERE <targetWhere> DO UPDATE ...
+          return sql`ON CONFLICT (${target}) WHERE ${targetWhere} DO ${action}`;
+        }
         return sql`ON CONFLICT (${target}) DO ${action}`;
       }
       return sql`ON CONFLICT DO ${action}`;
     },
 
-    onConflictUpdate: (sets: Sql): Sql => sql`UPDATE SET ${sets}`,
+    onConflictUpdate: (sets: Sql, setWhere?: Sql): Sql => {
+      if (setWhere) {
+        // UPDATE SET x = y WHERE <setWhere>
+        return sql`UPDATE SET ${sets} WHERE ${setWhere}`;
+      }
+      return sql`UPDATE SET ${sets}`;
+    },
 
     skipDuplicates: () => ({
       prefix: sql``,
@@ -497,6 +512,7 @@ export class PostgresAdapter implements DatabaseAdapter {
     supportsCteWithMutations: true,
     supportsFullOuterJoin: true,
     supportsLateralJoins: true,
+    supportsUpsertWhere: true, // PostgreSQL supports WHERE in ON CONFLICT
   };
 
   lastInsertId = (): Sql => sql.raw`lastval()`;

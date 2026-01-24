@@ -9,6 +9,7 @@ import { type Sql, sql } from "@sql";
 import { buildSelect } from "../builders/select-builder";
 import { buildSet } from "../builders/set-builder";
 import { buildValues } from "../builders/values-builder";
+import { buildWhere } from "../builders/where-builder";
 import { getColumnName, getTableName } from "../context";
 import type { QueryContext } from "../types";
 
@@ -18,6 +19,16 @@ interface UpsertArgs {
   update: Record<string, unknown>;
   select?: Record<string, unknown>;
   include?: Record<string, unknown>;
+  /**
+   * WHERE clause for conflict target (partial unique index matching).
+   * PostgreSQL: ON CONFLICT (id) WHERE <targetWhere> DO UPDATE ...
+   */
+  targetWhere?: Record<string, unknown>;
+  /**
+   * WHERE clause for conditional updates.
+   * PostgreSQL: ON CONFLICT ... DO UPDATE SET x = y WHERE <setWhere>
+   */
+  setWhere?: Record<string, unknown>;
 }
 
 /**
@@ -28,7 +39,7 @@ interface UpsertArgs {
  * @returns SQL statement (INSERT ... ON CONFLICT ... DO UPDATE)
  */
 export function buildUpsert(ctx: QueryContext, args: UpsertArgs): Sql {
-  const { adapter, rootAlias } = ctx;
+  const { adapter } = ctx;
   const tableName = getTableName(ctx.model);
 
   // Build INSERT from create data
@@ -44,13 +55,28 @@ export function buildUpsert(ctx: QueryContext, args: UpsertArgs): Sql {
   // Build conflict target from where (unique fields)
   const conflictTarget = buildConflictTarget(ctx, args.where);
 
+  // Build targetWhere for partial unique index matching
+  // PostgreSQL: ON CONFLICT (id) WHERE <targetWhere> DO UPDATE ...
+  // Use table name as alias since this references the table being inserted into
+  const targetWhereSql = args.targetWhere
+    ? buildWhere(ctx, args.targetWhere, tableName)
+    : undefined;
+
   // Build update action from update data
   const updateAction = buildSet(ctx, args.update);
 
-  // Build ON CONFLICT ... DO UPDATE
+  // Build setWhere for conditional updates
+  // PostgreSQL: ON CONFLICT ... DO UPDATE SET x = y WHERE <setWhere>
+  // Use table name as alias since this references the existing row
+  const setWhereSql = args.setWhere
+    ? buildWhere(ctx, args.setWhere, tableName)
+    : undefined;
+
+  // Build ON CONFLICT ... DO UPDATE with optional WHERE clauses
   const onConflictSql = adapter.mutations.onConflict(
     conflictTarget,
-    adapter.mutations.onConflictUpdate(updateAction)
+    adapter.mutations.onConflictUpdate(updateAction, setWhereSql),
+    targetWhereSql
   );
 
   // Combine INSERT with ON CONFLICT

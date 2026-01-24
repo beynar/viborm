@@ -276,6 +276,14 @@ function parseTypedValueDefault(value: unknown, fieldType: string): unknown {
       }
       return value;
 
+    case "decimal":
+      // Convert strings to numbers (databases often return decimals as strings to preserve precision)
+      if (typeof value === "number") return value;
+      if (typeof value === "string") {
+        return Number(value);
+      }
+      return value;
+
     case "time":
       // Time stays as string
       if (typeof value === "string") return value;

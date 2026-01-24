@@ -284,13 +284,21 @@ export class QueryEngine {
               )
             : validate<Record<string, unknown>>(model, operation, args);
 
-          // Check for nested writes
-          if (this.hasNestedWrites(operation, validated)) {
+          // Check for nested writes OR upsert with setWhere on non-supporting adapters
+          // Both require transaction-based execution
+          const hasNested = this.hasNestedWrites(operation, validated);
+          const needsWhereFallback = this.needsUpsertWhereFallback(
+            operation,
+            validated
+          );
+
+          if (hasNested || needsWhereFallback) {
             const result = await this.executeWithNestedWrites<T>(
               ctx,
               operation,
               validated,
-              driver
+              driver,
+              needsWhereFallback // Pass flag to handle setWhere in upsert
             );
             return this.applyPostProcessing<T>(
               result,
@@ -501,18 +509,58 @@ export class QueryEngine {
   }
 
   /**
-   * Execute a mutation with nested write operations
+   * Check if upsert requires transaction-based fallback for WHERE clauses
+   *
+   * MySQL's ON DUPLICATE KEY UPDATE doesn't support:
+   * - targetWhere: WHERE clause for partial unique index matching
+   * - setWhere: WHERE clause for conditional updates
+   *
+   * When these are used with MySQL, we fall back to:
+   * SELECT FOR UPDATE + conditional INSERT/UPDATE in a transaction
+   */
+  private needsUpsertWhereFallback(
+    operation: Operation,
+    args: Record<string, unknown>
+  ): boolean {
+    if (operation !== "upsert") {
+      return false;
+    }
+
+    // Check if adapter supports upsert WHERE clauses natively
+    if (this.adapter.capabilities.supportsUpsertWhere) {
+      return false;
+    }
+
+    // Check if targetWhere or setWhere are provided
+    const hasTargetWhere =
+      args.targetWhere !== undefined &&
+      Object.keys(args.targetWhere as object).length > 0;
+    const hasSetWhere =
+      args.setWhere !== undefined &&
+      Object.keys(args.setWhere as object).length > 0;
+
+    return hasTargetWhere || hasSetWhere;
+  }
+
+  /**
+   * Execute a mutation with nested write operations or transaction-based upsert
+   *
+   * This unified method handles:
+   * 1. Nested writes (create/update/upsert with relation mutations)
+   * 2. MySQL upsert with setWhere/targetWhere (transaction-based fallback)
    *
    * @param ctx - Query context
    * @param operation - The operation type
    * @param args - Validated arguments
    * @param driver - Driver to use (may be transaction-bound for proper nesting)
+   * @param handleSetWhere - Whether to handle setWhere for upsert operations
    */
   private async executeWithNestedWrites<T>(
     ctx: QueryContext,
     operation: Operation,
     args: Record<string, unknown>,
-    driver: AnyDriver = this.driver
+    driver: AnyDriver = this.driver,
+    handleSetWhere = false
   ): Promise<T> {
     const modelName = ctx.model["~"].names.ts ?? "unknown";
 
@@ -663,69 +711,120 @@ export class QueryEngine {
         }
 
         case "upsert": {
-          // Upsert with nested writes - delegate to transaction
+          // Upsert with nested writes or WHERE clauses - delegate to transaction
           return driver.withTransaction(async (txDriver) => {
             const where = args.where as Record<string, unknown>;
+            const targetWhere = handleSetWhere
+              ? (args.targetWhere as Record<string, unknown> | undefined)
+              : undefined;
+            const setWhere = handleSetWhere
+              ? (args.setWhere as Record<string, unknown> | undefined)
+              : undefined;
 
-            // Check if record exists
-            const selectSql = buildFindUniqueQuery(ctx, { where });
+            // Step 1: Check if record exists using SELECT FOR UPDATE for row locking
+            // This prevents race conditions in concurrent upserts
+            const selectSql = buildFindUniqueQuery(ctx, {
+              where,
+              forUpdate: true,
+            });
             const selectResult =
               await txDriver._execute<Record<string, unknown>>(selectSql);
 
             if (selectResult.rows.length > 0) {
-              // Record exists - do update with nested operations
+              // Record exists - check targetWhere to determine if this is a "conflict"
               const existingRecord = selectResult.rows[0]!;
-              const updateData = args.update as Record<string, unknown>;
-              const { scalar, relations } = separateData(ctx, updateData);
 
               // Get PK for re-fetching (in case update changes where clause fields)
               const pkField = getPrimaryKeyField(ctx.model);
               const pkValue = existingRecord[pkField];
               const pkWhere = { [pkField]: pkValue };
 
-              // Update scalar fields
-              if (Object.keys(scalar).length > 0) {
-                const updateSql = buildUpdate(ctx, { where, data: scalar });
-                await txDriver._execute(updateSql);
+              // Check if targetWhere condition is met (if provided)
+              // targetWhere emulates partial unique index behavior:
+              // - If targetWhere matches → treat as conflict → UPDATE
+              // - If targetWhere doesn't match → NOT a conflict → INSERT
+              let isConflict = true;
+              if (targetWhere && Object.keys(targetWhere).length > 0) {
+                const combinedWhere = { ...pkWhere, ...targetWhere };
+                const checkSql = buildFindUniqueQuery(ctx, {
+                  where: combinedWhere,
+                });
+                const checkResult =
+                  await txDriver._execute<Record<string, unknown>>(checkSql);
+                isConflict = checkResult.rows.length > 0;
               }
 
-              // Get the updated record for nested operations (use PK, not original where)
-              const refetchByPkSql = buildFindUniqueQuery(ctx, {
-                where: pkWhere,
-              });
-              const updatedResult =
-                await txDriver._execute<Record<string, unknown>>(
-                  refetchByPkSql
-                );
-              const updatedRecord = updatedResult.rows[0];
+              if (!isConflict) {
+                // targetWhere didn't match - this is NOT a conflict
+                // Fall through to INSERT below
+              } else {
+                // This is a conflict - do update
+                const updateData = args.update as Record<string, unknown>;
+                const { scalar, relations } = separateData(ctx, updateData);
 
-              if (!updatedRecord) {
-                throw new QueryEngineError(
-                  "Record was deleted by another transaction during upsert"
-                );
+                // Check if setWhere condition is met (if provided)
+                // setWhere controls whether the UPDATE actually executes
+                let shouldUpdate = true;
+                if (setWhere && Object.keys(setWhere).length > 0) {
+                  const combinedWhere = { ...pkWhere, ...setWhere };
+                  const checkSql = buildFindUniqueQuery(ctx, {
+                    where: combinedWhere,
+                  });
+                  const checkResult =
+                    await txDriver._execute<Record<string, unknown>>(checkSql);
+                  shouldUpdate = checkResult.rows.length > 0;
+                }
+
+                if (shouldUpdate) {
+                  // Update scalar fields
+                  if (Object.keys(scalar).length > 0) {
+                    const updateSql = buildUpdate(ctx, {
+                      where: pkWhere,
+                      data: scalar,
+                    });
+                    await txDriver._execute(updateSql);
+                  }
+
+                  // Get the updated record for nested operations
+                  const refetchByPkSql = buildFindUniqueQuery(ctx, {
+                    where: pkWhere,
+                  });
+                  const updatedResult =
+                    await txDriver._execute<Record<string, unknown>>(
+                      refetchByPkSql
+                    );
+                  const updatedRecord = updatedResult.rows[0];
+
+                  if (!updatedRecord) {
+                    throw new QueryEngineError(
+                      "Record was deleted by another transaction during upsert"
+                    );
+                  }
+
+                  // Handle nested relation mutations
+                  if (Object.keys(relations).length > 0) {
+                    await executeNestedUpdate(
+                      txDriver,
+                      ctx,
+                      updatedRecord,
+                      relations
+                    );
+                  }
+                }
+
+                // Re-fetch to get final state
+                const refetchSql = buildFindUniqueQuery(ctx, {
+                  where: pkWhere,
+                  select: args.select as Record<string, unknown> | undefined,
+                  include: args.include as Record<string, unknown> | undefined,
+                } as { where: Record<string, unknown> });
+                const refetchResult =
+                  await txDriver._execute<Record<string, unknown>>(refetchSql);
+                return parseResult<T>(ctx, "findUnique", refetchResult.rows);
               }
-
-              // Handle nested relation mutations (connect, disconnect, create, delete)
-              if (Object.keys(relations).length > 0) {
-                await executeNestedUpdate(
-                  txDriver,
-                  ctx,
-                  updatedRecord,
-                  relations
-                );
-              }
-
-              // Re-fetch to get final state (use PK in case update changed where clause fields)
-              const refetchSql = buildFindUniqueQuery(ctx, {
-                where: pkWhere,
-                select: args.select as Record<string, unknown> | undefined,
-                include: args.include as Record<string, unknown> | undefined,
-              } as { where: Record<string, unknown> });
-              const refetchResult =
-                await txDriver._execute<Record<string, unknown>>(refetchSql);
-              return parseResult<T>(ctx, "findUnique", refetchResult.rows);
             }
-            // Record doesn't exist - do create
+
+            // Record doesn't exist OR targetWhere didn't match - do create
             const createData = args.create as Record<string, unknown>;
             const createResult = await executeNestedCreate(
               txDriver,
