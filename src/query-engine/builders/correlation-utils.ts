@@ -6,6 +6,7 @@
  */
 
 import type { Model } from "@schema/model";
+import type { AnyRelation } from "@schema/relation";
 import type { Sql } from "@sql";
 import { getColumnName } from "../context";
 import {
@@ -104,6 +105,12 @@ export function buildCorrelation(
 /**
  * Find the inverse relation on the target model that points back to the source model.
  * Returns the fields/references from the inverse relation.
+ *
+ * For self-referential relations (where source === target), this function uses
+ * relation names to disambiguate between multiple possible inverses. If the
+ * relation has an explicit `.name()`, it looks for an inverse with the same name.
+ *
+ * This fixes the Drizzle v0.26.4 bug where named self-relations were failing.
  */
 function findInverseRelation(
   ctx: QueryContext,
@@ -112,10 +119,19 @@ function findInverseRelation(
   const targetModel = relationInfo.targetModel;
   const sourceModel = ctx.model;
   const targetRelations = targetModel["~"].state.relations;
+  const currentRelationName = relationInfo.relation["~"].state.name;
+
+  // Collect all potential inverses
+  const potentialInverses: Array<{
+    name: string;
+    relationName?: string;
+    fields: string[];
+    references: string[];
+  }> = [];
 
   // Look for a relation on target that points to source
-  for (const [, relation] of Object.entries(targetRelations)) {
-    const relState = (relation as any)["~"].state;
+  for (const [relFieldName, relation] of Object.entries(targetRelations)) {
+    const relState = (relation as AnyRelation)["~"].state;
     const relTarget = relState.getter();
 
     // Check if this relation points back to our source model
@@ -123,12 +139,47 @@ function findInverseRelation(
       const fields = relState.fields;
       const references = relState.references;
       if (fields && references && fields.length > 0 && references.length > 0) {
-        return { fields, references };
+        potentialInverses.push({
+          name: relFieldName,
+          relationName: relState.name,
+          fields,
+          references,
+        });
       }
     }
   }
 
-  return undefined;
+  if (potentialInverses.length === 0) {
+    return undefined;
+  }
+
+  // If only one inverse, return it
+  if (potentialInverses.length === 1) {
+    return {
+      fields: potentialInverses[0]!.fields,
+      references: potentialInverses[0]!.references,
+    };
+  }
+
+  // Multiple potential inverses - need to disambiguate
+  // Strategy 1: Match by explicit relation name (.name())
+  if (currentRelationName) {
+    const matchByName = potentialInverses.find(
+      (inv) => inv.relationName === currentRelationName
+    );
+    if (matchByName) {
+      return { fields: matchByName.fields, references: matchByName.references };
+    }
+  }
+
+  // Note: Self-referential relations require explicit .name() for disambiguation,
+  // which is enforced by schema validation. Strategy 1 will always match for self-ref.
+
+  // Fallback: return the first match
+  return {
+    fields: potentialInverses[0]!.fields,
+    references: potentialInverses[0]!.references,
+  };
 }
 
 /**

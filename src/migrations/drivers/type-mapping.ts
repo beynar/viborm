@@ -66,11 +66,11 @@ export const MYSQL_TYPE_DEFAULTS = {
   float: "DOUBLE",
   decimal: "DECIMAL",
   boolean: "TINYINT(1)", // MySQL uses TINYINT(1) for boolean
-  datetime: "DATETIME",
-  datetimetz: "DATETIME", // MySQL DATETIME can store with timezone via application
+  datetime: "DATETIME(3)", // Use DATETIME(3) to preserve JavaScript Date millisecond precision
+  datetimetz: "DATETIME(3)", // MySQL DATETIME can store with timezone via application
   date: "DATE",
-  time: "TIME",
-  timetz: "TIME", // MySQL TIME doesn't have timezone variant
+  time: "TIME(3)", // Use TIME(3) to preserve millisecond precision
+  timetz: "TIME(3)", // MySQL TIME doesn't have timezone variant
   bigint: "BIGINT",
   json: "JSON",
   blob: "BLOB",

@@ -187,7 +187,13 @@ export const getDeleteManyArgs = <T extends ModelState>(
 // =============================================================================
 
 /**
- * Upsert args: { where: whereUnique, create, update, select?, include?, cache? }
+ * Upsert args: { where: whereUnique, create, update, select?, include?, cache?, targetWhere?, setWhere? }
+ *
+ * Additional options for advanced ON CONFLICT handling:
+ * - targetWhere: WHERE clause for partial unique index matching
+ *                PostgreSQL: ON CONFLICT (id) WHERE <targetWhere> DO UPDATE ...
+ * - setWhere: WHERE clause for conditional updates
+ *             PostgreSQL: ON CONFLICT ... DO UPDATE SET x = y WHERE <setWhere>
  */
 export type UpsertArgs<T extends ModelState> = V.Object<
   {
@@ -197,6 +203,10 @@ export type UpsertArgs<T extends ModelState> = V.Object<
     select: CoreSchemas<T>["select"];
     include: CoreSchemas<T>["include"];
     cache: CacheInvalidationSchema;
+    /** WHERE clause for partial unique index matching (PostgreSQL/SQLite only) */
+    targetWhere: CoreSchemas<T>["where"];
+    /** WHERE clause for conditional updates (PostgreSQL/SQLite only) */
+    setWhere: CoreSchemas<T>["where"];
   },
   { atLeast: ["where", "create", "update"] }
 >;
@@ -212,6 +222,8 @@ export const getUpsertArgs = <T extends ModelState>(
       select: core.select,
       include: core.include,
       cache: cacheInvalidationSchema,
+      targetWhere: core.where,
+      setWhere: core.where,
     },
     { atLeast: ["where", "create", "update"] }
   );

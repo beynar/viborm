@@ -1483,7 +1483,7 @@ describe("MySQL DDL Generation", () => {
           createMockField(createFieldState("datetime")),
           createFieldState("datetime")
         )
-      ).toBe("DATETIME");
+      ).toBe("DATETIME(3)");
       expect(
         mysqlMigrationDriver.mapFieldType(
           createMockField(createFieldState("json")),

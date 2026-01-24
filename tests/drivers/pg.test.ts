@@ -6,10 +6,11 @@
  * Skip in CI unless PostgreSQL is available.
  */
 
+import { VibORM } from "@client/client";
 import { createClient as PgCreateClient, PgDriver } from "@drivers/pg";
 import { push } from "@migrations";
 import { s } from "@schema";
-import { VibORM } from "@client/client";
+
 // =============================================================================
 // SCHEMA DEFINITION
 // =============================================================================
@@ -273,11 +274,7 @@ describeIf("pg Driver", () => {
       const client = await PgCreateClient({
         schema,
         databaseUrl: TEST_CONNECTION_STRING,
-			});
-      
-   
-      
-       
+      });
 
       // Push schema to create tables
       await push(client, { force: true });
