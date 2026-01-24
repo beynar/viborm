@@ -316,10 +316,21 @@ export interface DatabaseAdapter {
     delete: (table: Sql, where?: Sql) => Sql;
     /** RETURNING clause (PG/SQLite) or empty (MySQL) */
     returning: (columns: Sql) => Sql;
-    /** ON CONFLICT / ON DUPLICATE KEY */
-    onConflict: (target: Sql | null, action: Sql) => Sql;
-    /** Build update action for ON CONFLICT (PG/SQLite: UPDATE SET ..., MySQL: just the SET part) */
-    onConflictUpdate: (sets: Sql) => Sql;
+    /**
+     * ON CONFLICT / ON DUPLICATE KEY
+     * @param target - Conflict target columns (e.g., "id")
+     * @param action - Action to take (e.g., UPDATE SET ...)
+     * @param targetWhere - Optional WHERE for partial unique index matching
+     *                      PostgreSQL: ON CONFLICT (id) WHERE <targetWhere> DO UPDATE ...
+     */
+    onConflict: (target: Sql | null, action: Sql, targetWhere?: Sql) => Sql;
+    /**
+     * Build update action for ON CONFLICT (PG/SQLite: UPDATE SET ..., MySQL: just the SET part)
+     * @param sets - SET clause assignments
+     * @param setWhere - Optional WHERE for conditional updates
+     *                   PostgreSQL: ... DO UPDATE SET x = y WHERE <setWhere>
+     */
+    onConflictUpdate: (sets: Sql, setWhere?: Sql) => Sql;
     /**
      * Skip duplicate key errors (for createMany with skipDuplicates: true)
      * PostgreSQL/SQLite: ON CONFLICT DO NOTHING (suffix)
@@ -345,6 +356,18 @@ export interface DatabaseAdapter {
      * When false, falls back to correlated subqueries
      */
     supportsLateralJoins: boolean;
+    /**
+     * Whether database supports WHERE clauses in upsert/ON CONFLICT:
+     * - targetWhere: ON CONFLICT (id) WHERE <targetWhere> DO UPDATE ... (partial unique index)
+     * - setWhere: ON CONFLICT ... DO UPDATE SET x = y WHERE <setWhere> (conditional update)
+     *
+     * PostgreSQL/SQLite: true - native support
+     * MySQL: false - ON DUPLICATE KEY UPDATE doesn't support WHERE clauses
+     *
+     * When false, the query engine falls back to a transaction-based approach
+     * using SELECT FOR UPDATE + conditional INSERT/UPDATE.
+     */
+    supportsUpsertWhere: boolean;
   };
 
   /**
@@ -566,6 +589,13 @@ export interface QueryParts {
   distinct?: Sql;
   /** Column alias names for outer SELECT when using DISTINCT simulation (MySQL/SQLite) */
   distinctColumnAliases?: string[];
+  /**
+   * Add FOR UPDATE clause for row locking.
+   * Used in transaction-based upserts to prevent race conditions.
+   * PostgreSQL/MySQL: FOR UPDATE
+   * SQLite: No-op (SQLite uses database-level locking)
+   */
+  forUpdate?: boolean;
 }
 
 /**

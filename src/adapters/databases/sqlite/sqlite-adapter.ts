@@ -386,6 +386,9 @@ export class SQLiteAdapter implements DatabaseAdapter {
         fragments.push(sql`OFFSET ${parts.offset}`);
       }
 
+      // SQLite uses database-level locking, so FOR UPDATE is a no-op
+      // (ignoring parts.forUpdate intentionally)
+
       return sql.join(fragments, " ");
     },
   };
@@ -531,14 +534,24 @@ export class SQLiteAdapter implements DatabaseAdapter {
     returning: (columns: Sql): Sql => sql`RETURNING ${columns}`,
 
     // SQLite uses same syntax as PostgreSQL for ON CONFLICT
-    onConflict: (target: Sql | null, action: Sql): Sql => {
+    onConflict: (target: Sql | null, action: Sql, targetWhere?: Sql): Sql => {
       if (target) {
+        if (targetWhere) {
+          // ON CONFLICT (id) WHERE <targetWhere> DO UPDATE ...
+          return sql`ON CONFLICT (${target}) WHERE ${targetWhere} DO ${action}`;
+        }
         return sql`ON CONFLICT (${target}) DO ${action}`;
       }
       return sql`ON CONFLICT DO ${action}`;
     },
 
-    onConflictUpdate: (sets: Sql): Sql => sql`UPDATE SET ${sets}`,
+    onConflictUpdate: (sets: Sql, setWhere?: Sql): Sql => {
+      if (setWhere) {
+        // UPDATE SET x = y WHERE <setWhere>
+        return sql`UPDATE SET ${sets} WHERE ${setWhere}`;
+      }
+      return sql`UPDATE SET ${sets}`;
+    },
 
     skipDuplicates: () => ({
       prefix: sql``,
@@ -605,6 +618,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
     supportsCteWithMutations: true,
     supportsFullOuterJoin: false,
     supportsLateralJoins: false, // SQLite does not support LATERAL joins
+    supportsUpsertWhere: true, // SQLite supports WHERE in ON CONFLICT (3.24+)
   };
 
   lastInsertId = (): Sql => sql.raw`last_insert_rowid()`;

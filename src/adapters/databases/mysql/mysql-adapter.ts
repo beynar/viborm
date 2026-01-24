@@ -386,6 +386,11 @@ export class MySQLAdapter implements DatabaseAdapter {
         fragments.push(sql`OFFSET ${parts.offset}`);
       }
 
+      // FOR UPDATE must come after LIMIT/OFFSET
+      if (parts.forUpdate) {
+        fragments.push(sql.raw`FOR UPDATE`);
+      }
+
       return sql.join(fragments, " ");
     },
   };
@@ -529,12 +534,13 @@ export class MySQLAdapter implements DatabaseAdapter {
     returning: (_columns: Sql): Sql => sql.empty,
 
     // MySQL uses ON DUPLICATE KEY UPDATE syntax
-    onConflict: (_target: Sql | null, action: Sql): Sql => {
+    // targetWhere/setWhere are handled by the query engine via transaction-based fallback
+    onConflict: (_target: Sql | null, action: Sql, _targetWhere?: Sql): Sql => {
       return sql`ON DUPLICATE KEY UPDATE ${action}`;
     },
 
     // MySQL doesn't need UPDATE SET prefix - onConflict already includes UPDATE
-    onConflictUpdate: (sets: Sql): Sql => sets,
+    onConflictUpdate: (sets: Sql, _setWhere?: Sql): Sql => sets,
 
     skipDuplicates: () => ({ prefix: sql`IGNORE`, suffix: sql`` }),
   };
@@ -592,6 +598,7 @@ export class MySQLAdapter implements DatabaseAdapter {
     supportsCteWithMutations: false, // MySQL CTEs are read-only
     supportsFullOuterJoin: false,
     supportsLateralJoins: true, // MySQL 8.0.14+
+    supportsUpsertWhere: false, // ON DUPLICATE KEY UPDATE doesn't support WHERE clauses
   };
 
   lastInsertId = (): Sql => sql.raw`LAST_INSERT_ID()`;

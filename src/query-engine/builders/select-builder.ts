@@ -54,17 +54,17 @@ interface SelectPairsResult {
 }
 
 /**
- * Cast BigInt fields to TEXT for JSON serialization to preserve precision.
+ * Cast BigInt and Decimal fields to TEXT for JSON serialization to preserve precision.
  *
- * JSON doesn't have a native BigInt type, so databases convert BigInt to JSON numbers,
- * which lose precision for values > Number.MAX_SAFE_INTEGER.
- * Casting to TEXT preserves the full precision, and the result parser converts back to BigInt.
+ * JSON doesn't have native BigInt or Decimal types, so databases convert them to JSON numbers,
+ * which lose precision for values > Number.MAX_SAFE_INTEGER or high-precision decimals.
+ * Casting to TEXT preserves the full precision, and the result parser converts back to the appropriate type.
  *
  * @param ctx - Query context
  * @param pairs - Field name and expression pairs
- * @returns Pairs with BigInt fields cast to TEXT
+ * @returns Pairs with BigInt and Decimal fields cast to TEXT
  */
-function castBigIntPairsForJson(
+function castNumericPairsForJson(
   ctx: QueryContext,
   pairs: [string, Sql][]
 ): [string, Sql][] {
@@ -74,8 +74,8 @@ function castBigIntPairsForJson(
     const field = scalars[fieldName];
     if (field) {
       const fieldType = field["~"].state.type;
-      if (fieldType === "bigint") {
-        // Cast BigInt to TEXT to preserve precision in JSON
+      if (fieldType === "bigint" || fieldType === "decimal") {
+        // Cast BigInt/Decimal to TEXT to preserve precision in JSON
         return [fieldName, ctx.adapter.expressions.cast(expr, "text")];
       }
     }
@@ -107,7 +107,7 @@ export function buildSelect(
   // Return JSON object if requested
   if (options.asJson) {
     // Cast BigInt fields to TEXT to preserve precision in JSON serialization
-    const jsonPairs = castBigIntPairsForJson(ctx, pairs);
+    const jsonPairs = castNumericPairsForJson(ctx, pairs);
     return ctx.adapter.json.objectFromColumns(jsonPairs);
   }
 
@@ -275,7 +275,7 @@ export function buildSelectWithAliases(
   let sqlResult: Sql;
   if (options.asJson) {
     // Cast BigInt fields to TEXT to preserve precision in JSON serialization
-    const jsonPairs = castBigIntPairsForJson(ctx, pairs);
+    const jsonPairs = castNumericPairsForJson(ctx, pairs);
     sqlResult = ctx.adapter.json.objectFromColumns(jsonPairs);
   } else {
     const columns = pairs.map(([name, expr]) =>

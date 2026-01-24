@@ -15,6 +15,11 @@ interface FindUniqueArgs {
   where: Record<string, unknown>;
   select?: Record<string, unknown>;
   include?: Record<string, unknown>;
+  /**
+   * Add FOR UPDATE clause for row locking in transactions.
+   * Used internally for transaction-based upserts to prevent race conditions.
+   */
+  forUpdate?: boolean;
 }
 
 /**
@@ -57,6 +62,11 @@ export function buildFindUnique(ctx: QueryContext, args: FindUniqueArgs): Sql {
   }
   if (where) parts.where = where;
   parts.limit = limit;
+
+  // Add FOR UPDATE for row locking in transactions
+  if (args.forUpdate) {
+    parts.forUpdate = true;
+  }
 
   return adapter.assemble.select(parts);
 }
