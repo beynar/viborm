@@ -430,11 +430,16 @@ export abstract class CacheDriver {
   }
 
   /**
-   * Clear cache by prefix or all
+   * Clear cache by prefix or all (within the active version namespace)
    * @param prefix - Optional prefix to clear (will be prefixed automatically)
+   *
+   * When cacheVersion is set, clearing without a prefix clears only the active
+   * version namespace (e.g., viborm:v2:*), preserving other versions.
    */
   async _clear(prefix?: string): Promise<void> {
-    const prefixedPrefix = prefix ? this.prefixKey(prefix) : CACHE_PREFIX;
+    // Use prefixKey("") to get the versioned base prefix (e.g., "viborm:v2")
+    // This ensures we only clear within the active version namespace
+    const prefixedPrefix = this.prefixKey(prefix ?? "");
 
     return this.withSpan(SPAN_CACHE_CLEAR, prefix ?? "*", () =>
       this.clear(prefixedPrefix)
