@@ -13,6 +13,7 @@ import {
   QueryEngineError,
   type RelationInfo,
 } from "../types";
+import { AnyRelation } from "@schema/relation";
 
 /**
  * Build correlation condition between parent and related table.
@@ -130,7 +131,7 @@ function findInverseRelation(
 
   // Look for a relation on target that points to source
   for (const [relFieldName, relation] of Object.entries(targetRelations)) {
-    const relState = (relation as any)["~"].state;
+    const relState = (relation as AnyRelation)["~"].state;
     const relTarget = relState.getter();
 
     // Check if this relation points back to our source model

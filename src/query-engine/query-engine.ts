@@ -284,7 +284,7 @@ export class QueryEngine {
               )
             : validate<Record<string, unknown>>(model, operation, args);
 
-          // Check for nested writes OR upsert with setWhere on non-supporting adapters
+          // Check for nested writes OR upsert with WHERE clauses
           // Both require transaction-based execution
           const hasNested = this.hasNestedWrites(operation, validated);
           const needsWhereFallback = this.needsUpsertWhereFallback(
@@ -292,13 +292,21 @@ export class QueryEngine {
             validated
           );
 
+          // Check if upsert has WHERE options that need handling in transaction path
+          const hasUpsertWhereOptions =
+            operation === "upsert" &&
+            ((validated.targetWhere !== undefined &&
+              Object.keys(validated.targetWhere as object).length > 0) ||
+              (validated.setWhere !== undefined &&
+                Object.keys(validated.setWhere as object).length > 0));
+
           if (hasNested || needsWhereFallback) {
             const result = await this.executeWithNestedWrites<T>(
               ctx,
               operation,
               validated,
               driver,
-              needsWhereFallback // Pass flag to handle setWhere in upsert
+              needsWhereFallback || hasUpsertWhereOptions // Handle WHERE when provided
             );
             return this.applyPostProcessing<T>(
               result,
