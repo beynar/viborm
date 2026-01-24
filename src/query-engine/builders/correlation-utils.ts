@@ -6,6 +6,7 @@
  */
 
 import type { Model } from "@schema/model";
+import type { AnyRelation } from "@schema/relation";
 import type { Sql } from "@sql";
 import { getColumnName } from "../context";
 import {
@@ -13,7 +14,6 @@ import {
   QueryEngineError,
   type RelationInfo,
 } from "../types";
-import { AnyRelation } from "@schema/relation";
 
 /**
  * Build correlation condition between parent and related table.
