@@ -7,6 +7,7 @@ import type {
   ThunkCast,
   VibSchema,
 } from "../types";
+import { V } from "@validation/V";
 
 // =============================================================================
 // Object Schema Types
@@ -44,18 +45,40 @@ export interface ObjectOptions<T = unknown, TKeys extends string = string> {
   description?: string;
   /** Require at least these specific keys (works with partial: true) */
   atLeast?: TKeys[];
+  /** Omit these keys entirely from the type and validation */
+  omit?: TKeys[];
 }
+
+/**
+ * Omit specific keys from a type entirely.
+ * Preserves optionality of remaining keys.
+ */
+type VOmit<T, K extends string> = {
+  [P in keyof T as P extends K ? never : P]: T[P];
+};
 
 /**
  * Compute input type based on partial option.
  * Default is partial: true, so only non-partial when explicitly { partial: false }
  * If atLeast is specified, those keys are required even when partial: true
+ * If omit is specified, those keys are removed from the type entirely
  */
-type ComputeObjectInput<TEntries, TOpts> = TOpts extends { partial: false }
-  ? InferInputShape<TEntries>
-  : TOpts extends { atLeast: infer Keys extends readonly string[] }
-    ? RequireKeys<Partial<InferInputShape<TEntries>>, Keys[number]>
-    : Partial<InferInputShape<TEntries>>;
+type ComputeObjectInput<TEntries, TOpts> = TOpts extends {
+  omit: infer OmitKeys extends readonly string[];
+}
+  ? TOpts extends { partial: false }
+    ? VOmit<InferInputShape<TEntries>, OmitKeys[number]>
+    : TOpts extends { atLeast: infer Keys extends readonly string[] }
+      ? VOmit<
+          RequireKeys<Partial<InferInputShape<TEntries>>, Keys[number]>,
+          OmitKeys[number]
+        >
+      : VOmit<Partial<InferInputShape<TEntries>>, OmitKeys[number]>
+  : TOpts extends { partial: false }
+    ? InferInputShape<TEntries>
+    : TOpts extends { atLeast: infer Keys extends readonly string[] }
+      ? RequireKeys<Partial<InferInputShape<TEntries>>, Keys[number]>
+      : Partial<InferInputShape<TEntries>>;
 
 /**
  * Compute output type based on entries.
@@ -145,7 +168,7 @@ export interface ObjectSchema<
     TNewTOpts extends ObjectOptions | undefined = undefined,
   >(
     newEntries: TNewEntries,
-    options?: TNewTOpts
+    options?: TNewTOpts,
   ): ObjectSchema<TEntries & TNewEntries, TOpts & TNewTOpts>;
 }
 
@@ -162,10 +185,12 @@ const OBJECT_TYPE_ERROR = { issues: [{ message: "Expected object" }] };
  */
 function createObjectValidator(
   entries: ObjectEntries,
-  options: ObjectOptions = {}
+  options: ObjectOptions = {},
 ) {
-  const { partial = true, strict = true, atLeast } = options;
-  const keys = Object.keys(entries);
+  const { partial = true, strict = true, atLeast, omit } = options;
+  // Filter out omitted keys
+  const omitSet = omit ? new Set(omit) : null;
+  const keys = Object.keys(entries).filter((k) => !omitSet?.has(k));
   const keyCount = keys.length;
   const keySet = new Set(keys);
 
@@ -209,7 +234,7 @@ function createObjectValidator(
       // Defensive null check: if schema is undefined or invalid, create a failing validator
       if (!schema?.["~standard"]) {
         console.warn(
-          `[VibORM] Schema for key "${key}" is undefined or invalid`
+          `[VibORM] Schema for key "${key}" is undefined or invalid`,
         );
         validates[i] = () => ({
           issues: [{ message: `Schema error: "${key}" schema is undefined` }],
@@ -443,7 +468,7 @@ export function object<
           }
           results[i] = hasTransform
             ? (options!.transform!(
-                (itemResult as { value: any }).value
+                (itemResult as { value: any }).value,
               ) as BaseOutput)
             : ((itemResult as { value: any }).value as BaseOutput);
         }
@@ -458,7 +483,7 @@ export function object<
 
       return hasTransform
         ? ok(
-            options!.transform!((result as { value: any }).value as BaseOutput)
+            options!.transform!((result as { value: any }).value as BaseOutput),
           )
         : result;
     };
@@ -489,7 +514,7 @@ export function object<
       // Lazy jsonSchema - converter is created when first accessed
       get jsonSchema() {
         const converter = createJsonSchemaConverter(
-          schema as unknown as VibSchema<unknown, unknown>
+          schema as unknown as VibSchema<unknown, unknown>,
         );
         // Replace getter with static value for subsequent access
         Object.defineProperty(this, "jsonSchema", {
@@ -505,4 +530,34 @@ export function object<
   };
 
   return schema as R extends infer _ ? _ : never;
+}
+
+/**
+ * Create a new object schema with specific keys omitted.
+ *
+ * @param schema - The source object schema
+ * @param keys - Array of keys to omit from the schema
+ * @returns A new object schema without the specified keys
+ *
+ * @example
+ * const user = v.object({
+ *   id: v.string(),
+ *   name: v.string(),
+ *   password: v.string(),
+ * });
+ *
+ * const publicUser = v.omit(user, ['password']);
+ * // { id?: string; name?: string }
+ */
+export function omit<
+  TSchema extends ObjectSchema<any, any>,
+  const TKeys extends readonly (keyof TSchema["entries"])[] | undefined,
+>(
+  schema: TSchema,
+  keys: TKeys,
+): V.Object<TSchema["entries"], TSchema["options"] & { omit: TKeys }> {
+  return object(schema.entries, {
+    ...(schema.options || {}),
+    omit: keys,
+  }) as V.Object<TSchema["entries"], TSchema["options"] & { omit: TKeys }>;
 }

@@ -56,7 +56,7 @@ function hydrateModel(modelKey: string, model: Model<any>): void {
 
   // Hydrate scalar fields into model's nameRegistry
   for (const [fieldKey, field] of Object.entries(
-    state.scalars as Record<string, Field>
+    state.scalars as Record<string, Field>,
   )) {
     const fieldNames: SchemaNames = {
       ts: fieldKey,
@@ -66,8 +66,8 @@ function hydrateModel(modelKey: string, model: Model<any>): void {
   }
 
   // Hydrate relations into model's nameRegistry
-  for (const [relationKey] of Object.entries(
-    state.relations as Record<string, AnyRelation>
+  for (const [relationKey, relation] of Object.entries(
+    state.relations as Record<string, AnyRelation>,
   )) {
     const relationNames: SchemaNames = {
       ts: relationKey,
@@ -75,6 +75,9 @@ function hydrateModel(modelKey: string, model: Model<any>): void {
       sql: relationKey,
     };
     registry.relations.set(relationKey, relationNames);
+
+    // Set the source model on the relation
+    relation["~"].setSource(model);
   }
 
   // Note: Schemas are built lazily on first access to model["~"].schemas
@@ -99,7 +102,7 @@ export function getModelSqlName(model: Model<any>): string {
   const sqlName = model["~"].names.sql;
   if (!sqlName) {
     throw new Error(
-      "Schema not hydrated. Call hydrateSchemaNames() or create a client first."
+      "Schema not hydrated. Call hydrateSchemaNames() or create a client first.",
     );
   }
   return sqlName;
@@ -119,7 +122,7 @@ export function getFieldSqlName(model: Model<any>, fieldKey: string): string {
  */
 export function getRelationSqlName(
   model: Model<any>,
-  relationKey: string
+  relationKey: string,
 ): string {
   return model["~"].getRelationName(relationKey).sql;
 }

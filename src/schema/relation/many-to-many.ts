@@ -1,6 +1,7 @@
 // ManyToMany Relation Class (Standalone)
 // For many-to-many relations with junction table configuration
 
+import type { AnyModel } from "@schema/model";
 import { getRelationSchemas } from "./schemas";
 import type {
   Getter,
@@ -98,8 +99,8 @@ export class ManyToManyRelation<State extends ManyToManyRelationState> {
   /**
    * Set a custom name for this relation
    */
-  name(name: string) {
-    return new ManyToManyRelation<State & { name: string }>({
+  name<const N extends string>(name: N) {
+    return new ManyToManyRelation<State & { name: N }>({
       ...this._state,
       name,
     });
@@ -111,6 +112,7 @@ export class ManyToManyRelation<State extends ManyToManyRelationState> {
   get "~"() {
     return {
       state: this._state,
+      setSource: (source: AnyModel) => (this._state.source = source),
       schemas: (this._schemas ??= getRelationSchemas(this._state)),
     };
   }

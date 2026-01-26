@@ -1,6 +1,7 @@
 // ToMany Relation Class (Standalone)
 // For oneToMany relations - the inverse side with minimal configuration
 
+import type { AnyModel } from "@schema/model";
 import { getRelationSchemas } from "./schemas";
 import type { Getter, ToManyRelationState } from "./types";
 
@@ -31,8 +32,8 @@ export class ToManyRelation<State extends ToManyRelationState> {
   /**
    * Set a custom name for this relation
    */
-  name(name: string) {
-    return new ToManyRelation<State & { name: string }>({
+  name<T extends string>(name: T) {
+    return new ToManyRelation<State & { name: T }>({
       ...this._state,
       name,
     });
@@ -44,6 +45,7 @@ export class ToManyRelation<State extends ToManyRelationState> {
   get "~"() {
     return {
       state: this._state,
+      setSource: (source: AnyModel) => (this._state.source = source),
       schemas: (this._schemas ??= getRelationSchemas(this._state)),
     };
   }

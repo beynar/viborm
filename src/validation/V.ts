@@ -209,6 +209,15 @@ export namespace V {
   > = ObjectSchema<TEntries, TOpts>;
 
   /**
+   * Type-level omit schema - creates a new object schema with keys removed.
+   * @example V.Omit<UserSchema, ["password"]> - User without password field
+   */
+  export type Omit<
+    TSchema extends ObjectSchema<any, any>,
+    TKeys extends readonly (keyof TSchema["entries"])[],
+  > = ObjectSchema<TSchema["entries"], TSchema["options"] & { omit: TKeys }>;
+
+  /**
    * Type-level from object schema.
    * @example V.FromObject<{ name: V.String }, "name"> - Object with name field
    */

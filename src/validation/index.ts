@@ -118,6 +118,8 @@ export {
   isoTime,
   isoTimestamp,
   json,
+  // Lazy schema for deferred evaluation
+  lazy,
   literal,
   map,
   maybeNullable,
@@ -129,6 +131,7 @@ export {
   number,
   // Objects
   object,
+  omit,
   optional,
   pipe,
   point,
@@ -199,6 +202,7 @@ import {
   isoTime as isoTimeFn,
   isoTimestamp as isoTimestampFn,
   json as jsonFn,
+  lazy as lazyFn,
   literal as literalFn,
   map as mapFn,
   maybeNullable as maybeNullableFn,
@@ -208,6 +212,7 @@ import {
   nullable as nullableFn,
   number as numberFn,
   object as objectFn,
+  omit as omitFn,
   optional as optionalFn,
   pipe as pipeFn,
   point as pointFn,
@@ -273,6 +278,7 @@ export const v = {
   element: elementFn,
   // Objects
   object: objectFn,
+  omit: omitFn,
   fromObject: fromObjectFn,
   // Composition
   union: unionFn,
@@ -283,6 +289,8 @@ export const v = {
   // Transform wrappers
   coerce: coerceFn,
   map: mapFn,
+  // Lazy evaluation
+  lazy: lazyFn,
 } as const;
 
 // Default export for convenience

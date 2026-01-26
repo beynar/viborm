@@ -58,7 +58,7 @@ export type {
 export { integer, number, validateInteger, validateNumber } from "./number";
 export type { ObjectEntries, ObjectOptions, ObjectSchema } from "./object";
 // Object schemas
-export { object } from "./object";
+export { object, omit } from "./object";
 export type { OptionalSchema } from "./optional";
 export { optional } from "./optional";
 export type { BasePointSchema, Point, PointSchema } from "./point";
@@ -74,8 +74,8 @@ export type { BaseVectorSchema, VectorSchema } from "./vector";
 // Vector schema (array of numbers for embeddings)
 export { validateVector, vector } from "./vector";
 
-// Note: lazy() removed - use thunks directly in object entries: () => schema
-// This is simpler and handles circular references automatically
+// Lazy schema for deferred evaluation and caching
+export { lazy } from "./lazy";
 
 export type {
   AllPathsToSchemas,

@@ -4,7 +4,7 @@
 import type { AnyModel } from "@schema/model";
 import type { ModelSchemas } from "@schema/model/schemas/model-schemas";
 import v, { type V, type VibSchema } from "@validation";
-import type { RelationState } from "../types";
+import { getInverseRelationFields, type RelationState } from "../types";
 
 type TargetModel<S extends RelationState> = S["getter"] extends () => infer T
   ? T extends AnyModel
@@ -23,7 +23,7 @@ const getTargetSchemas = <
   K extends keyof ModelSchemas<TargetModel<S>>,
 >(
   state: S,
-  key: K
+  key: K,
 ) => {
   return () => {
     const targetModel = state.getter() as AnyModel;
@@ -46,7 +46,7 @@ export const getTargetWhereSchema = <S extends RelationState>(state: S) => {
  * Get the target model's whereUnique schema lazily
  */
 export const getTargetWhereUniqueSchema = <S extends RelationState>(
-  state: S
+  state: S,
 ) => {
   return getTargetSchemas(state, "whereUnique");
 };
@@ -55,14 +55,20 @@ export const getTargetWhereUniqueSchema = <S extends RelationState>(
  * Get the target model's create schema lazily
  */
 export const getTargetCreateSchema = <S extends RelationState>(state: S) => {
-  return getTargetSchemas(state, "create");
+  return () => {
+    const targetModel = state.getter() as AnyModel;
+    const sourceModel = state.source!;
+    const schema = targetModel["~"].schemas.create;
+    const fkFields = getInverseRelationFields(state, sourceModel);
+    return v.omit(schema, fkFields);
+  };
 };
 
 /**
  * Get the target model's scalarCreate schema lazily (for createMany - no nested relations)
  */
 export const getTargetScalarCreateSchema = <S extends RelationState>(
-  state: S
+  state: S,
 ) => {
   return getTargetSchemas(state, "scalarCreate");
 };
@@ -71,7 +77,7 @@ export const getTargetScalarCreateSchema = <S extends RelationState>(
  * Get the target model's nestedScalarCreate schema lazily (for nested createMany - FK fields optional)
  */
 export const getTargetNestedScalarCreateSchema = <S extends RelationState>(
-  state: S
+  state: S,
 ) => {
   return getTargetSchemas(state, "nestedScalarCreate");
 };
@@ -109,7 +115,7 @@ export const getTargetOrderBySchema = <S extends RelationState>(state: S) => {
 // =============================================================================
 
 export const singleOrArray = <S extends VibSchema>(
-  schema: S
+  schema: S,
 ): V.SingleOrArray<S> => {
   return v.union([
     v.coerce(schema, (v: S[" vibInferred"]["1"]) => [v]),
