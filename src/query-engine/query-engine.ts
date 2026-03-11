@@ -86,7 +86,7 @@ export class QueryEngine {
   constructor(
     driver: AnyDriver,
     registry: ModelRegistry,
-    instrumentation?: InstrumentationContext,
+    instrumentation?: InstrumentationContext
   ) {
     this.driver = driver;
     this.adapter = driver.adapter;
@@ -102,7 +102,7 @@ export class QueryEngine {
   build(
     model: Model<any>,
     operation: Operation,
-    args: Record<string, unknown>,
+    args: Record<string, unknown>
   ): Sql {
     // Validate input
     const validated = validate<Record<string, unknown>>(model, operation, args);
@@ -112,7 +112,7 @@ export class QueryEngine {
       this.adapter,
       model,
       this.registry,
-      this.driver,
+      this.driver
     );
 
     // For create operations, check for nested creates and use CTE-based builder
@@ -129,7 +129,7 @@ export class QueryEngine {
           ctx,
           data,
           validated.select as Record<string, unknown> | undefined,
-          validated.include as Record<string, unknown> | undefined,
+          validated.include as Record<string, unknown> | undefined
         );
         return result.sql;
       }
@@ -138,7 +138,7 @@ export class QueryEngine {
       const processedArgs = this.processConnectOperations(
         ctx,
         operation,
-        validated,
+        validated
       );
       return this.buildOperation(ctx, operation, processedArgs);
     }
@@ -148,7 +148,7 @@ export class QueryEngine {
       const processedArgs = this.processConnectOperations(
         ctx,
         operation,
-        validated,
+        validated
       );
       return this.buildOperation(ctx, operation, processedArgs);
     }
@@ -175,7 +175,7 @@ export class QueryEngine {
     model: Model<any>,
     operation: Operation | `${Operation}OrThrow`,
     args: Record<string, unknown>,
-    options?: PrepareOptions,
+    options?: PrepareOptions
   ): PendingOperation<T> {
     const modelName = model["~"].names.ts ?? "unknown";
 
@@ -198,7 +198,7 @@ export class QueryEngine {
       model,
       baseOperation,
       args,
-      prepareOptions,
+      prepareOptions
     );
 
     // Check if this operation has nested writes (can't be batched)
@@ -213,7 +213,7 @@ export class QueryEngine {
     const parseResultFunc = this.createParseResultFunction<T>(
       model,
       baseOperation,
-      prepareOptions,
+      prepareOptions
     );
 
     // Create metadata for batch execution
@@ -248,7 +248,7 @@ export class QueryEngine {
     model: Model<any>,
     operation: Operation,
     args: Record<string, unknown>,
-    options?: PrepareOptions,
+    options?: PrepareOptions
   ): (driverOverride?: AnyDriver) => Promise<T> {
     const tracer = this.instrumentation?.tracer;
     const logger = this.instrumentation?.logger;
@@ -273,14 +273,14 @@ export class QueryEngine {
             this.adapter,
             model,
             this.registry,
-            driver,
+            driver
           );
 
           // Validate at execution time (inside SPAN_OPERATION)
           const validated = tracer
             ? tracer.startActiveSpanSync(
                 { name: SPAN_VALIDATE, attributes: spanAttrs },
-                () => validate<Record<string, unknown>>(model, operation, args),
+                () => validate<Record<string, unknown>>(model, operation, args)
               )
             : validate<Record<string, unknown>>(model, operation, args);
 
@@ -289,7 +289,7 @@ export class QueryEngine {
           const hasNested = this.hasNestedWrites(operation, validated);
           const needsWhereFallback = this.needsUpsertWhereFallback(
             operation,
-            validated,
+            validated
           );
 
           // Check if upsert has WHERE options that need handling in transaction path
@@ -306,13 +306,13 @@ export class QueryEngine {
               operation,
               validated,
               driver,
-              needsWhereFallback || hasUpsertWhereOptions, // Handle WHERE when provided
+              needsWhereFallback || hasUpsertWhereOptions // Handle WHERE when provided
             );
             return this.applyPostProcessing<T>(
               result,
               operation,
               options,
-              modelName,
+              modelName
             );
           }
 
@@ -320,7 +320,7 @@ export class QueryEngine {
           const sql = tracer
             ? tracer.startActiveSpanSync(
                 { name: SPAN_BUILD, attributes: spanAttrs },
-                () => this.buildOperation(ctx, operation, validated),
+                () => this.buildOperation(ctx, operation, validated)
               )
             : this.buildOperation(ctx, operation, validated);
 
@@ -339,7 +339,7 @@ export class QueryEngine {
             const parsed = tracer
               ? tracer.startActiveSpanSync(
                   { name: SPAN_PARSE, attributes: spanAttrs },
-                  () => parseResult<T>(ctx, operation, parseInput),
+                  () => parseResult<T>(ctx, operation, parseInput)
                 )
               : parseResult<T>(ctx, operation, parseInput);
 
@@ -347,7 +347,7 @@ export class QueryEngine {
               parsed,
               operation,
               options,
-              modelName,
+              modelName
             );
           } finally {
             driver.clearContext();
@@ -360,7 +360,7 @@ export class QueryEngine {
                 model: modelName,
                 operation,
                 duration: Date.now() - startTime,
-              }),
+              })
             );
           }
           throw error;
@@ -371,7 +371,7 @@ export class QueryEngine {
       if (!options?.skipSpan && tracer) {
         return tracer.startActiveSpan(
           { name: SPAN_OPERATION, attributes: spanAttrs },
-          executeCore,
+          executeCore
         );
       }
 
@@ -386,13 +386,13 @@ export class QueryEngine {
     result: T,
     operation: Operation,
     options: PrepareOptions | undefined,
-    modelName: string,
+    modelName: string
   ): T {
     // Handle OrThrow
     if (options?.throwIfNotFound && result === null) {
       throw new NotFoundError(
         modelName,
-        options.originalOperation ?? operation,
+        options.originalOperation ?? operation
       );
     }
 
@@ -412,7 +412,7 @@ export class QueryEngine {
   private processConnectOperations(
     ctx: QueryContext,
     operation: Operation,
-    args: Record<string, unknown>,
+    args: Record<string, unknown>
   ): Record<string, unknown> {
     const data =
       operation === "create" || operation === "update"
@@ -443,7 +443,7 @@ export class QueryEngine {
           const fkValues = buildConnectFkValues(
             ctx,
             mutation.relationInfo,
-            connectInput,
+            connectInput
           );
           // Add FK values to processed data
           Object.assign(processedData, fkValues);
@@ -468,7 +468,7 @@ export class QueryEngine {
   async execute<T>(
     model: Model<any>,
     operation: Operation,
-    args: Record<string, unknown>,
+    args: Record<string, unknown>
   ): Promise<T> {
     return this.prepare<T>(model, operation, args).execute();
   }
@@ -478,7 +478,7 @@ export class QueryEngine {
    */
   private hasNestedWrites(
     operation: Operation,
-    args: Record<string, unknown>,
+    args: Record<string, unknown>
   ): boolean {
     // Only create, update, and upsert can have nested writes
     if (!["create", "update", "upsert"].includes(operation)) {
@@ -528,7 +528,7 @@ export class QueryEngine {
    */
   private needsUpsertWhereFallback(
     operation: Operation,
-    args: Record<string, unknown>,
+    args: Record<string, unknown>
   ): boolean {
     if (operation !== "upsert") {
       return false;
@@ -568,7 +568,7 @@ export class QueryEngine {
     operation: Operation,
     args: Record<string, unknown>,
     driver: AnyDriver = this.driver,
-    handleSetWhere = false,
+    handleSetWhere = false
   ): Promise<T> {
     const modelName = ctx.model["~"].names.ts ?? "unknown";
 
@@ -588,7 +588,7 @@ export class QueryEngine {
             (mutation) =>
               mutation.connect &&
               Array.isArray(mutation.connect) &&
-              mutation.connect.length > 1,
+              mutation.connect.length > 1
           );
 
           if (canUseSubqueryOnly(relations) && !hasMultipleConnects) {
@@ -604,7 +604,7 @@ export class QueryEngine {
                 const fkValues = buildConnectFkValues(
                   ctx,
                   mutation.relationInfo,
-                  connectInput,
+                  connectInput
                 );
                 // Add FK values to scalar data (they are Sql subqueries)
                 Object.assign(dataWithFks, fkValues);
@@ -637,7 +637,7 @@ export class QueryEngine {
               };
               const refetchSql = buildFindUniqueQuery(
                 ctx,
-                refetchArgs as { where: Record<string, unknown> },
+                refetchArgs as { where: Record<string, unknown> }
               );
               const refetchResult = await driver._execute(refetchSql);
               if (refetchResult.rows.length > 0) {
@@ -687,7 +687,7 @@ export class QueryEngine {
                 txDriver,
                 ctx,
                 updatedRecord,
-                relations,
+                relations
               );
 
               // Re-fetch with includes if needed
@@ -712,7 +712,7 @@ export class QueryEngine {
             args as {
               where: Record<string, unknown>;
               data: Record<string, unknown>;
-            },
+            }
           );
           const result = await driver._execute(updateSql);
           return parseResult<T>(ctx, operation, result.rows);
@@ -809,13 +809,13 @@ export class QueryEngine {
                 });
                 const updatedResult =
                   await txDriver._execute<Record<string, unknown>>(
-                    refetchByPkSql,
+                    refetchByPkSql
                   );
                 const updatedRecord = updatedResult.rows[0];
 
                 if (!updatedRecord) {
                   throw new QueryEngineError(
-                    "Record was deleted by another transaction during upsert",
+                    "Record was deleted by another transaction during upsert"
                   );
                 }
 
@@ -825,7 +825,7 @@ export class QueryEngine {
                     txDriver,
                     ctx,
                     updatedRecord,
-                    relations,
+                    relations
                   );
                 }
               }
@@ -846,7 +846,7 @@ export class QueryEngine {
             const createResult = await executeNestedCreate(
               txDriver,
               ctx,
-              createData,
+              createData
             );
 
             // Handle include/select for return value (same as create operation)
@@ -874,7 +874,7 @@ export class QueryEngine {
 
         default:
           throw new QueryEngineError(
-            `Nested writes not supported for operation: ${operation}`,
+            `Nested writes not supported for operation: ${operation}`
           );
       }
     } finally {
@@ -896,7 +896,7 @@ export class QueryEngine {
   private buildOperation(
     ctx: QueryContext,
     operation: Operation,
-    args: Record<string, unknown>,
+    args: Record<string, unknown>
   ): Sql {
     switch (operation) {
       case "findFirst":
@@ -915,7 +915,7 @@ export class QueryEngine {
         return buildCreateMany(
           ctx,
           args.data as Record<string, unknown>[],
-          args.skipDuplicates as boolean | undefined,
+          args.skipDuplicates as boolean | undefined
         );
 
       case "update":
@@ -924,7 +924,7 @@ export class QueryEngine {
           args as {
             where: Record<string, unknown>;
             data: Record<string, unknown>;
-          },
+          }
         );
 
       case "updateMany":
@@ -933,7 +933,7 @@ export class QueryEngine {
           args as {
             where?: Record<string, unknown>;
             data: Record<string, unknown>;
-          },
+          }
         );
 
       case "delete":
@@ -942,7 +942,7 @@ export class QueryEngine {
       case "deleteMany":
         return buildDeleteMany(
           ctx,
-          args as { where?: Record<string, unknown> },
+          args as { where?: Record<string, unknown> }
         );
 
       case "upsert":
@@ -952,7 +952,7 @@ export class QueryEngine {
             where: Record<string, unknown>;
             create: Record<string, unknown>;
             update: Record<string, unknown>;
-          },
+          }
         );
 
       case "count":
@@ -987,7 +987,7 @@ export class QueryEngine {
   private createPrepareFunction(
     model: Model<any>,
     operation: Operation,
-    args: Record<string, unknown>,
+    args: Record<string, unknown>
   ): (driverOverride?: AnyDriver) => PreparedQuery {
     return (driverOverride?: AnyDriver): PreparedQuery => {
       const driver = driverOverride ?? this.driver;
@@ -997,14 +997,14 @@ export class QueryEngine {
         this.adapter,
         model,
         this.registry,
-        driver,
+        driver
       );
 
       // Validate arguments
       const validated = validate<Record<string, unknown>>(
         model,
         operation,
-        args,
+        args
       );
 
       // For create/update, process connect operations to inline FK values
@@ -1012,7 +1012,7 @@ export class QueryEngine {
         const processedArgs = this.processConnectOperations(
           ctx,
           operation,
-          validated,
+          validated
         );
         const sql = this.buildOperation(ctx, operation, processedArgs);
         return {
@@ -1042,7 +1042,7 @@ export class QueryEngine {
   private createParseResultFunction<T>(
     model: Model<any>,
     operation: Operation,
-    options?: PrepareOptions,
+    options?: PrepareOptions
   ): (raw: { rows: unknown[]; rowCount: number }) => T {
     const modelName = model["~"].names.ts ?? "unknown";
 
@@ -1052,7 +1052,7 @@ export class QueryEngine {
         this.adapter,
         model,
         this.registry,
-        this.driver,
+        this.driver
       );
 
       // Determine parse input based on operation type
@@ -1074,7 +1074,7 @@ export class QueryEngine {
  * Note: Assumes schema is already hydrated via hydrateSchemaNames()
  */
 export function createModelRegistry(
-  models: Record<string, Model<any>>,
+  models: Record<string, Model<any>>
 ): ModelRegistry {
   const byName = new Map<string, Model<any>>();
   const byTableName = new Map<string, Model<any>>();
@@ -1101,7 +1101,7 @@ export function createModelRegistry(
 export function createQueryEngine(
   driver: AnyDriver,
   models: Record<string, Model<any>>,
-  instrumentation?: InstrumentationContext,
+  instrumentation?: InstrumentationContext
 ): QueryEngine {
   const registry = createModelRegistry(models);
   return new QueryEngine(driver, registry, instrumentation);

@@ -1,10 +1,10 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { string } from "@validation";
+import v from "@validation";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
 describe("string schema", () => {
   describe("basic validation", () => {
-    const schema = string();
+    const schema = v.string();
 
     test("validates strings", () => {
       const result = schema["~standard"].validate("hello");
@@ -43,7 +43,7 @@ describe("string schema", () => {
   });
 
   describe("optional option", () => {
-    const schema = string({ optional: true });
+    const schema = v.string({ optional: true });
 
     test("allows undefined", () => {
       const result = schema["~standard"].validate(undefined);
@@ -64,7 +64,7 @@ describe("string schema", () => {
   });
 
   describe("nullable option", () => {
-    const schema = string({ nullable: true });
+    const schema = v.string({ nullable: true });
 
     test("allows null", () => {
       const result = schema["~standard"].validate(null);
@@ -85,7 +85,7 @@ describe("string schema", () => {
   });
 
   describe("array option", () => {
-    const schema = string({ array: true });
+    const schema = v.string({ array: true });
 
     test("validates array of strings", () => {
       const result = schema["~standard"].validate(["a", "b", "c"]);
@@ -118,7 +118,7 @@ describe("string schema", () => {
 
   describe("default option", () => {
     test("static default", () => {
-      const schema = string({ default: "default" });
+      const schema = v.string({ default: "default" });
       const result = schema["~standard"].validate(undefined);
       expect(result.issues).toBeUndefined();
       expect((result as { value: string }).value).toBe("default");
@@ -126,7 +126,7 @@ describe("string schema", () => {
 
     test("default factory function", () => {
       let counter = 0;
-      const schema = string({ default: () => `value-${++counter}` });
+      const schema = v.string({ default: () => `value-${++counter}` });
       expect(
         (schema["~standard"].validate(undefined) as { value: string }).value
       ).toBe("value-1");
@@ -136,14 +136,14 @@ describe("string schema", () => {
     });
 
     test("default not used when value provided", () => {
-      const schema = string({ default: "default" });
+      const schema = v.string({ default: "default" });
       const result = schema["~standard"].validate("provided");
       expect((result as { value: string }).value).toBe("provided");
     });
   });
 
   describe("transform option", () => {
-    const schema = string({ transform: (s) => s.toUpperCase() });
+    const schema = v.string({ transform: (s) => s.toUpperCase() });
 
     test("applies transform to output", () => {
       const result = schema["~standard"].validate("hello");
@@ -152,7 +152,7 @@ describe("string schema", () => {
     });
 
     test("transform receives validated value", () => {
-      const schema = string({ transform: (s) => s.length.toString() });
+      const schema = v.string({ transform: (s) => s.length.toString() });
       const result = schema["~standard"].validate("hello");
       expect((result as { value: string }).value).toBe("5");
     });
@@ -178,7 +178,7 @@ describe("string schema", () => {
       },
     };
 
-    const schema = string({ schema: customSchema });
+    const schema = v.string({ schema: customSchema });
 
     test("applies additional schema validation", () => {
       const result = schema["~standard"].validate("42");
@@ -199,20 +199,23 @@ describe("string schema", () => {
 
   describe("combined options", () => {
     test("optional + nullable", () => {
-      const schema = string({ optional: true, nullable: true });
+      const schema = v.string({ optional: true, nullable: true });
       expect(schema["~standard"].validate(undefined).issues).toBeUndefined();
       expect(schema["~standard"].validate(null).issues).toBeUndefined();
       expect(schema["~standard"].validate("hello").issues).toBeUndefined();
     });
 
     test("array + optional", () => {
-      const schema = string({ array: true, optional: true });
+      const schema = v.string({ array: true, optional: true });
       expect(schema["~standard"].validate(undefined).issues).toBeUndefined();
       expect(schema["~standard"].validate(["a"]).issues).toBeUndefined();
     });
 
     test("array + transform", () => {
-      const schema = string({ array: true, transform: (s) => s.toUpperCase() });
+      const schema = v.string({
+        array: true,
+        transform: (s) => s.toUpperCase(),
+      });
       const result = schema["~standard"].validate(["a", "b"]);
       expect(result.issues).toBeUndefined();
       expect((result as { value: string[] }).value).toEqual(["A", "B"]);
@@ -226,7 +229,10 @@ describe("string schema", () => {
           validate: (value) => ({ value: Number.parseInt(value, 10) }),
         },
       };
-      const schema = string({ schema: customSchema, transform: (n) => n * 2 });
+      const schema = v.string({
+        schema: customSchema,
+        transform: (n) => n * 2,
+      });
       const result = schema["~standard"].validate("21");
       expect((result as { value: number }).value).toBe(42);
     });
@@ -234,14 +240,14 @@ describe("string schema", () => {
 
   describe("edge cases", () => {
     test("unicode strings", () => {
-      const schema = string();
+      const schema = v.string();
       const result = schema["~standard"].validate("🚀 hello 🌍");
       expect(result.issues).toBeUndefined();
       expect((result as { value: string }).value).toBe("🚀 hello 🌍");
     });
 
     test("very long strings", () => {
-      const schema = string();
+      const schema = v.string();
       const longString = "a".repeat(10_000);
       const result = schema["~standard"].validate(longString);
       expect(result.issues).toBeUndefined();
@@ -249,7 +255,7 @@ describe("string schema", () => {
     });
 
     test("special characters", () => {
-      const schema = string();
+      const schema = v.string();
       const special = "\n\t\r\"'\\";
       const result = schema["~standard"].validate(special);
       expect(result.issues).toBeUndefined();

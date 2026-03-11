@@ -50,6 +50,20 @@ const client = createClient({
   cache: new MemoryCache(),
 });
 
+client.user.create({
+  data: {
+    email: "eze@example.com",
+    pets: [
+      {
+        name: "dog1",
+        age: 10,
+        type: "cat",
+      },
+    ],
+    status: "inactive",
+  },
+});
+
 client.$transaction(async (tx) => {
   await tx.user.exist({
     where: {

@@ -1,10 +1,10 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { blob } from "@validation";
+import v from "@validation";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
 describe("blob schema", () => {
   describe("basic validation", () => {
-    const schema = blob();
+    const schema = v.blob();
 
     test("validates Uint8Array", () => {
       const arr = new Uint8Array([1, 2, 3]);
@@ -34,7 +34,7 @@ describe("blob schema", () => {
   });
 
   describe("optional option", () => {
-    const schema = blob({ optional: true });
+    const schema = v.blob({ optional: true });
 
     test("allows undefined", () => {
       const result = schema["~standard"].validate(undefined);
@@ -43,7 +43,7 @@ describe("blob schema", () => {
   });
 
   describe("nullable option", () => {
-    const schema = blob({ nullable: true });
+    const schema = v.blob({ nullable: true });
 
     test("allows null", () => {
       const result = schema["~standard"].validate(null);
@@ -52,7 +52,7 @@ describe("blob schema", () => {
   });
 
   describe("array option", () => {
-    const schema = blob({ array: true });
+    const schema = v.blob({ array: true });
 
     test("validates array of blobs", () => {
       const blobs = [new Uint8Array([1]), Buffer.from([2])];

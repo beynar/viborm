@@ -1,14 +1,14 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { array, object, optional, string } from "@validation";
+import v from "@validation";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
 describe("circular references with thunks", () => {
   describe("self-reference", () => {
     test("works with optional self-reference (thunk at key level)", () => {
       // Thunk at key level returns optional(schema)
-      const selfRef = object({
-        name: string(),
-        self: () => optional(selfRef),
+      const selfRef = v.object({
+        name: v.string(),
+        self: () => v.optional(selfRef),
       });
 
       const result = selfRef["~standard"].validate({
@@ -19,8 +19,8 @@ describe("circular references with thunks", () => {
     });
 
     test("works with required self-reference", () => {
-      const selfRef = object({
-        value: string(),
+      const selfRef = v.object({
+        value: v.string(),
         next: () => selfRef,
       });
 
@@ -32,8 +32,8 @@ describe("circular references with thunks", () => {
     });
 
     test("type inference with self-reference", () => {
-      const user = object({
-        name: string(),
+      const user = v.object({
+        name: v.string(),
         friend: () => user,
       });
 
@@ -55,13 +55,13 @@ describe("circular references with thunks", () => {
   describe("mutual references", () => {
     test("forward and back references work", () => {
       // Thunk at key level returns array(schema)
-      const user = object({
-        name: string(),
-        posts: () => array(post),
+      const user = v.object({
+        name: v.string(),
+        posts: () => v.array(post),
       });
 
-      const post = object({
-        title: string(),
+      const post = v.object({
+        title: v.string(),
         author: () => user,
       });
 
@@ -79,9 +79,9 @@ describe("circular references with thunks", () => {
 
     test("deep nesting works", () => {
       // Thunk at key level returns array(schema)
-      const node = object({
-        value: string(),
-        children: () => array(node),
+      const node = v.object({
+        value: v.string(),
+        children: () => v.array(node),
       });
 
       const result = node["~standard"].validate({
@@ -101,9 +101,9 @@ describe("circular references with thunks", () => {
   describe("type inference with circular references", () => {
     test("nested access works", () => {
       // Thunk at key level returns optional(schema)
-      const user = object({
-        name: string(),
-        bestFriend: () => optional(user),
+      const user = v.object({
+        name: v.string(),
+        bestFriend: () => v.optional(user),
       });
 
       type UserOutput = StandardSchemaV1.InferOutput<typeof user>;
@@ -113,8 +113,8 @@ describe("circular references with thunks", () => {
     });
 
     test("deep recursion works", () => {
-      const user = object({
-        name: string(),
+      const user = v.object({
+        name: v.string(),
         friend: () => user,
       });
 

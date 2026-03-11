@@ -1,10 +1,10 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { array, number, optional, string, v } from "@validation";
+import v from "@validation";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
 describe("optional wrapper schema", () => {
   describe("basic validation", () => {
-    const schema = optional(number());
+    const schema = v.optional(v.number());
 
     test("allows undefined", () => {
       const result = schema["~standard"].validate(undefined);
@@ -31,7 +31,7 @@ describe("optional wrapper schema", () => {
 
   describe("with default", () => {
     test("static default", () => {
-      const schema = optional(number(), 0);
+      const schema = v.optional(v.number(), 0);
       const result = schema["~standard"].validate(undefined);
       expect(result.issues).toBeUndefined();
       expect((result as { value: number }).value).toBe(0);
@@ -39,7 +39,7 @@ describe("optional wrapper schema", () => {
 
     test("default factory function", () => {
       let counter = 0;
-      const schema = optional(number(), () => ++counter);
+      const schema = v.optional(v.number(), () => ++counter);
       expect(
         (schema["~standard"].validate(undefined) as { value: number }).value
       ).toBe(1);
@@ -51,13 +51,13 @@ describe("optional wrapper schema", () => {
 
   describe("with different types", () => {
     test("optional string", () => {
-      const schema = optional(string());
+      const schema = v.optional(v.string());
       expect(schema["~standard"].validate(undefined).issues).toBeUndefined();
       expect(schema["~standard"].validate("hello").issues).toBeUndefined();
     });
 
     test("optional boolean", () => {
-      const schema = optional(v.boolean());
+      const schema = v.optional(v.boolean());
       expect(schema["~standard"].validate(undefined).issues).toBeUndefined();
       expect(schema["~standard"].validate(true).issues).toBeUndefined();
     });
@@ -65,7 +65,7 @@ describe("optional wrapper schema", () => {
 
   describe("nested optional", () => {
     test("optional array", () => {
-      const schema = optional(array(string()));
+      const schema = v.optional(v.array(v.string()));
       expect(schema["~standard"].validate(undefined).issues).toBeUndefined();
       expect(schema["~standard"].validate(["a"]).issues).toBeUndefined();
     });
@@ -74,8 +74,8 @@ describe("optional wrapper schema", () => {
 
 describe("optional option vs wrapper comparison", () => {
   describe("string({ optional: true }) vs optional(string())", () => {
-    const optionsSchema = string({ optional: true });
-    const wrapperSchema = optional(string());
+    const optionsSchema = v.string({ optional: true });
+    const wrapperSchema = v.optional(v.string());
 
     test("both allow undefined", () => {
       const optionsResult = optionsSchema["~standard"].validate(undefined);
@@ -126,8 +126,8 @@ describe("optional option vs wrapper comparison", () => {
   });
 
   describe("number({ optional: true }) vs optional(number())", () => {
-    const optionsSchema = number({ optional: true });
-    const wrapperSchema = optional(number());
+    const optionsSchema = v.number({ optional: true });
+    const wrapperSchema = v.optional(v.number());
 
     test("both allow undefined", () => {
       expect(
@@ -164,7 +164,7 @@ describe("optional option vs wrapper comparison", () => {
 
   describe("boolean({ optional: true }) vs optional(boolean())", () => {
     const optionsSchema = v.boolean({ optional: true });
-    const wrapperSchema = optional(v.boolean());
+    const wrapperSchema = v.optional(v.boolean());
 
     test("both allow undefined", () => {
       expect(

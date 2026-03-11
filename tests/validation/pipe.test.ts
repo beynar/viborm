@@ -1,13 +1,13 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { number, pipe, string, transformAction } from "@validation";
+import v from "@validation";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
 describe("pipe schema", () => {
   describe("basic validation", () => {
-    const schema = pipe(
-      string(),
-      transformAction((s) => s.trim()),
-      transformAction((s) => s.toUpperCase())
+    const schema = v.pipe(
+      v.string(),
+      v.transformAction((s) => s.trim()),
+      v.transformAction((s) => s.toUpperCase())
     );
 
     test("applies transforms in order", () => {
@@ -28,9 +28,9 @@ describe("pipe schema", () => {
   });
 
   describe("single transform", () => {
-    const schema = pipe(
-      string(),
-      transformAction((s) => s.toUpperCase())
+    const schema = v.pipe(
+      v.string(),
+      v.transformAction((s) => s.toUpperCase())
     );
 
     test("applies single transform", () => {
@@ -40,11 +40,11 @@ describe("pipe schema", () => {
   });
 
   describe("multiple transforms", () => {
-    const schema = pipe(
-      string(),
-      transformAction((s) => s.trim()),
-      transformAction((s) => s.toLowerCase()),
-      transformAction((s) => s.replace(/\s+/g, "-"))
+    const schema = v.pipe(
+      v.string(),
+      v.transformAction((s) => s.trim()),
+      v.transformAction((s) => s.toLowerCase()),
+      v.transformAction((s) => s.replace(/\s+/g, "-"))
     );
 
     test("applies all transforms in sequence", () => {
@@ -54,10 +54,10 @@ describe("pipe schema", () => {
   });
 
   describe("with number transforms", () => {
-    const schema = pipe(
-      number(),
-      transformAction((n) => n * 2),
-      transformAction((n) => n + 1)
+    const schema = v.pipe(
+      v.number(),
+      v.transformAction((n) => n * 2),
+      v.transformAction((n) => n + 1)
     );
 
     test("applies numeric transforms", () => {
@@ -68,9 +68,9 @@ describe("pipe schema", () => {
 
   describe("transform errors", () => {
     test("handles transform exceptions", () => {
-      const schema = pipe(
-        string(),
-        transformAction(() => {
+      const schema = v.pipe(
+        v.string(),
+        v.transformAction(() => {
           throw new Error("Transform failed");
         })
       );
@@ -81,7 +81,7 @@ describe("pipe schema", () => {
   });
 
   describe("no transforms", () => {
-    const schema = pipe(string());
+    const schema = v.pipe(v.string());
 
     test("passes through value without transforms", () => {
       const result = schema["~standard"].validate("hello");

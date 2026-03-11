@@ -1,10 +1,10 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { literal, v } from "@validation";
+import v from "@validation";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
 describe("literal schema", () => {
   describe("string literals", () => {
-    const schema = literal("admin");
+    const schema = v.literal("admin");
 
     test("validates exact match", () => {
       const result = schema["~standard"].validate("admin");
@@ -29,7 +29,7 @@ describe("literal schema", () => {
   });
 
   describe("number literals", () => {
-    const schema = literal(42);
+    const schema = v.literal(42);
 
     test("validates exact match", () => {
       const result = schema["~standard"].validate(42);
@@ -50,13 +50,13 @@ describe("literal schema", () => {
 
   describe("boolean literals", () => {
     test("true literal", () => {
-      const schema = literal(true);
+      const schema = v.literal(true);
       expect(schema["~standard"].validate(true).issues).toBeUndefined();
       expect(schema["~standard"].validate(false).issues).toBeDefined();
     });
 
     test("false literal", () => {
-      const schema = literal(false);
+      const schema = v.literal(false);
       expect(schema["~standard"].validate(false).issues).toBeUndefined();
       expect(schema["~standard"].validate(true).issues).toBeDefined();
     });

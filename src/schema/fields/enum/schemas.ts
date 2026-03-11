@@ -3,8 +3,8 @@ import v, {
   type InferInput,
   type InferOutput,
 } from "@validation";
-import type { EnumValues } from "@validation/schemas/enum";
-import type { V } from "@validation/V";
+import type { EnumSchema, EnumValues } from "@validation/primitives/enum";
+import type { V } from "@validation/primitives/v";
 import {
   type FieldState,
   shorthandArray,
@@ -193,13 +193,10 @@ export interface EnumSchemas<
     : EnumFilterSchema<F["base"], Values>;
 }
 
-export const buildEnumSchema = <
-  Values extends string[],
-  F extends FieldState<"enum">,
->(
-  values: Values,
+export const buildEnumSchema = <F extends FieldState<"enum">>(
   state: F
-): EnumSchemas<Values, F> => {
+): EnumSchemas<EnumValues<F["base"]>, F> => {
+  const values = (state.base as EnumSchema<EnumValues<F["base"]>>).values;
   return {
     base: state.base as F["base"],
     create: v.enum(values, state),
@@ -209,7 +206,7 @@ export const buildEnumSchema = <
     filter: state.array
       ? buildEnumListFilterSchema(state.base, values)
       : buildEnumFilterSchema(state.base, values),
-  } as EnumSchemas<Values, F>;
+  } as EnumSchemas<EnumValues<F["base"]>, F>;
 };
 
 export type InferEnumInput<

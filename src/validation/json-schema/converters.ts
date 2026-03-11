@@ -13,18 +13,11 @@ import type { ConversionContext, JsonSchema, JsonSchemaTarget } from "./types";
 /**
  * Wrapper schema types that should be traversed to find inner schemas.
  */
-const WRAPPER_TYPES = new Set([
-  "array",
-  "nullable",
-  "optional",
-  "nonNullable",
-  "nonOptional",
-  "nonArray",
-]);
+const WRAPPER_TYPES = new Set(["array", "nullable", "optional"]);
 
 /**
  * Traverse through wrapper schemas to find the innermost schema.
- * Wrappers include: array, nullable, optional, nonNullable, nonOptional, nonArray
+ * Wrappers include: array, nullable, optional
  */
 function getInnerSchema(schema: any): any {
   let current = schema;
@@ -149,14 +142,6 @@ export function convertSchema(
       jsonSchema.type = "array";
       jsonSchema.items = convertSchema(item as any, context);
       break;
-    }
-
-    case "nonNullable":
-    case "nonOptional":
-    case "nonArray": {
-      // These are just type narrowers, pass through to wrapped
-      const wrapped = (schema as any).wrapped as VibSchema<unknown, unknown>;
-      return convertSchema(wrapped as any, context);
     }
 
     // =========================================================================
@@ -302,32 +287,6 @@ export function convertSchema(
       jsonSchema.required = ["x", "y"];
       jsonSchema.additionalProperties = false;
       break;
-
-    case "instance": {
-      // Instance schemas validate class instances - represent as object
-      // with a custom property to indicate the expected type
-      const ctor = (schema as any).ctor as new (...args: any[]) => unknown;
-      const className = ctor?.name ?? "Instance";
-
-      // Special handling for common types
-      if (className === "Date") {
-        jsonSchema.type = "string";
-        jsonSchema.format = "date-time";
-      } else if (
-        className === "Uint8Array" ||
-        className === "Buffer" ||
-        className === "ArrayBuffer"
-      ) {
-        jsonSchema.type = "string";
-        jsonSchema.contentEncoding = "base64";
-      } else {
-        // Generic object representation with instance hint
-        jsonSchema.type = "object";
-        // Use x- prefix for vendor extension (valid in JSON Schema)
-        (jsonSchema as any)["x-instance"] = className;
-      }
-      break;
-    }
 
     case "transform": {
       // Transform wraps another schema - use the wrapped schema for JSON representation

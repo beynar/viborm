@@ -1,4 +1,3 @@
-import { createSchema, ok } from "../helpers";
 import type {
   Cast,
   InferInput,
@@ -7,6 +6,7 @@ import type {
   ValidationResult,
   VibSchema,
 } from "../types";
+import { createSchema, ok } from "./helpers";
 
 // =============================================================================
 // Optional Schema
@@ -132,6 +132,8 @@ export function optional<
   // Add references
   (schema as any).wrapped = wrapped;
   (schema as any).default = defaultValue;
+  // Optional schema always accepts undefined
+  (schema as any).acceptsUndefined = true;
 
   return schema;
 }

@@ -1,10 +1,10 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { point } from "@validation";
+import v from "@validation";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
 describe("point schema", () => {
   describe("basic validation", () => {
-    const schema = point();
+    const schema = v.point();
 
     test("validates point objects", () => {
       const result = schema["~standard"].validate({ x: 1, y: 2 });
@@ -49,7 +49,7 @@ describe("point schema", () => {
   });
 
   describe("optional option", () => {
-    const schema = point({ optional: true });
+    const schema = v.point({ optional: true });
 
     test("allows undefined", () => {
       const result = schema["~standard"].validate(undefined);
@@ -58,7 +58,7 @@ describe("point schema", () => {
   });
 
   describe("nullable option", () => {
-    const schema = point({ nullable: true });
+    const schema = v.point({ nullable: true });
 
     test("allows null", () => {
       const result = schema["~standard"].validate(null);
@@ -67,7 +67,7 @@ describe("point schema", () => {
   });
 
   describe("array option", () => {
-    const schema = point({ array: true });
+    const schema = v.point({ array: true });
 
     test("validates array of points", () => {
       const result = schema["~standard"].validate([

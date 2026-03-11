@@ -1,5 +1,5 @@
 import {
-  GetInverseRelationFields,
+  type GetInverseRelationFields,
   getInverseRelationFields,
 } from "@schema/relation/types";
 import { s } from "../src/schema";
@@ -31,7 +31,7 @@ const post = s.model({
 
 const inverseOne = getInverseRelationFields(
   postsOneToManyOne["~"]["state"],
-  user,
+  user
 );
 type InverseOne = GetInverseRelationFields<
   (typeof postsOneToManyOne)["~"]["state"],
@@ -43,7 +43,7 @@ console.log('Expected: ["authorId"]');
 
 const inverseTwo = getInverseRelationFields(
   postsOneToManyTwo["~"]["state"],
-  user,
+  user
 );
 type InverseTwo = GetInverseRelationFields<
   (typeof postsOneToManyTwo)["~"]["state"],

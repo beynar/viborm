@@ -1,5 +1,5 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { createJsonSchemaConverter } from "./json-schema/factory";
+import { createJsonSchemaConverter } from "../json-schema/factory";
 import type {
   ComputeInput,
   ComputeOutput,
@@ -7,7 +7,7 @@ import type {
   ValidationIssue,
   ValidationResult,
   VibSchema,
-} from "./types";
+} from "../types";
 
 // =============================================================================
 // Core Validation Primitives
@@ -42,14 +42,14 @@ const ARRAY_TYPE_ERROR = Object.freeze({
 });
 
 // Pre-allocated null/undefined results for fast paths
-const OK_NULL = Object.freeze({ value: null });
-const OK_UNDEFINED = Object.freeze({ value: undefined });
+export const OK_NULL = Object.freeze({ value: null });
+export const OK_UNDEFINED = Object.freeze({ value: undefined });
 
 /**
  * Validate array items with the provided validator.
  * Shared by both array() wrapper and options.array.
  */
-function validateArray<T>(
+export function validateArray<T>(
   value: unknown,
   validate: (v: unknown) => ValidationResult<T>
 ): ValidationResult<T[]> {
@@ -311,12 +311,18 @@ export function buildSchema<
   options: Opts,
   extras?: TExtras
 ): VibSchema<ComputeInput<T, Opts>, ComputeOutput<T, Opts>> &
-  TExtras & { type: string; options: Opts } {
+  TExtras & { type: string; options: Opts; acceptsUndefined: boolean } {
   const validate = buildValidator(baseValidate, options, type);
+
+  // Pre-compute whether this schema accepts undefined
+  // True if: optional, or has a default value
+  const acceptsUndefined =
+    options?.optional === true || options?.default !== undefined;
 
   const schema = {
     type,
     options,
+    acceptsUndefined,
     ...extras,
     "~standard": {
       version: 1 as const,
@@ -338,8 +344,14 @@ export function buildSchema<
     },
   };
 
+  // Add the inferred property for type branding
+  Object.defineProperty(schema, " vibInferred", {
+    value: undefined,
+    enumerable: false,
+  });
+
   return schema as VibSchema<ComputeInput<T, Opts>, ComputeOutput<T, Opts>> &
-    TExtras & { options: Opts; type: string };
+    TExtras & { options: Opts; type: string; acceptsUndefined: boolean };
 }
 
 // =============================================================================

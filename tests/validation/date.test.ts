@@ -1,10 +1,10 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { date } from "@validation";
+import v from "@validation";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
 describe("date schema", () => {
   describe("basic validation", () => {
-    const schema = date();
+    const schema = v.date();
 
     test("validates Date objects", () => {
       const d = new Date();
@@ -40,7 +40,7 @@ describe("date schema", () => {
   });
 
   describe("optional option", () => {
-    const schema = date({ optional: true });
+    const schema = v.date({ optional: true });
 
     test("allows undefined", () => {
       const result = schema["~standard"].validate(undefined);
@@ -59,7 +59,7 @@ describe("date schema", () => {
   });
 
   describe("nullable option", () => {
-    const schema = date({ nullable: true });
+    const schema = v.date({ nullable: true });
 
     test("allows null", () => {
       const result = schema["~standard"].validate(null);
@@ -73,7 +73,7 @@ describe("date schema", () => {
   });
 
   describe("array option", () => {
-    const schema = date({ array: true });
+    const schema = v.date({ array: true });
 
     test("validates array of dates", () => {
       const dates = [new Date("2023-01-01"), new Date("2023-01-02")];
@@ -94,21 +94,21 @@ describe("date schema", () => {
   describe("default option", () => {
     test("static default", () => {
       const defaultDate = new Date("2023-01-01");
-      const schema = date({ default: defaultDate });
+      const schema = v.date({ default: defaultDate });
       const result = schema["~standard"].validate(undefined);
       expect(result.issues).toBeUndefined();
       expect((result as { value: Date }).value).toEqual(defaultDate);
     });
 
     test("default factory function", () => {
-      const schema = date({ default: () => new Date("2023-01-01") });
+      const schema = v.date({ default: () => new Date("2023-01-01") });
       const result = schema["~standard"].validate(undefined);
       expect(result.issues).toBeUndefined();
     });
   });
 
   describe("transform option", () => {
-    const schema = date({ transform: (d) => d.toISOString() } as any);
+    const schema = v.date({ transform: (d) => d.toISOString() } as any);
 
     test("applies transform to output", () => {
       const d = new Date("2023-01-01");

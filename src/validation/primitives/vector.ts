@@ -1,10 +1,10 @@
-import { buildSchema, fail, ok } from "../helpers";
 import type {
   ComputeInput,
   ComputeOutput,
   ScalarOptions,
   VibSchema,
 } from "../types";
+import { buildSchema, fail, ok } from "./helpers";
 
 // =============================================================================
 // Vector Schema (array of numbers for embeddings/ML)

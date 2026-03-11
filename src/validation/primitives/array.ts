@@ -1,5 +1,5 @@
-import { createSchema, validateArrayItems } from "../helpers";
 import type { InferInput, InferOutput, VibSchema } from "../types";
+import { createSchema, validateArrayItems } from "./helpers";
 
 // =============================================================================
 // Array Schema

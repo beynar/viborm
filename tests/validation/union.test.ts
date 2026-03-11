@@ -1,10 +1,10 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { boolean, literal, number, string, union } from "@validation";
+import v from "@validation";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
 describe("union schema", () => {
   describe("basic validation", () => {
-    const schema = union([string(), number()]);
+    const schema = v.union([v.string(), v.number()]);
 
     test("validates first matching option", () => {
       const result1 = schema["~standard"].validate("hello");
@@ -39,7 +39,7 @@ describe("union schema", () => {
 
   describe("with multiple types", () => {
     test("string | number | boolean", () => {
-      const schema = union([string(), number(), boolean()]);
+      const schema = v.union([v.string(), v.number(), v.boolean()]);
       expect(schema["~standard"].validate("hello").issues).toBeUndefined();
       expect(schema["~standard"].validate(42).issues).toBeUndefined();
       expect(schema["~standard"].validate(true).issues).toBeUndefined();
@@ -47,7 +47,11 @@ describe("union schema", () => {
     });
 
     test("with literals", () => {
-      const schema = union([literal("admin"), literal("user"), number()]);
+      const schema = v.union([
+        v.literal("admin"),
+        v.literal("user"),
+        v.number(),
+      ]);
       expect(schema["~standard"].validate("admin").issues).toBeUndefined();
       expect(schema["~standard"].validate("user").issues).toBeUndefined();
       expect(schema["~standard"].validate(42).issues).toBeUndefined();
@@ -58,7 +62,7 @@ describe("union schema", () => {
   describe("order matters", () => {
     test("first matching schema wins", () => {
       // string matches first, so "42" is validated as string
-      const schema = union([string(), number()]);
+      const schema = v.union([v.string(), v.number()]);
       const result = schema["~standard"].validate("42");
       expect(result.issues).toBeUndefined();
       expect((result as { value: string | number }).value).toBe("42");
@@ -67,13 +71,13 @@ describe("union schema", () => {
 
   describe("edge cases", () => {
     test("empty union (should not happen but handles gracefully)", () => {
-      const schema = union([]);
+      const schema = v.union([]);
       const result = schema["~standard"].validate("anything");
       expect(result.issues).toBeDefined();
     });
 
     test("single option union", () => {
-      const schema = union([string()]);
+      const schema = v.union([v.string()]);
       expect(schema["~standard"].validate("hello").issues).toBeUndefined();
       expect(schema["~standard"].validate(42).issues).toBeDefined();
     });

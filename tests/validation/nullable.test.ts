@@ -1,10 +1,10 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { array, nullable, number, string, v } from "@validation";
+import v from "@validation";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
 describe("nullable wrapper schema", () => {
   describe("basic validation", () => {
-    const schema = nullable(string());
+    const schema = v.nullable(v.string());
 
     test("allows null", () => {
       const result = schema["~standard"].validate(null);
@@ -31,13 +31,13 @@ describe("nullable wrapper schema", () => {
 
   describe("with different types", () => {
     test("nullable number", () => {
-      const schema = nullable(number());
+      const schema = v.nullable(v.number());
       expect(schema["~standard"].validate(null).issues).toBeUndefined();
       expect(schema["~standard"].validate(42).issues).toBeUndefined();
     });
 
     test("nullable boolean", () => {
-      const schema = nullable(v.boolean());
+      const schema = v.nullable(v.boolean());
       expect(schema["~standard"].validate(null).issues).toBeUndefined();
       expect(schema["~standard"].validate(true).issues).toBeUndefined();
     });
@@ -45,7 +45,7 @@ describe("nullable wrapper schema", () => {
 
   describe("nested nullable", () => {
     test("nullable array", () => {
-      const schema = nullable(array(string()));
+      const schema = v.nullable(v.array(v.string()));
       expect(schema["~standard"].validate(null).issues).toBeUndefined();
       expect(schema["~standard"].validate(["a"]).issues).toBeUndefined();
     });
@@ -54,8 +54,8 @@ describe("nullable wrapper schema", () => {
 
 describe("nullable option vs wrapper comparison", () => {
   describe("string({ nullable: true }) vs nullable(string())", () => {
-    const optionsSchema = string({ nullable: true });
-    const wrapperSchema = nullable(string());
+    const optionsSchema = v.string({ nullable: true });
+    const wrapperSchema = v.nullable(v.string());
 
     test("both allow null", () => {
       const optionsResult = optionsSchema["~standard"].validate(null);
@@ -102,8 +102,8 @@ describe("nullable option vs wrapper comparison", () => {
   });
 
   describe("number({ nullable: true }) vs nullable(number())", () => {
-    const optionsSchema = number({ nullable: true });
-    const wrapperSchema = nullable(number());
+    const optionsSchema = v.number({ nullable: true });
+    const wrapperSchema = v.nullable(v.number());
 
     test("both allow null", () => {
       expect(optionsSchema["~standard"].validate(null).issues).toBeUndefined();
@@ -132,7 +132,7 @@ describe("nullable option vs wrapper comparison", () => {
 
   describe("boolean({ nullable: true }) vs nullable(boolean())", () => {
     const optionsSchema = v.boolean({ nullable: true });
-    const wrapperSchema = nullable(v.boolean());
+    const wrapperSchema = v.nullable(v.boolean());
 
     test("both allow null", () => {
       expect(optionsSchema["~standard"].validate(null).issues).toBeUndefined();

@@ -94,15 +94,6 @@ export interface ScalarOptions<T, TOut = T, TSchemaOut = TOut> {
   schema?: StandardSchemaV1<T, TSchemaOut> | undefined;
 }
 
-/**
- * Options for object schemas.
- */
-export interface ObjectOptions<T, TOut = T, TSchemaOut = TOut>
-  extends ScalarOptions<T, TOut, TSchemaOut> {
-  partial?: boolean;
-  strict?: boolean;
-}
-
 // =============================================================================
 // Type Inference - Optimized with constrained infer (TS 4.7+)
 // =============================================================================
@@ -237,28 +228,3 @@ export interface ValidationFailure {
 }
 
 export type ValidationResult<T> = ValidationSuccess<T> | ValidationFailure;
-
-export function isSuccess<T>(
-  result: ValidationResult<T>
-): result is ValidationSuccess<T> {
-  return !result.issues;
-}
-
-export function isFailure<T>(
-  result: ValidationResult<T>
-): result is ValidationFailure {
-  return !!result.issues;
-}
-
-// =============================================================================
-// Schema Type Guards
-// =============================================================================
-
-export function isVibSchema(value: unknown): value is VibSchema {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "~standard" in value &&
-    typeof (value as any)["~standard"] === "object"
-  );
-}

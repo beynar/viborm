@@ -1,41 +1,7 @@
 // =============================================================================
-// V Namespace - Type-Level Schema Mirrors
-// =============================================================================
-//
-// This namespace provides type-level equivalents of v.* runtime functions.
-// Use these for explicit type annotations in .d.ts files to avoid type expansion.
-//
-// Example:
-//   // Instead of letting tsc expand v.object({...}) to 100+ lines:
-//   type MySchema = V.Object<{ name: V.String; age: V.Number<{ optional: true }> }>;
-//
+// VibORM Validation - Runtime and Type-Level Namespace
 // =============================================================================
 
-import type { ArraySchema } from "./schemas/array";
-import type { BigIntSchema } from "./schemas/bigint";
-import type { BlobSchema } from "./schemas/blob";
-import type { BooleanSchema } from "./schemas/boolean";
-import type { DateSchema } from "./schemas/date";
-import type { EnumSchema } from "./schemas/enum";
-import type { ComputeEntriesFromObject } from "./schemas/from-object";
-import type {
-  IsoDateSchema,
-  IsoTimeSchema,
-  IsoTimestampSchema,
-} from "./schemas/iso";
-import type { JsonSchema, JsonValue } from "./schemas/json";
-import type { LiteralSchema, LiteralValue } from "./schemas/literal";
-import type { NullableSchema } from "./schemas/nullable";
-import type { IntegerSchema, NumberSchema } from "./schemas/number";
-import type { ObjectOptions, ObjectSchema } from "./schemas/object";
-import type { OptionalSchema, WrappableSchema } from "./schemas/optional";
-import type { PipeAction, PipeSchema } from "./schemas/pipe";
-import type { PointSchema } from "./schemas/point";
-import type { ComputeEntriesFromKeys, RecordSchema } from "./schemas/record";
-import type { StringSchema } from "./schemas/string";
-import type { TransformSchema } from "./schemas/transform";
-import type { UnionSchema } from "./schemas/union";
-import type { VectorSchema } from "./schemas/vector";
 import type {
   ComputeInput,
   ComputeOutput,
@@ -43,7 +9,129 @@ import type {
   InferOutput,
   ScalarOptions,
   VibSchema,
-} from "./types";
+} from "../types";
+import type { ArraySchema } from "./array";
+import { array } from "./array";
+import type { BigIntSchema } from "./bigint";
+import { bigint } from "./bigint";
+import type { BlobSchema } from "./blob";
+import { blob } from "./blob";
+import type { BooleanSchema } from "./boolean";
+import { boolean } from "./boolean";
+import type { DateSchema } from "./date";
+import { date } from "./date";
+import type { EnumSchema } from "./enum";
+import { enum_ } from "./enum";
+import type { ComputeEntriesFromObject } from "./from-object";
+import { fromObject } from "./from-object";
+import type { IsoDateSchema, IsoTimeSchema, IsoTimestampSchema } from "./iso";
+import { isoDate, isoTime, isoTimestamp } from "./iso";
+import type { JsonSchema, JsonValue } from "./json";
+import { json } from "./json";
+import { lazy } from "./lazy";
+import type { LiteralSchema, LiteralValue } from "./literal";
+import { literal } from "./literal";
+import type { NullableSchema } from "./nullable";
+import { maybeNullable, nullable } from "./nullable";
+import type { IntegerSchema, NumberSchema } from "./number";
+import { integer, number } from "./number";
+import type { ObjectOptions, ObjectSchema } from "./object";
+import { object } from "./object";
+import { omit } from "./omit";
+import type { OptionalSchema, WrappableSchema } from "./optional";
+import { optional } from "./optional";
+import type { PipeAction, PipeSchema } from "./pipe";
+import { pipe, transform as transformAction } from "./pipe";
+import type { PointSchema } from "./point";
+import { point } from "./point";
+import type { ComputeEntriesFromKeys, RecordSchema } from "./record";
+import { fromKeys, record } from "./record";
+import { shorthandArray, shorthandFilter, shorthandUpdate } from "./shorthand";
+import { singleOrArray } from "./single-or-array";
+import type { StringSchema } from "./string";
+import { string } from "./string";
+import type { TransformSchema } from "./transform";
+import { coerce, map } from "./transform";
+import type { UnionSchema } from "./union";
+import { union } from "./union";
+import type { VectorSchema } from "./vector";
+import { vector } from "./vector";
+
+// =============================================================================
+// Runtime Namespace (v.string(), v.number(), etc.)
+// =============================================================================
+
+/**
+ * VibORM validation namespace.
+ *
+ * @example
+ * import { v } from "viborm/validation";
+ *
+ * const user = v.object({
+ *   name: v.string(),
+ *   age: v.number({ optional: true }),
+ *   email: v.string(),
+ *   createdAt: v.date(),
+ * });
+ *
+ * // Circular references use thunks
+ * const node = v.object({
+ *   value: v.string(),
+ *   parent: () => node,  // Thunk for self-reference
+ * });
+ */
+export const v = {
+  // Scalars
+  string,
+  number,
+  integer,
+  boolean,
+  bigint,
+  literal,
+  enum: enum_,
+  json,
+  // Date & Time
+  date,
+  isoTimestamp,
+  isoDate,
+  isoTime,
+  // Blob, Vector, Point
+  blob,
+  vector,
+  point,
+  // Wrappers
+  array,
+  nullable,
+  maybeNullable,
+  optional,
+  // Objects
+  object,
+  omit,
+  fromObject,
+  // Composition
+  union,
+  pipe,
+  transformAction,
+  record,
+  fromKeys,
+  // Transform wrappers
+  coerce,
+  map,
+  // Lazy evaluation
+  lazy,
+  // Single or array
+  singleOrArray,
+  // Shorthand coercions
+  shorthandFilter,
+  shorthandUpdate,
+  shorthandArray,
+} as const;
+
+export default v;
+
+// =============================================================================
+// Type-Level Namespace (V.String, V.Number, etc.)
+// =============================================================================
 
 /**
  * V Namespace - Type-level schema constructors for explicit type annotations.
@@ -75,7 +163,6 @@ export namespace V {
    * @example V.String<{ nullable: true }> - Nullable string
    * @example V.String<{ array: true }> - Array of strings
    */
-
   export type String<
     Opts extends ScalarOptions<string, any> | undefined = undefined,
   > = StringSchema<ComputeInput<string, Opts>, ComputeOutput<string, Opts>>;
@@ -221,7 +308,6 @@ export namespace V {
    * Type-level from object schema.
    * @example V.FromObject<{ name: V.String }, "name"> - Object with name field
    */
-
   export type FromObject<
     TObject extends Record<string, any>,
     TPath extends string,
@@ -233,6 +319,7 @@ export namespace V {
     TSchema extends VibSchema<any, any>,
     TOpts extends ObjectOptions | undefined = undefined,
   > = ObjectSchema<ComputeEntriesFromKeys<TKeys, TSchema>, TOpts>;
+
   /**
    * Type-level array schema.
    * @example V.Array<V.String> - Array of strings

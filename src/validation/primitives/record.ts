@@ -1,4 +1,3 @@
-import { createSchema, fail, ok, validateSchema } from "../helpers";
 import type {
   Cast,
   InferInput,
@@ -6,6 +5,7 @@ import type {
   ThunkCast,
   VibSchema,
 } from "../types";
+import { createSchema, fail, ok, validateSchema } from "./helpers";
 import { type ObjectOptions, type ObjectSchema, object } from "./object";
 
 // =============================================================================

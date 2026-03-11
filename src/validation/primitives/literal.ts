@@ -1,10 +1,10 @@
-import { buildSchema, ok } from "../helpers";
 import type {
   ComputeInput,
   ComputeOutput,
   ScalarOptions,
   VibSchema,
 } from "../types";
+import { buildSchema, ok } from "./helpers";
 
 // =============================================================================
 // Literal Schema

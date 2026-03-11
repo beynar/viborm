@@ -1,5 +1,5 @@
 import v, { type InferInput, type InferOutput } from "@validation";
-import type { V } from "@validation/V";
+import type { V } from "@validation/primitives/v";
 import {
   type FieldState,
   shorthandArray,

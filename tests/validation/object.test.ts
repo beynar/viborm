@@ -1,26 +1,20 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import {
-  number,
-  object,
-  optional,
-  type Prettify,
-  string,
-  v,
-} from "@validation";
+import v from "@validation";
+import type { Prettify } from "@validation/types";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
 describe("object schema", () => {
   describe("basic validation", () => {
-    const schema = object({
-      name: string(),
-      age: number(),
+    const schema = v.object({
+      name: v.string(),
+      age: v.number(),
     });
 
     test("validates objects", () => {
       const result = schema["~standard"].validate({ name: "Alice", age: 30 });
       expect(result.issues).toBeUndefined();
       expect(
-        (result as { value: { name: string; age: number } }).value
+        (result as { value: { name: string; age: number } }).value,
       ).toEqual({
         name: "Alice",
         age: 30,
@@ -41,9 +35,9 @@ describe("object schema", () => {
   });
 
   describe("strict option (default: true)", () => {
-    const schema = object({
-      name: string(),
-      age: number(),
+    const schema = v.object({
+      name: v.string(),
+      age: v.number(),
     });
 
     test("rejects unknown keys by default", () => {
@@ -58,9 +52,9 @@ describe("object schema", () => {
     });
 
     test("allows unknown keys with strict: false", () => {
-      const looseSchema = object(
-        { name: string(), age: number() },
-        { strict: false }
+      const looseSchema = v.object(
+        { name: v.string(), age: v.number() },
+        { strict: false },
       );
       const result = looseSchema["~standard"].validate({
         name: "Alice",
@@ -69,7 +63,7 @@ describe("object schema", () => {
       });
       expect(result.issues).toBeUndefined();
       expect(
-        (result as { value: { name: string; age: number } }).value
+        (result as { value: { name: string; age: number } }).value,
       ).toEqual({
         name: "Alice",
         age: 30,
@@ -79,14 +73,14 @@ describe("object schema", () => {
 
   describe("partial option (default: true)", () => {
     test("allows missing fields by default", () => {
-      const schema = object({
-        name: string(),
-        age: number(),
+      const schema = v.object({
+        name: v.string(),
+        age: v.number(),
       });
       const result = schema["~standard"].validate({ name: "Alice" });
       expect(result.issues).toBeUndefined();
       expect(
-        (result as { value: { name?: string; age?: number } }).value
+        (result as { value: { name?: string; age?: number } }).value,
       ).toEqual({
         name: "Alice",
         age: undefined,
@@ -94,21 +88,21 @@ describe("object schema", () => {
     });
 
     test("allows empty object by default", () => {
-      const schema = object({
-        name: string(),
-        age: number(),
+      const schema = v.object({
+        name: v.string(),
+        age: v.number(),
       });
       const result = schema["~standard"].validate({});
       expect(result.issues).toBeUndefined();
     });
 
     test("requires all fields with partial: false", () => {
-      const schema = object(
+      const schema = v.object(
         {
-          name: string(),
-          age: number(),
+          name: v.string(),
+          age: v.number(),
         },
-        { partial: false }
+        { partial: false },
       );
       const result = schema["~standard"].validate({ name: "Alice" });
       expect(result.issues).toBeDefined();
@@ -118,14 +112,14 @@ describe("object schema", () => {
 
   describe("optional fields", () => {
     test("handles optional wrapper", () => {
-      const schema = object({
-        name: string(),
-        age: optional(number()),
+      const schema = v.object({
+        name: v.string(),
+        age: v.optional(v.number()),
       });
       const result = schema["~standard"].validate({ name: "Alice" });
       expect(result.issues).toBeUndefined();
       expect(
-        (result as { value: { name: string; age?: number } }).value
+        (result as { value: { name: string; age?: number } }).value,
       ).toEqual({
         name: "Alice",
         age: undefined,
@@ -133,9 +127,9 @@ describe("object schema", () => {
     });
 
     test("handles optional option on field", () => {
-      const schema = object({
-        name: string(),
-        age: number({ optional: true }),
+      const schema = v.object({
+        name: v.string(),
+        age: v.number({ optional: true }),
       });
       const result = schema["~standard"].validate({ name: "Alice" });
       expect(result.issues).toBeUndefined();
@@ -144,20 +138,20 @@ describe("object schema", () => {
 
   describe("object options", () => {
     test("optional object", () => {
-      const schema = object({ name: string() }, { optional: true });
+      const schema = v.object({ name: v.string() }, { optional: true });
       expect(schema["~standard"].validate(undefined).issues).toBeUndefined();
       expect(
-        schema["~standard"].validate({ name: "A" }).issues
+        schema["~standard"].validate({ name: "A" }).issues,
       ).toBeUndefined();
     });
 
     test("nullable object", () => {
-      const schema = object({ name: string() }, { nullable: true });
+      const schema = v.object({ name: v.string() }, { nullable: true });
       expect(schema["~standard"].validate(null).issues).toBeUndefined();
     });
 
     test("array of objects", () => {
-      const schema = object({ name: string() }, { array: true });
+      const schema = v.object({ name: v.string() }, { array: true });
       const result = schema["~standard"].validate([
         { name: "A" },
         { name: "B" },
@@ -170,9 +164,9 @@ describe("object schema", () => {
     });
 
     test("object with default", () => {
-      const schema = object(
-        { name: string() },
-        { optional: true, default: { name: "Unknown" } }
+      const schema = v.object(
+        { name: v.string() },
+        { optional: true, default: { name: "Unknown" } },
       );
       const result = schema["~standard"].validate(undefined);
       expect((result as { value: { name: string } }).value).toEqual({
@@ -181,9 +175,9 @@ describe("object schema", () => {
     });
 
     test("object with transform", () => {
-      const schema = object(
-        { name: string() },
-        { transform: (u) => ({ ...u, name: u.name.toUpperCase() }) }
+      const schema = v.object(
+        { name: v.string() },
+        { transform: (u) => ({ ...u, name: u.name.toUpperCase() }) },
       );
       const result = schema["~standard"].validate({ name: "alice" });
       expect((result as { value: { name: string } }).value).toEqual({
@@ -194,10 +188,10 @@ describe("object schema", () => {
 
   describe("nested objects", () => {
     test("validates nested objects", () => {
-      const schema = object({
-        user: object({
-          name: string(),
-          age: number(),
+      const schema = v.object({
+        user: v.object({
+          name: v.string(),
+          age: v.number(),
         }),
       });
       const result = schema["~standard"].validate({
@@ -207,10 +201,10 @@ describe("object schema", () => {
     });
 
     test("reports correct path for nested errors", () => {
-      const schema = object({
-        user: object({
-          name: string(),
-          age: number(),
+      const schema = v.object({
+        user: v.object({
+          name: v.string(),
+          age: v.number(),
         }),
       });
       const result = schema["~standard"].validate({
@@ -223,21 +217,21 @@ describe("object schema", () => {
 
   describe("error paths", () => {
     test("reports correct path for missing field", () => {
-      const schema = object(
+      const schema = v.object(
         {
-          name: string(),
-          age: number(),
+          name: v.string(),
+          age: v.number(),
         },
-        { partial: false }
+        { partial: false },
       );
       const result = schema["~standard"].validate({ name: "Alice" });
       expect(result.issues![0].path).toEqual(["age"]);
     });
 
     test("reports correct path for invalid field", () => {
-      const schema = object({
-        name: string(),
-        age: number(),
+      const schema = v.object({
+        name: v.string(),
+        age: v.number(),
       });
       const result = schema["~standard"].validate({ name: "Alice", age: "30" });
       expect(result.issues![0].path).toEqual(["age"]);
@@ -245,13 +239,13 @@ describe("object schema", () => {
   });
 
   describe("extend method", () => {
-    const baseSchema = object({
-      name: string(),
+    const baseSchema = v.object({
+      name: v.string(),
     });
 
     test("creates extended schema with new fields", () => {
       const extendedSchema = baseSchema.extend({
-        age: number(),
+        age: v.number(),
       });
 
       const result = extendedSchema["~standard"].validate({
@@ -267,7 +261,7 @@ describe("object schema", () => {
 
     test("extended schema validates new fields", () => {
       const extendedSchema = baseSchema.extend({
-        age: number(),
+        age: v.number(),
       });
 
       // Should fail if age is wrong type
@@ -280,7 +274,7 @@ describe("object schema", () => {
 
     test("extended schema type inference", () => {
       const extendedSchema = baseSchema.extend({
-        age: number(),
+        age: v.number(),
       });
 
       type Output = StandardSchemaV1.InferOutput<typeof extendedSchema>;
@@ -288,7 +282,7 @@ describe("object schema", () => {
     });
 
     test("original schema is unchanged", () => {
-      baseSchema.extend({ age: number() });
+      baseSchema.extend({ age: v.number() });
 
       // Original should not have age field validation
       const result = baseSchema["~standard"].validate({ name: "Alice" });
@@ -296,8 +290,8 @@ describe("object schema", () => {
     });
 
     test("chaining multiple extends", () => {
-      const step1 = baseSchema.extend({ age: number() });
-      const step2 = step1.extend({ email: string() });
+      const step1 = baseSchema.extend({ age: v.number() });
+      const step2 = step1.extend({ email: v.string() });
 
       const result = step2["~standard"].validate({
         name: "Alice",
@@ -323,7 +317,7 @@ describe("object schema", () => {
     test("overriding existing fields", () => {
       // Override name from string to number
       const overridden = baseSchema.extend({
-        name: number(),
+        name: v.number(),
       });
 
       // Should now accept number for name
@@ -337,12 +331,12 @@ describe("object schema", () => {
     });
 
     test("preserves options from parent schema", () => {
-      const strictSchema = object(
-        { name: string() },
-        { strict: true, partial: false }
+      const strictSchema = v.object(
+        { name: v.string() },
+        { strict: true, partial: false },
       );
 
-      const extended = strictSchema.extend({ age: number() });
+      const extended = strictSchema.extend({ age: v.number() });
 
       // Should still reject unknown keys (strict: true preserved)
       const result = extended["~standard"].validate({
@@ -356,7 +350,7 @@ describe("object schema", () => {
 
     test("extending with optional fields", () => {
       const extended = baseSchema.extend({
-        nickname: optional(string()),
+        nickname: v.optional(v.string()),
       });
 
       // Should work without nickname
@@ -372,9 +366,9 @@ describe("object schema", () => {
     });
 
     test("extending with nested objects", () => {
-      const address = object({
-        city: string(),
-        zip: string(),
+      const address = v.object({
+        city: v.string(),
+        zip: v.string(),
       });
 
       const extended = baseSchema.extend({
@@ -393,7 +387,7 @@ describe("object schema", () => {
     });
 
     test("extended schema has correct entries property", () => {
-      const extended = baseSchema.extend({ age: number() });
+      const extended = baseSchema.extend({ age: v.number() });
 
       expect(extended.entries).toHaveProperty("name");
       expect(extended.entries).toHaveProperty("age");
@@ -402,13 +396,13 @@ describe("object schema", () => {
 
   describe("non-partial with optional fields and defaults", () => {
     test("applies defaults for optional fields not provided in input", () => {
-      const schema = object(
+      const schema = v.object(
         {
-          name: string(),
-          age: number({ optional: true, default: 18 }),
+          name: v.string(),
+          age: v.number({ optional: true, default: 18 }),
           active: v.boolean({ optional: true, default: true }),
         },
-        { partial: false }
+        { partial: false },
       );
 
       // Provide only required field, optional fields should get defaults
@@ -422,13 +416,13 @@ describe("object schema", () => {
     });
 
     test("uses provided values over defaults", () => {
-      const schema = object(
+      const schema = v.object(
         {
-          name: string(),
-          age: number({ optional: true, default: 18 }),
+          name: v.string(),
+          age: v.number({ optional: true, default: 18 }),
           active: v.boolean({ optional: true, default: true }),
         },
-        { partial: false }
+        { partial: false },
       );
 
       const result = schema["~standard"].validate({
@@ -446,10 +440,10 @@ describe("object schema", () => {
 
     test("applies function defaults", () => {
       let callCount = 0;
-      const schema = object(
+      const schema = v.object(
         {
-          name: string(),
-          createdAt: string({
+          name: v.string(),
+          createdAt: v.string({
             optional: true,
             default: () => {
               callCount++;
@@ -457,7 +451,7 @@ describe("object schema", () => {
             },
           }),
         },
-        { partial: false }
+        { partial: false },
       );
 
       const result = schema["~standard"].validate({ name: "Test" });
@@ -470,12 +464,12 @@ describe("object schema", () => {
     });
 
     test("rejects missing required field even with optional fields having defaults", () => {
-      const schema = object(
+      const schema = v.object(
         {
-          name: string(),
-          age: number({ optional: true, default: 18 }),
+          name: v.string(),
+          age: v.number({ optional: true, default: 18 }),
         },
-        { partial: false }
+        { partial: false },
       );
 
       // Missing required 'name' field
@@ -485,12 +479,12 @@ describe("object schema", () => {
     });
 
     test("type inference includes defaults in output type", () => {
-      const schema = object(
+      const schema = v.object(
         {
-          name: string(),
-          age: number({ optional: true, default: 18 }),
+          name: v.string(),
+          age: v.number({ optional: true, default: 18 }),
         },
-        { partial: false }
+        { partial: false },
       );
 
       type Output = StandardSchemaV1.InferOutput<typeof schema>;
@@ -501,14 +495,14 @@ describe("object schema", () => {
 
   describe("atLeast option", () => {
     test("requires only specified keys in partial object", () => {
-      const schema = object(
+      const schema = v.object(
         {
-          id: string(),
-          name: string(),
-          email: string(),
-          age: number(),
+          id: v.string(),
+          name: v.string(),
+          email: v.string(),
+          age: v.number(),
         },
-        { atLeast: ["id", "name"] }
+        { atLeast: ["id", "name"] },
       );
 
       // Valid: has required keys, missing optional keys
@@ -523,13 +517,13 @@ describe("object schema", () => {
     });
 
     test("accepts all fields when provided", () => {
-      const schema = object(
+      const schema = v.object(
         {
-          id: string(),
-          name: string(),
-          email: string(),
+          id: v.string(),
+          name: v.string(),
+          email: v.string(),
         },
-        { atLeast: ["id"] }
+        { atLeast: ["id"] },
       );
 
       const result = schema["~standard"].validate({
@@ -546,13 +540,13 @@ describe("object schema", () => {
     });
 
     test("rejects when atLeast key is missing", () => {
-      const schema = object(
+      const schema = v.object(
         {
-          id: string(),
-          name: string(),
-          email: string(),
+          id: v.string(),
+          name: v.string(),
+          email: v.string(),
         },
-        { atLeast: ["id", "name"] }
+        { atLeast: ["id", "name"] },
       );
 
       // Missing required 'id' key
@@ -562,13 +556,13 @@ describe("object schema", () => {
     });
 
     test("type inference makes atLeast keys required", () => {
-      const schema = object(
+      const schema = v.object(
         {
-          id: string(),
-          name: string(),
-          email: string(),
+          id: v.string(),
+          name: v.string(),
+          email: v.string(),
         },
-        { atLeast: ["id", "name"] as const }
+        { atLeast: ["id", "name"] as const },
       );
 
       type Output = Prettify<StandardSchemaV1.InferOutput<typeof schema>>;
@@ -581,12 +575,12 @@ describe("object schema", () => {
     });
 
     test("atLeast with empty array behaves like partial", () => {
-      const schema = object(
+      const schema = v.object(
         {
-          name: string(),
-          age: number(),
+          name: v.string(),
+          age: v.number(),
         },
-        { atLeast: [] }
+        { atLeast: [] },
       );
 
       const result = schema["~standard"].validate({});
@@ -595,17 +589,95 @@ describe("object schema", () => {
 
     test("atLeast overridden by partial: false", () => {
       // When partial: false, all fields are required regardless of atLeast
-      const schema = object(
+      const schema = v.object(
         {
-          id: string(),
-          name: string(),
-          email: string(),
+          id: v.string(),
+          name: v.string(),
+          email: v.string(),
         },
-        { partial: false, atLeast: ["id"] }
+        { partial: false, atLeast: ["id"] },
       );
 
       // Should fail because all fields are required with partial: false
       const result = schema["~standard"].validate({ id: "1" });
+      expect(result.issues).toBeDefined();
+    });
+  });
+
+  describe("nonEmpty option", () => {
+    test("rejects empty object when nonEmpty: true", () => {
+      const schema = v.object(
+        { name: v.string(), age: v.number() },
+        { nonEmpty: true, partial: true },
+      );
+      const result = schema["~standard"].validate({});
+      expect(result.issues).toBeDefined();
+      expect(result.issues![0].message).toContain("empty");
+    });
+
+    test("accepts object with at least one key when nonEmpty: true", () => {
+      const schema = v.object(
+        { name: v.string(), age: v.number() },
+        { nonEmpty: true, partial: true },
+      );
+      const result = schema["~standard"].validate({ name: "Alice" });
+      expect(result.issues).toBeUndefined();
+    });
+
+    test("nonEmpty works with strict: false", () => {
+      const schema = v.object(
+        { name: v.string() },
+        { nonEmpty: true, strict: false, partial: true },
+      );
+
+      // Empty object should fail
+      const emptyResult = schema["~standard"].validate({});
+      expect(emptyResult.issues).toBeDefined();
+
+      // Unknown key should pass (strict: false allows it)
+      const unknownResult = schema["~standard"].validate({ other: "value" });
+      expect(unknownResult.issues).toBeUndefined();
+    });
+
+    test("nonEmpty: false allows empty objects", () => {
+      const schema = v.object(
+        { name: v.string() },
+        { nonEmpty: false, partial: true },
+      );
+      const result = schema["~standard"].validate({});
+      expect(result.issues).toBeUndefined();
+    });
+
+    test("nonEmpty works with array wrapper", () => {
+      const schema = v.object(
+        { name: v.string() },
+        { nonEmpty: true, array: true, partial: true },
+      );
+
+      // Array with empty object should fail
+      const result = schema["~standard"].validate([{}]);
+      expect(result.issues).toBeDefined();
+
+      // Array with non-empty object should pass
+      const validResult = schema["~standard"].validate([{ name: "Alice" }]);
+      expect(validResult.issues).toBeUndefined();
+    });
+
+    test("default behavior allows empty objects", () => {
+      const schema = v.object({ name: v.string() }, { partial: true });
+      const result = schema["~standard"].validate({});
+      expect(result.issues).toBeUndefined();
+    });
+
+    test("nonEmpty with partial: false is redundant but works", () => {
+      // With partial: false, all fields are required, so object can't be empty anyway
+      const schema = v.object(
+        { name: v.string() },
+        { nonEmpty: true, partial: false },
+      );
+
+      // Empty object fails because name is required (not because of nonEmpty)
+      const result = schema["~standard"].validate({});
       expect(result.issues).toBeDefined();
     });
   });

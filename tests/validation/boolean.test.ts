@@ -1,10 +1,10 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { boolean } from "@validation";
+import v from "@validation";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
 describe("boolean schema", () => {
   describe("basic validation", () => {
-    const schema = boolean();
+    const schema = v.boolean();
 
     test("validates true", () => {
       const result = schema["~standard"].validate(true);
@@ -52,7 +52,7 @@ describe("boolean schema", () => {
   });
 
   describe("optional option", () => {
-    const schema = boolean({ optional: true });
+    const schema = v.boolean({ optional: true });
 
     test("allows undefined", () => {
       const result = schema["~standard"].validate(undefined);
@@ -72,7 +72,7 @@ describe("boolean schema", () => {
   });
 
   describe("nullable option", () => {
-    const schema = boolean({ nullable: true });
+    const schema = v.boolean({ nullable: true });
 
     test("allows null", () => {
       const result = schema["~standard"].validate(null);
@@ -92,7 +92,7 @@ describe("boolean schema", () => {
   });
 
   describe("array option", () => {
-    const schema = boolean({ array: true });
+    const schema = v.boolean({ array: true });
 
     test("validates array of booleans", () => {
       const result = schema["~standard"].validate([true, false, true]);
@@ -129,7 +129,7 @@ describe("boolean schema", () => {
 
   describe("default option", () => {
     test("static default", () => {
-      const schema = boolean({ default: false });
+      const schema = v.boolean({ default: false });
       const result = schema["~standard"].validate(undefined);
       expect(result.issues).toBeUndefined();
       expect((result as { value: boolean }).value).toBe(false);
@@ -137,7 +137,7 @@ describe("boolean schema", () => {
 
     test("default factory function", () => {
       let toggle = false;
-      const schema = boolean({ default: () => (toggle = !toggle) });
+      const schema = v.boolean({ default: () => (toggle = !toggle) });
       expect(
         (schema["~standard"].validate(undefined) as { value: boolean }).value
       ).toBe(true);
@@ -148,7 +148,7 @@ describe("boolean schema", () => {
   });
 
   describe("transform option", () => {
-    const schema = boolean({ transform: (b) => !b } as any);
+    const schema = v.boolean({ transform: (b) => !b } as any);
 
     test("applies transform to output", () => {
       const result = schema["~standard"].validate(true);
@@ -159,14 +159,14 @@ describe("boolean schema", () => {
 
   describe("combined options", () => {
     test("optional + nullable", () => {
-      const schema = boolean({ optional: true, nullable: true });
+      const schema = v.boolean({ optional: true, nullable: true });
       expect(schema["~standard"].validate(undefined).issues).toBeUndefined();
       expect(schema["~standard"].validate(null).issues).toBeUndefined();
       expect(schema["~standard"].validate(true).issues).toBeUndefined();
     });
 
     test("array + optional", () => {
-      const schema = boolean({ array: true, optional: true });
+      const schema = v.boolean({ array: true, optional: true });
       expect(schema["~standard"].validate(undefined).issues).toBeUndefined();
       expect(schema["~standard"].validate([true]).issues).toBeUndefined();
     });

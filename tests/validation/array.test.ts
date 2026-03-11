@@ -1,10 +1,10 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { array, number, string, v } from "@validation";
+import v from "@validation";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
 describe("array wrapper schema", () => {
   describe("basic validation", () => {
-    const schema = array(number());
+    const schema = v.array(v.number());
 
     test("validates arrays", () => {
       const result = schema["~standard"].validate([1, 2, 3]);
@@ -45,14 +45,14 @@ describe("array wrapper schema", () => {
 
   describe("with different element types", () => {
     test("array of strings", () => {
-      const schema = array(string());
+      const schema = v.array(v.string());
       const result = schema["~standard"].validate(["a", "b", "c"]);
       expect(result.issues).toBeUndefined();
       expect((result as { value: string[] }).value).toEqual(["a", "b", "c"]);
     });
 
     test("array of booleans", () => {
-      const schema = array(v.boolean());
+      const schema = v.array(v.boolean());
       const result = schema["~standard"].validate([true, false]);
       expect(result.issues).toBeUndefined();
     });
@@ -60,7 +60,7 @@ describe("array wrapper schema", () => {
 
   describe("nested arrays", () => {
     test("array of arrays", () => {
-      const schema = array(array(number()));
+      const schema = v.array(v.array(v.number()));
       const result = schema["~standard"].validate([
         [1, 2],
         [3, 4],
@@ -75,7 +75,7 @@ describe("array wrapper schema", () => {
 
   describe("error paths", () => {
     test("reports correct path for nested errors", () => {
-      const schema = array(array(number()));
+      const schema = v.array(v.array(v.number()));
       const result = schema["~standard"].validate([
         [1, 2],
         [3, "4"],
@@ -88,8 +88,8 @@ describe("array wrapper schema", () => {
 
 describe("array option vs wrapper comparison", () => {
   describe("string({ array: true }) vs array(string())", () => {
-    const optionsSchema = string({ array: true });
-    const wrapperSchema = array(string());
+    const optionsSchema = v.string({ array: true });
+    const wrapperSchema = v.array(v.string());
 
     test("both validate arrays of strings", () => {
       const input = ["a", "b", "c"];
@@ -138,8 +138,8 @@ describe("array option vs wrapper comparison", () => {
   });
 
   describe("number({ array: true }) vs array(number())", () => {
-    const optionsSchema = number({ array: true });
-    const wrapperSchema = array(number());
+    const optionsSchema = v.number({ array: true });
+    const wrapperSchema = v.array(v.number());
 
     test("both validate arrays of numbers", () => {
       const input = [1, 2, 3];
@@ -169,7 +169,7 @@ describe("array option vs wrapper comparison", () => {
 
   describe("boolean({ array: true }) vs array(boolean())", () => {
     const optionsSchema = v.boolean({ array: true });
-    const wrapperSchema = array(v.boolean());
+    const wrapperSchema = v.array(v.boolean());
 
     test("both validate arrays of booleans", () => {
       const input = [true, false, true];

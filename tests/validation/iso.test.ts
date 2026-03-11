@@ -1,10 +1,10 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { isoDate, isoTime, isoTimestamp } from "@validation";
+import v from "@validation";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
 describe("isoTimestamp schema", () => {
   describe("basic validation", () => {
-    const schema = isoTimestamp();
+    const schema = v.isoTimestamp();
 
     test("validates ISO timestamps", () => {
       const valid = "2023-12-15T10:30:00.000Z";
@@ -44,17 +44,17 @@ describe("isoTimestamp schema", () => {
 
   describe("options", () => {
     test("optional", () => {
-      const schema = isoTimestamp({ optional: true });
+      const schema = v.isoTimestamp({ optional: true });
       expect(schema["~standard"].validate(undefined).issues).toBeUndefined();
     });
 
     test("nullable", () => {
-      const schema = isoTimestamp({ nullable: true });
+      const schema = v.isoTimestamp({ nullable: true });
       expect(schema["~standard"].validate(null).issues).toBeUndefined();
     });
 
     test("array", () => {
-      const schema = isoTimestamp({ array: true });
+      const schema = v.isoTimestamp({ array: true });
       const result = schema["~standard"].validate(["2023-12-15T10:30:00.000Z"]);
       expect(result.issues).toBeUndefined();
     });
@@ -63,7 +63,7 @@ describe("isoTimestamp schema", () => {
 
 describe("isoDate schema", () => {
   describe("basic validation", () => {
-    const schema = isoDate();
+    const schema = v.isoDate();
 
     test("validates ISO dates", () => {
       const valid = "2023-12-15";
@@ -93,17 +93,17 @@ describe("isoDate schema", () => {
 
   describe("options", () => {
     test("optional", () => {
-      const schema = isoDate({ optional: true });
+      const schema = v.isoDate({ optional: true });
       expect(schema["~standard"].validate(undefined).issues).toBeUndefined();
     });
 
     test("nullable", () => {
-      const schema = isoDate({ nullable: true });
+      const schema = v.isoDate({ nullable: true });
       expect(schema["~standard"].validate(null).issues).toBeUndefined();
     });
 
     test("array", () => {
-      const schema = isoDate({ array: true });
+      const schema = v.isoDate({ array: true });
       const result = schema["~standard"].validate(["2023-12-15"]);
       expect(result.issues).toBeUndefined();
     });
@@ -112,7 +112,7 @@ describe("isoDate schema", () => {
 
 describe("isoTime schema", () => {
   describe("basic validation", () => {
-    const schema = isoTime();
+    const schema = v.isoTime();
 
     test("validates ISO times", () => {
       const valid = "10:30:00";
@@ -146,17 +146,17 @@ describe("isoTime schema", () => {
 
   describe("options", () => {
     test("optional", () => {
-      const schema = isoTime({ optional: true });
+      const schema = v.isoTime({ optional: true });
       expect(schema["~standard"].validate(undefined).issues).toBeUndefined();
     });
 
     test("nullable", () => {
-      const schema = isoTime({ nullable: true });
+      const schema = v.isoTime({ nullable: true });
       expect(schema["~standard"].validate(null).issues).toBeUndefined();
     });
 
     test("array", () => {
-      const schema = isoTime({ array: true });
+      const schema = v.isoTime({ array: true });
       const result = schema["~standard"].validate(["10:30:00"]);
       expect(result.issues).toBeUndefined();
     });

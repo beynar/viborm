@@ -1,13 +1,13 @@
 import type { StandardSchemaV1 } from "@standard-schema";
-import { fail, ok } from "../helpers";
 import { createJsonSchemaConverter } from "../json-schema/factory";
 import type {
   InferInputShape,
   InferOutputShape,
   ThunkCast,
+  ValidationResult,
   VibSchema,
 } from "../types";
-import { V } from "@validation/V";
+import { OK_NULL, OK_UNDEFINED, ok, validateArray } from "./helpers";
 
 // =============================================================================
 // Object Schema Types
@@ -47,6 +47,8 @@ export interface ObjectOptions<T = unknown, TKeys extends string = string> {
   atLeast?: TKeys[];
   /** Omit these keys entirely from the type and validation */
   omit?: TKeys[];
+  /** Require at least one key to be present (object cannot be empty) */
+  nonEmpty?: boolean;
 }
 
 /**
@@ -186,8 +188,8 @@ const OBJECT_TYPE_ERROR = { issues: [{ message: "Expected object" }] };
 function createObjectValidator(
   entries: ObjectEntries,
   options: ObjectOptions = {},
-) {
-  const { partial = true, strict = true, atLeast, omit } = options;
+): (value: unknown) => ValidationResult<Record<string, unknown>> {
+  const { partial = true, strict = true, atLeast, omit, nonEmpty } = options;
   // Filter out omitted keys
   const omitSet = omit ? new Set(omit) : null;
   const keys = Object.keys(entries).filter((k) => !omitSet?.has(k));
@@ -246,49 +248,32 @@ function createObjectValidator(
       const validate = schema["~standard"].validate;
       validates[i] = validate;
 
-      // Check if schema accepts undefined by inspecting schema properties
-      // This avoids calling the validator (which would trigger default functions)
+      // Use the pre-computed acceptsUndefined property if available
+      // Falls back to checking type/options for backwards compatibility
       const schemaAny = schema as {
+        acceptsUndefined?: boolean;
         type?: string;
         options?: { optional?: boolean; default?: unknown };
         default?: unknown;
-        wrapped?: {
-          type?: string;
-          default?: unknown;
-          options?: { optional?: boolean; default?: unknown };
-        };
       };
 
-      // Schema accepts undefined if:
-      // 1. It's an optional wrapper (type: "optional")
-      // 2. It has options.optional: true (like string({ optional: true }))
-      // 3. It has options.default (like number({ default: 18 }))
-      // 4. It has a default property directly (optional wrapper with default)
-      // 5. It's a transform wrapper that wraps an optional schema with default
-      const isOptionalWrapper = schemaAny.type === "optional";
-      const hasOptionalOption = schemaAny.options?.optional === true;
-      const hasDefaultOption = schemaAny.options?.default !== undefined;
-      const hasDefaultProp = schemaAny.default !== undefined;
-      // Check for transform (coerce) wrapping a schema with default
-      // Handles both: v.coerce(v.optional(x, default), fn) and v.coerce(v.number({ default }), fn)
-      const isTransformWithDefault =
-        schemaAny.type === "transform" &&
-        (schemaAny.wrapped?.default !== undefined ||
-          schemaAny.wrapped?.options?.default !== undefined);
-
-      acceptsUndefined[i] =
-        isOptionalWrapper ||
-        hasOptionalOption ||
-        hasDefaultOption ||
-        hasDefaultProp ||
-        isTransformWithDefault;
+      // Prefer explicit property, fall back to duck-typing for older schemas
+      if (schemaAny.acceptsUndefined !== undefined) {
+        acceptsUndefined[i] = schemaAny.acceptsUndefined;
+      } else {
+        acceptsUndefined[i] =
+          schemaAny.type === "optional" ||
+          schemaAny.options?.optional === true ||
+          schemaAny.options?.default !== undefined ||
+          schemaAny.default !== undefined;
+      }
     }
   };
 
-  return (value: unknown) => {
+  return (value: unknown): ValidationResult<Record<string, unknown>> => {
     // Type check
     if (!value || typeof value !== "object" || Array.isArray(value)) {
-      return OBJECT_TYPE_ERROR;
+      return OBJECT_TYPE_ERROR as ValidationResult<Record<string, unknown>>;
     }
 
     const input = value as Record<string, unknown>;
@@ -304,6 +289,21 @@ function createObjectValidator(
       }
     }
 
+    // Check for nonEmpty constraint
+    if (nonEmpty === true) {
+      // Check if object has any keys at all (including unknown keys when strict: false)
+      let hasAnyKey = false;
+      for (const key in input) {
+        hasAnyKey = true;
+        break;
+      }
+      if (!hasAnyKey) {
+        return {
+          issues: [{ message: "Object cannot be empty" }],
+        };
+      }
+    }
+
     // Validate each field - direct array access, no object property lookup
     for (let i = 0; i < keyCount; i++) {
       const key = keys[i]!;
@@ -312,7 +312,7 @@ function createObjectValidator(
       if (!(key in input)) {
         // Key is required (partial: false OR in atLeast) and schema doesn't accept undefined
         if (isRequired[i] && !acceptsUndefined[i]) {
-          return missingErrors[i];
+          return missingErrors[i]!;
         }
 
         // If schema accepts undefined, run validator to apply defaults
@@ -320,7 +320,7 @@ function createObjectValidator(
           const result = validates[i]!(undefined);
           if (result.issues) {
             // Should not happen if acceptsUndefined is correct, but handle it
-            return missingErrors[i];
+            return missingErrors[i]!;
           }
           if ("then" in result) {
             return {
@@ -419,74 +419,74 @@ export function object<
   let validate: (value: unknown) => any;
 
   if (needsWrapper) {
-    // Slow path: handle wrapper options
-    validate = (value: unknown) => {
-      // Handle optional
-      if (hasOptional && value === undefined) {
-        if (hasDefault) {
-          const defaultVal =
-            typeof options!.default === "function"
-              ? (options!.default as () => BaseOutput)()
-              : options!.default;
-          return ok(defaultVal);
+    // Pre-compute default getter once (avoid repeated typeof checks)
+    const getDefault = hasDefault
+      ? typeof options!.default === "function"
+        ? (options!.default as () => BaseOutput)
+        : () => options!.default as BaseOutput
+      : null;
+
+    // Create the base validator (with optional transform)
+    const validateItem = hasTransform
+      ? (value: unknown): ValidationResult<any> => {
+          const result = validateObj(value);
+          if (result.issues) return result;
+          return ok(options!.transform!((result as { value: any }).value));
         }
-        return ok(undefined);
+      : validateObj;
+
+    // Build wrapper based on options
+    if (hasArray) {
+      // Array mode: use shared validateArray utility
+      const arrayValidate = (value: unknown) =>
+        validateArray(value, validateItem);
+
+      if (hasOptional && hasNullable) {
+        validate = (value: unknown) => {
+          if (value === undefined)
+            return getDefault ? ok(getDefault()) : OK_UNDEFINED;
+          if (value === null) return OK_NULL;
+          return arrayValidate(value);
+        };
+      } else if (hasOptional) {
+        validate = (value: unknown) => {
+          if (value === undefined)
+            return getDefault ? ok(getDefault()) : OK_UNDEFINED;
+          return arrayValidate(value);
+        };
+      } else if (hasNullable) {
+        validate = (value: unknown) => {
+          if (value === null) return OK_NULL;
+          return arrayValidate(value);
+        };
+      } else {
+        validate = arrayValidate;
       }
-
-      // Handle nullable
-      if (hasNullable && value === null) {
-        if (hasDefault) {
-          const defaultVal =
-            typeof options!.default === "function"
-              ? (options!.default as () => BaseOutput)()
-              : options!.default;
-          return ok(defaultVal);
-        }
-        return ok(null);
+    } else {
+      // Single object mode
+      if (hasOptional && hasNullable) {
+        validate = (value: unknown) => {
+          if (value === undefined)
+            return getDefault ? ok(getDefault()) : OK_UNDEFINED;
+          if (value === null) return OK_NULL;
+          return validateItem(value);
+        };
+      } else if (hasOptional) {
+        validate = (value: unknown) => {
+          if (value === undefined)
+            return getDefault ? ok(getDefault()) : OK_UNDEFINED;
+          return validateItem(value);
+        };
+      } else if (hasNullable) {
+        validate = (value: unknown) => {
+          if (value === null) return OK_NULL;
+          return validateItem(value);
+        };
+      } else {
+        // Only transform, no optional/nullable
+        validate = validateItem;
       }
-
-      // Handle array
-      if (hasArray) {
-        if (!Array.isArray(value)) {
-          return fail(`Expected array of objects, received ${typeof value}`);
-        }
-
-        const len = value.length;
-        const results = new Array<BaseOutput>(len);
-
-        for (let i = 0; i < len; i++) {
-          const itemResult = validateObj(value[i])!;
-          if (itemResult.issues) {
-            const issue = itemResult.issues[0] as {
-              message: string;
-              path?: PropertyKey[];
-            };
-            const newPath = issue.path
-              ? ([i] as PropertyKey[]).concat(issue.path)
-              : [i];
-            return fail(issue.message, newPath);
-          }
-          results[i] = hasTransform
-            ? (options!.transform!(
-                (itemResult as { value: any }).value,
-              ) as BaseOutput)
-            : ((itemResult as { value: any }).value as BaseOutput);
-        }
-        return ok(results);
-      }
-
-      // Single object validation
-      const result = validateObj(value)!;
-      if (result.issues) {
-        return result;
-      }
-
-      return hasTransform
-        ? ok(
-            options!.transform!((result as { value: any }).value as BaseOutput),
-          )
-        : result;
-    };
+    }
   } else {
     // Fast path: direct object validation
     validate = validateObj;
@@ -496,21 +496,10 @@ export function object<
     type: "object" as const,
     entries,
     options,
-    parse: (value: unknown) => {
-      return validate(value) as
-        | StandardSchemaV1.SuccessResult<BaseOutput>
-        | StandardSchemaV1.FailureResult;
-    },
-
     "~standard": {
       version: 1 as const,
       vendor: "viborm" as const,
       validate,
-      parse: (value: unknown) => {
-        return validate(value) as
-          | StandardSchemaV1.SuccessResult<BaseOutput>
-          | StandardSchemaV1.FailureResult;
-      },
       // Lazy jsonSchema - converter is created when first accessed
       get jsonSchema() {
         const converter = createJsonSchemaConverter(
@@ -530,34 +519,4 @@ export function object<
   };
 
   return schema as R extends infer _ ? _ : never;
-}
-
-/**
- * Create a new object schema with specific keys omitted.
- *
- * @param schema - The source object schema
- * @param keys - Array of keys to omit from the schema
- * @returns A new object schema without the specified keys
- *
- * @example
- * const user = v.object({
- *   id: v.string(),
- *   name: v.string(),
- *   password: v.string(),
- * });
- *
- * const publicUser = v.omit(user, ['password']);
- * // { id?: string; name?: string }
- */
-export function omit<
-  TSchema extends ObjectSchema<any, any>,
-  const TKeys extends readonly (keyof TSchema["entries"])[] | undefined,
->(
-  schema: TSchema,
-  keys: TKeys,
-): V.Object<TSchema["entries"], TSchema["options"] & { omit: TKeys }> {
-  return object(schema.entries, {
-    ...(schema.options || {}),
-    omit: keys,
-  }) as V.Object<TSchema["entries"], TSchema["options"] & { omit: TKeys }>;
 }

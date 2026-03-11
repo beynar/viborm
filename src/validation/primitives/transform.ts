@@ -1,10 +1,10 @@
-import { createSchema, fail, ok, validateSchema } from "../helpers";
 import type {
   InferInput,
   InferOutput,
   ValidationResult,
   VibSchema,
 } from "../types";
+import { createSchema, fail, ok, validateSchema } from "./helpers";
 
 // =============================================================================
 // Transform Schema Wrapper
@@ -69,6 +69,9 @@ export function coerce<S extends VibSchema<any, any>, TOut>(
   ) as TransformSchema<InferInput<S>, TOut> & { wrapped: S };
 
   (transformSchema as any).wrapped = schema;
+  // Inherit acceptsUndefined from wrapped schema
+  (transformSchema as any).acceptsUndefined =
+    (schema as any).acceptsUndefined ?? false;
 
   return transformSchema;
 }

@@ -1,10 +1,10 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { vector } from "@validation";
+import v from "@validation";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
 describe("vector schema", () => {
   describe("basic validation", () => {
-    const schema = vector();
+    const schema = v.vector();
 
     test("validates array of numbers", () => {
       const result = schema["~standard"].validate([1, 2, 3]);
@@ -36,7 +36,7 @@ describe("vector schema", () => {
   });
 
   describe("fixed length", () => {
-    const schema = vector(3);
+    const schema = v.vector(3);
 
     test("validates vector of exact length", () => {
       const result = schema["~standard"].validate([1, 2, 3]);
@@ -49,14 +49,14 @@ describe("vector schema", () => {
     });
 
     test("validates empty array when length is 0", () => {
-      const zeroSchema = vector(0);
+      const zeroSchema = v.vector(0);
       const result = zeroSchema["~standard"].validate([]);
       expect(result.issues).toBeUndefined();
     });
   });
 
   describe("optional option", () => {
-    const schema = vector(undefined, { optional: true });
+    const schema = v.vector(undefined, { optional: true });
 
     test("allows undefined", () => {
       const result = schema["~standard"].validate(undefined);
@@ -65,7 +65,7 @@ describe("vector schema", () => {
   });
 
   describe("nullable option", () => {
-    const schema = vector(undefined, { nullable: true });
+    const schema = v.vector(undefined, { nullable: true });
 
     test("allows null", () => {
       const result = schema["~standard"].validate(null);
@@ -74,7 +74,7 @@ describe("vector schema", () => {
   });
 
   describe("array option", () => {
-    const schema = vector(undefined, { array: true });
+    const schema = v.vector(undefined, { array: true });
 
     test("validates array of vectors", () => {
       const result = schema["~standard"].validate([

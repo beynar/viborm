@@ -891,16 +891,8 @@ describe("Runtime type verification using v validation", () => {
     // =========================================================================
     // BLOB FIELDS
     // =========================================================================
-    assertValid(
-      v.union([v.instance(Uint8Array), v.instance(Buffer)]),
-      found.blobRequired,
-      "blobRequired"
-    );
-    assertValid(
-      v.union([v.instance(Uint8Array), v.instance(Buffer)]),
-      found.blobNullable,
-      "blobNullable"
-    );
+    assertValid(v.blob(), found.blobRequired, "blobRequired");
+    assertValid(v.blob({ nullable: true }), found.blobNullable, "blobNullable");
   });
 
   test("validates null values with v.nullable schemas", async () => {

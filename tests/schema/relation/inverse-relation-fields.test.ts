@@ -25,7 +25,7 @@ describe("getInverseRelationFields", () => {
 
       const fields = getInverseRelationFields(
         authorRelation["~"]["state"],
-        post,
+        post
       );
 
       expect(fields).toEqual(["authorId"]);
@@ -51,7 +51,7 @@ describe("getInverseRelationFields", () => {
 
       const fields = getInverseRelationFields(
         authorRelation["~"]["state"],
-        post,
+        post
       );
 
       expect(fields).toEqual(["authorId", "authorOrgId"]);
@@ -77,7 +77,7 @@ describe("getInverseRelationFields", () => {
 
       const fields = getInverseRelationFields(
         profileRelation["~"]["state"],
-        profile,
+        profile
       );
 
       expect(fields).toEqual(["userId"]);
@@ -104,7 +104,7 @@ describe("getInverseRelationFields", () => {
 
       const fields = getInverseRelationFields(
         postsRelation["~"]["state"],
-        user,
+        user
       );
 
       expect(fields).toEqual(["authorId"]);
@@ -138,11 +138,11 @@ describe("getInverseRelationFields", () => {
 
       const fieldsOne = getInverseRelationFields(
         postsOneToManyOne["~"]["state"],
-        user,
+        user
       );
       const fieldsTwo = getInverseRelationFields(
         postsOneToManyTwo["~"]["state"],
-        user,
+        user
       );
 
       expect(fieldsOne).toEqual(["authorId"]);
@@ -165,7 +165,7 @@ describe("getInverseRelationFields", () => {
 
       const fields = getInverseRelationFields(
         postsRelation["~"]["state"],
-        user,
+        user
       );
 
       expect(fields).toBeUndefined();

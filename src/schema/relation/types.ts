@@ -1,6 +1,6 @@
 // Relation Types and Shared Interfaces
 
-import { AnyModel } from "@schema/model";
+import type { AnyModel } from "@schema/model";
 
 /** Workaround to allow circular dependencies */
 export type Getter = () => any;
@@ -128,7 +128,7 @@ export type GetInverseRelationFields<
  */
 export function getInverseRelationFields<S extends RelationState, TSourceModel>(
   state: S,
-  sourceModel: TSourceModel,
+  sourceModel: TSourceModel
 ): GetInverseRelationFields<S, TSourceModel> {
   // manyToOne/oneToOne already have FK fields on this side
   if (state.type === "manyToOne" || state.type === "oneToOne") {

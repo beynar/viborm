@@ -9,6 +9,7 @@ import {
   type InferTargetSchema,
   singleOrArray,
 } from "./helpers";
+
 // =============================================================================
 // CREATE SCHEMA TYPES (exported for consumer use)
 // =============================================================================
@@ -19,7 +20,7 @@ import {
 
 type TargetCreateSchema<S extends RelationState> = V.Omit<
   InferTargetSchema<S, "create">,
-  GetInverseRelationFields<>
+  GetInverseRelationFields<any, any>
 >;
 
 /**
@@ -38,7 +39,7 @@ export type ToOneCreateSchema<S extends RelationState> = V.Object<
 >;
 
 export const toOneCreateFactory = <S extends RelationState>(
-  state: S,
+  state: S
 ): ToOneCreateSchema<S> => {
   return v.object(
     {
@@ -49,7 +50,7 @@ export const toOneCreateFactory = <S extends RelationState>(
         create: getTargetCreateSchema(state),
       }),
     },
-    { optional: true },
+    { optional: true }
   );
 };
 
@@ -83,7 +84,7 @@ export type ToManyCreateSchema<S extends RelationState> = V.Object<
   { optional: true }
 >;
 export const toManyCreateFactory = <S extends RelationState>(
-  state: S,
+  state: S
 ): ToManyCreateSchema<S> => {
   return v.object(
     {
@@ -102,10 +103,10 @@ export const toManyCreateFactory = <S extends RelationState>(
               where: getTargetWhereUniqueSchema(state),
               create: getTargetCreateSchema(state),
             },
-            { partial: false },
-          ),
+            { partial: false }
+          )
         ),
     },
-    { optional: true },
+    { optional: true }
   );
 };

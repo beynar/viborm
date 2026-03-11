@@ -1,7 +1,7 @@
 // ToOne Relation Class (Standalone)
 // For oneToOne and manyToOne relations with chainable configuration API
 
-import { AnyModel } from "@schema/model";
+import type { AnyModel } from "@schema/model";
 import { getRelationSchemas } from "./schemas";
 import type { Getter, ReferentialAction, ToOneRelationState } from "./types";
 

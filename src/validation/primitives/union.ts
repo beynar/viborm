@@ -1,5 +1,5 @@
-import { createSchema, fail, ok, validateSchema } from "../helpers";
 import type { InferInput, InferOutput, VibSchema } from "../types";
+import { createSchema, fail, ok, validateSchema } from "./helpers";
 
 // =============================================================================
 // Union Schema

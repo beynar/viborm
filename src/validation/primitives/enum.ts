@@ -1,4 +1,3 @@
-import { buildSchema, ok } from "../helpers";
 import type {
   ComputeInput,
   ComputeOutput,
@@ -6,6 +5,7 @@ import type {
   ScalarOptions,
   VibSchema,
 } from "../types";
+import { buildSchema, ok } from "./helpers";
 
 // =============================================================================
 // Enum Schema

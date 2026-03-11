@@ -91,7 +91,7 @@ export const mergeIndexDefinitions = <
   Index extends IndexDefinition,
 >(
   state: State,
-  index: Index
+  index: Index,
 ): UpdateIndexDefinition<State, Index> => {
   return [...state.indexes, index] as UpdateIndexDefinition<State, Index>;
 };
@@ -182,7 +182,7 @@ export class Model<State extends ModelState> {
         }
         return acc;
       },
-      {} as Record<string, VibSchema>
+      {} as Record<string, VibSchema>,
     );
 
     const compoundId = {
@@ -220,7 +220,7 @@ export class Model<State extends ModelState> {
         }
         return acc;
       },
-      {} as Record<string, VibSchema>
+      {} as Record<string, VibSchema>,
     );
 
     const compoundUniques = {
@@ -273,7 +273,7 @@ export class Model<State extends ModelState> {
       /** Cached model schemas (computed once on first access) */
       get schemas() {
         return (model._schemas ??= new ModelSchemas(
-          model.state
+          model.state,
         ) as ModelSchemas<State>);
       },
       names: this._names,
@@ -321,7 +321,7 @@ export class Model<State extends ModelState> {
 }
 
 export const model = <TFields extends FieldRecord>(
-  fields: TFields
+  fields: TFields,
 ): Model<
   UpdateState<
     ModelState,

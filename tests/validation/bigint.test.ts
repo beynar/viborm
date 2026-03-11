@@ -1,10 +1,10 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { bigint } from "@validation";
+import v from "@validation";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
 describe("bigint schema", () => {
   describe("basic validation", () => {
-    const schema = bigint();
+    const schema = v.bigint();
 
     test("validates bigints", () => {
       const result = schema["~standard"].validate(BigInt(42));
@@ -60,7 +60,7 @@ describe("bigint schema", () => {
   });
 
   describe("optional option", () => {
-    const schema = bigint({ optional: true });
+    const schema = v.bigint({ optional: true });
 
     test("allows undefined", () => {
       const result = schema["~standard"].validate(undefined);
@@ -81,7 +81,7 @@ describe("bigint schema", () => {
   });
 
   describe("nullable option", () => {
-    const schema = bigint({ nullable: true });
+    const schema = v.bigint({ nullable: true });
 
     test("allows null", () => {
       const result = schema["~standard"].validate(null);
@@ -102,7 +102,7 @@ describe("bigint schema", () => {
   });
 
   describe("array option", () => {
-    const schema = bigint({ array: true });
+    const schema = v.bigint({ array: true });
 
     test("validates array of bigints", () => {
       const result = schema["~standard"].validate([
@@ -132,21 +132,21 @@ describe("bigint schema", () => {
 
   describe("default option", () => {
     test("static default", () => {
-      const schema = bigint({ default: BigInt(0) });
+      const schema = v.bigint({ default: BigInt(0) });
       const result = schema["~standard"].validate(undefined);
       expect(result.issues).toBeUndefined();
       expect((result as { value: bigint }).value).toBe(BigInt(0));
     });
 
     test("default not applied when value provided", () => {
-      const schema = bigint({ default: BigInt(0) });
+      const schema = v.bigint({ default: BigInt(0) });
       const result = schema["~standard"].validate(BigInt(42));
       expect((result as { value: bigint }).value).toBe(BigInt(42));
     });
   });
 
   describe("transform option", () => {
-    const schema = bigint({ transform: (n) => n * BigInt(2) } as any);
+    const schema = v.bigint({ transform: (n) => n * BigInt(2) } as any);
 
     test("applies transform to output", () => {
       const result = schema["~standard"].validate(BigInt(21));
