@@ -7,36 +7,31 @@
  * - groupBy
  */
 
-import type {
-  AggregateArgsInput,
-  CountArgsInput,
-  GroupByArgsInput,
-} from "@schema/model/schemas/args";
-import { parse } from "@validation";
+import { type InferInput, parse } from "@validation";
 import { describe, expect, expectTypeOf, test } from "vitest";
-import { type SimpleState, simpleSchemas } from "../fixtures";
+import { authorSchemas, simpleSchemas } from "../fixtures";
 
 // =============================================================================
 // COUNT ARGS
 // =============================================================================
 
 describe("Count Args - Types", () => {
-  type Input = CountArgsInput<SimpleState>;
+  type Input = InferInput<typeof simpleSchemas.args.count>;
 
   test("type: has optional where", () => {
-    expectTypeOf<Input>().toHaveProperty("where");
+    expectTypeOf<{ where?: { active?: boolean } }>().toMatchTypeOf<Input>();
   });
 
   test("type: has optional cursor", () => {
-    expectTypeOf<Input>().toHaveProperty("cursor");
+    expectTypeOf<{ cursor?: { id?: string } }>().toMatchTypeOf<Input>();
   });
 
   test("type: has optional take", () => {
-    expectTypeOf<Input>().toHaveProperty("take");
+    expectTypeOf<{ take?: number }>().toMatchTypeOf<Input>();
   });
 
   test("type: has optional skip", () => {
-    expectTypeOf<Input>().toHaveProperty("skip");
+    expectTypeOf<{ skip?: number }>().toMatchTypeOf<Input>();
   });
 });
 
@@ -88,10 +83,15 @@ describe("Count Args - Simple Model Runtime", () => {
     });
     expect(result.issues).toBeUndefined();
     if (!result.issues) {
+      const value = result.value as {
+        where: unknown;
+        take: number;
+        skip: number;
+      };
       // Filter values are normalized to { equals: value }
-      expect(result.value.where).toEqual({ active: { equals: true } });
-      expect(result.value.take).toBe(100);
-      expect(result.value.skip).toBe(10);
+      expect(value.where).toEqual({ active: { equals: true } });
+      expect(value.take).toBe(100);
+      expect(value.skip).toBe(10);
     }
   });
 });
@@ -101,7 +101,7 @@ describe("Count Args - Simple Model Runtime", () => {
 // =============================================================================
 
 describe("Aggregate Args - Types", () => {
-  type Input = AggregateArgsInput<SimpleState>;
+  type Input = InferInput<typeof simpleSchemas.args.aggregate>;
 
   test("type: has optional where", () => {
     expectTypeOf<Input>().toHaveProperty("where");
@@ -230,7 +230,8 @@ describe("Aggregate Args - Simple Model Runtime", () => {
 // =============================================================================
 
 describe("GroupBy Args - Types", () => {
-  type Input = GroupByArgsInput<SimpleState>;
+  type Input = InferInput<typeof simpleSchemas.args.groupBy>;
+  type AuthorInput = InferInput<typeof authorSchemas.args.groupBy>;
 
   test("type: has required by", () => {
     expectTypeOf<Input>().toHaveProperty("by");
@@ -242,6 +243,26 @@ describe("GroupBy Args - Types", () => {
 
   test("type: has optional having", () => {
     expectTypeOf<Input>().toHaveProperty("having");
+  });
+
+  test("type: accepts scalar field in by", () => {
+    expectTypeOf<{ by: "id" }>().toMatchTypeOf<AuthorInput>();
+  });
+
+  test("type: accepts scalar field array in by", () => {
+    expectTypeOf<{ by: ["id", "name"] }>().toMatchTypeOf<AuthorInput>();
+  });
+
+  test("type: rejects relation field in by", () => {
+    expectTypeOf<{ by: "posts" }>().not.toMatchTypeOf<AuthorInput>();
+  });
+
+  test("type: rejects relation field array in by", () => {
+    expectTypeOf<{ by: ["posts"] }>().not.toMatchTypeOf<AuthorInput>();
+  });
+
+  test("type: rejects mixed scalar and relation field array in by", () => {
+    expectTypeOf<{ by: ["id", "posts"] }>().not.toMatchTypeOf<AuthorInput>();
   });
 });
 
@@ -319,6 +340,27 @@ describe("GroupBy Args - Simple Model Runtime", () => {
   test("runtime: rejects missing by", () => {
     const result = parse(schema, {
       where: { active: true },
+    });
+    expect(result.issues).toBeDefined();
+  });
+
+  test("runtime: rejects relation field in by", () => {
+    const result = parse(authorSchemas.args.groupBy, {
+      by: "posts",
+    });
+    expect(result.issues).toBeDefined();
+  });
+
+  test("runtime: rejects relation field array in by", () => {
+    const result = parse(authorSchemas.args.groupBy, {
+      by: ["posts"],
+    });
+    expect(result.issues).toBeDefined();
+  });
+
+  test("runtime: rejects mixed scalar and relation field array in by", () => {
+    const result = parse(authorSchemas.args.groupBy, {
+      by: ["id", "posts"],
     });
     expect(result.issues).toBeDefined();
   });

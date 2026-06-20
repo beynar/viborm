@@ -41,7 +41,7 @@ import { createClient, validateSchema, getSchemas } from "viborm";
 | `createClient` | Creates a VibORM client instance with the provided configuration |
 | `validateSchema` | Validates a schema and returns validation results with errors/warnings |
 | `validateSchemaOrThrow` | Validates a schema and throws on validation errors |
-| `getSchemas` | Creates a proxy to access model query schemas (e.g., `getSchemas(schema).user.where`) |
+| `getSchemas` | Creates a registry-backed proxy to access model query schemas (e.g., `getSchemas(schema).user.core.where`) |
 | `isPendingOperation` | Type guard to check if a value is a `PendingOperation` |
 | `isVibORMError` | Type guard to check if an error is a `VibORMError` |
 | `isRetryableError` | Checks if an error is retryable (transient database errors) |

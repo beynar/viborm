@@ -17,10 +17,15 @@
  */
 
 import { json } from "@schema/fields/json/field";
-import type { InferJsonInput } from "@schema/fields/json/schemas";
-import { parse } from "@validation";
+import { type InferInput, parse } from "@validation";
+import { type GetScalarSchemas, getScalarSchemas } from "@validation/scalars";
+import type { FieldState } from "@schema/fields/common";
 import { array, type InferOutput, number, object, string } from "valibot";
 import { describe, expect, expectTypeOf, test } from "vitest";
+
+type InferFieldInput<State extends FieldState, Key extends keyof GetScalarSchemas<State>> =
+  InferInput<GetScalarSchemas<State>[Key]>;
+type InferJsonInput<State extends FieldState<"json">, Key extends keyof GetScalarSchemas<State>> = InferFieldInput<State, Key>;
 
 // JSON value type
 type JsonValue =
@@ -38,7 +43,7 @@ type JsonValue =
 describe("Raw JSON Field", () => {
   const field = json();
   type State = (typeof field)["~"]["state"];
-  const schemas = field["~"].schemas;
+  const schemas = getScalarSchemas(field["~"].state);
 
   describe("base", () => {
     test("type: base is JsonValue", () => {
@@ -270,7 +275,7 @@ describe("Raw JSON Field", () => {
 describe("Nullable JSON Field", () => {
   const field = json().nullable();
   type State = (typeof field)["~"]["state"];
-  const schemas = field["~"].schemas;
+  const schemas = getScalarSchemas(field["~"].state);
 
   describe("base", () => {
     test("type: base is JsonValue | null", () => {
@@ -365,7 +370,7 @@ describe("Custom Schema JSON Field", () => {
 
   const field = json().schema(UserSchema);
   type State = (typeof field)["~"]["state"];
-  const schemas = field["~"].schemas;
+  const schemas = getScalarSchemas(field["~"].state);
 
   const validUser: User = { name: "Alice", age: 30, tags: ["dev", "admin"] };
 
@@ -468,7 +473,7 @@ describe("Nullable Custom Schema JSON Field", () => {
 
   const field = json().schema(ConfigSchema).nullable();
   type State = (typeof field)["~"]["state"];
-  const schemas = field["~"].schemas;
+  const schemas = getScalarSchemas(field["~"].state);
 
   const validConfig: Config = {
     theme: "dark",
@@ -518,7 +523,7 @@ describe("Default Value Behavior", () => {
     const defaultData = { initialized: true, count: 0 };
     const field = json().default(defaultData);
     type State = (typeof field)["~"]["state"];
-    const schemas = field["~"].schemas;
+    const schemas = getScalarSchemas(field["~"].state);
 
     test("type: create is optional", () => {
       type Create = InferJsonInput<State, "create">;
@@ -545,7 +550,7 @@ describe("Default Value Behavior", () => {
       callCount++;
       return { callNumber: callCount };
     });
-    const schemas = field["~"].schemas;
+    const schemas = getScalarSchemas(field["~"].state);
 
     test("runtime: undefined calls default function", () => {
       const before = callCount;

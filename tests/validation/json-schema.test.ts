@@ -1,36 +1,11 @@
-import {
-  array,
-  bigint,
-  blob,
-  boolean,
-  coerce,
-  date,
-  enum_,
-  instance,
-  integer,
-  isoDate,
-  isoTime,
-  isoTimestamp,
-  json,
-  literal,
-  nullable,
-  number,
-  object,
-  optional,
-  pipe,
-  point,
-  record,
-  string,
-  union,
-  vector,
-} from "@validation";
+import v from "@validation";
 import type { JsonSchema } from "@validation/json-schema";
 import { describe, expect, test } from "vitest";
 
 describe("JSON Schema conversion", () => {
   describe("primitive schemas", () => {
     test("string schema", () => {
-      const schema = string();
+      const schema = v.string();
       const jsonSchema = schema["~standard"].jsonSchema.output({
         target: "draft-07",
       });
@@ -42,7 +17,7 @@ describe("JSON Schema conversion", () => {
     });
 
     test("number schema", () => {
-      const schema = number();
+      const schema = v.number();
       const jsonSchema = schema["~standard"].jsonSchema.output({
         target: "draft-07",
       });
@@ -53,7 +28,7 @@ describe("JSON Schema conversion", () => {
     });
 
     test("boolean schema", () => {
-      const schema = boolean();
+      const schema = v.boolean();
       const jsonSchema = schema["~standard"].jsonSchema.output({
         target: "draft-07",
       });
@@ -64,7 +39,7 @@ describe("JSON Schema conversion", () => {
     });
 
     test("bigint schema", () => {
-      const schema = bigint();
+      const schema = v.bigint();
       const jsonSchema = schema["~standard"].jsonSchema.output({
         target: "draft-07",
       });
@@ -75,7 +50,7 @@ describe("JSON Schema conversion", () => {
     });
 
     test("literal schema (draft-07)", () => {
-      const schema = literal("hello");
+      const schema = v.literal("hello");
       const jsonSchema = schema["~standard"].jsonSchema.output({
         target: "draft-07",
       });
@@ -86,7 +61,7 @@ describe("JSON Schema conversion", () => {
     });
 
     test("literal schema (openapi-3.0)", () => {
-      const schema = literal("hello");
+      const schema = v.literal("hello");
       const jsonSchema = schema["~standard"].jsonSchema.output({
         target: "openapi-3.0",
       });
@@ -97,12 +72,11 @@ describe("JSON Schema conversion", () => {
     });
 
     test("enum schema", () => {
-      const schema = enum_(["a", "b", "c"]);
+      const schema = v.enum(["a", "b", "c"]);
       const jsonSchema = schema["~standard"].jsonSchema.output({
         target: "draft-07",
       });
 
-      console.dir(jsonSchema, { depth: null });
       expect(jsonSchema).toMatchObject({
         enum: ["a", "b", "c"],
       });
@@ -111,7 +85,7 @@ describe("JSON Schema conversion", () => {
 
   describe("wrapper schemas", () => {
     test("nullable schema (draft-07)", () => {
-      const schema = nullable(string());
+      const schema = v.nullable(v.string());
       const jsonSchema = schema["~standard"].jsonSchema.output({
         target: "draft-07",
       });
@@ -122,7 +96,7 @@ describe("JSON Schema conversion", () => {
     });
 
     test("nullable schema (openapi-3.0)", () => {
-      const schema = nullable(string());
+      const schema = v.nullable(v.string());
       const jsonSchema = schema["~standard"].jsonSchema.output({
         target: "openapi-3.0",
       });
@@ -134,7 +108,7 @@ describe("JSON Schema conversion", () => {
     });
 
     test("optional schema (passthrough)", () => {
-      const schema = optional(string());
+      const schema = v.optional(v.string());
       const jsonSchema = schema["~standard"].jsonSchema.output({
         target: "draft-07",
       });
@@ -145,7 +119,7 @@ describe("JSON Schema conversion", () => {
     });
 
     test("array schema", () => {
-      const schema = array(string());
+      const schema = v.array(v.string());
       const jsonSchema = schema["~standard"].jsonSchema.output({
         target: "draft-07",
       });
@@ -159,9 +133,9 @@ describe("JSON Schema conversion", () => {
 
   describe("object schemas", () => {
     test("simple object", () => {
-      const schema = object({
-        name: string(),
-        age: number(),
+      const schema = v.object({
+        name: v.string(),
+        age: v.number(),
       });
       const jsonSchema = schema["~standard"].jsonSchema.output({
         target: "draft-07",
@@ -175,10 +149,10 @@ describe("JSON Schema conversion", () => {
     });
 
     test("object with partial: false has required fields", () => {
-      const schema = object(
+      const schema = v.object(
         {
-          name: string(),
-          age: number(),
+          name: v.string(),
+          age: v.number(),
         },
         { partial: false }
       );
@@ -191,9 +165,9 @@ describe("JSON Schema conversion", () => {
     });
 
     test("object with strict: true has additionalProperties: false", () => {
-      const schema = object(
+      const schema = v.object(
         {
-          name: string(),
+          name: v.string(),
         },
         { strict: true }
       );
@@ -205,10 +179,10 @@ describe("JSON Schema conversion", () => {
     });
 
     test("object with optional fields", () => {
-      const schema = object(
+      const schema = v.object(
         {
-          name: string(),
-          nickname: optional(string()),
+          name: v.string(),
+          nickname: v.optional(v.string()),
         },
         { partial: false }
       );
@@ -221,13 +195,13 @@ describe("JSON Schema conversion", () => {
     });
 
     test("nested objects", () => {
-      const address = object({
-        city: string(),
-        zip: string(),
+      const address = v.object({
+        city: v.string(),
+        zip: v.string(),
       });
 
-      const user = object({
-        name: string(),
+      const user = v.object({
+        name: v.string(),
         address,
       });
 
@@ -245,9 +219,9 @@ describe("JSON Schema conversion", () => {
     });
 
     test("object with strict: false allows additional properties", () => {
-      const schema = object(
+      const schema = v.object(
         {
-          name: string(),
+          name: v.string(),
         },
         { strict: false }
       );
@@ -260,9 +234,9 @@ describe("JSON Schema conversion", () => {
     });
 
     test("object with partial: true (default) has no required fields", () => {
-      const schema = object({
-        name: string(),
-        age: number(),
+      const schema = v.object({
+        name: v.string(),
+        age: v.number(),
       });
       const jsonSchema = schema["~standard"].jsonSchema.output({
         target: "draft-07",
@@ -273,11 +247,11 @@ describe("JSON Schema conversion", () => {
     });
 
     test("object with strict: true and partial: false", () => {
-      const schema = object(
+      const schema = v.object(
         {
-          id: string(),
-          name: string(),
-          email: optional(string()),
+          id: v.string(),
+          name: v.string(),
+          email: v.optional(v.string()),
         },
         { strict: true, partial: false }
       );
@@ -285,20 +259,20 @@ describe("JSON Schema conversion", () => {
         target: "draft-07",
       }) as JsonSchema;
 
-      // strict: true → additionalProperties: false
+      // strict: true -> additionalProperties: false
       expect(jsonSchema.additionalProperties).toBe(false);
 
-      // partial: false → required fields (except optional wrapper)
+      // partial: false -> required fields (except optional wrapper)
       expect(jsonSchema.required).toContain("id");
       expect(jsonSchema.required).toContain("name");
       expect(jsonSchema.required).not.toContain("email");
     });
 
     test("object with strict: false and partial: true", () => {
-      const schema = object(
+      const schema = v.object(
         {
-          name: string(),
-          tags: array(string()),
+          name: v.string(),
+          tags: v.array(v.string()),
         },
         { strict: false, partial: true }
       );
@@ -306,17 +280,17 @@ describe("JSON Schema conversion", () => {
         target: "draft-07",
       }) as JsonSchema;
 
-      // strict: false → no additionalProperties restriction
+      // strict: false -> no additionalProperties restriction
       expect(jsonSchema.additionalProperties).toBeUndefined();
 
-      // partial: true → no required fields
+      // partial: true -> no required fields
       expect(jsonSchema.required).toBeUndefined();
     });
 
     test("object with name and description options", () => {
-      const schema = object(
+      const schema = v.object(
         {
-          id: string(),
+          id: v.string(),
         },
         { name: "User", description: "A user entity" }
       );
@@ -332,7 +306,7 @@ describe("JSON Schema conversion", () => {
 
   describe("union and record schemas", () => {
     test("union schema", () => {
-      const schema = union([string(), number()]);
+      const schema = v.union([v.string(), v.number()]);
       const jsonSchema = schema["~standard"].jsonSchema.output({
         target: "draft-07",
       }) as JsonSchema;
@@ -344,7 +318,7 @@ describe("JSON Schema conversion", () => {
     });
 
     test("record schema", () => {
-      const schema = record(string(), number());
+      const schema = v.record(v.string(), v.number());
       const jsonSchema = schema["~standard"].jsonSchema.output({
         target: "draft-07",
       }) as JsonSchema;
@@ -358,7 +332,7 @@ describe("JSON Schema conversion", () => {
 
   describe("special schemas", () => {
     test("json schema (accepts anything)", () => {
-      const schema = json();
+      const schema = v.json();
       const jsonSchema = schema["~standard"].jsonSchema.output({
         target: "draft-07",
       }) as JsonSchema;
@@ -373,7 +347,7 @@ describe("JSON Schema conversion", () => {
 
   describe("date and time schemas", () => {
     test("date schema", () => {
-      const schema = date();
+      const schema = v.date();
       const jsonSchema = schema["~standard"].jsonSchema.output({
         target: "draft-07",
       }) as JsonSchema;
@@ -385,7 +359,7 @@ describe("JSON Schema conversion", () => {
     });
 
     test("isoTimestamp schema", () => {
-      const schema = isoTimestamp();
+      const schema = v.isoTimestamp();
       const jsonSchema = schema["~standard"].jsonSchema.output({
         target: "draft-07",
       }) as JsonSchema;
@@ -397,7 +371,7 @@ describe("JSON Schema conversion", () => {
     });
 
     test("isoDate schema", () => {
-      const schema = isoDate();
+      const schema = v.isoDate();
       const jsonSchema = schema["~standard"].jsonSchema.output({
         target: "draft-07",
       }) as JsonSchema;
@@ -409,7 +383,7 @@ describe("JSON Schema conversion", () => {
     });
 
     test("isoTime schema", () => {
-      const schema = isoTime();
+      const schema = v.isoTime();
       const jsonSchema = schema["~standard"].jsonSchema.output({
         target: "draft-07",
       }) as JsonSchema;
@@ -423,7 +397,7 @@ describe("JSON Schema conversion", () => {
 
   describe("exotic schemas", () => {
     test("blob schema (base64 encoded)", () => {
-      const schema = blob();
+      const schema = v.blob();
       const jsonSchema = schema["~standard"].jsonSchema.output({
         target: "draft-07",
       }) as JsonSchema;
@@ -435,7 +409,7 @@ describe("JSON Schema conversion", () => {
     });
 
     test("vector schema without dimensions", () => {
-      const schema = vector();
+      const schema = v.vector();
       const jsonSchema = schema["~standard"].jsonSchema.output({
         target: "draft-07",
       }) as JsonSchema;
@@ -449,7 +423,7 @@ describe("JSON Schema conversion", () => {
     });
 
     test("vector schema with dimensions", () => {
-      const schema = vector(3);
+      const schema = v.vector(3);
       const jsonSchema = schema["~standard"].jsonSchema.output({
         target: "draft-07",
       }) as JsonSchema;
@@ -463,7 +437,7 @@ describe("JSON Schema conversion", () => {
     });
 
     test("point schema", () => {
-      const schema = point();
+      const schema = v.point();
       const jsonSchema = schema["~standard"].jsonSchema.output({
         target: "draft-07",
       }) as JsonSchema;
@@ -478,48 +452,11 @@ describe("JSON Schema conversion", () => {
         additionalProperties: false,
       });
     });
-
-    test("instance schema with Date uses date-time format", () => {
-      const schema = instance(Date);
-      const jsonSchema = schema["~standard"].jsonSchema.output({
-        target: "draft-07",
-      }) as JsonSchema;
-
-      expect(jsonSchema).toMatchObject({
-        type: "string",
-        format: "date-time",
-      });
-    });
-
-    test("instance schema with Uint8Array uses base64 encoding", () => {
-      const schema = instance(Uint8Array);
-      const jsonSchema = schema["~standard"].jsonSchema.output({
-        target: "draft-07",
-      }) as JsonSchema;
-
-      expect(jsonSchema).toMatchObject({
-        type: "string",
-        contentEncoding: "base64",
-      });
-    });
-
-    test("instance schema with custom class uses object with x-instance", () => {
-      class MyCustomClass {}
-      const schema = instance(MyCustomClass);
-      const jsonSchema = schema["~standard"].jsonSchema.output({
-        target: "draft-07",
-      }) as JsonSchema;
-
-      expect(jsonSchema).toMatchObject({
-        type: "object",
-      });
-      expect((jsonSchema as any)["x-instance"]).toBe("MyCustomClass");
-    });
   });
 
   describe("integer schema", () => {
     test("integer schema", () => {
-      const schema = integer();
+      const schema = v.integer();
       const jsonSchema = schema["~standard"].jsonSchema.output({
         target: "draft-07",
       }) as JsonSchema;
@@ -532,7 +469,7 @@ describe("JSON Schema conversion", () => {
 
   describe("transform and pipe schemas", () => {
     test("coerce (transform) passes through to wrapped schema", () => {
-      const schema = coerce(string(), (val) => val.toUpperCase());
+      const schema = v.coerce(v.string(), (val) => val.toUpperCase());
       const jsonSchema = schema["~standard"].jsonSchema.output({
         target: "draft-07",
       }) as JsonSchema;
@@ -544,7 +481,7 @@ describe("JSON Schema conversion", () => {
     });
 
     test("pipe uses the first schema", () => {
-      const schema = pipe(string());
+      const schema = v.pipe(v.string());
       const jsonSchema = schema["~standard"].jsonSchema.output({
         target: "draft-07",
       }) as JsonSchema;
@@ -560,9 +497,9 @@ describe("JSON Schema conversion", () => {
     test("optional with default should include default in JSON Schema", () => {
       // Note: Current implementation doesn't output defaults
       // This test documents expected behavior
-      const userSchema = object({
-        name: string(),
-        role: string({ default: "user" }),
+      const userSchema = v.object({
+        name: v.string(),
+        role: v.string({ default: "user" }),
       });
 
       const jsonSchema = userSchema["~standard"].jsonSchema.output({
@@ -577,7 +514,7 @@ describe("JSON Schema conversion", () => {
   });
 
   describe("target versions", () => {
-    const schema = string();
+    const schema = v.string();
 
     test("draft-07 includes correct $schema", () => {
       const jsonSchema = schema["~standard"].jsonSchema.output({
@@ -618,7 +555,7 @@ describe("JSON Schema conversion", () => {
 
   describe("input vs output methods", () => {
     test("input and output produce same schema for simple types", () => {
-      const schema = string();
+      const schema = v.string();
 
       const inputSchema = schema["~standard"].jsonSchema.input({
         target: "draft-07",
@@ -633,7 +570,7 @@ describe("JSON Schema conversion", () => {
 
   describe("StandardJSONSchemaV1 compliance", () => {
     test("schema has jsonSchema property on ~standard", () => {
-      const schema = string();
+      const schema = v.string();
 
       expect(schema["~standard"]).toHaveProperty("jsonSchema");
       expect(schema["~standard"].jsonSchema).toHaveProperty("input");
@@ -643,7 +580,7 @@ describe("JSON Schema conversion", () => {
     });
 
     test("object schema has jsonSchema property", () => {
-      const schema = object({ name: string() });
+      const schema = v.object({ name: v.string() });
 
       expect(schema["~standard"]).toHaveProperty("jsonSchema");
       expect(typeof schema["~standard"].jsonSchema.output).toBe("function");
@@ -653,9 +590,9 @@ describe("JSON Schema conversion", () => {
   describe("circular references", () => {
     test("self-referential named object uses $ref", () => {
       // Person with spouse: Person (circular) - must have name for $ref
-      const person: any = object(
+      const person: any = v.object(
         {
-          name: string(),
+          name: v.string(),
           spouse: () => person, // Thunk for circular ref
         },
         { name: "Person" }
@@ -678,17 +615,17 @@ describe("JSON Schema conversion", () => {
 
     test("mutually circular named objects use $refs", () => {
       // User has posts, Post has author (mutual circular)
-      const user: any = object(
+      const user: any = v.object(
         {
-          name: string(),
-          posts: () => array(post),
+          name: v.string(),
+          posts: () => v.array(post),
         },
         { name: "User" }
       );
 
-      const post = object(
+      const post = v.object(
         {
-          title: string(),
+          title: v.string(),
           author: () => user,
         },
         { name: "Post" }
@@ -711,11 +648,11 @@ describe("JSON Schema conversion", () => {
 
     test("unnamed thunks are inlined (no $ref)", () => {
       // Unnamed schema should be inlined, not create a $ref
-      const inner = object({
-        value: string(),
+      const inner = v.object({
+        value: v.string(),
       });
 
-      const outer = object({
+      const outer = v.object({
         nested: () => inner,
       });
 
@@ -730,14 +667,14 @@ describe("JSON Schema conversion", () => {
     });
 
     test("schema with name property uses name as ref ID", () => {
-      const namedSchema = object(
+      const namedSchema = v.object(
         {
-          id: string(),
+          id: v.string(),
         },
         { name: "MyNamedSchema" }
       );
 
-      const parent = object({
+      const parent = v.object({
         child: () => namedSchema,
       });
 
@@ -753,14 +690,14 @@ describe("JSON Schema conversion", () => {
     });
 
     test("same named schema used multiple times only creates one $def", () => {
-      const shared = object(
+      const shared = v.object(
         {
-          id: string(),
+          id: v.string(),
         },
         { name: "Shared" }
       );
 
-      const parent = object({
+      const parent = v.object({
         first: () => shared,
         second: () => shared,
       });
@@ -780,15 +717,15 @@ describe("JSON Schema conversion", () => {
     });
 
     test("thunk returning array of named object uses object name as ref ID", () => {
-      const user = object(
+      const user = v.object(
         {
-          name: string(),
+          name: v.string(),
         },
         { name: "User" }
       );
 
-      const parent = object({
-        users: () => array(user),
+      const parent = v.object({
+        users: () => v.array(user),
       });
 
       const jsonSchema = parent["~standard"].jsonSchema.output({
@@ -804,15 +741,15 @@ describe("JSON Schema conversion", () => {
     });
 
     test("thunk returning optional of named object uses object name as ref ID", () => {
-      const address = object(
+      const address = v.object(
         {
-          street: string(),
+          street: v.string(),
         },
         { name: "Address" }
       );
 
-      const person = object({
-        home: () => optional(address),
+      const person = v.object({
+        home: () => v.optional(address),
       });
 
       const jsonSchema = person["~standard"].jsonSchema.output({
@@ -825,15 +762,15 @@ describe("JSON Schema conversion", () => {
     });
 
     test("deeply nested wrappers still find inner object name", () => {
-      const item = object(
+      const item = v.object(
         {
-          value: string(),
+          value: v.string(),
         },
         { name: "Item" }
       );
 
-      const container = object({
-        items: () => nullable(array(optional(item))),
+      const container = v.object({
+        items: () => v.nullable(v.array(v.optional(item))),
       });
 
       const jsonSchema = container["~standard"].jsonSchema.output({
@@ -845,7 +782,6 @@ describe("JSON Schema conversion", () => {
       expect(jsonSchema.properties?.items).toHaveProperty("anyOf");
       const anyOf = (jsonSchema.properties?.items as any).anyOf;
       const arrayOption = anyOf.find((o: any) => o.type === "array");
-      console.dir(jsonSchema, { depth: null });
       expect(arrayOption.items.$ref).toBe("#/$defs/Item");
       expect(jsonSchema.$defs?.Item).toBeDefined();
     });

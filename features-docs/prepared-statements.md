@@ -171,14 +171,14 @@ export type PlaceholderCallback<T> = (ctx: { $: PlaceholderFn<T> }) => Placehold
 | File | Action | Purpose |
 |------|--------|---------|
 | `src/schema/fields/common.ts` | MODIFY | Add `withPlaceholder` schema wrapper |
-| `src/schema/fields/string/schemas.ts` | MODIFY | Accept placeholders in string filter/create/update |
-| `src/schema/fields/int/schemas.ts` | MODIFY | Accept placeholders in int schemas |
-| `src/schema/fields/float/schemas.ts` | MODIFY | Accept placeholders in float schemas |
-| `src/schema/fields/boolean/schemas.ts` | MODIFY | Accept placeholders in boolean schemas |
-| `src/schema/fields/datetime/schemas.ts` | MODIFY | Accept placeholders in datetime schemas |
-| `src/schema/fields/json/schemas.ts` | MODIFY | Accept placeholders in json schemas |
-| `src/schema/fields/enum/schemas.ts` | MODIFY | Accept placeholders in enum schemas |
-| `src/schema/model/schemas/args/*.ts` | MODIFY | Accept placeholders in take/skip/cursor args |
+| `src/validation/scalars/string.ts` | MODIFY | Accept placeholders in string filter/create/update |
+| `src/validation/scalars/int.ts` | MODIFY | Accept placeholders in int schemas |
+| `src/validation/scalars/float.ts` | MODIFY | Accept placeholders in float schemas |
+| `src/validation/scalars/boolean.ts` | MODIFY | Accept placeholders in boolean schemas |
+| `src/validation/scalars/datetime.ts` | MODIFY | Accept placeholders in datetime schemas |
+| `src/validation/scalars/json.ts` | MODIFY | Accept placeholders in json schemas |
+| `src/validation/scalars/enum.ts` | MODIFY | Accept placeholders in enum schemas |
+| `src/validation/model/args/*.ts` | MODIFY | Accept placeholders in take/skip/cursor args |
 
 **Pattern for schema modification:**
 ```typescript
@@ -481,15 +481,15 @@ const prepared = client.user.findUnique({
 | `src/schema/fields/placeholder.ts` | CREATE | Placeholder types, symbols, type guards |
 | `src/schema/fields/index.ts` | MODIFY | Export placeholder utilities |
 | `src/schema/fields/common.ts` | MODIFY | Add withPlaceholder schema wrapper |
-| `src/schema/fields/string/schemas.ts` | MODIFY | Accept placeholders |
-| `src/schema/fields/int/schemas.ts` | MODIFY | Accept placeholders |
-| `src/schema/fields/float/schemas.ts` | MODIFY | Accept placeholders |
-| `src/schema/fields/boolean/schemas.ts` | MODIFY | Accept placeholders |
-| `src/schema/fields/datetime/schemas.ts` | MODIFY | Accept placeholders |
-| `src/schema/fields/json/schemas.ts` | MODIFY | Accept placeholders |
-| `src/schema/fields/enum/schemas.ts` | MODIFY | Accept placeholders |
-| `src/schema/model/schemas/args/find.ts` | MODIFY | Accept placeholders in take/skip |
-| `src/validation/schemas/placeholder.ts` | CREATE | Placeholder validation schema |
+| `src/validation/scalars/string.ts` | MODIFY | Accept placeholders |
+| `src/validation/scalars/int.ts` | MODIFY | Accept placeholders |
+| `src/validation/scalars/float.ts` | MODIFY | Accept placeholders |
+| `src/validation/scalars/boolean.ts` | MODIFY | Accept placeholders |
+| `src/validation/scalars/datetime.ts` | MODIFY | Accept placeholders |
+| `src/validation/scalars/json.ts` | MODIFY | Accept placeholders |
+| `src/validation/scalars/enum.ts` | MODIFY | Accept placeholders |
+| `src/validation/model/args/find.ts` | MODIFY | Accept placeholders in take/skip |
+| `src/validation/primitives/placeholder.ts` | CREATE | Placeholder validation schema |
 | `src/validation/index.ts` | MODIFY | Export placeholder schema |
 | `src/adapters/types.ts` | MODIFY | Add placeholder to literals |
 | `src/adapters/database-adapter.ts` | MODIFY | Implement placeholder method |

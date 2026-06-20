@@ -21,8 +21,10 @@ import {
 } from "@instrumentation";
 import type { Model } from "@schema/model";
 import type { Sql } from "@sql";
+import type { SchemaRegistryLookup } from "@validation";
 import { getPrimaryKeyField } from "./builders/correlation-utils";
 import { buildCreateWithNested } from "./builders/nested-create-builder";
+import { hasNestedWritesInData } from "./builders/nested-write-detector";
 import {
   buildConnectFkValues,
   canUseSubqueryOnly,
@@ -76,6 +78,7 @@ export class QueryEngine {
   private readonly registry: ModelRegistry;
   private readonly driver: AnyDriver;
   private readonly instrumentation: InstrumentationContext | undefined;
+  private readonly schemaRegistry: SchemaRegistryLookup;
 
   /**
    * Unique identifier for this engine instance.
@@ -91,6 +94,10 @@ export class QueryEngine {
     this.driver = driver;
     this.adapter = driver.adapter;
     this.registry = registry;
+    if (!registry.schemas) {
+      throw new QueryEngineError("Schema registry is required for query engine");
+    }
+    this.schemaRegistry = registry.schemas;
     this.instrumentation = instrumentation;
     this.clientId = Symbol("viborm.client");
   }
@@ -105,7 +112,12 @@ export class QueryEngine {
     args: Record<string, unknown>
   ): Sql {
     // Validate input
-    const validated = validate<Record<string, unknown>>(model, operation, args);
+    const validated = validate<Record<string, unknown>>(
+      this.schemaRegistry,
+      model,
+      operation,
+      args
+    );
 
     // Create context
     const ctx = createQueryContext(
@@ -280,9 +292,20 @@ export class QueryEngine {
           const validated = tracer
             ? tracer.startActiveSpanSync(
                 { name: SPAN_VALIDATE, attributes: spanAttrs },
-                () => validate<Record<string, unknown>>(model, operation, args)
+                () =>
+                  validate<Record<string, unknown>>(
+                    this.schemaRegistry,
+                    model,
+                    operation,
+                    args
+                  )
               )
-            : validate<Record<string, unknown>>(model, operation, args);
+            : validate<Record<string, unknown>>(
+                this.schemaRegistry,
+                model,
+                operation,
+                args
+              );
 
           // Check for nested writes OR upsert with WHERE clauses
           // Both require transaction-based execution
@@ -485,35 +508,13 @@ export class QueryEngine {
       return false;
     }
 
-    const data =
-      operation === "upsert"
-        ? (args.create as Record<string, unknown>) ||
-          (args.update as Record<string, unknown>)
-        : (args.data as Record<string, unknown>);
-
-    if (!data) return false;
-
-    // Check for any relation mutations in the data
-    for (const value of Object.values(data)) {
-      if (value && typeof value === "object" && !Array.isArray(value)) {
-        const obj = value as Record<string, unknown>;
-        // Check for relation mutation keywords
-        // Note: "set" is also used for scalar updates like { set: "value" }
-        // Relation "set" is always an array: { set: [...] }
-        if (
-          "connect" in obj ||
-          "create" in obj ||
-          "connectOrCreate" in obj ||
-          "disconnect" in obj ||
-          "delete" in obj ||
-          ("set" in obj && Array.isArray(obj.set))
-        ) {
-          return true;
-        }
-      }
+    if (operation === "upsert") {
+      return (
+        hasNestedWritesInData(args.create) || hasNestedWritesInData(args.update)
+      );
     }
 
-    return false;
+    return hasNestedWritesInData(args.data);
   }
 
   /**
@@ -1002,6 +1003,7 @@ export class QueryEngine {
 
       // Validate arguments
       const validated = validate<Record<string, unknown>>(
+        this.schemaRegistry,
         model,
         operation,
         args
@@ -1074,7 +1076,8 @@ export class QueryEngine {
  * Note: Assumes schema is already hydrated via hydrateSchemaNames()
  */
 export function createModelRegistry(
-  models: Record<string, Model<any>>
+  models: Record<string, Model<any>>,
+  schemaRegistry: SchemaRegistryLookup
 ): ModelRegistry {
   const byName = new Map<string, Model<any>>();
   const byTableName = new Map<string, Model<any>>();
@@ -1092,6 +1095,7 @@ export function createModelRegistry(
     getByTableName(tableName: string): Model<any> | undefined {
       return byTableName.get(tableName);
     },
+    schemas: schemaRegistry,
   };
 }
 
@@ -1101,8 +1105,9 @@ export function createModelRegistry(
 export function createQueryEngine(
   driver: AnyDriver,
   models: Record<string, Model<any>>,
+  schemaRegistry: SchemaRegistryLookup,
   instrumentation?: InstrumentationContext
 ): QueryEngine {
-  const registry = createModelRegistry(models);
+  const registry = createModelRegistry(models, schemaRegistry);
   return new QueryEngine(driver, registry, instrumentation);
 }

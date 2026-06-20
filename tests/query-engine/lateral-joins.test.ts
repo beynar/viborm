@@ -16,6 +16,7 @@ import { type Dialect, Driver } from "@drivers";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
 import { sql } from "@sql";
+import { createSchemaRegistry } from "@validation";
 import { beforeAll, describe, expect, test } from "vitest";
 
 // =============================================================================
@@ -75,9 +76,9 @@ class MockDriver extends Driver<null, null> {
 
   protected async transaction<T>(
     _client: null,
-    fn: () => Promise<T>
+    fn: (tx: null) => Promise<T>
   ): Promise<T> {
-    return fn();
+    return fn(null);
   }
 }
 
@@ -178,7 +179,8 @@ describe("Lateral Joins", () => {
     let registry: ReturnType<typeof createModelRegistry>;
 
     beforeAll(() => {
-      registry = createModelRegistry({ Author, Post });
+      const schema = { Author, Post };
+      registry = createModelRegistry(schema, createSchemaRegistry(schema));
     });
 
     describe("PostgreSQL (lateral joins enabled)", () => {

@@ -11,7 +11,7 @@ import type { FieldRecord } from "@schema/model/helper";
 import type { AnyRelation } from "@schema/relation";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { Prettify } from "@validation";
-import type { EnumValues } from "@validation/schemas/enum";
+import type { EnumValues } from "@validation/primitives/enum";
 
 // =============================================================================
 // SCALAR OUTPUT TYPE MAPPING

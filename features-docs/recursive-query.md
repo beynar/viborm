@@ -67,7 +67,7 @@ Before diving into implementation phases, here's how recursive queries affect ea
 |-------|----------|-----------|--------|
 | **L1: Validation** | `src/validation/` | ❌ No | Existing primitives (object, union, literal, integer) are sufficient |
 | **L2: Fields** | `src/schema/fields/` | ❌ No | Recurse is a query option, not a field type |
-| **L3: Query Schemas** | `src/schema/relation/schemas/` | ✅ Yes | Conditionally add `recurse` option to `toManyIncludeFactory` |
+| **L3: Operation Schemas** | `src/validation/relations/` | ✅ Yes | Conditionally add `recurse` option to `toManyIncludeFactory` |
 | **L4: Relations** | `src/schema/relation/` | ✅ Yes | Add `isSelfReferencing()` helper |
 | **L5: Schema Validation** | `src/schema/validation/` | ❌ No | TypeScript prevents invalid usage at compile time |
 | **L6: Query Engine** | `src/query-engine/` | ✅ Yes | Build recursive CTE SQL, parse flat results into trees |
@@ -135,7 +135,7 @@ export function isSelfReferencing<S extends RelationState>(
 
 **Goal:** Conditionally add `recurse` option only for self-referencing relations.
 
-**File:** `src/schema/relation/schemas/select-include.ts` (MODIFY)
+**File:** `src/validation/relations/select-include.ts` (MODIFY)
 
 ```typescript
 import { isSelfReferencing } from "../relation";
@@ -205,8 +205,8 @@ export const toManyIncludeFactory = <S extends RelationState>(
 
 | File | Action | Purpose |
 |------|--------|---------|
-| `src/schema/relation/schemas/select-include.ts` | MODIFY | Conditionally add `recurse` option |
-| `src/schema/relation/schemas/index.ts` | MODIFY | Update exports if needed |
+| `src/validation/relations/select-include.ts` | MODIFY | Conditionally add `recurse` option |
+| `src/validation/relations/index.ts` | MODIFY | Update exports if needed |
 
 ---
 
@@ -715,7 +715,7 @@ SELECT * FROM subordinates_tree ORDER BY __depth, id;
 |------|--------|---------|
 | `src/schema/relation/relation.ts` | MODIFY | Add `isSelfReferencing()` helper |
 | `src/schema/relation/index.ts` | MODIFY | Export `isSelfReferencing` |
-| `src/schema/relation/schemas/select-include.ts` | MODIFY | Conditionally add `recurse` option for self-ref relations |
+| `src/validation/relations/select-include.ts` | MODIFY | Conditionally add `recurse` option for self-ref relations |
 | `src/query-engine/builders/recurse-builder.ts` | CREATE | Build recursive CTE SQL |
 | `src/query-engine/builders/include-builder.ts` | MODIFY | Detect recurse and delegate |
 | `src/query-engine/builders/index.ts` | MODIFY | Export recurse builder |

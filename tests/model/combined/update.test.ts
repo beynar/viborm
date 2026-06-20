@@ -154,7 +154,6 @@ describe("Update Schema - Post Model Runtime (manyToOne)", () => {
   });
 
   test("runtime: accepts relation disconnect", () => {
-    console.dir(schema, { depth: null });
     const result = parse(schema, {
       author: {
         disconnect: true,
@@ -163,12 +162,15 @@ describe("Update Schema - Post Model Runtime (manyToOne)", () => {
     expect(result.issues).toBeUndefined();
   });
 
-  test("runtime: accepts relation update", () => {
-    const result = parse(schema, {
-      author: {
-        update: { name: "Updated Author" },
-      },
-    });
-    expect(result.issues).toBeUndefined();
-  });
+  test.each(["update", "upsert"] as const)(
+    "runtime: rejects unsupported relation %s",
+    (operation) => {
+      const result = parse(schema, {
+        author: {
+          [operation]: {},
+        },
+      });
+      expect(result.issues?.[0]?.message).toBe(`Unknown key: ${operation}`);
+    }
+  );
 });

@@ -2,7 +2,7 @@
 // Standalone field class with State generic pattern
 
 import v from "@validation";
-import type { EnumValues } from "@validation/schemas/enum";
+import type { EnumValues } from "@validation/primitives/enum";
 import {
   createDefaultState,
   type DefaultValueInput,
@@ -10,10 +10,8 @@ import {
   updateState,
 } from "../common";
 import type { NativeType } from "../native-types";
-import { buildEnumSchema, type EnumSchemas } from "./schemas";
 
 export class EnumField<State extends FieldState<"enum">> {
-  private _schemas: EnumSchemas<EnumValues<State["base"]>, State> | undefined;
   private readonly state: State;
   private readonly _nativeType?: NativeType | undefined;
   constructor(state: State, _nativeType?: NativeType) {
@@ -102,10 +100,6 @@ export class EnumField<State extends FieldState<"enum">> {
   get ["~"]() {
     return {
       state: this.state,
-      schemas: (this._schemas ??= buildEnumSchema<
-        EnumValues<State["base"]>,
-        State
-      >(this.enumValues, this.state)),
       nativeType: this._nativeType,
     };
   }

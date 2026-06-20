@@ -1,7 +1,7 @@
 // ToMany Relation Class (Standalone)
 // For oneToMany relations - the inverse side with minimal configuration
 
-import { getRelationSchemas } from "./schemas";
+import type { AnyModel } from "@schema/model";
 import type { Getter, ToManyRelationState } from "./types";
 
 // =============================================================================
@@ -22,7 +22,6 @@ import type { Getter, ToManyRelationState } from "./types";
  */
 export class ToManyRelation<State extends ToManyRelationState> {
   private readonly _state: State;
-  private _schemas: ReturnType<typeof getRelationSchemas<State>> | undefined;
 
   constructor(state: State) {
     this._state = state;
@@ -31,20 +30,20 @@ export class ToManyRelation<State extends ToManyRelationState> {
   /**
    * Set a custom name for this relation
    */
-  name(name: string) {
-    return new ToManyRelation<State & { name: string }>({
+  name<T extends string>(name: T) {
+    return new ToManyRelation<State & { name: T }>({
       ...this._state,
       name,
     });
   }
 
   /**
-   * Internal accessor for state and schemas
+   * Internal accessor for state and source binding.
    */
   get "~"() {
     return {
       state: this._state,
-      schemas: (this._schemas ??= getRelationSchemas(this._state)),
+      setSource: (source: AnyModel) => (this._state.source = source),
     };
   }
 }
@@ -56,6 +55,11 @@ export class ToManyRelation<State extends ToManyRelationState> {
 /**
  * Create a one-to-many relation
  */
-export const oneToMany = <G extends Getter>(getter: G) => {
+export function oneToMany<const G>(
+  getter: G
+): G extends Getter
+  ? ToManyRelation<{ type: "oneToMany"; getter: G }>
+  : never;
+export function oneToMany(getter: Getter) {
   return new ToManyRelation({ type: "oneToMany" as const, getter });
-};
+}

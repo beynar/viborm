@@ -86,9 +86,9 @@ const email = s.string().nullable();
 email.config.fieldType   // "string"
 email.config.isOptional  // true
 
-// Internals (type-level + validators)
+// Internals (type-level + base validator)
 email["~"].infer         // string | null (TypeScript type)
-email["~"].schemas.base["~standard"].validate("test@example.com")  // Validation
+email["~"].state.base["~standard"].validate("test@example.com")  // Base validation
 ```
 
 ## Chainable API Flow

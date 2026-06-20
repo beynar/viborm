@@ -7,12 +7,12 @@ import {
   updateState,
 } from "../common";
 import type { NativeType } from "../native-types";
-import { buildFloatSchema, type FloatSchemas, floatBase } from "./schemas";
+
+const floatBase = v.number();
 
 export class FloatField<State extends FieldState<"float">> {
   private readonly state: State;
   private readonly _nativeType?: NativeType | undefined;
-  private _schemas: FloatSchemas<State> | undefined;
 
   constructor(state: State, _nativeType?: NativeType) {
     this.state = state;
@@ -104,7 +104,6 @@ export class FloatField<State extends FieldState<"float">> {
   get ["~"]() {
     return {
       state: this.state,
-      schemas: (this._schemas ??= buildFloatSchema(this.state)),
       nativeType: this._nativeType,
     };
   }

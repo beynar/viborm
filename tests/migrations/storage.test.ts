@@ -103,7 +103,7 @@ describe("MigrationStorageDriver", () => {
       expect(read!.version).toBe("1");
       expect(read!.dialect).toBe("postgresql");
       expect(read!.entries).toHaveLength(1);
-      expect(read!.entries[0].name).toBe("initial");
+      expect(read!.entries[0]?.name).toBe("initial");
     });
 
     it("should get or create journal", async () => {
@@ -123,7 +123,7 @@ describe("MigrationStorageDriver", () => {
 
       const result = await storage.getOrCreateJournal("postgresql");
       expect(result.entries).toHaveLength(1);
-      expect(result.entries[0].name).toBe("existing");
+      expect(result.entries[0]?.name).toBe("existing");
     });
 
     it("should throw on dialect mismatch", async () => {
@@ -164,7 +164,7 @@ describe("MigrationStorageDriver", () => {
 
       expect(read).not.toBeNull();
       expect(read!.tables).toHaveLength(1);
-      expect(read!.tables[0].name).toBe("users");
+      expect(read!.tables[0]?.name).toBe("users");
     });
 
     it("should return empty snapshot when none exists", async () => {

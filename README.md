@@ -515,8 +515,8 @@ All internal state is accessed via `["~"]`:
 
 ```typescript
 field["~"].state          // FieldState - configuration object
-field["~"].schemas        // {base, filter, create, update} - lazy built
-model["~"].schemas.where  // Where schema for this model
+field["~"].state.base     // Base field schema
+schemaRegistry.proxy.user.core.where // Operation schema for this model
 relation["~"].targetModel // Thunk to target model
 ```
 

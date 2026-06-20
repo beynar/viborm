@@ -10,13 +10,12 @@ import {
   updateState,
 } from "../common";
 import type { NativeType } from "../native-types";
-import { buildDateSchema, type DateSchemas, dateBase } from "./schemas";
 
 const defaultNow = () => new Date().toISOString().split("T")[0]!;
 const defaultUpdatedAt = () => new Date().toISOString().split("T")[0]!;
+const dateBase = v.isoDate();
 
 export class DateField<State extends FieldState<"date">> {
-  private _schemas: DateSchemas<State> | undefined;
   private readonly state: State;
   private readonly _nativeType?: NativeType | undefined;
 
@@ -137,7 +136,6 @@ export class DateField<State extends FieldState<"date">> {
   get ["~"]() {
     return {
       state: this.state,
-      schemas: (this._schemas ??= buildDateSchema(this.state)),
       nativeType: this._nativeType,
     };
   }

@@ -50,6 +50,20 @@ const client = createClient({
   cache: new MemoryCache(),
 });
 
+client.user.create({
+  data: {
+    email: "eze@example.com",
+    pets: [
+      {
+        name: "dog1",
+        age: 10,
+        type: "cat",
+      },
+    ],
+    status: "inactive",
+  },
+});
+
 client.$transaction(async (tx) => {
   await tx.user.exist({
     where: {
@@ -150,17 +164,14 @@ console.log("Created user:", newUser);
 //     authorId: newUser.id,
 //   },
 // });
-// console.log("Created post:", newPost);
 
 // // Find all users
 // const allUsers = await client.user.findMany();
-// console.log("All users:", allUsers);
 
 // // Find user by id
 // const foundUser = await client.user.findFirst({
 //   where: { id: newUser.id },
 // });
-// console.log("Found user:", foundUser);
 
 // // Find user with posts (include)
 
@@ -180,7 +191,6 @@ console.log("Created user:", newUser);
 //     },
 //   },
 // });
-// console.log("User with posts:", userWithPosts);
 
 // // Update the user
 // const updatedUser = await client.user.update({
@@ -199,15 +209,12 @@ console.log("Created user:", newUser);
 //     ],
 //   },
 // });
-// console.log("Updated user:", updatedUser);
 
 // // Count users
 // const userCount = await client.user.count({});
-// console.log("User count:", userCount);
 
 // // Clean up - delete the post first (foreign key constraint)
 // await client.post.delete({ where: { id: newPost.id } });
-// console.log("Deleted post");
 
 // // Delete the user
 // await client.user.delete({ where: { id: newUser.id } });
@@ -226,7 +233,6 @@ console.log("Created user:", newUser);
 //       ],
 //     },
 //   });
-//   console.log("Created user:", newUser);
 //   const newPost = await tx.post.create({
 //     data: {
 //       title: "Hello World2",
@@ -234,10 +240,9 @@ console.log("Created user:", newUser);
 //       authorId: newUser.id,
 //     },
 //   });
-//   console.log("Created post:", newPost);
 // });
-// console.log("Deleted user");
 
 // Disconnect
+
 await client.$disconnect();
 console.log("\nDone!");

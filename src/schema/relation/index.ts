@@ -11,10 +11,6 @@ export {
   getJunctionTableName,
 } from "./helpers";
 export { ManyToManyRelation, manyToMany } from "./many-to-many";
-// =============================================================================
-// SCHEMAS
-// =============================================================================
-export * from "./schemas";
 export { oneToMany, ToManyRelation } from "./to-many";
 // =============================================================================
 // RELATION CLASSES

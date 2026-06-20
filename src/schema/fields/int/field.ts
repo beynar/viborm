@@ -7,10 +7,10 @@ import {
   updateState,
 } from "../common";
 import type { NativeType } from "../native-types";
-import { buildIntSchema, type IntSchemas, intBase } from "./schemas";
+
+const intBase = v.integer();
 
 export class IntField<State extends FieldState<"int">> {
-  private _schemas: IntSchemas<State> | undefined;
   private readonly state: State;
   private readonly _nativeType?: NativeType | undefined;
 
@@ -116,7 +116,6 @@ export class IntField<State extends FieldState<"int">> {
   get ["~"]() {
     return {
       state: this.state,
-      schemas: (this._schemas ??= buildIntSchema(this.state)),
       nativeType: this._nativeType,
     };
   }

@@ -28,6 +28,19 @@ import {
   selfRefOneToManySchemas,
 } from "./fixtures";
 
+type RelationOutput = {
+  readonly [key: string]: unknown;
+  readonly select?: RelationOutput;
+  readonly include?: Record<string, RelationOutput>;
+  readonly where?: Record<string, RelationOutput>;
+  readonly orderBy?: Record<string, unknown>;
+  readonly take?: number;
+  readonly skip?: number;
+  readonly cursor?: unknown;
+};
+
+const output = (value: unknown): RelationOutput => value as RelationOutput;
+
 // =============================================================================
 // TO-ONE SELECT
 // =============================================================================
@@ -58,11 +71,11 @@ describe("ToOne Select (Post.author)", () => {
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
         // Boolean true transforms to { select: { ...all fields } }
-        expect(result.value).toHaveProperty("select");
-        expect(result.value.select).toHaveProperty("id", true);
-        expect(result.value.select).toHaveProperty("name", true);
-        expect(result.value.select).toHaveProperty("email", true);
-        expect(result.value.select).not.toHaveProperty("posts", true);
+        expect(output(result.value)).toHaveProperty("select");
+        expect(output(result.value).select).toHaveProperty("id", true);
+        expect(output(result.value).select).toHaveProperty("name", true);
+        expect(output(result.value).select).toHaveProperty("email", true);
+        expect(output(result.value).select).not.toHaveProperty("posts", true);
       }
     });
 
@@ -71,7 +84,7 @@ describe("ToOne Select (Post.author)", () => {
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
         // Boolean false transforms to { select: false }
-        expect(result.value).toHaveProperty("select", false);
+        expect(output(result.value)).toHaveProperty("select", false);
       }
     });
 
@@ -86,8 +99,8 @@ describe("ToOne Select (Post.author)", () => {
       expect(result.issues).toBeUndefined();
 
       if (!result.issues) {
-        expect(result.value.select?.id).toBe(true);
-        expect(result.value.select?.name).toBe(true);
+        expect(output(result.value).select?.id).toBe(true);
+        expect(output(result.value).select?.name).toBe(true);
       }
     });
 
@@ -96,7 +109,7 @@ describe("ToOne Select (Post.author)", () => {
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
         // Empty object passes through without transformation (no boolean)
-        expect(result.value).toEqual({});
+        expect(output(result.value)).toEqual({});
       }
     });
 
@@ -111,9 +124,9 @@ describe("ToOne Select (Post.author)", () => {
       const result = parse(schema, input);
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
-        expect(result.value.select?.id).toBe(true);
-        expect(result.value.select?.name).toBe(true);
-        expect(result.value.select?.email).toBe(false);
+        expect(output(result.value).select?.id).toBe(true);
+        expect(output(result.value).select?.name).toBe(true);
+        expect(output(result.value).select?.email).toBe(false);
       }
     });
   });
@@ -149,13 +162,12 @@ describe("ToOne Include (Post.author)", () => {
     test("runtime: accepts boolean true - transforms to select object", () => {
       const result = parse(schema, true);
       expect(result.issues).toBeUndefined();
-      console.dir(result, { depth: null });
       if (!result.issues) {
         // Boolean true transforms to { select: { ...all fields } }
-        expect(result.value).toHaveProperty("select");
-        expect(result.value.select).toHaveProperty("id", true);
-        expect(result.value.select).toHaveProperty("name", true);
-        expect(result.value.select).toHaveProperty("email", true);
+        expect(output(result.value)).toHaveProperty("select");
+        expect(output(result.value).select).toHaveProperty("id", true);
+        expect(output(result.value).select).toHaveProperty("name", true);
+        expect(output(result.value).select).toHaveProperty("email", true);
       }
     });
 
@@ -170,8 +182,8 @@ describe("ToOne Include (Post.author)", () => {
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
         // When explicit select provided, it's preserved
-        expect(result.value.select?.id).toBe(true);
-        expect(result.value.select?.name).toBe(true);
+        expect(output(result.value).select?.id).toBe(true);
+        expect(output(result.value).select?.name).toBe(true);
       }
     });
 
@@ -185,9 +197,9 @@ describe("ToOne Include (Post.author)", () => {
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
         // Include without select gets default select added
-        expect(result.value).toHaveProperty("select");
+        expect(output(result.value)).toHaveProperty("select");
         // Nested posts: true is also transformed
-        expect(result.value.include?.posts).toHaveProperty("select");
+        expect(output(result.value).include?.posts).toHaveProperty("select");
       }
     });
 
@@ -200,9 +212,9 @@ describe("ToOne Include (Post.author)", () => {
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
         // Explicit select is preserved
-        expect(result.value.select?.id).toBe(true);
+        expect(output(result.value).select?.id).toBe(true);
         // Nested posts: true is transformed
-        expect(result.value.include?.posts).toHaveProperty("select");
+        expect(output(result.value).include?.posts).toHaveProperty("select");
       }
     });
 
@@ -220,11 +232,11 @@ describe("ToOne Include (Post.author)", () => {
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
         // Top level gets select added
-        expect(result.value).toHaveProperty("select");
+        expect(output(result.value)).toHaveProperty("select");
         // Nested posts gets select added
-        expect(result.value.include?.posts).toHaveProperty("select");
+        expect(output(result.value).include?.posts).toHaveProperty("select");
         // Deeply nested author: true transforms
-        expect(result.value.include?.posts?.include?.author).toHaveProperty(
+        expect(output(result.value).include?.posts?.include?.author).toHaveProperty(
           "select"
         );
       }
@@ -272,12 +284,12 @@ describe("ToMany Select (Author.posts)", () => {
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
         // Boolean true transforms to { select: { ...all Post fields } }
-        expect(result.value).toHaveProperty("select");
-        expect(result.value.select).toHaveProperty("id", true);
-        expect(result.value.select).toHaveProperty("title", true);
-        expect(result.value.select).toHaveProperty("content", true);
-        expect(result.value.select).toHaveProperty("published", true);
-        expect(result.value.select).toHaveProperty("authorId", true);
+        expect(output(result.value)).toHaveProperty("select");
+        expect(output(result.value).select).toHaveProperty("id", true);
+        expect(output(result.value).select).toHaveProperty("title", true);
+        expect(output(result.value).select).toHaveProperty("content", true);
+        expect(output(result.value).select).toHaveProperty("published", true);
+        expect(output(result.value).select).toHaveProperty("authorId", true);
       }
     });
 
@@ -291,8 +303,8 @@ describe("ToMany Select (Author.posts)", () => {
       const result = parse(schema, input);
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
-        expect(result.value.select?.id).toBe(true);
-        expect(result.value.select?.title).toBe(true);
+        expect(output(result.value).select?.id).toBe(true);
+        expect(output(result.value).select?.title).toBe(true);
       }
     });
 
@@ -305,8 +317,8 @@ describe("ToMany Select (Author.posts)", () => {
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
         // Scalar filter values are transformed to { equals: value }
-        expect(result.value.where?.published).toEqual({ equals: true });
-        expect(result.value.select?.id).toBe(true);
+        expect(output(result.value).where?.published).toEqual({ equals: true });
+        expect(output(result.value).select?.id).toBe(true);
       }
     });
 
@@ -319,9 +331,9 @@ describe("ToMany Select (Author.posts)", () => {
       const result = parse(schema, input);
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
-        expect(result.value.take).toBe(10);
-        expect(result.value.skip).toBe(5);
-        expect(result.value.select?.id).toBe(true);
+        expect(output(result.value).take).toBe(10);
+        expect(output(result.value).skip).toBe(5);
+        expect(output(result.value).select?.id).toBe(true);
       }
     });
 
@@ -333,8 +345,8 @@ describe("ToMany Select (Author.posts)", () => {
       const result = parse(schema, input);
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
-        expect(result.value.orderBy?.title).toBe("asc");
-        expect(result.value.select?.id).toBe(true);
+        expect(output(result.value).orderBy?.title).toBe("asc");
+        expect(output(result.value).select?.id).toBe(true);
       }
     });
 
@@ -350,12 +362,12 @@ describe("ToMany Select (Author.posts)", () => {
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
         // Scalar filter values are transformed to { equals: value }
-        expect(result.value.where?.published).toEqual({ equals: true });
-        expect(result.value.orderBy?.title).toBe("desc");
-        expect(result.value.take).toBe(10);
-        expect(result.value.skip).toBe(0);
-        expect(result.value.select?.id).toBe(true);
-        expect(result.value.select?.title).toBe(true);
+        expect(output(result.value).where?.published).toEqual({ equals: true });
+        expect(output(result.value).orderBy?.title).toBe("desc");
+        expect(output(result.value).take).toBe(10);
+        expect(output(result.value).skip).toBe(0);
+        expect(output(result.value).select?.id).toBe(true);
+        expect(output(result.value).select?.title).toBe(true);
       }
     });
   });
@@ -396,9 +408,9 @@ describe("ToMany Include (Author.posts)", () => {
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
         // Boolean true transforms to { select: { ...all Post fields } }
-        expect(result.value).toHaveProperty("select");
-        expect(result.value.select).toHaveProperty("id", true);
-        expect(result.value.select).toHaveProperty("title", true);
+        expect(output(result.value)).toHaveProperty("select");
+        expect(output(result.value).select).toHaveProperty("id", true);
+        expect(output(result.value).select).toHaveProperty("title", true);
       }
     });
 
@@ -408,9 +420,9 @@ describe("ToMany Include (Author.posts)", () => {
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
         // Scalar filter values are transformed to { equals: value }
-        expect(result.value.where?.published).toEqual({ equals: true });
+        expect(output(result.value).where?.published).toEqual({ equals: true });
         // Default select is added
-        expect(result.value).toHaveProperty("select");
+        expect(output(result.value)).toHaveProperty("select");
       }
     });
 
@@ -419,10 +431,10 @@ describe("ToMany Include (Author.posts)", () => {
       const result = parse(schema, input);
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
-        expect(result.value.take).toBe(10);
-        expect(result.value.skip).toBe(5);
+        expect(output(result.value).take).toBe(10);
+        expect(output(result.value).skip).toBe(5);
         // Default select is added
-        expect(result.value).toHaveProperty("select");
+        expect(output(result.value)).toHaveProperty("select");
       }
     });
 
@@ -431,9 +443,9 @@ describe("ToMany Include (Author.posts)", () => {
       const result = parse(schema, input);
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
-        expect(result.value.orderBy?.title).toBe("asc");
+        expect(output(result.value).orderBy?.title).toBe("asc");
         // Default select is added
-        expect(result.value).toHaveProperty("select");
+        expect(output(result.value)).toHaveProperty("select");
       }
     });
 
@@ -442,9 +454,9 @@ describe("ToMany Include (Author.posts)", () => {
       const result = parse(schema, input);
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
-        expect(result.value.cursor).toBe("cursor-value");
+        expect(output(result.value).cursor).toBe("cursor-value");
         // Default select is added
-        expect(result.value).toHaveProperty("select");
+        expect(output(result.value)).toHaveProperty("select");
       }
     });
 
@@ -458,9 +470,9 @@ describe("ToMany Include (Author.posts)", () => {
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
         // Default select is added
-        expect(result.value).toHaveProperty("select");
+        expect(output(result.value)).toHaveProperty("select");
         // Nested author: true transforms to { select: {...} }
-        expect(result.value.include?.author).toHaveProperty("select");
+        expect(output(result.value).include?.author).toHaveProperty("select");
       }
     });
 
@@ -475,8 +487,8 @@ describe("ToMany Include (Author.posts)", () => {
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
         // Explicit select is preserved
-        expect(result.value.select?.id).toBe(true);
-        expect(result.value.select?.title).toBe(true);
+        expect(output(result.value).select?.id).toBe(true);
+        expect(output(result.value).select?.title).toBe(true);
       }
     });
 
@@ -494,15 +506,15 @@ describe("ToMany Include (Author.posts)", () => {
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
         // Scalar filter values are transformed to { equals: value }
-        expect(result.value.where?.published).toEqual({ equals: true });
-        expect(result.value.orderBy?.title).toBe("desc");
-        expect(result.value.take).toBe(10);
-        expect(result.value.skip).toBe(0);
-        expect(result.value.cursor).toBe("cursor-123");
+        expect(output(result.value).where?.published).toEqual({ equals: true });
+        expect(output(result.value).orderBy?.title).toBe("desc");
+        expect(output(result.value).take).toBe(10);
+        expect(output(result.value).skip).toBe(0);
+        expect(output(result.value).cursor).toBe("cursor-123");
         // Explicit select is preserved
-        expect(result.value.select?.id).toBe(true);
+        expect(output(result.value).select?.id).toBe(true);
         // Nested author: true transforms
-        expect(result.value.include?.author).toHaveProperty("select");
+        expect(output(result.value).include?.author).toHaveProperty("select");
       }
     });
   });
@@ -522,9 +534,9 @@ describe("Optional Relation Select/Include (Profile.user)", () => {
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
         // Boolean true transforms to { select: { ...all User fields } }
-        expect(result.value).toHaveProperty("select");
-        expect(result.value.select).toHaveProperty("id", true);
-        expect(result.value.select).toHaveProperty("username", true);
+        expect(output(result.value)).toHaveProperty("select");
+        expect(output(result.value).select).toHaveProperty("id", true);
+        expect(output(result.value).select).toHaveProperty("username", true);
       }
     });
 
@@ -533,8 +545,8 @@ describe("Optional Relation Select/Include (Profile.user)", () => {
       const result = parse(selectSchema, input);
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
-        expect(result.value.select?.id).toBe(true);
-        expect(result.value.select?.username).toBe(true);
+        expect(output(result.value).select?.id).toBe(true);
+        expect(output(result.value).select?.username).toBe(true);
       }
     });
   });
@@ -545,9 +557,9 @@ describe("Optional Relation Select/Include (Profile.user)", () => {
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
         // Boolean true transforms to { select: { ...all User fields } }
-        expect(result.value).toHaveProperty("select");
-        expect(result.value.select).toHaveProperty("id", true);
-        expect(result.value.select).toHaveProperty("username", true);
+        expect(output(result.value)).toHaveProperty("select");
+        expect(output(result.value).select).toHaveProperty("id", true);
+        expect(output(result.value).select).toHaveProperty("username", true);
       }
     });
 
@@ -561,9 +573,9 @@ describe("Optional Relation Select/Include (Profile.user)", () => {
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
         // Default select is added
-        expect(result.value).toHaveProperty("select");
+        expect(output(result.value)).toHaveProperty("select");
         // Nested profile: true transforms
-        expect(result.value.include?.profile).toHaveProperty("select");
+        expect(output(result.value).include?.profile).toHaveProperty("select");
       }
     });
   });
@@ -588,8 +600,8 @@ describe("Self-Referential Select/Include (User.subordinates)", () => {
       const result = parse(selectSchema, input);
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
-        expect(result.value.select?.id).toBe(true);
-        expect(result.value.select?.username).toBe(true);
+        expect(output(result.value).select?.id).toBe(true);
+        expect(output(result.value).select?.username).toBe(true);
       }
     });
 
@@ -603,9 +615,9 @@ describe("Self-Referential Select/Include (User.subordinates)", () => {
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
         // Default select is added
-        expect(result.value).toHaveProperty("select");
+        expect(output(result.value)).toHaveProperty("select");
         // Nested subordinates: true transforms
-        expect(result.value.include?.subordinates).toHaveProperty("select");
+        expect(output(result.value).include?.subordinates).toHaveProperty("select");
       }
     });
 
@@ -623,11 +635,11 @@ describe("Self-Referential Select/Include (User.subordinates)", () => {
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
         // Default select is added at each level
-        expect(result.value).toHaveProperty("select");
-        expect(result.value.include?.subordinates).toHaveProperty("select");
+        expect(output(result.value)).toHaveProperty("select");
+        expect(output(result.value).include?.subordinates).toHaveProperty("select");
         // Deeply nested subordinates: true transforms
         expect(
-          result.value.include?.subordinates?.include?.subordinates
+          output(result.value).include?.subordinates?.include?.subordinates
         ).toHaveProperty("select");
       }
     });
@@ -641,9 +653,9 @@ describe("Self-Referential Select/Include (User.subordinates)", () => {
       const result = parse(selectSchema, input);
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
-        expect(result.value.take).toBe(10);
-        expect(result.value.where?.username?.startsWith).toBe("user");
-        expect(result.value.select?.id).toBe(true);
+        expect(output(result.value).take).toBe(10);
+        expect(output(result.value).where?.username?.startsWith).toBe("user");
+        expect(output(result.value).select?.id).toBe(true);
       }
     });
   });

@@ -1,18 +1,6 @@
-import v from "@validation";
-import type {
-  InferOutput,
-  ValidationResult,
-  VibSchema,
-} from "@validation/types";
+import v, { parse } from "@validation";
+import type { InferOutput, VibSchema } from "@validation/types";
 import { describe, expect, expectTypeOf, test } from "vitest";
-
-// Helper to get sync result from parse (parse is always sync in these tests)
-function parse<T>(
-  schema: { parse: (v: unknown) => any },
-  value: unknown
-): ValidationResult<T> {
-  return schema.parse(value) as ValidationResult<T>;
-}
 
 describe("fromObject", () => {
   test("extracts schemas at a simple path and validates", () => {
@@ -39,6 +27,41 @@ describe("fromObject", () => {
     expect(invalidResult.issues).toBeDefined();
   });
 
+  test("builds an empty schema from an empty source object", () => {
+    const schema = v.fromObject({}, "create");
+
+    expect(schema.type).toBe("object");
+    expect(schema.entries).toEqual({});
+
+    const result = parse(schema, {});
+    expect(result.issues).toBeUndefined();
+    expect((result as any).value).toEqual({});
+  });
+
+  test("throws when a path matches no entries in a non-empty source object", () => {
+    const object = {
+      key1: { update: v.string() },
+      key2: { update: v.number() },
+    };
+
+    expect(() => v.fromObject(object, "create")).toThrow(
+      'fromObject path "create" did not match any entries in the source object',
+    );
+  });
+
+  test("does not throw when only some entries miss the path", () => {
+    const object = {
+      key1: { create: v.string() },
+      key2: { update: v.number() },
+    };
+
+    const schema = v.fromObject(object, "create");
+
+    expect(Object.keys(schema.entries)).toEqual(["key1"]);
+    const result = parse(schema, { key1: "hello" });
+    expect(result.issues).toBeUndefined();
+  });
+
   test("extracts schemas at a nested path (2 levels)", () => {
     const nestedObject = {
       user: { profile: { settings: v.boolean() } },
@@ -56,6 +79,17 @@ describe("fromObject", () => {
     // Test validation
     const validResult = parse(schema, { user: true, post: "active" });
     expect(validResult.issues).toBeUndefined();
+  });
+
+  test("throws when a nested path matches no entries in a non-empty source object", () => {
+    const object = {
+      user: { profile: { update: v.string() } },
+      post: { profile: { update: v.number() } },
+    };
+
+    expect(() => v.fromObject(object, "profile.create")).toThrow(
+      'fromObject path "profile.create" did not match any entries in the source object',
+    );
   });
 
   test("extracts schemas at deeply nested path (3 levels)", () => {

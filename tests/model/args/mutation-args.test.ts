@@ -79,11 +79,8 @@ describe("Create Args - Simple Model Runtime", () => {
       },
     };
     const result = parse(schema, input);
-    console.dir(result, { depth: null });
     const age = schema.entries.data.entries.age;
     const resultAge = parse(age, undefined);
-    console.dir(resultAge, { depth: null });
-    console.dir(schema.entries.data.entries.age, { depth: null });
     expect(result.issues).toBeUndefined();
     if (!result.issues) {
       // Schema injects defaults for optional fields with defaults
@@ -144,6 +141,24 @@ describe("Create Args - Author Model Runtime (with relations)", () => {
 // CREATE MANY ARGS
 // =============================================================================
 
+describe("CreateMany Args - Types", () => {
+  type Input = InferInput<typeof simpleSchemas.args.createMany>;
+
+  test("type: requires data", () => {
+    expectTypeOf<{}>().not.toMatchTypeOf<Input>();
+    expectTypeOf<{
+      data: Array<{ id: string; name: string; email: string }>;
+    }>().toMatchTypeOf<Input>();
+  });
+
+  test("type: accepts optional skipDuplicates", () => {
+    expectTypeOf<{
+      data: Array<{ id: string; name: string; email: string }>;
+      skipDuplicates?: boolean;
+    }>().toMatchTypeOf<Input>();
+  });
+});
+
 describe("CreateMany Args - Simple Model Runtime", () => {
   const schema = simpleSchemas.args.createMany;
 
@@ -181,11 +196,11 @@ describe("CreateMany Args - Simple Model Runtime", () => {
       expect(Array.isArray(result.value.data)).toBe(true);
       expect(result.value.data).toHaveLength(2);
       // Schema injects defaults for optional fields with defaults
-      expect(result.value.data[0].id).toBe("user-1");
-      expect(result.value.data[0].name).toBe("Alice");
-      expect(result.value.data[0].active).toBe(true);
-      expect(result.value.data[1].id).toBe("user-2");
-      expect(result.value.data[1].name).toBe("Bob");
+      expect(result.value.data[0]?.id).toBe("user-1");
+      expect(result.value.data[0]?.name).toBe("Alice");
+      expect(result.value.data[0]?.active).toBe(true);
+      expect(result.value.data[1]?.id).toBe("user-2");
+      expect(result.value.data[1]?.name).toBe("Bob");
     }
   });
 
@@ -399,7 +414,9 @@ describe("DeleteMany Args - Simple Model Runtime", () => {
     expect(result.issues).toBeUndefined();
     if (!result.issues) {
       // Filter values are normalized to { equals: value }
-      expect(result.value.where).toEqual({ active: { equals: false } });
+      expect((result.value as { where: unknown }).where).toEqual({
+        active: { equals: false },
+      });
     }
   });
 });

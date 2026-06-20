@@ -7,10 +7,10 @@ import {
   updateState,
 } from "../common";
 import type { NativeType } from "../native-types";
-import { buildJsonSchema, type JsonSchemas, jsonBase } from "./schemas";
+
+const jsonBase = v.json();
 
 export class JsonField<State extends FieldState<"json"> = FieldState<"json">> {
-  private _schemas: JsonSchemas<State> | undefined;
   private readonly state: State;
   private readonly _nativeType?: NativeType | undefined;
   constructor(state: State, _nativeType?: NativeType) {
@@ -71,7 +71,6 @@ export class JsonField<State extends FieldState<"json"> = FieldState<"json">> {
   get ["~"]() {
     return {
       state: this.state,
-      schemas: (this._schemas ??= buildJsonSchema(this.state)),
       nativeType: this._nativeType,
     };
   }

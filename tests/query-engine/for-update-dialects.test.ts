@@ -147,3 +147,53 @@ describe("FOR UPDATE SQL Generation", () => {
     });
   });
 });
+describe("Skip Duplicates SQL Generation", () => {
+  const buildCreateManySkipDuplicates = (
+    adapter: DatabaseAdapter,
+    table: ReturnType<typeof sql>
+  ) => {
+    const { prefix, suffix } = adapter.mutations.skipDuplicates();
+    const insert = adapter.mutations.insert(
+      table,
+      ["id", "name"],
+      [[sql`1`, sql`'Alice'`]],
+      prefix
+    );
+    return sql`${insert} ${suffix}`;
+  };
+
+  test("PostgreSQL emits ON CONFLICT DO NOTHING", () => {
+    const adapter = new PostgresAdapter();
+    const statement = buildCreateManySkipDuplicates(
+      adapter,
+      sql`"users"`
+    ).toStatement("$n");
+
+    expect(statement).toMatch(/INSERT\s+INTO/);
+    expect(statement).toContain("ON CONFLICT DO NOTHING");
+    expect(statement).not.toContain("INSERT IGNORE");
+  });
+
+  test("SQLite emits ON CONFLICT DO NOTHING", () => {
+    const adapter = new SQLiteAdapter();
+    const statement = buildCreateManySkipDuplicates(
+      adapter,
+      sql`"users"`
+    ).toStatement("?");
+
+    expect(statement).toMatch(/INSERT\s+INTO/);
+    expect(statement).toContain("ON CONFLICT DO NOTHING");
+    expect(statement).not.toContain("INSERT IGNORE");
+  });
+
+  test("MySQL emits INSERT IGNORE", () => {
+    const adapter = new MySQLAdapter();
+    const statement = buildCreateManySkipDuplicates(
+      adapter,
+      sql`\`users\``
+    ).toStatement("?");
+
+    expect(statement).toContain("INSERT IGNORE INTO");
+    expect(statement).not.toContain("ON CONFLICT");
+  });
+});

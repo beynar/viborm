@@ -1,8 +1,7 @@
 /**
  * Number Fields Module
  *
- * Re-exports all number-related fields and schemas.
+ * Re-exports all number-related field factories and classes.
  */
 
 export * from "./field";
-export * from "./schemas";

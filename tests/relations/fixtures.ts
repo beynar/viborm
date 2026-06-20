@@ -9,8 +9,7 @@
  */
 
 import { s } from "@schema";
-import { getRelationSchemas } from "@schema/relation/schemas";
-import type { RelationState } from "@schema/relation/types";
+import { createSchemaRegistry } from "@validation";
 
 // =============================================================================
 // BASE MODELS
@@ -73,71 +72,59 @@ const userFields = User["~"].state.fields;
 /**
  * Required manyToOne relation state (Post.author)
  */
-export const requiredManyToOneState = postFields.author["~"]
-  .state as RelationState;
+export const requiredManyToOneState = postFields.author["~"].state;
 
 /**
  * Required oneToMany relation state (Author.posts)
  */
-export const requiredOneToManyState = authorFields.posts["~"]
-  .state as RelationState;
+export const requiredOneToManyState = authorFields.posts["~"].state;
 
 /**
  * Optional oneToOne relation state (Profile.user)
  */
-export const optionalOneToOneState = profileFields.user["~"]
-  .state as RelationState;
+export const optionalOneToOneState = profileFields.user["~"].state;
 
 /**
  * Optional manyToOne relation state (User.manager - self-referential)
  */
-export const optionalManyToOneState = userFields.manager["~"]
-  .state as RelationState;
+export const optionalManyToOneState = userFields.manager["~"].state;
 
 /**
  * Self-referential oneToMany relation state (User.subordinates)
  */
-export const selfRefOneToManyState = userFields.subordinates["~"]
-  .state as RelationState;
+export const selfRefOneToManyState = userFields.subordinates["~"].state;
 
 // =============================================================================
 // RELATION SCHEMAS (generated from states)
 // =============================================================================
 
+const schemaRegistry = createSchemaRegistry({ Author, Post, Profile, User });
+
 /**
  * Schemas for required manyToOne relation (Post.author)
  */
-export const requiredManyToOneSchemas = getRelationSchemas(
-  requiredManyToOneState
-);
+export const requiredManyToOneSchemas = schemaRegistry.proxy.Post.relations.author;
 
 /**
  * Schemas for required oneToMany relation (Author.posts)
  */
-export const requiredOneToManySchemas = getRelationSchemas(
-  requiredOneToManyState
-);
+export const requiredOneToManySchemas = schemaRegistry.proxy.Author.relations.posts;
 
 /**
  * Schemas for optional oneToOne relation (Profile.user)
  */
-export const optionalOneToOneSchemas = getRelationSchemas(
-  optionalOneToOneState
-);
+export const optionalOneToOneSchemas = schemaRegistry.proxy.Profile.relations.user;
 
 /**
  * Schemas for optional manyToOne relation (User.manager)
  */
-export const optionalManyToOneSchemas = getRelationSchemas(
-  optionalManyToOneState
-);
+export const optionalManyToOneSchemas = schemaRegistry.proxy.User.relations.manager;
 
 /**
  * Schemas for self-referential oneToMany relation (User.subordinates)
  */
-export const selfRefOneToManySchemas = getRelationSchemas(
-  selfRefOneToManyState
-);
+export const selfRefOneToManySchemas =
+  schemaRegistry.proxy.User.relations.subordinates;
 
 // =============================================================================
 // TYPE EXPORTS

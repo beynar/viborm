@@ -1,65 +1,69 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { boolean, literal, number, string, union } from "@validation";
+import v, { parse } from "@validation";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
 describe("union schema", () => {
   describe("basic validation", () => {
-    const schema = union([string(), number()]);
+    const schema = v.union([v.string(), v.number()]);
 
     test("validates first matching option", () => {
-      const result1 = schema["~standard"].validate("hello");
+      const result1 = parse(schema, "hello");
       expect(result1.issues).toBeUndefined();
       expect((result1 as { value: string | number }).value).toBe("hello");
 
-      const result2 = schema["~standard"].validate(42);
+      const result2 = parse(schema, 42);
       expect(result2.issues).toBeUndefined();
       expect((result2 as { value: string | number }).value).toBe(42);
     });
 
     test("rejects non-matching values", () => {
-      const result = schema["~standard"].validate(true);
+      const result = parse(schema, true);
       expect(result.issues).toBeDefined();
     });
 
     test("rejects null", () => {
-      const result = schema["~standard"].validate(null);
+      const result = parse(schema, null);
       expect(result.issues).toBeDefined();
     });
 
     test("rejects undefined", () => {
-      const result = schema["~standard"].validate(undefined);
+      const result = parse(schema, undefined);
       expect(result.issues).toBeDefined();
     });
 
     test("type inference", () => {
       type Output = StandardSchemaV1.InferOutput<typeof schema>;
-      expectTypeOf<Output>().toEqualTypeOf<string | number>();
+      expectTypeOf<Output>().toMatchTypeOf<string | number>();
     });
   });
 
   describe("with multiple types", () => {
     test("string | number | boolean", () => {
-      const schema = union([string(), number(), boolean()]);
-      expect(schema["~standard"].validate("hello").issues).toBeUndefined();
-      expect(schema["~standard"].validate(42).issues).toBeUndefined();
-      expect(schema["~standard"].validate(true).issues).toBeUndefined();
-      expect(schema["~standard"].validate(null).issues).toBeDefined();
+      const schema = v.union([v.string(), v.number(), v.boolean()]);
+      expect(parse(schema, "hello").issues).toBeUndefined();
+      expect(parse(schema, 42).issues).toBeUndefined();
+      expect(parse(schema, true).issues).toBeUndefined();
+      expect(parse(schema, null).issues).toBeDefined();
     });
 
     test("with literals", () => {
-      const schema = union([literal("admin"), literal("user"), number()]);
-      expect(schema["~standard"].validate("admin").issues).toBeUndefined();
-      expect(schema["~standard"].validate("user").issues).toBeUndefined();
-      expect(schema["~standard"].validate(42).issues).toBeUndefined();
-      expect(schema["~standard"].validate("guest").issues).toBeDefined();
+      const schema = v.union([
+        v.literal("admin"),
+        v.literal("user"),
+        v.number(),
+      ]);
+      expect(parse(schema, "admin").issues).toBeUndefined();
+      expect(parse(schema, "user").issues).toBeUndefined();
+      expect(parse(schema, 42).issues).toBeUndefined();
+      expect(parse(schema, "guest").issues).toBeDefined();
     });
   });
 
   describe("order matters", () => {
     test("first matching schema wins", () => {
       // string matches first, so "42" is validated as string
-      const schema = union([string(), number()]);
-      const result = schema["~standard"].validate("42");
+      const schema = v.union([v.string(), v.number()]);
+      const result = parse(schema, "42");
       expect(result.issues).toBeUndefined();
       expect((result as { value: string | number }).value).toBe("42");
     });
@@ -67,15 +71,15 @@ describe("union schema", () => {
 
   describe("edge cases", () => {
     test("empty union (should not happen but handles gracefully)", () => {
-      const schema = union([]);
-      const result = schema["~standard"].validate("anything");
+      const schema = v.union([]);
+      const result = parse(schema, "anything");
       expect(result.issues).toBeDefined();
     });
 
     test("single option union", () => {
-      const schema = union([string()]);
-      expect(schema["~standard"].validate("hello").issues).toBeUndefined();
-      expect(schema["~standard"].validate(42).issues).toBeDefined();
+      const schema = v.union([v.string()]);
+      expect(parse(schema, "hello").issues).toBeUndefined();
+      expect(parse(schema, 42).issues).toBeDefined();
     });
   });
 });

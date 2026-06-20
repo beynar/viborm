@@ -10,17 +10,12 @@ import {
   updateState,
 } from "../common";
 import type { NativeType } from "../native-types";
-import {
-  buildDateTimeSchema,
-  type DateTimeSchemas,
-  datetimeBase,
-} from "./schemas";
 
 const defaultNow = () => new Date().toISOString();
 const defaultUpdatedAt = () => new Date().toISOString();
+const datetimeBase = v.isoTimestamp();
 
 export class DateTimeField<State extends FieldState<"datetime">> {
-  private _schemas: DateTimeSchemas<State> | undefined;
   private readonly state: State;
   private readonly _nativeType?: NativeType | undefined;
   constructor(state: State, _nativeType?: NativeType) {
@@ -147,7 +142,6 @@ export class DateTimeField<State extends FieldState<"datetime">> {
   get ["~"]() {
     return {
       state: this.state,
-      schemas: (this._schemas ??= buildDateTimeSchema(this.state)),
       nativeType: this._nativeType,
     };
   }

@@ -10,7 +10,6 @@ import {
   updateState,
 } from "../common";
 import type { NativeType } from "../native-types";
-import { buildTimeSchema, type TimeSchemas, timeBase } from "./schemas";
 
 const defaultNow = () => {
   const now = new Date();
@@ -20,9 +19,9 @@ const defaultUpdatedAt = () => {
   const now = new Date();
   return now.toISOString().split("T")[1]?.split(".")[0] ?? ""; // "HH:MM:SS"
 };
+const timeBase = v.isoTime();
 
 export class TimeField<State extends FieldState<"time">> {
-  private _schemas: TimeSchemas<State> | undefined;
   private readonly state: State;
   private readonly _nativeType?: NativeType | undefined;
 
@@ -158,7 +157,6 @@ export class TimeField<State extends FieldState<"time">> {
   get ["~"]() {
     return {
       state: this.state,
-      schemas: (this._schemas ??= buildTimeSchema(this.state)),
       nativeType: this._nativeType,
     };
   }

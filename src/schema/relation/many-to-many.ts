@@ -1,7 +1,7 @@
 // ManyToMany Relation Class (Standalone)
 // For many-to-many relations with junction table configuration
 
-import { getRelationSchemas } from "./schemas";
+import type { AnyModel } from "@schema/model";
 import type {
   Getter,
   ManyToManyRelationState,
@@ -39,7 +39,6 @@ import type {
  */
 export class ManyToManyRelation<State extends ManyToManyRelationState> {
   private readonly _state: State;
-  private _schemas: ReturnType<typeof getRelationSchemas<State>> | undefined;
 
   constructor(state: State) {
     this._state = state;
@@ -98,20 +97,20 @@ export class ManyToManyRelation<State extends ManyToManyRelationState> {
   /**
    * Set a custom name for this relation
    */
-  name(name: string) {
-    return new ManyToManyRelation<State & { name: string }>({
+  name<const N extends string>(name: N) {
+    return new ManyToManyRelation<State & { name: N }>({
       ...this._state,
       name,
     });
   }
 
   /**
-   * Internal accessor for state and schemas
+   * Internal accessor for state and source binding.
    */
   get "~"() {
     return {
       state: this._state,
-      schemas: (this._schemas ??= getRelationSchemas(this._state)),
+      setSource: (source: AnyModel) => (this._state.source = source),
     };
   }
 }
@@ -123,6 +122,11 @@ export class ManyToManyRelation<State extends ManyToManyRelationState> {
 /**
  * Create a many-to-many relation
  */
-export const manyToMany = <G extends Getter>(getter: G) => {
+export function manyToMany<const G>(
+  getter: G
+): G extends Getter
+  ? ManyToManyRelation<{ type: "manyToMany"; getter: G }>
+  : never;
+export function manyToMany(getter: Getter) {
   return new ManyToManyRelation({ type: "manyToMany" as const, getter });
-};
+}

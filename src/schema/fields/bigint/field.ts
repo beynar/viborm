@@ -10,10 +10,10 @@ import {
   updateState,
 } from "../common";
 import type { NativeType } from "../native-types";
-import { type BigIntSchemas, bigIntBase, buildBigIntSchema } from "./schemas";
+
+const bigIntBase = v.bigint();
 
 export class BigIntField<State extends FieldState<"bigint">> {
-  private _schemas: BigIntSchemas<State> | undefined;
   private readonly state: State;
   private readonly _nativeType?: NativeType | undefined;
 
@@ -44,7 +44,6 @@ export class BigIntField<State extends FieldState<"bigint">> {
   array() {
     return new BigIntField(
       updateState(this, {
-        ...this.state,
         array: true,
         base: v.bigint<{
           nullable: State["nullable"];
@@ -116,7 +115,6 @@ export class BigIntField<State extends FieldState<"bigint">> {
   get ["~"]() {
     return {
       state: this.state,
-      schemas: (this._schemas ??= buildBigIntSchema(this.state)),
       nativeType: this._nativeType,
     };
   }

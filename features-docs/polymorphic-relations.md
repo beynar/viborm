@@ -408,7 +408,7 @@ Before diving into phases, here's how polymorphic relations affect each of VibOR
 |-------|----------|-----------|--------|
 | **L1: Validation** | `src/validation/` | ✅ Yes | Add `v.discriminatedUnion()` helper |
 | **L2: Fields** | `src/schema/fields/` | ❌ No | Polymorphic is a relation type, not a field type |
-| **L3: Query Schemas** | `src/schema/model/schemas/` | ✅ Yes | Add polymorphic to where, create, update, select schemas |
+| **L3: Operation Schemas** | `src/validation/model/`, `src/validation/relations/` | ✅ Yes | Add polymorphic to where, create, update, select schemas |
 | **L4: Relations** | `src/schema/relation/` | ✅ Yes | New `PolymorphicRelation` class |
 | **L5: Schema Validation** | `src/schema/validation/` | ✅ Yes | Add P001-P007 validation rules |
 | **L6: Query Engine** | `src/query-engine/` | ✅ Yes | Handle polymorphic in all builders |
@@ -431,15 +431,15 @@ Before diving into phases, here's how polymorphic relations affect each of VibOR
 
 #### Current Architecture Overview
 
-The existing schema system has two layers:
+The operation schema system has two layers:
 
-1. **Model Schemas** (`src/schema/model/schemas/`)
+1. **Model Operation Schemas** (`src/validation/model/`)
    - `core/`: Building blocks (filter, create, update, select, where, orderby)
    - `args/`: Operation argument schemas (findMany, create, update, etc.)
    - Uses `forEachScalarField()` and `forEachRelation()` to iterate fields
-   - Composes relation schemas via `v.fromObject(state.relations, "~.schemas.xxx")`
+   - Composes relation schemas through `SchemaRegistry`
 
-2. **Relation Schemas** (`src/schema/relation/schemas/`)
+2. **Relation Operation Schemas** (`src/validation/relations/`)
    - `filter.ts`: `toOneFilterFactory`, `toManyFilterFactory` → `{ is, isNot }` / `{ some, every, none }`
    - `create.ts`: `toOneCreateFactory`, `toManyCreateFactory` → `{ create, connect, connectOrCreate }`
    - `update.ts`: `toOneUpdateFactory`, `toManyUpdateFactory` → `{ create, connect, disconnect, ... }`
@@ -539,7 +539,7 @@ commentable: s.polymorphic(() => ({
 }))
 ```
 
-**2. `src/schema/relation/schemas/polymorphic/` (new directory)**
+**2. `src/validation/relations/polymorphic/` (new directory)**
 
 Following the existing pattern for relation schemas (`toOne*` / `toMany*`), create polymorphic equivalents:
 
@@ -573,7 +573,7 @@ polymorphic/
 **Bundle in `index.ts`:**
 
 ```typescript
-// src/schema/relation/schemas/polymorphic/index.ts
+// src/validation/relations/polymorphic/index.ts
 
 import type { PolymorphicRelationState } from "../../polymorphic-relation";
 import { polymorphicFilterFactory } from "./filter";
@@ -667,7 +667,7 @@ export interface ModelState {
 
 Update `extractRelationFields()` helper to separate polymorphic from regular relations.
 
-**3. `src/schema/model/schemas/utils.ts`**
+**3. `src/validation/model/core/utils.ts`**
 
 Add iterator for polymorphic relations:
 
@@ -683,30 +683,30 @@ export const forEachPolymorphicRelation = (
 };
 ```
 
-**4. `src/schema/model/schemas/core/filter.ts`**
+**4. `src/validation/model/core/filter.ts`**
 
 Add polymorphic filter schema:
 
 ```typescript
 // NEW: Build filter schema for polymorphic relations
 export const getPolymorphicFilter = <T extends ModelState>(state: T) => {
-  return v.fromObject(state.polymorphicRelations, "~.schemas.filter");
+  return getPolymorphicRelationSchemas(state.polymorphicRelations, "filter");
 };
 ```
 
-**5. `src/schema/model/schemas/core/select.ts`**
+**5. `src/validation/model/core/select.ts`**
 
 Update `getSelectSchema` and `getIncludeSchema` to include polymorphic:
 
 ```typescript
 export const getSelectSchema = <T extends ModelState>(state: T) => {
   const scalarEntries = v.fromKeys(...);
-  const relationEntries = v.fromObject(state.relations, "~.schemas.select", ...);
+  const relationEntries = getRelationSchemas(state.relations, "select");
   
   // NEW: Polymorphic entries
   const polymorphicEntries = v.fromObject(
     state.polymorphicRelations, 
-    "~.schemas.select",
+    "select",
     { optional: true }
   );
 
@@ -719,13 +719,13 @@ export const getSelectSchema = <T extends ModelState>(state: T) => {
 };
 ```
 
-**6. `src/schema/model/schemas/core/create.ts`**
+**6. `src/validation/model/core/create.ts`**
 
 Add polymorphic create entries:
 
 ```typescript
 export const getPolymorphicCreate = <T extends ModelState>(state: T) => {
-  return v.fromObject(state.polymorphicRelations, "~.schemas.create");
+  return getPolymorphicRelationSchemas(state.polymorphicRelations, "create");
 };
 
 export const getCreateSchema = <T extends ModelState>(state: T) => {
@@ -741,7 +741,7 @@ export const getCreateSchema = <T extends ModelState>(state: T) => {
 };
 ```
 
-**7. `src/schema/model/schemas/core/where.ts`**
+**7. `src/validation/model/core/where.ts`**
 
 Add polymorphic where entries:
 
@@ -752,7 +752,7 @@ export const getWhereSchema = <T extends ModelState>(state: T) => {
   // NEW: Polymorphic filter entries
   const polymorphicEntries = v.fromObject(
     state.polymorphicRelations,
-    "~.schemas.filter",
+    "filter",
     { optional: true }
   );
   
@@ -777,11 +777,11 @@ The polymorphic schema factories need rigorous generic typing to ensure type inf
 2. **Union of target schemas** - Each branch must be typed independently
 3. **`v.fromObject()` generics** - Must specify `<ObjectType, SchemaPath, Options>` for inference
 
-**`src/schema/relation/schemas/polymorphic/types.ts`**
+**`src/validation/relations/polymorphic/types.ts`**
 
 ```typescript
 import type { AnyModel } from "@schema/model";
-import type { VibSchema, InferInput, InferOutput } from "@validation";
+import type { InferInput, InferOutput, ModelCoreSchemas, VibSchema } from "@validation";
 
 // Models map is direct models, not getters
 // Matches: () => ({ post: Post, video: Video })
@@ -797,7 +797,7 @@ export type SchemaForKey<
   T extends PolymorphicModelsMap,
   K extends keyof T,
   P extends SchemaPath
-> = T[K]["~"]["schemas"][P];
+> = ModelCoreSchemas<T[K]>[P];
 
 // Infer where schema for a specific key
 export type PolymorphicWhereForKey<
@@ -838,7 +838,7 @@ export type PolymorphicCreateUnion<T extends PolymorphicModelsMap> = {
 }[keyof T];
 ```
 
-**`src/schema/relation/schemas/polymorphic/filter.ts`**
+**`src/validation/relations/polymorphic/filter.ts`**
 
 ```typescript
 import type { PolymorphicRelationState } from "../../polymorphic-relation";
@@ -868,14 +868,14 @@ export const polymorphicFilterFactory = <
   const typeSchema = v.enum<Keys, Keys[]>(typeKeys());
   
   // Build union of where schemas with proper typing
-  // Each model has its own where schema at model["~"].schemas.where
+  // Each model has its own where schema in SchemaRegistry
   type WhereSchemas = { [K in Keys]: PolymorphicWhereForKey<T, K> };
   
   const buildWhereUnion = (): UnionSchema<WhereSchemas[Keys][]> => {
     const models = getModels();
     const schemas = Object.values(models).map((model) => {
-      // Get the where schema directly from the model
-      return model["~"].schemas.where;
+      // Get the where schema from the registry
+      return schemaRegistry.getModelSchemas(model).core.where;
     }) as WhereSchemas[Keys][];
     
     return v.union(schemas);
@@ -894,7 +894,7 @@ export type PolymorphicFilterSchema<S extends PolymorphicRelationState> =
   ReturnType<typeof polymorphicFilterFactory<any, S>>;
 ```
 
-**`src/schema/relation/schemas/polymorphic/create.ts`**
+**`src/validation/relations/polymorphic/create.ts`**
 
 ```typescript
 import type { PolymorphicRelationState } from "../../polymorphic-relation";
@@ -935,7 +935,7 @@ export const polymorphicCreateFactory = <
   // Build create union: each variant is { type: K, data: CreateSchema }
   type CreateVariant<K extends Keys> = ObjectSchema<{
     type: LiteralSchema<K>;
-    data: ModelFromGetter<T[K]>["~"]["schemas"]["create"];
+    data: ModelCoreSchemas<ModelFromGetter<T[K]>>["create"];
   }>;
   
   const createSchemas = (Object.entries(state.models) as [Keys, T[Keys]][]).map(
@@ -957,7 +957,7 @@ export type PolymorphicCreateSchema<S extends PolymorphicRelationState> =
   ReturnType<typeof polymorphicCreateFactory<S>>;
 ```
 
-**`src/schema/relation/schemas/polymorphic/select-include.ts`**
+**`src/validation/relations/polymorphic/select-include.ts`**
 
 ```typescript
 import type { PolymorphicRelationState } from "../../polymorphic-relation";
@@ -982,8 +982,8 @@ export const polymorphicIncludeFactory = <
   type IncludeEntryForKey<K extends Keys> = 
     | true
     | {
-        select?: ModelFromGetter<T[K]>["~"]["schemas"]["select"];
-        include?: ModelFromGetter<T[K]>["~"]["schemas"]["include"];
+        select?: ModelCoreSchemas<ModelFromGetter<T[K]>>["select"];
+        include?: ModelCoreSchemas<ModelFromGetter<T[K]>>["include"];
       };
   
   // Build typed entries object
@@ -1021,7 +1021,7 @@ export type PolymorphicIncludeSchema<S extends PolymorphicRelationState> =
 The existing `v.fromObject()` needs explicit generics for proper inference:
 
 ```typescript
-// In src/schema/model/schemas/core/select.ts
+// In src/validation/model/core/select.ts
 
 export const getSelectSchema = <T extends ModelState>(state: T) => {
   // ... existing scalar and relation entries ...
@@ -1029,9 +1029,9 @@ export const getSelectSchema = <T extends ModelState>(state: T) => {
   // NEW: Polymorphic entries with explicit generics
   const polymorphicEntries = v.fromObject<
     T["polymorphicRelations"],        // Object type
-    "~.schemas.select",               // Schema path
+    "select",                         // Registry schema key
     { optional: true }                // Options
-  >(state.polymorphicRelations, "~.schemas.select", {
+  >(state.polymorphicRelations, "select", {
     optional: true,
   });
 
@@ -1089,7 +1089,7 @@ To simplify polymorphic schema factories, we should add a new validation schema 
 // Build a discriminated union where each variant has { type: K, ...schemaFromPath }
 const connectSchema = v.discriminatedUnion(
   state.models,                    // { post: () => Post, video: () => Video }
-  "~.schemas.whereUnique",         // Path to schema on each model
+  "whereUnique",                   // Core schema key on each registry model schema
   { discriminator: "type" }        // Field name for discriminator (default: "type")
 );
 
@@ -1098,13 +1098,12 @@ const connectSchema = v.discriminatedUnion(
 // | { type: "video"; id: string; }
 ```
 
-**Implementation: `src/validation/schemas/discriminated-union.ts`**
+**Implementation: `src/validation/primitives/discriminated-union.ts`**
 
 ```typescript
-import type { VibSchema, InferInput, InferOutput, ObjectSchema, LiteralSchema } from "../types";
+import type { VibSchema, InferInput, InferOutput, ModelCoreSchemas, ObjectSchema, LiteralSchema } from "../types";
 import type { AnyModel } from "@schema/model";
 
-type SchemaPath = `~.schemas.${string}`;
 type SchemaPathKey = "where" | "whereUnique" | "create" | "update" | "select" | "include" | "orderBy";
 
 // Models are direct references, not getters
@@ -1124,11 +1123,6 @@ interface DiscriminatedUnionOptions {
 }
 
 /**
- * Extract schema path key from full path
- */
-type ExtractPathKey<P extends SchemaPath> = P extends `~.schemas.${infer K}` ? K : never;
-
-/**
  * Infer the discriminated union input type
  * 
  * For wrapInData: false (default):
@@ -1139,13 +1133,13 @@ type ExtractPathKey<P extends SchemaPath> = P extends `~.schemas.${infer K}` ? K
  */
 type InferDiscriminatedUnionInput<
   T extends ModelsMap,
-  Path extends SchemaPath,
+  Path extends SchemaPathKey,
   Disc extends string = "type",
   Wrap extends boolean = false
 > = {
   [K in keyof T]: Wrap extends true
-    ? { [D in Disc]: K } & { data: InferInput<T[K]["~"]["schemas"][ExtractPathKey<Path>]> }
-    : { [D in Disc]: K } & InferInput<T[K]["~"]["schemas"][ExtractPathKey<Path>]>;
+    ? { [D in Disc]: K } & { data: InferInput<ModelCoreSchemas<T[K]>[Path]> }
+    : { [D in Disc]: K } & InferInput<ModelCoreSchemas<T[K]>[Path]>;
 }[keyof T];
 
 /**
@@ -1153,13 +1147,13 @@ type InferDiscriminatedUnionInput<
  */
 type InferDiscriminatedUnionOutput<
   T extends ModelsMap,
-  Path extends SchemaPath,
+  Path extends SchemaPathKey,
   Disc extends string = "type",
   Wrap extends boolean = false
 > = {
   [K in keyof T]: Wrap extends true
-    ? { [D in Disc]: K } & { data: InferOutput<T[K]["~"]["schemas"][ExtractPathKey<Path>]> }
-    : { [D in Disc]: K } & InferOutput<T[K]["~"]["schemas"][ExtractPathKey<Path>]>;
+    ? { [D in Disc]: K } & { data: InferOutput<ModelCoreSchemas<T[K]>[Path]> }
+    : { [D in Disc]: K } & InferOutput<ModelCoreSchemas<T[K]>[Path]>;
 }[keyof T];
 
 /**
@@ -1197,10 +1191,10 @@ export class DiscriminatedUnionSchema<
    * Get all variant schemas
    */
   getVariants(): Array<{ key: keyof T & string; schema: VibSchema }> {
-    const pathKey = this.path.replace("~.schemas.", "") as SchemaPathKey;
+    const pathKey = this.path as SchemaPathKey;
     
     return Object.entries(this.models).map(([key, model]) => {
-      const targetSchema = model["~"].schemas[pathKey];
+      const targetSchema = getSchemaRegistry().getModelSchemas(model).core[pathKey];
       return { key, schema: targetSchema };
     });
   }
@@ -1245,7 +1239,7 @@ export class DiscriminatedUnionSchema<
  * Factory function for discriminated unions
  * 
  * @param modelsGetter - Lazy getter returning models map: () => ({ post: Post, video: Video })
- * @param path - Schema path to extract from each model: "~.schemas.whereUnique"
+ * @param path - Core schema key to extract from each registry model schema: "whereUnique"
  * @param options - Configuration options
  */
 export function discriminatedUnion<
@@ -1270,7 +1264,7 @@ export const polymorphicCreateFactory = <S extends PolymorphicRelationState>(sta
   const models = state.getter();  // Resolve the lazy getter
   
   const connectSchemas = Object.entries(models).map(([key, model]) => {
-    const whereUnique = model["~"].schemas.whereUnique;
+    const whereUnique = schemaRegistry.getModelSchemas(model).core.whereUnique;
     return v.object({
       type: v.literal(key),
       ...whereUnique.entries,
@@ -1289,13 +1283,13 @@ export const polymorphicCreateFactory = <S extends PolymorphicRelationState>(sta
     // Connect: { type: "post", id: "..." } | { type: "video", id: "..." }
     connect: v.discriminatedUnion(
       state.getter,                    // Lazy getter: () => ({ post: Post, video: Video })
-      "~.schemas.whereUnique"          // Merge whereUnique into each variant
+      "whereUnique"                    // Merge whereUnique into each variant
     ),
     
     // Create: { type: "post", data: { title: "..." } } | { type: "video", data: { ... } }
     create: v.discriminatedUnion(
       state.getter,
-      "~.schemas.create",
+      "create",
       { wrapInData: true }             // Wrap in "data" field instead of merging
     ),
   }, { optional: true });
@@ -1315,7 +1309,7 @@ const commentable = s.polymorphic(() => ({
 // Using discriminatedUnion in the schema factory
 const connectSchema = v.discriminatedUnion(
   commentable["~"].state.getter,  // () => ({ post: post, video: video, photo: photo })
-  "~.schemas.whereUnique"
+  "whereUnique"
 );
 
 // Inferred input type (merged):
@@ -1327,7 +1321,7 @@ type ConnectInput =
 // With wrapInData: true
 const createSchema = v.discriminatedUnion(
   commentable["~"].state.getter,
-  "~.schemas.create",
+  "create",
   { wrapInData: true }
 );
 
@@ -1415,18 +1409,18 @@ export type PolymorphicResultOptional<T extends PolymorphicModelsMap> =
 | **Relation Layer** | | |
 | `src/schema/relation/polymorphic-relation.ts` | **CREATE** | New `PolymorphicRelation` class and `polymorphic()` factory |
 | `src/schema/relation/polymorphic-types.ts` | **CREATE** | Type definitions for polymorphic results |
-| `src/schema/relation/schemas/polymorphic/` | **CREATE** | New directory with filter, create, update, select-include schemas |
+| `src/validation/relations/polymorphic/` | **CREATE** | New directory with filter, create, update, select-include schemas |
 | `src/schema/relation/relation.ts` | **MODIFY** | Add `name` option to relation factories |
-| `src/schema/relation/schemas/index.ts` | **MODIFY** | Export polymorphic schema factories |
+| `src/validation/relations/index.ts` | **MODIFY** | Export polymorphic schema factories |
 | **Model Layer** | | |
 | `src/schema/model/model.ts` | **MODIFY** | Add `polymorphicRelations` to `ModelState` |
 | `src/schema/model/helper.ts` | **MODIFY** | Add `extractPolymorphicFields()` helper |
-| `src/schema/model/schemas/utils.ts` | **MODIFY** | Add `forEachPolymorphicRelation()` iterator |
-| `src/schema/model/schemas/core/filter.ts` | **MODIFY** | Add `getPolymorphicFilter()` |
-| `src/schema/model/schemas/core/create.ts` | **MODIFY** | Add `getPolymorphicCreate()` |
-| `src/schema/model/schemas/core/update.ts` | **MODIFY** | Add `getPolymorphicUpdate()` |
-| `src/schema/model/schemas/core/select.ts` | **MODIFY** | Include polymorphic in select/include schemas |
-| `src/schema/model/schemas/core/where.ts` | **MODIFY** | Include polymorphic in where schema |
+| `src/validation/model/core/utils.ts` | **MODIFY** | Add `forEachPolymorphicRelation()` iterator |
+| `src/validation/model/core/filter.ts` | **MODIFY** | Add `getPolymorphicFilter()` |
+| `src/validation/model/core/create.ts` | **MODIFY** | Add `getPolymorphicCreate()` |
+| `src/validation/model/core/update.ts` | **MODIFY** | Add `getPolymorphicUpdate()` |
+| `src/validation/model/core/select.ts` | **MODIFY** | Include polymorphic in select/include schemas |
+| `src/validation/model/core/where.ts` | **MODIFY** | Include polymorphic in where schema |
 | **Validation Layer** | | |
 | `src/schema/validation/rules/relation.ts` | **MODIFY** | Add P001-P007 polymorphic rules, update CM004 |
 | `src/schema/validation/rules/index.ts` | **MODIFY** | Export `polymorphicRules` |

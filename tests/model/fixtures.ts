@@ -9,7 +9,89 @@
  */
 
 import { s } from "@schema";
-import type { InferInput, Prettify } from "@validation";
+import type { AnyModel } from "@schema/model";
+import {
+  createSchemaRegistry,
+  type InferInput,
+  type ModelStateSchemas,
+  type Prettify,
+} from "@validation";
+
+type SchemaView<M extends AnyModel> = {
+  readonly args: ModelStateSchemas<M>["args"];
+  readonly where: ModelStateSchemas<M>["core"]["where"];
+  readonly whereUnique: ModelStateSchemas<M>["core"]["whereUnique"];
+  readonly uniqueFilter: ModelStateSchemas<M>["core"]["whereUnique"];
+  readonly compoundIdFilter: ModelStateSchemas<M>["core"]["compoundIdFilter"];
+  readonly compoundConstraintFilter: ModelStateSchemas<M>["core"]["compoundConstraintFilter"];
+  readonly create: ModelStateSchemas<M>["core"]["create"];
+  readonly update: ModelStateSchemas<M>["core"]["update"];
+  readonly select: ModelStateSchemas<M>["core"]["select"];
+  readonly include: ModelStateSchemas<M>["core"]["include"];
+  readonly orderBy: ModelStateSchemas<M>["core"]["orderBy"];
+  readonly scalarFilter: ModelStateSchemas<M>["core"]["scalarFilter"];
+  readonly relationFilter: ModelStateSchemas<M>["core"]["relationFilter"];
+  readonly scalarCreate: ModelStateSchemas<M>["core"]["scalarCreate"];
+  readonly relationCreate: ModelStateSchemas<M>["core"]["relationCreate"];
+  readonly scalarUpdate: ModelStateSchemas<M>["core"]["scalarUpdate"];
+  readonly relationUpdate: ModelStateSchemas<M>["core"]["relationUpdate"];
+};
+
+const createSchemaView = <M extends AnyModel>(
+  getSchemas: () => ModelStateSchemas<M>
+): SchemaView<M> => ({
+  get args() {
+    return getSchemas().args;
+  },
+  get where() {
+    return getSchemas().core.where;
+  },
+  get whereUnique() {
+    return getSchemas().core.whereUnique;
+  },
+  get uniqueFilter() {
+    return getSchemas().core.whereUnique;
+  },
+  get compoundIdFilter() {
+    return getSchemas().core.compoundIdFilter;
+  },
+  get compoundConstraintFilter() {
+    return getSchemas().core.compoundConstraintFilter;
+  },
+  get create() {
+    return getSchemas().core.create;
+  },
+  get update() {
+    return getSchemas().core.update;
+  },
+  get select() {
+    return getSchemas().core.select;
+  },
+  get include() {
+    return getSchemas().core.include;
+  },
+  get orderBy() {
+    return getSchemas().core.orderBy;
+  },
+  get scalarFilter() {
+    return getSchemas().core.scalarFilter;
+  },
+  get relationFilter() {
+    return getSchemas().core.relationFilter;
+  },
+  get scalarCreate() {
+    return getSchemas().core.scalarCreate;
+  },
+  get relationCreate() {
+    return getSchemas().core.relationCreate;
+  },
+  get scalarUpdate() {
+    return getSchemas().core.scalarUpdate;
+  },
+  get relationUpdate() {
+    return getSchemas().core.relationUpdate;
+  },
+});
 
 // =============================================================================
 // SIMPLE MODEL (single field ID)
@@ -23,11 +105,6 @@ export const simpleModel = s.model({
   active: s.boolean().default(true),
 });
 
-// Access schemas via model["~"].schemas (lazy loaded)
-export const getSimpleSchemas = () => simpleModel["~"].schemas;
-// Legacy export for backward compatibility
-export const simpleSchemas = simpleModel["~"].schemas;
-
 // =============================================================================
 // COMPOUND ID MODEL
 // =============================================================================
@@ -40,7 +117,6 @@ export const compoundIdModel = s
   })
   .id(["orgId", "memberId"]);
 
-export const compoundIdSchemas = compoundIdModel["~"].schemas;
 export type CompoundIdState = (typeof compoundIdModel)["~"]["state"];
 
 // =============================================================================
@@ -56,7 +132,6 @@ export const compoundUniqueModel = s
   })
   .unique(["email", "tenantId"]);
 
-export const compoundUniqueSchemas = compoundUniqueModel["~"].schemas;
 export type CompoundUniqueState = (typeof compoundUniqueModel)["~"]["state"];
 
 // =============================================================================
@@ -77,109 +152,41 @@ export const postModel = s.model({
   author: s.manyToOne(() => authorModel).optional(),
 });
 
-// Access schemas via model["~"].schemas (lazy loaded internally)
-type AuthorSchemas = (typeof authorModel)["~"]["schemas"];
-type PostSchemas = (typeof postModel)["~"]["schemas"];
+const schemaRegistry = createSchemaRegistry({
+  simple: simpleModel,
+  compoundId: compoundIdModel,
+  compoundUnique: compoundUniqueModel,
+  author: authorModel,
+  post: postModel,
+});
 
-type Include = Prettify<InferInput<AuthorSchemas["include"]>>;
+// Access schemas through SchemaRegistry. The view keeps legacy test ergonomics
+// without restoring the old model schema accessor.
+export const getSimpleSchemas = () => schemaRegistry.proxy.simple;
+export const simpleSchemas = createSchemaView(getSimpleSchemas);
+export const compoundIdSchemas = createSchemaView(
+  () => schemaRegistry.proxy.compoundId
+);
+export const compoundUniqueSchemas = createSchemaView(
+  () => schemaRegistry.proxy.compoundUnique
+);
+
+type AuthorSchemas = ModelStateSchemas<typeof authorModel>;
+type PostSchemas = ModelStateSchemas<typeof postModel>;
+
+type Include = Prettify<InferInput<AuthorSchemas["core"]["include"]>>;
 
 type InputFindUnique = Prettify<
   InferInput<AuthorSchemas["args"]["findUnique"]>
 >;
 
-export const getAuthorSchemas = () => authorModel["~"].schemas;
-export const getPostSchemas = () => postModel["~"].schemas;
+export const getAuthorSchemas = () => schemaRegistry.proxy.author;
+export const getPostSchemas = () => schemaRegistry.proxy.post;
 
 // Lazy accessor exports
-export const authorSchemas = {
-  get args() {
-    return getAuthorSchemas().args;
-  },
-  get where() {
-    return getAuthorSchemas().where;
-  },
-  get whereUnique() {
-    return getAuthorSchemas().whereUnique;
-  },
-  get create() {
-    return getAuthorSchemas().create;
-  },
-  get update() {
-    return getAuthorSchemas().update;
-  },
-  get select() {
-    return getAuthorSchemas().select;
-  },
-  get include() {
-    return getAuthorSchemas().include;
-  },
-  get orderBy() {
-    return getAuthorSchemas().orderBy;
-  },
-  get scalarFilter() {
-    return getAuthorSchemas().scalarFilter;
-  },
-  get relationFilter() {
-    return getAuthorSchemas().relationFilter;
-  },
-  get scalarCreate() {
-    return getAuthorSchemas().scalarCreate;
-  },
-  get relationCreate() {
-    return getAuthorSchemas().relationCreate;
-  },
-  get scalarUpdate() {
-    return getAuthorSchemas().scalarUpdate;
-  },
-  get relationUpdate() {
-    return getAuthorSchemas().relationUpdate;
-  },
-};
+export const authorSchemas = createSchemaView(getAuthorSchemas);
 
-export const postSchemas = {
-  get args() {
-    return getPostSchemas().args;
-  },
-  get where() {
-    return getPostSchemas().where;
-  },
-  get whereUnique() {
-    return getPostSchemas().whereUnique;
-  },
-  get create() {
-    return getPostSchemas().create;
-  },
-  get update() {
-    return getPostSchemas().update;
-  },
-  get select() {
-    return getPostSchemas().select;
-  },
-  get include() {
-    return getPostSchemas().include;
-  },
-  get orderBy() {
-    return getPostSchemas().orderBy;
-  },
-  get scalarFilter() {
-    return getPostSchemas().scalarFilter;
-  },
-  get relationFilter() {
-    return getPostSchemas().relationFilter;
-  },
-  get scalarCreate() {
-    return getPostSchemas().scalarCreate;
-  },
-  get relationCreate() {
-    return getPostSchemas().relationCreate;
-  },
-  get scalarUpdate() {
-    return getPostSchemas().scalarUpdate;
-  },
-  get relationUpdate() {
-    return getPostSchemas().relationUpdate;
-  },
-};
+export const postSchemas = createSchemaView(getPostSchemas);
 
 export type AuthorState = (typeof authorModel)["~"]["state"];
 export type PostState = (typeof postModel)["~"]["state"];

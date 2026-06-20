@@ -1,10 +1,10 @@
 ---
-title: L3 - Query Schemas
+title: L3 - Operation Schemas
 description: Validation schemas generated for where, create, update, and args operations
 icon: Filter
 ---
 
-**Location:** `src/schema/model/schemas/`
+**Location:** `src/validation/model/`, `src/validation/relations/`
 
 ## Why This Layer Exists
 
@@ -17,7 +17,7 @@ orm.user.findMany({
 });
 ```
 
-Query schemas define what's valid for each operation. They're built dynamically from model definitions.
+Operation schemas define what's valid for each operation. They're built dynamically by `SchemaRegistry` from model definitions.
 
 ## Schema Categories
 
@@ -34,7 +34,7 @@ Each field type generates its own schemas:
 
 ### Args Schemas (Per Model)
 
-Models compose field schemas into operation schemas:
+The validation registry composes field, relation, and model state into operation schemas:
 
 | Schema | Purpose |
 |--------|---------|
@@ -80,21 +80,22 @@ orm.user.findMany({
 });
 ```
 
-Query schemas handle this with recursive definitions using thunks to avoid infinite loops.
+Operation schemas handle this with recursive definitions using thunks to avoid infinite loops.
 
-## Why Lazy Building?
+## Why Registry Building?
 
-Schemas are expensive to construct - they compose many nested objects. VibORM builds them **only when first accessed**:
+Schemas are expensive to construct and nested relation inputs need full model graph context. VibORM builds them through `SchemaRegistry`:
 
 ```typescript
-model["~"].schemas.where  // Built on first access, then cached
+const registry = createSchemaRegistry({ user });
+registry.proxy.user.core.where; // Built through registry access, then cached
 ```
 
-This keeps schema definition fast, deferring the cost until query time.
+This keeps schema definitions focused on structure while operation validation stays centralized.
 
 ## Connection to Other Layers
 
-- **L1 (Validation)**: Query schemas use `v.*` primitives
-- **L2 (Fields)**: Field schemas are composed into model schemas
-- **L4 (Relations)**: Relation schemas enable nested queries
+- **L1 (Validation)**: Operation schemas use `v.*` primitives and `SchemaRegistry`
+- **L2 (Fields)**: Field base schemas and state feed registry scalar schemas
+- **L4 (Relations)**: Relation state feeds nested operation schemas
 - **L6 (Query Engine)**: Query engine validates against these schemas

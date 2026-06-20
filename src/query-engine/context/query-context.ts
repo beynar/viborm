@@ -6,6 +6,7 @@
 
 import type { DatabaseAdapter } from "@adapters";
 import type { AnyDriver } from "@drivers/driver";
+import { QueryEngineError } from "@errors";
 import type { Model } from "@schema/model";
 import type { ModelRegistry, QueryContext, RelationInfo } from "../types";
 import { createAliasGenerator } from "./alias-generator";
@@ -22,12 +23,18 @@ export function createQueryContext(
   const aliasGenerator = createAliasGenerator();
   // Reserve t0 for root
   const rootAlias = aliasGenerator.next();
+  const schemaRegistry = registry.schemas;
+
+  if (!schemaRegistry) {
+    throw new QueryEngineError("Schema registry is required for query context");
+  }
 
   return {
     driver,
     adapter,
     model,
     registry,
+    schemaRegistry,
     nextAlias: () => aliasGenerator.next(),
     rootAlias,
   };
@@ -47,6 +54,7 @@ export function createChildContext(
     adapter: parent.adapter,
     model,
     registry: parent.registry,
+    schemaRegistry: parent.schemaRegistry,
     nextAlias: parent.nextAlias,
     rootAlias: alias,
   };

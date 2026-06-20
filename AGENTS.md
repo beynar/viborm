@@ -27,10 +27,10 @@ These constraints shaped every architectural decision. When you wonder "why is t
 
 | Layer | Location | Owns | Doesn't Own | Guide |
 |-------|----------|------|-------------|-------|
-| **L1: Validation** | `src/validation/` | v.* primitives, Standard Schema V1 | Field logic, domain rules | [validation/AGENTS.md](src/validation/AGENTS.md) |
-| **L2: Fields** | `src/schema/fields/` | Field classes, State generics | Query schemas | [schema/fields/AGENTS.md](src/schema/fields/AGENTS.md) |
-| **L3: Query Schemas** | `src/schema/model/schemas/` | where, create, update, args schemas | SQL generation | [model/schemas/AGENTS.md](src/schema/model/schemas/AGENTS.md) |
-| **L4: Relations** | `src/schema/relation/` | Relation types, nested schemas | Query execution | [schema/relation/AGENTS.md](src/schema/relation/AGENTS.md) |
+| **L1: Validation** | `src/validation/` | v.* primitives, Standard Schema V1, `SchemaRegistry` operation schemas | Field logic, domain rules | [validation/AGENTS.md](src/validation/AGENTS.md) |
+| **L2: Fields** | `src/schema/fields/` | Field classes, State generics, base field schemas | Operation schemas | [schema/fields/AGENTS.md](src/schema/fields/AGENTS.md) |
+| **L3: Operation Schemas** | `src/validation/model/`, `src/validation/relations/` | where, create, update, args schemas | SQL generation | — |
+| **L4: Relations** | `src/schema/relation/` | Relation types, relation state, source binding | Query execution | [schema/relation/AGENTS.md](src/schema/relation/AGENTS.md) |
 | **L5: Schema Validation** | `src/schema/validation/` | Definition-time validation | Runtime validation | — |
 | **L6: Query Engine** | `src/query-engine/` | Query structure, logic | **Database SQL** | [query-engine/AGENTS.md](src/query-engine/AGENTS.md) |
 | **L7: Adapters** | `src/adapters/` | **Database-specific SQL** | Query logic | [adapters/AGENTS.md](src/adapters/AGENTS.md) |
@@ -115,7 +115,9 @@ User writes:           s.string().nullable()
                               ↓
 Field creates State:   StringField<{type: "string", nullable: true}>
                               ↓
-Schema factory builds: v.string({nullable: true})  (lazy, on first ["~"] access)
+Field state stores:    v.string({nullable: true}) as base schema
+                              ↓
+SchemaRegistry builds: operation schemas from full model graph context
                               ↓
 Type inference:        InferInput<schema> → string | null
                               ↓
@@ -131,11 +133,11 @@ Client uses types:     orm.user.findMany({ where: { name: ... }})  // Fully type
 | I want to... | Start here | Also touch |
 |--------------|------------|------------|
 | Add new field type | [schema/fields/](src/schema/fields/AGENTS.md) | Update Field union in `base.ts` |
-| Add query operator (e.g., `contains`) | [query-engine/](src/query-engine/AGENTS.md) | + [adapters/](src/adapters/AGENTS.md) (all 3!) |
-| Fix type inference bug | [client/](src/client/AGENTS.md) | Check schema factories upstream |
+| Add query operator (e.g., `contains`) | `src/validation/model/core/` or `src/validation/scalars/` | + query-engine + [adapters/](src/adapters/AGENTS.md) (all 3!) |
+| Fix operation input type inference bug | [client/](src/client/AGENTS.md) | Check validation model/scalar schema types upstream |
 | Add migration operation | [migrations/](src/migrations/AGENTS.md) | + migration drivers (postgres, mysql, sqlite, libsql) |
 | Add storage driver | [migrations/](src/migrations/AGENTS.md) | Extend `MigrationStorageDriver` |
-| Add relation feature | [schema/relation/](src/schema/relation/AGENTS.md) | + relation schemas |
+| Add relation feature | [schema/relation/](src/schema/relation/AGENTS.md) | + `src/validation/relations/` if query inputs change |
 | Add cache backend | [cache/](src/cache/AGENTS.md) | Export from main index |
 | Add cache invalidation option | [cache/](src/cache/AGENTS.md) | Update `schema.ts` |
 | Add tracing span/attribute | [instrumentation/](src/instrumentation/AGENTS.md) | Update `spans.ts` |
@@ -148,8 +150,8 @@ Client uses types:     orm.user.findMany({ where: { name: ... }})  // Fully type
 ### Why `" vibInferred"` uses a space prefix
 The branded type key is `" vibInferred"` (with space). This prevents collision with any real property name while remaining a valid string key. Using `Symbol()` was tried first but broke type inference across module boundaries.
 
-### Why schemas are lazy (`??=` pattern)
-Schemas are expensive to build. The `??=` pattern ensures they're built once on first access and cached, avoiding repeated construction on every `["~"]` access.
+### Why operation schemas are registry-cached
+Operation schemas need full model graph context, especially for nested relation inputs that omit parent-derived foreign keys. `SchemaRegistry` caches model schemas by `Model` object so circular relation thunks resolve lazily without rebuilding schemas per operation.
 
 ### Why we don't use `schema.infer`
 Early versions used Zod-style `.infer`. With complex nested schemas, TypeScript took 10+ seconds to resolve types. The branded type approach with explicit `InferInput<T>` is O(1) lookup.
@@ -173,7 +175,7 @@ OpenTelemetry is an optional peer dependency. Most users don't need tracing. Dyn
 | Type assertions (`as`) | Hides type mismatches | Let types flow naturally |
 | Forgot Field union update | New field type invisible to models | Update `src/schema/fields/base.ts` |
 | Module-level mutable state | Breaks serverless (Cloudflare) | Use function-scoped or context state |
-| Eager schema building | Rebuilds schemas on every access (perf) | Use `??=` lazy pattern |
+| Eager operation schema building | Rebuilds schemas on every operation and loses graph context | Use `SchemaRegistry` and `v.lazy` |
 | Direct model reference in relation | ReferenceError at runtime | Use thunk `() => model` |
 | Recreating objects in hot paths | Performance degradation | Cache in constructor, reuse instances |
 | Spread operator on large arrays | Stack overflow | Use `for...of` loops instead |
@@ -218,9 +220,9 @@ pnpm test:sqlite        # SQLite
 ### Internal API: `["~"]` Symbol
 ```typescript
 field["~"].state          // FieldState - configuration object
-field["~"].schemas        // {base, filter, create, update} - lazy built
-model["~"].schemas.where  // Where schema for this model
-relation["~"].targetModel // Thunk to target model
+field["~"].state.base     // Base field schema
+schemaRegistry.proxy.user.core.where // Operation schema for this model
+relation["~"].state.getter // Thunk to target model
 ```
 
 ---

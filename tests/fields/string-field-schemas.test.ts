@@ -17,8 +17,9 @@
  */
 
 import { string } from "@schema/fields/string/field";
-import type { InferStringInput } from "@schema/fields/string/schemas";
-import { type InferOutput, type Prettify, parse } from "@validation";
+import { type InferInput, type InferOutput, type Prettify, parse } from "@validation";
+import { type GetScalarSchemas, getScalarSchemas } from "@validation/scalars";
+import type { FieldState } from "@schema/fields/common";
 import {
   type Brand as BRAND,
   brand,
@@ -28,6 +29,10 @@ import {
 } from "valibot";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
+type InferFieldInput<State extends FieldState, Key extends keyof GetScalarSchemas<State>> =
+  InferInput<GetScalarSchemas<State>[Key]>;
+type InferStringInput<State extends FieldState<"string">, Key extends keyof GetScalarSchemas<State>> = InferFieldInput<State, Key>;
+
 // =============================================================================
 // RAW STRING FIELD (required, no modifiers)
 // =============================================================================
@@ -35,7 +40,7 @@ import { describe, expect, expectTypeOf, test } from "vitest";
 describe("Raw String Field", () => {
   const field = string();
   type State = (typeof field)["~"]["state"];
-  const schemas = field["~"].schemas;
+  const schemas = getScalarSchemas(field["~"].state);
 
   describe("base", () => {
     test("type: base is string", () => {
@@ -183,7 +188,7 @@ describe("Raw String Field", () => {
       pipe(stringValibot(), email(), brand("email"))
     );
     type BrandedOutput = InferOutput<
-      (typeof brandedField)["~"]["schemas"]["base"]
+      (typeof brandedField)["~"]["state"]["base"]
     >;
     type EmailBrand = string & BRAND<"email">;
 
@@ -192,7 +197,7 @@ describe("Raw String Field", () => {
     });
 
     test("runtime: validates custom schema", () => {
-      const brandedSchemas = brandedField["~"].schemas;
+      const brandedSchemas = getScalarSchemas(brandedField["~"].state);
       const result1 = parse(brandedSchemas.base, "test@example.com");
       if (result1.issues) throw new Error("Expected success");
       expect(result1.value).toBe("test@example.com");
@@ -209,7 +214,7 @@ describe("Raw String Field", () => {
 describe("Nullable String Field", () => {
   const field = string().nullable();
   type State = (typeof field)["~"]["state"];
-  const schemas = field["~"].schemas;
+  const schemas = getScalarSchemas(field["~"].state);
 
   describe("base", () => {
     test("type: base is string | null", () => {
@@ -345,7 +350,7 @@ describe("Nullable String Field", () => {
       .schema(pipe(stringValibot(), email(), brand("email")))
       .nullable();
     type BrandedOutput = InferOutput<
-      (typeof brandedField)["~"]["schemas"]["base"]
+      (typeof brandedField)["~"]["state"]["base"]
     >;
     type EmailBrand = string & BRAND<"email">;
 
@@ -354,7 +359,7 @@ describe("Nullable String Field", () => {
     });
 
     test("runtime: validates custom schema or null", () => {
-      const brandedSchemas = brandedField["~"].schemas;
+      const brandedSchemas = getScalarSchemas(brandedField["~"].state);
       const result1 = parse(brandedSchemas.base, "test@example.com");
       if (result1.issues) throw new Error("Expected success");
       expect(result1.value).toBe("test@example.com");
@@ -374,7 +379,7 @@ describe("Nullable String Field", () => {
 describe("List String Field", () => {
   const field = string().array();
   type State = (typeof field)["~"]["state"];
-  const schemas = field["~"].schemas;
+  const schemas = getScalarSchemas(field["~"].state);
 
   describe("base", () => {
     test("type: base is string[]", () => {
@@ -542,7 +547,7 @@ describe("List String Field", () => {
       .schema(pipe(stringValibot(), email(), brand("email")))
       .array();
     type BrandedOutput = InferOutput<
-      (typeof brandedField)["~"]["schemas"]["base"]
+      (typeof brandedField)["~"]["state"]["base"]
     >;
     type EmailBrand = string & BRAND<"email">;
 
@@ -551,7 +556,7 @@ describe("List String Field", () => {
     });
 
     test("runtime: validates each element against custom schema", () => {
-      const brandedSchemas = brandedField["~"].schemas;
+      const brandedSchemas = getScalarSchemas(brandedField["~"].state);
       const result1 = parse(brandedSchemas.base, ["a@b.com", "c@d.com"]);
       if (result1.issues) throw new Error("Expected success");
       expect(result1.value).toEqual(["a@b.com", "c@d.com"]);
@@ -568,7 +573,7 @@ describe("List String Field", () => {
 describe("Nullable List String Field", () => {
   const field = string().array().nullable();
   type State = (typeof field)["~"]["state"];
-  const schemas = field["~"].schemas;
+  const schemas = getScalarSchemas(field["~"].state);
 
   describe("base", () => {
     test("type: base is string[] | null", () => {
@@ -717,7 +722,7 @@ describe("Nullable List String Field", () => {
       .array()
       .nullable();
     type BrandedOutput = InferOutput<
-      (typeof brandedField)["~"]["schemas"]["base"]
+      (typeof brandedField)["~"]["state"]["base"]
     >;
     type EmailBrand = string & BRAND<"email">;
 
@@ -726,7 +731,7 @@ describe("Nullable List String Field", () => {
     });
 
     test("runtime: validates elements or accepts null", () => {
-      const brandedSchemas = brandedField["~"].schemas;
+      const brandedSchemas = getScalarSchemas(brandedField["~"].state);
       const result1 = parse(brandedSchemas.base, ["a@b.com"]);
       if (result1.issues) throw new Error("Expected success");
       expect(result1.value).toEqual(["a@b.com"]);
@@ -747,7 +752,7 @@ describe("Default Value Behavior", () => {
   describe("static default value", () => {
     const field = string().default("hello");
     type State = (typeof field)["~"]["state"];
-    const schemas = field["~"].schemas;
+    const schemas = getScalarSchemas(field["~"].state);
 
     test("type: create is optional", () => {
       type Create = InferStringInput<State, "create">;
@@ -773,7 +778,7 @@ describe("Default Value Behavior", () => {
       callCount++;
       return `generated-${callCount}`;
     });
-    const schemas = field["~"].schemas;
+    const schemas = getScalarSchemas(field["~"].state);
 
     test("type: create is optional", () => {
       type State = (typeof field)["~"]["state"];
@@ -796,7 +801,7 @@ describe("Default Value Behavior", () => {
       type Create = InferStringInput<State, "create">;
       expectTypeOf<string | undefined>().toExtend<Create>();
 
-      const schemas = field["~"].schemas;
+      const schemas = getScalarSchemas(field["~"].state);
       const result = parse(schemas.create, undefined);
       if (result.issues) throw new Error("Expected success");
       expect(typeof result.value).toBe("string");
@@ -811,7 +816,7 @@ describe("Default Value Behavior", () => {
       type Create = InferStringInput<State, "create">;
       expectTypeOf<string | undefined>().toExtend<Create>();
 
-      const schemas = field["~"].schemas;
+      const schemas = getScalarSchemas(field["~"].state);
       const result = parse(schemas.create, undefined);
       if (result.issues) throw new Error("Expected success");
       expect(typeof result.value).toBe("string");
@@ -824,7 +829,7 @@ describe("Default Value Behavior", () => {
       type Create = InferStringInput<State, "create">;
       expectTypeOf<string | undefined>().toExtend<Create>();
 
-      const schemas = field["~"].schemas;
+      const schemas = getScalarSchemas(field["~"].state);
       const result = parse(schemas.create, undefined);
       if (result.issues) throw new Error("Expected success");
       expect(typeof result.value).toBe("string");
@@ -837,7 +842,7 @@ describe("Default Value Behavior", () => {
       type Create = InferStringInput<State, "create">;
       expectTypeOf<string | undefined>().toExtend<Create>();
 
-      const schemas = field["~"].schemas;
+      const schemas = getScalarSchemas(field["~"].state);
       const result = parse(schemas.create, undefined);
       if (result.issues) throw new Error("Expected success");
       expect(typeof result.value).toBe("string");

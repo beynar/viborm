@@ -11,6 +11,7 @@ import {
   QueryEngine,
 } from "../src/query-engine/query-engine";
 import { s } from "../src/schema";
+import { createSchemaRegistry } from "../src/validation";
 
 // =============================================================================
 // TEST MODELS
@@ -124,7 +125,8 @@ function printResults(results: BenchmarkResult[]) {
 // =============================================================================
 
 const adapter = new PostgresAdapter();
-const registry = createModelRegistry({ Author, Post, Tag });
+const schema = { Author, Post, Tag };
+const registry = createModelRegistry(schema, createSchemaRegistry(schema));
 const engine = new QueryEngine(adapter, registry);
 
 // =============================================================================

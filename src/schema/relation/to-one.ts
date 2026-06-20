@@ -1,7 +1,7 @@
 // ToOne Relation Class (Standalone)
 // For oneToOne and manyToOne relations with chainable configuration API
 
-import { getRelationSchemas } from "./schemas";
+import type { AnyModel } from "@schema/model";
 import type { Getter, ReferentialAction, ToOneRelationState } from "./types";
 
 // =============================================================================
@@ -29,7 +29,6 @@ import type { Getter, ReferentialAction, ToOneRelationState } from "./types";
  */
 export class ToOneRelation<State extends ToOneRelationState> {
   private readonly _state: State;
-  private _schemas: ReturnType<typeof getRelationSchemas<State>> | undefined;
 
   constructor(state: State) {
     this._state = state;
@@ -38,8 +37,8 @@ export class ToOneRelation<State extends ToOneRelationState> {
   /**
    * Specify the foreign key field(s) on this model
    */
-  fields(...fields: string[]) {
-    return new ToOneRelation<State & { fields: string[] }>({
+  fields<const T extends string[]>(...fields: T) {
+    return new ToOneRelation<State & { fields: T }>({
       ...this._state,
       fields,
     });
@@ -48,8 +47,8 @@ export class ToOneRelation<State extends ToOneRelationState> {
   /**
    * Specify the referenced field(s) on the target model
    */
-  references(...refs: string[]) {
-    return new ToOneRelation<State & { references: string[] }>({
+  references<const T extends string[]>(...refs: T) {
+    return new ToOneRelation<State & { references: T }>({
       ...this._state,
       references: refs,
     });
@@ -88,20 +87,20 @@ export class ToOneRelation<State extends ToOneRelationState> {
   /**
    * Set a custom name for this relation
    */
-  name(name: string) {
-    return new ToOneRelation<State & { name: string }>({
+  name<const T extends string>(name: T) {
+    return new ToOneRelation<State & { name: T }>({
       ...this._state,
       name,
     });
   }
 
   /**
-   * Internal accessor for state and schemas
+   * Internal accessor for state and source binding.
    */
   get "~"() {
     return {
       state: this._state,
-      schemas: (this._schemas ??= getRelationSchemas(this._state)),
+      setSource: (source: AnyModel) => (this._state.source = source),
     };
   }
 }
@@ -113,13 +112,23 @@ export class ToOneRelation<State extends ToOneRelationState> {
 /**
  * Create a one-to-one relation
  */
-export const oneToOne = <G extends Getter>(getter: G) => {
+export function oneToOne<const G>(
+  getter: G
+): G extends Getter
+  ? ToOneRelation<{ type: "oneToOne"; getter: G }>
+  : never;
+export function oneToOne(getter: Getter) {
   return new ToOneRelation({ type: "oneToOne" as const, getter });
-};
+}
 
 /**
  * Create a many-to-one relation
  */
-export const manyToOne = <G extends Getter>(getter: G) => {
+export function manyToOne<const G>(
+  getter: G
+): G extends Getter
+  ? ToOneRelation<{ type: "manyToOne"; getter: G }>
+  : never;
+export function manyToOne(getter: Getter) {
   return new ToOneRelation({ type: "manyToOne" as const, getter });
-};
+}

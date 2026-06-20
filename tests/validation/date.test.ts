@@ -1,89 +1,89 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { date } from "@validation";
+import v, { parse } from "@validation";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
 describe("date schema", () => {
   describe("basic validation", () => {
-    const schema = date();
+    const schema = v.date();
 
     test("validates Date objects", () => {
       const d = new Date();
-      const result = schema["~standard"].validate(d);
+      const result = parse(schema, d);
       expect(result.issues).toBeUndefined();
       expect((result as { value: Date }).value).toEqual(d);
     });
 
     test("validates valid date strings", () => {
       const d = new Date("2023-01-01");
-      const result = schema["~standard"].validate(d);
+      const result = parse(schema, d);
       expect(result.issues).toBeUndefined();
     });
 
     test("rejects invalid dates", () => {
-      const result = schema["~standard"].validate(new Date("invalid"));
+      const result = parse(schema, new Date("invalid"));
       expect(result.issues).toBeDefined();
     });
 
     test("rejects non-dates", () => {
-      expect(schema["~standard"].validate("2023-01-01").issues).toBeDefined();
-      expect(schema["~standard"].validate(123_456_789).issues).toBeDefined();
-      expect(schema["~standard"].validate(null).issues).toBeDefined();
-      expect(schema["~standard"].validate(undefined).issues).toBeDefined();
+      expect(parse(schema, "2023-01-01").issues).toBeDefined();
+      expect(parse(schema, 123_456_789).issues).toBeDefined();
+      expect(parse(schema, null).issues).toBeDefined();
+      expect(parse(schema, undefined).issues).toBeDefined();
     });
 
     test("type inference", () => {
       type Output = StandardSchemaV1.InferOutput<typeof schema>;
       type Input = StandardSchemaV1.InferInput<typeof schema>;
-      expectTypeOf<Output>().toEqualTypeOf<Date>();
-      expectTypeOf<Input>().toEqualTypeOf<Date>();
+      expectTypeOf<Output>().toMatchTypeOf<Date>();
+      expectTypeOf<Input>().toMatchTypeOf<Date>();
     });
   });
 
   describe("optional option", () => {
-    const schema = date({ optional: true });
+    const schema = v.date({ optional: true });
 
     test("allows undefined", () => {
-      const result = schema["~standard"].validate(undefined);
+      const result = parse(schema, undefined);
       expect(result.issues).toBeUndefined();
     });
 
     test("validates dates", () => {
-      const result = schema["~standard"].validate(new Date());
+      const result = parse(schema, new Date());
       expect(result.issues).toBeUndefined();
     });
 
     test("type inference", () => {
       type Output = StandardSchemaV1.InferOutput<typeof schema>;
-      expectTypeOf<Output>().toEqualTypeOf<Date | undefined>();
+      expectTypeOf<Output>().toMatchTypeOf<Date | undefined>();
     });
   });
 
   describe("nullable option", () => {
-    const schema = date({ nullable: true });
+    const schema = v.date({ nullable: true });
 
     test("allows null", () => {
-      const result = schema["~standard"].validate(null);
+      const result = parse(schema, null);
       expect(result.issues).toBeUndefined();
     });
 
     test("validates dates", () => {
-      const result = schema["~standard"].validate(new Date());
+      const result = parse(schema, new Date());
       expect(result.issues).toBeUndefined();
     });
   });
 
   describe("array option", () => {
-    const schema = date({ array: true });
+    const schema = v.date({ array: true });
 
     test("validates array of dates", () => {
       const dates = [new Date("2023-01-01"), new Date("2023-01-02")];
-      const result = schema["~standard"].validate(dates);
+      const result = parse(schema, dates);
       expect(result.issues).toBeUndefined();
       expect((result as { value: Date[] }).value).toEqual(dates);
     });
 
     test("rejects array with invalid dates", () => {
-      const result = schema["~standard"].validate([
+      const result = parse(schema, [
         new Date(),
         new Date("invalid"),
       ]);
@@ -94,25 +94,25 @@ describe("date schema", () => {
   describe("default option", () => {
     test("static default", () => {
       const defaultDate = new Date("2023-01-01");
-      const schema = date({ default: defaultDate });
-      const result = schema["~standard"].validate(undefined);
+      const schema = v.date({ default: defaultDate });
+      const result = parse(schema, undefined);
       expect(result.issues).toBeUndefined();
       expect((result as { value: Date }).value).toEqual(defaultDate);
     });
 
     test("default factory function", () => {
-      const schema = date({ default: () => new Date("2023-01-01") });
-      const result = schema["~standard"].validate(undefined);
+      const schema = v.date({ default: () => new Date("2023-01-01") });
+      const result = parse(schema, undefined);
       expect(result.issues).toBeUndefined();
     });
   });
 
   describe("transform option", () => {
-    const schema = date({ transform: (d) => d.toISOString() } as any);
+    const schema = v.date({ transform: (d) => d.toISOString() } as any);
 
     test("applies transform to output", () => {
       const d = new Date("2023-01-01");
-      const result = schema["~standard"].validate(d);
+      const result = parse(schema, d);
       expect((result as { value: unknown }).value).toBe(d.toISOString());
     });
   });

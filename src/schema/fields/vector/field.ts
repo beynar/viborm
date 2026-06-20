@@ -9,10 +9,10 @@ import {
   updateState,
 } from "../common";
 import type { NativeType } from "../native-types";
-import { buildVectorSchema, type VectorSchemas, vectorBase } from "./schemas";
+
+const vectorBase = v.vector();
 
 export class VectorField<State extends FieldState<"vector">> {
-  private _schemas: VectorSchemas<State> | undefined;
   private readonly state: State;
   private readonly _nativeType?: NativeType | undefined;
 
@@ -66,7 +66,6 @@ export class VectorField<State extends FieldState<"vector">> {
   get ["~"]() {
     return {
       state: this.state,
-      schemas: (this._schemas ??= buildVectorSchema(this.state)),
       nativeType: this._nativeType,
     };
   }

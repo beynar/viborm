@@ -13,6 +13,12 @@ import {
   simpleSchemas,
 } from "../fixtures";
 
+// Test-only view over compound where-unique output keys.
+type CompoundOutput = any;
+
+const compoundOutput = (value: unknown): CompoundOutput =>
+  value as CompoundOutput;
+
 // =============================================================================
 // RUNTIME TESTS - Compound ID Model
 // =============================================================================
@@ -24,7 +30,7 @@ describe("Compound Constraint Filter - Compound ID Model Runtime", () => {
     const result = parse(schema, {});
     expect(result.issues).toBeUndefined();
     if (!result.issues) {
-      expect(result.value).toEqual({});
+      expect(compoundOutput(result.value)).toEqual({});
     }
   });
 
@@ -34,7 +40,7 @@ describe("Compound Constraint Filter - Compound ID Model Runtime", () => {
     });
     expect(result.issues).toBeUndefined();
     if (!result.issues) {
-      expect(result.value.orgId_memberId).toEqual({
+      expect(compoundOutput(result.value).orgId_memberId).toEqual({
         orgId: "org-1",
         memberId: "member-1",
       });
@@ -48,8 +54,8 @@ describe("Compound Constraint Filter - Compound ID Model Runtime", () => {
     const result = parse(schema, input);
     expect(result.issues).toBeUndefined();
     if (!result.issues) {
-      expect(result.value.orgId_memberId?.orgId).toBe("org-123");
-      expect(result.value.orgId_memberId?.memberId).toBe("member-456");
+      expect(compoundOutput(result.value).orgId_memberId?.orgId).toBe("org-123");
+      expect(compoundOutput(result.value).orgId_memberId?.memberId).toBe("member-456");
     }
   });
 
@@ -72,7 +78,7 @@ describe("Compound Constraint Filter - Compound Unique Model Runtime", () => {
     const result = parse(schema, {});
     expect(result.issues).toBeUndefined();
     if (!result.issues) {
-      expect(result.value).toEqual({});
+      expect(compoundOutput(result.value)).toEqual({});
     }
   });
 
@@ -82,7 +88,7 @@ describe("Compound Constraint Filter - Compound Unique Model Runtime", () => {
     });
     expect(result.issues).toBeUndefined();
     if (!result.issues) {
-      expect(result.value.email_tenantId).toEqual({
+      expect(compoundOutput(result.value).email_tenantId).toEqual({
         email: "a@b.com",
         tenantId: "tenant-1",
       });
@@ -96,8 +102,8 @@ describe("Compound Constraint Filter - Compound Unique Model Runtime", () => {
     const result = parse(schema, input);
     expect(result.issues).toBeUndefined();
     if (!result.issues) {
-      expect(result.value.email_tenantId?.email).toBe("test@example.com");
-      expect(result.value.email_tenantId?.tenantId).toBe("tenant-xyz");
+      expect(compoundOutput(result.value).email_tenantId?.email).toBe("test@example.com");
+      expect(compoundOutput(result.value).email_tenantId?.tenantId).toBe("tenant-xyz");
     }
   });
 
@@ -120,7 +126,7 @@ describe("Compound Constraint Filter - Simple Model Runtime", () => {
     const result = parse(schema, {});
     expect(result.issues).toBeUndefined();
     if (!result.issues) {
-      expect(result.value).toEqual({});
+      expect(compoundOutput(result.value)).toEqual({});
     }
   });
 
@@ -128,7 +134,7 @@ describe("Compound Constraint Filter - Simple Model Runtime", () => {
     const result = parse(schema, {});
     expect(result.issues).toBeUndefined();
     if (!result.issues) {
-      expect(Object.keys(result.value)).toHaveLength(0);
+      expect(Object.keys(compoundOutput(result.value))).toHaveLength(0);
     }
   });
 

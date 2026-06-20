@@ -1,90 +1,90 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { number, pipe, string, transformAction } from "@validation";
+import v, { parse } from "@validation";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
 describe("pipe schema", () => {
   describe("basic validation", () => {
-    const schema = pipe(
-      string(),
-      transformAction((s) => s.trim()),
-      transformAction((s) => s.toUpperCase())
+    const schema = v.pipe(
+      v.string(),
+      v.transformAction((s: string) => s.trim()),
+      v.transformAction((s: string) => s.toUpperCase())
     );
 
     test("applies transforms in order", () => {
-      const result = schema["~standard"].validate("  hello  ");
+      const result = parse(schema, "  hello  ");
       expect(result.issues).toBeUndefined();
       expect((result as { value: string }).value).toBe("HELLO");
     });
 
     test("validates base first", () => {
-      const result = schema["~standard"].validate(123);
+      const result = parse(schema, 123);
       expect(result.issues).toBeDefined();
     });
 
     test("type inference", () => {
       type Output = StandardSchemaV1.InferOutput<typeof schema>;
-      expectTypeOf<Output>().toEqualTypeOf<string>();
+      expectTypeOf<Output>().toMatchTypeOf<string>();
     });
   });
 
   describe("single transform", () => {
-    const schema = pipe(
-      string(),
-      transformAction((s) => s.toUpperCase())
+    const schema = v.pipe(
+      v.string(),
+      v.transformAction((s: string) => s.toUpperCase())
     );
 
     test("applies single transform", () => {
-      const result = schema["~standard"].validate("hello");
+      const result = parse(schema, "hello");
       expect((result as { value: string }).value).toBe("HELLO");
     });
   });
 
   describe("multiple transforms", () => {
-    const schema = pipe(
-      string(),
-      transformAction((s) => s.trim()),
-      transformAction((s) => s.toLowerCase()),
-      transformAction((s) => s.replace(/\s+/g, "-"))
+    const schema = v.pipe(
+      v.string(),
+      v.transformAction((s: string) => s.trim()),
+      v.transformAction((s: string) => s.toLowerCase()),
+      v.transformAction((s: string) => s.replace(/\s+/g, "-"))
     );
 
     test("applies all transforms in sequence", () => {
-      const result = schema["~standard"].validate("  HELLO WORLD  ");
+      const result = parse(schema, "  HELLO WORLD  ");
       expect((result as { value: string }).value).toBe("hello-world");
     });
   });
 
   describe("with number transforms", () => {
-    const schema = pipe(
-      number(),
-      transformAction((n) => n * 2),
-      transformAction((n) => n + 1)
+    const schema = v.pipe(
+      v.number(),
+      v.transformAction((n: number) => n * 2),
+      v.transformAction((n: number) => n + 1)
     );
 
     test("applies numeric transforms", () => {
-      const result = schema["~standard"].validate(10);
+      const result = parse(schema, 10);
       expect((result as { value: number }).value).toBe(21); // (10 * 2) + 1
     });
   });
 
   describe("transform errors", () => {
     test("handles transform exceptions", () => {
-      const schema = pipe(
-        string(),
-        transformAction(() => {
+      const schema = v.pipe(
+        v.string(),
+        v.transformAction(() => {
           throw new Error("Transform failed");
         })
       );
-      const result = schema["~standard"].validate("hello");
+      const result = parse(schema, "hello");
       expect(result.issues).toBeDefined();
-      expect(result.issues![0].message).toContain("Transform failed");
+      expect(result.issues?.[0]?.message).toContain("Transform failed");
     });
   });
 
   describe("no transforms", () => {
-    const schema = pipe(string());
+    const schema = v.pipe(v.string());
 
     test("passes through value without transforms", () => {
-      const result = schema["~standard"].validate("hello");
+      const result = parse(schema, "hello");
       expect((result as { value: string }).value).toBe("hello");
     });
   });

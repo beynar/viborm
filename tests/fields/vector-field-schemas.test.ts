@@ -15,9 +15,14 @@
  */
 
 import { vector } from "@schema/fields/vector/field";
-import type { InferVectorInput } from "@schema/fields/vector/schemas";
-import { parse } from "@validation";
+import { type InferInput, parse } from "@validation";
+import { type GetScalarSchemas, getScalarSchemas } from "@validation/scalars";
+import type { FieldState } from "@schema/fields/common";
 import { describe, expect, expectTypeOf, test } from "vitest";
+
+type InferFieldInput<State extends FieldState, Key extends keyof GetScalarSchemas<State>> =
+  InferInput<GetScalarSchemas<State>[Key]>;
+type InferVectorInput<State extends FieldState<"vector">, Key extends keyof GetScalarSchemas<State>> = InferFieldInput<State, Key>;
 
 // =============================================================================
 // RAW VECTOR FIELD (required, no modifiers)
@@ -26,7 +31,7 @@ import { describe, expect, expectTypeOf, test } from "vitest";
 describe("Raw Vector Field", () => {
   const field = vector();
   type State = (typeof field)["~"]["state"];
-  const schemas = field["~"].schemas;
+  const schemas = getScalarSchemas(field["~"].state);
 
   describe("base", () => {
     test("type: base is number[]", () => {
@@ -179,7 +184,7 @@ describe("Raw Vector Field", () => {
 describe("Nullable Vector Field", () => {
   const field = vector().nullable();
   type State = (typeof field)["~"]["state"];
-  const schemas = field["~"].schemas;
+  const schemas = getScalarSchemas(field["~"].state);
 
   describe("base", () => {
     test("type: base is number[] | null", () => {
@@ -333,7 +338,7 @@ describe("Default Value Behavior", () => {
   describe("static default value", () => {
     const field = vector().default([0.1, 0.2, 0.3]);
     type State = (typeof field)["~"]["state"];
-    const schemas = field["~"].schemas;
+    const schemas = getScalarSchemas(field["~"].state);
 
     test("type: create is optional", () => {
       type Create = InferVectorInput<State, "create">;
@@ -359,7 +364,7 @@ describe("Default Value Behavior", () => {
       callCount++;
       return Array.from({ length: 3 }, (_, i) => callCount * (i + 1));
     });
-    const schemas = field["~"].schemas;
+    const schemas = getScalarSchemas(field["~"].state);
 
     test("runtime: undefined calls default function", () => {
       const before = callCount;
@@ -376,8 +381,8 @@ describe("Default Value Behavior", () => {
   describe("default with dimension", () => {
     const field = vector()
       .dimension(128)
-      .default(() => new Array(128).fill(0));
-    const schemas = field["~"].schemas;
+      .default((): number[] => new Array(128).fill(0));
+    const schemas = getScalarSchemas(field["~"].state as FieldState<"vector">);
 
     test("runtime: default function can use dimension", () => {
       const result = parse(schemas.create, undefined);

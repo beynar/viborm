@@ -11,12 +11,28 @@ A minimal, StandardSchema-compliant validation library designed for the VibORM p
 - **StandardSchema v1 compliant**: Works with any StandardSchema consumer
 - **Minimal runtime footprint**: Small monadic functions
 
+## SchemaRegistry Ownership
+
+`src/validation/` owns operation schemas for ORM inputs. The schema layer owns model structure and base field schemas; `SchemaRegistry` composes those into model, relation, and args schemas with full graph context:
+
+```typescript
+import { createSchemaRegistry } from "viborm/validation";
+
+const registry = createSchemaRegistry({ user });
+
+registry.proxy.user.core.where;
+registry.proxy.user.args.create;
+registry.proxy.user.relations.posts.create;
+```
+
+The client and query engine validate operations through this registry instead of reading operation schemas from schema internals.
+
 ## Usage
 
 ```typescript
 import { v } from "viborm/validation";
 // Or import individual schemas
-import { string, number, object, date, instance } from "viborm/validation";
+import { string, number, object, date } from "viborm/validation";
 
 // Simple schemas
 const name = v.string();
@@ -32,14 +48,10 @@ const defaultStatus = v.string({ default: "pending" });
 const upperName = v.string({ transform: (s) => s.toUpperCase() });
 
 // Date & Time
-const createdAt = v.date();                    // JavaScript Date object
-const timestamp = v.isoTimestamp();            // "2023-12-15T10:30:00.000Z"
-const birthDate = v.isoDate();                 // "2023-12-15"
-const startTime = v.isoTime();                 // "10:30:00"
-
-// Instance (for Buffer, Uint8Array, etc.)
-const buffer = v.instance(Uint8Array);
-const blob = v.union([v.instance(Uint8Array), v.instance(Buffer)]);
+const createdAt = v.date(); // JavaScript Date object
+const timestamp = v.isoTimestamp(); // "2023-12-15T10:30:00.000Z"
+const birthDate = v.isoDate(); // "2023-12-15"
+const startTime = v.isoTime(); // "10:30:00"
 
 // Objects
 const user = v.object({
@@ -51,18 +63,18 @@ const user = v.object({
 // Circular references using thunks (no lazy() needed!)
 const node = v.object({
   value: v.string(),
-  children: v.array(() => node),  // Thunk for self-reference
+  children: v.array(() => node), // Thunk for self-reference
 });
 
 // Mutual references
 const model1 = v.object({
   name: v.string(),
-  friend: () => model2,  // Thunk for forward reference
+  friend: () => model2, // Thunk for forward reference
 });
 
 const model2 = v.object({
   name: v.string(),
-  friend: () => model1,  // Thunk for back reference
+  friend: () => model1, // Thunk for back reference
 });
 ```
 
@@ -70,55 +82,49 @@ const model2 = v.object({
 
 ### Scalars
 
-| Schema | Description | Options |
-|--------|-------------|---------|
-| `string()` | String values | `optional`, `nullable`, `array`, `default`, `transform` |
-| `number()` | Number values (no NaN) | Same as above |
-| `integer()` | Integer values | Same as above |
-| `boolean()` | Boolean values | Same as above |
-| `bigint()` | BigInt values | Same as above |
-| `literal(value)` | Exact literal match | Same as above |
-| `null_()` | Null value only | - |
+| Schema           | Description            | Options                                                 |
+| ---------------- | ---------------------- | ------------------------------------------------------- |
+| `string()`       | String values          | `optional`, `nullable`, `array`, `default`, `transform` |
+| `number()`       | Number values (no NaN) | Same as above                                           |
+| `integer()`      | Integer values         | Same as above                                           |
+| `boolean()`      | Boolean values         | Same as above                                           |
+| `bigint()`       | BigInt values          | Same as above                                           |
+| `literal(value)` | Exact literal match    | Same as above                                           |
+| `null_()`        | Null value only        | -                                                       |
 
 ### Date & Time
 
-| Schema | Description | Format |
-|--------|-------------|--------|
-| `date()` | JavaScript Date object | `new Date()` |
-| `isoTimestamp()` | ISO timestamp string | `2023-12-15T10:30:00.000Z` |
-| `isoDate()` | ISO date string | `2023-12-15` |
-| `isoTime()` | ISO time string | `10:30:00` |
-
-### Instance
-
-| Schema | Description |
-|--------|-------------|
-| `instance(Class)` | Instance of a class (Uint8Array, Buffer, etc.) |
+| Schema           | Description            | Format                     |
+| ---------------- | ---------------------- | -------------------------- |
+| `date()`         | JavaScript Date object | `new Date()`               |
+| `isoTimestamp()` | ISO timestamp string   | `2023-12-15T10:30:00.000Z` |
+| `isoDate()`      | ISO date string        | `2023-12-15`               |
+| `isoTime()`      | ISO time string        | `10:30:00`                 |
 
 ### Wrappers
 
-| Schema | Description |
-|--------|-------------|
-| `array(schema)` | Array of schema type (supports thunks) |
-| `nullable(schema, default?)` | Allows null (supports thunks) |
-| `optional(schema, default?)` | Allows undefined (supports thunks) |
+| Schema                       | Description                            |
+| ---------------------------- | -------------------------------------- |
+| `array(schema)`              | Array of schema type (supports thunks) |
+| `nullable(schema, default?)` | Allows null (supports thunks)          |
+| `optional(schema, default?)` | Allows undefined (supports thunks)     |
 
 ### Objects
 
-| Schema | Description |
-|--------|-------------|
-| `object(entries)` | Object with entries, strips unknown keys |
+| Schema                  | Description                               |
+| ----------------------- | ----------------------------------------- |
+| `object(entries)`       | Object with entries, strips unknown keys  |
 | `strictObject(entries)` | Object with entries, rejects unknown keys |
-| `partial(objectSchema)` | Makes all fields optional |
+| `partial(objectSchema)` | Makes all fields optional                 |
 
 ### Composition
 
-| Schema | Description |
-|--------|-------------|
-| `union([schemas])` | First matching schema wins |
-| `pipe(schema, ...actions)` | Chain transforms |
-| `transform(fn)` | Transform action for pipe |
-| `record(keySchema, valueSchema)` | Dynamic key-value pairs |
+| Schema                           | Description                |
+| -------------------------------- | -------------------------- |
+| `union([schemas])`               | First matching schema wins |
+| `pipe(schema, ...actions)`       | Chain transforms           |
+| `transform(fn)`                  | Transform action for pipe  |
+| `record(keySchema, valueSchema)` | Dynamic key-value pairs    |
 
 ## Type Inference
 
@@ -146,18 +152,18 @@ No separate `lazy()` function needed - just use arrow functions!
 // Self-reference
 const node = v.object({
   value: v.string(),
-  child: v.optional(() => node),  // Thunk
+  child: v.optional(() => node), // Thunk
 });
 
 // Mutual references
 const user = v.object({
   name: v.string(),
-  posts: v.array(() => post),  // Thunk
+  posts: v.array(() => post), // Thunk
 });
 
 const post = v.object({
   title: v.string(),
-  author: () => user,  // Thunk (works directly in object entries)
+  author: () => user, // Thunk (works directly in object entries)
 });
 
 // Types are correctly inferred (no `any`)
@@ -214,10 +220,10 @@ if (result.issues) {
 
 ## Comparison with Valibot
 
-| Feature | VibORM | Valibot |
-|---------|--------|---------|
-| Circular references | ✅ Thunks | ❌ Broken |
-| StandardSchema | ✅ Only | ✅ + `~run` |
-| Options API | ✅ `{ optional, nullable, array }` | ❌ Wrappers |
-| Bundle size | Minimal | Small |
-| Fail-fast | ✅ First error | ✅ Configurable |
+| Feature             | VibORM                             | Valibot         |
+| ------------------- | ---------------------------------- | --------------- |
+| Circular references | ✅ Thunks                          | ❌ Broken       |
+| StandardSchema      | ✅ Only                            | ✅ + `~run`     |
+| Options API         | ✅ `{ optional, nullable, array }` | ❌ Wrappers     |
+| Bundle size         | Minimal                            | Small           |
+| Fail-fast           | ✅ First error                     | ✅ Configurable |

@@ -1,18 +1,6 @@
-import v from "@validation";
-import type {
-  InferOutput,
-  ValidationResult,
-  VibSchema,
-} from "@validation/types";
+import v, { parse } from "@validation";
+import type { InferOutput, VibSchema } from "@validation/types";
 import { describe, expect, expectTypeOf, test } from "vitest";
-
-// Helper to get sync result from parse
-function parse<T>(
-  schema: { parse: (v: unknown) => any },
-  value: unknown
-): ValidationResult<T> {
-  return schema.parse(value) as ValidationResult<T>;
-}
 
 describe("fromKeys", () => {
   test("creates object schema from keys with same value schema", () => {

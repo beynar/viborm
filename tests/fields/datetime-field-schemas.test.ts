@@ -15,9 +15,14 @@
  */
 
 import { dateTime } from "@schema/fields/datetime/field";
-import type { InferDateTimeInput } from "@schema/fields/datetime/schemas";
-import { parse } from "@validation";
+import { type InferInput, parse } from "@validation";
+import { type GetScalarSchemas, getScalarSchemas } from "@validation/scalars";
+import type { FieldState } from "@schema/fields/common";
 import { describe, expect, expectTypeOf, test } from "vitest";
+
+type InferFieldInput<State extends FieldState, Key extends keyof GetScalarSchemas<State>> =
+  InferInput<GetScalarSchemas<State>[Key]>;
+type InferDateTimeInput<State extends FieldState<"datetime">, Key extends keyof GetScalarSchemas<State>> = InferFieldInput<State, Key>;
 
 // Test data - valid ISO datetime strings and Date objects
 const validDatetime = "2024-01-15T10:30:00.000Z";
@@ -34,7 +39,7 @@ const invalidFormat = "2024/01/15"; // wrong format
 describe("Raw DateTime Field", () => {
   const field = dateTime();
   type State = (typeof field)["~"]["state"];
-  const schemas = field["~"].schemas;
+  const schemas = getScalarSchemas(field["~"].state);
 
   describe("base", () => {
     test("type: base input accepts Date or string", () => {
@@ -200,7 +205,7 @@ describe("Raw DateTime Field", () => {
 describe("Nullable DateTime Field", () => {
   const field = dateTime().nullable();
   type State = (typeof field)["~"]["state"];
-  const schemas = field["~"].schemas;
+  const schemas = getScalarSchemas(field["~"].state);
 
   describe("base", () => {
     test("type: base accepts Date, string, or null", () => {
@@ -328,7 +333,7 @@ describe("Nullable DateTime Field", () => {
 describe("List DateTime Field", () => {
   const field = dateTime().array();
   type State = (typeof field)["~"]["state"];
-  const schemas = field["~"].schemas;
+  const schemas = getScalarSchemas(field["~"].state);
 
   describe("base", () => {
     test("type: base accepts (Date | string)[]", () => {
@@ -505,7 +510,7 @@ describe("List DateTime Field", () => {
 describe("Nullable List DateTime Field", () => {
   const field = dateTime().array().nullable();
   type State = (typeof field)["~"]["state"];
-  const schemas = field["~"].schemas;
+  const schemas = getScalarSchemas(field["~"].state);
 
   describe("base", () => {
     test("type: base accepts (Date | string)[] or null", () => {
@@ -647,7 +652,7 @@ describe("Default Value Behavior", () => {
   describe("static default value (string)", () => {
     const field = dateTime().default(validDatetime);
     type State = (typeof field)["~"]["state"];
-    const schemas = field["~"].schemas;
+    const schemas = getScalarSchemas(field["~"].state);
 
     test("type: create is optional, accepts Date or string", () => {
       type Create = InferDateTimeInput<State, "create">;
@@ -680,7 +685,7 @@ describe("Default Value Behavior", () => {
       callCount++;
       return `2024-01-${String(callCount).padStart(2, "0")}T00:00:00.000Z`;
     });
-    const schemas = field["~"].schemas;
+    const schemas = getScalarSchemas(field["~"].state);
 
     test("type: create is optional", () => {
       type State = (typeof field)["~"]["state"];
@@ -707,7 +712,7 @@ describe("Default Value Behavior", () => {
       expectTypeOf<string | undefined>().toExtend<Create>();
       expectTypeOf<Date>().toExtend<Create>();
 
-      const schemas = field["~"].schemas;
+      const schemas = getScalarSchemas(field["~"].state);
       const result = parse(schemas.create, undefined);
       if (result.issues) throw new Error("Expected success");
       expect(typeof result.value).toBe("string");
@@ -724,7 +729,7 @@ describe("Default Value Behavior", () => {
       expectTypeOf<string | undefined>().toExtend<Create>();
       expectTypeOf<Date>().toExtend<Create>();
 
-      const schemas = field["~"].schemas;
+      const schemas = getScalarSchemas(field["~"].state);
       const result = parse(schemas.create, undefined);
       if (result.issues) throw new Error("Expected success");
       expect(typeof result.value).toBe("string");

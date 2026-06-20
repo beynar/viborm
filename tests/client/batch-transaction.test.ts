@@ -46,6 +46,21 @@ const post = s.model({
 
 const schema = { user, post };
 
+type TransactionCapableClient<TClient> = TClient & {
+  $transaction<TResult>(
+    operation:
+      | readonly unknown[]
+      | ((
+          tx: TransactionCapableClient<TClient>
+        ) => TResult | Promise<TResult>)
+  ): Promise<TResult>;
+};
+
+const withTransactions = <TClient,>(
+  client: TClient
+): TransactionCapableClient<TClient> =>
+  client as TransactionCapableClient<TClient>;
+
 // =============================================================================
 // TEST SETUP
 // =============================================================================
@@ -134,6 +149,79 @@ describe("PendingOperation", () => {
     expect(nestedCreateOp.canBatch()).toBe(false);
   });
 
+  test("canBatch() returns false for nested createMany writes", () => {
+    const nestedCreateManyOp = client.user.create({
+      data: {
+        id: "1",
+        name: "Test",
+        email: "test@test.com",
+        posts: {
+          createMany: {
+            data: [{ id: "p1", title: "Post 1", authorId: "1" }],
+          },
+        },
+      },
+    });
+
+    expect(nestedCreateManyOp.canBatch()).toBe(false);
+    expect(nestedCreateManyOp.prepare()).toBeUndefined();
+  });
+
+  test("canBatch() returns false for update with nested createMany writes", () => {
+    const nestedUpdateOp = client.user.update({
+      where: { id: "1" },
+      data: {
+        posts: {
+          createMany: {
+            data: [{ id: "p1", title: "Post 1", authorId: "1" }],
+          },
+        },
+      },
+    });
+
+    expect(nestedUpdateOp.canBatch()).toBe(false);
+    expect(nestedUpdateOp.prepare()).toBeUndefined();
+  });
+
+  test("canBatch() returns false for upsert with nested create writes in create branch", () => {
+    const nestedUpsertOp = client.user.upsert({
+      where: { id: "1" },
+      create: {
+        id: "1",
+        name: "Test",
+        email: "test@test.com",
+        posts: {
+          create: [{ id: "p1", title: "Post 1", authorId: "1" }],
+        },
+      },
+      update: { name: "Updated" },
+    });
+
+    expect(nestedUpsertOp.canBatch()).toBe(false);
+    expect(nestedUpsertOp.prepare()).toBeUndefined();
+  });
+
+  test("canBatch() returns false for upsert with nested createMany writes in update branch", () => {
+    const nestedUpsertOp = client.user.upsert({
+      where: { id: "1" },
+      create: {
+        id: "1",
+        name: "Test",
+        email: "test@test.com",
+      },
+      update: {
+        posts: {
+          createMany: {
+            data: [{ id: "p1", title: "Post 1", authorId: "1" }],
+          },
+        },
+      },
+    });
+
+    expect(nestedUpsertOp.canBatch()).toBe(false);
+    expect(nestedUpsertOp.prepare()).toBeUndefined();
+  });
+
   test("canBatch() returns true for simple create without nested writes", () => {
     const simpleCreateOp = client.user.create({
       data: { id: "1", name: "Test", email: "test@test.com" },
@@ -144,7 +232,7 @@ describe("PendingOperation", () => {
 
 describe("$transaction with callback", () => {
   test("executes operations within a transaction", async () => {
-    await client.$transaction(async (tx) => {
+    await withTransactions(client).$transaction(async (tx) => {
       await tx.user.create({
         data: { id: "1", name: "Charlie", email: "charlie@test.com" },
       });
@@ -161,7 +249,7 @@ describe("$transaction with callback", () => {
 
   test("rolls back on error", async () => {
     try {
-      await client.$transaction(async (tx) => {
+      await withTransactions(client).$transaction(async (tx) => {
         await tx.user.create({
           data: { id: "1", name: "Dave", email: "dave@test.com" },
         });
@@ -191,7 +279,7 @@ describe("$transaction with array (batch mode)", () => {
     });
 
     // Batch read operations
-    const [users, posts] = await client.$transaction([
+    const [users, posts] = await withTransactions(client).$transaction([
       client.user.findMany(),
       client.post.findMany(),
     ]);
@@ -201,7 +289,7 @@ describe("$transaction with array (batch mode)", () => {
   });
 
   test("batches write operations", async () => {
-    const [user1, user2] = await client.$transaction([
+    const [user1, user2] = await withTransactions(client).$transaction([
       client.user.create({
         data: { id: "1", name: "Grace", email: "grace@test.com" },
       }),
@@ -222,7 +310,7 @@ describe("$transaction with array (batch mode)", () => {
       data: { id: "1", name: "Ivy", email: "ivy@test.com" },
     });
 
-    const [count, users, firstUser] = await client.$transaction([
+    const [count, users, firstUser] = await withTransactions(client).$transaction([
       client.user.count(),
       client.user.findMany(),
       client.user.findFirst(),
@@ -235,8 +323,7 @@ describe("$transaction with array (batch mode)", () => {
 
   test("rejects non-PendingOperation items", async () => {
     await expect(
-      // @ts-expect-error - intentionally passing wrong type
-      client.$transaction([Promise.resolve("not a pending operation")])
+      withTransactions(client).$transaction([Promise.resolve("not a pending operation")])
     ).rejects.toThrow(
       "$transaction array must contain only pending operations from client methods"
     );
@@ -244,7 +331,7 @@ describe("$transaction with array (batch mode)", () => {
 
   test("supports transaction options (isolation level)", async () => {
     // Batch mode should accept and pass through transaction options
-    const [user] = await client.$transaction(
+    const [user] = await withTransactions(client).$transaction(
       [
         client.user.create({
           data: { id: "1", name: "IsolationTest", email: "iso@test.com" },
@@ -264,7 +351,7 @@ describe("$transaction with array (batch mode)", () => {
 describe("mixed operations", () => {
   test("operations work independently after batch", async () => {
     // Batch some operations
-    await client.$transaction([
+    await withTransactions(client).$transaction([
       client.user.create({
         data: { id: "1", name: "Jack", email: "jack@test.com" },
       }),
@@ -275,7 +362,7 @@ describe("mixed operations", () => {
     expect(user?.name).toBe("Jack");
 
     // Another batch
-    await client.$transaction([
+    await withTransactions(client).$transaction([
       client.user.update({
         where: { id: "1" },
         data: { name: "Jack Updated" },
@@ -295,19 +382,19 @@ describe("concurrent transactions", () => {
   test("multiple transactions can run in parallel without interference", async () => {
     // Run 3 transactions concurrently, each creating a different user
     const results = await Promise.all([
-      client.$transaction(async (tx) => {
+      withTransactions(client).$transaction(async (tx) => {
         await tx.user.create({
           data: { id: "concurrent-1", name: "User 1", email: "user1@test.com" },
         });
         return tx.user.findUnique({ where: { id: "concurrent-1" } });
       }),
-      client.$transaction(async (tx) => {
+      withTransactions(client).$transaction(async (tx) => {
         await tx.user.create({
           data: { id: "concurrent-2", name: "User 2", email: "user2@test.com" },
         });
         return tx.user.findUnique({ where: { id: "concurrent-2" } });
       }),
-      client.$transaction(async (tx) => {
+      withTransactions(client).$transaction(async (tx) => {
         await tx.user.create({
           data: { id: "concurrent-3", name: "User 3", email: "user3@test.com" },
         });
@@ -333,7 +420,7 @@ describe("concurrent transactions", () => {
 
     const results = await Promise.allSettled([
       // This one will succeed
-      client.$transaction(async (tx) => {
+      withTransactions(client).$transaction(async (tx) => {
         await tx.user.create({
           data: {
             id: "success-1",
@@ -344,14 +431,14 @@ describe("concurrent transactions", () => {
         return "success-1";
       }),
       // This one will fail due to duplicate email
-      client.$transaction(async (tx) => {
+      withTransactions(client).$transaction(async (tx) => {
         await tx.user.create({
           data: { id: "fail-1", name: "Fail 1", email: "existing@test.com" },
         });
         return "fail-1";
       }),
       // This one will succeed
-      client.$transaction(async (tx) => {
+      withTransactions(client).$transaction(async (tx) => {
         await tx.user.create({
           data: {
             id: "success-2",
@@ -376,12 +463,12 @@ describe("concurrent transactions", () => {
 
   test("concurrent batch transactions work correctly", async () => {
     const results = await Promise.all([
-      client.$transaction([
+      withTransactions(client).$transaction([
         client.user.create({
           data: { id: "batch-1", name: "Batch 1", email: "batch1@test.com" },
         }),
       ]),
-      client.$transaction([
+      withTransactions(client).$transaction([
         client.user.create({
           data: { id: "batch-2", name: "Batch 2", email: "batch2@test.com" },
         }),
@@ -402,7 +489,7 @@ describe("concurrent transactions", () => {
 
 describe("sequential operations in transaction", () => {
   test("multiple sequential creates in transaction", async () => {
-    await client.$transaction(async (tx) => {
+    await withTransactions(client).$transaction(async (tx) => {
       await tx.user.create({
         data: { id: "seq-1", name: "User 1", email: "seq1@test.com" },
       });
@@ -424,7 +511,7 @@ describe("sequential operations in transaction", () => {
   });
 
   test("read-after-write within transaction sees uncommitted changes", async () => {
-    await client.$transaction(async (tx) => {
+    await withTransactions(client).$transaction(async (tx) => {
       await tx.user.create({
         data: { id: "raw-1", name: "RAW User", email: "raw@test.com" },
       });
@@ -437,7 +524,7 @@ describe("sequential operations in transaction", () => {
   });
 
   test("update after create within transaction", async () => {
-    const result = await client.$transaction(async (tx) => {
+    const result = await withTransactions(client).$transaction(async (tx) => {
       const created = await tx.user.create({
         data: { id: "update-1", name: "Original", email: "update@test.com" },
       });
@@ -457,7 +544,7 @@ describe("sequential operations in transaction", () => {
   });
 
   test("delete after create within transaction", async () => {
-    await client.$transaction(async (tx) => {
+    await withTransactions(client).$transaction(async (tx) => {
       await tx.user.create({
         data: { id: "delete-1", name: "To Delete", email: "delete@test.com" },
       });
@@ -477,7 +564,7 @@ describe("sequential operations in transaction", () => {
 describe("error scenarios", () => {
   test("constraint violation triggers rollback in callback mode", async () => {
     try {
-      await client.$transaction(async (tx) => {
+      await withTransactions(client).$transaction(async (tx) => {
         await tx.user.create({
           data: {
             id: "error-1",
@@ -521,7 +608,7 @@ describe("error scenarios", () => {
     });
 
     try {
-      await client.$transaction([
+      await withTransactions(client).$transaction([
         client.user.create({
           data: {
             id: "batch-new-1",
@@ -549,7 +636,7 @@ describe("error scenarios", () => {
 
   test("thrown error in transaction callback triggers rollback", async () => {
     try {
-      await client.$transaction(async (tx) => {
+      await withTransactions(client).$transaction(async (tx) => {
         await tx.user.create({
           data: {
             id: "thrown-1",
@@ -569,7 +656,7 @@ describe("error scenarios", () => {
 
   test("async error in transaction callback triggers rollback", async () => {
     try {
-      await client.$transaction(async (tx) => {
+      await withTransactions(client).$transaction(async (tx) => {
         await tx.user.create({
           data: {
             id: "async-err-1",
@@ -594,7 +681,7 @@ describe("error scenarios", () => {
     const errorMessage = "Custom error message for testing";
 
     await expect(
-      client.$transaction(async (tx) => {
+      withTransactions(client).$transaction(async (tx) => {
         await tx.user.create({
           data: {
             id: "preserve-1",
@@ -608,7 +695,7 @@ describe("error scenarios", () => {
   });
 
   test("transaction returns value on success", async () => {
-    const result = await client.$transaction(async (tx) => {
+    const result = await withTransactions(client).$transaction(async (tx) => {
       const user = await tx.user.create({
         data: { id: "return-1", name: "Return User", email: "return@test.com" },
       });
@@ -625,7 +712,7 @@ describe("error scenarios", () => {
 
 describe("transaction semantics", () => {
   test("changes are visible after commit", async () => {
-    await client.$transaction(async (tx) => {
+    await withTransactions(client).$transaction(async (tx) => {
       await tx.user.create({
         data: {
           id: "commit-1",
@@ -643,7 +730,7 @@ describe("transaction semantics", () => {
 
   test("changes are not visible after rollback", async () => {
     try {
-      await client.$transaction(async (tx) => {
+      await withTransactions(client).$transaction(async (tx) => {
         await tx.user.create({
           data: {
             id: "rollback-1",
@@ -665,7 +752,7 @@ describe("transaction semantics", () => {
   test("transaction sees its own uncommitted changes", async () => {
     let sawOwnChanges = false;
 
-    await client.$transaction(async (tx) => {
+    await withTransactions(client).$transaction(async (tx) => {
       await tx.user.create({
         data: { id: "self-1", name: "Self User", email: "self@test.com" },
       });
@@ -688,7 +775,7 @@ describe("transaction semantics", () => {
       },
     });
 
-    await client.$transaction(async (tx) => {
+    await withTransactions(client).$transaction(async (tx) => {
       const user = await tx.user.findUnique({ where: { id: "read-update-1" } });
       expect(user?.name).toBe("Original");
 
@@ -716,12 +803,12 @@ describe("transaction semantics", () => {
 
 describe("nested transactions", () => {
   test("nested transaction commits when both succeed", async () => {
-    await client.$transaction(async (tx) => {
+    await withTransactions(client).$transaction(async (tx) => {
       await tx.user.create({
         data: { id: "outer-1", name: "Outer User", email: "outer@test.com" },
       });
 
-      await tx.$transaction(async (nestedTx) => {
+      await withTransactions(tx).$transaction(async (nestedTx) => {
         await nestedTx.user.create({
           data: {
             id: "nested-1",
@@ -738,7 +825,7 @@ describe("nested transactions", () => {
   });
 
   test("nested transaction rollback does not affect outer transaction", async () => {
-    await client.$transaction(async (tx) => {
+    await withTransactions(client).$transaction(async (tx) => {
       await tx.user.create({
         data: {
           id: "outer-only",
@@ -749,7 +836,7 @@ describe("nested transactions", () => {
 
       // Nested transaction that fails - should only rollback nested changes
       try {
-        await tx.$transaction(async (nestedTx) => {
+        await withTransactions(tx).$transaction(async (nestedTx) => {
           await nestedTx.user.create({
             data: {
               id: "nested-fail",
@@ -784,7 +871,7 @@ describe("nested transactions", () => {
 
   test("outer transaction rollback also rolls back nested commits", async () => {
     try {
-      await client.$transaction(async (tx) => {
+      await withTransactions(client).$transaction(async (tx) => {
         await tx.user.create({
           data: {
             id: "outer-rollback",
@@ -794,7 +881,7 @@ describe("nested transactions", () => {
         });
 
         // Nested transaction succeeds
-        await tx.$transaction(async (nestedTx) => {
+        await withTransactions(tx).$transaction(async (nestedTx) => {
           await nestedTx.user.create({
             data: {
               id: "nested-rollback",
@@ -817,17 +904,17 @@ describe("nested transactions", () => {
   });
 
   test("deeply nested transactions work correctly", async () => {
-    await client.$transaction(async (tx1) => {
+    await withTransactions(client).$transaction(async (tx1) => {
       await tx1.user.create({
         data: { id: "level-1", name: "Level 1", email: "level1@test.com" },
       });
 
-      await tx1.$transaction(async (tx2) => {
+      await withTransactions(tx1).$transaction(async (tx2) => {
         await tx2.user.create({
           data: { id: "level-2", name: "Level 2", email: "level2@test.com" },
         });
 
-        await tx2.$transaction(async (tx3) => {
+        await withTransactions(tx2).$transaction(async (tx3) => {
           await tx3.user.create({
             data: { id: "level-3", name: "Level 3", email: "level3@test.com" },
           });
@@ -847,7 +934,7 @@ describe("nested transactions", () => {
   test("nested transaction can read changes from outer transaction", async () => {
     let nestedSawOuterChanges = false;
 
-    await client.$transaction(async (tx) => {
+    await withTransactions(client).$transaction(async (tx) => {
       await tx.user.create({
         data: {
           id: "outer-visible",
@@ -856,7 +943,7 @@ describe("nested transactions", () => {
         },
       });
 
-      await tx.$transaction(async (nestedTx) => {
+      await withTransactions(tx).$transaction(async (nestedTx) => {
         // Should see uncommitted changes from outer transaction
         const user = await nestedTx.user.findUnique({
           where: { id: "outer-visible" },
@@ -878,7 +965,7 @@ describe("concurrent nested transactions", () => {
   // to prevent savepoint stack conflicts. Users can safely use Promise.all().
 
   test("multiple concurrent nested transactions in same outer transaction", async () => {
-    await client.$transaction(async (tx) => {
+    await withTransactions(client).$transaction(async (tx) => {
       await tx.user.create({
         data: {
           id: "outer-concurrent",
@@ -889,7 +976,7 @@ describe("concurrent nested transactions", () => {
 
       // Run multiple nested transactions concurrently - SavepointQueue serializes them
       await Promise.all([
-        tx.$transaction(async (nested1) => {
+        withTransactions(tx).$transaction(async (nested1) => {
           await nested1.user.create({
             data: {
               id: "concurrent-nested-1",
@@ -898,7 +985,7 @@ describe("concurrent nested transactions", () => {
             },
           });
         }),
-        tx.$transaction(async (nested2) => {
+        withTransactions(tx).$transaction(async (nested2) => {
           await nested2.user.create({
             data: {
               id: "concurrent-nested-2",
@@ -907,7 +994,7 @@ describe("concurrent nested transactions", () => {
             },
           });
         }),
-        tx.$transaction(async (nested3) => {
+        withTransactions(tx).$transaction(async (nested3) => {
           await nested3.user.create({
             data: {
               id: "concurrent-nested-3",
@@ -924,7 +1011,7 @@ describe("concurrent nested transactions", () => {
   });
 
   test("one failing concurrent nested transaction does not affect others", async () => {
-    await client.$transaction(async (tx) => {
+    await withTransactions(client).$transaction(async (tx) => {
       await tx.user.create({
         data: {
           id: "outer-mixed",
@@ -934,7 +1021,7 @@ describe("concurrent nested transactions", () => {
       });
 
       const results = await Promise.allSettled([
-        tx.$transaction(async (nested1) => {
+        withTransactions(tx).$transaction(async (nested1) => {
           await nested1.user.create({
             data: {
               id: "mixed-success-1",
@@ -944,7 +1031,7 @@ describe("concurrent nested transactions", () => {
           });
           return "success-1";
         }),
-        tx.$transaction(async (nested2) => {
+        withTransactions(tx).$transaction(async (nested2) => {
           await nested2.user.create({
             data: {
               id: "mixed-fail",
@@ -954,7 +1041,7 @@ describe("concurrent nested transactions", () => {
           });
           throw new Error("Intentional nested failure");
         }),
-        tx.$transaction(async (nested3) => {
+        withTransactions(tx).$transaction(async (nested3) => {
           await nested3.user.create({
             data: {
               id: "mixed-success-2",
@@ -984,7 +1071,7 @@ describe("concurrent nested transactions", () => {
 
   test("concurrent outer transactions with nested transactions", async () => {
     const results = await Promise.all([
-      client.$transaction(async (tx1) => {
+      withTransactions(client).$transaction(async (tx1) => {
         await tx1.user.create({
           data: {
             id: "parallel-outer-1",
@@ -992,7 +1079,7 @@ describe("concurrent nested transactions", () => {
             email: "po1@test.com",
           },
         });
-        await tx1.$transaction(async (nested) => {
+        await withTransactions(tx1).$transaction(async (nested) => {
           await nested.user.create({
             data: {
               id: "parallel-nested-1",
@@ -1003,7 +1090,7 @@ describe("concurrent nested transactions", () => {
         });
         return "tx1-done";
       }),
-      client.$transaction(async (tx2) => {
+      withTransactions(client).$transaction(async (tx2) => {
         await tx2.user.create({
           data: {
             id: "parallel-outer-2",
@@ -1011,7 +1098,7 @@ describe("concurrent nested transactions", () => {
             email: "po2@test.com",
           },
         });
-        await tx2.$transaction(async (nested) => {
+        await withTransactions(tx2).$transaction(async (nested) => {
           await nested.user.create({
             data: {
               id: "parallel-nested-2",

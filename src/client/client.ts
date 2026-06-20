@@ -34,7 +34,7 @@ import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import type { ModelRegistry } from "@query-engine/types";
 import { hydrateSchemaNames } from "@schema/hydration";
 import type { Sql } from "@sql";
-import { parse } from "@validation";
+import { createSchemaRegistry, parse, type SchemaRegistry } from "@validation";
 import { isPendingOperation, type PendingOperation } from "./pending-operation";
 import type {
   CacheableOperations,
@@ -239,6 +239,7 @@ export class VibORM<C extends VibORMConfig> {
   private readonly waitUntil: WaitUntilFn | undefined;
   private readonly cacheVersion: string | number | undefined;
   private readonly registry: ModelRegistry;
+  private readonly schemaRegistry: SchemaRegistry<C["schema"]>;
   private readonly engine: QueryEngine;
 
   /**
@@ -263,7 +264,8 @@ export class VibORM<C extends VibORMConfig> {
     this.cacheVersion = config.cacheVersion;
 
     // Create registry and engine once, reuse for all operations
-    this.registry = createModelRegistry(this.schema as Record<string, any>);
+    this.schemaRegistry = createSchemaRegistry(this.schema);
+    this.registry = createModelRegistry(this.schema, this.schemaRegistry);
     this.engine = new QueryEngine(
       this.driver,
       this.registry,
@@ -275,7 +277,7 @@ export class VibORM<C extends VibORMConfig> {
    * Create the client with model proxies and utility methods
    * Model operations return PendingOperation for deferred execution
    */
-  private createClient(): Client<C> {
+  private createClient(engine: QueryEngine = this.engine): Client<C> {
     return createModelProxy(this.schema, ({ modelName, operation, args }) => {
       const modelNameStr = String(modelName);
       const model = this.schema[modelNameStr as keyof C["schema"]];
@@ -292,7 +294,7 @@ export class VibORM<C extends VibORMConfig> {
       };
 
       // Engine handles OrThrow suffix internally
-      const pendingOp = this.engine.prepare(model, operation, cleanArgs);
+      const pendingOp = engine.prepare(model, operation, cleanArgs);
 
       // Wrap with cache invalidation for mutations (client-level concern)
       if (this.cache && isMutationOperation(operation)) {
@@ -543,18 +545,15 @@ export class VibORM<C extends VibORMConfig> {
 
             // Helper to create a transaction client with $transaction support
             const createTxClient = (txDriver: AnyDriver): Client<C> => {
-              const txOrm = new VibORM({
-                driver: txDriver,
-                schema: orm.schema,
-                cache: orm.cache,
-                instrumentation: orm.instrumentation,
-                waitUntil: orm.waitUntil,
-                cacheVersion: orm.cacheVersion,
-              });
-              const baseClient = txOrm.createClient();
+              const txEngine = new QueryEngine(
+                txDriver,
+                orm.registry,
+                orm.instrumentation
+              );
+              const baseClient = orm.createClient(txEngine);
 
               // Use the transaction client's clientId for nested validation
-              const txClientId = txOrm.clientId;
+              const txClientId = txEngine.clientId;
 
               // Wrap with proxy to intercept $transaction
               return new Proxy(baseClient, {

@@ -9,6 +9,7 @@ import { libsqlMigrationDriver } from "../../src/migrations/drivers/libsql";
 import { mysqlMigrationDriver } from "../../src/migrations/drivers/mysql";
 import { postgresMigrationDriver } from "../../src/migrations/drivers/postgres";
 import { sqlite3MigrationDriver } from "../../src/migrations/drivers/sqlite";
+import type { FieldState, ScalarFieldType } from "../../src/schema/fields/common";
 import type { DiffOperation, SchemaSnapshot } from "../../src/migrations/types";
 
 // =============================================================================
@@ -361,6 +362,7 @@ describe("SQLite3 DDL Generation", () => {
     it("should generate DROP INDEX", () => {
       const op: DiffOperation = {
         type: "dropIndex",
+        tableName: "users",
         indexName: "idx_users_email",
       };
 
@@ -1433,10 +1435,10 @@ describe("MySQL DDL Generation", () => {
         },
       }) as any;
 
-    const createFieldState = (
-      type: string,
-      overrides: Record<string, any> = {}
-    ) => ({
+    const createFieldState = <T extends ScalarFieldType>(
+      type: T,
+      overrides: Partial<FieldState<T>> = {}
+    ): FieldState<T> => ({
       type,
       nullable: false,
       array: false,
@@ -1448,7 +1450,7 @@ describe("MySQL DDL Generation", () => {
       schema: undefined,
       optional: false,
       columnName: undefined,
-      base: {} as any,
+      base: {} as never,
       withTimezone: false,
       ...overrides,
     });
@@ -2066,6 +2068,7 @@ describe("PostgreSQL DDL Generation", () => {
     it("should generate DROP INDEX (no table name needed)", () => {
       const op: DiffOperation = {
         type: "dropIndex",
+        tableName: "users",
         indexName: "idx_users_email",
       };
 
@@ -2421,10 +2424,10 @@ describe("PostgreSQL DDL Generation", () => {
         },
       }) as any;
 
-    const createFieldState = (
-      type: string,
-      overrides: Record<string, any> = {}
-    ) => ({
+    const createFieldState = <T extends ScalarFieldType>(
+      type: T,
+      overrides: Partial<FieldState<T>> = {}
+    ): FieldState<T> => ({
       type,
       nullable: false,
       array: false,
@@ -2436,7 +2439,7 @@ describe("PostgreSQL DDL Generation", () => {
       schema: undefined,
       optional: false,
       columnName: undefined,
-      base: {} as any,
+      base: {} as never,
       withTimezone: false,
       ...overrides,
     });

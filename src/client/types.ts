@@ -9,6 +9,7 @@
 import type { Model } from "@schema/model";
 import type { FieldRecord } from "@schema/model/helper";
 import type { Prettify } from "@validation";
+import type { ModelCoreInput, ModelOperationInput } from "@validation/model";
 import type { CacheDriver } from "../cache/driver";
 import type { VibORMConfig } from "./client";
 import type { PendingOperation } from "./pending-operation";
@@ -93,38 +94,38 @@ export type OperationPayload<
   O extends Operations,
   M extends Model<any>,
 > = O extends "findMany"
-  ? M["~"]["schemas"]["args"]["findMany"][" vibInferred"]["0"]
+  ? ModelOperationInput<M, "findMany">
   : O extends "findUnique"
-    ? M["~"]["schemas"]["args"]["findUnique"][" vibInferred"]["0"]
+    ? ModelOperationInput<M, "findUnique">
     : O extends "findFirst"
-      ? M["~"]["schemas"]["args"]["findFirst"][" vibInferred"]["0"]
+      ? ModelOperationInput<M, "findFirst">
       : O extends "create"
-        ? M["~"]["schemas"]["args"]["create"][" vibInferred"]["0"]
+        ? ModelOperationInput<M, "create">
         : O extends "update"
-          ? M["~"]["schemas"]["args"]["update"][" vibInferred"]["0"]
+          ? ModelOperationInput<M, "update">
           : O extends "delete"
-            ? M["~"]["schemas"]["args"]["delete"][" vibInferred"]["0"]
+            ? ModelOperationInput<M, "delete">
             : O extends "deleteMany"
-              ? M["~"]["schemas"]["args"]["deleteMany"][" vibInferred"]["0"]
+              ? ModelOperationInput<M, "deleteMany">
               : O extends "upsert"
-                ? M["~"]["schemas"]["args"]["upsert"][" vibInferred"]["0"]
+                ? ModelOperationInput<M, "upsert">
                 : O extends "findUniqueOrThrow"
-                  ? M["~"]["schemas"]["args"]["findUnique"][" vibInferred"]["0"]
+                  ? ModelOperationInput<M, "findUnique">
                   : O extends "findFirstOrThrow"
-                    ? M["~"]["schemas"]["args"]["findFirst"][" vibInferred"]["0"]
+                    ? ModelOperationInput<M, "findFirst">
                     : O extends "count"
-                      ? M["~"]["schemas"]["args"]["count"][" vibInferred"]["0"]
+                      ? ModelOperationInput<M, "count">
                       : O extends "aggregate"
-                        ? M["~"]["schemas"]["args"]["aggregate"][" vibInferred"]["0"]
+                        ? ModelOperationInput<M, "aggregate">
                         : O extends "groupBy"
-                          ? M["~"]["schemas"]["args"]["groupBy"][" vibInferred"]["0"]
+                          ? ModelOperationInput<M, "groupBy">
                           : O extends "createMany"
-                            ? M["~"]["schemas"]["args"]["createMany"][" vibInferred"]["0"]
+                            ? ModelOperationInput<M, "createMany">
                             : O extends "updateMany"
-                              ? M["~"]["schemas"]["args"]["updateMany"][" vibInferred"]["0"]
+                              ? ModelOperationInput<M, "updateMany">
                               : O extends "exist"
                                 ? {
-                                    where: M["~"]["schemas"]["where"][" vibInferred"]["0"];
+                                    where: ModelCoreInput<M, "where">;
                                   }
                                 : never;
 

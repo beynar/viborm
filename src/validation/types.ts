@@ -1,6 +1,8 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
+import type { AnyModel } from "@schema/model";
 import { inferred } from "./inferred";
 import type { JsonSchemaConverter } from "./json-schema/types";
+import type { ArgsSchemas, FieldSchemas, ModelSchemas } from "./model";
 
 // =============================================================================
 // Core Type Utilities
@@ -67,6 +69,7 @@ export interface VibSchema<TInput = unknown, TOutput = TInput>
    * Standard properties extended with JSON Schema converter.
    */
   readonly "~standard": StandardSchemaV1<TInput, TOutput>["~standard"] & {
+    readonly types?: StandardSchemaV1.Types<TInput, TOutput> | undefined;
     /**
      * JSON Schema converter methods.
      * Implements StandardJSONSchemaV1 specification.
@@ -92,15 +95,6 @@ export interface ScalarOptions<T, TOut = T, TSchemaOut = TOut> {
   transform?: ((value: TSchemaOut) => TOut) | undefined;
   /** Additional StandardSchema for extra validation. Its output flows to transform. */
   schema?: StandardSchemaV1<T, TSchemaOut> | undefined;
-}
-
-/**
- * Options for object schemas.
- */
-export interface ObjectOptions<T, TOut = T, TSchemaOut = TOut>
-  extends ScalarOptions<T, TOut, TSchemaOut> {
-  partial?: boolean;
-  strict?: boolean;
 }
 
 // =============================================================================
@@ -238,27 +232,25 @@ export interface ValidationFailure {
 
 export type ValidationResult<T> = ValidationSuccess<T> | ValidationFailure;
 
-export function isSuccess<T>(
-  result: ValidationResult<T>
-): result is ValidationSuccess<T> {
-  return !result.issues;
-}
-
-export function isFailure<T>(
-  result: ValidationResult<T>
-): result is ValidationFailure {
-  return !!result.issues;
-}
+export type ParseResult<TSchema extends StandardSchemaV1> =
+  TSchema extends VibSchema
+    ? ValidationResult<InferOutput<TSchema>>
+    : StandardSchemaV1.Result<StandardSchemaV1.InferOutput<TSchema>>;
 
 // =============================================================================
-// Schema Type Guards
+// Schema Registry Contract
 // =============================================================================
 
-export function isVibSchema(value: unknown): value is VibSchema {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "~standard" in value &&
-    typeof (value as any)["~standard"] === "object"
-  );
+export type SchemaRegistryOperation = keyof ArgsSchemas<
+  AnyModel,
+  FieldSchemas<AnyModel>
+>;
+
+export interface SchemaRegistryLookup {
+  getModelSchemas(model: AnyModel): ModelSchemas<AnyModel>;
+  validate(
+    modelName: string,
+    operation: SchemaRegistryOperation,
+    payload: unknown
+  ): unknown;
 }

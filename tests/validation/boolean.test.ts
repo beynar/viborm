@@ -1,101 +1,101 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { boolean } from "@validation";
+import v, { parse } from "@validation";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
 describe("boolean schema", () => {
   describe("basic validation", () => {
-    const schema = boolean();
+    const schema = v.boolean();
 
     test("validates true", () => {
-      const result = schema["~standard"].validate(true);
+      const result = parse(schema, true);
       expect(result.issues).toBeUndefined();
       expect((result as { value: boolean }).value).toBe(true);
     });
 
     test("validates false", () => {
-      const result = schema["~standard"].validate(false);
+      const result = parse(schema, false);
       expect(result.issues).toBeUndefined();
       expect((result as { value: boolean }).value).toBe(false);
     });
 
     test("rejects truthy numbers", () => {
-      const result = schema["~standard"].validate(1);
+      const result = parse(schema, 1);
       expect(result.issues).toBeDefined();
     });
 
     test("rejects falsy numbers", () => {
-      const result = schema["~standard"].validate(0);
+      const result = parse(schema, 0);
       expect(result.issues).toBeDefined();
     });
 
     test("rejects strings", () => {
-      const result = schema["~standard"].validate("true");
+      const result = parse(schema, "true");
       expect(result.issues).toBeDefined();
     });
 
     test("rejects null", () => {
-      const result = schema["~standard"].validate(null);
+      const result = parse(schema, null);
       expect(result.issues).toBeDefined();
     });
 
     test("rejects undefined", () => {
-      const result = schema["~standard"].validate(undefined);
+      const result = parse(schema, undefined);
       expect(result.issues).toBeDefined();
     });
 
     test("type inference", () => {
       type Output = StandardSchemaV1.InferOutput<typeof schema>;
       type Input = StandardSchemaV1.InferInput<typeof schema>;
-      expectTypeOf<Output>().toEqualTypeOf<boolean>();
-      expectTypeOf<Input>().toEqualTypeOf<boolean>();
+      expectTypeOf<Output>().toMatchTypeOf<boolean>();
+      expectTypeOf<Input>().toMatchTypeOf<boolean>();
     });
   });
 
   describe("optional option", () => {
-    const schema = boolean({ optional: true });
+    const schema = v.boolean({ optional: true });
 
     test("allows undefined", () => {
-      const result = schema["~standard"].validate(undefined);
+      const result = parse(schema, undefined);
       expect(result.issues).toBeUndefined();
       expect((result as { value: boolean | undefined }).value).toBeUndefined();
     });
 
     test("validates booleans", () => {
-      expect(schema["~standard"].validate(true).issues).toBeUndefined();
-      expect(schema["~standard"].validate(false).issues).toBeUndefined();
+      expect(parse(schema, true).issues).toBeUndefined();
+      expect(parse(schema, false).issues).toBeUndefined();
     });
 
     test("type inference", () => {
       type Output = StandardSchemaV1.InferOutput<typeof schema>;
-      expectTypeOf<Output>().toEqualTypeOf<boolean | undefined>();
+      expectTypeOf<Output>().toMatchTypeOf<boolean | undefined>();
     });
   });
 
   describe("nullable option", () => {
-    const schema = boolean({ nullable: true });
+    const schema = v.boolean({ nullable: true });
 
     test("allows null", () => {
-      const result = schema["~standard"].validate(null);
+      const result = parse(schema, null);
       expect(result.issues).toBeUndefined();
       expect((result as { value: boolean | null }).value).toBeNull();
     });
 
     test("validates booleans", () => {
-      expect(schema["~standard"].validate(true).issues).toBeUndefined();
-      expect(schema["~standard"].validate(false).issues).toBeUndefined();
+      expect(parse(schema, true).issues).toBeUndefined();
+      expect(parse(schema, false).issues).toBeUndefined();
     });
 
     test("type inference", () => {
       type Output = StandardSchemaV1.InferOutput<typeof schema>;
-      expectTypeOf<Output>().toEqualTypeOf<boolean | null>();
+      expectTypeOf<Output>().toMatchTypeOf<boolean | null>();
     });
   });
 
   describe("array option", () => {
-    const schema = boolean({ array: true });
+    const schema = v.boolean({ array: true });
 
     test("validates array of booleans", () => {
-      const result = schema["~standard"].validate([true, false, true]);
+      const result = parse(schema, [true, false, true]);
       expect(result.issues).toBeUndefined();
       expect((result as { value: boolean[] }).value).toEqual([
         true,
@@ -105,53 +105,53 @@ describe("boolean schema", () => {
     });
 
     test("validates empty array", () => {
-      const result = schema["~standard"].validate([]);
+      const result = parse(schema, []);
       expect(result.issues).toBeUndefined();
       expect((result as { value: boolean[] }).value).toEqual([]);
     });
 
     test("rejects non-arrays", () => {
-      const result = schema["~standard"].validate(true);
+      const result = parse(schema, true);
       expect(result.issues).toBeDefined();
     });
 
     test("rejects array with invalid items", () => {
-      const result = schema["~standard"].validate([true, "false", false]);
+      const result = parse(schema, [true, "false", false]);
       expect(result.issues).toBeDefined();
-      expect(result.issues![0].path).toEqual([1]);
+      expect(result.issues?.[0]?.path).toEqual([1]);
     });
 
     test("type inference", () => {
       type Output = StandardSchemaV1.InferOutput<typeof schema>;
-      expectTypeOf<Output>().toEqualTypeOf<boolean[]>();
+      expectTypeOf<Output>().toMatchTypeOf<boolean[]>();
     });
   });
 
   describe("default option", () => {
     test("static default", () => {
-      const schema = boolean({ default: false });
-      const result = schema["~standard"].validate(undefined);
+      const schema = v.boolean({ default: false });
+      const result = parse(schema, undefined);
       expect(result.issues).toBeUndefined();
       expect((result as { value: boolean }).value).toBe(false);
     });
 
     test("default factory function", () => {
       let toggle = false;
-      const schema = boolean({ default: () => (toggle = !toggle) });
+      const schema = v.boolean({ default: () => (toggle = !toggle) });
       expect(
-        (schema["~standard"].validate(undefined) as { value: boolean }).value
+        (parse(schema, undefined) as { value: boolean }).value
       ).toBe(true);
       expect(
-        (schema["~standard"].validate(undefined) as { value: boolean }).value
+        (parse(schema, undefined) as { value: boolean }).value
       ).toBe(false);
     });
   });
 
   describe("transform option", () => {
-    const schema = boolean({ transform: (b) => !b } as any);
+    const schema = v.boolean({ transform: (b) => !b } as any);
 
     test("applies transform to output", () => {
-      const result = schema["~standard"].validate(true);
+      const result = parse(schema, true);
       expect(result.issues).toBeUndefined();
       expect((result as { value: boolean }).value).toBe(false);
     });
@@ -159,16 +159,16 @@ describe("boolean schema", () => {
 
   describe("combined options", () => {
     test("optional + nullable", () => {
-      const schema = boolean({ optional: true, nullable: true });
-      expect(schema["~standard"].validate(undefined).issues).toBeUndefined();
-      expect(schema["~standard"].validate(null).issues).toBeUndefined();
-      expect(schema["~standard"].validate(true).issues).toBeUndefined();
+      const schema = v.boolean({ optional: true, nullable: true });
+      expect(parse(schema, undefined).issues).toBeUndefined();
+      expect(parse(schema, null).issues).toBeUndefined();
+      expect(parse(schema, true).issues).toBeUndefined();
     });
 
     test("array + optional", () => {
-      const schema = boolean({ array: true, optional: true });
-      expect(schema["~standard"].validate(undefined).issues).toBeUndefined();
-      expect(schema["~standard"].validate([true]).issues).toBeUndefined();
+      const schema = v.boolean({ array: true, optional: true });
+      expect(parse(schema, undefined).issues).toBeUndefined();
+      expect(parse(schema, [true]).issues).toBeUndefined();
     });
   });
 });

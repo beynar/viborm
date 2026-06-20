@@ -9,10 +9,10 @@ import {
   updateState,
 } from "../common";
 import type { NativeType } from "../native-types";
-import { buildPointSchema, type PointSchemas, pointBase } from "./schemas";
+
+const pointBase = v.point();
 
 export class PointField<State extends FieldState<"point">> {
-  private _schemas: PointSchemas<State> | undefined;
   private readonly state: State;
   private readonly _nativeType?: NativeType | undefined;
   constructor(state: State, _nativeType?: NativeType) {
@@ -55,7 +55,6 @@ export class PointField<State extends FieldState<"point">> {
   get ["~"]() {
     return {
       state: this.state,
-      schemas: (this._schemas ??= buildPointSchema(this.state)),
       nativeType: this._nativeType,
     };
   }

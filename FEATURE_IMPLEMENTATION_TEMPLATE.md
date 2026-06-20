@@ -63,7 +63,7 @@ Here's how types flow through VibORM:
 │  2. Schema holds state:      User["~"].state (fields, relations)   │
 │                                       │                             │
 │                                       ▼                             │
-│  3. State builds schemas:    User["~"].schemas.where (validation)  │
+│  3. Registry builds schemas: SchemaRegistry.proxy.User.core.where   │
 │                                       │                             │
 │                                       ▼                             │
 │  4. Schemas infer types:     InferInput<typeof whereSchema>        │
@@ -82,7 +82,7 @@ Here's how types flow through VibORM:
 |---------|-------------|
 | **Schema Definition** | User-facing API (`s.model()`, `s.string()`) that creates runtime state |
 | **State** | Internal representation holding metadata (field types, relations, options) |
-| **Query Schemas** | Validation schemas (via `v.*`) that validate AND type query inputs |
+| **Operation Schemas** | Registry schemas (via `v.*`) that validate AND type query inputs |
 | **Type Inference** | Types extracted from schemas using `InferInput<S>` / `InferOutput<S>` |
 
 ### The Golden Rule: Natural Type Inference
@@ -247,12 +247,12 @@ Do not assume all layers need changes. Analyze the feature requirements and just
                                     │
                                     ▼
 ┌──────────────────────────────────────────────────────────────────────┐
-│  LAYER 3: Query Schema                          src/schema/*/schemas │
+│  LAYER 3: Operation Schemas                         src/validation/  │
 │  Validation schemas for query inputs (where, create, update, etc.)   │
 │  ────────────────────────────────────────────────────────────────── │
-│  ├── model/schemas/core/    filter, create, update, select, where   │
-│  ├── model/schemas/args/    findMany, create, update, delete args   │
-│  └── relation/schemas/      nested relation schemas                 │
+│  ├── model/core/       filter, create, update, select, where        │
+│  ├── model/args/       findMany, create, update, delete args        │
+│  └── relations/        nested relation schemas                      │
 └──────────────────────────────────────────────────────────────────────┘
                                     │
                                     ▼
@@ -459,33 +459,31 @@ For each layer, answer:
 
 ---
 
-### Layer 3: Query Schema
+### Layer 3: Operation Schemas
 
-**Location:** `src/schema/*/schemas/`
+**Location:** `src/validation/model/`, `src/validation/relations/`
 
 **Key files:**
 | File/Folder | Purpose |
 |-------------|---------|
-| `src/schema/model/schemas/` | Model-level query schema factories |
-| `src/schema/model/schemas/index.ts` | Composes all model schemas |
-| `src/schema/model/schemas/core/` | Core schema factories |
-| `src/schema/model/schemas/core/filter.ts` | Filter/where schema factory |
-| `src/schema/model/schemas/core/create.ts` | Create input schema factory |
-| `src/schema/model/schemas/core/update.ts` | Update input schema factory |
-| `src/schema/model/schemas/core/select.ts` | Select/include schema factory |
-| `src/schema/model/schemas/core/where.ts` | Where clause schema factory |
-| `src/schema/model/schemas/core/orderby.ts` | OrderBy schema factory |
-| `src/schema/model/schemas/args/` | Operation argument schemas |
-| `src/schema/model/schemas/args/find.ts` | findMany/findFirst args |
-| `src/schema/model/schemas/args/create.ts` | create/createMany args |
-| `src/schema/model/schemas/args/update.ts` | update/updateMany args |
-| `src/schema/model/schemas/args/delete.ts` | delete/deleteMany args |
-| `src/schema/model/schemas/args/aggregate.ts` | aggregate/groupBy args |
-| `src/schema/relation/schemas/` | Relation-level query schemas |
-| `src/schema/relation/schemas/filter.ts` | Relation filter schemas |
-| `src/schema/relation/schemas/create.ts` | Nested create schemas |
-| `src/schema/relation/schemas/update.ts` | Nested update schemas |
-| `src/schema/relation/schemas/select-include.ts` | Relation select/include |
+| `src/validation/builder.ts` | `SchemaRegistry` composition and caching |
+| `src/validation/model/index.ts` | Composes all model schemas |
+| `src/validation/model/core/` | Core schema factories |
+| `src/validation/model/core/filter.ts` | Filter/where schema factory |
+| `src/validation/model/core/create.ts` | Create input schema factory |
+| `src/validation/model/core/update.ts` | Update input schema factory |
+| `src/validation/model/core/select.ts` | Select/include schema factory |
+| `src/validation/model/core/where.ts` | Where clause schema factory |
+| `src/validation/model/core/orderby.ts` | OrderBy schema factory |
+| `src/validation/model/args/` | Operation argument schemas |
+| `src/validation/model/args/find.ts` | findMany/findFirst args |
+| `src/validation/model/args/mutation.ts` | create/update/delete/upsert args |
+| `src/validation/model/args/aggregate.ts` | aggregate/groupBy args |
+| `src/validation/relations/` | Relation-level operation schemas |
+| `src/validation/relations/filter.ts` | Relation filter schemas |
+| `src/validation/relations/create.ts` | Nested create schemas |
+| `src/validation/relations/update.ts` | Nested update schemas |
+| `src/validation/relations/select-include.ts` | Relation select/include |
 
 **When to modify:**
 - Feature affects how queries are written (new filter, new input shape)
@@ -993,18 +991,24 @@ When a feature needs query schemas (where, create, etc.):
 
 ```typescript
 // ─────────────────────────────────────────────────────────────────────
-// src/schema/model/schemas/core/filter.ts — Modify existing
+// src/validation/model/core/filter.ts — Modify existing
 // ─────────────────────────────────────────────────────────────────────
 
 // BEFORE: Scalar fields only
-const scalarEntries = forEachScalarField(state.fields, (field, name) => ({
-  [name]: field["~"].schemas.filter,
-}));
+const scalarEntries = Object.fromEntries(
+  Object.entries(schemas.scalars).map(([name, fieldSchemas]) => [
+    name,
+    fieldSchemas.filter,
+  ])
+);
 
 // AFTER: Add the new field type
-const scalarEntries = forEachScalarField(state.fields, (field, name) => ({
-  [name]: field["~"].schemas.filter,
-}));
+const scalarEntries = Object.fromEntries(
+  Object.entries(schemas.scalars).map(([name, fieldSchemas]) => [
+    name,
+    fieldSchemas.filter,
+  ])
+);
 
 // If new field type needs special handling:
 const uuidEntries = forEachFieldOfType(state.fields, "uuid", (field, name) => ({
@@ -1031,24 +1035,24 @@ When building factories that need to preserve types from state:
 // ─────────────────────────────────────────────────────────────────────
 
 // ❌ BAD: Loses type information
-function buildSchema(state: ModelState) {
+function buildSchema(schemas: ModelSchemas<AnyModel>) {
   const entries: Record<string, VibSchema> = {};  // Type is lost!
-  for (const [k, v] of Object.entries(state.fields)) {
-    entries[k] = v["~"].schemas.filter;
+  for (const [k, scalarSchemas] of Object.entries(schemas.scalars)) {
+    entries[k] = scalarSchemas.filter;
   }
   return v.object(entries);  // Returns VibSchema<unknown, unknown>
 }
 
 // ✅ GOOD: Preserves exact field types via mapped type
-function buildSchema<T extends ModelState>(state: T) {
+function buildSchema<T extends ModelSchemas<AnyModel>>(schemas: T) {
   type FieldSchemas = {
-    [K in keyof T["fields"]]: T["fields"][K]["~"]["schemas"]["filter"]
+    [K in keyof T["scalars"]]: T["scalars"][K]["filter"]
   };
   
   // Build at runtime
   const entries = {} as FieldSchemas;
-  for (const [k, field] of Object.entries(state.fields)) {
-    entries[k as keyof FieldSchemas] = field["~"].schemas.filter;
+  for (const [k, scalarSchemas] of Object.entries(schemas.scalars)) {
+    entries[k as keyof FieldSchemas] = scalarSchemas.filter;
   }
   
   return v.object(entries);  // Returns exact typed schema!
@@ -1165,19 +1169,19 @@ return v.object({
 ```
 
 ### Pattern: Schema Path Access
-Access nested schemas via the internal symbol `"~"`.
+Access model structure via the internal symbol `"~"` and operation schemas via `SchemaRegistry`.
 ```typescript
 // From model
-model["~"].schemas.where
 model["~"].state.fields
+schemaRegistry.getModelSchemas(model).core.where
 
 // From field
-field["~"].schemas.filter
 field["~"].state.type
+field["~"].state.base
 
 // From relation
-relation["~"].schemas.include
 relation["~"].targetModel
+schemaRegistry.getModelSchemas(model).relations.posts.include
 ```
 
 ### Pattern: Type Extraction from Lazy Getters
@@ -1212,9 +1216,9 @@ function handle(result: Result) {
 ### Pattern: Mapped Types for Object Transformation
 Use to transform object shapes while preserving keys.
 ```typescript
-// Transform each field to its filter schema
-type FieldFilters<F extends Record<string, Field>> = {
-  [K in keyof F]?: InferInput<F[K]["~"]["schemas"]["filter"]>
+// Transform each scalar schema bundle to its filter input
+type FieldFilters<S extends Record<string, { filter: VibSchema }>> = {
+  [K in keyof S]?: InferInput<S[K]["filter"]>
 };
 ```
 
