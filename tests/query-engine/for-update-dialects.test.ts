@@ -147,7 +147,6 @@ describe("FOR UPDATE SQL Generation", () => {
     });
   });
 });
-
 describe("Skip Duplicates SQL Generation", () => {
   const buildCreateManySkipDuplicates = (
     adapter: DatabaseAdapter,
