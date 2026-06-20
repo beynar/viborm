@@ -1,8 +1,22 @@
 // Args schema factories - re-exports
 
-import type { AnyModel, ModelState } from "@schema/model";
-import type { AggregateArgs, CountArgs, GroupByArgs } from "./aggregate";
-import type { FindFirstArgs, FindManyArgs, FindUniqueArgs } from "./find";
+import type { AnyModel } from "@schema/model";
+import {
+  getAggregateArgs,
+  type AggregateArgs,
+  getCountArgs,
+  type CountArgs,
+  getGroupByArgs,
+  type GroupByArgs,
+} from "./aggregate";
+import {
+  getFindFirstArgs,
+  type FindFirstArgs,
+  getFindManyArgs,
+  type FindManyArgs,
+  getFindUniqueArgs,
+  type FindUniqueArgs,
+} from "./find";
 import type {
   CreateArgs,
   CreateManyArgs,
@@ -12,7 +26,17 @@ import type {
   UpdateManyArgs,
   UpsertArgs,
 } from "./mutation";
-import { FieldSchemas } from "@validation/builder";
+import {
+  getCreateArgs,
+  getCreateManyArgs,
+  getDeleteArgs,
+  getDeleteManyArgs,
+  getUpdateArgs,
+  getUpdateManyArgs,
+  getUpsertArgs,
+} from "./mutation";
+import type { CoreSchemas } from "../core";
+import type { FieldSchemas } from "../index";
 
 // Aggregate exports
 export {
@@ -48,4 +72,29 @@ export type ArgsSchemas<M extends AnyModel, F extends FieldSchemas<M>> = {
   count: CountArgs<M, F>;
   aggregate: AggregateArgs<M, F>;
   groupBy: GroupByArgs<M, F>;
+};
+
+export const getArgsSchemas = <
+  M extends AnyModel,
+  F extends FieldSchemas<M>,
+>(
+  model: M,
+  _fieldSchemas: F,
+  core: CoreSchemas<M, F>,
+): ArgsSchemas<M, F> => {
+  return {
+    findUnique: getFindUniqueArgs(core),
+    findFirst: getFindFirstArgs(core),
+    findMany: getFindManyArgs(model, core),
+    create: getCreateArgs(core),
+    createMany: getCreateManyArgs(core),
+    update: getUpdateArgs(core),
+    updateMany: getUpdateManyArgs(core),
+    delete: getDeleteArgs(core),
+    deleteMany: getDeleteManyArgs(core),
+    upsert: getUpsertArgs(core),
+    count: getCountArgs(model, core),
+    aggregate: getAggregateArgs(model, core),
+    groupBy: getGroupByArgs(model, _fieldSchemas, core),
+  };
 };

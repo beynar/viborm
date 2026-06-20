@@ -112,6 +112,64 @@ describe("InferSelectInclude result types", () => {
     });
   });
 
+  describe("operation result branches", () => {
+    test("findMany select returns narrowed array element shape", () => {
+      type Args = {
+        select: { id: true; email: true };
+      };
+
+      type Result = OperationResult<"findMany", UserModel, Args>;
+      type Element = Result[number];
+
+      expectTypeOf<Element>().toHaveProperty("id");
+      expectTypeOf<Element>().toHaveProperty("email");
+      expectTypeOf<keyof Element>().toEqualTypeOf<"id" | "email">();
+    });
+
+    test("create include returns included relation shape", () => {
+      type Args = {
+        data: {
+          id: string;
+          name: string;
+          email: string;
+          tags: string[];
+        };
+        include: { posts: true };
+      };
+
+      type Result = OperationResult<"create", UserModel, Args>;
+
+      expectTypeOf<Result>().toHaveProperty("id");
+      expectTypeOf<Result>().toHaveProperty("posts");
+      expectTypeOf<Result["posts"]>().toMatchTypeOf<readonly unknown[]>();
+    });
+
+    test("update select returns narrowed mutation result", () => {
+      type Args = {
+        where: { id: string };
+        data: { name?: string };
+        select: { name: true };
+      };
+
+      type Result = OperationResult<"update", UserModel, Args>;
+
+      expectTypeOf<Result>().toHaveProperty("name");
+      expectTypeOf<keyof Result>().toEqualTypeOf<"name">();
+    });
+
+    test("findUniqueOrThrow removes null from result", () => {
+      type Args = {
+        where: { id: string };
+        select: { id: true };
+      };
+
+      type Result = OperationResult<"findUniqueOrThrow", UserModel, Args>;
+
+      expectTypeOf<Result>().toHaveProperty("id");
+      expectTypeOf<null>().not.toMatchTypeOf<Result>();
+    });
+  });
+
   describe("no index signature pollution", () => {
     test("result type should not have [x: string]: never", () => {
       type Args = {

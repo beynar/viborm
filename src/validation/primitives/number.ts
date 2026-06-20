@@ -41,8 +41,12 @@ function validateNumber(value: unknown) {
  * const optionalAge = v.number({ optional: true });
  * const scores = v.number({ array: true });
  */
+export function number(): NumberSchema<number, number>;
+export function number<const Opts extends ScalarOptions<number, any>>(
+  options: Opts
+): NumberSchema<ComputeInput<number, Opts>, ComputeOutput<number, Opts>>;
 export function number<
-  const Opts extends ScalarOptions<number, any> | undefined = undefined,
+  const Opts extends ScalarOptions<number, any> | undefined,
 >(
   options?: Opts
 ): NumberSchema<ComputeInput<number, Opts>, ComputeOutput<number, Opts>> {
@@ -85,8 +89,12 @@ function validateInteger(value: unknown) {
  * @example
  * const count = v.integer();
  */
+export function integer(): IntegerSchema<number, number>;
+export function integer<const Opts extends ScalarOptions<number, any>>(
+  options: Opts
+): IntegerSchema<ComputeInput<number, Opts>, ComputeOutput<number, Opts>>;
 export function integer<
-  const Opts extends ScalarOptions<number, any> | undefined = undefined,
+  const Opts extends ScalarOptions<number, any> | undefined,
 >(
   options?: Opts
 ): IntegerSchema<ComputeInput<number, Opts>, ComputeOutput<number, Opts>> {

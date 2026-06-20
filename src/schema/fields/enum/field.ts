@@ -10,10 +10,8 @@ import {
   updateState,
 } from "../common";
 import type { NativeType } from "../native-types";
-import { buildEnumSchema, type EnumSchemas } from "./schemas";
 
 export class EnumField<State extends FieldState<"enum">> {
-  private _schemas: EnumSchemas<EnumValues<State["base"]>, State> | undefined;
   private readonly state: State;
   private readonly _nativeType?: NativeType | undefined;
   constructor(state: State, _nativeType?: NativeType) {
@@ -102,7 +100,6 @@ export class EnumField<State extends FieldState<"enum">> {
   get ["~"]() {
     return {
       state: this.state,
-      schemas: (this._schemas ??= buildEnumSchema<State>(this.state)),
       nativeType: this._nativeType,
     };
   }

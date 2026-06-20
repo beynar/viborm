@@ -15,9 +15,14 @@
  */
 
 import { point } from "@schema/fields/point/field";
-import type { InferPointInput } from "@schema/fields/point/schemas";
-import { parse } from "@validation";
+import { type InferInput, parse } from "@validation";
+import { type GetScalarSchemas, getScalarSchemas } from "@validation/scalars";
+import type { FieldState } from "@schema/fields/common";
 import { describe, expect, expectTypeOf, test } from "vitest";
+
+type InferFieldInput<State extends FieldState, Key extends keyof GetScalarSchemas<State>> =
+  InferInput<GetScalarSchemas<State>[Key]>;
+type InferPointInput<State extends FieldState<"point">, Key extends keyof GetScalarSchemas<State>> = InferFieldInput<State, Key>;
 
 // =============================================================================
 // RAW POINT FIELD (required, no modifiers)
@@ -26,7 +31,7 @@ import { describe, expect, expectTypeOf, test } from "vitest";
 describe("Raw Point Field", () => {
   const field = point();
   type State = (typeof field)["~"]["state"];
-  const schemas = field["~"].schemas;
+  const schemas = getScalarSchemas(field["~"].state);
 
   describe("base", () => {
     test("type: base is { x: number; y: number }", () => {
@@ -231,7 +236,7 @@ describe("Raw Point Field", () => {
 describe("Nullable Point Field", () => {
   const field = point().nullable();
   type State = (typeof field)["~"]["state"];
-  const schemas = field["~"].schemas;
+  const schemas = getScalarSchemas(field["~"].state);
 
   describe("base", () => {
     test("type: base is { x: number; y: number } | null", () => {
@@ -342,7 +347,7 @@ describe("Default Value Behavior", () => {
   describe("static default value", () => {
     const field = point().default({ x: 0, y: 0 });
     type State = (typeof field)["~"]["state"];
-    const schemas = field["~"].schemas;
+    const schemas = getScalarSchemas(field["~"].state);
 
     test("type: create is optional", () => {
       type Create = InferPointInput<State, "create">;
@@ -368,7 +373,7 @@ describe("Default Value Behavior", () => {
       callCount++;
       return { x: callCount * 10, y: callCount * 20 };
     });
-    const schemas = field["~"].schemas;
+    const schemas = getScalarSchemas(field["~"].state);
 
     test("runtime: undefined calls default function", () => {
       const before = callCount;

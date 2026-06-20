@@ -22,6 +22,7 @@ import {
 } from "../src/query-engine/query-engine";
 import { s } from "../src/schema";
 import { hydrateSchemaNames } from "../src/schema/hydration";
+import { createSchemaRegistry } from "../src/validation";
 
 async function main() {
   const perf = createPerfTracker();
@@ -80,7 +81,11 @@ async function main() {
 
   // 2d. Create model registry
   perf.start("client.createModelRegistry");
-  const registry = createModelRegistry(schema as Record<string, any>);
+  const schemaRegistry = createSchemaRegistry(schema as Record<string, any>);
+  const registry = createModelRegistry(
+    schema as Record<string, any>,
+    schemaRegistry
+  );
   perf.end("client.createModelRegistry");
 
   // 2e. Create query engine
@@ -223,7 +228,11 @@ async function main() {
   summaryPerf.end("instantiation.hydrate");
 
   summaryPerf.start("instantiation.registry");
-  const registry2 = createModelRegistry(schema2 as Record<string, any>);
+  const schemaRegistry2 = createSchemaRegistry(schema2 as Record<string, any>);
+  const registry2 = createModelRegistry(
+    schema2 as Record<string, any>,
+    schemaRegistry2
+  );
   summaryPerf.end("instantiation.registry");
 
   summaryPerf.start("instantiation.engine");

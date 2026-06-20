@@ -1,7 +1,8 @@
 /**
  * Relation Data Builder
  *
- * Handles nested write operations: connect, disconnect, create, connectOrCreate, delete.
+ * Handles nested write operations: create, createMany, connect,
+ * connectOrCreate, disconnect, delete, set.
  * Separates scalar and relation data, builds connect subqueries, and manages FK direction.
  */
 
@@ -22,6 +23,10 @@ import {
   type RelationInfo,
 } from "../types";
 import { getPrimaryKeyFields } from "./correlation-utils";
+import {
+  hasSupportedNestedWriteInput,
+  SUPPORTED_NESTED_WRITE_KEYS,
+} from "./nested-write-detector";
 import { buildWhereUnique } from "./where-builder";
 
 // ============================================================
@@ -142,51 +147,53 @@ function parseRelationMutation(
   relationInfo: RelationInfo,
   value: unknown
 ): RelationMutation | undefined {
-  if (value === null || typeof value !== "object") {
+  if (!hasSupportedNestedWriteInput(value)) {
     return undefined;
   }
 
   const input = value as Record<string, unknown>;
   const mutation: RelationMutation = { relationInfo };
 
-  if ("connect" in input) {
-    mutation.connect = input.connect as
-      | Record<string, unknown>
-      | Record<string, unknown>[];
-  }
+  for (const key of SUPPORTED_NESTED_WRITE_KEYS) {
+    if (!(key in input)) {
+      continue;
+    }
 
-  if ("disconnect" in input) {
-    mutation.disconnect = input.disconnect as
-      | boolean
-      | Record<string, unknown>
-      | Record<string, unknown>[];
-  }
-
-  if ("create" in input) {
-    mutation.create = input.create as
-      | Record<string, unknown>
-      | Record<string, unknown>[];
-  }
-
-  if ("createMany" in input) {
-    mutation.createMany = input.createMany as CreateManyInput;
-  }
-
-  if ("connectOrCreate" in input) {
-    mutation.connectOrCreate = input.connectOrCreate as
-      | ConnectOrCreateInput
-      | ConnectOrCreateInput[];
-  }
-
-  if ("delete" in input) {
-    mutation.delete = input.delete as
-      | boolean
-      | Record<string, unknown>
-      | Record<string, unknown>[];
-  }
-
-  if ("set" in input) {
-    mutation.set = input.set as Record<string, unknown>[];
+    switch (key) {
+      case "connect":
+        mutation.connect = input.connect as
+          | Record<string, unknown>
+          | Record<string, unknown>[];
+        break;
+      case "disconnect":
+        mutation.disconnect = input.disconnect as
+          | boolean
+          | Record<string, unknown>
+          | Record<string, unknown>[];
+        break;
+      case "create":
+        mutation.create = input.create as
+          | Record<string, unknown>
+          | Record<string, unknown>[];
+        break;
+      case "createMany":
+        mutation.createMany = input.createMany as CreateManyInput;
+        break;
+      case "connectOrCreate":
+        mutation.connectOrCreate = input.connectOrCreate as
+          | ConnectOrCreateInput
+          | ConnectOrCreateInput[];
+        break;
+      case "delete":
+        mutation.delete = input.delete as
+          | boolean
+          | Record<string, unknown>
+          | Record<string, unknown>[];
+        break;
+      case "set":
+        mutation.set = input.set as Record<string, unknown>[];
+        break;
+    }
   }
 
   return mutation;
@@ -210,25 +217,51 @@ function parseRelationMutation(
  */
 function findInverseFkFields(
   currentModel: Model<any>,
-  targetModel: Model<any>,
-  relationName: string
+  relationInfo: RelationInfo
 ): string[] {
-  // Look through target model's relations for one pointing back to current
+  const { targetModel, name } = relationInfo;
+  const currentRelationName = relationInfo.relation["~"].state.name;
+  const potentialInverses: Array<{
+    relationName?: string;
+    fields: string[];
+  }> = [];
+
+  // Look through target model's relations for those pointing back to current.
   const targetRelations = targetModel["~"].state.relations;
   if (targetRelations) {
     for (const [, rel] of Object.entries(targetRelations)) {
       const relInternals = (rel as AnyRelation)["~"];
-      // Check if this relation points back to current model
+      const fields = relInternals.state?.fields;
       const relTarget = relInternals.state?.getter?.();
-      if (relTarget === currentModel && relInternals.state?.fields?.length) {
-        return relInternals.state.fields;
+      if (relTarget === currentModel && fields?.length) {
+        potentialInverses.push({
+          relationName: relInternals.state.name,
+          fields,
+        });
       }
     }
   }
 
+  if (potentialInverses.length === 1) {
+    return potentialInverses[0]!.fields;
+  }
+
+  if (currentRelationName) {
+    const namedInverse = potentialInverses.find(
+      (inverse) => inverse.relationName === currentRelationName
+    );
+    if (namedInverse) {
+      return namedInverse.fields;
+    }
+  }
+
+  if (potentialInverses.length > 0) {
+    return potentialInverses[0]!.fields;
+  }
+
   // No inverse found - this is a schema issue
   throw new QueryEngineError(
-    `Cannot determine FK fields for relation '${relationName}'. ` +
+    `Cannot determine FK fields for relation '${name}'. ` +
       "Define the inverse relation with .fields([...]) or use explicit FK fields."
   );
 }
@@ -265,7 +298,7 @@ export function getFkDirection(
 
   // Otherwise, the target model holds the FK (to-many from current's perspective)
   // Look for the inverse relation to find the actual FK fields on target model
-  const inverseFkFields = findInverseFkFields(ctx.model, targetModel, name);
+  const inverseFkFields = findInverseFkFields(ctx.model, relationInfo);
 
   return {
     holdsFK: false,

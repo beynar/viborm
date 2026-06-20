@@ -15,10 +15,15 @@
  */
 
 import { bigInt } from "@schema/fields/bigint/field";
-import type { InferBigIntInput } from "@schema/fields/bigint/schemas";
-import { type InferOutput, parse } from "@validation";
+import { type InferInput, type InferOutput, parse } from "@validation";
+import { type GetScalarSchemas, getScalarSchemas } from "@validation/scalars";
+import type { FieldState } from "@schema/fields/common";
 import { type Brand, bigint, brand, maxValue, minValue, pipe } from "valibot";
 import { describe, expect, expectTypeOf, test } from "vitest";
+
+type InferFieldInput<State extends FieldState, Key extends keyof GetScalarSchemas<State>> =
+  InferInput<GetScalarSchemas<State>[Key]>;
+type InferBigIntInput<State extends FieldState<"bigint">, Key extends keyof GetScalarSchemas<State>> = InferFieldInput<State, Key>;
 
 // =============================================================================
 // RAW BIGINT FIELD (required, no modifiers)
@@ -27,7 +32,7 @@ import { describe, expect, expectTypeOf, test } from "vitest";
 describe("Raw BigInt Field", () => {
   const field = bigInt();
   type State = (typeof field)["~"]["state"];
-  const schemas = field["~"].schemas;
+  const schemas = getScalarSchemas(field["~"].state);
 
   describe("base", () => {
     test("type: base is bigint", () => {
@@ -232,7 +237,7 @@ describe("Raw BigInt Field", () => {
 describe("Nullable BigInt Field", () => {
   const field = bigInt().nullable();
   type State = (typeof field)["~"]["state"];
-  const schemas = field["~"].schemas;
+  const schemas = getScalarSchemas(field["~"].state);
 
   describe("base", () => {
     test("type: base is bigint | null", () => {
@@ -324,7 +329,7 @@ describe("Nullable BigInt Field", () => {
 describe("List BigInt Field", () => {
   const field = bigInt().array();
   type State = (typeof field)["~"]["state"];
-  const schemas = field["~"].schemas;
+  const schemas = getScalarSchemas(field["~"].state);
 
   describe("base", () => {
     test("type: base is bigint[]", () => {
@@ -456,7 +461,7 @@ describe("List BigInt Field", () => {
 describe("Nullable List BigInt Field", () => {
   const field = bigInt().array().nullable();
   type State = (typeof field)["~"]["state"];
-  const schemas = field["~"].schemas;
+  const schemas = getScalarSchemas(field["~"].state);
 
   describe("base", () => {
     test("type: base is bigint[] | null", () => {
@@ -550,7 +555,7 @@ describe("Nullable List BigInt Field", () => {
 describe("Increment BigInt Field", () => {
   const field = bigInt().increment();
   type State = (typeof field)["~"]["state"];
-  const schemas = field["~"].schemas;
+  const schemas = getScalarSchemas(field["~"].state);
 
   test("state: hasDefault is true", () => {
     expect(field["~"].state.hasDefault).toBe(true);
@@ -586,7 +591,7 @@ describe("Default Value Behavior", () => {
   describe("static default value", () => {
     const field = bigInt().default(42n);
     type State = (typeof field)["~"]["state"];
-    const schemas = field["~"].schemas;
+    const schemas = getScalarSchemas(field["~"].state);
 
     test("type: create is optional", () => {
       type Create = InferBigIntInput<State, "create">;
@@ -612,7 +617,7 @@ describe("Default Value Behavior", () => {
       callCount++;
       return callCount * 10n;
     });
-    const schemas = field["~"].schemas;
+    const schemas = getScalarSchemas(field["~"].state);
 
     test("runtime: undefined calls default function", () => {
       const before = callCount;
@@ -631,7 +636,7 @@ describe("Custom Schema Validation", () => {
   describe("min/max validation", () => {
     const positiveBigInt = pipe(bigint(), minValue(1n), maxValue(1000n));
     const field = bigInt().schema(positiveBigInt);
-    const schemas = field["~"].schemas;
+    const schemas = getScalarSchemas(field["~"].state);
 
     test("runtime: accepts valid value in range", () => {
       const r1 = parse(schemas.base, 50n);
@@ -678,7 +683,7 @@ describe("Custom Schema Validation", () => {
   describe("branded type preservation", () => {
     const userIdSchema = pipe(bigint(), minValue(1n), brand("UserId"));
     const field = bigInt().schema(userIdSchema);
-    type BrandedOutput = InferOutput<(typeof field)["~"]["schemas"]["base"]>;
+    type BrandedOutput = InferOutput<(typeof field)["~"]["state"]["base"]>;
 
     test("type: base output preserves brand", () => {
       // Brand is on output type
@@ -686,7 +691,7 @@ describe("Custom Schema Validation", () => {
     });
 
     test("runtime: validates and returns branded value", () => {
-      const result = parse(field["~"].schemas.base, 123n);
+      const result = parse(getScalarSchemas(field["~"].state).base, 123n);
       if (result.issues) throw new Error("Expected success");
       expect(result.value).toBe(123n);
     });

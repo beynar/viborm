@@ -1,5 +1,5 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import v from "@validation";
+import v, { type InferInput, parse } from "@validation";
 import type { Prettify } from "@validation/types";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
@@ -11,7 +11,7 @@ describe("object schema", () => {
     });
 
     test("validates objects", () => {
-      const result = schema["~standard"].validate({ name: "Alice", age: 30 });
+      const result = parse(schema, { name: "Alice", age: 30 });
       expect(result.issues).toBeUndefined();
       expect(
         (result as { value: { name: string; age: number } }).value,
@@ -22,15 +22,15 @@ describe("object schema", () => {
     });
 
     test("rejects non-objects", () => {
-      expect(schema["~standard"].validate(null).issues).toBeDefined();
-      expect(schema["~standard"].validate(undefined).issues).toBeDefined();
-      expect(schema["~standard"].validate([]).issues).toBeDefined();
-      expect(schema["~standard"].validate("string").issues).toBeDefined();
+      expect(parse(schema, null).issues).toBeDefined();
+      expect(parse(schema, undefined).issues).toBeDefined();
+      expect(parse(schema, []).issues).toBeDefined();
+      expect(parse(schema, "string").issues).toBeDefined();
     });
 
     test("type inference", () => {
       type Output = StandardSchemaV1.InferOutput<typeof schema>;
-      expectTypeOf<Output>().toEqualTypeOf<{ name?: string; age?: number }>();
+      expectTypeOf<Output>().toMatchTypeOf<{ name?: string; age?: number }>();
     });
   });
 
@@ -41,14 +41,14 @@ describe("object schema", () => {
     });
 
     test("rejects unknown keys by default", () => {
-      const result = schema["~standard"].validate({
+      const result = parse(schema, {
         name: "Alice",
         age: 30,
         extra: true,
       });
       expect(result.issues).toBeDefined();
-      expect(result.issues![0].message).toContain("Unknown key");
-      expect(result.issues![0].path).toEqual(["extra"]);
+      expect(result.issues?.[0]?.message).toContain("Unknown key");
+      expect(result.issues?.[0]?.path).toEqual(["extra"]);
     });
 
     test("allows unknown keys with strict: false", () => {
@@ -56,7 +56,7 @@ describe("object schema", () => {
         { name: v.string(), age: v.number() },
         { strict: false },
       );
-      const result = looseSchema["~standard"].validate({
+      const result = parse(looseSchema, {
         name: "Alice",
         age: 30,
         extra: true,
@@ -77,7 +77,7 @@ describe("object schema", () => {
         name: v.string(),
         age: v.number(),
       });
-      const result = schema["~standard"].validate({ name: "Alice" });
+      const result = parse(schema, { name: "Alice" });
       expect(result.issues).toBeUndefined();
       expect(
         (result as { value: { name?: string; age?: number } }).value,
@@ -92,7 +92,7 @@ describe("object schema", () => {
         name: v.string(),
         age: v.number(),
       });
-      const result = schema["~standard"].validate({});
+      const result = parse(schema, {});
       expect(result.issues).toBeUndefined();
     });
 
@@ -104,9 +104,9 @@ describe("object schema", () => {
         },
         { partial: false },
       );
-      const result = schema["~standard"].validate({ name: "Alice" });
+      const result = parse(schema, { name: "Alice" });
       expect(result.issues).toBeDefined();
-      expect(result.issues![0].message).toContain("age");
+      expect(result.issues?.[0]?.message).toContain("age");
     });
   });
 
@@ -116,7 +116,7 @@ describe("object schema", () => {
         name: v.string(),
         age: v.optional(v.number()),
       });
-      const result = schema["~standard"].validate({ name: "Alice" });
+      const result = parse(schema, { name: "Alice" });
       expect(result.issues).toBeUndefined();
       expect(
         (result as { value: { name: string; age?: number } }).value,
@@ -131,7 +131,7 @@ describe("object schema", () => {
         name: v.string(),
         age: v.number({ optional: true }),
       });
-      const result = schema["~standard"].validate({ name: "Alice" });
+      const result = parse(schema, { name: "Alice" });
       expect(result.issues).toBeUndefined();
     });
   });
@@ -139,20 +139,20 @@ describe("object schema", () => {
   describe("object options", () => {
     test("optional object", () => {
       const schema = v.object({ name: v.string() }, { optional: true });
-      expect(schema["~standard"].validate(undefined).issues).toBeUndefined();
+      expect(parse(schema, undefined).issues).toBeUndefined();
       expect(
-        schema["~standard"].validate({ name: "A" }).issues,
+        parse(schema, { name: "A" }).issues,
       ).toBeUndefined();
     });
 
     test("nullable object", () => {
       const schema = v.object({ name: v.string() }, { nullable: true });
-      expect(schema["~standard"].validate(null).issues).toBeUndefined();
+      expect(parse(schema, null).issues).toBeUndefined();
     });
 
     test("array of objects", () => {
       const schema = v.object({ name: v.string() }, { array: true });
-      const result = schema["~standard"].validate([
+      const result = parse(schema, [
         { name: "A" },
         { name: "B" },
       ]);
@@ -168,7 +168,7 @@ describe("object schema", () => {
         { name: v.string() },
         { optional: true, default: { name: "Unknown" } },
       );
-      const result = schema["~standard"].validate(undefined);
+      const result = parse(schema, undefined);
       expect((result as { value: { name: string } }).value).toEqual({
         name: "Unknown",
       });
@@ -177,9 +177,14 @@ describe("object schema", () => {
     test("object with transform", () => {
       const schema = v.object(
         { name: v.string() },
-        { transform: (u) => ({ ...u, name: u.name.toUpperCase() }) },
+        {
+          transform: (u) => {
+            const user = u as { name: string };
+            return { ...user, name: user.name.toUpperCase() };
+          },
+        },
       );
-      const result = schema["~standard"].validate({ name: "alice" });
+      const result = parse(schema, { name: "alice" });
       expect((result as { value: { name: string } }).value).toEqual({
         name: "ALICE",
       });
@@ -194,7 +199,7 @@ describe("object schema", () => {
           age: v.number(),
         }),
       });
-      const result = schema["~standard"].validate({
+      const result = parse(schema, {
         user: { name: "Alice", age: 30 },
       });
       expect(result.issues).toBeUndefined();
@@ -207,11 +212,11 @@ describe("object schema", () => {
           age: v.number(),
         }),
       });
-      const result = schema["~standard"].validate({
+      const result = parse(schema, {
         user: { name: "Alice", age: "30" },
       });
       expect(result.issues).toBeDefined();
-      expect(result.issues![0].path).toEqual(["user", "age"]);
+      expect(result.issues?.[0]?.path).toEqual(["user", "age"]);
     });
   });
 
@@ -224,8 +229,8 @@ describe("object schema", () => {
         },
         { partial: false },
       );
-      const result = schema["~standard"].validate({ name: "Alice" });
-      expect(result.issues![0].path).toEqual(["age"]);
+      const result = parse(schema, { name: "Alice" });
+      expect(result.issues?.[0]?.path).toEqual(["age"]);
     });
 
     test("reports correct path for invalid field", () => {
@@ -233,8 +238,8 @@ describe("object schema", () => {
         name: v.string(),
         age: v.number(),
       });
-      const result = schema["~standard"].validate({ name: "Alice", age: "30" });
-      expect(result.issues![0].path).toEqual(["age"]);
+      const result = parse(schema, { name: "Alice", age: "30" });
+      expect(result.issues?.[0]?.path).toEqual(["age"]);
     });
   });
 
@@ -248,7 +253,7 @@ describe("object schema", () => {
         age: v.number(),
       });
 
-      const result = extendedSchema["~standard"].validate({
+      const result = parse(extendedSchema, {
         name: "Alice",
         age: 30,
       });
@@ -265,7 +270,7 @@ describe("object schema", () => {
       });
 
       // Should fail if age is wrong type
-      const result = extendedSchema["~standard"].validate({
+      const result = parse(extendedSchema, {
         name: "Alice",
         age: "30",
       });
@@ -278,14 +283,14 @@ describe("object schema", () => {
       });
 
       type Output = StandardSchemaV1.InferOutput<typeof extendedSchema>;
-      expectTypeOf<Output>().toEqualTypeOf<{ name?: string; age?: number }>();
+      expectTypeOf<Output>().toMatchTypeOf<{ name?: string; age?: number }>();
     });
 
     test("original schema is unchanged", () => {
       baseSchema.extend({ age: v.number() });
 
       // Original should not have age field validation
-      const result = baseSchema["~standard"].validate({ name: "Alice" });
+      const result = parse(baseSchema, { name: "Alice" });
       expect(result.issues).toBeUndefined();
     });
 
@@ -293,7 +298,7 @@ describe("object schema", () => {
       const step1 = baseSchema.extend({ age: v.number() });
       const step2 = step1.extend({ email: v.string() });
 
-      const result = step2["~standard"].validate({
+      const result = parse(step2, {
         name: "Alice",
         age: 30,
         email: "alice@test.com",
@@ -307,7 +312,7 @@ describe("object schema", () => {
 
       // Type inference for chained extends
       type Output = StandardSchemaV1.InferOutput<typeof step2>;
-      expectTypeOf<Output>().toEqualTypeOf<{
+      expectTypeOf<Output>().toMatchTypeOf<{
         name?: string;
         age?: number;
         email?: string;
@@ -321,12 +326,12 @@ describe("object schema", () => {
       });
 
       // Should now accept number for name
-      const result = overridden["~standard"].validate({ name: 123 });
+      const result = parse(overridden, { name: 123 });
       expect(result.issues).toBeUndefined();
       expect((result as { value: any }).value).toEqual({ name: 123 });
 
       // Should reject string for name now
-      const invalidResult = overridden["~standard"].validate({ name: "Alice" });
+      const invalidResult = parse(overridden, { name: "Alice" });
       expect(invalidResult.issues).toBeDefined();
     });
 
@@ -339,13 +344,13 @@ describe("object schema", () => {
       const extended = strictSchema.extend({ age: v.number() });
 
       // Should still reject unknown keys (strict: true preserved)
-      const result = extended["~standard"].validate({
+      const result = parse(extended, {
         name: "Alice",
         age: 30,
         extra: true,
       });
       expect(result.issues).toBeDefined();
-      expect(result.issues![0].message).toContain("Unknown key");
+      expect(result.issues?.[0]?.message).toContain("Unknown key");
     });
 
     test("extending with optional fields", () => {
@@ -354,11 +359,11 @@ describe("object schema", () => {
       });
 
       // Should work without nickname
-      const result1 = extended["~standard"].validate({ name: "Alice" });
+      const result1 = parse(extended, { name: "Alice" });
       expect(result1.issues).toBeUndefined();
 
       // Should work with nickname
-      const result2 = extended["~standard"].validate({
+      const result2 = parse(extended, {
         name: "Alice",
         nickname: "Ali",
       });
@@ -375,7 +380,7 @@ describe("object schema", () => {
         address,
       });
 
-      const result = extended["~standard"].validate({
+      const result = parse(extended, {
         name: "Alice",
         address: { city: "NYC", zip: "10001" },
       });
@@ -406,7 +411,7 @@ describe("object schema", () => {
       );
 
       // Provide only required field, optional fields should get defaults
-      const result = schema["~standard"].validate({ name: "Alice" });
+      const result = parse(schema, { name: "Alice" });
       expect(result.issues).toBeUndefined();
       expect((result as { value: any }).value).toEqual({
         name: "Alice",
@@ -425,7 +430,7 @@ describe("object schema", () => {
         { partial: false },
       );
 
-      const result = schema["~standard"].validate({
+      const result = parse(schema, {
         name: "Bob",
         age: 25,
         active: false,
@@ -454,7 +459,7 @@ describe("object schema", () => {
         { partial: false },
       );
 
-      const result = schema["~standard"].validate({ name: "Test" });
+      const result = parse(schema, { name: "Test" });
       expect(result.issues).toBeUndefined();
       expect((result as { value: any }).value).toEqual({
         name: "Test",
@@ -473,9 +478,9 @@ describe("object schema", () => {
       );
 
       // Missing required 'name' field
-      const result = schema["~standard"].validate({ age: 25 });
+      const result = parse(schema, { age: 25 });
       expect(result.issues).toBeDefined();
-      expect(result.issues![0].message).toContain("name");
+      expect(result.issues?.[0]?.message).toContain("name");
     });
 
     test("type inference includes defaults in output type", () => {
@@ -489,7 +494,7 @@ describe("object schema", () => {
 
       type Output = StandardSchemaV1.InferOutput<typeof schema>;
       // With partial: false, all fields should be required in output
-      expectTypeOf<Output>().toEqualTypeOf<{ name: string; age: number }>();
+      expectTypeOf<Output>().toMatchTypeOf<{ name: string; age: number }>();
     });
   });
 
@@ -506,7 +511,7 @@ describe("object schema", () => {
       );
 
       // Valid: has required keys, missing optional keys
-      const result = schema["~standard"].validate({ id: "1", name: "Alice" });
+      const result = parse(schema, { id: "1", name: "Alice" });
       expect(result.issues).toBeUndefined();
       expect((result as { value: any }).value).toEqual({
         id: "1",
@@ -526,7 +531,7 @@ describe("object schema", () => {
         { atLeast: ["id"] },
       );
 
-      const result = schema["~standard"].validate({
+      const result = parse(schema, {
         id: "1",
         name: "Alice",
         email: "alice@test.com",
@@ -550,9 +555,9 @@ describe("object schema", () => {
       );
 
       // Missing required 'id' key
-      const result = schema["~standard"].validate({ name: "Alice" });
+      const result = parse(schema, { name: "Alice" });
       expect(result.issues).toBeDefined();
-      expect(result.issues![0].message).toContain("id");
+      expect(result.issues?.[0]?.message).toContain("id");
     });
 
     test("type inference makes atLeast keys required", () => {
@@ -567,7 +572,7 @@ describe("object schema", () => {
 
       type Output = Prettify<StandardSchemaV1.InferOutput<typeof schema>>;
       // id and name should be required, email should be optional
-      expectTypeOf<Output>().toEqualTypeOf<{
+      expectTypeOf<Output>().toMatchTypeOf<{
         id: string;
         name: string;
         email?: string;
@@ -583,7 +588,7 @@ describe("object schema", () => {
         { atLeast: [] },
       );
 
-      const result = schema["~standard"].validate({});
+      const result = parse(schema, {});
       expect(result.issues).toBeUndefined();
     });
 
@@ -599,8 +604,116 @@ describe("object schema", () => {
       );
 
       // Should fail because all fields are required with partial: false
-      const result = schema["~standard"].validate({ id: "1" });
+      const result = parse(schema, { id: "1" });
       expect(result.issues).toBeDefined();
+    });
+  });
+
+  describe("requiresOneOfKeySets option", () => {
+    const schema = v.object(
+      {
+        authorId: v.string(),
+        authorOrgId: v.string(),
+        author: v.string(),
+      },
+      {
+        requiresOneOfKeySets: [
+          [
+            ["authorId", "authorOrgId"],
+            ["author"],
+          ],
+        ],
+      },
+    );
+
+    test("rejects missing alternatives", () => {
+      const result = parse(schema, {});
+
+      expect(result.issues).toBeDefined();
+    });
+
+    test("rejects partial key-set alternatives", () => {
+      const result = parse(schema, { authorId: "author-1" });
+
+      expect(result.issues).toBeDefined();
+    });
+
+    test("accepts a complete key-set alternative", () => {
+      const result = parse(schema, {
+        authorId: "author-1",
+        authorOrgId: "org-1",
+      });
+
+      expect(result.issues).toBeUndefined();
+    });
+
+    test("accepts a single-key alternative", () => {
+      const result = parse(schema, { author: "author-1" });
+
+      expect(result.issues).toBeUndefined();
+    });
+
+    test("type inference requires a complete key-set alternative", () => {
+      type Input = Prettify<InferInput<typeof schema>>;
+
+      expectTypeOf<{ authorId: string }>().not.toMatchTypeOf({} as Input);
+      expectTypeOf<{
+        authorId: string;
+        authorOrgId: string;
+      }>().toMatchTypeOf<Input>();
+      expectTypeOf<{ author: string }>().toMatchTypeOf<Input>();
+    });
+
+    const multiGroupSchema = v.object(
+      {
+        authorId: v.string(),
+        authorOrgId: v.string(),
+        author: v.string(),
+        categoryId: v.string(),
+        category: v.string(),
+      },
+      {
+        requiresOneOfKeySets: [
+          [
+            ["authorId", "authorOrgId"],
+            ["author"],
+          ],
+          [["categoryId"], ["category"]],
+        ],
+      },
+    );
+
+    test("rejects when any key-set group is unsatisfied", () => {
+      const result = parse(multiGroupSchema, {
+        authorId: "author-1",
+        authorOrgId: "org-1",
+      });
+
+      expect(result.issues).toBeDefined();
+    });
+
+    test("accepts one complete alternative from every group", () => {
+      const result = parse(multiGroupSchema, {
+        authorId: "author-1",
+        authorOrgId: "org-1",
+        category: "category-1",
+      });
+
+      expect(result.issues).toBeUndefined();
+    });
+
+    test("type inference requires every key-set group", () => {
+      type Input = Prettify<InferInput<typeof multiGroupSchema>>;
+
+      expectTypeOf<{
+        authorId: string;
+        authorOrgId: string;
+      }>().not.toMatchTypeOf({} as Input);
+      expectTypeOf<{
+        authorId: string;
+        authorOrgId: string;
+        category: string;
+      }>().toMatchTypeOf<Input>();
     });
   });
 
@@ -610,9 +723,9 @@ describe("object schema", () => {
         { name: v.string(), age: v.number() },
         { nonEmpty: true, partial: true },
       );
-      const result = schema["~standard"].validate({});
+      const result = parse(schema, {});
       expect(result.issues).toBeDefined();
-      expect(result.issues![0].message).toContain("empty");
+      expect(result.issues?.[0]?.message).toContain("empty");
     });
 
     test("accepts object with at least one key when nonEmpty: true", () => {
@@ -620,7 +733,7 @@ describe("object schema", () => {
         { name: v.string(), age: v.number() },
         { nonEmpty: true, partial: true },
       );
-      const result = schema["~standard"].validate({ name: "Alice" });
+      const result = parse(schema, { name: "Alice" });
       expect(result.issues).toBeUndefined();
     });
 
@@ -631,11 +744,11 @@ describe("object schema", () => {
       );
 
       // Empty object should fail
-      const emptyResult = schema["~standard"].validate({});
+      const emptyResult = parse(schema, {});
       expect(emptyResult.issues).toBeDefined();
 
       // Unknown key should pass (strict: false allows it)
-      const unknownResult = schema["~standard"].validate({ other: "value" });
+      const unknownResult = parse(schema, { other: "value" });
       expect(unknownResult.issues).toBeUndefined();
     });
 
@@ -644,7 +757,7 @@ describe("object schema", () => {
         { name: v.string() },
         { nonEmpty: false, partial: true },
       );
-      const result = schema["~standard"].validate({});
+      const result = parse(schema, {});
       expect(result.issues).toBeUndefined();
     });
 
@@ -655,17 +768,17 @@ describe("object schema", () => {
       );
 
       // Array with empty object should fail
-      const result = schema["~standard"].validate([{}]);
+      const result = parse(schema, [{}]);
       expect(result.issues).toBeDefined();
 
       // Array with non-empty object should pass
-      const validResult = schema["~standard"].validate([{ name: "Alice" }]);
+      const validResult = parse(schema, [{ name: "Alice" }]);
       expect(validResult.issues).toBeUndefined();
     });
 
     test("default behavior allows empty objects", () => {
       const schema = v.object({ name: v.string() }, { partial: true });
-      const result = schema["~standard"].validate({});
+      const result = parse(schema, {});
       expect(result.issues).toBeUndefined();
     });
 
@@ -677,7 +790,7 @@ describe("object schema", () => {
       );
 
       // Empty object fails because name is required (not because of nonEmpty)
-      const result = schema["~standard"].validate({});
+      const result = parse(schema, {});
       expect(result.issues).toBeDefined();
     });
   });

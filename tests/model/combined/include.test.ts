@@ -29,7 +29,7 @@ describe("Include Schema - Types (Author Model)", () => {
   type Input = InferInput<typeof authorSchemas.include>;
 
   test("type: includes relation fields", () => {
-    expectTypeOf<Input>().toHaveProperty("posts");
+    expectTypeOf<{ posts?: true }>().toMatchTypeOf<Input>();
   });
 });
 

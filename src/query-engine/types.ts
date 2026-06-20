@@ -8,6 +8,7 @@ import type { DatabaseAdapter } from "@adapters";
 import type { AnyDriver } from "@drivers/driver";
 import type { Model } from "@schema/model";
 import type { AnyRelation } from "@schema/relation";
+import type { SchemaRegistryLookup } from "@validation";
 
 // Re-export errors from unified error hierarchy
 export {
@@ -129,6 +130,7 @@ export function isBatchOperation(op: Operation): op is BatchOperation {
 export interface ModelRegistry {
   get(name: string): Model<any> | undefined;
   getByTableName(tableName: string): Model<any> | undefined;
+  readonly schemas: SchemaRegistryLookup;
 }
 
 /**
@@ -143,6 +145,8 @@ export interface QueryContext {
   model: Model<any>;
   /** Model registry for relation lookups */
   registry: ModelRegistry;
+  /** Runtime schema registry for operation and nested input validation */
+  schemaRegistry: SchemaRegistryLookup;
   /** Alias generator for table aliases */
   nextAlias: () => string;
   /** Get root alias (t0) */

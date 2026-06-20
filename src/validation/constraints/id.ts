@@ -2,7 +2,6 @@ import type { Model, ModelState } from "@schema/model/model";
 import v, { type V } from "@validation/primitives/v";
 import type { VibSchema } from "@validation/types";
 import { type CompoundIdSchema, getCompoundIdSchema } from "./compound";
-import { s } from "@schema/index";
 
 type AnyModel = Model<any>;
 
@@ -23,7 +22,7 @@ type IdName<M extends AnyModel> = {
  * Build entries for scalar ID fields using their base schema
  */
 type ScalarIdEntries<M extends AnyModel> = {
-  [K in IdName<M>]: M["~"]["state"]["scalars"][K]["~"]["schemas"]["base"];
+  [K in IdName<M>]: M["~"]["state"]["scalars"][K]["~"]["state"]["base"];
 };
 
 /**
@@ -61,7 +60,7 @@ export const getIdSchema = <M extends AnyModel>(model: M): IdSchema<M> => {
   for (const key of Object.keys(scalars)) {
     const scalar = scalars[key];
     if (scalar?.["~"].state.isId === true) {
-      entries[key] = scalar["~"].schemas.base;
+      entries[key] = scalar["~"].state.base;
     }
   }
 
@@ -76,20 +75,3 @@ export const getIdSchema = <M extends AnyModel>(model: M): IdSchema<M> => {
 
   return schema as unknown as IdSchema<M>;
 };
-
-const user = s.model({
-  id: s.string().id(),
-  name: s.string(),
-});
-
-const post = s
-  .model({
-    slug: s.string(),
-    userId: s.string(),
-    title: s.string(),
-    content: s.string(),
-  })
-  .id(["slug", "userId"], { name: "slugUserId" });
-
-type IdNameTestUser = IdSchema<typeof user>["entries"];
-type IdNameTestPost = IdSchema<typeof post>["entries"];

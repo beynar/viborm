@@ -583,10 +583,7 @@ async function executeRelationCreateMany(
     for (let i = 0; i < fkDir.fkFields.length; i++) {
       const fkField = fkDir.fkFields[i]!;
       const pkField = fkDir.pkFields[i]!;
-      // Only set FK if not already provided in the record
-      if (withFk[fkField] === undefined) {
-        withFk[fkField] = parentData[pkField];
-      }
+      withFk[fkField] = parentData[pkField];
     }
     return withFk;
   });
@@ -660,7 +657,7 @@ async function executeRelationConnect(
   const whereClause = buildWhereUnique(
     childCtx,
     connectInput,
-    childCtx.rootAlias
+    targetTable
   );
   if (!whereClause) {
     throw new NestedWriteError(
@@ -807,7 +804,7 @@ async function executeRelationDisconnect(
 
     for (const input of inputs) {
       if (typeof input === "object" && input !== null) {
-        const condition = buildWhereUnique(childCtx, input, childCtx.rootAlias);
+        const condition = buildWhereUnique(childCtx, input, targetTable);
         if (condition) {
           conditions.push(condition);
         }
@@ -866,7 +863,7 @@ async function executeRelationDelete(
 
     for (const input of inputs) {
       if (typeof input === "object" && input !== null) {
-        const condition = buildWhereUnique(childCtx, input, childCtx.rootAlias);
+        const condition = buildWhereUnique(childCtx, input, targetTable);
         if (condition) {
           conditions.push(condition);
         }
@@ -964,7 +961,7 @@ async function executeRelationSet(
 
   for (const setItem of setItems) {
     // Build WHERE to find the record to connect
-    const whereClause = buildWhereUnique(childCtx, setItem, childCtx.rootAlias);
+    const whereClause = buildWhereUnique(childCtx, setItem, targetTable);
     if (!whereClause) {
       throw new NestedWriteError(
         `Invalid set input for relation '${name}'`,

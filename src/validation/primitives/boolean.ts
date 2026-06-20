@@ -41,8 +41,12 @@ function validateBoolean(value: unknown) {
  * const active = v.boolean();
  * const optionalFlag = v.boolean({ optional: true });
  */
+export function boolean(): BooleanSchema<boolean, boolean>;
+export function boolean<const Opts extends ScalarOptions<boolean, any>>(
+  options: Opts
+): BooleanSchema<ComputeInput<boolean, Opts>, ComputeOutput<boolean, Opts>>;
 export function boolean<
-  const Opts extends ScalarOptions<boolean, any> | undefined = undefined,
+  const Opts extends ScalarOptions<boolean, any> | undefined,
 >(
   options?: Opts
 ): BooleanSchema<ComputeInput<boolean, Opts>, ComputeOutput<boolean, Opts>> {

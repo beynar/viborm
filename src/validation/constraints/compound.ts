@@ -119,16 +119,16 @@ export const getCompoundUniqueSchemas = <M extends AnyModel>(
 
   const compoundId = model["~"].state.compoundId;
   if (compoundId) {
-    for (const key of Object.keys(compoundId)) {
-      result[key] = compoundId[key];
+    for (const [key, schema] of Object.entries(compoundId)) {
+      result[key] = schema;
       hasAny = true;
     }
   }
 
   const compoundUniques = model["~"].state.compoundUniques;
   if (compoundUniques) {
-    for (const key of Object.keys(compoundUniques)) {
-      result[key] = compoundUniques[key];
+    for (const [key, schema] of Object.entries(compoundUniques)) {
+      result[key] = schema;
       hasAny = true;
     }
   }
@@ -181,15 +181,15 @@ export const getCompoundUniqueUnionSchema = <M extends AnyModel>(
 
   const compoundId = model["~"].state.compoundId;
   if (compoundId) {
-    for (const key of Object.keys(compoundId)) {
-      schemas.push(compoundId[key]);
+    for (const schema of Object.values(compoundId)) {
+      schemas.push(schema);
     }
   }
 
   const compoundUniques = model["~"].state.compoundUniques;
   if (compoundUniques) {
-    for (const key of Object.keys(compoundUniques)) {
-      schemas.push(compoundUniques[key]);
+    for (const schema of Object.values(compoundUniques)) {
+      schemas.push(schema);
     }
   }
 

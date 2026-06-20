@@ -5,9 +5,11 @@ export {
   type CreateSchema,
   getCreateSchema,
   getNestedScalarCreate,
+  getNestedScalarCreateWithOmittedRequiredKeys,
   getRelationCreate,
   getScalarCreate,
   type NestedScalarCreateSchema,
+  type NestedScalarCreateWithOmittedRequiredKeys,
   type RelationCreateSchema,
   type ScalarCreateSchema,
 } from "./create";
@@ -58,49 +60,115 @@ export {
 // CORE SCHEMAS TYPE
 // =============================================================================
 
-import type { ModelState } from "../../model";
-import type {
-  CreateSchema,
-  NestedScalarCreateSchema,
-  RelationCreateSchema,
-  ScalarCreateSchema,
+import type { AnyModel } from "@schema/model";
+import type { FieldSchemas } from "../index";
+import {
+  getCreateSchema,
+  getNestedScalarCreate,
+  getNestedScalarCreateWithOmittedRequiredKeys,
+  getRelationCreate,
+  getScalarCreate,
+  type CreateSchema,
+  type NestedScalarCreateSchema,
+  type NestedScalarCreateWithOmittedRequiredKeys,
+  type RelationCreateSchema,
+  type ScalarCreateSchema,
 } from "./create";
-import type {
-  CompoundConstraintFilterSchema,
-  CompoundIdFilterSchema,
-  RelationFilterSchema,
-  ScalarFilterSchema,
-  UniqueFilterSchema,
+import {
+  getCompoundConstraintFilter,
+  getCompoundIdFilter,
+  getRelationFilter,
+  getScalarFilter,
+  getUniqueFilter,
+  type CompoundConstraintFilterSchema,
+  type CompoundIdFilterSchema,
+  type RelationFilterSchema,
+  type ScalarFilterSchema,
+  type UniqueFilterSchema,
 } from "./filter";
-import type { OrderBySchema } from "./orderby";
-import type { IncludeSchema, SelectSchema } from "./select";
-import type {
-  RelationUpdateSchema,
-  ScalarUpdateSchema,
-  UpdateSchema,
+import { getOrderBySchema, type OrderBySchema } from "./orderby";
+import { getIncludeSchema, getSelectSchema, type IncludeSchema, type SelectSchema } from "./select";
+import {
+  getRelationUpdate,
+  getScalarUpdate,
+  getUpdateSchema,
+  type RelationUpdateSchema,
+  type ScalarUpdateSchema,
+  type UpdateSchema,
 } from "./update";
-import type { WhereSchema, WhereUniqueSchema } from "./where";
+import {
+  getWhereSchema,
+  getWhereUniqueSchema,
+  type WhereSchema,
+  type WhereUniqueSchema,
+} from "./where";
 
 /**
  * Type representing all core schemas for a model.
  * Used by args factories to reference schema types.
  */
-export type CoreSchemas<T extends ModelState> = {
-  scalarFilter: ScalarFilterSchema<T>;
-  uniqueFilter: UniqueFilterSchema<T>;
-  relationFilter: RelationFilterSchema<T>;
-  compoundIdFilter: CompoundIdFilterSchema<T>;
-  compoundConstraintFilter: CompoundConstraintFilterSchema<T>;
-  scalarCreate: ScalarCreateSchema<T>;
-  nestedScalarCreate: NestedScalarCreateSchema<T>;
-  relationCreate: RelationCreateSchema<T>;
-  scalarUpdate: ScalarUpdateSchema<T>;
-  relationUpdate: RelationUpdateSchema<T>;
-  where: WhereSchema<T>;
-  whereUnique: WhereUniqueSchema<T>;
-  create: CreateSchema<T>;
-  update: UpdateSchema<T>;
-  select: SelectSchema<T>;
-  include: IncludeSchema<T>;
-  orderBy: OrderBySchema<T>;
+export type CoreSchemas<M extends AnyModel, F extends FieldSchemas<M>> = {
+  scalarFilter: ScalarFilterSchema<M, F>;
+  uniqueFilter: UniqueFilterSchema<M, F>;
+  relationFilter: RelationFilterSchema<M, F>;
+  compoundIdFilter: CompoundIdFilterSchema<M>;
+  compoundConstraintFilter: CompoundConstraintFilterSchema<M>;
+  scalarCreate: ScalarCreateSchema<M, F>;
+  nestedScalarCreate: NestedScalarCreateSchema<M, F>;
+  relationCreate: RelationCreateSchema<M, F>;
+  scalarUpdate: ScalarUpdateSchema<M, F>;
+  relationUpdate: RelationUpdateSchema<M, F>;
+  where: WhereSchema<M, F>;
+  whereUnique: WhereUniqueSchema<M, F>;
+  create: CreateSchema<M, F>;
+  update: UpdateSchema<M, F>;
+  select: SelectSchema<M, F>;
+  include: IncludeSchema<F>;
+  orderBy: OrderBySchema<M, F>;
+};
+
+export const getCoreSchemas = <
+  M extends AnyModel,
+  F extends FieldSchemas<M>,
+>(
+  model: M,
+  fieldSchemas: F,
+): CoreSchemas<M, F> => {
+  const scalarFilter = getScalarFilter<M, F>(fieldSchemas);
+  const uniqueFilter = getUniqueFilter(model, fieldSchemas);
+  const relationFilter = getRelationFilter<M, F>(fieldSchemas);
+  const compoundIdFilter = getCompoundIdFilter(model);
+  const compoundConstraintFilter = getCompoundConstraintFilter(model);
+  const scalarCreate = getScalarCreate(model, fieldSchemas);
+  const nestedScalarCreate = getNestedScalarCreate(model, fieldSchemas);
+  const relationCreate = getRelationCreate<M, F>(fieldSchemas);
+  const scalarUpdate = getScalarUpdate<M, F>(fieldSchemas);
+  const relationUpdate = getRelationUpdate<M, F>(fieldSchemas);
+  const where = getWhereSchema<M, F>(fieldSchemas);
+  const whereUnique = getWhereUniqueSchema(model, fieldSchemas);
+  const create = getCreateSchema(model, fieldSchemas);
+  const update = getUpdateSchema<M, F>(fieldSchemas);
+  const select = getSelectSchema<M, F>(fieldSchemas);
+  const include = getIncludeSchema(fieldSchemas);
+  const orderBy = getOrderBySchema<M, F>(fieldSchemas);
+
+  return {
+    scalarFilter,
+    uniqueFilter,
+    relationFilter,
+    compoundIdFilter,
+    compoundConstraintFilter,
+    scalarCreate,
+    nestedScalarCreate,
+    relationCreate,
+    scalarUpdate,
+    relationUpdate,
+    where,
+    whereUnique,
+    create,
+    update,
+    select,
+    include,
+    orderBy,
+  };
 };

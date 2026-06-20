@@ -10,6 +10,7 @@ import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { Driver } from "@drivers";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
+import { createSchemaRegistry } from "@validation";
 import { beforeAll, describe, expect, test } from "vitest";
 
 // =============================================================================
@@ -40,9 +41,9 @@ class MockDriver extends Driver<null, null> {
 
   protected async transaction<T>(
     _client: null,
-    fn: () => Promise<T>
+    fn: (tx: null) => Promise<T>
   ): Promise<T> {
-    return fn();
+    return fn(null);
   }
 }
 
@@ -118,7 +119,7 @@ let registry: ReturnType<typeof createModelRegistry>;
 let engine: QueryEngine;
 
 beforeAll(() => {
-  registry = createModelRegistry(schema);
+  registry = createModelRegistry(schema, createSchemaRegistry(schema));
   engine = new QueryEngine(mockDriver, registry);
 });
 
@@ -140,7 +141,6 @@ describe("Basic CRUD Operations", () => {
   describe("findFirst", () => {
     test("simple query", () => {
       const { statement } = getSql(Author, "findFirst", {});
-      console.log("findFirst simple:", statement);
 
       expect(statement).toContain("SELECT");
       expect(statement).toContain("FROM");
@@ -151,7 +151,6 @@ describe("Basic CRUD Operations", () => {
       const { statement, values } = getSql(Author, "findFirst", {
         where: { name: "Alice" },
       });
-      console.log("findFirst with where:", statement, values);
 
       expect(statement).toContain("WHERE");
       expect(values).toContain("Alice");
@@ -161,7 +160,6 @@ describe("Basic CRUD Operations", () => {
       const { statement } = getSql(Author, "findFirst", {
         orderBy: { name: "asc" },
       });
-      console.log("findFirst with orderBy:", statement);
 
       expect(statement).toContain("ORDER BY");
       expect(statement).toMatch(ASC_REGEX);
@@ -171,7 +169,6 @@ describe("Basic CRUD Operations", () => {
   describe("findMany", () => {
     test("simple query", () => {
       const { statement } = getSql(Author, "findMany", {});
-      console.log("findMany simple:", statement);
 
       expect(statement).toContain("SELECT");
       expect(statement).toContain("FROM");
@@ -182,7 +179,6 @@ describe("Basic CRUD Operations", () => {
         take: 10,
         skip: 5,
       });
-      console.log("findMany with pagination:", statement, values);
 
       expect(statement).toContain("LIMIT");
       expect(statement).toContain("OFFSET");
@@ -194,7 +190,6 @@ describe("Basic CRUD Operations", () => {
         take: 10,
         orderBy: { id: "asc" },
       });
-      console.log("findMany with cursor:", statement, values);
 
       expect(statement).toContain("WHERE");
       expect(values).toContain("cursor-id");
@@ -206,7 +201,6 @@ describe("Basic CRUD Operations", () => {
       const { statement, values } = getSql(Author, "findUnique", {
         where: { id: "author-1" },
       });
-      console.log("findUnique by id:", statement, values);
 
       expect(statement).toContain("WHERE");
       expect(values).toContain("author-1");
@@ -217,7 +211,6 @@ describe("Basic CRUD Operations", () => {
       const { statement, values } = getSql(Author, "findUnique", {
         where: { email: "alice@example.com" },
       });
-      console.log("findUnique by email:", statement, values);
 
       expect(statement).toContain("WHERE");
       expect(values).toContain("alice@example.com");
@@ -229,7 +222,6 @@ describe("Basic CRUD Operations", () => {
       const { statement, values } = getSql(Author, "create", {
         data: { id: "author-1", name: "Alice", email: "alice@example.com" },
       });
-      console.log("create simple:", statement, values);
 
       expect(statement).toContain("INSERT INTO");
       expect(statement).toContain("VALUES");
@@ -240,7 +232,6 @@ describe("Basic CRUD Operations", () => {
       const { statement, values } = getSql(Post, "create", {
         data: { id: "post-1", title: "Hello", authorId: "author-1" },
       });
-      console.log("create with defaults:", statement, values);
 
       expect(statement).toContain("INSERT INTO");
       // published should default to false, views to 0
@@ -253,7 +244,6 @@ describe("Basic CRUD Operations", () => {
         where: { id: "author-1" },
         data: { name: "Alice Updated" },
       });
-      console.log("update simple:", statement, values);
 
       expect(statement).toContain("UPDATE");
       expect(statement).toContain("SET");
@@ -267,7 +257,6 @@ describe("Basic CRUD Operations", () => {
       const { statement, values } = getSql(Author, "delete", {
         where: { id: "author-1" },
       });
-      console.log("delete by id:", statement, values);
 
       expect(statement).toContain("DELETE FROM");
       expect(statement).toContain("WHERE");
@@ -286,7 +275,6 @@ describe("Select/Include (Relation Loading)", () => {
       const { statement } = getSql(Author, "findMany", {
         select: { id: true, name: true },
       });
-      console.log("select scalar fields:", statement);
 
       expect(statement).toContain("SELECT");
       expect(statement).toContain('"id"');
@@ -303,7 +291,6 @@ describe("Select/Include (Relation Loading)", () => {
           author: { select: { id: true, name: true } },
         },
       });
-      console.log("select with to-one relation:", statement);
 
       expect(statement).toContain("SELECT");
       // Should have a subquery for author with JSON
@@ -320,7 +307,6 @@ describe("Select/Include (Relation Loading)", () => {
           posts: { select: { id: true, title: true } },
         },
       });
-      console.log("select with to-many relation:", statement);
 
       expect(statement).toContain("SELECT");
       // Should have a subquery with json_agg
@@ -343,7 +329,6 @@ describe("Select/Include (Relation Loading)", () => {
           },
         },
       });
-      console.log("nested select 3 levels:", statement);
 
       expect(statement).toContain("SELECT");
       // Should use recursive LATERAL joins for nested includes (posts + comments)
@@ -363,7 +348,6 @@ describe("Select/Include (Relation Loading)", () => {
           },
         },
       });
-      console.log("select with relation where:", statement, values);
 
       expect(statement).toContain("SELECT");
       expect(statement).toContain("WHERE");
@@ -381,7 +365,6 @@ describe("Select/Include (Relation Loading)", () => {
           },
         },
       });
-      console.log("select with relation orderBy:", statement);
 
       expect(statement).toContain("ORDER BY");
     });
@@ -398,7 +381,6 @@ describe("Select/Include (Relation Loading)", () => {
           },
         },
       });
-      console.log("select with relation take:", statement);
 
       expect(statement).toContain("LIMIT");
     });
@@ -413,7 +395,6 @@ describe("Select/Include (Relation Loading)", () => {
           },
         },
       });
-      console.log("select with relation skip:", statement);
 
       expect(statement).toContain("OFFSET");
     });
@@ -429,7 +410,6 @@ describe("Select/Include (Relation Loading)", () => {
           },
         },
       });
-      console.log("select with relation take+skip:", statement);
 
       expect(statement).toContain("LIMIT");
       expect(statement).toContain("OFFSET");
@@ -451,7 +431,6 @@ describe("Relation Filters in WHERE", () => {
           },
         },
       });
-      console.log("some filter:", statement, values);
 
       expect(statement).toContain("EXISTS");
     });
@@ -464,7 +443,6 @@ describe("Relation Filters in WHERE", () => {
           },
         },
       });
-      console.log("every filter:", statement, values);
 
       expect(statement).toContain("NOT EXISTS");
     });
@@ -477,7 +455,6 @@ describe("Relation Filters in WHERE", () => {
           },
         },
       });
-      console.log("none filter:", statement, values);
 
       expect(statement).toContain("NOT EXISTS");
     });
@@ -492,7 +469,6 @@ describe("Relation Filters in WHERE", () => {
           },
         },
       });
-      console.log("is filter:", statement, values);
 
       expect(statement).toContain("EXISTS");
       expect(values).toContain("Alice");
@@ -506,7 +482,6 @@ describe("Relation Filters in WHERE", () => {
           },
         },
       });
-      console.log("isNot filter:", statement, values);
 
       expect(statement).toContain("NOT EXISTS");
     });
@@ -521,7 +496,6 @@ describe("Relation Filters in WHERE", () => {
           },
         },
       });
-      console.log("is null filter:", statement);
 
       expect(statement).toMatch(IS_NULL_REGEX);
     });
@@ -534,7 +508,6 @@ describe("Relation Filters in WHERE", () => {
           },
         },
       });
-      console.log("isNot null filter:", statement);
 
       expect(statement).toMatch(IS_NOT_NULL_REGEX);
     });
@@ -555,7 +528,6 @@ describe("Many-to-Many Relations", () => {
           tags: { select: { id: true, name: true } },
         },
       });
-      console.log("manyToMany select:", statement);
 
       // Should use junction table
       expect(statement).toContain("SELECT");
@@ -572,7 +544,6 @@ describe("Many-to-Many Relations", () => {
           posts: { select: { id: true, title: true } },
         },
       });
-      console.log("manyToMany reverse select:", statement);
 
       expect(statement).toContain("SELECT");
       expect(statement).toContain("LEFT JOIN LATERAL");
@@ -589,7 +560,6 @@ describe("Many-to-Many Relations", () => {
           },
         },
       });
-      console.log("manyToMany some filter:", statement, values);
 
       expect(statement).toContain("EXISTS");
     });
@@ -602,7 +572,6 @@ describe("Many-to-Many Relations", () => {
           },
         },
       });
-      console.log("manyToMany every filter:", statement);
 
       expect(statement).toContain("NOT EXISTS");
     });
@@ -615,7 +584,6 @@ describe("Many-to-Many Relations", () => {
           },
         },
       });
-      console.log("manyToMany none filter:", statement);
 
       expect(statement).toContain("NOT EXISTS");
     });
@@ -637,7 +605,6 @@ describe("Relation _count", () => {
         },
       },
     });
-    console.log("_count posts:", statement);
 
     expect(statement).toContain("SELECT");
     expect(statement).toContain("COUNT");
@@ -654,7 +621,6 @@ describe("Relation _count", () => {
         },
       },
     });
-    console.log("_count with filter:", statement);
 
     expect(statement).toContain("COUNT");
     expect(statement).toContain("WHERE");
@@ -677,7 +643,6 @@ describe("Nested Writes", () => {
           },
         },
       });
-      console.log("create with connect:", statement, values);
 
       expect(statement).toContain("INSERT");
     });
@@ -693,7 +658,6 @@ describe("Nested Writes", () => {
           },
         },
       });
-      console.log("create with nested create:", statement, values);
 
       expect(statement).toContain("INSERT");
     });
@@ -719,11 +683,6 @@ describe("Nested Writes", () => {
           },
         },
       });
-      console.log(
-        "create with nested create and return nested:",
-        statement,
-        values
-      );
 
       // Should contain multi-statement with semicolons
       expect(statement).toContain(";");
@@ -748,7 +707,6 @@ describe("Nested Writes", () => {
           },
         },
       });
-      console.log("update with connect:", statement, values);
 
       expect(statement).toContain("UPDATE");
     });
@@ -762,7 +720,6 @@ describe("Nested Writes", () => {
           },
         },
       });
-      console.log("update with disconnect:", statement);
 
       expect(statement).toContain("UPDATE");
     });
@@ -777,7 +734,6 @@ describe("Aggregates", () => {
   describe("count", () => {
     test("simple count", () => {
       const { statement } = getSql(Author, "count", {});
-      console.log("count simple:", statement);
 
       expect(statement).toContain("COUNT");
     });
@@ -786,7 +742,6 @@ describe("Aggregates", () => {
       const { statement, values } = getSql(Author, "count", {
         where: { name: "Alice" },
       });
-      console.log("count with where:", statement, values);
 
       expect(statement).toContain("COUNT");
       expect(statement).toContain("WHERE");
@@ -801,7 +756,6 @@ describe("Aggregates", () => {
         _min: { views: true },
         _max: { views: true },
       });
-      console.log("aggregate:", statement);
 
       expect(statement).toContain("SUM");
       expect(statement).toContain("AVG");
@@ -821,7 +775,6 @@ describe("Aggregates", () => {
           },
         },
       });
-      console.log("groupBy with having:", statement, values);
 
       expect(statement).toContain("GROUP BY");
       expect(statement).toContain("HAVING");
@@ -837,7 +790,6 @@ describe("Aggregates", () => {
           },
         },
       });
-      console.log("groupBy with multiple aggregates:", statement, values);
 
       expect(statement).toContain("GROUP BY");
       expect(statement).toContain("HAVING");
@@ -855,7 +807,6 @@ describe("Aggregates", () => {
           views: { _sum: { lte: 100 } },
         },
       });
-      console.log("groupBy with multiple fields having:", statement, values);
 
       expect(statement).toContain("GROUP BY");
       expect(statement).toContain("HAVING");
@@ -872,7 +823,6 @@ describe("Aggregates", () => {
           authorId: "author-1",
         },
       });
-      console.log("groupBy with direct value having:", statement, values);
 
       expect(statement).toContain("GROUP BY");
       expect(statement).toContain("HAVING");
@@ -887,7 +837,6 @@ describe("Aggregates", () => {
           authorId: { equals: "author-1" },
         },
       });
-      console.log("groupBy with direct equals having:", statement, values);
 
       expect(statement).toContain("GROUP BY");
       expect(statement).toContain("HAVING");
@@ -902,7 +851,6 @@ describe("Aggregates", () => {
           authorId: { in: ["author-1", "author-2"] },
         },
       });
-      console.log("groupBy with direct in having:", statement, values);
 
       expect(statement).toContain("GROUP BY");
       expect(statement).toContain("HAVING");
@@ -919,7 +867,6 @@ describe("Aggregates", () => {
           authorId: { notIn: ["author-1", "author-2"] },
         },
       });
-      console.log("groupBy with direct notIn having:", statement, values);
 
       expect(statement).toContain("GROUP BY");
       expect(statement).toContain("HAVING");
@@ -937,7 +884,6 @@ describe("Aggregates", () => {
           authorId: "author-1",
         },
       });
-      console.log("groupBy with mixed having:", statement, values);
 
       expect(statement).toContain("GROUP BY");
       expect(statement).toContain("HAVING");

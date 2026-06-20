@@ -1,8 +1,11 @@
+import type { AnyModel } from "@schema/model";
 import v, { type V } from "@validation";
-import type { ModelState } from "../../model";
+import type { FieldSchemas } from "../index";
 import {
   type CompoundConstraintFilterSchema,
   getCompoundConstraintFilter,
+  type UniqueFilterSchema,
+  getUniqueFilter,
 } from "./filter";
 
 // =============================================================================
@@ -13,35 +16,44 @@ import {
  * Build full where schema - scalar + relation filters + AND/OR/NOT
  * Uses thunks for recursive self-references
  */
-export type WhereSchemaBase<T extends ModelState> = V.Object<
-  V.FromObject<T["scalars"], "~.schemas.filter">["entries"] &
-    V.FromObject<T["relations"], "~.schemas.filter">["entries"]
+export type WhereSchemaBase<
+  M extends AnyModel,
+  F extends FieldSchemas<M>,
+> = V.Object<
+  V.FromObject<F["scalars"], "filter">["entries"] &
+    V.FromObject<F["relations"], "filter">["entries"]
 >;
 
-export type WhereSchema<T extends ModelState> = V.Object<
+export type WhereSchema<
+  M extends AnyModel,
+  F extends FieldSchemas<M>,
+> = V.Object<
   {
     AND: () => V.Optional<
-      V.Union<readonly [WhereSchema<T>, V.Array<WhereSchema<T>>]>
+      V.Union<readonly [WhereSchema<M, F>, V.Array<WhereSchema<M, F>>]>
     >;
-    OR: () => V.Optional<V.Array<WhereSchema<T>>>;
+    OR: () => V.Optional<V.Array<WhereSchema<M, F>>>;
     NOT: () => V.Optional<
-      V.Union<readonly [WhereSchema<T>, V.Array<WhereSchema<T>>]>
+      V.Union<readonly [WhereSchema<M, F>, V.Array<WhereSchema<M, F>>]>
     >;
-  } & WhereSchemaBase<T>["entries"]
+  } & WhereSchemaBase<M, F>["entries"]
 >;
 
-export const getWhereSchema = <T extends ModelState>(
-  state: T
-): WhereSchema<T> => {
+export const getWhereSchema = <
+  M extends AnyModel,
+  F extends FieldSchemas<M>,
+>(
+  fieldSchemas: F,
+): WhereSchema<M, F> => {
   // Build scalar and relation filter entries
 
-  const scalarFilter = v.fromObject<T["scalars"], "~.schemas.filter">(
-    state.scalars,
-    "~.schemas.filter"
+  const scalarFilter = v.fromObject<F["scalars"], "filter">(
+    fieldSchemas.scalars,
+    "filter"
   );
-  const relationFilter = v.fromObject<T["relations"], "~.schemas.filter">(
-    state.relations,
-    "~.schemas.filter"
+  const relationFilter = v.fromObject<F["relations"], "filter">(
+    fieldSchemas.relations,
+    "filter"
   );
 
   // Create the recursive where schema with AND/OR/NOT using thunks
@@ -66,19 +78,25 @@ export const getWhereSchema = <T extends ModelState>(
  * Build whereUnique schema - unique fields + compound constraints
  * Combines single-field uniques with compound ID and compound uniques
  */
-export type WhereUniqueSchema<T extends ModelState> = V.Object<
-  V.FromObject<T["uniques"], "~.schemas.base">["entries"] &
-    CompoundConstraintFilterSchema<T>["entries"]
+export type WhereUniqueSchema<
+  M extends AnyModel,
+  F extends FieldSchemas<M>,
+> = V.Object<
+  UniqueFilterSchema<M, F>["entries"] &
+    CompoundConstraintFilterSchema<M>["entries"]
 >;
-export const getWhereUniqueSchema = <T extends ModelState>(state: T) => {
+export const getWhereUniqueSchema = <
+  M extends AnyModel,
+  F extends FieldSchemas<M>,
+>(
+  model: M,
+  fieldSchemas: F,
+): WhereUniqueSchema<M, F> => {
   // Single-field unique constraints
-  const uniqueFilter = v.fromObject<T["uniques"], "~.schemas.base">(
-    state.uniques,
-    "~.schemas.base"
-  );
+  const uniqueFilter = getUniqueFilter(model, fieldSchemas);
 
   // Add compound constraints (ID + uniques) using the compound filter helpers
-  const compoundConstraintFilter = getCompoundConstraintFilter(state);
+  const compoundConstraintFilter = getCompoundConstraintFilter(model);
 
   return v.object({
     ...uniqueFilter.entries,

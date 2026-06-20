@@ -1,5 +1,7 @@
 # Validation Layer Refactoring
 
+> Historical rationale: this document describes the pre-`SchemaRegistry` architecture and the motivation for moving operation schemas into `src/validation/`. The implemented branch uses `SchemaRegistry`; keep this file as context, not as current implementation guidance.
+
 ## Overview
 
 This document describes a major architectural change to separate operation schemas (create, update, filter, etc.) from database schema definitions. The goal is to centralize all validation logic in the `src/validation/` layer, enabling full type context during schema building.
@@ -8,7 +10,7 @@ This document describes a major architectural change to separate operation schem
 
 ### The Problem
 
-Currently, operation schemas live directly on models, relations, and fields via their `~.schemas` property. This creates issues:
+Before this migration, operation schemas lived directly on models, relations, and fields via their `~.schemas` property. This created issues:
 
 1. **Limited Type Context**: When building nested create schemas, we need to know which FK fields to omit (they're derived from the parent record). However, the `source` model is typed as `AnyModel` at the schema level because schemas are built in isolation.
 
@@ -22,7 +24,7 @@ Move all operation schemas to a dedicated validation layer with a central builde
 - Clear separation of concerns
 - Better testability
 
-## Current Structure
+## Pre-Migration Structure
 
 ```
 src/schema/
@@ -69,7 +71,7 @@ src/validation/
 └── json-schema/              # JSON Schema conversion
 ```
 
-### Problems with Current Structure
+### Problems with the Pre-Migration Structure
 
 1. **Schemas on `~` accessor**: Each field, relation, and model exposes `~.schemas`, building operation schemas on demand without full context.
 

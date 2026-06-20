@@ -28,7 +28,6 @@ Each method returns a NEW instance with updated State generic. This enables Type
 | `base.ts` | `Field` union type | **Adding new field type!** |
 | `common.ts` | FieldState, UpdateState helpers | Rarely |
 | `{type}/field.ts` | Field class implementation | Adding methods to field |
-| `{type}/schemas.ts` | Schema factory | Adding filter operators |
 
 ---
 
@@ -43,7 +42,6 @@ Each method returns a NEW instance with updated State generic. This enables Type
 
 **Each field directory contains:**
 - `field.ts` - Field class with State generic and chainable methods
-- `schemas.ts` - Single factory returning `{base, filter, create, update}`
 - `index.ts` - Re-exports
 
 ---
@@ -63,33 +61,33 @@ class StringField<State extends StringFieldState> {
 }
 ```
 
-**Why:** Enables type-safe queries without code generation. The State flows through to query schemas automatically.
+**Why:** Enables type-safe queries without code generation. The State flows into validation registry schemas automatically.
 
 ### Rule 2: Immutability
 Every modifier returns a NEW instance. Never mutate `this.state`.
 
 **Why:** TypeScript can't track mutations. If you write `this.state.nullable = true`, the type says `nullable: true` but might not match runtime.
 
-### Rule 3: Lazy Schema Building
-Schemas built on first `["~"]` access using `??=` operator.
+### Rule 3: Base Schema in State
+The schema layer owns base field schemas as part of field state. Operation schemas (`filter`, `create`, `update`) are built in `src/validation/scalars/` and composed by `SchemaRegistry`.
 
 ```typescript
 get ["~"]() {
   return {
-    schemas: (this._schemas ??= buildStringSchema(this.state)),
+    state: this.state,
   };
 }
 ```
 
-**Why:** Schemas are expensive to build. Lazy caching avoids repeated construction on every access.
+**Why:** Base validation belongs to the field definition; operation validation needs model graph context from the registry.
 
-### Rule 4: Single Schema Factory
-Each field has ONE factory function returning all schemas at once:
+### Rule 4: Validation Scalar Factory
+Each field type has a matching validation scalar factory that derives operation schemas from field state:
 
 ```typescript
 function buildStringSchema(state: StringFieldState) {
   return {
-    base: v.string({ nullable: state.nullable }),
+    base: state.base,
     filter: buildStringFilter(state),
     create: buildStringCreate(state),
     update: buildStringUpdate(state),
@@ -97,7 +95,7 @@ function buildStringSchema(state: StringFieldState) {
 }
 ```
 
-**Why:** Ensures consistency. All four schemas derive from the same state.
+**Why:** Ensures consistency while keeping operation schemas out of the schema layer.
 
 ---
 
@@ -106,11 +104,11 @@ function buildStringSchema(state: StringFieldState) {
 ### Mutating This.state
 Modifying `this.state.nullable = true` instead of returning new instance. Breaks immutability contract and type tracking.
 
-### Multiple Schema Factories
-Creating separate functions for base, filter, create, update. Use single factory returning all four for consistency.
+### Operation Schemas in Field Classes
+Building `filter`, `create`, or `update` schemas inside field classes. Operation schemas belong in `src/validation/scalars/` and are accessed through `SchemaRegistry`.
 
 ### Eager Schema Construction
-Building schemas without caching. Wastes performance by rebuilding on every `["~"]` access.
+Building operation schemas during field construction. Let `SchemaRegistry` construct and cache them when the ORM needs validation.
 
 ### Forgetting UpdateState Helper
 Manually constructing new state type. Use `UpdateState<State, {nullable: true}>` for correct type transformation.
@@ -132,7 +130,7 @@ Methods that don't return `this` type or new instance. Breaks the fluent API tha
    }
    ```
 
-3. **Create `schemas.ts`** with single factory:
+3. **Create validation scalar support** in `src/validation/scalars/{type}.ts`:
    ```typescript
    export function buildMyFieldSchema(state: MyFieldState) {
      return { base, filter, create, update };
@@ -155,8 +153,8 @@ Methods that don't return `this` type or new instance. Breaks the fluent API tha
 ### Why `["~"]` instead of a normal property
 The tilde symbol visually indicates "internal API". It's a valid property name but unusual enough that users won't accidentally access it. We tried `_internal` but it appeared in autocomplete too prominently.
 
-### Why schemas return `{base, filter, create, update}`
-These four cover all use cases: `base` for simple validation, `filter` for WHERE clauses, `create` for INSERT, `update` for UPDATE (often has `increment`, `set`, etc.). Early versions had more, but these four proved sufficient.
+### Why field state stores `base`
+`base` is the scalar value contract and belongs to the field definition. Query-specific wrappers such as `filter`, `create`, and `update` depend on operation context and live in the validation registry.
 
 ### Why UpdateState uses intersection
 ```typescript
@@ -171,5 +169,4 @@ This ensures new properties override old ones correctly. Simple `S & U` would cr
 | Layer | Relationship |
 |-------|--------------|
 | **Model** ([model/AGENTS.md](../model/AGENTS.md)) | Composes fields into models |
-| **Query Schemas** ([model/schemas/AGENTS.md](../model/schemas/AGENTS.md)) | Uses field schemas for query validation |
-| **Validation** ([validation/AGENTS.md](../../validation/AGENTS.md)) | Provides v.* primitives used in schemas |
+| **Validation** ([validation/AGENTS.md](../../validation/AGENTS.md)) | Provides v.* primitives and scalar operation schemas |

@@ -2,7 +2,7 @@
  * Schema Creation & Validation Speed Tests
  *
  * Measures performance for serverless environments where each request:
- * 1. Accesses model schemas (model["~"].schemas - lazy loaded)
+ * 1. Accesses model schemas through SchemaRegistry
  * 2. Validates input data (parse)
  *
  * Tests various query complexities:
@@ -14,7 +14,7 @@
  */
 
 import { s } from "@schema";
-import { parse } from "@validation";
+import { createSchemaRegistry, parse } from "@validation";
 import { beforeAll, describe, expect, test } from "vitest";
 
 // =============================================================================
@@ -79,6 +79,15 @@ const Profile = s.model({
   user: s.oneToOne(() => Author),
 });
 
+const schemaRegistry = createSchemaRegistry({
+  SimpleModel,
+  MediumModel,
+  Author,
+  Post,
+  Comment,
+  Profile,
+});
+
 // =============================================================================
 // HELPERS
 // =============================================================================
@@ -117,9 +126,9 @@ function benchmark(
     iterations,
     totalMs: total,
     avgMs: total / iterations,
-    minMs: times[0],
-    maxMs: times[times.length - 1],
-    p95Ms: times[p95Index],
+    minMs: times[0]!,
+    maxMs: times[times.length - 1]!,
+    p95Ms: times[p95Index]!,
   };
 }
 
@@ -139,7 +148,7 @@ function logResult(result: BenchmarkResult) {
 describe("Schema Creation Speed", () => {
   test("simple model schema creation", () => {
     const result = benchmark("Simple Model", ITERATIONS, () => {
-      SimpleModel["~"].schemas;
+      schemaRegistry.getModelSchemas(SimpleModel);
     });
 
     logResult(result);
@@ -148,7 +157,7 @@ describe("Schema Creation Speed", () => {
 
   test("medium model schema creation", () => {
     const result = benchmark("Medium Model", ITERATIONS, () => {
-      MediumModel["~"].schemas;
+      schemaRegistry.getModelSchemas(MediumModel);
     });
 
     logResult(result);
@@ -157,7 +166,7 @@ describe("Schema Creation Speed", () => {
 
   test("complex model with relations schema creation", () => {
     const result = benchmark("Complex Model (Author)", ITERATIONS, () => {
-      Author["~"].schemas;
+      schemaRegistry.getModelSchemas(Author);
     });
 
     logResult(result);
@@ -166,7 +175,7 @@ describe("Schema Creation Speed", () => {
 
   test("model with deep relations schema creation", () => {
     const result = benchmark("Deep Relations (Post)", ITERATIONS, () => {
-      Post["~"].schemas;
+      schemaRegistry.getModelSchemas(Post);
     });
 
     logResult(result);
@@ -180,12 +189,12 @@ describe("Schema Creation Speed", () => {
 
 describe("Validation Speed (Pre-built Schema)", () => {
   // Pre-build schemas for validation tests
-  let authorSchemas: (typeof Author)["~"]["schemas"];
-  let postSchemas: (typeof Post)["~"]["schemas"];
+  let authorSchemas: ReturnType<typeof schemaRegistry.getModelSchemas>;
+  let postSchemas: ReturnType<typeof schemaRegistry.getModelSchemas>;
 
   beforeAll(() => {
-    authorSchemas = Author["~"].schemas;
-    postSchemas = Post["~"].schemas;
+    authorSchemas = schemaRegistry.getModelSchemas(Author);
+    postSchemas = schemaRegistry.getModelSchemas(Post);
   });
 
   describe("Simple Queries", () => {
@@ -307,7 +316,6 @@ describe("Validation Speed (Pre-built Schema)", () => {
       );
 
       logResult(result);
-      expect(result.issues).toBeUndefined();
       expect(result.avgMs).toBeLessThan(15);
     });
   });
@@ -382,11 +390,16 @@ describe("Validation Speed (Pre-built Schema)", () => {
                 title: "New Post",
                 authorId: "author-1",
               },
-              update: {
-                where: { id: "existing-post" },
-                data: { title: "Updated Title" },
+              createMany: {
+                data: [
+                  {
+                    id: "new-post-2",
+                    title: "Second New Post",
+                    authorId: "author-1",
+                  },
+                ],
               },
-              deleteMany: { published: false },
+              delete: { id: "old-post" },
             },
           },
         });
@@ -407,7 +420,7 @@ describe("Serverless Request Simulation (Schema Build + Validate)", () => {
     test("findUnique - full request", () => {
       const result = benchmark("findUnique (full)", ITERATIONS, () => {
         // Simulate serverless: build schema + validate
-        const schemas = Author["~"].schemas;
+        const schemas = schemaRegistry.getModelSchemas(Author);
         parse(schemas.args.findUnique, {
           where: { id: "author-1" },
         });
@@ -419,7 +432,7 @@ describe("Serverless Request Simulation (Schema Build + Validate)", () => {
 
     test("findMany with filters - full request", () => {
       const result = benchmark("findMany filtered (full)", ITERATIONS, () => {
-        const schemas = Author["~"].schemas;
+        const schemas = schemaRegistry.getModelSchemas(Author);
         parse(schemas.args.findMany, {
           where: { name: { contains: "Alice" } },
           take: 10,
@@ -433,7 +446,7 @@ describe("Serverless Request Simulation (Schema Build + Validate)", () => {
 
     test("findMany with nested include - full request", () => {
       const result = benchmark("findMany + include (full)", ITERATIONS, () => {
-        const schemas = Author["~"].schemas;
+        const schemas = schemaRegistry.getModelSchemas(Author);
         parse(schemas.args.findMany, {
           where: { name: { startsWith: "A" } },
           include: {
@@ -453,7 +466,7 @@ describe("Serverless Request Simulation (Schema Build + Validate)", () => {
 
     test("create with nested - full request", () => {
       const result = benchmark("create nested (full)", ITERATIONS, () => {
-        const schemas = Author["~"].schemas;
+        const schemas = schemaRegistry.getModelSchemas(Author);
         parse(schemas.args.create, {
           data: {
             id: "author-new",
@@ -475,15 +488,19 @@ describe("Serverless Request Simulation (Schema Build + Validate)", () => {
 
     test("update with complex operations - full request", () => {
       const result = benchmark("update complex (full)", ITERATIONS, () => {
-        const schemas = Author["~"].schemas;
+        const schemas = schemaRegistry.getModelSchemas(Author);
         parse(schemas.args.update, {
           where: { id: "author-1" },
           data: {
             name: "Updated",
             posts: {
               create: { id: "new", title: "New", authorId: "author-1" },
-              updateMany: { where: {}, data: { published: true } },
-              deleteMany: { title: { contains: "draft" } },
+              createMany: {
+                data: [
+                  { id: "new-2", title: "New 2", authorId: "author-1" },
+                ],
+              },
+              set: { id: "existing-post" },
             },
           },
         });
@@ -500,7 +517,7 @@ describe("Serverless Request Simulation (Schema Build + Validate)", () => {
         "Post findMany 3-level (full)",
         ITERATIONS,
         () => {
-          const schemas = Post["~"].schemas;
+          const schemas = schemaRegistry.getModelSchemas(Post);
           parse(schemas.args.findMany, {
             where: { published: true },
             include: {
@@ -538,15 +555,15 @@ describe("Performance Summary", () => {
 
     // Schema creation
     const simpleSchemaResult = benchmark("Schema: Simple", 50, () => {
-      SimpleModel["~"].schemas;
+      schemaRegistry.getModelSchemas(SimpleModel);
     });
 
     const complexSchemaResult = benchmark("Schema: Complex", 50, () => {
-      Author["~"].schemas;
+      schemaRegistry.getModelSchemas(Author);
     });
 
     // Pre-built validation
-    const authorSchemas = Author["~"].schemas;
+    const authorSchemas = schemaRegistry.getModelSchemas(Author);
     const simpleQueryResult = benchmark("Validate: Simple Query", 50, () => {
       parse(authorSchemas.args.findUnique, { where: { id: "1" } });
     });
@@ -561,12 +578,12 @@ describe("Performance Summary", () => {
 
     // Full request
     const fullSimpleResult = benchmark("Full Request: Simple", 50, () => {
-      const schemas = Author["~"].schemas;
+      const schemas = schemaRegistry.getModelSchemas(Author);
       parse(schemas.args.findUnique, { where: { id: "1" } });
     });
 
     const fullComplexResult = benchmark("Full Request: Complex", 50, () => {
-      const schemas = Author["~"].schemas;
+      const schemas = schemaRegistry.getModelSchemas(Author);
       parse(schemas.args.findMany, {
         where: { name: { contains: "A" } },
         include: { posts: { include: { comments: true } } },

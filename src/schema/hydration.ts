@@ -30,9 +30,8 @@ export type Schema = Record<string, Model<any>>;
  * - model["~"].nameRegistry.fields.get(fieldKey) = {ts, sql}
  * - model["~"].nameRegistry.relations.get(relationKey) = {ts, sql}
  *
- * Note: Full schemas are built lazily when first accessed via model["~"].schemas.
- * This allows circular references to work correctly - thunks are evaluated
- * at validation time when all models' schemas are available.
+ * Operation schemas are registry-owned; hydration only binds reusable schema
+ * definitions to model-local names and relation sources.
  *
  * @param schema - The schema object mapping model names to Model instances
  */
@@ -80,8 +79,7 @@ function hydrateModel(modelKey: string, model: Model<any>): void {
     relation["~"].setSource(model);
   }
 
-  // Note: Schemas are built lazily on first access to model["~"].schemas
-  // No explicit buildSchemas() call needed
+  // Operation schemas are built by SchemaRegistry, not during name hydration.
 }
 
 /**

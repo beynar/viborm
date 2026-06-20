@@ -15,9 +15,14 @@
  */
 
 import { enumField } from "@schema/fields/enum/field";
-import type { InferEnumInput } from "@schema/fields/enum/schemas";
-import { type Prettify, parse } from "@validation";
+import { type InferInput, type Prettify, parse } from "@validation";
+import { type GetScalarSchemas, getScalarSchemas } from "@validation/scalars";
+import type { FieldState } from "@schema/fields/common";
 import { describe, expect, expectTypeOf, test } from "vitest";
+
+type InferFieldInput<State extends FieldState, Key extends keyof GetScalarSchemas<State>> =
+  InferInput<GetScalarSchemas<State>[Key]>;
+type InferEnumInput<State extends FieldState<"enum">, Key extends keyof GetScalarSchemas<State>> = InferFieldInput<State, Key>;
 
 // Test enum values
 const Status = ["pending", "active", "completed"] as const;
@@ -33,7 +38,7 @@ type RoleType = (typeof Role)[number];
 describe("Raw Enum Field", () => {
   const field = enumField([...Status]);
   type State = (typeof field)["~"]["state"];
-  const schemas = field["~"].schemas;
+  const schemas = getScalarSchemas(field["~"].state);
 
   describe("base", () => {
     test("type: base is union of enum values", () => {
@@ -190,7 +195,7 @@ describe("Raw Enum Field", () => {
 describe("Nullable Enum Field", () => {
   const field = enumField([...Status]).nullable();
   type State = (typeof field)["~"]["state"];
-  const schemas = field["~"].schemas;
+  const schemas = getScalarSchemas(field["~"].state);
 
   describe("base", () => {
     test("type: base is enum | null", () => {
@@ -278,7 +283,7 @@ describe("Nullable Enum Field", () => {
 describe("List Enum Field", () => {
   const field = enumField([...Status]).array();
   type State = (typeof field)["~"]["state"];
-  const schemas = field["~"].schemas;
+  const schemas = getScalarSchemas(field["~"].state);
 
   describe("base", () => {
     test("type: base is enum[]", () => {
@@ -422,7 +427,7 @@ describe("Nullable List Enum Field", () => {
     .array()
     .nullable();
   type State = (typeof field)["~"]["state"];
-  const schemas = field["~"].schemas;
+  const schemas = getScalarSchemas(field["~"].state);
 
   describe("base", () => {
     test("type: base is enum[] | null", () => {
@@ -517,7 +522,7 @@ describe("Default Value Behavior", () => {
   describe("static default value", () => {
     const field = enumField([...Status]).default("pending");
     type State = (typeof field)["~"]["state"];
-    const schemas = field["~"].schemas;
+    const schemas = getScalarSchemas(field["~"].state);
 
     test("type: create is optional", () => {
       type Create = InferEnumInput<State, "create">;
@@ -544,7 +549,7 @@ describe("Default Value Behavior", () => {
       callCount++;
       return values[callCount % values.length] as StatusType;
     });
-    const schemas = field["~"].schemas;
+    const schemas = getScalarSchemas(field["~"].state);
 
     test("runtime: undefined calls default function", () => {
       const before = callCount;
@@ -562,7 +567,7 @@ describe("Default Value Behavior", () => {
 describe("Different Enum Values", () => {
   const field = enumField([...Role]);
   type State = (typeof field)["~"]["state"];
-  const schemas = field["~"].schemas;
+  const schemas = getScalarSchemas(field["~"].state);
 
   test("type: base is union of Role values", () => {
     type Base = InferEnumInput<State, "base">;

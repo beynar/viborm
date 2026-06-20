@@ -4,7 +4,7 @@
  * Tests schemas for oneToMany and manyToMany relations:
  * - Filter schemas (some, every, none)
  * - Create schemas (create, connect, connectOrCreate) - single or array
- * - Update schemas (create, connect, disconnect, set, delete, update, updateMany, deleteMany, upsert)
+ * - Update schemas (create, createMany, connect, disconnect, set, delete, connectOrCreate)
  * - Select/Include schemas with pagination
  * - OrderBy schemas (_count)
  */
@@ -12,6 +12,12 @@
 import { parse } from "@validation";
 import { describe, expect, test } from "vitest";
 import { authorSchemas } from "../fixtures";
+
+// Test-only view over generated relation output unions.
+// Runtime assertions below still verify concrete transformed shapes.
+type RelationOutput = any;
+
+const relationOutput = (value: unknown): RelationOutput => value as RelationOutput;
 
 // =============================================================================
 // TO-MANY FILTER SCHEMAS
@@ -161,6 +167,24 @@ describe("ToMany Create - Author.posts (oneToMany)", () => {
     expect(result.issues).toBeUndefined();
   });
 
+  test.each([
+    ["empty", {}],
+    ["missing create", { where: { id: "post-1" } }],
+    [
+      "missing where",
+      {
+        create: { id: "post-1", title: "New", authorId: "author-1" },
+      },
+    ],
+  ] as const)("rejects connectOrCreate envelope %s", (_, envelope) => {
+    const result = parse(schema, {
+      posts: {
+        connectOrCreate: envelope,
+      },
+    });
+    expect(result.issues).toBeDefined();
+  });
+
   test("accepts array of 'connectOrCreate' objects", () => {
     const result = parse(schema, {
       posts: {
@@ -197,8 +221,8 @@ describe("ToMany Create - Author.posts (oneToMany)", () => {
     });
     expect(result.issues).toBeUndefined();
     if (!result.issues) {
-      expect(Array.isArray(result.value.posts?.create)).toBe(true);
-      expect(result.value.posts?.create).toHaveLength(1);
+      expect(Array.isArray(relationOutput(result.value).posts?.create)).toBe(true);
+      expect(relationOutput(result.value).posts?.create).toHaveLength(1);
     }
   });
 
@@ -210,7 +234,7 @@ describe("ToMany Create - Author.posts (oneToMany)", () => {
     });
     expect(result.issues).toBeUndefined();
     if (!result.issues) {
-      expect(Array.isArray(result.value.posts?.connect)).toBe(true);
+      expect(Array.isArray(relationOutput(result.value).posts?.connect)).toBe(true);
     }
   });
 
@@ -248,6 +272,21 @@ describe("ToMany Update - Author.posts (oneToMany)", () => {
           { id: "post-1", title: "First", authorId: "author-1" },
           { id: "post-2", title: "Second", authorId: "author-1" },
         ],
+      },
+    });
+    expect(result.issues).toBeUndefined();
+  });
+
+  test("accepts 'createMany'", () => {
+    const result = parse(schema, {
+      posts: {
+        createMany: {
+          data: [
+            { id: "post-1", title: "First", authorId: "author-1" },
+            { id: "post-2", title: "Second", authorId: "author-1" },
+          ],
+          skipDuplicates: true,
+        },
       },
     });
     expect(result.issues).toBeUndefined();
@@ -338,117 +377,35 @@ describe("ToMany Update - Author.posts (oneToMany)", () => {
     expect(result.issues).toBeUndefined();
   });
 
-  // Update operations
-  test("accepts single 'update' with where and data", () => {
+  test.each([
+    ["empty", {}],
+    ["missing create", { where: { id: "post-1" } }],
+    [
+      "missing where",
+      {
+        create: { id: "post-1", title: "New", authorId: "author-1" },
+      },
+    ],
+  ] as const)("rejects connectOrCreate envelope %s", (_, envelope) => {
     const result = parse(schema, {
       posts: {
-        update: {
-          where: { id: "post-1" },
-          data: { title: "Updated" },
+        connectOrCreate: envelope,
+      },
+    });
+    expect(result.issues).toBeDefined();
+  });
+
+  test.each(["update", "updateMany", "deleteMany", "upsert"] as const)(
+    "rejects unsupported '%s'",
+    (operation) => {
+      const result = parse(schema, {
+        posts: {
+          [operation]: {},
         },
-      },
-    });
-    expect(result.issues).toBeUndefined();
-  });
-
-  test("accepts array 'update'", () => {
-    const result = parse(schema, {
-      posts: {
-        update: [
-          { where: { id: "post-1" }, data: { title: "First Updated" } },
-          { where: { id: "post-2" }, data: { title: "Second Updated" } },
-        ],
-      },
-    });
-    expect(result.issues).toBeUndefined();
-  });
-
-  // UpdateMany operations
-  test("accepts single 'updateMany' with filter", () => {
-    const result = parse(schema, {
-      posts: {
-        updateMany: {
-          where: { published: false },
-          data: { published: true },
-        },
-      },
-    });
-    expect(result.issues).toBeUndefined();
-  });
-
-  test("accepts array 'updateMany'", () => {
-    const result = parse(schema, {
-      posts: {
-        updateMany: [
-          { where: { published: false }, data: { published: true } },
-          { where: { title: { contains: "draft" } }, data: { title: "Final" } },
-        ],
-      },
-    });
-    expect(result.issues).toBeUndefined();
-  });
-
-  // DeleteMany operations
-  test("accepts single 'deleteMany' with filter", () => {
-    const result = parse(schema, {
-      posts: {
-        deleteMany: { published: false },
-      },
-    });
-    expect(result.issues).toBeUndefined();
-  });
-
-  test("accepts array 'deleteMany'", () => {
-    const result = parse(schema, {
-      posts: {
-        deleteMany: [{ published: false }, { title: { contains: "temp" } }],
-      },
-    });
-    expect(result.issues).toBeUndefined();
-  });
-
-  test("accepts empty 'deleteMany' (delete all)", () => {
-    const result = parse(schema, {
-      posts: {
-        deleteMany: {},
-      },
-    });
-    expect(result.issues).toBeUndefined();
-  });
-
-  // Upsert operations
-  test("accepts single 'upsert'", () => {
-    const result = parse(schema, {
-      posts: {
-        upsert: {
-          where: { id: "post-1" },
-          create: { id: "post-1", title: "New", authorId: "author-1" },
-          update: { title: "Updated" },
-        },
-      },
-    });
-    expect(result.issues).toBeUndefined();
-  });
-
-  test("accepts array 'upsert'", () => {
-    const result = parse(schema, {
-      posts: {
-        upsert: [
-          {
-            where: { id: "post-1" },
-            create: { id: "post-1", title: "First", authorId: "author-1" },
-            update: { title: "First Updated" },
-          },
-          {
-            where: { id: "post-2" },
-            create: { id: "post-2", title: "Second", authorId: "author-1" },
-            update: { title: "Second Updated" },
-          },
-        ],
-      },
-    });
-    expect(result.issues).toBeUndefined();
-  });
+      });
+      expect(result.issues?.[0]?.message).toBe(`Unknown key: ${operation}`);
+    }
+  );
 
   // Combined operations
   test("accepts combined operations in single update", () => {
@@ -457,66 +414,13 @@ describe("ToMany Update - Author.posts (oneToMany)", () => {
         create: { id: "new-post", title: "New", authorId: "author-1" },
         connect: { id: "existing-post" },
         disconnect: { id: "old-post" },
-        update: { where: { id: "post-1" }, data: { title: "Updated" } },
-        deleteMany: { published: false },
+        delete: { id: "old-post" },
       },
     });
     expect(result.issues).toBeUndefined();
   });
 
   // Output normalization tests
-  test("output: normalizes single 'update' to array", () => {
-    const result = parse(schema, {
-      posts: {
-        update: { where: { id: "post-1" }, data: { title: "Updated" } },
-      },
-    });
-    expect(result.issues).toBeUndefined();
-    if (!result.issues) {
-      expect(Array.isArray(result.value.posts?.update)).toBe(true);
-    }
-  });
-
-  test("output: normalizes single 'updateMany' to array", () => {
-    const result = parse(schema, {
-      posts: {
-        updateMany: { where: { published: false }, data: { published: true } },
-      },
-    });
-    expect(result.issues).toBeUndefined();
-    if (!result.issues) {
-      expect(Array.isArray(result.value.posts?.updateMany)).toBe(true);
-    }
-  });
-
-  test("output: normalizes single 'deleteMany' to array", () => {
-    const result = parse(schema, {
-      posts: {
-        deleteMany: { published: false },
-      },
-    });
-    expect(result.issues).toBeUndefined();
-    if (!result.issues) {
-      expect(Array.isArray(result.value.posts?.deleteMany)).toBe(true);
-    }
-  });
-
-  test("output: normalizes single 'upsert' to array", () => {
-    const result = parse(schema, {
-      posts: {
-        upsert: {
-          where: { id: "post-1" },
-          create: { id: "post-1", title: "New", authorId: "author-1" },
-          update: { title: "Updated" },
-        },
-      },
-    });
-    expect(result.issues).toBeUndefined();
-    if (!result.issues) {
-      expect(Array.isArray(result.value.posts?.upsert)).toBe(true);
-    }
-  });
-
   test("output: normalizes single 'set' to array", () => {
     const result = parse(schema, {
       posts: {
@@ -525,7 +429,7 @@ describe("ToMany Update - Author.posts (oneToMany)", () => {
     });
     expect(result.issues).toBeUndefined();
     if (!result.issues) {
-      expect(Array.isArray(result.value.posts?.set)).toBe(true);
+      expect(Array.isArray(relationOutput(result.value).posts?.set)).toBe(true);
     }
   });
 });
@@ -601,10 +505,10 @@ describe("ToMany Select - Author.posts (oneToMany)", () => {
     });
     expect(result.issues).toBeUndefined();
     if (!result.issues) {
-      expect(result.value.posts?.take).toBe(10);
-      expect(result.value.posts?.skip).toBe(5);
-      expect(result.value.posts?.orderBy).toEqual({ title: "asc" });
-      expect(result.value.posts?.select?.id).toBe(true);
+      expect(relationOutput(result.value).posts?.take).toBe(10);
+      expect(relationOutput(result.value).posts?.skip).toBe(5);
+      expect(relationOutput(result.value).posts?.orderBy).toEqual({ title: "asc" });
+      expect(relationOutput(result.value).posts?.select?.id).toBe(true);
     }
   });
 });
@@ -686,7 +590,7 @@ describe("ToMany Include - Author.posts (oneToMany)", () => {
     });
     expect(result.issues).toBeUndefined();
     if (!result.issues) {
-      expect(result.value.posts?.take).toBe(5);
+      expect(relationOutput(result.value).posts?.take).toBe(5);
     }
   });
 });
@@ -722,7 +626,7 @@ describe("ToMany OrderBy - Author.posts (oneToMany)", () => {
     });
     expect(result.issues).toBeUndefined();
     if (!result.issues) {
-      expect(result.value.posts?._count).toBe("desc");
+      expect(relationOutput(result.value).posts?._count).toBe("desc");
     }
   });
 });

@@ -9,10 +9,10 @@ import {
   updateState,
 } from "../common";
 import type { NativeType } from "../native-types";
-import { type BlobSchemas, blobBase, buildBlobSchema } from "./schemas";
+
+const blobBase = v.blob();
 
 export class BlobField<State extends FieldState<"blob">> {
-  private _schemas: BlobSchemas<State> | undefined;
   private readonly state: State;
   private readonly _nativeType?: NativeType | undefined;
 
@@ -72,7 +72,6 @@ export class BlobField<State extends FieldState<"blob">> {
   get ["~"]() {
     return {
       state: this.state,
-      schemas: (this._schemas ??= buildBlobSchema(this.state)),
       nativeType: this._nativeType,
     };
   }

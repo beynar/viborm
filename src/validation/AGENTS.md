@@ -1,11 +1,18 @@
-# Validation - Standard Schema V1 Primitives
+# Validation - Primitives and Operation Schemas
 
 **Location:** `src/validation/`  
-**Layer:** L1 - Foundation (see [root AGENTS.md](../../AGENTS.md))
+**Layer:** L1 + L3 - Validation foundation and operation schemas (see [root AGENTS.md](../../AGENTS.md))
 
 ## Purpose
 
-Provides Standard Schema V1-compliant validation primitives (v.*) that serve as the foundation for all schema validation. **Modify this layer rarely!**
+Provides Standard Schema V1-compliant validation primitives (`v.*`) and builds all ORM operation schemas through `SchemaRegistry`.
+
+This layer owns:
+- primitive schemas (`v.string`, `v.object`, `v.union`, ...)
+- scalar operation schemas (`filter`, `create`, `update`)
+- relation operation schemas (`filter`, `create`, `update`, select/include)
+- model core schemas (`where`, `create`, `update`, select/include, orderBy)
+- operation args schemas (`findMany`, `create`, `upsert`, ...)
 
 ## Why This Layer Exists
 
@@ -13,8 +20,9 @@ VibORM needed a validation system that:
 1. **Carries type information** - for compile-time inference
 2. **Is interoperable** - works with Zod, Valibot, ArkType via Standard Schema
 3. **Is fast** - both at runtime and for type checking
+4. **Has full model graph context** - required for nested relation inputs
 
-The `v.*` primitives solve all three. They implement Standard Schema V1 (interop), use branded types (inference), and use set-theory optimization (performance).
+The `v.*` primitives solve interop, inference, and runtime validation. `SchemaRegistry` composes those primitives with schema field/relation state so query validation has enough context to handle nested creates, includes, and relation filters.
 
 ---
 
@@ -22,10 +30,14 @@ The `v.*` primitives solve all three. They implement Standard Schema V1 (interop
 
 | File | Purpose | Modify When |
 |------|---------|-------------|
-| `types.ts` | VibSchema interface, InferInput/Output | Rarely |
-| `helpers.ts` | Set-theory validator factories | Rarely |
-| `schemas/*.ts` | Primitive implementations | Adding new primitive |
-| `index.ts` | Public `v` export | Adding new primitive |
+| `types.ts` | VibSchema, InferInput/Output, SchemaRegistry contract | Rarely |
+| `primitives/` | Standard Schema V1 primitives (`v.*`) | Adding a primitive |
+| `scalars/` | Field-state to scalar operation schemas | Adding field operation behavior |
+| `relations/` | Relation operation schemas with target-model thunks | Changing nested relation inputs |
+| `model/core/` | where/create/update/select/include/orderBy schemas | Changing model-level query inputs |
+| `model/args/` | Complete operation arg schemas | Adding/changing ORM operations |
+| `builder.ts` | `SchemaRegistry` cache and schema graph builder | Registry contract or lifecycle changes |
+| `index.ts` | Public validation exports | Export surface changes |
 
 ---
 
@@ -72,6 +84,17 @@ schema["~standard"] = {
 
 **Why comply:** Interoperability with other validation libraries. Users can mix VibORM with Zod schemas if needed.
 
+### SchemaRegistry
+
+`SchemaRegistry` is created once per client and caches model schemas by `Model` object:
+
+```typescript
+const registry = createSchemaRegistry(schema);
+const userCreate = registry.getModelSchemas(user).args.create;
+```
+
+**Why:** operation schemas need full model graph context. A relation schema must know the source model, target model, and inverse FK fields to validate nested creates correctly.
+
 ---
 
 ## Core Rules
@@ -87,6 +110,9 @@ No domain-specific logic here. `v.email()` or `v.url()` belong in field layer, n
 
 ### Rule 4: Immutable Schemas
 Schemas are immutable after creation. No methods that modify the schema in place.
+
+### Rule 5: Operation Schemas Need Registry Context
+Do not rebuild operation schemas inside fields, relations, or models. Use `SchemaRegistry` so relation thunks and inverse FK omission are resolved from the full schema graph.
 
 ---
 
@@ -107,6 +133,9 @@ Throwing errors instead of returning `{issues: [...]}`. Standard Schema uses res
 ### Mutable Schema State
 Modifying schema after creation. Schemas should be immutable once constructed.
 
+### Hoisting Operation Schemas Into Schema Layer
+Putting `filter`, `create`, `update`, or model args schemas on field/relation/model internals loses source-model context and reintroduces the nested-create bug. Keep base scalar schemas in field state; keep operation schemas here.
+
 ---
 
 ## Two "Validations" in VibORM
@@ -126,7 +155,7 @@ Modifying schema after creation. Schemas should be immutable once constructed.
 
 This is rare - the existing primitives cover most cases.
 
-1. **Create `schemas/{type}.ts`**:
+1. **Create `primitives/{type}.ts`**:
    ```typescript
    export function myPrimitive(options?: Opts): VibSchema<In, Out> {
      return createVibSchema({
@@ -139,7 +168,7 @@ This is rare - the existing primitives cover most cases.
    }
    ```
 
-2. **Export from `index.ts`**:
+2. **Export from `primitives/v.ts` and `index.ts`**:
    ```typescript
    export const v = {
      string, number, boolean,
@@ -148,6 +177,17 @@ This is rare - the existing primitives cover most cases.
    ```
 
 3. **Add tests**
+
+## Adding Operation Schema Behavior
+
+| Change | Location |
+|--------|----------|
+| Scalar filter/create/update behavior | `src/validation/scalars/{type}.ts` |
+| Relation nested create/update/filter behavior | `src/validation/relations/` |
+| Model where/create/update/select/orderBy behavior | `src/validation/model/core/` |
+| Operation args (`findMany`, `create`, etc.) | `src/validation/model/args/` |
+
+Always preserve the registry boundary: operation schemas can read schema field/relation state, but schema classes must not import operation schema factories.
 
 ---
 
@@ -168,6 +208,7 @@ Validating 10,000 records means 10,000 function calls. Branching inside each cal
 
 | Layer | Relationship |
 |-------|--------------|
-| **Schema Fields** ([fields/AGENTS.md](../schema/fields/AGENTS.md)) | Uses v.* primitives in field schemas |
-| **Client** ([client/AGENTS.md](../client/AGENTS.md)) | Uses InferInput/InferOutput for types |
-| **Query Engine** | Uses schemas for input validation |
+| **Schema Fields** ([fields/AGENTS.md](../schema/fields/AGENTS.md)) | Store field state and base schemas consumed by validation scalars |
+| **Schema Relations** ([relation/AGENTS.md](../schema/relation/AGENTS.md)) | Store relation state and thunks consumed by validation relations |
+| **Client** ([client/AGENTS.md](../client/AGENTS.md)) | Uses validation model schema types for operation payload inference |
+| **Query Engine** | Uses `SchemaRegistry` for input validation |

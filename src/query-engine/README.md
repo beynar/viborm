@@ -9,7 +9,7 @@ query-engine/
 ├── index.ts                      # Public exports
 ├── types.ts                      # Shared types
 ├── query-engine.ts               # Main orchestrator
-├── validator.ts                  # Single validator using model schemas
+├── validator.ts                  # Single validator using SchemaRegistry
 │
 ├── context/
 │   ├── index.ts
@@ -88,7 +88,7 @@ const users = await engine.execute(userModel, "findMany", {
 
 ### Input Validation
 
-All inputs are validated against model schemas:
+All inputs are validated against registry model schemas:
 
 ```ts
 import { validate } from "viborm/query-engine";
@@ -202,6 +202,7 @@ interface QueryContext {
   adapter: DatabaseAdapter;    // SQL generation
   model: Model<any>;          // Current model
   registry: ModelRegistry;    // Access related models
+  schemaRegistry: SchemaRegistryLookup; // Operation validation schemas
   nextAlias: () => string;    // Generate t1, t2, ...
   rootAlias: string;          // Root alias (t0)
 }

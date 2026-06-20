@@ -1,9 +1,9 @@
-import { describe, expect, test } from "bun:test";
 import { s } from "@schema";
 import {
   type GetInverseRelationFields,
   getInverseRelationFields,
 } from "@schema/relation/types";
+import { describe, expect, test } from "vitest";
 
 describe("getInverseRelationFields", () => {
   describe("manyToOne relations", () => {

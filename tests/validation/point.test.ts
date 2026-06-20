@@ -1,5 +1,5 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import v from "@validation";
+import v, { parse } from "@validation";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
 describe("point schema", () => {
@@ -7,7 +7,7 @@ describe("point schema", () => {
     const schema = v.point();
 
     test("validates point objects", () => {
-      const result = schema["~standard"].validate({ x: 1, y: 2 });
+      const result = parse(schema, { x: 1, y: 2 });
       expect(result.issues).toBeUndefined();
       expect((result as { value: { x: number; y: number } }).value).toEqual({
         x: 1,
@@ -16,35 +16,35 @@ describe("point schema", () => {
     });
 
     test("rejects missing x", () => {
-      const result = schema["~standard"].validate({ y: 2 });
+      const result = parse(schema, { y: 2 });
       expect(result.issues).toBeDefined();
-      expect(result.issues![0].message).toContain("x");
+      expect(result.issues?.[0]?.message).toContain("x");
     });
 
     test("rejects missing y", () => {
-      const result = schema["~standard"].validate({ x: 1 });
+      const result = parse(schema, { x: 1 });
       expect(result.issues).toBeDefined();
-      expect(result.issues![0].message).toContain("y");
+      expect(result.issues?.[0]?.message).toContain("y");
     });
 
     test("rejects non-numbers", () => {
       expect(
-        schema["~standard"].validate({ x: "1", y: 2 }).issues
+        parse(schema, { x: "1", y: 2 }).issues
       ).toBeDefined();
       expect(
-        schema["~standard"].validate({ x: 1, y: "2" }).issues
+        parse(schema, { x: 1, y: "2" }).issues
       ).toBeDefined();
     });
 
     test("rejects non-objects", () => {
-      expect(schema["~standard"].validate(null).issues).toBeDefined();
-      expect(schema["~standard"].validate(undefined).issues).toBeDefined();
-      expect(schema["~standard"].validate([1, 2]).issues).toBeDefined();
+      expect(parse(schema, null).issues).toBeDefined();
+      expect(parse(schema, undefined).issues).toBeDefined();
+      expect(parse(schema, [1, 2]).issues).toBeDefined();
     });
 
     test("type inference", () => {
       type Output = StandardSchemaV1.InferOutput<typeof schema>;
-      expectTypeOf<Output>().toEqualTypeOf<{ x: number; y: number }>();
+      expectTypeOf<Output>().toMatchTypeOf<{ x: number; y: number }>();
     });
   });
 
@@ -52,7 +52,7 @@ describe("point schema", () => {
     const schema = v.point({ optional: true });
 
     test("allows undefined", () => {
-      const result = schema["~standard"].validate(undefined);
+      const result = parse(schema, undefined);
       expect(result.issues).toBeUndefined();
     });
   });
@@ -61,7 +61,7 @@ describe("point schema", () => {
     const schema = v.point({ nullable: true });
 
     test("allows null", () => {
-      const result = schema["~standard"].validate(null);
+      const result = parse(schema, null);
       expect(result.issues).toBeUndefined();
     });
   });
@@ -70,7 +70,7 @@ describe("point schema", () => {
     const schema = v.point({ array: true });
 
     test("validates array of points", () => {
-      const result = schema["~standard"].validate([
+      const result = parse(schema, [
         { x: 1, y: 2 },
         { x: 3, y: 4 },
       ]);

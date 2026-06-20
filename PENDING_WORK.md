@@ -91,9 +91,9 @@ For historical reference, these were previously documented as pending but are no
 
 | Feature | Location |
 |---------|----------|
-| **Aggregate schema proper typing** | `src/schema/model/schemas/args/aggregate.ts` |
-| **Prisma-compliant having schema** | `src/schema/model/schemas/args/aggregate.ts` |
-| **Count args with select option** | `src/schema/model/schemas/args/aggregate.ts` |
+| **Aggregate schema proper typing** | `src/validation/model/args/aggregate.ts` |
+| **Prisma-compliant having schema** | `src/validation/model/args/aggregate.ts` |
+| **Count args with select option** | `src/validation/model/args/aggregate.ts` |
 | **NumericFieldKeys helper type** | `src/schema/model/helper.ts` |
 | Enum literal types preserved through relations | `src/schema/fields/enum/`, `src/client/result-types.ts` |
 | Create/CreateMany operations | `src/query-engine/operations/create.ts` |
@@ -103,7 +103,7 @@ For historical reference, these were previously documented as pending but are no
 | Cursor pagination | `src/query-engine/operations/find-common.ts` |
 | DISTINCT queries | `src/query-engine/operations/find-common.ts` |
 | Case insensitive filtering | `src/query-engine/builders/where-builder.ts` |
-| Nested create with relations | `src/query-engine/operations/nested-writes.ts` |
+| Nested create with relations and parent-derived FK omission | `src/validation/builder.ts`, `src/query-engine/operations/nested-writes.ts` |
 | Nested update with relations | `src/query-engine/operations/nested-writes.ts` |
 | Nested delete with relations | `src/query-engine/operations/nested-writes.ts` |
 | Connect/Disconnect/Set operations | `src/query-engine/operations/nested-writes.ts` |

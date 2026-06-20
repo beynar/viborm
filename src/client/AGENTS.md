@@ -22,7 +22,7 @@ const users = await orm.user.findMany({
 
 This works because:
 1. Schema definitions carry type information via State generics
-2. Validation schemas have branded types for inference
+2. Validation model schemas have branded types for operation inference
 3. Client uses recursive proxies to intercept calls
 4. Result types adapt based on select/include args
 
@@ -58,7 +58,7 @@ orm          // Proxy 1: intercepts model name
 ```
 Model schema definition
         ↓
-model["~"].schemas.args.findMany  (VibSchema with branded types)
+Validation model args schema  (VibSchema with branded types)
         ↓
 InferInput<typeof schema>  (extracts input type)
         ↓
@@ -129,15 +129,15 @@ Returning full model type when user specified `select`. They expect narrowed typ
    type Operation = "findMany" | "create" | "myNewOp";
    ```
 
-2. **Add args schema** (`src/schema/model/schemas/args/`):
+2. **Add args schema** (`src/validation/model/args/`):
    ```typescript
    export function getMyNewOpArgs(state: ModelState) { ... }
    ```
 
 3. **Add to OperationPayload** (`types.ts`):
    ```typescript
-   type OperationPayload<Op, M> = 
-     Op extends "myNewOp" ? InferInput<M["~"]["schemas"]["args"]["myNewOp"]>
+   type OperationPayload<Op, M> =
+     Op extends "myNewOp" ? ModelOperationInput<M, "myNewOp">
      : ...
    ```
 
@@ -275,7 +275,7 @@ const [a, b] = await orm.$transaction([
 
 | Layer | Relationship |
 |-------|--------------|
-| **Schema** ([schema/AGENTS.md](../schema/AGENTS.md)) | Provides model definitions with typed schemas |
-| **Validation** ([validation/AGENTS.md](../validation/AGENTS.md)) | Provides branded VibSchema for inference |
+| **Schema** ([schema/AGENTS.md](../schema/AGENTS.md)) | Provides model definitions and structural state |
+| **Validation** ([validation/AGENTS.md](../validation/AGENTS.md)) | Provides branded operation schemas and `SchemaRegistry` |
 | **Query Engine** ([query-engine/AGENTS.md](../query-engine/AGENTS.md)) | Executes queries, returns raw results |
 | **Cache** ([cache/AGENTS.md](../cache/AGENTS.md)) | Provides caching layer for `$withCache()` |

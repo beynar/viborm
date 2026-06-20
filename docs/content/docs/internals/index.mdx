@@ -14,11 +14,11 @@ icon: Layers
                                     │
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
-│  L1: Validation       │ v.* primitives, Standard Schema V1 compliance   │
+│  L1: Validation       │ v.* primitives, Standard Schema V1, registry     │
 ├───────────────────────┼─────────────────────────────────────────────────┤
 │  L2: Fields           │ Field classes with State generic pattern        │
 ├───────────────────────┼─────────────────────────────────────────────────┤
-│  L3: Query Schemas    │ where, create, update, args schema generation   │
+│  L3: Operation Schemas│ where, create, update, args schema generation   │
 ├───────────────────────┼─────────────────────────────────────────────────┤
 │  L4: Relations        │ oneToOne, manyToOne, oneToMany, manyToMany      │
 ├───────────────────────┼─────────────────────────────────────────────────┤
@@ -40,9 +40,9 @@ icon: Layers
 
 | Layer | Location | Owns | Doesn't Own |
 |-------|----------|------|-------------|
-| **L1: Validation** | `src/validation/` | v.* primitives, Standard Schema V1 | Field logic, domain rules |
+| **L1: Validation** | `src/validation/` | v.* primitives, Standard Schema V1, `SchemaRegistry` | Field logic, domain rules |
 | **L2: Fields** | `src/schema/fields/` | Field classes, State generics | Query schemas |
-| **L3: Query Schemas** | `src/schema/model/schemas/` | where, create, update, args schemas | SQL generation |
+| **L3: Operation Schemas** | `src/validation/model/`, `src/validation/relations/` | where, create, update, args schemas | SQL generation |
 | **L4: Relations** | `src/schema/relation/` | Relation types, nested schemas | Query execution |
 | **L5: Schema Validation** | `src/schema/validation/` | Definition-time validation | Runtime validation |
 | **L6: Query Engine** | `src/query-engine/` | Query structure, logic | **Database SQL** |
@@ -127,7 +127,7 @@ This is the most important architectural boundary. The query engine decides **WH
 |-------|---------|
 | [L1: Validation](/docs/internals/validation) | Recursive schemas via thunks + lazy evaluation |
 | [L2: Fields](/docs/internals/fields) | Field types with State generic for type tracking |
-| [L3: Query Schemas](/docs/internals/query-schemas) | Schema generation for where/create/update |
+| [L3: Operation Schemas](/docs/internals/query-schemas) | Registry schema generation for where/create/update |
 | [L4: Relations](/docs/internals/relations) | Model relationships with thunks for circular refs |
 | [L6: Query Engine](/docs/internals/query-engine) | Database-agnostic query structure |
 | [L7: Adapters](/docs/internals/adapters) | Database-specific SQL dialects |

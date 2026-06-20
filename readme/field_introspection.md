@@ -48,27 +48,15 @@ const listField = s.string().array();
 console.log(listField["~"].state.array);  // true
 ```
 
-### Accessing Field Schemas
+### Accessing Field Base Schemas
 
-Field schemas are lazily built on first access:
+Field state stores the base schema. Operation schemas are composed by `SchemaRegistry`.
 
 ```typescript
 const emailField = s.string();
 
-// Access validation schemas
-const schemas = emailField["~"].schemas;
-
 // Base schema for the field type
-schemas.base;    // VibSchema for string validation
-
-// Filter schema for WHERE clauses
-schemas.filter;  // VibSchema for { equals, contains, startsWith, ... }
-
-// Create schema (what's required when creating)
-schemas.create;  // VibSchema considering defaults/auto-generation
-
-// Update schema (what can be updated)
-schemas.update;  // VibSchema for updates
+emailField["~"].state.base; // VibSchema for string validation
 ```
 
 ### Field State Properties
@@ -122,18 +110,20 @@ console.log(internal.relationSet);       // Set{"posts"}
 console.log(internal.names);  // { ts: "user", sql: "users" }
 ```
 
-### Accessing Model Schemas
+### Accessing Model Operation Schemas
 
 ```typescript
-// Model schemas (lazy-built)
-const schemas = user["~"].schemas;
+import { createSchemaRegistry } from "@validation";
 
-schemas.where;       // WHERE clause schema
-schemas.create;      // Create input schema
-schemas.update;      // Update input schema
-schemas.select;      // Select (output) schema
-schemas.orderBy;     // OrderBy schema
-schemas.include;     // Include relations schema
+const registry = createSchemaRegistry({ user });
+const schemas = registry.proxy.user;
+
+schemas.core.where;    // WHERE clause schema
+schemas.core.create;   // Create input schema
+schemas.core.update;   // Update input schema
+schemas.core.select;   // Select schema
+schemas.core.orderBy;  // OrderBy schema
+schemas.args.findMany; // Operation args schema
 ```
 
 ### Getting Field/Relation Names

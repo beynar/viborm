@@ -8,10 +8,12 @@ import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { createModelRegistry, createQueryContext } from "@query-engine";
 import {
   canUseSubqueryOnly,
+  getFkDirection,
   needsTransaction,
   separateData,
 } from "@query-engine/builders/relation-data-builder";
 import { s } from "@schema";
+import { createSchemaRegistry } from "@validation";
 import { describe, expect, it } from "vitest";
 
 // =============================================================================
@@ -57,17 +59,43 @@ const CompoundUser = s
   })
   .id(["email", "orgId"]);
 
+const NamedUser = s.model({
+  id: s.string().id(),
+  posts: s.oneToMany(() => NamedPost).name("author"),
+  coAuthoredPosts: s.oneToMany(() => NamedPost).name("co_author"),
+});
+
+const NamedPost = s.model({
+  id: s.string().id(),
+  title: s.string(),
+  authorId: s.string(),
+  coAuthorId: s.string(),
+  author: s
+    .manyToOne(() => NamedUser)
+    .fields("authorId")
+    .references("id")
+    .name("author"),
+  coAuthor: s
+    .manyToOne(() => NamedUser)
+    .fields("coAuthorId")
+    .references("id")
+    .name("co_author"),
+});
+
 // =============================================================================
 // TEST SETUP
 // =============================================================================
 
 const adapter = new PostgresAdapter();
-const registry = createModelRegistry({
+const schema = {
   User,
   Post,
   UserWithPosts,
   CompoundUser,
-});
+  NamedUser,
+  NamedPost,
+};
+const registry = createModelRegistry(schema, createSchemaRegistry(schema));
 
 // =============================================================================
 // SEPARATE DATA TESTS
@@ -408,6 +436,11 @@ describe("error handling", () => {
     expect(scalar).toEqual({ name: "Alice" });
     expect(relations.posts?.createMany).toBeDefined();
     expect(relations.posts?.createMany?.data).toHaveLength(3);
+    expect(relations.posts?.createMany?.data).toEqual([
+      { title: "Post 1" },
+      { title: "Post 2" },
+      { title: "Post 3" },
+    ]);
   });
 
   it("handles createMany with skipDuplicates", () => {
@@ -445,5 +478,39 @@ describe("needsTransaction with createMany", () => {
 
     const { relations } = separateData(ctx, data);
     expect(needsTransaction(relations)).toBe(true);
+  });
+});
+
+// =============================================================================
+// NAMED INVERSE RELATION TESTS
+// =============================================================================
+
+describe("named inverse relations", () => {
+  it("chooses the FK matching the relation name", () => {
+    const ctx = createQueryContext(adapter, NamedUser, registry);
+    const { relations } = separateData(ctx, {
+      posts: {
+        create: { id: "post-1", title: "Post" },
+      },
+      coAuthoredPosts: {
+        create: { id: "post-2", title: "Co-authored Post" },
+      },
+    });
+
+    const postsMutation = relations.posts;
+    const coAuthoredMutation = relations.coAuthoredPosts;
+
+    if (!postsMutation || !coAuthoredMutation) {
+      throw new Error("Expected both named relation mutations to be parsed");
+    }
+
+    const postsDirection = getFkDirection(ctx, postsMutation.relationInfo);
+    const coAuthoredDirection = getFkDirection(
+      ctx,
+      coAuthoredMutation.relationInfo
+    );
+
+    expect(postsDirection.fkFields).toEqual(["authorId"]);
+    expect(coAuthoredDirection.fkFields).toEqual(["coAuthorId"]);
   });
 });

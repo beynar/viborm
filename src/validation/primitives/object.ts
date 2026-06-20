@@ -45,6 +45,10 @@ export interface ObjectOptions<T = unknown, TKeys extends string = string> {
   description?: string;
   /** Require at least these specific keys (works with partial: true) */
   atLeast?: TKeys[];
+  /** Require at least one key from each group to be present */
+  requiresOneOf?: readonly (readonly TKeys[])[];
+  /** Require one key set from each group; all keys in the chosen set must be present */
+  requiresOneOfKeySets?: readonly (readonly (readonly TKeys[])[])[];
   /** Omit these keys entirely from the type and validation */
   omit?: TKeys[];
   /** Require at least one key to be present (object cannot be empty) */
@@ -77,10 +81,13 @@ type ComputeObjectInput<TEntries, TOpts> = TOpts extends {
         >
       : VOmit<Partial<InferInputShape<TEntries>>, OmitKeys[number]>
   : TOpts extends { partial: false }
-    ? InferInputShape<TEntries>
+    ? ApplyRequiresOneOf<InferInputShape<TEntries>, TOpts>
     : TOpts extends { atLeast: infer Keys extends readonly string[] }
-      ? RequireKeys<Partial<InferInputShape<TEntries>>, Keys[number]>
-      : Partial<InferInputShape<TEntries>>;
+      ? ApplyRequiresOneOf<
+          RequireKeys<Partial<InferInputShape<TEntries>>, Keys[number]>,
+          TOpts
+        >
+      : ApplyRequiresOneOf<Partial<InferInputShape<TEntries>>, TOpts>;
 
 /**
  * Compute output type based on entries.
@@ -98,6 +105,77 @@ type RequireKeys<T, K extends string> = {
 } & {
   [P in keyof T as P extends K ? P : never]-?: T[P];
 };
+
+type RequireOneKey<T, K extends PropertyKey> = T extends unknown
+  ? K extends keyof T
+    ? RequireKeys<T, Extract<K, string>>
+    : never
+  : never;
+
+type ApplyRequiresOneOf<T, TOpts> = TOpts extends {
+  requiresOneOf: infer Groups extends readonly (readonly string[])[];
+}
+  ? ApplyRequiresOneOfKeySets<ApplyRequiresOneOfGroups<T, Groups>, TOpts>
+  : ApplyRequiresOneOfKeySets<T, TOpts>;
+
+type ApplyRequiresOneOfGroups<T, Groups> = Groups extends readonly [
+  infer Group extends readonly string[],
+  ...infer Rest extends readonly (readonly string[])[],
+]
+  ? ApplyRequiresOneOfGroups<RequireOneKey<T, Group[number]>, Rest>
+  : Groups extends readonly (infer Group extends readonly string[])[]
+    ? [Group[number]] extends [never]
+      ? T
+      : RequireOneKey<T, Group[number]>
+  : T;
+
+type ApplyRequiresOneOfKeySets<TCurrent, TOpts> = TOpts extends {
+  requiresOneOfKeySets: infer Groups extends readonly (readonly (readonly string[])[])[];
+}
+  ? ApplyRequiresOneOfKeySetGroups<TCurrent, Groups>
+  : TCurrent;
+
+type RequireKeySet<T, K extends PropertyKey> = T extends unknown
+  ? RequireKeys<T, Extract<K, string>>
+  : never;
+
+type RequireOneKeySet<T, Alternatives> = [Alternatives] extends [never]
+  ? T
+  : Alternatives extends readonly []
+    ? never
+  : Alternatives extends readonly [
+        infer KeySet extends readonly string[],
+        ...infer Rest extends readonly (readonly string[])[],
+      ]
+    ? RequireKeySet<T, KeySet[number]> | RequireOneKeySet<T, Rest>
+    : Alternatives extends readonly (infer KeySet extends readonly string[])[]
+      ? [KeySet[number]] extends [never]
+        ? T
+        : RequireKeySet<T, KeySet[number]>
+      : T;
+
+type UnionToIntersection<T> = (
+  T extends unknown ? (value: T) => void : never
+) extends (value: infer I) => void
+  ? I
+  : never;
+
+type RequireEveryKeySetGroup<T, Group> = UnionToIntersection<
+  Group extends unknown ? { value: RequireOneKeySet<T, Group> } : never
+> extends { value: infer I }
+  ? I & T
+  : T;
+
+type ApplyRequiresOneOfKeySetGroups<T, Groups> = Groups extends readonly [
+  infer Group extends readonly (readonly string[])[],
+  ...infer Rest extends readonly (readonly (readonly string[])[])[],
+]
+  ? ApplyRequiresOneOfKeySetGroups<RequireOneKeySet<T, Group>, Rest>
+  : Groups extends readonly (infer Group extends readonly (readonly string[])[])[]
+    ? [Group] extends [never]
+      ? T
+      : RequireEveryKeySetGroup<T, Group>
+    : T;
 
 /**
  * Apply wrapper options (optional, nullable, array) to input type.
@@ -189,12 +267,27 @@ function createObjectValidator(
   entries: ObjectEntries,
   options: ObjectOptions = {},
 ): (value: unknown) => ValidationResult<Record<string, unknown>> {
-  const { partial = true, strict = true, atLeast, omit, nonEmpty } = options;
+  const {
+    partial = true,
+    strict = true,
+    atLeast,
+    requiresOneOf,
+    requiresOneOfKeySets,
+    omit,
+    nonEmpty,
+  } = options;
   // Filter out omitted keys
   const omitSet = omit ? new Set(omit) : null;
   const keys = Object.keys(entries).filter((k) => !omitSet?.has(k));
   const keyCount = keys.length;
   const keySet = new Set(keys);
+  const activeRequiresOneOf = requiresOneOf?.filter(
+    (group) => !group.some((key) => omitSet?.has(key))
+  );
+  const activeRequiresOneOfKeySets = requiresOneOfKeySets?.filter(
+    (group) =>
+      !group.some((keySet) => keySet.some((key) => omitSet?.has(key)))
+  );
 
   // Pre-compute which keys are required via atLeast
   const atLeastSet = atLeast ? new Set(atLeast) : null;
@@ -304,6 +397,41 @@ function createObjectValidator(
       }
     }
 
+    if (activeRequiresOneOf) {
+      for (const group of activeRequiresOneOf) {
+        const hasOne = group.some((key) => input[key] !== undefined);
+        if (!hasOne) {
+          return {
+            issues: [
+              {
+                message: `Missing required field: one of ${group.join(", ")}`,
+              },
+            ],
+          };
+        }
+      }
+    }
+
+    if (activeRequiresOneOfKeySets) {
+      for (const group of activeRequiresOneOfKeySets) {
+        const hasAlternative = group.some((keySet) =>
+          keySet.every((key) => input[key] !== undefined)
+        );
+        if (!hasAlternative) {
+          const alternatives = group
+            .map((keySet) => keySet.join(", "))
+            .join(" or ");
+          return {
+            issues: [
+              {
+                message: `Missing required fields: one of ${alternatives}`,
+              },
+            ],
+          };
+        }
+      }
+    }
+
     // Validate each field - direct array access, no object property lookup
     for (let i = 0; i < keyCount; i++) {
       const key = keys[i]!;
@@ -395,9 +523,19 @@ function createObjectValidator(
  *   child: () => node,  // Thunk
  * });
  */
+export function object<TEntries>(
+  entries: TEntries
+): ObjectSchema<TEntries, undefined>;
+export function object<
+  TEntries,
+  const TOpts extends ObjectOptions | undefined,
+>(
+  entries: TEntries,
+  options?: TOpts
+): ObjectSchema<TEntries, TOpts>;
 export function object<
   TEntries, // NO constraint - critical for circular references
-  const TOpts extends ObjectOptions | undefined = undefined,
+  const TOpts extends ObjectOptions | undefined,
   R = ObjectSchema<TEntries, TOpts>,
 >(entries: TEntries, options?: TOpts): R extends infer _ ? _ : never {
   type BaseOutput = ComputeObjectOutput<TEntries, TOpts>;

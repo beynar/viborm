@@ -4,14 +4,20 @@
  * Tests schemas for manyToOne and oneToOne relations:
  * - Filter schemas (is, isNot)
  * - Create schemas (create, connect, connectOrCreate)
- * - Update schemas (create, connect, connectOrCreate, update, disconnect, delete)
+ * - Update schemas (create, connect, connectOrCreate, disconnect, delete)
  * - Select/Include schemas
  * - OrderBy schemas
  */
 
-import { parse } from "@validation";
-import { describe, expect, test } from "vitest";
+import { type InferInput, parse } from "@validation";
+import { describe, expect, expectTypeOf, test } from "vitest";
 import { postSchemas } from "../fixtures";
+
+// Test-only view over generated relation output unions.
+// Runtime assertions below still verify concrete transformed shapes.
+type RelationOutput = any;
+
+const relationOutput = (value: unknown): RelationOutput => value as RelationOutput;
 
 // =============================================================================
 // TO-ONE FILTER SCHEMAS
@@ -136,6 +142,19 @@ describe("ToOne Create - Post.author (manyToOne)", () => {
     expect(result.issues).toBeUndefined();
   });
 
+  test.each([
+    ["empty", {}],
+    ["missing create", { where: { id: "author-1" } }],
+    ["missing where", { create: { id: "author-1", name: "Alice" } }],
+  ] as const)("rejects connectOrCreate envelope %s", (_, envelope) => {
+    const result = parse(schema, {
+      author: {
+        connectOrCreate: envelope,
+      },
+    });
+    expect(result.issues).toBeDefined();
+  });
+
   test("rejects create with missing required field", () => {
     const result = parse(schema, {
       author: {
@@ -159,8 +178,8 @@ describe("ToOne Create - Post.author (manyToOne)", () => {
     });
     expect(result.issues).toBeUndefined();
     if (!result.issues) {
-      expect(result.value.author?.create?.id).toBe("author-1");
-      expect(result.value.author?.create?.name).toBe("Alice");
+      expect(relationOutput(result.value).author?.create?.id).toBe("author-1");
+      expect(relationOutput(result.value).author?.create?.name).toBe("Alice");
     }
   });
 });
@@ -171,6 +190,23 @@ describe("ToOne Create - Post.author (manyToOne)", () => {
 
 describe("ToOne Update - Post.author (manyToOne)", () => {
   const schema = postSchemas.relationUpdate;
+  type UpdateInput = InferInput<typeof schema>;
+
+  test("type: rejects unsupported update and upsert", () => {
+    expectTypeOf<{
+      author?: {
+        update: { name?: string };
+      };
+    }>().not.toMatchTypeOf<UpdateInput>();
+    expectTypeOf<{
+      author?: {
+        upsert: {
+          create: { id: string; name: string };
+          update: { name?: string };
+        };
+      };
+    }>().not.toMatchTypeOf<UpdateInput>();
+  });
 
   test("accepts 'create' for creating new related record", () => {
     const result = parse(schema, {
@@ -205,26 +241,30 @@ describe("ToOne Update - Post.author (manyToOne)", () => {
     expect(result.issues).toBeUndefined();
   });
 
-  test("accepts 'update' with data", () => {
+  test.each([
+    ["empty", {}],
+    ["missing create", { where: { id: "author-1" } }],
+    ["missing where", { create: { id: "author-1", name: "Alice" } }],
+  ] as const)("rejects connectOrCreate envelope %s", (_, envelope) => {
     const result = parse(schema, {
       author: {
-        update: { name: "Updated Name" },
+        connectOrCreate: envelope,
       },
     });
-    expect(result.issues).toBeUndefined();
+    expect(result.issues).toBeDefined();
   });
 
-  test("accepts 'upsert' with create and update", () => {
-    const result = parse(schema, {
-      author: {
-        upsert: {
-          create: { id: "author-1", name: "New" },
-          update: { name: "Updated" },
+  test.each(["update", "upsert"] as const)(
+    "rejects unsupported '%s'",
+    (operation) => {
+      const result = parse(schema, {
+        author: {
+          [operation]: {},
         },
-      },
-    });
-    expect(result.issues).toBeUndefined();
-  });
+      });
+      expect(result.issues?.[0]?.message).toBe(`Unknown key: ${operation}`);
+    }
+  );
 
   // Note: disconnect/delete only available for optional relations
   test("accepts 'disconnect' boolean for optional relation", () => {
@@ -252,16 +292,17 @@ describe("ToOne Update - Post.author (manyToOne)", () => {
     ).toBe(true);
   });
 
-  test("output: preserves update data with normalization", () => {
+  test("output: preserves connect data", () => {
     const result = parse(schema, {
       author: {
-        update: { name: "Updated" },
+        connect: { id: "author-1" },
       },
     });
     expect(result.issues).toBeUndefined();
     if (!result.issues) {
-      // Update values get normalized to { set: value }
-      expect(result.value.author?.update?.name).toEqual({ set: "Updated" });
+      expect(relationOutput(result.value).author?.connect).toEqual({
+        id: "author-1",
+      });
     }
   });
 });
@@ -302,8 +343,8 @@ describe("ToOne Select - Post.author (manyToOne)", () => {
     });
     expect(result.issues).toBeUndefined();
     if (!result.issues) {
-      expect(result.value.author?.select?.id).toBe(true);
-      expect(result.value.author?.select?.name).toBe(true);
+      expect(relationOutput(result.value).author?.select?.id).toBe(true);
+      expect(relationOutput(result.value).author?.select?.name).toBe(true);
     }
   });
 });
@@ -377,7 +418,7 @@ describe("ToOne OrderBy - Post.author (manyToOne)", () => {
     });
     expect(result.issues).toBeUndefined();
     if (!result.issues) {
-      expect(result.value.author?.name).toBe("asc");
+      expect(relationOutput(result.value).author?.name).toBe("asc");
     }
   });
 });

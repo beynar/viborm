@@ -4,8 +4,9 @@ import {
   type CacheInvalidationSchema,
   cacheInvalidationSchema,
 } from "@cache/schema";
+import type { AnyModel } from "@schema/model";
 import v, { type V } from "@validation";
-import type { ModelState } from "../../model";
+import type { FieldSchemas } from "../index";
 import type { CoreSchemas } from "../core";
 // =============================================================================
 // CREATE ARGS
@@ -14,18 +15,24 @@ import type { CoreSchemas } from "../core";
 /**
  * Create args: { data: create, select?, include? }
  */
-export type CreateArgs<T extends ModelState> = V.Object<
+export type CreateArgs<
+  M extends AnyModel,
+  F extends FieldSchemas<M>,
+> = V.Object<
   {
-    data: CoreSchemas<T>["create"];
-    select: CoreSchemas<T>["select"];
-    include: CoreSchemas<T>["include"];
+    data: CoreSchemas<M, F>["create"];
+    select: CoreSchemas<M, F>["select"];
+    include: CoreSchemas<M, F>["include"];
     cache: CacheInvalidationSchema;
   },
   { atLeast: ["data"] }
 >;
-export const getCreateArgs = <T extends ModelState>(
-  core: CoreSchemas<T>
-): CreateArgs<T> => {
+export const getCreateArgs = <
+  M extends AnyModel,
+  F extends FieldSchemas<M>,
+>(
+  core: CoreSchemas<M, F>
+): CreateArgs<M, F> => {
   return v.object(
     {
       data: core.create,
@@ -44,17 +51,23 @@ export const getCreateArgs = <T extends ModelState>(
 /**
  * CreateMany args: { data: create[], skipDuplicates? }
  */
-export type CreateManyArgs<T extends ModelState> = V.Object<
+export type CreateManyArgs<
+  M extends AnyModel,
+  F extends FieldSchemas<M>,
+> = V.Object<
   {
-    data: V.Array<CoreSchemas<T>["scalarCreate"]>;
+    data: V.Array<CoreSchemas<M, F>["scalarCreate"]>;
     skipDuplicates: V.Boolean<{ optional: true }>;
     cache: CacheInvalidationSchema;
   },
   { atLeast: ["data"] }
 >;
-export const getCreateManyArgs = <T extends ModelState>(
-  core: CoreSchemas<T>
-): CreateManyArgs<T> => {
+export const getCreateManyArgs = <
+  M extends AnyModel,
+  F extends FieldSchemas<M>,
+>(
+  core: CoreSchemas<M, F>
+): CreateManyArgs<M, F> => {
   return v.object(
     {
       data: v.array(core.scalarCreate),
@@ -72,20 +85,26 @@ export const getCreateManyArgs = <T extends ModelState>(
 /**
  * Update args: { where: whereUnique, data: update, select?, include? }
  */
-export type UpdateArgs<T extends ModelState> = V.Object<
+export type UpdateArgs<
+  M extends AnyModel,
+  F extends FieldSchemas<M>,
+> = V.Object<
   {
-    where: CoreSchemas<T>["whereUnique"];
-    data: CoreSchemas<T>["update"];
-    select: CoreSchemas<T>["select"];
-    include: CoreSchemas<T>["include"];
+    where: CoreSchemas<M, F>["whereUnique"];
+    data: CoreSchemas<M, F>["update"];
+    select: CoreSchemas<M, F>["select"];
+    include: CoreSchemas<M, F>["include"];
     cache: CacheInvalidationSchema;
   },
   { atLeast: ["where", "data"] }
 >;
 
-export const getUpdateArgs = <T extends ModelState>(
-  core: CoreSchemas<T>
-): UpdateArgs<T> => {
+export const getUpdateArgs = <
+  M extends AnyModel,
+  F extends FieldSchemas<M>,
+>(
+  core: CoreSchemas<M, F>
+): UpdateArgs<M, F> => {
   return v.object(
     {
       where: core.whereUnique,
@@ -105,17 +124,23 @@ export const getUpdateArgs = <T extends ModelState>(
 /**
  * UpdateMany args: { where?, data: update }
  */
-export type UpdateManyArgs<T extends ModelState> = V.Object<
+export type UpdateManyArgs<
+  M extends AnyModel,
+  F extends FieldSchemas<M>,
+> = V.Object<
   {
-    where: CoreSchemas<T>["where"];
-    data: CoreSchemas<T>["update"];
+    where: CoreSchemas<M, F>["where"];
+    data: CoreSchemas<M, F>["update"];
     cache: CacheInvalidationSchema;
   },
   { atLeast: ["data"] }
 >;
-export const getUpdateManyArgs = <T extends ModelState>(
-  core: CoreSchemas<T>
-): UpdateManyArgs<T> => {
+export const getUpdateManyArgs = <
+  M extends AnyModel,
+  F extends FieldSchemas<M>,
+>(
+  core: CoreSchemas<M, F>
+): UpdateManyArgs<M, F> => {
   return v.object(
     {
       where: core.where,
@@ -133,18 +158,24 @@ export const getUpdateManyArgs = <T extends ModelState>(
 /**
  * Delete args: { where: whereUnique, select?, include? }
  */
-export type DeleteArgs<T extends ModelState> = V.Object<
+export type DeleteArgs<
+  M extends AnyModel,
+  F extends FieldSchemas<M>,
+> = V.Object<
   {
-    where: CoreSchemas<T>["whereUnique"];
-    select: CoreSchemas<T>["select"];
-    include: CoreSchemas<T>["include"];
+    where: CoreSchemas<M, F>["whereUnique"];
+    select: CoreSchemas<M, F>["select"];
+    include: CoreSchemas<M, F>["include"];
     cache: CacheInvalidationSchema;
   },
   { atLeast: ["where"] }
 >;
-export const getDeleteArgs = <T extends ModelState>(
-  core: CoreSchemas<T>
-): DeleteArgs<T> => {
+export const getDeleteArgs = <
+  M extends AnyModel,
+  F extends FieldSchemas<M>,
+>(
+  core: CoreSchemas<M, F>
+): DeleteArgs<M, F> => {
   return v.object(
     {
       where: core.whereUnique,
@@ -163,16 +194,22 @@ export const getDeleteArgs = <T extends ModelState>(
 /**
  * DeleteMany args: { where? }
  */
-export type DeleteManyArgs<T extends ModelState> = V.Object<
+export type DeleteManyArgs<
+  M extends AnyModel,
+  F extends FieldSchemas<M>,
+> = V.Object<
   {
-    where: CoreSchemas<T>["where"];
+    where: CoreSchemas<M, F>["where"];
     cache: CacheInvalidationSchema;
   },
   { optional: true }
 >;
-export const getDeleteManyArgs = <T extends ModelState>(
-  core: CoreSchemas<T>
-): DeleteManyArgs<T> => {
+export const getDeleteManyArgs = <
+  M extends AnyModel,
+  F extends FieldSchemas<M>,
+>(
+  core: CoreSchemas<M, F>
+): DeleteManyArgs<M, F> => {
   return v.object(
     {
       where: core.where,
@@ -195,25 +232,31 @@ export const getDeleteManyArgs = <T extends ModelState>(
  * - setWhere: WHERE clause for conditional updates
  *             PostgreSQL: ON CONFLICT ... DO UPDATE SET x = y WHERE <setWhere>
  */
-export type UpsertArgs<T extends ModelState> = V.Object<
+export type UpsertArgs<
+  M extends AnyModel,
+  F extends FieldSchemas<M>,
+> = V.Object<
   {
-    where: CoreSchemas<T>["whereUnique"];
-    create: CoreSchemas<T>["create"];
-    update: CoreSchemas<T>["update"];
-    select: CoreSchemas<T>["select"];
-    include: CoreSchemas<T>["include"];
+    where: CoreSchemas<M, F>["whereUnique"];
+    create: CoreSchemas<M, F>["create"];
+    update: CoreSchemas<M, F>["update"];
+    select: CoreSchemas<M, F>["select"];
+    include: CoreSchemas<M, F>["include"];
     cache: CacheInvalidationSchema;
     /** WHERE clause for partial unique index matching (PostgreSQL/SQLite only) */
-    targetWhere: CoreSchemas<T>["where"];
+    targetWhere: CoreSchemas<M, F>["where"];
     /** WHERE clause for conditional updates (PostgreSQL/SQLite only) */
-    setWhere: CoreSchemas<T>["where"];
+    setWhere: CoreSchemas<M, F>["where"];
   },
   { atLeast: ["where", "create", "update"] }
 >;
 
-export const getUpsertArgs = <T extends ModelState>(
-  core: CoreSchemas<T>
-): UpsertArgs<T> => {
+export const getUpsertArgs = <
+  M extends AnyModel,
+  F extends FieldSchemas<M>,
+>(
+  core: CoreSchemas<M, F>
+): UpsertArgs<M, F> => {
   return v.object(
     {
       where: core.whereUnique,

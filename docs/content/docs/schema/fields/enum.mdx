@@ -157,10 +157,12 @@ const tier = s.enum(["FREE", "PRO", "ENTERPRISE"]).default("FREE");
 Extract the enum type for use elsewhere:
 
 ```ts
+import type { InferOutput } from "viborm/validation";
+
 const statusField = s.enum(["ACTIVE", "INACTIVE", "PENDING"]);
 
 // Extract type from field
-type Status = (typeof statusField)["~"]["schemas"]["base"]["infer"];
+type Status = InferOutput<(typeof statusField)["~"]["state"]["base"]>;
 // "ACTIVE" | "INACTIVE" | "PENDING"
 
 // Use in your code

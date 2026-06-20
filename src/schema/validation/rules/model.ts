@@ -219,7 +219,7 @@ export function validateFieldsSinglePass(
       st.default !== undefined &&
       typeof st.default !== "function"
     ) {
-      const schema = field["~"].schemas.base;
+      const schema = field["~"].state.base;
       const result = schema["~standard"].validate(st.default);
       if (result instanceof Promise) {
       } else if (result.issues) {

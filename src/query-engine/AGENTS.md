@@ -24,7 +24,7 @@ This separation means adding a new database = implementing one adapter interface
 |------|---------|-------|
 | `query-engine.ts` | Main orchestrator, execute() | ~500 |
 | `types.ts` | QueryContext, ModelRegistry, Operation | ~150 |
-| `validator.ts` | Input validation against schemas | ~80 |
+| `validator.ts` | Input validation through `SchemaRegistry` | ~80 |
 | `builders/` | SQL fragment builders | See [builders/AGENTS.md](builders/AGENTS.md) |
 
 ---
@@ -59,6 +59,7 @@ interface QueryContext {
   adapter: DatabaseAdapter;  // SQL generation (CRITICAL!)
   model: Model;              // Current model metadata
   registry: ModelRegistry;   // Access to related models
+  schemaRegistry: SchemaRegistryLookup; // Operation validation schemas
   nextAlias(): string;       // Generate t0, t1, t2...
 }
 ```
@@ -118,7 +119,7 @@ Building SQL with template strings instead of Sql fragments. Breaks parameteriza
 
 ### Adding New Query Operator
 
-1. **Add to schema** (`src/schema/model/schemas/core/filter.ts`)
+1. **Add to validation schema** (`src/validation/model/core/filter.ts`)
 2. **Add adapter interface method** (`src/adapters/database-adapter.ts`)
 3. **Implement in ALL adapters** (postgres, mysql, sqlite)
 4. **Handle in where-builder** (`builders/where-builder.ts`)
@@ -141,7 +142,7 @@ Compare output across adapters to verify database-agnostic behavior.
 ```
 Client calls orm.user.findMany(args)
         ↓
-Query engine validates args against model["~"].schemas.args.findMany
+Query engine validates args through SchemaRegistry
         ↓
 Builders construct SQL fragments via ctx.adapter.* methods
         ↓
@@ -168,6 +169,6 @@ Result parser transforms to typed objects
 | Layer | Relationship |
 |-------|--------------|
 | **Adapters** ([adapters/AGENTS.md](../adapters/AGENTS.md)) | Query engine calls adapter methods. **CRITICAL BOUNDARY!** |
-| **Schemas** ([schema/model/schemas/](../schema/model/schemas/AGENTS.md)) | Provides validation schemas for inputs |
+| **Validation** ([validation/AGENTS.md](../validation/AGENTS.md)) | Provides `SchemaRegistry` operation schemas |
 | **Drivers** | Executes final SQL, returns raw results |
 | **Client** ([client/AGENTS.md](../client/AGENTS.md)) | Calls query engine, receives typed results |

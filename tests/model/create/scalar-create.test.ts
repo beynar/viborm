@@ -84,7 +84,6 @@ describe("Scalar Create - Simple Model Runtime", () => {
       id: "user-123",
       // missing name and email
     });
-    console.dir(schema, { depth: null });
     expect(result.issues).toBeDefined();
   });
 

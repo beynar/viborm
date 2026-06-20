@@ -11,6 +11,22 @@ A minimal, StandardSchema-compliant validation library designed for the VibORM p
 - **StandardSchema v1 compliant**: Works with any StandardSchema consumer
 - **Minimal runtime footprint**: Small monadic functions
 
+## SchemaRegistry Ownership
+
+`src/validation/` owns operation schemas for ORM inputs. The schema layer owns model structure and base field schemas; `SchemaRegistry` composes those into model, relation, and args schemas with full graph context:
+
+```typescript
+import { createSchemaRegistry } from "viborm/validation";
+
+const registry = createSchemaRegistry({ user });
+
+registry.proxy.user.core.where;
+registry.proxy.user.args.create;
+registry.proxy.user.relations.posts.create;
+```
+
+The client and query engine validate operations through this registry instead of reading operation schemas from schema internals.
+
 ## Usage
 
 ```typescript

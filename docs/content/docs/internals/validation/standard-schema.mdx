@@ -60,8 +60,8 @@ import { getSchemas } from "viborm";
 const schemas = getSchemas(mySchema);
 
 // Access any model's schemas
-schemas.user.where        // WHERE clause validation
-schemas.user.create       // CREATE data validation
+schemas.user.core.where    // WHERE clause validation
+schemas.user.core.create   // CREATE data validation
 schemas.user.args.findMany // Full findMany args validation
 ```
 
@@ -73,13 +73,13 @@ Each model exposes a comprehensive set of schemas:
 
 | Schema | Purpose |
 |--------|---------|
-| `where` | Full WHERE clause with all operators |
-| `whereUnique` | WHERE clause for unique constraints |
-| `create` | Data for create operations |
-| `update` | Data for update operations |
-| `select` | Field selection |
-| `include` | Relation inclusion |
-| `orderBy` | Sorting configuration |
+| `core.where` | Full WHERE clause with all operators |
+| `core.whereUnique` | WHERE clause for unique constraints |
+| `core.create` | Data for create operations |
+| `core.update` | Data for update operations |
+| `core.select` | Field selection |
+| `core.include` | Relation inclusion |
+| `core.orderBy` | Sorting configuration |
 
 #### Operation Args
 
@@ -106,17 +106,17 @@ Complete argument schemas for each operation:
 Lower-level schemas for custom composition:
 
 ```typescript
-schemas.user._filter.scalar          // Scalar field filters
-schemas.user._filter.unique          // Unique constraint filters
-schemas.user._filter.relation        // Relation filters
-schemas.user._filter.compoundConstraint  // Compound constraint filters
-schemas.user._filter.compoundId      // Compound ID filters
+schemas.user.core.scalarFilter              // Scalar field filters
+schemas.user.core.uniqueFilter              // Unique constraint filters
+schemas.user.core.relationFilter            // Relation filters
+schemas.user.core.compoundConstraintFilter  // Compound constraint filters
+schemas.user.core.compoundIdFilter          // Compound ID filters
 
-schemas.user._create.scalar          // Scalar field create
-schemas.user._create.relation        // Relation nested creates
+schemas.user.core.scalarCreate              // Scalar field create
+schemas.user.core.relationCreate            // Relation nested creates
 
-schemas.user._update.scalar          // Scalar field update
-schemas.user._update.relation        // Relation nested updates
+schemas.user.core.scalarUpdate              // Scalar field update
+schemas.user.core.relationUpdate            // Relation nested updates
 ```
 
 ## Recursive Schema Handling

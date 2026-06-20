@@ -1,10 +1,9 @@
 // Select and include schema factories
 
+import type { AnyModel } from "@schema/model";
 import type { StringKeyOf } from "@schema/model/helper";
 import v, { type V } from "@validation";
-import type { ModelState } from "../../model";
-import { AnyFieldSchema, FieldSchemas } from "@validation/builder";
-import { AnyModel } from "@schema/model";
+import type { FieldSchemas } from "../index";
 
 // =============================================================================
 // SELECT SCHEMA
@@ -13,14 +12,19 @@ import { AnyModel } from "@schema/model";
 /**
  * Build select schema - boolean selection for each scalar field, nested select for relations
  */
-export type SelectSchema<T extends ModelState> = V.Object<
-  V.FromKeys<StringKeyOf<T["scalars"]>[], V.Boolean>["entries"] &
-    V.FromObject<T["relations"], "~.schemas.select">["entries"] & {
+type ModelStateOf<M extends AnyModel> = M["~"]["state"];
+
+export type SelectSchema<
+  M extends AnyModel,
+  F extends FieldSchemas<M>,
+> = V.Object<
+  V.FromKeys<StringKeyOf<ModelStateOf<M>["scalars"]>[], V.Boolean>["entries"] &
+    V.FromObject<F["relations"], "select">["entries"] & {
       _count: V.Object<
         {
           select: V.FromObject<
-            T["relations"],
-            "~.schemas.countFilter",
+            F["relations"],
+            "countFilter",
             { optional: true }
           >;
         },
@@ -29,30 +33,35 @@ export type SelectSchema<T extends ModelState> = V.Object<
     }
 >;
 
-export const getSelectSchema = <T extends ModelState>(
-  state: T,
-): SelectSchema<T> => {
+export const getSelectSchema = <
+  M extends AnyModel,
+  F extends FieldSchemas<M>,
+>(
+  fieldSchemas: F,
+): SelectSchema<M, F> => {
   // Scalar fields: simple boolean selection
-  const scalarKeys = Object.keys(state.scalars) as StringKeyOf<T["scalars"]>[];
+  const scalarKeys = Object.keys(fieldSchemas.scalars) as StringKeyOf<
+    ModelStateOf<M>["scalars"]
+  >[];
   const optionalBoolean = v.boolean({ optional: true });
   const scalarEntries = v.fromKeys<
-    StringKeyOf<T["scalars"]>[],
+    StringKeyOf<ModelStateOf<M>["scalars"]>[],
     typeof optionalBoolean
   >(scalarKeys, optionalBoolean);
 
   // Relations: use relation's select schema (supports boolean or nested)
-  const relationEntries = v.fromObject<T["relations"], "~.schemas.select">(
-    state.relations,
-    "~.schemas.select",
+  const relationEntries = v.fromObject<F["relations"], "select">(
+    fieldSchemas.relations,
+    "select",
   );
 
   // _count entries: use a schema that accepts true or { where: ... }
   // This is different from the relation's select schema - we only need the filter capability
   const countSelectEntries = v.fromObject<
-    T["relations"],
-    "~.schemas.countFilter",
+    F["relations"],
+    "countFilter",
     { optional: true }
-  >(state.relations, "~.schemas.countFilter", {
+  >(fieldSchemas.relations, "countFilter", {
     optional: true,
   });
 
@@ -76,13 +85,15 @@ export const getSelectSchema = <T extends ModelState>(
  * Build include schema - nested include for each relation
  */
 
-export type IncludeSchema<F extends AnyFieldSchema> = V.FromObject<
+type RelationSchemaBundle = { relations: Record<string, any> };
+
+export type IncludeSchema<F extends RelationSchemaBundle> = V.FromObject<
   F["relations"],
   "include",
   { optional: true }
 >;
 
-export const getIncludeSchema = <F extends AnyFieldSchema>(
+export const getIncludeSchema = <F extends RelationSchemaBundle>(
   schemas: F,
 ): IncludeSchema<F> => {
   // Relations: use relation's include schema (supports boolean or nested with where/orderBy/etc.)

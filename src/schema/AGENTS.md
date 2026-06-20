@@ -25,7 +25,7 @@ await orm.user.findMany({
 });
 ```
 
-This works because fields use the **State generic pattern** - configuration is tracked as a type parameter, flowing through to query schemas and client types.
+This works because fields use the **State generic pattern** - configuration is tracked as a type parameter, then consumed by validation registry schemas and client types.
 
 ---
 
@@ -34,8 +34,7 @@ This works because fields use the **State generic pattern** - configuration is t
 | Directory | Purpose | Guide |
 |-----------|---------|-------|
 | `fields/` | Field type definitions | [fields/AGENTS.md](fields/AGENTS.md) |
-| `model/` | Model composition | — |
-| `model/schemas/` | Query schema generation | [model/schemas/AGENTS.md](model/schemas/AGENTS.md) |
+| `model/` | Model composition and structural metadata | — |
 | `relation/` | Relation types | [relation/AGENTS.md](relation/AGENTS.md) |
 | `validation/` | Definition-time validation | — |
 | `index.ts` | Public `s` builder API | — |
@@ -48,7 +47,7 @@ This works because fields use the **State generic pattern** - configuration is t
 Field type definitions with State generic pattern. Each field (string, int, boolean, etc.) carries configuration as a type parameter.
 
 ### 2. Models (`model/`)
-Model class that composes fields and relations. Provides access to lazy-built query schemas via `["~"]`.
+Model class that composes fields and relations. Owns structural metadata; operation schemas are built by the validation registry.
 
 ### 3. Relations (`relation/`)
 Relation types (oneToOne, manyToOne, oneToMany, manyToMany) using thunks for circular references.
@@ -96,11 +95,14 @@ All internal state exposed via tilde accessor:
 
 ```typescript
 field["~"].state          // Configuration object
-field["~"].schemas        // {base, filter, create, update}
-model["~"].schemas.where  // WHERE schema for this model
+field["~"].state.base     // Base field schema
+model["~"].state          // Model structure and metadata
 ```
 
 **Why:** Keeps public API clean, signals "internal" to users.
+
+### Rule 5: Schema/Validation Boundary
+Schema owns structure and base field schemas. The validation registry owns operation schemas (`where`, `create`, `update`, args, relation inputs), and the client/query-engine use that registry for operation validation.
 
 ---
 
@@ -130,7 +132,9 @@ User writes:           s.string().nullable()
                               ↓
 Field creates State:   StringField<{type: "string", nullable: true}>
                               ↓
-Schema factory builds: v.string({nullable: true})  (lazy)
+Field state stores:    v.string({nullable: true}) as base schema
+                              ↓
+SchemaRegistry builds: operation schemas from model graph context
                               ↓
 Type inference:        InferInput<schema> → string | null
                               ↓
@@ -146,11 +150,8 @@ Client uses:           orm.user.findMany({...})  // Fully typed!
 ### Why `["~"]` and not `_internal`
 The tilde is visually distinctive and won't appear in autocomplete prominently. `_internal` was tried but cluttered suggestions.
 
-### Why schemas are lazy
-Schemas are expensive to construct. `??=` ensures they're built once and cached, not rebuilt on every access.
-
-### Why single schema factory per field
-Early versions had separate `buildFilterSchema`, `buildCreateSchema`. This led to inconsistencies. Single factory ensures all four schemas derive from same state.
+### Why operation schemas live in the registry
+Nested relation inputs need full model graph context, especially to omit parent-derived foreign keys. Keeping operation schemas in `SchemaRegistry` avoids rebuilding that context inside fields or models.
 
 ---
 
@@ -159,9 +160,9 @@ Early versions had separate `buildFilterSchema`, `buildCreateSchema`. This led t
 | Task | Location |
 |------|----------|
 | Add new field type | [fields/AGENTS.md](fields/AGENTS.md) |
-| Add query operator | [model/schemas/AGENTS.md](model/schemas/AGENTS.md) + query-engine + adapters |
+| Add query operator | `src/validation/model/core/` + query-engine + adapters |
 | Add relation type | [relation/AGENTS.md](relation/AGENTS.md) |
-| Fix type inference | Check schema factories, then client |
+| Fix type inference | Check validation schema factories, then client |
 
 ---
 
@@ -169,6 +170,6 @@ Early versions had separate `buildFilterSchema`, `buildCreateSchema`. This led t
 
 | Layer | Relationship |
 |-------|--------------|
-| **Validation** ([validation/AGENTS.md](../validation/AGENTS.md)) | Provides v.* primitives for schemas |
-| **Query Engine** ([query-engine/AGENTS.md](../query-engine/AGENTS.md)) | Consumes schemas for validation |
-| **Client** ([client/AGENTS.md](../client/AGENTS.md)) | Infers types from schemas |
+| **Validation** ([validation/AGENTS.md](../validation/AGENTS.md)) | Provides v.* primitives and `SchemaRegistry` operation schemas |
+| **Query Engine** ([query-engine/AGENTS.md](../query-engine/AGENTS.md)) | Uses registry schemas for operation validation |
+| **Client** ([client/AGENTS.md](../client/AGENTS.md)) | Infers operation payload/result types from validation model schemas |

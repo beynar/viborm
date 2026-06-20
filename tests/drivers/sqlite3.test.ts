@@ -74,10 +74,8 @@ describe("SQLite3 Driver", () => {
 
     test("creates driver with custom options", async () => {
       const driver = new SQLite3Driver({
-        options: {
-          filename: ":memory:",
-          timeout: 10_000,
-        },
+        dataDir: ":memory:",
+        options: { timeout: 10_000 },
       });
       expect(driver.dialect).toBe("sqlite");
       await driver.disconnect();
@@ -89,7 +87,7 @@ describe("SQLite3 Driver", () => {
 
     beforeEach(async () => {
       driver = new SQLite3Driver({
-        options: { filename: ":memory:" },
+        dataDir: ":memory:",
       });
       await setupDatabase(driver);
     });
@@ -155,7 +153,7 @@ describe("SQLite3 Driver", () => {
 
     beforeEach(async () => {
       driver = new SQLite3Driver({
-        options: { filename: ":memory:" },
+        dataDir: ":memory:",
       });
       await setupDatabase(driver);
     });
@@ -232,7 +230,7 @@ describe("SQLite3 Driver", () => {
     test("creates client with schema", async () => {
       const client = SQLite3CreateClient({
         schema,
-        options: { filename: ":memory:" },
+        dataDir: ":memory:",
       });
 
       expect(client.user).toBeDefined();
@@ -246,7 +244,7 @@ describe("SQLite3 Driver", () => {
     test("performs CRUD operations via client", async () => {
       const client = SQLite3CreateClient({
         schema,
-        options: { filename: ":memory:" },
+        dataDir: ":memory:",
       });
 
       // Push schema to create tables
@@ -314,7 +312,7 @@ describe("SQLite3 Driver", () => {
     test("performs transactions via client", async () => {
       const client = SQLite3CreateClient({
         schema,
-        options: { filename: ":memory:" },
+        dataDir: ":memory:",
       });
 
       // Push schema to create tables
@@ -352,7 +350,7 @@ describe("SQLite3 Driver", () => {
     test("rolls back failed transactions via client", async () => {
       const client = SQLite3CreateClient({
         schema,
-        options: { filename: ":memory:" },
+        dataDir: ":memory:",
       });
 
       // Push schema to create tables
@@ -382,12 +380,14 @@ describe("SQLite3 Driver", () => {
   });
 
   describe("Query Features", () => {
-    let client: ReturnType<typeof SQLite3CreateClient<typeof schema>>;
+    let client: ReturnType<
+      typeof SQLite3CreateClient<{ schema: typeof schema }>
+    >;
 
     beforeEach(async () => {
       client = SQLite3CreateClient({
         schema,
-        options: { filename: ":memory:" },
+        dataDir: ":memory:",
       });
 
       // Push schema to create tables

@@ -137,7 +137,7 @@ function extractEntries<TObject extends Record<string, any>>(
   path: string
 ): Record<string, VibSchema<any, any>> {
   const result: Record<string, VibSchema<any, any>> = {};
-  for (const key in object) {
+  for (const key of Object.keys(object)) {
     const value = getNestedValue(object[key], path);
     if (value !== undefined) {
       result[key] = value;
@@ -190,6 +190,11 @@ export function fromObject<
 ): ObjectSchema<ComputeEntries<TObject, TPath>, TOpts> {
   // Extract entries from the source object at the given path
   const entries = extractEntries(sourceObject, path);
+  if (Object.keys(sourceObject).length > 0 && Object.keys(entries).length === 0) {
+    throw new Error(
+      `fromObject path "${path}" did not match any entries in the source object`
+    );
+  }
 
   // Delegate to the existing object schema builder
   return object(entries, options) as ObjectSchema<

@@ -9,14 +9,10 @@ import {
   updateState,
 } from "../common";
 import type { NativeType } from "../native-types";
-import {
-  type BooleanSchemas,
-  booleanBase,
-  buildBooleanSchema,
-} from "./schemas";
+
+const booleanBase = v.boolean();
 
 export class BooleanField<State extends FieldState<"boolean">> {
-  private _schemas: BooleanSchemas<State> | undefined;
   private readonly state: State;
   private readonly _nativeType?: NativeType | undefined;
 
@@ -84,7 +80,6 @@ export class BooleanField<State extends FieldState<"boolean">> {
   get ["~"]() {
     return {
       state: this.state,
-      schemas: (this._schemas ??= buildBooleanSchema(this.state)),
       nativeType: this._nativeType,
     };
   }

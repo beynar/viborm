@@ -1,6 +1,8 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
+import type { AnyModel } from "@schema/model";
 import { inferred } from "./inferred";
 import type { JsonSchemaConverter } from "./json-schema/types";
+import type { ArgsSchemas, FieldSchemas, ModelSchemas } from "./model";
 
 // =============================================================================
 // Core Type Utilities
@@ -67,6 +69,7 @@ export interface VibSchema<TInput = unknown, TOutput = TInput>
    * Standard properties extended with JSON Schema converter.
    */
   readonly "~standard": StandardSchemaV1<TInput, TOutput>["~standard"] & {
+    readonly types?: StandardSchemaV1.Types<TInput, TOutput> | undefined;
     /**
      * JSON Schema converter methods.
      * Implements StandardJSONSchemaV1 specification.
@@ -228,3 +231,26 @@ export interface ValidationFailure {
 }
 
 export type ValidationResult<T> = ValidationSuccess<T> | ValidationFailure;
+
+export type ParseResult<TSchema extends StandardSchemaV1> =
+  TSchema extends VibSchema
+    ? ValidationResult<InferOutput<TSchema>>
+    : StandardSchemaV1.Result<StandardSchemaV1.InferOutput<TSchema>>;
+
+// =============================================================================
+// Schema Registry Contract
+// =============================================================================
+
+export type SchemaRegistryOperation = keyof ArgsSchemas<
+  AnyModel,
+  FieldSchemas<AnyModel>
+>;
+
+export interface SchemaRegistryLookup {
+  getModelSchemas(model: AnyModel): ModelSchemas<AnyModel>;
+  validate(
+    modelName: string,
+    operation: SchemaRegistryOperation,
+    payload: unknown
+  ): unknown;
+}

@@ -1,8 +1,8 @@
 /**
  * Relation Update Schema Tests
  *
- * Tests the _update.relation schema which includes nested write operations
- * (connect, disconnect, update, create, etc.) for relations.
+ * Tests the _update.relation schema which includes executable nested write
+ * operations for relations.
  */
 
 import { type InferInput, parse } from "@validation";
@@ -23,6 +23,22 @@ describe("Relation Update - Types (Author Model)", () => {
   test("type: all relations are optional", () => {
     expectTypeOf<{}>().toMatchTypeOf<Input>();
   });
+
+  test("type: createMany requires data", () => {
+    expectTypeOf<{
+      posts?: {
+        createMany: {};
+      };
+    }>().not.toMatchTypeOf<Input>();
+
+    expectTypeOf<{
+      posts?: {
+        createMany: {
+          data: Array<{ id: string; title: string; authorId: string }>;
+        };
+      };
+    }>().toMatchTypeOf<Input>();
+  });
 });
 
 // =============================================================================
@@ -34,6 +50,40 @@ describe("Relation Update - Types (Post Model)", () => {
 
   test("type: includes relation field", () => {
     expectTypeOf<Input>().toHaveProperty("author");
+  });
+
+  test("type: to-one update rejects unsupported update and upsert", () => {
+    expectTypeOf<{
+      author?: {
+        update: { name?: string };
+      };
+    }>().not.toMatchTypeOf<Input>();
+    expectTypeOf<{
+      author?: {
+        upsert: {
+          create: { id: string; name: string };
+          update: { name?: string };
+        };
+      };
+    }>().not.toMatchTypeOf<Input>();
+  });
+
+  test("type: to-one connectOrCreate requires where and create", () => {
+    expectTypeOf<{
+      author?: {
+        connectOrCreate: {};
+      };
+    }>().not.toMatchTypeOf<Input>();
+    expectTypeOf<{
+      author?: {
+        connectOrCreate: { where: { id: string } };
+      };
+    }>().not.toMatchTypeOf<Input>();
+    expectTypeOf<{
+      author?: {
+        connectOrCreate: { create: { id: string; name: string } };
+      };
+    }>().not.toMatchTypeOf<Input>();
   });
 });
 
@@ -56,6 +106,30 @@ describe("Relation Update - Author Model Runtime (oneToMany)", () => {
       },
     });
     expect(result.issues).toBeUndefined();
+  });
+
+  test("runtime: accepts createMany nested write", () => {
+    const result = parse(schema, {
+      posts: {
+        createMany: {
+          data: [
+            { id: "post-1", title: "Hello", authorId: "author-1" },
+            { id: "post-2", title: "World", authorId: "author-1" },
+          ],
+        },
+      },
+    });
+    expect(result.issues).toBeUndefined();
+  });
+
+  test("runtime: rejects createMany nested write without data", () => {
+    const result = parse(schema, {
+      posts: {
+        createMany: {},
+      },
+    });
+    expect(result.issues?.[0]?.message).toBe("Missing required field: data");
+    expect(result.issues?.[0]?.path).toEqual(["posts", "createMany", "data"]);
   });
 
   test("runtime: accepts connect nested write", () => {
@@ -85,64 +159,17 @@ describe("Relation Update - Author Model Runtime (oneToMany)", () => {
     expect(result.issues).toBeUndefined();
   });
 
-  test("runtime: accepts update nested write (single object)", () => {
-    const result = parse(schema, {
-      posts: {
-        update: {
-          where: { id: "post-1" },
-          data: { title: "Updated Title" },
+  test.each(["update", "updateMany", "deleteMany", "upsert"] as const)(
+    "runtime: rejects unsupported to-many '%s'",
+    (operation) => {
+      const result = parse(schema, {
+        posts: {
+          [operation]: {},
         },
-      },
-    });
-    expect(result.issues).toBeUndefined();
-    // Single object should be normalized to array
-    if (!result.issues) {
-      expect(Array.isArray(result.value.posts?.update)).toBe(true);
+      });
+      expect(result.issues?.[0]?.message).toBe(`Unknown key: ${operation}`);
     }
-  });
-
-  test("runtime: accepts update nested write (array)", () => {
-    const result = parse(schema, {
-      posts: {
-        update: [
-          {
-            where: { id: "post-1" },
-            data: { title: "Updated Title" },
-          },
-        ],
-      },
-    });
-    expect(result.issues).toBeUndefined();
-  });
-
-  test("runtime: accepts updateMany nested write (single object)", () => {
-    const result = parse(schema, {
-      posts: {
-        updateMany: {
-          where: { published: false },
-          data: { published: true },
-        },
-      },
-    });
-    expect(result.issues).toBeUndefined();
-    // Single object should be normalized to array
-    if (!result.issues) {
-      expect(Array.isArray(result.value.posts?.updateMany)).toBe(true);
-    }
-  });
-
-  test("runtime: accepts deleteMany nested write (single object)", () => {
-    const result = parse(schema, {
-      posts: {
-        deleteMany: { published: false },
-      },
-    });
-    expect(result.issues).toBeUndefined();
-    // Single object should be normalized to array
-    if (!result.issues) {
-      expect(Array.isArray(result.value.posts?.deleteMany)).toBe(true);
-    }
-  });
+  );
 
   test("runtime: accepts set to replace all", () => {
     const result = parse(schema, {
@@ -175,6 +202,19 @@ describe("Relation Update - Post Model Runtime (manyToOne)", () => {
     expect(result.issues).toBeUndefined();
   });
 
+  test.each([
+    ["empty", {}],
+    ["missing create", { where: { id: "author-1" } }],
+    ["missing where", { create: { id: "author-1", name: "Alice" } }],
+  ] as const)("runtime: rejects connectOrCreate envelope %s", (_, envelope) => {
+    const result = parse(schema, {
+      author: {
+        connectOrCreate: envelope,
+      },
+    });
+    expect(result.issues).toBeDefined();
+  });
+
   test("runtime: accepts disconnect for optional relation", () => {
     const result = parse(schema, {
       author: {
@@ -184,14 +224,17 @@ describe("Relation Update - Post Model Runtime (manyToOne)", () => {
     expect(result.issues).toBeUndefined();
   });
 
-  test("runtime: accepts update nested write", () => {
-    const result = parse(schema, {
-      author: {
-        update: { name: "Updated Name" },
-      },
-    });
-    expect(result.issues).toBeUndefined();
-  });
+  test.each(["update", "upsert"] as const)(
+    "runtime: rejects unsupported to-one '%s'",
+    (operation) => {
+      const result = parse(schema, {
+        author: {
+          [operation]: {},
+        },
+      });
+      expect(result.issues?.[0]?.message).toBe(`Unknown key: ${operation}`);
+    }
+  );
 
   test("runtime: accepts create nested write", () => {
     const result = parse(schema, {

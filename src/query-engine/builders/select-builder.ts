@@ -15,7 +15,11 @@ import {
   getTableName,
   isRelation,
 } from "../context";
-import type { QueryContext, RelationInfo } from "../types";
+import {
+  QueryEngineError,
+  type QueryContext,
+  type RelationInfo,
+} from "../types";
 import { buildCorrelation } from "./correlation-utils";
 import { buildInclude, type IncludeStrategy } from "./include-builder";
 import {
@@ -429,11 +433,14 @@ function buildManyToManyCount(
       targetAlias
     );
     const rawWhere = (config as { where: Record<string, unknown> }).where;
-    const whereSchema = relationInfo.targetModel["~"].schemas.where;
-    const normalizedWhere = whereSchema
-      ? (parse(whereSchema, rawWhere) as { value: Record<string, unknown> })
-          .value
-      : rawWhere;
+    const whereSchema = ctx.schemaRegistry.getModelSchemas(
+      relationInfo.targetModel
+    ).core.where;
+    const parsedWhere = parse(whereSchema, rawWhere);
+    if (parsedWhere.issues) {
+      throw new QueryEngineError("Invalid nested relation count where clause");
+    }
+    const normalizedWhere = parsedWhere.value as Record<string, unknown>;
     const innerWhere = buildWhere(childCtx, normalizedWhere, targetAlias);
     if (innerWhere) {
       conditions.push(innerWhere);

@@ -719,9 +719,14 @@ describe("Cache", () => {
 
       const cachedClient = client.$withCache();
 
-      // @ts-expect-error - Testing runtime error for non-cacheable operation
+      const cachedUser = cachedClient.user as unknown as {
+        create(args: {
+          data: { id: string; name: string; email: string };
+        }): Promise<unknown>;
+      };
+
       await expect(
-        cachedClient.user.create({
+        cachedUser.create({
           data: { id: "1", name: "Test", email: "test@test.com" },
         })
       ).rejects.toThrow();
@@ -735,12 +740,10 @@ describe("Cache", () => {
         cache,
       });
 
-      // @ts-expect-error - Testing runtime validation of invalid options
-      expect(() => client.$withCache({ ttl: {} })).toThrow(
+      expect(() => client.$withCache({ ttl: {} as unknown as string })).toThrow(
         "Invalid cache options"
       );
 
-      // @ts-expect-error - Testing runtime validation of invalid options
       expect(() => client.$withCache({ swr: "yes" })).toThrow(
         "Invalid TTL format"
       );

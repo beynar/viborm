@@ -7,49 +7,50 @@
 
 import { ValidationError } from "@errors";
 import type { Model } from "@schema/model";
-import { parse, type VibSchema } from "@validation";
+import { parse, type SchemaRegistryLookup, type VibSchema } from "@validation";
 import type { Operation } from "./types";
 
 /**
  * Get the appropriate schema for an operation
  */
 function getOperationSchema(
+  schemaRegistry: SchemaRegistryLookup,
   model: Model<any>,
   operation: Operation
 ): VibSchema | undefined {
-  const schemas = model["~"].schemas;
+  const schemas = schemaRegistry.getModelSchemas(model);
 
   // Map operations to their schema locations
   switch (operation) {
     case "findFirst":
-      return schemas.args?.findFirst;
+      return schemas.args.findFirst;
     case "findMany":
-      return schemas.args?.findMany;
+      return schemas.args.findMany;
     case "findUnique":
-      return schemas.args?.findUnique;
+      return schemas.args.findUnique;
     case "create":
-      return schemas.args?.create;
+      return schemas.args.create;
     case "createMany":
-      return schemas.args?.createMany;
+      return schemas.args.createMany;
     case "update":
-      return schemas.args?.update;
+      return schemas.args.update;
     case "updateMany":
-      return schemas.args?.updateMany;
+      return schemas.args.updateMany;
     case "delete":
-      return schemas.args?.delete;
+      return schemas.args.delete;
     case "deleteMany":
-      return schemas.args?.deleteMany;
+      return schemas.args.deleteMany;
     case "upsert":
-      return schemas.args?.upsert;
+      return schemas.args.upsert;
     case "count":
-      return schemas.args?.count;
+      return schemas.args.count;
     case "aggregate":
-      return schemas.args?.aggregate;
+      return schemas.args.aggregate;
     case "groupBy":
-      return schemas.args?.groupBy;
+      return schemas.args.groupBy;
     case "exist":
       // exist uses same schema as count but simpler
-      return schemas.args?.count;
+      return schemas.args.count;
     default:
       return undefined;
   }
@@ -65,11 +66,12 @@ function getOperationSchema(
  * @throws ValidationError if validation fails
  */
 export function validate<T>(
+  schemaRegistry: SchemaRegistryLookup,
   model: Model<any>,
   operation: Operation,
   input: unknown
 ): T {
-  const schema = getOperationSchema(model, operation);
+  const schema = getOperationSchema(schemaRegistry, model, operation);
 
   if (!schema) {
     throw new ValidationError(operation, [
@@ -84,9 +86,7 @@ export function validate<T>(
 
   if (result.issues) {
     const issues = result.issues.map((issue) => ({
-      path:
-        issue.path?.map((p) => (typeof p === "object" ? p.key : p)).join(".") ||
-        "root",
+      path: issue.path?.map(String).join(".") || "root",
       message: issue.message,
     }));
     throw new ValidationError(operation, issues);
@@ -99,6 +99,7 @@ export function validate<T>(
  * Validate with optional - returns undefined instead of throwing for missing optional input
  */
 export function validateOptional<T>(
+  schemaRegistry: SchemaRegistryLookup,
   model: Model<any>,
   operation: Operation,
   input: unknown
@@ -106,5 +107,5 @@ export function validateOptional<T>(
   if (input === undefined || input === null) {
     return undefined;
   }
-  return validate<T>(model, operation, input);
+  return validate<T>(schemaRegistry, model, operation, input);
 }

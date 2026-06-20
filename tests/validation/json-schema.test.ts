@@ -77,7 +77,6 @@ describe("JSON Schema conversion", () => {
         target: "draft-07",
       });
 
-      console.dir(jsonSchema, { depth: null });
       expect(jsonSchema).toMatchObject({
         enum: ["a", "b", "c"],
       });
@@ -783,7 +782,6 @@ describe("JSON Schema conversion", () => {
       expect(jsonSchema.properties?.items).toHaveProperty("anyOf");
       const anyOf = (jsonSchema.properties?.items as any).anyOf;
       const arrayOption = anyOf.find((o: any) => o.type === "array");
-      console.dir(jsonSchema, { depth: null });
       expect(arrayOption.items.$ref).toBe("#/$defs/Item");
       expect(jsonSchema.$defs?.Item).toBeDefined();
     });

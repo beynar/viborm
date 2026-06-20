@@ -1,6 +1,7 @@
+import type { AnyModel } from "@schema/model";
 import type { StringKeyOf } from "@schema/model/helper";
 import v, { type V } from "@validation";
-import type { ModelState } from "../../model";
+import type { FieldSchemas } from "../index";
 
 const orderEnum = v.enum(["asc", "desc"]);
 
@@ -32,22 +33,32 @@ export const sortOrderSchema = v.union([
 /**
  * Build orderBy schema - sort direction for each scalar field and nested relation ordering
  */
-export type OrderBySchema<T extends ModelState> = V.Object<
-  V.FromKeys<StringKeyOf<T["scalars"]>[], SortOrderSchema>["entries"] &
-    V.FromObject<T["relations"], "~.schemas.orderBy">["entries"]
+type ModelStateOf<M extends AnyModel> = M["~"]["state"];
+
+export type OrderBySchema<
+  M extends AnyModel,
+  F extends FieldSchemas<M>,
+> = V.Object<
+  V.FromKeys<StringKeyOf<ModelStateOf<M>["scalars"]>[], SortOrderSchema>["entries"] &
+    V.FromObject<F["relations"], "orderBy">["entries"]
 >;
-export const getOrderBySchema = <T extends ModelState>(
-  state: T
-): OrderBySchema<T> => {
-  const scalarKeys = Object.keys(state.scalars) as StringKeyOf<T["scalars"]>[];
+export const getOrderBySchema = <
+  M extends AnyModel,
+  F extends FieldSchemas<M>,
+>(
+  fieldSchemas: F,
+): OrderBySchema<M, F> => {
+  const scalarKeys = Object.keys(fieldSchemas.scalars) as StringKeyOf<
+    ModelStateOf<M>["scalars"]
+  >[];
   const scalarEntries = v.fromKeys<
-    StringKeyOf<T["scalars"]>[],
+    StringKeyOf<ModelStateOf<M>["scalars"]>[],
     typeof sortOrderSchema
   >(scalarKeys, sortOrderSchema);
 
-  const relationEntries = v.fromObject<T["relations"], "~.schemas.orderBy">(
-    state.relations,
-    "~.schemas.orderBy"
+  const relationEntries = v.fromObject<F["relations"], "orderBy">(
+    fieldSchemas.relations,
+    "orderBy"
   );
 
   return v.object({

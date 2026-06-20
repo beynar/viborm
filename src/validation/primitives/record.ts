@@ -164,7 +164,7 @@ export function fromKeys<
   }
 
   // Delegate to the existing object schema builder
-  return object(entries, options) as ObjectSchema<
+  return object(entries, options) as unknown as ObjectSchema<
     ComputeEntriesFromKeys<TKeys, TSchema>,
     TOpts
   >;

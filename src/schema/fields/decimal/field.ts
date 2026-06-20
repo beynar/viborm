@@ -7,16 +7,12 @@ import {
   updateState,
 } from "../common";
 import type { NativeType } from "../native-types";
-import {
-  buildDecimalSchema,
-  type DecimalSchemas,
-  decimalBase,
-} from "./schemas";
+
+const decimalBase = v.number();
 
 export class DecimalField<State extends FieldState<"decimal">> {
   private readonly state: State;
   private readonly _nativeType?: NativeType | undefined;
-  private _schemas: DecimalSchemas<State> | undefined;
 
   constructor(state: State, _nativeType?: NativeType) {
     this.state = state;
@@ -111,7 +107,6 @@ export class DecimalField<State extends FieldState<"decimal">> {
   get ["~"]() {
     return {
       state: this.state,
-      schemas: (this._schemas ??= buildDecimalSchema(this.state)),
       nativeType: this._nativeType,
     };
   }

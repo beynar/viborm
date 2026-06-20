@@ -184,7 +184,7 @@ const schemas = getSchemas(mySchema);
 
 // Use in your API routes
 app.post("/users", async (req) => {
-  const result = schemas.user.create["~standard"].validate(req.body);
+  const result = schemas.user.core.create["~standard"].validate(req.body);
   if (result.issues) return { error: result.issues };
   // ...
 });
@@ -195,7 +195,7 @@ app.post("/users", async (req) => {
 Schemas can export to JSON Schema format, making them usable with AI tools, OpenAPI generation, or any JSON Schema consumer:
 
 ```typescript
-const jsonSchema = schemas.user.create["~standard"].jsonSchema.output({
+const jsonSchema = schemas.user.core.create["~standard"].jsonSchema.output({
   target: "openapi-3.0",
 });
 

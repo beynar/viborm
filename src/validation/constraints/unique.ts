@@ -25,7 +25,7 @@ type UniqueName<M extends AnyModel> = {
  * Build entries for scalar unique fields using their base schema
  */
 type ScalarUniqueEntries<M extends AnyModel> = {
-  [K in UniqueName<M>]: M["~"]["state"]["scalars"][K]["~"]["schemas"]["base"];
+  [K in UniqueName<M>]: M["~"]["state"]["scalars"][K]["~"]["state"]["base"];
 };
 
 /**
@@ -90,7 +90,7 @@ export const getUniqueSchema = <M extends AnyModel>(
   for (const key of Object.keys(scalars)) {
     const scalar = scalars[key];
     if (scalar?.["~"].state.isUnique === true) {
-      entries[key] = scalar["~"].schemas.base;
+      entries[key] = scalar["~"].state.base;
     }
   }
 

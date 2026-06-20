@@ -1,5 +1,5 @@
 import { s } from "@schema";
-import type { InferInput, Prettify } from "@validation/types";
+import type { ModelOperationInput, Prettify } from "@validation";
 import z from "zod/v4";
 import { createClient } from "../src/index.js";
 
@@ -197,10 +197,14 @@ const res1 = client.user.groupBy({
 });
 
 type Input = Prettify<
-  InferInput<(typeof testUser)["~"]["schemas"]["args"]["findFirst"]>
+  ModelOperationInput<typeof testUser, "findFirst">
 >;
 
-const res = await client.$withCache({ ttl: 1000 }).user.findFirst({
+const res = await (
+  client as unknown as {
+    $withCache(options: { ttl: number }): typeof client;
+  }
+).$withCache({ ttl: 1000 }).user.findFirst({
   where: {
     AND: [
       {

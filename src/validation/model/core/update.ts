@@ -1,7 +1,8 @@
 // Update schema factories
 
+import type { AnyModel } from "@schema/model";
 import v, { type V } from "@validation";
-import type { ModelState } from "../../model";
+import type { FieldSchemas } from "../index";
 
 // =============================================================================
 // SCALAR UPDATE
@@ -10,14 +11,22 @@ import type { ModelState } from "../../model";
 /**
  * Build scalar update schema - all scalar fields for update input (all optional)
  */
-export type ScalarUpdateSchema<T extends ModelState> = V.FromObject<
-  T["scalars"],
-  "~.schemas.update"
+export type ScalarUpdateSchema<
+  M extends AnyModel,
+  F extends FieldSchemas<M>,
+> = V.FromObject<
+  F["scalars"],
+  "update"
 >;
-export const getScalarUpdate = <T extends ModelState>(state: T) => {
-  return v.fromObject<T["scalars"], "~.schemas.update">(
-    state.scalars,
-    "~.schemas.update"
+export const getScalarUpdate = <
+  M extends AnyModel,
+  F extends FieldSchemas<M>,
+>(
+  fieldSchemas: F,
+): ScalarUpdateSchema<M, F> => {
+  return v.fromObject<F["scalars"], "update">(
+    fieldSchemas.scalars,
+    "update"
   );
 };
 
@@ -28,14 +37,22 @@ export const getScalarUpdate = <T extends ModelState>(state: T) => {
 /**
  * Build relation update schema - combines all relation update inputs
  */
-export type RelationUpdateSchema<T extends ModelState> = V.FromObject<
-  T["relations"],
-  "~.schemas.update"
+export type RelationUpdateSchema<
+  M extends AnyModel,
+  F extends FieldSchemas<M>,
+> = V.FromObject<
+  F["relations"],
+  "update"
 >;
-export const getRelationUpdate = <T extends ModelState>(state: T) => {
-  return v.fromObject<T["relations"], "~.schemas.update">(
-    state.relations,
-    "~.schemas.update"
+export const getRelationUpdate = <
+  M extends AnyModel,
+  F extends FieldSchemas<M>,
+>(
+  fieldSchemas: F,
+): RelationUpdateSchema<M, F> => {
+  return v.fromObject<F["relations"], "update">(
+    fieldSchemas.relations,
+    "update"
   );
 };
 
@@ -46,17 +63,25 @@ export const getRelationUpdate = <T extends ModelState>(state: T) => {
 /**
  * Build full update schema - scalar + relation updates (all optional)
  */
-export type UpdateSchema<T extends ModelState> = V.Object<
-  ScalarUpdateSchema<T>["entries"] & RelationUpdateSchema<T>["entries"]
+export type UpdateSchema<
+  M extends AnyModel,
+  F extends FieldSchemas<M>,
+> = V.Object<
+  ScalarUpdateSchema<M, F>["entries"] & RelationUpdateSchema<M, F>["entries"]
 >;
-export const getUpdateSchema = <T extends ModelState>(state: T) => {
-  const scalarUpdate = v.fromObject<T["scalars"], "~.schemas.update">(
-    state.scalars,
-    "~.schemas.update"
+export const getUpdateSchema = <
+  M extends AnyModel,
+  F extends FieldSchemas<M>,
+>(
+  fieldSchemas: F,
+): UpdateSchema<M, F> => {
+  const scalarUpdate = v.fromObject<F["scalars"], "update">(
+    fieldSchemas.scalars,
+    "update"
   );
-  const relationUpdate = v.fromObject<T["relations"], "~.schemas.update">(
-    state.relations,
-    "~.schemas.update"
+  const relationUpdate = v.fromObject<F["relations"], "update">(
+    fieldSchemas.relations,
+    "update"
   );
   return scalarUpdate.extend(relationUpdate.entries);
 };

@@ -8,9 +8,73 @@
  * - Combined nested queries with filters, orderBy, pagination
  */
 
-import { parse } from "@validation";
-import { describe, expect, test } from "vitest";
+import { s } from "@schema";
+import { createSchemaRegistry, type InferInput, parse } from "@validation";
+import { describe, expect, expectTypeOf, test } from "vitest";
 import { authorSchemas, postSchemas } from "../fixtures";
+
+// Test-only view over generated nested selection output unions.
+// The runtime assertions below still verify concrete transformed shapes.
+type NestedOutput = any;
+
+const nestedOutput = (value: unknown): NestedOutput => value as NestedOutput;
+
+const phase7Author = s.model({
+  id: s.string().id(),
+  name: s.string(),
+  posts: s.oneToMany(() => phase7Post),
+});
+
+const phase7Post = s.model({
+  id: s.string().id(),
+  title: s.string(),
+  published: s.boolean().default(false),
+  authorId: s.string(),
+  author: s
+    .manyToOne(() => phase7Author)
+    .fields("authorId")
+    .references("id"),
+});
+
+const phase7Schemas = createSchemaRegistry({
+  author: phase7Author,
+  post: phase7Post,
+}).proxy;
+
+const relationScopedAuthor = s.model({
+  id: s.string().id(),
+  name: s.string(),
+  posts: s.oneToMany(() => relationScopedPost).name("author"),
+});
+
+const relationScopedCategory = s.model({
+  id: s.string().id(),
+  name: s.string(),
+  posts: s.oneToMany(() => relationScopedPost).name("category"),
+});
+
+const relationScopedPost = s.model({
+  id: s.string().id(),
+  title: s.string(),
+  authorId: s.string(),
+  categoryId: s.string(),
+  author: s
+    .manyToOne(() => relationScopedAuthor)
+    .fields("authorId")
+    .references("id")
+    .name("author"),
+  category: s
+    .manyToOne(() => relationScopedCategory)
+    .fields("categoryId")
+    .references("id")
+    .name("category"),
+});
+
+const relationScopedSchemas = createSchemaRegistry({
+  author: relationScopedAuthor,
+  category: relationScopedCategory,
+  post: relationScopedPost,
+}).proxy;
 
 // =============================================================================
 // DEEPLY NESTED INCLUDES
@@ -68,10 +132,10 @@ describe("Deeply Nested Includes", () => {
       });
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
-        expect(result.value.include?.posts).toBeDefined();
-        expect(result.value.include?.posts?.take).toBe(5);
+        expect(nestedOutput(result.value).include?.posts).toBeDefined();
+        expect(nestedOutput(result.value).include?.posts?.take).toBe(5);
         // Boolean `author: true` is transformed to { select: {...} }
-        expect(result.value.include?.posts?.include?.author).toHaveProperty(
+        expect(nestedOutput(result.value).include?.posts?.include?.author).toHaveProperty(
           "select"
         );
       }
@@ -117,7 +181,7 @@ describe("Deeply Nested Includes", () => {
       expect(result.issues).toBeUndefined();
 
       if (!result.issues) {
-        const nestedPosts = result.value.include?.author?.include?.posts;
+        const nestedPosts = nestedOutput(result.value).include?.author?.include?.posts;
         expect(nestedPosts?.take).toBe(5);
         expect(nestedPosts?.skip).toBe(2);
       }
@@ -185,8 +249,8 @@ describe("Deeply Nested Selects", () => {
       });
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
-        expect(result.value.select?.id).toBe(true);
-        expect(result.value.select?.posts?.select?.title).toBe(true);
+        expect(nestedOutput(result.value).select?.id).toBe(true);
+        expect(nestedOutput(result.value).select?.posts?.select?.title).toBe(true);
       }
     });
   });
@@ -199,6 +263,55 @@ describe("Deeply Nested Selects", () => {
 describe("Deeply Nested Creates", () => {
   describe("Author with nested posts creation", () => {
     const schema = authorSchemas.args.create;
+
+    test("runtime: accepts nested create when inverse FK is omitted", () => {
+      const result = parse(phase7Schemas.author.args.create, {
+        data: {
+          id: "author-1",
+          name: "Alice",
+          posts: {
+            create: {
+              id: "post-1",
+              title: "Hello World",
+            },
+          },
+        },
+      });
+      expect(result.issues).toBeUndefined();
+    });
+
+    test("runtime: accepts nested createMany when inverse FK is omitted", () => {
+      const result = parse(phase7Schemas.author.args.create, {
+        data: {
+          id: "author-1",
+          name: "Alice",
+          posts: {
+            createMany: {
+              data: [
+                { id: "post-1", title: "First Post" },
+                { id: "post-2", title: "Second Post" },
+              ],
+            },
+          },
+        },
+      });
+      expect(result.issues).toBeUndefined();
+    });
+
+    test("runtime: rejects nested create missing non-derived required field", () => {
+      const result = parse(phase7Schemas.author.args.create, {
+        data: {
+          id: "author-1",
+          name: "Alice",
+          posts: {
+            create: {
+              id: "post-1",
+            },
+          },
+        },
+      });
+      expect(result.issues).toBeDefined();
+    });
 
     test("runtime: accepts single nested create", () => {
       const result = parse(schema, {
@@ -251,7 +364,7 @@ describe("Deeply Nested Creates", () => {
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
         // Single object should be normalized to array
-        expect(Array.isArray(result.value.data.posts?.create)).toBe(true);
+        expect(Array.isArray(nestedOutput(result.value).data.posts?.create)).toBe(true);
       }
     });
 
@@ -275,6 +388,35 @@ describe("Deeply Nested Creates", () => {
       expect(result.issues).toBeUndefined();
     });
 
+    test.each([
+      ["empty", {}],
+      ["missing create", { where: { id: "post-1" } }],
+      [
+        "missing where",
+        {
+          create: {
+            id: "post-1",
+            title: "Hello World",
+            authorId: "author-1",
+          },
+        },
+      ],
+    ] as const)(
+      "runtime: rejects nested to-many connectOrCreate envelope %s",
+      (_, envelope) => {
+        const result = parse(schema, {
+          data: {
+            id: "author-1",
+            name: "Alice",
+            posts: {
+              connectOrCreate: envelope,
+            },
+          },
+        });
+        expect(result.issues).toBeDefined();
+      }
+    );
+
     test("output: normalizes connectOrCreate to array", () => {
       const result = parse(schema, {
         data: {
@@ -294,7 +436,7 @@ describe("Deeply Nested Creates", () => {
       });
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
-        expect(Array.isArray(result.value.data.posts?.connectOrCreate)).toBe(
+        expect(Array.isArray(nestedOutput(result.value).data.posts?.connectOrCreate)).toBe(
           true
         );
       }
@@ -303,6 +445,29 @@ describe("Deeply Nested Creates", () => {
 
   describe("Post with nested author connectOrCreate", () => {
     const schema = postSchemas.args.create;
+
+    test("runtime: rejects direct create when FK and relation data are omitted", () => {
+      const result = parse(phase7Schemas.post.args.create, {
+        data: {
+          id: "post-1",
+          title: "Hello World",
+        },
+      });
+      expect(result.issues).toBeDefined();
+    });
+
+    test("runtime: accepts direct create when relation data provides FK", () => {
+      const result = parse(phase7Schemas.post.args.create, {
+        data: {
+          id: "post-1",
+          title: "Hello World",
+          author: {
+            connect: { id: "author-1" },
+          },
+        },
+      });
+      expect(result.issues).toBeUndefined();
+    });
 
     test("runtime: accepts nested connectOrCreate on manyToOne", () => {
       const result = parse(schema, {
@@ -323,6 +488,36 @@ describe("Deeply Nested Creates", () => {
       });
       expect(result.issues).toBeUndefined();
     });
+
+    test.each([
+      ["empty", {}],
+      ["missing create", { where: { id: "author-1" } }],
+      [
+        "missing where",
+        {
+          create: {
+            id: "author-1",
+            name: "Alice",
+            email: "alice@example.com",
+          },
+        },
+      ],
+    ] as const)(
+      "runtime: rejects nested to-one connectOrCreate envelope %s",
+      (_, envelope) => {
+        const result = parse(schema, {
+          data: {
+            id: "post-1",
+            title: "Hello World",
+            authorId: "author-1",
+            author: {
+              connectOrCreate: envelope,
+            },
+          },
+        });
+        expect(result.issues).toBeDefined();
+      }
+    );
   });
 });
 
@@ -333,8 +528,70 @@ describe("Deeply Nested Creates", () => {
 describe("Deeply Nested Updates", () => {
   describe("Author with nested post updates", () => {
     const schema = authorSchemas.args.update;
+    type UpdateArgsInput = InferInput<typeof schema>;
 
-    test("runtime: accepts nested update operation", () => {
+    test("type: nested update createMany requires data", () => {
+      expectTypeOf<{
+        where: { id: string };
+        data: {
+          posts: {
+            createMany: {};
+          };
+        };
+      }>().not.toMatchTypeOf<UpdateArgsInput>();
+
+      expectTypeOf<{
+        where: { id: string };
+        data: {
+          posts: {
+            createMany: {
+              data: Array<{ id: string; title: string; authorId: string }>;
+            };
+          };
+        };
+      }>().toMatchTypeOf<UpdateArgsInput>();
+    });
+
+    test("type: nested update rejects unsupported relation mutations", () => {
+      expectTypeOf<{
+        where: { id: string };
+        data: {
+          posts: {
+            update: { where: { id: string }; data: { title?: string } };
+          };
+        };
+      }>().not.toMatchTypeOf<UpdateArgsInput>();
+      expectTypeOf<{
+        where: { id: string };
+        data: {
+          posts: {
+            updateMany: { where: { published?: boolean }; data: { published?: boolean } };
+          };
+        };
+      }>().not.toMatchTypeOf<UpdateArgsInput>();
+      expectTypeOf<{
+        where: { id: string };
+        data: {
+          posts: {
+            deleteMany: { published?: boolean };
+          };
+        };
+      }>().not.toMatchTypeOf<UpdateArgsInput>();
+      expectTypeOf<{
+        where: { id: string };
+        data: {
+          posts: {
+            upsert: {
+              where: { id: string };
+              create: { id: string; title: string; authorId: string };
+              update: { title?: string };
+            };
+          };
+        };
+      }>().not.toMatchTypeOf<UpdateArgsInput>();
+    });
+
+    test("runtime: rejects unsupported nested update operation", () => {
       const result = parse(schema, {
         where: { id: "author-1" },
         data: {
@@ -347,10 +604,10 @@ describe("Deeply Nested Updates", () => {
           },
         },
       });
-      expect(result.issues).toBeUndefined();
+      expect(result.issues?.[0]?.message).toBe("Unknown key: update");
     });
 
-    test("runtime: accepts multiple nested update operations", () => {
+    test("runtime: rejects unsupported nested update operation arrays", () => {
       const result = parse(schema, {
         where: { id: "author-1" },
         data: {
@@ -362,28 +619,115 @@ describe("Deeply Nested Updates", () => {
           },
         },
       });
-      expect(result.issues).toBeUndefined();
+      expect(result.issues?.[0]?.message).toBe("Unknown key: update");
     });
 
-    test("output: normalizes single update to array", () => {
+    test("runtime: accepts nested createMany operation", () => {
       const result = parse(schema, {
         where: { id: "author-1" },
         data: {
           posts: {
-            update: {
-              where: { id: "post-1" },
-              data: { title: "Updated" },
+            createMany: {
+              data: [
+                { id: "post-1", title: "First", authorId: "author-1" },
+                { id: "post-2", title: "Second", authorId: "author-1" },
+              ],
+              skipDuplicates: true,
             },
           },
         },
       });
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
-        expect(Array.isArray(result.value.data.posts?.update)).toBe(true);
+        expect(nestedOutput(result.value).data.posts?.createMany?.data).toHaveLength(2);
+        expect(nestedOutput(result.value).data.posts?.createMany?.skipDuplicates).toBe(true);
       }
     });
 
-    test("runtime: accepts updateMany with filter", () => {
+    test("runtime: update createMany requires FK not derived from parent relation", () => {
+      const result = parse(relationScopedSchemas.author.args.update, {
+        where: { id: "author-1" },
+        data: {
+          posts: {
+            createMany: {
+              data: [{ id: "post-1", title: "Hello" }],
+            },
+          },
+        },
+      });
+      expect(result.issues?.[0]?.path).toEqual([
+        "data",
+        "posts",
+        "createMany",
+        "data",
+        0,
+        "categoryId",
+      ]);
+    });
+
+    test("runtime: update createMany accepts FK not derived from parent relation", () => {
+      const result = parse(relationScopedSchemas.author.args.update, {
+        where: { id: "author-1" },
+        data: {
+          posts: {
+            createMany: {
+              data: [
+                { id: "post-1", title: "Hello", categoryId: "category-1" },
+              ],
+            },
+          },
+        },
+      });
+      expect(result.issues).toBeUndefined();
+    });
+
+    test.each([
+      ["empty", {}],
+      ["missing create", { where: { id: "post-1" } }],
+      [
+        "missing where",
+        {
+          create: {
+            id: "post-1",
+            title: "Hello",
+            authorId: "author-1",
+          },
+        },
+      ],
+    ] as const)(
+      "runtime: rejects nested update connectOrCreate envelope %s",
+      (_, envelope) => {
+        const result = parse(schema, {
+          where: { id: "author-1" },
+          data: {
+            posts: {
+              connectOrCreate: envelope,
+            },
+          },
+        });
+        expect(result.issues).toBeDefined();
+      }
+    );
+
+    test("runtime: rejects nested createMany without data", () => {
+      const result = parse(schema, {
+        where: { id: "author-1" },
+        data: {
+          posts: {
+            createMany: {},
+          },
+        },
+      });
+      expect(result.issues?.[0]?.message).toBe("Missing required field: data");
+      expect(result.issues?.[0]?.path).toEqual([
+        "data",
+        "posts",
+        "createMany",
+        "data",
+      ]);
+    });
+
+    test("runtime: rejects unsupported updateMany operation", () => {
       const result = parse(schema, {
         where: { id: "author-1" },
         data: {
@@ -395,44 +739,10 @@ describe("Deeply Nested Updates", () => {
           },
         },
       });
-      expect(result.issues).toBeUndefined();
+      expect(result.issues?.[0]?.message).toBe("Unknown key: updateMany");
     });
 
-    test("output: normalizes updateMany to array", () => {
-      const result = parse(schema, {
-        where: { id: "author-1" },
-        data: {
-          posts: {
-            updateMany: {
-              where: { published: false },
-              data: { published: true },
-            },
-          },
-        },
-      });
-      expect(result.issues).toBeUndefined();
-      if (!result.issues) {
-        expect(Array.isArray(result.value.data.posts?.updateMany)).toBe(true);
-      }
-    });
-
-    test("runtime: accepts upsert operation", () => {
-      const result = parse(schema, {
-        where: { id: "author-1" },
-        data: {
-          posts: {
-            upsert: {
-              where: { id: "post-1" },
-              create: { id: "post-1", title: "New Post", authorId: "author-1" },
-              update: { title: "Updated Post" },
-            },
-          },
-        },
-      });
-      expect(result.issues).toBeUndefined();
-    });
-
-    test("output: normalizes upsert to array", () => {
+    test("runtime: rejects unsupported upsert operation", () => {
       const result = parse(schema, {
         where: { id: "author-1" },
         data: {
@@ -445,13 +755,10 @@ describe("Deeply Nested Updates", () => {
           },
         },
       });
-      expect(result.issues).toBeUndefined();
-      if (!result.issues) {
-        expect(Array.isArray(result.value.data.posts?.upsert)).toBe(true);
-      }
+      expect(result.issues?.[0]?.message).toBe("Unknown key: upsert");
     });
 
-    test("runtime: accepts deleteMany operation", () => {
+    test("runtime: rejects unsupported deleteMany operation", () => {
       const result = parse(schema, {
         where: { id: "author-1" },
         data: {
@@ -460,37 +767,21 @@ describe("Deeply Nested Updates", () => {
           },
         },
       });
-      expect(result.issues).toBeUndefined();
+      expect(result.issues?.[0]?.message).toBe("Unknown key: deleteMany");
     });
 
-    test("output: normalizes deleteMany to array", () => {
-      const result = parse(schema, {
-        where: { id: "author-1" },
-        data: {
-          posts: {
-            deleteMany: { published: false },
-          },
-        },
-      });
-      expect(result.issues).toBeUndefined();
-      if (!result.issues) {
-        expect(Array.isArray(result.value.data.posts?.deleteMany)).toBe(true);
-      }
-    });
-
-    test("runtime: accepts combined nested operations", () => {
+    test("runtime: rejects unsupported operation in combined nested writes", () => {
       const result = parse(schema, {
         where: { id: "author-1" },
         data: {
           name: "Alice Updated",
           posts: {
             create: { id: "new-post", title: "New", authorId: "author-1" },
-            update: { where: { id: "post-1" }, data: { title: "Updated" } },
             deleteMany: { published: false },
           },
         },
       });
-      expect(result.issues).toBeUndefined();
+      expect(result.issues?.[0]?.message).toBe("Unknown key: deleteMany");
     });
 
     test("output: preserves combined operations structure", () => {
@@ -506,9 +797,9 @@ describe("Deeply Nested Updates", () => {
       });
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
-        expect(Array.isArray(result.value.data.posts?.create)).toBe(true);
-        expect(Array.isArray(result.value.data.posts?.connect)).toBe(true);
-        expect(Array.isArray(result.value.data.posts?.disconnect)).toBe(true);
+        expect(Array.isArray(nestedOutput(result.value).data.posts?.create)).toBe(true);
+        expect(Array.isArray(nestedOutput(result.value).data.posts?.connect)).toBe(true);
+        expect(Array.isArray(nestedOutput(result.value).data.posts?.disconnect)).toBe(true);
       }
     });
   });
@@ -521,6 +812,36 @@ describe("Deeply Nested Updates", () => {
 describe("Complex Combined Queries", () => {
   describe("findMany with everything", () => {
     const schema = authorSchemas.args.findMany;
+
+    test("runtime: validates nested include args against target model", () => {
+      const result = parse(schema, {
+        include: {
+          posts: {
+            where: { title: { contains: "Hello" } },
+            orderBy: { title: "asc" },
+            select: {
+              id: true,
+              title: true,
+              author: {
+                select: { id: true },
+              },
+            },
+          },
+        },
+      });
+      expect(result.issues).toBeUndefined();
+    });
+
+    test("runtime: rejects nested include args for non-target fields", () => {
+      const result = parse(schema, {
+        include: {
+          posts: {
+            where: { name: "Alice" },
+          },
+        },
+      });
+      expect(result.issues).toBeDefined();
+    });
 
     test("runtime: accepts complex findMany with all options", () => {
       const result = parse(schema, {
@@ -561,9 +882,9 @@ describe("Complex Combined Queries", () => {
       });
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
-        expect(result.value.take).toBe(10);
-        expect(result.value.include?.posts?.take).toBe(3);
-        expect(result.value.include?.posts?.orderBy).toEqual({ title: "asc" });
+        expect(nestedOutput(result.value).take).toBe(10);
+        expect(nestedOutput(result.value).include?.posts?.take).toBe(3);
+        expect(nestedOutput(result.value).include?.posts?.orderBy).toEqual({ title: "asc" });
       }
     });
   });
@@ -571,7 +892,7 @@ describe("Complex Combined Queries", () => {
   describe("upsert with nested operations", () => {
     const schema = authorSchemas.args.upsert;
 
-    test("runtime: accepts upsert with nested creates in both branches", () => {
+    test("runtime: accepts upsert with executable nested writes in both branches", () => {
       const result = parse(schema, {
         where: { id: "author-1" },
         create: {
@@ -588,10 +909,7 @@ describe("Complex Combined Queries", () => {
           name: "Alice Updated",
           posts: {
             create: { id: "post-3", title: "Third", authorId: "author-1" },
-            update: {
-              where: { id: "post-1" },
-              data: { title: "Updated First" },
-            },
+            set: { id: "post-1" },
           },
         },
       });
@@ -617,8 +935,8 @@ describe("Complex Combined Queries", () => {
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
         // Both should be normalized to arrays
-        expect(Array.isArray(result.value.create.posts?.create)).toBe(true);
-        expect(Array.isArray(result.value.update.posts?.create)).toBe(true);
+        expect(Array.isArray(nestedOutput(result.value).create.posts?.create)).toBe(true);
+        expect(Array.isArray(nestedOutput(result.value).update.posts?.create)).toBe(true);
       }
     });
   });

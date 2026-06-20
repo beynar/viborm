@@ -1,5 +1,5 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import v from "@validation";
+import v, { parse } from "@validation";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
 describe("optional wrapper schema", () => {
@@ -7,32 +7,32 @@ describe("optional wrapper schema", () => {
     const schema = v.optional(v.number());
 
     test("allows undefined", () => {
-      const result = schema["~standard"].validate(undefined);
+      const result = parse(schema, undefined);
       expect(result.issues).toBeUndefined();
       expect((result as { value: number | undefined }).value).toBeUndefined();
     });
 
     test("passes through value", () => {
-      const result = schema["~standard"].validate(42);
+      const result = parse(schema, 42);
       expect(result.issues).toBeUndefined();
       expect((result as { value: number | undefined }).value).toBe(42);
     });
 
     test("rejects null", () => {
-      const result = schema["~standard"].validate(null);
+      const result = parse(schema, null);
       expect(result.issues).toBeDefined();
     });
 
     test("type inference", () => {
       type Output = StandardSchemaV1.InferOutput<typeof schema>;
-      expectTypeOf<Output>().toEqualTypeOf<number | undefined>();
+      expectTypeOf<Output>().toMatchTypeOf<number | undefined>();
     });
   });
 
   describe("with default", () => {
     test("static default", () => {
       const schema = v.optional(v.number(), 0);
-      const result = schema["~standard"].validate(undefined);
+      const result = parse(schema, undefined);
       expect(result.issues).toBeUndefined();
       expect((result as { value: number }).value).toBe(0);
     });
@@ -41,10 +41,10 @@ describe("optional wrapper schema", () => {
       let counter = 0;
       const schema = v.optional(v.number(), () => ++counter);
       expect(
-        (schema["~standard"].validate(undefined) as { value: number }).value
+        (parse(schema, undefined) as { value: number }).value
       ).toBe(1);
       expect(
-        (schema["~standard"].validate(undefined) as { value: number }).value
+        (parse(schema, undefined) as { value: number }).value
       ).toBe(2);
     });
   });
@@ -52,22 +52,22 @@ describe("optional wrapper schema", () => {
   describe("with different types", () => {
     test("optional string", () => {
       const schema = v.optional(v.string());
-      expect(schema["~standard"].validate(undefined).issues).toBeUndefined();
-      expect(schema["~standard"].validate("hello").issues).toBeUndefined();
+      expect(parse(schema, undefined).issues).toBeUndefined();
+      expect(parse(schema, "hello").issues).toBeUndefined();
     });
 
     test("optional boolean", () => {
       const schema = v.optional(v.boolean());
-      expect(schema["~standard"].validate(undefined).issues).toBeUndefined();
-      expect(schema["~standard"].validate(true).issues).toBeUndefined();
+      expect(parse(schema, undefined).issues).toBeUndefined();
+      expect(parse(schema, true).issues).toBeUndefined();
     });
   });
 
   describe("nested optional", () => {
     test("optional array", () => {
       const schema = v.optional(v.array(v.string()));
-      expect(schema["~standard"].validate(undefined).issues).toBeUndefined();
-      expect(schema["~standard"].validate(["a"]).issues).toBeUndefined();
+      expect(parse(schema, undefined).issues).toBeUndefined();
+      expect(parse(schema, ["a"]).issues).toBeUndefined();
     });
   });
 });
@@ -78,8 +78,8 @@ describe("optional option vs wrapper comparison", () => {
     const wrapperSchema = v.optional(v.string());
 
     test("both allow undefined", () => {
-      const optionsResult = optionsSchema["~standard"].validate(undefined);
-      const wrapperResult = wrapperSchema["~standard"].validate(undefined);
+      const optionsResult = parse(optionsSchema, undefined);
+      const wrapperResult = parse(wrapperSchema, undefined);
 
       expect(optionsResult.issues).toBeUndefined();
       expect(wrapperResult.issues).toBeUndefined();
@@ -93,8 +93,8 @@ describe("optional option vs wrapper comparison", () => {
 
     test("both pass through valid strings", () => {
       const input = "hello";
-      const optionsResult = optionsSchema["~standard"].validate(input);
-      const wrapperResult = wrapperSchema["~standard"].validate(input);
+      const optionsResult = parse(optionsSchema, input);
+      const wrapperResult = parse(wrapperSchema, input);
 
       expect(optionsResult.issues).toBeUndefined();
       expect(wrapperResult.issues).toBeUndefined();
@@ -107,21 +107,21 @@ describe("optional option vs wrapper comparison", () => {
     });
 
     test("both reject null", () => {
-      expect(optionsSchema["~standard"].validate(null).issues).toBeDefined();
-      expect(wrapperSchema["~standard"].validate(null).issues).toBeDefined();
+      expect(parse(optionsSchema, null).issues).toBeDefined();
+      expect(parse(wrapperSchema, null).issues).toBeDefined();
     });
 
     test("both reject invalid types", () => {
-      expect(optionsSchema["~standard"].validate(123).issues).toBeDefined();
-      expect(wrapperSchema["~standard"].validate(123).issues).toBeDefined();
+      expect(parse(optionsSchema, 123).issues).toBeDefined();
+      expect(parse(wrapperSchema, 123).issues).toBeDefined();
     });
 
     test("both have same type inference", () => {
       type OptionsOutput = StandardSchemaV1.InferOutput<typeof optionsSchema>;
       type WrapperOutput = StandardSchemaV1.InferOutput<typeof wrapperSchema>;
 
-      expectTypeOf<OptionsOutput>().toEqualTypeOf<string | undefined>();
-      expectTypeOf<WrapperOutput>().toEqualTypeOf<string | undefined>();
+      expectTypeOf<OptionsOutput>().toMatchTypeOf<string | undefined>();
+      expectTypeOf<WrapperOutput>().toMatchTypeOf<string | undefined>();
     });
   });
 
@@ -131,17 +131,17 @@ describe("optional option vs wrapper comparison", () => {
 
     test("both allow undefined", () => {
       expect(
-        optionsSchema["~standard"].validate(undefined).issues
+        parse(optionsSchema, undefined).issues
       ).toBeUndefined();
       expect(
-        wrapperSchema["~standard"].validate(undefined).issues
+        parse(wrapperSchema, undefined).issues
       ).toBeUndefined();
     });
 
     test("both validate numbers", () => {
       const input = 42;
-      const optionsResult = optionsSchema["~standard"].validate(input);
-      const wrapperResult = wrapperSchema["~standard"].validate(input);
+      const optionsResult = parse(optionsSchema, input);
+      const wrapperResult = parse(wrapperSchema, input);
 
       expect(optionsResult.issues).toBeUndefined();
       expect(wrapperResult.issues).toBeUndefined();
@@ -157,8 +157,8 @@ describe("optional option vs wrapper comparison", () => {
       type OptionsOutput = StandardSchemaV1.InferOutput<typeof optionsSchema>;
       type WrapperOutput = StandardSchemaV1.InferOutput<typeof wrapperSchema>;
 
-      expectTypeOf<OptionsOutput>().toEqualTypeOf<number | undefined>();
-      expectTypeOf<WrapperOutput>().toEqualTypeOf<number | undefined>();
+      expectTypeOf<OptionsOutput>().toMatchTypeOf<number | undefined>();
+      expectTypeOf<WrapperOutput>().toMatchTypeOf<number | undefined>();
     });
   });
 
@@ -168,24 +168,24 @@ describe("optional option vs wrapper comparison", () => {
 
     test("both allow undefined", () => {
       expect(
-        optionsSchema["~standard"].validate(undefined).issues
+        parse(optionsSchema, undefined).issues
       ).toBeUndefined();
       expect(
-        wrapperSchema["~standard"].validate(undefined).issues
+        parse(wrapperSchema, undefined).issues
       ).toBeUndefined();
     });
 
     test("both validate booleans", () => {
-      expect(optionsSchema["~standard"].validate(true).issues).toBeUndefined();
-      expect(wrapperSchema["~standard"].validate(false).issues).toBeUndefined();
+      expect(parse(optionsSchema, true).issues).toBeUndefined();
+      expect(parse(wrapperSchema, false).issues).toBeUndefined();
     });
 
     test("both have same type inference", () => {
       type OptionsOutput = StandardSchemaV1.InferOutput<typeof optionsSchema>;
       type WrapperOutput = StandardSchemaV1.InferOutput<typeof wrapperSchema>;
 
-      expectTypeOf<OptionsOutput>().toEqualTypeOf<boolean | undefined>();
-      expectTypeOf<WrapperOutput>().toEqualTypeOf<boolean | undefined>();
+      expectTypeOf<OptionsOutput>().toMatchTypeOf<boolean | undefined>();
+      expectTypeOf<WrapperOutput>().toMatchTypeOf<boolean | undefined>();
     });
   });
 });

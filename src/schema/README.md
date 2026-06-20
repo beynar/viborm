@@ -75,7 +75,7 @@ const post = s.model({
 | **Zero Generation** | Types are inferred from schema, no codegen step required |
 | **Single State Generic** | Each class uses one `State` generic for future-proofing |
 | **Chainable API** | All modifiers return new instances, enabling fluent definitions |
-| **Dual Schemas** | TypeScript types + ArkType runtime schemas stay in sync |
+| **Registry Validation** | Schema state feeds `SchemaRegistry` operation validation |
 | **Database Agnostic** | Core abstractions work across PostgreSQL, MySQL, and SQLite |
 
 ---
@@ -601,55 +601,48 @@ const result = validator.validate();
 
 ## Runtime Schemas
 
-The schema module generates ArkType schemas for runtime validation.
+The schema module owns database structure and base field schemas. Runtime operation schemas are built by `SchemaRegistry` in `src/validation/`.
 
-### ArkType Integration
+### Field Base Schemas
 
-Each field generates four schemas:
+Each field stores its base value schema in state:
 
 | Schema | Purpose |
 |--------|---------|
 | `base` | The base value type |
-| `filter` | Where clause filter object |
-| `create` | Create input (handles defaults) |
-| `update` | Update input (set, increment, etc.) |
 
 ```ts
-// Access field schemas
-const { base, filter, create, update } = s.string().nullable().schemas;
+// Access the base field schema
+const base = s.string().nullable()["~"].state.base;
 
 // Validate at runtime
-const result = create("hello");
-if (result instanceof ArkErrors) {
-  console.error(result.summary);
+const result = base["~standard"].validate("hello");
+if ("issues" in result) {
+  console.error(result.issues);
 }
 ```
 
-### Schema Building
+### Operation Schema Building
 
-Model schemas are lazily computed on first access:
+Operation schemas are built from full model graph context:
 
 ```ts
-// Access model schemas
-const schemas = user["~"].schemas;
+import { createSchemaRegistry } from "@validation";
+
+const registry = createSchemaRegistry({ user });
+const schemas = registry.proxy.user;
 
 // Available schemas:
-schemas.base         // { id: string; email: string; ... }
-schemas.create       // With required/optional handling
-schemas.update       // All fields optional + operations
-schemas.where        // Full filter object
-schemas.whereUnique  // id | email | compound_key
-schemas.orderBy      // { id?: "asc" | "desc"; ... }
+schemas.core.create       // With required/optional handling
+schemas.core.update       // All fields optional + operations
+schemas.core.where        // Full filter object
+schemas.core.whereUnique  // id | email | compound_key
+schemas.core.orderBy      // { id?: "asc" | "desc"; ... }
+schemas.args.findMany     // Operation args
+schemas.args.create       // Operation args with nested relation creates
 ```
 
-Runtime schema builders are in `model/runtime/`:
-
-```ts
-import { buildModelSchemas } from "./runtime";
-
-const schemas = buildModelSchemas(userModel);
-// Returns typed schemas for all operations
-```
+The registry owns `filter`, `create`, `update`, relation, and model args schemas. The client/query-engine use it for operation validation.
 
 ---
 
@@ -663,7 +656,7 @@ The `~` property exposes internal state for ORM machinery. It's not part of the 
 const field = s.string().nullable().id();
 
 field["~"].state        // FieldState object
-field["~"].schemas      // ArkType schemas
+field["~"].state.base   // Base field schema
 field["~"].nativeType   // Optional native DB type
 ```
 
@@ -679,7 +672,6 @@ model["~"].tableName     // "users"
 model["~"].indexes       // IndexDefinition[]
 model["~"].compoundId    // { fields: [...], name?: string } | undefined
 model["~"].compoundUniques // CompoundConstraint[]
-model["~"].schemas       // Lazily built ArkType schemas
 model["~"].infer         // Phantom type for inference
 ```
 

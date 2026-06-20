@@ -16,10 +16,10 @@ import {
   defaultUlid,
   defaultUuid,
 } from "./autogenerate";
-import { buildStringSchema, type StringSchemas, stringBase } from "./schemas";
+
+const stringBase = v.string();
 
 export class StringField<State extends FieldState<"string">> {
-  private _schemas: StringSchemas<State> | undefined;
   private readonly state: State;
   private readonly _nativeType?: NativeType | undefined;
 
@@ -176,7 +176,6 @@ export class StringField<State extends FieldState<"string">> {
   get ["~"]() {
     return {
       state: this.state,
-      schemas: (this._schemas ??= buildStringSchema(this.state)),
       nativeType: this._nativeType,
     };
   }

@@ -15,9 +15,14 @@
  */
 
 import { blob } from "@schema/fields/blob/field";
-import type { InferBlobInput } from "@schema/fields/blob/schemas";
-import { parse } from "@validation";
+import { type InferInput, parse } from "@validation";
+import { type GetScalarSchemas, getScalarSchemas } from "@validation/scalars";
+import type { FieldState } from "@schema/fields/common";
 import { describe, expect, expectTypeOf, test } from "vitest";
+
+type InferFieldInput<State extends FieldState, Key extends keyof GetScalarSchemas<State>> =
+  InferInput<GetScalarSchemas<State>[Key]>;
+type InferBlobInput<State extends FieldState<"blob">, Key extends keyof GetScalarSchemas<State>> = InferFieldInput<State, Key>;
 
 // Test data
 const testData1 = new Uint8Array([1, 2, 3, 4]);
@@ -32,7 +37,7 @@ const emptyData = new Uint8Array([]);
 describe("Raw Blob Field", () => {
   const field = blob();
   type State = (typeof field)["~"]["state"];
-  const schemas = field["~"].schemas;
+  const schemas = getScalarSchemas(field["~"].state);
 
   describe("base", () => {
     test("type: base accepts Uint8Array or Buffer", () => {
@@ -192,7 +197,7 @@ describe("Raw Blob Field", () => {
 describe("Nullable Blob Field", () => {
   const field = blob().nullable();
   type State = (typeof field)["~"]["state"];
-  const schemas = field["~"].schemas;
+  const schemas = getScalarSchemas(field["~"].state);
 
   describe("base", () => {
     test("type: base accepts Uint8Array, Buffer, or null", () => {
@@ -332,7 +337,7 @@ describe("Default Value Behavior", () => {
     const defaultData = new Uint8Array([0xde, 0xad, 0xbe, 0xef]);
     const field = blob().default(defaultData);
     type State = (typeof field)["~"]["state"];
-    const schemas = field["~"].schemas;
+    const schemas = getScalarSchemas(field["~"].state);
 
     test("type: create is optional", () => {
       type Create = InferBlobInput<State, "create">;
@@ -359,7 +364,7 @@ describe("Default Value Behavior", () => {
       callCount++;
       return new Uint8Array([callCount]);
     });
-    const schemas = field["~"].schemas;
+    const schemas = getScalarSchemas(field["~"].state);
 
     test("type: create is optional", () => {
       type State = (typeof field)["~"]["state"];

@@ -5,6 +5,7 @@
  * It tests various field types via parent-child relationships.
  */
 
+import type { BatchPayload } from "@client/exports";
 import { createClient as PGliteCreateClient } from "@drivers/pglite";
 import { push } from "@migrations";
 import { s } from "@schema";
@@ -121,6 +122,191 @@ afterAll(async () => {
 // =============================================================================
 
 describe("Relation Types Integration Test", () => {
+  test("type: nested child create can omit parent-derived FK", () => {
+    type ParentCreateArgs = Parameters<typeof client.parentModel.create>[0];
+
+    expectTypeOf<{
+      data: {
+        id: string;
+        stringRequired: string;
+        stringArray: string[];
+        intRequired: number;
+        floatRequired: number;
+        decimalRequired: number;
+        booleanRequired: boolean;
+        bigintRequired: bigint;
+        datetimeRequired: Date;
+        dateRequired: Date;
+        timeRequired: string;
+        jsonRequired: { name: string; value: number };
+        status: "ACTIVE";
+        children: {
+          create: {
+            id: string;
+            name: string;
+            value: number;
+            isActive: boolean;
+            createdAt: Date;
+          };
+        };
+      };
+    }>().toMatchTypeOf<ParentCreateArgs>();
+  });
+
+  test("type: direct child create requires FK unless relation data provides it", () => {
+    type ChildCreateArgs = Parameters<typeof client.childModel.create>[0];
+
+    expectTypeOf<{
+      data: {
+        id: string;
+        name: string;
+        value: number;
+        isActive: boolean;
+        createdAt: Date;
+      };
+    }>().not.toMatchTypeOf({} as ChildCreateArgs);
+
+    expectTypeOf<{
+      data: {
+        id: string;
+        name: string;
+        value: number;
+        isActive: boolean;
+        createdAt: Date;
+        parent: { connect: { id: string } };
+      };
+    }>().toMatchTypeOf<ChildCreateArgs>();
+  });
+
+  test("type: client update rejects unsupported nested to-many update operations", () => {
+    type ParentUpdateArgs = Parameters<typeof client.parentModel.update>[0];
+
+    expectTypeOf<{
+      where: { id: string };
+      data: {
+        children: {
+          update: { where: { id: string }; data: { name?: string } };
+        };
+      };
+    }>().not.toMatchTypeOf<ParentUpdateArgs>();
+    expectTypeOf<{
+      where: { id: string };
+      data: {
+        children: {
+          updateMany: { where: { isActive?: boolean }; data: { name?: string } };
+        };
+      };
+    }>().not.toMatchTypeOf<ParentUpdateArgs>();
+    expectTypeOf<{
+      where: { id: string };
+      data: {
+        children: {
+          deleteMany: { isActive?: boolean };
+        };
+      };
+    }>().not.toMatchTypeOf<ParentUpdateArgs>();
+    expectTypeOf<{
+      where: { id: string };
+      data: {
+        children: {
+          upsert: {
+            where: { id: string };
+            create: {
+              id: string;
+              name: string;
+              value: number;
+              isActive: boolean;
+              createdAt: Date;
+              parentId: string;
+            };
+            update: { name?: string };
+          };
+        };
+      };
+    }>().not.toMatchTypeOf<ParentUpdateArgs>();
+  });
+
+  test("type: client upsert rejects unsupported nested mutation keys in update branch", () => {
+    type ParentUpsertArgs = Parameters<typeof client.parentModel.upsert>[0];
+
+    expectTypeOf<{
+      where: { id: string };
+      create: {
+        id: string;
+        stringRequired: string;
+        stringArray: string[];
+        intRequired: number;
+        floatRequired: number;
+        decimalRequired: number;
+        booleanRequired: boolean;
+        bigintRequired: bigint;
+        datetimeRequired: Date;
+        dateRequired: Date;
+        timeRequired: string;
+        jsonRequired: { name: string; value: number };
+        status: "ACTIVE";
+      };
+      update: {
+        children: {
+          update: { where: { id: string }; data: { name?: string } };
+        };
+      };
+    }>().not.toMatchTypeOf<ParentUpsertArgs>();
+  });
+
+  test("type: client createMany rejects relation mutation envelopes", () => {
+    type ParentCreateManyArgs = Parameters<typeof client.parentModel.createMany>[0];
+    type ParentCreateManyItem = ParentCreateManyArgs["data"][number];
+
+    expectTypeOf<ParentCreateManyItem>().not.toHaveProperty("children");
+  });
+
+  test("type: createMany accepts scalar data and returns BatchPayload", () => {
+    type ParentCreateManyArgs = Parameters<typeof client.parentModel.createMany>[0];
+    type ParentCreateManyResult = Awaited<
+      ReturnType<typeof client.parentModel.createMany>
+    >;
+
+    expectTypeOf<{
+      data: Array<{
+        id: string;
+        stringRequired: string;
+        stringArray: string[];
+        intRequired: number;
+        floatRequired: number;
+        decimalRequired: number;
+        booleanRequired: boolean;
+        bigintRequired: bigint;
+        datetimeRequired: Date;
+        dateRequired: Date;
+        timeRequired: string;
+        jsonRequired: { name: string; value: number };
+        status: "ACTIVE";
+      }>;
+    }>().toMatchTypeOf<ParentCreateManyArgs>();
+    expectTypeOf<ParentCreateManyResult>().toEqualTypeOf<BatchPayload>();
+  });
+
+  test("type: createMany rejects select and include", () => {
+    type ParentCreateManyArgs = Parameters<typeof client.parentModel.createMany>[0];
+
+    expectTypeOf<ParentCreateManyArgs>().not.toHaveProperty("select");
+    expectTypeOf<ParentCreateManyArgs>().not.toHaveProperty("include");
+  });
+
+  test("type: groupBy by accepts only scalar keys", () => {
+    type ParentGroupByArgs = Parameters<typeof client.parentModel.groupBy>[0];
+
+    expectTypeOf<{ by: "status" }>().toMatchTypeOf<ParentGroupByArgs>();
+    expectTypeOf<{ by: ["status", "booleanRequired"] }>().toMatchTypeOf<
+      ParentGroupByArgs
+    >();
+    expectTypeOf<{ by: "children" }>().not.toMatchTypeOf<ParentGroupByArgs>();
+    expectTypeOf<{ by: ["status", "children"] }>().not.toMatchTypeOf<
+      ParentGroupByArgs
+    >();
+  });
+
   test("oneToMany relation returns correctly typed children", async () => {
     // Create parent with all field types
     const parent = await client.parentModel.create({

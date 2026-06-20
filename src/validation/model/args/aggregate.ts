@@ -3,12 +3,11 @@
 import type {
   NumericFieldKeys,
   ScalarFieldKeys,
-  StringKeyOf,
 } from "@schema/model/helper";
+import type { AnyModel } from "@schema/model";
 import v, { type V } from "@validation";
-import type { ModelState } from "../../model";
+import type { FieldSchemas } from "../index";
 import type { CoreSchemas } from "../core";
-import { forEachScalarField } from "../utils";
 
 // =============================================================================
 // AGGREGATE FIELD SCHEMAS
@@ -26,34 +25,41 @@ type OptionalBoolean = V.Boolean<{ optional: true }>;
 /**
  * Count keys include "_all" plus all scalar field names
  */
-export type CountFieldKeys<T extends ModelState> =
+type ModelStateOf<M extends AnyModel> = M["~"]["state"];
+
+export type CountFieldKeys<M extends AnyModel> =
   | "_all"
-  | ScalarFieldKeys<T["scalars"]>;
+  | ScalarFieldKeys<ModelStateOf<M>["scalars"]>;
 
 /**
  * Aggregate field schemas with proper typing
  */
-export type AggregateFieldSchemas<T extends ModelState> = {
+export type AggregateFieldSchemas<M extends AnyModel> = {
   /** Count can include _all and any scalar field */
-  count: V.FromKeys<CountFieldKeys<T>[], OptionalBoolean>;
+  count: V.FromKeys<CountFieldKeys<M>[], OptionalBoolean>;
   /** Avg only works on numeric fields */
-  avg: V.FromKeys<NumericFieldKeys<T["scalars"]>[], OptionalBoolean>;
+  avg: V.FromKeys<NumericFieldKeys<ModelStateOf<M>["scalars"]>[], OptionalBoolean>;
   /** Sum only works on numeric fields */
-  sum: V.FromKeys<NumericFieldKeys<T["scalars"]>[], OptionalBoolean>;
+  sum: V.FromKeys<NumericFieldKeys<ModelStateOf<M>["scalars"]>[], OptionalBoolean>;
   /** Min works on all comparable types (all scalars) */
-  min: V.FromKeys<ScalarFieldKeys<T["scalars"]>[], OptionalBoolean>;
+  min: V.FromKeys<ScalarFieldKeys<ModelStateOf<M>["scalars"]>[], OptionalBoolean>;
   /** Max works on all comparable types (all scalars) */
-  max: V.FromKeys<ScalarFieldKeys<T["scalars"]>[], OptionalBoolean>;
+  max: V.FromKeys<ScalarFieldKeys<ModelStateOf<M>["scalars"]>[], OptionalBoolean>;
 };
 
-export const getAggregateFieldSchemas = <T extends ModelState>(
-  state: T
-): AggregateFieldSchemas<T> => {
+export const getAggregateFieldSchemas = <M extends AnyModel>(
+  model: M,
+): AggregateFieldSchemas<M> => {
+  const state = model["~"].state;
   const countKeys: string[] = ["_all"];
   const numericKeys: string[] = [];
   const minMaxKeys: string[] = [];
 
-  forEachScalarField(state, (name, field) => {
+  for (const name of Object.keys(state.scalars)) {
+    const field = state.scalars[name];
+    if (!field) {
+      continue;
+    }
     const fieldType = field["~"].state.type;
 
     // Count can include all fields
@@ -66,7 +72,7 @@ export const getAggregateFieldSchemas = <T extends ModelState>(
 
     // Min/Max for all comparable types
     minMaxKeys.push(name);
-  });
+  }
 
   const booleanOptional = v.boolean({ optional: true });
 
@@ -76,7 +82,7 @@ export const getAggregateFieldSchemas = <T extends ModelState>(
     sum: v.fromKeys(numericKeys, booleanOptional),
     min: v.fromKeys(minMaxKeys, booleanOptional),
     max: v.fromKeys(minMaxKeys, booleanOptional),
-  } as AggregateFieldSchemas<T>;
+  } as AggregateFieldSchemas<M>;
 };
 
 // =============================================================================
@@ -91,22 +97,28 @@ export const getAggregateFieldSchemas = <T extends ModelState>(
  * - skip: skip number of records
  * - select: which fields to count (including _all for total count)
  */
-export type CountArgs<T extends ModelState> = V.Object<
+export type CountArgs<
+  M extends AnyModel,
+  F extends FieldSchemas<M>,
+> = V.Object<
   {
-    where: CoreSchemas<T>["where"];
-    cursor: CoreSchemas<T>["whereUnique"];
+    where: CoreSchemas<M, F>["where"];
+    cursor: CoreSchemas<M, F>["whereUnique"];
     take: V.Number;
     skip: V.Number;
-    select: AggregateFieldSchemas<T>["count"];
+    select: AggregateFieldSchemas<M>["count"];
   },
   { optional: true }
 >;
 
-export const getCountArgs = <T extends ModelState>(
-  state: T,
-  core: CoreSchemas<T>
-): CountArgs<T> => {
-  const aggSchemas = getAggregateFieldSchemas(state);
+export const getCountArgs = <
+  M extends AnyModel,
+  F extends FieldSchemas<M>,
+>(
+  model: M,
+  core: CoreSchemas<M, F>
+): CountArgs<M, F> => {
+  const aggSchemas = getAggregateFieldSchemas(model);
 
   return v.object(
     {
@@ -117,7 +129,7 @@ export const getCountArgs = <T extends ModelState>(
       select: aggSchemas.count,
     },
     { optional: true }
-  ) as CountArgs<T>;
+  ) as CountArgs<M, F>;
 };
 
 // =============================================================================
@@ -128,30 +140,34 @@ export const getCountArgs = <T extends ModelState>(
  * Aggregate args: { where?, orderBy?, cursor?, take?, skip?, _count?, _avg?, _sum?, _min?, _max? }
  */
 
-export type AggregateArgs<T extends ModelState> = V.Object<{
-  where: CoreSchemas<T>["where"];
+export type AggregateArgs<
+  M extends AnyModel,
+  F extends FieldSchemas<M>,
+> = V.Object<{
+  where: CoreSchemas<M, F>["where"];
   orderBy: V.Union<
-    readonly [CoreSchemas<T>["orderBy"], V.Array<CoreSchemas<T>["orderBy"]>]
+    readonly [CoreSchemas<M, F>["orderBy"], V.Array<CoreSchemas<M, F>["orderBy"]>]
   >;
-  cursor: CoreSchemas<T>["whereUnique"];
+  cursor: CoreSchemas<M, F>["whereUnique"];
   take: V.Number;
   skip: V.Number;
   _count: V.Union<
-    readonly [V.Literal<true>, AggregateFieldSchemas<T>["count"]]
+    readonly [V.Literal<true>, AggregateFieldSchemas<M>["count"]]
   >;
-  _avg: AggregateFieldSchemas<T>["avg"];
-  _sum: AggregateFieldSchemas<T>["sum"];
-  _min: AggregateFieldSchemas<T>["min"];
-  _max: AggregateFieldSchemas<T>["max"];
+  _avg: AggregateFieldSchemas<M>["avg"];
+  _sum: AggregateFieldSchemas<M>["sum"];
+  _min: AggregateFieldSchemas<M>["min"];
+  _max: AggregateFieldSchemas<M>["max"];
 }>;
 export const getAggregateArgs = <
-  T extends ModelState,
-  C extends CoreSchemas<T> = CoreSchemas<T>,
+  M extends AnyModel,
+  F extends FieldSchemas<M>,
+  C extends CoreSchemas<M, F> = CoreSchemas<M, F>,
 >(
-  state: T,
+  model: M,
   core: C
-): AggregateArgs<T> => {
-  const aggSchemas = getAggregateFieldSchemas(state);
+): AggregateArgs<M, F> => {
+  const aggSchemas = getAggregateFieldSchemas(model);
 
   return v.object({
     where: core.where,
@@ -164,7 +180,7 @@ export const getAggregateArgs = <
     _sum: aggSchemas.sum,
     _min: aggSchemas.min,
     _max: aggSchemas.max,
-  }) as AggregateArgs<T>;
+  }) as AggregateArgs<M, F>;
 };
 
 // =============================================================================
@@ -205,19 +221,23 @@ export type HavingAggregateFieldSchema = V.Object<
   { optional: true }
 >;
 
-type ScalarFilterEntries<T extends ModelState> = V.FromObject<
-  T["scalars"],
-  "~.schemas.filter"
+type ScalarFilterBundle = {
+  scalars: Record<string, { filter: V.Schema }>;
+};
+
+type ScalarFilterEntries<F extends ScalarFilterBundle> = V.FromObject<
+  F["scalars"],
+  "filter"
 >["entries"];
 
-export type HavingSchemaEntries<T extends ModelState> = {
-  [K in keyof ScalarFilterEntries<T>]: V.Union<
-    readonly [HavingAggregateFieldSchema, ScalarFilterEntries<T>[K]]
+export type HavingSchemaEntries<F extends ScalarFilterBundle> = {
+  [K in keyof ScalarFilterEntries<F>]: V.Union<
+    readonly [HavingAggregateFieldSchema, ScalarFilterEntries<F>[K]]
   >;
 };
 
-export type HavingSchema<T extends ModelState> = V.Object<
-  HavingSchemaEntries<T>,
+export type HavingSchema<F extends ScalarFilterBundle> = V.Object<
+  HavingSchemaEntries<F>,
   { optional: true }
 >;
 
@@ -244,16 +264,16 @@ const havingFieldSchema = v.object(
   { optional: true }
 );
 
-export const getHavingSchema = <T extends ModelState>(
-  state: T
-): HavingSchema<T> => {
+export const getHavingSchema = <F extends ScalarFilterBundle>(
+  fieldSchemas: F,
+): HavingSchema<F> => {
   const entries: Record<string, unknown> = {};
 
-  forEachScalarField(state, (name, field) => {
-    entries[name] = v.union([havingFieldSchema, field["~"].schemas.filter]);
-  });
+  for (const [name, schemas] of Object.entries(fieldSchemas.scalars)) {
+    entries[name] = v.union([havingFieldSchema, schemas.filter]);
+  }
 
-  return v.object(entries, { optional: true }) as HavingSchema<T>;
+  return v.object(entries, { optional: true }) as HavingSchema<F>;
 };
 
 // =============================================================================
@@ -263,43 +283,59 @@ export const getHavingSchema = <T extends ModelState>(
 /**
  * GroupBy args: { by, where?, having?, orderBy?, take?, skip?, _count?, _avg?, _sum?, _min?, _max? }
  */
-type EnumOfFields<T extends ModelState> = V.Enum<StringKeyOf<T["fields"]>[]>;
+type GroupByFieldKeys<M extends AnyModel> = ScalarFieldKeys<
+  ModelStateOf<M>["scalars"]
+>;
 
-export type GroupByArgs<T extends ModelState> = V.Object<
+type EnumOfScalarFields<M extends AnyModel> = V.Enum<GroupByFieldKeys<M>[]>;
+
+export type GroupByArgs<
+  M extends AnyModel,
+  F extends FieldSchemas<M>,
+> = V.Object<
   {
-    by: V.Union<readonly [EnumOfFields<T>, V.Array<EnumOfFields<T>>]>;
-    where: CoreSchemas<T>["where"];
-    having: HavingSchema<T>;
+    by: V.Union<
+      readonly [EnumOfScalarFields<M>, V.Array<EnumOfScalarFields<M>>]
+    >;
+    where: CoreSchemas<M, F>["where"];
+    having: HavingSchema<F>;
     orderBy: V.Union<
-      readonly [CoreSchemas<T>["orderBy"], V.Array<CoreSchemas<T>["orderBy"]>]
+      readonly [CoreSchemas<M, F>["orderBy"], V.Array<CoreSchemas<M, F>["orderBy"]>]
     >;
     take: V.Number;
     skip: V.Number;
     _count: V.Union<
-      readonly [V.Literal<true>, AggregateFieldSchemas<T>["count"]]
+      readonly [V.Literal<true>, AggregateFieldSchemas<M>["count"]]
     >;
-    _avg: AggregateFieldSchemas<T>["avg"];
-    _sum: AggregateFieldSchemas<T>["sum"];
-    _min: AggregateFieldSchemas<T>["min"];
-    _max: AggregateFieldSchemas<T>["max"];
+    _avg: AggregateFieldSchemas<M>["avg"];
+    _sum: AggregateFieldSchemas<M>["sum"];
+    _min: AggregateFieldSchemas<M>["min"];
+    _max: AggregateFieldSchemas<M>["max"];
   },
   {
     atLeast: ["by"];
   }
 >;
 
-export const getGroupByArgs = <T extends ModelState>(
-  state: T,
-  core: CoreSchemas<T>
-): GroupByArgs<T> => {
+export const getGroupByArgs = <
+  M extends AnyModel,
+  F extends FieldSchemas<M>,
+>(
+  model: M,
+  fieldSchemas: F,
+  core: CoreSchemas<M, F>
+): GroupByArgs<M, F> => {
+  const state = model["~"].state;
   // Build "by" schema - array of scalar field names or single field
-  const scalarKeys = Object.keys(state.scalars) as StringKeyOf<T["scalars"]>[];
+  const scalarKeys = Object.keys(state.scalars) as ScalarFieldKeys<
+    ModelStateOf<M>["scalars"]
+  >[];
 
   // Use enum for field names for proper type inference
   const fieldSchema = v.enum(scalarKeys);
 
-  const aggSchemas = getAggregateFieldSchemas(state);
-  const havingSchema = getHavingSchema(state);
+  const aggSchemas = getAggregateFieldSchemas(model);
+  const havingSchema = getHavingSchema(fieldSchemas);
 
   return v.object(
     {
@@ -318,5 +354,5 @@ export const getGroupByArgs = <T extends ModelState>(
     {
       atLeast: ["by"],
     }
-  ) as GroupByArgs<T>;
+  ) as GroupByArgs<M, F>;
 };

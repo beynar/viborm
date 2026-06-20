@@ -15,9 +15,14 @@
  */
 
 import { boolean } from "@schema/fields/boolean/field";
-import type { InferBooleanInput } from "@schema/fields/boolean/schemas";
-import { parse } from "@validation";
+import { type InferInput, parse } from "@validation";
+import { type GetScalarSchemas, getScalarSchemas } from "@validation/scalars";
+import type { FieldState } from "@schema/fields/common";
 import { describe, expect, expectTypeOf, test } from "vitest";
+
+type InferFieldInput<State extends FieldState, Key extends keyof GetScalarSchemas<State>> =
+  InferInput<GetScalarSchemas<State>[Key]>;
+type InferBooleanInput<State extends FieldState<"boolean">, Key extends keyof GetScalarSchemas<State>> = InferFieldInput<State, Key>;
 
 // =============================================================================
 // RAW BOOLEAN FIELD (required, no modifiers)
@@ -26,7 +31,7 @@ import { describe, expect, expectTypeOf, test } from "vitest";
 describe("Raw Boolean Field", () => {
   const field = boolean();
   type State = (typeof field)["~"]["state"];
-  const schemas = field["~"].schemas;
+  const schemas = getScalarSchemas(field["~"].state);
 
   describe("base", () => {
     test("type: base is boolean", () => {
@@ -160,7 +165,7 @@ describe("Raw Boolean Field", () => {
 describe("Nullable Boolean Field", () => {
   const field = boolean().nullable();
   type State = (typeof field)["~"]["state"];
-  const schemas = field["~"].schemas;
+  const schemas = getScalarSchemas(field["~"].state);
 
   describe("base", () => {
     test("type: base is boolean | null", () => {
@@ -281,7 +286,7 @@ describe("Nullable Boolean Field", () => {
 describe("List Boolean Field", () => {
   const field = boolean().array();
   type State = (typeof field)["~"]["state"];
-  const schemas = field["~"].schemas;
+  const schemas = getScalarSchemas(field["~"].state);
 
   describe("base", () => {
     test("type: base is boolean[]", () => {
@@ -408,7 +413,7 @@ describe("List Boolean Field", () => {
 describe("Nullable List Boolean Field", () => {
   const field = boolean().array().nullable();
   type State = (typeof field)["~"]["state"];
-  const schemas = field["~"].schemas;
+  const schemas = getScalarSchemas(field["~"].state);
 
   describe("base", () => {
     test("type: base is boolean[] | null", () => {
@@ -519,7 +524,7 @@ describe("Default Value Behavior", () => {
   describe("static default value", () => {
     const field = boolean().default(true);
     type State = (typeof field)["~"]["state"];
-    const schemas = field["~"].schemas;
+    const schemas = getScalarSchemas(field["~"].state);
 
     test("type: create is optional", () => {
       type Create = InferBooleanInput<State, "create">;
@@ -545,7 +550,7 @@ describe("Default Value Behavior", () => {
       callCount++;
       return callCount % 2 === 0;
     });
-    const schemas = field["~"].schemas;
+    const schemas = getScalarSchemas(field["~"].state);
 
     test("type: create is optional", () => {
       type State = (typeof field)["~"]["state"];

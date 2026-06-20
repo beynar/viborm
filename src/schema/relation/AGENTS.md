@@ -29,7 +29,6 @@ The solution: **thunks** `() => Model` defer model resolution, and **chainable m
 | `to-many.ts` | `ToManyRelation` class + `oneToMany` factory |
 | `many-to-many.ts` | `ManyToManyRelation` class + `manyToMany` factory |
 | `helpers.ts` | Junction table utilities for many-to-many |
-| `schemas/` | Relation query schemas (filter, create, update) |
 | `index.ts` | Re-exports everything |
 
 ---
@@ -177,13 +176,13 @@ class ToOneRelation<State extends ToOneRelationState> {
   onDelete(action: ReferentialAction): ToOneRelation<State & { onDelete: ReferentialAction }>
   onUpdate(action: ReferentialAction): ToOneRelation<State & { onUpdate: ReferentialAction }>
   name(name: string): ToOneRelation<State & { name: string }>
-  get "~"(): { state: State; names: SchemaNames; schemas: ... }
+  get "~"(): { state: State; setSource(source: AnyModel): void }
 }
 
 // ToManyRelation - for oneToMany
 class ToManyRelation<State extends ToManyRelationState> {
   name(name: string): ToManyRelation<State & { name: string }>
-  get "~"(): { state: State; names: SchemaNames; schemas: ... }
+  get "~"(): { state: State; setSource(source: AnyModel): void }
 }
 
 // ManyToManyRelation - for manyToMany
@@ -194,7 +193,7 @@ class ManyToManyRelation<State extends ManyToManyRelationState> {
   onDelete(action: ReferentialAction): ManyToManyRelation<State & { onDelete: ReferentialAction }>
   onUpdate(action: ReferentialAction): ManyToManyRelation<State & { onUpdate: ReferentialAction }>
   name(name: string): ManyToManyRelation<State & { name: string }>
-  get "~"(): { state: State; names: SchemaNames; schemas: ... }
+  get "~"(): { state: State; setSource(source: AnyModel): void }
 }
 ```
 
@@ -202,7 +201,9 @@ class ManyToManyRelation<State extends ManyToManyRelationState> {
 
 ---
 
-## Relation Schema Operations
+## Relation Operation Schemas
+
+Relation operation schemas are built by `SchemaRegistry` in `src/validation/relations/` from relation state and full model graph context.
 
 ### Filter (WHERE)
 
@@ -284,4 +285,4 @@ Many-to-many requires a join table. `.through("postTags")` names this table. Vib
 | **Fields** ([fields/AGENTS.md](../fields/AGENTS.md)) | FK fields stored alongside relations |
 | **Model** ([model/AGENTS.md](../model/AGENTS.md)) | Composes relations into models |
 | **Migrations** ([migrations/AGENTS.md](../../migrations/AGENTS.md)) | Creates FK constraints and join tables |
-| **Query Schemas** ([model/schemas/AGENTS.md](../model/schemas/AGENTS.md)) | Builds relation filter/create/update schemas |
+| **Validation** ([validation/AGENTS.md](../../validation/AGENTS.md)) | Builds relation filter/create/update schemas through `SchemaRegistry` |

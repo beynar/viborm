@@ -1,24 +1,33 @@
+import type { AnyModel } from "@schema/model";
 import type { StringKeyOf } from "@schema/model/helper";
 import v, { type V } from "@validation";
-import type { ModelState } from "../../model";
+import type { FieldSchemas } from "../index";
 import type { CoreSchemas } from "../core";
 
 /**
  * FindUnique args: { where: whereUnique, select?, include? }
  */
 
-export type FindUniqueArgs<T extends ModelState> = V.Object<
+type ModelStateOf<M extends AnyModel> = M["~"]["state"];
+
+export type FindUniqueArgs<
+  M extends AnyModel,
+  F extends FieldSchemas<M>,
+> = V.Object<
   {
-    where: CoreSchemas<T>["whereUnique"];
-    select: CoreSchemas<T>["select"];
-    include: CoreSchemas<T>["include"];
+    where: CoreSchemas<M, F>["whereUnique"];
+    select: CoreSchemas<M, F>["select"];
+    include: CoreSchemas<M, F>["include"];
   },
   { atLeast: ["where"] }
 >;
 
-export const getFindUniqueArgs = <T extends ModelState>(
-  core: CoreSchemas<T>
-): FindUniqueArgs<T> => {
+export const getFindUniqueArgs = <
+  M extends AnyModel,
+  F extends FieldSchemas<M>,
+>(
+  core: CoreSchemas<M, F>
+): FindUniqueArgs<M, F> => {
   return v.object(
     {
       where: core.whereUnique,
@@ -32,24 +41,30 @@ export const getFindUniqueArgs = <T extends ModelState>(
 /**
  * FindFirst args: { where?, orderBy?, take?, skip?, cursor?, select?, include? }
  */
-export type FindFirstArgs<T extends ModelState> = V.Object<
+export type FindFirstArgs<
+  M extends AnyModel,
+  F extends FieldSchemas<M>,
+> = V.Object<
   {
-    where: CoreSchemas<T>["where"];
+    where: CoreSchemas<M, F>["where"];
     orderBy: V.Union<
-      readonly [CoreSchemas<T>["orderBy"], V.Array<CoreSchemas<T>["orderBy"]>]
+      readonly [CoreSchemas<M, F>["orderBy"], V.Array<CoreSchemas<M, F>["orderBy"]>]
     >;
     take: V.Number;
     skip: V.Number;
-    cursor: CoreSchemas<T>["whereUnique"];
-    select: CoreSchemas<T>["select"];
-    include: CoreSchemas<T>["include"];
+    cursor: CoreSchemas<M, F>["whereUnique"];
+    select: CoreSchemas<M, F>["select"];
+    include: CoreSchemas<M, F>["include"];
   },
   { optional: true }
 >;
 
-export const getFindFirstArgs = <T extends ModelState>(
-  core: CoreSchemas<T>
-): FindFirstArgs<T> => {
+export const getFindFirstArgs = <
+  M extends AnyModel,
+  F extends FieldSchemas<M>,
+>(
+  core: CoreSchemas<M, F>
+): FindFirstArgs<M, F> => {
   return v.object(
     {
       where: core.where,
@@ -73,27 +88,35 @@ export const getFindFirstArgs = <T extends ModelState>(
 /**
  * FindMany args: { where?, orderBy?, take?, skip?, cursor?, select?, include?, distinct? }
  */
-export type FindManyArgs<T extends ModelState> = V.Object<
+export type FindManyArgs<
+  M extends AnyModel,
+  F extends FieldSchemas<M>,
+> = V.Object<
   {
-    where: CoreSchemas<T>["where"];
+    where: CoreSchemas<M, F>["where"];
     orderBy: V.Union<
-      readonly [CoreSchemas<T>["orderBy"], V.Array<CoreSchemas<T>["orderBy"]>]
+      readonly [CoreSchemas<M, F>["orderBy"], V.Array<CoreSchemas<M, F>["orderBy"]>]
     >;
     take: V.Number;
     skip: V.Number;
-    cursor: CoreSchemas<T>["whereUnique"];
-    select: CoreSchemas<T>["select"];
-    include: CoreSchemas<T>["include"];
-    distinct: V.Enum<StringKeyOf<T["scalars"]>[], { array: true }>;
+    cursor: CoreSchemas<M, F>["whereUnique"];
+    select: CoreSchemas<M, F>["select"];
+    include: CoreSchemas<M, F>["include"];
+    distinct: V.Enum<StringKeyOf<ModelStateOf<M>["scalars"]>[], { array: true }>;
   },
   { optional: true }
 >;
-export const getFindManyArgs = <T extends ModelState>(
-  state: T,
-  core: CoreSchemas<T>
-): FindManyArgs<T> => {
+export const getFindManyArgs = <
+  M extends AnyModel,
+  F extends FieldSchemas<M>,
+>(
+  model: M,
+  core: CoreSchemas<M, F>
+): FindManyArgs<M, F> => {
   // Build distinct schema - array of scalar field names
-  const fieldNames = Object.keys(state.scalars) as StringKeyOf<T["scalars"]>[];
+  const fieldNames = Object.keys(model["~"].state.scalars) as StringKeyOf<
+    ModelStateOf<M>["scalars"]
+  >[];
 
   return v.object(
     {

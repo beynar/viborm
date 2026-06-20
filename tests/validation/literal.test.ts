@@ -1,5 +1,5 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import v from "@validation";
+import v, { parse } from "@validation";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
 describe("literal schema", () => {
@@ -7,24 +7,24 @@ describe("literal schema", () => {
     const schema = v.literal("admin");
 
     test("validates exact match", () => {
-      const result = schema["~standard"].validate("admin");
+      const result = parse(schema, "admin");
       expect(result.issues).toBeUndefined();
       expect((result as { value: "admin" }).value).toBe("admin");
     });
 
     test("rejects non-match", () => {
-      const result = schema["~standard"].validate("user");
+      const result = parse(schema, "user");
       expect(result.issues).toBeDefined();
     });
 
     test("rejects similar strings", () => {
-      expect(schema["~standard"].validate("Admin").issues).toBeDefined();
-      expect(schema["~standard"].validate("admin ").issues).toBeDefined();
+      expect(parse(schema, "Admin").issues).toBeDefined();
+      expect(parse(schema, "admin ").issues).toBeDefined();
     });
 
     test("type inference", () => {
       type Output = StandardSchemaV1.InferOutput<typeof schema>;
-      expectTypeOf<Output>().toEqualTypeOf<"admin">();
+      expectTypeOf<Output>().toMatchTypeOf<"admin">();
     });
   });
 
@@ -32,33 +32,33 @@ describe("literal schema", () => {
     const schema = v.literal(42);
 
     test("validates exact match", () => {
-      const result = schema["~standard"].validate(42);
+      const result = parse(schema, 42);
       expect(result.issues).toBeUndefined();
       expect((result as { value: 42 }).value).toBe(42);
     });
 
     test("rejects different numbers", () => {
-      expect(schema["~standard"].validate(41).issues).toBeDefined();
-      expect(schema["~standard"].validate(43).issues).toBeDefined();
+      expect(parse(schema, 41).issues).toBeDefined();
+      expect(parse(schema, 43).issues).toBeDefined();
     });
 
     test("type inference", () => {
       type Output = StandardSchemaV1.InferOutput<typeof schema>;
-      expectTypeOf<Output>().toEqualTypeOf<42>();
+      expectTypeOf<Output>().toMatchTypeOf<42>();
     });
   });
 
   describe("boolean literals", () => {
     test("true literal", () => {
       const schema = v.literal(true);
-      expect(schema["~standard"].validate(true).issues).toBeUndefined();
-      expect(schema["~standard"].validate(false).issues).toBeDefined();
+      expect(parse(schema, true).issues).toBeUndefined();
+      expect(parse(schema, false).issues).toBeDefined();
     });
 
     test("false literal", () => {
       const schema = v.literal(false);
-      expect(schema["~standard"].validate(false).issues).toBeUndefined();
-      expect(schema["~standard"].validate(true).issues).toBeDefined();
+      expect(parse(schema, false).issues).toBeUndefined();
+      expect(parse(schema, true).issues).toBeDefined();
     });
   });
 
@@ -66,12 +66,12 @@ describe("literal schema", () => {
     const schema = v.literal("admin", { optional: true });
 
     test("allows undefined", () => {
-      const result = schema["~standard"].validate(undefined);
+      const result = parse(schema, undefined);
       expect(result.issues).toBeUndefined();
     });
 
     test("validates literal", () => {
-      const result = schema["~standard"].validate("admin");
+      const result = parse(schema, "admin");
       expect(result.issues).toBeUndefined();
     });
   });
@@ -80,12 +80,12 @@ describe("literal schema", () => {
     const schema = v.literal("admin", { nullable: true });
 
     test("allows null", () => {
-      const result = schema["~standard"].validate(null);
+      const result = parse(schema, null);
       expect(result.issues).toBeUndefined();
     });
 
     test("validates literal", () => {
-      const result = schema["~standard"].validate("admin");
+      const result = parse(schema, "admin");
       expect(result.issues).toBeUndefined();
     });
   });
@@ -94,7 +94,7 @@ describe("literal schema", () => {
     const schema = v.literal("admin", { array: true });
 
     test("validates array of literals", () => {
-      const result = schema["~standard"].validate(["admin", "admin"]);
+      const result = parse(schema, ["admin", "admin"]);
       expect(result.issues).toBeUndefined();
       expect((result as { value: "admin"[] }).value).toEqual([
         "admin",
@@ -103,7 +103,7 @@ describe("literal schema", () => {
     });
 
     test("rejects array with non-matching items", () => {
-      const result = schema["~standard"].validate(["admin", "user"]);
+      const result = parse(schema, ["admin", "user"]);
       expect(result.issues).toBeDefined();
     });
   });
@@ -112,7 +112,7 @@ describe("literal schema", () => {
     const schema = v.literal("admin", { default: "admin" });
 
     test("provides default", () => {
-      const result = schema["~standard"].validate(undefined);
+      const result = parse(schema, undefined);
       expect(result.issues).toBeUndefined();
       expect((result as { value: "admin" }).value).toBe("admin");
     });

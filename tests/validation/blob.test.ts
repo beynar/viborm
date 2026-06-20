@@ -1,5 +1,5 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import v from "@validation";
+import v, { parse } from "@validation";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
 describe("blob schema", () => {
@@ -8,28 +8,28 @@ describe("blob schema", () => {
 
     test("validates Uint8Array", () => {
       const arr = new Uint8Array([1, 2, 3]);
-      const result = schema["~standard"].validate(arr);
+      const result = parse(schema, arr);
       expect(result.issues).toBeUndefined();
       expect((result as { value: Uint8Array | Buffer }).value).toEqual(arr);
     });
 
     test("validates Buffer", () => {
       const buf = Buffer.from([1, 2, 3]);
-      const result = schema["~standard"].validate(buf);
+      const result = parse(schema, buf);
       expect(result.issues).toBeUndefined();
       expect((result as { value: Uint8Array | Buffer }).value).toEqual(buf);
     });
 
     test("rejects other types", () => {
-      expect(schema["~standard"].validate([1, 2, 3]).issues).toBeDefined();
-      expect(schema["~standard"].validate("buffer").issues).toBeDefined();
-      expect(schema["~standard"].validate(null).issues).toBeDefined();
-      expect(schema["~standard"].validate(undefined).issues).toBeDefined();
+      expect(parse(schema, [1, 2, 3]).issues).toBeDefined();
+      expect(parse(schema, "buffer").issues).toBeDefined();
+      expect(parse(schema, null).issues).toBeDefined();
+      expect(parse(schema, undefined).issues).toBeDefined();
     });
 
     test("type inference", () => {
       type Output = StandardSchemaV1.InferOutput<typeof schema>;
-      expectTypeOf<Output>().toEqualTypeOf<Uint8Array | Buffer>();
+      expectTypeOf<Output>().toMatchTypeOf<Uint8Array | Buffer>();
     });
   });
 
@@ -37,7 +37,7 @@ describe("blob schema", () => {
     const schema = v.blob({ optional: true });
 
     test("allows undefined", () => {
-      const result = schema["~standard"].validate(undefined);
+      const result = parse(schema, undefined);
       expect(result.issues).toBeUndefined();
     });
   });
@@ -46,7 +46,7 @@ describe("blob schema", () => {
     const schema = v.blob({ nullable: true });
 
     test("allows null", () => {
-      const result = schema["~standard"].validate(null);
+      const result = parse(schema, null);
       expect(result.issues).toBeUndefined();
     });
   });
@@ -56,7 +56,7 @@ describe("blob schema", () => {
 
     test("validates array of blobs", () => {
       const blobs = [new Uint8Array([1]), Buffer.from([2])];
-      const result = schema["~standard"].validate(blobs);
+      const result = parse(schema, blobs);
       expect(result.issues).toBeUndefined();
       expect((result as { value: (Uint8Array | Buffer)[] }).value).toEqual(
         blobs

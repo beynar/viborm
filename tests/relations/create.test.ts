@@ -49,6 +49,20 @@ describe("ToOne Create - Required (Post.author)", () => {
         };
       }>().toMatchTypeOf<CreateInput>();
     });
+
+    test("type: connectOrCreate requires where and create", () => {
+      expectTypeOf<{
+        connectOrCreate?: {};
+      }>().not.toMatchTypeOf<CreateInput>();
+      expectTypeOf<{
+        connectOrCreate?: { where: { id: string } };
+      }>().not.toMatchTypeOf<CreateInput>();
+      expectTypeOf<{
+        connectOrCreate?: {
+          create: { id: string; name: string; email: string };
+        };
+      }>().not.toMatchTypeOf<CreateInput>();
+    });
   });
 
   describe("runtime", () => {
@@ -101,6 +115,26 @@ describe("ToOne Create - Required (Post.author)", () => {
           email: "alice@example.com",
         });
       }
+    });
+
+    test.each([
+      ["empty", {}],
+      ["missing create", { where: { id: "author-1" } }],
+      [
+        "missing where",
+        {
+          create: {
+            id: "author-1",
+            name: "Alice",
+            email: "alice@example.com",
+          },
+        },
+      ],
+    ] as const)("runtime: rejects connectOrCreate envelope %s", (_, envelope) => {
+      const result = parse(schema, {
+        connectOrCreate: envelope,
+      });
+      expect(result.issues).toBeDefined();
     });
 
     test("runtime: rejects create with missing required field", () => {
@@ -206,6 +240,69 @@ describe("ToMany Create - Required (Author.posts)", () => {
         connect?: Array<{ id: string }>;
       }>().toMatchTypeOf<CreateInput>();
     });
+
+    test("type: requires data for createMany", () => {
+      expectTypeOf<{
+        createMany?: {};
+      }>().not.toMatchTypeOf<CreateInput>();
+      expectTypeOf<{
+        createMany?: {
+          data: Array<{
+            id: string;
+            title: string;
+            content: string;
+            authorId: string;
+          }>;
+          skipDuplicates?: boolean;
+        };
+      }>().toMatchTypeOf<CreateInput>();
+    });
+
+    test("type: connectOrCreate requires where and create", () => {
+      expectTypeOf<{
+        connectOrCreate?: {};
+      }>().not.toMatchTypeOf<CreateInput>();
+      expectTypeOf<{
+        connectOrCreate?: { where: { id: string } };
+      }>().not.toMatchTypeOf<CreateInput>();
+      expectTypeOf<{
+        connectOrCreate?: {
+          create: {
+            id: string;
+            title: string;
+            content: string;
+            authorId: string;
+          };
+        };
+      }>().not.toMatchTypeOf<CreateInput>();
+      expectTypeOf<{
+        connectOrCreate?: {
+          where: { id: string };
+          create: {
+            id: string;
+            title: string;
+            content: string;
+            authorId: string;
+          };
+        };
+      }>().toMatchTypeOf<CreateInput>();
+    });
+
+    test("type: connectOrCreate array items require where and create", () => {
+      expectTypeOf<{
+        connectOrCreate?: Array<{ where: { id: string } }>;
+      }>().not.toMatchTypeOf<CreateInput>();
+      expectTypeOf<{
+        connectOrCreate?: Array<{
+          create: {
+            id: string;
+            title: string;
+            content: string;
+            authorId: string;
+          };
+        }>;
+      }>().not.toMatchTypeOf<CreateInput>();
+    });
   });
 
   describe("runtime", () => {
@@ -253,8 +350,16 @@ describe("ToMany Create - Required (Author.posts)", () => {
       if (!result.issues && result.value) {
         expect(result.value.create).toHaveLength(2);
         expect(result.value.create?.[0].title).toBe("Post 1");
-        expect(result.value.create?.[1].title).toBe("Post 2");
+        expect(result.value.create?.[1]?.title).toBe("Post 2");
       }
+    });
+
+    test("runtime: rejects createMany without data", () => {
+      const result = parse(schema, {
+        createMany: {},
+      });
+      expect(result.issues?.[0]?.message).toBe("Missing required field: data");
+      expect(result.issues?.[0]?.path).toEqual(["createMany", "data"]);
     });
 
     test("runtime: accepts single connect object", () => {
@@ -305,6 +410,27 @@ describe("ToMany Create - Required (Author.posts)", () => {
       }
     });
 
+    test.each([
+      ["empty", {}],
+      ["missing create", { where: { id: "post-1" } }],
+      [
+        "missing where",
+        {
+          create: {
+            id: "post-1",
+            title: "Hello",
+            content: "World",
+            authorId: "a1",
+          },
+        },
+      ],
+    ] as const)("runtime: rejects connectOrCreate envelope %s", (_, envelope) => {
+      const result = parse(schema, {
+        connectOrCreate: envelope,
+      });
+      expect(result.issues).toBeDefined();
+    });
+
     test("runtime: accepts array of connectOrCreate objects", () => {
       const input = {
         connectOrCreate: [
@@ -333,9 +459,43 @@ describe("ToMany Create - Required (Author.posts)", () => {
       if (!result.issues && result.value) {
         expect(result.value.connectOrCreate).toHaveLength(2);
         expect(result.value.connectOrCreate?.[0].create.title).toBe("P1");
-        expect(result.value.connectOrCreate?.[1].create.title).toBe("P2");
+        expect(result.value.connectOrCreate?.[1]?.create.title).toBe("P2");
       }
     });
+
+    test.each([
+      ["missing create", { where: { id: "post-1" } }],
+      [
+        "missing where",
+        {
+          create: {
+            id: "post-1",
+            title: "Hello",
+            content: "World",
+            authorId: "a1",
+          },
+        },
+      ],
+    ] as const)(
+      "runtime: rejects connectOrCreate array item %s",
+      (_, invalidItem) => {
+        const result = parse(schema, {
+          connectOrCreate: [
+            {
+              where: { id: "post-valid" },
+              create: {
+                id: "post-valid",
+                title: "Valid",
+                content: "World",
+                authorId: "a1",
+              },
+            },
+            invalidItem,
+          ],
+        });
+        expect(result.issues).toBeDefined();
+      }
+    );
 
     test("runtime: accepts combined create and connect", () => {
       const input = {

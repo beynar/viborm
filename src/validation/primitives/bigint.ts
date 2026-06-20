@@ -38,8 +38,12 @@ function validateBigInt(value: unknown) {
  * const id = v.bigint();
  * const optionalId = v.bigint({ optional: true });
  */
+export function bigint(): BigIntSchema<bigint, bigint>;
+export function bigint<const Opts extends ScalarOptions<bigint, any>>(
+  options: Opts
+): BigIntSchema<ComputeInput<bigint, Opts>, ComputeOutput<bigint, Opts>>;
 export function bigint<
-  const Opts extends ScalarOptions<bigint, any> | undefined = undefined,
+  const Opts extends ScalarOptions<bigint, any> | undefined,
 >(
   options?: Opts
 ): BigIntSchema<ComputeInput<bigint, Opts>, ComputeOutput<bigint, Opts>> {

@@ -1,5 +1,5 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { v } from "@validation";
+import { parse, v } from "@validation";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
 describe("enum_ schema", () => {
@@ -7,36 +7,36 @@ describe("enum_ schema", () => {
     const status = v.enum(["active", "inactive", "pending"]);
 
     test("accepts valid enum value", () => {
-      const result = status["~standard"].validate("active");
+      const result = parse(status, "active");
       expect(result.issues).toBeUndefined();
       expect((result as { value: string }).value).toBe("active");
     });
 
     test("accepts all enum values", () => {
       for (const value of ["active", "inactive", "pending"]) {
-        const result = status["~standard"].validate(value);
+        const result = parse(status, value);
         expect(result.issues).toBeUndefined();
       }
     });
 
     test("rejects invalid string", () => {
-      const result = status["~standard"].validate("unknown");
+      const result = parse(status, "unknown");
       expect(result.issues).toBeDefined();
-      expect(result.issues![0].message).toContain("Expected one of:");
+      expect(result.issues?.[0]?.message).toContain("Expected one of:");
     });
 
     test("rejects wrong type", () => {
-      const result = status["~standard"].validate(123);
+      const result = parse(status, 123);
       expect(result.issues).toBeDefined();
     });
 
     test("rejects null", () => {
-      const result = status["~standard"].validate(null);
+      const result = parse(status, null);
       expect(result.issues).toBeDefined();
     });
 
     test("rejects undefined", () => {
-      const result = status["~standard"].validate(undefined);
+      const result = parse(status, undefined);
       expect(result.issues).toBeDefined();
     });
   });
@@ -44,28 +44,28 @@ describe("enum_ schema", () => {
   describe("with options", () => {
     test("optional enum", () => {
       const schema = v.enum(["a", "b"], { optional: true });
-      const result = schema["~standard"].validate(undefined);
+      const result = parse(schema, undefined);
       expect(result.issues).toBeUndefined();
-      expect((result as { value: undefined }).value).toBeUndefined();
+      expect((result as unknown as { value: undefined }).value).toBeUndefined();
     });
 
     test("nullable enum", () => {
       const schema = v.enum(["a", "b"], { nullable: true });
-      const result = schema["~standard"].validate(null);
+      const result = parse(schema, null);
       expect(result.issues).toBeUndefined();
       expect((result as { value: null }).value).toBeNull();
     });
 
     test("enum with default", () => {
       const schema = v.enum(["a", "b"], { default: "a" });
-      const result = schema["~standard"].validate(undefined);
+      const result = parse(schema, undefined);
       expect(result.issues).toBeUndefined();
       expect((result as { value: string }).value).toBe("a");
     });
 
     test("array of enums", () => {
       const schema = v.enum(["a", "b"], { array: true });
-      const result = schema["~standard"].validate(["a", "b", "a"]);
+      const result = parse(schema, ["a", "b", "a"]);
       expect(result.issues).toBeUndefined();
       expect((result as { value: string[] }).value).toEqual(["a", "b", "a"]);
     });
@@ -75,7 +75,7 @@ describe("enum_ schema", () => {
     test("infers correct type", () => {
       const status = v.enum(["active", "inactive", "pending"] as const);
       type Status = StandardSchemaV1.InferOutput<typeof status>;
-      expectTypeOf<Status>().toEqualTypeOf<"active" | "inactive" | "pending">();
+      expectTypeOf<Status>().toMatchTypeOf<"active" | "inactive" | "pending">();
     });
   });
 
@@ -87,7 +87,7 @@ describe("enum_ schema", () => {
 
     test("has values property", () => {
       const values = ["x", "y", "z"] as const;
-      const schema = v.enum(values);
+      const schema = v.enum([...values]);
       expect(schema.values).toEqual(values);
     });
   });

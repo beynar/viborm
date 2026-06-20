@@ -717,16 +717,17 @@ describe("All Field Types Integration Test", () => {
 // RUNTIME TYPE VERIFICATION TESTS (using v validation library)
 // =============================================================================
 
-import { v, validateSchema } from "@validation";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
+import { parse, v } from "@validation";
 import { z } from "zod/v4";
 
 // Helper to assert schema validation passes
 const assertValid = <T>(
-  schema: Parameters<typeof validateSchema>[0],
+  schema: StandardSchemaV1,
   value: unknown,
   fieldName: string
 ): T => {
-  const result = validateSchema(schema, value);
+  const result = parse(schema, value);
   if (result.issues) {
     throw new Error(
       `Field "${fieldName}" failed validation: ${result.issues[0]?.message}`
@@ -737,11 +738,11 @@ const assertValid = <T>(
 
 // Helper to assert schema validation fails (for negative tests)
 const assertInvalid = (
-  schema: Parameters<typeof validateSchema>[0],
+  schema: StandardSchemaV1,
   value: unknown,
   fieldName: string
 ): void => {
-  const result = validateSchema(schema, value);
+  const result = parse(schema, value);
   if (!result.issues) {
     throw new Error(
       `Field "${fieldName}" should have failed validation but passed`

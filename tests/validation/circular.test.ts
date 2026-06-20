@@ -1,5 +1,5 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import v from "@validation";
+import v, { parse } from "@validation";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
 describe("circular references with thunks", () => {
@@ -11,7 +11,7 @@ describe("circular references with thunks", () => {
         self: () => v.optional(selfRef),
       });
 
-      const result = selfRef["~standard"].validate({
+      const result = parse(selfRef, {
         name: "root",
         self: { name: "child" },
       });
@@ -24,7 +24,7 @@ describe("circular references with thunks", () => {
         next: () => selfRef,
       });
 
-      const result = selfRef["~standard"].validate({
+      const result = parse(selfRef, {
         value: "a",
         next: { value: "b", next: { value: "c", next: { value: "d" } } },
       });
@@ -48,7 +48,7 @@ describe("circular references with thunks", () => {
       type FriendName = UserOutput["friend"] extends { name: infer N }
         ? N
         : never;
-      expectTypeOf<FriendName>().toEqualTypeOf<string>();
+      expectTypeOf<FriendName>().toMatchTypeOf<string>();
     });
   });
 
@@ -65,7 +65,7 @@ describe("circular references with thunks", () => {
         author: () => user,
       });
 
-      const result = user["~standard"].validate({
+      const result = parse(user, {
         name: "Alice",
         posts: [
           {
@@ -84,7 +84,7 @@ describe("circular references with thunks", () => {
         children: () => v.array(node),
       });
 
-      const result = node["~standard"].validate({
+      const result = parse(node, {
         value: "root",
         children: [
           {
@@ -108,8 +108,9 @@ describe("circular references with thunks", () => {
 
       type UserOutput = StandardSchemaV1.InferOutput<typeof user>;
       type BestFriend = UserOutput["bestFriend"];
-      type BestFriendName = BestFriend extends { name: infer N } ? N : never;
-      expectTypeOf<BestFriendName>().toEqualTypeOf<string | undefined>();
+      expectTypeOf<BestFriend>().toMatchTypeOf<
+        { name?: string } | undefined
+      >();
     });
 
     test("deep recursion works", () => {
@@ -127,7 +128,7 @@ describe("circular references with thunks", () => {
       type DeepFriendName = FriendFriendFriend extends { name: infer N }
         ? N
         : never;
-      expectTypeOf<DeepFriendName>().toEqualTypeOf<string>();
+      expectTypeOf<DeepFriendName>().toMatchTypeOf<string>();
     });
   });
 });

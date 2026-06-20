@@ -73,7 +73,7 @@ describe("SavepointQueue", () => {
 
     // Check results
     expect(results[0]).toEqual({ status: "fulfilled", value: "success-1" });
-    expect(results[1].status).toBe("rejected");
+    expect(results[1]?.status).toBe("rejected");
     expect((results[1] as PromiseRejectedResult).reason.message).toBe(
       "intentional failure"
     );

@@ -225,6 +225,97 @@ describe("Nested CreateMany", () => {
     });
   });
 
+  describe("upsert branches", () => {
+    test("upsert runs nested writes from the create branch", async () => {
+      const result = await client.user.upsert({
+        where: { id: "user-1" },
+        create: {
+          id: "user-1",
+          name: "John",
+          posts: {
+            create: { id: "post-1", title: "Created from upsert create" },
+          },
+        },
+        update: { name: "Updated John" },
+        include: { posts: true },
+      });
+
+      expect(result.id).toBe("user-1");
+      expect(result.name).toBe("John");
+      expect(result.posts).toHaveLength(1);
+      expect(result.posts[0]?.title).toBe("Created from upsert create");
+
+      const posts = await client.post.findMany({
+        where: { userId: "user-1" },
+      });
+      expect(posts).toHaveLength(1);
+      expect(posts[0]?.userId).toBe("user-1");
+    });
+
+    test("upsert update branch executes nested createMany", async () => {
+      await client.user.create({
+        data: { id: "user-1", name: "John" },
+      });
+
+      const result = await client.user.upsert({
+        where: { id: "user-1" },
+        create: { id: "user-1", name: "New John" },
+        update: {
+          posts: {
+            createMany: {
+              data: [
+                { id: "post-1", title: "First from update branch" },
+                { id: "post-2", title: "Second from update branch" },
+              ],
+            },
+          },
+        },
+        include: { posts: true },
+      });
+
+      expect(result.name).toBe("John");
+      expect(result.posts).toHaveLength(2);
+
+      const posts = await client.post.findMany({
+        where: { userId: "user-1" },
+        orderBy: { id: "asc" },
+      });
+      expect(posts.map((post) => post.title)).toEqual([
+        "First from update branch",
+        "Second from update branch",
+      ]);
+    });
+  });
+
+  describe("validation before execution", () => {
+    test("rejects unsupported nested update key before executing parent mutation", async () => {
+      await client.user.create({
+        data: { id: "user-1", name: "John" },
+      });
+
+      await expect(
+        client.user.update({
+          where: { id: "user-1" },
+          data: {
+            name: "Changed",
+            posts: {
+              // @ts-expect-error unsupported nested update is intentionally tested at runtime
+              update: {
+                where: { id: "post-1" },
+                data: { title: "Ignored" },
+              },
+            },
+          },
+        })
+      ).rejects.toThrow("Unknown key: update");
+
+      const user = await client.user.findUnique({
+        where: { id: "user-1" },
+      });
+      expect(user?.name).toBe("John");
+    });
+  });
+
   describe("querying created data", () => {
     test("findMany with include returns nested createMany data", async () => {
       await client.user.create({
@@ -483,6 +574,32 @@ describe("Basic Query Operations", () => {
       });
 
       expect(result.name).toBe("Updated");
+    });
+
+    test("runs nested writes from the update branch", async () => {
+      await client.user.create({
+        data: { id: "user-1", name: "John" },
+      });
+
+      const result = await client.user.upsert({
+        where: { id: "user-1" },
+        create: { id: "user-1", name: "New" },
+        update: {
+          name: "Updated",
+          posts: {
+            create: { id: "post-1", title: "Created from upsert update" },
+          },
+        },
+      });
+
+      expect(result.name).toBe("Updated");
+
+      const posts = await client.post.findMany({
+        where: { userId: "user-1" },
+      });
+
+      expect(posts).toHaveLength(1);
+      expect(posts[0]?.title).toBe("Created from upsert update");
     });
   });
 

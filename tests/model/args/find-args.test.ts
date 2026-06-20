@@ -11,6 +11,18 @@ import { type InferInput, parse } from "@validation";
 import { describe, expect, expectTypeOf, test } from "vitest";
 import { authorSchemas, compoundIdSchemas, simpleSchemas } from "../fixtures";
 
+type ArgsOutput = {
+  readonly where?: unknown;
+  readonly orderBy?: unknown;
+  readonly select?: unknown;
+  readonly take?: number;
+  readonly skip?: number;
+  readonly cursor?: unknown;
+  readonly distinct?: unknown;
+};
+
+const argsOutput = (value: unknown): ArgsOutput => value as ArgsOutput;
+
 // =============================================================================
 // FIND UNIQUE ARGS
 // =============================================================================
@@ -75,7 +87,7 @@ describe("FindUnique Args - Simple Model Runtime", () => {
     });
     expect(result.issues).toBeUndefined();
     if (!result.issues) {
-      expect(result.value.where).toEqual({ id: "user-123" });
+      expect(argsOutput(result.value).where).toEqual({ id: "user-123" });
     }
   });
 
@@ -86,14 +98,13 @@ describe("FindUnique Args - Simple Model Runtime", () => {
     });
     expect(result.issues).toBeUndefined();
     if (!result.issues) {
-      expect(result.value.select).toEqual({ id: true, name: true });
+      expect(argsOutput(result.value).select).toEqual({ id: true, name: true });
     }
   });
 });
 
 describe("FindUnique Args - Compound ID Model Runtime", () => {
   const schema = compoundIdSchemas.args.findUnique;
-  console.log(compoundIdSchemas.args.findUnique);
 
   test("runtime: accepts compound id in where", () => {
     const result = parse(schema, {
@@ -138,11 +149,11 @@ describe("FindFirst Args - Types", () => {
   type Input = InferInput<typeof simpleSchemas.args.findFirst>;
 
   test("type: has optional where", () => {
-    expectTypeOf<Input>().toHaveProperty("where");
+    expectTypeOf<{ where?: { active?: boolean } }>().toMatchTypeOf<Input>();
   });
 
   test("type: has optional orderBy", () => {
-    expectTypeOf<Input>().toHaveProperty("orderBy");
+    expectTypeOf<{ orderBy?: { name?: "asc" } }>().toMatchTypeOf<Input>();
   });
 });
 
@@ -194,9 +205,9 @@ describe("FindFirst Args - Simple Model Runtime", () => {
     expect(result.issues).toBeUndefined();
     if (!result.issues) {
       // Filter values are normalized to { equals: value }
-      expect(result.value.where).toEqual({ active: { equals: true } });
-      expect(result.value.orderBy).toEqual({ name: "asc" });
-      expect(result.value.select).toEqual({ id: true, name: true });
+      expect(argsOutput(result.value).where).toEqual({ active: { equals: true } });
+      expect(argsOutput(result.value).orderBy).toEqual({ name: "asc" });
+      expect(argsOutput(result.value).select).toEqual({ id: true, name: true });
     }
   });
 });
@@ -209,19 +220,19 @@ describe("FindMany Args - Types", () => {
   type Input = InferInput<typeof simpleSchemas.args.findMany>;
 
   test("type: has optional where", () => {
-    expectTypeOf<Input>().toHaveProperty("where");
+    expectTypeOf<{ where?: { active?: boolean } }>().toMatchTypeOf<Input>();
   });
 
   test("type: has optional take", () => {
-    expectTypeOf<Input>().toHaveProperty("take");
+    expectTypeOf<{ take?: number }>().toMatchTypeOf<Input>();
   });
 
   test("type: has optional skip", () => {
-    expectTypeOf<Input>().toHaveProperty("skip");
+    expectTypeOf<{ skip?: number }>().toMatchTypeOf<Input>();
   });
 
   test("type: has optional cursor", () => {
-    expectTypeOf<Input>().toHaveProperty("cursor");
+    expectTypeOf<{ cursor?: { id?: string } }>().toMatchTypeOf<Input>();
   });
 });
 
@@ -288,8 +299,8 @@ describe("FindMany Args - Simple Model Runtime", () => {
     });
     expect(result.issues).toBeUndefined();
     if (!result.issues) {
-      expect(result.value.take).toBe(20);
-      expect(result.value.skip).toBe(10);
+      expect(argsOutput(result.value).take).toBe(20);
+      expect(argsOutput(result.value).skip).toBe(10);
     }
   });
 
@@ -299,7 +310,7 @@ describe("FindMany Args - Simple Model Runtime", () => {
     });
     expect(result.issues).toBeUndefined();
     if (!result.issues) {
-      expect(result.value.cursor).toEqual({ id: "cursor-id" });
+      expect(argsOutput(result.value).cursor).toEqual({ id: "cursor-id" });
     }
   });
 
@@ -309,7 +320,7 @@ describe("FindMany Args - Simple Model Runtime", () => {
     });
     expect(result.issues).toBeUndefined();
     if (!result.issues) {
-      expect(result.value.distinct).toEqual(["name", "email"]);
+      expect(argsOutput(result.value).distinct).toEqual(["name", "email"]);
     }
   });
 
@@ -319,7 +330,7 @@ describe("FindMany Args - Simple Model Runtime", () => {
     });
     expect(result.issues).toBeUndefined();
     if (!result.issues) {
-      expect(result.value.orderBy).toEqual([{ name: "asc" }, { age: "desc" }]);
+      expect(argsOutput(result.value).orderBy).toEqual([{ name: "asc" }, { age: "desc" }]);
     }
   });
 });

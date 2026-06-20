@@ -20,12 +20,9 @@
  */
 
 import { decimal, float, int } from "@schema/fields/number/field";
-import type {
-  InferDecimalInput,
-  InferFloatInput,
-  InferIntInput,
-} from "@schema/fields/number/schemas";
-import { type InferOutput, parse } from "@validation";
+import { type InferInput, type InferOutput, parse } from "@validation";
+import { type GetScalarSchemas, getScalarSchemas } from "@validation/scalars";
+import type { FieldState } from "@schema/fields/common";
 import {
   type Brand,
   brand,
@@ -36,6 +33,12 @@ import {
   pipe,
 } from "valibot";
 import { describe, expect, expectTypeOf, test } from "vitest";
+
+type InferFieldInput<State extends FieldState, Key extends keyof GetScalarSchemas<State>> =
+  InferInput<GetScalarSchemas<State>[Key]>;
+type InferIntInput<State extends FieldState<"int">, Key extends keyof GetScalarSchemas<State>> = InferFieldInput<State, Key>;
+type InferFloatInput<State extends FieldState<"float">, Key extends keyof GetScalarSchemas<State>> = InferFieldInput<State, Key>;
+type InferDecimalInput<State extends FieldState<"decimal">, Key extends keyof GetScalarSchemas<State>> = InferFieldInput<State, Key>;
 
 // =============================================================================
 // INT FIELD TESTS
@@ -49,7 +52,7 @@ describe("Int Field", () => {
   describe("Raw Int Field", () => {
     const field = int();
     type State = (typeof field)["~"]["state"];
-    const schemas = field["~"].schemas;
+    const schemas = getScalarSchemas(field["~"].state);
 
     describe("base", () => {
       test("type: base is number", () => {
@@ -248,7 +251,7 @@ describe("Int Field", () => {
   describe("Nullable Int Field", () => {
     const field = int().nullable();
     type State = (typeof field)["~"]["state"];
-    const schemas = field["~"].schemas;
+    const schemas = getScalarSchemas(field["~"].state);
 
     describe("base", () => {
       test("type: base is number | null", () => {
@@ -340,7 +343,7 @@ describe("Int Field", () => {
   describe("List Int Field", () => {
     const field = int().array();
     type State = (typeof field)["~"]["state"];
-    const schemas = field["~"].schemas;
+    const schemas = getScalarSchemas(field["~"].state);
 
     describe("base", () => {
       test("type: base is number[]", () => {
@@ -472,7 +475,7 @@ describe("Int Field", () => {
   describe("Nullable List Int Field", () => {
     const field = int().array().nullable();
     type State = (typeof field)["~"]["state"];
-    const schemas = field["~"].schemas;
+    const schemas = getScalarSchemas(field["~"].state);
 
     describe("base", () => {
       test("type: base is number[] | null", () => {
@@ -566,7 +569,7 @@ describe("Int Field", () => {
   describe("Increment Int Field", () => {
     const field = int().increment();
     type State = (typeof field)["~"]["state"];
-    const schemas = field["~"].schemas;
+    const schemas = getScalarSchemas(field["~"].state);
 
     test("state: hasDefault is true", () => {
       expect(field["~"].state.hasDefault).toBe(true);
@@ -602,7 +605,7 @@ describe("Int Field", () => {
     describe("static default value", () => {
       const field = int().default(42);
       type State = (typeof field)["~"]["state"];
-      const schemas = field["~"].schemas;
+      const schemas = getScalarSchemas(field["~"].state);
 
       test("type: create is optional", () => {
         type Create = InferIntInput<State, "create">;
@@ -628,7 +631,7 @@ describe("Int Field", () => {
         callCount++;
         return callCount * 10;
       });
-      const schemas = field["~"].schemas;
+      const schemas = getScalarSchemas(field["~"].state);
 
       test("runtime: undefined calls default function", () => {
         const before = callCount;
@@ -647,7 +650,7 @@ describe("Int Field", () => {
     describe("min/max validation", () => {
       const positiveInt = pipe(number(), integer(), minValue(1), maxValue(100));
       const field = int().schema(positiveInt);
-      const schemas = field["~"].schemas;
+      const schemas = getScalarSchemas(field["~"].state);
 
       test("runtime: accepts valid value in range", () => {
         const r1 = parse(schemas.base, 50);
@@ -700,7 +703,7 @@ describe("Int Field", () => {
         brand("Age")
       );
       const field = int().schema(ageSchema);
-      type BrandedOutput = InferOutput<(typeof field)["~"]["schemas"]["base"]>;
+      type BrandedOutput = InferOutput<(typeof field)["~"]["state"]["base"]>;
 
       test("type: base output preserves brand", () => {
         // Brand is on output type
@@ -708,7 +711,7 @@ describe("Int Field", () => {
       });
 
       test("runtime: validates and returns branded value", () => {
-        const result = parse(field["~"].schemas.base, 25);
+        const result = parse(getScalarSchemas(field["~"].state).base, 25);
         if (result.issues) throw new Error("Expected success");
         expect(result.value).toBe(25);
       });
@@ -728,7 +731,7 @@ describe("Float Field", () => {
   describe("Raw Float Field", () => {
     const field = float();
     type State = (typeof field)["~"]["state"];
-    const schemas = field["~"].schemas;
+    const schemas = getScalarSchemas(field["~"].state);
 
     describe("base", () => {
       test("type: base is number", () => {
@@ -845,7 +848,7 @@ describe("Float Field", () => {
   describe("Nullable Float Field", () => {
     const field = float().nullable();
     type State = (typeof field)["~"]["state"];
-    const schemas = field["~"].schemas;
+    const schemas = getScalarSchemas(field["~"].state);
 
     describe("base", () => {
       test("type: base is number | null", () => {
@@ -903,7 +906,7 @@ describe("Float Field", () => {
   describe("List Float Field", () => {
     const field = float().array();
     type State = (typeof field)["~"]["state"];
-    const schemas = field["~"].schemas;
+    const schemas = getScalarSchemas(field["~"].state);
 
     describe("base", () => {
       test("type: base is number[]", () => {
@@ -949,7 +952,7 @@ describe("Float Field", () => {
   describe("Nullable List Float Field", () => {
     const field = float().array().nullable();
     type State = (typeof field)["~"]["state"];
-    const schemas = field["~"].schemas;
+    const schemas = getScalarSchemas(field["~"].state);
 
     describe("base", () => {
       test("type: base is number[] | null", () => {
@@ -975,7 +978,7 @@ describe("Float Field", () => {
     describe("percentage validation (0-100)", () => {
       const percentageSchema = pipe(number(), minValue(0), maxValue(100));
       const field = float().schema(percentageSchema);
-      const schemas = field["~"].schemas;
+      const schemas = getScalarSchemas(field["~"].state);
 
       test("runtime: accepts valid percentage", () => {
         const r1 = parse(schemas.base, 0);
@@ -1004,22 +1007,22 @@ describe("Float Field", () => {
         brand("Celsius")
       );
       const field = float().schema(temperatureSchema);
-      type BrandedOutput = InferOutput<(typeof field)["~"]["schemas"]["base"]>;
+      type BrandedOutput = InferOutput<(typeof field)["~"]["state"]["base"]>;
 
       test("type: base output preserves brand", () => {
         expectTypeOf<BrandedOutput>().toExtend<number & Brand<"Celsius">>();
       });
 
       test("runtime: validates minimum temperature (absolute zero)", () => {
-        const r1 = parse(field["~"].schemas.base, -273.15);
+        const r1 = parse(getScalarSchemas(field["~"].state).base, -273.15);
         if (r1.issues) throw new Error("Expected success");
         expect(r1.value).toBe(-273.15);
 
-        const r2 = parse(field["~"].schemas.base, 0);
+        const r2 = parse(getScalarSchemas(field["~"].state).base, 0);
         if (r2.issues) throw new Error("Expected success");
         expect(r2.value).toBe(0);
 
-        expect(parse(field["~"].schemas.base, -300).issues).toBeDefined();
+        expect(parse(getScalarSchemas(field["~"].state).base, -300).issues).toBeDefined();
       });
     });
   });
@@ -1037,7 +1040,7 @@ describe("Decimal Field", () => {
   describe("Raw Decimal Field", () => {
     const field = decimal();
     type State = (typeof field)["~"]["state"];
-    const schemas = field["~"].schemas;
+    const schemas = getScalarSchemas(field["~"].state);
 
     describe("base", () => {
       test("type: base is number", () => {
@@ -1130,7 +1133,7 @@ describe("Decimal Field", () => {
   describe("Nullable Decimal Field", () => {
     const field = decimal().nullable();
     type State = (typeof field)["~"]["state"];
-    const schemas = field["~"].schemas;
+    const schemas = getScalarSchemas(field["~"].state);
 
     describe("base", () => {
       test("type: base is number | null", () => {
@@ -1155,7 +1158,7 @@ describe("Decimal Field", () => {
   describe("List Decimal Field", () => {
     const field = decimal().array();
     type State = (typeof field)["~"]["state"];
-    const schemas = field["~"].schemas;
+    const schemas = getScalarSchemas(field["~"].state);
 
     describe("base", () => {
       test("type: base is number[]", () => {
@@ -1179,7 +1182,7 @@ describe("Decimal Field", () => {
   describe("Nullable List Decimal Field", () => {
     const field = decimal().array().nullable();
     type State = (typeof field)["~"]["state"];
-    const schemas = field["~"].schemas;
+    const schemas = getScalarSchemas(field["~"].state);
 
     describe("base", () => {
       test("type: base is number[] | null", () => {
@@ -1205,7 +1208,7 @@ describe("Decimal Field", () => {
     describe("positive price validation", () => {
       const priceSchema = pipe(number(), minValue(0.01));
       const field = decimal().schema(priceSchema);
-      const schemas = field["~"].schemas;
+      const schemas = getScalarSchemas(field["~"].state);
 
       test("runtime: accepts valid price", () => {
         const r1 = parse(schemas.base, 0.01);
@@ -1230,14 +1233,14 @@ describe("Decimal Field", () => {
     describe("branded type preservation", () => {
       const currencySchema = pipe(number(), minValue(0), brand("USD"));
       const field = decimal().schema(currencySchema);
-      type BrandedOutput = InferOutput<(typeof field)["~"]["schemas"]["base"]>;
+      type BrandedOutput = InferOutput<(typeof field)["~"]["state"]["base"]>;
 
       test("type: base output preserves brand", () => {
         expectTypeOf<BrandedOutput>().toExtend<number & Brand<"USD">>();
       });
 
       test("runtime: validates and returns branded value", () => {
-        const result = parse(field["~"].schemas.base, 19.99);
+        const result = parse(getScalarSchemas(field["~"].state).base, 19.99);
         if (result.issues) throw new Error("Expected success");
         expect(result.value).toBe(19.99);
       });

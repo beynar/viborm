@@ -38,8 +38,12 @@ function validateString(value: unknown) {
  * const optionalName = v.string({ optional: true });
  * const tags = v.string({ array: true });
  */
+export function string(): StringSchema<string, string>;
+export function string<const Opts extends ScalarOptions<string, any>>(
+  options: Opts
+): StringSchema<ComputeInput<string, Opts>, ComputeOutput<string, Opts>>;
 export function string<
-  const Opts extends ScalarOptions<string, any> | undefined = undefined,
+  const Opts extends ScalarOptions<string, any> | undefined,
 >(
   options?: Opts
 ): StringSchema<ComputeInput<string, Opts>, ComputeOutput<string, Opts>> {
