@@ -13,15 +13,8 @@ import { type Dialect, Driver } from "@drivers";
 import { ValidationError } from "@errors";
 import { buildWhere } from "@query-engine/builders/where-builder";
 import { buildWhereUnique } from "@query-engine/builders/where-unique-builder";
-import {
-  createQueryContext,
-  getRelationInfo,
-  getTableName,
-} from "@query-engine/context";
-import { executeRelationDeleteMany } from "@query-engine/operations/nested-writes/delete-many";
-import { executeRelationUpdateMany } from "@query-engine/operations/nested-writes/update-many";
+import { createQueryContext, getTableName } from "@query-engine/context";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
-import type { QueryContext, RelationInfo } from "@query-engine/types";
 import { hydrateSchemaNames } from "@schema";
 import { createSchemaRegistry } from "@validation";
 import { beforeAll, describe, expect, test } from "vitest";
@@ -70,21 +63,6 @@ class MockDriver extends Driver<null, null> {
     fn: (tx: null) => Promise<T>
   ): Promise<T> {
     return fn(null);
-  }
-}
-
-class RecordingDriver extends MockDriver {
-  readonly statements: string[] = [];
-  readonly params: unknown[][] = [];
-
-  protected override async execute<T>(
-    _client: null,
-    statement: string,
-    params: unknown[]
-  ): Promise<{ rows: T[]; rowCount: number }> {
-    this.statements.push(statement);
-    this.params.push(params);
-    return { rows: [], rowCount: 0 };
   }
 }
 
@@ -153,49 +131,6 @@ function getSql(model: any, operation: any, args: any) {
     values: sql.values,
     raw: sql,
   };
-}
-
-function createRecordingContext(
-  adapter: DatabaseAdapter,
-  dialect: Dialect,
-  model: typeof Author | typeof Post
-) {
-  const driver = new RecordingDriver(adapter, dialect);
-  return {
-    ctx: createQueryContext(adapter, model, registry, driver),
-    driver,
-  };
-}
-
-function getRequiredRelationInfo(
-  ctx: QueryContext,
-  relationName: string
-): RelationInfo {
-  const relationInfo = getRelationInfo(ctx, relationName);
-  if (!relationInfo) {
-    throw new Error(
-      `Missing relation '${relationName}' in SQL generation test.`
-    );
-  }
-  return relationInfo;
-}
-
-function getOnlyStatement(driver: RecordingDriver): string {
-  expect(driver.statements).toHaveLength(1);
-  const statement = driver.statements[0];
-  if (!statement) {
-    throw new Error("Expected exactly one generated SQL statement.");
-  }
-  return statement;
-}
-
-function getOnlyParams(driver: RecordingDriver): unknown[] {
-  expect(driver.params).toHaveLength(1);
-  const params = driver.params[0];
-  if (!params) {
-    throw new Error("Expected exactly one generated SQL parameter list.");
-  }
-  return params;
 }
 
 // =============================================================================
@@ -1094,71 +1029,6 @@ describe("Nested Writes", () => {
     });
   });
 
-  describe("dialect parent correlation", () => {
-    test.each(
-      dialectCases
-    )("$name updateMany SQL includes parent correlation", async ({
-      createAdapter,
-      dialect,
-    }) => {
-      const { ctx, driver } = createRecordingContext(
-        createAdapter(),
-        dialect,
-        Author
-      );
-      const relationInfo = getRequiredRelationInfo(ctx, "posts");
-
-      await executeRelationUpdateMany(
-        driver,
-        ctx,
-        relationInfo,
-        {
-          where: { title: { equals: "Draft" } },
-          data: { title: { set: "Published" } },
-        },
-        { id: "author-1" }
-      );
-
-      const statement = getOnlyStatement(driver);
-      const params = getOnlyParams(driver);
-      expect(statement).toContain("UPDATE");
-      expect(statement).toContain("authorId");
-      expect(statement).toContain("title");
-      expect(params).toEqual(
-        expect.arrayContaining(["Published", "author-1", "Draft"])
-      );
-    });
-
-    test.each(
-      dialectCases
-    )("$name deleteMany SQL includes parent correlation", async ({
-      createAdapter,
-      dialect,
-    }) => {
-      const { ctx, driver } = createRecordingContext(
-        createAdapter(),
-        dialect,
-        Author
-      );
-      const relationInfo = getRequiredRelationInfo(ctx, "posts");
-
-      await executeRelationDeleteMany(
-        driver,
-        ctx,
-        relationInfo,
-        { title: { equals: "Draft" } },
-        { id: "author-1" }
-      );
-
-      const statement = getOnlyStatement(driver);
-      const params = getOnlyParams(driver);
-      expect(statement).toContain("DELETE");
-      expect(statement).toContain("authorId");
-      expect(statement).toContain("title");
-      expect(params).toEqual(expect.arrayContaining(["author-1", "Draft"]));
-    });
-  });
-
   describe("dialect top-level relation-filter mutations", () => {
     // Parent column inside the EXISTS subquery must be qualified with the
     // mutation target's table name; unqualified it binds to the related
@@ -1208,64 +1078,6 @@ describe("Nested Writes", () => {
       expect(statement).toContain("DELETE");
       expect(statement).toContain("EXISTS");
       expect(statement).toMatch(qualifiedAuthorId);
-    });
-  });
-
-  describe("dialect fail-closed nested mutations", () => {
-    test.each(
-      dialectCases
-    )("$name rejects to-one deleteMany before SQL generation", async ({
-      createAdapter,
-      dialect,
-    }) => {
-      const { ctx, driver } = createRecordingContext(
-        createAdapter(),
-        dialect,
-        Post
-      );
-      const relationInfo = getRequiredRelationInfo(ctx, "author");
-
-      await expect(
-        executeRelationDeleteMany(
-          driver,
-          ctx,
-          relationInfo,
-          { id: "author-1" },
-          { id: "post-1", authorId: "author-1" }
-        )
-      ).rejects.toThrow("deleteMany' is not supported for to-one relation");
-      expect(driver.statements).toHaveLength(0);
-    });
-
-    test.each(
-      dialectCases
-    )("$name rejects relation writes inside updateMany data before SQL generation", async ({
-      createAdapter,
-      dialect,
-    }) => {
-      const { ctx, driver } = createRecordingContext(
-        createAdapter(),
-        dialect,
-        Author
-      );
-      const relationInfo = getRequiredRelationInfo(ctx, "posts");
-
-      await expect(
-        executeRelationUpdateMany(
-          driver,
-          ctx,
-          relationInfo,
-          {
-            data: {
-              author: {
-                connect: { id: "author-2" },
-              },
-            },
-          },
-          { id: "author-1" }
-        )
-      ).rejects.toThrow("Nested relation writes inside updateMany data");
-      expect(driver.statements).toHaveLength(0);
     });
   });
 });

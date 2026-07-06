@@ -49,14 +49,21 @@ import {
   getNonNullableFkFields,
 } from "./assertions";
 import { isBatchValueRef } from "./batch-references";
-import { overlayUpdatedParentData } from "./batch-updated-primary-keys";
 import type { Guard, GuardFailure } from "./effects";
 import type { Expr, WriteSymbol } from "./expr";
 import {
   buildCurrentRecordMatchCondition,
+  buildDepartingRowsCondition,
   buildFkMatchCondition,
   combineWithParentCorrelation,
+  overlayUpdatedParentData,
 } from "./fk";
+import {
+  assertNestedUpdatePlanIsExecutable,
+  assertUpdateManyDataHasNoRelations,
+  normalizeNestedUpdateInputs,
+  normalizeNestedUpdateManyInputs,
+} from "./legality";
 import { LiveMode } from "./live-mode";
 import type { Emit, Mode, NestedWriteResult } from "./mode";
 import { PlannedMode } from "./planned-mode";
@@ -71,13 +78,6 @@ import {
   planRelationMutationSteps,
   splitRelationMutationsByFk,
 } from "./semantic-plan";
-import { buildDepartingRowsCondition } from "./set";
-import {
-  assertNestedUpdatePlanIsExecutable,
-  assertUpdateManyDataHasNoRelations,
-  normalizeNestedUpdateInputs,
-  normalizeNestedUpdateManyInputs,
-} from "./update-plan";
 
 /**
  * The only capability fork (§8.1). Capability precedence preserved exactly: a

@@ -55,9 +55,6 @@ export type {
   FindManyArgs,
   FindOptions,
   GroupByArgs,
-  NestedCreateResult,
-  TransactionContext,
-  TransactionStep,
 } from "./operations";
 // Operations (for advanced usage)
 export {
@@ -75,7 +72,6 @@ export {
   buildUpdate,
   buildUpdateMany,
   buildUpsert,
-  executeNestedCreate,
 } from "./operations";
 // Main exports
 export {

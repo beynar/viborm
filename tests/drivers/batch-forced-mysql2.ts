@@ -76,3 +76,50 @@ export class MySQL2RacePlantingBatchDriver extends MySQL2BatchForcedDriver {
     }
   }
 }
+
+/**
+ * A `MySQL2BatchForcedDriver` that runs an arbitrary async callback ONCE, just
+ * before its FIRST atomic batch runs, and records the (normalized) error each
+ * atomic batch surfaces. Used by the M9 filtered-M2M-deleteMany staleness gate
+ * (§9, §5.5 Rule 3): the callback concurrently adds a junction member matching
+ * the deleteMany filter AFTER the interpreter's plan-time membership read, so
+ * the planned plan's symmetric-difference guard aborts (raceable) and the retry
+ * re-plans against fresh membership and converges.
+ */
+export class MySQL2BeforeFirstBatchDriver extends MySQL2BatchForcedDriver {
+  private fired = false;
+  private readonly beforeFirstBatch: () => Promise<void>;
+  private readonly onBatchError: (error: unknown) => void;
+
+  constructor(
+    beforeFirstBatch: () => Promise<void>,
+    onBatchError: (error: unknown) => void,
+    options: ConstructorParameters<typeof MySQL2Driver>[0]
+  ) {
+    super(options);
+    this.beforeFirstBatch = beforeFirstBatch;
+    this.onBatchError = onBatchError;
+  }
+
+  protected override async executeBatch<T>(
+    client: Pool | PoolConnection,
+    queries: BatchQuery[]
+  ): Promise<QueryResult<T>[]> {
+    if (!this.fired) {
+      this.fired = true;
+      await this.beforeFirstBatch();
+    }
+    return super.executeBatch<T>(client, queries);
+  }
+
+  override async _executeBatch<T = Record<string, unknown>>(
+    ...args: Parameters<MySQL2Driver["_executeBatch"]>
+  ): Promise<QueryResult<T>[]> {
+    try {
+      return (await super._executeBatch(...args)) as QueryResult<T>[];
+    } catch (error) {
+      this.onBatchError(error);
+      throw error;
+    }
+  }
+}

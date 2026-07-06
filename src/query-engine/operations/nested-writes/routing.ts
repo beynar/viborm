@@ -5,12 +5,12 @@ import {
 } from "../../builders/relation-data-builder";
 import { createChildContext } from "../../context";
 import type { Operation, QueryContext } from "../../types";
+import { normalizeNestedUpdateInputs } from "./legality";
 import {
   type NestedWriteStep,
   normalizeArray,
   planRelationMutationSteps,
 } from "./semantic-plan";
-import { normalizeNestedUpdateInputs } from "./update-plan";
 
 /**
  * The migration routing seam (§11). TEMPORARY: deleted at M10.

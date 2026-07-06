@@ -22,14 +22,6 @@ export type { FindManyArgs } from "./find-many";
 export { buildFindMany } from "./find-many";
 export { buildFindUnique } from "./find-unique";
 export { buildGroupBy, type GroupByArgs } from "./groupby";
-export type {
-  NestedCreateResult,
-  NestedUpdateResult,
-  TransactionContext,
-  TransactionStep,
-} from "./nested-writes";
-// Nested write operations
-export { executeNestedCreate, executeNestedUpdate } from "./nested-writes";
 export {
   buildUpdate,
   buildUpdateMany,

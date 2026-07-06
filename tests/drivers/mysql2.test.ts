@@ -14,6 +14,7 @@ import { push } from "@migrations";
 import { s } from "@schema";
 import {
   MySQL2BatchForcedDriver,
+  MySQL2BeforeFirstBatchDriver,
   MySQL2RacePlantingBatchDriver,
 } from "./batch-forced-mysql2";
 import { runCompoundKeyBehavior } from "./compound-key-behavior";
@@ -21,14 +22,15 @@ import { runCountAggregateWindowBehavior } from "./count-aggregate-window-behavi
 import { runDistinctSkipWindowBehavior } from "./distinct-skip-window-behavior";
 import { runLikeEscapeBehavior } from "./like-escape-behavior";
 import { runListJsonFilterBehavior } from "./list-json-filter-behavior";
+import { runM2mDeleteManyStalenessBehavior } from "./m2m-deletemany-staleness-behavior";
 import { runManyAndReturnBehavior } from "./many-and-return-behavior";
 import { runManyToManyBehavior } from "./many-to-many-behavior";
 import { runNestedWriteAdvancedBehavior } from "./nested-write-advanced-behavior";
 import { runNestedWriteBehavior } from "./nested-write-behavior";
+import { runNestedWriteConcurrencyBehavior } from "./nested-write-concurrency-behavior";
 import { runOptionalRelationParityBehavior } from "./optional-relation-parity-behavior";
 import { runOrderingArrayCreateBehavior } from "./ordering-array-create-behavior";
 import { runPrismaParityBehavior } from "./prisma-parity-behavior";
-import { runNestedWriteConcurrencyBehavior } from "./nested-write-concurrency-behavior";
 import { runReadPathRegressionBehavior } from "./read-path-regression-behavior";
 import { runRelationFilterMutationBehavior } from "./relation-filter-mutation-behavior";
 import {
@@ -208,6 +210,19 @@ describeIf("MySQL2 Driver", () => {
       new MySQL2BatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
     createRacePlantingBatchDriver: ({ plant, onBatchError }) =>
       new MySQL2RacePlantingBatchDriver(plant, onBatchError, {
+        databaseUrl: TEST_CONNECTION_STRING,
+      }),
+  });
+
+  // M9 (§9, §5.5 Rule 3): filtered-M2M-deleteMany staleness guards. A member
+  // added on a real second connection after the plan-time read aborts the guard
+  // (raceable); the retry re-plans and converges. Docker-gated (multi-connection).
+  runM2mDeleteManyStalenessBehavior({
+    driverName: "mysql2",
+    createTxDriver: () =>
+      new MySQL2Driver({ databaseUrl: TEST_CONNECTION_STRING }),
+    createStalePlanBatchDriver: ({ beforeFirstBatch, onBatchError }) =>
+      new MySQL2BeforeFirstBatchDriver(beforeFirstBatch, onBatchError, {
         databaseUrl: TEST_CONNECTION_STRING,
       }),
   });

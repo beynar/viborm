@@ -12,9 +12,11 @@ import { push } from "@migrations";
 import { s } from "@schema";
 import {
   PgBatchForcedDriver,
+  PgBeforeFirstBatchDriver,
   PgRacePlantingBatchDriver,
 } from "./batch-forced-pg";
 import { runListJsonFilterBehavior } from "./list-json-filter-behavior";
+import { runM2mDeleteManyStalenessBehavior } from "./m2m-deletemany-staleness-behavior";
 import { runNestedWriteAdvancedBehavior } from "./nested-write-advanced-behavior";
 import { runNestedWriteBehavior } from "./nested-write-behavior";
 import { runNestedWriteConcurrencyBehavior } from "./nested-write-concurrency-behavior";
@@ -416,12 +418,24 @@ describeIf("pg Driver", () => {
   // multi-connection database, hence its home here.
   runNestedWriteConcurrencyBehavior({
     driverName: "pg",
-    createTxDriver: () =>
-      new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+    createTxDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
     createBatchDriver: () =>
       new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
     createRacePlantingBatchDriver: ({ plant, onBatchError }) =>
       new PgRacePlantingBatchDriver(plant, onBatchError, {
+        databaseUrl: TEST_CONNECTION_STRING,
+      }),
+  });
+
+  // M9 (§9, §5.5 Rule 3): the filtered-M2M-deleteMany staleness guards close the
+  // plan-time→execution window fail-closed. A member added on a real second
+  // connection after the plan-time read aborts the guard (raceable); the retry
+  // re-plans and converges. Docker-gated for the same reason as M8.
+  runM2mDeleteManyStalenessBehavior({
+    driverName: "pg",
+    createTxDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+    createStalePlanBatchDriver: ({ beforeFirstBatch, onBatchError }) =>
+      new PgBeforeFirstBatchDriver(beforeFirstBatch, onBatchError, {
         databaseUrl: TEST_CONNECTION_STRING,
       }),
   });
