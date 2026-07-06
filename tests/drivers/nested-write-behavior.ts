@@ -515,17 +515,14 @@ export function runNestedWriteBehavior({
           },
         },
       });
-      if (currentClient.$driver.supportsTransactions) {
-        await expect(updateOtherParentChild).rejects.toThrow(
-          "Cannot update relation 'posts'"
-        );
-      } else {
-        // Batch plans enforce this via an assertion statement whose raw
-        // dialect error is normalized to NestedWriteAssertionError.
-        await expect(updateOtherParentChild).rejects.toThrow(
-          "Nested write assertion failed"
-        );
-      }
+      // Both substrates now surface the SAME typed correlated-not-found message
+      // (§7 error unification). This FK update tree is interpreted since M5, so
+      // planned mode's correlated `update` probe throws the typed error at plan
+      // time (§3.4 required probe) instead of the old generic assertion abort —
+      // the M7 message-unification landing for M5-eligible FK trees (§7.3).
+      await expect(updateOtherParentChild).rejects.toThrow(
+        "Cannot update relation 'posts'"
+      );
 
       const [user, otherPost] = await Promise.all([
         currentClient.user.findUnique({

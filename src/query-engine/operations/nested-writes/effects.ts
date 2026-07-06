@@ -54,7 +54,14 @@ export type Effect =
   | {
       readonly kind: "update";
       readonly model: Model<any>;
+      /** Per-column Expr assignments (FK-null / FK-value / connect). Empty when
+       *  the update is a scalar update carried by `rawSet`. */
       readonly set: Readonly<Record<string, Expr | { readonly op: Sql }>>;
+      /** Raw scalar update data (operation envelopes) lowered by the shared
+       *  `buildSet` builder — the single source of assignment semantics for
+       *  increment/decrement/push/…/mapped columns. Mutually exclusive with a
+       *  non-empty `set` (scalar updates and FK updates are never one effect). */
+      readonly rawSet?: Readonly<Record<string, unknown>>;
       readonly where: Sql; // already correlated by the interpreter
       readonly requireAffected: RequireAffected;
       /** computedPk symbols this update produces (PK arithmetic). */

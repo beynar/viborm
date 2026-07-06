@@ -1,8 +1,10 @@
 import type { Model } from "@schema/model";
-import type { Sql } from "@sql";
+import { type Sql, sql } from "@sql";
+import { buildSet } from "../../builders/set-builder";
 import { buildScalarSqlValue } from "../../builders/values-builder";
-import { getColumnName } from "../../context";
+import { createChildContext, getColumnName } from "../../context";
 import type { QueryContext } from "../../types";
+import type { Effect } from "./effects";
 import type { Expr } from "./expr";
 import type { Mode } from "./mode";
 
@@ -118,4 +120,28 @@ function isOp(
   entry: Expr | { readonly op: Sql }
 ): entry is { readonly op: Sql } {
   return "op" in entry;
+}
+
+/**
+ * Lower an update effect's SET clause into a single `Sql` fragment. A scalar
+ * update (`rawSet`) lowers through the shared `buildSet` builder — the one
+ * source of increment/decrement/push/…/mapped-column assignment semantics. An
+ * FK/PK update (`set`, Expr-based) lowers per-column via `lowerAssignments`.
+ * The two are mutually exclusive: a scalar update and an FK update are never the
+ * same effect.
+ */
+export function lowerUpdateSet(
+  ctx: QueryContext,
+  mode: Mode,
+  effect: Extract<Effect, { kind: "update" }>
+): Sql {
+  if (effect.rawSet) {
+    const child =
+      effect.model === ctx.model
+        ? ctx
+        : createChildContext(ctx, effect.model, ctx.nextAlias());
+    return buildSet(child, effect.rawSet as Record<string, unknown>);
+  }
+  const assignments = lowerAssignments(ctx, mode, effect.model, effect.set);
+  return sql.join(assignments, ", ");
 }

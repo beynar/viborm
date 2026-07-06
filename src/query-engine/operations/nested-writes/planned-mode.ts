@@ -23,9 +23,9 @@ import {
   type PlanState,
 } from "./batch-references";
 import {
-  lowerAssignments,
   lowerInsertManyRows,
   lowerInsertRow,
+  lowerUpdateSet,
 } from "./effect-lowering";
 import type { Effect, Guard, Probe, ProbeResult } from "./effects";
 import type { Expr, WriteSymbol } from "./expr";
@@ -96,6 +96,18 @@ export class PlannedMode implements Mode {
 
   isResolved(sym: WriteSymbol): boolean {
     return this.symbolRefs.has(sym.id);
+  }
+
+  symbolCarrier(sym: WriteSymbol): unknown {
+    const ref = this.symbolRefs.get(sym.id);
+    if (!ref) {
+      throw new QueryEngineError(
+        `Planned nested write read symbol '${sym.id}' (${sym.field}) before it was produced.`
+      );
+    }
+    // The BatchValueRef carrier lowers through buildScalarSqlValue inside the
+    // shared FK builders (batchRefs.read with the TEXT round-trip cast-back).
+    return ref;
   }
 
   async probe(ctx: QueryContext, p: Probe): Promise<ProbeResult> {
@@ -283,16 +295,28 @@ export class PlannedMode implements Mode {
         )
       );
     }
-    const assignments = lowerAssignments(ctx, this, effect.model, effect.set);
+    const setSql = lowerUpdateSet(ctx, this, effect);
     const table = ctx.adapter.identifiers.escape(getTableName(effect.model));
     state.statements.push(
-      ctx.adapter.mutations.update(
-        table,
-        sql.join(assignments, ", "),
-        effect.where
-      )
+      ctx.adapter.mutations.update(table, setSql, effect.where)
     );
-    // computedPk symbols would be stored here at M5; M3 emits none.
+    // Capture computedPk symbols (PK arithmetic) atomically after the update:
+    // the DB computes the new PK, and store(valueSql) records it for downstream
+    // reads. The valueSql is a constant arithmetic expression over the known
+    // before-value, so storing it matches the value the UPDATE just wrote.
+    for (const symbol of effect.produces) {
+      if (symbol.origin.kind === "computedPk") {
+        const ref = state.references.allocateValueRef();
+        this.symbolRefs.set(symbol.id, ref);
+        state.statements.push(
+          ctx.adapter.batchRefs.store(
+            ref.batchId,
+            ref.key,
+            symbol.origin.valueSql
+          )
+        );
+      }
+    }
   }
 
   private appendDelete(

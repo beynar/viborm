@@ -22,6 +22,16 @@ export interface Mode {
    *  Used by the Probe Independence Rule (§6.2) and identity rebinding. */
   isResolved(sym: WriteSymbol): boolean;
 
+  /** Axis A carrier: the raw value a symbol contributes to a `parentData`
+   *  record consumed by the shared FK condition/assignment builders
+   *  (`buildFkMatchCondition`, `combineWithParentCorrelation`,
+   *  `buildDepartingRowsCondition`, `buildFkValueAssignments` …). Those
+   *  builders lower the value through `buildScalarSqlValue`, so this returns the
+   *  captured JS literal (Live) or the `BatchValueRef` (Planned) — never a
+   *  lowered `Sql`. This is what threads a produced parent PK into a nested
+   *  relation's correlation. */
+  symbolCarrier(sym: WriteSymbol): unknown;
+
   /** Axis B: run a deciding read.
    *  Live: now, on the tx driver (sees own writes; honors forUpdate); the
    *  returned guard realizes as a no-op (§5.1).

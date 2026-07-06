@@ -1,6 +1,7 @@
 import type { AnyDriver } from "@drivers";
 import type { Model } from "@schema/model";
 import { type Sql, sql } from "@sql";
+import { buildPrimaryKeyWhereUnique } from "../../builders/correlation-utils";
 import { buildScalarSqlValue } from "../../builders/values-builder";
 import {
   createChildContext,
@@ -15,9 +16,9 @@ import {
   getCreateRefetchWhere,
 } from "../mutation-returns";
 import {
-  lowerAssignments,
   lowerInsertManyRows,
   lowerInsertRow,
+  lowerUpdateSet,
 } from "./effect-lowering";
 import type { Effect, Guard, Probe, ProbeResult } from "./effects";
 import type { Expr, WriteSymbol } from "./expr";
@@ -91,6 +92,15 @@ export class LiveMode implements Mode {
 
   isResolved(sym: WriteSymbol): boolean {
     return this.values.has(sym.id);
+  }
+
+  symbolCarrier(sym: WriteSymbol): unknown {
+    if (!this.values.has(sym.id)) {
+      throw new QueryEngineError(
+        `Live nested write read symbol '${sym.id}' (${sym.field}) before it was produced.`
+      );
+    }
+    return this.values.get(sym.id);
   }
 
   async probe(ctx: QueryContext, p: Probe): Promise<ProbeResult> {
@@ -217,18 +227,50 @@ export class LiveMode implements Mode {
     effect: Extract<Effect, { kind: "update" }>
   ): Promise<void> {
     const ctx = this.childCtx(effect.model);
-    const assignments = lowerAssignments(ctx, this, effect.model, effect.set);
+    const setSql = lowerUpdateSet(ctx, this, effect);
     const table = ctx.adapter.identifiers.escape(getTableName(effect.model));
-    const updateSql = ctx.adapter.mutations.update(
-      table,
-      sql.join(assignments, ", "),
-      effect.where
-    );
+    const updateSql = ctx.adapter.mutations.update(table, setSql, effect.where);
     const result = await tx._execute(updateSql);
     if (effect.requireAffected !== false && result.rowCount === 0) {
       throw effect.requireAffected.error();
     }
-    // computedPk symbols would bind here at M5; M3 emits none.
+    // Capture computedPk symbols (PK arithmetic). The symbol's `valueSql` is a
+    // constant arithmetic expression over the (already-known) before-value, so
+    // evaluating it yields the row's new PK — the same value the DB now holds.
+    for (const symbol of effect.produces) {
+      if (symbol.origin.kind === "computedPk") {
+        this.values.set(
+          symbol.id,
+          await this.evaluateScalar(
+            tx,
+            ctx,
+            symbol.field,
+            symbol.origin.valueSql
+          )
+        );
+      }
+    }
+  }
+
+  /** Evaluate a constant scalar SQL expression, returning its JS value. Used to
+   *  read back a computedPk symbol's value (§4.1). */
+  private async evaluateScalar(
+    tx: AnyDriver,
+    ctx: QueryContext,
+    alias: string,
+    valueSql: Sql
+  ): Promise<unknown> {
+    const selectSql = ctx.adapter.clauses.select(
+      ctx.adapter.identifiers.aliased(valueSql, alias)
+    );
+    const result = await tx._execute<Record<string, unknown>>(selectSql);
+    const value = result.rows[0]?.[alias];
+    if (value === undefined || value === null) {
+      throw new QueryEngineError(
+        `Live nested write could not evaluate the computed primary key for field '${alias}'.`
+      );
+    }
+    return value;
   }
 
   private async runDelete(
@@ -337,7 +379,12 @@ export class LiveMode implements Mode {
     }
 
     const ctx = this.rootCtxOrThrow();
-    const where = this.resolveIdentity(result.finalWhere);
+    // Wrap the flat PK values in the model's whereUnique selector (a compound
+    // PK needs its `{ a_b: { … } }` shape; a single PK passes through).
+    const where = buildPrimaryKeyWhereUnique(
+      ctx.model,
+      this.resolveIdentity(result.finalWhere)
+    );
     const refetchSql = buildFindUnique(ctx, {
       where,
       select: result.selectInclude?.select as
