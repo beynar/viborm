@@ -32,6 +32,7 @@ import {
   runInterpreter,
   selectMode,
 } from "./operations/nested-writes/interpreter";
+import { assertPlanExecutable } from "./operations/nested-writes/legality";
 import { assertNoPlannedNestedMutationExecution } from "./operations/nested-writes/planned-mutation";
 import { fetchOptionalUniqueWithWhereRecord } from "./operations/nested-writes/record-access";
 import { isTreeEligible } from "./operations/nested-writes/routing";
@@ -141,12 +142,20 @@ function runNestedWriteOperation<T>(
   driver: AnyDriver,
   modelName: string
 ): Promise<T> {
+  // The capability fork (§8.1) resolves the mode first: a driver with neither
+  // atomic strategy (d1-http class) rejects here, byte-identically to the frozen
+  // atomic-runner path. Then the uniform legality gate (§6.3, §11 M2) runs the
+  // whole-tree static validation for BOTH modes before either engine writes a
+  // row, so an invalid deep tree is rejected up front instead of failing
+  // mid-execution (D5 closed).
+  const mode = selectMode(driver, operation);
+  assertPlanExecutable(ctx, operation, args, mode);
+
   // Migration routing seam (§11): whole trees whose every nested kind and
   // relation class is migrated run on the new interpreter; all others delegate
-  // to the frozen legacy engines below. MIGRATED is empty at M1, so every tree
-  // delegates and behavior is unchanged.
+  // to the frozen legacy engines below. MIGRATED is empty until M3, so every
+  // tree delegates and behavior is unchanged.
   if (isTreeEligible(ctx, operation, args)) {
-    const mode = selectMode(driver, operation);
     return runInterpreter<T>(ctx, operation, args, mode);
   }
 
