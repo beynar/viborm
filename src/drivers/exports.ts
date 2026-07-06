@@ -7,10 +7,12 @@
 
 // Errors (commonly needed with drivers)
 export {
+  CheckConstraintError,
   ConnectionError,
   FeatureNotSupportedError,
   ForeignKeyError,
   isRetryableError,
+  NotNullConstraintError,
   QueryError,
   TransactionError,
   UniqueConstraintError,

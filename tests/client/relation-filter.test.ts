@@ -1,7 +1,14 @@
 import { createClient as PGliteCreateClient } from "@drivers/pglite";
 import { push } from "@migrations";
 import { s } from "@schema";
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from "vitest";
 
 const user = s.model({
   id: s.string().id(),
@@ -133,10 +140,7 @@ describe("Client Relation Filters", () => {
   test("combines relation filters with OR and include", async () => {
     const users = await client.user.findMany({
       where: {
-        OR: [
-          { posts: { some: { published: false } } },
-          { name: "Cara" },
-        ],
+        OR: [{ posts: { some: { published: false } } }, { name: "Cara" }],
       },
       include: { posts: true },
       orderBy: { id: "asc" },

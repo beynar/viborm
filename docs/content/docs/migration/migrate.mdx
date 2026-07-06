@@ -159,19 +159,25 @@ await migrations.apply({ dryRun: true });
 
 ## Roll Back Migrations
 
-Roll back applied migrations:
+Every generated migration includes a down migration (stored in
+`meta/_down/`) that reverses its operations. Lossy operations (dropped
+tables or columns) are annotated with warnings in the down file — the
+structure is restored, but not the data.
 
 <Tabs items={["CLI", "Migration Client"]}>
   <Tab value="CLI">
 ```bash
 # Roll back the last migration
-npx viborm migrate down --steps 1
+npx viborm migrate down
 
-# Roll back to a specific migration (exclusive)
+# Roll back the last 3 migrations
+npx viborm migrate down --steps 3
+
+# Roll back to a specific migration (by name or index)
 npx viborm migrate down --to add-users
 
 # Preview without executing
-npx viborm migrate down --steps 1 --dry-run
+npx viborm migrate down --dry-run
 ```
   </Tab>
   <Tab value="Migration Client">
@@ -194,8 +200,9 @@ await migrations.down({ steps: 1, dryRun: true });
 | Option | CLI | API | Description |
 |--------|-----|-----|-------------|
 | Steps | `--steps <n>` | `steps: number` | Number of migrations to roll back |
-| To | `--to <name>` | `to: string` | Roll back to this migration (exclusive) |
+| To | `--to <migration>` | `to: string \| number` | Roll back to this migration (exclusive) |
 | Dry run | `--dry-run` | `dryRun: boolean` | Preview without executing |
+| Force | `--force` | - | Skip confirmation prompts |
 
 ## Reset Database
 

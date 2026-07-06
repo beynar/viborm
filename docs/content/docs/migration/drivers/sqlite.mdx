@@ -16,7 +16,7 @@ icon: FileBox
 
 ## Type Mappings
 
-| VibORM Type | SQLite Type |
+| VibORM Scalar | SQLite Type |
 |-------------|-------------|
 | `string()` | `TEXT` |
 | `int()` | `INTEGER` |
@@ -27,8 +27,8 @@ icon: FileBox
 | `json()` | `JSON` |
 | `blob()` | `BLOB` |
 | `uuid()` | `TEXT` |
-| `enumField()` | `TEXT` + CHECK constraint |
-| Array types | `JSON` |
+| `enumScalar()` | `TEXT` + CHECK constraint |
+| Array scalars | `JSON` |
 
 ## Auto-Increment
 
@@ -74,7 +74,7 @@ SQLite doesn't have native enums, so VibORM uses TEXT columns with CHECK constra
 
 ```ts
 const User = model("users", {
-  status: enumField(["active", "inactive", "pending"]),
+  status: enumScalar(["active", "inactive", "pending"]),
 });
 ```
 

@@ -39,22 +39,22 @@ VibORM supports multiple database drivers across three dialects: PostgreSQL, MyS
 | pg | ✅ Full | ✅ Full | ✅ Full | Node.js |
 | postgres | ✅ Full | ✅ Full | ✅ Full | Node.js |
 | pglite | ✅ Full | ✅ Full | ✅ Full | Any (WASM) |
-| neon-http | ⚠️ Sequential | ✅ Full | ✅ Full | Any |
+| neon-http | ❌ Unsupported | ✅ Full | ✅ Full | Any |
 | bun-sql | ✅ Full | ✅ Full | ✅ Full | Bun |
 | mysql2 | ✅ Full | ✅ Full | ✅ Full | Node.js |
 | planetscale | ✅ Full | ✅ Full | ✅ Full | Any |
 | sqlite3 | ✅ Full | ✅ Full | ✅ Full | Node.js |
 | libsql | ✅ Full | ✅ Full | ✅ Full | Any |
 | bun-sqlite | ✅ Full | ✅ Full | ✅ Full | Bun |
-| d1 | ⚠️ Sequential | ✅ Full | ✅ Full | Workers |
-| d1-http | ⚠️ Sequential | ✅ Full | ✅ Full | Any |
+| d1 | ❌ Unsupported | ✅ Full | ✅ Full | Workers |
+| d1-http | ❌ Unsupported | ✅ Full | ✅ Full | Any |
 
 <Callout type="info">
 **Dynamic Transactions** use the callback API: `$transaction(async (tx) => { ... })`
 
 **Batch Mode** uses the array API: `$transaction([op1, op2, ...])`
 
-Drivers marked "Sequential" for dynamic transactions will execute operations one-by-one without isolation. Use batch mode for atomic operations on these drivers.
+Drivers marked "Unsupported" reject callback transactions instead of running non-atomically. Use batch mode for operations that can be planned up front on these drivers. Documented nested writes can carry internal generated or updated primary-key references inside the planned atomic batch.
 </Callout>
 
 ## Choosing a Driver

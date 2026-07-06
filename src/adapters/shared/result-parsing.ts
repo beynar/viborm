@@ -73,6 +73,10 @@ export function parseIntegerBoolean(
   if (typeof value === "number") {
     return value === 1;
   }
+  // SQLite drivers read integers safely (BigInt), including boolean columns
+  if (typeof value === "bigint") {
+    return value === 1n;
+  }
   if (value === null || value === undefined) {
     return null;
   }

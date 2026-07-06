@@ -6,6 +6,8 @@
 
 import type { DatabaseAdapter } from "@adapters";
 import type { AnyDriver } from "@drivers/driver";
+import type { QueryResult } from "@drivers/types";
+import type { InstrumentationContext } from "@instrumentation";
 import type { Model } from "@schema/model";
 import type { AnyRelation } from "@schema/relation";
 import type { SchemaRegistryLookup } from "@validation";
@@ -70,6 +72,14 @@ export interface QueryMetadata<T> {
    */
   prepare?: (driverOverride?: AnyDriver) => PreparedQuery;
   /**
+   * Function to prepare one logical operation as an atomic batch.
+   * Used for nested writes on batch-only drivers.
+   */
+  prepareBatch?: (
+    driverOverride?: AnyDriver,
+    context?: BatchPreparationContext
+  ) => Promise<PreparedBatchOperation<T>>;
+  /**
    * Function to parse raw query result into typed result.
    * Used after batch execution to transform the raw result.
    */
@@ -78,6 +88,24 @@ export interface QueryMetadata<T> {
   isBatchOperation: boolean;
   /** Whether this operation has nested writes (can't be batched) */
   hasNestedWrites: boolean;
+}
+
+/**
+ * One logical operation expanded into driver-level batch queries.
+ */
+export interface PreparedBatchOperation<T = unknown> {
+  queries: PreparedQuery[];
+  setupQueries?: PreparedQuery[];
+  cleanupQueries?: PreparedQuery[];
+  parseResult: (results: QueryResult<unknown>[]) => T;
+}
+
+/**
+ * Shared state used while flattening several logical operations into one
+ * atomic driver batch.
+ */
+export interface BatchPreparationContext {
+  nestedWriteState?: unknown;
 }
 
 /**
@@ -101,8 +129,10 @@ export type Operation =
   | "findUnique"
   | "create"
   | "createMany"
+  | "createManyAndReturn"
   | "update"
   | "updateMany"
+  | "updateManyAndReturn"
   | "delete"
   | "deleteMany"
   | "upsert"
@@ -124,6 +154,18 @@ export function isBatchOperation(op: Operation): op is BatchOperation {
   return (BATCH_OPERATIONS as readonly string[]).includes(op);
 }
 
+/** Batch mutations that return the affected rows instead of a count */
+export type ManyAndReturnOperation =
+  | "createManyAndReturn"
+  | "updateManyAndReturn";
+
+/** Check if operation is a batch mutation returning rows */
+export function isManyAndReturnOperation(
+  op: Operation
+): op is ManyAndReturnOperation {
+  return op === "createManyAndReturn" || op === "updateManyAndReturn";
+}
+
 /**
  * Model registry for accessing related models
  */
@@ -131,6 +173,18 @@ export interface ModelRegistry {
   get(name: string): Model<any> | undefined;
   getByTableName(tableName: string): Model<any> | undefined;
   readonly schemas: SchemaRegistryLookup;
+}
+
+/**
+ * Dependencies shared by query-engine execution flows.
+ */
+export interface QueryEngineDependencies {
+  adapter: DatabaseAdapter;
+  registry: ModelRegistry;
+  driver: AnyDriver;
+  schemaRegistry: SchemaRegistryLookup;
+  instrumentation: InstrumentationContext | undefined;
+  clientId: symbol;
 }
 
 /**
@@ -151,9 +205,16 @@ export interface QueryContext {
   nextAlias: () => string;
   /** Get root alias (t0) */
   rootAlias: string;
+  /**
+   * Table currently targeted by an UPDATE/DELETE. Set while building the
+   * mutation's WHERE so relation-filter subqueries selecting from this table
+   * can be wrapped in a derived table on dialects where referencing it is
+   * illegal (MySQL error 1093 — see capabilities.supportsMutationTargetInSubquery).
+   */
+  mutationTable?: string;
   /** Cached parse result chain (lazily initialized) */
   _parseResultChain?: (value: unknown, op: Operation) => unknown;
-  /** Cached parse field chains by field type (lazily initialized) */
+  /** Cached parse field chains by scalar type (lazily initialized) */
   _parseFieldChains?: Map<string, (value: unknown) => unknown>;
   /** Cached parse relation chains by relation name (lazily initialized) */
   _parseRelationChains?: Map<string, (value: unknown) => unknown>;

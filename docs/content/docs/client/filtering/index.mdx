@@ -1,6 +1,6 @@
 ---
 title: Filtering
-description: Filter operators for the where clause, varying by field type
+description: Filter operators for the where clause, varying by scalar type
 icon: Filter
 ---
 
@@ -19,7 +19,7 @@ const users = await client.user.findMany({
 
 ## Common Operators
 
-All field types support:
+All scalar types support:
 
 | Operator | Description |
 |----------|-------------|
@@ -37,6 +37,10 @@ where: {
   role: { notIn: ["GUEST", "BANNED"] },  // Not in array
 }
 ```
+
+<Callout type="info">
+  An explicit `undefined` value is treated as if the key were absent, matching Prisma. `where: { role: role ?? undefined }` behaves the same as omitting `role` entirely — useful for building filters conditionally without stripping keys yourself.
+</Callout>
 
 ## Logical Operators
 

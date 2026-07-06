@@ -1,6 +1,6 @@
 # Bug Report: Type Issues in Relation Query Results
 
-This document covers multiple bugs related to field types when accessed through relations.
+This document covers multiple bugs related to scalar types when accessed through relations.
 
 ---
 
@@ -14,13 +14,15 @@ This document covers multiple bugs related to field types when accessed through 
 
 The fix involved restructuring how enum values are stored and accessed:
 
-1. **FieldState conditional type** - Added `enumValues` as a conditional property that only exists for enum fields:
+1. **ScalarState conditional type** - Added `enumValues` as a conditional property that only exists for enum scalars:
    ```typescript
-   export type FieldState<T extends ScalarFieldType> = BaseFieldState<T> &
-     (T extends "enum" ? { enumValues: string[] } : { enumValues?: undefined });
+   export interface ScalarState<T extends ScalarType = ScalarType> {
+     type: T;
+     enumValues?: T extends "enum" ? readonly string[] : undefined;
+   }
    ```
 
-2. **EnumField stores values in state** - The enum values are now stored directly in the state object, not just as a class property.
+2. **EnumScalar stores values in state** - The enum values are now stored directly in the state object, not just as a class property.
 
 3. **GetScalarResultType extracts from enumValues** - Updated to use `S["enumValues"]` for enum type inference:
    ```typescript
@@ -31,11 +33,11 @@ The fix involved restructuring how enum values are stored and accessed:
 
 4. **const modifier on updateState** - Added `const` to preserve literal types through state updates.
 
-**Why it works:** Primitive literals (`true`, `"hello"`) are preserved through TypeScript's type system even with broader constraints, while array/object types get widened. By storing enum values directly in FieldState and using proper generic constraints, the literal union types flow through correctly.
+**Why it works:** Primitive literals (`true`, `"hello"`) are preserved through TypeScript's type system even with broader constraints, while array/object types get widened. By storing enum values directly in ScalarState and using proper generic constraints, the literal union types flow through correctly.
 
 ## Summary
 
-When querying a model through a relation (via `include`), enum field types are incorrectly widened from their literal union type (e.g., `"ACTIVE" | "INACTIVE" | "PENDING"`) to `string`.
+When querying a model through a relation (via `include`), enum scalar types are incorrectly widened from their literal union type (e.g., `"ACTIVE" | "INACTIVE" | "PENDING"`) to `string`.
 
 ## Reproduction
 
@@ -72,14 +74,14 @@ The type inference chain breaks at the `ModelState` interface definition:
 
 ```typescript
 export interface ModelState {
-  fields: FieldRecord;
-  scalars: Record<string, Field>;  // ❌ Field union loses specific EnumField<Values>
+  fields: ModelShape;
+  scalars: Record<string, Scalar>;  // ❌ Scalar union loses specific EnumScalar<Values>
   relations: Record<string, AnyRelation>;
   // ...
 }
 ```
 
-The `scalars` property is typed as `Record<string, Field>`, where `Field` is the union of all field types. This causes the specific `EnumField<["ACTIVE", "INACTIVE", "PENDING"]>` to be widened to just `Field`.
+The `scalars` property is typed as `Record<string, Scalar>`, where `Scalar` is the union of all scalar types. This causes the specific `EnumScalar<["ACTIVE", "INACTIVE", "PENDING"]>` to be widened to just `Scalar`.
 
 ### Type Flow Breakdown
 
@@ -100,7 +102,7 @@ The `scalars` property is typed as `Record<string, Field>`, where `Field` is the
 3. **Model output inference** iterates over `S["scalars"]`:
    ```typescript
    export type InferModelOutput<S extends ModelState> = {
-     [K in keyof S["scalars"]]: S["scalars"][K] extends Field
+     [K in keyof S["scalars"]]: S["scalars"][K] extends Scalar
        ? InferScalarOutput<S["scalars"][K]>
        : never;
    };
@@ -109,16 +111,16 @@ The `scalars` property is typed as `Record<string, Field>`, where `Field` is the
 4. **Enum type extraction** in `GetScalarResultType`:
    ```typescript
    : S["type"] extends "enum"
-     ? F extends EnumField<infer Values, any>  // ❌ F is Field, not EnumField<specific>
+     ? F extends EnumScalar<infer Values, any>  // ❌ F is Scalar, not EnumScalar<specific>
        ? Values[number]
        : never
    ```
 
-At step 4, `F` is `Field` (the union type), not the specific `EnumField<["ACTIVE", "INACTIVE", "PENDING"]>`. The `infer Values` fails to extract the literal values, falling through to `never` or defaulting to `string`.
+At step 4, `F` is `Scalar` (the union type), not the specific `EnumScalar<["ACTIVE", "INACTIVE", "PENDING"]>`. The `infer Values` fails to extract the literal values, falling through to `never` or defaulting to `string`.
 
 ## Why Direct Queries Work
 
-Direct queries preserve types because the Model generic parameter `State` carries the exact field types through the type system:
+Direct queries preserve types because the Model generic parameter `State` carries the exact scalar types through the type system:
 
 ```typescript
 // In client.ts - direct model access
@@ -127,19 +129,19 @@ type ModelProxy<M extends Model<any>> = {
 };
 ```
 
-The `M["~"]["state"]` preserves the specific field types because it's directly accessing the model's state generic parameter.
+The `M["~"]["state"]` preserves the specific scalar types because it's directly accessing the model's state generic parameter.
 
 ## Potential Fix Approaches
 
-### Option 1: Preserve Field Types in ModelState
+### Option 1: Preserve Scalar Types in ModelState
 
-Change `ModelState.scalars` to preserve specific field types:
+Change `ModelState.scalars` to preserve specific scalar types:
 
 ```typescript
 export interface ModelState<
-  Scalars extends Record<string, Field> = Record<string, Field>
+  Scalars extends Record<string, Scalar> = Record<string, Scalar>
 > {
-  scalars: Scalars;  // Preserves specific EnumField<Values> types
+  scalars: Scalars;  // Preserves specific EnumScalar<Values> types
   // ...
 }
 ```
@@ -147,13 +149,13 @@ export interface ModelState<
 **Pros:** Clean fix at the source
 **Cons:** Requires updating all ModelState usages to carry the generic parameter
 
-### Option 2: Store Enum Values in FieldState
+### Option 2: Store Enum Values in ScalarState
 
-Add enum values to the FieldState itself:
+Add enum values to the ScalarState itself:
 
 ```typescript
 // In common.ts
-export interface FieldState<T extends ScalarFieldType = ScalarFieldType> {
+export interface ScalarState<T extends ScalarType = ScalarType> {
   type: T;
   enumValues?: readonly string[];  // Store enum values in state
   // ...
@@ -167,16 +169,16 @@ export interface FieldState<T extends ScalarFieldType = ScalarFieldType> {
 ```
 
 **Pros:** Doesn't require generic parameter changes
-**Cons:** Duplicates data (values in both EnumField and FieldState)
+**Cons:** Duplicates data (values in both EnumScalar and ScalarState)
 
 ### Option 3: Use Type Branding for Enum Values
 
-Store enum values as a branded type in FieldState:
+Store enum values as a branded type in ScalarState:
 
 ```typescript
 type EnumValues<V extends readonly string[]> = V & { __brand: "enumValues" };
 
-export interface FieldState<T extends ScalarFieldType = ScalarFieldType> {
+export interface ScalarState<T extends ScalarType = ScalarType> {
   type: T;
   values?: T extends "enum" ? EnumValues<readonly string[]> : undefined;
 }
@@ -214,12 +216,12 @@ const status = child.parent.status as "ACTIVE" | "INACTIVE" | "PENDING";
 
 - `src/schema/model/model.ts` - ModelState interface
 - `src/client/result-types.ts` - GetScalarResultType, InferModelOutput
-- `src/schema/fields/enum/field.ts` - EnumField class
-- `src/schema/fields/common.ts` - FieldState interface
+- `src/schema/scalars/enum/scalar.ts` - EnumScalar class
+- `src/schema/scalars/common.ts` - ScalarState interface
 
 ---
 
-# Bug 2: DateTime/Date Fields Returned as Strings Through Relations
+# Bug 2: DateTime/Date Scalars Returned as Strings Through Relations
 
 **Type:** Runtime bug (data incorrectly deserialized)
 
@@ -282,7 +284,7 @@ The relation result parser is not applying the same date deserialization that di
 
 ---
 
-# Bug 3: BigInt Fields Returned as Numbers Through Relations
+# Bug 3: BigInt Scalars Returned as Numbers Through Relations
 
 **Type:** Runtime bug (data incorrectly deserialized)
 
@@ -341,7 +343,7 @@ Same as Bug 2 - the relation result parser is not applying bigint conversion. JS
 
 # Summary Table
 
-| Bug | Type | Field | Expected | Actual | Status |
+| Bug | Type | Scalar | Expected | Actual | Status |
 |-----|------|-------|----------|--------|--------|
 | 1 | Type inference | enum | `"A" \| "B"` | `string` | **Open** (Medium) |
 | 2 | Runtime | datetime/date | `Date` | `string` | **FIXED** |
@@ -350,7 +352,7 @@ Same as Bug 2 - the relation result parser is not applying bigint conversion. JS
 ## Fix Applied
 
 Bugs 2 and 3 were fixed in `src/query-engine/result/result-parser.ts` by making the result parser schema-aware. The parser now:
-1. Uses the model schema to identify field types
+1. Uses the model schema to identify scalar types
 2. Converts ISO strings to `Date` objects for datetime/date fields
 3. Converts numbers to `bigint` for bigint fields
 4. Recursively handles nested relations using target model schema
@@ -377,4 +379,3 @@ Database → Driver → JSON aggregation → Client
 ```
 
 The fix likely involves ensuring relation results pass through the same deserialization pipeline as direct query results.
-

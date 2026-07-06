@@ -67,7 +67,7 @@ export function buildCountAggregate(
  * Build aggregate column expression for count, avg, sum, min, or max
  *
  * @param ctx - Query context
- * @param spec - Field specification { fieldName: true, ... } or true for count all
+ * @param spec - Scalar specification { fieldName: true, ... } or true for count all
  * @param alias - Table alias
  * @param aggType - Aggregate type
  * @returns SQL expression for aggregate (aliased) or undefined if no fields
@@ -99,10 +99,18 @@ export function buildAggregateColumn(
   const aggFn = getAggregateFn(adapter, aggType);
   const aggName = `_${aggType}`;
 
+  const scalars = ctx.model["~"].state.scalars;
   const pairs: [string, Sql][] = entries.map(([field]) => {
     // Resolve field name to actual column name (handles .map() overrides)
     const columnName = getColumnName(ctx.model, field);
-    return [field, aggFn(adapter.identifiers.column(alias, columnName))];
+    let expr = aggFn(adapter.identifiers.column(alias, columnName));
+    // BigInt/Decimal aggregates lose precision as JSON numbers — cast to
+    // TEXT like select-builder does; the result parser converts back
+    const scalarType = scalars[field]?.["~"].state.type;
+    if (scalarType === "bigint" || scalarType === "decimal") {
+      expr = adapter.expressions.cast(expr, "text");
+    }
+    return [field, expr];
   });
 
   return adapter.identifiers.aliased(

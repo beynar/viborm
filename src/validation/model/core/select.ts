@@ -2,8 +2,8 @@
 
 import type { AnyModel } from "@schema/model";
 import type { StringKeyOf } from "@schema/model/helper";
-import v, { type V } from "@validation";
-import type { FieldSchemas } from "../index";
+import v, { type V } from "../../primitives/v";
+import type { ScalarSchemas } from "../index";
 
 // =============================================================================
 // SELECT SCHEMA
@@ -16,7 +16,7 @@ type ModelStateOf<M extends AnyModel> = M["~"]["state"];
 
 export type SelectSchema<
   M extends AnyModel,
-  F extends FieldSchemas<M>,
+  F extends ScalarSchemas<M>,
 > = V.Object<
   V.FromKeys<StringKeyOf<ModelStateOf<M>["scalars"]>[], V.Boolean>["entries"] &
     V.FromObject<F["relations"], "select">["entries"] & {
@@ -33,11 +33,8 @@ export type SelectSchema<
     }
 >;
 
-export const getSelectSchema = <
-  M extends AnyModel,
-  F extends FieldSchemas<M>,
->(
-  fieldSchemas: F,
+export const getSelectSchema = <M extends AnyModel, F extends ScalarSchemas<M>>(
+  fieldSchemas: F
 ): SelectSchema<M, F> => {
   // Scalar fields: simple boolean selection
   const scalarKeys = Object.keys(fieldSchemas.scalars) as StringKeyOf<
@@ -52,7 +49,7 @@ export const getSelectSchema = <
   // Relations: use relation's select schema (supports boolean or nested)
   const relationEntries = v.fromObject<F["relations"], "select">(
     fieldSchemas.relations,
-    "select",
+    "select"
   );
 
   // _count entries: use a schema that accepts true or { where: ... }
@@ -72,7 +69,7 @@ export const getSelectSchema = <
       {
         select: countSelectEntries,
       },
-      { optional: true },
+      { optional: true }
     ),
   });
 };
@@ -94,7 +91,7 @@ export type IncludeSchema<F extends RelationSchemaBundle> = V.FromObject<
 >;
 
 export const getIncludeSchema = <F extends RelationSchemaBundle>(
-  schemas: F,
+  schemas: F
 ): IncludeSchema<F> => {
   // Relations: use relation's include schema (supports boolean or nested with where/orderBy/etc.)
   return v.fromObject<F["relations"], "include", { optional: true }>(
@@ -102,6 +99,6 @@ export const getIncludeSchema = <F extends RelationSchemaBundle>(
     "include",
     {
       optional: true,
-    },
+    }
   );
 };

@@ -14,7 +14,12 @@
 
 import type { AnyDriver } from "@drivers";
 import { PendingOperationError } from "@errors";
-import type { PreparedQuery, QueryMetadata } from "@query-engine/types";
+import type {
+  BatchPreparationContext,
+  PreparedBatchOperation,
+  PreparedQuery,
+  QueryMetadata,
+} from "@query-engine/types";
 
 /**
  * Symbol to identify PendingOperation instances
@@ -188,6 +193,20 @@ export class PendingOperation<T> implements PromiseLike<T> {
       return undefined;
     }
     return this.metadata.prepare(driver);
+  }
+
+  /**
+   * Prepare this operation as one atomic driver batch.
+   * Nested writes use this path on batch-only drivers.
+   */
+  prepareBatch(
+    driver?: AnyDriver,
+    context?: BatchPreparationContext
+  ): Promise<PreparedBatchOperation<T> | undefined> {
+    if (!this.metadata.prepareBatch) {
+      return Promise.resolve(undefined);
+    }
+    return this.metadata.prepareBatch(driver, context);
   }
 
   /**

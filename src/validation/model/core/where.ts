@@ -1,11 +1,11 @@
 import type { AnyModel } from "@schema/model";
-import v, { type V } from "@validation";
-import type { FieldSchemas } from "../index";
+import v, { type V } from "../../primitives/v";
+import type { ScalarSchemas } from "../index";
 import {
   type CompoundConstraintFilterSchema,
   getCompoundConstraintFilter,
-  type UniqueFilterSchema,
   getUniqueFilter,
+  type UniqueFilterSchema,
 } from "./filter";
 
 // =============================================================================
@@ -18,7 +18,7 @@ import {
  */
 export type WhereSchemaBase<
   M extends AnyModel,
-  F extends FieldSchemas<M>,
+  F extends ScalarSchemas<M>,
 > = V.Object<
   V.FromObject<F["scalars"], "filter">["entries"] &
     V.FromObject<F["relations"], "filter">["entries"]
@@ -26,7 +26,7 @@ export type WhereSchemaBase<
 
 export type WhereSchema<
   M extends AnyModel,
-  F extends FieldSchemas<M>,
+  F extends ScalarSchemas<M>,
 > = V.Object<
   {
     AND: () => V.Optional<
@@ -39,11 +39,8 @@ export type WhereSchema<
   } & WhereSchemaBase<M, F>["entries"]
 >;
 
-export const getWhereSchema = <
-  M extends AnyModel,
-  F extends FieldSchemas<M>,
->(
-  fieldSchemas: F,
+export const getWhereSchema = <M extends AnyModel, F extends ScalarSchemas<M>>(
+  fieldSchemas: F
 ): WhereSchema<M, F> => {
   // Build scalar and relation filter entries
 
@@ -78,19 +75,32 @@ export const getWhereSchema = <
  * Build whereUnique schema - unique fields + compound constraints
  * Combines single-field uniques with compound ID and compound uniques
  */
+type WhereUniqueEntries<
+  M extends AnyModel,
+  F extends ScalarSchemas<M>,
+> = UniqueFilterSchema<M, F>["entries"] &
+  CompoundConstraintFilterSchema<M>["entries"];
+
+type WhereUniqueKey<M extends AnyModel, F extends ScalarSchemas<M>> = Extract<
+  keyof WhereUniqueEntries<M, F>,
+  string
+>;
+
+type WhereUniqueOptions<M extends AnyModel, F extends ScalarSchemas<M>> = {
+  nonEmpty: true;
+  requiresOneOf: readonly [WhereUniqueKey<M, F>[]];
+};
+
 export type WhereUniqueSchema<
   M extends AnyModel,
-  F extends FieldSchemas<M>,
-> = V.Object<
-  UniqueFilterSchema<M, F>["entries"] &
-    CompoundConstraintFilterSchema<M>["entries"]
->;
+  F extends ScalarSchemas<M>,
+> = V.Object<WhereUniqueEntries<M, F>, WhereUniqueOptions<M, F>>;
 export const getWhereUniqueSchema = <
   M extends AnyModel,
-  F extends FieldSchemas<M>,
+  F extends ScalarSchemas<M>,
 >(
   model: M,
-  fieldSchemas: F,
+  fieldSchemas: F
 ): WhereUniqueSchema<M, F> => {
   // Single-field unique constraints
   const uniqueFilter = getUniqueFilter(model, fieldSchemas);
@@ -98,8 +108,14 @@ export const getWhereUniqueSchema = <
   // Add compound constraints (ID + uniques) using the compound filter helpers
   const compoundConstraintFilter = getCompoundConstraintFilter(model);
 
-  return v.object({
+  const entries: WhereUniqueEntries<M, F> = {
     ...uniqueFilter.entries,
     ...compoundConstraintFilter.entries,
+  };
+  const keys = Object.keys(entries) as WhereUniqueKey<M, F>[];
+
+  return v.object(entries, {
+    nonEmpty: true,
+    requiresOneOf: [keys],
   });
 };

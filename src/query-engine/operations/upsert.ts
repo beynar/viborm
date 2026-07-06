@@ -10,8 +10,9 @@ import { buildSelect } from "../builders/select-builder";
 import { buildSet } from "../builders/set-builder";
 import { buildValues } from "../builders/values-builder";
 import { buildWhere } from "../builders/where-builder";
+import { getWhereUniqueFieldNames } from "../builders/where-unique-builder";
 import { getColumnName, getTableName } from "../context";
-import type { QueryContext } from "../types";
+import { type QueryContext, QueryEngineError } from "../types";
 
 interface UpsertArgs {
   where: Record<string, unknown>;
@@ -20,13 +21,11 @@ interface UpsertArgs {
   select?: Record<string, unknown>;
   include?: Record<string, unknown>;
   /**
-   * WHERE clause for conflict target (partial unique index matching).
-   * PostgreSQL: ON CONFLICT (id) WHERE <targetWhere> DO UPDATE ...
+   * Adapter-owned conflict-target filter for partial unique index matching.
    */
   targetWhere?: Record<string, unknown>;
   /**
-   * WHERE clause for conditional updates.
-   * PostgreSQL: ON CONFLICT ... DO UPDATE SET x = y WHERE <setWhere>
+   * Adapter-owned conditional update filter.
    */
   setWhere?: Record<string, unknown>;
 }
@@ -36,7 +35,7 @@ interface UpsertArgs {
  *
  * @param ctx - Query context
  * @param args - Upsert arguments
- * @returns SQL statement (INSERT ... ON CONFLICT ... DO UPDATE)
+ * @returns SQL statement for the adapter-owned upsert form
  */
 export function buildUpsert(ctx: QueryContext, args: UpsertArgs): Sql {
   const { adapter } = ctx;
@@ -46,7 +45,7 @@ export function buildUpsert(ctx: QueryContext, args: UpsertArgs): Sql {
   const { columns, values } = buildValues(ctx, args.create);
 
   if (columns.length === 0) {
-    throw new Error("No data to insert");
+    throw new QueryEngineError("No data to insert");
   }
 
   const table = adapter.identifiers.escape(tableName);
@@ -55,8 +54,7 @@ export function buildUpsert(ctx: QueryContext, args: UpsertArgs): Sql {
   // Build conflict target from where (unique fields)
   const conflictTarget = buildConflictTarget(ctx, args.where);
 
-  // Build targetWhere for partial unique index matching
-  // PostgreSQL: ON CONFLICT (id) WHERE <targetWhere> DO UPDATE ...
+  // Build targetWhere for partial unique index matching.
   // Use table name as alias since this references the table being inserted into
   const targetWhereSql = args.targetWhere
     ? buildWhere(ctx, args.targetWhere, tableName)
@@ -65,21 +63,20 @@ export function buildUpsert(ctx: QueryContext, args: UpsertArgs): Sql {
   // Build update action from update data
   const updateAction = buildSet(ctx, args.update);
 
-  // Build setWhere for conditional updates
-  // PostgreSQL: ON CONFLICT ... DO UPDATE SET x = y WHERE <setWhere>
+  // Build setWhere for conditional updates.
   // Use table name as alias since this references the existing row
   const setWhereSql = args.setWhere
     ? buildWhere(ctx, args.setWhere, tableName)
     : undefined;
 
-  // Build ON CONFLICT ... DO UPDATE with optional WHERE clauses
+  // Build adapter-owned upsert conflict handling with optional filters.
   const onConflictSql = adapter.mutations.onConflict(
     conflictTarget,
     adapter.mutations.onConflictUpdate(updateAction, setWhereSql),
     targetWhereSql
   );
 
-  // Combine INSERT with ON CONFLICT
+  // Combine INSERT with adapter-owned conflict handling.
   let upsertSql = sql`${insertSql} ${onConflictSql}`;
 
   // Build RETURNING clause if supported
@@ -103,25 +100,10 @@ function buildConflictTarget(
   where: Record<string, unknown>
 ): Sql {
   const { adapter } = ctx;
-  const fields: Sql[] = [];
-
-  for (const [key, value] of Object.entries(where)) {
-    if (value === undefined) continue;
-
-    // Check if this is a compound key
-    if (typeof value === "object" && value !== null && !Array.isArray(value)) {
-      // Compound key: { userId_orgId: { userId: "1", orgId: "2" } }
-      const compound = value as Record<string, unknown>;
-      for (const fieldName of Object.keys(compound)) {
-        const columnName = getColumnName(ctx.model, fieldName);
-        fields.push(adapter.identifiers.escape(columnName));
-      }
-    } else {
-      // Single field
-      const columnName = getColumnName(ctx.model, key);
-      fields.push(adapter.identifiers.escape(columnName));
-    }
-  }
+  const fields = getWhereUniqueFieldNames(ctx, where).map((fieldName) => {
+    const columnName = getColumnName(ctx.model, fieldName);
+    return adapter.identifiers.escape(columnName);
+  });
 
   return sql.join(fields, ", ");
 }

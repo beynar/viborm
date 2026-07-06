@@ -2,7 +2,9 @@
  * Cloudflare D1 HTTP Driver
  *
  * Driver implementation for Cloudflare D1 using the REST API.
- * Note: D1 HTTP API does not support transactions.
+ * Note: D1 HTTP API supports neither transactions nor atomic batches, so
+ * $transaction and nested writes are rejected. Use the D1 bindings driver
+ * (Workers) when atomicity is required.
  */
 
 import type { DatabaseAdapter } from "@adapters/database-adapter";
@@ -14,7 +16,7 @@ import {
 } from "@client/client";
 import { Driver, type DriverResultParser } from "../driver";
 import { convertValuesForSQLite, sqliteResultParser } from "../shared";
-import type { BatchQuery, QueryResult, TransactionOptions } from "../types";
+import type { QueryResult, TransactionOptions } from "../types";
 
 // ============================================================
 // TYPE DECLARATIONS FOR D1 HTTP API
@@ -66,7 +68,11 @@ export class D1HTTPDriver extends Driver<D1HTTPClient, D1HTTPClient> {
   readonly adapter: DatabaseAdapter = new SQLiteAdapter();
   readonly result: DriverResultParser = sqliteResultParser;
   readonly supportsTransactions = false;
-  readonly supportsBatch = true;
+  // Cloudflare's D1 REST API documents no atomicity guarantee for batched
+  // queries (the rollback-on-failure guarantee only covers the Workers
+  // binding batch()). Claiming batch support here would risk silent partial
+  // writes, so $transaction([...]) and nested writes reject loudly instead.
+  readonly supportsBatch = false;
 
   private readonly driverOptions: D1HTTPDriverOptions;
 
@@ -157,50 +163,6 @@ export class D1HTTPDriver extends Driver<D1HTTPClient, D1HTTPClient> {
     // D1 HTTP API does not support transactions - just execute directly
     // Warning is handled by base Driver.withTransaction()
     return fn(client);
-  }
-
-  /**
-   * Execute multiple queries atomically using D1 HTTP API batch endpoint.
-   * The API accepts an array of queries in the request body.
-   */
-  protected async executeBatch<T>(
-    client: D1HTTPClient,
-    queries: BatchQuery[]
-  ): Promise<QueryResult<T>[]> {
-    const url = `${client.baseUrl}/accounts/${client.accountId}/d1/database/${client.databaseId}/query`;
-
-    // Format queries for the batch API
-    const body = queries.map((query) => ({
-      sql: query.sql,
-      params: query.params ? convertValuesForSQLite(query.params) : [],
-    }));
-
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${client.apiToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    });
-
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`D1 HTTP API batch error: ${response.status} - ${error}`);
-    }
-
-    const data = (await response.json()) as D1HTTPResponse<T>;
-
-    if (!data.success) {
-      const errorMsg = data.errors.map((e) => e.message).join(", ");
-      throw new Error(`D1 batch query failed: ${errorMsg}`);
-    }
-
-    // Map results to QueryResult format
-    return data.result.map((result) => ({
-      rows: result.results,
-      rowCount: result.meta.changes || result.results.length,
-    }));
   }
 }
 

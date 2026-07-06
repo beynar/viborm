@@ -6,6 +6,10 @@ export const SUPPORTED_NESTED_WRITE_KEYS = [
   "disconnect",
   "delete",
   "set",
+  "update",
+  "updateMany",
+  "upsert",
+  "deleteMany",
 ] as const;
 
 export type SupportedNestedWriteKey =

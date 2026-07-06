@@ -1,5 +1,5 @@
-import type { FieldState } from "@schema/fields/common";
-import v, { type V } from "@validation";
+import type { ScalarState } from "@schema/scalars/common";
+import v, { type V } from "../primitives/v";
 import type { EnumSchema, EnumValues } from "@validation/primitives/enum";
 
 // =============================================================================
@@ -168,7 +168,7 @@ const buildEnumListUpdateSchema = <S extends V.Schema, Values extends string[]>(
 
 export interface EnumSchemas<
   Values extends string[],
-  F extends FieldState<"enum">,
+  F extends ScalarState<"enum">,
 > {
   base: F["base"];
   create: V.Enum<Values, F>;
@@ -180,7 +180,7 @@ export interface EnumSchemas<
     : EnumFilterSchema<F["base"], Values>;
 }
 
-export const buildEnumSchema = <F extends FieldState<"enum">>(
+export const buildEnumSchema = <F extends ScalarState<"enum">>(
   state: F
 ): EnumSchemas<EnumValues<F["base"]>, F> => {
   const values = (state.base as EnumSchema<EnumValues<F["base"]>>).values;

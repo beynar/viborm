@@ -13,6 +13,7 @@ import {
   type VibORMClient,
 } from "@client/client";
 import type { D1Database } from "@cloudflare/workers-types";
+import { TransactionError, VibORMErrorCode } from "@errors";
 import { Driver, type DriverResultParser } from "../driver";
 import { convertValuesForSQLite, sqliteResultParser } from "../shared";
 import type { BatchQuery, QueryResult, TransactionOptions } from "../types";
@@ -107,8 +108,21 @@ export class D1Driver extends Driver<D1Database, D1Database> {
    */
   protected async executeBatch<T>(
     client: D1Database,
-    queries: BatchQuery[]
+    queries: BatchQuery[],
+    options?: TransactionOptions
   ): Promise<QueryResult<T>[]> {
+    if (
+      options?.isolationLevel !== undefined ||
+      options?.timeout !== undefined
+    ) {
+      throw new TransactionError(
+        `Driver "${this.driverName}" cannot honor transaction options (isolationLevel/timeout) in batch execution.`,
+        {
+          code: VibORMErrorCode.INVALID_TRANSACTION_INPUT,
+          meta: { driver: this.driverName, method: "$transaction([...])" },
+        }
+      );
+    }
     // Prepare all statements
     const statements = queries.map((query) => {
       const values = query.params ? convertValuesForSQLite(query.params) : [];

@@ -27,8 +27,8 @@ const lengthRange = (min: number, max: number) => (value: string) =>
   `Must be between ${min} and ${max} characters`;
 
 // Usage
-const nameField = s.string();
-await nameField.validate("John", minLength(2), maxLength(50));
+const nameScalar = s.string();
+await nameScalar.validate("John", minLength(2), maxLength(50));
 ```
 
 ### Pattern Validation
@@ -66,8 +66,8 @@ const url = () => (value: string) => {
 };
 
 // Usage
-const emailField = s.string();
-await emailField.validate(
+const emailScalar = s.string();
+await emailScalar.validate(
   "user@example.com",
   email(),
   minLength(5),
@@ -98,8 +98,8 @@ const strongPassword = () => (value: string) =>
   "Password must contain uppercase, lowercase, number, and special character";
 
 // Usage
-const usernameField = s.string();
-await usernameField.validate(
+const usernameScalar = s.string();
+await usernameScalar.validate(
   "john_doe",
   minLength(3),
   maxLength(20),
@@ -132,14 +132,14 @@ const nonNegative = () => (value: number) =>
   value >= 0 || "Must be non-negative";
 
 // Usage
-const ageField = s.int();
-await ageField.validate(25, minValue(0), maxValue(120));
+const ageScalar = s.int();
+await ageScalar.validate(25, minValue(0), maxValue(120));
 ```
 
 ### Type-Specific Validation
 
 ```typescript
-// Integer validator (for float/decimal fields)
+// Integer validator (for float/decimal scalars)
 const integer = () => (value: number) =>
   Number.isInteger(value) || "Must be an integer";
 
@@ -162,8 +162,8 @@ const precision = (maxDecimals: number) => (value: number) => {
 };
 
 // Usage
-const priceField = s.decimal();
-await priceField.validate(19.99, positive(), precision(2), maxValue(1000));
+const priceScalar = s.decimal();
+await priceScalar.validate(19.99, positive(), precision(2), maxValue(1000));
 ```
 
 ## Date Validators
@@ -205,8 +205,8 @@ const pastDate = () => (value: Date) =>
   value < new Date() || "Must be in the past";
 
 // Usage
-const birthdateField = s.dateTime();
-await birthdateField.validate(
+const birthdateScalar = s.dateTime();
+await birthdateScalar.validate(
   new Date("1990-01-01"),
   pastDate(),
   minimumAge(18)
@@ -234,8 +234,8 @@ const noEmptyStrings = () => (value: string[]) =>
   !value.some((item) => !item.trim()) || "Empty strings not allowed";
 
 // Usage
-const tagsField = s.string().list();
-await tagsField.validate(
+const tagsScalar = s.string().list();
+await tagsScalar.validate(
   ["tag1", "tag2"],
   minArrayLength(1),
   maxArrayLength(10),
@@ -261,8 +261,8 @@ const enumValueIgnoreCase =
 
 // Usage
 const statusEnum = ["active", "inactive", "pending"] as const;
-const statusField = s.enum(statusEnum);
-await statusField.validate("active", enumValue(statusEnum));
+const statusScalar = s.enum(statusEnum);
+await statusScalar.validate("active", enumValue(statusEnum));
 ```
 
 ## JSON Validators
@@ -289,8 +289,8 @@ const requiredProperties = (props: string[]) => (value: any) => {
 };
 
 // Usage
-const configField = s.json();
-await configField.validate(
+const configScalar = s.json();
+await configScalar.validate(
   { setting1: "value1", setting2: "value2" },
   requiredProperties(["setting1", "setting2"])
 );
@@ -318,11 +318,11 @@ const username = () => [
 const securePassword = () => [minLength(8), maxLength(128), strongPassword()];
 
 // Usage
-const userEmailField = s.string();
-await userEmailField.validate("user@example.com", ...strongEmail());
+const userEmailScalar = s.string();
+await userEmailScalar.validate("user@example.com", ...strongEmail());
 
-const userNameField = s.string();
-await userNameField.validate("john_doe", ...username());
+const userNameScalar = s.string();
+await userNameScalar.validate("john_doe", ...username());
 ```
 
 ### Conditional Validators
@@ -337,14 +337,14 @@ const conditionalValidator =
   (value: T) =>
     !condition(value) || validator(value);
 
-// Example: Only validate email format if value is provided (for optional fields)
+// Example: Only validate email format if value is provided (for optional scalars)
 const optionalEmail = () =>
   conditionalValidator((value: string) => value.length > 0, email());
 
 // Usage
-const optionalEmailField = s.string().nullable();
-await optionalEmailField.validate("", optionalEmail()); // Passes
-await optionalEmailField.validate("invalid", optionalEmail()); // Fails
+const optionalEmailScalar = s.string().nullable();
+await optionalEmailScalar.validate("", optionalEmail()); // Passes
+await optionalEmailScalar.validate("invalid", optionalEmail()); // Fails
 ```
 
 ## Integration with Validation Libraries
@@ -365,8 +365,8 @@ const zodValidator =
 
 // Usage
 const emailSchema = z.string().email().min(5).max(254);
-const emailField = s.string();
-await emailField.validate("user@example.com", zodValidator(emailSchema));
+const emailScalar = s.string();
+await emailScalar.validate("user@example.com", zodValidator(emailSchema));
 ```
 
 ### Yup Integration
@@ -385,8 +385,8 @@ const yupValidator = (schema: yup.Schema) => async (value: any) => {
 
 // Usage
 const emailSchema = yup.string().email().required().min(5).max(254);
-const emailField = s.string();
-await emailField.validate("user@example.com", yupValidator(emailSchema));
+const emailScalar = s.string();
+await emailScalar.validate("user@example.com", yupValidator(emailSchema));
 ```
 
 ## Best Practices

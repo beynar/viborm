@@ -4,16 +4,16 @@
 export type {
   AnyCompoundConstraint,
   CompoundConstraint,
-  FieldRecord,
+  ModelShape,
   NameFromKeys,
-  NumericFieldKeys,
-  NumericFieldType,
-  RelationFields,
+  NumericScalarKeys,
+  NumericScalarType,
   RelationKeys,
-  ScalarFieldKeys,
-  ScalarFields,
-  UniqueFieldKeys,
-  UniqueFields,
+  RelationMap,
+  ScalarKeys,
+  ScalarMap,
+  UniqueScalarKeys,
+  UniqueScalarMap,
 } from "./helper";
 export type {
   IndexDefinition,
@@ -23,4 +23,11 @@ export type {
   // State types
   ModelState,
 } from "./model";
-export { type AnyModel, Model, model, type NameRegistry } from "./model";
+export {
+  type AnyModel,
+  getColumnName,
+  getTableName,
+  Model,
+  model,
+  type NameRegistry,
+} from "./model";

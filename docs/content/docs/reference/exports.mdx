@@ -99,22 +99,22 @@ import { s, PG, MYSQL, SQLITE } from "viborm/schema";
 
 | Export | Description |
 |--------|-------------|
-| `s` | Schema builder object with all field and model methods |
+| `s` | Schema builder object with all scalar and model methods |
 
 The `s` object provides:
 
 ```ts
-// Fields
-s.string()      // String field
-s.int()         // Integer field
-s.float()       // Float field
-s.boolean()     // Boolean field
-s.datetime()    // DateTime field
-s.json()        // JSON field
-s.bigint()      // BigInt field
-s.bytes()       // Binary/Blob field
-s.enum()        // Enum field
-s.vector()      // Vector field (for embeddings)
+// Scalars
+s.string()      // String scalar
+s.int()         // Integer scalar
+s.float()       // Float scalar
+s.boolean()     // Boolean scalar
+s.datetime()    // DateTime scalar
+s.json()        // JSON scalar
+s.bigint()      // BigInt scalar
+s.bytes()       // Binary/Blob scalar
+s.enum()        // Enum scalar
+s.vector()      // Vector scalar (for embeddings)
 
 // Relations
 s.oneToOne()    // One-to-one relation
@@ -148,10 +148,10 @@ const user = s.model({
 
 | Export | Description |
 |--------|-------------|
-| `hydrateSchemaNames` | Hydrates SQL names for all models and fields in a schema |
+| `hydrateSchemaNames` | Hydrates SQL names for all models and model keys in a schema |
 | `isSchemaHydrated` | Checks if a schema has been hydrated |
 | `getModelSqlName` | Gets the SQL table name for a model |
-| `getFieldSqlName` | Gets the SQL column name for a field |
+| `getFieldSqlName` | Gets the SQL column name for a scalar |
 
 ### Types
 
@@ -160,8 +160,8 @@ const user = s.model({
 | `Model` | Model type |
 | `ModelState` | Internal model state |
 | `AnyModel` | Any model type |
-| `Field` | Field type |
-| `NumberField` | Number field type |
+| `Scalar` | Scalar type |
+| `NumberScalar` | Number scalar type |
 | `AnyRelation` | Any relation type |
 | `Getter` | Lazy getter function type |
 | `ReferentialAction` | Referential action (`Cascade`, `SetNull`, etc.) |
@@ -712,7 +712,7 @@ import { createMigrationClient, push, diff } from "viborm/migrations";
 |--------|-------------|
 | `serializeModels` | Serializes models to snapshot format |
 | `getTableName` | Gets SQL table name for a model |
-| `getColumnName` | Gets SQL column name for a field |
+| `getColumnName` | Gets SQL column name for a scalar |
 
 ### Storage
 

@@ -10,7 +10,7 @@ description: PostgreSQL driver using Bun's built-in SQL client
 ## Configuration
 
 ```typescript
-import { createClient } from "viborm/drivers/bun-sql";
+import { createClient } from "viborm/bun-sql";
 
 const client = createClient({
   databaseUrl: process.env.DATABASE_URL,
@@ -45,7 +45,7 @@ const client = createClient({
 ### Using Options
 
 ```typescript
-import { createClient } from "viborm/drivers/bun-sql";
+import { createClient } from "viborm/bun-sql";
 
 const client = createClient({
   options: {
@@ -62,7 +62,7 @@ const client = createClient({
 ### With pgvector
 
 ```typescript
-import { createClient } from "viborm/drivers/bun-sql";
+import { createClient } from "viborm/bun-sql";
 
 const client = createClient({
   databaseUrl: process.env.DATABASE_URL,

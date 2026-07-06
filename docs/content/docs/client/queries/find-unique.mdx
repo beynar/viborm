@@ -1,6 +1,6 @@
 ---
 title: findUnique
-description: Find a single record by unique identifier (primary key or unique field)
+description: Find a single record by unique identifier (primary key or unique scalar)
 icon: Fingerprint
 ---
 
@@ -12,7 +12,7 @@ const user = await client.user.findUnique({
   where: { id: "user_123" },
 });
 
-// By unique field
+// By unique scalar
 const user = await client.user.findUnique({
   where: { email: "alice@example.com" },
 });
@@ -117,14 +117,14 @@ const user = await client.user.findUnique({
 // Type: { id: string; email: string } | null
 ```
 
-## Valid Unique Fields
+## Valid Unique Scalars
 
-You can only use fields marked as unique:
+You can only use scalars marked as unique:
 
 ```ts
 const user = s.model({
   id: s.string().id(),           // ✅ Primary key
-  email: s.string().unique(),    // ✅ Unique field
+  email: s.string().unique(),    // ✅ Unique scalar
   name: s.string(),              // ❌ Not unique
 });
 

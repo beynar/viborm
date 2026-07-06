@@ -1,13 +1,43 @@
+import type { StringKeyOf } from "@schema/model/helper";
 import type { RelationState } from "@schema/relation/types";
-import v, { type V } from "@validation";
-import type { GetTargetSchemas, SchemaGetter } from "./helpers";
+import v, { type V } from "../primitives/v";
+import {
+  type SortOrderSchema,
+  sortOrderSchema,
+} from "@validation/model/core/orderby";
+import type { SchemaGetter, TargetModel } from "./helpers";
+
+type TargetScalarKeys<S extends RelationState> = StringKeyOf<
+  TargetModel<S>["~"]["state"]["scalars"]
+>[];
+
+export type TargetScalarOrderBySchema<S extends RelationState> = V.Object<
+  V.FromKeys<TargetScalarKeys<S>, SortOrderSchema>["entries"]
+>;
+
+export const getTargetScalarOrderBySchema = <
+  S extends RelationState,
+  T extends SchemaGetter<S>,
+>(
+  targetSchemas: T
+): TargetScalarOrderBySchema<S> => {
+  const scalarKeys = Object.keys(
+    targetSchemas().scalars
+  ) as TargetScalarKeys<S>;
+  const scalarEntries = v.fromKeys<TargetScalarKeys<S>, SortOrderSchema>(
+    scalarKeys,
+    sortOrderSchema
+  );
+
+  return v.object(scalarEntries.entries);
+};
 
 /**
- * To-one orderBy: nested orderBy from the related model's fields
+ * To-one orderBy: scalar fields from the related model.
  * e.g., orderBy: { author: { name: 'asc' } }
  */
 export type ToOneOrderBySchema<S extends RelationState> =
-  () => GetTargetSchemas<S>["core"]["orderBy"];
+  () => TargetScalarOrderBySchema<S>;
 
 export const toOneOrderByFactory = <
   S extends RelationState,
@@ -16,7 +46,7 @@ export const toOneOrderByFactory = <
   _state: S,
   targetSchemas: T
 ): ToOneOrderBySchema<S> => {
-  return () => targetSchemas().core.orderBy;
+  return () => getTargetScalarOrderBySchema<S, T>(targetSchemas);
 };
 
 /**

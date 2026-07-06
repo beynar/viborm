@@ -4,7 +4,7 @@
     "index",
     "architecture",
     "validation",
-    "fields",
+    "scalars",
     "query-schemas",
     "relations",
     "query-engine",

@@ -1,11 +1,11 @@
 import { s } from "@schema";
 import {
-  type GetInverseRelationFields,
-  getInverseRelationFields,
+  type GetInverseRelationMap,
+  getInverseRelationMap,
 } from "@schema/relation/types";
 import { describe, expect, test } from "vitest";
 
-describe("getInverseRelationFields", () => {
+describe("getInverseRelationMap", () => {
   describe("manyToOne relations", () => {
     test("returns its own fields directly", () => {
       const user = s.model({
@@ -23,10 +23,7 @@ describe("getInverseRelationFields", () => {
         author: authorRelation,
       });
 
-      const fields = getInverseRelationFields(
-        authorRelation["~"]["state"],
-        post
-      );
+      const fields = getInverseRelationMap(authorRelation["~"]["state"], post);
 
       expect(fields).toEqual(["authorId"]);
     });
@@ -49,10 +46,7 @@ describe("getInverseRelationFields", () => {
         author: authorRelation,
       });
 
-      const fields = getInverseRelationFields(
-        authorRelation["~"]["state"],
-        post
-      );
+      const fields = getInverseRelationMap(authorRelation["~"]["state"], post);
 
       expect(fields).toEqual(["authorId", "authorOrgId"]);
     });
@@ -75,7 +69,7 @@ describe("getInverseRelationFields", () => {
         user: profileRelation,
       });
 
-      const fields = getInverseRelationFields(
+      const fields = getInverseRelationMap(
         profileRelation["~"]["state"],
         profile
       );
@@ -102,10 +96,7 @@ describe("getInverseRelationFields", () => {
           .references("id"),
       });
 
-      const fields = getInverseRelationFields(
-        postsRelation["~"]["state"],
-        user
-      );
+      const fields = getInverseRelationMap(postsRelation["~"]["state"], user);
 
       expect(fields).toEqual(["authorId"]);
     });
@@ -136,11 +127,11 @@ describe("getInverseRelationFields", () => {
           .name("two"),
       });
 
-      const fieldsOne = getInverseRelationFields(
+      const fieldsOne = getInverseRelationMap(
         postsOneToManyOne["~"]["state"],
         user
       );
-      const fieldsTwo = getInverseRelationFields(
+      const fieldsTwo = getInverseRelationMap(
         postsOneToManyTwo["~"]["state"],
         user
       );
@@ -163,10 +154,7 @@ describe("getInverseRelationFields", () => {
         title: s.string(),
       });
 
-      const fields = getInverseRelationFields(
-        postsRelation["~"]["state"],
-        user
-      );
+      const fields = getInverseRelationMap(postsRelation["~"]["state"], user);
 
       expect(fields).toBeUndefined();
     });
@@ -190,7 +178,7 @@ describe("getInverseRelationFields", () => {
           .references("id"),
       });
 
-      const fields = getInverseRelationFields(tagsRelation["~"]["state"], post);
+      const fields = getInverseRelationMap(tagsRelation["~"]["state"], post);
 
       expect(fields).toEqual(["postId"]);
     });
@@ -213,13 +201,13 @@ describe("getInverseRelationFields", () => {
         author: authorRelation,
       });
 
-      type Fields = GetInverseRelationFields<
+      type Scalars = GetInverseRelationMap<
         (typeof authorRelation)["~"]["state"],
         typeof post
       >;
 
       // Type assertion - should be ["authorId"], not string[]
-      const _typeCheck: Fields = ["authorId"];
+      const _typeCheck: Scalars = ["authorId"];
       expect(_typeCheck).toEqual(["authorId"]);
     });
 
@@ -241,13 +229,13 @@ describe("getInverseRelationFields", () => {
           .name("author"),
       });
 
-      type Fields = GetInverseRelationFields<
+      type Scalars = GetInverseRelationMap<
         (typeof postsRelation)["~"]["state"],
         typeof user
       >;
 
       // Type assertion - should be ["authorId"], not string[] | undefined
-      const _typeCheck: Fields = ["authorId"];
+      const _typeCheck: Scalars = ["authorId"];
       expect(_typeCheck).toEqual(["authorId"]);
     });
   });

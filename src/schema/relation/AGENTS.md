@@ -8,6 +8,12 @@
 
 Defines relationships between models (oneToOne, manyToOne, oneToMany, manyToMany) using a chainable API with thunks for circular references.
 
+In schema taxonomy, relations are one concrete kind of model field. The other
+concrete kind is scalar. Keep `field` wording when referring to model keys,
+foreign-key fields, junction fields, or the public `.fields()` relation API;
+use `relation` when referring to relation classes, relation state, or relation
+operation schemas.
+
 ## Why This Layer Exists
 
 Relations have two challenges:
@@ -50,8 +56,8 @@ The solution: **thunks** `() => Model` defer model resolution, and **chainable m
 
 ```typescript
 s.manyToOne(() => user)
-  .fields("authorId")           // FK field(s) on this model
-  .references("id")             // Referenced field(s) on target
+  .fields("authorId")           // FK scalar field-key(s) on this model
+  .references("id")             // Referenced scalar field-key(s) on target
   .optional()                   // FK can be null
   .onDelete("cascade")          // Referential action on delete
   .onUpdate("cascade")          // Referential action on update
@@ -72,8 +78,8 @@ s.oneToMany(() => post)         // Minimal config - FK is on the "many" side
 ```typescript
 s.manyToMany(() => tag)
   .through("post_tags")         // Junction table name
-  .A("postId")                  // Source field in junction table
-  .B("tagId")                   // Target field in junction table
+  .A("postId")                  // Source FK column in junction table
+  .B("tagId")                   // Target FK column in junction table
   .onDelete("cascade")          // Referential action
   .onUpdate("cascade")
   .name("tags")
@@ -124,11 +130,11 @@ const user = s.model({
 ```
 
 ### Rule 4: Foreign Key Field Must Exist
-The field referenced in `.fields()` must be an actual field in the model:
+The FK scalar field-key passed to `.fields()` must be an actual scalar field in the model:
 
 ```typescript
 const post = s.model({
-  authorId: s.string(),  // ← FK field must exist
+  authorId: s.string(),  // ← FK scalar field must exist
   author: s.manyToOne(() => user).fields("authorId").references("id"),
 });
 ```
@@ -188,8 +194,8 @@ class ToManyRelation<State extends ToManyRelationState> {
 // ManyToManyRelation - for manyToMany
 class ManyToManyRelation<State extends ManyToManyRelationState> {
   through(tableName: string): ManyToManyRelation<State & { through: string }>
-  A(fieldName: string): ManyToManyRelation<State & { A: string }>
-  B(fieldName: string): ManyToManyRelation<State & { B: string }>
+  A(columnName: string): ManyToManyRelation<State & { A: string }>
+  B(columnName: string): ManyToManyRelation<State & { B: string }>
   onDelete(action: ReferentialAction): ManyToManyRelation<State & { onDelete: ReferentialAction }>
   onUpdate(action: ReferentialAction): ManyToManyRelation<State & { onUpdate: ReferentialAction }>
   name(name: string): ManyToManyRelation<State & { name: string }>
@@ -274,7 +280,7 @@ Early versions used a `Relation` base class, but TypeScript struggled with metho
 The FK lives on the "many" side (e.g., `post.authorId`). The `oneToMany` side (`user.posts`) is just the inverse - it doesn't own the FK, so no configuration is needed.
 
 ### Why manyToMany needs junction table config
-Many-to-many requires a join table. `.through("postTags")` names this table. VibORM creates it automatically in migrations with `.A()` and `.B()` field names.
+Many-to-many requires a join table. `.through("postTags")` names this table. VibORM creates it automatically in migrations with `.A()` and `.B()` FK column names.
 
 ---
 
@@ -282,7 +288,7 @@ Many-to-many requires a join table. `.through("postTags")` names this table. Vib
 
 | Layer | Relationship |
 |-------|--------------|
-| **Fields** ([fields/AGENTS.md](../fields/AGENTS.md)) | FK fields stored alongside relations |
-| **Model** ([model/AGENTS.md](../model/AGENTS.md)) | Composes relations into models |
+| **Scalars** ([scalars/AGENTS.md](../scalars/AGENTS.md)) | FK scalar fields stored alongside relation fields |
+| **Model** (`../model/`) | Composes relation fields into models |
 | **Migrations** ([migrations/AGENTS.md](../../migrations/AGENTS.md)) | Creates FK constraints and join tables |
 | **Validation** ([validation/AGENTS.md](../../validation/AGENTS.md)) | Builds relation filter/create/update schemas through `SchemaRegistry` |

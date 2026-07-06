@@ -19,6 +19,7 @@ import {
 } from "@electric-sql/pglite";
 import { unsupportedGeospatial, unsupportedVector } from "@errors";
 import { Driver } from "../driver";
+import { getSqlIsolationLevel } from "../shared";
 import type { QueryResult, TransactionOptions } from "../types";
 
 // ============================================================
@@ -62,7 +63,17 @@ export class PGliteDriver extends Driver<PGlite, Transaction> {
 
   protected async initClient(): Promise<PGlite> {
     const dataDir = this.driverOptions.dataDir;
-    const options = this.driverOptions.options ?? {};
+    const userOptions = this.driverOptions.options ?? {};
+    const options: PGliteOptions = {
+      ...userOptions,
+      parsers: {
+        // TIMESTAMP WITHOUT TIME ZONE: PGlite builds process-local Dates,
+        // shifting the stored UTC wall clock. Keep the raw string — the
+        // shared result parser builds a UTC Date, matching other drivers.
+        1114: (value: string) => value,
+        ...userOptions.parsers,
+      },
+    };
 
     // PGlite.create accepts dataDir as first argument or in options
     if (dataDir) {
@@ -102,10 +113,17 @@ export class PGliteDriver extends Driver<PGlite, Transaction> {
   protected transaction<T>(
     client: PGlite | Transaction,
     fn: (tx: Transaction) => Promise<T>,
-    _options?: TransactionOptions
+    options?: TransactionOptions
   ): Promise<T> {
     if (client instanceof PGlite) {
       // Start a new transaction
+      if (options?.isolationLevel) {
+        const level = getSqlIsolationLevel(options.isolationLevel);
+        return client.transaction(async (tx) => {
+          await tx.exec(`SET TRANSACTION ISOLATION LEVEL ${level}`);
+          return fn(tx);
+        });
+      }
       return client.transaction(fn);
     }
     // Nested transactions not supported in PGlite

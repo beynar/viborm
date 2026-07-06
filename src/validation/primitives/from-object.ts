@@ -190,7 +190,10 @@ export function fromObject<
 ): ObjectSchema<ComputeEntries<TObject, TPath>, TOpts> {
   // Extract entries from the source object at the given path
   const entries = extractEntries(sourceObject, path);
-  if (Object.keys(sourceObject).length > 0 && Object.keys(entries).length === 0) {
+  if (
+    Object.keys(sourceObject).length > 0 &&
+    Object.keys(entries).length === 0
+  ) {
     throw new Error(
       `fromObject path "${path}" did not match any entries in the source object`
     );

@@ -8,7 +8,8 @@
 import { type Sql, sql } from "@sql";
 import { buildSelect } from "../builders/select-builder";
 import { buildSet } from "../builders/set-builder";
-import { buildWhere, buildWhereUnique } from "../builders/where-builder";
+import { buildWhere } from "../builders/where-builder";
+import { buildWhereUnique } from "../builders/where-unique-builder";
 import { getRelationInfo, getTableName, isRelation } from "../context";
 import type { QueryContext } from "../types";
 
@@ -134,6 +135,29 @@ export function buildUpdate(ctx: QueryContext, args: UpdateArgs): Sql {
  * @param args - UpdateMany arguments
  * @returns SQL statement
  */
+/**
+ * Build SQL for updateManyAndReturn operation
+ *
+ * UPDATE ... RETURNING on adapters that support it. On adapters without
+ * RETURNING (MySQL) the executor uses a transactional select/update/re-select
+ * flow instead of this statement.
+ */
+export function buildUpdateManyAndReturn(
+  ctx: QueryContext,
+  args: UpdateManyArgs & { select?: Record<string, unknown> }
+): Sql {
+  const updateSql = buildUpdateMany(ctx, args);
+
+  const returningCols = buildSelect(ctx, args.select, undefined, "");
+  const returningSql = ctx.adapter.mutations.returning(returningCols);
+
+  if (returningSql.strings.join("").trim() === "") {
+    return updateSql;
+  }
+
+  return sql`${updateSql} ${returningSql}`;
+}
+
 export function buildUpdateMany(ctx: QueryContext, args: UpdateManyArgs): Sql {
   const { adapter } = ctx;
   const tableName = getTableName(ctx.model);
@@ -141,8 +165,15 @@ export function buildUpdateMany(ctx: QueryContext, args: UpdateManyArgs): Sql {
   // Build SET clause
   const setSql = buildSet(ctx, args.data);
 
-  // Build WHERE (optional for updateMany, no alias for UPDATE statements)
-  const whereSql = buildWhere(ctx, args.where, "");
+  // Build WHERE qualified by table name so relation-filter EXISTS subqueries
+  // stay correlated (the unaliased UPDATE target is addressable by its name).
+  // mutationTable lets relation filters wrap subqueries that select from the
+  // mutated table on dialects that reject that (MySQL error 1093).
+  const whereSql = buildWhere(
+    { ...ctx, mutationTable: tableName },
+    args.where,
+    tableName
+  );
 
   // Build UPDATE
   const table = adapter.identifiers.escape(tableName);

@@ -6,11 +6,13 @@
 
 // Errors
 export {
+  CheckConstraintError,
   ConnectionError,
   FeatureNotSupportedError,
   ForeignKeyError,
   isRetryableError,
   isUniqueConstraintError,
+  NotNullConstraintError,
   QueryError,
   TransactionError,
   UniqueConstraintError,

@@ -1,20 +1,20 @@
 /**
  * Schema Hydration
  *
- * Hydrates schema name slots (tsName, sqlName) for models, fields, and relations.
+ * Hydrates schema name slots (tsName, sqlName) for models, scalars, and relations.
  * This is called once at client initialization when the full schema context is available.
  *
  * - tsName: The TypeScript key name in the schema (e.g., "email", "User")
  * - sqlName: The resolved database name (e.g., "email_column", "users")
  *
- * Names are stored in the model's nameRegistry, not on the field/relation instances.
- * This allows the same field to be reused across multiple models with different keys.
+ * Names are stored in the model's nameRegistry, not on the scalar/relation instances.
+ * This allows the same scalar to be reused across multiple models with different keys.
  */
 
-import type { Field } from "./fields/base";
-import type { SchemaNames } from "./fields/common";
 import type { Model, NameRegistry } from "./model";
 import type { AnyRelation } from "./relation";
+import type { Scalar } from "./scalars/base";
+import type { SchemaNames } from "./scalars/common";
 
 /**
  * Schema type - record of model names to Model instances
@@ -22,7 +22,7 @@ import type { AnyRelation } from "./relation";
 export type Schema = Record<string, Model<any>>;
 
 /**
- * Hydrate name slots for all models, fields, and relations in a schema.
+ * Hydrate name slots for all models, scalars, and relations in a schema.
  *
  * This function populates the model's nameRegistry:
  * - model["~"].names.ts = schema key (e.g., "User")
@@ -42,7 +42,7 @@ export function hydrateSchemaNames(schema: Schema): void {
 }
 
 /**
- * Hydrate a single model and its fields/relations
+ * Hydrate a single model and its scalars/relations
  */
 function hydrateModel(modelKey: string, model: Model<any>): void {
   const names = model["~"].names as SchemaNames;
@@ -53,13 +53,13 @@ function hydrateModel(modelKey: string, model: Model<any>): void {
   names.ts = modelKey;
   names.sql = state.tableName ?? modelKey;
 
-  // Hydrate scalar fields into model's nameRegistry
-  for (const [fieldKey, field] of Object.entries(
-    state.scalars as Record<string, Field>
+  // Hydrate scalars into model's nameRegistry
+  for (const [fieldKey, scalar] of Object.entries(
+    state.scalars as Record<string, Scalar>
   )) {
     const fieldNames: SchemaNames = {
       ts: fieldKey,
-      sql: field["~"].state.columnName ?? fieldKey,
+      sql: scalar["~"].state.columnName ?? fieldKey,
     };
     registry.fields.set(fieldKey, fieldNames);
   }
@@ -107,7 +107,7 @@ export function getModelSqlName(model: Model<any>): string {
 }
 
 /**
- * Get the SQL name for a field.
+ * Get the SQL name for a scalar field key.
  * Delegates to model["~"].getFieldName().
  */
 export function getFieldSqlName(model: Model<any>, fieldKey: string): string {

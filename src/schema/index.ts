@@ -1,6 +1,8 @@
 // Schema Builder Entry Point
-// Main API for defining models, fields, and relations
+// Main API for defining models, scalars, and relations
 
+import { model } from "./model";
+import { manyToMany, manyToOne, oneToMany, oneToOne } from "./relation";
 import {
   bigInt,
   blob,
@@ -8,16 +10,15 @@ import {
   date,
   dateTime,
   decimal,
-  enumField,
+  enumScalar,
   float,
   int,
   json,
+  point,
   string,
   time,
   vector,
-} from "./fields";
-import { model } from "./model";
-import { manyToMany, manyToOne, oneToMany, oneToOne } from "./relation";
+} from "./scalars";
 
 // =============================================================================
 // SCHEMA BUILDER API
@@ -25,7 +26,7 @@ import { manyToMany, manyToOne, oneToMany, oneToOne } from "./relation";
 
 /**
  * Main schema builder object
- * Use this to define models, fields, and relations
+ * Use this to define models, scalars, and relations
  *
  * Relations use a chainable API:
  * - ToOne (oneToOne, manyToOne): .fields(), .references(), .optional(), .onDelete(), .onUpdate()
@@ -55,7 +56,7 @@ export const s = {
   // Model factory
   model,
 
-  // Scalar field factories
+  // Scalar factories
   string,
   boolean,
   int,
@@ -67,7 +68,8 @@ export const s = {
   time,
   json,
   blob,
-  enum: enumField,
+  enum: enumScalar,
+  point,
   vector,
 
   // Relation builder (config-first, getter-last pattern)
@@ -81,27 +83,6 @@ export const s = {
 // RE-EXPORTS
 // =============================================================================
 
-// Types
-export type { Field, NumberField } from "./fields";
-// Export all from submodules
-export * from "./fields";
-// Classes for advanced usage
-export {
-  BigIntField,
-  BlobField,
-  BooleanField,
-  DateField,
-  DateTimeField,
-  DecimalField,
-  EnumField,
-  FloatField,
-  IntField,
-  JsonField,
-  StringField,
-  TimeField,
-  VectorField,
-} from "./fields";
-export * as TYPES from "./fields/native-types";
 // Hydration exports (excluding Schema type which conflicts with validation)
 export {
   getFieldSqlName,
@@ -119,6 +100,28 @@ export {
   ToManyRelation,
   ToOneRelation,
 } from "./relation";
+// Types
+export type { NumberScalar, Scalar } from "./scalars";
+// Export all from submodules
+export * from "./scalars";
+// Classes for advanced usage
+export {
+  BigIntScalar,
+  BlobScalar,
+  BooleanScalar,
+  DateScalar,
+  DateTimeScalar,
+  DecimalScalar,
+  EnumScalar,
+  FloatScalar,
+  IntScalar,
+  JsonScalar,
+  PointScalar,
+  StringScalar,
+  TimeScalar,
+  VectorScalar,
+} from "./scalars";
+export * as TYPES from "./scalars/native-types";
 export * from "./validation";
 
 // =============================================================================
@@ -128,47 +131,46 @@ export * from "./validation";
 // Re-export core types from common
 export type {
   AutoGenerateType,
-  FieldState as FieldStateType,
   InferBaseType,
   InferCreateType,
-} from "./fields/common";
+  ScalarState as ScalarStateType,
+} from "./scalars/common";
 
 // =============================================================================
 // FIELD TYPE MAPPING
 // =============================================================================
 
 /**
- * Maps a ScalarFieldType string to its base TypeScript type
+ * Maps a ScalarType string to its base TypeScript type
  */
-export type ScalarTypeToTS<
-  T extends import("./fields/common").ScalarFieldType,
-> = T extends "string"
-  ? string
-  : T extends "int" | "float" | "decimal"
-    ? number
-    : T extends "boolean"
-      ? boolean
-      : T extends "datetime" | "date"
-        ? Date
-        : T extends "time"
-          ? string
-          : T extends "bigint"
-            ? bigint
-            : T extends "json"
-              ? unknown
-              : T extends "blob"
-                ? Uint8Array
-                : T extends "vector"
-                  ? number[]
-                  : T extends "enum"
-                    ? string
-                    : never;
+export type ScalarTypeToTS<T extends import("./scalars/common").ScalarType> =
+  T extends "string"
+    ? string
+    : T extends "int" | "float" | "decimal"
+      ? number
+      : T extends "boolean"
+        ? boolean
+        : T extends "datetime" | "date"
+          ? Date
+          : T extends "time"
+            ? string
+            : T extends "bigint"
+              ? bigint
+              : T extends "json"
+                ? unknown
+                : T extends "blob"
+                  ? Uint8Array
+                  : T extends "vector"
+                    ? number[]
+                    : T extends "enum"
+                      ? string
+                      : never;
 
 /**
- * Infers the TypeScript type from a FieldState
+ * Infers the TypeScript type from a ScalarState
  * Handles nullable and array modifiers
  */
-export type InferType<TState extends import("./fields/common").FieldState> =
+export type InferType<TState extends import("./scalars/common").ScalarState> =
   TState["array"] extends true
     ? TState["nullable"] extends true
       ? ScalarTypeToTS<TState["type"]>[] | null
@@ -181,10 +183,10 @@ export type InferType<TState extends import("./fields/common").FieldState> =
  * Infers the input type for create operations (handles defaults)
  */
 export type InferInputType<
-  TState extends import("./fields/common").FieldState,
+  TState extends import("./scalars/common").ScalarState,
 > = TState["hasDefault"] extends true
   ? InferType<TState> | undefined
-  : TState["autoGenerate"] extends import("./fields/common").AutoGenerateType
+  : TState["autoGenerate"] extends import("./scalars/common").AutoGenerateType
     ? InferType<TState> | undefined
     : InferType<TState>;
 
@@ -192,5 +194,5 @@ export type InferInputType<
  * Infers the storage type (same as base type)
  */
 export type InferStorageType<
-  TState extends import("./fields/common").FieldState,
+  TState extends import("./scalars/common").ScalarState,
 > = InferType<TState>;

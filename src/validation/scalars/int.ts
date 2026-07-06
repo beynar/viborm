@@ -1,5 +1,6 @@
-import type { FieldState } from "@schema/fields/common";
-import v, { type V } from "@validation";
+import type { ScalarState } from "@schema/scalars/common";
+import v, { type V } from "../primitives/v";
+import { createScalarInterner, scalarInternKey } from "./intern";
 
 // =============================================================================
 // BASE TYPES
@@ -164,7 +165,7 @@ const buildIntListUpdateSchema = <S extends V.Schema>(
 // INT SCHEMA BUILDER
 // =============================================================================
 
-export interface IntSchemas<F extends FieldState<"int">> {
+export interface IntSchemas<F extends ScalarState<"int">> {
   base: F["base"];
   create: V.Integer<F>;
   update: F["array"] extends true
@@ -175,17 +176,25 @@ export interface IntSchemas<F extends FieldState<"int">> {
     : IntFilterSchema<F["base"]>;
 }
 
-export const buildIntSchema = <F extends FieldState<"int">>(
+const internFilter = createScalarInterner<unknown>();
+const internUpdate = createScalarInterner<unknown>();
+
+export const buildIntSchema = <F extends ScalarState<"int">>(
   state: F
 ): IntSchemas<F> => {
+  const key = scalarInternKey(state);
   return {
     base: state.base as F["base"],
     create: v.integer(state),
-    update: state.array
-      ? buildIntListUpdateSchema(state.base)
-      : buildIntUpdateSchema(state.base),
-    filter: state.array
-      ? buildIntListFilterSchema(state.base)
-      : buildIntFilterSchema(state.base),
+    update: internUpdate(key, () =>
+      state.array
+        ? buildIntListUpdateSchema(state.base)
+        : buildIntUpdateSchema(state.base)
+    ) as never,
+    filter: internFilter(key, () =>
+      state.array
+        ? buildIntListFilterSchema(state.base)
+        : buildIntFilterSchema(state.base)
+    ) as never,
   } as IntSchemas<F>;
 };

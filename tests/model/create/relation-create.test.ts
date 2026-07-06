@@ -6,11 +6,11 @@
  */
 
 import { s } from "@schema";
+import { createSchemaRegistry, type InferInput, parse } from "@validation";
 import {
   getNestedScalarCreateWithOmittedRequiredKeys,
   type NestedScalarCreateWithOmittedRequiredKeys,
 } from "@validation/model/core";
-import { createSchemaRegistry, type InferInput, parse } from "@validation";
 import { describe, expect, expectTypeOf, test } from "vitest";
 import { authorSchemas, postSchemas, simpleSchemas } from "../fixtures";
 
@@ -33,6 +33,28 @@ const phase7Post = s.model({
 const phase7Schemas = createSchemaRegistry({
   author: phase7Author,
   post: phase7Post,
+}).proxy;
+
+const inverseOneToOneUser = s.model({
+  id: s.string().id(),
+  name: s.string(),
+  profile: s.oneToOne(() => inverseOneToOneProfile).optional(),
+});
+
+const inverseOneToOneProfile = s.model({
+  id: s.string().id(),
+  bio: s.string().nullable(),
+  userId: s.string().unique().nullable(),
+  user: s
+    .oneToOne(() => inverseOneToOneUser)
+    .fields("userId")
+    .references("id")
+    .optional(),
+});
+
+const inverseOneToOneSchemas = createSchemaRegistry({
+  user: inverseOneToOneUser,
+  profile: inverseOneToOneProfile,
 }).proxy;
 
 const relationScopedAuthor = s.model({
@@ -150,7 +172,12 @@ const helperScopedPostNestedCreateManyData =
 
 describe("Relation Create - Types (Author Model)", () => {
   type Input = InferInput<typeof authorSchemas.relationCreate>;
-  type Phase7CreateArgsInput = InferInput<typeof phase7Schemas.author.args.create>;
+  type Phase7CreateArgsInput = InferInput<
+    typeof phase7Schemas.author.args.create
+  >;
+  type InverseOneToOneCreateArgsInput = InferInput<
+    typeof inverseOneToOneSchemas.user.args.create
+  >;
 
   test("type: includes relation field", () => {
     expectTypeOf<Input>().toHaveProperty("posts");
@@ -182,6 +209,16 @@ describe("Relation Create - Types (Author Model)", () => {
         };
       };
     }>().toMatchTypeOf<Phase7CreateArgsInput>();
+  });
+
+  test("type: inverse one-to-one nested create can omit parent-derived FK", () => {
+    expectTypeOf<{
+      data: {
+        id: string;
+        name: string;
+        profile: { create: { id: string; bio: string | null } };
+      };
+    }>().toMatchTypeOf<InverseOneToOneCreateArgsInput>();
   });
 
   test("type: nested createMany requires data", () => {
@@ -259,7 +296,9 @@ describe("Relation Create - Types (Author Model)", () => {
 
 describe("Relation Create - Types (Post Model)", () => {
   type Input = InferInput<typeof postSchemas.relationCreate>;
-  type Phase7CreateArgsInput = InferInput<typeof phase7Schemas.post.args.create>;
+  type Phase7CreateArgsInput = InferInput<
+    typeof phase7Schemas.post.args.create
+  >;
   type CompositeCreateArgsInput = InferInput<
     typeof compositeSchemas.post.args.create
   >;
@@ -400,6 +439,15 @@ describe("Relation Create - Author Model Runtime (oneToMany)", () => {
     expect(result.issues).toBeUndefined();
   });
 
+  test("runtime: accepts inverse one-to-one create without inverse FK", () => {
+    const result = parse(inverseOneToOneSchemas.user.core.relationCreate, {
+      profile: {
+        create: { id: "profile-1", bio: "Hello" },
+      },
+    });
+    expect(result.issues).toBeUndefined();
+  });
+
   test("runtime: accepts createMany nested write", () => {
     const result = parse(schema, {
       posts: {
@@ -496,9 +544,7 @@ describe("Relation Create - Author Model Runtime (oneToMany)", () => {
         name: "Alice",
         posts: {
           createMany: {
-            data: [
-              { id: "post-1", title: "Hello", categoryId: "category-1" },
-            ],
+            data: [{ id: "post-1", title: "Hello", categoryId: "category-1" }],
           },
         },
       },

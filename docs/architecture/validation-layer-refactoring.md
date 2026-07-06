@@ -28,14 +28,14 @@ Move all operation schemas to a dedicated validation layer with a central builde
 
 ```
 src/schema/
-├── fields/
+├── scalars/
 │   ├── boolean/
-│   │   ├── boolean.ts        # Field class definition
+│   │   ├── scalar.ts         # Scalar class definition
 │   │   └── schemas.ts        # Operation schemas (filter, update, create)
 │   ├── string/
-│   │   ├── string.ts
+│   │   ├── scalar.ts
 │   │   └── schemas.ts
-│   └── ... (13 field types total)
+│   └── ... (13 scalar types total)
 │
 ├── relation/
 │   ├── to-one.ts             # Relation class definitions
@@ -77,7 +77,7 @@ src/validation/
 
 2. **Isolated schema building**: `getRelationSchemas(state)` only has access to the relation's own state, not the parent model or full schema.
 
-3. **Mixed concerns**: Each field directory (e.g., `src/schema/fields/boolean/`) contains both the field class definition (`boolean.ts` - what a boolean field is) and its operation schemas (`schemas.ts` - how to validate create/update/filter inputs). These are different responsibilities that should live in separate layers.
+3. **Mixed concerns**: Each scalar directory (e.g., `src/schema/scalars/boolean/`) contains both the scalar class definition (`scalar.ts` - what a boolean scalar is) and its operation schemas (`schemas.ts` - how to validate create/update/filter inputs). These are different responsibilities that should live in separate layers.
 
 ## Proposed Structure
 
@@ -101,9 +101,9 @@ src/validation/
 │   ├── V.ts                  # Type namespace
 │   └── index.ts              # export *
 │
-├── fields/                   # Field operation schemas
-│   ├── boolean.ts            # From src/schema/fields/boolean/schemas.ts
-│   ├── string.ts             # From src/schema/fields/string/schemas.ts
+├── scalars/                  # Scalar operation schemas
+│   ├── boolean.ts            # From src/schema/scalars/boolean/schemas.ts
+│   ├── string.ts             # From src/schema/scalars/string/schemas.ts
 │   ├── int.ts
 │   ├── float.ts
 │   ├── decimal.ts
@@ -114,7 +114,7 @@ src/validation/
 │   ├── enum.ts
 │   ├── vector.ts
 │   ├── point.ts
-│   ├── number.ts             # Unified number field
+│   ├── number.ts             # Unified number scalar
 │   ├── common.ts             # Shorthand helpers (shorthandFilter, shorthandUpdate, etc.)
 │   └── index.ts              # export *
 │
@@ -157,29 +157,29 @@ src/validation/
 
 The `src/validation/schemas/` folder contains validation primitives (`v.object`, `v.string`, etc.), not operation schemas. Renaming to `primitives/` clarifies this distinction.
 
-### 2. Create `fields/` Directory
+### 2. Create `scalars/` Directory
 
-Move all field operation schemas from `src/schema/fields/*/schemas.ts`.
+Move all scalar operation schemas from `src/schema/scalars/*/schemas.ts`.
 
-The directory includes a `createFieldSchemas` factory that returns properly typed field schemas wrapped in `lazy`:
+The directory includes a `createScalarSchemas` factory that returns properly typed scalar schemas wrapped in `lazy`:
 
 ```typescript
-// src/validation/fields/index.ts
+// src/validation/scalars/index.ts
 
-export function createFieldSchemas<T extends ModelState>(
+export function createScalarSchemas<T extends ModelState>(
   state: T,
-): FieldSchemas<T> {
+): ScalarSchemas<T> {
   return Object.fromEntries(
-    Object.entries(state.fields).map(([key, field]) => [
+    Object.entries(state.scalars).map(([key, scalar]) => [
       key,
       {
-        base: lazy(() => field["~"].state.base),
-        create: lazy(() => buildFieldCreateSchema(field)),
-        update: lazy(() => buildFieldUpdateSchema(field)),
-        filter: lazy(() => buildFieldFilterSchema(field)),
+        base: lazy(() => scalar["~"].state.base),
+        create: lazy(() => buildScalarCreateSchema(scalar)),
+        update: lazy(() => buildScalarUpdateSchema(scalar)),
+        filter: lazy(() => buildScalarFilterSchema(scalar)),
       },
     ]),
-  ) as FieldSchemas<T>;
+  ) as ScalarSchemas<T>;
 }
 ```
 
@@ -303,7 +303,7 @@ Individual schema builders remain in separate files:
 - `args/` - Operation argument schemas (find, mutation, aggregate)
 - `utils.ts` - Iteration helpers (`forEachRelation`, `forEachScalarField`)
 
-Note: The `ModelSchemas` class is removed. All lazy evaluation is handled by the `lazy` primitive from `primitives/lazy.ts`, providing a consistent approach across fields, relations, and models.
+Note: The `ModelSchemas` class is removed. All lazy evaluation is handled by the `lazy` primitive from `primitives/lazy.ts`, providing a consistent approach across scalar schemas, relation schemas, and model schemas.
 
 ### 5. Create Central Builder (`builder.ts`)
 
@@ -398,7 +398,7 @@ const userSchemas = schemas.model("User");
 All index files use `export *` for cleaner re-exports:
 
 ```typescript
-// src/validation/fields/index.ts
+// src/validation/scalars/index.ts
 export * from "./boolean";
 export * from "./string";
 export * from "./int";
@@ -406,7 +406,7 @@ export * from "./int";
 
 // src/validation/index.ts
 export * from "./primitives";
-export * from "./fields";
+export * from "./scalars";
 export * from "./relations";
 export * from "./models";
 export { buildSchemas } from "./builder";
@@ -434,7 +434,7 @@ export type { InferInput, InferOutput, VibSchema } from "./primitives/types";
 ### Phase 1: Create New Structure
 
 1. Create `src/validation/primitives/` and move files
-2. Create `src/validation/fields/` with copied schemas
+2. Create `src/validation/scalars/` with copied schemas
 3. Create `src/validation/relations/` with copied schemas
 4. Create `src/validation/models/` with copied schemas
 5. Update all internal imports
@@ -447,7 +447,7 @@ export type { InferInput, InferOutput, VibSchema } from "./primitives/types";
 
 ### Phase 3: Remove Old Schemas
 
-1. Remove `schemas` from model/relation/field `~` properties
+1. Remove `schemas` from model/relation/scalar `~` properties
 2. Delete old schema files from `src/schema/`
 3. Update all consumers to use the builder
 
@@ -474,7 +474,7 @@ const createSchema = builder.relation(User, "posts").create;
 
 ### Separation of Concerns
 
-- **Database Schema** (`src/schema/`): Defines structure - models, fields, relations, constraints
+- **Database Schema** (`src/schema/`): Defines structure - models, fields (scalars and relations), constraints
 - **Validation** (`src/validation/`): Defines operations - how to validate inputs for create/update/filter
 
 ### Easier Testing
@@ -505,31 +505,31 @@ const userCreate = builder.model("User").create;
 
 ## Builder Output Structure
 
-The builder produces a `Schemas` object keyed by model name. Each model exposes its fields, relations, core schemas, and operation schemas. All top-level schemas use the `lazy` primitive for automatic caching on first access.
+The builder produces a `Schemas` object keyed by model name. Each model exposes its scalar schemas, relation schemas, core schemas, and operation schemas. All top-level schemas use the `lazy` primitive for automatic caching on first access.
 
 ```typescript
 type Schemas<T extends AnySchema> = {
   [Model in keyof T["models"]]: {
-    fields: {
-      [Field in keyof T["models"][Model]["fields"]]: {
+    scalars: {
+      [Scalar in keyof T["models"][Model]["scalars"]]: {
         base: lazy<
-          FieldSchemas<
-            T["models"][Model]["fields"][Field]["~"]["state"]
+          ScalarSchemas<
+            T["models"][Model]["scalars"][Scalar]["~"]["state"]
           >["base"]
         >;
         create: lazy<
-          FieldSchemas<
-            T["models"][Model]["fields"][Field]["~"]["state"]
+          ScalarSchemas<
+            T["models"][Model]["scalars"][Scalar]["~"]["state"]
           >["create"]
         >;
         update: lazy<
-          FieldSchemas<
-            T["models"][Model]["fields"][Field]["~"]["state"]
+          ScalarSchemas<
+            T["models"][Model]["scalars"][Scalar]["~"]["state"]
           >["update"]
         >;
         filter: lazy<
-          FieldSchemas<
-            T["models"][Model]["fields"][Field]["~"]["state"]
+          ScalarSchemas<
+            T["models"][Model]["scalars"][Scalar]["~"]["state"]
           >["filter"]
         >;
       };
@@ -620,7 +620,7 @@ const schemas = buildSchemas(mySchema);
 // Access model operation schemas
 const findManyArgs = schemas.User.operations.findMany;
 
-// Access field schemas
+// Access scalar schemas
 const emailFilter = schemas.User.fields.email.filter;
 
 // Access relation schemas

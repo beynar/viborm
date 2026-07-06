@@ -15,11 +15,15 @@ import type { DriverResultParser } from "../driver";
  * Convert JavaScript values to SQLite-compatible values.
  * - Booleans become 0/1
  * - undefined becomes null
+ * - Uint8Array becomes Buffer (better-sqlite3 only binds Buffer blobs)
  */
 export function convertValuesForSQLite(values: unknown[]): unknown[] {
   return values.map((v) => {
     if (typeof v === "boolean") return v ? 1 : 0;
     if (v === undefined) return null;
+    if (v instanceof Uint8Array && !Buffer.isBuffer(v)) {
+      return Buffer.from(v.buffer, v.byteOffset, v.byteLength);
+    }
     return v;
   });
 }
@@ -44,11 +48,20 @@ export const sqliteResultParser: DriverResultParser = {
     if (parsed !== undefined) return next(parsed, type);
     return next(value, type);
   },
-  parseField: (value, fieldType, next) => {
-    if (fieldType === "boolean") {
+  parseField: (value, scalarType, next) => {
+    if (scalarType === "boolean") {
       const parsed = parseIntegerBoolean(value);
       if (parsed !== undefined) return parsed;
     }
-    return next(value, fieldType);
+    // SQLite stores json as TEXT — decode here where we know the string is
+    // serialized JSON (the default parser never sniffs json strings)
+    if (scalarType === "json" && typeof value === "string") {
+      try {
+        return JSON.parse(value);
+      } catch {
+        return next(value, scalarType);
+      }
+    }
+    return next(value, scalarType);
   },
 };

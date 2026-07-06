@@ -137,6 +137,61 @@ describe("Create Args - Author Model Runtime (with relations)", () => {
   });
 });
 
+describe("Mutation Args - Top-level Select/Include Exclusivity Runtime", () => {
+  test("runtime: create rejects top-level select and include", () => {
+    const result = parse(authorSchemas.args.create, {
+      data: {
+        id: "author-1",
+        name: "Alice",
+      },
+      select: { id: true },
+      include: { posts: true },
+    });
+    expect(result.issues?.[0]?.message).toBe(
+      "Mutually exclusive fields cannot be used together: select, include"
+    );
+  });
+
+  test("runtime: update rejects top-level select and include", () => {
+    const result = parse(authorSchemas.args.update, {
+      where: { id: "author-1" },
+      data: { name: "Updated Name" },
+      select: { id: true },
+      include: { posts: true },
+    });
+    expect(result.issues?.[0]?.message).toBe(
+      "Mutually exclusive fields cannot be used together: select, include"
+    );
+  });
+
+  test("runtime: delete rejects top-level select and include", () => {
+    const result = parse(authorSchemas.args.delete, {
+      where: { id: "author-1" },
+      select: { id: true },
+      include: { posts: true },
+    });
+    expect(result.issues?.[0]?.message).toBe(
+      "Mutually exclusive fields cannot be used together: select, include"
+    );
+  });
+
+  test("runtime: upsert rejects top-level select and include", () => {
+    const result = parse(authorSchemas.args.upsert, {
+      where: { id: "author-1" },
+      create: {
+        id: "author-1",
+        name: "Alice",
+      },
+      update: { name: "Updated Alice" },
+      select: { id: true },
+      include: { posts: true },
+    });
+    expect(result.issues?.[0]?.message).toBe(
+      "Mutually exclusive fields cannot be used together: select, include"
+    );
+  });
+});
+
 // =============================================================================
 // CREATE MANY ARGS
 // =============================================================================
@@ -259,6 +314,14 @@ describe("Update Args - Simple Model Runtime", () => {
     expect(result.issues).toBeDefined();
   });
 
+  test("runtime: rejects empty where", () => {
+    const result = parse(schema, {
+      where: {},
+      data: { name: "Updated Name" },
+    });
+    expect(result.issues?.[0]?.message).toBe("Object cannot be empty");
+  });
+
   test("runtime: rejects missing data", () => {
     const result = parse(schema, {
       where: { id: "user-123" },
@@ -360,6 +423,11 @@ describe("Delete Args - Simple Model Runtime", () => {
   test("runtime: rejects missing where", () => {
     const result = parse(schema, {});
     expect(result.issues).toBeDefined();
+  });
+
+  test("runtime: rejects empty where", () => {
+    const result = parse(schema, { where: {} });
+    expect(result.issues?.[0]?.message).toBe("Object cannot be empty");
   });
 
   test("runtime: rejects non-unique field in where (strict schema)", () => {
@@ -489,6 +557,19 @@ describe("Upsert Args - Simple Model Runtime", () => {
       },
     });
     expect(result.issues).toBeDefined();
+  });
+
+  test("runtime: rejects empty where", () => {
+    const result = parse(schema, {
+      where: {},
+      create: {
+        id: "user-123",
+        name: "Alice",
+        email: "alice@example.com",
+      },
+      update: { name: "Updated Alice" },
+    });
+    expect(result.issues?.[0]?.message).toBe("Object cannot be empty");
   });
 
   test("output: preserves all upsert fields correctly (with normalization)", () => {

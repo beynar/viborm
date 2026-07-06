@@ -5,9 +5,16 @@
  * Handles scalar fields, defaults, and auto-generated values.
  */
 
-import type { Sql } from "@sql";
+import type { CastType } from "@adapters/database-adapter";
+import type { Model } from "@schema/model";
+import { isSql, type Sql } from "@sql";
 import { getColumnName } from "../context";
+import {
+  isBatchValueRef,
+  lowerBatchResolvableValue,
+} from "../operations/nested-writes/batch-references";
 import { type QueryContext, QueryEngineError } from "../types";
+import { isGeneratedIncrementDefault } from "./generated-scalar";
 
 interface ValuesResult {
   columns: string[];
@@ -49,21 +56,25 @@ export function buildValues(
       if (!scalarFieldSet.has(key)) {
         continue; // Skip relations and unknown fields
       }
+      const field = ctx.model["~"].state.scalars[key];
+      if (isGeneratedIncrementDefault(field, value)) {
+        continue;
+      }
       fieldsSet.add(key);
     }
   }
 
   // Check for auto-generated fields that weren't provided
   for (const fieldName of ctx.model["~"].scalarFieldNames) {
-    const field = ctx.model["~"].state.scalars[fieldName];
-    if (field) {
-      const state = field["~"].state;
-      // Throw if field has auto-generate (uuid, ulid, cuid, etc.) but wasn't provided
+    const scalar = ctx.model["~"].state.scalars[fieldName];
+    if (scalar) {
+      const state = scalar["~"].state;
+      // Throw if scalar has auto-generate (uuid, ulid, cuid, etc.) but wasn't provided
       // and doesn't have a database default
       if (state?.autoGenerate && !fieldsSet.has(fieldName)) {
         const genType = state.autoGenerate;
         // Check if it's a supported database-level auto-generate
-        if (genType !== "autoincrement") {
+        if (genType !== "increment") {
           throw new QueryEngineError(
             `Auto-generated value '${genType}' for field '${fieldName}' must be provided explicitly or ` +
               "handled by the database. Application-level ID generation (uuid, ulid, cuid) is not yet implemented."
@@ -88,7 +99,7 @@ export function buildValues(
 
     for (const fieldName of fieldNames) {
       const value = record[fieldName];
-      row.push(buildFieldValue(ctx, fieldName, value));
+      row.push(buildScalarSqlValue(ctx, ctx.model, fieldName, value));
     }
 
     values.push(row);
@@ -100,8 +111,9 @@ export function buildValues(
 /**
  * Build value SQL for a single field, handling special types
  */
-function buildFieldValue(
+export function buildScalarSqlValue(
   ctx: QueryContext,
+  model: Model<any>,
   fieldName: string,
   value: unknown
 ): Sql {
@@ -109,35 +121,99 @@ function buildFieldValue(
     return ctx.adapter.literals.null();
   }
 
-  if (isSql(value)) {
+  const loweredValue = lowerBatchResolvableValue(ctx.adapter, value);
+  if (isBatchValueRef(value)) {
+    return castBatchRefValue(ctx, model, fieldName, loweredValue as Sql);
+  }
+
+  if (isSql(loweredValue)) {
     // Pass through Sql values directly (e.g., subqueries from connect)
-    return value;
+    return loweredValue;
   }
 
-  // Get field type if available
-  const field = ctx.model["~"].state.scalars[fieldName];
-  const fieldType = field?.["~"]?.state?.type;
+  // Get scalar type if available
+  const field = model["~"].state.scalars[fieldName];
+  const scalarState = field?.["~"]?.state;
+  const scalarType = scalarState?.type;
 
-  // Handle JSON fields - adapter handles dialect-specific serialization
-  if (fieldType === "json" && typeof value === "object") {
-    return ctx.adapter.literals.json(value);
+  // List scalars take the whole array in the dialect's storage format
+  // (native array on PG, JSON on MySQL/SQLite)
+  if (scalarState?.array && Array.isArray(loweredValue)) {
+    return ctx.adapter.arrays.value(loweredValue);
   }
 
-  return ctx.adapter.literals.value(value);
+  // JSON scalars always store serialized JSON — primitives included — so every
+  // dialect receives valid JSON text (a bare 'hello' is not valid JSON on PG)
+  if (scalarType === "json") {
+    return ctx.adapter.literals.json(loweredValue);
+  }
+
+  // Datetime ISO strings need dialect-specific serialization (MySQL rejects 'Z')
+  if (scalarType === "datetime" && typeof loweredValue === "string") {
+    return ctx.adapter.literals.dateTime(loweredValue);
+  }
+
+  return ctx.adapter.literals.value(loweredValue);
 }
 
 /**
- * Check if a value is a Sql object
+ * Parameterize a scalar comparison/assignment value against ctx.model,
+ * routing datetime ISO strings through the adapter's dialect-specific
+ * serialization. Used by where/set/cursor builders.
  */
-function isSql(value: unknown): value is Sql {
-  return (
-    value !== null &&
-    typeof value === "object" &&
-    "strings" in value &&
-    "values" in value &&
-    Array.isArray((value as Sql).strings) &&
-    Array.isArray((value as Sql).values)
-  );
+export function scalarValueLiteral(
+  ctx: QueryContext,
+  fieldName: string,
+  value: unknown
+): Sql {
+  const state = ctx.model["~"].state.scalars[fieldName]?.["~"].state;
+  // Whole-list values (e.g. { set: [...] }) use the dialect's storage format
+  if (state?.array && Array.isArray(value)) {
+    return ctx.adapter.arrays.value(value);
+  }
+  if (state?.type === "datetime" && typeof value === "string") {
+    return ctx.adapter.literals.dateTime(value);
+  }
+  // JSON scalars store serialized JSON, primitives included (see buildScalarSqlValue)
+  if (state?.type === "json" && value !== null && value !== undefined) {
+    return ctx.adapter.literals.json(value);
+  }
+  return ctx.adapter.literals.value(value);
+}
+
+function castBatchRefValue(
+  ctx: QueryContext,
+  model: Model<any>,
+  fieldName: string,
+  value: Sql
+): Sql {
+  const castType = getScalarCastType(model, fieldName);
+  return castType ? ctx.adapter.expressions.cast(value, castType) : value;
+}
+
+export function getScalarCastType(
+  model: Model<any>,
+  fieldName: string
+): CastType | undefined {
+  const scalarType = model["~"].state.scalars[fieldName]?.["~"].state.type;
+
+  switch (scalarType) {
+    case "int":
+    case "bigint":
+      return "integer";
+    case "float":
+    case "decimal":
+      return "numeric";
+    case "boolean":
+      return "boolean";
+    case "string":
+    case "date":
+    case "datetime":
+    case "time":
+      return "text";
+    default:
+      return undefined;
+  }
 }
 
 /**
@@ -152,7 +228,7 @@ export function buildInsert(
 
   if (columns.length === 0) {
     // No columns to insert - this shouldn't happen normally
-    throw new Error("No columns to insert");
+    throw new QueryEngineError("No columns to insert");
   }
 
   const table = ctx.adapter.identifiers.escape(tableName);
@@ -170,7 +246,7 @@ export function buildInsertMany(
   const { columns, values } = buildValues(ctx, data);
 
   if (columns.length === 0 || values.length === 0) {
-    throw new Error("No data to insert");
+    throw new QueryEngineError("No data to insert");
   }
 
   const table = ctx.adapter.identifiers.escape(tableName);

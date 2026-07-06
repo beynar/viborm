@@ -10,10 +10,18 @@ export type RawValue = Value | Sql;
 
 /**
  * A SQL instance can be nested within each other to build SQL strings.
+ *
+ * Composition is lazy: constructing a Sql just stores the raw fragments.
+ * The nested tree is flattened in a single pass over raw fragments when
+ * `strings`/`values` is first read (typically only on the root query), so
+ * intermediate fragments never pay flattening or allocation.
  */
 export class Sql {
-  readonly values: Value[];
-  readonly strings: string[];
+  private readonly rawStrings: readonly string[];
+  private readonly rawValues: readonly RawValue[];
+
+  private _values: Value[] | undefined;
+  private _strings: string[] | undefined;
 
   // Cached statement strings (memoized per placeholder type)
   private _stmt$n: string | undefined;
@@ -32,43 +40,56 @@ export class Sql {
       );
     }
 
-    // Single pass to count values (avoid reduce overhead)
-    let valuesLength = 0;
-    for (const v of rawValues) {
-      valuesLength += v instanceof Sql ? v.values.length : 1;
+    this.rawStrings = rawStrings;
+    this.rawValues = rawValues;
+  }
+
+  get values(): Value[] {
+    if (this._values === undefined) {
+      this.flatten();
     }
+    return this._values as Value[];
+  }
 
-    this.values = new Array(valuesLength);
-    this.strings = new Array(valuesLength + 1);
+  get strings(): string[] {
+    if (this._strings === undefined) {
+      this.flatten();
+    }
+    return this._strings as string[];
+  }
 
-    this.strings[0] = rawStrings[0]!;
+  /**
+   * Flatten the raw fragment tree in one pass, walking children's raw
+   * fragments directly so nested Sql instances are never flattened themselves.
+   */
+  private flatten(): void {
+    const strings: string[] = [];
+    const values: Value[] = [];
+    let current = "";
 
-    // Iterate over raw values, strings, and children. The value is always
-    // positioned between two strings, e.g. `index + 1`.
-    let i = 0;
-    let pos = 0;
-    while (i < rawValues.length) {
-      const child = rawValues[i++]!;
-      const rawString = rawStrings[i]!;
-
-      // Check for nested `sql` queries.
-      if (child instanceof Sql) {
-        // Append child prefix text to current string.
-        this.strings[pos] += child.strings[0]!;
-
-        let childIndex = 0;
-        while (childIndex < child.values.length) {
-          this.values[pos++] = child.values[childIndex++]!;
-          this.strings[pos] = child.strings[childIndex]!;
+    const walk = (
+      rawStrings: readonly string[],
+      rawValues: readonly RawValue[]
+    ): void => {
+      current += rawStrings[0]!;
+      for (let i = 0; i < rawValues.length; i++) {
+        const child = rawValues[i]!;
+        if (child instanceof Sql) {
+          walk(child.rawStrings, child.rawValues);
+        } else {
+          values.push(child);
+          strings.push(current);
+          current = "";
         }
-
-        // Append raw string to current string.
-        this.strings[pos] += rawString;
-      } else {
-        this.values[pos++] = child;
-        this.strings[pos] = rawString;
+        current += rawStrings[i + 1]!;
       }
-    }
+    };
+
+    walk(this.rawStrings, this.rawValues);
+    strings.push(current);
+
+    this._strings = strings;
+    this._values = values;
   }
 
   /**
@@ -129,37 +150,6 @@ export class Sql {
   }
 }
 
-function spreadValues(...data: Record<string, RawValue>[]) {
-  const firstRow = data[0]!;
-  // Assuming all rows have the same keys
-  const valueKeys = Object.keys(firstRow) as string[];
-  const allLengths = new Set();
-
-  const values = data.map((item) => {
-    const keys = Object.keys(item);
-    const values = keys.map((key) => item[key]);
-    allLengths.add(values.length);
-    return new Sql(["(", ...new Array(keys.length - 1).fill(","), ")"], values);
-  });
-
-  if (allLengths.size > 1) {
-    throw new TypeError(
-      "All inserted rows must have the same number of values"
-    );
-  }
-
-  allLengths.clear();
-
-  return new Sql(
-    [
-      `(${valueKeys.join(",")}) VALUES `,
-      ...new Array(values.length - 1).fill(","),
-      ")",
-    ],
-    values
-  );
-}
-
 /**
  * Create raw SQL statement.
  */
@@ -169,12 +159,6 @@ function raw(strings: readonly string[], ...values: readonly RawValue[]) {
   }, "");
   return new Sql([concatenated], []);
 }
-
-const wrap = (prefix: string, wrapped: Sql | undefined, suffix: string) => {
-  return wrapped
-    ? empty
-    : sql`${new Sql([prefix], [])}${wrapped}${new Sql([suffix], [])}`;
-};
 
 /**
  * Create a SQL query for a list of values.
@@ -218,14 +202,8 @@ const sqlProxy = new Proxy(sql, {
     if (prop === "raw") {
       return raw;
     }
-    if (prop === "spreadValues") {
-      return spreadValues;
-    }
     if (prop === "empty") {
       return empty;
-    }
-    if (prop === "wrap") {
-      return wrap;
     }
     if (prop === "join") {
       return join;
@@ -236,10 +214,24 @@ const sqlProxy = new Proxy(sql, {
   },
 }) as typeof sql & {
   raw: typeof raw;
-  wrap: typeof wrap;
-  spreadValues: typeof spreadValues;
   empty: typeof empty;
   join: typeof join;
 };
 
 export { sqlProxy as sql };
+
+/**
+ * Type guard for Sql fragments. Structural check rather than instanceof so it
+ * also matches fragments from a duplicated module instance (e.g. dual CJS/ESM
+ * builds).
+ */
+export function isSql(value: unknown): value is Sql {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    "strings" in value &&
+    "values" in value &&
+    Array.isArray((value as Sql).strings) &&
+    Array.isArray((value as Sql).values)
+  );
+}

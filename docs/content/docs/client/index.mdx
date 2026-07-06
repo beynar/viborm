@@ -21,6 +21,8 @@ const client = createClient({
 
 ## Operations Overview
 
+VibORM's client API is Prisma-inspired. It intentionally does not claim full Prisma parity; see [Compatibility](/docs/client/compatibility) for the documented nested-write subset, raw SQL differences, and driver-specific notes.
+
 ### Query Operations
 
 | Operation | Description | Returns |
@@ -141,8 +143,13 @@ await client.user.create({
     href="/docs/client/transactions"
   />
   <Card
+    title="Compatibility"
+    description="Supported operations and intentional Prisma differences"
+    href="/docs/client/compatibility"
+  />
+  <Card
     title="Filtering"
-    description="Filter operators by field type"
+    description="Filter operators by scalar type"
     href="/docs/client/filtering"
   />
   <Card

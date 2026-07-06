@@ -2,23 +2,23 @@
 
 import type { AnyModel } from "@schema/model";
 import type { RelationState } from "@schema/relation/types";
-import { getInverseRelationFields as getInverseRelationFieldsRuntime } from "@schema/relation/types";
-import v, { type V } from "@validation";
-import {
-  type CreateManyDataSchema,
-  type CreateWithOmittedFk,
-  type InverseRequiredKeys,
+import { getInverseRelationMap as getInverseRelationMapRuntime } from "@schema/relation/types";
+import v, { type V } from "../primitives/v";
+import type { ScalarSchemas } from "../model";
+import { getNestedScalarCreateWithOmittedRequiredKeys } from "../model/core/create";
+import type {
+  CreateManyDataSchema,
+  CreateWithOmittedFk,
+  InverseRequiredKeys,
 } from "./create";
 import type { GetTargetSchemas, SchemaGetter, TargetModel } from "./helpers";
-import type { FieldSchemas } from "../model";
-import { getNestedScalarCreateWithOmittedRequiredKeys } from "../model/core/create";
 
 // =============================================================================
 // UPDATE FACTORY IMPLEMENTATIONS
 // =============================================================================
 
 /**
- * To-one update: { create?, connect?, connectOrCreate?, disconnect?, delete? }
+ * To-one update: { create?, connect?, connectOrCreate?, update?, upsert?, disconnect?, delete? }
  * disconnect and delete only available for optional relations.
  */
 
@@ -32,6 +32,14 @@ type ToOneUpdateSchemaBase<
     {
       where: () => GetTargetSchemas<S>["core"]["whereUnique"];
       create: () => CreateWithOmittedFk<S, Source>;
+    },
+    { partial: false }
+  >;
+  update: () => GetTargetSchemas<S>["core"]["update"];
+  upsert: V.Object<
+    {
+      create: () => CreateWithOmittedFk<S, Source>;
+      update: () => GetTargetSchemas<S>["core"]["update"];
     },
     { partial: false }
   >;
@@ -62,11 +70,10 @@ export const toOneUpdateFactory = <
   targetSchemas: T
 ): ToOneUpdateSchema<S, Source> => {
   const getCreateSchema = () => {
-    const fkFields = getInverseRelationFieldsRuntime(state, source);
+    const fkFields = getInverseRelationMapRuntime(state, source);
     return v.omit(targetSchemas().core.create, fkFields);
   };
 
-  // connectOrCreate schema for connecting or creating if not exists
   const connectOrCreateSchema = v.object(
     {
       where: () => targetSchemas().core.whereUnique,
@@ -75,10 +82,20 @@ export const toOneUpdateFactory = <
     { partial: false }
   );
 
+  const upsertSchema = v.object(
+    {
+      create: getCreateSchema,
+      update: () => targetSchemas().core.update,
+    },
+    { partial: false }
+  );
+
   const baseEntries = v.object({
     create: getCreateSchema,
     connect: () => targetSchemas().core.whereUnique,
     connectOrCreate: connectOrCreateSchema,
+    update: () => targetSchemas().core.update,
+    upsert: upsertSchema,
   });
 
   const optionalEntries = baseEntries.extend({
@@ -86,14 +103,16 @@ export const toOneUpdateFactory = <
     delete: v.boolean(),
   });
 
-  return (state.optional ? optionalEntries : baseEntries) as unknown as ToOneUpdateSchema<
-    S,
-    Source
-  >;
+  return (state.optional
+    ? optionalEntries
+    : baseEntries) as unknown as ToOneUpdateSchema<S, Source>;
 };
 
 /**
- * To-many update: { create?, createMany?, connect?, disconnect?, delete?, connectOrCreate?, set? }
+ * To-many update: {
+ *   create?, createMany?, connect?, disconnect?, delete?,
+ *   connectOrCreate?, set?, update?, updateMany?, upsert?, deleteMany?
+ * }
  * Most operations accept single or array.
  */
 
@@ -110,12 +129,7 @@ export type ToManyUpdateSchema<
     { atLeast: ["data"] }
   >;
   connect: () => V.SingleOrArray<GetTargetSchemas<S>["core"]["whereUnique"]>;
-  disconnect: () => V.Union<
-    readonly [
-      V.Boolean,
-      V.SingleOrArray<GetTargetSchemas<S>["core"]["whereUnique"]>,
-    ]
-  >;
+  disconnect: () => V.SingleOrArray<GetTargetSchemas<S>["core"]["whereUnique"]>;
   delete: () => V.SingleOrArray<GetTargetSchemas<S>["core"]["whereUnique"]>;
   connectOrCreate: V.SingleOrArray<
     V.Object<
@@ -127,6 +141,35 @@ export type ToManyUpdateSchema<
     >
   >;
   set: () => V.SingleOrArray<GetTargetSchemas<S>["core"]["whereUnique"]>;
+  update: V.SingleOrArray<
+    V.Object<
+      {
+        where: () => GetTargetSchemas<S>["core"]["whereUnique"];
+        data: () => GetTargetSchemas<S>["core"]["update"];
+      },
+      { atLeast: ["where", "data"] }
+    >
+  >;
+  updateMany: V.SingleOrArray<
+    V.Object<
+      {
+        where: () => GetTargetSchemas<S>["core"]["where"];
+        data: () => GetTargetSchemas<S>["core"]["update"];
+      },
+      { atLeast: ["data"] }
+    >
+  >;
+  upsert: V.SingleOrArray<
+    V.Object<
+      {
+        where: () => GetTargetSchemas<S>["core"]["whereUnique"];
+        create: () => CreateWithOmittedFk<S, Source>;
+        update: () => GetTargetSchemas<S>["core"]["update"];
+      },
+      { partial: false }
+    >
+  >;
+  deleteMany: () => V.SingleOrArray<GetTargetSchemas<S>["core"]["where"]>;
 }>;
 
 export const toManyUpdateFactory = <
@@ -139,18 +182,18 @@ export const toManyUpdateFactory = <
   targetSchemas: T
 ): ToManyUpdateSchema<S, Source> => {
   const getCreateSchema = () => {
-    const fkFields = getInverseRelationFieldsRuntime(state, source);
+    const fkFields = getInverseRelationMapRuntime(state, source);
     return v.omit(targetSchemas().core.create, fkFields);
   };
 
   const getCreateManyDataSchema = (): CreateManyDataSchema<S, Source> => {
     const targetModel = state.getter() as TargetModel<S>;
-    const fkFields = (getInverseRelationFieldsRuntime(state, source) ??
+    const fkFields = (getInverseRelationMapRuntime(state, source) ??
       []) as InverseRequiredKeys<S, Source>;
     const schemas = targetSchemas();
     return getNestedScalarCreateWithOmittedRequiredKeys<
       TargetModel<S>,
-      FieldSchemas<TargetModel<S>>,
+      ScalarSchemas<TargetModel<S>>,
       InverseRequiredKeys<S, Source>
     >(
       targetModel,
@@ -170,6 +213,31 @@ export const toManyUpdateFactory = <
     { partial: false }
   );
 
+  const updateSchema = v.object(
+    {
+      where: () => targetSchemas().core.whereUnique,
+      data: () => targetSchemas().core.update,
+    },
+    { atLeast: ["where", "data"] }
+  );
+
+  const updateManySchema = v.object(
+    {
+      where: () => targetSchemas().core.where,
+      data: () => targetSchemas().core.update,
+    },
+    { atLeast: ["data"] }
+  );
+
+  const upsertSchema = v.object(
+    {
+      where: () => targetSchemas().core.whereUnique,
+      create: getCreateSchema,
+      update: () => targetSchemas().core.update,
+    },
+    { partial: false }
+  );
+
   return v.object({
     create: () => v.singleOrArray(getCreateSchema()),
     createMany: v.object(
@@ -180,10 +248,15 @@ export const toManyUpdateFactory = <
       { atLeast: ["data"] }
     ),
     connect: () => v.singleOrArray(targetSchemas().core.whereUnique),
-    disconnect: () =>
-      v.union([v.boolean(), v.singleOrArray(targetSchemas().core.whereUnique)]),
+    // Prisma parity: boolean disconnect is a to-one concept; on to-many it
+    // would silently wipe every association, so it is rejected here.
+    disconnect: () => v.singleOrArray(targetSchemas().core.whereUnique),
     delete: () => v.singleOrArray(targetSchemas().core.whereUnique),
     connectOrCreate: v.singleOrArray(connectOrCreateSchema),
     set: () => v.singleOrArray(targetSchemas().core.whereUnique),
+    update: v.singleOrArray(updateSchema),
+    updateMany: v.singleOrArray(updateManySchema),
+    upsert: v.singleOrArray(upsertSchema),
+    deleteMany: () => v.singleOrArray(targetSchemas().core.where),
   }) as unknown as ToManyUpdateSchema<S, Source>;
 };

@@ -10,7 +10,7 @@ import {
   buildAggregateColumn,
   buildCountAggregate,
 } from "../builders/aggregate-utils";
-import { buildOrderBy } from "../builders/orderby-builder";
+import { buildSingleOrder } from "../builders/sort-order-builder";
 import { buildWhere } from "../builders/where-builder";
 import { getColumnName, getScalarFieldNames, getTableName } from "../context";
 import { type QueryContext, QueryEngineError } from "../types";
@@ -94,8 +94,8 @@ export function buildGroupBy(ctx: QueryContext, args: GroupByArgs): Sql {
     ? buildHaving(ctx, args.having, rootAlias, byFields)
     : undefined;
 
-  // Build ORDER BY
-  const orderBy = buildOrderBy(ctx, args.orderBy, rootAlias);
+  // Build ORDER BY (restricted to grouped fields and aggregates)
+  const orderBy = buildGroupByOrderBy(ctx, args.orderBy, rootAlias, byFields);
 
   // Build LIMIT/OFFSET
   const limit =
@@ -169,6 +169,97 @@ function buildGroupByColumns(
   }
 
   return columns;
+}
+
+const AGGREGATE_ORDER_KEYS = new Set([
+  "_count",
+  "_avg",
+  "_sum",
+  "_min",
+  "_max",
+]);
+
+/**
+ * Build ORDER BY for groupBy.
+ *
+ * Only grouped (`by`) fields and aggregate orderings are valid — ordering by
+ * a non-grouped column is invalid SQL on Postgres. Aggregate orderings use
+ * Prisma's shape: { _count: { field: "desc" } } (with _all supported for _count).
+ */
+function buildGroupByOrderBy(
+  ctx: QueryContext,
+  orderBy: GroupByArgs["orderBy"],
+  alias: string,
+  byFields: string[]
+): Sql | undefined {
+  if (!orderBy) return undefined;
+
+  const { adapter } = ctx;
+  const items = Array.isArray(orderBy) ? orderBy : [orderBy];
+  const orders: Sql[] = [];
+
+  for (const item of items) {
+    for (const [key, value] of Object.entries(item)) {
+      if (value === undefined) continue;
+
+      if (AGGREGATE_ORDER_KEYS.has(key)) {
+        if (typeof value !== "object" || value === null) {
+          throw new QueryEngineError(
+            `GroupBy orderBy '${key}' requires an object mapping fields to sort directions.`
+          );
+        }
+        for (const [field, direction] of Object.entries(value)) {
+          if (direction === undefined) continue;
+          const aggExpr = buildOrderByAggregate(ctx, key, field, alias);
+          orders.push(buildSingleOrder(ctx, aggExpr, direction));
+        }
+        continue;
+      }
+
+      if (!byFields.includes(key)) {
+        throw new QueryEngineError(
+          `GroupBy orderBy field '${key}' must be included in 'by' or be an aggregate (_count, _avg, _sum, _min, _max).`
+        );
+      }
+      const columnName = getColumnName(ctx.model, key);
+      const column = adapter.identifiers.column(alias, columnName);
+      orders.push(buildSingleOrder(ctx, column, value));
+    }
+  }
+
+  if (orders.length === 0) return undefined;
+  return sql.join(orders, ", ");
+}
+
+function buildOrderByAggregate(
+  ctx: QueryContext,
+  aggKey: string,
+  field: string,
+  alias: string
+): Sql {
+  const { adapter } = ctx;
+
+  if (aggKey === "_count" && field === "_all") {
+    return adapter.aggregates.count();
+  }
+
+  const columnName = getColumnName(ctx.model, field);
+  const column = adapter.identifiers.column(alias, columnName);
+
+  switch (aggKey) {
+    case "_count":
+      return adapter.aggregates.count(column);
+    case "_avg":
+      return adapter.aggregates.avg(column);
+    case "_sum":
+      return adapter.aggregates.sum(column);
+    case "_min":
+      return adapter.aggregates.min(column);
+    case "_max":
+      return adapter.aggregates.max(column);
+    default:
+      throw new QueryEngineError(`Unknown orderBy aggregate '${aggKey}'.`);
+  }
 }
 
 /**
@@ -339,7 +430,7 @@ function buildFieldKeyedHaving(
   // (Prisma rule: you can only filter on aggregate values or fields available in `by`)
   if (!(hasAggregateKey || byFields.includes(fieldName))) {
     throw new QueryEngineError(
-      `Field '${fieldName}' used in 'having' must be included in 'by'.`
+      `Scalar '${fieldName}' used in 'having' must be included in 'by'.`
     );
   }
 
@@ -427,12 +518,16 @@ function buildScalarHaving(
     switch (op) {
       case "equals":
         conditions.push(
-          adapter.operators.eq(column, adapter.literals.value(value))
+          value === null
+            ? adapter.operators.isNull(column)
+            : adapter.operators.eq(column, adapter.literals.value(value))
         );
         break;
       case "not":
         conditions.push(
-          adapter.operators.neq(column, adapter.literals.value(value))
+          value === null
+            ? adapter.operators.isNotNull(column)
+            : adapter.operators.neq(column, adapter.literals.value(value))
         );
         break;
       case "gt":
@@ -455,22 +550,40 @@ function buildScalarHaving(
           adapter.operators.lte(column, adapter.literals.value(value))
         );
         break;
-      case "in":
-        if (Array.isArray(value)) {
-          const values = value.map((v) => adapter.literals.value(v));
-          conditions.push(
-            adapter.operators.in(column, adapter.literals.list(values))
+      case "in": {
+        if (!Array.isArray(value)) {
+          throw new QueryEngineError(
+            "HAVING operation 'in' requires an array value."
           );
         }
+        // Empty array matches nothing; IN () is invalid SQL
+        if (value.length === 0) {
+          conditions.push(adapter.literals.false());
+          break;
+        }
+        const values = value.map((v) => adapter.literals.value(v));
+        conditions.push(
+          adapter.operators.in(column, adapter.literals.list(values))
+        );
         break;
-      case "notIn":
-        if (Array.isArray(value)) {
-          const values = value.map((v) => adapter.literals.value(v));
-          conditions.push(
-            adapter.operators.notIn(column, adapter.literals.list(values))
+      }
+      case "notIn": {
+        if (!Array.isArray(value)) {
+          throw new QueryEngineError(
+            "HAVING operation 'notIn' requires an array value."
           );
         }
+        // Empty array matches everything
+        if (value.length === 0) {
+          conditions.push(adapter.literals.true());
+          break;
+        }
+        const values = value.map((v) => adapter.literals.value(v));
+        conditions.push(
+          adapter.operators.notIn(column, adapter.literals.list(values))
+        );
         break;
+      }
       default: {
         throw new QueryEngineError(`Invalid operator: ${op}`);
       }

@@ -45,7 +45,7 @@ interface DatabaseAdapter {
   returning(columns: string[]): Sql;
   
   // Types
-  columnType(field: Field): string;
+  columnType(scalar: Scalar): string;
 }
 ```
 

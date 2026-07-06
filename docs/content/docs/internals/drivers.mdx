@@ -49,10 +49,10 @@ interface Driver {
 
 | Driver | Client | Use Case |
 |--------|--------|----------|
-| `PostgresDriver` | node-postgres | PostgreSQL servers |
+| `PgDriver` | node-postgres | PostgreSQL servers |
 | `PGliteDriver` | PGlite | Embedded PostgreSQL |
-| `MySQLDriver` | mysql2 | MySQL servers |
-| `SQLiteDriver` | better-sqlite3 | SQLite files |
+| `MySQL2Driver` | mysql2 | MySQL servers |
+| `SQLite3Driver` | better-sqlite3 | SQLite files |
 
 ## What Drivers Handle
 
@@ -92,12 +92,13 @@ Some databases return results in different formats. Drivers normalize this:
 
 ### Error Handling
 
-Database-specific errors are wrapped in VibORM errors:
+Database-specific errors are normalized into typed VibORM errors (see `src/drivers/error-mapping.ts`):
 
 ```typescript
 // PostgreSQL: error code "23505"
-// MySQL: error code "ER_DUP_ENTRY"
-// Driver: VibORMError("UNIQUE_CONSTRAINT_VIOLATION")
+// MySQL: errno 1062 / "ER_DUP_ENTRY"
+// SQLite: "SQLITE_CONSTRAINT_UNIQUE"
+// Driver: throws UniqueConstraintError
 ```
 
 ## Connection to Other Layers

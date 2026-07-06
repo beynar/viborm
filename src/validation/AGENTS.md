@@ -14,6 +14,12 @@ This layer owns:
 - model core schemas (`where`, `create`, `update`, select/include, orderBy)
 - operation args schemas (`findMany`, `create`, `upsert`, ...)
 
+Terminology follows the schema layer: a model **field** is the umbrella member
+and can be either a **scalar** field or a **relation** field. Use scalar/relation
+when discussing operation schema factories for one concrete kind; use field for
+model keys, selection fields, FK fields, and mixed scalar+relation operation
+inputs.
+
 ## Why This Layer Exists
 
 VibORM needed a validation system that:
@@ -22,7 +28,7 @@ VibORM needed a validation system that:
 3. **Is fast** - both at runtime and for type checking
 4. **Has full model graph context** - required for nested relation inputs
 
-The `v.*` primitives solve interop, inference, and runtime validation. `SchemaRegistry` composes those primitives with schema field/relation state so query validation has enough context to handle nested creates, includes, and relation filters.
+The `v.*` primitives solve interop, inference, and runtime validation. `SchemaRegistry` composes those primitives with schema scalar/relation state so query validation has enough context to handle nested creates, includes, and relation filters.
 
 ---
 
@@ -32,7 +38,7 @@ The `v.*` primitives solve interop, inference, and runtime validation. `SchemaRe
 |------|---------|-------------|
 | `types.ts` | VibSchema, InferInput/Output, SchemaRegistry contract | Rarely |
 | `primitives/` | Standard Schema V1 primitives (`v.*`) | Adding a primitive |
-| `scalars/` | Field-state to scalar operation schemas | Adding field operation behavior |
+| `scalars/` | Scalar-state to scalar operation schemas | Adding scalar operation behavior |
 | `relations/` | Relation operation schemas with target-model thunks | Changing nested relation inputs |
 | `model/core/` | where/create/update/select/include/orderBy schemas | Changing model-level query inputs |
 | `model/args/` | Complete operation arg schemas | Adding/changing ORM operations |
@@ -106,13 +112,13 @@ Use `" vibInferred"` (with space), NOT `Symbol()`. Symbols break cross-module in
 Standard Schema V1 is synchronous. Never use async/await in validate functions.
 
 ### Rule 3: Generic Primitives Only
-No domain-specific logic here. `v.email()` or `v.url()` belong in field layer, not validation.
+No domain-specific logic here. `v.email()` or `v.url()` belong in the scalar layer, not validation.
 
 ### Rule 4: Immutable Schemas
 Schemas are immutable after creation. No methods that modify the schema in place.
 
 ### Rule 5: Operation Schemas Need Registry Context
-Do not rebuild operation schemas inside fields, relations, or models. Use `SchemaRegistry` so relation thunks and inverse FK omission are resolved from the full schema graph.
+Do not rebuild operation schemas inside scalar definitions, relation definitions, or models. Use `SchemaRegistry` so relation thunks and inverse FK omission are resolved from the full schema graph.
 
 ---
 
@@ -125,7 +131,7 @@ Using `Symbol("vibInferred")` instead of string literal. Breaks type inference a
 Adding `async` to validate functions. Standard Schema V1 requires synchronous validation only.
 
 ### Domain-Specific Primitives
-Creating `v.email()` in validation layer. Field-specific logic belongs in `src/schema/fields/`.
+Creating `v.email()` in validation layer. Scalar-specific logic belongs in `src/schema/scalars/`.
 
 ### Throwing Exceptions
 Throwing errors instead of returning `{issues: [...]}`. Standard Schema uses result objects.
@@ -134,7 +140,7 @@ Throwing errors instead of returning `{issues: [...]}`. Standard Schema uses res
 Modifying schema after creation. Schemas should be immutable once constructed.
 
 ### Hoisting Operation Schemas Into Schema Layer
-Putting `filter`, `create`, `update`, or model args schemas on field/relation/model internals loses source-model context and reintroduces the nested-create bug. Keep base scalar schemas in field state; keep operation schemas here.
+Putting `filter`, `create`, `update`, or model args schemas on scalar/relation/model internals loses source-model context and reintroduces the nested-create bug. Keep base scalar schemas in scalar state; keep operation schemas here.
 
 ---
 
@@ -187,7 +193,7 @@ This is rare - the existing primitives cover most cases.
 | Model where/create/update/select/orderBy behavior | `src/validation/model/core/` |
 | Operation args (`findMany`, `create`, etc.) | `src/validation/model/args/` |
 
-Always preserve the registry boundary: operation schemas can read schema field/relation state, but schema classes must not import operation schema factories.
+Always preserve the registry boundary: operation schemas can read schema scalar/relation state, but schema classes must not import operation schema factories.
 
 ---
 
@@ -208,7 +214,7 @@ Validating 10,000 records means 10,000 function calls. Branching inside each cal
 
 | Layer | Relationship |
 |-------|--------------|
-| **Schema Fields** ([fields/AGENTS.md](../schema/fields/AGENTS.md)) | Store field state and base schemas consumed by validation scalars |
+| **Schema Scalars** ([scalars/AGENTS.md](../schema/scalars/AGENTS.md)) | Store scalar state and base schemas consumed by validation scalars |
 | **Schema Relations** ([relation/AGENTS.md](../schema/relation/AGENTS.md)) | Store relation state and thunks consumed by validation relations |
 | **Client** ([client/AGENTS.md](../client/AGENTS.md)) | Uses validation model schema types for operation payload inference |
 | **Query Engine** | Uses `SchemaRegistry` for input validation |

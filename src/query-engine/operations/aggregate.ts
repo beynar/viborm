@@ -10,9 +10,8 @@ import {
   buildAggregateColumn,
   buildCountAggregate,
 } from "../builders/aggregate-utils";
-import { buildWhere } from "../builders/where-builder";
-import { getTableName } from "../context";
 import { type QueryContext, QueryEngineError } from "../types";
+import { buildAggregateInputWindow } from "./aggregate-input";
 
 /**
  * Aggregate arguments
@@ -38,11 +37,15 @@ export interface AggregateArgs {
  * @returns SQL statement
  */
 export function buildAggregate(ctx: QueryContext, args: AggregateArgs): Sql {
-  const { adapter, rootAlias } = ctx;
-  const tableName = getTableName(ctx.model);
+  const { adapter } = ctx;
 
   // Build aggregate columns
-  const columns = buildAggregateColumns(ctx, args, rootAlias);
+  const input = buildAggregateInputWindow(
+    ctx,
+    args,
+    getAggregateFieldNames(args)
+  );
+  const columns = buildAggregateColumns(ctx, args, input.alias);
 
   if (columns.length === 0) {
     throw new QueryEngineError(
@@ -50,29 +53,55 @@ export function buildAggregate(ctx: QueryContext, args: AggregateArgs): Sql {
     );
   }
 
-  // Build FROM
-  const from = adapter.identifiers.table(tableName, rootAlias);
-
-  // Build WHERE
-  const where = buildWhere(ctx, args.where, rootAlias);
-
-  // Build LIMIT/OFFSET (for cursor-based pagination)
-  const limit =
-    args.take !== undefined ? adapter.literals.value(args.take) : undefined;
-  const offset =
-    args.skip !== undefined ? adapter.literals.value(args.skip) : undefined;
-
   // Assemble query
   const parts: Parameters<typeof adapter.assemble.select>[0] = {
     columns: sql.join(columns, ", "),
-    from,
+    from: input.from,
   };
 
-  if (where) parts.where = where;
-  if (limit) parts.limit = limit;
-  if (offset) parts.offset = offset;
-
   return adapter.assemble.select(parts);
+}
+
+function getAggregateFieldNames(args: AggregateArgs): string[] {
+  const fields = new Set<string>();
+
+  addCountFields(fields, args._count);
+  addSelectedFields(fields, args._avg);
+  addSelectedFields(fields, args._sum);
+  addSelectedFields(fields, args._min);
+  addSelectedFields(fields, args._max);
+
+  return [...fields];
+}
+
+function addCountFields(
+  fields: Set<string>,
+  spec: true | Record<string, boolean> | undefined
+): void {
+  if (!spec || spec === true) {
+    return;
+  }
+
+  for (const [field, include] of Object.entries(spec)) {
+    if (field !== "_all" && include) {
+      fields.add(field);
+    }
+  }
+}
+
+function addSelectedFields(
+  fields: Set<string>,
+  spec: Record<string, boolean> | undefined
+): void {
+  if (!spec) {
+    return;
+  }
+
+  for (const [field, include] of Object.entries(spec)) {
+    if (include) {
+      fields.add(field);
+    }
+  }
 }
 
 /**

@@ -16,7 +16,7 @@ icon: Layers
 ┌─────────────────────────────────────────────────────────────────────────┐
 │  L1: Validation       │ v.* primitives, Standard Schema V1, registry     │
 ├───────────────────────┼─────────────────────────────────────────────────┤
-│  L2: Fields           │ Field classes with State generic pattern        │
+│  L2: Scalars          │ Scalar classes with State generic pattern        │
 ├───────────────────────┼─────────────────────────────────────────────────┤
 │  L3: Operation Schemas│ where, create, update, args schema generation   │
 ├───────────────────────┼─────────────────────────────────────────────────┤
@@ -40,8 +40,8 @@ icon: Layers
 
 | Layer | Location | Owns | Doesn't Own |
 |-------|----------|------|-------------|
-| **L1: Validation** | `src/validation/` | v.* primitives, Standard Schema V1, `SchemaRegistry` | Field logic, domain rules |
-| **L2: Fields** | `src/schema/fields/` | Field classes, State generics | Query schemas |
+| **L1: Validation** | `src/validation/` | v.* primitives, Standard Schema V1, `SchemaRegistry` | Scalar logic, domain rules |
+| **L2: Scalars** | `src/schema/scalars/` | Scalar classes, State generics | Query schemas |
 | **L3: Operation Schemas** | `src/validation/model/`, `src/validation/relations/` | where, create, update, args schemas | SQL generation |
 | **L4: Relations** | `src/schema/relation/` | Relation types, nested schemas | Query execution |
 | **L5: Schema Validation** | `src/schema/validation/` | Definition-time validation | Runtime validation |
@@ -94,7 +94,7 @@ So we built our own validation layer using **thunks + lazy evaluation** (inspire
 ```
 User writes:           s.string().nullable()
                               ↓
-L2: Field creates:     StringField<{type: "string", nullable: true}>
+L2: Scalar creates:     StringScalar<{type: "string", nullable: true}>
                               ↓
 L1: Schema factory:    v.string({nullable: true})  (lazy, on first access)
                               ↓
@@ -103,7 +103,7 @@ Type inference:        InferInput<schema> → string | null
 L9: Client uses:       orm.user.findMany({ where: { name: ... }})  // Fully typed!
 ```
 
-**Key insight:** Types flow DOWN through this chain. If types are wrong at the client level, the bug is upstream in schema or field definition.
+**Key insight:** Types flow DOWN through this chain. If types are wrong at the client level, the bug is upstream in schema or scalar definition.
 
 ## The Golden Rule
 
@@ -126,7 +126,7 @@ This is the most important architectural boundary. The query engine decides **WH
 | Layer | Purpose |
 |-------|---------|
 | [L1: Validation](/docs/internals/validation) | Recursive schemas via thunks + lazy evaluation |
-| [L2: Fields](/docs/internals/fields) | Field types with State generic for type tracking |
+| [L2: Scalars](/docs/internals/scalars) | Scalar types with State generic for type tracking |
 | [L3: Operation Schemas](/docs/internals/query-schemas) | Registry schema generation for where/create/update |
 | [L4: Relations](/docs/internals/relations) | Model relationships with thunks for circular refs |
 | [L6: Query Engine](/docs/internals/query-engine) | Database-agnostic query structure |

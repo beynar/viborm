@@ -91,8 +91,8 @@ adapter.operators.ilike(col, pattern)     // → col ILIKE pattern (PG)
                                           // → col LIKE pattern COLLATE NOCASE (SQLite)
 
 // Set membership
-adapter.operators.in(col, values)      // → col = ANY(values) (PG) or col IN values
-adapter.operators.notIn(col, values)   // → col <> ALL(values) (PG) or col NOT IN values
+adapter.operators.in(col, values)      // → col IN values
+adapter.operators.notIn(col, values)   // → col NOT IN values
 
 // Null checks
 adapter.operators.isNull(expr)         // → expr IS NULL
@@ -224,8 +224,8 @@ Ordering helpers.
 ```ts
 adapter.orderBy.asc(col)        // → col ASC
 adapter.orderBy.desc(col)       // → col DESC
-adapter.orderBy.nullsFirst(expr) // → expr NULLS FIRST (PG only, no-op elsewhere)
-adapter.orderBy.nullsLast(expr)  // → expr NULLS LAST (PG only, no-op elsewhere)
+adapter.orderBy.nullsFirst(col, direction) // → col NULLS FIRST (PG); (col IS NULL) DESC, col dir (MySQL/SQLite emulation)
+adapter.orderBy.nullsLast(col, direction)  // → col NULLS LAST (PG); (col IS NULL) ASC, col dir (MySQL/SQLite emulation)
 ```
 
 ### `clauses`
@@ -430,9 +430,8 @@ Full feature support. No limitations.
 - Query engine must execute a separate SELECT after INSERT/UPDATE to fetch mutated rows
 - Use `LAST_INSERT_ID()` for auto-increment IDs
 
-**NULLS FIRST/LAST not supported**
-- `adapter.orderBy.nullsFirst/Last()` returns the expression unchanged (no-op)
-- NULL ordering follows MySQL defaults (NULLs sort first in ASC)
+**NULLS FIRST/LAST emulated**
+- `adapter.orderBy.nullsFirst/Last()` emulates via `(col IS NULL)` sort-key ordering, not native syntax
 
 **FULL OUTER JOIN not supported**
 - `adapter.joins.full()` falls back to LEFT JOIN
@@ -448,8 +447,8 @@ Full feature support. No limitations.
 **RETURNING requires SQLite 3.35+**
 - Supported in modern SQLite versions
 
-**NULLS FIRST/LAST not supported**
-- Same as MySQL - returns no-op
+**NULLS FIRST/LAST emulated**
+- Same as MySQL - uses `(col IS NULL)` sort-key ordering, not native syntax
 
 **RIGHT JOIN not supported**
 - `adapter.joins.right()` falls back to LEFT JOIN

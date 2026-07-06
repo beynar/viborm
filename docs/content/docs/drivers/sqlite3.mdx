@@ -12,7 +12,7 @@ pnpm add better-sqlite3
 ## Configuration
 
 ```typescript
-import { createClient } from "viborm/drivers/sqlite3";
+import { createClient } from "viborm/sqlite3";
 
 const client = createClient({
   dataDir: "./database.sqlite",
@@ -40,7 +40,7 @@ const client = createClient({
 ### In-Memory Database
 
 ```typescript
-import { createClient } from "viborm/drivers/sqlite3";
+import { createClient } from "viborm/sqlite3";
 
 // Default is in-memory
 const client = createClient({
@@ -52,7 +52,7 @@ const client = createClient({
 
 ```typescript
 import Database from "better-sqlite3";
-import { createClient } from "viborm/drivers/sqlite3";
+import { createClient } from "viborm/sqlite3";
 
 const db = new Database("./database.sqlite");
 

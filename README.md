@@ -8,9 +8,56 @@ Type-safe TypeScript ORM with **zero code generation**. Types are inferred from 
 |---------|-------------|
 | **Zero Codegen** | Types flow from schema → query → result via TypeScript inference |
 | **Standard Schema V1** | Interoperable with Zod, Valibot, ArkType for validation |
-| **Prisma-like API** | Familiar `findMany`, `create`, `update` operations with `where`, `include`, `select` |
+| **Prisma-inspired API** | Familiar `findMany`, `create`, `update` operations with `where`, `include`, `select` |
 | **Multi-Database** | PostgreSQL, MySQL, SQLite from one codebase via adapter pattern |
 | **Chainable Schema** | `s.string().nullable().unique()` with immutable state tracking |
+
+## Prisma Compatibility Snapshot
+
+VibORM is Prisma-inspired, not a full Prisma clone. The matrix below compares the normal Prisma Client relational CRUD/query surface with VibORM's current documented contract. `Supported` means the input works for the documented surface or rejects before query generation; it does not mean every Prisma preview, provider-specific, or unsafe API exists.
+
+Detailed contract: [client compatibility](docs/content/docs/client/compatibility.mdx) and [Prisma parity contract](docs/architecture/prisma-parity-contract.md). Prisma baseline: [CRUD](https://www.prisma.io/docs/orm/prisma-client/queries/crud) and [aggregation/grouping](https://www.prisma.io/docs/orm/prisma-client/queries/aggregation-grouping-summarizing).
+
+Status legend:
+
+| Status | Meaning |
+|--------|---------|
+| `Supported` | Same core shape as Prisma for the documented relational SQL surface |
+| `Subset` | Prisma supports more shapes; VibORM supports a smaller fail-closed subset |
+| `Different` | Intentional VibORM API decision |
+| `Unsupported` | Not part of the current public contract |
+
+### Basic CRUD
+
+| Area | Prisma Client | VibORM | Status |
+|------|---------------|--------|--------|
+| Single-record reads | `findUnique`, `findUniqueOrThrow`, `findFirst`, `findFirstOrThrow` with `where`, `orderBy`, `select`, `include` | Same core operations; unique reads require real unique selectors and or-throw variants throw `NotFoundError` | `Supported` |
+| Multi-record reads | `findMany` with filters, ordering, pagination, `distinct`, `select`, `include` | Supports scalar/relation filters, scalar and supported relation ordering, cursor/offset pagination, negative `take`, `distinct`, `select`, `include` | `Supported` |
+| Create one | `create` with scalar data, nested writes, `select`, `include` | Supports scalar data and documented nested writes; unsupported nested write keys reject before parent mutation | `Supported` |
+| Create many | `createMany` returns `{ count }`; `skipDuplicates` is provider-dependent; `createManyAndReturn` is provider-specific | `createMany` returns `{ count }`; `skipDuplicates` is adapter-scoped; no `createManyAndReturn` | `Subset` |
+| Update one | `update` by unique selector; returns updated row; supports atomic numeric ops and nested writes | Requires unique `where`; throws on missing row; supports scalar updates, atomic numeric ops, and documented nested writes | `Supported` |
+| Update many | `updateMany` returns `{ count }`; `updateManyAndReturn` is provider-specific | `updateMany` returns `{ count }`; no `updateManyAndReturn` | `Subset` |
+| Upsert | `upsert` with unique `where`, `create`, `update`; returns row | Same core shape; supported nested writes are allowed in covered branches | `Supported` |
+| Delete | `delete` by unique selector returns deleted row; `deleteMany` returns `{ count }` | Same core shape; `delete` throws on missing row and non-returning dialects fetch before delete where safe | `Supported` |
+
+### Advanced Queries
+
+| Area | Prisma Client | VibORM | Status |
+|------|---------------|--------|--------|
+| Scalar filters | `where` with scalar operators and `AND`/`OR`/`NOT` | Supports documented scalar operators and logical filters; unknown/unsupported operators reject before SQL generation | `Supported` |
+| Relation filters | To-one `is`/`isNot`; to-many `some`/`every`/`none` | Same documented relation filter surface, including nested relation filters where covered | `Supported` |
+| Projection | `select`, `include`, nested selection, relation `_count` | Supports `select`, `include`, nested selection, and relation `_count`; top-level `select` + `include` rejects | `Supported` |
+| Sorting | Scalar-field `orderBy`, to-one relation order by scalar fields, to-many relation `_count` order, aggregate/group ordering, provider-specific relevance ordering | Supports scalar-field order, to-one relation order by scalar fields, to-many relation `_count`, and documented aggregate/group ordering; unsupported to-many scalar-field order and `_relevance` reject | `Subset` |
+| Pagination | `cursor`, `skip`, `take`, negative `take` on list reads | Supports cursor pagination, `skip`, `take`, negative `take`; cursor uses `whereUnique` | `Supported` |
+| `distinct` | `findMany({ distinct })` with Prisma's in-memory distinct semantics | Supports scalar-field `distinct`; relation fields reject; SQL strategy is adapter-owned | `Subset` |
+| `count` | Count records and selected non-null fields; supports filters and pagination-style args | Supports `where`, selected count fields, and `orderBy`/`cursor`/`take`/`skip` input-window pagination | `Supported` |
+| `aggregate` | `_count`, `_avg`, `_sum`, `_min`, `_max` with `where`, order, pagination | Same documented aggregate selectors and input-window pagination; invalid/empty aggregate selection rejects | `Supported` |
+| `groupBy` | `by`, aggregates, `having`, `orderBy`, `skip`, `take`; no `select` | Supports scalar `by`, aggregate selections, `having`, order, `skip`, `take`; invalid group/having shapes reject | `Supported` |
+| Nested writes | Broad nested create/connect/update/delete/upsert matrix | Supports `create`, `createMany`, `connect`, `connectOrCreate`, nullable/correlated `disconnect`, `delete`, `set`, `update`, to-many `updateMany`, `upsert`, and to-many `deleteMany`; callback-transaction and atomic-batch paths propagate generated and updated primary keys where the shape is safe; create-branch update/delete-like shapes are excluded | `Subset` |
+| Transactions | Callback and array `$transaction` | Callback transactions on transactional drivers; batch mode on transactional or atomic-batch drivers | `Supported` |
+| Query-level `omit` | Prisma supports per-query `omit` | VibORM has model-level omit only; query-level Prisma `omit` is not part of this roadmap | `Unsupported` |
+| Raw SQL | Prisma tagged `$queryRaw`/`$executeRaw` plus unsafe variants | `$queryRaw(sql, params?)` and `$executeRaw(Sql)` intentionally use VibORM's explicit shapes | `Different` |
+| Existence check | Emulated with `count`/`findFirst` in Prisma | `exist({ where })` is a VibORM extension returning `boolean`; no `exists` alias | `Different` |
 
 ```typescript
 import { s } from "viborm";
@@ -127,7 +174,7 @@ await orm.user.delete({
 
 ## Transactions
 
-VibORM supports transactions with two modes:
+VibORM supports callback transactions on drivers with real transaction support, and batch mode on drivers with transactions or native atomic batch support.
 
 ### Callback Mode (Dynamic)
 
@@ -136,11 +183,11 @@ const result = await orm.$transaction(async (tx) => {
   const user = await tx.user.create({
     data: { name: "Alice", email: "alice@example.com" }
   });
-  
+
   await tx.post.create({
     data: { title: "First Post", authorId: user.id }
   });
-  
+
   return user;
 });
 // If any operation fails, all changes are rolled back
@@ -153,7 +200,7 @@ const [user, post] = await orm.$transaction([
   orm.user.create({ data: { name: "Bob", email: "bob@example.com" } }),
   orm.post.create({ data: { title: "Hello", authorId: "user-id" } })
 ]);
-// All operations execute in a single transaction
+// Executes atomically when the driver supports transactions or native batch
 ```
 
 ---
@@ -266,11 +313,11 @@ export default {
 
 ---
 
-## Field Types
+## Scalar Types
 
 | Type | Description | Example |
 |------|-------------|---------|
-| `string()` | Text fields | `s.string().unique()` |
+| `string()` | Text scalars | `s.string().unique()` |
 | `int()` | 32-bit integers | `s.int().default(0)` |
 | `float()` | Floating-point | `s.float()` |
 | `decimal()` | High-precision decimals | `s.decimal()` |
@@ -283,7 +330,7 @@ export default {
 | `enum()` | Enumerated values | `s.enum(["ADMIN", "USER"])` |
 | `blob()` | Binary data (Uint8Array) | `s.blob()` |
 | `vector()` | Vector embeddings (pgvector) | `s.vector(1536)` |
-| `point()` | PostGIS point type | `s.point()` |
+| `point()` | PostGIS point type | `import { point } from "viborm"` (not exposed on `s`) |
 
 ### Auto-generation
 
@@ -339,7 +386,7 @@ src/
 │                          Branded types, set-theory optimization
 │
 ├── schema/            L2-L5  Schema definition
-│   ├── fields/              Field types with State generic pattern
+│   ├── scalars/             Scalar types with State generic pattern
 │   ├── model/               Model composition, query schemas
 │   ├── relation/            Relation types (oneToMany, manyToOne, etc.)
 │   └── validation/          Definition-time schema validation
@@ -366,7 +413,7 @@ src/
 
 2. **Natural Type Inference**: Never use type assertions (`as`). Types flow from schema → validation → client.
 
-3. **Immutable State**: Every field modifier returns a NEW instance. `s.string().nullable()` returns a new field, doesn't mutate.
+3. **Immutable State**: Every scalar modifier returns a NEW instance. `s.string().nullable()` returns a new scalar, doesn't mutate.
 
 4. **Lazy Evaluation**: Schemas are built on first access (`??=` pattern) and cached.
 
@@ -439,7 +486,7 @@ When working with an AI assistant, point it to these files first.
 
 | I want to... | Start here |
 |--------------|------------|
-| Add new field type | `src/schema/fields/AGENTS.md` |
+| Add new scalar type | `src/schema/scalars/AGENTS.md` |
 | Add query operator | `src/query-engine/AGENTS.md` + `src/adapters/AGENTS.md` |
 | Fix type inference bug | `src/client/AGENTS.md` → check upstream schemas |
 | Add migration operation | `src/migrations/AGENTS.md` |
@@ -455,7 +502,7 @@ Tests mirror the `src/` structure:
 ```
 tests/
 ├── validation/       28 tests for v.* primitives
-├── fields/           Schema generation per field type
+├── scalars/          Schema generation per scalar type
 ├── model/            Query schemas (where, create, update, args)
 │   ├── filter/       WHERE clause generation
 │   ├── create/       CREATE input schemas
@@ -478,7 +525,7 @@ Most tests run against PGlite (in-memory PostgreSQL). Driver tests in `tests/dri
 |---------|---------------|-----|
 | Hardcoded SQL in query-engine | Breaks MySQL/SQLite | Use `ctx.adapter.*` methods |
 | Type assertions (`as`) | Hides type mismatches | Let types flow naturally |
-| Forgot Field union update | New field type invisible | Update `src/schema/fields/base.ts` |
+| Forgot Scalar union update | New scalar type invisible | Update `src/schema/scalars/base.ts` |
 | Direct model reference in relation | ReferenceError at runtime | Use thunk `() => model` |
 | Eager schema building | Performance (rebuilds every access) | Use `??=` lazy pattern |
 | Mutation instead of new instance | Type/runtime desync | Return new instance from modifiers |
@@ -490,16 +537,20 @@ Most tests run against PGlite (in-memory PostgreSQL). Driver tests in `tests/dri
 **Core features working:**
 - All CRUD operations (create, read, update, delete, upsert)
 - Relations (oneToOne, oneToMany, manyToOne, manyToMany)
-- Nested writes (connect, disconnect, create, update, delete)
+- Supported nested writes (`create`, `createMany`, `connect`, `connectOrCreate`, `disconnect`, `delete`, `set`, `update`, `updateMany`, `upsert`, `deleteMany`) across callback-transaction and atomic-batch paths
 - Select/include with typed results
-- All field types (string, int, float, boolean, dateTime, json, enum, etc.)
-- PostgreSQL, MySQL, and SQLite adapters
+- All scalar types (string, int, float, boolean, dateTime, json, enum, etc.)
+- PostgreSQL, MySQL, and SQLite adapters, including `push` migrations for all three
 - Query caching with TTL and SWR
 - Transactions (callback and batch modes)
 - OpenTelemetry instrumentation
 
 **Known limitations:**
-- MySQL migrations not yet implemented
+- Full Prisma parity is not complete; VibORM is Prisma-inspired.
+- Parent `create` and the create branch of parent `upsert` intentionally exclude update/delete-like nested operations.
+- Impossible or unsafe primary-key dataflow shapes reject before mutation instead of partially applying nested writes.
+- Raw query APIs intentionally differ from Prisma: `$queryRaw` uses `string, params?`, and `$executeRaw` uses a `Sql` fragment.
+- Local nested-write conformance is proven on PGlite/Postgres-style and SQLite-family paths; hosted D1, D1 HTTP, and Neon HTTP need external runs before claiming hosted verification.
 
 **Future features** (documented in `features-docs/`):
 - Polymorphic relations
@@ -514,8 +565,8 @@ See `PENDING_WORK.md` for detailed tracking.
 All internal state is accessed via `["~"]`:
 
 ```typescript
-field["~"].state          // FieldState - configuration object
-field["~"].state.base     // Base field schema
+scalar["~"].state          // ScalarState - configuration object
+scalar["~"].state.base     // Base scalar schema
 schemaRegistry.proxy.user.core.where // Operation schema for this model
 relation["~"].targetModel // Thunk to target model
 ```

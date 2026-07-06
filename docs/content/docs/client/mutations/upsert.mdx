@@ -25,6 +25,14 @@ const user = await client.user.upsert({
 2. If found → apply `update`
 3. If not found → apply `create`
 
+<Callout type="info">
+  Top-level `upsert` is atomic. It compiles to a single native statement — `INSERT ... ON CONFLICT DO UPDATE` on PostgreSQL/SQLite, `INSERT ... ON DUPLICATE KEY UPDATE` on MySQL — rather than a separate read-then-write. If two concurrent upserts race to create the same missing row, the loser automatically retries once and takes the update branch instead of failing. Nested (relation) upserts inside `create`/`update` use a correlated select-then-branch strategy instead of the native single-statement form, but still execute atomically within the surrounding transaction or batch.
+</Callout>
+
+<Callout type="warn">
+  **MySQL divergence:** `ON DUPLICATE KEY UPDATE` cannot target a specific constraint — it fires on a collision with **any** unique key, not just the one in `where`. If the `create` data collides on a different unique column, MySQL takes the update branch where PostgreSQL/SQLite throw a unique-constraint error. Prisma has the same behavior on MySQL.
+</Callout>
+
 ## Options
 
 ```ts

@@ -9,9 +9,13 @@
  * - isNot: NOT EXISTS for to-one (record doesn't match)
  */
 
-import type { Sql } from "@sql";
-import { createChildContext, getTableName } from "../context";
-import type { QueryContext, RelationInfo } from "../types";
+import { type Sql, sql } from "@sql";
+import { createChildContext, getColumnName, getTableName } from "../context";
+import {
+  type QueryContext,
+  QueryEngineError,
+  type RelationInfo,
+} from "../types";
 import { buildCorrelation } from "./correlation-utils";
 import {
   buildManyToManyJoinParts,
@@ -66,8 +70,9 @@ export function buildRelationFilter(
         parentAlias
       );
     }
-    // No fallback - schema validation guarantees explicit form
-    return undefined;
+    throw new QueryEngineError(
+      `Relation filter '${relationInfo.name}' requires one of: some, every, none.`
+    );
   }
 
   // To-one relations use is/isNot (normalized by schema validation)
@@ -96,10 +101,14 @@ export function buildRelationFilter(
         parentAlias
       );
     }
-    // No fallback - schema validation guarantees explicit form
+    throw new QueryEngineError(
+      `Relation filter '${relationInfo.name}' requires one of: is, isNot.`
+    );
   }
 
-  return undefined;
+  throw new QueryEngineError(
+    `Unsupported relation filter '${relationInfo.name}'.`
+  );
 }
 
 /**
@@ -199,18 +208,43 @@ function buildIsNotFilter(
 }
 
 /**
- * Build "is null" filter for to-one: FK IS NULL
+ * Build FK column references for a to-one relation, mapped to actual column names.
+ * Returns undefined when the relation does not hold the FK.
+ */
+function buildFkColumns(
+  ctx: QueryContext,
+  relationInfo: RelationInfo,
+  parentAlias: string
+): Sql[] | undefined {
+  const fkFields = relationInfo.fields;
+  if (!fkFields || fkFields.length === 0) {
+    return undefined;
+  }
+  return fkFields.map((field) =>
+    ctx.adapter.identifiers.column(parentAlias, getColumnName(ctx.model, field))
+  );
+}
+
+/**
+ * Build "is null" filter for to-one: any FK column IS NULL.
+ *
+ * OR, not AND: a partially-null compound FK can never match a related row,
+ * so Prisma treats it as relation-is-null. This is also the exact complement
+ * of buildIsNotNullFilter's AND(IS NOT NULL).
  */
 function buildIsNullFilter(
   ctx: QueryContext,
   relationInfo: RelationInfo,
   parentAlias: string
 ): Sql {
-  // For to-one relations, check if the FK field is null
-  const fkField = relationInfo.fields?.[0];
-  if (fkField) {
-    const column = ctx.adapter.identifiers.column(parentAlias, fkField);
-    return ctx.adapter.operators.isNull(column);
+  const fkColumns = buildFkColumns(ctx, relationInfo, parentAlias);
+  if (fkColumns) {
+    const conditions = fkColumns.map((column) =>
+      ctx.adapter.operators.isNull(column)
+    );
+    return conditions.length === 1
+      ? conditions[0]!
+      : ctx.adapter.operators.or(...conditions);
   }
 
   // Fallback: NOT EXISTS subquery
@@ -225,18 +259,21 @@ function buildIsNullFilter(
 }
 
 /**
- * Build "is not null" filter for to-one: FK IS NOT NULL
+ * Build "is not null" filter for to-one: all FK columns IS NOT NULL
  */
 function buildIsNotNullFilter(
   ctx: QueryContext,
   relationInfo: RelationInfo,
   parentAlias: string
 ): Sql {
-  // For to-one relations, check if the FK field is not null
-  const fkField = relationInfo.fields?.[0];
-  if (fkField) {
-    const column = ctx.adapter.identifiers.column(parentAlias, fkField);
-    return ctx.adapter.operators.isNotNull(column);
+  const fkColumns = buildFkColumns(ctx, relationInfo, parentAlias);
+  if (fkColumns) {
+    const conditions = fkColumns.map((column) =>
+      ctx.adapter.operators.isNotNull(column)
+    );
+    return conditions.length === 1
+      ? conditions[0]!
+      : ctx.adapter.operators.and(...conditions);
   }
 
   // Fallback: EXISTS subquery
@@ -312,10 +349,36 @@ function buildCorrelatedSubquery(
   const whereClause = adapter.operators.and(...conditions);
 
   // Build the subquery: SELECT 1 FROM related WHERE ...
-  return adapter.subqueries.existsCheck(
+  const subquery = adapter.subqueries.existsCheck(
     adapter.identifiers.table(relatedTableName, relatedAlias),
     whereClause
   );
+  return wrapMutationTargetSubquery(ctx, subquery, [relatedTableName]);
+}
+
+/**
+ * Hide a relation-filter subquery that selects from the table currently being
+ * mutated behind a derived table, on dialects where UPDATE/DELETE may not
+ * reference the target table in a subquery (MySQL error 1093). The derived
+ * table is materialized, which sidesteps the restriction; the correlation to
+ * the outer mutation survives as an outer reference (MySQL 8.0.14+).
+ */
+function wrapMutationTargetSubquery(
+  ctx: QueryContext,
+  subquery: Sql,
+  tables: string[]
+): Sql {
+  if (
+    !ctx.mutationTable ||
+    ctx.adapter.capabilities.supportsMutationTargetInSubquery ||
+    !tables.includes(ctx.mutationTable)
+  ) {
+    return subquery;
+  }
+  return sql`SELECT * FROM ${ctx.adapter.subqueries.correlate(
+    subquery,
+    ctx.nextAlias()
+  )}`;
 }
 
 /**
@@ -367,5 +430,9 @@ function buildManyToManySubquery(
 
   const whereClause = adapter.operators.and(...conditions);
 
-  return adapter.subqueries.existsCheck(fromClause, whereClause);
+  const subquery = adapter.subqueries.existsCheck(fromClause, whereClause);
+  return wrapMutationTargetSubquery(ctx, subquery, [
+    joinInfo.junctionTableName,
+    joinInfo.targetTableName,
+  ]);
 }

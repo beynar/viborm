@@ -1,11 +1,11 @@
-import type { Field } from "@schema/fields/base";
 import type { AnyRelation } from "@schema/relation";
+import type { Scalar } from "@schema/scalars/base";
 
 /**
- * Record of model fields - the canonical type for field definitions.
- * Supports both scalar Field types and relation types.
+ * Record of model fields - the canonical type for scalar and relation definitions.
+ * Supports both Scalar instances and relation instances.
  */
-export type FieldRecord = Record<string, Field | AnyRelation>;
+export type ModelShape = Record<string, Scalar | AnyRelation>;
 
 export type NameFromKeys<
   TFields extends string[],
@@ -44,25 +44,25 @@ export type StringKeyOf<T extends Record<string, any>> = {
   [K in keyof T]: K extends string ? K : never;
 }[keyof T];
 
-export type ScalarFieldKeys<T extends FieldRecord> = {
-  [K in keyof T]: T[K] extends Field ? ToString<K> : never;
+export type ScalarKeys<T extends ModelShape> = {
+  [K in keyof T]: T[K] extends Scalar ? ToString<K> : never;
 }[keyof T];
 
 /** Extract relation keys from ModelState */
-export type RelationKeys<T extends FieldRecord> = {
+export type RelationKeys<T extends ModelShape> = {
   [K in keyof T]: T[K] extends AnyRelation ? ToString<K> : never;
 }[keyof T];
 
-export type RequiredFieldKeys<T extends FieldRecord> = {
-  [K in keyof T]: T[K] extends Field
+export type RequiredScalarKeys<T extends ModelShape> = {
+  [K in keyof T]: T[K] extends Scalar
     ? T[K]["~"]["state"]["optional"] extends true
       ? never
       : ToString<K>
     : never;
 }[keyof T];
 
-export type UniqueFieldKeys<T extends FieldRecord> = {
-  [K in keyof T]: T[K] extends Field
+export type UniqueScalarKeys<T extends ModelShape> = {
+  [K in keyof T]: T[K] extends Scalar
     ? T[K]["~"]["state"]["isId"] extends true
       ? ToString<K>
       : T[K]["~"]["state"]["isUnique"] extends true
@@ -71,28 +71,28 @@ export type UniqueFieldKeys<T extends FieldRecord> = {
     : never;
 }[keyof T];
 
-/** Numeric field types for aggregations (avg, sum) */
-export type NumericFieldType = "int" | "float" | "decimal" | "bigint";
+/** Numeric scalar types for aggregations (avg, sum) */
+export type NumericScalarType = "int" | "float" | "decimal" | "bigint";
 
-/** Extract keys of numeric fields from a FieldRecord */
-export type NumericFieldKeys<T extends FieldRecord> = {
-  [K in keyof T]: T[K] extends Field
-    ? T[K]["~"]["state"]["type"] extends NumericFieldType
+/** Extract keys of numeric scalars from a ModelShape */
+export type NumericScalarKeys<T extends ModelShape> = {
+  [K in keyof T]: T[K] extends Scalar
+    ? T[K]["~"]["state"]["type"] extends NumericScalarType
       ? ToString<K>
       : never
     : never;
 }[keyof T];
 
-export type ScalarFields<T extends FieldRecord> = {
-  [K in ScalarFieldKeys<T>]: T[K] extends Field ? T[K] : never;
+export type ScalarMap<T extends ModelShape> = {
+  [K in ScalarKeys<T>]: T[K] extends Scalar ? T[K] : never;
 };
 
-export type RelationFields<T extends FieldRecord> = {
+export type RelationMap<T extends ModelShape> = {
   [K in RelationKeys<T>]: T[K] extends AnyRelation ? T[K] : never;
 };
 
-export type UniqueFields<T extends FieldRecord> = {
-  [K in UniqueFieldKeys<T>]: T[K] extends Field ? T[K] : never;
+export type UniqueScalarMap<T extends ModelShape> = {
+  [K in UniqueScalarKeys<T>]: T[K] extends Scalar ? T[K] : never;
 };
 
 /** Check if a value is a relation (has ["~"].state.type matching relation types) */
@@ -109,7 +109,7 @@ function isRelation(value: unknown): value is AnyRelation {
   );
 }
 
-export const extractScalarFields = <T extends FieldRecord>(fields: T) => {
+export const extractScalarMap = <T extends ModelShape>(fields: T) => {
   return Object.entries(fields).reduce(
     (acc, [key, value]) => {
       if (!isRelation(value)) {
@@ -117,11 +117,11 @@ export const extractScalarFields = <T extends FieldRecord>(fields: T) => {
       }
       return acc;
     },
-    {} as ScalarFields<T>
+    {} as ScalarMap<T>
   );
 };
 
-export const extractRelationFields = <T extends FieldRecord>(fields: T) => {
+export const extractRelationMap = <T extends ModelShape>(fields: T) => {
   return Object.entries(fields).reduce(
     (acc, [key, value]) => {
       if (isRelation(value)) {
@@ -129,11 +129,11 @@ export const extractRelationFields = <T extends FieldRecord>(fields: T) => {
       }
       return acc;
     },
-    {} as RelationFields<T>
+    {} as RelationMap<T>
   );
 };
 
-export const extractUniqueFields = <T extends FieldRecord>(fields: T) => {
+export const extractUniqueScalarMap = <T extends ModelShape>(fields: T) => {
   return Object.entries(fields).reduce(
     (acc, [key, value]) => {
       if (
@@ -144,7 +144,7 @@ export const extractUniqueFields = <T extends FieldRecord>(fields: T) => {
       }
       return acc;
     },
-    {} as UniqueFields<T>
+    {} as UniqueScalarMap<T>
   );
 };
 

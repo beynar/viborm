@@ -1,52 +1,52 @@
-# Advanced Type System for VibORM Fields
+# Advanced Type System for VibORM Scalars
 
 This document explains the advanced generic type system designed for VibORM that enables complete type inference from schema definitions.
 
 ## Overview
 
-The VibORM type system uses TypeScript's advanced generic capabilities to encode field states (nullable, list, ID, unique, default, auto-generate) directly in the type system. This allows for:
+The VibORM type system uses TypeScript's advanced generic capabilities to encode scalar states (nullable, list, ID, unique, default, auto-generate) directly in the type system. This allows for:
 
 - **Complete Type Inference**: TypeScript can infer exact types from schema definitions
-- **Type Safety**: All field configurations are validated at compile time
+- **Type Safety**: All scalar configurations are validated at compile time
 - **Chainable API**: Method chaining preserves and updates type information
 - **No Code Generation**: Types are inferred, not generated
 
 ## Core Concepts
 
-### Field State Configuration
+### Scalar State Configuration
 
-Each field carries its configuration as type-level information:
+Each scalar carries its configuration as type-level information:
 
 ```typescript
-interface FieldState<T = any> {
+interface ScalarState<T = any> {
   BaseType: T; // The core TypeScript type (string, number, etc.)
-  IsNullable: boolean; // Whether the field can be null
-  IsList: boolean; // Whether the field is an array
-  IsId: boolean; // Whether the field is an ID
-  IsUnique: boolean; // Whether the field has a unique constraint
-  HasDefault: boolean; // Whether the field has a default value
+  IsNullable: boolean; // Whether the scalar can be null
+  IsList: boolean; // Whether the scalar is an array
+  IsId: boolean; // Whether the scalar is an ID
+  IsUnique: boolean; // Whether the scalar has a unique constraint
+  HasDefault: boolean; // Whether the scalar has a default value
   AutoGenerate: AutoGenerateType | false; // Auto-generation strategy
 }
 ```
 
 ### Type Modifiers
 
-Type-level functions that transform field states:
+Type-level functions that transform scalar states:
 
 ```typescript
-type MakeNullable<T extends FieldState> = T & { IsNullable: true };
-type MakeList<T extends FieldState> = T & { IsList: true };
-type MakeId<T extends FieldState> = T & { IsId: true };
-type MakeUnique<T extends FieldState> = T & { IsUnique: true };
-type MakeDefault<T extends FieldState> = T & { HasDefault: true };
+type MakeNullable<T extends ScalarState> = T & { IsNullable: true };
+type MakeList<T extends ScalarState> = T & { IsList: true };
+type MakeId<T extends ScalarState> = T & { IsId: true };
+type MakeUnique<T extends ScalarState> = T & { IsUnique: true };
+type MakeDefault<T extends ScalarState> = T & { HasDefault: true };
 ```
 
 ### Type Inference
 
-The final TypeScript type is computed from the field state:
+The final TypeScript type is computed from the scalar state:
 
 ```typescript
-type InferType<T extends FieldState> = T["IsList"] extends true
+type InferType<T extends ScalarState> = T["IsList"] extends true
   ? T["IsNullable"] extends true
     ? T["BaseType"][] | null
     : T["BaseType"][]
@@ -57,22 +57,22 @@ type InferType<T extends FieldState> = T["IsList"] extends true
 
 ## Implementation Details
 
-### Base Field Class
+### Base Scalar Class
 
-The base field class implements the type system:
+The base scalar class implements the type system:
 
 ```typescript
-export abstract class BaseField<T extends FieldState = any>
-  implements BaseFieldType<T>
+export abstract class BaseScalar<T extends ScalarState = any>
+  implements BaseScalarType<T>
 {
-  public readonly __fieldState!: T; // Type-only property
+  public readonly __scalarState!: T; // Type-only property
 
   // Method chaining with type updates
-  nullable(): BaseFieldType<MakeNullable<T>> {
-    const newField = this.createInstance<MakeNullable<T>>();
-    this.copyPropertiesTo(newField);
-    (newField as any).isOptional = true;
-    return newField;
+  nullable(): BaseScalarType<MakeNullable<T>> {
+    const newScalar = this.createInstance<MakeNullable<T>>();
+    this.copyPropertiesTo(newScalar);
+    (newScalar as any).isOptional = true;
+    return newScalar;
   }
 
   // Type inference
@@ -82,23 +82,23 @@ export abstract class BaseField<T extends FieldState = any>
 }
 ```
 
-### Concrete Field Implementation
+### Concrete Scalar Implementation
 
 ```typescript
-export class StringField<
-  T extends FieldState = DefaultFieldState<string>
-> extends BaseField<T> {
-  public fieldType = "string" as const;
+export class StringScalar<
+  T extends ScalarState = DefaultScalarState<string>
+> extends BaseScalar<T> {
+  public scalarType = "string" as const;
 
-  protected createInstance<U extends FieldState>(): StringField<U> {
-    return new StringField<U>();
+  protected createInstance<U extends ScalarState>(): StringScalar<U> {
+    return new StringScalar<U>();
   }
 }
 ```
 
 ## Usage Examples
 
-### Basic Field Types
+### Basic Scalar Types
 
 ```typescript
 const name = string();
@@ -174,7 +174,7 @@ Current challenges include:
 For immediate implementation, a simplified approach is recommended:
 
 ```typescript
-interface FieldConfig<
+interface ScalarConfig<
   T,
   IsNullable extends boolean = false,
   IsList extends boolean = false
@@ -184,7 +184,7 @@ interface FieldConfig<
   isList: IsList;
 }
 
-type InferFieldType<Config extends FieldConfig<any, any, any>> =
+type InferScalarType<Config extends ScalarConfig<any, any, any>> =
   Config["isList"] extends true
     ? Config["isNullable"] extends true
       ? Config["baseType"][] | null
@@ -197,14 +197,14 @@ type InferFieldType<Config extends FieldConfig<any, any, any>> =
 ## Benefits
 
 1. **No Code Generation**: Types are inferred directly from schema definitions
-2. **Type Safety**: All field configurations are validated at compile time
+2. **Type Safety**: All scalar configurations are validated at compile time
 3. **Developer Experience**: Full autocompletion and type checking
 4. **Maintainability**: Schema changes automatically update types
 5. **Performance**: No runtime overhead for type information
 
 ## Future Enhancements
 
-- **Relation Type Inference**: Extend to relationship fields
+- **Relation Type Inference**: Extend to relation fields
 - **Validation Type Integration**: Include validator types in inference
 - **Query Type Generation**: Infer query types from schema
 - **Migration Types**: Type-safe database migrations

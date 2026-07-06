@@ -1,21 +1,18 @@
 /**
- * Query Engine Benchmark
+ * Query builder benchmarks.
  *
- * Measures query building performance for M2M operations.
- * Run with: bun benchmarks/query-engine.bench.ts
+ * Measures `engine.build()` — args → SQL string + params — against the floor:
+ * a hand-written SQL string. The ratio to the baseline is the query-builder
+ * overhead viborm adds on top of raw SQL.
+ *
+ * Run: pnpm bench
  */
-
-import { PostgresAdapter } from "../src/adapters/databases/postgres/postgres-adapter";
-import {
-  createModelRegistry,
-  QueryEngine,
-} from "../src/query-engine/query-engine";
-import { s } from "../src/schema";
-import { createSchemaRegistry } from "../src/validation";
-
-// =============================================================================
-// TEST MODELS
-// =============================================================================
+import { PgDriver } from "@drivers/pg";
+import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
+import { s } from "@schema";
+import { hydrateSchemaNames } from "@schema/hydration";
+import { createSchemaRegistry } from "@validation";
+import { bench, describe } from "vitest";
 
 const Author = s.model({
   id: s.string().id(),
@@ -31,11 +28,10 @@ const Post = s
     content: s.string().nullable(),
     published: s.boolean().default(false),
     authorId: s.string(),
-    author: s.manyToOne(() => Author, {
-      fields: ["authorId"],
-      references: ["id"],
-      optional: true,
-    }),
+    author: s
+      .manyToOne(() => Author)
+      .fields("authorId")
+      .references("id"),
     tags: s.manyToMany(() => Tag),
   })
   .map("posts");
@@ -48,299 +44,108 @@ const Tag = s
   })
   .map("tags");
 
-// =============================================================================
-// BENCHMARK UTILITIES
-// =============================================================================
-
-const WARMUP_ITERATIONS = 1000;
-const BENCHMARK_RUNS = 5;
-
-function benchmark(name: string, fn: () => void, iterations = 10_000): number {
-  // Warmup
-  for (let i = 0; i < WARMUP_ITERATIONS; i++) fn();
-
-  // Run multiple times and take the median for stability
-  const times: number[] = [];
-  for (let run = 0; run < BENCHMARK_RUNS; run++) {
-    const start = performance.now();
-    for (let i = 0; i < iterations; i++) fn();
-    const end = performance.now();
-    times.push(end - start);
-  }
-
-  // Return median
-  times.sort((a, b) => a - b);
-  return times[Math.floor(times.length / 2)]!;
-}
-
-function formatMs(ms: number): string {
-  return ms.toFixed(2) + "ms";
-}
-
-function formatOpsPerSec(ms: number, iterations: number): string {
-  const ops = (iterations / ms) * 1000;
-  if (ops > 1_000_000) return (ops / 1_000_000).toFixed(2) + "M ops/s";
-  if (ops > 1000) return (ops / 1000).toFixed(2) + "K ops/s";
-  return ops.toFixed(2) + " ops/s";
-}
-
-interface BenchmarkResult {
-  name: string;
-  time: number;
-  iterations: number;
-}
-
-function runBenchmark(
-  name: string,
-  fn: () => void,
-  iterations = 10_000
-): BenchmarkResult {
-  return {
-    name,
-    time: benchmark(name, fn, iterations),
-    iterations,
-  };
-}
-
-function printResults(results: BenchmarkResult[]) {
-  console.log("\n" + "=".repeat(80));
-  console.log("QUERY ENGINE BENCHMARK RESULTS");
-  console.log("=".repeat(80) + "\n");
-
-  for (const r of results) {
-    console.log(`📊 ${r.name} (${r.iterations.toLocaleString()} iterations)`);
-    console.log("-".repeat(70));
-    console.log(
-      `  Time:     ${formatMs(r.time).padEnd(12)} ${formatOpsPerSec(
-        r.time,
-        r.iterations
-      )}`
-    );
-    console.log();
-  }
-}
-
-// =============================================================================
-// SETUP
-// =============================================================================
-
-const adapter = new PostgresAdapter();
+// build() never executes queries, so the pg pool stays unconnected
+const driver = new PgDriver();
 const schema = { Author, Post, Tag };
+hydrateSchemaNames(schema);
 const registry = createModelRegistry(schema, createSchemaRegistry(schema));
-const engine = new QueryEngine(adapter, registry);
+const engine = new QueryEngine(driver, registry);
 
-// =============================================================================
-// RUN BENCHMARKS
-// =============================================================================
+// written to by the baseline bench so the object is never dead-code eliminated
+const sink: { sql: string; params: unknown[] }[] = [];
 
-console.log("Starting Query Engine benchmarks...\n");
+describe("build: simple queries", () => {
+  bench("baseline: hand-written SQL string", () => {
+    sink.length = 0;
+    sink.push({
+      sql: 'SELECT "id", "title" FROM "posts" WHERE "published" = $1',
+      params: [true],
+    });
+  });
 
-const results: BenchmarkResult[] = [];
+  bench("findMany: simple where", () => {
+    engine.build(Post, "findMany", { where: { published: true } });
+  });
 
-// ==================== M2M INCLUDE ====================
-console.log("Testing M2M include query building...");
+  bench("findMany: select fields", () => {
+    engine.build(Post, "findMany", {
+      select: { id: true, title: true },
+      where: { published: true },
+    });
+  });
+});
 
-results.push(
-  runBenchmark(
-    "M2M Include: Post with tags",
-    () => {
-      engine.build(Post, "findMany", {
-        select: {
-          id: true,
-          title: true,
-          tags: { select: { id: true, name: true } },
+describe("build: relation includes", () => {
+  bench("oneToMany include", () => {
+    engine.build(Author, "findMany", {
+      select: { id: true, posts: { select: { id: true, title: true } } },
+    });
+  });
+
+  bench("manyToOne include", () => {
+    engine.build(Post, "findMany", {
+      select: { id: true, author: { select: { id: true, name: true } } },
+    });
+  });
+
+  bench("m2m include", () => {
+    engine.build(Post, "findMany", {
+      select: {
+        id: true,
+        title: true,
+        tags: { select: { id: true, name: true } },
+      },
+    });
+  });
+
+  bench("m2m include with where", () => {
+    engine.build(Post, "findMany", {
+      select: {
+        id: true,
+        tags: {
+          where: { name: { startsWith: "type" } },
+          select: { id: true, name: true },
         },
-      });
-    },
-    10_000
-  )
-);
+      },
+    });
+  });
+});
 
-results.push(
-  runBenchmark(
-    "M2M Include: Tag with posts",
-    () => {
-      engine.build(Tag, "findMany", {
-        select: {
-          id: true,
-          name: true,
-          posts: { select: { id: true, title: true } },
+describe("build: relation filters", () => {
+  bench("m2m some", () => {
+    engine.build(Post, "findMany", {
+      where: { tags: { some: { name: "typescript" } } },
+    });
+  });
+
+  bench("m2m every", () => {
+    engine.build(Post, "findMany", {
+      where: { tags: { every: { name: { startsWith: "type" } } } },
+    });
+  });
+
+  bench("m2m none", () => {
+    engine.build(Post, "findMany", {
+      where: { tags: { none: { name: "deprecated" } } },
+    });
+  });
+});
+
+describe("build: counts", () => {
+  bench("m2m _count", () => {
+    engine.build(Post, "findMany", {
+      select: { id: true, _count: { select: { tags: true } } },
+    });
+  });
+
+  bench("m2m _count with where", () => {
+    engine.build(Post, "findMany", {
+      select: {
+        id: true,
+        _count: {
+          select: { tags: { where: { name: { contains: "script" } } } },
         },
-      });
-    },
-    10_000
-  )
-);
-
-results.push(
-  runBenchmark(
-    "M2M Include: with where filter",
-    () => {
-      engine.build(Post, "findMany", {
-        select: {
-          id: true,
-          tags: {
-            where: { name: { startsWith: "type" } },
-            select: { id: true, name: true },
-          },
-        },
-      });
-    },
-    10_000
-  )
-);
-
-// ==================== M2M FILTER ====================
-console.log("Testing M2M filter query building...");
-
-results.push(
-  runBenchmark(
-    "M2M Filter: some",
-    () => {
-      engine.build(Post, "findMany", {
-        where: {
-          tags: {
-            some: { name: "typescript" },
-          },
-        },
-      });
-    },
-    10_000
-  )
-);
-
-results.push(
-  runBenchmark(
-    "M2M Filter: every",
-    () => {
-      engine.build(Post, "findMany", {
-        where: {
-          tags: {
-            every: { name: { startsWith: "type" } },
-          },
-        },
-      });
-    },
-    10_000
-  )
-);
-
-results.push(
-  runBenchmark(
-    "M2M Filter: none",
-    () => {
-      engine.build(Post, "findMany", {
-        where: {
-          tags: {
-            none: { name: "deprecated" },
-          },
-        },
-      });
-    },
-    10_000
-  )
-);
-
-// ==================== M2M COUNT ====================
-console.log("Testing M2M count query building...");
-
-results.push(
-  runBenchmark(
-    "M2M Count: simple",
-    () => {
-      engine.build(Post, "findMany", {
-        select: {
-          id: true,
-          _count: {
-            select: { tags: true },
-          },
-        },
-      });
-    },
-    10_000
-  )
-);
-
-results.push(
-  runBenchmark(
-    "M2M Count: with where",
-    () => {
-      engine.build(Post, "findMany", {
-        select: {
-          id: true,
-          _count: {
-            select: {
-              tags: { where: { name: { contains: "script" } } },
-            },
-          },
-        },
-      });
-    },
-    10_000
-  )
-);
-
-// ==================== COMPARISON BASELINES ====================
-console.log("Testing comparison baselines...");
-
-results.push(
-  runBenchmark(
-    "Baseline: Simple findMany (no relations)",
-    () => {
-      engine.build(Post, "findMany", {
-        where: { published: true },
-      });
-    },
-    10_000
-  )
-);
-
-results.push(
-  runBenchmark(
-    "Baseline: OneToMany include",
-    () => {
-      engine.build(Author, "findMany", {
-        select: {
-          id: true,
-          posts: { select: { id: true, title: true } },
-        },
-      });
-    },
-    10_000
-  )
-);
-
-results.push(
-  runBenchmark(
-    "Baseline: ManyToOne include",
-    () => {
-      engine.build(Post, "findMany", {
-        select: {
-          id: true,
-          author: { select: { id: true, name: true } },
-        },
-      });
-    },
-    10_000
-  )
-);
-
-printResults(results);
-
-// Summary
-console.log("=".repeat(80));
-console.log("SUMMARY");
-console.log("=".repeat(80));
-
-const m2mResults = results.filter((r) => r.name.startsWith("M2M"));
-const avgM2mTime =
-  m2mResults.reduce((sum, r) => sum + r.time, 0) / m2mResults.length;
-const baselineResult = results.find((r) => r.name.includes("Simple findMany"));
-
-console.log(`  Average M2M operation: ${formatMs(avgM2mTime)}`);
-if (baselineResult) {
-  console.log(`  Baseline (no relations): ${formatMs(baselineResult.time)}`);
-  console.log(
-    `  M2M overhead: ${(avgM2mTime / baselineResult.time).toFixed(2)}x baseline`
-  );
-}
+      },
+    });
+  });
+});

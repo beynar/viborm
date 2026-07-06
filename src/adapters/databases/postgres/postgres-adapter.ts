@@ -1,10 +1,40 @@
 import { type Sql, sql } from "@sql";
-import type {
-  CastType,
-  DatabaseAdapter,
-  QueryParts,
-} from "../../database-adapter";
+import type { DatabaseAdapter, QueryParts } from "../../database-adapter";
+import { createOnConflictBatchRefs } from "../../shared/batch-refs";
 import { convertBigIntToNumber } from "../../shared/result-parsing";
+import {
+  assembleDistinctOnEmulation,
+  assembleSelectQuery,
+} from "../../shared/select-assembly";
+import {
+  createAggregateFunctions,
+  createCastExpression,
+  createCommonExpressions,
+  createComparisonOperators,
+  createCoreJoins,
+  createCteBuilders,
+  createDirectionOrderBy,
+  createExistenceOperators,
+  createIdentifierQuoter,
+  createIdentifiers,
+  createInsertStatement,
+  createLateralJoins,
+  createLogicalOperators,
+  createMembershipOperators,
+  createMutationCommands,
+  createNullOperators,
+  createNumericSetOperations,
+  createOnConflictBuilders,
+  createRangeOperators,
+  createRawSql,
+  createRelationFilters,
+  createSetOperations,
+  createStandardClauses,
+  createStandardLiterals,
+  createSubqueries,
+} from "../../shared/standard-sql";
+
+const quoteIdent = createIdentifierQuoter('"');
 
 /**
  * PostgreSQL Database Adapter
@@ -25,45 +55,29 @@ export class PostgresAdapter implements DatabaseAdapter {
   // RAW
   // ============================================================
 
-  raw = (sqlString: string): Sql => sql.raw`${sqlString}`;
+  raw = createRawSql();
 
   // ============================================================
   // IDENTIFIERS
   // ============================================================
 
-  identifiers = {
-    escape: (name: string): Sql => sql.raw`"${name}"`,
-
-    column: (alias: string, field: string): Sql =>
-      alias ? sql.raw`"${alias}"."${field}"` : sql.raw`"${field}"`,
-
-    table: (tableName: string, alias: string): Sql =>
-      sql.raw`"${tableName}" AS "${alias}"`,
-
-    aliased: (expression: Sql, alias: string): Sql =>
-      sql`${expression} AS ${sql.raw`"${alias}"`}`,
-  };
+  identifiers = createIdentifiers(quoteIdent);
 
   // ============================================================
   // LITERALS
   // ============================================================
 
   literals = {
-    value: (v: unknown): Sql => sql`${v}`,
-
-    null: (): Sql => sql.raw`NULL`,
+    ...createStandardLiterals(),
 
     true: (): Sql => sql.raw`TRUE`,
 
     false: (): Sql => sql.raw`FALSE`,
 
-    list: (values: Sql[]): Sql => {
-      if (values.length === 0) return sql.raw`()`;
-      return sql`(${sql.join(values, ", ")})`;
-    },
-
-    // PostgreSQL handles JSON natively
-    json: (v: unknown): Sql => sql`${v}`,
+    // Serialized JSON text — PG casts the param to json/jsonb from the column
+    // context. Stringifying (not raw binding) keeps primitives valid: a bare
+    // 'hello' is not valid JSON input, '"hello"' is.
+    json: (v: unknown): Sql => sql`${JSON.stringify(v)}`,
   };
 
   // ============================================================
@@ -72,53 +86,34 @@ export class PostgresAdapter implements DatabaseAdapter {
 
   operators = {
     // Comparison
-    eq: (left: Sql, right: Sql): Sql => sql`${left} = ${right}`,
-    neq: (left: Sql, right: Sql): Sql => sql`${left} <> ${right}`,
-    lt: (left: Sql, right: Sql): Sql => sql`${left} < ${right}`,
-    lte: (left: Sql, right: Sql): Sql => sql`${left} <= ${right}`,
-    gt: (left: Sql, right: Sql): Sql => sql`${left} > ${right}`,
-    gte: (left: Sql, right: Sql): Sql => sql`${left} >= ${right}`,
+    ...createComparisonOperators(),
 
     // Pattern matching
-    like: (column: Sql, pattern: Sql): Sql => sql`${column} LIKE ${pattern}`,
+    // Explicit ESCAPE '\' pairs with wildcard escaping in the where-builder
+    like: (column: Sql, pattern: Sql): Sql =>
+      sql`${column} LIKE ${pattern} ESCAPE '\\'`,
     notLike: (column: Sql, pattern: Sql): Sql =>
-      sql`${column} NOT LIKE ${pattern}`,
-    ilike: (column: Sql, pattern: Sql): Sql => sql`${column} ILIKE ${pattern}`,
+      sql`${column} NOT LIKE ${pattern} ESCAPE '\\'`,
+    ilike: (column: Sql, pattern: Sql): Sql =>
+      sql`${column} ILIKE ${pattern} ESCAPE '\\'`,
     notIlike: (column: Sql, pattern: Sql): Sql =>
-      sql`${column} NOT ILIKE ${pattern}`,
+      sql`${column} NOT ILIKE ${pattern} ESCAPE '\\'`,
 
-    // Set membership
-    in: (column: Sql, values: Sql): Sql => sql`${column} = ANY(${values})`,
-    notIn: (column: Sql, values: Sql): Sql => sql`${column} <> ALL(${values})`,
+    // Set membership — values is a parenthesized list from literals.list(),
+    // so ANY/ALL (which need an array) would produce invalid SQL here
+    ...createMembershipOperators(),
 
     // Null checks
-    isNull: (expr: Sql): Sql => sql`${expr} IS NULL`,
-    isNotNull: (expr: Sql): Sql => sql`${expr} IS NOT NULL`,
+    ...createNullOperators(),
 
     // Range
-    between: (column: Sql, min: Sql, max: Sql): Sql =>
-      sql`${column} BETWEEN ${min} AND ${max}`,
-    notBetween: (column: Sql, min: Sql, max: Sql): Sql =>
-      sql`${column} NOT BETWEEN ${min} AND ${max}`,
+    ...createRangeOperators(),
 
     // Logical
-    and: (...conditions: Sql[]): Sql => {
-      if (conditions.length === 0) return sql.raw`TRUE`;
-      if (conditions.length === 1) return conditions[0]!;
-      return sql`(${sql.join(conditions, " AND ")})`;
-    },
-
-    or: (...conditions: Sql[]): Sql => {
-      if (conditions.length === 0) return sql.raw`FALSE`;
-      if (conditions.length === 1) return conditions[0]!;
-      return sql`(${sql.join(conditions, " OR ")})`;
-    },
-
-    not: (condition: Sql): Sql => sql`NOT (${condition})`,
+    ...createLogicalOperators(this.literals.true, this.literals.false),
 
     // Subquery existence
-    exists: (subquery: Sql): Sql => sql`EXISTS (${subquery})`,
-    notExists: (subquery: Sql): Sql => sql`NOT EXISTS (${subquery})`,
+    ...createExistenceOperators(),
   };
 
   // ============================================================
@@ -126,50 +121,34 @@ export class PostgresAdapter implements DatabaseAdapter {
   // ============================================================
 
   expressions = {
-    // Arithmetic
-    add: (left: Sql, right: Sql): Sql => sql`(${left} + ${right})`,
-    subtract: (left: Sql, right: Sql): Sql => sql`(${left} - ${right})`,
-    multiply: (left: Sql, right: Sql): Sql => sql`(${left} * ${right})`,
-    divide: (left: Sql, right: Sql): Sql => sql`(${left} / ${right})`,
+    ...createCommonExpressions(),
 
-    // String operations
+    // String concatenation via ||
     concat: (...parts: Sql[]): Sql => {
       if (parts.length === 0) return sql.raw`''`;
       if (parts.length === 1) return parts[0]!;
       return sql`(${sql.join(parts, " || ")})`;
     },
-    upper: (expr: Sql): Sql => sql`UPPER(${expr})`,
-    lower: (expr: Sql): Sql => sql`LOWER(${expr})`,
 
-    // Utility
-    coalesce: (...exprs: Sql[]): Sql => sql`COALESCE(${sql.join(exprs, ", ")})`,
     greatest: (...exprs: Sql[]): Sql => sql`GREATEST(${sql.join(exprs, ", ")})`,
     least: (...exprs: Sql[]): Sql => sql`LEAST(${sql.join(exprs, ", ")})`,
-    cast: (expr: Sql, type: CastType): Sql => {
-      // PostgreSQL type mappings
-      const typeMap: Record<CastType, string> = {
-        text: "TEXT",
-        integer: "INTEGER",
-        boolean: "BOOLEAN",
-        numeric: "NUMERIC",
-      };
-      return sql`CAST(${expr} AS ${sql.raw`${typeMap[type]}`})`;
-    },
+
+    // PostgreSQL type mappings
+    cast: createCastExpression({
+      text: "TEXT",
+      integer: "INTEGER",
+      boolean: "BOOLEAN",
+      numeric: "NUMERIC",
+    }),
+
+    blobToHex: (expr: Sql): Sql => sql`encode(${expr}, 'hex')`,
   };
 
   // ============================================================
   // AGGREGATES
   // ============================================================
 
-  aggregates = {
-    count: (expr?: Sql): Sql =>
-      expr ? sql`COUNT(${expr})` : sql.raw`COUNT(*)`,
-    countDistinct: (expr: Sql): Sql => sql`COUNT(DISTINCT ${expr})`,
-    sum: (expr: Sql): Sql => sql`SUM(${expr})`,
-    avg: (expr: Sql): Sql => sql`AVG(${expr})`,
-    min: (expr: Sql): Sql => sql`MIN(${expr})`,
-    max: (expr: Sql): Sql => sql`MAX(${expr})`,
-  };
+  aggregates = createAggregateFunctions();
 
   // ============================================================
   // JSON
@@ -178,7 +157,7 @@ export class PostgresAdapter implements DatabaseAdapter {
   json = {
     object: (pairs: [string, Sql][]): Sql => {
       if (pairs.length === 0) return sql.raw`'{}'::json`;
-      const args = pairs.flatMap(([key, value]) => [sql.raw`'${key}'`, value]);
+      const args = pairs.flatMap(([key, value]) => [sql`${key}::text`, value]);
       return sql`json_build_object(${sql.join(args, ", ")})`;
     },
 
@@ -191,30 +170,31 @@ export class PostgresAdapter implements DatabaseAdapter {
 
     agg: (expr: Sql): Sql => sql`COALESCE(json_agg(${expr}), '[]'::json)`,
 
-    rowToJson: (alias: string): Sql => sql`row_to_json(${sql.raw`"${alias}"`})`,
-
     objectFromColumns: (columns: [string, Sql][]): Sql => {
       if (columns.length === 0) return sql.raw`'{}'::json`;
       const args = columns.flatMap(([key, value]) => [
-        sql.raw`'${key}'`,
+        sql`${key}::text`,
         value,
       ]);
       return sql`json_build_object(${sql.join(args, ", ")})`;
     },
 
-    extract: (column: Sql, path: string[]): Sql => {
-      if (path.length === 0) return column;
-      if (path.length === 1) return sql`${column}->${path[0]}`;
-      const pathStr = path.join(",");
-      return sql`${column}#>'{${sql.raw`${pathStr}`}}'`;
-    },
+    // #>/#>> with a text[] param handles every path shape uniformly:
+    // '{}' returns the document root, and integer segments address array
+    // elements (a single-segment `-> '0'` would only match an object key)
+    extract: (column: Sql, path: string[]): Sql =>
+      sql`${column}#>${path}::text[]`,
 
-    extractText: (column: Sql, path: string[]): Sql => {
-      if (path.length === 0) return column;
-      if (path.length === 1) return sql`${column}->>${path[0]}`;
-      const pathStr = path.join(",");
-      return sql`${column}#>>'{${sql.raw`${pathStr}`}}'`;
-    },
+    extractText: (column: Sql, path: string[]): Sql =>
+      sql`${column}#>>${path}::text[]`,
+
+    contains: (target: Sql, value: Sql): Sql => sql`${target} @> ${value}`,
+
+    lastElement: (target: Sql): Sql => sql`${target} -> -1`,
+
+    // Serialized JSON text, same format literals.json writes — PG casts the
+    // param to jsonb from the comparison context
+    value: (v: unknown): Sql => sql`${JSON.stringify(v)}`,
   };
 
   // ============================================================
@@ -226,6 +206,9 @@ export class PostgresAdapter implements DatabaseAdapter {
       if (items.length === 0) return sql.raw`'{}'`;
       return sql`ARRAY[${sql.join(items, ", ")}]`;
     },
+
+    // Native array parameter; drivers serialize JS arrays to PG array format
+    value: (values: unknown[]): Sql => sql`${values}`,
 
     has: (column: Sql, value: Sql): Sql => sql`${value} = ANY(${column})`,
 
@@ -252,77 +235,50 @@ export class PostgresAdapter implements DatabaseAdapter {
   // ============================================================
 
   orderBy = {
-    asc: (column: Sql): Sql => sql`${column} ASC`,
-    desc: (column: Sql): Sql => sql`${column} DESC`,
-    nullsFirst: (expr: Sql): Sql => sql`${expr} NULLS FIRST`,
-    nullsLast: (expr: Sql): Sql => sql`${expr} NULLS LAST`,
+    ...createDirectionOrderBy(),
+    nullsFirst: (column: Sql, direction: "asc" | "desc"): Sql =>
+      direction === "desc"
+        ? sql`${column} DESC NULLS FIRST`
+        : sql`${column} ASC NULLS FIRST`,
+    nullsLast: (column: Sql, direction: "asc" | "desc"): Sql =>
+      direction === "desc"
+        ? sql`${column} DESC NULLS LAST`
+        : sql`${column} ASC NULLS LAST`,
   };
 
   // ============================================================
   // CLAUSES
   // ============================================================
 
-  clauses = {
-    select: (columns: Sql): Sql => sql`SELECT ${columns}`,
-    selectDistinct: (columns: Sql): Sql => sql`SELECT DISTINCT ${columns}`,
-    from: (table: Sql): Sql => sql`FROM ${table}`,
-    where: (condition: Sql): Sql => sql`WHERE ${condition}`,
-    orderBy: (orders: Sql): Sql => sql`ORDER BY ${orders}`,
-    limit: (count: Sql): Sql => sql`LIMIT ${count}`,
-    offset: (count: Sql): Sql => sql`OFFSET ${count}`,
-    groupBy: (columns: Sql): Sql => sql`GROUP BY ${columns}`,
-    having: (condition: Sql): Sql => sql`HAVING ${condition}`,
-  };
+  clauses = createStandardClauses();
 
   // ============================================================
   // SET (UPDATE operations)
   // ============================================================
 
   set = {
-    assign: (column: Sql, value: Sql): Sql => sql`${column} = ${value}`,
+    ...createNumericSetOperations(),
 
-    increment: (column: Sql, by: Sql): Sql =>
-      sql`${column} = ${column} + ${by}`,
+    // array_cat (not ||) so the untyped array param resolves unambiguously
+    // to the column's array type; COALESCE keeps NULL columns appendable.
+    push: (column: Sql, values: unknown[]): Sql =>
+      sql`${column} = array_cat(COALESCE(${column}, '{}'), ${values})`,
 
-    decrement: (column: Sql, by: Sql): Sql =>
-      sql`${column} = ${column} - ${by}`,
-
-    multiply: (column: Sql, by: Sql): Sql => sql`${column} = ${column} * ${by}`,
-
-    divide: (column: Sql, by: Sql): Sql => sql`${column} = ${column} / ${by}`,
-
-    push: (column: Sql, value: Sql): Sql =>
-      sql`${column} = array_append(${column}, ${value})`,
-
-    unshift: (column: Sql, value: Sql): Sql =>
-      sql`${column} = array_prepend(${value}, ${column})`,
+    unshift: (column: Sql, values: unknown[]): Sql =>
+      sql`${column} = array_cat(${values}, COALESCE(${column}, '{}'))`,
   };
 
   // ============================================================
   // FILTERS (Relation subquery wrappers)
   // ============================================================
 
-  filters = {
-    some: (subquery: Sql): Sql => sql`EXISTS (${subquery})`,
-    every: (subquery: Sql): Sql => sql`NOT EXISTS (${subquery})`,
-    none: (subquery: Sql): Sql => sql`NOT EXISTS (${subquery})`,
-    is: (subquery: Sql): Sql => sql`EXISTS (${subquery})`,
-    isNot: (subquery: Sql): Sql => sql`NOT EXISTS (${subquery})`,
-  };
+  filters = createRelationFilters();
 
   // ============================================================
   // SUBQUERIES
   // ============================================================
 
-  subqueries = {
-    scalar: (query: Sql): Sql => sql`(${query})`,
-
-    correlate: (query: Sql, alias: string): Sql =>
-      sql`(${query}) AS ${sql.raw`"${alias}"`}`,
-
-    existsCheck: (from: Sql, where: Sql): Sql =>
-      sql`SELECT 1 FROM ${from} WHERE ${where}`,
-  };
+  subqueries = createSubqueries(quoteIdent);
 
   // ============================================================
   // ASSEMBLE (Build complete SQL statements)
@@ -330,47 +286,22 @@ export class PostgresAdapter implements DatabaseAdapter {
 
   assemble = {
     select: (parts: QueryParts): Sql => {
+      // DISTINCT ON requires ORDER BY to lead with the distinct columns, which
+      // would override the user's ordering — emulate via ROW_NUMBER() instead
+      if (parts.distinct && parts.orderBy) {
+        return assembleDistinctOnEmulation(
+          parts,
+          parts.distinct,
+          this.identifiers.escape
+        );
+      }
+
       // PostgreSQL supports DISTINCT ON (columns)
       const selectClause = parts.distinct
         ? sql`SELECT DISTINCT ON (${parts.distinct}) ${parts.columns}`
         : sql`SELECT ${parts.columns}`;
 
-      const fragments: Sql[] = [selectClause, sql`FROM ${parts.from}`];
-
-      if (parts.joins && parts.joins.length > 0) {
-        fragments.push(...parts.joins);
-      }
-
-      if (parts.where) {
-        fragments.push(sql`WHERE ${parts.where}`);
-      }
-
-      if (parts.groupBy) {
-        fragments.push(sql`GROUP BY ${parts.groupBy}`);
-      }
-
-      if (parts.having) {
-        fragments.push(sql`HAVING ${parts.having}`);
-      }
-
-      if (parts.orderBy) {
-        fragments.push(sql`ORDER BY ${parts.orderBy}`);
-      }
-
-      if (parts.limit) {
-        fragments.push(sql`LIMIT ${parts.limit}`);
-      }
-
-      if (parts.offset) {
-        fragments.push(sql`OFFSET ${parts.offset}`);
-      }
-
-      // FOR UPDATE must come after LIMIT/OFFSET
-      if (parts.forUpdate) {
-        fragments.push(sql.raw`FOR UPDATE`);
-      }
-
-      return sql.join(fragments, " ");
+      return assembleSelectQuery(selectClause, parts, { forUpdate: "append" });
     },
   };
 
@@ -378,89 +309,27 @@ export class PostgresAdapter implements DatabaseAdapter {
   // CTE (Common Table Expressions)
   // ============================================================
 
-  cte = {
-    with: (definitions: { name: string; query: Sql }[]): Sql => {
-      const defs = definitions.map(
-        ({ name, query }) => sql`${sql.raw`"${name}"`} AS (${query})`
-      );
-      return sql`WITH ${sql.join(defs, ", ")}`;
-    },
-
-    recursive: (
-      name: string,
-      anchor: Sql,
-      recursive: Sql,
-      union: "all" | "distinct" = "all"
-    ): Sql => {
-      const unionKeyword =
-        union === "all" ? sql.raw`UNION ALL` : sql.raw`UNION`;
-      return sql`WITH RECURSIVE ${sql.raw`"${name}"`} AS (
-        ${anchor}
-        ${unionKeyword}
-        ${recursive}
-      )`;
-    },
-  };
+  cte = createCteBuilders(quoteIdent);
 
   // ============================================================
   // MUTATIONS
   // ============================================================
 
   mutations = {
-    insert: (
-      table: Sql,
-      columns: string[],
-      values: Sql[][],
-      prefix?: Sql
-    ): Sql => {
-      const cols = columns.map((c) => sql.raw`"${c}"`);
-      const rows = values.map((row) => sql`(${sql.join(row, ", ")})`);
-      const prefixPart = prefix ? sql`${prefix} ` : sql``;
-      return sql`INSERT ${prefixPart}INTO ${table} (${sql.join(
-        cols,
-        ", "
-      )}) VALUES ${sql.join(rows, ", ")}`;
-    },
+    insert: createInsertStatement(quoteIdent),
 
-    update: (table: Sql, sets: Sql, where?: Sql): Sql => {
-      if (where) {
-        return sql`UPDATE ${table} SET ${sets} WHERE ${where}`;
-      }
-      return sql`UPDATE ${table} SET ${sets}`;
-    },
-
-    delete: (table: Sql, where?: Sql): Sql => {
-      if (where) {
-        return sql`DELETE FROM ${table} WHERE ${where}`;
-      }
-      return sql`DELETE FROM ${table}`;
-    },
+    ...createMutationCommands(),
 
     returning: (columns: Sql): Sql => sql`RETURNING ${columns}`,
 
-    onConflict: (target: Sql | null, action: Sql, targetWhere?: Sql): Sql => {
-      if (target) {
-        if (targetWhere) {
-          // ON CONFLICT (id) WHERE <targetWhere> DO UPDATE ...
-          return sql`ON CONFLICT (${target}) WHERE ${targetWhere} DO ${action}`;
-        }
-        return sql`ON CONFLICT (${target}) DO ${action}`;
-      }
-      return sql`ON CONFLICT DO ${action}`;
-    },
+    ...createOnConflictBuilders(),
+  };
 
-    onConflictUpdate: (sets: Sql, setWhere?: Sql): Sql => {
-      if (setWhere) {
-        // UPDATE SET x = y WHERE <setWhere>
-        return sql`UPDATE SET ${sets} WHERE ${setWhere}`;
-      }
-      return sql`UPDATE SET ${sets}`;
-    },
-
-    skipDuplicates: () => ({
-      prefix: sql``,
-      suffix: sql`ON CONFLICT DO NOTHING`,
-    }),
+  assertions = {
+    exists: (query: Sql): Sql =>
+      sql`SELECT 1 / CASE WHEN EXISTS (${query}) THEN 1 ELSE 0 END AS "__viborm_assert__"`,
+    notExists: (query: Sql): Sql =>
+      sql`SELECT 1 / CASE WHEN NOT EXISTS (${query}) THEN 1 ELSE 0 END AS "__viborm_assert__"`,
   };
 
   // ============================================================
@@ -468,40 +337,19 @@ export class PostgresAdapter implements DatabaseAdapter {
   // ============================================================
 
   joins = {
-    inner: (table: Sql, condition: Sql): Sql =>
-      sql`INNER JOIN ${table} ON ${condition}`,
-
-    left: (table: Sql, condition: Sql): Sql =>
-      sql`LEFT JOIN ${table} ON ${condition}`,
-
-    right: (table: Sql, condition: Sql): Sql =>
-      sql`RIGHT JOIN ${table} ON ${condition}`,
+    ...createCoreJoins(),
 
     full: (table: Sql, condition: Sql): Sql =>
       sql`FULL OUTER JOIN ${table} ON ${condition}`,
 
-    cross: (table: Sql): Sql => sql`CROSS JOIN ${table}`,
-
-    lateral: (subquery: Sql, alias: string): Sql =>
-      sql`JOIN LATERAL (${subquery}) AS ${sql.raw`"${alias}"`} ON TRUE`,
-
-    lateralLeft: (subquery: Sql, alias: string): Sql =>
-      sql`LEFT JOIN LATERAL (${subquery}) AS ${sql.raw`"${alias}"`} ON TRUE`,
+    ...createLateralJoins(quoteIdent),
   };
 
   // ============================================================
   // SET OPERATIONS
   // ============================================================
 
-  setOperations = {
-    union: (...queries: Sql[]): Sql => sql.join(queries, " UNION "),
-
-    unionAll: (...queries: Sql[]): Sql => sql.join(queries, " UNION ALL "),
-
-    intersect: (...queries: Sql[]): Sql => sql.join(queries, " INTERSECT "),
-
-    except: (left: Sql, right: Sql): Sql => sql`${left} EXCEPT ${right}`,
-  };
+  setOperations = createSetOperations();
 
   // ============================================================
   // CAPABILITIES
@@ -513,9 +361,20 @@ export class PostgresAdapter implements DatabaseAdapter {
     supportsFullOuterJoin: true,
     supportsLateralJoins: true,
     supportsUpsertWhere: true, // PostgreSQL supports WHERE in ON CONFLICT
+    supportsMutationTargetInSubquery: true,
   };
 
   lastInsertId = (): Sql => sql.raw`lastval()`;
+
+  batchRefs = createOnConflictBatchRefs({
+    table: sql.raw`"__viborm_batch_refs"`,
+    batchIdColumn: sql.raw`"batch_id"`,
+    keyColumn: sql.raw`"ref_key"`,
+    valueColumn: sql.raw`"ref_value"`,
+    createTable: sql.raw`CREATE TEMP TABLE IF NOT EXISTS "__viborm_batch_refs" ("batch_id" TEXT NOT NULL, "ref_key" TEXT NOT NULL, "ref_value" TEXT, PRIMARY KEY ("batch_id", "ref_key")) ON COMMIT DROP`,
+    castValue: (valueSql) => sql`CAST((${valueSql}) AS TEXT)`,
+    lastInsertId: () => this.lastInsertId(),
+  });
 
   // ============================================================
   // VECTOR (pgvector)
@@ -592,7 +451,7 @@ export class PostgresAdapter implements DatabaseAdapter {
 
     parseField: (
       _value: unknown,
-      _fieldType: string,
+      _scalarType: string,
       next: (value?: unknown) => unknown
     ): unknown => {
       // PostgreSQL has native types - passthrough

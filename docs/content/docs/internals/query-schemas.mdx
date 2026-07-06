@@ -21,9 +21,9 @@ Operation schemas define what's valid for each operation. They're built dynamica
 
 ## Schema Categories
 
-### Core Schemas (Per Field)
+### Core Schemas (Per Scalar)
 
-Each field type generates its own schemas:
+Each scalar type generates its own schemas:
 
 | Schema | Purpose | Example |
 |--------|---------|---------|
@@ -34,7 +34,7 @@ Each field type generates its own schemas:
 
 ### Args Schemas (Per Model)
 
-The validation registry composes field, relation, and model state into operation schemas:
+The validation registry composes scalar, relation, and model state into operation schemas:
 
 | Schema | Purpose |
 |--------|---------|
@@ -47,19 +47,19 @@ The validation registry composes field, relation, and model state into operation
 
 ## Dynamic Schema Generation
 
-Schemas are generated based on field state:
+Schemas are generated based on scalar state:
 
 ```typescript
-// If field is nullable + has default:
+// If scalar is nullable + has default:
 // - Filter: allows null comparisons
 // - Create: optional (has default)  
 // - Update: accepts null or value
 ```
 
 The logic considers:
-- Is the field nullable?
+- Is the scalar nullable?
 - Does it have a default value?
-- Is it an auto-generated field (UUID, timestamps)?
+- Is it an auto-generated scalar (UUID, timestamps)?
 - Is it optional vs required?
 
 ## Handling Relations
@@ -96,6 +96,6 @@ This keeps schema definitions focused on structure while operation validation st
 ## Connection to Other Layers
 
 - **L1 (Validation)**: Operation schemas use `v.*` primitives and `SchemaRegistry`
-- **L2 (Fields)**: Field base schemas and state feed registry scalar schemas
+- **L2 (Scalars)**: Scalar base schemas and state feed registry scalar schemas
 - **L4 (Relations)**: Relation state feeds nested operation schemas
 - **L6 (Query Engine)**: Query engine validates against these schemas

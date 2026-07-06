@@ -5,6 +5,7 @@
     "queries",
     "mutations",
     "transactions",
+    "compatibility",
     "filtering",
     "relations",
     "selecting",

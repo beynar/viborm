@@ -1,12 +1,12 @@
 ---
 title: Model
-description: Define database tables with fields (columns) and relations (foreign keys)
+description: Define database tables with fields: scalar columns and relation associations
 icon: Table
 ---
 
 ## Creating a Model
 
-Use `s.model()` with an object of field definitions:
+Use `s.model()` with an object of field definitions (scalars and relations):
 
 ```ts
 import { s } from "viborm";
@@ -156,13 +156,11 @@ The `~` property exposes internal state (for advanced use):
 ```ts
 const user = s.model({ ... });
 
-user["~"].fields       // Field definitions
-user["~"].fieldMap     // Map<string, Field>
-user["~"].relations    // Map<string, Relation>
-user["~"].tableName    // Table name
-user["~"].indexes      // Index definitions
-user["~"].compoundId   // Compound PK (if any)
-user["~"].infer        // Inferred TypeScript type
+user["~"].state.scalars  // Record<string, Scalar>
+user["~"].state.relations // Record<string, Relation>
+user["~"].state.tableName // Table name
+user["~"].state.indexes   // Index definitions
+user["~"].state.compoundId // Compound PK (if any)
 ```
 
 ## Type Inference

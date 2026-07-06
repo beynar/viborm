@@ -1,5 +1,6 @@
-import type { FieldState } from "@schema/fields/common";
-import v, { type V } from "@validation";
+import type { ScalarState } from "@schema/scalars/common";
+import v, { type V } from "../primitives/v";
+import { createScalarInterner, scalarInternKey } from "./intern";
 
 // =============================================================================
 // BASE TYPES
@@ -143,7 +144,7 @@ const buildBooleanListUpdateSchema = <S extends V.Schema>(
 // BOOLEAN SCHEMA BUILDER
 // =============================================================================
 
-export interface BooleanSchemas<F extends FieldState<"boolean">> {
+export interface BooleanSchemas<F extends ScalarState<"boolean">> {
   base: F["base"];
   create: V.Boolean<F>;
   update: F["array"] extends true
@@ -154,17 +155,25 @@ export interface BooleanSchemas<F extends FieldState<"boolean">> {
     : BooleanFilterSchema<F["base"]>;
 }
 
-export const buildBooleanSchema = <F extends FieldState<"boolean">>(
+const internFilter = createScalarInterner<unknown>();
+const internUpdate = createScalarInterner<unknown>();
+
+export const buildBooleanSchema = <F extends ScalarState<"boolean">>(
   state: F
 ): BooleanSchemas<F> => {
+  const key = scalarInternKey(state);
   return {
     base: state.base as F["base"],
     create: v.boolean(state),
-    update: state.array
-      ? buildBooleanListUpdateSchema(state.base)
-      : buildBooleanUpdateSchema(state.base),
-    filter: state.array
-      ? buildBooleanListFilterSchema(state.base)
-      : buildBooleanFilterSchema(state.base),
+    update: internUpdate(key, () =>
+      state.array
+        ? buildBooleanListUpdateSchema(state.base)
+        : buildBooleanUpdateSchema(state.base)
+    ) as never,
+    filter: internFilter(key, () =>
+      state.array
+        ? buildBooleanListFilterSchema(state.base)
+        : buildBooleanFilterSchema(state.base)
+    ) as never,
   } as BooleanSchemas<F>;
 };

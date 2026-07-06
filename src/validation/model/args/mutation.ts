@@ -5,9 +5,10 @@ import {
   cacheInvalidationSchema,
 } from "@cache/schema";
 import type { AnyModel } from "@schema/model";
-import v, { type V } from "@validation";
-import type { FieldSchemas } from "../index";
+import v, { type V } from "../../primitives/v";
 import type { CoreSchemas } from "../core";
+import type { ScalarSchemas } from "../index";
+import { rejectSelectInclude } from "./select-include-exclusivity";
 // =============================================================================
 // CREATE ARGS
 // =============================================================================
@@ -17,7 +18,7 @@ import type { CoreSchemas } from "../core";
  */
 export type CreateArgs<
   M extends AnyModel,
-  F extends FieldSchemas<M>,
+  F extends ScalarSchemas<M>,
 > = V.Object<
   {
     data: CoreSchemas<M, F>["create"];
@@ -27,20 +28,19 @@ export type CreateArgs<
   },
   { atLeast: ["data"] }
 >;
-export const getCreateArgs = <
-  M extends AnyModel,
-  F extends FieldSchemas<M>,
->(
+export const getCreateArgs = <M extends AnyModel, F extends ScalarSchemas<M>>(
   core: CoreSchemas<M, F>
 ): CreateArgs<M, F> => {
-  return v.object(
-    {
-      data: core.create,
-      select: core.select,
-      include: core.include,
-      cache: cacheInvalidationSchema,
-    },
-    { atLeast: ["data"] }
+  return rejectSelectInclude(
+    v.object(
+      {
+        data: v.lazyRef(() => core.create),
+        select: v.lazyRef(() => core.select),
+        include: v.lazyRef(() => core.include),
+        cache: cacheInvalidationSchema,
+      },
+      { atLeast: ["data"] }
+    )
   );
 };
 
@@ -53,7 +53,7 @@ export const getCreateArgs = <
  */
 export type CreateManyArgs<
   M extends AnyModel,
-  F extends FieldSchemas<M>,
+  F extends ScalarSchemas<M>,
 > = V.Object<
   {
     data: V.Array<CoreSchemas<M, F>["scalarCreate"]>;
@@ -64,14 +64,52 @@ export type CreateManyArgs<
 >;
 export const getCreateManyArgs = <
   M extends AnyModel,
-  F extends FieldSchemas<M>,
+  F extends ScalarSchemas<M>,
 >(
   core: CoreSchemas<M, F>
 ): CreateManyArgs<M, F> => {
   return v.object(
     {
-      data: v.array(core.scalarCreate),
+      data: v.lazyRef(() => v.array(core.scalarCreate)),
       skipDuplicates: v.boolean({ optional: true }),
+      cache: cacheInvalidationSchema,
+    },
+    { atLeast: ["data"] }
+  );
+};
+
+// =============================================================================
+// CREATE MANY AND RETURN ARGS
+// =============================================================================
+
+/**
+ * CreateManyAndReturn args: { data: create[], skipDuplicates?, select? }
+ * Like createMany but returns the created rows (select of scalars only;
+ * include is not supported because rows are returned via RETURNING).
+ */
+export type CreateManyAndReturnArgs<
+  M extends AnyModel,
+  F extends ScalarSchemas<M>,
+> = V.Object<
+  {
+    data: V.Array<CoreSchemas<M, F>["scalarCreate"]>;
+    skipDuplicates: V.Boolean<{ optional: true }>;
+    select: CoreSchemas<M, F>["select"];
+    cache: CacheInvalidationSchema;
+  },
+  { atLeast: ["data"] }
+>;
+export const getCreateManyAndReturnArgs = <
+  M extends AnyModel,
+  F extends ScalarSchemas<M>,
+>(
+  core: CoreSchemas<M, F>
+): CreateManyAndReturnArgs<M, F> => {
+  return v.object(
+    {
+      data: v.lazyRef(() => v.array(core.scalarCreate)),
+      skipDuplicates: v.boolean({ optional: true }),
+      select: v.lazyRef(() => core.select),
       cache: cacheInvalidationSchema,
     },
     { atLeast: ["data"] }
@@ -87,7 +125,7 @@ export const getCreateManyArgs = <
  */
 export type UpdateArgs<
   M extends AnyModel,
-  F extends FieldSchemas<M>,
+  F extends ScalarSchemas<M>,
 > = V.Object<
   {
     where: CoreSchemas<M, F>["whereUnique"];
@@ -99,21 +137,20 @@ export type UpdateArgs<
   { atLeast: ["where", "data"] }
 >;
 
-export const getUpdateArgs = <
-  M extends AnyModel,
-  F extends FieldSchemas<M>,
->(
+export const getUpdateArgs = <M extends AnyModel, F extends ScalarSchemas<M>>(
   core: CoreSchemas<M, F>
 ): UpdateArgs<M, F> => {
-  return v.object(
-    {
-      where: core.whereUnique,
-      data: core.update,
-      select: core.select,
-      include: core.include,
-      cache: cacheInvalidationSchema,
-    },
-    { atLeast: ["where", "data"] }
+  return rejectSelectInclude(
+    v.object(
+      {
+        where: v.lazyRef(() => core.whereUnique),
+        data: v.lazyRef(() => core.update),
+        select: v.lazyRef(() => core.select),
+        include: v.lazyRef(() => core.include),
+        cache: cacheInvalidationSchema,
+      },
+      { atLeast: ["where", "data"] }
+    )
   );
 };
 
@@ -126,7 +163,7 @@ export const getUpdateArgs = <
  */
 export type UpdateManyArgs<
   M extends AnyModel,
-  F extends FieldSchemas<M>,
+  F extends ScalarSchemas<M>,
 > = V.Object<
   {
     where: CoreSchemas<M, F>["where"];
@@ -137,14 +174,52 @@ export type UpdateManyArgs<
 >;
 export const getUpdateManyArgs = <
   M extends AnyModel,
-  F extends FieldSchemas<M>,
+  F extends ScalarSchemas<M>,
 >(
   core: CoreSchemas<M, F>
 ): UpdateManyArgs<M, F> => {
   return v.object(
     {
-      where: core.where,
-      data: core.update,
+      where: v.lazyRef(() => core.where),
+      data: v.lazyRef(() => core.update),
+      cache: cacheInvalidationSchema,
+    },
+    { atLeast: ["data"] }
+  );
+};
+
+// =============================================================================
+// UPDATE MANY AND RETURN ARGS
+// =============================================================================
+
+/**
+ * UpdateManyAndReturn args: { where?, data: update, select? }
+ * Like updateMany but returns the updated rows (select of scalars only;
+ * include is not supported because rows are returned via RETURNING).
+ */
+export type UpdateManyAndReturnArgs<
+  M extends AnyModel,
+  F extends ScalarSchemas<M>,
+> = V.Object<
+  {
+    where: CoreSchemas<M, F>["where"];
+    data: CoreSchemas<M, F>["update"];
+    select: CoreSchemas<M, F>["select"];
+    cache: CacheInvalidationSchema;
+  },
+  { atLeast: ["data"] }
+>;
+export const getUpdateManyAndReturnArgs = <
+  M extends AnyModel,
+  F extends ScalarSchemas<M>,
+>(
+  core: CoreSchemas<M, F>
+): UpdateManyAndReturnArgs<M, F> => {
+  return v.object(
+    {
+      where: v.lazyRef(() => core.where),
+      data: v.lazyRef(() => core.update),
+      select: v.lazyRef(() => core.select),
       cache: cacheInvalidationSchema,
     },
     { atLeast: ["data"] }
@@ -160,7 +235,7 @@ export const getUpdateManyArgs = <
  */
 export type DeleteArgs<
   M extends AnyModel,
-  F extends FieldSchemas<M>,
+  F extends ScalarSchemas<M>,
 > = V.Object<
   {
     where: CoreSchemas<M, F>["whereUnique"];
@@ -170,20 +245,19 @@ export type DeleteArgs<
   },
   { atLeast: ["where"] }
 >;
-export const getDeleteArgs = <
-  M extends AnyModel,
-  F extends FieldSchemas<M>,
->(
+export const getDeleteArgs = <M extends AnyModel, F extends ScalarSchemas<M>>(
   core: CoreSchemas<M, F>
 ): DeleteArgs<M, F> => {
-  return v.object(
-    {
-      where: core.whereUnique,
-      select: core.select,
-      include: core.include,
-      cache: cacheInvalidationSchema,
-    },
-    { atLeast: ["where"] }
+  return rejectSelectInclude(
+    v.object(
+      {
+        where: v.lazyRef(() => core.whereUnique),
+        select: v.lazyRef(() => core.select),
+        include: v.lazyRef(() => core.include),
+        cache: cacheInvalidationSchema,
+      },
+      { atLeast: ["where"] }
+    )
   );
 };
 
@@ -196,7 +270,7 @@ export const getDeleteArgs = <
  */
 export type DeleteManyArgs<
   M extends AnyModel,
-  F extends FieldSchemas<M>,
+  F extends ScalarSchemas<M>,
 > = V.Object<
   {
     where: CoreSchemas<M, F>["where"];
@@ -206,13 +280,13 @@ export type DeleteManyArgs<
 >;
 export const getDeleteManyArgs = <
   M extends AnyModel,
-  F extends FieldSchemas<M>,
+  F extends ScalarSchemas<M>,
 >(
   core: CoreSchemas<M, F>
 ): DeleteManyArgs<M, F> => {
   return v.object(
     {
-      where: core.where,
+      where: v.lazyRef(() => core.where),
       cache: cacheInvalidationSchema,
     },
     { optional: true }
@@ -234,7 +308,7 @@ export const getDeleteManyArgs = <
  */
 export type UpsertArgs<
   M extends AnyModel,
-  F extends FieldSchemas<M>,
+  F extends ScalarSchemas<M>,
 > = V.Object<
   {
     where: CoreSchemas<M, F>["whereUnique"];
@@ -251,23 +325,22 @@ export type UpsertArgs<
   { atLeast: ["where", "create", "update"] }
 >;
 
-export const getUpsertArgs = <
-  M extends AnyModel,
-  F extends FieldSchemas<M>,
->(
+export const getUpsertArgs = <M extends AnyModel, F extends ScalarSchemas<M>>(
   core: CoreSchemas<M, F>
 ): UpsertArgs<M, F> => {
-  return v.object(
-    {
-      where: core.whereUnique,
-      create: core.create,
-      update: core.update,
-      select: core.select,
-      include: core.include,
-      cache: cacheInvalidationSchema,
-      targetWhere: core.where,
-      setWhere: core.where,
-    },
-    { atLeast: ["where", "create", "update"] }
+  return rejectSelectInclude(
+    v.object(
+      {
+        where: v.lazyRef(() => core.whereUnique),
+        create: v.lazyRef(() => core.create),
+        update: v.lazyRef(() => core.update),
+        select: v.lazyRef(() => core.select),
+        include: v.lazyRef(() => core.include),
+        cache: cacheInvalidationSchema,
+        targetWhere: v.lazyRef(() => core.where),
+        setWhere: v.lazyRef(() => core.where),
+      },
+      { atLeast: ["where", "create", "update"] }
+    )
   );
 };

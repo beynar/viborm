@@ -5,9 +5,9 @@
  * Supports all DDL operations natively with MySQL-specific syntax.
  */
 
-import type { Field, FieldState } from "@schema/fields";
+import type { Scalar, ScalarState } from "@schema/scalars";
 import { MigrationError, VibORMErrorCode } from "../../../errors";
-import type { ColumnDef } from "../../types";
+import type { ColumnDef, SchemaSnapshot, TableDef } from "../../types";
 
 // Regex patterns for spatial type detection
 const SPATIAL_TYPE_PATTERNS = [
@@ -87,8 +87,8 @@ export class MySQLMigrationDriver extends MigrationDriver {
   // TYPE MAPPING
   // ===========================================================================
 
-  mapFieldType(field: Field, fieldState: FieldState): string {
-    const nativeType = field["~"].nativeType;
+  mapScalarType(scalar: Scalar, scalarState: ScalarState): string {
+    const nativeType = scalar["~"].nativeType;
 
     // If a native type is specified and it's for MySQL, use it
     if (nativeType && nativeType.db === "mysql") {
@@ -97,9 +97,33 @@ export class MySQLMigrationDriver extends MigrationDriver {
 
     // Use centralized type mapping
     return getMySQLType({
-      type: fieldState.type,
-      array: fieldState.array,
+      type: scalarState.type,
+      array: scalarState.array,
     });
+  }
+
+  /**
+   * MySQL cannot index TEXT columns without an explicit key length.
+   * Rewrite TEXT columns that participate in the primary key, a unique
+   * constraint, an index, or a foreign key to VARCHAR(191) (Prisma's
+   * default: 191 * 4 bytes fits the 767-byte InnoDB key limit).
+   */
+  override finalizeTable(table: TableDef): TableDef {
+    const keyedColumns = new Set<string>([
+      ...(table.primaryKey?.columns ?? []),
+      ...table.uniqueConstraints.flatMap((uq) => uq.columns),
+      ...table.indexes.flatMap((index) => index.columns),
+      ...table.foreignKeys.flatMap((fk) => fk.columns),
+    ]);
+
+    return {
+      ...table,
+      columns: table.columns.map((column) =>
+        column.type.toUpperCase() === "TEXT" && keyedColumns.has(column.name)
+          ? { ...column, type: "VARCHAR(191)" }
+          : column
+      ),
+    };
   }
 
   /**
@@ -113,7 +137,7 @@ export class MySQLMigrationDriver extends MigrationDriver {
    * MySQL supports native auto-generation for certain values.
    */
   protected override getAutoGenerateExpression(
-    autoGenerate: FieldState["autoGenerate"]
+    autoGenerate: ScalarState["autoGenerate"]
   ): string | undefined {
     switch (autoGenerate) {
       case "now":
@@ -411,6 +435,19 @@ export class MySQLMigrationDriver extends MigrationDriver {
     _context?: DDLContext
   ): string {
     return `ALTER TABLE ${this.escapeIdentifier(op.tableName)} DROP FOREIGN KEY ${this.escapeIdentifier(op.fkName)}`;
+  }
+
+  /**
+   * MySQL ignores DROP TABLE ... CASCADE, so a reset must drop every FK
+   * constraint first to allow dropping tables in any order.
+   */
+  override getPreResetStatements(snapshot: SchemaSnapshot): string[] {
+    return snapshot.tables.flatMap((table) =>
+      table.foreignKeys.map(
+        (fk) =>
+          `ALTER TABLE ${this.escapeIdentifier(table.name)} DROP FOREIGN KEY ${this.escapeIdentifier(fk.name)}`
+      )
+    );
   }
 
   // ===========================================================================

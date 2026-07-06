@@ -34,7 +34,7 @@ The base model type is the fundamental representation of your data. It maps dire
 **Key characteristics:**
 
 - Represents the shape of data returned from the database
-- Field types match their corresponding scalar or relation definitions
+- Fields match their corresponding scalar or relation definitions
 - Optional and nullable fields are properly typed
 - Relation fields are typed according to their cardinality (one, many)
 
@@ -64,8 +64,8 @@ Used when creating new records, this type reflects what data must be provided to
 
 **Key characteristics:**
 
-- Required fields (non-nullable, non-default) must be provided
-- Optional fields (nullable or with defaults) can be omitted
+- Required scalars (non-nullable, non-default) must be provided
+- Optional scalars (nullable or with defaults) can be omitted
 - ID fields may be optional if auto-generated
 - Relation fields are represented as nested inputs
 
@@ -76,9 +76,9 @@ Used for modifying existing records, this type is more permissive than CreateInp
 **Key characteristics:**
 
 - All fields are optional, since you may want to update only some fields
-- Supports field-level update operations (set, increment, etc.)
-- Uses specialized types like `StringFieldUpdateOperationsInput` to represent operations
-- Required fields for create are still optional for update
+- Supports scalar-level update operations (set, increment, etc.)
+- Uses specialized types like `StringScalarUpdateOperationsInput` to represent operations
+- Required scalars for create are still optional for update
 
 ### WhereUniqueInput
 
@@ -225,13 +225,13 @@ This section provides step-by-step guidance for implementing the VibORM type sys
 First, create types that represent the structure of your schema internally:
 
 ```ts
-// Schema field types
-type ScalarFieldType = "string" | "number" | "boolean" | "date";
+// Schema scalar types
+type ScalarType = "string" | "number" | "boolean" | "date";
 type RelationType = "one" | "many";
 
-// Field definition structure
-interface FieldDefinition {
-  type: ScalarFieldType;
+// Scalar definition structure
+interface ScalarDefinition {
+  type: ScalarType;
   optional?: boolean;
   unique?: boolean;
   id?: boolean;
@@ -245,19 +245,21 @@ interface RelationDefinition {
 }
 
 // Model structure
+type FieldDefinition = ScalarDefinition | RelationDefinition;
+
 interface ModelDefinition {
   name: string;
-  fields: Record<string, FieldDefinition | RelationDefinition>;
+  fields: Record<string, FieldDefinition>;
 }
 ```
 
-### Step 2: Create Basic Field Type Mapping
+### Step 2: Create Basic Scalar Type Mapping
 
-Map schema field types to TypeScript types:
+Map schema scalar types to TypeScript types:
 
 ```ts
-// Map field types to TypeScript types
-type FieldToTypeScript<T extends FieldDefinition> = T["type"] extends "string"
+// Map scalar types to TypeScript types
+type ScalarToTypeScript<T extends ScalarDefinition> = T["type"] extends "string"
   ? string
   : T["type"] extends "number"
   ? number
@@ -270,7 +272,7 @@ type FieldToTypeScript<T extends FieldDefinition> = T["type"] extends "string"
 // Handle optional fields
 type MakeOptional<
   T,
-  TField extends FieldDefinition
+  TField extends ScalarDefinition
 > = TField["optional"] extends true ? T | null : T;
 ```
 
@@ -280,14 +282,14 @@ Create the base model type from the schema:
 
 ```ts
 // Extract scalar fields from model
-type ScalarFields<TModel extends ModelDefinition> = {
-  [K in keyof TModel["fields"]]: TModel["fields"][K] extends FieldDefinition
+type ScalarMap<TModel extends ModelDefinition> = {
+  [K in keyof TModel["fields"]]: TModel["fields"][K] extends ScalarDefinition
     ? TModel["fields"][K]
     : never;
 };
 
 // Extract relation fields
-type RelationFields<TModel extends ModelDefinition> = {
+type RelationMap<TModel extends ModelDefinition> = {
   [K in keyof TModel["fields"]]: TModel["fields"][K] extends RelationDefinition
     ? TModel["fields"][K]
     : never;
@@ -295,14 +297,14 @@ type RelationFields<TModel extends ModelDefinition> = {
 
 // Build the complete model type
 type ModelType<TModel extends ModelDefinition> = {
-  [K in keyof ScalarFields<TModel>]: MakeOptional<
-    FieldToTypeScript<ScalarFields<TModel>[K]>,
-    ScalarFields<TModel>[K]
+  [K in keyof ScalarMap<TModel>]: MakeOptional<
+    ScalarToTypeScript<ScalarMap<TModel>[K]>,
+    ScalarMap<TModel>[K]
   >;
 } & {
-  [K in keyof RelationFields<TModel>]?: RelationFields<TModel>[K]["type"] extends "many"
-    ? Array<ModelType<ReturnType<RelationFields<TModel>[K]["target"]>>>
-    : ModelType<ReturnType<RelationFields<TModel>[K]["target"]>>;
+  [K in keyof RelationMap<TModel>]?: RelationMap<TModel>[K]["type"] extends "many"
+    ? Array<ModelType<ReturnType<RelationMap<TModel>[K]["target"]>>>
+    : ModelType<ReturnType<RelationMap<TModel>[K]["target"]>>;
 };
 ```
 
@@ -311,41 +313,41 @@ type ModelType<TModel extends ModelDefinition> = {
 Build input types for creating records:
 
 ```ts
-// Required fields for creation (non-optional, non-auto)
-type RequiredCreateFields<TModel extends ModelDefinition> = {
-  [K in keyof ScalarFields<TModel>]: ScalarFields<TModel>[K]["optional"] extends true
+// Required scalars for creation (non-optional, non-auto)
+type RequiredCreateScalars<TModel extends ModelDefinition> = {
+  [K in keyof ScalarMap<TModel>]: ScalarMap<TModel>[K]["optional"] extends true
     ? never
-    : ScalarFields<TModel>[K]["auto"] extends true
+    : ScalarMap<TModel>[K]["auto"] extends true
     ? never
     : K;
-}[keyof ScalarFields<TModel>];
+}[keyof ScalarMap<TModel>];
 
-// Optional fields for creation
-type OptionalCreateFields<TModel extends ModelDefinition> = {
-  [K in keyof ScalarFields<TModel>]: ScalarFields<TModel>[K]["optional"] extends true
+// Optional scalars for creation
+type OptionalCreateScalars<TModel extends ModelDefinition> = {
+  [K in keyof ScalarMap<TModel>]: ScalarMap<TModel>[K]["optional"] extends true
     ? K
-    : ScalarFields<TModel>[K]["auto"] extends true
+    : ScalarMap<TModel>[K]["auto"] extends true
     ? K
     : never;
-}[keyof ScalarFields<TModel>];
+}[keyof ScalarMap<TModel>];
 
 // Create input type
 type CreateInput<TModel extends ModelDefinition> =
-  // Required fields
+  // Required scalars
   {
-    [K in RequiredCreateFields<TModel>]: FieldToTypeScript<
-      ScalarFields<TModel>[K]
+    [K in RequiredCreateScalars<TModel>]: ScalarToTypeScript<
+      ScalarMap<TModel>[K]
     >;
   } & {
-    // Optional fields
-    [K in OptionalCreateFields<TModel>]?: MakeOptional<
-      FieldToTypeScript<ScalarFields<TModel>[K]>,
-      ScalarFields<TModel>[K]
+    // Optional scalars
+    [K in OptionalCreateScalars<TModel>]?: MakeOptional<
+      ScalarToTypeScript<ScalarMap<TModel>[K]>,
+      ScalarMap<TModel>[K]
     >;
   } & {
     // Relation fields (all optional for create)
-    [K in keyof RelationFields<TModel>]?: CreateNestedInput<
-      ReturnType<RelationFields<TModel>[K]["target"]>,
+    [K in keyof RelationMap<TModel>]?: CreateNestedInput<
+      ReturnType<RelationMap<TModel>[K]["target"]>,
       TModel
     >;
   };
@@ -357,18 +359,18 @@ Update inputs make all fields optional:
 
 ```ts
 type UpdateInput<TModel extends ModelDefinition> = {
-  [K in keyof ScalarFields<TModel>]?:
-    | FieldToTypeScript<ScalarFields<TModel>[K]>
-    | FieldUpdateOperations<FieldToTypeScript<ScalarFields<TModel>[K]>>;
+  [K in keyof ScalarMap<TModel>]?:
+    | ScalarToTypeScript<ScalarMap<TModel>[K]>
+    | ScalarUpdateOperations<ScalarToTypeScript<ScalarMap<TModel>[K]>>;
 } & {
-  [K in keyof RelationFields<TModel>]?: UpdateNestedInput<
-    ReturnType<RelationFields<TModel>[K]["target"]>,
+  [K in keyof RelationMap<TModel>]?: UpdateNestedInput<
+    ReturnType<RelationMap<TModel>[K]["target"]>,
     TModel
   >;
 };
 
-// Field update operations
-type FieldUpdateOperations<T> = {
+// Scalar update operations
+type ScalarUpdateOperations<T> = {
   set?: T;
 } & (T extends number
   ? {
@@ -390,17 +392,17 @@ type WhereInput<TModel extends ModelDefinition> = {
   OR?: WhereInput<TModel>[];
   NOT?: WhereInput<TModel> | WhereInput<TModel>[];
 } & {
-  [K in keyof ScalarFields<TModel>]?:
-    | FieldToTypeScript<ScalarFields<TModel>[K]>
-    | FilterType<FieldToTypeScript<ScalarFields<TModel>[K]>>;
+  [K in keyof ScalarMap<TModel>]?:
+    | ScalarToTypeScript<ScalarMap<TModel>[K]>
+    | FilterType<ScalarToTypeScript<ScalarMap<TModel>[K]>>;
 } & {
-  [K in keyof RelationFields<TModel>]?: RelationFilterType<
-    ReturnType<RelationFields<TModel>[K]["target"]>,
-    RelationFields<TModel>[K]["type"]
+  [K in keyof RelationMap<TModel>]?: RelationFilterType<
+    ReturnType<RelationMap<TModel>[K]["target"]>,
+    RelationMap<TModel>[K]["type"]
   >;
 };
 
-// Filter types for different field types
+// Filter types for different scalar types
 type FilterType<T> = T extends string
   ? StringFilter
   : T extends number
@@ -485,9 +487,9 @@ type IncludeResult<
   TInclude
 > = ModelType<TModel> & {
   [K in keyof TInclude &
-    keyof RelationFields<TModel>]: RelationFields<TModel>[K]["type"] extends "many"
-    ? Array<ModelType<ReturnType<RelationFields<TModel>[K]["target"]>>>
-    : ModelType<ReturnType<RelationFields<TModel>[K]["target"]>>;
+    keyof RelationMap<TModel>]: RelationMap<TModel>[K]["type"] extends "many"
+    ? Array<ModelType<ReturnType<RelationMap<TModel>[K]["target"]>>>
+    : ModelType<ReturnType<RelationMap<TModel>[K]["target"]>>;
 };
 ```
 
@@ -570,7 +572,7 @@ type EventName<T extends string> = `on${Capitalize<T>}`;
 // EventName<"click"> = "onClick"
 
 // Create nested field paths
-type FieldPath<T> = T extends object
+type ScalarPath<T> = T extends object
   ? {
       [K in keyof T]: K extends string
         ? T[K] extends object
@@ -635,11 +637,9 @@ These generic types work with any model by taking the model schema as a type par
 
 #### Input Types for Operations
 
-- `CreateInput<TModel>` - Input for creating new records
-- `UncheckedCreateInput<TModel>` - Alternative create input without relation validation
+- `CreateInput<TModel>` - Blended create input for scalar fields and supported relation data
 - `CreateManyInput<TModel>` - Input for batch create operations
-- `UpdateInput<TModel>` - Input for updating existing records
-- `UncheckedUpdateInput<TModel>` - Alternative update input without relation validation
+- `UpdateInput<TModel>` - Blended update input for scalar fields and supported relation data
 - `UpdateManyMutationInput<TModel>` - Input for batch update operations
 - `UpsertInput<TModel>` - Input for upsert operations
 
@@ -655,15 +655,13 @@ These generic types work with any model by taking the model schema as a type par
 
 - `CreateNestedOneInput<TModel, TRelation>` - Nested creation for one-to-one/many relations
 - `CreateNestedManyInput<TModel, TRelation>` - Nested creation for one-to-many relations
-- `UpdateOneRequiredNestedInput<TModel, TRelation>` - Required nested updates
-- `UpdateOneOptionalNestedInput<TModel, TRelation>` - Optional nested updates
-- `UpdateManyNestedInput<TModel, TRelation>` - Batch nested updates
+- `UpdateOneRequiredNestedInput<TModel, TRelation>` - Conceptual required nested update type; nested `update` is not in the current public contract
+- `UpdateOneOptionalNestedInput<TModel, TRelation>` - Conceptual optional nested update type; nested `update` is not in the current public contract
+- `UpdateManyNestedInput<TModel, TRelation>` - Conceptual batch nested update type; nested `updateMany` is not in the current public contract
 - `CreateOrConnectInput<TModel, TRelation>` - Create or connect operations
-- `UpsertNestedInput<TModel, TRelation>` - Upsert in relation context
-- `CreateWithoutInput<TModel, TRelation>` - Create without specific relation
-- `UpdateWithoutInput<TModel, TRelation>` - Update without specific relation
-- `UncheckedCreateWithoutInput<TModel, TRelation>` - Unchecked create without relation
-- `UncheckedUpdateWithoutInput<TModel, TRelation>` - Unchecked update without relation
+- `UpsertNestedInput<TModel, TRelation>` - Conceptual upsert in relation context; nested `upsert` is not in the current public contract
+- `CreateWithoutInput<TModel, TRelation>` - Create input without a specific relation
+- `UpdateWithoutInput<TModel, TRelation>` - Update input without a specific relation
 
 #### Aggregation Types
 
@@ -713,35 +711,35 @@ These generic types work with any model by taking the model schema as a type par
 
 These types are shared across all models:
 
-#### Field Filter Types
+#### Scalar Filter Types
 
-- `StringFilter` - String field filtering operations
-- `StringNullableFilter` - Nullable string field filtering
-- `IntFilter` - Integer field filtering operations
-- `IntNullableFilter` - Nullable integer field filtering
-- `FloatFilter` - Float field filtering operations
-- `FloatNullableFilter` - Nullable float field filtering
-- `BoolFilter` - Boolean field filtering operations
-- `BoolNullableFilter` - Nullable boolean field filtering
-- `DateTimeFilter` - DateTime field filtering operations
-- `DateTimeNullableFilter` - Nullable DateTime field filtering
-- `EnumFilter` - Enum field filtering operations
-- `EnumNullableFilter` - Nullable enum field filtering
+- `StringFilter` - String scalar filtering operations
+- `StringNullableFilter` - Nullable string scalar filtering
+- `IntFilter` - Integer scalar filtering operations
+- `IntNullableFilter` - Nullable integer scalar filtering
+- `FloatFilter` - Float scalar filtering operations
+- `FloatNullableFilter` - Nullable float scalar filtering
+- `BoolFilter` - Boolean scalar filtering operations
+- `BoolNullableFilter` - Nullable boolean scalar filtering
+- `DateTimeFilter` - DateTime scalar filtering operations
+- `DateTimeNullableFilter` - Nullable DateTime scalar filtering
+- `EnumFilter` - Enum scalar filtering operations
+- `EnumNullableFilter` - Nullable enum scalar filtering
 
-#### Field Update Types
+#### Scalar Update Types
 
-- `StringFieldUpdateOperationsInput` - String field update operations
-- `NullableStringFieldUpdateOperationsInput` - Nullable string field updates
-- `IntFieldUpdateOperationsInput` - Integer field update operations
-- `NullableIntFieldUpdateOperationsInput` - Nullable integer field updates
-- `FloatFieldUpdateOperationsInput` - Float field update operations
-- `NullableFloatFieldUpdateOperationsInput` - Nullable float field updates
-- `BoolFieldUpdateOperationsInput` - Boolean field update operations
-- `NullableBoolFieldUpdateOperationsInput` - Nullable boolean field updates
-- `DateTimeFieldUpdateOperationsInput` - DateTime field update operations
-- `NullableDateTimeFieldUpdateOperationsInput` - Nullable DateTime field updates
-- `EnumFieldUpdateOperationsInput` - Enum field update operations
-- `NullableEnumFieldUpdateOperationsInput` - Nullable enum field updates
+- `StringScalarUpdateOperationsInput` - String scalar update operations
+- `NullableStringScalarUpdateOperationsInput` - Nullable string scalar updates
+- `IntScalarUpdateOperationsInput` - Integer scalar update operations
+- `NullableIntScalarUpdateOperationsInput` - Nullable integer scalar updates
+- `FloatScalarUpdateOperationsInput` - Float scalar update operations
+- `NullableFloatScalarUpdateOperationsInput` - Nullable float scalar updates
+- `BoolScalarUpdateOperationsInput` - Boolean scalar update operations
+- `NullableBoolScalarUpdateOperationsInput` - Nullable boolean scalar updates
+- `DateTimeScalarUpdateOperationsInput` - DateTime scalar update operations
+- `NullableDateTimeScalarUpdateOperationsInput` - Nullable DateTime scalar updates
+- `EnumScalarUpdateOperationsInput` - Enum scalar update operations
+- `NullableEnumScalarUpdateOperationsInput` - Nullable enum scalar updates
 
 #### Relation Filter Types
 
@@ -786,7 +784,7 @@ These types are shared across all models:
 - `InteractiveTransactionOptions` - Options for interactive transactions
 - `BatchTransactionOptions` - Options for batch transactions
 
-This comprehensive list ensures that VibORM provides complete type coverage equivalent to Prisma's generated types, but computed at development time through TypeScript's type system.
+This list describes the intended VibORM type surface. It is Prisma-inspired, but it does not claim complete equivalence with Prisma's generated helper types.
 
 ## Testing Strategy
 

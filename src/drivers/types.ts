@@ -17,6 +17,12 @@ export interface QueryResult<T = Record<string, unknown>> {
   rows: T[];
   /** Number of affected rows (INSERT/UPDATE/DELETE) */
   rowCount: number;
+  /**
+   * Auto-generated id of the inserted row, when the driver reports one
+   * (MySQL drivers). Preferred over a follow-up SELECT LAST_INSERT_ID(),
+   * which races on pooled connections outside transactions.
+   */
+  insertId?: number | bigint;
 }
 
 /**

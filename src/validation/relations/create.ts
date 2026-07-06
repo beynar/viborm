@@ -2,15 +2,15 @@
 
 import type { AnyModel } from "@schema/model";
 import type {
-  GetInverseRelationFields,
+  GetInverseRelationMap,
   RelationState,
 } from "@schema/relation/types";
-import { type V, v } from "@validation";
+import { type V, v } from "../primitives/v";
+import type { ScalarSchemas } from "../model";
 import {
   getNestedScalarCreateWithOmittedRequiredKeys,
   type NestedScalarCreateWithOmittedRequiredKeys,
 } from "../model/core/create";
-import type { FieldSchemas } from "../model";
 import type { GetTargetSchemas, SchemaGetter, TargetModel } from "./helpers";
 
 // =============================================================================
@@ -23,53 +23,56 @@ export type CreateWithOmittedFk<
 > = V.Omit<
   GetTargetSchemas<S>["core"]["create"],
   Extract<
-    GetInverseRelationFields<S, Source>,
+    GetInverseRelationMap<S, Source>,
     readonly (keyof GetTargetSchemas<S>["core"]["create"]["entries"])[]
   >
 >;
 
-type InverseRelationFields<
+type InverseRelationMap<
   S extends RelationState,
   Source extends AnyModel,
-> = S extends { type: "manyToOne" | "oneToOne" }
-  ? S extends { fields: readonly (infer FieldKey extends string)[] }
-    ? FieldKey
-    : never
+> = S extends {
+  type: "manyToOne" | "oneToOne";
+  fields: readonly (infer ScalarKey extends string)[];
+}
+  ? ScalarKey
   : S extends { name: infer RelationName extends string }
-    ? FieldsForRelationKey<TargetModel<S>, RelationName> extends never
-      ? ScannedInverseRelationFields<S, Source>
-      : FieldsForRelationKey<TargetModel<S>, RelationName>
-    : ScannedInverseRelationFields<S, Source>;
+    ? ScalarsForRelationKey<TargetModel<S>, RelationName> extends never
+      ? ScannedInverseRelationMap<S, Source>
+      : ScalarsForRelationKey<TargetModel<S>, RelationName>
+    : ScannedInverseRelationMap<S, Source>;
 
-type FieldsForRelationKey<
+type ScalarsForRelationKey<
   M extends AnyModel,
   RelationName extends string,
 > = RelationName extends keyof M["~"]["state"]["relations"]
   ? M["~"]["state"]["relations"][RelationName]["~"]["state"] extends {
-      fields: readonly (infer FieldKey extends string)[];
+      fields: readonly (infer ScalarKey extends string)[];
     }
-    ? FieldKey
+    ? ScalarKey
     : never
   : never;
 
-type ScannedInverseRelationFields<
+type ScannedInverseRelationMap<
   S extends RelationState,
   Source extends AnyModel,
 > = {
-      [K in KnownKeys<TargetModel<S>["~"]["state"]["relations"]>]: TargetModel<S>["~"]["state"]["relations"][K]["~"]["state"] extends infer InverseState
-        ? InverseState extends {
-            type: "manyToOne" | "oneToOne";
-            getter: () => Source;
-            fields: readonly (infer FieldKey extends string)[];
-          }
-          ? S extends { name: infer RelationName extends string }
-            ? InverseState extends { name: RelationName }
-              ? FieldKey
-              : never
-            : FieldKey
+  [K in KnownKeys<
+    TargetModel<S>["~"]["state"]["relations"]
+  >]: TargetModel<S>["~"]["state"]["relations"][K]["~"]["state"] extends infer InverseState
+    ? InverseState extends {
+        type: "manyToOne" | "oneToOne";
+        getter: () => Source;
+        fields: readonly (infer ScalarKey extends string)[];
+      }
+      ? S extends { name: infer RelationName extends string }
+        ? InverseState extends { name: RelationName }
+          ? ScalarKey
           : never
-        : never;
-    }[KnownKeys<TargetModel<S>["~"]["state"]["relations"]>];
+        : ScalarKey
+      : never
+    : never;
+}[KnownKeys<TargetModel<S>["~"]["state"]["relations"]>];
 
 type KnownKeys<T> = {
   [K in keyof T]: string extends K ? never : number extends K ? never : K;
@@ -78,14 +81,14 @@ type KnownKeys<T> = {
 export type InverseRequiredKeys<
   S extends RelationState,
   Source extends AnyModel,
-> = readonly InverseRelationFields<S, Source>[];
+> = readonly InverseRelationMap<S, Source>[];
 
 export type CreateManyDataSchema<
   S extends RelationState,
   Source extends AnyModel,
 > = NestedScalarCreateWithOmittedRequiredKeys<
   TargetModel<S>,
-  FieldSchemas<TargetModel<S>>,
+  ScalarSchemas<TargetModel<S>>,
   InverseRequiredKeys<S, Source>
 >;
 
@@ -124,7 +127,7 @@ export const toOneCreateFactory = <
   targetSchemas: T
 ): ToOneCreateSchema<S, Source> => {
   const getCreateSchema = () => {
-    const fkFields = getInverseRelationFieldsRuntime(state, source);
+    const fkFields = getInverseRelationMapRuntime(state, source);
     return v.omit(targetSchemas().core.create, fkFields);
   };
 
@@ -190,18 +193,18 @@ export const toManyCreateFactory = <
   targetSchemas: T
 ): ToManyCreateSchema<S, Source> => {
   const getCreateSchema = () => {
-    const fkFields = getInverseRelationFieldsRuntime(state, source);
+    const fkFields = getInverseRelationMapRuntime(state, source);
     return v.omit(targetSchemas().core.create, fkFields);
   };
 
   const getCreateManyDataSchema = (): CreateManyDataSchema<S, Source> => {
     const targetModel = state.getter() as TargetModel<S>;
-    const fkFields = (getInverseRelationFieldsRuntime(state, source) ??
+    const fkFields = (getInverseRelationMapRuntime(state, source) ??
       []) as InverseRequiredKeys<S, Source>;
     const schemas = targetSchemas();
     return getNestedScalarCreateWithOmittedRequiredKeys<
       TargetModel<S>,
-      FieldSchemas<TargetModel<S>>,
+      ScalarSchemas<TargetModel<S>>,
       InverseRequiredKeys<S, Source>
     >(
       targetModel,
@@ -241,4 +244,4 @@ export const toManyCreateFactory = <
 };
 
 // Helper to get FK fields at runtime (moved from helpers.ts inline usage)
-import { getInverseRelationFields as getInverseRelationFieldsRuntime } from "@schema/relation/types";
+import { getInverseRelationMap as getInverseRelationMapRuntime } from "@schema/relation/types";

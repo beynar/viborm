@@ -1,0 +1,91 @@
+---
+title: L2 - Scalars
+description: Scalar type definitions with State generic for compile-time tracking
+icon: Box
+---
+
+**Location:** `src/schema/scalars/`
+
+## Why This Layer Exists
+
+Scalars need to preserve type information as users chain modifiers:
+
+```typescript
+s.string()           // StringScalar<{type: "string"}>
+  .nullable()        // StringScalar<{type: "string", nullable: true}>  
+  .default("hello")  // StringScalar<{..., default: "hello"}>
+```
+
+Each modifier returns a **new instance** with updated types. TypeScript tracks this through the State generic, enabling fully typed queries without code generation.
+
+## The State Generic Pattern
+
+Every scalar carries its configuration as a type parameter:
+
+```typescript
+class StringScalar<S extends StringScalarState> {
+  // S contains: type, nullable, optional, default, unique, id, etc.
+}
+```
+
+When you call `.nullable()`, a new scalar is created:
+
+```typescript
+nullable(): StringScalar<S & { nullable: true }> {
+  return new StringScalar({ ...this.state, nullable: true });
+}
+```
+
+The key insight: **immutability enables type tracking**. If we mutated the scalar, TypeScript couldn't know the type changed.
+
+## Available Scalar Types
+
+| Factory | Database Type | TypeScript Type |
+|---------|---------------|-----------------|
+| `s.string()` | VARCHAR/TEXT | `string` |
+| `s.int()` | INTEGER | `number` |
+| `s.bigint()` | BIGINT | `bigint` |
+| `s.float()` | FLOAT/DOUBLE | `number` |
+| `s.decimal()` | DECIMAL | `string` |
+| `s.boolean()` | BOOLEAN | `boolean` |
+| `s.datetime()` | DATETIME/TIMESTAMP | `Date` |
+| `s.json<T>()` | JSON/JSONB | `T` |
+| `s.enum(values)` | ENUM/VARCHAR | `values[number]` |
+| `s.blob()` | BLOB/BYTEA | `Uint8Array` |
+| `s.point()` | POINT | `{ x, y }` |
+| `s.vector(dim)` | VECTOR | `number[]` |
+
+## Common Modifiers
+
+Modifiers work across scalar types where applicable:
+
+| Modifier | Purpose |
+|----------|---------|
+| `.nullable()` | Allow NULL values |
+| `.default(value)` | Set default value |
+| `.id()` | Mark as primary key |
+| `.unique()` | Add unique constraint |
+| `.map(columnName)` | Map to different column name |
+| `.auto.uuid()` | Auto-generate UUIDs |
+| `.auto.ulid()` | Auto-generate ULIDs |
+
+## Lazy Schema Building
+
+Scalars don't build validation schemas immediately - that would be slow. Instead, schemas are built **on first access**:
+
+```typescript
+// Internal pattern
+get ["~"]() {
+  this._schemas ??= buildSchemas(this.state);  // Built once, cached
+  return this._schemas;
+}
+```
+
+This matters because VibORM creates many scalar instances during schema definition, but only builds validation schemas when actually needed for queries.
+
+## Connection to Other Layers
+
+- **L1 (Validation)**: Scalars use `v.*` primitives internally
+- **L3 (Query Schemas)**: Query schemas compose scalar schemas for where/create/update  
+- **L7 (Adapters)**: Scalar types determine SQL column types
+- **L10 (Migrations)**: Scalar state drives DDL generation

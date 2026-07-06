@@ -16,14 +16,34 @@ import {
   type DriverConfig,
   type VibORMClient,
 } from "@client/client";
-import { unsupportedGeospatial, unsupportedVector } from "@errors";
+import {
+  TransactionError,
+  unsupportedGeospatial,
+  unsupportedVector,
+  VibORMErrorCode,
+} from "@errors";
 import type {
   FullQueryResults,
   NeonQueryFunction,
   NeonQueryFunctionInTransaction,
 } from "@neondatabase/serverless";
 import { Driver } from "../driver";
-import type { BatchQuery, QueryResult } from "../types";
+import type {
+  BatchQuery,
+  IsolationLevel,
+  QueryResult,
+  TransactionOptions,
+} from "../types";
+
+const NEON_ISOLATION_LEVELS: Record<
+  IsolationLevel,
+  "ReadUncommitted" | "ReadCommitted" | "RepeatableRead" | "Serializable"
+> = {
+  read_uncommitted: "ReadUncommitted",
+  read_committed: "ReadCommitted",
+  repeatable_read: "RepeatableRead",
+  serializable: "Serializable",
+};
 
 // ============================================================
 // EXPORTED OPTIONS
@@ -90,17 +110,33 @@ export class NeonHTTPDriver extends Driver<NeonQuery, NeonTx> {
   }
 
   protected async initClient(): Promise<NeonQuery> {
-    const { neon } = await import("@neondatabase/serverless");
+    const { neon, types } = await import("@neondatabase/serverless");
 
     if (!this.driverOptions.databaseUrl) {
       throw new Error("Neon HTTP driver requires a databaseUrl");
     }
+
+    // DATE (1082) / TIMESTAMP WITHOUT TIME ZONE (1114): the default parsers
+    // build process-local Dates, shifting the stored value by the process
+    // timezone. Return raw strings — the shared result parser builds UTC
+    // Dates from them, matching every other driver.
+    const identityParser = (value: string) => value;
+    // pg-types declares getTypeParser with per-format overloads that a single
+    // wrapper function can't express — the cast is unavoidable here
+    const getTypeParser = ((oid: number, format?: string) => {
+      if ((oid === 1082 || oid === 1114) && format !== "binary") {
+        return identityParser;
+      }
+      return types.getTypeParser(oid as never, format as never);
+    }) as typeof types.getTypeParser;
+    const utcSafeTypes: typeof types = { ...types, getTypeParser };
 
     // Always use arrayMode=false (object rows) and fullResults=true (includes rowCount)
     const client = neon(this.driverOptions.databaseUrl, {
       fetchOptions: this.driverOptions.options?.fetchOptions,
       fullResults: true,
       arrayMode: false,
+      types: utcSafeTypes,
     });
 
     return client;
@@ -146,11 +182,27 @@ export class NeonHTTPDriver extends Driver<NeonQuery, NeonTx> {
    */
   protected async executeBatch<T>(
     client: NeonQuery,
-    queries: BatchQuery[]
+    queries: BatchQuery[],
+    options?: TransactionOptions
   ): Promise<QueryResult<T>[]> {
+    if (options?.timeout !== undefined) {
+      // The HTTP transaction is a single request; a client-side timeout can't
+      // stop it server-side, so reject instead of pretending to honor it.
+      throw new TransactionError(
+        `Driver "${this.driverName}" cannot honor a transaction timeout in batch execution.`,
+        {
+          code: VibORMErrorCode.INVALID_TRANSACTION_INPUT,
+          meta: { driver: this.driverName, method: "$transaction([...])" },
+        }
+      );
+    }
+
     // Use Neon's transaction function with a callback that returns query array
-    const results = await client.transaction((txFn) =>
-      queries.map((query) => txFn(query.sql, query.params ?? []))
+    const results = await client.transaction(
+      (txFn) => queries.map((query) => txFn(query.sql, query.params ?? [])),
+      options?.isolationLevel
+        ? { isolationLevel: NEON_ISOLATION_LEVELS[options.isolationLevel] }
+        : undefined
     );
 
     // Map results to QueryResult format

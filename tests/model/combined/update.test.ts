@@ -162,15 +162,42 @@ describe("Update Schema - Post Model Runtime (manyToOne)", () => {
     expect(result.issues).toBeUndefined();
   });
 
-  test.each(["update", "upsert"] as const)(
-    "runtime: rejects unsupported relation %s",
-    (operation) => {
-      const result = parse(schema, {
-        author: {
-          [operation]: {},
+  test("runtime: accepts relation update", () => {
+    const result = parse(schema, {
+      author: {
+        update: { name: "Updated author" },
+      },
+    });
+    expect(result.issues).toBeUndefined();
+  });
+
+  test("runtime: accepts relation upsert", () => {
+    const result = parse(schema, {
+      author: {
+        upsert: {
+          create: {
+            id: "author-1",
+            name: "Created author",
+          },
+          update: {
+            name: "Updated author",
+          },
         },
-      });
-      expect(result.issues?.[0]?.message).toBe(`Unknown key: ${operation}`);
-    }
-  );
+      },
+    });
+    expect(result.issues).toBeUndefined();
+  });
+
+  test("runtime: rejects malformed relation upsert", () => {
+    const result = parse(schema, {
+      author: {
+        upsert: {
+          update: {
+            name: "Updated author",
+          },
+        },
+      },
+    });
+    expect(result.issues?.[0]?.message).toBe("Missing required field: create");
+  });
 });

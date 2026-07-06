@@ -5,7 +5,7 @@
  * Uses table recreation for operations SQLite doesn't support natively.
  */
 
-import type { Field, FieldState } from "@schema/fields";
+import type { Scalar, ScalarState } from "@schema/scalars";
 import { MigrationError, VibORMErrorCode } from "../../../errors";
 import type { ColumnDef, TableDef } from "../../types";
 import {
@@ -66,8 +66,8 @@ export class SQLite3MigrationDriver extends MigrationDriver {
   // TYPE MAPPING
   // ===========================================================================
 
-  mapFieldType(field: Field, fieldState: FieldState): string {
-    const nativeType = field["~"].nativeType;
+  mapScalarType(scalar: Scalar, scalarState: ScalarState): string {
+    const nativeType = scalar["~"].nativeType;
 
     // If a native type is specified and it's for SQLite, use it
     if (nativeType && nativeType.db === "sqlite") {
@@ -76,8 +76,8 @@ export class SQLite3MigrationDriver extends MigrationDriver {
 
     // Use centralized type mapping
     return getSQLiteType({
-      type: fieldState.type,
-      array: fieldState.array,
+      type: scalarState.type,
+      array: scalarState.array,
     });
   }
 
@@ -120,6 +120,10 @@ export class SQLite3MigrationDriver extends MigrationDriver {
           meta: { column: column.name, type: column.type, autoIncrement: true },
         }
       );
+    }
+
+    if (column.autoIncrement) {
+      return `${this.escapeIdentifier(column.name)} INTEGER PRIMARY KEY AUTOINCREMENT`;
     }
 
     const parts: string[] = [this.escapeIdentifier(column.name), column.type];

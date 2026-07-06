@@ -637,6 +637,10 @@ export interface GenerateResult {
   content: string;
   /** Operations included in migration */
   operations: DiffOperation[];
+  /** Generated down (rollback) SQL statements */
+  downSql: string[];
+  /** Warnings about lossy or non-invertible operations in the down migration */
+  downWarnings: string[];
   /** Whether files were written */
   written: boolean;
   /** Message describing the result */

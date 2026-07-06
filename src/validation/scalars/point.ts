@@ -1,23 +1,16 @@
-import type { FieldState } from "@schema/fields/common";
-import v, { type V } from "@validation";
+import type { ScalarState } from "@schema/scalars/common";
+import v, { type V } from "../primitives/v";
 
 // =============================================================================
 // FILTER TYPES
 // =============================================================================
 
+// Geospatial operators (intersects/contains/within/crosses/overlaps/
+// touches/covers/dWithin) are deliberately absent: the query engine
+// rejects them, so the types must not offer them. The PG adapter
+// implementations stay reserved for a future opt-in.
 type PointFilterBase<S extends V.Schema> = {
   equals: S;
-  intersects: S;
-  contains: S;
-  within: S;
-  crosses: S;
-  overlaps: S;
-  touches: S;
-  covers: S;
-  dWithin: V.Object<{
-    geometry: S;
-    distance: V.Number;
-  }>;
 };
 
 type PointFilterSchema<S extends V.Schema> = V.Union<
@@ -50,17 +43,6 @@ const buildPointFilterSchema = <S extends V.Schema>(
 ): PointFilterSchema<S> => {
   const filter = v.object({
     equals: schema,
-    intersects: schema,
-    contains: schema,
-    within: schema,
-    crosses: schema,
-    overlaps: schema,
-    touches: schema,
-    covers: schema,
-    dWithin: v.object({
-      geometry: schema,
-      distance: v.number(),
-    }),
   });
   return v.union([
     v.shorthandFilter(schema),
@@ -87,14 +69,14 @@ const buildPointUpdateSchema = <S extends V.Schema>(
 // POINT SCHEMA BUILDER
 // =============================================================================
 
-export interface PointSchemas<F extends FieldState<"point">> {
+export interface PointSchemas<F extends ScalarState<"point">> {
   base: F["base"];
   create: V.Point<F>;
   update: PointUpdateSchema<F["base"]>;
   filter: PointFilterSchema<F["base"]>;
 }
 
-export const buildPointSchema = <F extends FieldState<"point">>(
+export const buildPointSchema = <F extends ScalarState<"point">>(
   state: F
 ): PointSchemas<F> => {
   return {

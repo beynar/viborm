@@ -8,7 +8,12 @@ The query engine validates input, builds SQL using the database adapter, and par
 query-engine/
 ├── index.ts                      # Public exports
 ├── types.ts                      # Shared types
-├── query-engine.ts               # Main orchestrator
+├── query-engine.ts               # Public QueryEngine shell (build/prepare/execute)
+├── executor.ts                   # Validates + builds SQL for an operation
+├── result-flow.ts                # Result parsing/hydration flow
+├── transaction-flow.ts           # $transaction callback/batch execution
+├── cache-flow.ts                 # Cache read/write orchestration
+├── errors.ts                     # QueryEngineError and friends
 ├── validator.ts                  # Single validator using SchemaRegistry
 │
 ├── context/
@@ -35,7 +40,10 @@ query-engine/
 │   ├── update.ts
 │   ├── delete.ts
 │   ├── upsert.ts
-│   └── count.ts
+│   ├── count.ts
+│   ├── aggregate.ts
+│   ├── groupby.ts
+│   └── nested-writes/             # Nested create/update/connect/disconnect planning
 │
 └── result/
     ├── index.ts
@@ -49,11 +57,11 @@ query-engine/
 ```ts
 import { createQueryEngine, PostgresAdapter } from "viborm";
 
-// Create engine with adapter and models
+// Create engine with a driver, models, and the schema registry
 const engine = createQueryEngine(
-  new PostgresAdapter(),
+  driver, // AnyDriver - wraps the adapter and connection
   { user: userModel, post: postModel },
-  connection // optional - for execution
+  schemaRegistry
 );
 
 // Build SQL without executing

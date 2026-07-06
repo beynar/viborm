@@ -13,14 +13,14 @@
 
 ### 1. Schema Definition (`viborm/schema`)
 
-**Purpose**: Define models, fields, relations
+**Purpose**: Define models, scalars, and relations
 
 ```typescript
 import { s, PG, MYSQL, SQLITE } from "viborm/schema";
 ```
 
 **Exports:**
-- `s` - Schema builder (model, fields, relations)
+- `s` - Schema builder (models, scalars, relations)
 - `PG` / `MYSQL` / `SQLITE` - Native database types
 
 **File:** `src/schema/exports.ts` → `viborm/schema`
@@ -335,11 +335,11 @@ export default defineConfig({
 export { s } from "./index";
 
 // Native types (directly exported, no separate subpath)
-export { PG, MYSQL, SQLITE, type NativeType } from "./fields/native-types";
+export { PG, MYSQL, SQLITE, type NativeType } from "./scalars/native-types";
 
-// Model and field types for advanced usage
+// Model and scalar types for advanced usage
 export type { Model, ModelState, AnyModel } from "./model";
-export type { Field, NumberField } from "./fields";
+export type { Scalar, NumberScalar } from "./scalars";
 export type { AnyRelation, Getter, ReferentialAction, RelationType } from "./relation";
 
 // Hydration utilities (for library authors)

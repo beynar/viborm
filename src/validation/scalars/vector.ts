@@ -1,19 +1,27 @@
-import type { FieldState } from "@schema/fields/common";
-import v, { type V } from "@validation";
+import type { ScalarState } from "@schema/scalars/common";
+import v, { type V } from "../primitives/v";
 
 // =============================================================================
 // FILTER TYPES
 // =============================================================================
 
+// Similarity operators (l2/cosine) are deliberately absent: the query
+// engine rejects them, so the types must not offer them. The PG adapter
+// implementations stay reserved for a future opt-in.
 type VectorFilterBase<S extends V.Schema> = {
-  l2: S;
-  cosine: S;
+  equals: S;
 };
 
 type VectorFilterSchema<S extends V.Schema> = V.Union<
   readonly [
-    V.Coerce<S, { cosine: S[" vibInferred"]["1"] }>,
-    V.Object<VectorFilterBase<S>>,
+    V.ShorthandFilter<S>,
+    V.Object<
+      VectorFilterBase<S> & {
+        not: V.Union<
+          readonly [V.ShorthandFilter<S>, V.Object<VectorFilterBase<S>>]
+        >;
+      }
+    >,
   ]
 >;
 
@@ -29,17 +37,18 @@ type VectorUpdateSchema<S extends V.Schema> = V.Union<
 // SCHEMA BUILDERS
 // =============================================================================
 
-const shorthandFilterVector = <S extends V.Schema>(schema: S) =>
-  v.coerce(schema, (val: S[" vibInferred"]["0"]) => ({ cosine: val }));
-
 const buildVectorFilterSchema = <S extends V.Schema>(
   schema: S
 ): VectorFilterSchema<S> => {
   const filter = v.object({
-    l2: schema,
-    cosine: schema,
+    equals: schema,
   });
-  return v.union([shorthandFilterVector(schema), filter]);
+  return v.union([
+    v.shorthandFilter(schema),
+    filter.extend({
+      not: v.union([v.shorthandFilter(schema), filter]),
+    }),
+  ]);
 };
 
 const buildVectorUpdateSchema = <S extends V.Schema>(
@@ -59,14 +68,14 @@ const buildVectorUpdateSchema = <S extends V.Schema>(
 // VECTOR SCHEMA BUILDER
 // =============================================================================
 
-export interface VectorSchemas<F extends FieldState<"vector">> {
+export interface VectorSchemas<F extends ScalarState<"vector">> {
   base: F["base"];
   create: V.Vector<F>;
   update: VectorUpdateSchema<F["base"]>;
   filter: VectorFilterSchema<F["base"]>;
 }
 
-export const buildVectorSchema = <F extends FieldState<"vector">>(
+export const buildVectorSchema = <F extends ScalarState<"vector">>(
   state: F
 ): VectorSchemas<F> => {
   return {

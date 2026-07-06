@@ -2,14 +2,14 @@
 
 ## Introduction
 
-The Query Builder provides a type-safe, ergonomic API for querying and mutating data, closely mirroring Prisma's API. It must support methods like `findMany`, `findUnique`, `create`, `update`, `delete`, and allow raw SQL queries. All queries must be type-safe and infer types from the schema. Transactions are not required for the initial version.
+The Query Builder provides a type-safe, ergonomic API for querying and mutating data with Prisma-inspired method names. It must support methods like `findMany`, `findUnique`, `create`, `update`, `delete`, and raw SQL escape hatches. All queries must be type-safe and infer types from the schema. Transactions are not required for the initial version.
 
 ---
 
 ## Goals
 
 - **Type Safety:** All queries must be fully type-safe and infer their types from the schema.
-- **Prisma-like API:** The API must closely match Prisma's for familiarity and ease of use.
+- **Prisma-inspired API:** The API should feel familiar to Prisma users while documenting intentional differences.
 - **Extensibility:** The Query Builder must be easily extensible for future features (e.g., transactions, hooks).
 - **Raw Queries:** Support for raw SQL queries as a utility.
 
@@ -32,7 +32,7 @@ The Query Builder provides a type-safe, ergonomic API for querying and mutating 
   - `update`
   - `delete`
   - `raw` (for raw SQL queries)
-- The API must match Prisma's as closely as possible in method names, arguments, and return types.
+- The API should use familiar Prisma-inspired method names, arguments, and return types where VibORM explicitly supports the behavior.
 - All methods must be type-safe and infer types from the schema.
 
 ### 3. Type Inference
@@ -58,7 +58,7 @@ const user = await orm.user.findUnique({ where: { id: "..." } });
 const created = await orm.user.create({ data: { ... } });
 const updated = await orm.user.update({ where: { id: "..." }, data: { ... } });
 const deleted = await orm.user.delete({ where: { id: "..." } });
-const rawResult = await orm.raw("SELECT * FROM user WHERE ...");
+const rawResult = await orm.$queryRaw("SELECT * FROM user WHERE id = ?", [userId]);
 ```
 
 ---
@@ -82,7 +82,7 @@ const rawResult = await orm.raw("SELECT * FROM user WHERE ...");
 
 ## Review Checklist
 
-- [ ] All query methods are type-safe and match Prisma's API
+- [ ] All query methods are type-safe and match the documented VibORM contract
 - [ ] All query type helpers are in `/types/`
 - [ ] Raw queries are supported
 - [ ] No decorators are used

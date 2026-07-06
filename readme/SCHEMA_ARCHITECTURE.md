@@ -1,6 +1,6 @@
 # Schema Architecture
 
-VibORM uses a **config-based, type-safe schema system** where field definitions are immutable and chainable.
+VibORM uses a **config-based, type-safe schema system** where scalar definitions are immutable and chainable.
 
 ## Validation Library
 
@@ -27,30 +27,30 @@ See [Validation Library docs](/docs/internals/validation) for implementation det
 
 ```mermaid
 classDiagram
-    class BaseField~T, TConfig~ {
+    class BaseScalar~T, TConfig~ {
         +config: TConfig
-        +~: FieldInternals~T~
-        #cloneWith(override): BaseField
-        +nullable(): BaseField
-        +array(): BaseField
-        +id(): BaseField
-        +unique(): BaseField
-        +default(value): BaseField
+        +~: ScalarInternals~T~
+        #cloneWith(override): BaseScalar
+        +nullable(): BaseScalar
+        +array(): BaseScalar
+        +id(): BaseScalar
+        +unique(): BaseScalar
+        +default(value): BaseScalar
     }
     
-    class StringField~T~ {
-        +config: StringFieldConfig
-        +uuid(): StringField
-        +ulid(): StringField
-        +cuid(): StringField
-        +validator(v): StringField
+    class StringScalar~T~ {
+        +config: StringScalarConfig
+        +uuid(): StringScalar
+        +ulid(): StringScalar
+        +cuid(): StringScalar
+        +validator(v): StringScalar
     }
     
-    class NumberField~T~ {
-        +config: NumberFieldConfig
-        +int(): NumberField
-        +float(): NumberField
-        +autoIncrement(): NumberField
+    class NumberScalar~T~ {
+        +config: NumberScalarConfig
+        +int(): NumberScalar
+        +float(): NumberScalar
+        +autoIncrement(): NumberScalar
     }
     
     class Relation~G, T~ {
@@ -59,31 +59,31 @@ classDiagram
         +getter: () => Model
     }
     
-    BaseField <|-- StringField
-    BaseField <|-- NumberField
-    BaseField <|-- BooleanField
-    BaseField <|-- BigIntField
-    BaseField <|-- DateTimeField
-    BaseField <|-- JsonField
-    BaseField <|-- BlobField
-    BaseField <|-- EnumField
-    BaseField <|-- VectorField
+    BaseScalar <|-- StringScalar
+    BaseScalar <|-- NumberScalar
+    BaseScalar <|-- BooleanScalar
+    BaseScalar <|-- BigIntScalar
+    BaseScalar <|-- DateTimeScalar
+    BaseScalar <|-- JsonScalar
+    BaseScalar <|-- BlobScalar
+    BaseScalar <|-- EnumScalar
+    BaseScalar <|-- VectorScalar
 ```
 
 ## Two Namespaces: `config` vs `~`
 
-Each field has two property namespaces:
+Each scalar has two property namespaces:
 
 | Namespace | Purpose | Example |
 |-----------|---------|---------|
-| `config` | Runtime configuration (serializable) | `field.config.isOptional`, `field.config.fieldType` |
-| `~` | Type inference & validators (lazy) | `field["~"].infer`, `field["~"].createValidator` |
+| `config` | Runtime configuration (serializable) | `scalar.config.isOptional`, `scalar.config.scalarType` |
+| `~` | Type inference & validators (lazy) | `scalar["~"].infer`, `scalar["~"].createValidator` |
 
 ```typescript
 const email = s.string().nullable();
 
 // Config (runtime values)
-email.config.fieldType   // "string"
+email.config.scalarType   // "string"
 email.config.isOptional  // true
 
 // Internals (type-level + base validator)
@@ -95,10 +95,10 @@ email["~"].state.base["~standard"].validate("test@example.com")  // Base validat
 
 ```mermaid
 flowchart LR
-    A["s.string()"] --> B["StringField&lt;DefaultState&gt;"]
-    B -->|".nullable()"| C["StringField&lt;MakeNullable&gt;"]
-    C -->|".id()"| D["StringField&lt;MakeId&gt;"]
-    D -->|".uuid()"| E["StringField&lt;MakeAuto&gt;"]
+    A["s.string()"] --> B["StringScalar&lt;DefaultState&gt;"]
+    B -->|".nullable()"| C["StringScalar&lt;MakeNullable&gt;"]
+    C -->|".id()"| D["StringScalar&lt;MakeId&gt;"]
+    D -->|".uuid()"| E["StringScalar&lt;MakeAuto&gt;"]
     
     style A fill:#f9f,stroke:#333
     style E fill:#9f9,stroke:#333
@@ -108,33 +108,33 @@ Each method returns a **new instance** with updated config and transformed gener
 
 ```typescript
 // Each call creates a new instance via cloneWith()
-const field = s.string()      // StringField<DefaultFieldState<string>>
-  .nullable()                  // StringField<MakeNullable<...>>
-  .id()                        // StringField<MakeId<...>>
-  .uuid();                     // StringField<MakeAuto<..., "uuid">>
+const scalar = s.string()     // StringScalar<DefaultScalarState<string>>
+  .nullable()                  // StringScalar<MakeNullable<...>>
+  .id()                        // StringScalar<MakeId<...>>
+  .uuid();                     // StringScalar<MakeAuto<..., "uuid">>
 ```
 
 ## Type State Machine
 
-The generic `T` tracks field state through type transformations:
+The generic `T` tracks scalar state through type transformations:
 
 ```mermaid
 stateDiagram-v2
-    [*] --> DefaultFieldState: s.string()
-    DefaultFieldState --> MakeNullable: .nullable()
-    DefaultFieldState --> MakeId: .id()
-    DefaultFieldState --> MakeUnique: .unique()
-    DefaultFieldState --> MakeArray: .array()
-    DefaultFieldState --> MakeDefault: .default(v)
-    DefaultFieldState --> MakeAuto: .uuid() / .now()
+    [*] --> DefaultScalarState: s.string()
+    DefaultScalarState --> MakeNullable: .nullable()
+    DefaultScalarState --> MakeId: .id()
+    DefaultScalarState --> MakeUnique: .unique()
+    DefaultScalarState --> MakeArray: .array()
+    DefaultScalarState --> MakeDefault: .default(v)
+    DefaultScalarState --> MakeAuto: .uuid() / .now()
     
     MakeNullable --> MakeId: .id()
     MakeId --> MakeAuto: .uuid()
 ```
 
 ```typescript
-// FieldState tracks 6 dimensions:
-interface FieldState<
+// ScalarState tracks 6 dimensions:
+interface ScalarState<
   BaseType,      // string, number, Date, etc.
   IsNullable,    // true | false
   IsArray,       // true | false  
@@ -195,7 +195,7 @@ const post = s.model({
 
 ```mermaid
 flowchart TB
-    subgraph "BaseField (shared logic)"
+    subgraph "BaseScalar (shared logic)"
         CW["cloneWith()"]
         CM["nullable() / array() / id() / unique() / default()"]
         INT["~ internals initialization"]
@@ -204,7 +204,7 @@ flowchart TB
     subgraph "Subclass (type-specific)"
         OV["Override methods for return type narrowing"]
         SP["Type-specific methods (uuid, int, now...)"]
-        CF["Config with fieldType"]
+        CF["Config with scalarType"]
     end
     
     CW --> OV
@@ -215,9 +215,9 @@ flowchart TB
 **Key pattern:** Subclasses override common methods with one-liner casts for return type narrowing:
 
 ```typescript
-// In StringField
-override nullable(): StringField<MakeNullable<T>> {
-  return super.nullable() as StringField<MakeNullable<T>>;
+// In StringScalar
+override nullable(): StringScalar<MakeNullable<T>> {
+  return super.nullable() as StringScalar<MakeNullable<T>>;
 }
 ```
 
@@ -226,15 +226,15 @@ override nullable(): StringField<MakeNullable<T>> {
 ```typescript
 import { s } from "viborm";
 
-// Scalar fields
-s.string()           // StringField
+// Scalars
+s.string()           // StringScalar
 s.number() / s.int() / s.float() / s.decimal()
 s.boolean()
 s.bigint()
 s.datetime()
-s.json(zodSchema?)   // JsonField with optional validation
+s.json(zodSchema?)   // JsonScalar with optional validation
 s.blob()
-s.enumField(["A", "B", "C"])
+s.enumScalar(["A", "B", "C"])
 s.vector(dimensions?)
 
 // Modifiers (chainable)
@@ -266,7 +266,7 @@ s.manyToOne(() => Model)
 
 s.manyToMany(() => Model)
   .through("junction_table")
-  .A("sourceField")
-  .B("targetField")
+  .A("sourceFkField")
+  .B("targetFkField")
   .onDelete("cascade")
 ```

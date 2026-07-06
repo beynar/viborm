@@ -7,7 +7,7 @@
 import type { DatabaseAdapter } from "@adapters";
 import type { AnyDriver } from "@drivers/driver";
 import { QueryEngineError } from "@errors";
-import type { Model } from "@schema/model";
+import { getColumnName, type Model } from "@schema/model";
 import type { ModelRegistry, QueryContext, RelationInfo } from "../types";
 import { createAliasGenerator } from "./alias-generator";
 
@@ -57,6 +57,7 @@ export function createChildContext(
     schemaRegistry: parent.schemaRegistry,
     nextAlias: parent.nextAlias,
     rootAlias: alias,
+    mutationTable: parent.mutationTable,
   };
 }
 
@@ -91,13 +92,7 @@ export function getRelationInfo(
   };
 }
 
-/**
- * Get table name for a model using hydrated names or tableName from state.
- */
-export function getTableName(model: Model<any>): string {
-  // First check hydrated names, then tableName from state, then fall back to model name
-  return model["~"].names.sql ?? model["~"].state.tableName ?? "unknown";
-}
+export { getColumnName, getTableName } from "@schema/model";
 
 /**
  * Get all scalar field names from a model (cached)
@@ -128,15 +123,23 @@ export function isRelation(model: Model<any>, fieldName: string): boolean {
 }
 
 /**
- * Get the actual database column name for a field
- * Uses the model's nameRegistry to resolve names (supports field reuse across models).
- * Falls back to field's .map() columnName or the field name itself.
- *
- * @param model - The model containing the field
- * @param fieldName - The field name in the schema
- * @returns The actual column name (from registry, .map(), or the field name itself)
+ * Translate a raw driver row (RETURNING * / SELECT *) from database column
+ * names to schema field names, so consumers of captured records never see
+ * .map()ed column names. Rows already keyed by field name pass through
+ * unchanged.
  */
-export function getColumnName(model: Model<any>, fieldName: string): string {
-  // Use model's getFieldName helper which checks nameRegistry first
-  return model["~"].getFieldName(fieldName).sql;
+export function translateRowToFieldNames(
+  model: Model<any>,
+  row: Record<string, unknown>
+): Record<string, unknown> {
+  const record: Record<string, unknown> = {};
+  for (const fieldName of getScalarFieldNames(model)) {
+    const columnName = getColumnName(model, fieldName);
+    if (columnName in row) {
+      record[fieldName] = row[columnName];
+    } else if (fieldName in row) {
+      record[fieldName] = row[fieldName];
+    }
+  }
+  return record;
 }

@@ -16,7 +16,7 @@ Provides two approaches for syncing TypeScript schema to the database:
 
 | File | Purpose |
 |------|---------|
-| `push.ts` | Direct push workflow (serialize → diff → execute) |
+| `push/` | Direct push workflow (serialize → diff → execute) |
 | `client.ts` | `createMigrationClient()` programmatic API |
 | `generate/index.ts` | Generate migration files |
 | `apply/index.ts` | Apply/rollback migrations |
@@ -34,6 +34,7 @@ Provides two approaches for syncing TypeScript schema to the database:
 | `storage/` | Storage drivers for migration files (filesystem, etc.) |
 | `generate/` | Migration file generation and formatting |
 | `apply/` | Apply, rollback, status, down operations |
+| `push/` | Push workflow internals (planner, executor, format, enum-removals) |
 
 ---
 
@@ -264,7 +265,7 @@ The journal tracks which migrations exist. The database tracks which are applied
 src/migrations/
 ├── index.ts           # Public exports
 ├── client.ts          # createMigrationClient() API
-├── push.ts            # Direct push workflow
+├── push/              # Direct push workflow (planner, executor, format, enum-removals)
 ├── context.ts         # MigrationContext (shared state)
 ├── serializer.ts      # Model → SchemaSnapshot
 ├── differ.ts          # Snapshot comparison

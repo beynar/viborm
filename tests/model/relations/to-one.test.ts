@@ -17,7 +17,8 @@ import { postSchemas } from "../fixtures";
 // Runtime assertions below still verify concrete transformed shapes.
 type RelationOutput = any;
 
-const relationOutput = (value: unknown): RelationOutput => value as RelationOutput;
+const relationOutput = (value: unknown): RelationOutput =>
+  value as RelationOutput;
 
 // =============================================================================
 // TO-ONE FILTER SCHEMAS
@@ -192,18 +193,31 @@ describe("ToOne Update - Post.author (manyToOne)", () => {
   const schema = postSchemas.relationUpdate;
   type UpdateInput = InferInput<typeof schema>;
 
-  test("type: rejects unsupported update and upsert", () => {
+  test("type: accepts planned update and upsert", () => {
     expectTypeOf<{
       author?: {
         update: { name?: string };
       };
-    }>().not.toMatchTypeOf<UpdateInput>();
+    }>().toMatchTypeOf<UpdateInput>();
     expectTypeOf<{
       author?: {
         upsert: {
           create: { id: string; name: string };
           update: { name?: string };
         };
+      };
+    }>().toMatchTypeOf<UpdateInput>();
+  });
+
+  test("type: rejects to-many-only planned operations", () => {
+    expectTypeOf<{
+      author?: {
+        updateMany: { data: { name?: string } };
+      };
+    }>().not.toMatchTypeOf<UpdateInput>();
+    expectTypeOf<{
+      author?: {
+        deleteMany: { name?: string };
       };
     }>().not.toMatchTypeOf<UpdateInput>();
   });
@@ -254,17 +268,37 @@ describe("ToOne Update - Post.author (manyToOne)", () => {
     expect(result.issues).toBeDefined();
   });
 
-  test.each(["update", "upsert"] as const)(
-    "rejects unsupported '%s'",
-    (operation) => {
-      const result = parse(schema, {
-        author: {
-          [operation]: {},
+  test("accepts planned 'update'", () => {
+    const result = parse(schema, {
+      author: {
+        update: { name: "Updated" },
+      },
+    });
+    expect(result.issues).toBeUndefined();
+  });
+
+  test("accepts planned 'upsert'", () => {
+    const result = parse(schema, {
+      author: {
+        upsert: {
+          create: { id: "author-1", name: "Alice" },
+          update: { name: "Updated" },
         },
-      });
-      expect(result.issues?.[0]?.message).toBe(`Unknown key: ${operation}`);
-    }
-  );
+      },
+    });
+    expect(result.issues).toBeUndefined();
+  });
+
+  test("rejects malformed planned 'upsert'", () => {
+    const result = parse(schema, {
+      author: {
+        upsert: {
+          update: { name: "Updated" },
+        },
+      },
+    });
+    expect(result.issues).toBeDefined();
+  });
 
   // Note: disconnect/delete only available for optional relations
   test("accepts 'disconnect' boolean for optional relation", () => {
@@ -420,5 +454,15 @@ describe("ToOne OrderBy - Post.author (manyToOne)", () => {
     if (!result.issues) {
       expect(relationOutput(result.value).author?.name).toBe("asc");
     }
+  });
+
+  test("rejects nested relation orderBy", () => {
+    const result = parse(schema, {
+      author: {
+        posts: { _count: "desc" },
+      },
+    });
+
+    expect(result.issues).toBeDefined();
   });
 });

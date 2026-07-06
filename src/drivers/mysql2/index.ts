@@ -18,7 +18,12 @@ import type {
   ResultSetHeader,
 } from "mysql2/promise";
 import { Driver, type DriverResultParser } from "../driver";
-import { mysqlResultParser, parseMySQLUrl } from "../shared";
+import {
+  getSqlIsolationLevel,
+  mysqlResultParser,
+  parseMySQLUrl,
+  runSavepoint,
+} from "../shared";
 import type { QueryResult, TransactionOptions } from "../types";
 
 // ============================================================
@@ -40,6 +45,33 @@ export type MySQL2ClientConfig<C extends DriverConfig> = MySQL2DriverOptions &
 // DRIVER IMPLEMENTATION
 // ============================================================
 
+/** mysql2 escapes plain Uint8Array as an object — convert to Buffer for blobs. */
+function convertValuesForMySQL(values: unknown[]): unknown[] {
+  return values.map((v) =>
+    v instanceof Uint8Array && !Buffer.isBuffer(v)
+      ? Buffer.from(v.buffer, v.byteOffset, v.byteLength)
+      : v
+  );
+}
+
+/** SELECT returns a row array; mutations return a ResultSetHeader. */
+function toQueryResult<T>(result: unknown): QueryResult<T> {
+  if (Array.isArray(result)) {
+    return {
+      rows: result as T[],
+      rowCount: result.length,
+    };
+  }
+
+  const header = result as ResultSetHeader;
+  return {
+    rows: [] as T[],
+    rowCount: header.affectedRows,
+    // insertId is 0 when the statement generated no auto-increment id
+    ...(header.insertId ? { insertId: header.insertId } : {}),
+  };
+}
+
 export class MySQL2Driver extends Driver<Pool, PoolConnection> {
   readonly adapter: DatabaseAdapter = new MySQLAdapter();
   readonly result: DriverResultParser = mysqlResultParser;
@@ -58,7 +90,18 @@ export class MySQL2Driver extends Driver<Pool, PoolConnection> {
   protected async initClient(): Promise<Pool> {
     const mysql = await import("mysql2/promise");
 
-    let options = this.driverOptions.options ?? {};
+    let options: PoolOptions = {
+      // DATETIME is stored as naive UTC wall-clock; read it back as UTC
+      // instead of shifting by the process timezone
+      timezone: "Z",
+      // BIGINT/DECIMAL values outside Number's safe range arrive as strings
+      // (the result parser converts them losslessly) instead of lossy numbers
+      supportBigNumbers: true,
+      // DATE as plain "YYYY-MM-DD" — the result parser builds a UTC-midnight
+      // Date, matching every other driver (mysql2 would build local midnight)
+      dateStrings: ["DATE"],
+      ...this.driverOptions.options,
+    };
 
     // Parse databaseUrl if provided (same logic as createClient)
     if (this.driverOptions.databaseUrl) {
@@ -80,22 +123,8 @@ export class MySQL2Driver extends Driver<Pool, PoolConnection> {
     sql: string,
     params: unknown[]
   ): Promise<QueryResult<T>> {
-    const [result] = await client.execute(sql, params);
-
-    // Check if this is a SELECT query (returns rows) or mutation (returns ResultSetHeader)
-    if (Array.isArray(result)) {
-      return {
-        rows: result as T[],
-        rowCount: result.length,
-      };
-    }
-
-    // Mutation query - result is ResultSetHeader
-    const header = result as ResultSetHeader;
-    return {
-      rows: [] as T[],
-      rowCount: header.affectedRows,
-    };
+    const [result] = await client.execute(sql, convertValuesForMySQL(params));
+    return toQueryResult<T>(result);
   }
 
   protected async executeRaw<T>(
@@ -103,22 +132,11 @@ export class MySQL2Driver extends Driver<Pool, PoolConnection> {
     sql: string,
     params?: unknown[]
   ): Promise<QueryResult<T>> {
-    const [result] = await client.query(sql, params);
-
-    // Check if this is a SELECT query (returns rows) or mutation (returns ResultSetHeader)
-    if (Array.isArray(result)) {
-      return {
-        rows: result as T[],
-        rowCount: result.length,
-      };
-    }
-
-    // Mutation query - result is ResultSetHeader
-    const header = result as ResultSetHeader;
-    return {
-      rows: [] as T[],
-      rowCount: header.affectedRows,
-    };
+    const [result] = await client.query(
+      sql,
+      params && convertValuesForMySQL(params)
+    );
+    return toQueryResult<T>(result);
   }
 
   protected async transaction<T>(
@@ -126,20 +144,13 @@ export class MySQL2Driver extends Driver<Pool, PoolConnection> {
     fn: (tx: PoolConnection) => Promise<T>,
     options?: TransactionOptions
   ): Promise<T> {
-    if (this.inTransaction) {
+    if (!("getConnection" in client)) {
       // Nested transaction - use savepoint
       const connection = client as PoolConnection;
-      const savepointName = `sp_${crypto.randomUUID().replace(/-/g, "")}`;
-      await connection.query(`SAVEPOINT ${savepointName}`);
-
-      try {
-        const result = await fn(connection);
-        await connection.query(`RELEASE SAVEPOINT ${savepointName}`);
-        return result;
-      } catch (error) {
-        await connection.query(`ROLLBACK TO SAVEPOINT ${savepointName}`);
-        throw error;
-      }
+      return runSavepoint(
+        (statement) => connection.query(statement),
+        () => fn(connection)
+      );
     }
 
     // Start a new transaction from pool
@@ -148,21 +159,11 @@ export class MySQL2Driver extends Driver<Pool, PoolConnection> {
 
     try {
       if (options?.isolationLevel) {
-        const isolationMap: Record<string, string> = {
-          read_uncommitted: "READ UNCOMMITTED",
-          read_committed: "READ COMMITTED",
-          repeatable_read: "REPEATABLE READ",
-          serializable: "SERIALIZABLE",
-        };
-        const level = isolationMap[options.isolationLevel];
-        if (!level) {
-          throw new Error(`Unknown isolation level: ${options.isolationLevel}`);
-        }
+        const level = getSqlIsolationLevel(options.isolationLevel);
         await connection.query(`SET TRANSACTION ISOLATION LEVEL ${level}`);
       }
 
       await connection.query("BEGIN");
-      this.inTransaction = true;
       const result = await fn(connection);
       await connection.query("COMMIT");
       return result;

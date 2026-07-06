@@ -19,7 +19,7 @@ import type {
   Transaction,
 } from "@planetscale/database";
 import { Driver, type DriverResultParser } from "../driver";
-import { mysqlResultParser } from "../shared";
+import { getSqlIsolationLevel, mysqlResultParser } from "../shared";
 import type { QueryResult, TransactionOptions } from "../types";
 
 // ============================================================
@@ -42,6 +42,21 @@ export type PlanetScaleClientConfig<C extends DriverConfig> =
 // ============================================================
 
 type PlanetScaleClient = Client | Connection;
+
+/** PlanetScale reports insertId as a string; "0" means none was generated. */
+function toQueryResult<T>(result: {
+  rows: unknown[];
+  rowsAffected: number | null;
+  insertId: string | null;
+}): QueryResult<T> {
+  return {
+    rows: result.rows as T[],
+    rowCount: result.rowsAffected ?? result.rows.length,
+    ...(result.insertId && result.insertId !== "0"
+      ? { insertId: BigInt(result.insertId) }
+      : {}),
+  };
+}
 
 export class PlanetScaleDriver extends Driver<PlanetScaleClient, Transaction> {
   readonly adapter: DatabaseAdapter = new MySQLAdapter();
@@ -81,10 +96,7 @@ export class PlanetScaleDriver extends Driver<PlanetScaleClient, Transaction> {
     params: unknown[]
   ): Promise<QueryResult<T>> {
     const result = await client.execute(sql, params);
-    return {
-      rows: result.rows as T[],
-      rowCount: result.rowsAffected ?? result.rows.length,
-    };
+    return toQueryResult<T>(result);
   }
 
   protected async executeRaw<T>(
@@ -93,10 +105,7 @@ export class PlanetScaleDriver extends Driver<PlanetScaleClient, Transaction> {
     params?: unknown[]
   ): Promise<QueryResult<T>> {
     const result = await client.execute(sql, params);
-    return {
-      rows: result.rows as T[],
-      rowCount: result.rowsAffected ?? result.rows.length,
-    };
+    return toQueryResult<T>(result);
   }
 
   protected async transaction<T>(
@@ -109,26 +118,19 @@ export class PlanetScaleDriver extends Driver<PlanetScaleClient, Transaction> {
       return fn(client as Transaction);
     }
 
-    const psClient = client as Client;
+    // Client.execute() opens a fresh HTTP session per call, so SET TRANSACTION
+    // must run on the same Connection that runs the transaction.
+    const psClient = client as Client | Connection;
+    const connection: Connection =
+      "connection" in psClient ? psClient.connection() : psClient;
 
     // Set isolation level BEFORE starting transaction (MySQL requirement)
     if (options?.isolationLevel) {
-      const isolationMap: Record<string, string> = {
-        read_uncommitted: "READ UNCOMMITTED",
-        read_committed: "READ COMMITTED",
-        repeatable_read: "REPEATABLE READ",
-        serializable: "SERIALIZABLE",
-      };
-      const level = isolationMap[options.isolationLevel];
-      if (!level) {
-        throw new Error(`Unknown isolation level: ${options.isolationLevel}`);
-      }
-      // SET TRANSACTION must be executed before START TRANSACTION in MySQL
-      await psClient.execute(`SET TRANSACTION ISOLATION LEVEL ${level}`);
+      const level = getSqlIsolationLevel(options.isolationLevel);
+      await connection.execute(`SET TRANSACTION ISOLATION LEVEL ${level}`);
     }
 
-    // Use PlanetScale's transaction() method
-    return psClient.transaction(fn);
+    return connection.transaction(fn);
   }
 }
 

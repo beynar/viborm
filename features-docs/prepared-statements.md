@@ -22,7 +22,7 @@ const findUserById = client.user.findUnique({
 
 // Execute with typed parameters
 const user = await findUserById.run({ userId: "abc123" });
-// Type of params: { userId: string } — inferred from field type
+// Type of params: { userId: string } — inferred from scalar type
 
 // Reuse with different values
 const anotherUser = await findUserById.run({ userId: "xyz789" });
@@ -125,7 +125,7 @@ const deleteUser = client.user.delete({
 
 ### Layer 2: Schema Definition
 **Affected:** Yes  
-**Reason:** Need placeholder types and utilities that integrate with field types  
+**Reason:** Need placeholder types and utilities that integrate with scalar types
 **Changes:**
 - Create placeholder symbol and type guards
 - Create `PlaceholderValue` interface
@@ -135,8 +135,8 @@ const deleteUser = client.user.delete({
 **Files:**
 | File | Action | Purpose |
 |------|--------|---------|
-| `src/schema/fields/placeholder.ts` | CREATE | Placeholder types, symbols, type guards |
-| `src/schema/fields/index.ts` | MODIFY | Export placeholder utilities |
+| `src/schema/scalars/placeholder.ts` | CREATE | Placeholder types, symbols, type guards |
+| `src/schema/scalars/index.ts` | MODIFY | Export placeholder utilities |
 
 **Key types:**
 ```typescript
@@ -164,13 +164,13 @@ export type PlaceholderCallback<T> = (ctx: { $: PlaceholderFn<T> }) => Placehold
 **Reason:** All field filter/create/update schemas must accept placeholder callbacks as valid input at leaf positions  
 **Changes:**
 - Add `withPlaceholder` schema wrapper utility
-- Modify field schema builders to accept placeholders
+- Modify scalar schema builders to accept placeholders
 - Ensure nested relation filters accept placeholders
 
 **Files:**
 | File | Action | Purpose |
 |------|--------|---------|
-| `src/schema/fields/common.ts` | MODIFY | Add `withPlaceholder` schema wrapper |
+| `src/schema/scalars/common.ts` | MODIFY | Add `withPlaceholder` schema wrapper |
 | `src/validation/scalars/string.ts` | MODIFY | Accept placeholders in string filter/create/update |
 | `src/validation/scalars/int.ts` | MODIFY | Accept placeholders in int schemas |
 | `src/validation/scalars/float.ts` | MODIFY | Accept placeholders in float schemas |
@@ -261,7 +261,7 @@ export interface ExtractionResult {
 
 export function extractPlaceholders(
   args: Record<string, unknown>,
-  fieldTypeResolver?: (path: string[]) => string
+  scalarTypeResolver?: (path: string[]) => string
 ): ExtractionResult {
   // Recursively walk args
   // When callback found: invoke it, collect PlaceholderValue
@@ -478,9 +478,9 @@ const prepared = client.user.findUnique({
 
 | File | Action | Purpose |
 |------|--------|---------|
-| `src/schema/fields/placeholder.ts` | CREATE | Placeholder types, symbols, type guards |
-| `src/schema/fields/index.ts` | MODIFY | Export placeholder utilities |
-| `src/schema/fields/common.ts` | MODIFY | Add withPlaceholder schema wrapper |
+| `src/schema/scalars/placeholder.ts` | CREATE | Placeholder types, symbols, type guards |
+| `src/schema/scalars/index.ts` | MODIFY | Export placeholder utilities |
+| `src/schema/scalars/common.ts` | MODIFY | Add withPlaceholder schema wrapper |
 | `src/validation/scalars/string.ts` | MODIFY | Accept placeholders |
 | `src/validation/scalars/int.ts` | MODIFY | Accept placeholders |
 | `src/validation/scalars/float.ts` | MODIFY | Accept placeholders |
@@ -515,7 +515,7 @@ const prepared = client.user.findUnique({
 
 ### Schema Tests
 - [ ] `tests/prepared/schema-validation.test.ts` — Placeholder callbacks pass validation
-- [ ] `tests/prepared/field-schemas.test.ts` — All field types accept placeholders
+- [ ] `tests/prepared/scalar-schemas.test.ts` — All scalar types accept placeholders
 
 ### SQL Generation Tests
 - [ ] `tests/prepared/sql-generation.test.ts` — Correct SQL with placeholder markers
@@ -541,13 +541,13 @@ const prepared = client.user.findUnique({
 ## 8. Implementation Order
 
 ### Phase 1: Core Infrastructure
-1. Create `src/schema/fields/placeholder.ts`
+1. Create `src/schema/scalars/placeholder.ts`
 2. Create `src/validation/schemas/placeholder.ts`
 3. Add placeholder to adapter interface
 
 ### Phase 2: Schema Support
 4. Add `withPlaceholder` wrapper to common.ts
-5. Modify field schemas (string, int, float, etc.)
+5. Modify scalar schemas (string, int, float, etc.)
 6. Modify args schemas (take, skip, cursor)
 
 ### Phase 3: Query Engine

@@ -11,6 +11,7 @@
 import * as p from "@clack/prompts";
 import { Command } from "commander";
 import { apply, pending, rollback, status } from "../../migrations/apply";
+import { down } from "../../migrations/apply/down";
 import { generate } from "../../migrations/generate";
 import { createFsStorageDriver } from "../../migrations/storage/drivers/fs";
 import type { MigrationEntry, MigrationStatus } from "../../migrations/types";
@@ -26,6 +27,7 @@ export const migrateCommand = new Command("migrate")
   .description("Generate and apply SQL migration files")
   .addCommand(generateCommand())
   .addCommand(applyCommand())
+  .addCommand(downCommand())
   .addCommand(statusCommand())
   .addCommand(dropCommand());
 
@@ -236,6 +238,138 @@ function applyCommand(): Command {
 }
 
 // =============================================================================
+// DOWN SUBCOMMAND
+// =============================================================================
+
+function downCommand(): Command {
+  return new Command("down")
+    .description("Roll back applied migrations using generated down SQL")
+    .option("--config <path>", "Path to viborm.config.ts file")
+    .option("--dir <dir>", "Migrations directory (default: ./migrations)")
+    .option("--table-name <name>", "Name of the migrations tracking table")
+    .option("--steps <n>", "Number of migrations to roll back (default: 1)")
+    .option("--to <migration>", "Roll back to this migration (name or index)")
+    .option("--dry-run", "Preview without executing", false)
+    .option("--force", "Skip confirmation prompts", false)
+    .action(async (options) => {
+      const startTime = Date.now();
+
+      p.intro("viborm migrate down");
+
+      try {
+        // 1. Load configuration
+        const spinner = p.spinner();
+        spinner.start("Loading configuration...");
+
+        const { client, driver, migrations } = await loadConfig({
+          config: options.config,
+        });
+
+        spinner.stop("Configuration loaded");
+
+        // 2. Connect to database if needed
+        if (driver.connect) {
+          spinner.start("Connecting to database...");
+          await driver.connect();
+          spinner.stop("Connected to database");
+        }
+
+        // 3. Resolve storage driver: CLI option > config > default
+        const dir = options.dir || migrations?.dir || "./migrations";
+        const storageDriver =
+          migrations?.storageDriver || createFsStorageDriver(dir);
+        const tableName = options.tableName || migrations?.tableName;
+
+        const downOptions = {
+          storageDriver,
+          tableName,
+          steps:
+            options.steps !== undefined
+              ? Number.parseInt(options.steps)
+              : undefined,
+          to:
+            options.to !== undefined && /^\d+$/.test(options.to)
+              ? Number.parseInt(options.to)
+              : options.to,
+        };
+
+        // 4. Preview which migrations would be rolled back
+        const preview = await down(client, { ...downOptions, dryRun: true });
+
+        if (preview.rolledBack.length === 0) {
+          p.note("No applied migrations to roll back.", "Status");
+          const duration = Date.now() - startTime;
+          p.outro(`Done in ${formatDuration(duration)}`);
+
+          if (driver.disconnect) {
+            await driver.disconnect();
+          }
+          return;
+        }
+
+        const lines = preview.rolledBack.map(
+          (entry) => `↓ ${formatMigrationFilename(entry)}`
+        );
+        p.note(lines.join("\n"), "Migrations to roll back");
+
+        if (options.dryRun) {
+          p.note(
+            `Would roll back ${preview.rolledBack.length} migration(s)`,
+            "Dry run"
+          );
+          const duration = Date.now() - startTime;
+          p.outro(`Done in ${formatDuration(duration)}`);
+
+          if (driver.disconnect) {
+            await driver.disconnect();
+          }
+          return;
+        }
+
+        // 5. Confirm (skip if --force)
+        if (!options.force) {
+          const confirm = await p.confirm({
+            message: `Roll back ${preview.rolledBack.length} migration(s)?`,
+            initialValue: false,
+          });
+
+          if (p.isCancel(confirm) || !confirm) {
+            p.cancel("Operation cancelled.");
+            if (driver.disconnect) await driver.disconnect();
+            process.exit(0);
+          }
+        }
+
+        // 6. Roll back
+        spinner.start("Rolling back migrations...");
+
+        const result = await down(client, downOptions);
+
+        spinner.stop(`Rolled back ${result.rolledBack.length} migration(s)`);
+
+        for (const entry of result.rolledBack) {
+          p.log.success(`↓ ${formatMigrationFilename(entry)}`);
+        }
+
+        // 7. Disconnect
+        if (driver.disconnect) {
+          await driver.disconnect();
+        }
+
+        const duration = Date.now() - startTime;
+        p.outro(`Done in ${formatDuration(duration)}`);
+      } catch (error) {
+        if (error instanceof Error) {
+          p.log.error(error.message);
+        } else {
+          p.log.error(String(error));
+        }
+        process.exit(1);
+      }
+    });
+}
+
+// =============================================================================
 // STATUS SUBCOMMAND
 // =============================================================================
 
@@ -364,6 +498,7 @@ function dropCommand(): Command {
           p.note(
             "This will remove migration tracking from the database.\n" +
               "It does NOT revert any database changes made by the migrations.\n" +
+              "To revert schema changes, use `viborm migrate down` instead.\n" +
               "Use this only if you know what you're doing.",
             "Warning"
           );

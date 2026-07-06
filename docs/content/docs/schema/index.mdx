@@ -1,6 +1,6 @@
 ---
 title: Schema Definition
-description: Define type-safe database schemas with a fluent, chainable API for models, fields, and relations
+description: Define type-safe database schemas with a fluent, chainable API for models, scalars, and relations
 icon: FileCode
 ---
 
@@ -27,8 +27,8 @@ All schema definitions use the `s` builder object:
 import { s } from "viborm";
 
 s.model({ ... })              // Create a model
-s.string()                    // String field
-s.int()                       // Integer field
+s.string()                    // String scalar
+s.int()                       // Integer scalar
 s.oneToMany(() => post)       // One-to-many relation
 s.manyToOne(() => user)       // Many-to-one relation
 // ... and more
@@ -66,13 +66,13 @@ const user = s.model({
 <Cards>
   <Card
     title="Models"
-    description="Define database tables with fields and relations"
+    description="Define database tables with scalars and relations"
     href="/docs/schema/model"
   />
   <Card
-    title="Fields"
-    description="Scalar field types: string, int, boolean, etc."
-    href="/docs/schema/fields"
+    title="Scalars"
+    description="Scalar types: string, int, boolean, etc."
+    href="/docs/schema/scalars"
   />
   <Card
     title="Relations"

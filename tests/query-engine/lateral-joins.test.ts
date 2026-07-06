@@ -326,8 +326,9 @@ describe("Lateral Joins", () => {
         // Should use lateral join syntax
         expect(statement).toContain("LEFT JOIN LATERAL");
         expect(statement).toContain("ON TRUE");
-        // LIMIT is parameterized (LIMIT ?)
-        expect(statement).toContain("LIMIT ?");
+        // MySQL inlines integer LIMIT values (mysql2 binds numbers as DOUBLE,
+        // which MySQL rejects for LIMIT)
+        expect(statement).toContain("LIMIT 1");
       });
     });
   });

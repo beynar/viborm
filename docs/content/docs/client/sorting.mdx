@@ -18,7 +18,7 @@ const users = await client.user.findMany({
 });
 ```
 
-## Multiple Fields
+## Multiple Scalars
 
 Sort by multiple fields:
 
@@ -60,9 +60,13 @@ const users = await client.user.findMany({
 });
 ```
 
+<Callout type="info">
+  `nulls: "first" | "last"` works identically on PostgreSQL, MySQL, and SQLite. PostgreSQL uses native `NULLS FIRST`/`NULLS LAST`; MySQL and SQLite emulate the same ordering with an `(column IS NULL)` sort key.
+</Callout>
+
 ## Relation Sorting
 
-Sort by related fields:
+Sort by a scalar field of a to-one relation:
 
 ```ts
 // Sort posts by author name
@@ -72,15 +76,19 @@ const posts = await client.post.findMany({
   },
 });
 
-// Sort by nested relation
+// Sort comments by a scalar on their post
 const comments = await client.comment.findMany({
   orderBy: {
-    post: {
-      author: { name: "asc" },
-    },
+    post: { title: "asc" },
   },
 });
 ```
+
+<Callout type="info">
+  Relation sorting goes one level deep: you can order by the related
+  model's scalar fields, but not by a relation of the related model
+  (e.g. `orderBy: { post: { author: { name: "asc" } } }` is rejected).
+</Callout>
 
 ## Aggregate Sorting
 

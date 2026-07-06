@@ -1,6 +1,6 @@
 import {
-  type GetInverseRelationFields,
-  getInverseRelationFields,
+  type GetInverseRelationMap,
+  getInverseRelationMap,
 } from "@schema/relation/types";
 import { s } from "../src/schema";
 
@@ -29,11 +29,8 @@ const post = s.model({
     .name("two"),
 });
 
-const inverseOne = getInverseRelationFields(
-  postsOneToManyOne["~"]["state"],
-  user
-);
-type InverseOne = GetInverseRelationFields<
+const inverseOne = getInverseRelationMap(postsOneToManyOne["~"]["state"], user);
+type InverseOne = GetInverseRelationMap<
   (typeof postsOneToManyOne)["~"]["state"],
   typeof user
 >;
@@ -41,11 +38,8 @@ type InverseOne = GetInverseRelationFields<
 console.log("Found inverse relation:", inverseOne);
 console.log('Expected: ["authorId"]');
 
-const inverseTwo = getInverseRelationFields(
-  postsOneToManyTwo["~"]["state"],
-  user
-);
-type InverseTwo = GetInverseRelationFields<
+const inverseTwo = getInverseRelationMap(postsOneToManyTwo["~"]["state"], user);
+type InverseTwo = GetInverseRelationMap<
   (typeof postsOneToManyTwo)["~"]["state"],
   typeof user
 >;

@@ -13,7 +13,12 @@ import {
 } from "@client/client";
 import type { Client, Config, Transaction } from "@libsql/client";
 import { Driver, type DriverResultParser } from "../driver";
-import { convertValuesForSQLite, sqliteResultParser } from "../shared";
+import {
+  assertSQLiteIsolationLevel,
+  convertValuesForSQLite,
+  runSavepoint,
+  sqliteResultParser,
+} from "../shared";
 import type { QueryResult, TransactionOptions } from "../types";
 
 // ============================================================
@@ -33,13 +38,22 @@ export interface LibSQLDriverOptions {
 export type LibSQLClientConfig<C extends DriverConfig> = LibSQLDriverOptions &
   C;
 
+// libsql reports rowsAffected: 0 for mutations with a RETURNING clause even
+// when rows come back, so returned rows are the more reliable count.
+const libsqlRowCount = (result: {
+  rows: unknown[];
+  rowsAffected?: number;
+}): number =>
+  result.rows.length > 0 ? result.rows.length : (result.rowsAffected ?? 0);
+
 // ============================================================
 // DRIVER IMPLEMENTATION
 // ============================================================
 
-export class LibSQLDriver extends Driver<Client, Transaction> {
+export class LibSQLDriver extends Driver<Client, Client | Transaction> {
   readonly adapter: DatabaseAdapter = new SQLiteAdapter();
   readonly result: DriverResultParser = sqliteResultParser;
+  protected override readonly serializeTransactions = true;
 
   private readonly driverOptions: LibSQLDriverOptions;
 
@@ -54,16 +68,7 @@ export class LibSQLDriver extends Driver<Client, Transaction> {
 
   protected async initClient(): Promise<Client> {
     const { createClient } = await import("@libsql/client");
-
-    // Priority: databaseUrl > dataDir > in-memory
-    let url: string;
-    if (this.driverOptions.databaseUrl) {
-      url = this.driverOptions.databaseUrl;
-    } else if (this.driverOptions.dataDir) {
-      url = `file:${this.driverOptions.dataDir}`;
-    } else {
-      url = "file::memory:";
-    }
+    const url = this.getDatabaseUrl();
 
     const authToken = this.driverOptions.authToken;
     const options = this.driverOptions.options ?? {};
@@ -71,12 +76,18 @@ export class LibSQLDriver extends Driver<Client, Transaction> {
     return createClient({
       url,
       authToken,
+      // INTEGER columns come back as BigInt so values >2^53 survive (the
+      // default 'number' mode throws on them); the result parser converts
+      // int columns back to number
+      intMode: "bigint",
       ...options,
     });
   }
 
-  protected async closeClient(client: Client): Promise<void> {
-    client.close();
+  protected async closeClient(client: Client | Transaction): Promise<void> {
+    if ("close" in client) {
+      client.close();
+    }
   }
 
   protected async execute<T>(
@@ -89,7 +100,7 @@ export class LibSQLDriver extends Driver<Client, Transaction> {
     const result = await client.execute({ sql, args: values as any });
     return {
       rows: result.rows as T[],
-      rowCount: result.rowsAffected ?? result.rows.length,
+      rowCount: libsqlRowCount(result),
     };
   }
 
@@ -103,34 +114,41 @@ export class LibSQLDriver extends Driver<Client, Transaction> {
     const result = await client.execute({ sql, args: values as any });
     return {
       rows: result.rows as T[],
-      rowCount: result.rowsAffected ?? result.rows.length,
+      rowCount: libsqlRowCount(result),
     };
   }
 
   protected async transaction<T>(
     client: Client | Transaction,
-    fn: (tx: Transaction) => Promise<T>,
-    _options?: TransactionOptions
+    fn: (tx: Client | Transaction) => Promise<T>,
+    options?: TransactionOptions
   ): Promise<T> {
-    if (this.inTransaction) {
-      // Nested transaction - use savepoint
-      const tx = client as Transaction;
-      const savepointName = `sp_${crypto.randomUUID().replace(/-/g, "")}`;
-      await tx.execute(`SAVEPOINT ${savepointName}`);
+    assertSQLiteIsolationLevel(this.driverName, options);
 
+    if (this.inTransaction || "commit" in client) {
+      // Nested transaction - use savepoint
+      const tx = client;
+      return runSavepoint(
+        (statement) => tx.execute(statement),
+        () => fn(tx)
+      );
+    }
+
+    if (this.usesInMemoryDatabase()) {
+      await client.execute("BEGIN");
+      this.inTransaction = true;
       try {
-        const result = await fn(tx);
-        await tx.execute(`RELEASE SAVEPOINT ${savepointName}`);
+        const result = await fn(client);
+        await client.execute("COMMIT");
         return result;
       } catch (error) {
-        await tx.execute(`ROLLBACK TO SAVEPOINT ${savepointName}`);
+        await client.execute("ROLLBACK");
         throw error;
       }
     }
 
     // Start new transaction from client
-    const libsqlClient = client as Client;
-    const tx = await libsqlClient.transaction("write");
+    const tx = await client.transaction("write");
     this.inTransaction = true;
 
     try {
@@ -142,6 +160,20 @@ export class LibSQLDriver extends Driver<Client, Transaction> {
       throw error;
     }
     // Note: this.inTransaction reset is handled by base Driver._transaction()
+  }
+
+  private getDatabaseUrl(): string {
+    if (this.driverOptions.databaseUrl) {
+      return this.driverOptions.databaseUrl;
+    }
+    if (this.driverOptions.dataDir) {
+      return `file:${this.driverOptions.dataDir}`;
+    }
+    return "file::memory:";
+  }
+
+  private usesInMemoryDatabase(): boolean {
+    return this.getDatabaseUrl().includes(":memory:");
   }
 }
 

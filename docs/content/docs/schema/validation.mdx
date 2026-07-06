@@ -77,7 +77,7 @@ const fkResult = validator.validate([...fkRules, ...relationRules]);
 | **JT0xx** | Junction | Many-to-many tables |
 | **SR0xx** | Self-ref | Self-referential relations |
 | **CM0xx** | Cross-model | Cross-model dependencies |
-| **FK0xx** | Foreign Key | FK field validation |
+| **FK0xx** | Foreign Key | FK scalar field-key validation |
 | **RA0xx** | Referential Action | onDelete/onUpdate rules |
 | **DB0xx** | Database | Database-specific constraints |
 
@@ -85,7 +85,7 @@ const fkResult = validator.validate([...fkRules, ...relationRules]);
 
 | Code | Rule | Description |
 |------|------|-------------|
-| M001 | `modelHasFields` | Model must have at least one field |
+| M001 | `modelHasFields` | Model must have at least one scalar field |
 | M002 | `modelUniqueName` | Model names must be unique |
 | M003 | `modelNameValid` | Model name cannot be empty |
 | M004 | `modelNameNotReserved` | Model name cannot be SQL reserved word |
@@ -95,9 +95,9 @@ const fkResult = validator.validate([...fkRules, ...relationRules]);
 | Code | Rule | Description |
 |------|------|-------------|
 | F001 | `noDuplicateFields` | No duplicate field names |
-| F002 | `modelHasId` | Model must have exactly one ID (field or compound) |
-| F003 | `defaultTypeMatch` | Default value must match field type |
-| F004 | `arrayFieldsSupported` | Array fields only on supported DBs |
+| F002 | `modelHasId` | Model must have exactly one ID (scalar field or compound ID) |
+| F003 | `defaultTypeMatch` | Default value must match scalar type |
+| F004 | `arrayFieldsSupported` | Array scalar fields only on supported DBs |
 
 ## Index Rules (I0xx)
 
@@ -166,7 +166,7 @@ const fkResult = validator.validate([...fkRules, ...relationRules]);
 
 | Code | Rule | Description |
 |------|------|-------------|
-| DB001 | `mysqlNoArrayFields` | MySQL doesn't support array fields |
+| DB001 | `mysqlNoArrayFields` | MySQL doesn't support array scalar fields |
 | DB002 | `sqliteNoEnum` | SQLite enum is stored as TEXT |
 
 ## Error Structure
@@ -177,7 +177,7 @@ interface ValidationError {
   severity: "error" | "warning";
   message: string;     // Human-readable message
   model?: string;      // Model name (if applicable)
-  field?: string;      // Field name (if applicable)
+  field?: string;      // Scalar field name (if applicable)
   relation?: string;   // Relation name (if applicable)
 }
 

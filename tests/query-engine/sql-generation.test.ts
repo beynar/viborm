@@ -6,12 +6,26 @@
  */
 
 import type { DatabaseAdapter } from "@adapters/database-adapter";
+import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
-import { Driver } from "@drivers";
+import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
+import { type Dialect, Driver } from "@drivers";
+import { ValidationError } from "@errors";
+import { buildWhere } from "@query-engine/builders/where-builder";
+import { buildWhereUnique } from "@query-engine/builders/where-unique-builder";
+import {
+  createQueryContext,
+  getRelationInfo,
+  getTableName,
+} from "@query-engine/context";
+import { executeRelationDeleteMany } from "@query-engine/operations/nested-writes/delete-many";
+import { executeRelationUpdateMany } from "@query-engine/operations/nested-writes/update-many";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
-import { hydrateSchemaNames, s } from "@schema";
+import type { QueryContext, RelationInfo } from "@query-engine/types";
+import { hydrateSchemaNames } from "@schema";
 import { createSchemaRegistry } from "@validation";
 import { beforeAll, describe, expect, test } from "vitest";
+import { sqlGenerationUserPostSchema } from "../fixtures/user-post-schema";
 
 // =============================================================================
 // MOCK DRIVER FOR TESTING
@@ -20,8 +34,12 @@ import { beforeAll, describe, expect, test } from "vitest";
 class MockDriver extends Driver<null, null> {
   readonly adapter: DatabaseAdapter;
 
-  constructor(adapter: DatabaseAdapter) {
-    super("postgresql", "mock-postgresql");
+  constructor(
+    adapter: DatabaseAdapter,
+    dialect: Dialect = "postgresql",
+    driverName = `mock-${dialect}`
+  ) {
+    super(dialect, driverName);
     this.adapter = adapter;
   }
 
@@ -31,11 +49,19 @@ class MockDriver extends Driver<null, null> {
 
   protected async closeClient() {}
 
-  protected async execute<T>(): Promise<{ rows: T[]; rowCount: number }> {
+  protected async execute<T>(
+    _client: null,
+    _statement: string,
+    _params: unknown[]
+  ): Promise<{ rows: T[]; rowCount: number }> {
     return { rows: [], rowCount: 0 };
   }
 
-  protected async executeRaw<T>(): Promise<{ rows: T[]; rowCount: number }> {
+  protected async executeRaw<T>(
+    _client: null,
+    _statement: string,
+    _params?: unknown[]
+  ): Promise<{ rows: T[]; rowCount: number }> {
     return { rows: [], rowCount: 0 };
   }
 
@@ -47,7 +73,23 @@ class MockDriver extends Driver<null, null> {
   }
 }
 
+class RecordingDriver extends MockDriver {
+  readonly statements: string[] = [];
+  readonly params: unknown[][] = [];
+
+  protected override async execute<T>(
+    _client: null,
+    statement: string,
+    params: unknown[]
+  ): Promise<{ rows: T[]; rowCount: number }> {
+    this.statements.push(statement);
+    this.params.push(params);
+    return { rows: [], rowCount: 0 };
+  }
+}
+
 const ASC_REGEX = /ASC/i;
+const DESC_REGEX = /DESC/i;
 const JSON_OBJECT_REGEX = /json_build_object|row_to_json/i;
 const JSON_AGG_REGEX = /json_agg|COALESCE/i;
 const IS_NULL_REGEX = /IS NULL|NOT EXISTS/i;
@@ -57,63 +99,43 @@ const IS_NOT_NULL_REGEX = /IS NOT NULL|EXISTS/i;
 // TEST MODELS
 // =============================================================================
 
-const Author = s.model({
-  id: s.string().id(),
-  name: s.string(),
-  email: s.string().unique(),
-  age: s.int().nullable(),
-  posts: s.oneToMany(() => Post),
-});
-
-const Post = s
-  .model({
-    id: s.string().id(),
-    title: s.string(),
-    content: s.string().nullable(),
-    published: s.boolean().default(false),
-    views: s.int().default(0),
-    authorId: s.string(),
-    author: s
-      .manyToOne(() => Author)
-      .fields("authorId")
-      .references("id")
-      .optional(),
-    comments: s.oneToMany(() => Comment),
-    tags: s.manyToMany(() => Tag),
-  })
-  .map("posts");
-
-const Comment = s
-  .model({
-    id: s.string().id(),
-    text: s.string(),
-    postId: s.string(),
-    post: s
-      .manyToOne(() => Post)
-      .fields("postId")
-      .references("id"),
-  })
-  .map("comments");
-
-const Tag = s
-  .model({
-    id: s.string().id(),
-    name: s.string().unique(),
-    posts: s.manyToMany(() => Post),
-  })
-  .map("tags");
+const { Author, Post, Tag, Membership } = sqlGenerationUserPostSchema;
 
 // =============================================================================
 // TEST SETUP
 // =============================================================================
 
-const schema = { Author, Post, Comment, Tag };
+const schema = sqlGenerationUserPostSchema;
 
 // Hydrate schema names before tests
 hydrateSchemaNames(schema);
 
 const adapter = new PostgresAdapter();
 const mockDriver = new MockDriver(adapter);
+
+interface DialectCase {
+  name: string;
+  dialect: Dialect;
+  createAdapter: () => DatabaseAdapter;
+}
+
+const dialectCases: DialectCase[] = [
+  {
+    name: "PostgreSQL",
+    dialect: "postgresql",
+    createAdapter: () => new PostgresAdapter(),
+  },
+  {
+    name: "SQLite",
+    dialect: "sqlite",
+    createAdapter: () => new SQLiteAdapter(),
+  },
+  {
+    name: "MySQL",
+    dialect: "mysql",
+    createAdapter: () => new MySQLAdapter(),
+  },
+];
 
 let registry: ReturnType<typeof createModelRegistry>;
 let engine: QueryEngine;
@@ -131,6 +153,49 @@ function getSql(model: any, operation: any, args: any) {
     values: sql.values,
     raw: sql,
   };
+}
+
+function createRecordingContext(
+  adapter: DatabaseAdapter,
+  dialect: Dialect,
+  model: typeof Author | typeof Post
+) {
+  const driver = new RecordingDriver(adapter, dialect);
+  return {
+    ctx: createQueryContext(adapter, model, registry, driver),
+    driver,
+  };
+}
+
+function getRequiredRelationInfo(
+  ctx: QueryContext,
+  relationName: string
+): RelationInfo {
+  const relationInfo = getRelationInfo(ctx, relationName);
+  if (!relationInfo) {
+    throw new Error(
+      `Missing relation '${relationName}' in SQL generation test.`
+    );
+  }
+  return relationInfo;
+}
+
+function getOnlyStatement(driver: RecordingDriver): string {
+  expect(driver.statements).toHaveLength(1);
+  const statement = driver.statements[0];
+  if (!statement) {
+    throw new Error("Expected exactly one generated SQL statement.");
+  }
+  return statement;
+}
+
+function getOnlyParams(driver: RecordingDriver): unknown[] {
+  expect(driver.params).toHaveLength(1);
+  const params = driver.params[0];
+  if (!params) {
+    throw new Error("Expected exactly one generated SQL parameter list.");
+  }
+  return params;
 }
 
 // =============================================================================
@@ -194,6 +259,200 @@ describe("Basic CRUD Operations", () => {
       expect(statement).toContain("WHERE");
       expect(values).toContain("cursor-id");
     });
+
+    test("cursor without orderBy defaults to cursor field order", () => {
+      const { statement, values } = getSql(Author, "findMany", {
+        cursor: { id: "cursor-id" },
+        take: 10,
+      });
+
+      expect(statement).toContain("ORDER BY");
+      expect(statement).toContain('"t0"."id" ASC');
+      expect(values).toContain("cursor-id");
+    });
+
+    test("negative take inverts SQL order and uses absolute limit", () => {
+      const { statement, values } = getSql(Author, "findMany", {
+        cursor: { id: "cursor-id" },
+        orderBy: { id: "asc" },
+        take: -2,
+      });
+
+      expect(statement).toContain("ORDER BY");
+      expect(statement).toMatch(DESC_REGEX);
+      expect(statement).toContain("LIMIT");
+      expect(values).toContain(2);
+      expect(values).not.toContain(-2);
+    });
+
+    test("compound unique cursor uses compound whereUnique fields", () => {
+      const { statement, values } = getSql(Membership, "findMany", {
+        cursor: {
+          orgId_memberId: { orgId: "org-1", memberId: "member-2" },
+        },
+        take: 2,
+      });
+
+      expect(statement).toContain('"t0"."orgId"');
+      expect(statement).toContain('"t0"."memberId"');
+      expect(statement).toContain("ORDER BY");
+      expect(values).toContain("org-1");
+      expect(values).toContain("member-2");
+    });
+
+    test("cursor orderBy mismatch fails closed", () => {
+      expect(() =>
+        getSql(Author, "findMany", {
+          cursor: { id: "cursor-id" },
+          orderBy: { name: "asc" },
+          take: 2,
+        })
+      ).toThrow("Cursor pagination orderBy must use cursor field");
+    });
+
+    test("invalid pagination values reject before SQL generation", () => {
+      expect(() =>
+        getSql(Author, "findMany", {
+          take: 1.5,
+        })
+      ).toThrow(ValidationError);
+      expect(() =>
+        getSql(Author, "findMany", {
+          skip: -1,
+        })
+      ).toThrow(ValidationError);
+    });
+
+    test("json path filter scopes string matching to the path", () => {
+      const { statement, values } = getSql(Author, "findMany", {
+        where: {
+          metadata: {
+            path: ["status"],
+            string_contains: "active",
+          },
+        },
+      });
+
+      expect(statement).toContain("#>>");
+      expect(statement).toContain("LIKE");
+      expect(values).toContainEqual(["status"]);
+      expect(values).toContain("active");
+    });
+
+    test("json filter with only a path fails closed", () => {
+      expect(() =>
+        getSql(Author, "findMany", {
+          where: {
+            metadata: {
+              path: ["status"],
+            },
+          },
+        })
+      ).toThrow(
+        "Filter for field 'metadata' must contain at least one operation"
+      );
+    });
+
+    test("empty accepted scalar filter fails closed", () => {
+      expect(() =>
+        getSql(Author, "findMany", {
+          where: {
+            name: {},
+          },
+        })
+      ).toThrow("Filter for field 'name' must contain at least one operation");
+    });
+
+    test("empty accepted relation filter fails closed", () => {
+      expect(() =>
+        getSql(Author, "findMany", {
+          where: {
+            posts: {},
+          },
+        })
+      ).toThrow("Relation filter 'posts' requires one of: some, every, none");
+    });
+
+    test("empty OR filter does not broaden the query", () => {
+      const { statement } = getSql(Author, "findMany", {
+        where: {
+          OR: [],
+        },
+      });
+
+      expect(statement).toContain("WHERE");
+      expect(statement).toContain("FALSE");
+    });
+
+    test("to-one relation scalar orderBy joins related table", () => {
+      const { statement } = getSql(Post, "findMany", {
+        orderBy: { author: { name: "asc" } },
+      });
+
+      expect(statement).toMatch(/LEFT JOIN/i);
+      expect(statement).toContain('ORDER BY "t1"."name" ASC');
+    });
+
+    test("to-many relation _count orderBy uses count subquery", () => {
+      const { statement } = getSql(Author, "findMany", {
+        orderBy: { posts: { _count: "desc" } },
+      });
+
+      expect(statement).not.toMatch(/LEFT JOIN/i);
+      expect(statement).toMatch(/ORDER BY \(SELECT COUNT\(\*\)/i);
+      expect(statement).toContain('FROM "posts" AS "t1"');
+      expect(statement).toMatch(/DESC/i);
+    });
+
+    test("to-many relation scalar orderBy fails closed", () => {
+      expect(() =>
+        getSql(Author, "findMany", {
+          orderBy: { posts: { title: "asc" } },
+        })
+      ).toThrow();
+    });
+
+    test("nested relation orderBy shape fails closed", () => {
+      expect(() =>
+        getSql(Post, "findMany", {
+          orderBy: { author: { posts: { _count: "desc" } } },
+        })
+      ).toThrow();
+    });
+
+    test("unknown builder filter operation fails closed", () => {
+      const ctx = createQueryContext(adapter, Author, registry, mockDriver);
+
+      expect(() =>
+        buildWhere(ctx, { age: { unsupported: 1 } }, ctx.rootAlias)
+      ).toThrow(
+        "Unsupported filter operation 'unsupported' for int scalar 'age'"
+      );
+    });
+
+    test("unknown builder where field fails closed", () => {
+      const ctx = createQueryContext(adapter, Author, registry, mockDriver);
+
+      expect(() =>
+        buildWhere(ctx, { unknownField: { equals: "value" } }, ctx.rootAlias)
+      ).toThrow("Unknown where field 'unknownField'");
+    });
+
+    test("empty unique builder fails closed", () => {
+      const ctx = createQueryContext(adapter, Author, registry, mockDriver);
+
+      expect(() => buildWhereUnique(ctx, {}, ctx.rootAlias)).toThrow(
+        "whereUnique requires at least one unique discriminator"
+      );
+    });
+
+    test("non-unique unique builder field fails closed", () => {
+      const ctx = createQueryContext(adapter, Author, registry, mockDriver);
+
+      expect(() =>
+        buildWhereUnique(ctx, { name: "Alice" }, ctx.rootAlias)
+      ).toThrow("whereUnique field 'name' is not a unique discriminator");
+    });
   });
 
   describe("findUnique", () => {
@@ -214,6 +473,38 @@ describe("Basic CRUD Operations", () => {
 
       expect(statement).toContain("WHERE");
       expect(values).toContain("alice@example.com");
+    });
+
+    test("empty where fails before SQL generation", () => {
+      expect(() =>
+        getSql(Author, "findUnique", {
+          where: {},
+        })
+      ).toThrow("Object cannot be empty");
+    });
+
+    test("by compound id", () => {
+      const { statement, values } = getSql(Membership, "findUnique", {
+        where: {
+          orgId_memberId: { orgId: "org-1", memberId: "member-1" },
+        },
+      });
+
+      expect(statement).toContain("WHERE");
+      expect(values).toContain("org-1");
+      expect(values).toContain("member-1");
+    });
+
+    test("by compound unique", () => {
+      const { statement, values } = getSql(Membership, "findUnique", {
+        where: {
+          email_tenantId: { email: "alice@example.com", tenantId: "tenant-1" },
+        },
+      });
+
+      expect(statement).toContain("WHERE");
+      expect(values).toContain("alice@example.com");
+      expect(values).toContain("tenant-1");
     });
   });
 
@@ -250,6 +541,15 @@ describe("Basic CRUD Operations", () => {
       expect(statement).toContain("WHERE");
       expect(values).toContain("Alice Updated");
     });
+
+    test("empty where fails before SQL generation", () => {
+      expect(() =>
+        getSql(Author, "update", {
+          where: {},
+          data: { name: "Alice Updated" },
+        })
+      ).toThrow("Object cannot be empty");
+    });
   });
 
   describe("delete", () => {
@@ -261,6 +561,51 @@ describe("Basic CRUD Operations", () => {
       expect(statement).toContain("DELETE FROM");
       expect(statement).toContain("WHERE");
       expect(values).toContain("author-1");
+    });
+
+    test("empty where fails before SQL generation", () => {
+      expect(() =>
+        getSql(Author, "delete", {
+          where: {},
+        })
+      ).toThrow("Object cannot be empty");
+    });
+  });
+
+  describe("upsert", () => {
+    test("empty where fails before SQL generation", () => {
+      expect(() =>
+        getSql(Author, "upsert", {
+          where: {},
+          create: {
+            id: "author-1",
+            name: "Alice",
+            email: "alice@example.com",
+          },
+          update: { name: "Alice Updated" },
+        })
+      ).toThrow("Object cannot be empty");
+    });
+
+    test("nested update branch fails closed before SQL generation", () => {
+      expect(() =>
+        getSql(Author, "upsert", {
+          where: { id: "author-1" },
+          create: {
+            id: "author-1",
+            name: "Alice",
+            email: "alice@example.com",
+          },
+          update: {
+            posts: {
+              update: {
+                where: { id: "post-1" },
+                data: { title: "Updated" },
+              },
+            },
+          },
+        })
+      ).toThrow("Cannot build a single SQL statement for nested upsert writes");
     });
   });
 });
@@ -647,53 +992,61 @@ describe("Nested Writes", () => {
       expect(statement).toContain("INSERT");
     });
 
-    test("create with nested create", () => {
-      const { statement, values } = getSql(Author, "create", {
-        data: {
-          id: "author-1",
-          name: "Alice",
-          email: "alice@example.com",
-          posts: {
-            create: { id: "post-1", title: "First Post" },
+    test("create with nested create fails closed before SQL generation", () => {
+      expect(() =>
+        getSql(Author, "create", {
+          data: {
+            id: "author-1",
+            name: "Alice",
+            email: "alice@example.com",
+            posts: {
+              create: { id: "post-1", title: "First Post" },
+            },
           },
-        },
-      });
-
-      expect(statement).toContain("INSERT");
+        })
+      ).toThrow("Cannot build a single SQL statement for nested create writes");
     });
 
-    test("create with nested create and return nested", () => {
-      const { statement, values } = getSql(Author, "create", {
-        data: {
-          id: "author-1",
-          name: "Alice",
-          email: "alice@example.com",
-          posts: {
-            create: [
-              { id: "post-1", title: "First Post" },
-              { id: "post-2", title: "Second Post" },
-            ],
+    test("create with nested createMany fails closed before SQL generation", () => {
+      expect(() =>
+        getSql(Author, "create", {
+          data: {
+            id: "author-1",
+            name: "Alice",
+            email: "alice@example.com",
+            posts: {
+              createMany: {
+                data: [{ id: "post-1", title: "First Post" }],
+              },
+            },
           },
-        },
-        select: {
-          id: true,
-          name: true,
-          posts: {
-            select: { id: true, title: true },
-          },
-        },
-      });
+        })
+      ).toThrow("Cannot build a single SQL statement for nested create writes");
+    });
 
-      // Should contain multi-statement with semicolons
-      expect(statement).toContain(";");
-      // Should have parent INSERT
-      expect(statement).toContain('INSERT INTO "Author"');
-      // Should have child INSERTs
-      expect(statement).toContain('INSERT INTO "posts"');
-      // Should have final SELECT with JSON aggregation for posts
-      expect(statement).toContain("SELECT");
-      expect(statement).toContain("json_agg");
-      expect(statement).toContain('"posts"');
+    test("create with nested create list fails closed before SQL generation", () => {
+      expect(() =>
+        getSql(Author, "create", {
+          data: {
+            id: "author-1",
+            name: "Alice",
+            email: "alice@example.com",
+            posts: {
+              create: [
+                { id: "post-1", title: "First Post" },
+                { id: "post-2", title: "Second Post" },
+              ],
+            },
+          },
+          select: {
+            id: true,
+            name: true,
+            posts: {
+              select: { id: true, title: true },
+            },
+          },
+        })
+      ).toThrow("Cannot build a single SQL statement for nested create writes");
     });
   });
 
@@ -723,6 +1076,197 @@ describe("Nested Writes", () => {
 
       expect(statement).toContain("UPDATE");
     });
+
+    test("update with nested update fails closed before SQL generation", () => {
+      expect(() =>
+        getSql(Author, "update", {
+          where: { id: "author-1" },
+          data: {
+            posts: {
+              update: {
+                where: { id: "post-1" },
+                data: { title: "Updated" },
+              },
+            },
+          },
+        })
+      ).toThrow("Cannot build a single SQL statement for nested update writes");
+    });
+  });
+
+  describe("dialect parent correlation", () => {
+    test.each(
+      dialectCases
+    )("$name updateMany SQL includes parent correlation", async ({
+      createAdapter,
+      dialect,
+    }) => {
+      const { ctx, driver } = createRecordingContext(
+        createAdapter(),
+        dialect,
+        Author
+      );
+      const relationInfo = getRequiredRelationInfo(ctx, "posts");
+
+      await executeRelationUpdateMany(
+        driver,
+        ctx,
+        relationInfo,
+        {
+          where: { title: { equals: "Draft" } },
+          data: { title: { set: "Published" } },
+        },
+        { id: "author-1" }
+      );
+
+      const statement = getOnlyStatement(driver);
+      const params = getOnlyParams(driver);
+      expect(statement).toContain("UPDATE");
+      expect(statement).toContain("authorId");
+      expect(statement).toContain("title");
+      expect(params).toEqual(
+        expect.arrayContaining(["Published", "author-1", "Draft"])
+      );
+    });
+
+    test.each(
+      dialectCases
+    )("$name deleteMany SQL includes parent correlation", async ({
+      createAdapter,
+      dialect,
+    }) => {
+      const { ctx, driver } = createRecordingContext(
+        createAdapter(),
+        dialect,
+        Author
+      );
+      const relationInfo = getRequiredRelationInfo(ctx, "posts");
+
+      await executeRelationDeleteMany(
+        driver,
+        ctx,
+        relationInfo,
+        { title: { equals: "Draft" } },
+        { id: "author-1" }
+      );
+
+      const statement = getOnlyStatement(driver);
+      const params = getOnlyParams(driver);
+      expect(statement).toContain("DELETE");
+      expect(statement).toContain("authorId");
+      expect(statement).toContain("title");
+      expect(params).toEqual(expect.arrayContaining(["author-1", "Draft"]));
+    });
+  });
+
+  describe("dialect top-level relation-filter mutations", () => {
+    // Parent column inside the EXISTS subquery must be qualified with the
+    // mutation target's table name; unqualified it binds to the related
+    // table and decorrelates the subquery (affecting the wrong rows).
+    const qualifiedAuthorId = new RegExp(
+      `["\`]${getTableName(Author)}["\`]\\.["\`]id["\`]`
+    );
+
+    test.each(
+      dialectCases
+    )("$name updateMany relation filter stays correlated to the target table", ({
+      createAdapter,
+      dialect,
+    }) => {
+      const dialectEngine = new QueryEngine(
+        new MockDriver(createAdapter(), dialect),
+        registry
+      );
+      const statement = dialectEngine
+        .build(Author, "updateMany", {
+          where: { posts: { some: { title: "Draft" } } },
+          data: { name: "Updated" },
+        })
+        .toStatement("$n");
+
+      expect(statement).toContain("UPDATE");
+      expect(statement).toContain("EXISTS");
+      expect(statement).toMatch(qualifiedAuthorId);
+    });
+
+    test.each(
+      dialectCases
+    )("$name deleteMany relation filter stays correlated to the target table", ({
+      createAdapter,
+      dialect,
+    }) => {
+      const dialectEngine = new QueryEngine(
+        new MockDriver(createAdapter(), dialect),
+        registry
+      );
+      const statement = dialectEngine
+        .build(Author, "deleteMany", {
+          where: { posts: { some: { title: "Draft" } } },
+        })
+        .toStatement("$n");
+
+      expect(statement).toContain("DELETE");
+      expect(statement).toContain("EXISTS");
+      expect(statement).toMatch(qualifiedAuthorId);
+    });
+  });
+
+  describe("dialect fail-closed nested mutations", () => {
+    test.each(
+      dialectCases
+    )("$name rejects to-one deleteMany before SQL generation", async ({
+      createAdapter,
+      dialect,
+    }) => {
+      const { ctx, driver } = createRecordingContext(
+        createAdapter(),
+        dialect,
+        Post
+      );
+      const relationInfo = getRequiredRelationInfo(ctx, "author");
+
+      await expect(
+        executeRelationDeleteMany(
+          driver,
+          ctx,
+          relationInfo,
+          { id: "author-1" },
+          { id: "post-1", authorId: "author-1" }
+        )
+      ).rejects.toThrow("deleteMany' is not supported for to-one relation");
+      expect(driver.statements).toHaveLength(0);
+    });
+
+    test.each(
+      dialectCases
+    )("$name rejects relation writes inside updateMany data before SQL generation", async ({
+      createAdapter,
+      dialect,
+    }) => {
+      const { ctx, driver } = createRecordingContext(
+        createAdapter(),
+        dialect,
+        Author
+      );
+      const relationInfo = getRequiredRelationInfo(ctx, "posts");
+
+      await expect(
+        executeRelationUpdateMany(
+          driver,
+          ctx,
+          relationInfo,
+          {
+            data: {
+              author: {
+                connect: { id: "author-2" },
+              },
+            },
+          },
+          { id: "author-1" }
+        )
+      ).rejects.toThrow("Nested relation writes inside updateMany data");
+      expect(driver.statements).toHaveLength(0);
+    });
   });
 });
 
@@ -746,6 +1290,63 @@ describe("Aggregates", () => {
       expect(statement).toContain("COUNT");
       expect(statement).toContain("WHERE");
     });
+
+    test("with order and pagination counts an input subquery", () => {
+      const { statement, values } = getSql(Author, "count", {
+        orderBy: { age: "desc" },
+        skip: 1,
+        take: 2,
+      });
+
+      expect(statement).toContain("COUNT");
+      expect(statement).toContain("FROM (SELECT");
+      expect(statement).toContain("aggregate_input");
+      expect(statement).toContain("ORDER BY");
+      expect(statement).toMatch(DESC_REGEX);
+      expect(statement).toContain("LIMIT");
+      expect(statement).toContain("OFFSET");
+      expect(values).toContain(2);
+      expect(values).toContain(1);
+    });
+
+    test("with cursor pagination counts an input subquery", () => {
+      const { statement, values } = getSql(Author, "count", {
+        cursor: { id: "author-1" },
+        skip: 1,
+        take: 2,
+      });
+
+      expect(statement).toContain("COUNT");
+      expect(statement).toContain("FROM (SELECT");
+      expect(statement).toContain("aggregate_input");
+      expect(statement).toContain("ORDER BY");
+      expect(statement).toContain("LIMIT");
+      expect(statement).toContain("OFFSET");
+      expect(values).toContain("author-1");
+      expect(values).toContain(2);
+      expect(values).toContain(1);
+    });
+
+    test("with supported relation order counts an input subquery", () => {
+      const { statement } = getSql(Post, "count", {
+        orderBy: { author: { name: "asc" } },
+        take: 1,
+      });
+
+      expect(statement).toContain("FROM (SELECT");
+      expect(statement).toMatch(/LEFT JOIN/i);
+      expect(statement).toContain('ORDER BY "t1"."name" ASC');
+      expect(statement).toContain("LIMIT");
+    });
+
+    test("with unsupported relation order fails closed", () => {
+      expect(() =>
+        getSql(Author, "count", {
+          orderBy: { posts: { title: "asc" } },
+          take: 1,
+        })
+      ).toThrow();
+    });
   });
 
   describe("aggregate", () => {
@@ -761,6 +1362,48 @@ describe("Aggregates", () => {
       expect(statement).toContain("AVG");
       expect(statement).toContain("MIN");
       expect(statement).toContain("MAX");
+    });
+
+    test("with order and pagination aggregates an input subquery", () => {
+      const { statement, values } = getSql(Post, "aggregate", {
+        _count: true,
+        _sum: { views: true },
+        orderBy: { views: "desc" },
+        take: 1,
+        skip: 1,
+      });
+
+      expect(statement).toContain("COUNT");
+      expect(statement).toContain("SUM");
+      expect(statement).toContain("FROM (SELECT");
+      expect(statement).toContain("aggregate_input");
+      expect(statement).toContain("ORDER BY");
+      expect(statement).toContain("LIMIT");
+      expect(statement).toContain("OFFSET");
+      expect(values).toContain(1);
+    });
+
+    test("with supported relation order aggregates an input subquery", () => {
+      const { statement } = getSql(Post, "aggregate", {
+        _count: true,
+        orderBy: { author: { name: "asc" } },
+        take: 1,
+      });
+
+      expect(statement).toContain("FROM (SELECT");
+      expect(statement).toMatch(/LEFT JOIN/i);
+      expect(statement).toContain('ORDER BY "t1"."name" ASC');
+      expect(statement).toContain("LIMIT");
+    });
+
+    test("with unsupported relation order fails closed", () => {
+      expect(() =>
+        getSql(Author, "aggregate", {
+          _count: true,
+          orderBy: { posts: { title: "asc" } },
+          take: 1,
+        })
+      ).toThrow();
     });
   });
 
@@ -854,8 +1497,7 @@ describe("Aggregates", () => {
 
       expect(statement).toContain("GROUP BY");
       expect(statement).toContain("HAVING");
-      // PostgresAdapter uses "= ANY(...)" for IN
-      expect(statement).toContain("= ANY");
+      expect(statement).toContain("IN (");
       expect(values).toContain("author-1");
       expect(values).toContain("author-2");
     });
@@ -870,8 +1512,7 @@ describe("Aggregates", () => {
 
       expect(statement).toContain("GROUP BY");
       expect(statement).toContain("HAVING");
-      // PostgresAdapter uses "<> ALL(...)" for NOT IN
-      expect(statement).toContain("<> ALL");
+      expect(statement).toContain("NOT IN (");
       expect(values).toContain("author-1");
       expect(values).toContain("author-2");
     });
@@ -1040,5 +1681,130 @@ describe("assembleInnerQuery helper", () => {
 
     const statement = result.toStatement();
     expect(statement).not.toContain("JOIN");
+  });
+});
+
+describe("batch ref adapter SQL", () => {
+  test("PostgreSQL adapter owns batch ref storage SQL", () => {
+    const adapter = new PostgresAdapter();
+    const batchId = "batch-a";
+
+    expect(
+      adapter.batchRefs
+        .setup(batchId)
+        .map((statement) => statement.toStatement("$n"))
+    ).toEqual([
+      'CREATE TEMP TABLE IF NOT EXISTS "__viborm_batch_refs" ("batch_id" TEXT NOT NULL, "ref_key" TEXT NOT NULL, "ref_value" TEXT, PRIMARY KEY ("batch_id", "ref_key")) ON COMMIT DROP',
+    ]);
+    expect(adapter.batchRefs.clear(batchId).toStatement("$n")).toBe(
+      'DELETE FROM "__viborm_batch_refs" WHERE "batch_id" = $1'
+    );
+    expect(adapter.batchRefs.clear(batchId).values).toEqual([batchId]);
+    expect(
+      adapter.batchRefs.storeLastInsertId(batchId, "user_id").toStatement("$n")
+    ).toBe(
+      'INSERT INTO "__viborm_batch_refs" ("batch_id", "ref_key", "ref_value") VALUES ($1, $2, CAST((lastval()) AS TEXT)) ON CONFLICT ("batch_id", "ref_key") DO UPDATE SET "ref_value" = EXCLUDED."ref_value"'
+    );
+    expect(
+      adapter.batchRefs.store(batchId, "answer", sql`40 + 2`).toStatement("$n")
+    ).toBe(
+      'INSERT INTO "__viborm_batch_refs" ("batch_id", "ref_key", "ref_value") VALUES ($1, $2, CAST((40 + 2) AS TEXT)) ON CONFLICT ("batch_id", "ref_key") DO UPDATE SET "ref_value" = EXCLUDED."ref_value"'
+    );
+    expect(adapter.batchRefs.read(batchId, "answer").toStatement("$n")).toBe(
+      '(SELECT "ref_value" FROM "__viborm_batch_refs" WHERE "batch_id" = $1 AND "ref_key" = $2 LIMIT 1)'
+    );
+    expect(adapter.batchRefs.cleanup(batchId).toStatement("$n")).toBe(
+      'DELETE FROM "__viborm_batch_refs" WHERE "batch_id" = $1'
+    );
+  });
+
+  test("SQLite adapter owns batch ref storage SQL", () => {
+    const adapter = new SQLiteAdapter();
+    const batchId = "batch-a";
+
+    expect(
+      adapter.batchRefs
+        .setup(batchId)
+        .map((statement) => statement.toStatement())
+    ).toEqual([
+      'CREATE TEMP TABLE IF NOT EXISTS "__viborm_batch_refs" ("batch_id" TEXT NOT NULL, "ref_key" TEXT NOT NULL, "ref_value" TEXT, PRIMARY KEY ("batch_id", "ref_key"))',
+    ]);
+    expect(adapter.batchRefs.clear(batchId).toStatement()).toBe(
+      'DELETE FROM "__viborm_batch_refs" WHERE "batch_id" = ?'
+    );
+    expect(adapter.batchRefs.clear(batchId).values).toEqual([batchId]);
+    expect(
+      adapter.batchRefs.storeLastInsertId(batchId, "user_id").toStatement()
+    ).toBe(
+      'INSERT INTO "__viborm_batch_refs" ("batch_id", "ref_key", "ref_value") VALUES (?, ?, CAST((last_insert_rowid()) AS TEXT)) ON CONFLICT ("batch_id", "ref_key") DO UPDATE SET "ref_value" = EXCLUDED."ref_value"'
+    );
+    expect(
+      adapter.batchRefs.store(batchId, "answer", sql`40 + 2`).toStatement()
+    ).toBe(
+      'INSERT INTO "__viborm_batch_refs" ("batch_id", "ref_key", "ref_value") VALUES (?, ?, CAST((40 + 2) AS TEXT)) ON CONFLICT ("batch_id", "ref_key") DO UPDATE SET "ref_value" = EXCLUDED."ref_value"'
+    );
+    expect(adapter.batchRefs.read(batchId, "answer").toStatement()).toBe(
+      '(SELECT "ref_value" FROM "__viborm_batch_refs" WHERE "batch_id" = ? AND "ref_key" = ? LIMIT 1)'
+    );
+    expect(adapter.batchRefs.cleanup(batchId).toStatement()).toBe(
+      'DELETE FROM "__viborm_batch_refs" WHERE "batch_id" = ?'
+    );
+  });
+});
+
+// =============================================================================
+// EXPLICIT UNDEFINED ARGS (Prisma parity)
+// =============================================================================
+
+describe("explicit undefined args behave like absent args", () => {
+  test("findMany with { where: undefined } matches {}", () => {
+    const explicit = getSql(Author, "findMany", { where: undefined });
+    const absent = getSql(Author, "findMany", {});
+    expect(explicit.statement).toBe(absent.statement);
+    expect(explicit.values).toEqual(absent.values);
+  });
+
+  test("findMany with undefined where field matches omitting it", () => {
+    const explicit = getSql(Author, "findMany", {
+      where: { name: undefined, email: "a@x.com" },
+    });
+    const absent = getSql(Author, "findMany", {
+      where: { email: "a@x.com" },
+    });
+    expect(explicit.statement).toBe(absent.statement);
+    expect(explicit.values).toEqual(absent.values);
+  });
+
+  test("findMany with undefined select/orderBy/take matches {}", () => {
+    const explicit = getSql(Author, "findMany", {
+      select: undefined,
+      orderBy: undefined,
+      take: undefined,
+    });
+    const absent = getSql(Author, "findMany", {});
+    expect(explicit.statement).toBe(absent.statement);
+  });
+
+  test("update with undefined data field does not touch the column", () => {
+    const explicit = getSql(Author, "update", {
+      where: { id: "1" },
+      data: { name: undefined, email: "b@x.com" },
+    });
+    const absent = getSql(Author, "update", {
+      where: { id: "1" },
+      data: { email: "b@x.com" },
+    });
+    expect(explicit.statement).toBe(absent.statement);
+    expect(explicit.values).toEqual(absent.values);
+  });
+
+  test("relation count with { where: undefined } matches plain count", () => {
+    const explicit = getSql(Author, "findMany", {
+      select: { id: true, _count: { select: { posts: { where: undefined } } } },
+    });
+    const absent = getSql(Author, "findMany", {
+      select: { id: true, _count: { select: { posts: true } } },
+    });
+    expect(explicit.statement).toBe(absent.statement);
   });
 });

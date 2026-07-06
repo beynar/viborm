@@ -1,0 +1,103 @@
+---
+title: Compatibility
+description: Current Prisma-inspired support matrix and intentional differences
+icon: ListChecks
+---
+
+# Compatibility
+
+VibORM is Prisma-inspired, not Prisma-compatible. Inputs that look supported should either work or reject before query generation. The tables below describe the current public contract.
+
+## Operation Support
+
+| Operation | Status | Notes | Test coverage |
+|-----------|--------|-------|---------------|
+| `findUnique` | Supported | Requires a unique selector and returns `T \| null`. Empty or non-unique selectors reject. | `tests/client/operations.test.ts`, `tests/model/args/find-args.test.ts` |
+| `findUniqueOrThrow` | Supported | Same selector rules as `findUnique`; throws `NotFoundError` when missing. | `tests/client/operations.test.ts` |
+| `findFirst` | Supported | Supports filtering, ordering, pagination, `select`, and `include`. Stable ordering requires `orderBy`. | `tests/client/operations.test.ts` |
+| `findFirstOrThrow` | Supported | Same as `findFirst`, but throws when missing. | `tests/client/operations.test.ts` |
+| `findMany` | Supported | Supports scalar filters, supported relation filters, ordering, cursor pagination, negative `take`, `distinct`, `select`, and `include`. | `tests/client/operations.test.ts`, `tests/client/relation-filter.test.ts`, `tests/query-engine/sql-generation.test.ts` |
+| `create` | Supported | Supports scalar data and supported nested writes. | `tests/client/operations.test.ts`, `tests/query-engine/nested-create-many.test.ts` |
+| `createMany` | Supported | Returns `{ count }`. Relation envelopes are not supported. `skipDuplicates` depends on adapter support. | `tests/client/operations.test.ts`, `tests/client/relation-types.test.ts` |
+| `update` | Supported | Requires unique `where`; throws when the row is missing. Supports supported nested writes. | `tests/client/operations.test.ts`, `tests/query-engine/nested-mutation-routing.test.ts` |
+| `updateMany` | Supported | Returns `{ count }`; accepted filters must be honored or rejected. | `tests/client/operations.test.ts` |
+| `upsert` | Supported | Requires unique `where`, `create`, and `update`. Supported nested writes are allowed in covered branches. | `tests/client/operations.test.ts`, `tests/query-engine/nested-create-many.test.ts` |
+| `delete` | Supported | Requires unique `where`; throws when the row is missing. | `tests/client/operations.test.ts` |
+| `deleteMany` | Supported | Returns `{ count }`. | `tests/client/operations.test.ts` |
+| `count` | Partial | Supports `where`, selected count fields, and `orderBy`/`cursor`/`take`/`skip` input-window pagination. | `tests/client/operations.test.ts`, `tests/model/args/aggregate-args.test.ts`, `tests/query-engine/sql-generation.test.ts` |
+| `aggregate` | Partial | Supports selected aggregate fields, `where`, and `orderBy`/`cursor`/`take`/`skip` input-window pagination. | `tests/client/operations.test.ts`, `tests/model/args/aggregate-args.test.ts`, `tests/query-engine/sql-generation.test.ts` |
+| `groupBy` | Partial | Supports scalar `by`, aggregate selections, `having`, ordering, `take`, and `skip` where tested. | `tests/client/operations.test.ts`, `tests/model/args/aggregate-args.test.ts` |
+| `exist` | VibORM extension | Prisma has no direct `exist` operation. VibORM keeps `exist`, not `exists`, and returns `boolean`. | `tests/client/operations.test.ts` |
+| `$queryRaw` | Intentionally different | Accepts `sql: string, params?` and returns `QueryResult<T>`. This is not Prisma's tagged-template API. | `tests/client/operations.test.ts`, `tests/drivers/*.test.ts` |
+| `$executeRaw` | Intentionally different | Accepts a `Sql` fragment and returns `QueryResult<T>`, not only an affected-row count. | `tests/client/operations.test.ts`, `tests/drivers/*.test.ts` |
+
+## Relation Filter Support
+
+| Relation kind | Supported filters | Notes | Test coverage |
+|---------------|-------------------|-------|---------------|
+| To-one (`oneToOne`, `manyToOne`) | `is`, `isNot` | Filters against the related model's `where` shape. | `tests/client/relation-filter.test.ts` |
+| To-many (`oneToMany`, `manyToMany`) | `some`, `every`, `none` | `every` follows SQL universal-quantification semantics; combine with `some: {}` when you need at least one related row. Many-to-many SQL generation is covered separately. | `tests/client/relation-filter.test.ts`, `tests/query-engine/sql-generation.test.ts` |
+| Nested relation filters | Supported where covered | Unsupported scalar or relation operators reject before SQL generation. | `tests/model/combined/where.test.ts`, `tests/query-engine/sql-generation.test.ts` |
+
+## Nested Write Support
+
+This matrix separates supported nested-write shapes from intentionally unsupported ones. `Supported today` means the shape is part of the current public contract. `Excluded` means intentionally unsupported.
+
+The nested-write contract is provider-independent: query-engine code defines what mutation graph is allowed, and adapters/drivers decide how to execute it atomically. If a driver path cannot execute a documented nested mutation atomically, that path must reject instead of partially mutating data. Unsupported or excluded nested write keys must reject before the parent mutation executes.
+
+Callback-transaction drivers and atomic-batch drivers expose the same public nested-write surface. Batch-only atomic paths support generated and updated primary-key dataflow through internal semantic references: the query engine tracks which values are produced and consumed, adapters generate dialect-specific reference SQL, and drivers execute the planned statements as one atomic batch. Impossible or unsafe primary-key shapes reject before mutation; they are not provider-specific public API differences.
+
+| Operation | `create` | `createMany` | `connect` | `connectOrCreate` | `disconnect` | `delete` | `set` | `update` | `updateMany` | `upsert` | `deleteMany` |
+|-----------|----------|--------------|-----------|-------------------|--------------|----------|-------|----------|--------------|----------|--------------|
+| Parent `create` | Supported today | Supported today for to-many relations where the related model holds the FK | Supported today | Supported today | Excluded | Excluded | Excluded | Excluded | Excluded | Excluded | Excluded |
+| Parent `update` | Supported today | Supported today for to-many relations where the related model holds the FK | Supported today | Supported today | Supported today where nullable/correlated | Supported today where correlated | Supported today where nullable/correlated | Supported today | Supported today for to-many only | Supported today | Supported today for to-many only |
+| Parent `upsert` create branch | Supported today | Supported today where parent `create` supports it | Supported today | Supported today | Excluded | Excluded | Excluded | Excluded | Excluded | Excluded | Excluded |
+| Parent `upsert` update branch | Supported today where parent `update` supports it | Supported today where parent `update` supports it | Supported today | Supported today | Supported today where nullable/correlated | Supported today where correlated | Supported today where nullable/correlated | Supported today | Supported today for to-many only | Supported today | Supported today for to-many only |
+| Top-level `createMany` | Excluded | Excluded | Excluded | Excluded | Excluded | Excluded | Excluded | Excluded | Excluded | Excluded | Excluded |
+
+Relation-shape rules:
+
+| Relation shape | Supported operation shape |
+|----------------|-------------------------|
+| To-one `update` | `update: { ...data }` |
+| To-many `update` | `update: { where, data }` or an array of `{ where, data }` |
+| To-one `updateMany` | Excluded; reject before query generation |
+| To-many `updateMany` | `updateMany: { where?, data }` or an array of `{ where?, data }` |
+| To-one `upsert` | `upsert: { create, update }` |
+| To-many `upsert` | `upsert: { where, create, update }` or an array of that shape |
+| To-one `deleteMany` | Excluded; use `delete: true` where valid |
+| To-many `deleteMany` | `deleteMany: where` or an array of `where` |
+
+Zero-row semantics:
+
+- Nested `update` and `delete` with a specific target throw when no correlated row is found.
+- Nested `updateMany` and `deleteMany` may affect zero rows without throwing.
+- Nested `upsert` creates only when no row matching `where` exists. If a row exists but belongs to another parent, reject instead of mutating it or creating a duplicate.
+
+Required relations also reject `disconnect`, empty `set`, or other relation operations that would null a non-nullable foreign key. Runtime behavior and TypeScript behavior should agree where practical.
+
+Current test coverage: `tests/client/select-include-result.test.ts`, `tests/client/operations.test.ts`, `tests/query-engine/nested-create-many.test.ts`, `tests/query-engine/nested-mutation-routing.test.ts`, `tests/query-engine/non-returning-mutation-returns.test.ts`, and `tests/client/relation-types.test.ts`.
+
+Local conformance coverage runs the shared `tests/drivers/nested-write-behavior.ts` spec on PGlite, batch-only PGlite, SQLite3, and LibSQL. Generated/updated primary-key batch dataflow is covered by `tests/drivers/batch-primary-key-dataflow-behavior.ts` on local Postgres-style and SQLite-style paths. Hosted/external suites for D1, D1 HTTP, Neon HTTP, and MySQL/PlanetScale are tracked as coverage gaps in `tests/drivers/nested-write-provider-gaps.md`; those gaps are not provider-specific public contract differences. A hosted driver path with callback transactions or atomic batch must prove the same atomic nested-write behavior before docs call it externally verified. A driver path with neither atomic strategy must reject before the parent mutation.
+
+## Dialect Support
+
+| Area | PostgreSQL/PGlite | MySQL-style | SQLite/libSQL/D1 | Notes |
+|------|-------------------|-------------|------------------|-------|
+| Core CRUD | Best covered | Supported with driver-specific return handling | Supported with driver-specific return handling | Broadest integration tests run on PGlite. |
+| Mutation return rows | Native `RETURNING` where available | Refetch or reject when safe refetch is impossible | Refetch or native support depending on driver | Unsupported unsafe paths must reject instead of returning fabricated data. |
+| Nested writes | Local conformance on PGlite and batch-only PGlite, including generated/updated PK refs | Public contract applies; hosted/external coverage gap for MySQL/PlanetScale | Local conformance on SQLite3/LibSQL and SQLite-style batch refs; hosted D1/D1 HTTP coverage gap | D1, D1 HTTP, and Neon HTTP are not blanket nested-write gaps; external hosted proof is still pending. |
+| `skipDuplicates` | Adapter SQL support | Adapter SQL support varies | Adapter SQL support varies | Public docs should not assume identical duplicate behavior across all drivers. |
+| Transactions | Full on stateful drivers | Driver-dependent | Driver-dependent; D1 HTTP-style callback transactions reject and batch mode is the supported atomic path | See [Database Drivers](/docs/drivers). |
+| Vector/geospatial features | Driver option dependent | Unsupported unless implemented by adapter | Unsupported unless implemented by adapter | Unsupported feature adapters throw. |
+
+## Type-System Differences
+
+| Area | VibORM contract |
+|------|-----------------|
+| Type source | Types are inferred from TypeScript schema definitions and validation schemas. There is no `prisma generate` step. |
+| Checked vs unchecked inputs | VibORM currently uses a blended create/update input surface. It does not expose Prisma's separate checked/unchecked helper type names as public API. |
+| Prisma helper types | VibORM does not clone Prisma's `XOR`, `Exact`, `SelectSubset`, or generated model helper surface. |
+| Query-level `omit` | Model-level omit is a VibORM result-shaping feature. Prisma-style per-query `omit` is not part of the public contract. |
+| `exist` | `exist` is a VibORM extension. There is no `exists` alias in the Prisma-parity roadmap. |
+| Raw SQL | `$queryRaw` and `$executeRaw` intentionally use VibORM's explicit string/params and `Sql` fragment shapes. |

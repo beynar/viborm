@@ -13,6 +13,13 @@ import {
 } from "@drivers/postgres";
 import { push } from "@migrations";
 import { s } from "@schema";
+import { runListJsonFilterBehavior } from "./list-json-filter-behavior";
+import { runNestedWriteAdvancedBehavior } from "./nested-write-advanced-behavior";
+import { runNestedWriteBehavior } from "./nested-write-behavior";
+import {
+  runFullScalarRoundtripBehavior,
+  runScalarRoundtripBehavior,
+} from "./scalar-roundtrip-behavior";
 
 // =============================================================================
 // SCHEMA DEFINITION
@@ -70,6 +77,18 @@ const TEST_CONNECTION_STRING = process.env.PG_TEST_CONNECTION_STRING;
 const describeIf = TEST_CONNECTION_STRING ? describe : describe.skip;
 
 describeIf("postgres.js Driver", () => {
+  // The tests below assume a fresh database. PostgreSQL persists between
+  // tests, so drop everything first: pushing an empty schema diffs to
+  // dropTable for every existing table. (Same pattern as mysql2.test.ts.)
+  beforeEach(async () => {
+    const cleanupClient = PostgresCreateClient({
+      schema: {},
+      databaseUrl: TEST_CONNECTION_STRING,
+    });
+    await push(cleanupClient, { force: true });
+    await cleanupClient.$disconnect();
+  });
+
   describe("Driver Creation", () => {
     test("creates driver with connection string", async () => {
       const driver = new PostgresDriver({
@@ -379,4 +398,40 @@ describeIf("postgres.js Driver", () => {
       await client.$disconnect();
     });
   });
+  // Real postgres.js param serialization for native array columns
+  runListJsonFilterBehavior({
+    driverName: "postgres.js",
+    createDriver: () =>
+      new PostgresDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  runScalarRoundtripBehavior({
+    driverName: "postgres.js",
+    createDriver: () =>
+      new PostgresDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  runFullScalarRoundtripBehavior({
+    driverName: "postgres.js",
+    createDriver: () =>
+      new PostgresDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  // Nested writes over real pooled connections (transactions span checkouts)
+  runNestedWriteBehavior({
+    driverName: "postgres.js",
+    createDriver: () =>
+      new PostgresDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  runNestedWriteAdvancedBehavior({
+    driverName: "postgres.js",
+    createDriver: () =>
+      new PostgresDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  // The remaining behavior suites are not wired here: they are adapter-level
+  // and already run on PGlite, which shares the postgres adapter; this file
+  // covers what depends on the real driver (param serialization, pooling,
+  // transactions).
 });

@@ -1,0 +1,373 @@
+import { type Sql, sql } from "@sql";
+import type { CastType, DatabaseAdapter } from "../database-adapter";
+
+/** Quote a single identifier for the dialect: `"name"` or `` `name` ``. */
+export type IdentifierQuoter = (name: string) => string;
+
+type StandardLiterals = Pick<
+  DatabaseAdapter["literals"],
+  "value" | "null" | "list" | "dateTime"
+>;
+
+type ComparisonOperators = Pick<
+  DatabaseAdapter["operators"],
+  "eq" | "neq" | "lt" | "lte" | "gt" | "gte"
+>;
+
+type NullOperators = Pick<DatabaseAdapter["operators"], "isNull" | "isNotNull">;
+
+type RangeOperators = Pick<
+  DatabaseAdapter["operators"],
+  "between" | "notBetween"
+>;
+
+type ExistenceOperators = Pick<
+  DatabaseAdapter["operators"],
+  "exists" | "notExists"
+>;
+
+type DirectionOrderBy = Pick<DatabaseAdapter["orderBy"], "asc" | "desc">;
+
+type NumericSetOperations = Pick<
+  DatabaseAdapter["set"],
+  "assign" | "increment" | "decrement" | "multiply" | "divide"
+>;
+
+type MutationCommands = Pick<DatabaseAdapter["mutations"], "update" | "delete">;
+
+export const createRawSql = (): DatabaseAdapter["raw"] => {
+  return (sqlString: string): Sql => sql.raw`${sqlString}`;
+};
+
+/**
+ * JSON-serialize a value for dialects that store lists/JSON as JSON text
+ * (MySQL, SQLite). BigInt has no JSON representation, so it serializes as a
+ * string; the result parser converts it back via the scalar's bigint type.
+ */
+export const stringifyJson = (value: unknown): string =>
+  JSON.stringify(value, (_key, v) =>
+    typeof v === "bigint" ? v.toString() : v
+  );
+
+const JSON_PATH_ARRAY_INDEX = /^\d+$/;
+
+/**
+ * Build a MySQL/SQLite JSONPath string from path segments: '$' plus `[N]`
+ * for integer segments (array indices) and `."seg"` for object keys.
+ * Keys are JSON-string-escaped so quotes/dots/backslashes in a segment
+ * cannot alter the path structure; the result is bound as a parameter.
+ */
+export const buildJsonPath = (path: string[]): string => {
+  let jsonPath = "$";
+  for (const segment of path) {
+    jsonPath += JSON_PATH_ARRAY_INDEX.test(segment)
+      ? `[${segment}]`
+      : `.${JSON.stringify(segment)}`;
+  }
+  return jsonPath;
+};
+
+export const createStandardLiterals = (): StandardLiterals => ({
+  value: (v: unknown): Sql => sql`${v}`,
+  null: (): Sql => sql.raw`NULL`,
+  list: (values: Sql[]): Sql => {
+    if (values.length === 0) return sql.raw`()`;
+    return sql`(${sql.join(values, ", ")})`;
+  },
+  // PG/SQLite accept ISO-8601 directly
+  dateTime: (iso: string): Sql => sql`${iso}`,
+});
+
+export const createComparisonOperators = (): ComparisonOperators => ({
+  eq: (left: Sql, right: Sql): Sql => sql`${left} = ${right}`,
+  neq: (left: Sql, right: Sql): Sql => sql`${left} <> ${right}`,
+  lt: (left: Sql, right: Sql): Sql => sql`${left} < ${right}`,
+  lte: (left: Sql, right: Sql): Sql => sql`${left} <= ${right}`,
+  gt: (left: Sql, right: Sql): Sql => sql`${left} > ${right}`,
+  gte: (left: Sql, right: Sql): Sql => sql`${left} >= ${right}`,
+});
+
+export const createNullOperators = (): NullOperators => ({
+  isNull: (expr: Sql): Sql => sql`${expr} IS NULL`,
+  isNotNull: (expr: Sql): Sql => sql`${expr} IS NOT NULL`,
+});
+
+export const createRangeOperators = (): RangeOperators => ({
+  between: (column: Sql, min: Sql, max: Sql): Sql =>
+    sql`${column} BETWEEN ${min} AND ${max}`,
+  notBetween: (column: Sql, min: Sql, max: Sql): Sql =>
+    sql`${column} NOT BETWEEN ${min} AND ${max}`,
+});
+
+export const createExistenceOperators = (): ExistenceOperators => ({
+  exists: (subquery: Sql): Sql => sql`EXISTS (${subquery})`,
+  notExists: (subquery: Sql): Sql => sql`NOT EXISTS (${subquery})`,
+});
+
+export const createAggregateFunctions = (): DatabaseAdapter["aggregates"] => ({
+  count: (expr?: Sql): Sql => (expr ? sql`COUNT(${expr})` : sql.raw`COUNT(*)`),
+  countDistinct: (expr: Sql): Sql => sql`COUNT(DISTINCT ${expr})`,
+  sum: (expr: Sql): Sql => sql`SUM(${expr})`,
+  avg: (expr: Sql): Sql => sql`AVG(${expr})`,
+  min: (expr: Sql): Sql => sql`MIN(${expr})`,
+  max: (expr: Sql): Sql => sql`MAX(${expr})`,
+});
+
+export const createDirectionOrderBy = (): DirectionOrderBy => ({
+  asc: (column: Sql): Sql => sql`${column} ASC`,
+  desc: (column: Sql): Sql => sql`${column} DESC`,
+});
+
+const directionKeyword = (direction: "asc" | "desc"): Sql =>
+  direction === "desc" ? sql.raw`DESC` : sql.raw`ASC`;
+
+/**
+ * NULLS FIRST/LAST emulation for dialects without native support
+ * (MySQL, SQLite): prepend an IS NULL sort key. IS NULL yields 1 for
+ * NULL rows, so DESC puts them first and ASC puts them last.
+ */
+export const createEmulatedNullsOrderBy = (): Pick<
+  DatabaseAdapter["orderBy"],
+  "nullsFirst" | "nullsLast"
+> => ({
+  nullsFirst: (column: Sql, direction: "asc" | "desc"): Sql =>
+    sql`(${column} IS NULL) DESC, ${column} ${directionKeyword(direction)}`,
+  nullsLast: (column: Sql, direction: "asc" | "desc"): Sql =>
+    sql`(${column} IS NULL) ASC, ${column} ${directionKeyword(direction)}`,
+});
+
+export const createStandardClauses = (): DatabaseAdapter["clauses"] => ({
+  select: (columns: Sql): Sql => sql`SELECT ${columns}`,
+  selectDistinct: (columns: Sql): Sql => sql`SELECT DISTINCT ${columns}`,
+  from: (table: Sql): Sql => sql`FROM ${table}`,
+  where: (condition: Sql): Sql => sql`WHERE ${condition}`,
+  orderBy: (orders: Sql): Sql => sql`ORDER BY ${orders}`,
+  limit: (count: Sql): Sql => sql`LIMIT ${count}`,
+  offset: (count: Sql): Sql => sql`OFFSET ${count}`,
+  groupBy: (columns: Sql): Sql => sql`GROUP BY ${columns}`,
+  having: (condition: Sql): Sql => sql`HAVING ${condition}`,
+});
+
+export const createNumericSetOperations = (): NumericSetOperations => ({
+  assign: (column: Sql, value: Sql): Sql => sql`${column} = ${value}`,
+  increment: (column: Sql, by: Sql): Sql => sql`${column} = ${column} + ${by}`,
+  decrement: (column: Sql, by: Sql): Sql => sql`${column} = ${column} - ${by}`,
+  multiply: (column: Sql, by: Sql): Sql => sql`${column} = ${column} * ${by}`,
+  divide: (column: Sql, by: Sql): Sql => sql`${column} = ${column} / ${by}`,
+});
+
+export const createRelationFilters = (): DatabaseAdapter["filters"] => ({
+  some: (subquery: Sql): Sql => sql`EXISTS (${subquery})`,
+  every: (subquery: Sql): Sql => sql`NOT EXISTS (${subquery})`,
+  none: (subquery: Sql): Sql => sql`NOT EXISTS (${subquery})`,
+  is: (subquery: Sql): Sql => sql`EXISTS (${subquery})`,
+  isNot: (subquery: Sql): Sql => sql`NOT EXISTS (${subquery})`,
+});
+
+export const createMutationCommands = (): MutationCommands => ({
+  update: (table: Sql, sets: Sql, where?: Sql): Sql => {
+    if (where) {
+      return sql`UPDATE ${table} SET ${sets} WHERE ${where}`;
+    }
+    return sql`UPDATE ${table} SET ${sets}`;
+  },
+  delete: (table: Sql, where?: Sql): Sql => {
+    if (where) {
+      return sql`DELETE FROM ${table} WHERE ${where}`;
+    }
+    return sql`DELETE FROM ${table}`;
+  },
+});
+
+export const createSetOperations = (): DatabaseAdapter["setOperations"] => ({
+  union: (...queries: Sql[]): Sql => sql.join(queries, " UNION "),
+  unionAll: (...queries: Sql[]): Sql => sql.join(queries, " UNION ALL "),
+  intersect: (...queries: Sql[]): Sql => sql.join(queries, " INTERSECT "),
+  except: (left: Sql, right: Sql): Sql => sql`${left} EXCEPT ${right}`,
+});
+
+// ============================================================
+// Dialect-parameterized factories: identical grammar across
+// adapters, differing only in the identifier quote character.
+// ============================================================
+
+/** Build an identifier quoter that doubles embedded quote characters to prevent SQL injection. */
+export const createIdentifierQuoter =
+  (quoteChar: '"' | "`"): IdentifierQuoter =>
+  (name: string): string =>
+    quoteChar + name.replaceAll(quoteChar, quoteChar + quoteChar) + quoteChar;
+
+export const createIdentifiers = (
+  quoteIdent: IdentifierQuoter
+): DatabaseAdapter["identifiers"] => ({
+  escape: (name: string): Sql => sql.raw`${quoteIdent(name)}`,
+
+  column: (alias: string, field: string): Sql =>
+    alias
+      ? sql.raw`${quoteIdent(alias)}.${quoteIdent(field)}`
+      : sql.raw`${quoteIdent(field)}`,
+
+  table: (tableName: string, alias: string): Sql =>
+    sql.raw`${quoteIdent(tableName)} AS ${quoteIdent(alias)}`,
+
+  aliased: (expression: Sql, alias: string): Sql =>
+    sql`${expression} AS ${sql.raw`${quoteIdent(alias)}`}`,
+});
+
+export const createSubqueries = (
+  quoteIdent: IdentifierQuoter
+): DatabaseAdapter["subqueries"] => ({
+  scalar: (query: Sql): Sql => sql`(${query})`,
+
+  correlate: (query: Sql, alias: string): Sql =>
+    sql`(${query}) AS ${sql.raw`${quoteIdent(alias)}`}`,
+
+  existsCheck: (from: Sql, where: Sql): Sql =>
+    sql`SELECT 1 FROM ${from} WHERE ${where}`,
+});
+
+export const createCteBuilders = (
+  quoteIdent: IdentifierQuoter
+): DatabaseAdapter["cte"] => ({
+  with: (definitions: { name: string; query: Sql }[]): Sql => {
+    const defs = definitions.map(
+      ({ name, query }) => sql`${sql.raw`${quoteIdent(name)}`} AS (${query})`
+    );
+    return sql`WITH ${sql.join(defs, ", ")}`;
+  },
+
+  recursive: (
+    name: string,
+    anchor: Sql,
+    recursive: Sql,
+    union: "all" | "distinct" = "all"
+  ): Sql => {
+    const unionKeyword = union === "all" ? sql.raw`UNION ALL` : sql.raw`UNION`;
+    return sql`WITH RECURSIVE ${sql.raw`${quoteIdent(name)}`} AS (
+        ${anchor}
+        ${unionKeyword}
+        ${recursive}
+      )`;
+  },
+});
+
+export const createInsertStatement =
+  (quoteIdent: IdentifierQuoter): DatabaseAdapter["mutations"]["insert"] =>
+  (table: Sql, columns: string[], values: Sql[][], prefix?: Sql): Sql => {
+    const cols = columns.map((c) => sql.raw`${quoteIdent(c)}`);
+    const rows = values.map((row) => sql`(${sql.join(row, ", ")})`);
+    const prefixPart = prefix ? sql`${prefix} ` : sql``;
+    return sql`INSERT ${prefixPart}INTO ${table} (${sql.join(
+      cols,
+      ", "
+    )}) VALUES ${sql.join(rows, ", ")}`;
+  };
+
+/**
+ * Standard ON CONFLICT grammar shared by PostgreSQL and SQLite.
+ * MySQL's ON DUPLICATE KEY UPDATE is a different grammar with different
+ * semantics — it stays in the MySQL adapter.
+ */
+export const createOnConflictBuilders = (): Pick<
+  DatabaseAdapter["mutations"],
+  "onConflict" | "onConflictUpdate" | "skipDuplicates"
+> => ({
+  onConflict: (target: Sql | null, action: Sql, targetWhere?: Sql): Sql => {
+    if (target) {
+      if (targetWhere) {
+        // ON CONFLICT (id) WHERE <targetWhere> DO UPDATE ...
+        return sql`ON CONFLICT (${target}) WHERE ${targetWhere} DO ${action}`;
+      }
+      return sql`ON CONFLICT (${target}) DO ${action}`;
+    }
+    return sql`ON CONFLICT DO ${action}`;
+  },
+
+  onConflictUpdate: (sets: Sql, setWhere?: Sql): Sql => {
+    if (setWhere) {
+      // UPDATE SET x = y WHERE <setWhere>
+      return sql`UPDATE SET ${sets} WHERE ${setWhere}`;
+    }
+    return sql`UPDATE SET ${sets}`;
+  },
+
+  skipDuplicates: () => ({
+    prefix: sql``,
+    suffix: sql`ON CONFLICT DO NOTHING`,
+  }),
+});
+
+export const createMembershipOperators = (): Pick<
+  DatabaseAdapter["operators"],
+  "in" | "notIn"
+> => ({
+  in: (column: Sql, values: Sql): Sql => sql`${column} IN ${values}`,
+  notIn: (column: Sql, values: Sql): Sql => sql`${column} NOT IN ${values}`,
+});
+
+/**
+ * AND/OR/NOT with vacuous-case literals: the dialect's TRUE for an empty
+ * AND and FALSE for an empty OR (pass the adapter's literals.true/false).
+ */
+export const createLogicalOperators = (
+  vacuousTrue: () => Sql,
+  vacuousFalse: () => Sql
+): Pick<DatabaseAdapter["operators"], "and" | "or" | "not"> => ({
+  and: (...conditions: Sql[]): Sql => {
+    if (conditions.length === 0) return vacuousTrue();
+    if (conditions.length === 1) return conditions[0]!;
+    return sql`(${sql.join(conditions, " AND ")})`;
+  },
+
+  or: (...conditions: Sql[]): Sql => {
+    if (conditions.length === 0) return vacuousFalse();
+    if (conditions.length === 1) return conditions[0]!;
+    return sql`(${sql.join(conditions, " OR ")})`;
+  },
+
+  not: (condition: Sql): Sql => sql`NOT (${condition})`,
+});
+
+export const createCommonExpressions = (): Pick<
+  DatabaseAdapter["expressions"],
+  "add" | "subtract" | "multiply" | "divide" | "upper" | "lower" | "coalesce"
+> => ({
+  add: (left: Sql, right: Sql): Sql => sql`(${left} + ${right})`,
+  subtract: (left: Sql, right: Sql): Sql => sql`(${left} - ${right})`,
+  multiply: (left: Sql, right: Sql): Sql => sql`(${left} * ${right})`,
+  divide: (left: Sql, right: Sql): Sql => sql`(${left} / ${right})`,
+  upper: (expr: Sql): Sql => sql`UPPER(${expr})`,
+  lower: (expr: Sql): Sql => sql`LOWER(${expr})`,
+  coalesce: (...exprs: Sql[]): Sql => sql`COALESCE(${sql.join(exprs, ", ")})`,
+});
+
+export const createCastExpression =
+  (typeMap: Record<CastType, string>): DatabaseAdapter["expressions"]["cast"] =>
+  (expr: Sql, type: CastType): Sql =>
+    sql`CAST(${expr} AS ${sql.raw`${typeMap[type]}`})`;
+
+export const createCoreJoins = (): Pick<
+  DatabaseAdapter["joins"],
+  "inner" | "left" | "right" | "cross"
+> => ({
+  inner: (table: Sql, condition: Sql): Sql =>
+    sql`INNER JOIN ${table} ON ${condition}`,
+
+  left: (table: Sql, condition: Sql): Sql =>
+    sql`LEFT JOIN ${table} ON ${condition}`,
+
+  right: (table: Sql, condition: Sql): Sql =>
+    sql`RIGHT JOIN ${table} ON ${condition}`,
+
+  cross: (table: Sql): Sql => sql`CROSS JOIN ${table}`,
+});
+
+export const createLateralJoins = (
+  quoteIdent: IdentifierQuoter
+): Pick<DatabaseAdapter["joins"], "lateral" | "lateralLeft"> => ({
+  lateral: (subquery: Sql, alias: string): Sql =>
+    sql`JOIN LATERAL (${subquery}) AS ${sql.raw`${quoteIdent(alias)}`} ON TRUE`,
+
+  lateralLeft: (subquery: Sql, alias: string): Sql =>
+    sql`LEFT JOIN LATERAL (${subquery}) AS ${sql.raw`${quoteIdent(alias)}`} ON TRUE`,
+});

@@ -27,8 +27,8 @@ These constraints shaped every architectural decision. When you wonder "why is t
 
 | Layer | Location | Owns | Doesn't Own | Guide |
 |-------|----------|------|-------------|-------|
-| **L1: Validation** | `src/validation/` | v.* primitives, Standard Schema V1, `SchemaRegistry` operation schemas | Field logic, domain rules | [validation/AGENTS.md](src/validation/AGENTS.md) |
-| **L2: Fields** | `src/schema/fields/` | Field classes, State generics, base field schemas | Operation schemas | [schema/fields/AGENTS.md](src/schema/fields/AGENTS.md) |
+| **L1: Validation** | `src/validation/` | v.* primitives, Standard Schema V1, `SchemaRegistry` operation schemas | Scalar logic, domain rules | [validation/AGENTS.md](src/validation/AGENTS.md) |
+| **L2: Scalars** | `src/schema/scalars/` | Scalar classes, State generics, base scalar schemas | Operation schemas | [schema/scalars/AGENTS.md](src/schema/scalars/AGENTS.md) |
 | **L3: Operation Schemas** | `src/validation/model/`, `src/validation/relations/` | where, create, update, args schemas | SQL generation | — |
 | **L4: Relations** | `src/schema/relation/` | Relation types, relation state, source binding | Query execution | [schema/relation/AGENTS.md](src/schema/relation/AGENTS.md) |
 | **L5: Schema Validation** | `src/schema/validation/` | Definition-time validation | Runtime validation | — |
@@ -39,6 +39,27 @@ These constraints shaped every architectural decision. When you wonder "why is t
 | **L10: Cache** | `src/cache/` | Query caching, invalidation | Query execution | [cache/AGENTS.md](src/cache/AGENTS.md) |
 | **L11: Instrumentation** | `src/instrumentation/` | Tracing, logging | Query logic | [instrumentation/AGENTS.md](src/instrumentation/AGENTS.md) |
 | **L12: Migrations** | `src/migrations/` | Schema sync, migration files, DDL | Schema definition | [migrations/AGENTS.md](src/migrations/AGENTS.md) |
+
+---
+
+## Schema Taxonomy
+
+Use these terms precisely:
+
+| Term | Meaning | Examples |
+|------|---------|----------|
+| **Field** | Umbrella model member. A model field is either a scalar or a relation. | `ModelShape = Record<string, Scalar \| AnyRelation>` |
+| **Scalar** | Primitive/value field that maps to a column or column-like value. | `s.string()`, `s.int()`, `s.dateTime()`, `StringScalar` |
+| **Relation** | Association field between models. | `s.manyToOne(() => user)`, `s.oneToMany(() => post)` |
+
+`field` is correct when code or docs talk about model keys, selection fields,
+foreign-key fields, compound fields, or the public relation `.fields()` API.
+Use `scalar` when referring to primitive/value definitions, scalar classes,
+scalar validation schemas, scalar factories, or `src/schema/scalars/`.
+
+Do not put scalar implementations under `fields/`, and do not name scalar
+classes `StringField`, `IntField`, etc. The concrete classes are
+`StringScalar`, `IntScalar`, and so on.
 
 ---
 
@@ -95,13 +116,13 @@ const post = s.model({
 
 ### Rule 4: Immutable State with Chainable API
 
-Every field/model modifier returns a NEW instance:
+Every scalar/model modifier returns a NEW instance:
 
 ```typescript
 // Each call returns new instance, original unchanged
-s.string()           // StringField<{type: "string"}>
-  .nullable()        // StringField<{type: "string", nullable: true}>  ← NEW instance
-  .default("hello")  // StringField<{..., default: "hello"}>           ← NEW instance
+s.string()           // StringScalar<{type: "string"}>
+  .nullable()        // StringScalar<{type: "string", nullable: true}>  ← NEW instance
+  .default("hello")  // StringScalar<{..., default: "hello"}>           ← NEW instance
 ```
 
 **Why this exists:** TypeScript tracks the State generic through each transformation. Mutation would break this - the type would show `nullable: true` but the runtime value wouldn't have it.
@@ -113,9 +134,9 @@ s.string()           // StringField<{type: "string"}>
 ```
 User writes:           s.string().nullable()
                               ↓
-Field creates State:   StringField<{type: "string", nullable: true}>
+Scalar creates State:  StringScalar<{type: "string", nullable: true}>
                               ↓
-Field state stores:    v.string({nullable: true}) as base schema
+Scalar state stores:    v.string({nullable: true}) as base schema
                               ↓
 SchemaRegistry builds: operation schemas from full model graph context
                               ↓
@@ -124,7 +145,7 @@ Type inference:        InferInput<schema> → string | null
 Client uses types:     orm.user.findMany({ where: { name: ... }})  // Fully typed!
 ```
 
-**Key insight:** Types flow DOWN through this chain. If types are wrong at the client level, the bug is upstream in schema or field definition.
+**Key insight:** Types flow DOWN through this chain. If types are wrong at the client level, the bug is upstream in schema or scalar definition.
 
 ---
 
@@ -132,7 +153,7 @@ Client uses types:     orm.user.findMany({ where: { name: ... }})  // Fully type
 
 | I want to... | Start here | Also touch |
 |--------------|------------|------------|
-| Add new field type | [schema/fields/](src/schema/fields/AGENTS.md) | Update Field union in `base.ts` |
+| Add new scalar type | [schema/scalars/](src/schema/scalars/AGENTS.md) | Update `Scalar` union in `base.ts` |
 | Add query operator (e.g., `contains`) | `src/validation/model/core/` or `src/validation/scalars/` | + query-engine + [adapters/](src/adapters/AGENTS.md) (all 3!) |
 | Fix operation input type inference bug | [client/](src/client/AGENTS.md) | Check validation model/scalar schema types upstream |
 | Add migration operation | [migrations/](src/migrations/AGENTS.md) | + migration drivers (postgres, mysql, sqlite, libsql) |
@@ -173,7 +194,7 @@ OpenTelemetry is an optional peer dependency. Most users don't need tracing. Dyn
 |---------|---------------|-----|
 | Hardcoded SQL in query-engine | Breaks MySQL/SQLite | Use `ctx.adapter.*` methods |
 | Type assertions (`as`) | Hides type mismatches | Let types flow naturally |
-| Forgot Field union update | New field type invisible to models | Update `src/schema/fields/base.ts` |
+| Forgot `Scalar` union update | New scalar type invisible to models | Update `src/schema/scalars/base.ts` |
 | Module-level mutable state | Breaks serverless (Cloudflare) | Use function-scoped or context state |
 | Eager operation schema building | Rebuilds schemas on every operation and loses graph context | Use `SchemaRegistry` and `v.lazy` |
 | Direct model reference in relation | ReferenceError at runtime | Use thunk `() => model` |
@@ -190,8 +211,9 @@ OpenTelemetry is an optional peer dependency. Most users don't need tracing. Dyn
 
 ```bash
 # Development
-pnpm build              # Compile TypeScript
-pnpm type-check         # Type check only (faster)
+pnpm build              # tsc with noEmit - type-checks only, compiles nothing
+pnpm package:build      # tsdown - actual package build (dist output)
+pnpm type-check         # Type check only (alias for the same tsc --noEmit check)
 pnpm test               # Run all tests
 pnpm test:watch         # Watch mode
 
@@ -213,14 +235,14 @@ pnpm test:sqlite        # SQLite
 `@schema`, `@client`, `@validation`, `@query-engine`, `@adapters`, `@drivers`, `@sql`, `@cache`, `@instrumentation`
 
 ### Naming Conventions
-- Field factories: lowercase (`string()`, `int()`)
-- Field classes: PascalCase + Field (`StringField`, `IntField`)
-- Types: PascalCase (`FieldState`, `ModelState`)
+- Scalar factories: lowercase (`string()`, `int()`)
+- Scalar classes: PascalCase + Scalar (`StringScalar`, `IntScalar`)
+- Types: PascalCase (`ScalarState`, `ModelState`)
 
 ### Internal API: `["~"]` Symbol
 ```typescript
-field["~"].state          // FieldState - configuration object
-field["~"].state.base     // Base field schema
+scalar["~"].state         // ScalarState - configuration object
+scalar["~"].state.base    // Base scalar schema
 schemaRegistry.proxy.user.core.where // Operation schema for this model
 relation["~"].state.getter // Thunk to target model
 ```

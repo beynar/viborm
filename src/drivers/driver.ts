@@ -5,6 +5,7 @@
  */
 
 import type { DatabaseAdapter } from "@adapters/database-adapter";
+import { TransactionError, VibORMErrorCode } from "@errors";
 import type { InstrumentationContext } from "@instrumentation/context";
 
 import {
@@ -21,6 +22,7 @@ import { getNoopTracer } from "@instrumentation/tracer";
 import type { Operation } from "@query-engine/types";
 import type { RelationType } from "@schema/relation/types";
 import type { Sql } from "@sql";
+import { normalizeDriverError } from "./error-mapping";
 import { SavepointQueue } from "./savepoint-queue";
 import type {
   BatchQuery,
@@ -51,8 +53,8 @@ export interface DriverResultParser {
 
   parseField?: (
     value: unknown,
-    fieldType: string,
-    next: (value: unknown, fieldType: string) => unknown
+    scalarType: string,
+    next: (value: unknown, scalarType: string) => unknown
   ) => unknown;
 }
 
@@ -104,6 +106,14 @@ export abstract class Driver<TClient, TTransaction> {
   readonly result?: DriverResultParser;
   protected client: TClient | TTransaction | null = null;
   protected inTransaction = false;
+  /**
+   * Single-connection drivers (better-sqlite3, in-memory libsql, bun:sqlite)
+   * cannot interleave two top-level transactions on their one connection:
+   * the second BEGIN either throws or silently joins the first transaction.
+   * Set true to queue top-level transactions so they run one at a time.
+   */
+  protected readonly serializeTransactions: boolean = false;
+  private readonly transactionQueue = new SavepointQueue();
   private initPromise: Promise<TClient> | null = null;
   private isDisconnecting = false;
   protected instrumentation?: InstrumentationContext;
@@ -264,11 +274,27 @@ export abstract class Driver<TClient, TTransaction> {
   /**
    * Wrap query execution with logging and tracing.
    */
-  private async withInstrumentation<T>(
+  protected async withInstrumentation<R>(
     sql: string,
     params: unknown[],
-    executor: () => Promise<QueryResult<T>>
-  ): Promise<QueryResult<T>> {
+    executor: () => Promise<R>
+  ): Promise<R> {
+    // Fast path: nothing configured — skip span, timing, and log plumbing.
+    // Error normalization is behavior (typed driver errors), so it stays.
+    if (!this.instrumentation) {
+      try {
+        return await executor();
+      } catch (error) {
+        throw normalizeDriverError(error, {
+          driverName: this.driverName,
+          model: this.currentContext.model,
+          operation: this.currentContext.operation,
+          query: sql,
+          params,
+        });
+      }
+    }
+
     const startTime = Date.now();
     const { model, operation } = this.currentContext;
 
@@ -278,15 +304,22 @@ export abstract class Driver<TClient, TTransaction> {
         this.logQuery(sql, params, Date.now() - startTime, model, operation);
         return result;
       } catch (error) {
+        const normalizedError = normalizeDriverError(error, {
+          driverName: this.driverName,
+          model,
+          operation,
+          query: sql,
+          params,
+        });
         this.logQuery(
           sql,
           params,
           Date.now() - startTime,
           model,
           operation,
-          error
+          normalizedError
         );
-        throw error;
+        throw normalizedError;
       }
     };
 
@@ -324,6 +357,17 @@ export abstract class Driver<TClient, TTransaction> {
   }
 
   /**
+   * Convert a typed Sql fragment into a driver-ready batch query.
+   * Query-engine planners use this so dialect placeholders stay driver-owned.
+   */
+  _prepare(query: Sql): BatchQuery {
+    return {
+      sql: this.buildStatement(query),
+      params: query.values,
+    };
+  }
+
+  /**
    * Execute raw SQL with instrumentation.
    */
   async _executeRaw<T = Record<string, unknown>>(
@@ -347,16 +391,22 @@ export abstract class Driver<TClient, TTransaction> {
    */
   async _transaction<T>(
     fn: (tx: TTransaction) => Promise<T>,
-    options?: TransactionOptions
+    options?: TransactionOptions,
+    onTimeout?: (error: TransactionError) => void
   ): Promise<T> {
     const client = await this.getClient();
     const wasInTransaction = this.inTransaction;
+    const timeoutWrappedFn = this.wrapTransactionCallbackFor(
+      fn,
+      options,
+      onTimeout
+    );
 
     const runTransaction = async () => {
       // Don't set inTransaction here - let driver's transaction() see the original value
       // Driver will set it to true after BEGIN, base class resets in finally
       try {
-        return await this.transaction(client, fn, options);
+        return await this.transaction(client, timeoutWrappedFn, options);
       } finally {
         this.inTransaction = wasInTransaction;
       }
@@ -365,13 +415,23 @@ export abstract class Driver<TClient, TTransaction> {
     // Get tracer (always defined - either real or no-op)
     const tracer = this.instrumentation?.tracer ?? getNoopTracer();
 
-    return tracer.startActiveSpan(
-      {
-        name: SPAN_TRANSACTION,
-        attributes: this.getBaseAttributes(),
-      },
-      runTransaction
-    );
+    const execute = () =>
+      tracer.startActiveSpan(
+        {
+          name: SPAN_TRANSACTION,
+          attributes: this.getBaseAttributes(),
+        },
+        runTransaction
+      );
+
+    // Queue top-level transactions on single-connection drivers so concurrent
+    // callers serialize instead of colliding on the shared connection. Nested
+    // calls (wasInTransaction) bypass the queue — queueing them would deadlock
+    // against the outer transaction holding the slot.
+    if (this.serializeTransactions && !wasInTransaction) {
+      return this.transactionQueue.enqueue(execute);
+    }
+    return execute();
   }
 
   /**
@@ -401,14 +461,29 @@ export abstract class Driver<TClient, TTransaction> {
     options?: TransactionOptions
   ): Promise<T> {
     if (!this.supportsTransactions) {
-      // Don't warn here - warning is handled at $transaction level with more context
-      // about whether native batch is available
-      return fn(this);
+      throw new TransactionError(
+        `Driver "${this.driverName}" does not support callback transactions.`,
+        {
+          meta: {
+            driver: this.driverName,
+            method: "$transaction(callback)",
+          },
+        }
+      );
     }
-    return this._transaction((tx) => {
-      const txDriver = new TransactionBoundDriver(this, tx);
-      return fn(txDriver);
-    }, options);
+    let txDriver: TransactionBoundDriver<TClient, TTransaction> | undefined;
+    return this._transaction(
+      async (tx) => {
+        txDriver = new TransactionBoundDriver(this, tx);
+        try {
+          return await fn(txDriver);
+        } finally {
+          txDriver.closeTransactionScope();
+        }
+      },
+      options,
+      (error) => txDriver?.markTransactionTimedOut(error)
+    );
   }
 
   // ============================================================
@@ -416,65 +491,119 @@ export abstract class Driver<TClient, TTransaction> {
   // ============================================================
 
   /**
-   * Execute multiple queries in a batch.
-   * Default implementation: sequential execution.
-   * Override in drivers with native batch support (D1, D1-HTTP, Neon-HTTP).
+   * Execute multiple prepared queries on the provided client.
+   * _executeBatch wraps this in a transaction for transactional drivers.
+   * Drivers with native atomic batch support must override this method;
+   * overrides that cannot honor `options` must throw instead of ignoring them.
    */
   protected async executeBatch<T>(
     client: TClient | TTransaction,
-    queries: BatchQuery[]
+    queries: BatchQuery[],
+    _options?: TransactionOptions
   ): Promise<QueryResult<T>[]> {
     const results: QueryResult<T>[] = [];
     for (const query of queries) {
-      results.push(await this.executeRaw<T>(client, query.sql, query.params));
+      results.push(
+        await this.withInstrumentation(query.sql, query.params ?? [], () =>
+          this.executeRaw<T>(client, query.sql, query.params)
+        )
+      );
     }
     return results;
   }
 
   /**
    * Public API for batch execution with instrumentation.
-   * Uses native batch if supported, otherwise falls back to:
-   * 1. Transaction-wrapped sequential execution (if transactions supported)
-   * 2. Sequential execution with warning (no atomicity)
+   * Uses native batch if supported, otherwise falls back to transaction-wrapped
+   * sequential execution. Drivers without either capability reject instead of
+   * silently executing non-atomically.
    */
-  async _executeBatch<T>(queries: BatchQuery[]): Promise<QueryResult<T>[]> {
+  async _executeBatch<T>(
+    queries: BatchQuery[],
+    options?: TransactionOptions
+  ): Promise<QueryResult<T>[]> {
     if (queries.length === 0) {
       return [];
     }
 
     const client = await this.getClient();
 
-    // If driver has native batch support, use it directly
+    // If driver has native batch support, use it directly.
+    // Native batches execute as one driver call, so errors normalize/log once
+    // for the whole batch rather than per statement.
     if (this.supportsBatch) {
-      return this.executeBatch<T>(client, queries);
+      const sql = queries.map((query) => query.sql).join("; ");
+      const params = queries.map((query) => query.params ?? []);
+      return this.withInstrumentation(sql, params, () =>
+        this.executeBatch<T>(client, queries, options)
+      );
     }
 
     // If driver supports transactions, wrap in transaction (or use existing one)
     if (this.supportsTransactions) {
       // If already in a transaction, execute directly within it
       if (this.inTransaction) {
-        return this.executeBatch<T>(client, queries);
+        return this.executeBatch<T>(client, queries, options);
       }
       // Otherwise, wrap in a new transaction
       return this._transaction(async (tx) => {
-        return this.executeBatch<T>(tx, queries);
-      });
+        return this.executeBatch<T>(tx, queries, options);
+      }, options);
     }
 
-    // No batch or transaction support - execute sequentially with warning
-    const message =
-      `Driver "${this.driverName}" supports neither transactions nor batch. ` +
-      "Operations will execute sequentially without atomicity. " +
-      "If any operation fails, others may still complete.";
-    if (this.instrumentation?.logger) {
-      this.instrumentation.logger.warn({
-        timestamp: new Date(),
-        meta: { message },
-      });
-    } else {
-      console.warn(message);
+    throw new TransactionError(
+      `Driver "${this.driverName}" supports neither transactions nor atomic batch execution.`,
+      {
+        meta: {
+          driver: this.driverName,
+          method: "$transaction([...])",
+        },
+      }
+    );
+  }
+
+  protected wrapTransactionCallbackFor<T, TTx>(
+    fn: (tx: TTx) => Promise<T>,
+    options?: TransactionOptions,
+    onTimeout?: (error: TransactionError) => void
+  ): (tx: TTx) => Promise<T> {
+    const timeout = options?.timeout;
+    if (timeout === undefined) {
+      return fn;
     }
-    return this.executeBatch<T>(client, queries);
+
+    if (!Number.isFinite(timeout) || timeout <= 0) {
+      throw new TransactionError(
+        "Transaction timeout must be a positive finite number of milliseconds",
+        {
+          code: VibORMErrorCode.INVALID_TRANSACTION_INPUT,
+          meta: { driver: this.driverName, timeout },
+        }
+      );
+    }
+
+    return (tx) => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          const error = new TransactionError(
+            `Transaction timed out after ${timeout}ms`,
+            {
+              code: VibORMErrorCode.TRANSACTION_TIMEOUT,
+              meta: { driver: this.driverName, timeout },
+            }
+          );
+          onTimeout?.(error);
+          reject(error);
+        }, timeout);
+      });
+
+      return Promise.race([fn(tx), timeoutPromise]).finally(() => {
+        if (timer) {
+          clearTimeout(timer);
+        }
+      });
+    };
   }
 
   /**
@@ -570,8 +699,13 @@ export class TransactionBoundDriver<TClient, TTransaction> extends Driver<
   TTransaction
 > {
   private readonly baseDriver: Driver<TClient, TTransaction>;
+  private readonly parentTransactionDriver:
+    | TransactionBoundDriver<TClient, TTransaction>
+    | undefined;
   private readonly tx: TTransaction;
   private readonly savepointQueue = new SavepointQueue();
+  private transactionClosed = false;
+  private transactionTimeoutError: TransactionError | undefined;
   readonly adapter: DatabaseAdapter;
   override readonly result?: DriverResultParser;
   override inTransaction: boolean;
@@ -581,6 +715,8 @@ export class TransactionBoundDriver<TClient, TTransaction> extends Driver<
   constructor(baseDriver: Driver<TClient, TTransaction>, tx: TTransaction) {
     super(baseDriver.dialect, baseDriver.driverName);
     this.baseDriver = baseDriver;
+    this.parentTransactionDriver =
+      baseDriver instanceof TransactionBoundDriver ? baseDriver : undefined;
     this.tx = tx;
     this.adapter = baseDriver.adapter;
     this.result = baseDriver.result;
@@ -594,6 +730,50 @@ export class TransactionBoundDriver<TClient, TTransaction> extends Driver<
   // Always return the bound transaction
   protected override async getClient(): Promise<TClient | TTransaction> {
     return this.tx;
+  }
+
+  markTransactionTimedOut(error: TransactionError): void {
+    this.transactionTimeoutError = error;
+    this.transactionClosed = true;
+  }
+
+  closeTransactionScope(): void {
+    this.transactionClosed = true;
+  }
+
+  private assertTransactionOpen(): void {
+    this.parentTransactionDriver?.assertTransactionOpen();
+
+    if (this.transactionTimeoutError) {
+      throw this.transactionTimeoutError;
+    }
+
+    if (this.transactionClosed) {
+      throw new TransactionError(
+        `Transaction for driver "${this.driverName}" is no longer active.`,
+        {
+          meta: {
+            driver: this.driverName,
+            method: "$transaction",
+          },
+        }
+      );
+    }
+  }
+
+  override async _execute<T = Record<string, unknown>>(
+    query: Sql
+  ): Promise<QueryResult<T>> {
+    this.assertTransactionOpen();
+    return super._execute<T>(query);
+  }
+
+  override async _executeRaw<T = Record<string, unknown>>(
+    sql: string,
+    params?: unknown[]
+  ): Promise<QueryResult<T>> {
+    this.assertTransactionOpen();
+    return super._executeRaw<T>(sql, params);
   }
 
   // Delegate abstract methods to base driver
@@ -626,10 +806,12 @@ export class TransactionBoundDriver<TClient, TTransaction> extends Driver<
     fn: (tx: TTransaction) => Promise<T>,
     _options?: TransactionOptions
   ): Promise<T> {
+    this.assertTransactionOpen();
     // Queue savepoint operations to serialize concurrent nested transactions.
     // This prevents savepoint stack conflicts when multiple nested transactions
     // are started concurrently (e.g., via Promise.all).
     return this.savepointQueue.enqueue(async () => {
+      this.assertTransactionOpen();
       const savepointName = `sp_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 
       // Use the bound transaction for savepoint operations
@@ -646,15 +828,21 @@ export class TransactionBoundDriver<TClient, TTransaction> extends Driver<
         );
         return result;
       } catch (error) {
-        await this.baseDriver["executeRaw"](
-          this.tx,
-          `ROLLBACK TO SAVEPOINT ${savepointName}`
-        );
-        // Release savepoint after rollback to free resources and prevent accumulation
-        await this.baseDriver["executeRaw"](
-          this.tx,
-          `RELEASE SAVEPOINT ${savepointName}`
-        );
+        try {
+          await this.baseDriver["executeRaw"](
+            this.tx,
+            `ROLLBACK TO SAVEPOINT ${savepointName}`
+          );
+          // Release savepoint after rollback to free resources and prevent accumulation
+          await this.baseDriver["executeRaw"](
+            this.tx,
+            `RELEASE SAVEPOINT ${savepointName}`
+          );
+        } catch {
+          // A deadlock/serialization failure rolls back the whole surrounding
+          // transaction (destroying its savepoints, e.g. on MySQL), so this
+          // cleanup can fail — never let it mask the original error.
+        }
         throw error;
       }
     });

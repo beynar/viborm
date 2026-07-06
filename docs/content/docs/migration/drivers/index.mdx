@@ -81,11 +81,10 @@ Migration drivers generate DDL for these operations:
 VibORM automatically selects the migration driver based on your database driver:
 
 ```ts
-import { createClient } from "viborm";
-import { PostgresDriver } from "viborm/drivers/postgres";
+import { createClient } from "viborm/postgres";
 
 const client = createClient({
-  driver: new PostgresDriver({ connectionString: "..." }),
+  databaseUrl: "...",
   schema: { User },
 });
 
@@ -95,11 +94,11 @@ await push(client);
 
 ## Type Mapping
 
-Each driver maps VibORM field types to database-specific types:
+Each driver maps VibORM scalar types to database-specific types:
 
 ### Common Mappings
 
-| VibORM Type | PostgreSQL | SQLite |
+| VibORM Scalar | PostgreSQL | SQLite |
 |-------------|------------|--------|
 | `string()` | `text` | `TEXT` |
 | `int()` | `integer` | `INTEGER` |

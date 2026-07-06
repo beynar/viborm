@@ -8,7 +8,7 @@ The Schema Builder is the foundation of our ORM. Its purpose is to allow users t
 
 ## Goals
 
-- **Type Safety:** All model and field definitions must be fully type-safe and infer types for use in queries.
+- **Type Safety:** All model and scalar definitions must be fully type-safe and infer types for use in queries.
 - **Chainable API:** The schema definition must use a chainable, functional API (no decorators).
 - **Extensibility:** The schema builder must be easily extensible for future features (e.g., migrations, hooks).
 - **Validation:** Built-in support for field and model-level validation.
@@ -33,16 +33,16 @@ The Schema Builder is the foundation of our ORM. Its purpose is to allow users t
   ```
 - The model definition must:
   - Store the model name and optional database table mapping.
-  - Store a map of field definitions.
+  - Store a map of scalar definitions.
   - Store a map of relation definitions.
   - Store index and unique constraint definitions.
   - Expose methods to introspect the model (for future migration and validation use).
-- The model must be type-safe: the resulting `user` object must have a TypeScript type representing its fields and relations.
+- The model must be type-safe: the resulting `user` object must have a TypeScript type representing its fields (scalars and relations).
 - **See [Model Class Specification](1.1_model_class.md) for detailed implementation requirements including indexes and database mapping.**
 
-### 3. Field Class
+### 3. Scalar Class
 
-- Implement a `Field` class (or factory) with chainable methods for:
+- Implement a `Scalar` class (or factory) with chainable methods for:
   - Setting the type (string, int, float, boolean, date, jsonb, enum, etc.).
   - Setting default values.
   - Setting custom validators (including regex).
@@ -61,7 +61,7 @@ The Schema Builder is the foundation of our ORM. Its purpose is to allow users t
   - Defining one-to-one, one-to-many, and many-to-many relations.
   - Setting the referenced model and field.
   - Setting cascade options (on delete, on update).
-  - Naming the junction table and fields for many-to-many (with sensible defaults).
+  - Naming the junction table and FK fields for many-to-many (with sensible defaults).
 - Example:
   ```ts
   friends: s.relation.many(() => user);
@@ -75,7 +75,7 @@ The Schema Builder is the foundation of our ORM. Its purpose is to allow users t
 ### 5. Type Helpers
 
 - All type helpers (TypeScript types, interfaces, utility types) must be in `/types/`.
-- Types must be generic and composable, allowing inference of model and field types from schema definitions.
+- Types must be generic and composable, allowing inference of model and scalar types from schema definitions.
 
 ### 6. Validation
 
@@ -121,7 +121,7 @@ const user = s
 
 ## Deliverables
 
-- `model.ts`, `field.ts`, `relation.ts` in `/src/schema/`
+- `model.ts`, `scalar.ts`, `relation.ts` in `/src/schema/`
 - All type helpers and validators in `/src/types/`
 - Full TypeScript support and type inference
 - Unit tests for all schema builder features
@@ -139,7 +139,7 @@ const user = s
 
 ## Review Checklist
 
-- [ ] All model/field/relation definitions are type-safe and chainable
+- [ ] All model/scalar/relation definitions are type-safe and chainable
 - [ ] All type helpers are in `/types/`
 - [ ] All validators are composable and testable
 - [ ] No decorators are used

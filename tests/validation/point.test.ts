@@ -28,12 +28,8 @@ describe("point schema", () => {
     });
 
     test("rejects non-numbers", () => {
-      expect(
-        parse(schema, { x: "1", y: 2 }).issues
-      ).toBeDefined();
-      expect(
-        parse(schema, { x: 1, y: "2" }).issues
-      ).toBeDefined();
+      expect(parse(schema, { x: "1", y: 2 }).issues).toBeDefined();
+      expect(parse(schema, { x: 1, y: "2" }).issues).toBeDefined();
     });
 
     test("rejects non-objects", () => {

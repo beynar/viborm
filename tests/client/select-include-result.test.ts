@@ -4,7 +4,22 @@
  */
 
 import type { OperationResult } from "@client/types";
-import { describe, expectTypeOf, test } from "vitest";
+import { createClient as PGliteCreateClient } from "@drivers/pglite";
+import { push } from "@migrations";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  expectTypeOf,
+  test,
+} from "vitest";
+import { clientUserPostSchema } from "../fixtures/user-post-schema";
+import {
+  createStandardUserPostPosts,
+  createStandardUserPostUsers,
+} from "../fixtures/user-post-seed";
 import type { testUser } from "../schema.js";
 
 // Test types directly using OperationResult
@@ -113,6 +128,23 @@ describe("InferSelectInclude result types", () => {
   });
 
   describe("operation result branches", () => {
+    test("top-level select and include has no mutation result shape", () => {
+      type Args = {
+        data: {
+          id: string;
+          name: string;
+          email: string;
+          tags: string[];
+        };
+        select: { id: true };
+        include: { posts: true };
+      };
+
+      type Result = OperationResult<"create", UserModel, Args>;
+
+      expectTypeOf<Result>().toEqualTypeOf<never>();
+    });
+
     test("findMany select returns narrowed array element shape", () => {
       type Args = {
         select: { id: true; email: true };
@@ -155,6 +187,24 @@ describe("InferSelectInclude result types", () => {
 
       expectTypeOf<Result>().toHaveProperty("name");
       expectTypeOf<keyof Result>().toEqualTypeOf<"name">();
+    });
+
+    test("update select returns relation count result", () => {
+      type Args = {
+        where: { id: string };
+        data: { name?: string };
+        select: {
+          _count: { select: { posts: true } };
+          posts: { select: { id: true } };
+        };
+      };
+
+      type Result = OperationResult<"update", UserModel, Args>;
+
+      expectTypeOf<Result>().toHaveProperty("_count");
+      expectTypeOf<Result["_count"]>().toHaveProperty("posts");
+      expectTypeOf<Result["_count"]["posts"]>().toEqualTypeOf<number>();
+      expectTypeOf<keyof Result>().toEqualTypeOf<"_count" | "posts">();
     });
 
     test("findUniqueOrThrow removes null from result", () => {
@@ -255,5 +305,161 @@ describe("InferSelectInclude result types", () => {
 
       expectTypeOf<TagsType>().toMatchTypeOf<string[]>();
     });
+  });
+});
+
+describe("nested write mutation result shaping", () => {
+  let client: Awaited<
+    ReturnType<
+      typeof PGliteCreateClient<{ schema: typeof clientUserPostSchema }>
+    >
+  >;
+
+  beforeAll(async () => {
+    client = PGliteCreateClient({ schema: clientUserPostSchema });
+    await push(client, { force: true });
+  });
+
+  afterAll(async () => {
+    await client.$disconnect();
+  });
+
+  beforeEach(async () => {
+    await client.post.deleteMany();
+    await client.user.deleteMany();
+  });
+
+  test("refetches included relations after nested update", async () => {
+    const { alice } = await createStandardUserPostUsers(client);
+    const { post1 } = await createStandardUserPostPosts(client, alice.id);
+
+    const result = await client.user.update({
+      where: { id: alice.id },
+      data: {
+        posts: {
+          update: {
+            where: { id: post1.id },
+            data: { title: "First Post Updated" },
+          },
+        },
+      },
+      include: {
+        posts: { orderBy: { id: "asc" } },
+      },
+    });
+
+    expect(result.posts.map((post) => post.title)).toEqual([
+      "First Post Updated",
+      "Second Post",
+      "Third Post",
+    ]);
+  });
+
+  test("returns selected relations after nested updateMany", async () => {
+    const { alice } = await createStandardUserPostUsers(client);
+    await createStandardUserPostPosts(client, alice.id);
+
+    const result = await client.user.update({
+      where: { id: alice.id },
+      data: {
+        posts: {
+          updateMany: {
+            where: { published: false },
+            data: {
+              published: true,
+              title: "Second Post Published",
+            },
+          },
+        },
+      },
+      select: {
+        id: true,
+        posts: {
+          orderBy: { id: "asc" },
+          select: {
+            id: true,
+            title: true,
+            published: true,
+          },
+        },
+      },
+    });
+
+    expect(result).toHaveProperty("id", alice.id);
+    expect(result).toHaveProperty("posts");
+    expect(result).not.toHaveProperty("email");
+    expect(result.posts).toEqual([
+      { id: "post-1", title: "First Post", published: true },
+      { id: "post-2", title: "Second Post Published", published: true },
+      { id: "post-3", title: "Third Post", published: true },
+    ]);
+  });
+
+  test("refetches included relations after nested upsert", async () => {
+    const { alice } = await createStandardUserPostUsers(client);
+    await createStandardUserPostPosts(client, alice.id);
+
+    const result = await client.user.update({
+      where: { id: alice.id },
+      data: {
+        posts: {
+          upsert: {
+            where: { id: "post-4" },
+            create: {
+              id: "post-4",
+              title: "Upserted Post",
+              content: null,
+              published: true,
+              views: 10,
+            },
+            update: { title: "Should Not Update" },
+          },
+        },
+      },
+      include: {
+        posts: { orderBy: { id: "asc" } },
+      },
+    });
+
+    expect(result.posts.map((post) => post.id)).toEqual([
+      "post-1",
+      "post-2",
+      "post-3",
+      "post-4",
+    ]);
+    expect(result.posts[3]?.title).toBe("Upserted Post");
+  });
+
+  test("returns selected relation count after nested deleteMany", async () => {
+    const { alice } = await createStandardUserPostUsers(client);
+    await createStandardUserPostPosts(client, alice.id);
+
+    const result = await client.user.update({
+      where: { id: alice.id },
+      data: {
+        posts: {
+          deleteMany: { published: false },
+        },
+      },
+      select: {
+        id: true,
+        _count: { select: { posts: true } },
+        posts: {
+          orderBy: { id: "asc" },
+          select: {
+            id: true,
+            title: true,
+          },
+        },
+      },
+    });
+
+    expect(result).toHaveProperty("id", alice.id);
+    expect(result).not.toHaveProperty("email");
+    expect(result._count.posts).toBe(2);
+    expect(result.posts).toEqual([
+      { id: "post-1", title: "First Post" },
+      { id: "post-3", title: "Third Post" },
+    ]);
   });
 });

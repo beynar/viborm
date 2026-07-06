@@ -1,8 +1,15 @@
 import type { AnyModel } from "@schema/model";
 import type { StringKeyOf } from "@schema/model/helper";
-import v, { type V } from "@validation";
-import type { FieldSchemas } from "../index";
+import v, { type V } from "../../primitives/v";
 import type { CoreSchemas } from "../core";
+import type { ScalarSchemas } from "../index";
+import {
+  type PaginationSkipSchema,
+  type PaginationTakeSchema,
+  paginationSkip,
+  paginationTake,
+} from "./pagination";
+import { rejectSelectInclude } from "./select-include-exclusivity";
 
 /**
  * FindUnique args: { where: whereUnique, select?, include? }
@@ -12,7 +19,7 @@ type ModelStateOf<M extends AnyModel> = M["~"]["state"];
 
 export type FindUniqueArgs<
   M extends AnyModel,
-  F extends FieldSchemas<M>,
+  F extends ScalarSchemas<M>,
 > = V.Object<
   {
     where: CoreSchemas<M, F>["whereUnique"];
@@ -24,17 +31,19 @@ export type FindUniqueArgs<
 
 export const getFindUniqueArgs = <
   M extends AnyModel,
-  F extends FieldSchemas<M>,
+  F extends ScalarSchemas<M>,
 >(
   core: CoreSchemas<M, F>
 ): FindUniqueArgs<M, F> => {
-  return v.object(
-    {
-      where: core.whereUnique,
-      select: core.select,
-      include: core.include,
-    },
-    { atLeast: ["where"] }
+  return rejectSelectInclude(
+    v.object(
+      {
+        where: v.lazyRef(() => core.whereUnique),
+        select: v.lazyRef(() => core.select),
+        include: v.lazyRef(() => core.include),
+      },
+      { atLeast: ["where"] }
+    )
   );
 };
 
@@ -43,15 +52,18 @@ export const getFindUniqueArgs = <
  */
 export type FindFirstArgs<
   M extends AnyModel,
-  F extends FieldSchemas<M>,
+  F extends ScalarSchemas<M>,
 > = V.Object<
   {
     where: CoreSchemas<M, F>["where"];
     orderBy: V.Union<
-      readonly [CoreSchemas<M, F>["orderBy"], V.Array<CoreSchemas<M, F>["orderBy"]>]
+      readonly [
+        CoreSchemas<M, F>["orderBy"],
+        V.Array<CoreSchemas<M, F>["orderBy"]>,
+      ]
     >;
-    take: V.Number;
-    skip: V.Number;
+    take: PaginationTakeSchema;
+    skip: PaginationSkipSchema;
     cursor: CoreSchemas<M, F>["whereUnique"];
     select: CoreSchemas<M, F>["select"];
     include: CoreSchemas<M, F>["include"];
@@ -61,23 +73,27 @@ export type FindFirstArgs<
 
 export const getFindFirstArgs = <
   M extends AnyModel,
-  F extends FieldSchemas<M>,
+  F extends ScalarSchemas<M>,
 >(
   core: CoreSchemas<M, F>
 ): FindFirstArgs<M, F> => {
-  return v.object(
-    {
-      where: core.where,
-      orderBy: v.union([core.orderBy, v.array(core.orderBy)]),
-      take: v.number(),
-      skip: v.number(),
-      cursor: core.whereUnique,
-      select: core.select,
-      include: core.include,
-    },
-    {
-      optional: true,
-    }
+  return rejectSelectInclude(
+    v.object(
+      {
+        where: v.lazyRef(() => core.where),
+        orderBy: v.lazyRef(() =>
+          v.union([core.orderBy, v.array(core.orderBy)])
+        ),
+        take: paginationTake(),
+        skip: paginationSkip(),
+        cursor: v.lazyRef(() => core.whereUnique),
+        select: v.lazyRef(() => core.select),
+        include: v.lazyRef(() => core.include),
+      },
+      {
+        optional: true,
+      }
+    )
   );
 };
 
@@ -90,26 +106,29 @@ export const getFindFirstArgs = <
  */
 export type FindManyArgs<
   M extends AnyModel,
-  F extends FieldSchemas<M>,
+  F extends ScalarSchemas<M>,
 > = V.Object<
   {
     where: CoreSchemas<M, F>["where"];
     orderBy: V.Union<
-      readonly [CoreSchemas<M, F>["orderBy"], V.Array<CoreSchemas<M, F>["orderBy"]>]
+      readonly [
+        CoreSchemas<M, F>["orderBy"],
+        V.Array<CoreSchemas<M, F>["orderBy"]>,
+      ]
     >;
-    take: V.Number;
-    skip: V.Number;
+    take: PaginationTakeSchema;
+    skip: PaginationSkipSchema;
     cursor: CoreSchemas<M, F>["whereUnique"];
     select: CoreSchemas<M, F>["select"];
     include: CoreSchemas<M, F>["include"];
-    distinct: V.Enum<StringKeyOf<ModelStateOf<M>["scalars"]>[], { array: true }>;
+    distinct: V.Enum<
+      StringKeyOf<ModelStateOf<M>["scalars"]>[],
+      { array: true }
+    >;
   },
   { optional: true }
 >;
-export const getFindManyArgs = <
-  M extends AnyModel,
-  F extends FieldSchemas<M>,
->(
+export const getFindManyArgs = <M extends AnyModel, F extends ScalarSchemas<M>>(
   model: M,
   core: CoreSchemas<M, F>
 ): FindManyArgs<M, F> => {
@@ -118,17 +137,21 @@ export const getFindManyArgs = <
     ModelStateOf<M>["scalars"]
   >[];
 
-  return v.object(
-    {
-      where: core.where,
-      orderBy: v.union([core.orderBy, v.array(core.orderBy)]),
-      take: v.number(),
-      skip: v.number(),
-      cursor: core.whereUnique,
-      select: core.select,
-      include: core.include,
-      distinct: v.enum(fieldNames, { array: true }),
-    },
-    { optional: true }
+  return rejectSelectInclude(
+    v.object(
+      {
+        where: v.lazyRef(() => core.where),
+        orderBy: v.lazyRef(() =>
+          v.union([core.orderBy, v.array(core.orderBy)])
+        ),
+        take: paginationTake(),
+        skip: paginationSkip(),
+        cursor: v.lazyRef(() => core.whereUnique),
+        select: v.lazyRef(() => core.select),
+        include: v.lazyRef(() => core.include),
+        distinct: v.enum(fieldNames, { array: true }),
+      },
+      { optional: true }
+    )
   );
 };

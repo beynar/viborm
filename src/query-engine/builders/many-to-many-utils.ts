@@ -10,9 +10,15 @@ import {
   getJunctionTableName,
 } from "@schema/relation/helpers";
 import { type Sql, sql } from "@sql";
-import { getTableName } from "../context";
-import type { QueryContext, RelationInfo } from "../types";
-import { getPrimaryKeyField } from "./correlation-utils";
+import { createChildContext, getColumnName, getTableName } from "../context";
+import {
+  NestedWriteError,
+  type QueryContext,
+  type RelationInfo,
+} from "../types";
+import { getRequiredSinglePrimaryKeyField } from "./correlation-utils";
+import { buildScalarSqlValue } from "./values-builder";
+import { buildWhereUnique } from "./where-unique-builder";
 
 /**
  * Junction table metadata for a many-to-many relation
@@ -21,8 +27,14 @@ export interface ManyToManyJoinInfo {
   junctionTableName: string;
   sourceFieldName: string;
   targetFieldName: string;
+  /** PK field name (TS) on the source model */
   sourcePkField: string;
+  /** PK field name (TS) on the target model */
   targetPkField: string;
+  /** Actual PK column name (post-.map()) on the source model */
+  sourcePkColumn: string;
+  /** Actual PK column name (post-.map()) on the target model */
+  targetPkColumn: string;
   targetTableName: string;
 }
 
@@ -47,8 +59,12 @@ export function getManyToManyJoinInfo(
     targetModelName
   );
 
-  const sourcePkField = getPrimaryKeyField(ctx.model);
-  const targetPkField = getPrimaryKeyField(relationInfo.targetModel);
+  const sourcePkField = getRequiredSinglePrimaryKeyField(ctx.model);
+  const targetPkField = getRequiredSinglePrimaryKeyField(
+    relationInfo.targetModel
+  );
+  const sourcePkColumn = getColumnName(ctx.model, sourcePkField);
+  const targetPkColumn = getColumnName(relationInfo.targetModel, targetPkField);
   const targetTableName = getTableName(relationInfo.targetModel);
 
   return {
@@ -57,6 +73,8 @@ export function getManyToManyJoinInfo(
     targetFieldName,
     sourcePkField,
     targetPkField,
+    sourcePkColumn,
+    targetPkColumn,
     targetTableName,
   };
 }
@@ -84,8 +102,8 @@ export function buildManyToManyJoinParts(
     junctionTableName,
     sourceFieldName,
     targetFieldName,
-    sourcePkField,
-    targetPkField,
+    sourcePkColumn,
+    targetPkColumn,
     targetTableName,
   } = joinInfo;
 
@@ -94,14 +112,14 @@ export function buildManyToManyJoinParts(
     junctionAlias,
     sourceFieldName
   );
-  const parentPkCol = adapter.identifiers.column(parentAlias, sourcePkField);
+  const parentPkCol = adapter.identifiers.column(parentAlias, sourcePkColumn);
   const correlationCondition = adapter.operators.eq(
     junctionSourceCol,
     parentPkCol
   );
 
   // 2. Join: target.id = jt.targetId
-  const targetPkCol = adapter.identifiers.column(targetAlias, targetPkField);
+  const targetPkCol = adapter.identifiers.column(targetAlias, targetPkColumn);
   const junctionTargetCol = adapter.identifiers.column(
     junctionAlias,
     targetFieldName
@@ -112,4 +130,154 @@ export function buildManyToManyJoinParts(
   const fromClause = sql`${adapter.identifiers.table(junctionTableName, junctionAlias)}, ${adapter.identifiers.table(targetTableName, targetAlias)}`;
 
   return { correlationCondition, joinCondition, fromClause };
+}
+
+// ============================================================
+// JUNCTION WRITE BUILDERS
+// Shared by the transaction and batch nested-write engines.
+// ============================================================
+
+/**
+ * Resolve the parent's PK value (typed by the parent PK scalar) for junction
+ * row writes. Parent rows come either as input data (TS field keys) or raw
+ * driver rows (column keys), and in the batch engine the value may be a
+ * batch reference — buildScalarSqlValue lowers all of these.
+ */
+export function buildJunctionParentValue(
+  ctx: QueryContext,
+  joinInfo: ManyToManyJoinInfo,
+  parentData: Record<string, unknown>,
+  relationName: string
+): Sql {
+  const raw =
+    parentData[joinInfo.sourcePkField] ?? parentData[joinInfo.sourcePkColumn];
+  if (raw === undefined || raw === null) {
+    throw new NestedWriteError(
+      `Cannot write many-to-many relation '${relationName}': parent record is missing primary key field '${joinInfo.sourcePkField}'.`,
+      relationName
+    );
+  }
+  return buildScalarSqlValue(ctx, ctx.model, joinInfo.sourcePkField, raw);
+}
+
+/**
+ * Resolve a target record's PK value for junction row writes.
+ */
+export function buildJunctionTargetValue(
+  ctx: QueryContext,
+  relationInfo: RelationInfo,
+  joinInfo: ManyToManyJoinInfo,
+  targetRecord: Record<string, unknown>,
+  relationName: string
+): Sql {
+  const raw =
+    targetRecord[joinInfo.targetPkField] ??
+    targetRecord[joinInfo.targetPkColumn];
+  if (raw === undefined || raw === null) {
+    throw new NestedWriteError(
+      `Cannot write many-to-many relation '${relationName}': target record is missing primary key field '${joinInfo.targetPkField}'.`,
+      relationName
+    );
+  }
+  return buildScalarSqlValue(
+    ctx,
+    relationInfo.targetModel,
+    joinInfo.targetPkField,
+    raw
+  );
+}
+
+/**
+ * INSERT a junction row, ignoring duplicates (connect is idempotent — the
+ * junction PK (source, target) makes a repeat connect a no-op conflict).
+ */
+export function buildJunctionInsert(
+  ctx: QueryContext,
+  joinInfo: ManyToManyJoinInfo,
+  parentValue: Sql,
+  targetValue: Sql
+): Sql {
+  const { adapter } = ctx;
+  const table = adapter.identifiers.escape(joinInfo.junctionTableName);
+  const { prefix, suffix } = adapter.mutations.skipDuplicates();
+  const insertSql = adapter.mutations.insert(
+    table,
+    [joinInfo.sourceFieldName, joinInfo.targetFieldName],
+    [[parentValue, targetValue]],
+    prefix
+  );
+  return sql`${insertSql} ${suffix}`;
+}
+
+/** Condition: junction.source = parentValue (unqualified, for junction DML). */
+export function buildJunctionSourceMatch(
+  ctx: QueryContext,
+  joinInfo: ManyToManyJoinInfo,
+  parentValue: Sql
+): Sql {
+  return ctx.adapter.operators.eq(
+    ctx.adapter.identifiers.escape(joinInfo.sourceFieldName),
+    parentValue
+  );
+}
+
+/** Condition: junction.target IN (values | subquery) (for junction DML). */
+export function buildJunctionTargetIn(
+  ctx: QueryContext,
+  joinInfo: ManyToManyJoinInfo,
+  targetValues: Sql
+): Sql {
+  return ctx.adapter.operators.in(
+    ctx.adapter.identifiers.escape(joinInfo.targetFieldName),
+    targetValues
+  );
+}
+
+/**
+ * Scalar subquery resolving a target row's PK from a where-unique input:
+ * (SELECT target.pk FROM target WHERE <unique>)
+ */
+export function buildTargetPkSubquery(
+  ctx: QueryContext,
+  relationInfo: RelationInfo,
+  joinInfo: ManyToManyJoinInfo,
+  whereUnique: Record<string, unknown>
+): Sql {
+  const { adapter } = ctx;
+  const childCtx = createChildContext(
+    ctx,
+    relationInfo.targetModel,
+    ctx.nextAlias()
+  );
+  const whereClause = buildWhereUnique(
+    childCtx,
+    whereUnique,
+    joinInfo.targetTableName
+  );
+  const pkCol = adapter.identifiers.column(
+    joinInfo.targetTableName,
+    joinInfo.targetPkColumn
+  );
+  return sql`(SELECT ${pkCol} FROM ${adapter.identifiers.escape(joinInfo.targetTableName)} WHERE ${whereClause})`;
+}
+
+/**
+ * Condition on the target table: row is connected to the parent through the
+ * junction: target.pk IN (SELECT junction.target FROM junction WHERE source = parent)
+ */
+export function buildJunctionMembership(
+  ctx: QueryContext,
+  joinInfo: ManyToManyJoinInfo,
+  parentValue: Sql,
+  targetTableOrAlias: string
+): Sql {
+  const { adapter } = ctx;
+  const childPkCol = adapter.identifiers.column(
+    targetTableOrAlias,
+    joinInfo.targetPkColumn
+  );
+  const targetCol = adapter.identifiers.escape(joinInfo.targetFieldName);
+  const junctionTable = adapter.identifiers.escape(joinInfo.junctionTableName);
+  const sourceMatch = buildJunctionSourceMatch(ctx, joinInfo, parentValue);
+  return sql`${childPkCol} IN (SELECT ${targetCol} FROM ${junctionTable} WHERE ${sourceMatch})`;
 }

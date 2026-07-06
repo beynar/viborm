@@ -15,7 +15,7 @@ const user = await client.user.update({
 });
 ```
 
-### Field Operations
+### Scalar Operations
 
 ```ts
 // Set value
@@ -41,7 +41,7 @@ await client.product.update({
   },
 });
 
-// Array operations (PostgreSQL)
+// Array operations (all databases; see Array Filters for storage details)
 await client.post.update({
   where: { id: "post_123" },
   data: {
@@ -51,6 +51,8 @@ await client.post.update({
 ```
 
 ### With Relations
+
+VibORM supports the documented nested-write subset listed in the [compatibility table](/docs/client/compatibility#nested-write-support). Parent `update` supports `create`, `createMany`, `connect`, `connectOrCreate`, `disconnect`, `delete`, `set`, `update`, to-many `updateMany`, `upsert`, and to-many `deleteMany` where the relation shape allows them. Unsupported or excluded shapes reject before the parent mutation executes.
 
 ```ts
 // Create related records
@@ -93,7 +95,7 @@ await client.post.update({
   },
 });
 
-// Update nested records
+// Update related records
 await client.user.update({
   where: { id: "user_123" },
   data: {
@@ -176,6 +178,8 @@ await client.user.updateMany({
 
 ### Update Profile
 
+This uses to-one nested `update`; it throws if no correlated profile exists.
+
 ```ts
 async function updateProfile(userId: string, data: { name?: string; bio?: string }) {
   return client.user.update({
@@ -218,4 +222,3 @@ async function archiveOldPosts(beforeDate: Date) {
   });
 }
 ```
-

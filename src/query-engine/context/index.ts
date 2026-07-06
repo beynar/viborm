@@ -15,4 +15,5 @@ export {
   getTableName,
   isRelation,
   isScalarField,
+  translateRowToFieldNames,
 } from "./query-context";

@@ -9,13 +9,13 @@ src/
 ├── schema/           # Schema definition system
 │   ├── index.ts      # Main schema builder and exports
 │   ├── model.ts      # Model class implementation
-│   ├── field.ts      # Field class with scalar types
+│   ├── scalar.ts      # Scalar classes for primitive/value columns
 │   └── relation.ts   # Relation class for associations
 ├── query/            # Query builder and execution
 │   └── queryBuilder.ts # Prisma-like query interface
 ├── types/            # TypeScript type definitions
 │   ├── index.ts      # Main type exports
-│   ├── scalars.ts    # Scalar field types
+│   ├── scalars.ts    # Scalar primitive/value column types
 │   ├── validators.ts # Validation types and interfaces
 │   ├── models.ts     # Model metadata and configuration
 │   ├── relations.ts  # Relation types and options
@@ -25,7 +25,7 @@ src/
 │   └── utilities.ts  # Advanced TypeScript utilities
 ├── validation/       # Validation system
 │   ├── index.ts      # Validation exports
-│   ├── validators.ts # Field and model validators
+│   ├── validators.ts # Scalar and model validators
 │   ├── schema.ts     # Schema-level validation
 │   └── runtime.ts    # Runtime validation utilities
 └── index.ts          # Main library entry point
@@ -38,8 +38,8 @@ src/
 The core of VibORM's type-safe schema definition system:
 
 - **SchemaBuilder**: Main API class providing chainable methods
-- **Model**: Represents database tables with fields, relations, indexes
-- **Field**: Type-safe field definitions with validation and auto-generation
+- **Model**: Represents database tables with model fields (scalars and relations) and indexes
+- **Scalar**: Type-safe scalar definitions with validation and auto-generation
 - **Relation**: One-to-one and one-to-many relationship definitions
 
 ### Type System (`/types`)
@@ -63,7 +63,7 @@ Prisma-like query interface:
 
 Multi-layered validation system:
 
-- **Field-level validation**: Type checking, regex, range validation
+- **Scalar-level validation**: Type checking, regex, range validation
 - **Model-level validation**: Cross-field validation rules
 - **Runtime validation**: Data coercion and sanitization
 - **Standard Schema support**: Compatible with Zod, Valibot, ArkType

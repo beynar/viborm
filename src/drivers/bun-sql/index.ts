@@ -13,6 +13,7 @@ import {
 } from "@client/client";
 import { unsupportedGeospatial, unsupportedVector } from "@errors";
 import { Driver } from "../driver";
+import { getSqlIsolationLevel } from "../shared";
 import type { QueryResult, TransactionOptions } from "../types";
 
 // ============================================================
@@ -20,9 +21,16 @@ import type { QueryResult, TransactionOptions } from "../types";
 // ============================================================
 
 // Bun's SQL type - we define inline to avoid requiring bun types at compile time
+// Non-RETURNING mutations resolve to an empty array carrying the affected
+// row count on `count`.
+type BunSQLResult<T> = T[] & { count?: number };
+
 interface BunSQL {
   (strings: TemplateStringsArray, ...values: unknown[]): Promise<unknown[]>;
-  unsafe<T = unknown>(sql: string, params?: unknown[]): Promise<T[]>;
+  unsafe<T = unknown>(
+    sql: string,
+    params?: unknown[]
+  ): Promise<BunSQLResult<T>>;
   begin<T>(fn: (sql: BunSQLTransaction) => Promise<T>): Promise<T>;
   close(): void;
   reserve(): Promise<BunSQLReservedConnection>;
@@ -30,13 +38,19 @@ interface BunSQL {
 
 interface BunSQLTransaction {
   (strings: TemplateStringsArray, ...values: unknown[]): Promise<unknown[]>;
-  unsafe<T = unknown>(sql: string, params?: unknown[]): Promise<T[]>;
+  unsafe<T = unknown>(
+    sql: string,
+    params?: unknown[]
+  ): Promise<BunSQLResult<T>>;
   savepoint<T>(fn: (sql: BunSQLTransaction) => Promise<T>): Promise<T>;
 }
 
 interface BunSQLReservedConnection {
   (strings: TemplateStringsArray, ...values: unknown[]): Promise<unknown[]>;
-  unsafe<T = unknown>(sql: string, params?: unknown[]): Promise<T[]>;
+  unsafe<T = unknown>(
+    sql: string,
+    params?: unknown[]
+  ): Promise<BunSQLResult<T>>;
   release(): void;
 }
 
@@ -114,7 +128,7 @@ export class BunSQLDriver extends Driver<BunSQL, BunSQLTransaction> {
     const result = await client.unsafe<T>(sql, params);
     return {
       rows: result,
-      rowCount: result.length,
+      rowCount: result.count ?? result.length,
     };
   }
 
@@ -126,7 +140,7 @@ export class BunSQLDriver extends Driver<BunSQL, BunSQLTransaction> {
     const result = await client.unsafe<T>(sql, params);
     return {
       rows: result,
-      rowCount: result.length,
+      rowCount: result.count ?? result.length,
     };
   }
 
@@ -148,16 +162,7 @@ export class BunSQLDriver extends Driver<BunSQL, BunSQLTransaction> {
     // Bun SQL's begin() doesn't support isolation level as argument
     // Set it manually before the transaction if specified
     if (options?.isolationLevel) {
-      const isolationMap: Record<string, string> = {
-        read_uncommitted: "READ UNCOMMITTED",
-        read_committed: "READ COMMITTED",
-        repeatable_read: "REPEATABLE READ",
-        serializable: "SERIALIZABLE",
-      };
-      const level = isolationMap[options.isolationLevel];
-      if (!level) {
-        throw new Error(`Unknown isolation level: ${options.isolationLevel}`);
-      }
+      const level = getSqlIsolationLevel(options.isolationLevel);
       return sql.begin(async (tx) => {
         await tx.unsafe(`SET TRANSACTION ISOLATION LEVEL ${level}`);
         return fn(tx);

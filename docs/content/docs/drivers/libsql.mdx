@@ -12,7 +12,7 @@ pnpm add @libsql/client
 ## Configuration
 
 ```typescript
-import { createClient } from "viborm/drivers/libsql";
+import { createClient } from "viborm/libsql";
 
 const client = createClient({
   databaseUrl: process.env.TURSO_DATABASE_URL,
@@ -34,7 +34,7 @@ const client = createClient({
 ### Local Development
 
 ```typescript
-import { createClient } from "viborm/drivers/libsql";
+import { createClient } from "viborm/libsql";
 
 // In-memory database (default)
 const client = createClient({
@@ -57,7 +57,7 @@ const client = createClient({
 ### Turso Cloud
 
 ```typescript
-import { createClient } from "viborm/drivers/libsql";
+import { createClient } from "viborm/libsql";
 
 const client = createClient({
   databaseUrl: "libsql://your-database.turso.io",

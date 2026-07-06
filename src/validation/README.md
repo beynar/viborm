@@ -13,7 +13,7 @@ A minimal, StandardSchema-compliant validation library designed for the VibORM p
 
 ## SchemaRegistry Ownership
 
-`src/validation/` owns operation schemas for ORM inputs. The schema layer owns model structure and base field schemas; `SchemaRegistry` composes those into model, relation, and args schemas with full graph context:
+`src/validation/` owns operation schemas for ORM inputs. The schema layer owns model structure and base scalar schemas; `SchemaRegistry` composes those into model, relation, and args schemas with full graph context:
 
 ```typescript
 import { createSchemaRegistry } from "viborm/validation";

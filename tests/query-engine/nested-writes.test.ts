@@ -113,9 +113,9 @@ describe("separateData", () => {
       },
     };
 
-    const { scalar, relations } = separateData(ctx, data);
+    const { scalarData, relations } = separateData(ctx, data);
 
-    expect(scalar).toEqual({
+    expect(scalarData).toEqual({
       name: "Alice",
       email: "alice@example.com",
     });
@@ -131,9 +131,9 @@ describe("separateData", () => {
       email: "alice@example.com",
     };
 
-    const { scalar, relations } = separateData(ctx, data);
+    const { scalarData, relations } = separateData(ctx, data);
 
-    expect(scalar).toEqual(data);
+    expect(scalarData).toEqual(data);
     expect(Object.keys(relations)).toHaveLength(0);
   });
 
@@ -147,9 +147,9 @@ describe("separateData", () => {
       },
     };
 
-    const { scalar, relations } = separateData(ctx, data);
+    const { scalarData, relations } = separateData(ctx, data);
 
-    expect(scalar).toEqual({ title: "Hello" });
+    expect(scalarData).toEqual({ title: "Hello" });
     expect(relations.author?.connect).toEqual({ id: "user-123" });
   });
 
@@ -218,6 +218,67 @@ describe("separateData", () => {
     expect(relations.posts?.set).toHaveLength(2);
   });
 
+  it("handles update mutation for to-many", () => {
+    const ctx = createQueryContext(adapter, UserWithPosts, registry);
+
+    const data = {
+      name: "Alice",
+      posts: {
+        update: {
+          where: { id: "post-123" },
+          data: { title: "Updated" },
+        },
+      },
+    };
+
+    const { relations } = separateData(ctx, data);
+
+    expect(relations.posts?.update).toEqual([
+      {
+        where: { id: "post-123" },
+        data: { title: "Updated" },
+      },
+    ]);
+  });
+
+  it("handles updateMany mutation for to-many", () => {
+    const ctx = createQueryContext(adapter, UserWithPosts, registry);
+
+    const data = {
+      name: "Alice",
+      posts: {
+        updateMany: {
+          where: { published: false },
+          data: { published: true },
+        },
+      },
+    };
+
+    const { relations } = separateData(ctx, data);
+
+    expect(relations.posts?.updateMany).toEqual([
+      {
+        where: { published: false },
+        data: { published: true },
+      },
+    ]);
+  });
+
+  it("handles deleteMany mutation for to-many", () => {
+    const ctx = createQueryContext(adapter, UserWithPosts, registry);
+
+    const data = {
+      name: "Alice",
+      posts: {
+        deleteMany: { published: false },
+      },
+    };
+
+    const { relations } = separateData(ctx, data);
+
+    expect(relations.posts?.deleteMany).toEqual([{ published: false }]);
+  });
+
   it("skips undefined values", () => {
     const ctx = createQueryContext(adapter, User, registry);
 
@@ -226,10 +287,10 @@ describe("separateData", () => {
       email: undefined,
     };
 
-    const { scalar } = separateData(ctx, data);
+    const { scalarData } = separateData(ctx, data);
 
-    expect(scalar).toEqual({ name: "Alice" });
-    expect("email" in scalar).toBe(false);
+    expect(scalarData).toEqual({ name: "Alice" });
+    expect("email" in scalarData).toBe(false);
   });
 });
 
@@ -289,7 +350,7 @@ describe("needsTransaction", () => {
     expect(needsTransaction(relations)).toBe(true);
   });
 
-  it("returns false for simple connect when current holds FK", () => {
+  it("returns true for simple connect when current holds FK", () => {
     const ctx = createQueryContext(adapter, Post, registry);
     const data = {
       author: {
@@ -298,8 +359,8 @@ describe("needsTransaction", () => {
     };
 
     const { relations } = separateData(ctx, data);
-    // Post has authorId FK, so connect can use subquery
-    expect(needsTransaction(relations)).toBe(false);
+    // Connect verifies the target exists before mutating the parent.
+    expect(needsTransaction(relations)).toBe(true);
   });
 
   it("returns true for connect when related holds FK", () => {
@@ -321,7 +382,7 @@ describe("needsTransaction", () => {
 // =============================================================================
 
 describe("canUseSubqueryOnly", () => {
-  it("returns true for simple connect (FK on current model)", () => {
+  it("returns false for simple connect (FK on current model)", () => {
     const ctx = createQueryContext(adapter, Post, registry);
     const data = {
       author: {
@@ -330,7 +391,7 @@ describe("canUseSubqueryOnly", () => {
     };
 
     const { relations } = separateData(ctx, data);
-    expect(canUseSubqueryOnly(relations)).toBe(true);
+    expect(canUseSubqueryOnly(relations)).toBe(false);
   });
 
   it("returns false when create is needed", () => {
@@ -369,9 +430,9 @@ describe("error handling", () => {
   it("handles empty data gracefully", () => {
     const ctx = createQueryContext(adapter, User, registry);
 
-    const { scalar, relations } = separateData(ctx, {});
+    const { scalarData, relations } = separateData(ctx, {});
 
-    expect(scalar).toEqual({});
+    expect(scalarData).toEqual({});
     expect(Object.keys(relations)).toHaveLength(0);
   });
 
@@ -431,9 +492,9 @@ describe("error handling", () => {
       },
     };
 
-    const { scalar, relations } = separateData(ctx, data);
+    const { scalarData, relations } = separateData(ctx, data);
 
-    expect(scalar).toEqual({ name: "Alice" });
+    expect(scalarData).toEqual({ name: "Alice" });
     expect(relations.posts?.createMany).toBeDefined();
     expect(relations.posts?.createMany?.data).toHaveLength(3);
     expect(relations.posts?.createMany?.data).toEqual([
@@ -500,7 +561,7 @@ describe("named inverse relations", () => {
     const postsMutation = relations.posts;
     const coAuthoredMutation = relations.coAuthoredPosts;
 
-    if (!postsMutation || !coAuthoredMutation) {
+    if (!(postsMutation && coAuthoredMutation)) {
       throw new Error("Expected both named relation mutations to be parsed");
     }
 

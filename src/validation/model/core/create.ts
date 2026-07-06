@@ -1,8 +1,9 @@
-import type { Field } from "@schema/fields";
 import type { AnyModel } from "@schema/model";
-import type { RequiredFieldKeys } from "@schema/model/helper";
-import v, { type ObjectSchema, type V } from "@validation";
-import type { FieldSchemas } from "../index";
+import type { RequiredScalarKeys as ModelRequiredScalarKeys } from "@schema/model/helper";
+import type { Scalar } from "@schema/scalars";
+import type { ObjectSchema } from "../../primitives/object";
+import v, { type V } from "../../primitives/v";
+import type { ScalarSchemas } from "../index";
 
 // =============================================================================
 // SCALAR CREATE
@@ -13,20 +14,22 @@ import type { FieldSchemas } from "../index";
  */
 
 type ModelStateOf<M extends AnyModel> = M["~"]["state"];
-type ForeignKeyFieldKeys<M extends AnyModel> = {
+type ForeignKeyScalarKeys<M extends AnyModel> = {
   [K in keyof ModelStateOf<M>["relations"]]: ModelStateOf<M>["relations"][K]["~"]["state"] extends {
     type: "manyToOne" | "oneToOne";
-    fields: readonly (infer FieldKey extends string)[];
+    fields: readonly (infer ScalarKey extends string)[];
   }
-    ? FieldKey
+    ? ScalarKey
     : never;
 }[keyof ModelStateOf<M>["relations"]];
 type CreateRequirementKeySetGroup<M extends AnyModel> = {
   [K in keyof ModelStateOf<M>["relations"]]: ModelStateOf<M>["relations"][K]["~"]["state"] extends {
     type: "manyToOne" | "oneToOne";
-    fields: readonly (infer FieldKey extends string)[];
+    fields: readonly (infer ScalarKey extends string)[];
   }
-    ? readonly [readonly FieldKey[], readonly [Extract<K, string>]]
+    ? ModelStateOf<M>["relations"][K]["~"]["state"] extends { optional: true }
+      ? never
+      : readonly [readonly ScalarKey[], readonly [Extract<K, string>]]
     : never;
 }[keyof ModelStateOf<M>["relations"]];
 type OmittedRequiredKeyUnion<TKeys extends readonly string[] | undefined> =
@@ -41,65 +44,62 @@ type RequireScalarKeys<T, K extends string> = {
 } & {
   [P in keyof T as P extends K ? P : never]-?: T[P];
 };
-type RequiredScalarFieldKeys<M extends AnyModel> = {
+type RequiredModelScalarKeys<M extends AnyModel> = {
   [K in keyof ModelStateOf<M>["scalars"]]: ModelStateOf<M>["scalars"][K]["~"]["state"]["optional"] extends true
     ? never
     : Extract<K, string>;
 }[keyof ModelStateOf<M>["scalars"]];
 type RequiredScalarCreateKeys<
   M extends AnyModel,
-  F extends FieldSchemas<M>,
+  F extends ScalarSchemas<M>,
   OmittedRequiredKeys extends string = never,
 > = Extract<
-  Exclude<RequiredScalarFieldKeys<M>, OmittedRequiredKeys>,
+  Exclude<RequiredModelScalarKeys<M>, OmittedRequiredKeys>,
   keyof ScalarCreateEntries<F>
 >;
 type NestedScalarCreateInput<
   M extends AnyModel,
-  F extends FieldSchemas<M>,
+  F extends ScalarSchemas<M>,
   OmittedRequiredKeys extends string,
 > = RequireScalarKeys<
   ScalarCreateInputShape<F>,
   RequiredScalarCreateKeys<M, F, OmittedRequiredKeys>
 >;
 
-type NestedRequiredFieldKeys<
+type NestedRequiredScalarKeys<
   M extends AnyModel,
-  F extends FieldSchemas<M>,
-> = RequiredScalarCreateKeys<M, F, ForeignKeyFieldKeys<M>>;
+  F extends ScalarSchemas<M>,
+> = RequiredScalarCreateKeys<M, F, ForeignKeyScalarKeys<M>>;
 
 export type ScalarCreateSchema<
   M extends AnyModel,
-  F extends FieldSchemas<M>,
+  F extends ScalarSchemas<M>,
 > = V.FromObject<
   F["scalars"],
   "create",
   {
-    atLeast: RequiredFieldKeys<ModelStateOf<M>["fields"]>[];
+    atLeast: ModelRequiredScalarKeys<ModelStateOf<M>["shape"]>[];
   }
 >;
-export const getScalarCreate = <
-  M extends AnyModel,
-  F extends FieldSchemas<M>,
->(
+export const getScalarCreate = <M extends AnyModel, F extends ScalarSchemas<M>>(
   model: M,
-  fieldSchemas: F,
+  scalarSchemas: F
 ): ScalarCreateSchema<M, F> => {
   const state = model["~"].state;
   const requiredScalars = Object.keys(state.scalars).filter((key) => {
-    const field = state.fields[key] as Field;
-    if (field["~"]["state"]["optional"]) {
+    const scalar = state.shape[key] as Scalar;
+    if (scalar["~"]["state"]["optional"]) {
       return false;
     }
     return true;
-  }) as RequiredFieldKeys<ModelStateOf<M>["fields"]>[];
+  }) as ModelRequiredScalarKeys<ModelStateOf<M>["shape"]>[];
   return v.fromObject<
     F["scalars"],
     "create",
     {
-      atLeast: RequiredFieldKeys<ModelStateOf<M>["fields"]>[];
+      atLeast: ModelRequiredScalarKeys<ModelStateOf<M>["shape"]>[];
     }
-  >(fieldSchemas.scalars, "create", {
+  >(scalarSchemas.scalars, "create", {
     atLeast: requiredScalars,
   });
 };
@@ -109,16 +109,13 @@ export const getScalarCreate = <
  */
 export type RelationCreateSchema<
   M extends AnyModel,
-  F extends FieldSchemas<M>,
-> = V.FromObject<
-  F["relations"],
-  "create"
->;
+  F extends ScalarSchemas<M>,
+> = V.FromObject<F["relations"], "create">;
 export const getRelationCreate = <
   M extends AnyModel,
-  F extends FieldSchemas<M>,
+  F extends ScalarSchemas<M>,
 >(
-  fieldSchemas: F,
+  fieldSchemas: F
 ): RelationCreateSchema<M, F> => {
   return v.fromObject<F["relations"], "create">(
     fieldSchemas.relations,
@@ -158,9 +155,11 @@ function getFkRequirementKeySets(state: ModelStateOf<AnyModel>): string[][][] {
     const relState = (relation as any)["~"]?.state;
     if (!relState) continue;
 
+    // Prisma parity: optional relations require nothing on create
     if (
       (relState.type === "manyToOne" || relState.type === "oneToOne") &&
-      relState.fields
+      relState.fields &&
+      !relState.optional
     ) {
       const fields = Array.isArray(relState.fields)
         ? relState.fields
@@ -180,18 +179,18 @@ function getFkRequirementKeySets(state: ModelStateOf<AnyModel>): string[][][] {
  */
 export type NestedScalarCreateSchema<
   M extends AnyModel,
-  F extends FieldSchemas<M>,
+  F extends ScalarSchemas<M>,
 > = ObjectSchema<
   ScalarCreateEntries<F>,
   {
-    atLeast: NestedRequiredFieldKeys<M, F>[];
+    atLeast: NestedRequiredScalarKeys<M, F>[];
   },
-  NestedScalarCreateInput<M, F, ForeignKeyFieldKeys<M>>
+  NestedScalarCreateInput<M, F, ForeignKeyScalarKeys<M>>
 >;
 
 export type NestedScalarCreateWithOmittedRequiredKeys<
   M extends AnyModel,
-  F extends FieldSchemas<M>,
+  F extends ScalarSchemas<M>,
   OmittedRequiredKeys extends readonly string[] | undefined,
 > = ObjectSchema<
   ScalarCreateEntries<F>,
@@ -202,22 +201,18 @@ export type NestedScalarCreateWithOmittedRequiredKeys<
       OmittedRequiredKeyUnion<OmittedRequiredKeys>
     >[];
   },
-  NestedScalarCreateInput<
-    M,
-    F,
-    OmittedRequiredKeyUnion<OmittedRequiredKeys>
-  >
+  NestedScalarCreateInput<M, F, OmittedRequiredKeyUnion<OmittedRequiredKeys>>
 >;
 
 export const getNestedScalarCreate = <
   M extends AnyModel,
-  F extends FieldSchemas<M>,
+  F extends ScalarSchemas<M>,
 >(
   model: M,
-  fieldSchemas: F,
+  fieldSchemas: F
 ): NestedScalarCreateSchema<M, F> => {
   const state = model["~"].state;
-  const fkFields = [...getFkFields(state)] as ForeignKeyFieldKeys<M>[];
+  const fkFields = [...getFkFields(state)] as ForeignKeyScalarKeys<M>[];
   return getNestedScalarCreateWithOmittedRequiredKeys(
     model,
     fieldSchemas,
@@ -227,7 +222,7 @@ export const getNestedScalarCreate = <
 
 export const getNestedScalarCreateWithOmittedRequiredKeys = <
   M extends AnyModel,
-  F extends FieldSchemas<M>,
+  F extends ScalarSchemas<M>,
   const OmittedRequiredKeys extends readonly string[] | undefined,
 >(
   model: M,
@@ -240,10 +235,10 @@ export const getNestedScalarCreateWithOmittedRequiredKeys = <
   // Get required scalar field names, excluding only caller-derived keys.
   const requiredScalars = Object.keys(state.scalars).filter((key) => {
     if (omittedRequiredKeySet.has(key)) return false;
-    // Check if field has default or is optional
-    const field = state.scalars[key] as any;
-    const fieldState = field?.["~"]?.state;
-    return !(fieldState.hasDefault || fieldState.optional);
+    // Check if scalar has default or is optional
+    const scalar = state.scalars[key] as any;
+    const scalarState = scalar?.["~"]?.state;
+    return !(scalarState.hasDefault || scalarState.optional);
   }) as RequiredScalarCreateKeys<
     M,
     F,
@@ -277,21 +272,18 @@ export const getNestedScalarCreateWithOmittedRequiredKeys = <
  */
 export type CreateSchema<
   M extends AnyModel,
-  F extends FieldSchemas<M>,
+  F extends ScalarSchemas<M>,
 > = V.Object<
   V.FromObject<F["scalars"], "create">["entries"] &
     V.FromObject<F["relations"], "create">["entries"],
   {
-    atLeast: NestedRequiredFieldKeys<M, F>[];
+    atLeast: NestedRequiredScalarKeys<M, F>[];
     requiresOneOfKeySets: readonly CreateRequirementKeySetGroup<M>[];
   }
 >;
-export const getCreateSchema = <
-  M extends AnyModel,
-  F extends FieldSchemas<M>,
->(
+export const getCreateSchema = <M extends AnyModel, F extends ScalarSchemas<M>>(
   model: M,
-  fieldSchemas: F,
+  fieldSchemas: F
 ): CreateSchema<M, F> => {
   const state = model["~"].state;
   // Identify FK fields - these should be optional when using connect/create
@@ -302,11 +294,11 @@ export const getCreateSchema = <
   const requiredScalars = Object.keys(state.scalars).filter((key) => {
     // FK fields are optional (can use connect instead)
     if (fkFields.has(key)) return false;
-    // Check if field has default or is optional
-    const field = state.scalars[key] as any;
-    const fieldState = field?.["~"]?.state;
-    return !(fieldState.hasDefault || fieldState.optional);
-  }) as RequiredFieldKeys<ModelStateOf<M>["fields"]>[];
+    // Check if scalar has default or is optional
+    const scalar = state.scalars[key] as any;
+    const scalarState = scalar?.["~"]?.state;
+    return !(scalarState.hasDefault || scalarState.optional);
+  }) as ModelRequiredScalarKeys<ModelStateOf<M>["shape"]>[];
 
   // Build scalar schema with FK fields as optional
   const scalarCreate = v.fromObject<F["scalars"], "create">(
@@ -326,7 +318,7 @@ export const getCreateSchema = <
       ...relationCreate.entries,
     },
     {
-      atLeast: requiredScalars as NestedRequiredFieldKeys<M, F>[],
+      atLeast: requiredScalars as NestedRequiredScalarKeys<M, F>[],
       requiresOneOfKeySets:
         fkRequirementKeySets as unknown as readonly CreateRequirementKeySetGroup<M>[],
     }

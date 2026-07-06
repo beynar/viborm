@@ -69,6 +69,12 @@ export function assembleInnerQuery(
 
   if (take !== undefined) {
     parts.push(adapter.clauses.limit(adapter.literals.value(take)));
+  } else if ((skip !== undefined || orderBy) && adapter.noLimitValue) {
+    // MySQL/SQLite reject OFFSET without LIMIT; emit their "no limit" sentinel.
+    // Also required with ORDER BY: without a LIMIT, MySQL merges the derived
+    // table into the outer query and drops its ORDER BY, so JSON_ARRAYAGG
+    // aggregates in arbitrary order. The sentinel forces materialization.
+    parts.push(adapter.clauses.limit(adapter.noLimitValue));
   }
 
   if (skip !== undefined) {

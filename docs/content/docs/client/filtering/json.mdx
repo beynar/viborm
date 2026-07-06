@@ -1,98 +1,119 @@
 ---
 title: JSON Filters
-description: Filter operators for JSON fields
+description: Filter operators for JSON scalars
 icon: Braces
 ---
 
+## Operators
+
+| Operator | Description |
+|----------|-------------|
+| `equals` | Match the JSON value exactly |
+| `not` | Negate a nested JSON filter |
+| `path` | Scope the other operators to a nested value |
+| `string_contains` | String at path contains substring |
+| `string_starts_with` | String at path starts with |
+| `string_ends_with` | String at path ends with |
+| `array_contains` | Array at path contains all given value(s) |
+| `array_starts_with` | First array element equals value |
+| `array_ends_with` | Last array element equals value |
+
+Comparison operators (`gt`, `gte`, `lt`, `lte`) are not supported on JSON
+scalars.
+
 ## Path Queries
 
-Access nested values by path:
+`path` is an array of segments that scopes every other operator in the same
+filter object to the nested value. Integer segments (`"0"`, `"1"`, …)
+address array elements:
 
 ```ts
+// Exact match at path
 where: {
   metadata: {
     path: ["settings", "theme"],
     equals: "dark",
   },
 }
+
+// Array element by index
+where: {
+  metadata: {
+    path: ["pet", "toys", "0"],
+    equals: "ball",
+  },
+}
 ```
 
-## Operators
+Rows where the path does not exist never match. Filtering `equals: null`
+with a `path` matches an explicit JSON `null` at that path (not missing
+keys); without a `path` it matches rows where the column is SQL `NULL`.
 
-| Operator | Description |
-|----------|-------------|
-| `path` + `equals` | Match path value |
-| `path` + comparisons | Compare path value |
-| `string_contains` | JSON contains string |
-| `string_starts_with` | JSON string starts with |
-| `string_ends_with` | JSON string ends with |
-| `array_contains` | Array contains value |
-| `array_starts_with` | Array starts with value |
-| `array_ends_with` | Array ends with value |
+## Negation
 
-## Path-Based Filters
+`not` takes a nested JSON filter and inherits the outer `path` unless the
+nested filter sets its own:
 
 ```ts
-// Exact match at path
+// theme present and not "dark"
 where: {
-  data: {
-    path: ["user", "role"],
-    equals: "admin",
-  },
-}
-
-// Comparison at path
-where: {
-  data: {
-    path: ["stats", "score"],
-    gte: 100,
-  },
-}
-
-// Null check
-where: {
-  data: {
-    path: ["optional", "field"],
-    equals: null,
+  metadata: {
+    path: ["theme"],
+    not: { equals: "dark" },
   },
 }
 ```
+
+Rows where the path is missing (or the column is `NULL`) are excluded,
+following SQL `NOT` semantics.
 
 ## String Operations
 
+String operators match against the string at the path (or the document
+root for string-valued columns). The value is matched literally — `%` and
+`_` have no wildcard meaning:
+
 ```ts
-// Contains string anywhere in JSON
 where: {
   metadata: {
-    string_contains: "premium",
-  },
-}
-
-// Starts with
-where: {
-  config: {
-    string_starts_with: '{"version":',
+    path: ["theme"],
+    string_contains: "dark",
   },
 }
 ```
+
+Matching is case-sensitive on PostgreSQL and MySQL. SQLite's `LIKE` is
+case-insensitive for ASCII, so matches there ignore ASCII case.
 
 ## Array Operations
 
 ```ts
-// Array contains value
+// Array at path contains a value
 where: {
-  tags: {
+  metadata: {
+    path: ["tags"],
     array_contains: "featured",
   },
 }
 
-// Array contains multiple values
+// Contains ALL of the listed values (any order)
 where: {
-  roles: {
-    array_contains: ["admin", "moderator"],  // Has all
+  metadata: {
+    path: ["roles"],
+    array_contains: ["admin", "moderator"],
   },
 }
+
+// First / last element
+where: {
+  metadata: { path: ["tags"], array_starts_with: "admin" },
+}
+where: {
+  metadata: { path: ["tags"], array_ends_with: "beta" },
+}
 ```
+
+`array_contains` only matches when the value at the path is an array.
 
 ## Examples
 
@@ -140,65 +161,12 @@ async function getPostsByTag(tag: string) {
 }
 ```
 
-### Nested Config
-
-```ts
-async function getServersInRegion(region: string) {
-  return client.server.findMany({
-    where: {
-      config: {
-        path: ["deployment", "region"],
-        equals: region,
-      },
-    },
-  });
-}
-```
-
-### Version Check
-
-```ts
-async function getOutdatedClients(minVersion: number) {
-  return client.device.findMany({
-    where: {
-      appData: {
-        path: ["version"],
-        lt: minVersion,
-      },
-    },
-  });
-}
-```
-
 ## Database Support
 
-<Tabs items={["PostgreSQL", "MySQL", "SQLite"]}>
-  <Tab value="PostgreSQL">
-Full JSON/JSONB support with path queries, containment, and operators.
+All operators work on PostgreSQL (`jsonb` with `#>`/`@>`), MySQL
+(`JSON_EXTRACT`/`JSON_CONTAINS`), and SQLite (`->`/`->>`/`json_each`),
+with two SQLite caveats:
 
-```sql
--- Path query
-SELECT * FROM users WHERE preferences->'theme' = '"dark"'
-
--- Containment
-SELECT * FROM posts WHERE tags @> '["featured"]'
-```
-  </Tab>
-  <Tab value="MySQL">
-JSON support with `JSON_EXTRACT` for path queries.
-
-```sql
--- Path query
-SELECT * FROM users WHERE JSON_EXTRACT(preferences, '$.theme') = 'dark'
-```
-  </Tab>
-  <Tab value="SQLite">
-Limited JSON support via `json_extract` function.
-
-```sql
--- Path query
-SELECT * FROM users WHERE json_extract(preferences, '$.theme') = 'dark'
-```
-  </Tab>
-</Tabs>
-
+- Object keys containing `"` or `\` cannot be addressed by `path` (SQLite's
+  JSON path grammar has no escape syntax); such filters match nothing.
+- String operators ignore ASCII case (SQLite `LIKE` semantics).

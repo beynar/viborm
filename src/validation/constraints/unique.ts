@@ -9,7 +9,7 @@ import {
 type AnyModel = Model<ModelState>;
 
 // =============================================================================
-// UNIQUE SCALARS - Fields marked with .unique() or .id()
+// UNIQUE SCALARS - Scalars marked with .unique() or .id()
 // =============================================================================
 
 /**

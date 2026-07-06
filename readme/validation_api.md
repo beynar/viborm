@@ -10,14 +10,14 @@ All validation logic is delegated to user-provided validators. For common valida
 
 **One Method for All Validation**: Pass validators directly to `validate()` instead of registering them first.
 
-## Field Validation
+## Scalar Validation
 
 ### Basic Usage
 
 ```typescript
 import { s } from "viborm";
 
-const emailField = s.string();
+const emailScalar = s.string();
 
 // Create validators
 const emailValidator = (value: string) => {
@@ -32,7 +32,7 @@ const minLengthValidator = (minLength: number) => (value: string) => {
 };
 
 // ✅ Pass validators directly to validate()
-const result = await emailField.validate(
+const result = await emailScalar.validate(
   "user@example.com",
   emailValidator,
   minLengthValidator(5)
@@ -44,7 +44,7 @@ console.log(result); // { valid: true, errors: undefined }
 ### Multiple Validators
 
 ```typescript
-const nameField = s.string();
+const nameScalar = s.string();
 
 const validators = [
   (val: string) => val.length > 0 || "Name is required",
@@ -53,14 +53,14 @@ const validators = [
     /^[a-zA-Z\s]+$/.test(val) || "Only letters and spaces allowed",
 ];
 
-const result = await nameField.validate("John Doe", ...validators);
+const result = await nameScalar.validate("John Doe", ...validators);
 ```
 
 ### Multiple Validators
 
 ```typescript
 // Combine multiple validators
-const ageField = s.int();
+const ageScalar = s.int();
 
 const minAge = (min: number) => (age: number) =>
   age >= min || `Must be at least ${min}`;
@@ -68,7 +68,7 @@ const maxAge = (max: number) => (age: number) =>
   age <= max || `Must be at most ${max}`;
 const adultValidator = (age: number) => age >= 18 || "Must be 18 or older";
 
-const result = await ageField.validate(
+const result = await ageScalar.validate(
   25,
   minAge(0),
   maxAge(120),
@@ -104,7 +104,7 @@ const result = await userModel.validate(
 );
 ```
 
-### Cross-Field Validation
+### Cross-Scalar Validation
 
 ```typescript
 const registrationModel = s.model({
@@ -180,7 +180,7 @@ VibORM supports Standard Schema v1 validators:
 ```typescript
 import { email, minLength } from "some-standard-schema-library";
 
-const result = await emailField.validate(
+const result = await emailScalar.validate(
   "test@example.com",
   email(),
   minLength(5)
@@ -199,7 +199,7 @@ const createMinLengthValidator = (min: number) => (value: string) =>
 const createEmailValidator = () => (value: string) =>
   /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) || "Invalid email format";
 
-// Use across multiple fields
+// Use across multiple scalars
 const emailValidator = createEmailValidator();
 const minLength5 = createMinLengthValidator(5);
 ```
@@ -219,7 +219,7 @@ const yupValidator = (schema: yup.Schema) => async (value: any) => {
   }
 };
 
-const result = await field.validate(value, yupValidator(yup.string().email()));
+const result = await scalar.validate(value, yupValidator(yup.string().email()));
 ```
 
 ### 3. Conditional Validation
@@ -246,15 +246,15 @@ const field = s
   .schema(emailValidator)
   .schema(minLengthValidator(5));
 
-const result = await field.validate("test@example.com");
+const result = await scalar.validate("test@example.com");
 ```
 
 ### After (✅ New API)
 
 ```typescript
-const field = s.string();
+const scalar = s.string();
 
-const result = await field.validate(
+const result = await scalar.validate(
   "test@example.com",
   emailValidator,
   minLengthValidator(5)

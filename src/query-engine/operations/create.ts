@@ -9,7 +9,7 @@ import { type Sql, sql } from "@sql";
 import { buildSelect } from "../builders/select-builder";
 import { buildValues } from "../builders/values-builder";
 import { getTableName } from "../context";
-import type { QueryContext } from "../types";
+import { type QueryContext, QueryEngineError } from "../types";
 
 interface CreateArgs {
   data: Record<string, unknown>;
@@ -32,7 +32,7 @@ export function buildCreate(ctx: QueryContext, args: CreateArgs): Sql {
   const { columns, values } = buildValues(ctx, args.data);
 
   if (columns.length === 0) {
-    throw new Error("No data to insert");
+    throw new QueryEngineError("No data to insert");
   }
 
   // Build INSERT
@@ -61,6 +61,33 @@ export function buildCreate(ctx: QueryContext, args: CreateArgs): Sql {
  * @param skipDuplicates - Whether to skip duplicate key errors
  * @returns SQL statement
  */
+/**
+ * Build SQL for createManyAndReturn operation
+ *
+ * INSERT ... RETURNING on adapters that support it. On adapters without
+ * RETURNING (MySQL) this returns the bare INSERT; the executor refetches
+ * the inserted rows afterwards.
+ */
+export function buildCreateManyAndReturn(
+  ctx: QueryContext,
+  args: {
+    data: Record<string, unknown>[];
+    skipDuplicates?: boolean;
+    select?: Record<string, unknown>;
+  }
+): Sql {
+  const insertSql = buildCreateMany(ctx, args.data, args.skipDuplicates);
+
+  const returningCols = buildSelect(ctx, args.select, undefined, "");
+  const returningSql = ctx.adapter.mutations.returning(returningCols);
+
+  if (returningSql.strings.join("").trim() === "") {
+    return insertSql;
+  }
+
+  return sql`${insertSql} ${returningSql}`;
+}
+
 export function buildCreateMany(
   ctx: QueryContext,
   data: Record<string, unknown>[],
@@ -73,7 +100,7 @@ export function buildCreateMany(
   const { columns, values } = buildValues(ctx, data);
 
   if (columns.length === 0 || values.length === 0) {
-    throw new Error("No data to insert");
+    throw new QueryEngineError("No data to insert");
   }
 
   // Build INSERT using adapter (handles column escaping and row formatting)

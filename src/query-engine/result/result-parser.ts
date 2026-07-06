@@ -8,11 +8,18 @@
  * Applies schema-aware type conversion for relation data (datetime, bigint).
  */
 
-import { COUNT_RESULT_KEY } from "@adapters/shared/result-parsing";
-import type { Field } from "@schema/fields";
+import {
+  COUNT_RESULT_KEY,
+  tryParseJsonString,
+} from "@adapters/shared/result-parsing";
 import type { AnyRelation } from "@schema/relation";
 import type { RelationType } from "@schema/relation/types";
+import type { Scalar } from "@schema/scalars";
 import { isBatchOperation, type Operation, type QueryContext } from "../types";
+import {
+  assignRelationCount,
+  getRelationCountName,
+} from "./relation-count-parser";
 
 /**
  * Check if a key is a recognized count result column name.
@@ -100,10 +107,23 @@ function getParseRelationChain(
  * Create the chained parseField function.
  * Chain: Driver (if present) -> Adapter -> Default
  */
-function createParseFieldChain(ctx: QueryContext, fieldType: string) {
+function createParseFieldChain(
+  ctx: QueryContext,
+  scalarType: string,
+  isList: boolean
+) {
   // Default parsing (end of chain)
-  const defaultParse = (value: unknown, _type: string) =>
-    parseTypedValueDefault(value, fieldType);
+  const defaultParse = (value: unknown, _type: string) => {
+    // List columns come back as JSON text on MySQL/SQLite drivers; decode to
+    // an array before per-element conversion. PG lists arrive as arrays.
+    if (isList && typeof value === "string") {
+      const parsed = tryParseJsonString(value);
+      if (parsed !== undefined) {
+        return parseTypedValueDefault(parsed, scalarType);
+      }
+    }
+    return parseTypedValueDefault(value, scalarType);
+  };
 
   // Adapter wraps default
   const adapterParse = (value: unknown, type: string) =>
@@ -114,21 +134,24 @@ function createParseFieldChain(ctx: QueryContext, fieldType: string) {
   // Driver wraps adapter (if driver has result parsing)
   if (ctx.driver?.result?.parseField) {
     return (value: unknown) =>
-      ctx.driver!.result!.parseField!(value, fieldType, adapterParse);
+      ctx.driver!.result!.parseField!(value, scalarType, adapterParse);
   }
 
-  return (value: unknown) => adapterParse(value, fieldType);
+  return (value: unknown) => adapterParse(value, scalarType);
 }
 
 /**
- * Get or create the cached parseField chain for a field type
+ * Get or create the cached parseField chain for a scalar's type + list-ness
  */
-function getParseFieldChain(ctx: QueryContext, fieldType: string) {
+function getParseFieldChain(ctx: QueryContext, scalar: Scalar) {
+  const scalarType = scalar["~"].state.type;
+  const isList = scalar["~"].state.array === true;
+  const cacheKey = isList ? `${scalarType}[]` : scalarType;
   ctx._parseFieldChains ??= new Map();
-  let chain = ctx._parseFieldChains.get(fieldType);
+  let chain = ctx._parseFieldChains.get(cacheKey);
   if (!chain) {
-    chain = createParseFieldChain(ctx, fieldType);
-    ctx._parseFieldChains.set(fieldType, chain);
+    chain = createParseFieldChain(ctx, scalarType, isList);
+    ctx._parseFieldChains.set(cacheKey, chain);
   }
   return chain;
 }
@@ -195,8 +218,24 @@ function parseResultDefault(
       return parseRow(ctx, first);
     }
 
-    // For operations that return arrays
-    return raw.map((row) => parseRow(ctx, row));
+    // For operations that return arrays: all rows of one statement share the
+    // same columns, so resolve the per-column parser once and run a flat loop.
+    const len = raw.length;
+    if (len === 0) {
+      return [];
+    }
+    const model = ctx.model;
+    const rowParser = createRowParser(
+      ctx,
+      Object.keys(raw[0] as Record<string, unknown>),
+      model["~"].state.scalars,
+      model["~"].state.relations
+    );
+    const out = new Array(len);
+    for (let i = 0; i < len; i++) {
+      out[i] = rowParser(raw[i] as Record<string, unknown>);
+    }
+    return out;
   }
 
   // Single row result
@@ -224,44 +263,253 @@ function parseRow(
   const keys = Object.keys(row);
   for (const key of keys) {
     const value = row[key];
-    const field = scalars[key];
-    const relation = relations[key];
-
-    if (field) {
-      const fieldType = field["~"].state.type;
-      // Use cached chained parsing: Driver -> Adapter -> Default
-      const parse = getParseFieldChain(ctx, fieldType);
-      result[key] = parse(value);
-    } else if (relation) {
-      // Use cached chained parsing: Driver -> Adapter -> Default
-      const parse = getParseRelationChain(ctx, key, relation);
-      result[key] = parse(value);
-    } else {
-      // Unknown field - parse generically
-      result[key] = parseValue(value);
-    }
+    assignParsedField(ctx, result, key, value, scalars, relations);
   }
 
   return result;
 }
 
 /**
+ * Build a row parser for a fixed set of columns: the scalar/relation/count
+ * dispatch is resolved once per result set instead of once per row per field.
+ */
+function createRowParser(
+  ctx: QueryContext,
+  keys: string[],
+  scalars: Record<string, Scalar>,
+  relations: Record<string, AnyRelation>
+): (row: Record<string, unknown>) => Record<string, unknown> {
+  const len = keys.length;
+  const steps: ((result: Record<string, unknown>, value: unknown) => void)[] =
+    new Array(len);
+
+  for (let i = 0; i < len; i++) {
+    const key = keys[i]!;
+
+    const relationCountName = getRelationCountName(key, relations);
+    if (relationCountName) {
+      steps[i] = (result, value) =>
+        assignRelationCount(result, relationCountName, value);
+      continue;
+    }
+
+    const scalar = scalars[key];
+    if (scalar) {
+      const parse = getParseFieldChain(ctx, scalar);
+      steps[i] = (result, value) => {
+        result[key] = parse(value);
+      };
+      continue;
+    }
+
+    const relation = relations[key];
+    if (relation) {
+      const parse = getParseRelationChain(ctx, key, relation);
+      steps[i] = (result, value) => {
+        result[key] = parse(value);
+      };
+      continue;
+    }
+
+    if (AGGREGATE_RESULT_KEYS.has(key)) {
+      steps[i] = (result, value) => {
+        result[key] = parseAggregateResult(ctx, key, value);
+      };
+      continue;
+    }
+
+    steps[i] = (result, value) => {
+      result[key] = parseValue(value);
+    };
+  }
+
+  return (row) => {
+    const result: Record<string, unknown> = {};
+    for (let i = 0; i < len; i++) {
+      steps[i]!(result, row[keys[i]!]);
+    }
+    return result;
+  };
+}
+
+function assignParsedField(
+  ctx: QueryContext,
+  result: Record<string, unknown>,
+  key: string,
+  value: unknown,
+  scalars: Record<string, Scalar>,
+  relations: Record<string, AnyRelation>
+): void {
+  const relationCountName = getRelationCountName(key, relations);
+  if (relationCountName) {
+    assignRelationCount(result, relationCountName, value);
+    return;
+  }
+
+  const scalar = scalars[key];
+  if (scalar) {
+    const parse = getParseFieldChain(ctx, scalar);
+    result[key] = parse(value);
+    return;
+  }
+
+  const relation = relations[key];
+  if (relation) {
+    const parse = getParseRelationChain(ctx, key, relation);
+    result[key] = parse(value);
+    return;
+  }
+
+  if (AGGREGATE_RESULT_KEYS.has(key)) {
+    result[key] = parseAggregateResult(ctx, key, value);
+    return;
+  }
+
+  result[key] = parseValue(value);
+}
+
+const AGGREGATE_RESULT_KEYS = new Set([
+  "_count",
+  "_avg",
+  "_sum",
+  "_min",
+  "_max",
+]);
+
+/**
+ * Parse aggregate/groupBy result columns with schema awareness:
+ * - `_count: true` arrives as a bare value (a string on PG) → number
+ * - `_count`/`_avg` objects → numbers per field
+ * - `_sum`/`_min`/`_max` objects → parsed through each field's scalar type,
+ *   so bigint sums come back as BigInt and datetime min/max as Dates
+ */
+function parseAggregateResult(
+  ctx: QueryContext,
+  key: string,
+  raw: unknown
+): unknown {
+  if (raw === null || raw === undefined) {
+    return null;
+  }
+
+  let value: unknown = raw;
+  if (typeof value === "string") {
+    // SQLite/MySQL return the JSON-built aggregate object as text
+    const parsed = tryParseJsonString(value);
+    if (parsed !== undefined) {
+      value = parsed;
+    }
+  }
+
+  if (typeof value !== "object" || value === null) {
+    return Number(value);
+  }
+
+  const scalars = ctx.model["~"].state.scalars;
+  const typed = key === "_sum" || key === "_min" || key === "_max";
+  const result: Record<string, unknown> = {};
+  for (const [field, fieldValue] of Object.entries(
+    value as Record<string, unknown>
+  )) {
+    if (fieldValue === null || fieldValue === undefined) {
+      result[field] = null;
+      continue;
+    }
+    const scalar = typed ? scalars[field] : undefined;
+    result[field] = scalar
+      ? getParseFieldChain(ctx, scalar)(fieldValue)
+      : Number(fieldValue);
+  }
+  return result;
+}
+
+/**
+ * Timestamp text without timezone info ("2024-01-15 10:30:00[.123]").
+ * The write path stores the UTC wall clock (validation serializes via
+ * toISOString), so these must be read back as UTC — JS Date would otherwise
+ * interpret them in the process timezone and shift the instant.
+ */
+const ZONELESS_DATETIME_REGEX =
+  /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/;
+
+/** Trailing timezone marker on a time string: "+00", "+00:00", "-0530", "Z" */
+const TIME_ZONE_SUFFIX_REGEX = /(?:Z|[+-]\d{2}(?::?\d{2})?)$/;
+
+/** Redundant zeros in a fractional-seconds suffix: ".000000" or ".1230" → ".123" */
+const TRAILING_FRACTION_ZEROS_REGEX = /\.?0+$/;
+
+function parseDateTimeString(value: string): Date {
+  if (ZONELESS_DATETIME_REGEX.test(value)) {
+    return new Date(`${value.replace(" ", "T")}Z`);
+  }
+  return new Date(value);
+}
+
+function hexToUint8Array(hex: string): Uint8Array {
+  const out = new Uint8Array(hex.length >> 1);
+  for (let i = 0; i < out.length; i++) {
+    out[i] = Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  }
+  return out;
+}
+
+/**
+ * Normalize every driver's binary representation to a plain Uint8Array —
+ * the one public blob type. Strings are hex ("\x..." from PG JSON,
+ * "base64:typeNNN:..." from MySQL JSON, plain hex from our blobToHex cast).
+ */
+function parseBlobValue(value: unknown): unknown {
+  if (value instanceof Uint8Array) {
+    // Buffer (and other subclasses) → plain Uint8Array, copied out of any pool
+    return value.constructor === Uint8Array ? value : new Uint8Array(value);
+  }
+  if (value instanceof ArrayBuffer) {
+    return new Uint8Array(value);
+  }
+  if (Array.isArray(value)) {
+    return Uint8Array.from(value as number[]);
+  }
+  if (typeof value === "string") {
+    if (value.startsWith("\\x")) {
+      return hexToUint8Array(value.slice(2));
+    }
+    if (value.startsWith("base64:type")) {
+      return Uint8Array.from(
+        Buffer.from(value.slice(value.indexOf(":", 11) + 1), "base64")
+      );
+    }
+    return hexToUint8Array(value);
+  }
+  return value;
+}
+
+/**
  * Default field value parsing (called via adapter's next())
  */
-function parseTypedValueDefault(value: unknown, fieldType: string): unknown {
+function parseTypedValueDefault(value: unknown, scalarType: string): unknown {
   if (value === null || value === undefined) {
     return null;
   }
 
-  // Handle arrays - apply typed conversion to each element
-  if (Array.isArray(value)) {
-    return value.map((item) => parseTypedValueDefault(item, fieldType));
+  // Blob before the array branch: a number[] is one binary value, not a list
+  if (scalarType === "blob") {
+    return parseBlobValue(value);
   }
 
-  switch (fieldType) {
+  // Handle arrays - apply typed conversion to each element
+  if (Array.isArray(value)) {
+    return value.map((item) => parseTypedValueDefault(item, scalarType));
+  }
+
+  switch (scalarType) {
     case "datetime":
+      if (value instanceof Date) return value;
+      if (typeof value === "string") return parseDateTimeString(value);
+      if (typeof value === "number") return new Date(value);
+      return value;
+
     case "date":
-      // Convert ISO strings to Date objects
+      // "YYYY-MM-DD" parses as UTC midnight — the cross-driver contract
       if (value instanceof Date) return value;
       if (typeof value === "string" || typeof value === "number") {
         return new Date(value);
@@ -276,18 +524,58 @@ function parseTypedValueDefault(value: unknown, fieldType: string): unknown {
       }
       return value;
 
-    case "decimal":
-      // Convert strings to numbers (databases often return decimals as strings to preserve precision)
-      if (typeof value === "number") return value;
-      if (typeof value === "string") {
+    case "int":
+    case "float":
+      // BigInt arrives when SQLite drivers read integers safely; int/float
+      // columns are within Number range by contract
+      if (typeof value === "bigint" || typeof value === "string") {
         return Number(value);
       }
       return value;
 
-    case "time":
-      // Time stays as string
-      if (typeof value === "string") return value;
+    case "decimal":
+      // Convert strings to numbers (databases often return decimals as strings to preserve precision)
+      if (typeof value === "number") return value;
+      if (typeof value === "bigint" || typeof value === "string") {
+        return Number(value);
+      }
+      return value;
+
+    case "boolean":
+      // 0/1 conversion happens in driver parsers; BigInt slips through when
+      // SQLite integers are read safely
+      if (typeof value === "bigint") return value === 1n;
+      return value;
+
+    case "time": {
+      // Time is a plain "HH:MM:SS[.fff]" string; PG timetz appends the
+      // session offset ("+00") and MySQL's JSON casting pads microseconds
+      // ("13:45:30.000000") — strip both so all drivers agree.
+      // ponytail: assumes UTC sessions; a non-UTC-offset timetz would need
+      // conversion, but the write path only ever stores naive time strings
+      if (typeof value === "string") {
+        let time = value.replace(TIME_ZONE_SUFFIX_REGEX, "");
+        if (time.includes(".")) {
+          time = time.replace(TRAILING_FRACTION_ZEROS_REGEX, "");
+        }
+        return time;
+      }
       return String(value);
+    }
+
+    case "string":
+    case "enum":
+      // Never JSON-sniff string scalars: a string column containing
+      // '{"a":1}' must round-trip as a string, not an object
+      return value;
+
+    case "json":
+      // Already decoded by the driver (PG/MySQL native, SQLite driver parser).
+      // Never sniff: a json column can legitimately hold the string '"123"'.
+      // SQLite JSON columns have NUMERIC affinity, so integer JSON values
+      // arrive as BigInt under safe-integer reads — JSON numbers are doubles
+      if (typeof value === "bigint") return Number(value);
+      return value;
 
     default:
       return parseValue(value);
@@ -313,15 +601,23 @@ function parseRelationValueDefault(
   const targetRelations = targetModel["~"].state.relations;
 
   if (Array.isArray(value)) {
-    // To-many relation - deserialize each item
-    return value.map((item) =>
-      deserializeWithSchema(
-        ctx,
-        item as Record<string, unknown>,
-        targetScalars,
-        targetRelations
-      )
+    // To-many relation - items share the shape of the JSON aggregation, so
+    // resolve the per-key parser once from the first item.
+    const len = value.length;
+    if (len === 0) {
+      return value;
+    }
+    const itemParser = createRowParser(
+      ctx,
+      Object.keys(value[0] as Record<string, unknown>),
+      targetScalars,
+      targetRelations
     );
+    const out = new Array(len);
+    for (let i = 0; i < len; i++) {
+      out[i] = itemParser(value[i] as Record<string, unknown>);
+    }
+    return out;
   }
 
   if (typeof value === "object") {
@@ -343,7 +639,7 @@ function parseRelationValueDefault(
 function deserializeWithSchema(
   ctx: QueryContext,
   obj: Record<string, unknown>,
-  scalars: Record<string, Field>,
+  scalars: Record<string, Scalar>,
   relations: Record<string, AnyRelation>
 ): Record<string, unknown> {
   const result: Record<string, unknown> = {};
@@ -352,21 +648,7 @@ function deserializeWithSchema(
   const keys = Object.keys(obj);
   for (const key of keys) {
     const value = obj[key];
-    const field = scalars[key];
-    const relation = relations[key];
-
-    if (field) {
-      const fieldType = field["~"].state.type;
-      // Use cached chained parsing: Driver -> Adapter -> Default
-      const parse = getParseFieldChain(ctx, fieldType);
-      result[key] = parse(value);
-    } else if (relation) {
-      // Use cached chained parsing: Driver -> Adapter -> Default
-      const parse = getParseRelationChain(ctx, key, relation);
-      result[key] = parse(value);
-    } else {
-      result[key] = parseValue(value);
-    }
+    assignParsedField(ctx, result, key, value, scalars, relations);
   }
 
   return result;
@@ -423,7 +705,7 @@ function parseValue(value: unknown): unknown {
       return value.map(parseValue);
     }
 
-    // Recursively parse nested objects (JSON fields, etc.)
+    // Recursively parse nested objects (JSON scalars, etc.)
     const result: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
       result[k] = parseValue(v);
@@ -464,6 +746,8 @@ function getDefaultResult(operation: Operation): unknown {
       return null;
 
     case "findMany":
+    case "createManyAndReturn":
+    case "updateManyAndReturn":
       return [];
 
     case "createMany":

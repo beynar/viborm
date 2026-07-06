@@ -1,8 +1,8 @@
-import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { AnyModel } from "@schema/model";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { inferred } from "./inferred";
 import type { JsonSchemaConverter } from "./json-schema/types";
-import type { ArgsSchemas, FieldSchemas, ModelSchemas } from "./model";
+import type { ArgsSchemas, ModelSchemas, ScalarSchemas } from "./model";
 
 // =============================================================================
 // Core Type Utilities
@@ -121,7 +121,7 @@ export type InferInput<Def> = Def extends { [inferred]?: [infer I, any] }
     : unknown;
 
 /**
- * Infer output shape from object field definitions.
+ * Infer output shape from object schema entries.
  * Prettify applied once at the end, not per-field.
  */
 export type InferOutputShape<Defs> = {
@@ -129,7 +129,7 @@ export type InferOutputShape<Defs> = {
 };
 
 /**
- * Infer input shape from object field definitions.
+ * Infer input shape from object schema entries.
  */
 export type InferInputShape<Defs> = {
   [K in keyof Defs]: InferInput<Defs[K]>;
@@ -243,7 +243,7 @@ export type ParseResult<TSchema extends StandardSchemaV1> =
 
 export type SchemaRegistryOperation = keyof ArgsSchemas<
   AnyModel,
-  FieldSchemas<AnyModel>
+  ScalarSchemas<AnyModel>
 >;
 
 export interface SchemaRegistryLookup {

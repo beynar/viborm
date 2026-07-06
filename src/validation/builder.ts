@@ -1,7 +1,7 @@
 /**
  * Centralized Schema Builder
  *
- * Builds all validation schemas (fields, relations, models) from a central registry.
+ * Builds all validation schemas (scalars, relations, models) from a central registry.
  * Uses lazy evaluation (thunks) to handle circular dependencies between models.
  *
  * Key insight: Using Model object as Map key allows direct lookup via relation.getter()
@@ -10,10 +10,10 @@
 import { ValidationError } from "@errors";
 import type { AnyModel, Model } from "@schema/model";
 import type { RelationState } from "@schema/relation/types";
+import { getModelSchemas, type ModelSchemas } from "./model";
 import { getRelationsSchemas } from "./relations";
 import type { GetTargetSchemas } from "./relations/helpers";
 import { getScalarsSchemas } from "./scalars";
-import { getModelSchemas, type ModelSchemas } from "./model";
 import type { SchemaRegistryLookup, SchemaRegistryOperation } from "./types";
 
 // =============================================================================
@@ -41,7 +41,7 @@ export class SchemaRegistry<S extends Record<string, AnyModel>>
           }
           return this.getModelSchemas(schema[prop]);
         },
-      },
+      }
     ) as {
       [K in keyof S]: ModelSchemas<S[K]>;
     };
@@ -51,7 +51,7 @@ export class SchemaRegistry<S extends Record<string, AnyModel>>
     return () => {
       const targetModel = state.getter() as AnyModel;
       return this.getModelSchemas(
-        targetModel,
+        targetModel
       ) as unknown as GetTargetSchemas<S>;
     };
   };
@@ -80,7 +80,7 @@ export class SchemaRegistry<S extends Record<string, AnyModel>>
   validate = (
     modelName: string,
     operation: SchemaRegistryOperation,
-    payload: unknown,
+    payload: unknown
   ) => {
     const model = this.schema[modelName];
     if (!model) {
@@ -98,14 +98,16 @@ export class SchemaRegistry<S extends Record<string, AnyModel>>
         path: issue.path?.map((p) => p).join(".") ?? "",
         message: issue.message,
       }));
-      throw new ValidationError(operation, issues, { meta: { model: modelName } });
+      throw new ValidationError(operation, issues, {
+        meta: { model: modelName },
+      });
     }
     return result.value;
   };
 }
 
 export const createSchemaRegistry = <S extends Record<string, Model<any>>>(
-  schema: S,
+  schema: S
 ): SchemaRegistry<S> => {
   return new SchemaRegistry(schema);
 };

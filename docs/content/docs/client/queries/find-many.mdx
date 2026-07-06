@@ -90,6 +90,12 @@ await client.user.findMany({
 });
 ```
 
+<Callout type="info">
+  `distinct` combined with `orderBy`, and `skip` without `take`, both work identically on PostgreSQL, MySQL, and SQLite. PostgreSQL uses native `DISTINCT ON` when possible; all three dialects fall back to a `ROW_NUMBER()` emulation that preserves your `orderBy` when `distinct` and `orderBy` are combined.
+</Callout>
+
+At the top level, a negative `take` returns the last N records (VibORM reverses the effective sort order internally). This "last N" form is only supported at the top level — a negative `take` or a `cursor` inside a nested `include`/`select` relation query is rejected during validation.
+
 ## findFirst
 
 Same as `findMany` but returns single record or null:
@@ -116,7 +122,7 @@ const user = await client.user.findFirstOrThrow({
 ## Return Type
 
 ```ts
-// Default: all scalar fields
+// Default: all scalars
 const users = await client.user.findMany();
 // Type: { id: string; email: string; name: string; ... }[]
 

@@ -58,15 +58,15 @@ This enables VibORM to support PostgreSQL, MySQL, and SQLite with a single codeb
 
 ### Rule 2: Immutable State for Type Tracking
 
-Every field modifier returns a NEW instance:
+Every scalar modifier returns a NEW instance:
 
 ```typescript
-s.string()           // StringField<{type: "string"}>
-  .nullable()        // StringField<{type: "string", nullable: true}>  ← NEW instance
-  .default("hello")  // StringField<{..., default: "hello"}>           ← NEW instance
+s.string()           // StringScalar<{type: "string"}>
+  .nullable()        // StringScalar<{type: "string", nullable: true}>  ← NEW instance
+  .default("hello")  // StringScalar<{..., default: "hello"}>           ← NEW instance
 ```
 
-TypeScript tracks the State generic through each transformation. If we mutated the field instead, the type system couldn't track changes.
+TypeScript tracks the State generic through each transformation. If we mutated the scalar instead, the type system couldn't track changes.
 
 ### Rule 3: Lazy Evaluation for Circular References
 
@@ -120,7 +120,7 @@ These layers handle **definition and validation** - no SQL generation.
 | Layer | Purpose |
 |-------|---------|
 | L1: Validation | Standard Schema V1 primitives (`v.*`) and `SchemaRegistry` |
-| L2: Fields | Field type definitions with State generic and base schemas |
+| L2: Scalars | Scalar type definitions with State generic and base schemas |
 | L3: Operation Schemas | Validation schemas for where/create/update |
 | L4: Relations | Relationship definitions between models |
 | L5: Schema Validation | Definition-time correctness checking |
@@ -149,7 +149,7 @@ Migrations handle **schema evolution** independently.
 src/
 ├── validation/           # L1: Validation primitives
 ├── schema/               # L2-L5: Schema system
-│   ├── fields/           # L2: Field types
+│   ├── scalars/          # L2: Scalar types
 │   ├── model/schemas/    # L3: Query schemas
 │   ├── relation/         # L4: Relations
 │   └── validation/       # L5: Schema validation

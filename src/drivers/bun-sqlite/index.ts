@@ -12,7 +12,12 @@ import {
   type VibORMClient,
 } from "@client/client";
 import { Driver, type DriverResultParser } from "../driver";
-import { convertValuesForSQLite, sqliteResultParser } from "../shared";
+import {
+  assertSQLiteIsolationLevel,
+  convertValuesForSQLite,
+  runSavepoint,
+  sqliteResultParser,
+} from "../shared";
 import type { QueryResult, TransactionOptions } from "../types";
 
 // ============================================================
@@ -69,6 +74,7 @@ export class BunSQLiteDriver extends Driver<
 > {
   readonly adapter: DatabaseAdapter = new SQLiteAdapter();
   readonly result: DriverResultParser = sqliteResultParser;
+  protected override readonly serializeTransactions = true;
 
   private readonly driverOptions: BunSQLiteDriverOptions;
 
@@ -136,20 +142,16 @@ export class BunSQLiteDriver extends Driver<
   protected async transaction<T>(
     client: BunSQLiteDatabase,
     fn: (tx: BunSQLiteDatabase) => Promise<T>,
-    _options?: TransactionOptions
+    options?: TransactionOptions
   ): Promise<T> {
+    assertSQLiteIsolationLevel(this.driverName, options);
+
     if (this.inTransaction) {
       // Nested transaction - use savepoint
-      const savepointName = `sp_${crypto.randomUUID().replace(/-/g, "")}`;
-      client.exec(`SAVEPOINT ${savepointName}`);
-      try {
-        const result = await fn(client);
-        client.exec(`RELEASE SAVEPOINT ${savepointName}`);
-        return result;
-      } catch (error) {
-        client.exec(`ROLLBACK TO SAVEPOINT ${savepointName}`);
-        throw error;
-      }
+      return runSavepoint(
+        (statement) => client.exec(statement),
+        () => fn(client)
+      );
     }
 
     // Start a new transaction

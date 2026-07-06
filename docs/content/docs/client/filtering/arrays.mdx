@@ -1,11 +1,11 @@
 ---
 title: Array Filters
-description: Filter operators for array fields (PostgreSQL only)
+description: Filter operators for array scalars
 icon: ListOrdered
 ---
 
 <Callout type="info">
-  Array fields are only supported in PostgreSQL. MySQL and SQLite don't have native array types.
+  Array scalars (`s.string().array()`, `s.int().array()`, etc.) work on PostgreSQL, MySQL, and SQLite. PostgreSQL stores them as native array columns; MySQL and SQLite don't have a native array type, so VibORM stores them as `JSON` columns and emulates the same filter and update operators on top of JSON functions (`JSON_CONTAINS`, `json_each`, and similar).
 </Callout>
 
 ## Operators
@@ -33,6 +33,8 @@ where: {
   roles: { has: "ADMIN" },
 }
 ```
+
+`has: null` never matches any row on any dialect (SQL `NULL = element` is never true), matching PostgreSQL and Prisma semantics.
 
 ## hasEvery
 
@@ -183,6 +185,22 @@ await client.post.update({
   },
 });
 
+// Add several values (each appended as its own element)
+await client.post.update({
+  where: { id: "post_123" },
+  data: {
+    tags: { push: ["tag-a", "tag-b"] },
+  },
+});
+
+// Prepend instead of append
+await client.post.update({
+  where: { id: "post_123" },
+  data: {
+    tags: { unshift: "first-tag" },
+  },
+});
+
 // Set entire array
 await client.post.update({
   where: { id: "post_123" },
@@ -192,22 +210,35 @@ await client.post.update({
 });
 ```
 
-## Alternative for MySQL/SQLite
+## Database Support
 
-Use JSON arrays instead of native arrays:
+<Tabs items={["PostgreSQL", "MySQL", "SQLite"]}>
+  <Tab value="PostgreSQL">
+Native array columns (`text[]`, `int[]`, etc). `has` uses `= ANY(...)`, `hasEvery` uses the containment operator `@>`, `hasSome` uses the overlap operator `&&`; `push`/`unshift` concatenate with `array_cat`.
+  </Tab>
+  <Tab value="MySQL">
+Array scalars are stored as `JSON` columns. `has` uses `JSON_CONTAINS`, `hasSome` uses `JSON_OVERLAPS`, `isEmpty` checks `JSON_LENGTH`, and `push`/`unshift` concatenate via `JSON_MERGE_PRESERVE`.
+  </Tab>
+  <Tab value="SQLite">
+Array scalars are stored as `JSON` columns (SQLite's `json_*` functions). The same `has`/`hasEvery`/`hasSome`/`isEmpty`/`push` operators are emulated with `json_each` and the `json_*` function family.
+  </Tab>
+</Tabs>
+
+## JSON Columns as an Alternative
+
+If you need more flexibility than the array operators above (e.g. arrays of objects, or ad hoc JSON structures), you can still model a field as raw JSON and use the [JSON filter operators](/docs/client/filtering/json) instead:
 
 ```ts
 // Schema
 const post = s.model({
   id: s.string().id(),
-  tags: s.json().default([]),  // JSON array
+  metadata: s.json().default([]),
 });
 
-// Query with JSON operators
+// Query with JSON operators (array_contains only matches array values)
 where: {
-  tags: {
+  metadata: {
     array_contains: "featured",
   },
 }
 ```
-

@@ -12,7 +12,7 @@ pnpm add mysql2
 ## Configuration
 
 ```typescript
-import { createClient } from "viborm/drivers/mysql2";
+import { createClient } from "viborm/mysql2";
 
 const client = createClient({
   databaseUrl: "mysql://user:password@localhost:3306/database",
@@ -31,7 +31,7 @@ const client = createClient({
 ### Using Pool Options
 
 ```typescript
-import { createClient } from "viborm/drivers/mysql2";
+import { createClient } from "viborm/mysql2";
 
 const client = createClient({
   options: {
@@ -50,7 +50,7 @@ const client = createClient({
 
 ```typescript
 import { createPool } from "mysql2/promise";
-import { createClient } from "viborm/drivers/mysql2";
+import { createClient } from "viborm/mysql2";
 
 const pool = createPool({
   host: "localhost",
@@ -77,6 +77,7 @@ await client.$transaction(async (tx) => {
 
 ## Limitations
 
-- No `RETURNING` clause - VibORM uses `LAST_INSERT_ID()` for inserts
+- No `RETURNING` clause - VibORM refetches created rows (using the driver-reported insert id for auto-increment keys)
 - JSON columns return as strings and are parsed automatically
 - Boolean values stored as `TINYINT(1)`
+- `updateMany`/`deleteMany` with a **self-relation** filter (e.g. filtering users by their own `manager`/`reports` relation) fails with MySQL error 1093: MySQL cannot reference the table being updated/deleted in a filter subquery. Workaround: select the matching ids first, then mutate with `where: { id: { in: ids } }`.

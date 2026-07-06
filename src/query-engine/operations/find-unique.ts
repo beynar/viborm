@@ -7,7 +7,7 @@
 
 import { type Sql, sql } from "@sql";
 import { buildSelectWithAliases } from "../builders/select-builder";
-import { buildWhereUnique } from "../builders/where-builder";
+import { buildWhereUnique } from "../builders/where-unique-builder";
 import { getTableName } from "../context";
 import type { QueryContext } from "../types";
 
@@ -60,7 +60,7 @@ export function buildFindUnique(ctx: QueryContext, args: FindUniqueArgs): Sql {
   if (lateralJoins.length > 0) {
     parts.joins = lateralJoins;
   }
-  if (where) parts.where = where;
+  parts.where = where;
   parts.limit = limit;
 
   // Add FOR UPDATE for row locking in transactions

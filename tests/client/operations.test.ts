@@ -6,7 +6,7 @@
  */
 
 import { createClient as PGliteCreateClient } from "@drivers/pglite";
-import { NotFoundError } from "@errors";
+import { NotFoundError, ValidationError } from "@errors";
 import { push } from "@migrations";
 import { s } from "@schema";
 import { sql } from "@sql";
@@ -18,35 +18,28 @@ import {
   expect,
   test,
 } from "vitest";
+import { clientUserPostSchema } from "../fixtures/user-post-schema";
+import {
+  createStandardUserPostPosts,
+  createStandardUserPostUsers,
+} from "../fixtures/user-post-seed";
 
 // =============================================================================
 // TEST SCHEMA
 // =============================================================================
 
-const user = s.model({
-  id: s.string().id(),
-  name: s.string(),
-  email: s.string().unique(),
-  age: s.int().nullable(),
-  posts: s.oneToMany(() => post),
-});
-
-const post = s
+const membership = s
   .model({
-    id: s.string().id(),
-    title: s.string(),
-    content: s.string().nullable(),
-    published: s.boolean().default(false),
-    views: s.int().default(0),
-    authorId: s.string(),
-    author: s
-      .manyToOne(() => user)
-      .fields("authorId")
-      .references("id"),
+    orgId: s.string(),
+    memberId: s.string(),
+    email: s.string(),
+    tenantId: s.string(),
+    role: s.string(),
   })
-  .map("posts");
+  .id(["orgId", "memberId"])
+  .unique(["email", "tenantId"]);
 
-const schema = { user, post };
+const schema = { ...clientUserPostSchema, membership };
 
 // =============================================================================
 // TEST SETUP
@@ -69,60 +62,37 @@ beforeEach(async () => {
   // Clean up data between tests
   await client.post.deleteMany();
   await client.user.deleteMany();
+  await client.membership.deleteMany();
 });
 
-// Helper to create test users
-async function createTestUsers() {
-  const alice = await client.user.create({
-    data: { id: "user-1", name: "Alice", email: "alice@test.com", age: 30 },
-  });
-  const bob = await client.user.create({
-    data: { id: "user-2", name: "Bob", email: "bob@test.com", age: 25 },
-  });
-  const charlie = await client.user.create({
+async function createTestMemberships() {
+  await client.membership.create({
     data: {
-      id: "user-3",
-      name: "Charlie",
-      email: "charlie@test.com",
-      age: null,
+      orgId: "org-1",
+      memberId: "member-1",
+      email: "a@example.com",
+      tenantId: "tenant-1",
+      role: "owner",
     },
   });
-  return { alice, bob, charlie };
-}
-
-// Helper to create test posts
-async function createTestPosts(authorId: string) {
-  const post1 = await client.post.create({
+  await client.membership.create({
     data: {
-      id: "post-1",
-      title: "First Post",
-      content: "Content 1",
-      published: true,
-      views: 100,
-      authorId,
+      orgId: "org-1",
+      memberId: "member-2",
+      email: "b@example.com",
+      tenantId: "tenant-1",
+      role: "admin",
     },
   });
-  const post2 = await client.post.create({
+  await client.membership.create({
     data: {
-      id: "post-2",
-      title: "Second Post",
-      content: "Content 2",
-      published: false,
-      views: 50,
-      authorId,
+      orgId: "org-2",
+      memberId: "member-1",
+      email: "c@example.com",
+      tenantId: "tenant-1",
+      role: "viewer",
     },
   });
-  const post3 = await client.post.create({
-    data: {
-      id: "post-3",
-      title: "Third Post",
-      content: null,
-      published: true,
-      views: 200,
-      authorId,
-    },
-  });
-  return { post1, post2, post3 };
 }
 
 // =============================================================================
@@ -137,7 +107,7 @@ describe("Find Operations", () => {
     });
 
     test("returns first record when records exist", async () => {
-      await createTestUsers();
+      await createStandardUserPostUsers(client);
       const result = await client.user.findFirst();
       expect(result).not.toBeNull();
       expect(result).toHaveProperty("id");
@@ -146,7 +116,7 @@ describe("Find Operations", () => {
     });
 
     test("filters with where clause", async () => {
-      await createTestUsers();
+      await createStandardUserPostUsers(client);
       const result = await client.user.findFirst({
         where: { name: "Alice" },
       });
@@ -155,7 +125,7 @@ describe("Find Operations", () => {
     });
 
     test("orders results with orderBy", async () => {
-      await createTestUsers();
+      await createStandardUserPostUsers(client);
       // Note: null values are sorted last in DESC order in PostgreSQL
       const result = await client.user.findFirst({
         where: { age: { not: null } }, // Filter out null ages for predictable ordering
@@ -165,7 +135,7 @@ describe("Find Operations", () => {
     });
 
     test("selects specific fields", async () => {
-      await createTestUsers();
+      await createStandardUserPostUsers(client);
       const result = await client.user.findFirst({
         select: { id: true, name: true },
       });
@@ -176,8 +146,8 @@ describe("Find Operations", () => {
     });
 
     test("includes relations", async () => {
-      const { alice } = await createTestUsers();
-      await createTestPosts(alice.id);
+      const { alice } = await createStandardUserPostUsers(client);
+      await createStandardUserPostPosts(client, alice.id);
 
       const result = await client.user.findFirst({
         where: { id: alice.id },
@@ -191,7 +161,7 @@ describe("Find Operations", () => {
 
   describe("findFirstOrThrow", () => {
     test("returns record when found", async () => {
-      await createTestUsers();
+      await createStandardUserPostUsers(client);
       const result = await client.user.findFirstOrThrow({
         where: { name: "Alice" },
       });
@@ -206,6 +176,10 @@ describe("Find Operations", () => {
         expect.unreachable("Should have thrown NotFoundError");
       } catch (error) {
         expect(error).toBeInstanceOf(NotFoundError);
+        expect(error).toHaveProperty(
+          "message",
+          "No user record found for findFirstOrThrow"
+        );
       }
     });
   });
@@ -217,13 +191,13 @@ describe("Find Operations", () => {
     });
 
     test("returns all records", async () => {
-      await createTestUsers();
+      await createStandardUserPostUsers(client);
       const result = await client.user.findMany();
       expect(result.length).toBe(3);
     });
 
     test("filters with where clause", async () => {
-      await createTestUsers();
+      await createStandardUserPostUsers(client);
       const result = await client.user.findMany({
         where: { age: { gte: 28 } },
       });
@@ -232,7 +206,7 @@ describe("Find Operations", () => {
     });
 
     test("orders results with orderBy", async () => {
-      await createTestUsers();
+      await createStandardUserPostUsers(client);
       const result = await client.user.findMany({
         orderBy: { name: "asc" },
       });
@@ -242,7 +216,7 @@ describe("Find Operations", () => {
     });
 
     test("paginates with take and skip", async () => {
-      await createTestUsers();
+      await createStandardUserPostUsers(client);
       const result = await client.user.findMany({
         orderBy: { name: "asc" },
         take: 2,
@@ -253,8 +227,95 @@ describe("Find Operations", () => {
       expect(result[1]?.name).toBe("Charlie");
     });
 
+    test("cursor includes cursor row by default", async () => {
+      await createStandardUserPostUsers(client);
+      const result = await client.user.findMany({
+        cursor: { id: "user-2" },
+        orderBy: { id: "asc" },
+        take: 2,
+      });
+
+      expect(result.map((record) => record.id)).toEqual(["user-2", "user-3"]);
+    });
+
+    test("skip 1 excludes cursor row", async () => {
+      await createStandardUserPostUsers(client);
+      const result = await client.user.findMany({
+        cursor: { id: "user-2" },
+        orderBy: { id: "asc" },
+        skip: 1,
+        take: 1,
+      });
+
+      expect(result.map((record) => record.id)).toEqual(["user-3"]);
+    });
+
+    test("cursor without orderBy uses deterministic default ordering", async () => {
+      await createStandardUserPostUsers(client);
+      const result = await client.user.findMany({
+        cursor: { id: "user-2" },
+        take: 2,
+      });
+
+      expect(result.map((record) => record.id)).toEqual(["user-2", "user-3"]);
+    });
+
+    test("negative take pages backward in logical order", async () => {
+      await createStandardUserPostUsers(client);
+      const result = await client.user.findMany({
+        cursor: { id: "user-3" },
+        orderBy: { id: "asc" },
+        skip: 1,
+        take: -2,
+      });
+
+      expect(result.map((record) => record.id)).toEqual(["user-1", "user-2"]);
+    });
+
+    test("negative take honors explicit orderBy without cursor", async () => {
+      await createStandardUserPostUsers(client);
+      const result = await client.user.findMany({
+        orderBy: { name: "desc" },
+        take: -2,
+      });
+
+      expect(result.map((record) => record.name)).toEqual(["Bob", "Alice"]);
+    });
+
+    test("compound unique cursor paginates by compound fields", async () => {
+      await createTestMemberships();
+      const result = await client.membership.findMany({
+        cursor: {
+          email_tenantId: { email: "b@example.com", tenantId: "tenant-1" },
+        },
+        skip: 1,
+        take: 1,
+      });
+
+      expect(result).toHaveLength(1);
+      expect(result[0]).toMatchObject({
+        orgId: "org-2",
+        memberId: "member-1",
+      });
+    });
+
+    test("invalid pagination values reject during validation", async () => {
+      await expect(
+        client.user.findMany({ take: 1.5 as number })
+      ).rejects.toBeInstanceOf(ValidationError);
+      await expect(client.user.findMany({ skip: -1 })).rejects.toBeInstanceOf(
+        ValidationError
+      );
+      await expect(
+        client.user.findMany({ take: Number.NaN })
+      ).rejects.toBeInstanceOf(ValidationError);
+      await expect(
+        client.user.findMany({ take: Number.POSITIVE_INFINITY })
+      ).rejects.toBeInstanceOf(ValidationError);
+    });
+
     test("filters with multiple conditions (AND)", async () => {
-      await createTestUsers();
+      await createStandardUserPostUsers(client);
       const result = await client.user.findMany({
         where: {
           AND: [{ age: { gte: 25 } }, { name: { startsWith: "A" } }],
@@ -265,7 +326,7 @@ describe("Find Operations", () => {
     });
 
     test("filters with OR conditions", async () => {
-      await createTestUsers();
+      await createStandardUserPostUsers(client);
       const result = await client.user.findMany({
         where: {
           OR: [{ name: "Alice" }, { name: "Bob" }],
@@ -275,8 +336,8 @@ describe("Find Operations", () => {
     });
 
     test("includes relations with nested filtering", async () => {
-      const { alice } = await createTestUsers();
-      await createTestPosts(alice.id);
+      const { alice } = await createStandardUserPostUsers(client);
+      await createStandardUserPostPosts(client, alice.id);
 
       const result = await client.user.findMany({
         where: { id: alice.id },
@@ -300,7 +361,7 @@ describe("Find Operations", () => {
     });
 
     test("finds by id", async () => {
-      const { alice } = await createTestUsers();
+      const { alice } = await createStandardUserPostUsers(client);
       const result = await client.user.findUnique({
         where: { id: alice.id },
       });
@@ -309,18 +370,25 @@ describe("Find Operations", () => {
     });
 
     test("finds by unique field", async () => {
-      await createTestUsers();
+      await createStandardUserPostUsers(client);
       const result = await client.user.findUnique({
         where: { email: "bob@test.com" },
       });
       expect(result).not.toBeNull();
       expect(result?.name).toBe("Bob");
     });
+
+    test("rejects empty where before preparing operation", () => {
+      expect(() => {
+        // @ts-expect-error runtime guard covers invalid empty unique selector
+        client.user.findUnique({ where: {} });
+      }).toThrow(ValidationError);
+    });
   });
 
   describe("findUniqueOrThrow", () => {
     test("returns record when found", async () => {
-      const { alice } = await createTestUsers();
+      const { alice } = await createStandardUserPostUsers(client);
       const result = await client.user.findUniqueOrThrow({
         where: { id: alice.id },
       });
@@ -335,6 +403,10 @@ describe("Find Operations", () => {
         expect.unreachable("Should have thrown NotFoundError");
       } catch (error) {
         expect(error).toBeInstanceOf(NotFoundError);
+        expect(error).toHaveProperty(
+          "message",
+          "No user record found for findUniqueOrThrow"
+        );
       }
     });
   });
@@ -376,7 +448,7 @@ describe("Create Operations", () => {
     });
 
     test("creates a record with default values", async () => {
-      const { alice } = await createTestUsers();
+      const { alice } = await createStandardUserPostUsers(client);
       const result = await client.post.create({
         data: {
           id: "post-1",
@@ -405,7 +477,7 @@ describe("Create Operations", () => {
     });
 
     test("returns created record with include", async () => {
-      const { alice } = await createTestUsers();
+      const { alice } = await createStandardUserPostUsers(client);
       const result = await client.post.create({
         data: {
           id: "post-1",
@@ -454,7 +526,7 @@ describe("Create Operations", () => {
 describe("Update Operations", () => {
   describe("update", () => {
     test("updates a record by id", async () => {
-      const { alice } = await createTestUsers();
+      const { alice } = await createStandardUserPostUsers(client);
 
       const result = await client.user.update({
         where: { id: alice.id },
@@ -466,7 +538,7 @@ describe("Update Operations", () => {
     });
 
     test("updates multiple fields", async () => {
-      const { alice } = await createTestUsers();
+      const { alice } = await createStandardUserPostUsers(client);
 
       const result = await client.user.update({
         where: { id: alice.id },
@@ -481,7 +553,7 @@ describe("Update Operations", () => {
     });
 
     test("updates nullable field to null", async () => {
-      const { alice } = await createTestUsers();
+      const { alice } = await createStandardUserPostUsers(client);
 
       const result = await client.user.update({
         where: { id: alice.id },
@@ -492,7 +564,7 @@ describe("Update Operations", () => {
     });
 
     test("returns updated record with select", async () => {
-      const { alice } = await createTestUsers();
+      const { alice } = await createStandardUserPostUsers(client);
 
       const result = await client.user.update({
         where: { id: alice.id },
@@ -504,11 +576,37 @@ describe("Update Operations", () => {
       expect(result).toHaveProperty("name");
       expect(result).not.toHaveProperty("email");
     });
+
+    test("throws NotFoundError when target row does not exist", async () => {
+      await expect(
+        client.user.update({
+          where: { id: "nonexistent" },
+          data: { name: "Missing User" },
+        })
+      ).rejects.toThrow(NotFoundError);
+
+      await expect(
+        client.user.update({
+          where: { id: "nonexistent" },
+          data: { name: "Missing User" },
+        })
+      ).rejects.toThrow("No user record found for update");
+    });
+
+    test("rejects empty where before preparing operation", () => {
+      expect(() => {
+        client.user.update({
+          // @ts-expect-error runtime guard covers invalid empty unique selector
+          where: {},
+          data: { name: "Alice Updated" },
+        });
+      }).toThrow(ValidationError);
+    });
   });
 
   describe("updateMany", () => {
     test("updates multiple records matching where", async () => {
-      await createTestUsers();
+      await createStandardUserPostUsers(client);
 
       const result = await client.user.updateMany({
         where: { age: { gte: 25 } },
@@ -523,7 +621,7 @@ describe("Update Operations", () => {
     });
 
     test("updates all records when no where", async () => {
-      await createTestUsers();
+      await createStandardUserPostUsers(client);
 
       const result = await client.user.updateMany({
         data: { age: 99 },
@@ -537,7 +635,7 @@ describe("Update Operations", () => {
     });
 
     test("returns BatchPayload with count", async () => {
-      await createTestUsers();
+      await createStandardUserPostUsers(client);
 
       const result = await client.user.updateMany({
         where: { name: "Alice" },
@@ -546,6 +644,17 @@ describe("Update Operations", () => {
 
       expect(result).toHaveProperty("count");
       expect(result.count).toBe(1);
+    });
+
+    test("returns BatchPayload with count zero when no matches", async () => {
+      await createStandardUserPostUsers(client);
+
+      const result = await client.user.updateMany({
+        where: { name: "NonExistent" },
+        data: { age: 35 },
+      });
+
+      expect(result).toEqual({ count: 0 });
     });
   });
 });
@@ -557,7 +666,7 @@ describe("Update Operations", () => {
 describe("Delete Operations", () => {
   describe("delete", () => {
     test("deletes a record by id", async () => {
-      const { alice, bob } = await createTestUsers();
+      const { alice, bob } = await createStandardUserPostUsers(client);
 
       const result = await client.user.delete({
         where: { id: alice.id },
@@ -572,7 +681,7 @@ describe("Delete Operations", () => {
     });
 
     test("returns deleted record", async () => {
-      const { alice } = await createTestUsers();
+      const { alice } = await createStandardUserPostUsers(client);
 
       const result = await client.user.delete({
         where: { id: alice.id },
@@ -583,7 +692,7 @@ describe("Delete Operations", () => {
     });
 
     test("returns deleted record with select", async () => {
-      const { alice } = await createTestUsers();
+      const { alice } = await createStandardUserPostUsers(client);
 
       const result = await client.user.delete({
         where: { id: alice.id },
@@ -594,11 +703,32 @@ describe("Delete Operations", () => {
       expect(result).toHaveProperty("name");
       expect(result).not.toHaveProperty("email");
     });
+
+    test("throws NotFoundError when target row does not exist", async () => {
+      await expect(
+        client.user.delete({
+          where: { id: "nonexistent" },
+        })
+      ).rejects.toThrow(NotFoundError);
+
+      await expect(
+        client.user.delete({
+          where: { id: "nonexistent" },
+        })
+      ).rejects.toThrow("No user record found for delete");
+    });
+
+    test("rejects empty where before preparing operation", () => {
+      expect(() => {
+        // @ts-expect-error runtime guard covers invalid empty unique selector
+        client.user.delete({ where: {} });
+      }).toThrow(ValidationError);
+    });
   });
 
   describe("deleteMany", () => {
     test("deletes multiple records matching where", async () => {
-      await createTestUsers();
+      await createStandardUserPostUsers(client);
 
       const result = await client.user.deleteMany({
         where: { age: { gte: 25 } },
@@ -611,7 +741,7 @@ describe("Delete Operations", () => {
     });
 
     test("deletes all records when no where", async () => {
-      await createTestUsers();
+      await createStandardUserPostUsers(client);
 
       const result = await client.user.deleteMany();
 
@@ -621,13 +751,13 @@ describe("Delete Operations", () => {
     });
 
     test("returns BatchPayload with count zero when no matches", async () => {
-      await createTestUsers();
+      await createStandardUserPostUsers(client);
 
       const result = await client.user.deleteMany({
         where: { name: "NonExistent" },
       });
 
-      expect(result.count).toBe(0);
+      expect(result).toEqual({ count: 0 });
     });
   });
 });
@@ -639,17 +769,46 @@ describe("Delete Operations", () => {
 describe("Aggregate Operations", () => {
   describe("count", () => {
     test("counts all records", async () => {
-      await createTestUsers();
+      await createStandardUserPostUsers(client);
       const result = await client.user.count();
       expect(result).toBe(3);
     });
 
     test("counts with where filter", async () => {
-      await createTestUsers();
+      await createStandardUserPostUsers(client);
       const result = await client.user.count({
         where: { age: { gte: 25 } },
       });
       expect(result).toBe(2); // Alice and Bob
+    });
+
+    test("counts paginated input rows", async () => {
+      await createStandardUserPostUsers(client);
+
+      const result = await client.user.count({
+        cursor: { id: "user-2" },
+        skip: 1,
+        take: 10,
+      });
+
+      expect(result).toBe(1);
+    });
+
+    test("counts ordered cursor input rows", async () => {
+      await createStandardUserPostUsers(client);
+
+      const defaultOrderCount = await client.user.count({
+        cursor: { id: "user-1" },
+        take: 10,
+      });
+      const descendingOrderCount = await client.user.count({
+        cursor: { id: "user-1" },
+        orderBy: { id: "desc" },
+        take: 10,
+      });
+
+      expect(defaultOrderCount).toBe(3);
+      expect(descendingOrderCount).toBe(1);
     });
 
     test("returns 0 when no records", async () => {
@@ -660,8 +819,8 @@ describe("Aggregate Operations", () => {
 
   describe("aggregate", () => {
     test("calculates _sum", async () => {
-      const { alice } = await createTestUsers();
-      await createTestPosts(alice.id);
+      const { alice } = await createStandardUserPostUsers(client);
+      await createStandardUserPostPosts(client, alice.id);
 
       const result = await client.post.aggregate({
         _sum: { views: true },
@@ -671,8 +830,8 @@ describe("Aggregate Operations", () => {
     });
 
     test("calculates _avg", async () => {
-      const { alice } = await createTestUsers();
-      await createTestPosts(alice.id);
+      const { alice } = await createStandardUserPostUsers(client);
+      await createStandardUserPostPosts(client, alice.id);
 
       const result = await client.post.aggregate({
         _avg: { views: true },
@@ -683,8 +842,8 @@ describe("Aggregate Operations", () => {
     });
 
     test("calculates _min and _max", async () => {
-      const { alice } = await createTestUsers();
-      await createTestPosts(alice.id);
+      const { alice } = await createStandardUserPostUsers(client);
+      await createStandardUserPostPosts(client, alice.id);
 
       const result = await client.post.aggregate({
         _min: { views: true },
@@ -696,8 +855,8 @@ describe("Aggregate Operations", () => {
     });
 
     test("calculates _count", async () => {
-      const { alice } = await createTestUsers();
-      await createTestPosts(alice.id);
+      const { alice } = await createStandardUserPostUsers(client);
+      await createStandardUserPostPosts(client, alice.id);
 
       const result = await client.post.aggregate({
         _count: true,
@@ -707,8 +866,8 @@ describe("Aggregate Operations", () => {
     });
 
     test("aggregates with where filter", async () => {
-      const { alice } = await createTestUsers();
-      await createTestPosts(alice.id);
+      const { alice } = await createStandardUserPostUsers(client);
+      await createStandardUserPostPosts(client, alice.id);
 
       const result = await client.post.aggregate({
         where: { published: true },
@@ -719,12 +878,48 @@ describe("Aggregate Operations", () => {
       expect(result._count).toBe(2); // Only published posts
       expect(result._sum.views).toBe(300); // 100 + 200
     });
+
+    test("aggregates ordered and paginated input rows", async () => {
+      const { alice } = await createStandardUserPostUsers(client);
+      await createStandardUserPostPosts(client, alice.id);
+
+      const result = await client.post.aggregate({
+        orderBy: { views: "asc" },
+        take: 2,
+        _count: true,
+        _sum: { views: true },
+        _min: { views: true },
+        _max: { views: true },
+      });
+
+      expect(result._count).toBe(2);
+      expect(result._sum.views).toBe(150);
+      expect(result._min.views).toBe(50);
+      expect(result._max.views).toBe(100);
+    });
+
+    test("aggregates cursor-paginated input rows", async () => {
+      const { alice } = await createStandardUserPostUsers(client);
+      await createStandardUserPostPosts(client, alice.id);
+
+      const result = await client.post.aggregate({
+        cursor: { id: "post-2" },
+        orderBy: { id: "asc" },
+        skip: 1,
+        take: 1,
+        _count: true,
+        _sum: { views: true },
+      });
+
+      expect(result._count).toBe(1);
+      expect(result._sum.views).toBe(200);
+    });
   });
 
   describe("groupBy", () => {
     test("groups by single field", async () => {
-      const { alice, bob } = await createTestUsers();
-      await createTestPosts(alice.id);
+      const { alice, bob } = await createStandardUserPostUsers(client);
+      await createStandardUserPostPosts(client, alice.id);
       await client.post.create({
         data: {
           id: "post-4",
@@ -748,8 +943,8 @@ describe("Aggregate Operations", () => {
     });
 
     test("groups with aggregates", async () => {
-      const { alice } = await createTestUsers();
-      await createTestPosts(alice.id);
+      const { alice } = await createStandardUserPostUsers(client);
+      await createStandardUserPostPosts(client, alice.id);
 
       const result = await client.post.groupBy({
         by: ["published"],
@@ -788,7 +983,7 @@ describe("Utility Operations", () => {
     });
 
     test("updates when record exists", async () => {
-      const { alice } = await createTestUsers();
+      const { alice } = await createStandardUserPostUsers(client);
 
       const result = await client.user.upsert({
         where: { id: alice.id },
@@ -804,17 +999,32 @@ describe("Utility Operations", () => {
       expect(result.name).toBe("Upserted Alice");
       expect(result.email).toBe("alice@test.com"); // Original email
     });
+
+    test("rejects empty where before preparing operation", () => {
+      expect(() => {
+        client.user.upsert({
+          // @ts-expect-error runtime guard covers invalid empty unique selector
+          where: {},
+          create: {
+            id: "user-new",
+            name: "New User",
+            email: "new@test.com",
+          },
+          update: { name: "Updated User" },
+        });
+      }).toThrow(ValidationError);
+    });
   });
 
   describe("exist", () => {
     test("returns true when record exists", async () => {
-      await createTestUsers();
+      await createStandardUserPostUsers(client);
       const result = await client.user.exist({ where: { name: "Alice" } });
       expect(result).toBe(true);
     });
 
     test("returns false when record does not exist", async () => {
-      await createTestUsers();
+      await createStandardUserPostUsers(client);
       const result = await client.user.exist({
         where: { name: "NonExistent" },
       });
@@ -882,7 +1092,7 @@ describe("Transaction & Raw SQL", () => {
 
   describe("$executeRaw", () => {
     test("executes raw SQL query", async () => {
-      await createTestUsers();
+      await createStandardUserPostUsers(client);
 
       const result = await client.$executeRaw<{ name: string }>(
         sql`SELECT "name" FROM "user" WHERE "name" = ${"Alice"}`
@@ -893,7 +1103,7 @@ describe("Transaction & Raw SQL", () => {
     });
 
     test("returns rowCount for mutations", async () => {
-      await createTestUsers();
+      await createStandardUserPostUsers(client);
 
       const result = await client.$executeRaw(
         sql`UPDATE "user" SET "age" = ${99} WHERE "age" IS NOT NULL`
@@ -905,7 +1115,7 @@ describe("Transaction & Raw SQL", () => {
 
   describe("$queryRaw", () => {
     test("executes raw SQL string with params", async () => {
-      await createTestUsers();
+      await createStandardUserPostUsers(client);
 
       const result = await client.$queryRaw<{ name: string }>(
         'SELECT "name" FROM "user" WHERE "age" >= $1',
@@ -916,7 +1126,7 @@ describe("Transaction & Raw SQL", () => {
     });
 
     test("returns all rows", async () => {
-      await createTestUsers();
+      await createStandardUserPostUsers(client);
 
       const result = await client.$queryRaw<{ id: string; name: string }>(
         'SELECT "id", "name" FROM "user" ORDER BY "name" ASC'
@@ -936,8 +1146,8 @@ describe("Transaction & Raw SQL", () => {
 
 describe("Relation Queries", () => {
   test("includes to-many relation", async () => {
-    const { alice } = await createTestUsers();
-    await createTestPosts(alice.id);
+    const { alice } = await createStandardUserPostUsers(client);
+    await createStandardUserPostPosts(client, alice.id);
 
     const result = await client.user.findFirst({
       where: { id: alice.id },
@@ -948,8 +1158,8 @@ describe("Relation Queries", () => {
   });
 
   test("includes to-one relation", async () => {
-    const { alice } = await createTestUsers();
-    const { post1 } = await createTestPosts(alice.id);
+    const { alice } = await createStandardUserPostUsers(client);
+    const { post1 } = await createStandardUserPostPosts(client, alice.id);
 
     const result = await client.post.findFirst({
       where: { id: post1.id },
@@ -960,8 +1170,8 @@ describe("Relation Queries", () => {
   });
 
   test("filters by relation (some)", async () => {
-    const { alice, bob } = await createTestUsers();
-    await createTestPosts(alice.id);
+    const { alice, bob } = await createStandardUserPostUsers(client);
+    await createStandardUserPostPosts(client, alice.id);
 
     const result = await client.user.findMany({
       where: {
@@ -976,8 +1186,8 @@ describe("Relation Queries", () => {
   });
 
   test("nested select on relation", async () => {
-    const { alice } = await createTestUsers();
-    await createTestPosts(alice.id);
+    const { alice } = await createStandardUserPostUsers(client);
+    await createStandardUserPostPosts(client, alice.id);
 
     const result = await client.user.findFirst({
       where: { id: alice.id },
@@ -997,8 +1207,8 @@ describe("Relation Queries", () => {
   });
 
   test("orders and limits relation", async () => {
-    const { alice } = await createTestUsers();
-    await createTestPosts(alice.id);
+    const { alice } = await createStandardUserPostUsers(client);
+    await createStandardUserPostPosts(client, alice.id);
 
     const result = await client.user.findFirst({
       where: { id: alice.id },

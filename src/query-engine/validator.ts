@@ -32,10 +32,14 @@ function getOperationSchema(
       return schemas.args.create;
     case "createMany":
       return schemas.args.createMany;
+    case "createManyAndReturn":
+      return schemas.args.createManyAndReturn;
     case "update":
       return schemas.args.update;
     case "updateMany":
       return schemas.args.updateMany;
+    case "updateManyAndReturn":
+      return schemas.args.updateManyAndReturn;
     case "delete":
       return schemas.args.delete;
     case "deleteMany":

@@ -41,7 +41,7 @@ Initialize your database client with your preferred database:
 <Tabs items={["postgres.js", "node-postgres", "SQLite", "PGlite"]}>
   <Tab value="postgres.js">
 ```ts title="src/db/client.ts"
-import { createClient } from "viborm/drivers/postgres";
+import { createClient } from "viborm/postgres";
 import * as schema from "./schema";
 
 export const db = createClient({
@@ -52,7 +52,7 @@ export const db = createClient({
   </Tab>
   <Tab value="node-postgres">
 ```ts title="src/db/client.ts"
-import { createClient } from "viborm/drivers/pg";
+import { createClient } from "viborm/pg";
 import * as schema from "./schema";
 
 export const db = createClient({
@@ -63,18 +63,18 @@ export const db = createClient({
   </Tab>
   <Tab value="SQLite">
 ```ts title="src/db/client.ts"
-import { createClient } from "viborm/drivers/sqlite3";
+import { createClient } from "viborm/sqlite3";
 import * as schema from "./schema";
 
 export const db = createClient({
   schema,
-  options: { filename: "./data.db" },
+  dataDir: "./data.db",
 });
 ```
   </Tab>
   <Tab value="PGlite">
 ```ts title="src/db/client.ts"
-import { createClient } from "viborm/drivers/pglite";
+import { createClient } from "viborm/pglite";
 import * as schema from "./schema";
 
 export const db = createClient({
@@ -165,7 +165,7 @@ await db.user.findMany({
 <Cards>
   <Card
     title="Schema Definition"
-    description="Learn about models, fields, and relations"
+    description="Learn about models and fields (scalars and relations)"
     href="/docs/schema"
   />
   <Card

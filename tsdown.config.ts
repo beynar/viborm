@@ -38,6 +38,10 @@ export default defineConfig({
 
     // Migrations (viborm/migrations)
     migrations: "./src/migrations/index.ts",
+    "migrations/storage/fs": "./src/migrations/storage/fs.ts",
+
+    // Config helper (viborm/config)
+    config: "./src/config.ts",
 
     // Client types (viborm/client)
     client: "./src/client/exports.ts",

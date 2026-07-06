@@ -1,12 +1,12 @@
-// Model & Field Validation Rules
+// Model & Scalar Validation Rules
 
-import type { Field } from "../../fields/base";
-import type { Model } from "../../model";
+import type { Model, ModelState } from "../../model";
+import type { Scalar } from "../../scalars/base";
 import type { Schema, ValidationError } from "../types";
 
 /** Helper to get typed scalar field entries */
-function getScalars(model: Model<any>): [string, Field][] {
-  return Object.entries(model["~"].state.scalars) as [string, Field][];
+function getScalars(model: Model<any>): [string, Scalar][] {
+  return Object.entries(model["~"].state.scalars) as [string, Scalar][];
 }
 
 const RESERVED = new Set([
@@ -128,6 +128,26 @@ export function modelNameValid(
   return [];
 }
 
+/** M007: Mapped table name (.map()) must be a valid identifier */
+export function modelMappedNameValid(
+  _s: Schema,
+  name: string,
+  model: Model<any>
+): ValidationError[] {
+  const tableName = model["~"].state.tableName;
+  if (tableName && !VALID_ID.test(tableName)) {
+    return [
+      {
+        code: "M007",
+        message: `Mapped table name '${tableName}' on '${name}' is not a valid identifier`,
+        severity: "error",
+        model: name,
+      },
+    ];
+  }
+  return [];
+}
+
 /** M006: Model name cannot be reserved */
 export function modelNameNotReserved(
   _s: Schema,
@@ -152,27 +172,27 @@ export function modelNameNotReserved(
 // =============================================================================
 
 /** Helper: Get compound ID field names from state */
-function getCompoundIdFields(model: Model<any>): string[] {
+export function getCompoundIdFields(model: Model<any>): string[] {
   const compoundId = model["~"].state.compoundId;
   if (!compoundId) return [];
   // compoundId is Record<string, ObjectSchema> - extract field names from first entry
   const firstKey = Object.keys(compoundId)[0];
   if (!firstKey) return [];
-  const schema = compoundId[firstKey];
-  const entries = (schema as any)["~"]?.state?.entries;
+  const entries = compoundId[firstKey]?.entries;
   return entries ? Object.keys(entries) : [];
 }
 
 /** Helper: Get compound unique constraints from state */
-function getCompoundUniques(
+export function getCompoundUniques(
   model: Model<any>
 ): Array<{ name: string; fields: string[] }> {
-  const compoundUniques = model["~"].state.compoundUniques;
+  const compoundUniques: ModelState["compoundUniques"] =
+    model["~"].state.compoundUniques;
   if (!compoundUniques) return [];
-  return Object.entries(compoundUniques).map(([name, schema]) => {
-    const entries = (schema as any)["~"]?.state?.entries;
-    return { name, fields: entries ? Object.keys(entries) : [] };
-  });
+  return Object.entries(compoundUniques).map(([name, schema]) => ({
+    name,
+    fields: schema.entries ? Object.keys(schema.entries) : [],
+  }));
 }
 
 /**
@@ -187,25 +207,36 @@ export function validateFieldsSinglePass(
 ): ValidationError[] {
   const errors: ValidationError[] = [];
 
-  // Accumulators for cross-field checks
+  // Accumulators for cross-scalar checks
   let idCount = 0;
   const columnToFields = new Map<string, string[]>();
 
-  for (const [fname, field] of getScalars(model)) {
-    const st = field["~"].state;
+  for (const [fname, scalar] of getScalars(model)) {
+    const st = scalar["~"].state;
 
-    // F001: Field name valid
+    // F001: Scalar name valid
     if (!VALID_ID.test(fname)) {
       errors.push({
         code: "F001",
-        message: `Field '${fname}' in '${name}' is invalid identifier`,
+        message: `Scalar '${fname}' in '${name}' is invalid identifier`,
         severity: "error",
         model: name,
         field: fname,
       });
     }
 
-    // F002: Count ID fields
+    // F009: Mapped column name (.map()) valid
+    if (st.columnName && !VALID_ID.test(st.columnName)) {
+      errors.push({
+        code: "F009",
+        message: `Mapped column name '${st.columnName}' for '${fname}' in '${name}' is not a valid identifier`,
+        severity: "error",
+        model: name,
+        field: fname,
+      });
+    }
+
+    // F002: Count ID scalars
     if (st.isId) idCount++;
 
     // F003: Track column names
@@ -219,10 +250,9 @@ export function validateFieldsSinglePass(
       st.default !== undefined &&
       typeof st.default !== "function"
     ) {
-      const schema = field["~"].state.base;
+      const schema = scalar["~"].state.base;
       const result = schema["~standard"].validate(st.default);
-      if (result instanceof Promise) {
-      } else if (result.issues) {
+      if (!(result instanceof Promise) && result.issues) {
         errors.push({
           code: "F004",
           message: `Default value for '${fname}' in '${name}' doesn't match type`,
@@ -268,8 +298,8 @@ export function validateFieldsSinglePass(
   }
 
   // Check for compound ID
-  const compoundIdFields = getCompoundIdFields(model);
-  const hasCompoundId = compoundIdFields.length > 0;
+  const compoundIdCount = Object.keys(model["~"].state.compoundId ?? {}).length;
+  const hasCompoundId = compoundIdCount > 0;
 
   // M001: No ID field (allow if compound ID exists)
   if (idCount === 0 && !hasCompoundId) {
@@ -281,8 +311,8 @@ export function validateFieldsSinglePass(
     });
   }
 
-  // F002: Multiple single-field IDs (not allowed if compound ID exists either)
-  if (idCount > 1 || (idCount > 0 && hasCompoundId)) {
+  // F002: Multiple single-field IDs, single + compound, or multiple .id() calls
+  if (idCount > 1 || (idCount > 0 && hasCompoundId) || compoundIdCount > 1) {
     errors.push({
       code: "F002",
       message: `'${name}' has conflicting ID definitions (use either single field .id() or model .id())`,
@@ -410,6 +440,7 @@ export const modelRules = [
   modelUniqueName,
   modelNameValid,
   modelNameNotReserved,
+  modelMappedNameValid,
   // Single-pass field validation (M001, F001-F008)
   validateFieldsSinglePass,
   // Index checks (iterate indexes, not fields)

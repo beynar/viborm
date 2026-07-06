@@ -12,7 +12,7 @@ pnpm add @electric-sql/pglite
 ## Configuration
 
 ```typescript
-import { createClient } from "viborm/drivers/pglite";
+import { createClient } from "viborm/pglite";
 
 const client = createClient({
   schema,
@@ -32,7 +32,7 @@ const client = createClient({
 ### In-Memory Database
 
 ```typescript
-import { createClient } from "viborm/drivers/pglite";
+import { createClient } from "viborm/pglite";
 
 // Default is in-memory
 const client = createClient({
@@ -43,7 +43,7 @@ const client = createClient({
 ### Persistent Database
 
 ```typescript
-import { createClient } from "viborm/drivers/pglite";
+import { createClient } from "viborm/pglite";
 
 const client = createClient({
   dataDir: "./pglite-data",
@@ -55,7 +55,7 @@ const client = createClient({
 
 ```typescript
 import { PGlite } from "@electric-sql/pglite";
-import { createClient } from "viborm/drivers/pglite";
+import { createClient } from "viborm/pglite";
 
 const pg = new PGlite();
 

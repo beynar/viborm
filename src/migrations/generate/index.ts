@@ -23,6 +23,7 @@ import {
   normalizeDialect,
   resolveEnumValueRemovals,
 } from "../utils";
+import { formatDownMigrationContent, invertOperations } from "./down";
 import { formatMigrationContent } from "./file-writer";
 
 /**
@@ -90,6 +91,8 @@ export async function generate(
       sql: [],
       content: "",
       operations: [],
+      downSql: [],
+      downWarnings: [],
       written: false,
       message: "No schema changes detected.",
     };
@@ -113,6 +116,21 @@ export async function generate(
     }
   }
 
+  // 8b. Generate down (rollback) DDL from inverted operations.
+  // Down statements run against the post-migration schema.
+  const inverted = invertOperations(finalOperations, previousSnapshot);
+  const downDdlContext = { currentSchema: currentSnapshot };
+  const downSql: string[] = [];
+
+  for (const op of inverted.operations) {
+    const ddl = migrationDriver.generateDDL(op, downDdlContext);
+    const statements = ddl.split(";\n").filter((s) => s.trim());
+    for (const stmt of statements) {
+      const trimmed = stmt.trim();
+      downSql.push(trimmed.endsWith(";") ? trimmed : `${trimmed};`);
+    }
+  }
+
   // 9. Create migration entry
   const idx = getNextMigrationIndex(journal);
   const migrationName = name || generateMigrationName(finalOperations);
@@ -127,10 +145,19 @@ export async function generate(
   // Re-format content with the actual entry (which has checksum)
   const finalContent = formatMigrationContent(entry, sql, dialect);
 
+  const downContent = formatDownMigrationContent(
+    migrationName,
+    downSql,
+    inverted.warnings
+  );
+
   // 10. Write files (unless dry run)
   if (!dryRun) {
     // Write migration file
     await storage.writeMigration(entry, finalContent);
+
+    // Write down migration file (meta/_down/)
+    await storage.writeDownMigration(entry, downContent);
 
     // Update journal
     const updatedJournal = addJournalEntry(journal, entry);
@@ -145,6 +172,8 @@ export async function generate(
     sql,
     content: finalContent,
     operations: finalOperations,
+    downSql,
+    downWarnings: inverted.warnings,
     written: !dryRun,
     message: dryRun
       ? `Would generate migration: ${formatMigrationFilename(entry)}`

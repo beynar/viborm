@@ -45,7 +45,7 @@ describe("fromObject", () => {
     };
 
     expect(() => v.fromObject(object, "create")).toThrow(
-      'fromObject path "create" did not match any entries in the source object',
+      'fromObject path "create" did not match any entries in the source object'
     );
   });
 
@@ -88,7 +88,7 @@ describe("fromObject", () => {
     };
 
     expect(() => v.fromObject(object, "profile.create")).toThrow(
-      'fromObject path "profile.create" did not match any entries in the source object',
+      'fromObject path "profile.create" did not match any entries in the source object'
     );
   });
 

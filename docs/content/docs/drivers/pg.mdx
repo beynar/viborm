@@ -12,7 +12,7 @@ pnpm add pg
 ## Configuration
 
 ```typescript
-import { createClient } from "viborm/drivers/pg";
+import { createClient } from "viborm/pg";
 
 const client = createClient({
   databaseUrl: process.env.DATABASE_URL,
@@ -33,7 +33,7 @@ const client = createClient({
 ### Using Pool Options
 
 ```typescript
-import { createClient } from "viborm/drivers/pg";
+import { createClient } from "viborm/pg";
 
 const client = createClient({
   options: {
@@ -52,7 +52,7 @@ const client = createClient({
 
 ```typescript
 import { Pool } from "pg";
-import { createClient } from "viborm/drivers/pg";
+import { createClient } from "viborm/pg";
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -67,7 +67,7 @@ const client = createClient({
 ### With pgvector
 
 ```typescript
-import { createClient } from "viborm/drivers/pg";
+import { createClient } from "viborm/pg";
 
 const client = createClient({
   databaseUrl: process.env.DATABASE_URL,

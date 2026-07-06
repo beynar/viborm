@@ -6,7 +6,7 @@ description: SQLite driver for Cloudflare D1 using the REST API
 ## Configuration
 
 ```typescript
-import { createClient } from "viborm/drivers/d1-http";
+import { createClient } from "viborm/d1-http";
 
 const client = createClient({
   accountId: process.env.CLOUDFLARE_ACCOUNT_ID,
@@ -41,52 +41,44 @@ For Cloudflare Workers, prefer the [D1 bindings driver](/docs/drivers/d1).
 
 ## Transactions & Batching
 
-D1 HTTP API does **not** support traditional dynamic transactions, but VibORM provides full support for **batch mode** using D1's HTTP batch endpoint.
-
-### Batch Mode (Recommended)
-
-Use the array API for atomic operations - VibORM sends all queries in a single HTTP request:
+The D1 HTTP API supports **neither dynamic transactions nor atomic batches**. Cloudflare documents rollback-on-failure only for the Workers binding `batch()` - the REST API's batch mode carries no atomicity guarantee. Rather than risk silent partial writes, VibORM rejects both transaction forms on this driver:
 
 ```typescript
-// Atomic execution using D1 HTTP batch endpoint
-const [user, post] = await client.$transaction([
+// Throws TransactionError: supports neither transactions nor atomic batch execution
+await client.$transaction([
   client.user.create({ data: { name: "Alice", email: "alice@example.com" } }),
   client.post.create({ data: { title: "Hello", authorId: "preset-id" } }),
 ]);
-```
 
-### Dynamic Transactions
-
-Dynamic transactions (callback API) will execute sequentially with a warning:
-
-```typescript
-// Warning: Operations execute without isolation
+// Throws TransactionError: D1 HTTP does not support callback transactions
 await client.$transaction(async (tx) => {
   const user = await tx.user.create({ data: { name: "Alice" } });
   await tx.post.create({ data: { title: "Hello", authorId: user.id } });
 });
 ```
 
+Nested writes (which require atomicity) reject as well.
+
 <Callout type="warn">
-For D1 HTTP, prefer batch mode (`$transaction([...])`) over callback mode when operations are independent. Batch mode provides atomicity through D1's HTTP batch endpoint.
+If you need transactions or nested writes against D1, run inside a Worker and use the [D1 bindings driver](/docs/drivers/d1), whose `batch()` API is documented as atomic.
 </Callout>
 
 ### Migrations
 
-Migrations run atomically on D1 HTTP using the batch endpoint - all statements succeed or none are applied.
+Migrations cannot run atomically over the HTTP API for the same reason. Apply migrations via `wrangler` or from a Worker using the bindings driver.
 
 ## Capabilities
 
 | Feature | Support |
 |---------|---------|
-| Dynamic transactions | Sequential with warning |
-| Batch mode | Full (HTTP batch endpoint) |
-| Migration atomicity | Full |
+| Dynamic transactions | Unsupported; rejects |
+| Batch mode | Unsupported; rejects (REST API batching has no documented atomicity) |
+| Nested writes | Unsupported; rejects (require atomic execution) |
+| Migration atomicity | Unsupported over HTTP; use wrangler or the bindings driver |
 
 ## Limitations
 
-- **No transaction isolation** - Other connections may see intermediate state
-- **No read-your-writes in batch** - Operations must be independent
+- **No atomic multi-statement execution** - `$transaction` (both forms) and nested writes reject; use the D1 bindings driver from a Worker instead
 - Higher latency than D1 bindings (HTTP overhead)
 - Requires API token management
 - SQLite dialect - no `LATERAL` joins, limited `FULL OUTER JOIN`

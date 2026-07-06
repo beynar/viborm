@@ -13,7 +13,12 @@ import {
 } from "@client/client";
 import Database from "better-sqlite3";
 import { Driver, type DriverResultParser } from "../driver";
-import { convertValuesForSQLite, sqliteResultParser } from "../shared";
+import {
+  assertSQLiteIsolationLevel,
+  convertValuesForSQLite,
+  runSavepoint,
+  sqliteResultParser,
+} from "../shared";
 import type { QueryResult, TransactionOptions } from "../types";
 
 type SQLite3Database = Database.Database;
@@ -40,6 +45,7 @@ export type SQLite3ClientConfig<C extends DriverConfig> = SQLite3DriverOptions &
 export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
   readonly adapter: DatabaseAdapter = new SQLiteAdapter();
   readonly result: DriverResultParser = sqliteResultParser;
+  protected override readonly serializeTransactions = true;
 
   private readonly driverOptions: SQLite3DriverOptions;
 
@@ -69,7 +75,7 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
     params: unknown[]
   ): Promise<QueryResult<T>> {
     const values = convertValuesForSQLite(params);
-    return this.runStatement<T>(client, sql, values);
+    return this.runStatement<T>(client, sql, values, true);
   }
 
   protected async executeRaw<T>(
@@ -78,13 +84,16 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
     params?: unknown[]
   ): Promise<QueryResult<T>> {
     const values = params ? convertValuesForSQLite(params) : undefined;
-    return this.runStatement<T>(client, sql, values);
+    // Raw results bypass the result parser — keep better-sqlite3's plain
+    // numbers instead of surfacing BigInt to raw callers
+    return this.runStatement<T>(client, sql, values, false);
   }
 
   private runStatement<T>(
     db: SQLite3Database,
     sql: string,
-    values?: unknown[]
+    values: unknown[] | undefined,
+    safeIntegers: boolean
   ): QueryResult<T> {
     const stmt = db.prepare(sql);
     const normalized = sql.trim().toUpperCase();
@@ -93,6 +102,11 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
     const isReturning = normalized.includes("RETURNING");
 
     if (isSelect || isReturning) {
+      if (safeIntegers) {
+        // INTEGER columns come back as BigInt so values >2^53 survive; the
+        // result parser converts int columns back to number
+        stmt.safeIntegers(true);
+      }
       const rows = (values ? stmt.all(...values) : stmt.all()) as T[];
       return { rows, rowCount: rows.length };
     }
@@ -104,20 +118,16 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
   protected async transaction<T>(
     client: SQLite3Database,
     fn: (tx: SQLite3Database) => Promise<T>,
-    _options?: TransactionOptions
+    options?: TransactionOptions
   ): Promise<T> {
+    assertSQLiteIsolationLevel(this.driverName, options);
+
     if (this.inTransaction) {
       // Nested transaction - use savepoint
-      const savepointName = `sp_${crypto.randomUUID().replace(/-/g, "")}`;
-      client.exec(`SAVEPOINT ${savepointName}`);
-      try {
-        const result = await fn(client);
-        client.exec(`RELEASE SAVEPOINT ${savepointName}`);
-        return result;
-      } catch (error) {
-        client.exec(`ROLLBACK TO SAVEPOINT ${savepointName}`);
-        throw error;
-      }
+      return runSavepoint(
+        (statement) => client.exec(statement),
+        () => fn(client)
+      );
     }
 
     // Start a new transaction

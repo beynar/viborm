@@ -10,6 +10,14 @@ import { VibORM } from "@client/client";
 import { createClient as PgCreateClient, PgDriver } from "@drivers/pg";
 import { push } from "@migrations";
 import { s } from "@schema";
+import { runListJsonFilterBehavior } from "./list-json-filter-behavior";
+import { runNestedWriteAdvancedBehavior } from "./nested-write-advanced-behavior";
+import { runNestedWriteBehavior } from "./nested-write-behavior";
+import {
+  runFullScalarRoundtripBehavior,
+  runScalarRoundtripBehavior,
+} from "./scalar-roundtrip-behavior";
+import { runUpsertAtomicityBehavior } from "./upsert-atomicity-behavior";
 
 // =============================================================================
 // SCHEMA DEFINITION
@@ -67,6 +75,19 @@ const TEST_CONNECTION_STRING = process.env.PG_TEST_CONNECTION_STRING;
 const describeIf = TEST_CONNECTION_STRING ? describe : describe.skip;
 
 describeIf("pg Driver", () => {
+  // The shared behavior suites and client-integration tests assume a fresh
+  // database. PostgreSQL persists between tests, so drop everything first:
+  // pushing an empty schema diffs to dropTable for every existing table.
+  // (Same pattern as mysql2.test.ts.)
+  beforeEach(async () => {
+    const cleanupClient = PgCreateClient({
+      schema: {},
+      databaseUrl: TEST_CONNECTION_STRING,
+    });
+    await push(cleanupClient, { force: true });
+    await cleanupClient.$disconnect();
+  });
+
   describe("Driver Creation", () => {
     test("creates driver with connection string", async () => {
       const driver = new PgDriver({
@@ -376,4 +397,43 @@ describeIf("pg Driver", () => {
       await client.$disconnect();
     });
   });
+
+  // Real multi-connection driver: the concurrent upsert tests in this suite
+  // genuinely race two transactions, unlike single-session PGlite.
+  runUpsertAtomicityBehavior({
+    driverName: "pg",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  // Real pg param serialization for native array columns (array_cat push etc.)
+  runListJsonFilterBehavior({
+    driverName: "pg",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  runScalarRoundtripBehavior({
+    driverName: "pg",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  runFullScalarRoundtripBehavior({
+    driverName: "pg",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  // Nested writes over real pooled connections (transactions span checkouts)
+  runNestedWriteBehavior({
+    driverName: "pg",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  runNestedWriteAdvancedBehavior({
+    driverName: "pg",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  // The remaining behavior suites are not wired here: they are adapter-level
+  // and already run on PGlite, which shares the postgres adapter; this file
+  // covers what depends on the real driver (param serialization, pooling,
+  // transactions, races).
 });

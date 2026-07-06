@@ -12,9 +12,26 @@ import {
   type VibORMClient,
 } from "@client/client";
 import { unsupportedGeospatial, unsupportedVector } from "@errors";
-import { Pool, type PoolClient, type PoolConfig } from "pg";
+import { Pool, type PoolClient, type PoolConfig, types as pgTypes } from "pg";
 import { Driver } from "../driver";
+import { getSqlIsolationLevel, runSavepoint } from "../shared";
 import type { QueryResult, TransactionOptions } from "../types";
+
+// DATE (1082) and TIMESTAMP WITHOUT TIME ZONE (1114): pg's default parsers
+// build process-local Dates, shifting the stored value by the process
+// timezone. Return the raw strings instead — the shared result parser builds
+// UTC Dates from them, matching every other driver.
+const DATE_OID = 1082;
+const TIMESTAMP_OID = 1114;
+const identityParser = (value: string) => value;
+const utcSafeTypes: PoolConfig["types"] = {
+  getTypeParser: (oid: number, format?: string) => {
+    if ((oid === DATE_OID || oid === TIMESTAMP_OID) && format !== "binary") {
+      return identityParser;
+    }
+    return pgTypes.getTypeParser(oid as never, format as never);
+  },
+};
 
 // ============================================================
 // EXPORTED OPTIONS
@@ -56,7 +73,14 @@ export class PgDriver extends Driver<Pool, PoolClient> {
   }
 
   protected initClient(): Promise<Pool> {
-    return Promise.resolve(new Pool(this.driverOptions.options));
+    const options: PoolConfig = {
+      types: utcSafeTypes,
+      ...this.driverOptions.options,
+    };
+    if (this.driverOptions.databaseUrl !== undefined) {
+      options.connectionString ??= this.driverOptions.databaseUrl;
+    }
+    return Promise.resolve(new Pool(options));
   }
 
   protected async closeClient(pool: Pool): Promise<void> {
@@ -92,20 +116,13 @@ export class PgDriver extends Driver<Pool, PoolClient> {
     fn: (tx: PoolClient) => Promise<T>,
     options?: TransactionOptions
   ): Promise<T> {
-    if (this.inTransaction) {
+    if ("release" in client) {
       // Nested transaction - use savepoint
       const poolClient = client as PoolClient;
-      const savepointName = `sp_${crypto.randomUUID().replace(/-/g, "")}`;
-      await poolClient.query(`SAVEPOINT ${savepointName}`);
-
-      try {
-        const result = await fn(poolClient);
-        await poolClient.query(`RELEASE SAVEPOINT ${savepointName}`);
-        return result;
-      } catch (error) {
-        await poolClient.query(`ROLLBACK TO SAVEPOINT ${savepointName}`);
-        throw error;
-      }
+      return runSavepoint(
+        (statement) => poolClient.query(statement),
+        () => fn(poolClient)
+      );
     }
 
     // Start a new transaction
@@ -115,17 +132,12 @@ export class PgDriver extends Driver<Pool, PoolClient> {
     try {
       let beginStatement = "BEGIN";
       if (options?.isolationLevel) {
-        const isolationMap = {
-          read_uncommitted: "READ UNCOMMITTED",
-          read_committed: "READ COMMITTED",
-          repeatable_read: "REPEATABLE READ",
-          serializable: "SERIALIZABLE",
-        };
-        beginStatement = `BEGIN ISOLATION LEVEL ${isolationMap[options.isolationLevel]}`;
+        beginStatement = `BEGIN ISOLATION LEVEL ${getSqlIsolationLevel(
+          options.isolationLevel
+        )}`;
       }
 
       await poolClient.query(beginStatement);
-      this.inTransaction = true;
       const result = await fn(poolClient);
       await poolClient.query("COMMIT");
       return result;

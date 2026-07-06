@@ -5,13 +5,22 @@
  * Verifies that operations can be awaited directly or batched together.
  */
 
+import type { DatabaseAdapter } from "@adapters/database-adapter";
+import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { createClient } from "@client/client";
 import {
   isPendingOperation,
   PendingOperation,
 } from "@client/pending-operation";
+import { Driver } from "@drivers/driver";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite } from "@electric-sql/pglite";
+import type {
+  BatchQuery,
+  QueryResult,
+  TransactionOptions,
+} from "@drivers/types";
+import { PGlite, type Transaction } from "@electric-sql/pglite";
+import { TransactionError, VibORMErrorCode } from "@errors";
 import { push } from "@migrations";
 import { s } from "@schema";
 import {
@@ -22,6 +31,7 @@ import {
   expect,
   test,
 } from "vitest";
+import { batchPrimaryKeyDataflowSchema } from "../fixtures/batch-primary-key-dataflow-schema";
 
 // =============================================================================
 // TEST SCHEMA
@@ -46,17 +56,67 @@ const post = s.model({
 
 const schema = { user, post };
 
+class NoAtomicTransactionDriver extends Driver<unknown, unknown> {
+  readonly adapter: DatabaseAdapter = new SQLiteAdapter();
+  override readonly supportsTransactions = false;
+  override readonly supportsBatch = false;
+
+  constructor() {
+    super("sqlite", "no-atomic-test");
+  }
+
+  protected async initClient(): Promise<unknown> {
+    return {};
+  }
+
+  protected closeClient(): Promise<void> {
+    return Promise.resolve();
+  }
+
+  protected async execute<T>(): Promise<QueryResult<T>> {
+    throw new Error("NoAtomicTransactionDriver cannot execute queries");
+  }
+
+  protected async executeRaw<T>(): Promise<QueryResult<T>> {
+    throw new Error("NoAtomicTransactionDriver cannot execute queries");
+  }
+
+  protected async transaction<T>(
+    _client: unknown,
+    fn: (tx: unknown) => Promise<T>,
+    _options?: TransactionOptions
+  ): Promise<T> {
+    return fn({});
+  }
+}
+
+class BatchOnlyPGliteDriver extends PGliteDriver {
+  override readonly supportsTransactions = false;
+  override readonly supportsBatch = true;
+
+  protected override async executeBatch<T>(
+    client: PGlite | Transaction,
+    queries: BatchQuery[]
+  ): Promise<QueryResult<T>[]> {
+    return this.transaction(client, async (tx) => {
+      const results: QueryResult<T>[] = [];
+      for (const query of queries) {
+        results.push(await this.executeRaw<T>(tx, query.sql, query.params));
+      }
+      return results;
+    });
+  }
+}
+
 type TransactionCapableClient<TClient> = TClient & {
   $transaction<TResult>(
     operation:
       | readonly unknown[]
-      | ((
-          tx: TransactionCapableClient<TClient>
-        ) => TResult | Promise<TResult>)
+      | ((tx: TransactionCapableClient<TClient>) => TResult | Promise<TResult>)
   ): Promise<TResult>;
 };
 
-const withTransactions = <TClient,>(
+const withTransactions = <TClient>(
   client: TClient
 ): TransactionCapableClient<TClient> =>
   client as TransactionCapableClient<TClient>;
@@ -183,6 +243,41 @@ describe("PendingOperation", () => {
     expect(nestedUpdateOp.prepare()).toBeUndefined();
   });
 
+  test("canBatch() returns false for update with nested connect writes", () => {
+    const nestedUpdateOp = client.user.update({
+      where: { id: "1" },
+      data: {
+        posts: {
+          connect: { id: "p1" },
+        },
+      },
+    });
+
+    expect(nestedUpdateOp.canBatch()).toBe(false);
+    expect(nestedUpdateOp.prepare()).toBeUndefined();
+  });
+
+  test("canBatch() returns false for update with nested connectOrCreate writes", () => {
+    const nestedUpdateOp = client.user.update({
+      where: { id: "1" },
+      data: {
+        posts: {
+          connectOrCreate: {
+            where: { id: "p1" },
+            create: {
+              id: "p1",
+              title: "Post 1",
+              authorId: "1",
+            },
+          },
+        },
+      },
+    });
+
+    expect(nestedUpdateOp.canBatch()).toBe(false);
+    expect(nestedUpdateOp.prepare()).toBeUndefined();
+  });
+
   test("canBatch() returns false for upsert with nested create writes in create branch", () => {
     const nestedUpsertOp = client.user.upsert({
       where: { id: "1" },
@@ -214,6 +309,25 @@ describe("PendingOperation", () => {
           createMany: {
             data: [{ id: "p1", title: "Post 1", authorId: "1" }],
           },
+        },
+      },
+    });
+
+    expect(nestedUpsertOp.canBatch()).toBe(false);
+    expect(nestedUpsertOp.prepare()).toBeUndefined();
+  });
+
+  test("canBatch() returns false for upsert with nested connect writes", () => {
+    const nestedUpsertOp = client.user.upsert({
+      where: { id: "1" },
+      create: {
+        id: "1",
+        name: "Test",
+        email: "test@test.com",
+      },
+      update: {
+        posts: {
+          connect: { id: "p1" },
         },
       },
     });
@@ -266,6 +380,89 @@ describe("$transaction with callback", () => {
     const users = await client.user.findMany();
     expect(users).toHaveLength(0);
   });
+
+  test("enforces transaction timeout and rolls back", async () => {
+    await expect(
+      withTransactions(client).$transaction(
+        async (tx) => {
+          await tx.user.create({
+            data: {
+              id: "timeout-user",
+              name: "Timeout",
+              email: "timeout@test.com",
+            },
+          });
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        },
+        { timeout: 5 }
+      )
+    ).rejects.toMatchObject({
+      name: "TransactionError",
+      code: VibORMErrorCode.TRANSACTION_TIMEOUT,
+    });
+
+    const users = await client.user.findMany({
+      where: { id: "timeout-user" },
+    });
+    expect(users).toHaveLength(0);
+  });
+
+  test("transaction timeout rejects late callback queries", async () => {
+    let lateWriteError: unknown;
+    let resolveLateWrite: (() => void) | undefined;
+    const lateWriteFinished = new Promise<void>((resolve) => {
+      resolveLateWrite = resolve;
+    });
+
+    await expect(
+      withTransactions(client).$transaction(
+        async (tx) => {
+          await new Promise((resolve) => setTimeout(resolve, 25));
+          try {
+            await tx.user.create({
+              data: {
+                id: "late-timeout-user",
+                name: "Late Timeout",
+                email: "late-timeout@test.com",
+              },
+            });
+          } catch (error) {
+            lateWriteError = error;
+          } finally {
+            resolveLateWrite?.();
+          }
+        },
+        { timeout: 5 }
+      )
+    ).rejects.toMatchObject({
+      name: "TransactionError",
+      code: VibORMErrorCode.TRANSACTION_TIMEOUT,
+    });
+
+    await lateWriteFinished;
+    expect(lateWriteError).toMatchObject({
+      name: "TransactionError",
+      code: VibORMErrorCode.TRANSACTION_TIMEOUT,
+    });
+
+    const users = await client.user.findMany({
+      where: { id: "late-timeout-user" },
+    });
+    expect(users).toHaveLength(0);
+  });
+
+  test("rejects callback transactions for non-atomic drivers", async () => {
+    const nonAtomicClient = createClient({
+      schema,
+      driver: new NoAtomicTransactionDriver(),
+    });
+
+    await expect(
+      withTransactions(nonAtomicClient).$transaction(async () => "unused")
+    ).rejects.toBeInstanceOf(TransactionError);
+
+    await nonAtomicClient.$disconnect();
+  });
 });
 
 describe("$transaction with array (batch mode)", () => {
@@ -305,12 +502,217 @@ describe("$transaction with array (batch mode)", () => {
     expect(allUsers).toHaveLength(2);
   });
 
+  test("batch-only driver batches nested write operations atomically", async () => {
+    const batchDb = new PGlite();
+    const setupClient = createClient({
+      schema,
+      driver: new PGliteDriver({ client: batchDb }),
+    });
+    const batchOnlyClient = createClient({
+      schema,
+      driver: new BatchOnlyPGliteDriver({ client: batchDb }),
+    });
+
+    try {
+      await push(setupClient, { force: true });
+      await setupClient.user.create({
+        data: { id: "1", name: "Nested", email: "nested@test.com" },
+      });
+
+      const [updatedUser, postCount] = await withTransactions(
+        batchOnlyClient
+      ).$transaction([
+        batchOnlyClient.user.update({
+          where: { id: "1" },
+          data: {
+            name: "Nested Updated",
+            posts: {
+              create: { id: "p1", title: "Nested post" },
+            },
+          },
+        }),
+        batchOnlyClient.post.count(),
+      ]);
+
+      expect(updatedUser.name).toBe("Nested Updated");
+      expect(postCount).toBe(1);
+
+      const posts = await batchOnlyClient.post.findMany();
+      expect(posts).toHaveLength(1);
+      expect(posts[0]?.authorId).toBe("1");
+    } finally {
+      await batchOnlyClient.$disconnect();
+    }
+  });
+
+  test("batch-only driver flattens generated-id nested plans and keeps result order", async () => {
+    const batchDb = new PGlite();
+    const setupClient = createClient({
+      schema: batchPrimaryKeyDataflowSchema,
+      driver: new PGliteDriver({ client: batchDb }),
+    });
+    const batchOnlyClient = createClient({
+      schema: batchPrimaryKeyDataflowSchema,
+      driver: new BatchOnlyPGliteDriver({ client: batchDb }),
+    });
+
+    try {
+      await push(setupClient, { force: true });
+
+      const [generatedUser, mutableUser, generatedPostCount] =
+        await withTransactions(batchOnlyClient).$transaction([
+          batchOnlyClient.generatedUser.create({
+            data: {
+              name: "Transaction generated",
+              featuredChildId: null,
+              posts: {
+                create: {
+                  title: "Transaction generated child",
+                  slug: "transaction-generated-child",
+                },
+              },
+            },
+          }),
+          batchOnlyClient.mutableUser.create({
+            data: { id: 5000, name: "Transaction mutable" },
+          }),
+          batchOnlyClient.generatedPost.count(),
+        ]);
+
+      expect(generatedUser.name).toBe("Transaction generated");
+      expect(mutableUser.id).toBe(5000);
+      expect(generatedPostCount).toBe(1);
+
+      const post = await batchOnlyClient.generatedPost.findFirst();
+      expect(post?.userId).toBe(generatedUser.id);
+    } finally {
+      await batchOnlyClient.$disconnect();
+    }
+  });
+
+  test("batch-only driver flattens generated and updated primary-key nested plans", async () => {
+    const batchDb = new PGlite();
+    const setupClient = createClient({
+      schema: batchPrimaryKeyDataflowSchema,
+      driver: new PGliteDriver({ client: batchDb }),
+    });
+    const batchOnlyClient = createClient({
+      schema: batchPrimaryKeyDataflowSchema,
+      driver: new BatchOnlyPGliteDriver({ client: batchDb }),
+    });
+
+    try {
+      await push(setupClient, { force: true });
+      await batchOnlyClient.mutableUser.create({
+        data: { id: 6000, name: "Mutable source" },
+      });
+
+      const [generatedUser, mutableCount, updatedUser, generatedPostCount] =
+        await withTransactions(batchOnlyClient).$transaction([
+          batchOnlyClient.generatedUser.create({
+            data: {
+              name: "Flatten generated",
+              featuredChildId: null,
+              posts: {
+                create: {
+                  title: "Flatten generated child",
+                  slug: "flatten-generated-child",
+                },
+              },
+            },
+          }),
+          batchOnlyClient.mutableUser.count(),
+          batchOnlyClient.mutableUser.update({
+            where: { id: 6000 },
+            data: {
+              id: { increment: 25 },
+              name: "Mutable moved",
+              posts: {
+                create: { title: "Mutable moved child" },
+              },
+            },
+          }),
+          batchOnlyClient.generatedPost.count(),
+        ]);
+
+      expect(generatedUser.name).toBe("Flatten generated");
+      expect(mutableCount).toBe(1);
+      expect(updatedUser.id).toBe(6025);
+      expect(generatedPostCount).toBe(1);
+
+      const [generatedPost, mutablePost] = await Promise.all([
+        batchOnlyClient.generatedPost.findFirst(),
+        batchOnlyClient.mutablePost.findFirst(),
+      ]);
+      expect(generatedPost?.userId).toBe(generatedUser.id);
+      expect(mutablePost?.userId).toBe(6025);
+    } finally {
+      await batchOnlyClient.$disconnect();
+    }
+  });
+
+  test("batch-only transaction rolls back earlier generated refs when a later nested plan fails", { timeout: 30_000 }, async () => {
+    const batchDb = new PGlite();
+    const setupClient = createClient({
+      schema: batchPrimaryKeyDataflowSchema,
+      driver: new PGliteDriver({ client: batchDb }),
+    });
+    const batchOnlyClient = createClient({
+      schema: batchPrimaryKeyDataflowSchema,
+      driver: new BatchOnlyPGliteDriver({ client: batchDb }),
+    });
+
+    try {
+      await push(setupClient, { force: true });
+
+      await expect(
+        withTransactions(batchOnlyClient).$transaction([
+          batchOnlyClient.generatedUser.create({
+            data: {
+              name: "Earlier generated",
+              featuredChildId: null,
+              posts: {
+                create: {
+                  title: "Earlier child",
+                  slug: "earlier-generated-child",
+                },
+              },
+            },
+          }),
+          batchOnlyClient.generatedUser.create({
+            data: {
+              name: "Later failing generated",
+              featuredChildId: null,
+              posts: {
+                create: [
+                  { title: "Duplicate one", slug: "duplicate-flattened" },
+                  { title: "Duplicate two", slug: "duplicate-flattened" },
+                ],
+              },
+            },
+          }),
+        ])
+      ).rejects.toThrow();
+
+      const [users, posts] = await Promise.all([
+        batchOnlyClient.generatedUser.findMany(),
+        batchOnlyClient.generatedPost.findMany(),
+      ]);
+      expect(users).toHaveLength(0);
+      expect(posts).toHaveLength(0);
+    } finally {
+      await batchOnlyClient.$disconnect();
+    }
+  });
+
   test("returns results in correct order", async () => {
     await client.user.create({
       data: { id: "1", name: "Ivy", email: "ivy@test.com" },
     });
 
-    const [count, users, firstUser] = await withTransactions(client).$transaction([
+    const [count, users, firstUser] = await withTransactions(
+      client
+    ).$transaction([
       client.user.count(),
       client.user.findMany(),
       client.user.findFirst(),
@@ -323,10 +725,27 @@ describe("$transaction with array (batch mode)", () => {
 
   test("rejects non-PendingOperation items", async () => {
     await expect(
-      withTransactions(client).$transaction([Promise.resolve("not a pending operation")])
+      withTransactions(client).$transaction([
+        Promise.resolve("not a pending operation"),
+      ])
     ).rejects.toThrow(
       "$transaction array must contain only pending operations from client methods"
     );
+  });
+
+  test("rejects batch transactions when the driver has no atomic mode", async () => {
+    const nonAtomicClient = createClient({
+      schema,
+      driver: new NoAtomicTransactionDriver(),
+    });
+
+    await expect(
+      withTransactions(nonAtomicClient).$transaction([
+        nonAtomicClient.user.findMany(),
+      ])
+    ).rejects.toBeInstanceOf(TransactionError);
+
+    await nonAtomicClient.$disconnect();
   });
 
   test("supports transaction options (isolation level)", async () => {

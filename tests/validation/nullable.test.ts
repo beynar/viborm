@@ -79,12 +79,8 @@ describe("nullable option vs wrapper comparison", () => {
     });
 
     test("both reject undefined", () => {
-      expect(
-        parse(optionsSchema, undefined).issues
-      ).toBeDefined();
-      expect(
-        parse(wrapperSchema, undefined).issues
-      ).toBeDefined();
+      expect(parse(optionsSchema, undefined).issues).toBeDefined();
+      expect(parse(wrapperSchema, undefined).issues).toBeDefined();
     });
 
     test("both reject invalid types", () => {

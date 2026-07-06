@@ -9,7 +9,12 @@
 
 import { type InferInput, parse } from "@validation";
 import { describe, expect, expectTypeOf, test } from "vitest";
-import { authorSchemas, compoundIdSchemas, simpleSchemas } from "../fixtures";
+import {
+  authorSchemas,
+  compoundIdSchemas,
+  compoundUniqueSchemas,
+  simpleSchemas,
+} from "../fixtures";
 
 type ArgsOutput = {
   readonly where?: unknown;
@@ -71,6 +76,11 @@ describe("FindUnique Args - Simple Model Runtime", () => {
   test("runtime: rejects missing where", () => {
     const result = parse(schema, {});
     expect(result.issues).toBeDefined();
+  });
+
+  test("runtime: rejects empty where", () => {
+    const result = parse(schema, { where: {} });
+    expect(result.issues?.[0]?.message).toBe("Object cannot be empty");
   });
 
   test("runtime: rejects non-unique field in where (strict schema)", () => {
@@ -141,6 +151,39 @@ describe("FindUnique Args - Author Model Runtime (with relations)", () => {
   });
 });
 
+describe("Find Args - Top-level Select/Include Exclusivity Runtime", () => {
+  test("runtime: findUnique rejects top-level select and include", () => {
+    const result = parse(authorSchemas.args.findUnique, {
+      where: { id: "author-1" },
+      select: { id: true },
+      include: { posts: true },
+    });
+    expect(result.issues?.[0]?.message).toBe(
+      "Mutually exclusive fields cannot be used together: select, include"
+    );
+  });
+
+  test("runtime: findFirst rejects top-level select and include", () => {
+    const result = parse(authorSchemas.args.findFirst, {
+      select: { id: true },
+      include: { posts: true },
+    });
+    expect(result.issues?.[0]?.message).toBe(
+      "Mutually exclusive fields cannot be used together: select, include"
+    );
+  });
+
+  test("runtime: findMany rejects top-level select and include", () => {
+    const result = parse(authorSchemas.args.findMany, {
+      select: { id: true },
+      include: { posts: true },
+    });
+    expect(result.issues?.[0]?.message).toBe(
+      "Mutually exclusive fields cannot be used together: select, include"
+    );
+  });
+});
+
 // =============================================================================
 // FIND FIRST ARGS
 // =============================================================================
@@ -205,7 +248,9 @@ describe("FindFirst Args - Simple Model Runtime", () => {
     expect(result.issues).toBeUndefined();
     if (!result.issues) {
       // Filter values are normalized to { equals: value }
-      expect(argsOutput(result.value).where).toEqual({ active: { equals: true } });
+      expect(argsOutput(result.value).where).toEqual({
+        active: { equals: true },
+      });
       expect(argsOutput(result.value).orderBy).toEqual({ name: "asc" });
       expect(argsOutput(result.value).select).toEqual({ id: true, name: true });
     }
@@ -232,7 +277,17 @@ describe("FindMany Args - Types", () => {
   });
 
   test("type: has optional cursor", () => {
-    expectTypeOf<{ cursor?: { id?: string } }>().toMatchTypeOf<Input>();
+    expectTypeOf<{ cursor?: { id: string } }>().toMatchTypeOf<Input>();
+  });
+});
+
+describe("FindMany Args - Compound Cursor Types", () => {
+  type Input = InferInput<typeof compoundIdSchemas.args.findMany>;
+
+  test("type: cursor uses whereUnique compound id input", () => {
+    expectTypeOf<{
+      cursor?: { orgId_memberId: { orgId: string; memberId: string } };
+    }>().toMatchTypeOf<Input>();
   });
 });
 
@@ -259,11 +314,55 @@ describe("FindMany Args - Simple Model Runtime", () => {
     expect(result.issues).toBeUndefined();
   });
 
+  test("runtime: accepts negative take", () => {
+    const result = parse(schema, {
+      take: -10,
+    });
+    expect(result.issues).toBeUndefined();
+  });
+
+  test("runtime: rejects fractional take", () => {
+    const result = parse(schema, {
+      take: 1.5,
+    });
+    expect(result.issues?.[0]?.message).toBe("Expected integer");
+  });
+
+  test("runtime: rejects fractional skip", () => {
+    const result = parse(schema, {
+      skip: 1.5,
+    });
+    expect(result.issues?.[0]?.message).toBe("Expected integer");
+  });
+
+  test("runtime: rejects negative skip", () => {
+    const result = parse(schema, {
+      skip: -1,
+    });
+    expect(result.issues?.[0]?.message).toBe(
+      "Transform failed: skip must be greater than or equal to 0"
+    );
+  });
+
+  test("runtime: rejects non-finite take values", () => {
+    for (const take of [Number.NaN, Number.POSITIVE_INFINITY]) {
+      const result = parse(schema, { take });
+      expect(result.issues?.[0]?.message).toBe("Expected integer");
+    }
+  });
+
   test("runtime: accepts with cursor", () => {
     const result = parse(schema, {
       cursor: { id: "last-seen-id" },
     });
     expect(result.issues).toBeUndefined();
+  });
+
+  test("runtime: rejects non-unique cursor field", () => {
+    const result = parse(schema, {
+      cursor: { name: "Alice" },
+    });
+    expect(result.issues).toBeDefined();
   });
 
   test("runtime: accepts with orderBy array", () => {
@@ -330,8 +429,34 @@ describe("FindMany Args - Simple Model Runtime", () => {
     });
     expect(result.issues).toBeUndefined();
     if (!result.issues) {
-      expect(argsOutput(result.value).orderBy).toEqual([{ name: "asc" }, { age: "desc" }]);
+      expect(argsOutput(result.value).orderBy).toEqual([
+        { name: "asc" },
+        { age: "desc" },
+      ]);
     }
+  });
+});
+
+describe("FindMany Args - Compound Cursor Runtime", () => {
+  test("runtime: accepts compound id cursor", () => {
+    const result = parse(compoundIdSchemas.args.findMany, {
+      cursor: {
+        orgId_memberId: { orgId: "org-1", memberId: "member-1" },
+      },
+    });
+    expect(result.issues).toBeUndefined();
+  });
+
+  test("runtime: accepts compound unique cursor", () => {
+    const result = parse(compoundUniqueSchemas.args.findMany, {
+      cursor: {
+        email_tenantId: {
+          email: "alice@example.com",
+          tenantId: "tenant-1",
+        },
+      },
+    });
+    expect(result.issues).toBeUndefined();
   });
 });
 

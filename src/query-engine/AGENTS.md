@@ -22,9 +22,13 @@ This separation means adding a new database = implementing one adapter interface
 
 | File | Purpose | Lines |
 |------|---------|-------|
-| `query-engine.ts` | Main orchestrator, execute() | ~500 |
-| `types.ts` | QueryContext, ModelRegistry, Operation | ~150 |
-| `validator.ts` | Input validation through `SchemaRegistry` | ~80 |
+| `query-engine.ts` | Public `QueryEngine` orchestration shell (build/prepare/execute) | ~170 |
+| `executor.ts` | Validates + builds SQL for an operation | ~600 |
+| `result-flow.ts` | Result parsing/hydration flow | ~340 |
+| `transaction-flow.ts` | `$transaction` callback/batch execution | ~565 |
+| `cache-flow.ts` | Cache read/write orchestration around operations | ~130 |
+| `types.ts` | QueryContext, ModelRegistry, Operation | ~390 |
+| `validator.ts` | Input validation through `SchemaRegistry` | ~110 |
 | `builders/` | SQL fragment builders | See [builders/AGENTS.md](builders/AGENTS.md) |
 
 ---

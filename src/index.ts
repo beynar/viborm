@@ -4,7 +4,7 @@
  * TypeScript ORM for PostgreSQL, MySQL, and SQLite.
  *
  * Import paths:
- * - "viborm" - Client creation and errors (this file)
+ * - "viborm" - Client creation, schema builder `s`, and errors (this file)
  * - "viborm/schema" - Schema builder (s, PG, MYSQL, SQLITE)
  * - "viborm/pg" - PostgreSQL driver (node-postgres)
  * - "viborm/postgres" - PostgreSQL driver (postgres.js)
@@ -26,7 +26,6 @@
 
 export type { VibORMClient, VibORMConfig } from "./client/client.js";
 export { createClient } from "./client/client.js";
-
 // Pending operations (for transaction batching)
 export {
   isPendingOperation,
@@ -34,6 +33,8 @@ export {
   type UnwrapPendingOperation,
   type UnwrapPendingOperations,
 } from "./client/pending-operation.js";
+// Schema builder — every doc example teaches `import { s } from "viborm"`
+export { s } from "./schema/index.js";
 
 // =============================================================================
 // ERRORS
@@ -41,6 +42,7 @@ export {
 
 export {
   // Specific errors
+  CheckConstraintError,
   ConnectionError,
   FeatureNotSupportedError,
   ForeignKeyError,
@@ -49,6 +51,7 @@ export {
   isVibORMError,
   NestedWriteError,
   NotFoundError,
+  NotNullConstraintError,
   QueryError,
   TransactionError,
   UniqueConstraintError,
@@ -87,4 +90,3 @@ export {
   validateSchema,
   validateSchemaOrThrow,
 } from "./schema/validation/index.js";
-

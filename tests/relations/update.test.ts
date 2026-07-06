@@ -2,9 +2,9 @@
  * Relation Update Schema Tests
  *
  * Tests update schemas for both to-one and to-many relations:
- * - ToOne Update: { create?, connect?, connectOrCreate?, disconnect?, delete? }
+ * - ToOne Update: { create?, connect?, connectOrCreate?, update?, upsert?, disconnect?, delete? }
  *   - disconnect/delete only for optional relations
- * - ToMany Update: { create?, createMany?, connect?, disconnect?, delete?, connectOrCreate?, set? }
+ * - ToMany Update: { create?, createMany?, connect?, disconnect?, delete?, connectOrCreate?, set?, update?, updateMany?, upsert?, deleteMany? }
  *   - All operations accept single or array, normalized to array
  *
  * Covers:
@@ -69,17 +69,26 @@ describe("ToOne Update - Required (Post.author)", () => {
       }>().toMatchTypeOf<UpdateInput>();
     });
 
-    test("type: rejects unsupported update and upsert properties", () => {
-      expectTypeOf<UpdateInput>().not.toHaveProperty("update");
-      expectTypeOf<UpdateInput>().not.toHaveProperty("upsert");
+    test("type: accepts planned update and upsert properties", () => {
+      expectTypeOf<UpdateInput>().toHaveProperty("update");
+      expectTypeOf<UpdateInput>().toHaveProperty("upsert");
       expectTypeOf<{
         update?: { name?: string };
-      }>().not.toMatchTypeOf<UpdateInput>();
+      }>().toMatchTypeOf<UpdateInput>();
       expectTypeOf<{
         upsert?: {
           create: { id: string; name: string; email: string };
           update: { name?: string };
         };
+      }>().toMatchTypeOf<UpdateInput>();
+    });
+
+    test("type: rejects to-many-only planned properties", () => {
+      expectTypeOf<{
+        updateMany?: { data: { name?: string } };
+      }>().not.toMatchTypeOf<UpdateInput>();
+      expectTypeOf<{
+        deleteMany?: { name?: string };
       }>().not.toMatchTypeOf<UpdateInput>();
     });
 
@@ -121,7 +130,9 @@ describe("ToOne Update - Required (Post.author)", () => {
       const result = parse(schema, input);
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
-        expect(relationOutput(result.value).connect).toEqual({ id: "author-1" });
+        expect(relationOutput(result.value).connect).toEqual({
+          id: "author-1",
+        });
       }
     });
 
@@ -151,15 +162,40 @@ describe("ToOne Update - Required (Post.author)", () => {
       expect(result.issues).toBeDefined();
     });
 
-    test.each(["update", "upsert"] as const)(
-      "runtime: rejects unsupported '%s'",
-      (operation) => {
-        const result = parse(schema, {
-          [operation]: {},
-        });
-        expect(result.issues?.[0]?.message).toBe(`Unknown key: ${operation}`);
-      }
-    );
+    test("runtime: accepts planned update", () => {
+      const result = parse(schema, {
+        update: { name: "Updated" },
+      });
+      expect(result.issues).toBeUndefined();
+    });
+
+    test("runtime: accepts planned upsert", () => {
+      const result = parse(schema, {
+        upsert: {
+          create: { id: "author-1", name: "Alice", email: "a@b.com" },
+          update: { name: "Updated" },
+        },
+      });
+      expect(result.issues).toBeUndefined();
+    });
+
+    test.each([
+      ["updateMany", { updateMany: { data: { name: "Updated" } } }],
+      ["deleteMany", { deleteMany: { name: "Alice" } }],
+    ] as const)("runtime: rejects to-many-only '%s'", (_, input) => {
+      const result = parse(schema, input);
+      const operation = Object.keys(input)[0];
+      expect(result.issues?.[0]?.message).toBe(`Unknown key: ${operation}`);
+    });
+
+    test("runtime: rejects malformed upsert", () => {
+      const result = parse(schema, {
+        upsert: {
+          create: { id: "author-1", name: "Alice", email: "a@b.com" },
+        },
+      });
+      expect(result.issues).toBeDefined();
+    });
 
     test("runtime: ignores disconnect for required relation (partial schema)", () => {
       // Note: The schema uses partial() so unknown keys are ignored at runtime.
@@ -214,17 +250,26 @@ describe("ToOne Update - Optional (Profile.user)", () => {
       }>().not.toMatchTypeOf<UpdateInput>();
     });
 
-    test("type: rejects unsupported update and upsert properties", () => {
-      expectTypeOf<UpdateInput>().not.toHaveProperty("update");
-      expectTypeOf<UpdateInput>().not.toHaveProperty("upsert");
+    test("type: accepts planned update and upsert properties", () => {
+      expectTypeOf<UpdateInput>().toHaveProperty("update");
+      expectTypeOf<UpdateInput>().toHaveProperty("upsert");
       expectTypeOf<{
         update?: { username?: string };
-      }>().not.toMatchTypeOf<UpdateInput>();
+      }>().toMatchTypeOf<UpdateInput>();
       expectTypeOf<{
         upsert?: {
           create: { id: string; username: string };
           update: { username?: string };
         };
+      }>().toMatchTypeOf<UpdateInput>();
+    });
+
+    test("type: rejects to-many-only planned properties", () => {
+      expectTypeOf<{
+        updateMany?: { data: { username?: string } };
+      }>().not.toMatchTypeOf<UpdateInput>();
+      expectTypeOf<{
+        deleteMany?: { username?: string };
       }>().not.toMatchTypeOf<UpdateInput>();
     });
   });
@@ -280,15 +325,31 @@ describe("ToOne Update - Optional (Profile.user)", () => {
       expect(result.issues).toBeDefined();
     });
 
-    test.each(["update", "upsert"] as const)(
-      "runtime: rejects unsupported '%s'",
-      (operation) => {
-        const result = parse(schema, {
-          [operation]: {},
-        });
-        expect(result.issues?.[0]?.message).toBe(`Unknown key: ${operation}`);
-      }
-    );
+    test("runtime: accepts planned update", () => {
+      const result = parse(schema, {
+        update: { username: "updated" },
+      });
+      expect(result.issues).toBeUndefined();
+    });
+
+    test("runtime: accepts planned upsert", () => {
+      const result = parse(schema, {
+        upsert: {
+          create: { id: "user-1", username: "alice" },
+          update: { username: "updated" },
+        },
+      });
+      expect(result.issues).toBeUndefined();
+    });
+
+    test.each([
+      ["updateMany", { updateMany: { data: { username: "updated" } } }],
+      ["deleteMany", { deleteMany: { username: "alice" } }],
+    ] as const)("runtime: rejects to-many-only '%s'", (_, input) => {
+      const result = parse(schema, input);
+      const operation = Object.keys(input)[0];
+      expect(result.issues?.[0]?.message).toBe(`Unknown key: ${operation}`);
+    });
   });
 });
 
@@ -402,23 +463,23 @@ describe("ToMany Update - Required (Author.posts)", () => {
       }>().not.toMatchTypeOf<UpdateInput>();
     });
 
-    test("type: rejects unsupported nested write operations", () => {
-      expectTypeOf<UpdateInput>().not.toHaveProperty("update");
-      expectTypeOf<UpdateInput>().not.toHaveProperty("updateMany");
-      expectTypeOf<UpdateInput>().not.toHaveProperty("deleteMany");
-      expectTypeOf<UpdateInput>().not.toHaveProperty("upsert");
+    test("type: accepts planned nested write operations", () => {
+      expectTypeOf<UpdateInput>().toHaveProperty("update");
+      expectTypeOf<UpdateInput>().toHaveProperty("updateMany");
+      expectTypeOf<UpdateInput>().toHaveProperty("deleteMany");
+      expectTypeOf<UpdateInput>().toHaveProperty("upsert");
       expectTypeOf<{
         update?: { where: { id: string }; data: { title?: string } };
-      }>().not.toMatchTypeOf<UpdateInput>();
+      }>().toMatchTypeOf<UpdateInput>();
       expectTypeOf<{
         updateMany?: {
           where: { published?: boolean };
           data: { published?: boolean };
         };
-      }>().not.toMatchTypeOf<UpdateInput>();
+      }>().toMatchTypeOf<UpdateInput>();
       expectTypeOf<{
         deleteMany?: { published?: boolean };
-      }>().not.toMatchTypeOf<UpdateInput>();
+      }>().toMatchTypeOf<UpdateInput>();
       expectTypeOf<{
         upsert?: {
           where: { id: string };
@@ -429,6 +490,26 @@ describe("ToMany Update - Required (Author.posts)", () => {
             authorId: string;
           };
           update: { title?: string };
+        };
+      }>().toMatchTypeOf<UpdateInput>();
+    });
+
+    test("type: rejects malformed planned nested write operations", () => {
+      expectTypeOf<{
+        update?: { data: { title?: string } };
+      }>().not.toMatchTypeOf<UpdateInput>();
+      expectTypeOf<{
+        updateMany?: { where: { published?: boolean } };
+      }>().not.toMatchTypeOf<UpdateInput>();
+      expectTypeOf<{
+        upsert?: {
+          where: { id: string };
+          create: {
+            id: string;
+            title: string;
+            content: string;
+            authorId: string;
+          };
         };
       }>().not.toMatchTypeOf<UpdateInput>();
     });
@@ -483,7 +564,9 @@ describe("ToMany Update - Required (Author.posts)", () => {
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
         expect(relationOutput(result.value).createMany?.data).toHaveLength(2);
-        expect(relationOutput(result.value).createMany?.skipDuplicates).toBe(true);
+        expect(relationOutput(result.value).createMany?.skipDuplicates).toBe(
+          true
+        );
       }
     });
 
@@ -544,26 +627,23 @@ describe("ToMany Update - Required (Author.posts)", () => {
           },
         },
       ],
-    ] as const)(
-      "runtime: rejects connectOrCreate array item %s",
-      (_, invalidItem) => {
-        const result = parse(schema, {
-          connectOrCreate: [
-            {
-              where: { id: "post-valid" },
-              create: {
-                id: "post-valid",
-                title: "Valid",
-                content: "World",
-                authorId: "a1",
-              },
+    ] as const)("runtime: rejects connectOrCreate array item %s", (_, invalidItem) => {
+      const result = parse(schema, {
+        connectOrCreate: [
+          {
+            where: { id: "post-valid" },
+            create: {
+              id: "post-valid",
+              title: "Valid",
+              content: "World",
+              authorId: "a1",
             },
-            invalidItem,
-          ],
-        });
-        expect(result.issues).toBeDefined();
-      }
-    );
+          },
+          invalidItem,
+        ],
+      });
+      expect(result.issues).toBeDefined();
+    });
 
     test("runtime: accepts single connect", () => {
       const input = { connect: { id: "post-1" } };
@@ -571,7 +651,9 @@ describe("ToMany Update - Required (Author.posts)", () => {
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
         expect(Array.isArray(relationOutput(result.value).connect)).toBe(true);
-        expect(relationOutput(result.value).connect?.[0]).toEqual({ id: "post-1" });
+        expect(relationOutput(result.value).connect?.[0]).toEqual({
+          id: "post-1",
+        });
       }
     });
 
@@ -582,7 +664,9 @@ describe("ToMany Update - Required (Author.posts)", () => {
       if (!result.issues) {
         // Verify connect array is present
         expect(Array.isArray(relationOutput(result.value).connect)).toBe(true);
-        expect(relationOutput(result.value).connect?.length).toBeGreaterThanOrEqual(1);
+        expect(
+          relationOutput(result.value).connect?.length
+        ).toBeGreaterThanOrEqual(1);
       }
     });
 
@@ -591,8 +675,12 @@ describe("ToMany Update - Required (Author.posts)", () => {
       const result = parse(schema, input);
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
-        expect(Array.isArray(relationOutput(result.value).disconnect)).toBe(true);
-        expect(relationOutput(result.value).disconnect?.[0]).toEqual({ id: "post-1" });
+        expect(Array.isArray(relationOutput(result.value).disconnect)).toBe(
+          true
+        );
+        expect(relationOutput(result.value).disconnect?.[0]).toEqual({
+          id: "post-1",
+        });
       }
     });
 
@@ -601,8 +689,12 @@ describe("ToMany Update - Required (Author.posts)", () => {
       const result = parse(schema, input);
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
-        expect(Array.isArray(relationOutput(result.value).disconnect)).toBe(true);
-        expect(relationOutput(result.value).disconnect?.length).toBeGreaterThanOrEqual(1);
+        expect(Array.isArray(relationOutput(result.value).disconnect)).toBe(
+          true
+        );
+        expect(
+          relationOutput(result.value).disconnect?.length
+        ).toBeGreaterThanOrEqual(1);
       }
     });
 
@@ -622,7 +714,9 @@ describe("ToMany Update - Required (Author.posts)", () => {
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
         expect(Array.isArray(relationOutput(result.value).set)).toBe(true);
-        expect(relationOutput(result.value).set?.length).toBeGreaterThanOrEqual(1);
+        expect(relationOutput(result.value).set?.length).toBeGreaterThanOrEqual(
+          1
+        );
       }
     });
 
@@ -641,7 +735,9 @@ describe("ToMany Update - Required (Author.posts)", () => {
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
         expect(Array.isArray(relationOutput(result.value).delete)).toBe(true);
-        expect(relationOutput(result.value).delete?.[0]).toEqual({ id: "post-1" });
+        expect(relationOutput(result.value).delete?.[0]).toEqual({
+          id: "post-1",
+        });
       }
     });
 
@@ -651,19 +747,93 @@ describe("ToMany Update - Required (Author.posts)", () => {
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
         expect(Array.isArray(relationOutput(result.value).delete)).toBe(true);
-        expect(relationOutput(result.value).delete?.length).toBeGreaterThanOrEqual(1);
+        expect(
+          relationOutput(result.value).delete?.length
+        ).toBeGreaterThanOrEqual(1);
       }
     });
 
-    test.each(["update", "updateMany", "deleteMany", "upsert"] as const)(
-      "runtime: rejects unsupported '%s'",
-      (operation) => {
-        const result = parse(schema, {
-          [operation]: {},
-        });
-        expect(result.issues?.[0]?.message).toBe(`Unknown key: ${operation}`);
+    test("runtime: accepts planned single update", () => {
+      const result = parse(schema, {
+        update: {
+          where: { id: "post-1" },
+          data: { title: "Updated" },
+        },
+      });
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(Array.isArray(relationOutput(result.value).update)).toBe(true);
       }
-    );
+    });
+
+    test("runtime: accepts planned update array", () => {
+      const result = parse(schema, {
+        update: [
+          { where: { id: "post-1" }, data: { title: "Updated 1" } },
+          { where: { id: "post-2" }, data: { title: "Updated 2" } },
+        ],
+      });
+      expect(result.issues).toBeUndefined();
+    });
+
+    test("runtime: accepts planned updateMany", () => {
+      const result = parse(schema, {
+        updateMany: {
+          where: { published: false },
+          data: { published: true },
+        },
+      });
+      expect(result.issues).toBeUndefined();
+    });
+
+    test("runtime: accepts planned upsert", () => {
+      const result = parse(schema, {
+        upsert: {
+          where: { id: "post-1" },
+          create: {
+            id: "post-1",
+            title: "Created",
+            content: "C",
+            authorId: "a1",
+          },
+          update: { title: "Updated" },
+        },
+      });
+      expect(result.issues).toBeUndefined();
+    });
+
+    test("runtime: accepts planned deleteMany", () => {
+      const result = parse(schema, {
+        deleteMany: { published: false },
+      });
+      expect(result.issues).toBeUndefined();
+    });
+
+    test.each([
+      ["update missing where", { update: { data: { title: "Updated" } } }],
+      ["update missing data", { update: { where: { id: "post-1" } } }],
+      [
+        "updateMany missing data",
+        { updateMany: { where: { published: false } } },
+      ],
+      [
+        "upsert missing where",
+        {
+          upsert: {
+            create: {
+              id: "post-1",
+              title: "Created",
+              content: "C",
+              authorId: "a1",
+            },
+            update: { title: "Updated" },
+          },
+        },
+      ],
+    ] as const)("runtime: rejects malformed planned %s", (_, input) => {
+      const result = parse(schema, input);
+      expect(result.issues).toBeDefined();
+    });
 
     test("runtime: accepts combined operations", () => {
       const input = {
@@ -676,9 +846,15 @@ describe("ToMany Update - Required (Author.posts)", () => {
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
         expect(relationOutput(result.value).create?.[0].title).toBe("New");
-        expect(relationOutput(result.value).connect?.[0]).toEqual({ id: "existing-post" });
-        expect(relationOutput(result.value).disconnect?.[0]).toEqual({ id: "old-post" });
-        expect(relationOutput(result.value).delete?.[0]).toEqual({ id: "deleted-post" });
+        expect(relationOutput(result.value).connect?.[0]).toEqual({
+          id: "existing-post",
+        });
+        expect(relationOutput(result.value).disconnect?.[0]).toEqual({
+          id: "old-post",
+        });
+        expect(relationOutput(result.value).delete?.[0]).toEqual({
+          id: "deleted-post",
+        });
       }
     });
   });
@@ -725,11 +901,11 @@ describe("ToOne Update - Self-Referential (User.manager)", () => {
       }
     });
 
-    test("runtime: rejects unsupported update with self-referential data", () => {
+    test("runtime: accepts planned update with self-referential data", () => {
       const result = parse(schema, {
         update: { username: "new-manager-name" },
       });
-      expect(result.issues?.[0]?.message).toBe("Unknown key: update");
+      expect(result.issues).toBeUndefined();
     });
 
     test("runtime: accepts connect to different manager", () => {
@@ -737,7 +913,9 @@ describe("ToOne Update - Self-Referential (User.manager)", () => {
       const result = parse(schema, input);
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
-        expect(relationOutput(result.value).connect).toEqual({ id: "manager-2" });
+        expect(relationOutput(result.value).connect).toEqual({
+          id: "manager-2",
+        });
       }
     });
   });

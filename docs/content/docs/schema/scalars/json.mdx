@@ -1,0 +1,233 @@
+---
+title: JSON Scalar
+description: JSON scalar type for structured data — untyped or typed with a StandardSchema validator
+icon: Braces
+---
+
+## Basic Usage
+
+```ts
+import { s } from "viborm";
+
+s.json(); // Required JSON (unknown type)
+s.json().nullable(); // JSON | null
+```
+
+## Typed JSON
+
+Provide a StandardSchema (Valibot, Zod, etc.) for type-safe JSON using the `.schema()` method:
+
+```ts
+import { object, enum_, boolean, string } from "valibot";
+
+const settingsSchema = object({
+  theme: enum_(["light", "dark"]),
+  notifications: boolean(),
+  language: string(),
+});
+
+s.json().schema(settingsSchema); // Typed as { theme: "light" | "dark"; ... }
+```
+
+## Chainable Methods
+
+```ts
+s.json()
+  .nullable() // Allow NULL
+  .schema(schema) // Custom StandardSchema validator
+  .default({}) // Static default
+  .default(() => ({})) // Runtime default
+  .map("column_name"); // Custom column name
+```
+
+## Native Database Types
+
+<Tabs items={["PostgreSQL", "MySQL", "SQLite"]}>
+  <Tab value="PostgreSQL">
+```ts
+import { TYPES } from "viborm";
+
+s.json(TYPES.PG.JSON.JSON) // JSON (text-based)
+s.json(TYPES.PG.JSON.JSONB) // JSONB (binary, indexable, default)
+
+```
+  </Tab>
+  <Tab value="MySQL">
+```ts
+import { TYPES } from "viborm";
+
+s.json(TYPES.MYSQL.JSON.JSON)  // JSON
+```
+
+  </Tab>
+  <Tab value="SQLite">
+```ts
+import { TYPES } from "viborm";
+
+s.json(TYPES.SQLITE.JSON.TEXT) // TEXT (stored as string)
+
+```
+  </Tab>
+</Tabs>
+
+## Type Mapping
+
+| Modifier | TypeScript | PostgreSQL | MySQL | SQLite |
+|----------|------------|------------|-------|--------|
+| `s.json()` | `unknown` | `JSONB` | `JSON` | `TEXT` |
+| `.schema(schema)` | Inferred | `JSONB` | `JSON` | `TEXT` |
+| `.nullable()` | `T \| null` | `JSONB NULL` | `JSON NULL` | `TEXT NULL` |
+
+**Note:** JSON scalars do not support `.array()` modifier or shorthand syntax for updates/filters. You must use explicit operations like `{ set: value }` and `{ equals: value }`.
+
+## Examples
+
+### Untyped JSON
+
+```ts
+const metadata = s.json().default({});
+const tags = s.json().default([]);
+```
+
+### Typed with Valibot
+
+```ts
+import {
+  object,
+  enum_,
+  number,
+  boolean,
+  string,
+  array,
+  optional,
+  pipe,
+  minValue,
+  maxValue,
+} from "valibot";
+
+// User preferences
+const preferencesSchema = object({
+  theme: enum_(["light", "dark", "system"]),
+  fontSize: pipe(number(), minValue(10), maxValue(24)),
+  notifications: object({
+    email: boolean(),
+    push: boolean(),
+  }),
+});
+
+const preferences = s
+  .json()
+  .schema(preferencesSchema)
+  .default({
+    theme: "system",
+    fontSize: 14,
+    notifications: { email: true, push: false },
+  });
+
+// Address structure
+const addressSchema = object({
+  street: string(),
+  city: string(),
+  country: string(),
+  postalCode: string(),
+});
+
+const address = s.json().schema(addressSchema).nullable();
+```
+
+### Complex Nested Types
+
+```ts
+import {
+  object,
+  string,
+  number,
+  array,
+  optional,
+  pipe,
+  minValue,
+  maxValue,
+  integer,
+  positive,
+} from "valibot";
+
+const orderItemSchema = object({
+  productId: string(),
+  quantity: pipe(integer(), positive()),
+  price: pipe(number(), positive()),
+  discount: optional(pipe(number(), minValue(0), maxValue(1))),
+});
+
+const orderSchema = object({
+  items: array(orderItemSchema),
+  shipping: addressSchema,
+  notes: optional(string()),
+});
+
+const orderData = s.json().schema(orderSchema);
+```
+
+## Querying JSON
+
+JSON scalars support path-based filtering — see [JSON Filters](/docs/client/filtering/json) for the full operator list and per-database caveats. **Note:** JSON scalars do not support shorthand syntax. You must use explicit operations:
+
+```ts
+// Filter by nested value (must use { equals: value })
+await client.user.findMany({
+  where: {
+    preferences: {
+      path: ["theme"],
+      equals: "dark",
+    },
+  },
+});
+
+// String operations on JSON strings
+await client.user.findMany({
+  where: {
+    metadata: {
+      string_contains: "premium",
+    },
+  },
+});
+
+// Array operations
+await client.user.findMany({
+  where: {
+    tags: {
+      array_contains: "featured",
+    },
+  },
+});
+
+// Updates must use { set: value }
+await client.user.update({
+  where: { id: "user_123" },
+  data: {
+    preferences: {
+      set: { theme: "dark", fontSize: 16 },
+    },
+  },
+});
+```
+
+## JSON vs Separate Scalars
+
+| Approach        | Pros                       | Cons                            |
+| --------------- | -------------------------- | ------------------------------- |
+| JSON scalar      | Flexible, no migrations    | Harder to query, no constraints |
+| Separate scalars | Type-safe queries, indexes | Schema changes need migrations  |
+| Related table   | Full SQL power             | More complex queries            |
+
+Use JSON for:
+
+- User preferences
+- Metadata that varies per record
+- Third-party API responses
+- Audit logs
+
+Use separate scalars for:
+
+- Data you need to filter/sort by
+- Data with strict validation
+- Data referenced in relations

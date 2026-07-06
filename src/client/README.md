@@ -19,12 +19,12 @@ The client module provides a fully type-safe, Prisma-like API for querying and m
    - [DateTime Filters](#datetime-filters)
    - [BigInt Filters](#bigint-filters)
    - [JSON Filters](#json-filters)
-   - [Array Field Filters](#array-field-filters)
+   - [Array Scalar Filters](#array-field-filters)
    - [Logical Operators](#logical-operators)
 4. [Relation Filtering](#relation-filtering)
    - [To-One Relations](#to-one-relations-onetoone-manytoone)
    - [To-Many Relations](#to-many-relations-onetomany-manytomany)
-5. [Selecting Fields](#selecting-fields)
+5. [Selecting Scalars](#selecting-fields)
    - [Basic Select](#basic-select)
    - [Nested Select](#nested-select)
 6. [Including Relations](#including-relations)
@@ -34,7 +34,7 @@ The client module provides a fully type-safe, Prisma-like API for querying and m
 7. [Sorting](#sorting)
 8. [Pagination](#pagination)
 9. [Unique Identifiers](#unique-identifiers)
-   - [Single-Field Unique](#single-field-unique)
+   - [Single-Scalar Unique](#single-field-unique)
    - [Compound Keys](#compound-keys)
 10. [Nested Writes](#nested-writes)
     - [Create with Relations](#create-with-relations)
@@ -241,11 +241,11 @@ const byAuthor = await client.post.groupBy({
 
 ## Filtering
 
-Filters are passed to the `where` argument. Each field type has specific filter operators.
+Filters are passed to the `where` argument. Each scalar type has specific filter operators.
 
 ### Common Filter Operators
 
-These operators work on most scalar field types:
+These operators work on most scalar types:
 
 | Operator | Description | Example |
 |----------|-------------|---------|
@@ -416,7 +416,7 @@ Same operators as numbers, but for `bigint` values.
 
 ### JSON Filters
 
-JSON fields support path-based filtering and special operators.
+JSON scalars support path-based filtering and special operators.
 
 ```ts
 // Equality
@@ -453,7 +453,7 @@ JSON fields support path-based filtering and special operators.
 | `array_starts_with` | `JsonValue` | JSON array starts with element |
 | `array_ends_with` | `JsonValue` | JSON array ends with element |
 
-### Array Field Filters
+### Array Scalar Filters
 
 For fields defined with `.array()` (e.g., `s.string().array()`).
 
@@ -685,7 +685,7 @@ const usersWithPopularPosts = await client.user.findMany({
 
 ---
 
-## Selecting Fields
+## Selecting Scalars
 
 Control which fields are returned using `select`. When `select` is used, only selected fields are returned.
 
@@ -886,7 +886,7 @@ const users = await client.user.findMany({
   ],
 });
 
-// Handle nulls (PostgreSQL)
+// Handle nulls (native on PostgreSQL, emulated on MySQL/SQLite)
 const users = await client.user.findMany({
   orderBy: {
     lastLogin: { sort: "desc", nulls: "last" }
@@ -954,7 +954,7 @@ const page2 = await client.user.findMany({
 
 ## Unique Identifiers
 
-### Single-Field Unique
+### Single-Scalar Unique
 
 ```ts
 // By primary key
@@ -1151,7 +1151,7 @@ The VibORM client provides:
 
 ✅ **Full type safety** — Operations, filters, and results are all type-inferred  
 ✅ **Prisma-like API** — Familiar patterns for Prisma users  
-✅ **Powerful filtering** — Comprehensive operators for all field types  
+✅ **Powerful filtering** — Comprehensive operators for all scalar types
 ✅ **Relation queries** — Filter by, select from, and include related records  
 ✅ **Nested writes** — Create/update related records in single operations  
 ✅ **Aggregations** — Count, sum, avg, min, max with grouping support  

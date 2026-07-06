@@ -6,6 +6,8 @@ icon: Terminal
 
 ## Query Operations
 
+This reference documents VibORM's current Prisma-inspired API. See [Compatibility](/docs/client/compatibility) for intentional differences from Prisma and excluded nested-write shapes.
+
 ### findMany
 
 ```ts
@@ -66,6 +68,8 @@ client.model.exist({
 ```
 
 Returns: `boolean`
+
+`exist` is a VibORM extension. Prisma has no direct `exist` operation, and VibORM does not expose an `exists` alias.
 
 ## Mutation Operations
 
@@ -269,6 +273,8 @@ client.model.groupBy({
 
 ## Nested Writes
 
+VibORM supports a subset of Prisma-style nested writes. See [Compatibility](/docs/client/compatibility#nested-write-support) for the public support matrix.
+
 ### Create
 
 | Operator | Description |
@@ -289,6 +295,8 @@ client.model.groupBy({
 | `delete` | Delete nested |
 | `deleteMany` | Delete multiple |
 
+The table above names Prisma-style operations. Support depends on the parent operation and relation cardinality: parent `create` and the create branch of parent `upsert` exclude update/delete-like nested operations, and to-one `updateMany`/`deleteMany` reject before query generation. See the compatibility matrix for the exact contract.
+
 ## Ordering
 
 ```ts
@@ -302,4 +310,3 @@ orderBy: {
   relation: { _count: "asc" | "desc" },
 }
 ```
-

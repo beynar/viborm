@@ -14,9 +14,7 @@ export type {
 // Builders (for advanced usage)
 export {
   buildConnectFkValues,
-  buildConnectSubquery,
   buildCorrelation,
-  buildDisconnectFkNulls,
   buildInclude,
   buildInsert,
   buildInsertMany,
@@ -32,7 +30,6 @@ export {
   getFkDirection,
   getPrimaryKeyField,
   getPrimaryKeyFields,
-  getSubqueryConnects,
   needsTransaction,
   // Relation data builders
   separateData,
@@ -51,13 +48,6 @@ export {
   isScalarField,
 } from "./context";
 
-// Error utilities
-export {
-  createInvalidRelationError,
-  createMissingFieldError,
-  createNestedWriteError,
-  createQueryError,
-} from "./errors";
 export type {
   AggregateArgs,
   FindArgs,

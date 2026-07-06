@@ -7,12 +7,12 @@ import { type CoreSchemas, getCoreSchemas } from "./core";
 export type { ArgsSchemas } from "./args";
 export type { CoreSchemas } from "./core";
 
-export type FieldSchemas<M extends AnyModel> = {
+export type ScalarSchemas<M extends AnyModel> = {
   scalars: GetScalarsSchemas<M>;
   relations: GetRelationsSchemas<M>;
 };
 
-export type AnyFieldSchemas = FieldSchemas<AnyModel>;
+export type AnyScalarSchemas = ScalarSchemas<AnyModel>;
 
 type SchemaInput<S> = S extends { " vibInferred": [infer Input, unknown] }
   ? Input
@@ -20,7 +20,7 @@ type SchemaInput<S> = S extends { " vibInferred": [infer Input, unknown] }
 
 export type ModelSchemas<
   M extends AnyModel,
-  F extends FieldSchemas<M> = FieldSchemas<M>,
+  F extends ScalarSchemas<M> = ScalarSchemas<M>,
 > = {
   core: CoreSchemas<M, F>;
   args: ArgsSchemas<M, F>;
@@ -30,14 +30,12 @@ export type ModelSchemas<
 
 export type ModelStateSchemas<M extends AnyModel> = ModelSchemas<
   M,
-  FieldSchemas<M>
+  ScalarSchemas<M>
 >;
 
-export type ModelArgsSchemas<M extends AnyModel> =
-  ModelStateSchemas<M>["args"];
+export type ModelArgsSchemas<M extends AnyModel> = ModelStateSchemas<M>["args"];
 
-export type ModelCoreSchemas<M extends AnyModel> =
-  ModelStateSchemas<M>["core"];
+export type ModelCoreSchemas<M extends AnyModel> = ModelStateSchemas<M>["core"];
 
 export type ModelOperationInput<
   M extends AnyModel,
@@ -56,10 +54,10 @@ export type ModelRelationNestedInput<
 
 export const getModelSchemas = <
   M extends AnyModel,
-  F extends FieldSchemas<M> = FieldSchemas<M>,
+  F extends ScalarSchemas<M> = ScalarSchemas<M>,
 >(
   model: M,
-  schemas: F,
+  schemas: F
 ): ModelSchemas<M, F> => {
   const core = getCoreSchemas(model, schemas);
   const args = getArgsSchemas(model, schemas, core);

@@ -1,4 +1,4 @@
-import type { Model, ModelState } from "@schema/model/model";
+import type { Model } from "@schema/model/model";
 import v, { type V } from "@validation/primitives/v";
 import type { VibSchema } from "@validation/types";
 import { type CompoundIdSchema, getCompoundIdSchema } from "./compound";
@@ -6,7 +6,7 @@ import { type CompoundIdSchema, getCompoundIdSchema } from "./compound";
 type AnyModel = Model<any>;
 
 // =============================================================================
-// ID SCALARS - Fields marked with .id()
+// ID SCALARS - Scalars marked with .id()
 // =============================================================================
 
 /**

@@ -6,7 +6,8 @@
 
 import { type Sql, sql } from "@sql";
 import { buildSelect } from "../builders/select-builder";
-import { buildWhere, buildWhereUnique } from "../builders/where-builder";
+import { buildWhere } from "../builders/where-builder";
+import { buildWhereUnique } from "../builders/where-unique-builder";
 import { getTableName } from "../context";
 import type { QueryContext } from "../types";
 
@@ -62,8 +63,15 @@ export function buildDeleteMany(ctx: QueryContext, args: DeleteManyArgs): Sql {
   const { adapter } = ctx;
   const tableName = getTableName(ctx.model);
 
-  // Build WHERE (optional for deleteMany, no alias for DELETE statements)
-  const whereSql = buildWhere(ctx, args.where, "");
+  // Build WHERE qualified by table name so relation-filter EXISTS subqueries
+  // stay correlated (the unaliased DELETE target is addressable by its name).
+  // mutationTable lets relation filters wrap subqueries that select from the
+  // mutated table on dialects that reject that (MySQL error 1093).
+  const whereSql = buildWhere(
+    { ...ctx, mutationTable: tableName },
+    args.where,
+    tableName
+  );
 
   // Build DELETE
   const table = adapter.identifiers.escape(tableName);

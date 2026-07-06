@@ -10,7 +10,7 @@ description: SQLite driver for Cloudflare D1 using Worker bindings
 ## Configuration
 
 ```typescript
-import { createClient } from "viborm/drivers/d1";
+import { createClient } from "viborm/d1";
 
 export default {
   async fetch(request: Request, env: Env) {
@@ -58,10 +58,10 @@ const [user, post] = await client.$transaction([
 
 ### Dynamic Transactions
 
-Dynamic transactions (callback API) will execute sequentially with a warning:
+Dynamic transactions (callback API) are unsupported and reject:
 
 ```typescript
-// Warning: Operations execute without isolation on D1
+// Throws TransactionError: D1 does not support callback transactions
 await client.$transaction(async (tx) => {
   const user = await tx.user.create({ data: { name: "Alice" } });
   await tx.post.create({ data: { title: "Hello", authorId: user.id } });
@@ -69,7 +69,7 @@ await client.$transaction(async (tx) => {
 ```
 
 <Callout type="warn">
-For D1, prefer batch mode (`$transaction([...])`) over callback mode when operations are independent. Batch mode provides atomicity through D1's native `batch()` API.
+For D1, use batch mode (`$transaction([...])`) for operations that can be planned up front. Batch mode provides atomicity through D1's native `batch()` API. Documented nested writes may carry internal generated or updated primary-key references through VibORM's planned batch path.
 </Callout>
 
 ### Migrations
@@ -80,14 +80,14 @@ Migrations run atomically on D1 using the native `batch()` API - all statements 
 
 | Feature | Support |
 |---------|---------|
-| Dynamic transactions | Sequential with warning |
+| Dynamic transactions | Unsupported; rejects |
 | Batch mode | Full (native `batch()`) |
+| Nested writes | Same public contract through atomic batch; hosted conformance requires external runs |
 | Migration atomicity | Full |
 
 ## Limitations
 
-- **No transaction isolation** - Other connections may see intermediate state
-- **No read-your-writes in batch** - Operations must be independent
+- **No callback-visible read-your-writes in batch** - sibling operations cannot consume previous sibling results; use one nested write for supported dependent relation mutations
 - Only available in Cloudflare Workers
 - SQLite dialect - no `LATERAL` joins, limited `FULL OUTER JOIN`
 - JSON columns return as strings and are parsed automatically

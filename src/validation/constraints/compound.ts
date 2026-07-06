@@ -1,7 +1,7 @@
 import type { Model, ModelState } from "@schema/model/model";
 import type { ObjectSchema } from "@validation/primitives/object";
-import type { VibSchema } from "@validation/types";
 import v, { type V } from "@validation/primitives/v";
+import type { VibSchema } from "@validation/types";
 
 type AnyModel = Model<ModelState>;
 
@@ -41,7 +41,7 @@ export type CompoundIdName<M extends AnyModel> =
  * // Schema: { tenantId: string, orderId: string }
  */
 export const getCompoundIdSchema = <M extends AnyModel>(
-  model: M,
+  model: M
 ): CompoundIdSchema<M> | undefined => {
   const compoundId = model["~"].state.compoundId;
   if (!compoundId) return undefined;
@@ -112,7 +112,7 @@ export type CompoundUniqueSchemaByName<
  * // { tenantId_orderId: { tenantId, orderId }, email_tenantId: { email, tenantId } }
  */
 export const getCompoundUniqueSchemas = <M extends AnyModel>(
-  model: M,
+  model: M
 ): CompoundUniqueSchemas<M> | undefined => {
   const result: Record<string, ObjectSchema<Record<string, VibSchema>>> = {};
   let hasAny = false;
@@ -146,7 +146,7 @@ export const getCompoundUniqueSchemaByName = <
   Name extends string,
 >(
   model: M,
-  name: Name,
+  name: Name
 ): ObjectSchema<Record<string, VibSchema>> | undefined => {
   const compoundId = model["~"].state.compoundId;
   if (compoundId?.[name]) return compoundId[name];
@@ -175,7 +175,7 @@ export const hasCompoundUnique = <M extends AnyModel>(model: M): boolean => {
  * Returns a union schema that accepts any of the compound constraints.
  */
 export const getCompoundUniqueUnionSchema = <M extends AnyModel>(
-  model: M,
+  model: M
 ): V.Union<readonly ObjectSchema<Record<string, VibSchema>>[]> | undefined => {
   const schemas: ObjectSchema<Record<string, VibSchema>>[] = [];
 

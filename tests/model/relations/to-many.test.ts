@@ -4,7 +4,8 @@
  * Tests schemas for oneToMany and manyToMany relations:
  * - Filter schemas (some, every, none)
  * - Create schemas (create, connect, connectOrCreate) - single or array
- * - Update schemas (create, createMany, connect, disconnect, set, delete, connectOrCreate)
+ * - Update schemas (create, createMany, connect, disconnect, set, delete,
+ *   connectOrCreate, update, updateMany, upsert, deleteMany)
  * - Select/Include schemas with pagination
  * - OrderBy schemas (_count)
  */
@@ -17,7 +18,8 @@ import { authorSchemas } from "../fixtures";
 // Runtime assertions below still verify concrete transformed shapes.
 type RelationOutput = any;
 
-const relationOutput = (value: unknown): RelationOutput => value as RelationOutput;
+const relationOutput = (value: unknown): RelationOutput =>
+  value as RelationOutput;
 
 // =============================================================================
 // TO-MANY FILTER SCHEMAS
@@ -221,7 +223,9 @@ describe("ToMany Create - Author.posts (oneToMany)", () => {
     });
     expect(result.issues).toBeUndefined();
     if (!result.issues) {
-      expect(Array.isArray(relationOutput(result.value).posts?.create)).toBe(true);
+      expect(Array.isArray(relationOutput(result.value).posts?.create)).toBe(
+        true
+      );
       expect(relationOutput(result.value).posts?.create).toHaveLength(1);
     }
   });
@@ -234,7 +238,9 @@ describe("ToMany Create - Author.posts (oneToMany)", () => {
     });
     expect(result.issues).toBeUndefined();
     if (!result.issues) {
-      expect(Array.isArray(relationOutput(result.value).posts?.connect)).toBe(true);
+      expect(Array.isArray(relationOutput(result.value).posts?.connect)).toBe(
+        true
+      );
     }
   });
 
@@ -395,17 +401,64 @@ describe("ToMany Update - Author.posts (oneToMany)", () => {
     expect(result.issues).toBeDefined();
   });
 
-  test.each(["update", "updateMany", "deleteMany", "upsert"] as const)(
-    "rejects unsupported '%s'",
-    (operation) => {
-      const result = parse(schema, {
-        posts: {
-          [operation]: {},
+  test("accepts targeted 'update'", () => {
+    const result = parse(schema, {
+      posts: {
+        update: {
+          where: { id: "post-1" },
+          data: { title: "Updated" },
         },
-      });
-      expect(result.issues?.[0]?.message).toBe(`Unknown key: ${operation}`);
-    }
-  );
+      },
+    });
+    expect(result.issues).toBeUndefined();
+  });
+
+  test("accepts set-based 'updateMany'", () => {
+    const result = parse(schema, {
+      posts: {
+        updateMany: {
+          where: { published: false },
+          data: { published: true },
+        },
+      },
+    });
+    expect(result.issues).toBeUndefined();
+  });
+
+  test("accepts 'deleteMany'", () => {
+    const result = parse(schema, {
+      posts: {
+        deleteMany: { published: false },
+      },
+    });
+    expect(result.issues).toBeUndefined();
+  });
+
+  test("accepts 'upsert'", () => {
+    const result = parse(schema, {
+      posts: {
+        upsert: {
+          where: { id: "post-1" },
+          create: { id: "post-1", title: "Created", authorId: "author-1" },
+          update: { title: "Updated" },
+        },
+      },
+    });
+    expect(result.issues).toBeUndefined();
+  });
+
+  test.each([
+    ["update", { data: { title: "Updated" } }],
+    ["updateMany", { where: { published: false } }],
+    ["upsert", { where: { id: "post-1" }, update: { title: "Updated" } }],
+  ] as const)("rejects malformed '%s'", (operation, envelope) => {
+    const result = parse(schema, {
+      posts: {
+        [operation]: envelope,
+      },
+    });
+    expect(result.issues).toBeDefined();
+  });
 
   // Combined operations
   test("accepts combined operations in single update", () => {
@@ -493,6 +546,16 @@ describe("ToMany Select - Author.posts (oneToMany)", () => {
     expect(result.issues).toBeUndefined();
   });
 
+  test("rejects select with relation orderBy", () => {
+    const result = parse(schema, {
+      posts: {
+        orderBy: { author: { name: "asc" } },
+        select: { title: true },
+      },
+    });
+    expect(result.issues).toBeDefined();
+  });
+
   test("output: preserves select with all options", () => {
     const result = parse(schema, {
       posts: {
@@ -507,7 +570,9 @@ describe("ToMany Select - Author.posts (oneToMany)", () => {
     if (!result.issues) {
       expect(relationOutput(result.value).posts?.take).toBe(10);
       expect(relationOutput(result.value).posts?.skip).toBe(5);
-      expect(relationOutput(result.value).posts?.orderBy).toEqual({ title: "asc" });
+      expect(relationOutput(result.value).posts?.orderBy).toEqual({
+        title: "asc",
+      });
       expect(relationOutput(result.value).posts?.select?.id).toBe(true);
     }
   });
@@ -553,6 +618,15 @@ describe("ToMany Include - Author.posts (oneToMany)", () => {
       },
     });
     expect(result.issues).toBeUndefined();
+  });
+
+  test("rejects with relation orderBy", () => {
+    const result = parse(schema, {
+      posts: {
+        orderBy: { author: { name: "asc" } },
+      },
+    });
+    expect(result.issues).toBeDefined();
   });
 
   test("accepts with nested include", () => {
@@ -628,5 +702,13 @@ describe("ToMany OrderBy - Author.posts (oneToMany)", () => {
     if (!result.issues) {
       expect(relationOutput(result.value).posts?._count).toBe("desc");
     }
+  });
+
+  test("rejects scalar field ordering", () => {
+    const result = parse(schema, {
+      posts: { title: "asc" },
+    });
+
+    expect(result.issues).toBeDefined();
   });
 });

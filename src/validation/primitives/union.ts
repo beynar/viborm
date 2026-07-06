@@ -1,5 +1,5 @@
 import type { InferInput, InferOutput, VibSchema } from "../types";
-import { createSchema, fail, ok, validateSchema } from "./helpers";
+import { createSchema, fail, validateSchema } from "./helpers";
 
 // =============================================================================
 // Union Schema
@@ -30,19 +30,31 @@ export function union<const TOptions extends readonly VibSchema<any, any>[]>(
     InferInput<TOptions[number]>,
     InferOutput<TOptions[number]>
   >("union", (value) => {
-    const errors: string[] = [];
+    // Success path allocates nothing extra: the matching member's result is
+    // returned as-is (no ok() re-wrap), and error messages only start
+    // accumulating into an array once a SECOND member has failed — the common
+    // "first member misses, second matches" filter pattern (shorthand vs
+    // object) stays allocation-free.
+    let firstError: string | null = null;
+    let restErrors: string[] | null = null;
 
     for (const option of options) {
       const result = validateSchema(option, value);
       if (!result.issues) {
-        return ok(
-          (result as { value: unknown }).value as InferOutput<TOptions[number]>
-        );
+        return result as { value: InferOutput<TOptions[number]> };
       }
-      errors.push(result.issues[0]!.message);
+      const message = result.issues[0]!.message;
+      if (firstError === null) {
+        firstError = message;
+      } else {
+        (restErrors ??= []).push(message);
+      }
     }
 
-    return fail(`Value did not match any union member: ${errors.join(", ")}`);
+    const detail = restErrors
+      ? `${firstError}, ${restErrors.join(", ")}`
+      : firstError;
+    return fail(`Value did not match any union member: ${detail}`);
   }) as UnionSchema<TOptions>;
 
   (schema as any).options = options;

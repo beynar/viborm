@@ -1,6 +1,6 @@
 ---
 title: String Filters
-description: Filter operators for string fields
+description: Filter operators for string scalars
 icon: Type
 ---
 
@@ -64,6 +64,10 @@ where: { email: { endsWith: "@company.com" } }
 where: { email: { endsWith: "@company.com", mode: "insensitive" } }
 ```
 
+<Callout type="info">
+  `contains`, `startsWith`, and `endsWith` match the value as a literal substring. Wildcard characters (`%`, `_`, `\`) in the value are escaped automatically, so they are matched literally rather than acting as SQL `LIKE` wildcards.
+</Callout>
+
 ## mode (Case Sensitivity)
 
 ```ts
@@ -74,8 +78,14 @@ where: { name: { contains: "Alice" } }
 where: { name: { contains: "alice", mode: "insensitive" } }
 ```
 
+`mode: "insensitive"` applies to `equals`, `not`, `in`, `notIn`, `contains`, `startsWith`, and `endsWith`.
+
 <Callout type="info">
-  PostgreSQL uses `ILIKE` for insensitive mode. MySQL uses collation settings.
+  Case-sensitivity behavior is database-dependent, matching Prisma's documented tradeoffs:
+
+  - **PostgreSQL** is case-sensitive by default; `mode: "insensitive"` uses `ILIKE` (or an escaped-pattern equivalent for `equals`/`in`).
+  - **MySQL**'s default collations (e.g. `utf8mb4_0900_ai_ci`) are already case-insensitive, so both default and `insensitive` mode behave the same way unless you configure a case-sensitive collation on the column.
+  - **SQLite** is case-insensitive for ASCII characters by default in `LIKE`-based comparisons, regardless of `mode` — this is a SQLite limitation, not a VibORM choice.
 </Callout>
 
 ## Combined Example

@@ -13,7 +13,6 @@ export {
 } from "./correlation-utils";
 export type { IncludeResult } from "./include-builder";
 export { assembleInnerQuery, buildInclude } from "./include-builder";
-export { buildCreateWithNested } from "./nested-create-builder";
 export { buildOrderBy } from "./orderby-builder";
 export type {
   ConnectOrCreateInput,
@@ -23,11 +22,8 @@ export type {
 } from "./relation-data-builder";
 export {
   buildConnectFkValues,
-  buildConnectSubquery,
-  buildDisconnectFkNulls,
   canUseSubqueryOnly,
   getFkDirection,
-  getSubqueryConnects,
   needsTransaction,
   separateData,
 } from "./relation-data-builder";
@@ -40,4 +36,5 @@ export {
 } from "./select-builder";
 export { buildSet } from "./set-builder";
 export { buildInsert, buildInsertMany, buildValues } from "./values-builder";
-export { buildWhere, buildWhereUnique } from "./where-builder";
+export { buildWhere } from "./where-builder";
+export { buildWhereUnique } from "./where-unique-builder";

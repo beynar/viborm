@@ -1,21 +1,22 @@
 // Model Class Implementation
-// Defines database models with fields and relations
+// Defines database models with scalars and relations
 
-import v, { type ObjectSchema, type VibSchema } from "@validation";
-import type { Field } from "../fields/base";
-import type { HydratedSchemaNames, SchemaNames } from "../fields/common";
+import v from "@validation/primitives/v";
+import type { ObjectSchema, VibSchema } from "@validation";
 import type { AnyRelation } from "../relation";
+import type { Scalar } from "../scalars/base";
+import type { HydratedSchemaNames, SchemaNames } from "../scalars/common";
 import {
-  extractRelationFields,
-  extractScalarFields,
-  extractUniqueFields,
-  type FieldRecord,
+  extractRelationMap,
+  extractScalarMap,
+  extractUniqueScalarMap,
   getNameFromKeys,
+  type ModelShape,
   type NameFromKeys,
-  type RelationFields,
-  type ScalarFields,
+  type RelationMap,
+  type ScalarMap,
   type StringKeyOf,
-  type UniqueFields,
+  type UniqueScalarMap,
 } from "./helper";
 // Re-export types from helpers for external use
 
@@ -24,7 +25,7 @@ import {
 // =============================================================================
 
 export interface ModelState {
-  fields: FieldRecord;
+  shape: ModelShape;
   compoundId:
     | Record<string, ObjectSchema<Record<string, VibSchema>>>
     | undefined;
@@ -34,9 +35,9 @@ export interface ModelState {
   tableName: string | undefined;
   indexes: IndexDefinition[];
   omit: Record<string, true> | undefined;
-  scalars: Record<string, Field>;
+  scalars: Record<string, Scalar>;
   relations: Record<string, AnyRelation>;
-  uniques: Record<string, Field>;
+  uniques: Record<string, Scalar>;
 }
 
 /**
@@ -89,7 +90,7 @@ export const mergeIndexDefinitions = <
   Index extends IndexDefinition,
 >(
   state: State,
-  index: Index,
+  index: Index
 ): UpdateIndexDefinition<State, Index> => {
   return [...state.indexes, index] as UpdateIndexDefinition<State, Index>;
 };
@@ -100,12 +101,22 @@ export type UpdateState<
 > = Omit<State, keyof Update> & Update;
 
 /**
- * Name registry for fields and relations.
- * Maps field/relation keys to their resolved names (ts and sql).
+ * Merge a new compound constraint into the existing record so repeated
+ * .id()/.unique() calls accumulate instead of replacing each other.
+ * Resolves to just `Added` when nothing was set yet.
+ */
+type MergeCompound<Existing, Added> = Added &
+  (Existing extends Record<string, ObjectSchema<Record<string, VibSchema>>>
+    ? Existing
+    : unknown);
+
+/**
+ * Name registry for scalars and relations.
+ * Maps scalar/relation keys to their resolved names (ts and sql).
  * This is populated during hydration.
  */
 export interface NameRegistry {
-  /** Field names: key -> {ts, sql} */
+  /** Scalar names: key -> {ts, sql} */
   fields: Map<string, SchemaNames>;
   /** Relation names: key -> {ts, sql} */
   relations: Map<string, SchemaNames>;
@@ -126,6 +137,7 @@ export class Model<State extends ModelState> {
   private _scalarFieldSet: Set<string> | undefined;
   private _relationNames: string[] | undefined;
   private _relationSet: Set<string> | undefined;
+  private _internal: ModelInternal<State> | undefined;
 
   constructor(state: State) {
     this.state = state;
@@ -169,32 +181,36 @@ export class Model<State extends ModelState> {
     const name = getNameFromKeys(options?.name, fields);
     const fieldsRecord = fields.reduce(
       (acc, fieldName) => {
-        const field =
+        const scalar =
           fieldName in this.state.scalars
             ? this.state.scalars[fieldName]
             : undefined;
-        if (field) {
-          acc[fieldName] = field["~"].state.base;
+        if (scalar) {
+          acc[fieldName] = scalar["~"].state.base;
         }
         return acc;
       },
-      {} as Record<string, VibSchema>,
+      {} as Record<string, VibSchema>
     );
 
     const compoundId = {
+      ...this.state.compoundId,
       [name]: v.object(fieldsRecord, { partial: false }),
     } as any;
     return new Model({ ...this.state, compoundId }) as unknown as Model<
       UpdateState<
         State,
         {
-          compoundId: {
-            [K in Name extends undefined
-              ? NameFromKeys<Keys>
-              : Name]: ObjectSchema<{
-              [K2 in Keys[number]]: State["scalars"][K2]["~"]["state"]["base"];
-            }>;
-          };
+          compoundId: MergeCompound<
+            State["compoundId"],
+            {
+              [K in Name extends undefined
+                ? NameFromKeys<Keys>
+                : Name]: ObjectSchema<{
+                [K2 in Keys[number]]: State["scalars"][K2]["~"]["state"]["base"];
+              }>;
+            }
+          >;
         }
       >
     >;
@@ -207,67 +223,79 @@ export class Model<State extends ModelState> {
     const name = getNameFromKeys(options?.name, fields);
     const fieldsRecord = fields.reduce(
       (acc, fieldName) => {
-        const field =
+        const scalar =
           fieldName in this.state.scalars
             ? this.state.scalars[fieldName]
             : undefined;
-        if (field) {
-          acc[fieldName] = field["~"].state.base;
+        if (scalar) {
+          acc[fieldName] = scalar["~"].state.base;
         }
         return acc;
       },
-      {} as Record<string, VibSchema>,
+      {} as Record<string, VibSchema>
     );
 
     const compoundUniques = {
+      ...this.state.compoundUniques,
       [name]: v.object(fieldsRecord, { partial: false }),
     } as any;
     return new Model({ ...this.state, compoundUniques }) as unknown as Model<
       UpdateState<
         State,
         {
-          compoundUniques: {
-            [K in Name extends undefined
-              ? NameFromKeys<Keys>
-              : Name]: ObjectSchema<{
-              [K2 in Keys[number]]: State["scalars"][K2]["~"]["state"]["base"];
-            }>;
-          };
+          compoundUniques: MergeCompound<
+            State["compoundUniques"],
+            {
+              [K in Name extends undefined
+                ? NameFromKeys<Keys>
+                : Name]: ObjectSchema<{
+                [K2 in Keys[number]]: State["scalars"][K2]["~"]["state"]["base"];
+              }>;
+            }
+          >;
         }
       >
     >;
   }
 
-  extends<ETFields extends FieldRecord>(fields: ETFields) {
-    const newFields = { ...this.state.fields, ...fields } as State["fields"] &
-      ETFields;
+  extends<ETShape extends ModelShape>(shape: ETShape) {
+    const newShape = { ...this.state.shape, ...shape } as State["shape"] &
+      ETShape;
     return new Model({
       ...this.state,
-      fields: newFields,
-      scalars: extractScalarFields(newFields),
-      relations: extractRelationFields(newFields),
-      uniques: extractUniqueFields(newFields),
+      shape: newShape,
+      scalars: extractScalarMap(newShape),
+      relations: extractRelationMap(newShape),
+      uniques: extractUniqueScalarMap(newShape),
     }) as unknown as Model<
       UpdateState<
         State,
         {
-          fields: State["fields"] & ETFields;
-          scalars: ScalarFields<State["fields"] & ETFields>;
-          relations: RelationFields<State["fields"] & ETFields>;
-          uniques: UniqueFields<State["fields"] & ETFields>;
+          shape: State["shape"] & ETShape;
+          scalars: ScalarMap<State["shape"] & ETShape>;
+          relations: RelationMap<State["shape"] & ETShape>;
+          uniques: UniqueScalarMap<State["shape"] & ETShape>;
         }
       >
     >;
   }
 
   get "~"(): ModelInternal<State> {
+    if (this._internal) {
+      return this._internal;
+    }
     // Capture model instance for use in getters
     const model = this;
 
-    return {
+    this._internal = {
       state: this.state,
-      names: this._names,
-      nameRegistry: this._nameRegistry,
+      // getters so hydration after first access is still observed
+      get names() {
+        return model._names;
+      },
+      get nameRegistry() {
+        return model._nameRegistry;
+      },
       /**
        * Get the resolved names for a field.
        * Throws if the schema has not been hydrated.
@@ -277,7 +305,7 @@ export class Model<State extends ModelState> {
         if (registered) {
           return registered as HydratedSchemaNames;
         }
-        throw new Error(`Field "${key}" not found in nameRegistry`);
+        throw new Error(`Scalar "${key}" not found in nameRegistry`);
       },
       /**
        * Get the resolved names for a relation.
@@ -307,19 +335,20 @@ export class Model<State extends ModelState> {
         return (model._relationSet ??= new Set(this.relationNames));
       },
     };
+    return this._internal;
   }
 }
 
-export const model = <TFields extends FieldRecord>(
-  fields: TFields,
+export const model = <TShape extends ModelShape>(
+  shape: TShape
 ): Model<
   UpdateState<
     ModelState,
     {
-      fields: TFields;
-      scalars: ScalarFields<TFields>;
-      relations: RelationFields<TFields>;
-      uniques: UniqueFields<TFields>;
+      shape: TShape;
+      scalars: ScalarMap<TShape>;
+      relations: RelationMap<TShape>;
+      uniques: UniqueScalarMap<TShape>;
       omit: undefined;
     }
   >
@@ -330,10 +359,26 @@ export const model = <TFields extends FieldRecord>(
     tableName: undefined,
     indexes: [],
     omit: undefined,
-    fields,
-    scalars: extractScalarFields(fields),
-    relations: extractRelationFields(fields),
-    uniques: extractUniqueFields(fields),
+    shape,
+    scalars: extractScalarMap(shape),
+    relations: extractRelationMap(shape),
+    uniques: extractUniqueScalarMap(shape),
   });
 
 export type AnyModel = Model<any>;
+
+/**
+ * SQL table name for a model: hydrated name, then .map() tableName, then
+ * the given fallback.
+ */
+export function getTableName(model: AnyModel, fallback = "unknown"): string {
+  return model["~"].names.sql ?? model["~"].state.tableName ?? fallback;
+}
+
+/**
+ * SQL column name for a field, resolved through the model's nameRegistry
+ * (supports field reuse across models) with .map() and field-name fallbacks.
+ */
+export function getColumnName(model: AnyModel, fieldName: string): string {
+  return model["~"].getFieldName(fieldName).sql;
+}

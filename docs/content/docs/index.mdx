@@ -1,6 +1,6 @@
 ---
 title: Introduction
-description: Prisma's API without code generation or WASM deployment issues
+description: Prisma-inspired TypeScript ORM without code generation or WASM query-engine deployment issues
 icon: Database
 ---
 
@@ -8,7 +8,7 @@ icon: Database
 
 VibORM started as an experiment: **how far can we push vibe coding?** Can we build something as complex as an ORM with AI assistance?
 
-The answer, so far, is yes - and the result gives you **Prisma's query API** without the code generation step or WASM deployment headaches.
+The answer, so far, is yes - and the result gives you a **Prisma-inspired query API** without the code generation step or WASM query-engine deployment headaches.
 
 ## The Origin
 
@@ -22,20 +22,20 @@ Check out the [Internals](/docs/internals) section to see how it's structured.
 
 ## Feature Goals
 
-We want the same features that make Prisma great:
+We want the same developer-experience strengths that make Prisma useful:
 
 - **Implicit many-to-many** - Define relations without manual join tables
 - **Rich filtering** - `contains`, `startsWith`, `in`, `not`, and more
 - **Deep relation filtering** - Filter by nested relation fields (`where: { posts: { some: { published: true } } }`)
 - **Single query execution** - No N+1 problem, relations loaded in one roundtrip
-- **Nested writes** - Create/update related records in a single operation
+- **Supported nested writes** - Create or connect related records in a single operation where the compatibility contract lists support
 
 And we want to explore features that don't exist yet but should be possible:
 
 - **Polymorphic relations** - A comment that can belong to either a Post or a Video
 - **Recursive queries** - Query self-referencing relationships (org hierarchies, threaded comments)
 
-We also have **deep Standard Schema integration**. You can extend field definitions with additional constraints using Zod, Valibot, or any Standard Schema compliant library:
+We also have **deep Standard Schema integration**. You can extend scalar definitions with additional constraints using Zod, Valibot, or any Standard Schema compliant library:
 
 ```typescript
 import { z } from "zod";
@@ -84,7 +84,8 @@ This is what "from first principles" means for us: starting with the schema defi
 ## What It Looks Like
 
 ```typescript
-import { s, createClient } from "viborm";
+import { s } from "viborm";
+import { createClient } from "viborm/pg";
 
 // Define schema - types are inferred from this
 const user = s.model({
@@ -104,10 +105,10 @@ const post = s.model({
 // Create client
 const orm = createClient({
   schema: { user, post },
-  adapter: new PostgresAdapter({ connectionString: "..." }),
+  databaseUrl: process.env.DATABASE_URL,
 });
 
-// Prisma-like queries, fully typed
+// Prisma-inspired queries, fully typed
 const users = await orm.user.findMany({
   where: { email: { contains: "@company.com" } },
   include: { posts: { where: { published: true } } },
@@ -122,7 +123,7 @@ VibORM is in early alpha and **not ready for production use**. APIs may change, 
 
 ### Familiar API
 
-If you know Prisma, you know VibORM. Same patterns: `findMany`, `findFirst`, `create`, `update`, `delete`, nested `include`, `where` filters, etc.
+If you know Prisma, VibORM should feel familiar: `findMany`, `findFirst`, `create`, `update`, `delete`, nested `include`, and `where` filters use similar patterns. The public contract is intentionally narrower than Prisma today; see [Compatibility](/docs/client/compatibility) for supported operations and known differences.
 
 ### Database Support
 
@@ -212,7 +213,7 @@ const jsonSchema = schemas.user.core.create["~standard"].jsonSchema.output({
   />
   <Card
     title="Schema Definition"
-    description="Define models, fields, and relations"
+    description="Define models and fields (scalars and relations)"
     href="/docs/schema"
   />
   <Card

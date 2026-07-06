@@ -9,9 +9,10 @@ export {
   databaseRules,
   enumValueValid,
   fkCardinalityMatch,
-  // FK rules (FK001-FK007)
+  // FK rules (FK001-FK008)
   fkFieldExists,
   fkFieldNotRelation,
+  fkOneToOneUnique,
   fkReferenceExists,
   fkReferencesUnique,
   fkRequiredForOwning,
@@ -20,6 +21,7 @@ export {
   // Index rules (I001-I003)
   indexFieldsExist,
   indexNameUnique,
+  junctionConfigConsistent,
   junctionFieldsDistinct,
   junctionFieldsValid,
   // Junction table rules (JT001-JT005)
@@ -45,9 +47,7 @@ export {
   relationRules,
   // Relation rules (R001-R007)
   relationTargetExists,
-  selfRefDistinctNames,
-  selfRefJunctionOrder,
-  // Self-ref rules (SR001-SR002)
+  // Self-ref rules (SR001)
   selfRefValidInverse,
   setNullRequiresNullable,
   sqliteNoEnum,

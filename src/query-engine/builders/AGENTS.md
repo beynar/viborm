@@ -24,13 +24,17 @@ All builders follow the same pattern: pure function, context first, returns Sql.
 
 | File | Purpose | Complexity |
 |------|---------|------------|
-| `where-builder.ts` | WHERE clauses | High (~400 lines) |
-| `include-builder.ts` | Relation inclusion | High (~200 lines) |
-| `select-builder.ts` | SELECT columns | Low |
-| `orderby-builder.ts` | ORDER BY | Low |
-| `relation-filter-builder.ts` | some/every/none | Medium |
-| `set-builder.ts` | UPDATE SET | Medium |
+| `relation-data-builder.ts` | Nested-write data classification, FK direction | High (~800 lines) |
+| `include-builder.ts` | Relation inclusion (lateral + subquery strategies) | High (~630 lines) |
+| `where-builder.ts` | WHERE clauses, filter dispatch | High (~620 lines) |
+| `relation-filter-builder.ts` | some/every/none, is/isNot | Medium (~440 lines) |
+| `select-builder.ts` | SELECT columns, JSON pair building | Medium |
+| `correlation-utils.ts` | Inverse-relation resolution, PK fields | Medium |
+| `many-to-many-utils.ts` | Junction table identity and joins | Medium |
 | `values-builder.ts` | INSERT VALUES | Medium |
+| `sort-order-builder.ts`, `relation-orderby-builder.ts` | ORDER BY | Low |
+| `set-builder.ts` | UPDATE SET | Low |
+| `where-unique-builder.ts`, `relation-count-builder.ts`, `aggregate-utils.ts` | Unique WHERE, `_count`, aggregates | Low |
 
 ---
 

@@ -5,13 +5,14 @@
  * Each driver implements DDL generation and introspection for its database.
  */
 
-import type { Field, FieldState } from "@schema/fields";
+import type { Scalar, ScalarState } from "@schema/scalars";
 import { MigrationError, VibORMErrorCode } from "../../errors";
 import type {
   ColumnDef,
   DiffOperation,
   ReferentialAction,
   SchemaSnapshot,
+  TableDef,
 } from "../types";
 import type { Dialect, MigrationCapabilities } from "./types";
 
@@ -128,13 +129,23 @@ export abstract class MigrationDriver {
   // ===========================================================================
 
   /**
-   * Maps a VibORM field type to the native database column type.
+   * Maps a VibORM scalar type to the native database column type.
    *
-   * @param field - The field definition
-   * @param fieldState - The field state with type info
+   * @param scalar - The scalar definition
+   * @param scalarState - The scalar state with type info
    * @returns The native column type string
    */
-  abstract mapFieldType(field: Field, fieldState: FieldState): string;
+  abstract mapScalarType(scalar: Scalar, scalarState: ScalarState): string;
+
+  /**
+   * Final pass over a serialized table before diffing/DDL generation.
+   * Lets drivers apply table-aware type adjustments (e.g. MySQL rewrites
+   * keyed TEXT columns to VARCHAR, since TEXT cannot be indexed without a
+   * key length). Default: identity.
+   */
+  finalizeTable(table: TableDef): TableDef {
+    return table;
+  }
 
   // Note: getDefaultExpression is implemented below as a common method
   // Override it in subclasses only if database-specific behavior is needed
@@ -291,21 +302,21 @@ export abstract class MigrationDriver {
    * Common implementation that handles most cases.
    * Override for database-specific behavior (e.g., UUID generation, boolean representation).
    *
-   * @param fieldState - The field state
+   * @param scalarState - The scalar state
    * @returns SQL default expression or undefined if no default
    */
-  getDefaultExpression(fieldState: FieldState): string | undefined {
+  getDefaultExpression(scalarState: ScalarState): string | undefined {
     // Auto-generated values - check for database-level support first
-    if (fieldState.autoGenerate) {
-      return this.getAutoGenerateExpression(fieldState.autoGenerate);
+    if (scalarState.autoGenerate) {
+      return this.getAutoGenerateExpression(scalarState.autoGenerate);
     }
 
     // Check for explicit default value
-    if (!fieldState.hasDefault || fieldState.default === undefined) {
+    if (!scalarState.hasDefault || scalarState.default === undefined) {
       return undefined;
     }
 
-    const defaultVal = fieldState.default;
+    const defaultVal = scalarState.default;
 
     // Function defaults are generated at runtime
     if (typeof defaultVal === "function") {
@@ -361,7 +372,7 @@ export abstract class MigrationDriver {
    * @returns SQL expression or undefined if handled at application level
    */
   protected getAutoGenerateExpression(
-    _autoGenerate: FieldState["autoGenerate"]
+    _autoGenerate: ScalarState["autoGenerate"]
   ): string | undefined {
     // By default, all auto-generate types are handled at application level
     // Databases can override to provide native support (e.g., gen_random_uuid())
@@ -546,6 +557,15 @@ export abstract class MigrationDriver {
     return cascade
       ? `DROP TABLE IF EXISTS ${table} CASCADE`
       : `DROP TABLE IF EXISTS ${table}`;
+  }
+
+  /**
+   * Statements to run before dropping all tables during a database reset.
+   * MySQL ignores DROP TABLE ... CASCADE, so it drops FK constraints here
+   * first; other dialects need nothing. Default: none.
+   */
+  getPreResetStatements(_snapshot: SchemaSnapshot): string[] {
+    return [];
   }
 
   /**

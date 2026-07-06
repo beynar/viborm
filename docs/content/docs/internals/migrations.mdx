@@ -14,7 +14,7 @@ Your TypeScript schema is the source of truth:
 const user = s.model({
   id: s.string().id().ulid(),
   email: s.string().unique(),
-  name: s.string().nullable(),  // ← Add this field
+  name: s.string().nullable(),  // Add this scalar
 });
 ```
 
@@ -139,7 +139,7 @@ Best for: Production, team workflows
 
 ## Connection to Other Layers
 
-- **L2 (Fields)**: Field state determines column definitions
+- **L2 (Scalars)**: Scalar state determines column definitions
 - **L4 (Relations)**: Relations determine foreign key constraints
 - **L7 (Adapters)**: Adapters generate database-specific DDL
 - **L8 (Drivers)**: Drivers execute DDL and introspect schema

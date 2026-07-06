@@ -12,7 +12,7 @@ pnpm add @planetscale/database
 ## Configuration
 
 ```typescript
-import { createClient } from "viborm/drivers/planetscale";
+import { createClient } from "viborm/planetscale";
 
 const client = createClient({
   databaseUrl: process.env.DATABASE_URL,
@@ -31,7 +31,7 @@ const client = createClient({
 ### Using Options
 
 ```typescript
-import { createClient } from "viborm/drivers/planetscale";
+import { createClient } from "viborm/planetscale";
 
 const client = createClient({
   options: {

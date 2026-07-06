@@ -1,18 +1,18 @@
 /**
  * Centralized Type Mapping for Migration Drivers
  *
- * Maps VibORM field types to native database column types.
+ * Maps VibORM scalar types to native database column types.
  * Uses constants from native-types.ts to ensure consistency.
  */
 
-import { PG, SQLITE } from "@schema/fields/native-types";
+import { PG, SQLITE } from "@schema/scalars/native-types";
 
 // =============================================================================
 // TYPE MAPPING CONSTANTS
 // =============================================================================
 
 /**
- * Default PostgreSQL type mappings for each VibORM field type.
+ * Default PostgreSQL type mappings for each VibORM scalar type.
  * Uses the same type names as defined in native-types.ts.
  */
 export const PG_TYPE_DEFAULTS = {
@@ -35,7 +35,7 @@ export const PG_TYPE_DEFAULTS = {
 } as const;
 
 /**
- * Default SQLite type mappings for each VibORM field type.
+ * Default SQLite type mappings for each VibORM scalar type.
  * SQLite has limited type affinity - most types map to TEXT, INTEGER, REAL, or BLOB.
  */
 export const SQLITE_TYPE_DEFAULTS = {
@@ -56,7 +56,7 @@ export const SQLITE_TYPE_DEFAULTS = {
 } as const;
 
 /**
- * Default MySQL type mappings for each VibORM field type.
+ * Default MySQL type mappings for each VibORM scalar type.
  * MySQL has full type support but uses TINYINT(1) for booleans
  * and doesn't support native arrays (use JSON instead).
  */
@@ -64,7 +64,7 @@ export const MYSQL_TYPE_DEFAULTS = {
   string: "TEXT",
   int: "INT",
   float: "DOUBLE",
-  decimal: "DECIMAL",
+  decimal: "DECIMAL(65,30)", // bare DECIMAL means DECIMAL(10,0), silently truncating fractions; match Prisma's default
   boolean: "TINYINT(1)", // MySQL uses TINYINT(1) for boolean
   datetime: "DATETIME(3)", // Use DATETIME(3) to preserve JavaScript Date millisecond precision
   datetimetz: "DATETIME(3)", // MySQL DATETIME can store with timezone via application
@@ -83,7 +83,7 @@ export const MYSQL_TYPE_DEFAULTS = {
 // TYPE MAPPING FUNCTIONS
 // =============================================================================
 
-export type VibORMFieldType =
+export type VibORMScalarType =
   | "string"
   | "int"
   | "float"
@@ -99,16 +99,16 @@ export type VibORMFieldType =
   | "point"
   | "enum";
 
-export interface FieldTypeContext {
+export interface ScalarTypeContext {
   type: string;
   array?: boolean;
   withTimezone?: boolean;
 }
 
 /**
- * Gets the PostgreSQL column type for a VibORM field type.
+ * Gets the PostgreSQL column type for a VibORM scalar type.
  */
-export function getPostgresType(context: FieldTypeContext): string {
+export function getPostgresType(context: ScalarTypeContext): string {
   let baseType: string;
 
   switch (context.type) {
@@ -166,10 +166,10 @@ export function getPostgresType(context: FieldTypeContext): string {
 }
 
 /**
- * Gets the SQLite column type for a VibORM field type.
+ * Gets the SQLite column type for a VibORM scalar type.
  * SQLite doesn't support native arrays - they are stored as JSON.
  */
-export function getSQLiteType(context: FieldTypeContext): string {
+export function getSQLiteType(context: ScalarTypeContext): string {
   // SQLite doesn't support native arrays - use JSON
   if (context.array) {
     return "JSON";
@@ -202,10 +202,10 @@ export function getSQLiteType(context: FieldTypeContext): string {
 }
 
 /**
- * Gets the MySQL column type for a VibORM field type.
+ * Gets the MySQL column type for a VibORM scalar type.
  * MySQL doesn't support native arrays - they are stored as JSON.
  */
-export function getMySQLType(context: FieldTypeContext): string {
+export function getMySQLType(context: ScalarTypeContext): string {
   // MySQL doesn't support native arrays - use JSON
   if (context.array) {
     return "JSON";

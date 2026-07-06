@@ -10,7 +10,7 @@ description: SQLite driver using Bun's built-in SQLite
 ## Configuration
 
 ```typescript
-import { createClient } from "viborm/drivers/bun-sqlite";
+import { createClient } from "viborm/bun-sqlite";
 
 const client = createClient({
   dataDir: "./database.sqlite",
@@ -38,7 +38,7 @@ const client = createClient({
 ### In-Memory Database
 
 ```typescript
-import { createClient } from "viborm/drivers/bun-sqlite";
+import { createClient } from "viborm/bun-sqlite";
 
 // Default is in-memory
 const client = createClient({
@@ -49,7 +49,7 @@ const client = createClient({
 ### Read-Only Mode
 
 ```typescript
-import { createClient } from "viborm/drivers/bun-sqlite";
+import { createClient } from "viborm/bun-sqlite";
 
 const client = createClient({
   dataDir: "./database.sqlite",
@@ -72,6 +72,6 @@ await client.$transaction(async (tx) => {
 ## Limitations
 
 - Only available in Bun runtime
-- JSON columns return as strings (VibORM auto-parses JSON relations via `tryParseJsonString()`)
+- JSON columns return as strings; JSON-encoded relation results are parsed via `tryParseJsonString()`
 - Boolean values stored as integers (0/1)
 - Synchronous API internally (async wrapper)

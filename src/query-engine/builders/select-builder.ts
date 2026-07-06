@@ -6,27 +6,15 @@
  */
 
 import { type Sql, sql } from "@sql";
-import { parse } from "@validation";
 import {
-  createChildContext,
   getColumnName,
   getRelationInfo,
   getScalarFieldNames,
-  getTableName,
   isRelation,
 } from "../context";
-import {
-  QueryEngineError,
-  type QueryContext,
-  type RelationInfo,
-} from "../types";
-import { buildCorrelation } from "./correlation-utils";
+import { type QueryContext, QueryEngineError } from "../types";
 import { buildInclude, type IncludeStrategy } from "./include-builder";
-import {
-  buildManyToManyJoinParts,
-  getManyToManyJoinInfo,
-} from "./many-to-many-utils";
-import { buildWhere } from "./where-builder";
+import { buildRelationCount } from "./relation-count-builder";
 
 /**
  * Options for buildSelect
@@ -58,15 +46,16 @@ interface SelectPairsResult {
 }
 
 /**
- * Cast BigInt and Decimal fields to TEXT for JSON serialization to preserve precision.
- *
- * JSON doesn't have native BigInt or Decimal types, so databases convert them to JSON numbers,
- * which lose precision for values > Number.MAX_SAFE_INTEGER or high-precision decimals.
- * Casting to TEXT preserves the full precision, and the result parser converts back to the appropriate type.
+ * Encode scalar columns that can't ride through JSON as-is:
+ * - BigInt/Decimal → TEXT: JSON numbers lose precision past
+ *   Number.MAX_SAFE_INTEGER / high-precision decimals
+ * - Blob → hex text: JSON can't hold binary (SQLite's json_object even
+ *   throws "JSON cannot hold BLOB values")
+ * The result parser converts each back to its JS type.
  *
  * @param ctx - Query context
- * @param pairs - Field name and expression pairs
- * @returns Pairs with BigInt and Decimal fields cast to TEXT
+ * @param pairs - Scalar name and expression pairs
+ * @returns Pairs with affected scalar columns wrapped
  */
 function castNumericPairsForJson(
   ctx: QueryContext,
@@ -75,12 +64,15 @@ function castNumericPairsForJson(
   const scalars = ctx.model["~"].state.scalars;
 
   return pairs.map(([fieldName, expr]) => {
-    const field = scalars[fieldName];
-    if (field) {
-      const fieldType = field["~"].state.type;
-      if (fieldType === "bigint" || fieldType === "decimal") {
+    const scalar = scalars[fieldName];
+    if (scalar) {
+      const scalarType = scalar["~"].state.type;
+      if (scalarType === "bigint" || scalarType === "decimal") {
         // Cast BigInt/Decimal to TEXT to preserve precision in JSON
         return [fieldName, ctx.adapter.expressions.cast(expr, "text")];
+      }
+      if (scalarType === "blob") {
+        return [fieldName, ctx.adapter.expressions.blobToHex(expr)];
       }
     }
     return [fieldName, expr];
@@ -110,7 +102,7 @@ export function buildSelect(
 
   // Return JSON object if requested
   if (options.asJson) {
-    // Cast BigInt fields to TEXT to preserve precision in JSON serialization
+    // Cast BigInt scalar columns to TEXT to preserve precision in JSON serialization
     const jsonPairs = castNumericPairsForJson(ctx, pairs);
     return ctx.adapter.json.objectFromColumns(jsonPairs);
   }
@@ -231,15 +223,11 @@ function buildSelectPairs(
     }
   }
 
-  // Fallback to all scalars if empty
+  // Prisma parity: an empty or all-false select is an error, not "select everything"
   if (pairs.length === 0) {
-    for (const fieldName of scalarFields) {
-      const columnName = getColumnName(ctx.model, fieldName);
-      pairs.push([
-        fieldName,
-        ctx.adapter.identifiers.column(alias, columnName),
-      ]);
-    }
+    throw new QueryEngineError(
+      `The 'select' statement for model '${ctx.model["~"].state.name}' needs at least one truthy value.`
+    );
   }
 
   return { pairs, lateralJoins };
@@ -278,7 +266,7 @@ export function buildSelectWithAliases(
   // Build SQL
   let sqlResult: Sql;
   if (options.asJson) {
-    // Cast BigInt fields to TEXT to preserve precision in JSON serialization
+    // Cast BigInt scalar columns to TEXT to preserve precision in JSON serialization
     const jsonPairs = castNumericPairsForJson(ctx, pairs);
     sqlResult = ctx.adapter.json.objectFromColumns(jsonPairs);
   } else {
@@ -333,130 +321,4 @@ function buildCountPairs(
   }
 
   return pairs;
-}
-
-/**
- * Build a COUNT subquery for a relation
- *
- * @param ctx - Query context
- * @param relationInfo - Relation metadata
- * @param config - true or { where: ... }
- * @param parentAlias - Parent table alias
- * @returns SQL for COUNT subquery
- */
-function buildRelationCount(
-  ctx: QueryContext,
-  relationInfo: RelationInfo,
-  config: unknown,
-  parentAlias: string
-): Sql {
-  const { adapter } = ctx;
-
-  // Handle manyToMany specially
-  if (relationInfo.type === "manyToMany") {
-    return buildManyToManyCount(ctx, relationInfo, config, parentAlias);
-  }
-
-  const targetAlias = ctx.nextAlias();
-  const targetTableName = getTableName(relationInfo.targetModel);
-  const targetTable = adapter.identifiers.table(targetTableName, targetAlias);
-
-  // Build correlation
-  const correlation = buildCorrelation(
-    ctx,
-    relationInfo,
-    parentAlias,
-    targetAlias
-  );
-
-  // Build inner where if provided
-  let whereCondition = correlation;
-
-  if (typeof config === "object" && config !== null && "where" in config) {
-    const childCtx = createChildContext(
-      ctx,
-      relationInfo.targetModel,
-      targetAlias
-    );
-    // Use the raw where clause directly - it's already validated by the parent schema
-    const rawWhere = (config as { where: Record<string, unknown> }).where;
-    const innerWhere = buildWhere(childCtx, rawWhere, targetAlias);
-    if (innerWhere) {
-      whereCondition = adapter.operators.and(correlation, innerWhere);
-    }
-  }
-
-  // Build COUNT subquery
-  return adapter.subqueries.scalar(
-    sql.join(
-      [
-        adapter.clauses.select(sql`COUNT(*)`),
-        adapter.clauses.from(targetTable),
-        adapter.clauses.where(whereCondition),
-      ],
-      " "
-    )
-  );
-}
-
-/**
- * Build a COUNT subquery for manyToMany relation through junction table
- */
-function buildManyToManyCount(
-  ctx: QueryContext,
-  relationInfo: RelationInfo,
-  config: unknown,
-  parentAlias: string
-): Sql {
-  const { adapter } = ctx;
-
-  const junctionAlias = ctx.nextAlias();
-  const targetAlias = ctx.nextAlias();
-
-  const joinInfo = getManyToManyJoinInfo(ctx, relationInfo);
-  const { correlationCondition, joinCondition, fromClause } =
-    buildManyToManyJoinParts(
-      ctx,
-      joinInfo,
-      parentAlias,
-      junctionAlias,
-      targetAlias
-    );
-
-  const conditions: Sql[] = [correlationCondition, joinCondition];
-
-  // Add inner where if provided
-  if (typeof config === "object" && config !== null && "where" in config) {
-    const childCtx = createChildContext(
-      ctx,
-      relationInfo.targetModel,
-      targetAlias
-    );
-    const rawWhere = (config as { where: Record<string, unknown> }).where;
-    const whereSchema = ctx.schemaRegistry.getModelSchemas(
-      relationInfo.targetModel
-    ).core.where;
-    const parsedWhere = parse(whereSchema, rawWhere);
-    if (parsedWhere.issues) {
-      throw new QueryEngineError("Invalid nested relation count where clause");
-    }
-    const normalizedWhere = parsedWhere.value as Record<string, unknown>;
-    const innerWhere = buildWhere(childCtx, normalizedWhere, targetAlias);
-    if (innerWhere) {
-      conditions.push(innerWhere);
-    }
-  }
-
-  const whereCondition = adapter.operators.and(...conditions);
-
-  return adapter.subqueries.scalar(
-    sql.join(
-      [
-        adapter.clauses.select(sql`COUNT(*)`),
-        adapter.clauses.from(fromClause),
-        adapter.clauses.where(whereCondition),
-      ],
-      " "
-    )
-  );
 }
