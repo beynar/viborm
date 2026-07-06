@@ -1,4 +1,5 @@
 import {
+  type NestedUpsertInput,
   type RelationMutation,
   separateData,
 } from "../../builders/relation-data-builder";
@@ -6,6 +7,7 @@ import { createChildContext } from "../../context";
 import type { Operation, QueryContext } from "../../types";
 import {
   type NestedWriteStep,
+  normalizeArray,
   planRelationMutationSteps,
 } from "./semantic-plan";
 import { normalizeNestedUpdateInputs } from "./update-plan";
@@ -41,10 +43,11 @@ export type MigratedRelationClass = "fk" | "m2m";
 /**
  * The migrated surface. M3 (§11): the create family over FK-only trees. M5
  * (§11): the update family (update / updateMany / disconnect / delete /
- * deleteMany / set) over FK-only trees, so a top-level `update` and every
- * nested update-family step becomes eligible when the whole tree is FK-only.
- * The `upsert` step kind and the `m2m` class are added at their own milestones
- * (M6/M9). Rollback = remove tokens here.
+ * deleteMany / set) over FK-only trees. M6 (§11): the upsert family (top-level
+ * upsert + nested to-one/to-many upsert steps) over FK-only trees, so a
+ * top-level `upsert` and every nested `upsert` step becomes eligible when the
+ * whole tree is FK-only. The `m2m` class is added at its own milestone (M9).
+ * Rollback = remove tokens here.
  */
 export const MIGRATED: {
   readonly stepKinds: ReadonlySet<MigratedStepKind>;
@@ -61,6 +64,7 @@ export const MIGRATED: {
     "delete",
     "deleteMany",
     "set",
+    "upsert",
   ]),
   relationClasses: new Set<MigratedRelationClass>(["fk"]),
 };
@@ -70,12 +74,12 @@ export const MIGRATED: {
  * kind AND relation class reachable in this operation's tree is in MIGRATED.
  * Whole trees only — a mixed tree runs entirely on the old engines.
  *
- * M3 migrated top-level `create`; M5 adds top-level `update`. A tree is
- * eligible iff every relation is FK (m2m routes to the old engines until M9)
- * and every reachable step kind is migrated. `separateData` throws on an
- * unsupported relation payload; that throw is engine-independent (the legality
- * gate raises the identical error), so treat it as ineligible and let the
- * frozen path surface it.
+ * M3 migrated top-level `create`; M5 adds top-level `update`; M6 adds top-level
+ * `upsert`. A tree is eligible iff every relation is FK (m2m routes to the old
+ * engines until M9) and every reachable step kind is migrated. `separateData`
+ * throws on an unsupported relation payload; that throw is engine-independent
+ * (the legality gate raises the identical error), so treat it as ineligible and
+ * let the frozen path surface it.
  */
 export function isTreeEligible(
   ctx: QueryContext,
@@ -99,7 +103,20 @@ export function isTreeEligible(
     if (operation === "update") {
       return isDataEligible(ctx, args.data as Record<string, unknown>, "after");
     }
-    // Top-level upsert lands at M6; everything else is not a nested-write host.
+    if (operation === "upsert") {
+      // Either branch of a top-level upsert may run: the create branch (I6
+      // closure, walked "before") when the target is absent, or the update
+      // branch (walked "after") when it exists. Both must be FK-only-migrated
+      // for the whole tree to route here.
+      if (!MIGRATED.stepKinds.has("upsert")) {
+        return false;
+      }
+      return (
+        isDataEligible(ctx, args.create as Record<string, unknown>, "before") &&
+        isDataEligible(ctx, args.update as Record<string, unknown>, "after")
+      );
+    }
+    // Not a nested-write host.
     return false;
   } catch {
     // A parse error (unsupported nested key) is surfaced identically by the
@@ -164,8 +181,9 @@ function isRelationEligible(
  * Recurse into every branch payload a step reaches so a deep m2m or unmigrated
  * kind nested under it is caught (whole-tree eligibility, §11 A3). Create
  * branches are walked "before" (I6 create closure); update branches "after".
- * A nested `upsert` is not migrated at M5, so its presence as a step kind
- * already fails the MIGRATED.stepKinds check above — no branch recursion needed.
+ * A nested `upsert` (M6) walks BOTH its branches — the create branch "before",
+ * the update branch "after" — so an m2m or unmigrated kind nested under either
+ * arm routes the whole tree to the frozen engines.
  */
 function isStepBranchEligible(
   childCtx: QueryContext,
@@ -187,6 +205,12 @@ function isStepBranchEligible(
     case "update":
       return getNestedUpdateDataPayloads(step).every((updateData) =>
         isDataEligible(childCtx, updateData, "after")
+      );
+    case "upsert":
+      return normalizeArray(step.input).every(
+        (input: NestedUpsertInput) =>
+          isDataEligible(childCtx, input.create, "before") &&
+          isDataEligible(childCtx, input.update, "after")
       );
     default:
       // connect / disconnect / delete / deleteMany / updateMany / set carry no

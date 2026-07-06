@@ -72,6 +72,28 @@ export function buildSelectOneSql(
   );
 }
 
+/**
+ * A locking select-one (`SELECT * … WHERE … LIMIT 1 FOR UPDATE`) for the
+ * top-level upsert probe (§9 upsert, §8.2). Assembled through the adapter's
+ * `assemble.select` so `forUpdate` is honored per dialect (Postgres/MySQL append
+ * `FOR UPDATE`; SQLite omits it — database-level locking, §11 M6). Only LiveMode
+ * issues a locking probe; PlannedMode reads committed state and never locks.
+ */
+export function buildSelectOneForUpdateSql(
+  ctx: QueryContext,
+  targetModel: Model<any>,
+  whereClause: Sql
+): Sql {
+  const table = ctx.adapter.identifiers.escape(getTableName(targetModel));
+  return ctx.adapter.assemble.select({
+    columns: sql`*`,
+    from: table,
+    where: whereClause,
+    limit: ctx.adapter.literals.value(1),
+    forUpdate: true,
+  });
+}
+
 export function buildUniqueWithWhere(
   ctx: QueryContext,
   model: Model<any>,

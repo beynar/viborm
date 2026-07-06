@@ -23,7 +23,7 @@ import {
 import type { Effect, Guard, Probe, ProbeResult } from "./effects";
 import type { Expr, WriteSymbol } from "./expr";
 import type { AtomicScope, Emit, Mode, NestedWriteResult } from "./mode";
-import { buildSelectOneSql } from "./record-access";
+import { buildSelectOneForUpdateSql, buildSelectOneSql } from "./record-access";
 
 /**
  * The interactive-transaction substrate (`canObserveOwnWrites: true`).
@@ -105,10 +105,13 @@ export class LiveMode implements Mode {
 
   async probe(ctx: QueryContext, p: Probe): Promise<ProbeResult> {
     const tx = this.requireTx();
-    // `forUpdate` is only requested by the top-level upsert probe, which lands
-    // at M6; the create family (M3) issues no locking probe, so a plain
-    // select-one suffices here.
-    const selectSql = buildSelectOneSql(ctx, p.model, p.where);
+    // `forUpdate` is requested only by the top-level upsert probe (§9 upsert):
+    // the row is locked FOR UPDATE so a concurrent modification cannot slip
+    // between the existence decision and the update/skip write (Pin Rule 1,
+    // §5.5). Every other probe reads without a lock.
+    const selectSql = p.forUpdate
+      ? buildSelectOneForUpdateSql(ctx, p.model, p.where)
+      : buildSelectOneSql(ctx, p.model, p.where);
     const result = await tx._execute<Record<string, unknown>>(selectSql);
     const row = result.rows[0];
 
@@ -116,7 +119,16 @@ export class LiveMode implements Mode {
       if (p.required) {
         throw p.required.error();
       }
-      return { found: false, guard: p.pin?.whenMissing };
+      // A `whenMissing` pin (the upsert targetWhere/setWhere skip premise) is
+      // probe-established here — the absence was read live under the parent's
+      // FOR UPDATE lock, so its guard realizes as a no-op (§5.1/§5.4). Pin
+      // Rule 2 create-branch outcomes carry no `whenMissing` guard, so nothing
+      // is registered for them.
+      const missingGuard = p.pin?.whenMissing;
+      if (missingGuard) {
+        this.probeEstablished.add(missingGuard);
+      }
+      return { found: false, guard: missingGuard };
     }
 
     const guard = p.pin?.whenFound;
