@@ -113,15 +113,22 @@ describe("nested-write interpreter architecture gates (§8.4, §11 M10)", () => 
   });
 
   it("gate 4: the directory holds only the interpreter, the two modes, and the kept shared builders", () => {
-    // The design's kept surface (§4 file roster, §11 M9/M10 deletions). If a new
-    // module appears here it must be a deliberate, reviewed addition — update
-    // this list so the gate keeps meaning something.
+    // The design's kept surface (§4 file roster, §11 M9/M10 deletions), plus the
+    // interpret-*.ts family modules of the M10 navigability split (one semantic
+    // body, split along mutation-family seams — §11 M10 gate 4 follow-up). If a
+    // new module appears here it must be a deliberate, reviewed addition —
+    // update this list so the gate keeps meaning something.
     const expected = [
       "assertions.ts",
       "effect-lowering.ts",
       "effects.ts",
       "expr.ts",
       "fk.ts",
+      "interpret-create-family.ts",
+      "interpret-m2m.ts",
+      "interpret-shared.ts",
+      "interpret-update-family.ts",
+      "interpret-upsert-family.ts",
       "interpreter.ts",
       "legality.ts",
       "live-mode.ts",
@@ -136,5 +143,23 @@ describe("nested-write interpreter architecture gates (§8.4, §11 M10)", () => 
       .sort();
 
     expect(actual).toEqual(expected);
+  });
+
+  it("gate 5: the interpret-*.ts family modules import no mode implementation (live-mode.ts, planned-mode.ts)", () => {
+    // The family split (gate 4) is navigability only: the interpreter stays ONE
+    // semantic body. Only the entry (interpreter.ts, for bindContext) and
+    // mode.ts (for selectMode) may reach a concrete mode; a family module that
+    // imports one is a per-mode branch smuggled into the semantics.
+    const modeImplImport = /from\s+["']\.\/(live-mode|planned-mode)["']/;
+
+    const offenders = sourceFiles()
+      .filter((file) => file.name.startsWith("interpret-"))
+      .filter((file) => modeImplImport.test(file.code))
+      .map((file) => file.name);
+
+    expect(
+      offenders,
+      `interpret-*.ts modules hold semantics for both modes at once — they may not import live-mode.ts or planned-mode.ts (only the interpreter.ts entry and mode.ts may); found in: ${offenders.join(", ")}`
+    ).toEqual([]);
   });
 });
