@@ -47,11 +47,24 @@ import {
  *
  * M2 scope (§11): fold the `update-plan.ts` / `planned-mutation.ts` logic in
  * (gates 2-3) and route it through this one function before either old engine
- * runs, walking the whole create/update tree to full depth. This closes D5 —
- * live mode now rejects an invalid deep tree up front instead of beginning the
- * parent mutation and failing mid-execution. Gates 4-7 populate at their own
- * milestones; the frozen engines keep enforcing them until then, so no premise
- * is dropped and no message diverges.
+ * runs, walking the create/update tree to the depth the frozen engines already
+ * validate. This closes D5 — live mode now rejects an invalid deep create/
+ * update tree up front instead of beginning the parent mutation and failing
+ * mid-execution.
+ *
+ * A top-level upsert is the one operation with NO static tree check here: it
+ * takes exactly one branch at runtime, decided by an existence probe, and both
+ * frozen substrates validate ONLY the taken branch (create when the target is
+ * absent, update when it exists). A static gate cannot run that probe, so
+ * hoisting either branch would reject an input the frozen engines accept — a
+ * new rejection barred by the freeze rule (§11) and Pin Rule 2 (§5.5). The
+ * frozen upsert engines keep validating the taken branch; the branch-scoped
+ * check lands in the interpreter at M6, inside the taken arm. (A NESTED upsert
+ * step reached from an update tree IS validated here, because the frozen update
+ * engine validates it statically before opening its transaction.)
+ *
+ * Gates 4-7 populate at their own milestones; the frozen engines keep enforcing
+ * them until then, so no premise is dropped and no message diverges.
  */
 export function assertPlanExecutable(
   ctx: QueryContext,
@@ -67,7 +80,10 @@ export function assertPlanExecutable(
       assertUpdateDataIsExecutable(ctx, args.data as Record<string, unknown>);
       return;
     case "upsert":
-      assertUpsertIsExecutable(ctx, args);
+      // No static tree check: a top-level upsert's branch validation is
+      // runtime-branch-gated on an existence probe the static gate cannot run
+      // (see the header doc's upsert carve-out). Hoisting it would over-reject
+      // the create-taken (missing-target) case the frozen engines accept.
       return;
     default:
       return;
@@ -199,17 +215,18 @@ function getNestedUpdateDataPayloads(
   return normalizeNestedUpdateInputs(step.input).map((input) => input.data);
 }
 
-function assertUpsertIsExecutable(
-  ctx: QueryContext,
-  args: Record<string, unknown>
-): void {
-  assertUpsertBranchIsExecutable(ctx, {
-    where: args.where as Record<string, unknown> | undefined,
-    create: args.create as Record<string, unknown>,
-    update: args.update as Record<string, unknown>,
-  });
-}
-
+/**
+ * A NESTED relation upsert step (reached only from a top-level `update` tree).
+ * Unlike a top-level upsert, this one IS validated statically today: the frozen
+ * top-level update calls `assertNestedUpdatePlanIsExecutable` before opening its
+ * transaction (transaction-flow.ts:329 / update.ts:50), and that check walks
+ * every nested upsert step and validates BOTH its branches
+ * (update-plan.ts `assertNestedUpsertBranchesAreExecutable`) — the create branch
+ * via the I6 `upsertCreate` rule, the update branch via nested-update recursion.
+ * The frozen engine also validates the create branch to full depth at runtime
+ * as it recurses through `executeNestedCreate`, so walking it to full depth here
+ * is a faithful hoist, not a new rejection. This mirrors that static validation.
+ */
 function assertUpsertBranchIsExecutable(
   ctx: QueryContext,
   upsertInput: NestedUpsertInput

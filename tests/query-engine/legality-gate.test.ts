@@ -14,19 +14,20 @@ import { nestedWriteBehaviorSchema } from "../fixtures/nested-write-behavior-sch
 /**
  * M2 uniform legality gate (§11 M2 / §6.3).
  *
- * `assertPlanExecutable` routes all static validation through one throw site,
+ * `assertPlanExecutable` routes the static validation through one throw site,
  * before either old engine runs, in BOTH modes. The gate proves:
  *  - the "unsupported nested create keys reject before parent mutation"
  *    contract holds in both modes (0 rows persisted);
- *  - D5 is closed — an input the tx engine used to BEGIN (open a transaction /
- *    issue a locking read) and then fail on mid-execution is now rejected up
- *    front, before any transaction is opened or any batch is issued, with the
- *    same typed message in both modes.
- *
- * The D5 probe is a top-level upsert whose update branch nests a `updateMany`
- * carrying a relation write. The tx `executeExistingUpsert` used to open a
- * transaction and `SELECT ... FOR UPDATE` before `assertNestedUpdatePlanIsExecutable`
- * rejected it; the gate now rejects it before the transaction is opened.
+ *  - a top-level upsert's branch validation stays runtime-branch-gated. Both
+ *    frozen substrates validate ONLY the branch they take (§6.1, §9): the
+ *    update branch when the target exists, the create branch when it is absent.
+ *    The static gate cannot run the existence probe, so it must NOT hoist
+ *    either branch's check — doing so would reject an input the frozen engines
+ *    accept (a missing-target upsert whose never-executed update branch nests
+ *    an unsupported relation write), a new rejection barred by the freeze rule
+ *    (§11) and Pin Rule 2 (§5.5). The frozen engines still reject the update
+ *    branch when it is actually taken, with the same typed message in both
+ *    modes; that branch-scoped check lands in the interpreter at M6.
  */
 
 type BehaviorSchema = typeof nestedWriteBehaviorSchema;
@@ -39,8 +40,8 @@ type BehaviorClient = VibORMClient<{
 const UPDATE_MANY_RELATION_MESSAGE =
   "Nested relation writes inside updateMany data for relation 'posts' are not supported.";
 
-// A tx driver that counts how many transactions it opens. If the gate rejects
-// up front, no transaction is ever opened for the rejected operation.
+// A tx driver that counts how many transactions it opens, so a test can prove
+// an operation reached the atomic scope (was not short-circuited by the gate).
 class TxSpyDriver extends PGliteDriver {
   override readonly supportsTransactions = true;
   override readonly supportsBatch = false;
@@ -55,20 +56,11 @@ class TxSpyDriver extends PGliteDriver {
   }
 }
 
-// A batch-only driver (D1 / Neon-HTTP class) that counts how many atomic
-// batches it issues. If the gate rejects up front, no batch is ever issued.
+// A batch-only driver (D1 / Neon-HTTP class): forces the planned (batch)
+// substrate on a PGlite-backed connection so both modes are exercised.
 class BatchSpyDriver extends PGliteDriver {
   override readonly supportsTransactions = false;
   override readonly supportsBatch = true;
-  batchesIssued = 0;
-
-  override _executeBatch<T>(
-    queries: BatchQuery[],
-    options?: TransactionOptions
-  ): Promise<QueryResult<T>[]> {
-    this.batchesIssued++;
-    return super._executeBatch<T>(queries, options);
-  }
 
   protected override async executeBatch<T>(
     client: PGlite | Transaction,
@@ -143,20 +135,76 @@ describe("M2 legality gate", () => {
     }
   });
 
-  describe("D5 closed: begin-then-fail input rejected before any execution", () => {
-    test("transaction mode rejects before opening a transaction", async () => {
+  // A top-level upsert takes one branch at runtime, decided by an existence
+  // probe. The gate must NOT statically validate a branch that may never run,
+  // or it rejects inputs the frozen engines accept.
+  describe("upsert branch validation stays runtime-branch-gated", () => {
+    // Regression guard for the M2 over-rejection: a MISSING-target upsert takes
+    // the create branch, so its update branch never runs and is never
+    // validated. The frozen engines create the row and succeed; the gate must
+    // not pre-reject it. The spy proves the operation actually executed (it was
+    // not short-circuited by a static throw).
+    test("transaction mode: missing target with invalid update branch succeeds", async () => {
       const db = await setupDb();
       const driver = new TxSpyDriver({ client: db });
       const client = bootShared(driver);
+      const txBefore = driver.txOpened;
 
-      await client.user.create({
-        data: {
-          id: "u1",
-          name: "A",
-          posts: { create: { id: "p1", title: "T" } },
+      const created = await client.user.upsert({
+        where: { id: "u-new" },
+        create: { id: "u-new", name: "Created" },
+        update: {
+          name: "Never",
+          posts: {
+            updateMany: {
+              where: {},
+              data: { title: "X", author: { connect: { id: "u-new" } } },
+            },
+          },
         },
       });
-      const txAfterSeed = driver.txOpened;
+
+      expect(created.name).toBe("Created");
+      // The create branch ran inside an atomic scope — not short-circuited.
+      expect(driver.txOpened - txBefore).toBeGreaterThan(0);
+      const counts = await dumpCounts(client);
+      expect(counts.users).toBe(1);
+      await client.$disconnect();
+    });
+
+    test("batch mode: missing target with invalid update branch succeeds", async () => {
+      const db = await setupDb();
+      const driver = new BatchSpyDriver({ client: db });
+      const client = bootShared(driver);
+
+      const created = await client.user.upsert({
+        where: { id: "u-new" },
+        create: { id: "u-new", name: "Created" },
+        update: {
+          name: "Never",
+          posts: {
+            updateMany: {
+              where: {},
+              data: { title: "X", author: { connect: { id: "u-new" } } },
+            },
+          },
+        },
+      });
+
+      expect(created.name).toBe("Created");
+      const counts = await dumpCounts(client);
+      expect(counts.users).toBe(1);
+      await client.$disconnect();
+    });
+
+    // The update branch IS validated when it is actually taken (target
+    // exists) — by the frozen engines, with the identical typed message in
+    // both modes, and with no partial state persisted.
+    test("transaction mode: existing target rejects the taken update branch", async () => {
+      const db = await setupDb();
+      const driver = new TxSpyDriver({ client: db });
+      const client = bootShared(driver);
+      await client.user.create({ data: { id: "u1", name: "A" } });
 
       await expect(
         client.user.upsert({
@@ -173,26 +221,20 @@ describe("M2 legality gate", () => {
           },
         })
       ).rejects.toThrow(UPDATE_MANY_RELATION_MESSAGE);
-
-      // The gate rejected before the upsert opened its transaction.
-      expect(driver.txOpened - txAfterSeed).toBe(0);
 
       const user = await client.user.findUnique({ where: { id: "u1" } });
       expect(user?.name).toBe("A");
       await client.$disconnect();
     });
 
-    test("batch mode rejects before issuing a batch, same typed message", async () => {
+    test("batch mode: existing target rejects the taken update branch, same message", async () => {
       const db = await setupDb();
       const driver = new BatchSpyDriver({ client: db });
       const client = bootShared(driver);
-
-      // Seed through the batch path so the row exists for the upsert probe.
       await client.user.create({ data: { id: "u1", name: "A" } });
       await client.post.create({
         data: { id: "p1", title: "T", userId: "u1" },
       });
-      const batchesAfterSeed = driver.batchesIssued;
 
       await expect(
         client.user.upsert({
@@ -209,9 +251,6 @@ describe("M2 legality gate", () => {
           },
         })
       ).rejects.toThrow(UPDATE_MANY_RELATION_MESSAGE);
-
-      // The gate rejected before the planned engine issued its atomic batch.
-      expect(driver.batchesIssued - batchesAfterSeed).toBe(0);
 
       const user = await client.user.findUnique({ where: { id: "u1" } });
       expect(user?.name).toBe("A");
