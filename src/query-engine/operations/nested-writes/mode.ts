@@ -46,8 +46,18 @@ export interface AtomicScope {
  *  enforcing requireAffected via rowCount). Planned: lowers and appends
  *  (insert → [insertSql, ...storeLastInsertId per produced symbol];
  *  requireAffected → a preceding exists-assert; guard → adapter.assertions;
- *  update-with-computedPk → [updateSql, ...store(valueSql)]). */
-export type Emit = (effect: Effect) => Promise<void>;
+ *  update-with-computedPk → [updateSql, ...store(valueSql)]).
+ *
+ *  Returns the inserted row for an `insert` effect on the substrate that holds
+ *  it (Live), so the interpreter can thread the top-level parent record into
+ *  `NestedWriteResult.record` for a scalar-only result (§8.2). Planned defers
+ *  every produced value and holds no record, so it returns `undefined`; other
+ *  effect kinds return `undefined` in both modes. The record is captured
+ *  structurally by the outermost `interpretCreate`, never inferred from model
+ *  identity (self-referential FK creates would otherwise misattribute it). */
+export type Emit = (
+  effect: Effect
+) => Promise<Record<string, unknown> | undefined>;
 
 /** What the interpreter body returns to the scope: the final identity and
  *  the Prisma-parity result contract (§8.2/§8.3). */

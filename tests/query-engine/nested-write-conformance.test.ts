@@ -69,6 +69,31 @@ const nonPkReferenceSchema = (() => {
   return { org, member };
 })();
 
+// A self-referential parent-holds-FK schema: `category.parent` is a manyToOne
+// to the same model, its FK (`parentId`) sitting on the parent row. A nested
+// `parent: { create }` inserts a SAME-MODEL child BEFORE the top-level row
+// (before-parent FK split), so the top-level create's own row is not the first
+// insert into the model — the review found LiveMode's old first-insert anchor
+// returned the nested child. This group pins two-mode persisted-state parity for
+// that tree class (the returned-record parity is pinned in the M3 gate).
+const selfRefFkSchema = (() => {
+  const category = s
+    .model({
+      id: s.string().id(),
+      name: s.string(),
+      parentId: s.string().nullable(),
+      parent: s
+        .manyToOne(() => category)
+        .fields("parentId")
+        .references("id")
+        .optional(),
+      children: s.oneToMany(() => category),
+    })
+    .map("conformance_selfref_categories");
+
+  return { category };
+})();
+
 type SchemaClient<TSchema extends Schema> = VibORMClient<{
   schema: TSchema;
   driver: PGliteDriver;
@@ -1573,6 +1598,41 @@ const nonPkReferenceScenarios: Scenario<NonPkReferenceSchema>[] = [
 ];
 
 // ---------------------------------------------------------------------------
+// Group 5b: self-referential parent-holds-FK create. A nested `parent: { create }`
+// inserts a same-model child before the top-level row; both modes must persist
+// identical state (both rows, the parent's FK pointing at the child).
+// ---------------------------------------------------------------------------
+
+type SelfRefFkSchema = typeof selfRefFkSchema;
+
+async function dumpSelfRefFk(
+  client: SchemaClient<SelfRefFkSchema>
+): Promise<PersistedState> {
+  const categories = await client.category.findMany({ orderBy: { id: "asc" } });
+  return { categories };
+}
+
+const selfRefFkScenarios: Scenario<SelfRefFkSchema>[] = [
+  {
+    name: "self-referential parent-holds-FK create persists both rows in both modes",
+    act: (client) =>
+      client.category.create({
+        data: {
+          id: "root",
+          name: "Root",
+          parent: { create: { id: "gp", name: "Grandparent" } },
+        },
+      }),
+    expected: {
+      categories: [
+        { id: "gp", name: "Grandparent", parentId: null },
+        { id: "root", name: "Root", parentId: "gp" },
+      ],
+    },
+  },
+];
+
+// ---------------------------------------------------------------------------
 // Group 6: cross-step dependency (DESIGN.md §6.2.3). Within one relation, a
 // create and a connectOrCreate for the SAME key across two steps.
 //
@@ -1672,6 +1732,12 @@ registerGroup("nested-write conformance: D4 non-PK reference (tx vs batch)", {
   schema: nonPkReferenceSchema,
   dump: dumpNonPkReference,
   scenarios: nonPkReferenceScenarios,
+});
+
+registerGroup("nested-write conformance: self-referential FK (tx vs batch)", {
+  schema: selfRefFkSchema,
+  dump: dumpSelfRefFk,
+  scenarios: selfRefFkScenarios,
 });
 
 registerGroup("nested-write conformance: cross-step dependency (tx vs batch)", {

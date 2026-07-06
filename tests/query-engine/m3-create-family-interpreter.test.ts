@@ -5,9 +5,34 @@ import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { push } from "@migrations";
 import { LiveMode } from "@query-engine/operations/nested-writes/live-mode";
 import { PlannedMode } from "@query-engine/operations/nested-writes/planned-mode";
+import { s } from "@schema";
 import { describe, expect, test, vi } from "vitest";
 import { manyToManySchema } from "../fixtures/many-to-many-schema";
 import { nestedWriteBehaviorSchema } from "../fixtures/nested-write-behavior-schema";
+
+// A self-referential parent-holds-FK model: `parent` is a manyToOne to the same
+// model, its FK (`parentId`) sitting on the parent row. Creating a category
+// with a nested `parent: { create }` inserts a SAME-MODEL child (the parent's
+// parent) BEFORE the top-level row (FK split, before-parent). A scalar-only
+// create must still return the TOP-LEVEL row, not the nested child — the review
+// found LiveMode's old first-insert-into-root-model anchor heuristic returned
+// the child here (a two-mode divergence and a regression vs the frozen engines).
+const selfRefFkSchema = (() => {
+  const category = s
+    .model({
+      id: s.string().id(),
+      name: s.string(),
+      parentId: s.string().nullable(),
+      parent: s
+        .manyToOne(() => category)
+        .fields("parentId")
+        .references("id")
+        .optional(),
+      children: s.oneToMany(() => category),
+    })
+    .map("m3_selfref_categories");
+  return { category };
+})();
 
 /**
  * M3 gate (§11 M3): the create family (create / createMany / connect /
@@ -288,7 +313,58 @@ describe("M3 create-family interpreter", () => {
       expect(batchResult).toEqual(txResult);
     }
   );
+
+  // Regression (§6.1/§9, §8.2): a self-referential parent-holds-FK create with a
+  // scalar-only result must return the TOP-LEVEL row in BOTH modes. LiveMode
+  // used to return the nested same-model child (the "grandparent") because its
+  // anchor was the first insert into the root model, and the before-parent child
+  // insert fires first for a self-referential FK. The interpreter now threads the
+  // outermost create's own row structurally, so both modes agree on `root`.
+  test(
+    "self-referential parent-holds-FK create returns the top-level row in both modes",
+    { timeout: 30_000 },
+    async () => {
+      const txResult = await runSelfRefCreate(
+        (db) => new PGliteDriver({ client: db })
+      );
+      const batchResult = await runSelfRefCreate(
+        (db) => new RecordingBatchDriver({ client: db })
+      );
+      // The scalar-only result is the top-level parent, not the nested child.
+      expect(txResult).toEqual({
+        id: "root",
+        name: "Root",
+        parentId: "gp",
+      });
+      // Byte-identical across the two substrates.
+      expect(batchResult).toEqual(txResult);
+    }
+  );
 });
+
+async function runSelfRefCreate(
+  createDriver: (db: PGlite) => PGliteDriver
+): Promise<unknown> {
+  const db = new PGlite();
+  const setupClient = createClient({
+    schema: selfRefFkSchema,
+    driver: new PGliteDriver({ client: db }),
+  });
+  await push(setupClient, { force: true });
+  const client = createClient({
+    schema: selfRefFkSchema,
+    driver: createDriver(db),
+  });
+  const created = await client.category.create({
+    data: {
+      id: "root",
+      name: "Root",
+      parent: { create: { id: "gp", name: "Grandparent" } },
+    },
+  });
+  await client.$disconnect();
+  return created;
+}
 
 async function runMappedCreate(
   createDriver: (db: PGlite) => PGliteDriver

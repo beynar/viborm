@@ -46,9 +46,6 @@ export class LiveMode implements Mode {
   private readonly values = new Map<string, unknown>();
   /** Premises probe-established in this scope realize as no-op guards (§5.4). */
   private readonly probeEstablished = new WeakSet<Guard>();
-  /** The top-level (anchor) record — the first insert into the root model — so
-   *  a scalar-only result returns the parent, not a nested child. */
-  private anchorRecord: Record<string, unknown> | undefined;
 
   constructor(driver: AnyDriver) {
     this.driver = driver;
@@ -67,7 +64,6 @@ export class LiveMode implements Mode {
           } finally {
             this.tx = undefined;
             this.values.clear();
-            this.anchorRecord = undefined;
           }
         }),
     };
@@ -126,18 +122,25 @@ export class LiveMode implements Mode {
 
   // --- effect execution ----------------------------------------------------
 
-  private runEffect(tx: AnyDriver, effect: Effect): Promise<void> {
+  private async runEffect(
+    tx: AnyDriver,
+    effect: Effect
+  ): Promise<Record<string, unknown> | undefined> {
     switch (effect.kind) {
       case "insert":
-        return this.runInsert(tx, effect);
+        return await this.runInsert(tx, effect);
       case "insertMany":
-        return this.runInsertMany(tx, effect);
+        await this.runInsertMany(tx, effect);
+        return undefined;
       case "update":
-        return this.runUpdate(tx, effect);
+        await this.runUpdate(tx, effect);
+        return undefined;
       case "delete":
-        return this.runDelete(tx, effect);
+        await this.runDelete(tx, effect);
+        return undefined;
       case "guard":
-        return this.runGuard(tx, effect.guard);
+        await this.runGuard(tx, effect.guard);
+        return undefined;
       default: {
         const exhaustive: never = effect;
         return exhaustive;
@@ -148,7 +151,7 @@ export class LiveMode implements Mode {
   private async runInsert(
     tx: AnyDriver,
     effect: Extract<Effect, { kind: "insert" }>
-  ): Promise<void> {
+  ): Promise<Record<string, unknown>> {
     const ctx = this.childCtx(effect.model);
     const { columns, values } = lowerInsertRow(
       ctx,
@@ -174,14 +177,11 @@ export class LiveMode implements Mode {
     for (const symbol of effect.produces) {
       this.values.set(symbol.id, record[symbol.field]);
     }
-    // The anchor record is the first insert into the root model — the parent a
-    // scalar-only result returns.
-    if (
-      this.anchorRecord === undefined &&
-      effect.model === this.rootCtxOrThrow().model
-    ) {
-      this.anchorRecord = record;
-    }
+    // The inserted row is handed back to the interpreter; the outermost
+    // `interpretCreate` keeps the top-level parent's row for a scalar-only
+    // result (§8.2). No model-identity heuristic — a self-referential FK create
+    // inserts a same-model child first and would otherwise claim the result.
+    return record;
   }
 
   private async runInsertMany(
@@ -327,7 +327,7 @@ export class LiveMode implements Mode {
     result: NestedWriteResult
   ): Promise<T> {
     if (!result.refetch) {
-      const record = result.record ?? this.anchorRecord;
+      const record = result.record;
       if (!record) {
         throw new QueryEngineError(
           "Live nested write produced no record for a scalar-only result."

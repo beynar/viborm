@@ -189,29 +189,34 @@ export class PlannedMode implements Mode {
 
   // --- effect appending -----------------------------------------------------
 
-  private appendEffect(effect: Effect): Promise<void> {
+  private appendEffect(
+    effect: Effect
+  ): Promise<Record<string, unknown> | undefined> {
     const state = this.stateOrThrow();
     switch (effect.kind) {
       case "insert":
         this.appendInsert(state, effect);
-        return Promise.resolve();
+        break;
       case "insertMany":
         this.appendInsertMany(state, effect);
-        return Promise.resolve();
+        break;
       case "update":
         this.appendUpdate(state, effect);
-        return Promise.resolve();
+        break;
       case "delete":
         this.appendDelete(state, effect);
-        return Promise.resolve();
+        break;
       case "guard":
         this.appendGuard(state, effect.guard);
-        return Promise.resolve();
+        break;
       default: {
         const exhaustive: never = effect;
         return exhaustive;
       }
     }
+    // Planned mode defers every produced value and holds no record; the
+    // scalar-only result is refetched by the final identity (§8.3).
+    return Promise.resolve(undefined);
   }
 
   private appendInsert(

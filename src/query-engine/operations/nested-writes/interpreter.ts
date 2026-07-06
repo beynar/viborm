@@ -104,7 +104,13 @@ export function runInterpreter<T>(
 
   return mode.scope.run<T>(async (emit) => {
     const interp = createInterp(mode, emit);
-    const outcome = await interpretCreate(interp, ctx, data);
+    const outcome = await interpretCreate(
+      interp,
+      ctx,
+      data,
+      undefined,
+      /* isRoot */ true
+    );
     return {
       finalWhere: outcome.finalWhere,
       refetch,
@@ -147,7 +153,10 @@ function createInterp(mode: Mode, emit: Emit): Interp {
 interface CreateOutcome {
   /** The parent identity (PK), possibly symbolic, for the final result read. */
   finalWhere: Record<string, Expr>;
-  /** Live mode holds the parent record for a scalar-only result. */
+  /** The top-level create's own inserted row, held by the substrate that has
+   *  it (Live) for a scalar-only result (§8.2). Set only for the outermost
+   *  `interpretCreate` (`isRoot`); `undefined` for nested creates and in
+   *  planned mode, which refetches by `finalWhere` instead. */
   record?: Record<string, unknown>;
 }
 
@@ -161,7 +170,8 @@ async function interpretCreate(
   interp: Interp,
   ctx: QueryContext,
   data: Record<string, unknown>,
-  injectedFk?: Record<string, Expr>
+  injectedFk?: Record<string, Expr>,
+  isRoot = false
 ): Promise<CreateOutcome> {
   const { scalarData, relations } = separateData(ctx, data);
   const parentData = toLiteralExprs(ctx.model, scalarData);
@@ -194,7 +204,7 @@ async function interpretCreate(
 
   const { produces, identity } = mintParentIdentity(interp, ctx, parentData);
 
-  await interp.emit({
+  const parentRecord = await interp.emit({
     kind: "insert",
     model: ctx.model,
     data: parentData,
@@ -207,7 +217,12 @@ async function interpretCreate(
     await interpretAfterParent(interp, ctx, relationName, mutation, identity);
   }
 
-  return { finalWhere: identity, record: undefined };
+  // The top-level create's own row is the scalar-only result (§8.2). Only the
+  // outermost `interpretCreate` keeps it — nested creates (before/after-parent,
+  // connectOrCreate) return their child rows, which are never the result. This
+  // is threaded structurally by call position, so a self-referential FK create
+  // (a same-model child inserted before the parent) cannot misattribute it.
+  return { finalWhere: identity, record: isRoot ? parentRecord : undefined };
 }
 
 /**
@@ -445,7 +460,7 @@ async function interpretRelatedCreate(
 
 /** createMany (related holds FK only): one insertMany with the FK stamped per
  *  row. FK-holder ⇒ typed error; m2m rejected (unreachable — m2m not eligible). */
-function emitCreateMany(
+async function emitCreateMany(
   interp: Interp,
   relationInfo: RelationInfo,
   fkDir: FkDirection,
@@ -461,14 +476,14 @@ function emitCreateMany(
     );
   }
   if (data.length === 0) {
-    return Promise.resolve();
+    return;
   }
   const rows = data.map((record) => {
     const row = toLiteralExprs(relationInfo.targetModel, record);
     stampRelatedFkExprs(fkDir, row, parentIdentity);
     return row;
   });
-  return interp.emit({
+  await interp.emit({
     kind: "insertMany",
     model: relationInfo.targetModel,
     rows,
@@ -478,7 +493,7 @@ function emitCreateMany(
 
 /** A related-holds-FK connect: UPDATE the child's FK to the parent PK, matched
  *  by the child's where-unique. requireAffected: correlated (§5.3). */
-function interpretRelatedConnect(
+async function interpretRelatedConnect(
   interp: Interp,
   ctx: QueryContext,
   relationInfo: RelationInfo,
@@ -494,7 +509,7 @@ function interpretRelatedConnect(
     getTableName(target)
   );
   const set = fkAssignmentExprs(fkDir, parentIdentity);
-  return interp.emit({
+  await interp.emit({
     kind: "update",
     model: target,
     set,
@@ -754,7 +769,7 @@ function existsGuard(
   };
 }
 
-function emitTargetExistsGuard(
+async function emitTargetExistsGuard(
   interp: Interp,
   ctx: QueryContext,
   relationInfo: RelationInfo,
@@ -768,7 +783,7 @@ function emitTargetExistsGuard(
     connectInput,
     getTableName(target)
   );
-  return interp.emit({
+  await interp.emit({
     kind: "guard",
     guard: existsGuard(
       target,
@@ -784,11 +799,13 @@ function emitTargetExistsGuard(
   });
 }
 
-function emitGuard(interp: Interp, guard: Guard | undefined): Promise<void> {
+async function emitGuard(
+  interp: Interp,
+  guard: Guard | undefined
+): Promise<void> {
   if (guard) {
-    return interp.emit({ kind: "guard", guard });
+    await interp.emit({ kind: "guard", guard });
   }
-  return Promise.resolve();
 }
 
 function correlatedFailure(
