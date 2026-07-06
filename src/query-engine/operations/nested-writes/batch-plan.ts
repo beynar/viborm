@@ -40,6 +40,7 @@ import {
 import {
   appendUpdatedPrimaryKeyStores,
   getBatchUpdatedPrimaryKeyRef,
+  overlayUpdatedParentData,
 } from "./batch-updated-primary-keys";
 import { assertNoPlannedNestedMutationExecution } from "./planned-mutation";
 import {
@@ -296,7 +297,12 @@ async function appendUpdateRecord(
     appendUpdatedPrimaryKeyStores(state, ctx, updatedRecord);
   }
 
-  const updatedParentData = { ...parentRecord, ...updatedRecord.primaryKey };
+  const updatedParentData = overlayUpdatedParentData(
+    ctx.model,
+    parentRecord,
+    updatedRecord.primaryKey,
+    scalarData
+  );
   for (const [relationName, mutation] of Object.entries(relations)) {
     await appendRelationMutation(
       driver,
@@ -461,7 +467,12 @@ async function appendUpdateRecordFromExisting(
     appendUpdatedPrimaryKeyStores(state, ctx, updatedRecord);
   }
 
-  const updatedParentData = { ...existingRecord, ...updatedRecord.primaryKey };
+  const updatedParentData = overlayUpdatedParentData(
+    ctx.model,
+    existingRecord,
+    updatedRecord.primaryKey,
+    scalarData
+  );
   for (const [relationName, mutation] of Object.entries(relations)) {
     await appendRelationMutation(
       driver,

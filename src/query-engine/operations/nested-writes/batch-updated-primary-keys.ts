@@ -105,6 +105,68 @@ export function appendUpdatedPrimaryKeyStores(
   }
 }
 
+/**
+ * Synthesize the parent record as it looks AFTER a scalar update, for
+ * threading into nested relation mutations. The batch engine cannot re-SELECT
+ * the row (unlike the tx engine, which does), so it overlays the pre-read
+ * record with the update's resolved values.
+ *
+ * The primary key ref is overlaid first (literal or computed value-ref).
+ * Every other updated scalar column that resolves to a plain literal is then
+ * overlaid so that a child correlation reading a NON-primary-key referenced
+ * column (a `.references()` on a non-id unique field) observes the new value
+ * — matching the tx engine's re-SELECT. Columns updated with SQL, array, or
+ * operation-envelope shapes are left at their pre-read value: their new value
+ * is not known at plan time, and no correlation path depends on them.
+ */
+export function overlayUpdatedParentData(
+  model: Model<any>,
+  beforeRecord: Record<string, unknown>,
+  primaryKey: Record<string, BatchResolvableValue>,
+  data: Record<string, unknown>
+): Record<string, unknown> {
+  const pkFields = new Set(getPrimaryKeyFields(model));
+  const overlay: Record<string, unknown> = { ...beforeRecord, ...primaryKey };
+
+  for (const [field, value] of Object.entries(data)) {
+    if (pkFields.has(field) || value === undefined) {
+      continue;
+    }
+    const literal = resolveLiteralScalarUpdate(value);
+    if (literal.resolved) {
+      overlay[field] = literal.value;
+      overlay[getColumnName(model, field)] = literal.value;
+    }
+  }
+
+  return overlay;
+}
+
+function resolveLiteralScalarUpdate(
+  value: unknown
+): { resolved: true; value: unknown } | { resolved: false } {
+  if (value === null) {
+    return { resolved: true, value: null };
+  }
+  if (isSql(value) || Array.isArray(value) || isBatchValueRef(value)) {
+    return { resolved: false };
+  }
+  if (!isPlainRecord(value)) {
+    return { resolved: true, value };
+  }
+  const setValue = value.set;
+  if (
+    Object.keys(value).length === 1 &&
+    setValue !== undefined &&
+    !isSql(setValue) &&
+    !Array.isArray(setValue) &&
+    !isPlainRecord(setValue)
+  ) {
+    return { resolved: true, value: setValue };
+  }
+  return { resolved: false };
+}
+
 export function hasPrimaryKeyUpdate(
   model: Model<any>,
   data: Record<string, unknown>
