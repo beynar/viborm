@@ -1405,12 +1405,13 @@ the *prediction* that consolidation would also shrink the raw line count
 below the two-engine anchor; it did not, because the anchor counted two
 half-surfaces, not one whole one. That prediction is corrected here rather
 than passed silently — which is exactly what the "we say so" clause demands.
-Maintainer sign-off is required to accept this revision of gate (4); if a
-raw sub-6,598 line count is deemed a hard requirement, the only design-legal
-lever is a further pass on `interpreter.ts` readability (helper inlining) at
-the cost of function granularity — it cannot come from re-splitting the
-semantics without reintroducing the drift surface this whole design exists
-to remove.
+**Maintainer sign-off: ACCEPTED** (2026-07-06, "as long as unification
+happened and duplication is gone" — the load-bearing property is the
+structural one, enforced by gates (1)–(3)). A raw line-count target is not
+reinstated. The remaining follow-up is navigability only: splitting
+`interpreter.ts` along mutation-family seams as pure moves — it must not
+come from re-splitting the semantics without reintroducing the drift
+surface this whole design exists to remove.
 
 ---
 
