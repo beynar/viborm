@@ -15,6 +15,7 @@ import type { SchemaRegistryLookup } from "@validation";
 // Re-export errors from unified error hierarchy
 export {
   NestedWriteError,
+  NotFoundError,
   QueryEngineError,
   ValidationError,
 } from "@errors";

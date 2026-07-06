@@ -28,8 +28,13 @@ import {
 } from "./operations/mutation-returns";
 import { runNestedMutationAtomically } from "./operations/nested-writes/atomic-runner";
 import { executeNestedWriteBatch } from "./operations/nested-writes/batch-plan";
+import {
+  runInterpreter,
+  selectMode,
+} from "./operations/nested-writes/interpreter";
 import { assertNoPlannedNestedMutationExecution } from "./operations/nested-writes/planned-mutation";
 import { fetchOptionalUniqueWithWhereRecord } from "./operations/nested-writes/record-access";
+import { isTreeEligible } from "./operations/nested-writes/routing";
 import {
   hasRecordKeys,
   planExistingUpsertBranch,
@@ -136,6 +141,15 @@ function runNestedWriteOperation<T>(
   driver: AnyDriver,
   modelName: string
 ): Promise<T> {
+  // Migration routing seam (§11): whole trees whose every nested kind and
+  // relation class is migrated run on the new interpreter; all others delegate
+  // to the frozen legacy engines below. MIGRATED is empty at M1, so every tree
+  // delegates and behavior is unchanged.
+  if (isTreeEligible(ctx, operation, args)) {
+    const mode = selectMode(driver);
+    return runInterpreter<T>(ctx, operation, args, mode);
+  }
+
   if (
     !driver.supportsTransactions &&
     driver.supportsBatch &&
