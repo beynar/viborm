@@ -1,4 +1,3 @@
-import type { AnyDriver } from "@drivers";
 import type { Model } from "@schema/model";
 import { isSql, type Sql, sql } from "@sql";
 import { getPrimaryKeyFields } from "../../builders/correlation-utils";
@@ -30,12 +29,12 @@ import {
 import {
   buildScalarSqlValue,
   getScalarCastType,
+  isBatchValueRef,
 } from "../../builders/values-builder";
 import { buildWhere } from "../../builders/where-builder";
 import { buildWhereUnique } from "../../builders/where-unique-builder";
 import { createChildContext, getColumnName, getTableName } from "../../context";
 import {
-  type BatchPreparationContext,
   NestedWriteError,
   type Operation,
   type QueryContext,
@@ -48,7 +47,6 @@ import {
   assertSingleRelationInput,
   getNonNullableFkFields,
 } from "./assertions";
-import { isBatchValueRef } from "./batch-references";
 import type { Guard, GuardFailure } from "./effects";
 import type { Expr, WriteSymbol } from "./expr";
 import {
@@ -60,6 +58,7 @@ import {
 } from "./fk";
 import {
   assertNestedUpdatePlanIsExecutable,
+  assertNoPlannedNestedMutationExecution,
   assertUpdateManyDataHasNoRelations,
   normalizeNestedUpdateInputs,
   normalizeNestedUpdateManyInputs,
@@ -67,7 +66,6 @@ import {
 import { LiveMode } from "./live-mode";
 import type { Emit, Mode, NestedWriteResult } from "./mode";
 import { PlannedMode } from "./planned-mode";
-import { assertNoPlannedNestedMutationExecution } from "./planned-mutation";
 import { buildUniqueWithWhere, recordNotFoundError } from "./record-access";
 import {
   assertManyToManyStepCombinationIsSupported,
@@ -79,52 +77,18 @@ import {
   splitRelationMutationsByFk,
 } from "./semantic-plan";
 
-/**
- * The only capability fork (§8.1). Capability precedence preserved exactly: a
- * driver supporting both transactions and batch takes LiveMode (map-oracle §A);
- * a batch-only driver takes PlannedMode; a driver with neither (d1-http) falls
- * to the throw — the same "cannot execute atomically" rejection the old
- * `runNestedMutationAtomically` raised, with `meta.strategy: "unsupported"`
- * (capability honesty, map-batch-refs §6.2).
- *
- * `operation` is threaded through so the neither-capability rejection is
- * byte-identical to the frozen old path (`atomic-runner.ts`): message
- * `cannot execute nested ${operation} writes atomically …` and
- * `meta.operation`. §8.1's `selectMode(driver, shared?)` signature omitted
- * `operation`; §11 M1 / §10 D9 / §7.1 require the d1-http rejection message to
- * survive verbatim, so the parameter is restored here (design/reality conflict
- * resolved in favor of the normative preservation demand — see report).
- */
-export function selectMode(
-  driver: AnyDriver,
-  operation: Operation,
-  shared?: BatchPreparationContext
-): Mode {
-  if (driver.supportsTransactions) {
-    return new LiveMode(driver);
-  }
-  if (driver.supportsBatch) {
-    return new PlannedMode(driver, shared);
-  }
-  throw new QueryEngineError(
-    `Driver '${driver.driverName}' cannot execute nested ${operation} writes atomically because it supports neither callback transactions nor atomic batch execution.`,
-    {
-      meta: {
-        driver: driver.driverName,
-        operation,
-        strategy: "unsupported",
-      },
-    }
-  );
-}
+// The capability fork `selectMode` (§8.1) lives in `mode.ts` — the single place
+// a driver's atomic-strategy capabilities are read (grep gate 1). It is
+// re-exported here so callers keep importing it from the interpreter entry.
+export { selectMode } from "./mode";
 
 /**
  * The interpreter entry (§2, §8.6). Owns every semantic decision once and
  * consults a `Mode` for substrate mechanics.
  *
- * M3 scope (§11): the create family (create / createMany / connect /
- * connectOrCreate) over FK-only trees, in both modes. Update/upsert/m2m trees
- * are not eligible yet and never reach here (`isTreeEligible`, §11).
+ * Every create/update/upsert nested-write tree — every mutation kind, over FK
+ * and m2m relations alike — runs here in both modes (§11 M9). The migration
+ * routing seam and the frozen legacy engines are gone (§11 M10).
  */
 export function runInterpreter<T>(
   ctx: QueryContext,
@@ -171,11 +135,11 @@ export function runInterpreter<T>(
     }
     if (operation === "upsert") {
       const outcome = await interpretTopLevelUpsert(interp, ctx, args);
-      // An upsert always refetches by the final identity — the frozen tx and
-      // batch engines both re-SELECT/append a findUnique for every branch
-      // (create / update / targetWhere-skip / setWhere-skip), returning scalars
-      // when no select/include is present (Prisma parity; refetch-by-PK with no
-      // projection yields exactly the scalar set a held record would).
+      // An upsert always refetches by the final identity — every branch
+      // (create / update / targetWhere-skip / setWhere-skip) resolves to a
+      // findUnique by the resolved PK, returning scalars when no select/include
+      // is present (Prisma parity; refetch-by-PK with no projection yields
+      // exactly the scalar set a held record would).
       return {
         finalWhere: outcome.finalWhere,
         refetch: true,

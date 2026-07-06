@@ -22,7 +22,6 @@ export type {
 } from "./relation-data-builder";
 export {
   buildConnectFkValues,
-  canUseSubqueryOnly,
   getFkDirection,
   needsTransaction,
   separateData,

@@ -16,12 +16,6 @@ import {
 
 export type NestedWriteTiming = "before" | "after";
 
-export interface RecordRef {
-  model: Model<any>;
-  where?: Record<string, unknown>;
-  record?: Record<string, unknown>;
-}
-
 export interface RelationPlanContext {
   relationName: string;
   relationInfo: RelationInfo;
@@ -100,13 +94,6 @@ export type NestedWriteStep =
       input: NestedUpsertInput | NestedUpsertInput[];
     };
 
-export interface NestedWritePlan {
-  operation: "create" | "update" | "upsert";
-  steps: NestedWriteStep[];
-  guards: NestedWriteGuard[];
-  resultRef?: RecordRef;
-}
-
 export type ExistingUpsertBranch =
   | {
       kind: "targetWhereSkipped";
@@ -132,11 +119,11 @@ export function splitRelationMutationsByFk(
   ctx: QueryContext,
   relations: Record<string, RelationMutation>
 ): {
-  currentHoldsFk: Array<[string, RelationMutation]>;
-  relatedHoldsFk: Array<[string, RelationMutation]>;
+  currentHoldsFk: [string, RelationMutation][];
+  relatedHoldsFk: [string, RelationMutation][];
 } {
-  const currentHoldsFk: Array<[string, RelationMutation]> = [];
-  const relatedHoldsFk: Array<[string, RelationMutation]> = [];
+  const currentHoldsFk: [string, RelationMutation][] = [];
+  const relatedHoldsFk: [string, RelationMutation][] = [];
 
   for (const entry of Object.entries(relations)) {
     const [, mutation] = entry;

@@ -1,3 +1,4 @@
+import type { BatchReferenceSqlAdapter } from "@adapters/database-adapter";
 import type { AnyDriver } from "@drivers";
 import {
   isVibORMError,
@@ -8,7 +9,10 @@ import {
 import type { Model } from "@schema/model";
 import { type Sql, sql } from "@sql";
 import { buildPrimaryKeyWhereUnique } from "../../builders/correlation-utils";
-import { buildScalarSqlValue } from "../../builders/values-builder";
+import {
+  type BatchValueRef,
+  buildScalarSqlValue,
+} from "../../builders/values-builder";
 import {
   createChildContext,
   getTableName,
@@ -23,12 +27,6 @@ import {
   QueryEngineError,
 } from "../../types";
 import { buildFindUnique } from "../find-unique";
-import {
-  type BatchValueRef,
-  collectPlanStatements,
-  createPlanState,
-  type PlanState,
-} from "./batch-references";
 import {
   lowerInsertManyRows,
   lowerInsertRow,
@@ -45,6 +43,143 @@ import {
 import type { Expr, WriteSymbol } from "./expr";
 import type { AtomicScope, Emit, Mode, NestedWriteResult } from "./mode";
 import { buildSelectOneSql } from "./record-access";
+
+// --- the plan store (folded from the former batch-references.ts at M10) ------
+//
+// The planned substrate builds one ordered statement list per atomic unit and
+// threads produced values through a scratch table. `PlanState` holds that list
+// (with monotonic setup/cleanup around it) and mints the `BatchValueRef`s that
+// stand for deferred values; the scratch table materializes lazily on the first
+// ref allocation, so a fully-literal plan emits zero scaffolding (invariant 10).
+// The store is planned-mode-only — it lives here, not in a shared builder,
+// because only this mode defers values.
+
+/**
+ * The append target for one atomic unit's plan. `statements` is the operation
+ * body; `setupStatements` / `cleanupStatements` bracket it with the scratch
+ * table's DDL when — and only when — a deferred value is allocated.
+ */
+export interface PlanState {
+  readonly batchId: string;
+  readonly statements: Sql[];
+  readonly setupStatements: Sql[];
+  readonly cleanupStatements: Sql[];
+  readonly references: PlanReferenceStore;
+}
+
+/** Mints the deferred value refs an atomic unit needs, materializing the
+ *  scratch table lazily on first allocation. */
+class PlanReferenceStore {
+  private nextRefIndex = 0;
+  private initialized = false;
+  private readonly batchId: string;
+  private readonly batchRefs: BatchReferenceSqlAdapter | undefined;
+  private readonly setup: Sql[];
+  private readonly cleanup: Sql[];
+
+  constructor(
+    batchId: string,
+    batchRefs: BatchReferenceSqlAdapter | undefined,
+    setup: Sql[],
+    cleanup: Sql[]
+  ) {
+    this.batchId = batchId;
+    this.batchRefs = batchRefs;
+    this.setup = setup;
+    this.cleanup = cleanup;
+  }
+
+  allocateValueRef(): BatchValueRef {
+    this.initialize();
+    const ref: BatchValueRef = {
+      kind: "batchValueRef",
+      batchId: this.batchId,
+      key: `ref_${this.nextRefIndex}`,
+    };
+    this.nextRefIndex++;
+    return ref;
+  }
+
+  private initialize(): void {
+    if (this.initialized) {
+      return;
+    }
+    this.initialized = true;
+    if (!this.batchRefs) {
+      return;
+    }
+    this.setup.push(
+      ...this.batchRefs.setup(this.batchId),
+      this.batchRefs.clear(this.batchId)
+    );
+    this.cleanup.push(this.batchRefs.cleanup(this.batchId));
+  }
+}
+
+let fallbackBatchId = 0;
+
+function createBatchId(): string {
+  if (globalThis.crypto?.randomUUID) {
+    return `batch_${globalThis.crypto.randomUUID()}`;
+  }
+  fallbackBatchId++;
+  return `batch_${Date.now()}_${fallbackBatchId}`;
+}
+
+function planReferenceSqlAdapter(
+  adapter: unknown
+): BatchReferenceSqlAdapter | undefined {
+  if (
+    adapter !== null &&
+    typeof adapter === "object" &&
+    hasBatchRefsSqlAdapter((adapter as { batchRefs?: unknown }).batchRefs)
+  ) {
+    return (adapter as { batchRefs: BatchReferenceSqlAdapter }).batchRefs;
+  }
+  return undefined;
+}
+
+function hasBatchRefsSqlAdapter(
+  value: unknown
+): value is BatchReferenceSqlAdapter {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    typeof (value as { setup?: unknown }).setup === "function" &&
+    typeof (value as { clear?: unknown }).clear === "function" &&
+    typeof (value as { cleanup?: unknown }).cleanup === "function" &&
+    typeof (value as { read?: unknown }).read === "function" &&
+    typeof (value as { store?: unknown }).store === "function" &&
+    typeof (value as { storeLastInsertId?: unknown }).storeLastInsertId ===
+      "function"
+  );
+}
+
+function createPlanState(ctx: { adapter: unknown }): PlanState {
+  const batchId = createBatchId();
+  const setupStatements: Sql[] = [];
+  const cleanupStatements: Sql[] = [];
+  return {
+    batchId,
+    statements: [],
+    setupStatements,
+    cleanupStatements,
+    references: new PlanReferenceStore(
+      batchId,
+      planReferenceSqlAdapter(ctx.adapter),
+      setupStatements,
+      cleanupStatements
+    ),
+  };
+}
+
+function collectPlanStatements(state: PlanState): Sql[] {
+  return [
+    ...state.setupStatements,
+    ...state.statements,
+    ...state.cleanupStatements,
+  ];
+}
 
 /**
  * A premise registered in the plan-time side table (§7.3): the assertion's
@@ -676,7 +811,7 @@ function isPlanState(value: unknown): value is PlanState {
     "statements" in value &&
     "setupStatements" in value &&
     "cleanupStatements" in value &&
-    "registerProducedPrimaryKeyRef" in value
+    "references" in value
   );
 }
 

@@ -1,8 +1,16 @@
+import type { AnyDriver } from "@drivers";
 import type { Model } from "@schema/model";
 import type { Sql } from "@sql";
-import type { QueryContext } from "../../types";
+import {
+  type BatchPreparationContext,
+  type Operation,
+  type QueryContext,
+  QueryEngineError,
+} from "../../types";
 import type { Effect, Probe, ProbeResult } from "./effects";
 import type { IdentityExprs, WriteSymbol } from "./expr";
+import { LiveMode } from "./live-mode";
+import { PlannedMode } from "./planned-mode";
 
 export interface Mode {
   readonly canObserveOwnWrites: boolean; // Live: true; Planned: false
@@ -93,4 +101,48 @@ export interface NestedWriteResult {
   readonly selectInclude?: Record<string, unknown>;
   /** Live mode already holds the record when refetch=false. */
   readonly record?: Readonly<Record<string, unknown>>;
+}
+
+/**
+ * The only capability fork (§8.1). This is the single place a driver's
+ * atomic-strategy capabilities are read — the grep gate holds that line so no
+ * `supportsTransactions`/`supportsBatch` branch reappears in the interpreter or
+ * anywhere else in `nested-writes/`.
+ *
+ * Capability precedence preserved exactly: a driver supporting both transactions
+ * and batch takes LiveMode (map-oracle §A); a batch-only driver takes
+ * PlannedMode; a driver with neither (d1-http) falls to the throw — the same
+ * "cannot execute atomically" rejection the old `runNestedMutationAtomically`
+ * raised, with `meta.strategy: "unsupported"` (capability honesty,
+ * map-batch-refs §6.2).
+ *
+ * `operation` is threaded through so the neither-capability rejection is
+ * byte-identical to the frozen old path: message
+ * `cannot execute nested ${operation} writes atomically …` and `meta.operation`.
+ * §8.1's `selectMode(driver, shared?)` signature omitted `operation`; §11 M1 /
+ * §10 D9 / §7.1 require the d1-http rejection message to survive verbatim, so
+ * the parameter is restored here (design/reality conflict resolved in favor of
+ * the normative preservation demand — see report).
+ */
+export function selectMode(
+  driver: AnyDriver,
+  operation: Operation,
+  shared?: BatchPreparationContext
+): Mode {
+  if (driver.supportsTransactions) {
+    return new LiveMode(driver);
+  }
+  if (driver.supportsBatch) {
+    return new PlannedMode(driver, shared);
+  }
+  throw new QueryEngineError(
+    `Driver '${driver.driverName}' cannot execute nested ${operation} writes atomically because it supports neither callback transactions nor atomic batch execution.`,
+    {
+      meta: {
+        driver: driver.driverName,
+        operation,
+        strategy: "unsupported",
+      },
+    }
+  );
 }

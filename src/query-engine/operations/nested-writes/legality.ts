@@ -13,7 +13,6 @@ import {
   type QueryContext,
 } from "../../types";
 import type { Mode } from "./mode";
-import { assertNoPlannedNestedMutationExecution } from "./planned-mutation";
 import {
   type NestedWriteStep,
   normalizeArray,
@@ -25,48 +24,31 @@ import {
  * The single throw site for the capability contract (§6.3).
  *
  * Runs before any effect, in both modes, walking the whole tree. It is the
- * union of today's static checks plus symbol-origin legality and probe
- * independence. Gates 1-5 are semantic invariants (both modes); gates 6-7 are
- * mode-scoped by the `mode` parameter, so the two modes can never disagree
- * about where the line is (§1.2 S2).
+ * static-check union: `separateData` parse validation (engine-independent;
+ * performed as the tree is walked, so an unsupported relation payload throws
+ * here), the create/upsert-create closure rule (`assertNoPlannedNested-
+ * MutationExecution` — I6), and the nested-update / updateMany depth checks
+ * (`assertNestedUpdatePlanIsExecutable`, `assertUpdateManyDataHasNoRelations`).
+ * Walking the create/update tree to full depth up front closes D5: the
+ * interpreter rejects an invalid deep tree before writing a row instead of
+ * failing mid-execution.
  *
- * The roster (§6.3):
- *  1. `separateData` parse validation — engine-independent; performed as the
- *     tree is walked (an unsupported relation payload throws here).
- *  2. `assertNoPlannedNestedMutationExecution` — create / upsert-create
- *     branches may only nest create/createMany/connect/connectOrCreate (I6).
- *  3. `assertNestedUpdatePlanIsExecutable` + `assertUpdateManyDataHasNoRelations`.
- *  4. `assertManyToManyStepCombinationIsSupported` (I8) — lands with the M2M
- *     interpreter (§11 M9); until then the frozen m2m engines own it.
- *  5. FK-nullability static checks — land with the update-family interpreter
- *     (§11 M5); until then the frozen update engines own them.
- *  6. Symbol-origin legality (planned mode only) — lands with the symbol
- *     substrate (§11 M3+); until then the frozen batch plan builder owns the
- *     compound-generated-PK / "known before execution" rejections, so the
- *     message stays single-sourced.
- *  7. Probe independence (planned mode only) — lands with planned-mode probes
- *     (§11 M3+).
- *
- * M2 scope (§11): fold the `update-plan.ts` / `planned-mutation.ts` logic in
- * (gates 2-3) and route it through this one function before either old engine
- * runs, walking the create/update tree to the depth the frozen engines already
- * validate. This closes D5 — live mode now rejects an invalid deep create/
- * update tree up front instead of beginning the parent mutation and failing
- * mid-execution.
+ * The remaining §6.3 gates fire closer to the effect that needs them and stay
+ * single-sourced: FK-nullability and m2m-step-combination checks (I8) live in
+ * the interpreter beside the step that would violate them; symbol-origin
+ * legality and probe independence (planned mode only) are enforced by
+ * `PlannedMode` as symbols are allocated and probes are built. The `_mode`
+ * parameter is retained for the signature the pipeline threads (§8.6); this
+ * function itself performs the mode-independent tree walk.
  *
  * A top-level upsert is the one operation with NO static tree check here: it
- * takes exactly one branch at runtime, decided by an existence probe, and both
- * frozen substrates validate ONLY the taken branch (create when the target is
- * absent, update when it exists). A static gate cannot run that probe, so
- * hoisting either branch would reject an input the frozen engines accept — a
- * new rejection barred by the freeze rule (§11) and Pin Rule 2 (§5.5). The
- * frozen upsert engines keep validating the taken branch; the branch-scoped
- * check lands in the interpreter at M6, inside the taken arm. (A NESTED upsert
- * step reached from an update tree IS validated here, because the frozen update
- * engine validates it statically before opening its transaction.)
- *
- * Gates 4-7 populate at their own milestones; the frozen engines keep enforcing
- * them until then, so no premise is dropped and no message diverges.
+ * takes exactly one branch at runtime, decided by an existence probe the static
+ * gate cannot run (create when the target is absent, update when it exists).
+ * Hoisting either branch would over-reject the create-taken (missing-target)
+ * case that must succeed (Pin Rule 2, §5.5); the branch-scoped check runs in the
+ * interpreter inside the taken arm. (A NESTED upsert step reached from an update
+ * tree IS validated here, walking both its branches — see
+ * `assertUpsertBranchIsExecutable`.)
  */
 export function assertPlanExecutable(
   ctx: QueryContext,
@@ -82,10 +64,10 @@ export function assertPlanExecutable(
       assertUpdateDataIsExecutable(ctx, args.data as Record<string, unknown>);
       return;
     case "upsert":
-      // No static tree check: a top-level upsert's branch validation is
-      // runtime-branch-gated on an existence probe the static gate cannot run
-      // (see the header doc's upsert carve-out). Hoisting it would over-reject
-      // the create-taken (missing-target) case the frozen engines accept.
+      // No static tree check: a top-level upsert's branch is chosen at runtime
+      // by an existence probe the static gate cannot run. Hoisting either branch
+      // would over-reject the create-taken (missing-target) case that must
+      // succeed (Pin Rule 2). The branch-scoped check runs in the interpreter.
       return;
     default:
       return;
@@ -94,10 +76,9 @@ export function assertPlanExecutable(
 
 /**
  * A create tree may only nest create/createMany/connect/connectOrCreate (I6).
- * The frozen tx engine validates each level only as it reaches it during
- * execution, so an invalid key inside an after-parent child branch is caught
- * only after the parent row is inserted. Walking the whole tree here mirrors
- * the batch engine's plan-time depth and rejects up front (D5 closed).
+ * Walking the whole tree here, before the interpreter emits any effect, rejects
+ * an invalid key inside an after-parent child branch up front instead of after
+ * the parent row is inserted (D5 closed).
  */
 function assertCreateDataIsExecutable(
   ctx: QueryContext,
@@ -205,8 +186,7 @@ function walkUpdateBranchRelations(
 
 /**
  * The update step's `input` is the raw data object for a to-one relation and a
- * `{ where, data }` (array) shape for a to-many relation — the same split
- * `getNestedUpdateDataInputs` makes in the frozen update-plan validator.
+ * `{ where, data }` (array) shape for a to-many relation.
  */
 function getNestedUpdateDataPayloads(
   step: Extract<NestedWriteStep, { kind: "update" }>
@@ -219,15 +199,13 @@ function getNestedUpdateDataPayloads(
 
 /**
  * A NESTED relation upsert step (reached only from a top-level `update` tree).
- * Unlike a top-level upsert, this one IS validated statically today: the frozen
- * top-level update calls `assertNestedUpdatePlanIsExecutable` before opening its
- * transaction (transaction-flow.ts:329 / update.ts:50), and that check walks
- * every nested upsert step and validates BOTH its branches
- * (update-plan.ts `assertNestedUpsertBranchesAreExecutable`) — the create branch
- * via the I6 `upsertCreate` rule, the update branch via nested-update recursion.
- * The frozen engine also validates the create branch to full depth at runtime
- * as it recurses through `executeNestedCreate`, so walking it to full depth here
- * is a faithful hoist, not a new rejection. This mirrors that static validation.
+ * Unlike a top-level upsert — whose branch is chosen at runtime by an existence
+ * probe and cannot be statically hoisted — a nested upsert step IS validated
+ * statically here, walking BOTH its branches: the create branch under the I6
+ * `upsertCreate` closure rule, the update branch by nested-update recursion. The
+ * interpreter interprets only the taken branch at runtime, but both are legal
+ * shapes it can reach, so validating both to full depth up front rejects the
+ * same invalid trees the runtime walk would, one statement earlier.
  */
 function assertUpsertBranchIsExecutable(
   ctx: QueryContext,
@@ -246,12 +224,11 @@ function normalizeConnectOrCreateInputs(
 }
 
 // ===========================================================================
-// Nested update/updateMany plan legality + input normalization (folded in from
-// the frozen `update-plan.ts` at M9, §6.3 gate 3). `assertNestedUpdatePlan-
-// IsExecutable` walks an update tree and validates every nested create/
-// upsert-create branch (I6), nested-update recursion, and updateMany-has-no-
-// relations. The `normalize*` helpers are pure parsing shared by the
-// interpreter and this gate.
+// Nested update/updateMany plan legality + input normalization (§6.3 gate 3).
+// `assertNestedUpdatePlanIsExecutable` walks an update tree and validates every
+// nested create/upsert-create branch (I6), nested-update recursion, and
+// updateMany-has-no-relations. The `normalize*` helpers are pure parsing shared
+// by the interpreter and this gate.
 // ===========================================================================
 
 export function assertNestedUpdatePlanIsExecutable(
@@ -427,4 +404,59 @@ function isNestedUpdateInput(value: unknown): value is NestedUpdateInput {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+// --- gate 2: create / upsert-create branch closure (I6) --------------------
+// Folded from the former `planned-mutation.ts` at M10. A create tree — and the
+// create branch of an upsert — may only nest create/createMany/connect/
+// connectOrCreate; any read-decided mutation (update/updateMany/upsert/
+// deleteMany) inside it is rejected up front, in both modes, with a single
+// message.
+
+const PLANNED_MUTATION_KEYS = [
+  "update",
+  "updateMany",
+  "upsert",
+  "deleteMany",
+] as const;
+
+type PlannedMutationKey = (typeof PLANNED_MUTATION_KEYS)[number];
+
+type PlannedMutationContext = "create" | "upsertCreate";
+
+export function assertNoPlannedNestedMutationExecution(
+  relations: Record<string, RelationMutation>,
+  context: PlannedMutationContext
+): void {
+  for (const [relationName, mutation] of Object.entries(relations)) {
+    const plannedKey = getPlannedMutationKey(mutation);
+    if (!plannedKey) {
+      continue;
+    }
+
+    throw new NestedWriteError(
+      getPlannedMutationMessage(relationName, plannedKey, context),
+      relationName,
+      { meta: { operation: plannedKey, context } }
+    );
+  }
+}
+
+function getPlannedMutationKey(
+  mutation: RelationMutation
+): PlannedMutationKey | undefined {
+  return PLANNED_MUTATION_KEYS.find((key) => mutation[key] !== undefined);
+}
+
+function getPlannedMutationMessage(
+  relationName: string,
+  operation: PlannedMutationKey,
+  context: PlannedMutationContext
+): string {
+  const branch =
+    context === "create" ? "parent create" : "upsert create branch";
+  return (
+    `Nested operation '${operation}' on relation '${relationName}' is not supported in ${branch}. ` +
+    "Only create, createMany, connect, and connectOrCreate are allowed there."
+  );
 }

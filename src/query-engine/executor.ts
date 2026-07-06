@@ -49,9 +49,9 @@ import {
 } from "./operations/nested-writes/interpreter";
 import {
   assertNestedUpdatePlanIsExecutable,
+  assertNoPlannedNestedMutationExecution,
   assertPlanExecutable,
 } from "./operations/nested-writes/legality";
-import { assertNoPlannedNestedMutationExecution } from "./operations/nested-writes/planned-mutation";
 import {
   applyPaginationPostProcessing,
   applyPostProcessing,

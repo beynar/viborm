@@ -123,6 +123,7 @@
     "test:ui": "vitest --ui",
     "test:types": "vitest run tests/types/",
     "test:runtime": "vitest run tests/runtime/",
+    "test:gates": "vitest run tests/query-engine/nested-write-architecture-gates.test.ts",
     "test:pg": "vitest run --no-file-parallelism tests/drivers/pg.test.ts tests/drivers/postgres.test.ts",
     "test:pglite": "vitest run tests/drivers/pglite.test.ts",
     "test:sqlite": "vitest run tests/drivers/sqlite3.test.ts tests/drivers/libsql.test.ts",

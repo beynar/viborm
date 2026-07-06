@@ -7,7 +7,6 @@
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { createModelRegistry, createQueryContext } from "@query-engine";
 import {
-  canUseSubqueryOnly,
   getFkDirection,
   needsTransaction,
   separateData,
@@ -374,51 +373,6 @@ describe("needsTransaction", () => {
     const { relations } = separateData(ctx, data);
     // UserWithPosts doesn't have FK, posts have the FK
     expect(needsTransaction(relations)).toBe(true);
-  });
-});
-
-// =============================================================================
-// CAN USE SUBQUERY ONLY TESTS
-// =============================================================================
-
-describe("canUseSubqueryOnly", () => {
-  it("returns false for simple connect (FK on current model)", () => {
-    const ctx = createQueryContext(adapter, Post, registry);
-    const data = {
-      author: {
-        connect: { id: "user-123" },
-      },
-    };
-
-    const { relations } = separateData(ctx, data);
-    expect(canUseSubqueryOnly(relations)).toBe(false);
-  });
-
-  it("returns false when create is needed", () => {
-    const ctx = createQueryContext(adapter, UserWithPosts, registry);
-    const data = {
-      posts: {
-        create: { title: "Hello" },
-      },
-    };
-
-    const { relations } = separateData(ctx, data);
-    expect(canUseSubqueryOnly(relations)).toBe(false);
-  });
-
-  it("returns false when connectOrCreate is needed", () => {
-    const ctx = createQueryContext(adapter, Post, registry);
-    const data = {
-      author: {
-        connectOrCreate: {
-          where: { id: "user-123" },
-          create: { name: "Alice", email: "alice@example.com" },
-        },
-      },
-    };
-
-    const { relations } = separateData(ctx, data);
-    expect(canUseSubqueryOnly(relations)).toBe(false);
   });
 });
 

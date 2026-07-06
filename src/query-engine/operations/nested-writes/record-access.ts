@@ -1,13 +1,8 @@
-import type { AnyDriver } from "@drivers";
 import type { Model } from "@schema/model";
 import { type Sql, sql } from "@sql";
 import { buildWhere } from "../../builders/where-builder";
 import { buildWhereUnique } from "../../builders/where-unique-builder";
-import {
-  createChildContext,
-  getTableName,
-  translateRowToFieldNames,
-} from "../../context";
+import { createChildContext, getTableName } from "../../context";
 import { NestedWriteError, type QueryContext } from "../../types";
 
 /**
@@ -108,77 +103,4 @@ export function buildUniqueWithWhere(
   return whereClause
     ? ctx.adapter.operators.and(uniqueClause, whereClause)
     : uniqueClause;
-}
-
-export async function fetchOptionalWhereRecord(
-  driver: AnyDriver,
-  ctx: QueryContext,
-  model: Model<any>,
-  whereClause: Sql
-): Promise<Record<string, unknown> | undefined> {
-  const result = await driver._execute<Record<string, unknown>>(
-    buildSelectOneSql(ctx, model, whereClause)
-  );
-  const row = result.rows[0];
-  return row && translateRowToFieldNames(model, row);
-}
-
-export async function fetchOptionalUniqueRecord(
-  driver: AnyDriver,
-  ctx: QueryContext,
-  model: Model<any>,
-  where: Record<string, unknown>
-): Promise<Record<string, unknown> | undefined> {
-  const childCtx =
-    model === ctx.model ? ctx : createChildContext(ctx, model, ctx.nextAlias());
-  const whereClause = buildWhereUnique(childCtx, where, getTableName(model));
-  return fetchOptionalWhereRecord(driver, childCtx, model, whereClause);
-}
-
-export async function fetchOptionalUniqueWithWhereRecord(
-  driver: AnyDriver,
-  ctx: QueryContext,
-  model: Model<any>,
-  uniqueWhere: Record<string, unknown>,
-  where: Record<string, unknown>
-): Promise<Record<string, unknown> | undefined> {
-  return fetchOptionalWhereRecord(
-    driver,
-    ctx,
-    model,
-    buildUniqueWithWhere(ctx, model, uniqueWhere, where)
-  );
-}
-
-export async function fetchRequiredWhereRecord(
-  driver: AnyDriver,
-  ctx: QueryContext,
-  model: Model<any>,
-  whereClause: Sql,
-  notFound: RecordNotFound
-): Promise<Record<string, unknown>> {
-  const record = await fetchOptionalWhereRecord(
-    driver,
-    ctx,
-    model,
-    whereClause
-  );
-  if (!record) {
-    throw recordNotFoundError(notFound);
-  }
-  return record;
-}
-
-export async function fetchRequiredUniqueRecord(
-  driver: AnyDriver,
-  ctx: QueryContext,
-  model: Model<any>,
-  where: Record<string, unknown>,
-  notFound: RecordNotFound
-): Promise<Record<string, unknown>> {
-  const record = await fetchOptionalUniqueRecord(driver, ctx, model, where);
-  if (!record) {
-    throw recordNotFoundError(notFound);
-  }
-  return record;
 }

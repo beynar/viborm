@@ -26,7 +26,6 @@ export {
   buildValues,
   buildWhere,
   buildWhereUnique,
-  canUseSubqueryOnly,
   getFkDirection,
   getPrimaryKeyField,
   getPrimaryKeyFields,

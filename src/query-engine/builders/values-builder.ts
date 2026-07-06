@@ -5,20 +5,96 @@
  * Handles scalar fields, defaults, and auto-generated values.
  */
 
-import type { CastType } from "@adapters/database-adapter";
+import type {
+  BatchReferenceSqlAdapter,
+  CastType,
+} from "@adapters/database-adapter";
 import type { Model } from "@schema/model";
 import { isSql, type Sql } from "@sql";
 import { getColumnName } from "../context";
-import {
-  isBatchValueRef,
-  lowerBatchResolvableValue,
-} from "../operations/nested-writes/batch-references";
 import { type QueryContext, QueryEngineError } from "../types";
 import { isGeneratedIncrementDefault } from "./generated-scalar";
 
 interface ValuesResult {
   columns: string[];
   values: Sql[][];
+}
+
+/**
+ * The Axis-A value carrier (§0.1, §3.1). A single nested-write value threads
+ * through statement boundaries as one of three things: a literal known now, a
+ * pre-built `Sql` fragment (a connect target-PK subquery), or a `BatchValueRef`
+ * — a symbol the planned substrate defers through the scratch table
+ * (`batchRefs.store`/`read`). `buildScalarSqlValue` is the one leaf that lowers
+ * all three, so the carrier lives here beside it rather than in a mode file:
+ * both the interpreter and the shared FK/condition builders speak it, and none
+ * of them may depend on `planned-mode.ts`.
+ */
+export interface BatchValueRef {
+  readonly kind: "batchValueRef";
+  readonly batchId: string;
+  readonly key: string;
+}
+
+/** A value that flows through a nested write: a literal, a pre-built `Sql`
+ *  fragment, or a deferred `BatchValueRef` (planned mode). */
+export type BatchResolvableValue = unknown | Sql | BatchValueRef;
+
+export function isBatchValueRef(value: unknown): value is BatchValueRef {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    (value as { kind?: unknown }).kind === "batchValueRef" &&
+    typeof (value as { batchId?: unknown }).batchId === "string" &&
+    typeof (value as { key?: unknown }).key === "string"
+  );
+}
+
+/**
+ * Lower a carrier value for a consuming statement: a `BatchValueRef` becomes the
+ * adapter's `batchRefs.read` subquery (the planned substrate's deferred read);
+ * anything else passes through unchanged. `buildScalarSqlValue` applies the
+ * mandatory TEXT round-trip cast-back on top of the read result.
+ */
+export function lowerBatchResolvableValue(
+  adapter: unknown,
+  value: BatchResolvableValue
+): unknown | Sql {
+  if (!isBatchValueRef(value)) {
+    return value;
+  }
+
+  const batchRefs = getBatchReferenceSqlAdapter(adapter);
+  if (!batchRefs) {
+    throw new QueryEngineError(
+      "Batch reference SQL support is not available for this adapter."
+    );
+  }
+  return batchRefs.read(value.batchId, value.key);
+}
+
+function getBatchReferenceSqlAdapter(
+  adapter: unknown
+): BatchReferenceSqlAdapter | undefined {
+  if (
+    adapter !== null &&
+    typeof adapter === "object" &&
+    isBatchReferenceSqlAdapter((adapter as { batchRefs?: unknown }).batchRefs)
+  ) {
+    return (adapter as { batchRefs: BatchReferenceSqlAdapter }).batchRefs;
+  }
+  return undefined;
+}
+
+function isBatchReferenceSqlAdapter(
+  value: unknown
+): value is BatchReferenceSqlAdapter {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    typeof (value as { read?: unknown }).read === "function" &&
+    typeof (value as { store?: unknown }).store === "function"
+  );
 }
 
 /**

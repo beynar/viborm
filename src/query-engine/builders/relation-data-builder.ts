@@ -687,12 +687,3 @@ export function needsTransaction(
 
   return false;
 }
-
-/**
- * Check if relation mutations can be handled with subqueries only
- */
-export function canUseSubqueryOnly(
-  relations: Record<string, RelationMutation>
-): boolean {
-  return !needsTransaction(relations);
-}

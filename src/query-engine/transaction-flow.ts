@@ -7,9 +7,8 @@ import {
   selectMode,
 } from "./operations/nested-writes/interpreter";
 import { assertPlanExecutable } from "./operations/nested-writes/legality";
-import { isTreeEligible } from "./operations/nested-writes/routing";
 import { hasRecordKeys } from "./operations/nested-writes/semantic-plan";
-import { type Operation, type QueryContext, QueryEngineError } from "./types";
+import type { Operation, QueryContext } from "./types";
 
 export function hasNestedWrites(
   operation: Operation,
@@ -113,29 +112,18 @@ function runNestedWriteOperation<T>(
   driver: AnyDriver
 ): Promise<T> {
   // The capability fork (§8.1) resolves the mode first: a driver with neither
-  // atomic strategy (d1-http class) rejects here, byte-identically to the frozen
-  // atomic-runner path. Then the uniform legality gate (§6.3, §11 M2) runs the
-  // whole-tree static validation for BOTH modes before the interpreter writes a
-  // row, so an invalid deep tree is rejected up front instead of failing
-  // mid-execution (D5 closed).
+  // atomic strategy (d1-http class) rejects here. Then the uniform legality gate
+  // (§6.3) runs the whole-tree static validation for BOTH modes before the
+  // interpreter writes a row, so an invalid deep tree is rejected up front
+  // instead of failing mid-execution (D5 closed).
+  //
+  // Every valid create/update/upsert tree runs on the one interpreter: the
+  // migration routing seam (routing.ts / MIGRATED) and the frozen legacy engines
+  // are gone (§11 M9/M10). An invalid tree has already thrown at
+  // `assertPlanExecutable`, so there is no third path.
   const mode = selectMode(driver, operation);
   assertPlanExecutable(ctx, operation, args, mode);
-
-  // Migration routing seam (§11). At M9 every nested kind and relation class is
-  // migrated, so every valid tree is eligible and runs on the interpreter; the
-  // frozen legacy engines are deleted. The seam itself (routing.ts / MIGRATED)
-  // is removed at M10.
-  if (isTreeEligible(ctx, operation, args)) {
-    return runInterpreter<T>(ctx, operation, args, mode);
-  }
-
-  // Unreachable after M9: a valid create/update/upsert tree is always eligible
-  // (all kinds + both relation classes migrated), and an invalid tree has
-  // already thrown at `assertPlanExecutable`. The old engines that once served
-  // ineligible trees are deleted; this is a defensive internal-invariant guard.
-  throw new QueryEngineError(
-    `Nested ${operation} write tree is not interpreter-eligible after the M9 migration — this is an internal routing invariant breach.`
-  );
+  return runInterpreter<T>(ctx, operation, args, mode);
 }
 
 function isWriteRaceLoserError(error: unknown): boolean {
