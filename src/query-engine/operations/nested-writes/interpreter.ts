@@ -16,9 +16,18 @@ import { PlannedMode } from "./planned-mode";
  * to the throw — the same "cannot execute atomically" rejection the old
  * `runNestedMutationAtomically` raised, with `meta.strategy: "unsupported"`
  * (capability honesty, map-batch-refs §6.2).
+ *
+ * `operation` is threaded through so the neither-capability rejection is
+ * byte-identical to the frozen old path (`atomic-runner.ts`): message
+ * `cannot execute nested ${operation} writes atomically …` and
+ * `meta.operation`. §8.1's `selectMode(driver, shared?)` signature omitted
+ * `operation`; §11 M1 / §10 D9 / §7.1 require the d1-http rejection message to
+ * survive verbatim, so the parameter is restored here (design/reality conflict
+ * resolved in favor of the normative preservation demand — see report).
  */
 export function selectMode(
   driver: AnyDriver,
+  operation: Operation,
   shared?: BatchPreparationContext
 ): Mode {
   if (driver.supportsTransactions) {
@@ -28,10 +37,11 @@ export function selectMode(
     return new PlannedMode(driver, shared);
   }
   throw new QueryEngineError(
-    `Driver '${driver.driverName}' cannot execute nested writes atomically because it supports neither callback transactions nor atomic batch execution.`,
+    `Driver '${driver.driverName}' cannot execute nested ${operation} writes atomically because it supports neither callback transactions nor atomic batch execution.`,
     {
       meta: {
         driver: driver.driverName,
+        operation,
         strategy: "unsupported",
       },
     }

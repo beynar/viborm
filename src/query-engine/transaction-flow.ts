@@ -146,7 +146,7 @@ function runNestedWriteOperation<T>(
   // to the frozen legacy engines below. MIGRATED is empty at M1, so every tree
   // delegates and behavior is unchanged.
   if (isTreeEligible(ctx, operation, args)) {
-    const mode = selectMode(driver);
+    const mode = selectMode(driver, operation);
     return runInterpreter<T>(ctx, operation, args, mode);
   }
 
