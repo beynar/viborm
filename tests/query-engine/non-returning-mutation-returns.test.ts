@@ -2,7 +2,7 @@ import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
-import { NestedWriteError, NotFoundError } from "@errors";
+import { NotFoundError } from "@errors";
 import { push } from "@migrations";
 import { s } from "@schema";
 import { type Sql, sql } from "@sql";
@@ -232,20 +232,37 @@ describe("non-RETURNING mutation returns", () => {
     ).toBe(true);
   });
 
-  test("nested createMany rejects when rows cannot be safely refetched", async () => {
-    await expect(
-      client.user.create({
-        data: {
-          id: "user-1",
-          email: "user-1@test.com",
-          name: "Alice",
-          autoPosts: {
-            createMany: {
-              data: [{ title: "No primary key" }],
-            },
+  // Nested createMany of generated-PK children on a non-returning adapter with
+  // no `include`: the children are inserted; nothing needs their generated PKs.
+  //
+  // Engine-unification (DESIGN.md §11 M3) resolves a pre-existing tx-vs-batch
+  // divergence here. The frozen tx engine eagerly refetched every createMany
+  // child even when no `include` consumed them, and threw `NestedWriteError`
+  // when a child provided no PK to refetch by. The frozen BATCH engine already
+  // did NOT refetch createMany children — it succeeded. Prisma succeeds too.
+  // The create-family interpreter unifies both modes to the batch/Prisma
+  // behavior: insert the children, return the parent scalars, no spurious
+  // eager-refetch rejection. (Conflict recorded in the M3 report.)
+  test("nested createMany of generated-PK children without include succeeds", async () => {
+    const created = await client.user.create({
+      data: {
+        id: "user-1",
+        email: "user-1@test.com",
+        name: "Alice",
+        autoPosts: {
+          createMany: {
+            data: [{ title: "No primary key" }],
           },
         },
-      })
-    ).rejects.toBeInstanceOf(NestedWriteError);
+      },
+    });
+
+    expect(created.id).toBe("user-1");
+    const children = await client.autoPost.findMany({
+      where: { userId: "user-1" },
+    });
+    expect(children).toHaveLength(1);
+    expect(children[0]?.title).toBe("No primary key");
+    expect(children[0]?.userId).toBe("user-1");
   });
 });

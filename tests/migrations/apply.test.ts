@@ -56,7 +56,7 @@ function runApplyDownRoundTrip(
   createDriver: () => AnyDriver
 ): void {
   describe(`apply/down round-trip (${driverName})`, () => {
-    it("generates up+down, applies, rolls back, and re-applies", async () => {
+    it("generates up+down, applies, rolls back, and re-applies", { timeout: 30_000 }, async () => {
       const storage = new MemoryStorageDriver();
       const driver = createDriver();
       const clientV1 = createClient({ schema: schemaV1, driver });
@@ -151,7 +151,7 @@ function runApplyDownRoundTrip(
       expect(gen3.operations).toHaveLength(0);
     });
 
-    it("rolls back to a specific migration with `to`", async () => {
+    it("rolls back to a specific migration with `to`", { timeout: 30_000 }, async () => {
       const storage = new MemoryStorageDriver();
       const driver = createDriver();
       const clientV1 = createClient({ schema: schemaV1, driver });
@@ -176,7 +176,7 @@ function runApplyDownRoundTrip(
       );
     });
 
-    it("marks lossy operations with warnings in the down file", async () => {
+    it("marks lossy operations with warnings in the down file", { timeout: 30_000 }, async () => {
       const storage = new MemoryStorageDriver();
       const driver = createDriver();
       const clientV2 = createClient({ schema: schemaV2, driver });

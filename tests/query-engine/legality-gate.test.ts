@@ -106,7 +106,7 @@ async function dumpCounts(client: BehaviorClient): Promise<{
 describe("M2 legality gate", () => {
   describe("unsupported nested create keys reject before parent mutation", () => {
     for (const mode of ["transaction", "batch"] as const) {
-      test(`${mode} mode persists no rows`, async () => {
+      test(`${mode} mode persists no rows`, { timeout: 30_000 }, async () => {
         const db = await setupDb();
         const driver =
           mode === "transaction"
@@ -144,7 +144,7 @@ describe("M2 legality gate", () => {
     // validated. The frozen engines create the row and succeed; the gate must
     // not pre-reject it. The spy proves the operation actually executed (it was
     // not short-circuited by a static throw).
-    test("transaction mode: missing target with invalid update branch succeeds", async () => {
+    test("transaction mode: missing target with invalid update branch succeeds", { timeout: 30_000 }, async () => {
       const db = await setupDb();
       const driver = new TxSpyDriver({ client: db });
       const client = bootShared(driver);
@@ -172,7 +172,7 @@ describe("M2 legality gate", () => {
       await client.$disconnect();
     });
 
-    test("batch mode: missing target with invalid update branch succeeds", async () => {
+    test("batch mode: missing target with invalid update branch succeeds", { timeout: 30_000 }, async () => {
       const db = await setupDb();
       const driver = new BatchSpyDriver({ client: db });
       const client = bootShared(driver);
@@ -200,7 +200,7 @@ describe("M2 legality gate", () => {
     // The update branch IS validated when it is actually taken (target
     // exists) — by the frozen engines, with the identical typed message in
     // both modes, and with no partial state persisted.
-    test("transaction mode: existing target rejects the taken update branch", async () => {
+    test("transaction mode: existing target rejects the taken update branch", { timeout: 30_000 }, async () => {
       const db = await setupDb();
       const driver = new TxSpyDriver({ client: db });
       const client = bootShared(driver);
@@ -227,7 +227,7 @@ describe("M2 legality gate", () => {
       await client.$disconnect();
     });
 
-    test("batch mode: existing target rejects the taken update branch, same message", async () => {
+    test("batch mode: existing target rejects the taken update branch, same message", { timeout: 30_000 }, async () => {
       const db = await setupDb();
       const driver = new BatchSpyDriver({ client: db });
       const client = bootShared(driver);

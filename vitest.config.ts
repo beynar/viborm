@@ -5,6 +5,14 @@ export default defineConfig({
   test: {
     globals: true,
     include: ["tests/**/*.test.ts"],
+    // Many suites boot fresh PGlite instances and run migrations per test. When
+    // the whole suite (thousands of tests) runs in parallel on a contended CPU,
+    // these routinely exceed vitest's 5s default even though each passes in well
+    // under a second in isolation. Give realistic headroom so parallel CPU
+    // contention does not surface as spurious timeouts. A genuine hang still
+    // fails at this bound; a slow-but-correct test does not flake.
+    testTimeout: 30_000,
+    hookTimeout: 30_000,
     benchmark: {
       include: ["benchmarks/**/*.bench.ts"],
     },
