@@ -715,17 +715,14 @@ export function runNestedWriteBehavior({
           postTags: { set: [{ id: "join-set-keep" }] },
         },
       });
-      if (currentClient.$driver.supportsTransactions) {
-        await expect(orphaningSet).rejects.toThrow(
-          "Cannot set relation 'postTags' because foreign key field(s) postId are required"
-        );
-      } else {
-        // Batch plans enforce this via an assertion statement whose raw
-        // dialect error is normalized to NestedWriteAssertionError.
-        await expect(orphaningSet).rejects.toThrow(
-          "Nested write assertion failed"
-        );
-      }
+      // Both substrates now surface the SAME typed orphan message (§7 error
+      // unification, M7). This FK update tree is interpreted since M5; planned
+      // mode's departing-rows `notExists` assertion aborts the batch and the
+      // abort-attribution ladder (§7.3) maps it back to the orphan
+      // GuardFailure's message — no longer the generic NestedWriteAssertionError.
+      await expect(orphaningSet).rejects.toThrow(
+        "Cannot set relation 'postTags' because foreign key field(s) postId are required"
+      );
 
       const [post, keptJoin, orphanJoin] = await Promise.all([
         currentClient.post.findUnique({ where: { id: "post-set-orphan" } }),

@@ -1,4 +1,10 @@
 import type { AnyDriver } from "@drivers";
+import {
+  isVibORMError,
+  NestedWriteAssertionError,
+  UniqueConstraintError,
+  VibORMErrorCode,
+} from "@errors";
 import type { Model } from "@schema/model";
 import { type Sql, sql } from "@sql";
 import { buildPrimaryKeyWhereUnique } from "../../builders/correlation-utils";
@@ -11,6 +17,7 @@ import {
 import { parseFindUniqueResult } from "../../result-flow";
 import {
   type BatchPreparationContext,
+  NestedWriteError,
   type PreparedBatchOperation,
   type QueryContext,
   QueryEngineError,
@@ -27,10 +34,34 @@ import {
   lowerInsertRow,
   lowerUpdateSet,
 } from "./effect-lowering";
-import type { Effect, Guard, Probe, ProbeResult } from "./effects";
+import type {
+  Effect,
+  Guard,
+  GuardFailure,
+  Probe,
+  ProbeResult,
+} from "./effects";
 import type { Expr, WriteSymbol } from "./expr";
 import type { AtomicScope, Emit, Mode, NestedWriteResult } from "./mode";
 import { buildSelectOneSql } from "./record-access";
+
+/**
+ * A premise registered in the plan-time side table (§7.3): the assertion's
+ * position in the plan, the premise SQL to re-evaluate on abort, and the typed
+ * error it stands for. Populated as guards and requireAffected-asserts are
+ * appended; consulted only on the error path by the attribution ladder.
+ */
+interface RegisteredGuard {
+  /** Index into the full `_executeBatch` statement window (setup + operation).
+   *  Feeds index attribution (§7.3 step 2) when a driver reports the failing
+   *  statement position. */
+  readonly index: number;
+  readonly premise: Guard["premise"];
+  readonly failure: GuardFailure;
+  /** The child context the premise SELECT re-executes against (its adapter,
+   *  identifiers, alias namespace). */
+  readonly ctx: QueryContext;
+}
 
 /**
  * The batch-only substrate (`canObserveOwnWrites: false`) for D1 / Neon-HTTP.
@@ -55,6 +86,10 @@ export class PlannedMode implements Mode {
   private state: PlanState | undefined;
   /** Symbol id → the deferred value ref that resolves it at read time. */
   private readonly symbolRefs = new Map<string, BatchValueRef>();
+  /** The abort-attribution side table (§7.3): statement position → the typed
+   *  error its premise stands for. Populated as guards / requireAffected-asserts
+   *  are appended during the current scope; consulted only on the error path. */
+  private readonly registeredGuards: RegisteredGuard[] = [];
 
   constructor(driver: AnyDriver, shared?: BatchPreparationContext) {
     this.driver = driver;
@@ -174,7 +209,10 @@ export class PlannedMode implements Mode {
 
     if (shared) {
       // Shared $transaction([...]) path: return the prepared batch operation so
-      // the caller collects and executes all operations together.
+      // the caller collects and executes all operations together. Attribution
+      // for the combined batch is the caller's concern; the side table only
+      // spans a single-operation atomic unit, so it is dropped here.
+      this.registeredGuards.length = 0;
       const prepared: PreparedBatchOperation<T> = {
         queries: operationStatements.map((statement) =>
           this.prepare(statement)
@@ -190,13 +228,113 @@ export class PlannedMode implements Mode {
       return prepared as unknown as T;
     }
 
-    // Single-operation path: execute the whole plan as one atomic batch.
+    // Single-operation path: execute the whole plan as one atomic batch. On
+    // abort, the attribution ladder (§7.3) maps the failure back to the same
+    // typed error live mode would have thrown.
+    const setupCount = state.setupStatements.length;
+    const guards = this.registeredGuards.slice();
+    this.registeredGuards.length = 0;
     const statements = collectPlanStatements(state);
-    const results = await this.driver._executeBatch(
-      statements.map((statement) => this.prepare(statement))
+    try {
+      const results = await this.driver._executeBatch(
+        statements.map((statement) => this.prepare(statement))
+      );
+      // The result window skips the setup statements (I10).
+      return parse(results.slice(setupCount));
+    } catch (error) {
+      throw await this.attributeAbort(error, guards, setupCount);
+    }
+  }
+
+  // --- abort attribution (§7.3) --------------------------------------------
+
+  /**
+   * The abort-attribution ladder (§7.3, M7). When the atomic batch rejects, map
+   * the failure back to the same typed error live mode would have thrown, so
+   * both modes surface one message for correlation/orphan/target-missing/
+   * existence failures (D1 closed). The ladder is error-path only.
+   *
+   * 1. Pass-through: `UniqueConstraintError` / DEADLOCK / SERIALIZATION are the
+   *    write-race signals (Pin Rule, map-oracle D7) — rethrown unchanged so the
+   *    retry wrapper classifies them.
+   * 2. Index attribution: if the driver reports the failing statement index,
+   *    map it through the side table and throw that premise's typed error.
+   * 3. Post-hoc re-probe: otherwise re-evaluate registered premises read-only,
+   *    in order, against current state; the first violated premise's typed
+   *    error is thrown. Symbol-embedded premises (scratch table gone after
+   *    rollback) throw on re-execution and are skipped (scope limit, §7.3).
+   * 4. Typed fallback: if nothing attributes, throw a generic-but-typed
+   *    NestedWriteError carrying the historical assertion message and the
+   *    NESTED_WRITE_ASSERTION_FAILED code, non-raceable (step-4 floor).
+   */
+  private async attributeAbort(
+    error: unknown,
+    guards: readonly RegisteredGuard[],
+    setupCount: number
+  ): Promise<unknown> {
+    // Step 1 — pass-through the race signals unchanged.
+    if (isWriteRaceSignal(error)) {
+      return error;
+    }
+    // Only an assertion abort is a premise failure this ladder attributes.
+    // Any other error (a real FK/NOT-NULL violation, a driver fault) is not a
+    // guarded premise and is rethrown unchanged.
+    if (!(error instanceof NestedWriteAssertionError)) {
+      return error;
+    }
+
+    // Step 2 — index attribution when the driver reports the failing position.
+    const failingIndex = readFailingStatementIndex(error);
+    if (failingIndex !== undefined) {
+      const operationIndex = failingIndex - setupCount;
+      const hit = guards.find((guard) => guard.index === operationIndex);
+      if (hit) {
+        return hit.failure.error();
+      }
+    }
+
+    // Step 3 — post-hoc re-probe of each registered premise, in order.
+    for (const guard of guards) {
+      const violated = await this.premiseViolated(guard);
+      if (violated) {
+        return guard.failure.error();
+      }
+    }
+
+    // Step 4 — typed fallback (the floor): state moved on between abort and
+    // re-probe, or only symbolic premises remain. A typed NestedWriteError with
+    // the historical assertion message, non-raceable so the retry never loops on
+    // it (§7.4). Preserve the original abort as cause.
+    return new NestedWriteError(
+      "Nested write assertion failed: a batch precondition (e.g. a connect/disconnect target or ownership check) did not hold.",
+      "",
+      {
+        code: VibORMErrorCode.NESTED_WRITE_ASSERTION_FAILED,
+        cause: error instanceof Error ? error : undefined,
+      }
     );
-    // The result window skips the setup statements (I10).
-    return parse(results.slice(state.setupStatements.length));
+  }
+
+  /** Re-evaluate one registered premise read-only against current committed
+   *  state. Returns true iff the premise no longer holds (an `exists` premise
+   *  whose row is gone; a `notExists` premise whose row is present). A premise
+   *  that embeds a batch-ref subquery can no longer be evaluated after abort +
+   *  rollback (the scratch table is gone) — its SELECT throws and we treat it as
+   *  un-attributable (returns false), falling through to the next premise. */
+  private async premiseViolated(guard: RegisteredGuard): Promise<boolean> {
+    const selectOne = this.selectOneOf(
+      guard.ctx,
+      guard.premise.model,
+      guard.premise.where
+    );
+    let rowPresent: boolean;
+    try {
+      const result = await this.baseExecute<Record<string, unknown>>(selectOne);
+      rowPresent = result.rows.length > 0;
+    } catch {
+      return false;
+    }
+    return guard.premise.kind === "exists" ? !rowPresent : rowPresent;
   }
 
   // --- effect appending -----------------------------------------------------
@@ -289,6 +427,12 @@ export class PlannedMode implements Mode {
     // mid-list, so its requireAffected is pinned by a PRECEDING exists-assert
     // (§5.1 write-coupled premise).
     if (effect.requireAffected !== false) {
+      this.registerGuard(
+        state,
+        ctx,
+        { kind: "exists", model: effect.model, where: effect.where },
+        effect.requireAffected
+      );
       state.statements.push(
         ctx.adapter.assertions.exists(
           this.selectOneOf(ctx, effect.model, effect.where)
@@ -325,6 +469,12 @@ export class PlannedMode implements Mode {
   ): void {
     const ctx = this.childCtx(effect.model);
     if (effect.requireAffected !== false) {
+      this.registerGuard(
+        state,
+        ctx,
+        { kind: "exists", model: effect.model, where: effect.where },
+        effect.requireAffected
+      );
       state.statements.push(
         ctx.adapter.assertions.exists(
           this.selectOneOf(ctx, effect.model, effect.where)
@@ -337,6 +487,7 @@ export class PlannedMode implements Mode {
 
   private appendGuard(state: PlanState, guard: Guard): void {
     const ctx = this.childCtx(guard.premise.model);
+    this.registerGuard(state, ctx, guard.premise, guard.failure);
     const selectOne = this.selectOneOf(
       ctx,
       guard.premise.model,
@@ -347,6 +498,24 @@ export class PlannedMode implements Mode {
         ? ctx.adapter.assertions.exists(selectOne)
         : ctx.adapter.assertions.notExists(selectOne)
     );
+  }
+
+  /** Record a premise in the abort-attribution side table (§7.3). The recorded
+   *  index is the position the assertion statement will occupy in the FULL
+   *  `_executeBatch` window (setup statements are prepended at execution, so the
+   *  operation-relative position is offset by the setup count at ladder time). */
+  private registerGuard(
+    state: PlanState,
+    ctx: QueryContext,
+    premise: Guard["premise"],
+    failure: GuardFailure
+  ): void {
+    this.registeredGuards.push({
+      index: state.statements.length,
+      premise,
+      failure,
+      ctx,
+    });
   }
 
   // --- helpers -------------------------------------------------------------
@@ -479,4 +648,32 @@ function isPlanState(value: unknown): value is PlanState {
     "cleanupStatements" in value &&
     "registerProducedPrimaryKeyRef" in value
   );
+}
+
+/** The write-race signals that must pass through the attribution ladder
+ *  unchanged so the retry wrapper classifies them (§7.3 step 1, Pin Rule 2). */
+function isWriteRaceSignal(error: unknown): boolean {
+  if (error instanceof UniqueConstraintError) {
+    return true;
+  }
+  return (
+    isVibORMError(error) &&
+    (error.code === VibORMErrorCode.DEADLOCK ||
+      error.code === VibORMErrorCode.SERIALIZATION_FAILURE)
+  );
+}
+
+/** Best-effort index attribution (§7.3 step 2): read a failing statement index
+ *  off the abort error's meta if the driver surfaced one. The base
+ *  `_executeBatch` contract does not report a position, so this is undefined for
+ *  the current drivers and the ladder falls through to the re-probe step; the
+ *  hook exists for a driver that does report one. */
+function readFailingStatementIndex(error: unknown): number | undefined {
+  if (!isVibORMError(error)) {
+    return undefined;
+  }
+  const candidate = error.meta.statementIndex;
+  return typeof candidate === "number" && Number.isInteger(candidate)
+    ? candidate
+    : undefined;
 }
