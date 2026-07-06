@@ -34,12 +34,13 @@ import {
   lowerInsertRow,
   lowerUpdateSet,
 } from "./effect-lowering";
-import type {
-  Effect,
-  Guard,
-  GuardFailure,
-  Probe,
-  ProbeResult,
+import {
+  type Effect,
+  type Guard,
+  type GuardFailure,
+  type Probe,
+  type ProbeResult,
+  surfaceGuardFailure,
 } from "./effects";
 import type { Expr, WriteSymbol } from "./expr";
 import type { AtomicScope, Emit, Mode, NestedWriteResult } from "./mode";
@@ -158,7 +159,7 @@ export class PlannedMode implements Mode {
 
     if (!row) {
       if (p.required) {
-        throw p.required.error();
+        throw surfaceGuardFailure(p.required);
       }
       return { found: false, guard: p.pin?.whenMissing };
     }
@@ -289,7 +290,7 @@ export class PlannedMode implements Mode {
       const operationIndex = failingIndex - setupCount;
       const hit = guards.find((guard) => guard.index === operationIndex);
       if (hit) {
-        return hit.failure.error();
+        return surfaceGuardFailure(hit.failure);
       }
     }
 
@@ -297,7 +298,7 @@ export class PlannedMode implements Mode {
     for (const guard of guards) {
       const violated = await this.premiseViolated(guard);
       if (violated) {
-        return guard.failure.error();
+        return surfaceGuardFailure(guard.failure);
       }
     }
 

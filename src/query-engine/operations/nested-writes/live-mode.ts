@@ -20,7 +20,13 @@ import {
   lowerInsertRow,
   lowerUpdateSet,
 } from "./effect-lowering";
-import type { Effect, Guard, Probe, ProbeResult } from "./effects";
+import {
+  type Effect,
+  type Guard,
+  type Probe,
+  type ProbeResult,
+  surfaceGuardFailure,
+} from "./effects";
 import type { Expr, WriteSymbol } from "./expr";
 import type { AtomicScope, Emit, Mode, NestedWriteResult } from "./mode";
 import { buildSelectOneForUpdateSql, buildSelectOneSql } from "./record-access";
@@ -117,7 +123,7 @@ export class LiveMode implements Mode {
 
     if (!row) {
       if (p.required) {
-        throw p.required.error();
+        throw surfaceGuardFailure(p.required);
       }
       // A `whenMissing` pin (the upsert targetWhere/setWhere skip premise) is
       // probe-established here — the absence was read live under the parent's
@@ -244,7 +250,7 @@ export class LiveMode implements Mode {
     const updateSql = ctx.adapter.mutations.update(table, setSql, effect.where);
     const result = await tx._execute(updateSql);
     if (effect.requireAffected !== false && result.rowCount === 0) {
-      throw effect.requireAffected.error();
+      throw surfaceGuardFailure(effect.requireAffected);
     }
     // Capture computedPk symbols (PK arithmetic). The symbol's `valueSql` is a
     // constant arithmetic expression over the (already-known) before-value, so
@@ -294,7 +300,7 @@ export class LiveMode implements Mode {
     const deleteSql = ctx.adapter.mutations.delete(table, effect.where);
     const result = await tx._execute(deleteSql);
     if (effect.requireAffected !== false && result.rowCount === 0) {
-      throw effect.requireAffected.error();
+      throw surfaceGuardFailure(effect.requireAffected);
     }
   }
 
@@ -315,7 +321,7 @@ export class LiveMode implements Mode {
     const exists = result.rows.length > 0;
     const holds = guard.premise.kind === "exists" ? exists : !exists;
     if (!holds) {
-      throw guard.failure.error();
+      throw surfaceGuardFailure(guard.failure);
     }
   }
 

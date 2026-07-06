@@ -1,6 +1,7 @@
+import { isVibORMError } from "@errors";
 import type { Model } from "@schema/model";
 import type { Sql } from "@sql";
-import type { NestedWriteError, NotFoundError } from "../../types";
+import { NestedWriteError, type NotFoundError } from "../../types";
 import type { Expr, WriteSymbol } from "./expr";
 
 /** The typed error a failed premise surfaces as — identical in both modes.
@@ -11,6 +12,41 @@ import type { Expr, WriteSymbol } from "./expr";
 export interface GuardFailure {
   readonly error: () => NestedWriteError | NotFoundError;
   readonly raceable: boolean;
+}
+
+/** The meta key carrying the raceable bit on a surfaced error (§7.4). It lives
+ *  in the query-engine layer's own typed error meta — NEVER parsed from a
+ *  driver error string (§1.2 A1). `isWriteRaceLoserError` reads it to decide
+ *  whether the write-race retry may re-run the whole operation. */
+export const RACEABLE_META_KEY = "raceable";
+
+/**
+ * Turn a `GuardFailure` into the concrete typed error to surface, stamping the
+ * `raceable` bit onto its `meta` when the premise is raceable (§7.4). This is
+ * the single choke point both modes use — live mode throws the returned error,
+ * planned mode's attribution ladder returns it — so the flag can never be set
+ * in one mode and dropped in the other. The stamp is applied only to
+ * `NestedWriteError` (the sole raceable premise class after the Pin Rule is the
+ * filtered-M2M-deleteMany staleness pin, whose closure builds a
+ * `NestedWriteError`); a non-raceable failure surfaces untouched.
+ */
+export function surfaceGuardFailure(
+  failure: GuardFailure
+): NestedWriteError | NotFoundError {
+  const error = failure.error();
+  if (failure.raceable && error instanceof NestedWriteError) {
+    error.meta[RACEABLE_META_KEY] = true;
+  }
+  return error;
+}
+
+/** True iff a caught error was surfaced by a raceable `GuardFailure` (§7.4).
+ *  The write-race retry consults this so the loser of a raceable staleness
+ *  race (the filtered-M2M-deleteMany symmetric-difference pins) re-plans
+ *  against fresh membership and converges. Never true for the step-4 typed
+ *  fallback or any non-raceable premise. */
+export function isRaceableGuardError(error: unknown): boolean {
+  return isVibORMError(error) && error.meta[RACEABLE_META_KEY] === true;
 }
 
 /** A premise that must hold at the point this guard sits in the effect

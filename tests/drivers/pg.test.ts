@@ -10,9 +10,14 @@ import { VibORM } from "@client/client";
 import { createClient as PgCreateClient, PgDriver } from "@drivers/pg";
 import { push } from "@migrations";
 import { s } from "@schema";
+import {
+  PgBatchForcedDriver,
+  PgRacePlantingBatchDriver,
+} from "./batch-forced-pg";
 import { runListJsonFilterBehavior } from "./list-json-filter-behavior";
 import { runNestedWriteAdvancedBehavior } from "./nested-write-advanced-behavior";
 import { runNestedWriteBehavior } from "./nested-write-behavior";
+import { runNestedWriteConcurrencyBehavior } from "./nested-write-concurrency-behavior";
 import {
   runFullScalarRoundtripBehavior,
   runScalarRoundtripBehavior,
@@ -403,6 +408,22 @@ describeIf("pg Driver", () => {
   runUpsertAtomicityBehavior({
     driverName: "pg",
     createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  // M8 (§7.4, D7): the write-race retry unified above selectMode. Two real
+  // connections genuinely race; the batch-forced sibling exercises the PlannedMode
+  // converge-on-rerun that batch-only drivers lacked. Only runnable with a real
+  // multi-connection database, hence its home here.
+  runNestedWriteConcurrencyBehavior({
+    driverName: "pg",
+    createTxDriver: () =>
+      new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+    createBatchDriver: () =>
+      new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+    createRacePlantingBatchDriver: ({ plant, onBatchError }) =>
+      new PgRacePlantingBatchDriver(plant, onBatchError, {
+        databaseUrl: TEST_CONNECTION_STRING,
+      }),
   });
 
   // Real pg param serialization for native array columns (array_cat push etc.)

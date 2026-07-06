@@ -28,6 +28,7 @@ import {
 } from "./operations/mutation-returns";
 import { runNestedMutationAtomically } from "./operations/nested-writes/atomic-runner";
 import { executeNestedWriteBatch } from "./operations/nested-writes/batch-plan";
+import { isRaceableGuardError } from "./operations/nested-writes/effects";
 import {
   runInterpreter,
   selectMode,
@@ -112,15 +113,24 @@ export async function executeWithNestedWrites<T>(
       modelName
     );
   } catch (error) {
-    // SELECT ... FOR UPDATE cannot lock absent rows, so two concurrent
-    // upserts/connectOrCreates of a missing key can both take the create
-    // branch. The loser's transaction rolled back with a unique violation
-    // (Postgres/SQLite) or a gap-lock deadlock (MySQL); rerunning it sees
-    // the winner's committed row and takes the update/found branch instead.
-    if (
-      isWriteRaceLoserError(error) &&
-      hasRaceableCreateBranch(operation, args)
-    ) {
+    // The write-race retry (§7.4). This wrapper sits ABOVE selectMode, so both
+    // substrates share one converge-on-rerun path — the batch (planned) drivers
+    // gain the behavior they lacked (map-batch-planner D2 closed). Two race
+    // classes reach here:
+    //
+    //  - Missing-key create-branch races (Pin Rule 2): SELECT ... FOR UPDATE
+    //    cannot lock absent rows, so two concurrent upserts/connectOrCreates of
+    //    a missing key can both take the create branch. The loser's atomic unit
+    //    rolled back with a unique violation (Postgres/SQLite) or a gap-lock
+    //    deadlock (MySQL); rerunning sees the winner's committed row and takes
+    //    the update/found branch. Authorized by hasRaceableCreateBranch.
+    //
+    //  - Raceable staleness-pin failures (the filtered-M2M-deleteMany
+    //    symmetric-difference guards): the interpreter tagged the surfaced
+    //    NestedWriteError raceable; rerunning re-plans against fresh membership
+    //    and converges. Self-authorizing — the flag was set by the interpreter,
+    //    which had full context — so no args-walk schema knowledge is needed.
+    if (isWriteRaceLoserError(error) && canRetryRace(operation, args, error)) {
       return await runNestedWriteOperation<T>(
         ctx,
         operation,
@@ -133,6 +143,19 @@ export async function executeWithNestedWrites<T>(
   } finally {
     driver.clearContext();
   }
+}
+
+/** May the caught race-loser error re-run the whole operation (§7.4)? A
+ *  self-authorizing raceable error (the flag set by the interpreter) always
+ *  may; otherwise the tree must statically contain a raceable create branch. */
+function canRetryRace(
+  operation: Operation,
+  args: Record<string, unknown>,
+  error: unknown
+): boolean {
+  return (
+    isRaceableGuardError(error) || hasRaceableCreateBranch(operation, args)
+  );
 }
 
 function runNestedWriteOperation<T>(
@@ -186,6 +209,15 @@ function runNestedWriteOperation<T>(
 
 function isWriteRaceLoserError(error: unknown): boolean {
   if (error instanceof UniqueConstraintError) {
+    return true;
+  }
+
+  // A NestedWriteError the interpreter tagged raceable (the filtered-M2M-
+  // deleteMany staleness pins, §7.4). Never true for the step-4 assertion
+  // fallback or any non-raceable premise; blanket acceptance of the assertion
+  // class is explicitly rejected (§12.14) — raceability is a per-guard fact,
+  // carried in the typed error's meta, never inferred from an error class.
+  if (isRaceableGuardError(error)) {
     return true;
   }
 

@@ -12,6 +12,10 @@ import { createClient } from "@client/client";
 import { MySQL2Driver } from "@drivers/mysql2";
 import { push } from "@migrations";
 import { s } from "@schema";
+import {
+  MySQL2BatchForcedDriver,
+  MySQL2RacePlantingBatchDriver,
+} from "./batch-forced-mysql2";
 import { runCompoundKeyBehavior } from "./compound-key-behavior";
 import { runCountAggregateWindowBehavior } from "./count-aggregate-window-behavior";
 import { runDistinctSkipWindowBehavior } from "./distinct-skip-window-behavior";
@@ -24,6 +28,7 @@ import { runNestedWriteBehavior } from "./nested-write-behavior";
 import { runOptionalRelationParityBehavior } from "./optional-relation-parity-behavior";
 import { runOrderingArrayCreateBehavior } from "./ordering-array-create-behavior";
 import { runPrismaParityBehavior } from "./prisma-parity-behavior";
+import { runNestedWriteConcurrencyBehavior } from "./nested-write-concurrency-behavior";
 import { runReadPathRegressionBehavior } from "./read-path-regression-behavior";
 import { runRelationFilterMutationBehavior } from "./relation-filter-mutation-behavior";
 import {
@@ -189,6 +194,22 @@ describeIf("MySQL2 Driver", () => {
   runUpsertAtomicityBehavior({
     driverName: "MySQL2",
     createDriver: createMySQL2Driver,
+  });
+
+  // M8 (§7.4, D7): the write-race retry unified above selectMode. Two real
+  // connections race; the batch-forced sibling exercises the PlannedMode
+  // converge-on-rerun (on MySQL the loser typically aborts with a gap-lock
+  // deadlock, also a retryable signal). Needs a real multi-connection database.
+  runNestedWriteConcurrencyBehavior({
+    driverName: "mysql2",
+    createTxDriver: () =>
+      new MySQL2Driver({ databaseUrl: TEST_CONNECTION_STRING }),
+    createBatchDriver: () =>
+      new MySQL2BatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+    createRacePlantingBatchDriver: ({ plant, onBatchError }) =>
+      new MySQL2RacePlantingBatchDriver(plant, onBatchError, {
+        databaseUrl: TEST_CONNECTION_STRING,
+      }),
   });
 
   // The batch-only suites (batch-primary-key-dataflow, batch-ref-smoke) are
