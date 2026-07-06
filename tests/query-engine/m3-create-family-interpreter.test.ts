@@ -181,11 +181,11 @@ describe("M3 create-family interpreter", () => {
       }
     );
 
-    // A create tree touching a TRUE many-to-many relation is NOT eligible at M3
-    // (m2m lands at M9): whole-tree routing sends it to the frozen engines, so
-    // neither mode is bound.
+    // A create tree touching a TRUE many-to-many relation IS eligible at M9
+    // (m2m migrated): whole-tree routing sends it to the interpreter, so the
+    // mode is bound.
     test(
-      "an m2m create-through-junction does NOT route through the interpreter",
+      "an m2m create-through-junction routes through the interpreter (M9)",
       { timeout: 30_000 },
       async () => {
         const db = new PGlite();
@@ -211,7 +211,7 @@ describe("M3 create-family interpreter", () => {
           },
         });
 
-        expect(liveSpy).not.toHaveBeenCalled();
+        expect(liveSpy).toHaveBeenCalledTimes(1);
         liveSpy.mockRestore();
         await client.$disconnect();
       }

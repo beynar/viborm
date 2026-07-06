@@ -22,8 +22,8 @@ import { nestedWriteBehaviorSchema } from "../fixtures/nested-write-behavior-sch
  *     update persist byte-identical end state in both modes, exercising the
  *     `computedPk` symbol path (live: scalar SELECT read-back; planned:
  *     store(valueSql)).
- *  3. An m2m-touching update tree is NOT eligible at M5 (m2m lands at M9), so
- *     neither mode is bound.
+ *  3. An m2m-touching update tree IS eligible at M9 (m2m migrated), so the
+ *     interpreter mode is bound (assertion updated at M9).
  */
 
 type BehaviorSchema = typeof nestedWriteBehaviorSchema;
@@ -146,7 +146,7 @@ describe("M5 update-family interpreter", () => {
     );
 
     test(
-      "an m2m-touching update does NOT route through the interpreter",
+      "an m2m-touching update routes through the interpreter (M9)",
       { timeout: 30_000 },
       async () => {
         const db = new PGlite();
@@ -170,7 +170,7 @@ describe("M5 update-family interpreter", () => {
           data: { tags: { connect: { id: "t1" } } },
         });
 
-        expect(liveSpy).not.toHaveBeenCalled();
+        expect(liveSpy).toHaveBeenCalledTimes(1);
         liveSpy.mockRestore();
         await client.$disconnect();
       }

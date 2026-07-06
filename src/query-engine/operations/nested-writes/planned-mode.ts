@@ -170,6 +170,29 @@ export class PlannedMode implements Mode {
     };
   }
 
+  async probeRows(
+    ctx: QueryContext,
+    model: Model<any>,
+    where: Sql,
+    columns: Sql
+  ): Promise<Record<string, unknown>[]> {
+    // Reads committed state on the base driver at plan time (the m2m connected-PK
+    // set is materialized here — §9). Its staleness is closed by the
+    // symmetric-difference guards the interpreter emits, not by this read.
+    const selectSql = sql.join(
+      [
+        ctx.adapter.clauses.select(columns),
+        ctx.adapter.clauses.from(
+          ctx.adapter.identifiers.escape(getTableName(model))
+        ),
+        ctx.adapter.clauses.where(where),
+      ],
+      " "
+    );
+    const result = await this.baseExecute<Record<string, unknown>>(selectSql);
+    return result.rows;
+  }
+
   // --- scope ----------------------------------------------------------------
 
   private async runScope<T>(
@@ -356,6 +379,12 @@ export class PlannedMode implements Mode {
         break;
       case "delete":
         this.appendDelete(state, effect);
+        break;
+      case "junction":
+        // A junction DML statement is fully lowered by the shared m2m builders
+        // (target/parent values already resolved to literals or batchRefs.read
+        // subqueries); append it verbatim (§9 m2m rows).
+        state.statements.push(effect.statement);
         break;
       case "guard":
         this.appendGuard(state, effect.guard);

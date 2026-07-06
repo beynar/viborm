@@ -44,7 +44,13 @@ import {
   needsMutationRefetch,
 } from "./operations/mutation-returns";
 import { prepareNestedWriteBatch } from "./operations/nested-writes/batch-plan";
+import {
+  runInterpreter,
+  selectMode,
+} from "./operations/nested-writes/interpreter";
+import { assertPlanExecutable } from "./operations/nested-writes/legality";
 import { assertNoPlannedNestedMutationExecution } from "./operations/nested-writes/planned-mutation";
+import { isTreeEligible } from "./operations/nested-writes/routing";
 import { assertNestedUpdatePlanIsExecutable } from "./operations/nested-writes/update-plan";
 import {
   applyPaginationPostProcessing,
@@ -64,6 +70,7 @@ import {
   type BatchPreparationContext,
   isBatchOperation,
   type Operation,
+  type PreparedBatchOperation,
   type PreparedQuery,
   type PrepareOptions,
   type QueryContext,
@@ -211,6 +218,22 @@ function createNestedBatchPrepareFunction<T>(
       operation,
       args
     );
+    // The shared `$transaction([...])` batch-prepare path (§8.6). A tree whose
+    // every nested kind and relation class is migrated routes through the
+    // interpreter's SHARED PlannedMode — one `PlanState` across the batch's
+    // operations (map-oracle §B.2/§B.3) — after the uniform legality gate (§6.3).
+    // The interpreter's shared scope returns a `PreparedBatchOperation`. Anything
+    // ineligible falls back to the frozen batch planner.
+    const mode = selectMode(driver, operation, context);
+    assertPlanExecutable(ctx, operation, validated, mode);
+    if (isTreeEligible(ctx, operation, validated)) {
+      return runInterpreter<PreparedBatchOperation<T>>(
+        ctx,
+        operation,
+        validated,
+        mode
+      );
+    }
     return prepareNestedWriteBatch<T>(
       driver,
       ctx,

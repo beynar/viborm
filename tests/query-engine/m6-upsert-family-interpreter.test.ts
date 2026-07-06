@@ -25,8 +25,8 @@ import { nestedWriteBehaviorSchema } from "../fixtures/nested-write-behavior-sch
  *     shipped batch bug emitted `appendAssertUniqueMissing` before the INSERT,
  *     preempting the retryable `UniqueConstraintError`; Pin Rule 2 deletes it.
  *  4. A nested upsert routes through the interpreter (to-one and to-many).
- *  5. An m2m-touching upsert is NOT eligible at M6 (m2m lands at M9), so neither
- *     mode is bound.
+ *  5. An m2m-touching upsert IS eligible at M9 (m2m migrated), so the
+ *     interpreter mode is bound (assertion updated at M9).
  */
 
 type BehaviorSchema = typeof nestedWriteBehaviorSchema;
@@ -166,10 +166,10 @@ describe("M6 upsert-family interpreter", () => {
     );
 
     // A top-level upsert whose UPDATE branch touches a true many-to-many relation
-    // is NOT eligible at M6 (m2m lands at M9): whole-tree routing sends it to the
-    // frozen engines, so neither mode is bound.
+    // IS eligible at M9 (m2m migrated): whole-tree routing sends it to the
+    // interpreter, so the mode is bound.
     test(
-      "an m2m-touching upsert does NOT route through the interpreter",
+      "an m2m-touching upsert routes through the interpreter (M9)",
       { timeout: 30_000 },
       async () => {
         const db = new PGlite();
@@ -194,7 +194,7 @@ describe("M6 upsert-family interpreter", () => {
           update: { tags: { connect: { id: "t1" } } },
         });
 
-        expect(liveSpy).not.toHaveBeenCalled();
+        expect(liveSpy).toHaveBeenCalledTimes(1);
         liveSpy.mockRestore();
         await client.$disconnect();
       }

@@ -281,3 +281,51 @@ export function buildJunctionMembership(
   const sourceMatch = buildJunctionSourceMatch(ctx, joinInfo, parentValue);
   return sql`${childPkCol} IN (SELECT ${targetCol} FROM ${junctionTable} WHERE ${sourceMatch})`;
 }
+
+/**
+ * Where-unique on the target table, additionally scoped to rows connected to
+ * this parent through the junction (unique ∧ membership). The correlated
+ * predicate the m2m update/upsert interpreter matches a connected child by.
+ */
+export function buildConnectedUniqueWhere(
+  ctx: QueryContext,
+  childCtx: QueryContext,
+  joinInfo: ManyToManyJoinInfo,
+  parentValue: Sql,
+  whereUnique: Record<string, unknown>
+): Sql {
+  return ctx.adapter.operators.and(
+    buildWhereUnique(childCtx, whereUnique, joinInfo.targetTableName),
+    buildJunctionMembership(
+      ctx,
+      joinInfo,
+      parentValue,
+      joinInfo.targetTableName
+    )
+  );
+}
+
+/**
+ * Junction rows referencing the given target PKs — from any parent, and on
+ * self-referential relations also rows where the target is the SOURCE. Used to
+ * delete every junction row pointing at a child that is being deleted so the
+ * child DELETE cannot trip an FK constraint (§9 m2m delete/deleteMany).
+ */
+export function buildJunctionDeleteCondition(
+  ctx: QueryContext,
+  relationInfo: RelationInfo,
+  joinInfo: ManyToManyJoinInfo,
+  targetPks: Sql
+): Sql {
+  const condition = buildJunctionTargetIn(ctx, joinInfo, targetPks);
+  if (relationInfo.targetModel !== ctx.model) {
+    return condition;
+  }
+  return ctx.adapter.operators.or(
+    condition,
+    ctx.adapter.operators.in(
+      ctx.adapter.identifiers.escape(joinInfo.sourceFieldName),
+      targetPks
+    )
+  );
+}

@@ -148,6 +148,29 @@ export class LiveMode implements Mode {
     };
   }
 
+  async probeRows(
+    ctx: QueryContext,
+    model: Model<any>,
+    where: Sql,
+    columns: Sql
+  ): Promise<Record<string, unknown>[]> {
+    const tx = this.requireTx();
+    // Reads on the tx driver, so it observes this operation's own uncommitted
+    // junction writes (the m2m connected-PK set is resolved live — §9).
+    const selectSql = sql.join(
+      [
+        ctx.adapter.clauses.select(columns),
+        ctx.adapter.clauses.from(
+          ctx.adapter.identifiers.escape(getTableName(model))
+        ),
+        ctx.adapter.clauses.where(where),
+      ],
+      " "
+    );
+    const result = await tx._execute<Record<string, unknown>>(selectSql);
+    return result.rows;
+  }
+
   // --- effect execution ----------------------------------------------------
 
   private async runEffect(
@@ -165,6 +188,13 @@ export class LiveMode implements Mode {
         return undefined;
       case "delete":
         await this.runDelete(tx, effect);
+        return undefined;
+      case "junction":
+        // A junction DML statement is fully lowered by the shared m2m builders;
+        // execute it verbatim (§9 m2m rows). No RETURNING, no rowCount contract
+        // — junction inserts are idempotent (skipDuplicates) and deletes are
+        // set-based.
+        await tx._execute(effect.statement);
         return undefined;
       case "guard":
         await this.runGuard(tx, effect.guard);

@@ -44,10 +44,10 @@ export type MigratedRelationClass = "fk" | "m2m";
  * The migrated surface. M3 (§11): the create family over FK-only trees. M5
  * (§11): the update family (update / updateMany / disconnect / delete /
  * deleteMany / set) over FK-only trees. M6 (§11): the upsert family (top-level
- * upsert + nested to-one/to-many upsert steps) over FK-only trees, so a
- * top-level `upsert` and every nested `upsert` step becomes eligible when the
- * whole tree is FK-only. The `m2m` class is added at its own milestone (M9).
- * Rollback = remove tokens here.
+ * upsert + nested to-one/to-many upsert steps) over FK-only trees. M9 (§11):
+ * the many-to-many relation class — every tree class is now eligible, so a tree
+ * routes to the interpreter as soon as every reachable step kind is migrated,
+ * whatever mix of FK and m2m relations it walks. Rollback = remove tokens here.
  */
 export const MIGRATED: {
   readonly stepKinds: ReadonlySet<MigratedStepKind>;
@@ -66,7 +66,7 @@ export const MIGRATED: {
     "set",
     "upsert",
   ]),
-  relationClasses: new Set<MigratedRelationClass>(["fk"]),
+  relationClasses: new Set<MigratedRelationClass>(["fk", "m2m"]),
 };
 
 /**
@@ -87,9 +87,6 @@ export function isTreeEligible(
   args: Record<string, unknown>
 ): boolean {
   if (MIGRATED.stepKinds.size === 0 || MIGRATED.relationClasses.size === 0) {
-    return false;
-  }
-  if (!MIGRATED.relationClasses.has("fk")) {
     return false;
   }
   try {
@@ -150,8 +147,11 @@ function isRelationEligible(
   mutation: RelationMutation,
   timing: "before" | "after"
 ): boolean {
-  // m2m is not migrated until M9; route the whole tree to the old engines.
-  if (mutation.relationInfo.type === "manyToMany") {
+  const relationClass: MigratedRelationClass =
+    mutation.relationInfo.type === "manyToMany" ? "m2m" : "fk";
+  if (!MIGRATED.relationClasses.has(relationClass)) {
+    // Rollback safety: an un-migrated relation class routes the whole tree to
+    // the frozen engines (§11).
     return false;
   }
 

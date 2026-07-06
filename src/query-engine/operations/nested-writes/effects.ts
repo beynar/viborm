@@ -109,6 +109,14 @@ export type Effect =
       readonly where: Sql;
       readonly requireAffected: RequireAffected;
     }
+  /** A raw junction-table DML statement (m2m junction insert / delete). The
+   *  junction table is not a `Model` — the shared `many-to-many-utils` builders
+   *  produce a fully-lowered `Sql` (parent/target values already resolved
+   *  through `buildScalarSqlValue`, so a produced-PK symbol is already a JS
+   *  literal in live mode or a `batchRefs.read` subquery in planned mode). Both
+   *  modes execute/append the statement verbatim — pure substrate mechanics, no
+   *  branch, no capture (§9 m2m rows). */
+  | { readonly kind: "junction"; readonly statement: Sql }
   | { readonly kind: "guard"; readonly guard: Guard };
 
 /** A read that decides a branch and/or supplies an identity. */

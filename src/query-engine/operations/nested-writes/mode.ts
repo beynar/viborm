@@ -40,6 +40,22 @@ export interface Mode {
    *  Planned enforces the Probe Independence Rule (§6.2). */
   probe(ctx: QueryContext, p: Probe): Promise<ProbeResult>;
 
+  /** Axis B, multi-row: run a read that materializes EVERY matching row at the
+   *  mode's decision time. Substrate-mechanical (only WHEN/WHERE the read fires
+   *  differs — Live: tx driver, sees own writes; Planned: base driver, committed
+   *  state at plan time). Used for the m2m connected-PK set resolution
+   *  (`delete: true` / filtered `deleteMany` materialize `pks`, §9). Rows are
+   *  returned with raw column keys (no field-name translation) — the caller reads
+   *  the PK column directly. This carries NO pin; the planned-mode staleness of
+   *  the materialized set is closed by the symmetric-difference guards the
+   *  interpreter emits (§9, §5.5 Rule 3), not by this read. */
+  probeRows(
+    ctx: QueryContext,
+    model: Model<any>,
+    where: Sql,
+    columns: Sql
+  ): Promise<Record<string, unknown>[]>;
+
   /** The atomic scope: all-or-nothing + ordered + one connection. */
   readonly scope: AtomicScope;
 }
