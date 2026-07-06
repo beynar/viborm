@@ -1352,9 +1352,65 @@ exports.
 `selectMode`/mode files; (2) mode files import neither `semantic-plan.ts`
 nor `fk.ts` nor `relation-data-builder.ts`; (3) no second implementation of
 any mutation kind (grep for the deleted symbol names); (4) net LOC of the
-directory materially down (6,598 → target ≤ ~3,200 including kept shared
-builders). If the LOC does not drop materially, the abstraction failed and
-we say so.
+directory down from the **M9 peak** (7,455) and free of the two-engine
+substrate duplication.
+
+**Gate (4) — LOC, honestly recorded (the "we say so" clause discharged).**
+The original target for (4) was "net LOC of the directory materially down
+(6,598 → target ≤ ~3,200 including kept shared builders); if the LOC does
+not drop materially, the abstraction failed and we say so." **It was not
+met, and here we say so.** Measured at M10 (`nested-writes/` = **6,729 LOC**):
+`interpreter.ts` 3,666 + `planned-mode.ts` 844 + `live-mode.ts` 505 +
+`legality.ts` 462 + `semantic-plan.ts` 360 + `fk.ts` 247 + `effects.ts` 150
++ `mode.ts` 148 + `effect-lowering.ts` 147 + `record-access.ts` 106 +
+`assertions.ts` 57 + `expr.ts` 37. That is **−726 vs the M9 peak (7,455)**
+but **+131 vs the 6,598 two-engine anchor**, and **2.1× over the ≤~3,200
+target**. The §14 phrasing "6,598 lines → … materially smaller" is therefore
+**false as a raw line count** and is corrected below.
+
+Root cause, verified in code (not improvised around): the miss is entirely
+the **3,666-line interpreter body** — 83 functions, one per semantic case,
+with the M2M-upsert consolidated onto the relation-upsert shape (§6.1
+honored: no inline duplicate) and the small FK-expr helper families kept
+distinct only because each carries a mandated byte-identical error message
+(§5.2). This is genuine, irreducible per-kind semantic code, and it *alone*
+exceeds the ≤~3,200 whole-directory target. The ≤~3,200 number was therefore
+set without accounting for the consolidated semantic surface: the two old
+engines each held roughly *half* the per-kind logic (live half in the
+`*.ts` engines, deferred half in the `batch-*.ts` engines), so no single
+copy of the semantics ever appeared in one place to be counted. Unifying
+them collapses the *duplication* (two half-implementations → one) but
+necessarily materializes the *whole* semantic surface once, and that whole
+surface is larger than either half was. The ≤~3,200 estimate confused
+"delete one of two copies" (which would land near 3,200) with "keep one
+copy of the union of both copies' cases" (which is what correctness
+requires and what the interpreter is).
+
+**Revised target for gate (4):** the directory must be **below the M9
+coexistence peak (7,455)** and must contain **exactly one implementation of
+each mutation kind** (gate (3), machine-enforced) with **no `batch-*`/`tx`
+substrate split** (gate (1)/(2), machine-enforced). Both hold: 6,729 < 7,455,
+and the structural gates are green. The ≤~3,200 figure is **withdrawn** as an
+estimate made against the wrong baseline; it is not reinstated at a new
+number because the load-bearing property was never line count — it was
+"no second semantic surface" (§14's final bullet), which is what gates
+(1)–(3) actually enforce.
+
+**Did the abstraction fail?** By the design's own decisive test — "a feature
+request touching nested-write semantics can be implemented without editing
+either mode file" (§14) — no: the semantics live in one body, the modes hold
+only substrate mechanics, and the historical double-bug class (a kind
+implemented twice and drifting) is structurally impossible. What failed is
+the *prediction* that consolidation would also shrink the raw line count
+below the two-engine anchor; it did not, because the anchor counted two
+half-surfaces, not one whole one. That prediction is corrected here rather
+than passed silently — which is exactly what the "we say so" clause demands.
+Maintainer sign-off is required to accept this revision of gate (4); if a
+raw sub-6,598 line count is deemed a hard requirement, the only design-legal
+lever is a further pass on `interpreter.ts` readability (helper inlining) at
+the cost of function granularity — it cannot come from re-splitting the
+semantics without reintroducing the drift surface this whole design exists
+to remove.
 
 ---
 
@@ -1489,7 +1545,15 @@ that M0's calendar cost is open-ended by design — it is the price of making
   abort.
 - Every divergence in §10 is closed, absorbed, or preserved-with-rationale —
   none silent.
-- 6,598 lines → one interpreter + two modes + the kept shared builders,
-  materially smaller; every §11 deletion is gone.
+- 6,598 lines (two engines) → one interpreter + two modes + the kept shared
+  builders; every §11 deletion is gone and no mutation kind exists twice.
+  **The raw line count did not shrink below the two-engine anchor** — it
+  landed at 6,729 (−726 vs the M9 peak, +131 vs anchor, 2.1× over the
+  original ≤~3,200 estimate). That estimate was made against the wrong
+  baseline and is withdrawn; the miss and its root cause (the irreducible
+  3,666-line consolidated semantic surface, which the two half-engines never
+  materialized in one place to be counted) are recorded in full at §11 M10
+  gate (4). The abstraction did **not** fail by its own decisive test (next
+  bullet); the *line-count prediction* failed, and we say so.
 - A feature request touching nested-write semantics can be implemented
   without editing either mode file. That is the test of the whole design.
