@@ -5,6 +5,13 @@ export default defineConfig({
   test: {
     globals: true,
     include: ["tests/**/*.test.ts"],
+    // The CLI suite mocks @clack/prompts. It lives in a setupFile (not an inline
+    // vi.mock) because that external ESM module is not reliably re-intercepted
+    // when the forks pool reuses a worker across files — the real prompt would
+    // then load and block on stdin. See tests/cli/_clack.ts for the full
+    // rationale. It only mocks a module the non-CLI suites never import, so it
+    // is inert everywhere else.
+    setupFiles: ["tests/cli/_clack.ts"],
     // Many suites boot fresh PGlite instances and run migrations per test. When
     // the whole suite (thousands of tests) runs in parallel on a contended CPU,
     // these routinely exceed vitest's 5s default even though each passes in well
