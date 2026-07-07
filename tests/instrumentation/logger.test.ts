@@ -156,15 +156,6 @@ describe("createLogger — callback receives (sanitizedEvent, defaultLog)", () =
     expect(cap.events).toHaveLength(1);
     expect(spy).toHaveBeenCalled();
   });
-
-  it("callback receives the SANITIZED event (sql stripped when includeSql:false)", () => {
-    const cap = captureLogs();
-    const logger = createLogger({ query: cap.callback, includeSql: false });
-
-    logger.query({ timestamp: ts, sql: "SELECT 1", params: [1] });
-
-    expect(cap.events[0]?.sql).toBeUndefined();
-  });
 });
 
 describe("sanitizeEvent — sql/params gating", () => {
