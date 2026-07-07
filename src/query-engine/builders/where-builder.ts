@@ -239,22 +239,25 @@ function buildLogicalNot(
   value: unknown,
   alias: string
 ): Sql | undefined {
+  // Prisma semantics: NOT: [c1, c2] negates each item and ANDs the
+  // negations (NOT c1 AND NOT c2 — "all conditions must return false"),
+  // not NOT (c1 AND c2). The object form NOT: { ... } is a single item,
+  // so it becomes NOT (that object's implicit-AND) exactly as before.
   const items = Array.isArray(value) ? value : [value];
-  const conditions: Sql[] = [];
+  const negations: Sql[] = [];
 
   for (const item of items) {
     const condition = buildWhere(ctx, item as Record<string, unknown>, alias);
     if (condition) {
-      conditions.push(condition);
+      negations.push(ctx.adapter.operators.not(condition));
     }
   }
 
-  if (conditions.length === 0) {
+  if (negations.length === 0) {
     return undefined;
   }
 
-  const combined = ctx.adapter.operators.and(...conditions);
-  return ctx.adapter.operators.not(combined);
+  return ctx.adapter.operators.and(...negations);
 }
 
 /** Filter mode for case sensitivity */

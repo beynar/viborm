@@ -272,15 +272,12 @@ export function runPrismaParityBehavior({
         ]);
       });
 
-      // KNOWN BUG: Prisma negates each NOT-array item individually and ANDs
-      // the negations (prisma-engines sql-query-builder filter/visitor.rs:
+      // Prisma negates each NOT-array item individually and ANDs the
+      // negations (prisma-engines sql-query-builder filter/visitor.rs:
       // Filter::Not(filters) -> AND of per-filter .not()), i.e.
-      // NOT c1 AND NOT c2 — "all conditions must return false". VibORM's
-      // buildLogicalNot (src/query-engine/builders/where-builder.ts) ANDs the
-      // items first and negates once: NOT (c1 AND c2). For this data Prisma
-      // returns ["n2"] but VibORM returns ["n1", "n2", "n4"].
-      // biome-ignore lint/suspicious/noSkippedTests: deliberately pinned known bug, unskip when NOT-array folding matches Prisma
-      test.skip("KNOWN BUG: NOT array negates each condition and ANDs them (Prisma parity)", async () => {
+      // NOT c1 AND NOT c2 — "all conditions must return false", not
+      // NOT (c1 AND c2). buildLogicalNot negates per item and ANDs them.
+      test("NOT array negates each condition and ANDs them (Prisma parity)", async () => {
         // Prisma: NOT [c1, c2] means "all conditions must return false",
         // i.e. NOT c1 AND NOT c2 — not NOT (c1 AND c2).
         expect(
