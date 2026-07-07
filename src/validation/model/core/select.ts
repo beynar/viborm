@@ -84,21 +84,47 @@ export const getSelectSchema = <M extends AnyModel, F extends ScalarSchemas<M>>(
 
 type RelationSchemaBundle = { relations: Record<string, any> };
 
-export type IncludeSchema<F extends RelationSchemaBundle> = V.FromObject<
-  F["relations"],
-  "include",
-  { optional: true }
+export type IncludeSchema<F extends RelationSchemaBundle> = V.Object<
+  V.FromObject<F["relations"], "include", { optional: true }>["entries"] & {
+    _count: V.Object<
+      {
+        select: V.FromObject<F["relations"], "countFilter", { optional: true }>;
+      },
+      { optional: true }
+    >;
+  }
 >;
 
 export const getIncludeSchema = <F extends RelationSchemaBundle>(
   schemas: F
 ): IncludeSchema<F> => {
   // Relations: use relation's include schema (supports boolean or nested with where/orderBy/etc.)
-  return v.fromObject<F["relations"], "include", { optional: true }>(
-    schemas.relations,
+  const relationEntries = v.fromObject<
+    F["relations"],
     "include",
-    {
-      optional: true,
-    }
-  );
+    { optional: true }
+  >(schemas.relations, "include", {
+    optional: true,
+  });
+
+  // Prisma supports `_count` under include as well as select; mirror the
+  // select-schema entry so `include: { _count: { select: { posts: true } } }`
+  // validates (the query engine already builds _count in include position).
+  const countSelectEntries = v.fromObject<
+    F["relations"],
+    "countFilter",
+    { optional: true }
+  >(schemas.relations, "countFilter", {
+    optional: true,
+  });
+
+  return v.object({
+    ...relationEntries.entries,
+    _count: v.object(
+      {
+        select: countSelectEntries,
+      },
+      { optional: true }
+    ),
+  });
 };

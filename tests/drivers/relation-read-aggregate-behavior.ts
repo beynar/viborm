@@ -160,16 +160,11 @@ export function runRelationReadAggregateBehavior({
         expect(users[0]?.posts.map((p) => p.id)).toEqual(["p1", "p2", "p3"]);
       });
 
-      // KNOWN BUG: Prisma supports `include: { _count: { select: { posts:
-      // true } } }` alongside included relations, and the SQL select-builder
-      // even handles `_count` in include — but the validation include schema
-      // (src/validation/model/core/select.ts getIncludeSchema) has no _count
-      // entry, so the call is rejected at runtime with
-      // "ValidationError: Validation failed for findMany: Unknown key: _count"
-      // (the include result types don't model _count either).
-      // Expected: rows with posts arrays plus _count.posts; actual: throws.
-      // biome-ignore lint/suspicious/noSkippedTests: deliberately pinned known bug, unskip when include._count validation lands
-      test.skip("KNOWN BUG: _count inside include is rejected by validation", async () => {
+      // Prisma supports `include: { _count: { select: { posts: true } } }`
+      // alongside included relations. getIncludeSchema now mirrors the select
+      // schema's _count entry, and the SQL select-builder already handles
+      // _count in include position.
+      test("_count inside include returns counts alongside relations", async () => {
         const users = await client.user.findMany({
           orderBy: { id: "asc" },
           include: {
