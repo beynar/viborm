@@ -293,8 +293,14 @@ export interface DatabaseAdapter {
     decrement: (column: Sql, by: Sql) => Sql;
     /** Multiply: "col" = "col" * value */
     multiply: (column: Sql, by: Sql) => Sql;
-    /** Divide: "col" = "col" / value */
-    divide: (column: Sql, by: Sql) => Sql;
+    /**
+     * Divide: "col" = "col" / value.
+     * `columnIsInteger` tells the adapter the target column is integer-typed
+     * so it can force integer division where the dialect would otherwise do
+     * real division (SQLite binds the operand as REAL). Postgres/MySQL follow
+     * their native integer-column division and ignore the flag.
+     */
+    divide: (column: Sql, by: Sql, columnIsInteger?: boolean) => Sql;
     /**
      * Array push: append each element of `values` to the list column
      * (PG: array_cat, MySQL: JSON_MERGE_PRESERVE, SQLite: JSON text concat).

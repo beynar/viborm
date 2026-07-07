@@ -322,6 +322,16 @@ export class SQLiteAdapter implements DatabaseAdapter {
   set = {
     ...createNumericSetOperations(),
 
+    // SQLite drivers bind JS numbers as REAL, so `col / ?` runs real division
+    // and would persist a fractional value into an INTEGER column. Casting the
+    // divisor to INTEGER makes it native INT/INT division (truncating toward
+    // zero, matching Postgres) for integer columns; real columns keep real
+    // division since the column itself carries REAL affinity.
+    divide: (column: Sql, by: Sql, columnIsInteger?: boolean): Sql =>
+      columnIsInteger
+        ? sql`${column} = ${column} / CAST(${by} AS INTEGER)`
+        : sql`${column} = ${column} / ${by}`,
+
     push: (column: Sql, values: unknown[]): Sql =>
       sql`${column} = ${jsonArrayConcat(
         sql`json(COALESCE(${column}, '[]'))`,

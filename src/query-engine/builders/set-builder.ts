@@ -118,9 +118,18 @@ function buildAssignment(
     return adapter.set.multiply(column, adapter.literals.value(op.multiply));
   }
 
-  // divide: divide current value
+  // divide: divide current value. Integer columns must divide as integers
+  // (Prisma/Postgres truncate toward zero); the adapter forces this where the
+  // dialect would otherwise do real division.
   if ("divide" in op && op.divide !== undefined) {
-    return adapter.set.divide(column, adapter.literals.value(op.divide));
+    const scalarType =
+      ctx.model["~"].state.scalars[fieldName]?.["~"].state.type;
+    const columnIsInteger = scalarType === "int" || scalarType === "bigint";
+    return adapter.set.divide(
+      column,
+      adapter.literals.value(op.divide),
+      columnIsInteger
+    );
   }
 
   // push/unshift take one value or an array of values; always hand the

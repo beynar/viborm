@@ -234,19 +234,12 @@ export function runManyAndReturnBehavior({
       expect(persisted?.qty).toBe(4);
     });
 
-    test("atomic divide pins integer-division semantics on inexact quotients", async (ctx) => {
-      // KNOWN BUG (sqlite dialect: sqlite3/libsql): expected 7 / 2 = 3
-      // (SQLite integer division, and what Prisma persists on SQLite), but
-      // the drivers bind the JS number 2 as a REAL, so `qty = qty / ?` runs
-      // REAL division and persists 3.5 into the Int column (SQLite's INTEGER
-      // affinity keeps the lossy REAL as-is). Reads then return 3.5 for an
-      // s.int() field, breaking the scalar contract. A SQL literal `qty / 2`
-      // yields 3, so this is a parameter-binding bug, not server semantics.
-      ctx.skip(
-        dialect === "sqlite",
-        "KNOWN BUG: sqlite drivers bind divide operand as REAL; expected 3, actual 3.5 persisted"
-      );
-
+    test("atomic divide pins integer-division semantics on inexact quotients", async () => {
+      // SQLite drivers bind the JS number 2 as a REAL, so a naive `qty = qty / ?`
+      // runs REAL division and would persist 3.5 into the Int column. The SQLite
+      // adapter casts the divisor to INTEGER for integer columns
+      // (sqlite-adapter.ts set.divide), giving native INT/INT division (3) that
+      // matches what Prisma persists on SQLite.
       await client!.gadget.create({
         data: { id: "g1", code: "c1", name: "Inexact", qty: 7 },
       });
