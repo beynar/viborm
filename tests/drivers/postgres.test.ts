@@ -15,6 +15,7 @@ import { push } from "@migrations";
 import { s } from "@schema";
 import { runClientRawBehavior } from "./client-raw-behavior";
 import { runListJsonFilterBehavior } from "./list-json-filter-behavior";
+import { runNestedOrderByBehavior } from "./nested-orderby-behavior";
 import { runNestedWriteAdvancedBehavior } from "./nested-write-advanced-behavior";
 import { runNestedWriteBehavior } from "./nested-write-behavior";
 import { runRelationReadAggregateBehavior } from "./relation-read-aggregate-behavior";
@@ -22,6 +23,7 @@ import {
   runFullScalarRoundtripBehavior,
   runScalarRoundtripBehavior,
 } from "./scalar-roundtrip-behavior";
+import { runVectorBehavior } from "./vector-behavior";
 
 // =============================================================================
 // SCHEMA DEFINITION
@@ -76,7 +78,15 @@ async function setupDatabase(driver: PostgresDriver) {
 
 // Skip tests if no PostgreSQL connection is available
 const TEST_CONNECTION_STRING = process.env.PG_TEST_CONNECTION_STRING;
+const PGVECTOR_TEST_CONNECTION_STRING = process.env.PGVECTOR_TEST_CONNECTION_STRING;
 const describeIf = TEST_CONNECTION_STRING ? describe : describe.skip;
+
+function requirePgvectorConnectionString(): string {
+  if (!PGVECTOR_TEST_CONNECTION_STRING) {
+    throw new Error("PGVECTOR_TEST_CONNECTION_STRING is required.");
+  }
+  return PGVECTOR_TEST_CONNECTION_STRING;
+}
 
 describeIf("postgres.js Driver", () => {
   // The tests below assume a fresh database. PostgreSQL persists between
@@ -447,9 +457,24 @@ describeIf("postgres.js Driver", () => {
     createDriver: () =>
       new PostgresDriver({ databaseUrl: TEST_CONNECTION_STRING }),
   });
+  runNestedOrderByBehavior({
+    driverName: "postgres.js",
+    createDriver: () =>
+      new PostgresDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
 
   // The remaining behavior suites are not wired here: they are adapter-level
   // and already run on PGlite, which shares the postgres adapter; this file
   // covers what depends on the real driver (param serialization, pooling,
   // transactions).
+});
+
+runVectorBehavior({
+  driverName: "postgres.js",
+  enabled: Boolean(PGVECTOR_TEST_CONNECTION_STRING),
+  createDriver: () =>
+    new PostgresDriver({
+      databaseUrl: requirePgvectorConnectionString(),
+      pgvector: true,
+    }),
 });

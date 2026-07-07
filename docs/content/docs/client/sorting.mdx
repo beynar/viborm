@@ -82,12 +82,23 @@ const comments = await client.comment.findMany({
     post: { title: "asc" },
   },
 });
+
+// Sort posts by the author's company name through a to-one chain
+const posts = await client.post.findMany({
+  orderBy: {
+    author: {
+      team: {
+        company: { name: "asc" },
+      },
+    },
+  },
+});
 ```
 
 <Callout type="info">
-  Relation sorting goes one level deep: you can order by the related
-  model's scalar fields, but not by a relation of the related model
-  (e.g. `orderBy: { post: { author: { name: "asc" } } }` is rejected).
+  Relation sorting follows to-one relations up to three relation hops.
+  To-many relations in the middle of a sort path are rejected; use `_count`
+  aggregate sorting for to-many relations instead.
 </Callout>
 
 ## Aggregate Sorting
@@ -216,4 +227,3 @@ const users = await client.user.findMany({
   },
 });
 ```
-

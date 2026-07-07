@@ -153,8 +153,8 @@ export const getCoreSchemas = <M extends AnyModel, F extends ScalarSchemas<M>>(
     whereUnique: () => getWhereUniqueSchema(model, fieldSchemas),
     create: () => getCreateSchema(model, fieldSchemas),
     update: () => getUpdateSchema<M, F>(fieldSchemas),
-    select: () => getSelectSchema<M, F>(fieldSchemas),
+    select: () => getSelectSchema(model, fieldSchemas),
     include: () => getIncludeSchema(fieldSchemas),
-    orderBy: () => getOrderBySchema<M, F>(fieldSchemas),
+    orderBy: () => getOrderBySchema<M, F>(model, fieldSchemas),
   });
 };

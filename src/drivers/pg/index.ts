@@ -67,6 +67,7 @@ export class PgDriver extends Driver<Pool, PoolClient> {
     }
 
     const adapter = new PostgresAdapter();
+    adapter.capabilities.supportsVector = options.pgvector === true;
     if (!options.pgvector) adapter.vector = unsupportedVector;
     if (!options.postgis) adapter.geospatial = unsupportedGeospatial;
     this.adapter = adapter;

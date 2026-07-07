@@ -99,6 +99,7 @@ export class BunSQLDriver extends Driver<BunSQL, BunSQLTransaction> {
     }
 
     const adapter = new PostgresAdapter();
+    adapter.capabilities.supportsVector = options.pgvector === true;
     if (!options.pgvector) adapter.vector = unsupportedVector;
     if (!options.postgis) adapter.geospatial = unsupportedGeospatial;
     this.adapter = adapter;

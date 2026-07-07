@@ -68,6 +68,7 @@ export class PostgresMigrationDriver extends MigrationDriver {
       type: scalarState.type,
       array: scalarState.array,
       withTimezone: scalarState.withTimezone,
+      dimension: scalarState.dimension,
     });
   }
 

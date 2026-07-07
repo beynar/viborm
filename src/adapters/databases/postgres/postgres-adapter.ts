@@ -360,6 +360,7 @@ export class PostgresAdapter implements DatabaseAdapter {
     supportsCteWithMutations: true,
     supportsFullOuterJoin: true,
     supportsLateralJoins: true,
+    supportsVector: false,
     supportsUpsertWhere: true, // PostgreSQL supports WHERE in ON CONFLICT
     supportsMutationTargetInSubquery: true,
   };

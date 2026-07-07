@@ -7,7 +7,8 @@
  * - findMany: where, select, include, orderBy, take, skip, cursor
  */
 
-import { type InferInput, parse } from "@validation";
+import { s } from "@schema";
+import { createSchemaRegistry, type InferInput, parse } from "@validation";
 import { describe, expect, expectTypeOf, test } from "vitest";
 import {
   authorSchemas,
@@ -27,6 +28,40 @@ type ArgsOutput = {
 };
 
 const argsOutput = (value: unknown): ArgsOutput => value as ArgsOutput;
+
+const nestedAuthorModel = s.model({
+  id: s.string().id(),
+  name: s.string(),
+  posts: s.oneToMany(() => nestedPostModel),
+});
+
+const nestedPostModel = s.model({
+  id: s.string().id(),
+  title: s.string(),
+  authorId: s.string(),
+  author: s.manyToOne(() => nestedAuthorModel),
+});
+
+const nestedCommentModel = s.model({
+  id: s.string().id(),
+  postId: s.string(),
+  post: s.manyToOne(() => nestedPostModel),
+});
+
+const nestedUserModel = s.model({
+  id: s.string().id(),
+  username: s.string(),
+  managerId: s.string().nullable(),
+  manager: s.manyToOne(() => nestedUserModel).optional(),
+});
+
+const nestedOrderByRegistry = createSchemaRegistry({
+  comment: nestedCommentModel,
+  user: nestedUserModel,
+});
+
+const nestedCommentSchemas = nestedOrderByRegistry.proxy.comment;
+const nestedUserSchemas = nestedOrderByRegistry.proxy.user;
 
 // =============================================================================
 // FIND UNIQUE ARGS
@@ -288,6 +323,39 @@ describe("FindMany Args - Compound Cursor Types", () => {
     expectTypeOf<{
       cursor?: { orgId_memberId: { orgId: string; memberId: string } };
     }>().toMatchTypeOf<Input>();
+  });
+});
+
+describe("FindMany Args - Nested Relation OrderBy Types", () => {
+  type CommentInput = InferInput<typeof nestedCommentSchemas.args.findMany>;
+  type UserInput = InferInput<typeof nestedUserSchemas.args.findMany>;
+
+  test("type: accepts two-hop to-one relation orderBy", () => {
+    const input = {
+      orderBy: { post: { author: { name: "asc" } } },
+    } satisfies CommentInput;
+
+    expectTypeOf(input).toMatchTypeOf<CommentInput>();
+  });
+
+  test("type: rejects four-hop to-one relation orderBy", () => {
+    const input = {
+      orderBy: {
+        manager: { manager: { manager: { username: "asc" } } },
+      },
+    } satisfies UserInput;
+
+    expectTypeOf(input).toMatchTypeOf<UserInput>();
+
+    // @ts-expect-error relation orderBy is capped at three relation hops
+    const tooDeep: UserInput = { orderBy: { manager: { manager: { manager: { manager: { username: "asc" } } } } } };
+    expect(tooDeep).toBeDefined();
+  });
+
+  test("type: rejects to-many relation in a to-one orderBy chain", () => {
+    // @ts-expect-error nested to-many relations are excluded from to-one orderBy chains
+    const withToMany: CommentInput = { orderBy: { post: { author: { posts: { _count: "asc" } } } } };
+    expect(withToMany).toBeDefined();
   });
 });
 

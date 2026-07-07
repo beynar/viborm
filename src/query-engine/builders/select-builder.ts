@@ -15,6 +15,7 @@ import {
 import { type QueryContext, QueryEngineError } from "../types";
 import { buildInclude, type IncludeStrategy } from "./include-builder";
 import { buildRelationCount } from "./relation-count-builder";
+import { buildVectorDistanceExpression } from "./vector-distance-builder";
 
 /**
  * Options for buildSelect
@@ -44,6 +45,16 @@ interface SelectPairsResult {
   pairs: [string, Sql][];
   lateralJoins: Sql[];
 }
+
+const isRecord = (value: unknown): value is Record<string, unknown> => {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+};
+
+const isVectorDistanceSelect = (
+  value: unknown
+): value is { _distance: unknown } => {
+  return isRecord(value) && "_distance" in value;
+};
 
 /**
  * Encode scalar columns that can't ride through JSON as-is:
@@ -132,12 +143,40 @@ function buildSelectPairs(
 
   if (select) {
     // Select specific scalar fields
+    const scalars = ctx.model["~"].state.scalars;
+    let hasDistanceSelect = false;
     for (const fieldName of scalarFields) {
       if (select[fieldName] === true) {
         const columnName = getColumnName(ctx.model, fieldName);
         pairs.push([
           fieldName,
           ctx.adapter.identifiers.column(alias, columnName),
+        ]);
+        continue;
+      }
+
+      const value = select[fieldName];
+      if (isVectorDistanceSelect(value)) {
+        if (hasDistanceSelect) {
+          throw new QueryEngineError(
+            "Vector distance select supports only one _distance field per select."
+          );
+        }
+        hasDistanceSelect = true;
+        const columnName = getColumnName(ctx.model, fieldName);
+        const column = ctx.adapter.identifiers.column(alias, columnName);
+        pairs.push([
+          "_distance",
+          buildVectorDistanceExpression(
+            ctx,
+            column,
+            value._distance,
+            {
+              name: fieldName,
+              scalarState: scalars[fieldName]?.["~"].state,
+            },
+            "select"
+          ),
         ]);
       }
     }

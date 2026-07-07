@@ -2,6 +2,7 @@
 
 import type { AnyModel } from "@schema/model";
 import type { StringKeyOf } from "@schema/model/helper";
+import type { ScalarState } from "@schema/scalars";
 import v, { type V } from "../../primitives/v";
 import type { ScalarSchemas } from "../index";
 
@@ -13,12 +14,56 @@ import type { ScalarSchemas } from "../index";
  * Build select schema - boolean selection for each scalar field, nested select for relations
  */
 type ModelStateOf<M extends AnyModel> = M["~"]["state"];
+type ModelScalars<M extends AnyModel> = ModelStateOf<M>["scalars"];
+type ModelScalarKey<M extends AnyModel> = StringKeyOf<ModelScalars<M>>;
+type ScalarStateOf<F> = F extends { "~": { state: infer S } }
+  ? S extends ScalarState
+    ? S
+    : never
+  : never;
+type VectorScalarKeys<M extends AnyModel> = {
+  [K in keyof ModelScalars<M>]: ScalarStateOf<
+    ModelScalars<M>[K]
+  >["type"] extends "vector"
+    ? K extends string
+      ? K
+      : never
+    : never;
+}[keyof ModelScalars<M>];
+type NonVectorScalarKeys<M extends AnyModel> = Exclude<
+  ModelScalarKey<M>,
+  VectorScalarKeys<M>
+>;
+
+const scalarSelectSchema = v.boolean({ optional: true });
+const vectorDistanceMetricSchema = v.enum(["l2", "cosine"]);
+
+export const vectorDistanceSelectSchema = v.object(
+  {
+    _distance: v.object(
+      {
+        to: v.array(v.number()),
+        metric: vectorDistanceMetricSchema,
+      },
+      { partial: false }
+    ),
+  },
+  { partial: false }
+);
+export type VectorDistanceSelectSchema = typeof vectorDistanceSelectSchema;
+
+const vectorScalarSelectSchema = v.union([
+  scalarSelectSchema,
+  vectorDistanceSelectSchema,
+]);
+type VectorScalarSelectSchema = typeof vectorScalarSelectSchema;
 
 export type SelectSchema<
   M extends AnyModel,
   F extends ScalarSchemas<M>,
 > = V.Object<
-  V.FromKeys<StringKeyOf<ModelStateOf<M>["scalars"]>[], V.Boolean>["entries"] &
+  V.FromKeys<NonVectorScalarKeys<M>[], typeof scalarSelectSchema>["entries"] &
+    V.FromKeys<VectorScalarKeys<M>[], VectorScalarSelectSchema>["entries"] &
     V.FromObject<F["relations"], "select">["entries"] & {
       _count: V.Object<
         {
@@ -34,17 +79,31 @@ export type SelectSchema<
 >;
 
 export const getSelectSchema = <M extends AnyModel, F extends ScalarSchemas<M>>(
+  model: M,
   fieldSchemas: F
 ): SelectSchema<M, F> => {
-  // Scalar fields: simple boolean selection
-  const scalarKeys = Object.keys(fieldSchemas.scalars) as StringKeyOf<
-    ModelStateOf<M>["scalars"]
-  >[];
-  const optionalBoolean = v.boolean({ optional: true });
+  // Scalar fields: boolean selection, plus vector-only computed distance select
+  const vectorScalarKeys: VectorScalarKeys<M>[] = [];
+  const nonVectorScalarKeys: NonVectorScalarKeys<M>[] = [];
+
+  const scalarKeys = Object.keys(model["~"].state.scalars) as ModelScalarKey<M>[];
+  for (const fieldName of scalarKeys) {
+    const scalar = model["~"].state.scalars[fieldName];
+    if (scalar["~"].state.type === "vector") {
+      vectorScalarKeys.push(fieldName as VectorScalarKeys<M>);
+      continue;
+    }
+    nonVectorScalarKeys.push(fieldName as NonVectorScalarKeys<M>);
+  }
+
   const scalarEntries = v.fromKeys<
-    StringKeyOf<ModelStateOf<M>["scalars"]>[],
-    typeof optionalBoolean
-  >(scalarKeys, optionalBoolean);
+    NonVectorScalarKeys<M>[],
+    typeof scalarSelectSchema
+  >(nonVectorScalarKeys, scalarSelectSchema);
+  const vectorEntries = v.fromKeys<
+    VectorScalarKeys<M>[],
+    typeof vectorScalarSelectSchema
+  >(vectorScalarKeys, vectorScalarSelectSchema);
 
   // Relations: use relation's select schema (supports boolean or nested)
   const relationEntries = v.fromObject<F["relations"], "select">(
@@ -64,6 +123,7 @@ export const getSelectSchema = <M extends AnyModel, F extends ScalarSchemas<M>>(
 
   return v.object({
     ...scalarEntries.entries,
+    ...vectorEntries.entries,
     ...relationEntries.entries,
     _count: v.object(
       {

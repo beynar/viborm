@@ -104,6 +104,7 @@ export class NeonHTTPDriver extends Driver<NeonQuery, NeonTx> {
     this.driverOptions = options;
 
     const adapter = new PostgresAdapter();
+    adapter.capabilities.supportsVector = options.pgvector === true;
     if (!options.pgvector) adapter.vector = unsupportedVector;
     if (!options.postgis) adapter.geospatial = unsupportedGeospatial;
     this.adapter = adapter;

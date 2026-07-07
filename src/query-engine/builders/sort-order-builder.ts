@@ -6,15 +6,43 @@
 
 import type { Sql } from "@sql";
 import { type QueryContext, QueryEngineError } from "../types";
+import { buildVectorDistanceExpression } from "./vector-distance-builder";
+
+type SortableScalarState = {
+  type: string;
+  dimension?: number | undefined;
+};
+
+type SortOrderField = {
+  name: string;
+  scalarState: SortableScalarState | undefined;
+};
 
 const isRecord = (value: unknown): value is Record<string, unknown> => {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 };
 
+function buildVectorDistanceOrder(
+  ctx: QueryContext,
+  column: Sql,
+  value: unknown,
+  field: SortOrderField | undefined
+): Sql {
+  const distance = buildVectorDistanceExpression(
+    ctx,
+    column,
+    value,
+    field,
+    "orderBy"
+  );
+  return ctx.adapter.orderBy.asc(distance);
+}
+
 export function buildSingleOrder(
   ctx: QueryContext,
   column: Sql,
-  value: unknown
+  value: unknown,
+  field?: SortOrderField
 ): Sql {
   const { adapter } = ctx;
 
@@ -25,6 +53,10 @@ export function buildSingleOrder(
   }
 
   if (isRecord(value)) {
+    if ("_distance" in value) {
+      return buildVectorDistanceOrder(ctx, column, value._distance, field);
+    }
+
     const sort = value.sort;
     const nulls = value.nulls;
 

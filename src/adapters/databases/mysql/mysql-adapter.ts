@@ -445,6 +445,7 @@ export class MySQLAdapter implements DatabaseAdapter {
     supportsCteWithMutations: false, // MySQL CTEs are read-only
     supportsFullOuterJoin: false,
     supportsLateralJoins: true, // MySQL 8.0.14+
+    supportsVector: false,
     supportsUpsertWhere: false, // ON DUPLICATE KEY UPDATE doesn't support WHERE clauses
     // ERROR 1093: UPDATE/DELETE can't select from the mutated table in a
     // subquery. The engine wraps relation-filter subqueries in a derived

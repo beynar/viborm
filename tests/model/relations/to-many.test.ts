@@ -546,14 +546,14 @@ describe("ToMany Select - Author.posts (oneToMany)", () => {
     expect(result.issues).toBeUndefined();
   });
 
-  test("rejects select with relation orderBy", () => {
+  test("accepts select with relation orderBy", () => {
     const result = parse(schema, {
       posts: {
         orderBy: { author: { name: "asc" } },
         select: { title: true },
       },
     });
-    expect(result.issues).toBeDefined();
+    expect(result.issues).toBeUndefined();
   });
 
   test("output: preserves select with all options", () => {
@@ -620,13 +620,13 @@ describe("ToMany Include - Author.posts (oneToMany)", () => {
     expect(result.issues).toBeUndefined();
   });
 
-  test("rejects with relation orderBy", () => {
+  test("accepts with relation orderBy", () => {
     const result = parse(schema, {
       posts: {
         orderBy: { author: { name: "asc" } },
       },
     });
-    expect(result.issues).toBeDefined();
+    expect(result.issues).toBeUndefined();
   });
 
   test("accepts with nested include", () => {

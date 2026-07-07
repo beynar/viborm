@@ -223,13 +223,19 @@ export type InferSelectInclude<S extends ModelState, Args> = Args extends {
  * Result when select is provided - ONLY selected fields are returned
  */
 export type InferSelectResult<S extends ModelState, Selection> = Prettify<
-  InferSelectedFields<S, Selection> & InferRelationCountSelection<S, Selection>
+  InferSelectedFields<S, Selection> &
+    InferVectorDistanceSelection<S, Selection> &
+    InferRelationCountSelection<S, Selection>
 >;
 
 type InferSelectedFields<S extends ModelState, Selection> = {
-  [K in keyof Selection & keyof S["shape"] as Selection[K] extends true | object
-    ? K
-    : never]: S["shape"][K] extends Scalar
+  [K in keyof Selection & keyof S["shape"] as S["shape"][K] extends Scalar
+    ? Selection[K] extends true
+      ? K
+      : never
+    : Selection[K] extends true | object
+      ? K
+      : never]: S["shape"][K] extends Scalar
     ? InferScalarOutput<S["shape"][K]>
     : S["shape"][K] extends AnyRelation
       ? Selection[K] extends true
@@ -244,6 +250,29 @@ type InferSelectedFields<S extends ModelState, Selection> = {
               : never
       : never;
 };
+
+type VectorScalarFieldKeys<S extends ModelState> = {
+  [K in keyof S["shape"]]: S["shape"][K] extends Scalar
+    ? [ExtractScalarState<S["shape"][K]>] extends [ScalarState<"vector">]
+      ? K
+      : never
+    : never;
+}[keyof S["shape"]];
+
+type SelectedVectorDistanceKeys<S extends ModelState, Selection> = {
+  [K in keyof Selection & VectorScalarFieldKeys<S>]: Selection[K] extends {
+    _distance: unknown;
+  }
+    ? K
+    : never;
+}[keyof Selection & VectorScalarFieldKeys<S>];
+
+type InferVectorDistanceSelection<
+  S extends ModelState,
+  Selection,
+> = [SelectedVectorDistanceKeys<S, Selection>] extends [never]
+  ? {}
+  : { _distance: number };
 
 type InferRelationCountSelection<
   S extends ModelState,

@@ -7,6 +7,7 @@ import { runLikeEscapeBehavior } from "./like-escape-behavior";
 import { runListJsonFilterBehavior } from "./list-json-filter-behavior";
 import { runManyAndReturnBehavior } from "./many-and-return-behavior";
 import { runManyToManyBehavior } from "./many-to-many-behavior";
+import { runNestedOrderByBehavior } from "./nested-orderby-behavior";
 import { runNestedWriteAdvancedBehavior } from "./nested-write-advanced-behavior";
 import { runNestedWriteBehavior } from "./nested-write-behavior";
 import { runOptionalRelationParityBehavior } from "./optional-relation-parity-behavior";
@@ -102,6 +103,10 @@ describe("LibSQL Driver", () => {
   });
 
   runRelationReadAggregateBehavior({
+    driverName: "LibSQL",
+    createDriver: createInMemoryLibSQLDriver,
+  });
+  runNestedOrderByBehavior({
     driverName: "LibSQL",
     createDriver: createInMemoryLibSQLDriver,
   });

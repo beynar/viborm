@@ -1,11 +1,14 @@
+import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import type { BatchQuery, QueryResult } from "@drivers/types";
 import {
+  FeatureNotSupportedError,
   ForeignKeyError,
   NotNullConstraintError,
   UniqueConstraintError,
 } from "@errors";
 import { push } from "@migrations";
+import { s } from "@schema";
 import type Database from "better-sqlite3";
 import {
   createInMemorySQLite3Driver,
@@ -23,6 +26,7 @@ import { runLikeEscapeBehavior } from "./like-escape-behavior";
 import { runListJsonFilterBehavior } from "./list-json-filter-behavior";
 import { runManyAndReturnBehavior } from "./many-and-return-behavior";
 import { runManyToManyBehavior } from "./many-to-many-behavior";
+import { runNestedOrderByBehavior } from "./nested-orderby-behavior";
 import { runNestedWriteAdvancedBehavior } from "./nested-write-advanced-behavior";
 import { runNestedWriteBehavior } from "./nested-write-behavior";
 import { runOptionalRelationParityBehavior } from "./optional-relation-parity-behavior";
@@ -66,6 +70,36 @@ function createBatchOnlySQLite3Driver(): SQLite3Driver {
 // =============================================================================
 
 describe("SQLite3 Driver", () => {
+  describe("Vector Support", () => {
+    test("throws FeatureNotSupported for vector distance orderBy", async () => {
+      const schema = {
+        doc: s.model({
+          id: s.string().id(),
+          embedding: s.vector().dimension(3),
+        }),
+      };
+      const driver = createInMemorySQLite3Driver();
+      const client = createClient({ schema, driver });
+
+      try {
+        await expect(
+          client.doc.findMany({
+            orderBy: {
+              embedding: {
+                _distance: {
+                  to: [1, 0, 0],
+                  metric: "l2",
+                },
+              },
+            },
+          })
+        ).rejects.toThrow(FeatureNotSupportedError);
+      } finally {
+        await client.$disconnect();
+      }
+    });
+  });
+
   describe("Driver Creation", () => {
     test("creates in-memory driver by default", async () => {
       const driver = createInMemorySQLite3Driver();
@@ -600,6 +634,10 @@ describe("SQLite3 Driver", () => {
     createDriver: createInMemorySQLite3Driver,
   });
   runRelationReadAggregateBehavior({
+    driverName: "SQLite3",
+    createDriver: createInMemorySQLite3Driver,
+  });
+  runNestedOrderByBehavior({
     driverName: "SQLite3",
     createDriver: createInMemorySQLite3Driver,
   });

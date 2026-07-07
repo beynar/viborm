@@ -15,7 +15,12 @@ import {
 import type { AnyRelation } from "@schema/relation";
 import type { RelationType } from "@schema/relation/types";
 import type { Scalar } from "@schema/scalars";
-import { isBatchOperation, type Operation, type QueryContext } from "../types";
+import {
+  isBatchOperation,
+  type Operation,
+  type QueryContext,
+  QueryEngineError,
+} from "../types";
 import {
   assignRelationCount,
   getRelationCountName,
@@ -27,6 +32,25 @@ import {
  */
 function isCountKey(key: string): boolean {
   return key === COUNT_RESULT_KEY || key === "count";
+}
+
+function parseVectorDistanceValue(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "bigint") {
+    return Number(value);
+  }
+
+  if (typeof value === "string" && value.trim() !== "") {
+    const distance = Number(value);
+    if (Number.isFinite(distance)) {
+      return distance;
+    }
+  }
+
+  throw new QueryEngineError("Cannot parse vector distance result.");
 }
 
 /**
@@ -293,6 +317,13 @@ function createRowParser(
       continue;
     }
 
+    if (key === "_distance") {
+      steps[i] = (result, value) => {
+        result[key] = parseVectorDistanceValue(value);
+      };
+      continue;
+    }
+
     const scalar = scalars[key];
     if (scalar) {
       const parse = getParseFieldChain(ctx, scalar);
@@ -343,6 +374,11 @@ function assignParsedField(
   const relationCountName = getRelationCountName(key, relations);
   if (relationCountName) {
     assignRelationCount(result, relationCountName, value);
+    return;
+  }
+
+  if (key === "_distance") {
+    result[key] = parseVectorDistanceValue(value);
     return;
   }
 

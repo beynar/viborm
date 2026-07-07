@@ -468,6 +468,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
     supportsCteWithMutations: true,
     supportsFullOuterJoin: false,
     supportsLateralJoins: false, // SQLite does not support LATERAL joins
+    supportsVector: false,
     supportsUpsertWhere: true, // SQLite supports WHERE in ON CONFLICT (3.24+)
     supportsMutationTargetInSubquery: true,
   };

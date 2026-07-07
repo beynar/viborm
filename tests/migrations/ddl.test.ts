@@ -830,6 +830,18 @@ describe("PostgreSQL DDL Generation", () => {
           createScalarState("bigint")
         )
       ).toBe("bigint");
+      expect(
+        postgresMigrationDriver.mapScalarType(
+          createMockScalar(createScalarState("vector")),
+          createScalarState("vector")
+        )
+      ).toBe("vector");
+      expect(
+        postgresMigrationDriver.mapScalarType(
+          createMockScalar(createScalarState("vector", { dimension: 3 })),
+          createScalarState("vector", { dimension: 3 })
+        )
+      ).toBe("vector(3)");
     });
 
     it("should handle array types", () => {

@@ -61,7 +61,7 @@ export class VectorScalar<State extends ScalarState<"vector">> {
 
   dimension(dim: number) {
     return new VectorScalar(
-      updateState(this, { dimension: dim } as any),
+      updateState(this, { dimension: dim }),
       this._nativeType
     );
   }

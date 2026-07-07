@@ -88,6 +88,8 @@ export interface ScalarState<T extends ScalarType = ScalarType> {
   columnName: string | undefined;
   base: VibSchema;
   withTimezone?: boolean | undefined;
+  /** Fixed vector length for pgvector-backed vector scalars. */
+  dimension?: number | undefined;
   /** Custom enum type name in the database (set via .name() on enum scalars) */
   enumName?: string | undefined;
 }

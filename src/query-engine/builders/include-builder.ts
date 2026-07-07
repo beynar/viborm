@@ -18,7 +18,7 @@ import {
   buildManyToManyJoinParts,
   getManyToManyJoinInfo,
 } from "./many-to-many-utils";
-import { buildOrderBy } from "./orderby-builder";
+import { buildOrderByParts } from "./orderby-builder";
 import { buildSelect, buildSelectWithAliases } from "./select-builder";
 import { buildWhere } from "./where-builder";
 
@@ -204,24 +204,22 @@ function buildSubqueryInclude(
     ? adapter.operators.and(correlation, innerWhere)
     : correlation;
 
-  // Build ORDER BY
-  const orderBySql = buildOrderBy(childCtx, orderBy, relatedAlias);
-
   // Build FROM table
   const relatedTableName = getTableName(relationInfo.targetModel);
   const fromTable = adapter.identifiers.table(relatedTableName, relatedAlias);
 
   if (relationInfo.isToMany) {
+    const orderByParts = buildOrderByParts(childCtx, orderBy, relatedAlias);
     return {
       column: buildToManySubquery(
         ctx,
         jsonExpr,
         fromTable,
         whereCondition,
-        orderBySql,
+        orderByParts.orderBy,
         take,
         skip,
-        undefined
+        orderByParts.joins.length > 0 ? orderByParts.joins : undefined
       ),
     };
   }
@@ -291,9 +289,6 @@ function buildLateralInclude(
     ? adapter.operators.and(correlation, innerWhere)
     : correlation;
 
-  // Build ORDER BY
-  const orderBySql = buildOrderBy(childCtx, orderBy, relatedAlias);
-
   // Build FROM table
   const relatedTableName = getTableName(relationInfo.targetModel);
   const fromTable = adapter.identifiers.table(relatedTableName, relatedAlias);
@@ -301,6 +296,9 @@ function buildLateralInclude(
   const resultColAlias = "_result";
 
   if (relationInfo.isToMany) {
+    const orderByParts = buildOrderByParts(childCtx, orderBy, relatedAlias);
+    const innerJoins = [...nestedJoins, ...orderByParts.joins];
+
     // To-many: build lateral subquery with JSON aggregation
     const jsonColAlias = "_json";
     const aliasedJsonExpr = adapter.identifiers.aliased(jsonExpr, jsonColAlias);
@@ -310,9 +308,9 @@ function buildLateralInclude(
       adapter,
       aliasedJsonExpr,
       fromTable,
-      nestedJoins.length > 0 ? nestedJoins : undefined,
+      innerJoins.length > 0 ? innerJoins : undefined,
       whereCondition,
-      orderBySql,
+      orderByParts.orderBy,
       take,
       skip
     );
@@ -499,8 +497,8 @@ function buildManyToManyLateralInclude(
   }
   const whereCondition = adapter.operators.and(...conditions);
 
-  // Build ORDER BY
-  const orderBySql = buildOrderBy(childCtx, orderBy, targetAlias);
+  const orderByParts = buildOrderByParts(childCtx, orderBy, targetAlias);
+  const innerJoins = [...nestedJoins, ...orderByParts.joins];
 
   // Build inner query using shared helper
   const jsonColAlias = "_json";
@@ -510,9 +508,9 @@ function buildManyToManyLateralInclude(
     adapter,
     aliasedJsonExpr,
     fromClause,
-    nestedJoins.length > 0 ? nestedJoins : undefined,
+    innerJoins.length > 0 ? innerJoins : undefined,
     whereCondition,
-    orderBySql,
+    orderByParts.orderBy,
     take,
     skip
   );
@@ -597,8 +595,7 @@ function buildManyToManyInclude(
   }
   const whereCondition = adapter.operators.and(...conditions);
 
-  // Build ORDER BY
-  const orderBySql = buildOrderBy(childCtx, orderBy, targetAlias);
+  const orderByParts = buildOrderByParts(childCtx, orderBy, targetAlias);
 
   // Build inner query using shared helper
   const jsonColAlias = "_json";
@@ -608,9 +605,9 @@ function buildManyToManyInclude(
     adapter,
     aliasedJsonExpr,
     fromClause,
-    undefined, // no joins for subquery variant
+    orderByParts.joins.length > 0 ? orderByParts.joins : undefined,
     whereCondition,
-    orderBySql,
+    orderByParts.orderBy,
     take,
     skip
   );

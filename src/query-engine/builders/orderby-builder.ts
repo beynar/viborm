@@ -98,7 +98,13 @@ function buildOrderByInternal(
       // Resolve field name to actual column name (handles .map() overrides)
       const columnName = getColumnName(ctx.model, field);
       const column = ctx.adapter.identifiers.column(alias, columnName);
-      orders.push(buildSingleOrder(ctx, column, value));
+      const scalar = ctx.model["~"].state.scalars[field];
+      orders.push(
+        buildSingleOrder(ctx, column, value, {
+          name: field,
+          scalarState: scalar?.["~"].state,
+        })
+      );
     }
   }
 

@@ -103,6 +103,7 @@ export interface ScalarTypeContext {
   type: string;
   array?: boolean;
   withTimezone?: boolean;
+  dimension?: number | undefined;
 }
 
 /**
@@ -150,7 +151,10 @@ export function getPostgresType(context: ScalarTypeContext): string {
       baseType = PG_TYPE_DEFAULTS.blob;
       break;
     case "vector":
-      baseType = PG_TYPE_DEFAULTS.vector;
+      baseType =
+        context.dimension === undefined
+          ? PG_TYPE_DEFAULTS.vector
+          : `${PG_TYPE_DEFAULTS.vector}(${context.dimension})`;
       break;
     case "point":
       baseType = PG_TYPE_DEFAULTS.point;

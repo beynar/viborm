@@ -6,10 +6,6 @@ import v, { type V } from "../primitives/v";
 import { rejectSelectInclude } from "../model/args/select-include-exclusivity";
 import { createSchema, fail, ok } from "../primitives/helpers";
 import type { GetTargetSchemas, SchemaGetter } from "./helpers";
-import {
-  getTargetScalarOrderBySchema,
-  type TargetScalarOrderBySchema,
-} from "./order-by";
 
 // =============================================================================
 // TRANSFORM HELPERS
@@ -143,7 +139,12 @@ export type ToManyIncludeSchema<S extends RelationState> = V.Union<
     IncludeToField<
       V.Object<{
         where: () => GetTargetSchemas<S>["core"]["where"];
-        orderBy: () => TargetScalarOrderBySchema<S>;
+        orderBy: () => V.Union<
+          readonly [
+            GetTargetSchemas<S>["core"]["orderBy"],
+            V.Array<GetTargetSchemas<S>["core"]["orderBy"]>,
+          ]
+        >;
         take: NestedTakeSchema;
         skip: V.Number;
         select: () => GetTargetSchemas<S>["core"]["select"];
@@ -165,7 +166,10 @@ export const toManyIncludeFactory = <
       rejectSelectInclude(
         v.object({
           where: () => targetSchemas().core.where,
-          orderBy: () => getTargetScalarOrderBySchema<S, T>(targetSchemas),
+          orderBy: () => {
+            const orderBySchema = targetSchemas().core.orderBy;
+            return v.union([orderBySchema, v.array(orderBySchema)]);
+          },
           take: nestedTake,
           skip: v.number(),
           select: () => targetSchemas().core.select,

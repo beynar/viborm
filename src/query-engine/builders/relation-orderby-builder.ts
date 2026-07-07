@@ -5,7 +5,14 @@
  */
 
 import type { Sql } from "@sql";
-import { getColumnName, getTableName, isScalarField } from "../context";
+import {
+  createChildContext,
+  getColumnName,
+  getRelationInfo,
+  getTableName,
+  isRelation,
+  isScalarField,
+} from "../context";
 import {
   type QueryContext,
   QueryEngineError,
@@ -23,6 +30,8 @@ export interface RelationOrderAlias {
 const isRecord = (value: unknown): value is Record<string, unknown> => {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 };
+
+const MAX_RELATION_ORDER_DEPTH = 3;
 
 export function buildRelationOrders(
   ctx: QueryContext,
@@ -43,7 +52,9 @@ export function buildRelationOrders(
       relationInfo,
       value,
       parentAlias,
-      relationAliases
+      relationAliases,
+      relationInfo.name,
+      1
     );
   }
 
@@ -61,35 +72,97 @@ function buildToOneRelationOrders(
   relationInfo: RelationInfo,
   orderBy: Record<string, unknown>,
   parentAlias: string,
-  relationAliases: Map<string, RelationOrderAlias>
+  relationAliases: Map<string, RelationOrderAlias>,
+  relationPath: string,
+  depth: number
 ): Sql[] {
+  if (depth > MAX_RELATION_ORDER_DEPTH) {
+    throw new QueryEngineError(
+      `Relation orderBy path '${relationPath}' exceeds maximum depth of ${MAX_RELATION_ORDER_DEPTH} relation hops.`
+    );
+  }
+
   const orders: Sql[] = [];
   const relatedAlias = getRelationOrderAlias(
     ctx,
     relationInfo,
     parentAlias,
-    relationAliases
+    relationAliases,
+    relationPath
   ).alias;
+  const targetCtx = createChildContext(
+    ctx,
+    relationInfo.targetModel,
+    relatedAlias
+  );
 
   for (const [field, value] of Object.entries(orderBy)) {
     if (value === undefined) {
       continue;
     }
 
+    const fieldPath = `${relationPath}.${field}`;
+
+    if (isRelation(relationInfo.targetModel, field)) {
+      const nestedRelationInfo = getRelationInfo(targetCtx, field);
+      if (!nestedRelationInfo) {
+        throw new QueryEngineError(
+          `Unknown relation orderBy field '${fieldPath}'.`
+        );
+      }
+
+      if (nestedRelationInfo.isToMany) {
+        throw new QueryEngineError(
+          `Relation orderBy '${fieldPath}' cannot order through a to-many relation; use '_count'.`
+        );
+      }
+
+      if (!nestedRelationInfo.isToOne) {
+        throw new QueryEngineError(
+          `Unsupported relation orderBy '${fieldPath}'.`
+        );
+      }
+
+      if (!isRecord(value)) {
+        throw new QueryEngineError(
+          `Relation orderBy '${fieldPath}' must be an object.`
+        );
+      }
+
+      orders.push(
+        ...buildToOneRelationOrders(
+          targetCtx,
+          nestedRelationInfo,
+          value,
+          relatedAlias,
+          relationAliases,
+          fieldPath,
+          depth + 1
+        )
+      );
+      continue;
+    }
+
     if (!isScalarField(relationInfo.targetModel, field)) {
       throw new QueryEngineError(
-        `Relation orderBy '${relationInfo.name}.${field}' must reference a scalar field.`
+        `Unknown relation orderBy field '${fieldPath}'.`
       );
     }
 
     const columnName = getColumnName(relationInfo.targetModel, field);
     const column = ctx.adapter.identifiers.column(relatedAlias, columnName);
-    orders.push(buildSingleOrder(ctx, column, value));
+    const scalar = relationInfo.targetModel["~"].state.scalars[field];
+    orders.push(
+      buildSingleOrder(ctx, column, value, {
+        name: fieldPath,
+        scalarState: scalar?.["~"].state,
+      })
+    );
   }
 
   if (orders.length === 0) {
     throw new QueryEngineError(
-      `Relation orderBy '${relationInfo.name}' requires at least one scalar field.`
+      `Relation orderBy '${relationPath}' requires at least one scalar field.`
     );
   }
 
@@ -100,9 +173,10 @@ function getRelationOrderAlias(
   ctx: QueryContext,
   relationInfo: RelationInfo,
   parentAlias: string,
-  relationAliases: Map<string, RelationOrderAlias>
+  relationAliases: Map<string, RelationOrderAlias>,
+  relationPath: string
 ): RelationOrderAlias {
-  const existing = relationAliases.get(relationInfo.name);
+  const existing = relationAliases.get(relationPath);
   if (existing) {
     return existing;
   }
@@ -121,7 +195,7 @@ function getRelationOrderAlias(
   );
   const join = ctx.adapter.joins.left(relatedTable, condition);
   const entry = { alias: relatedAlias, join };
-  relationAliases.set(relationInfo.name, entry);
+  relationAliases.set(relationPath, entry);
   return entry;
 }
 

@@ -443,6 +443,11 @@ export interface DatabaseAdapter {
      */
     supportsLateralJoins: boolean;
     /**
+     * Whether this driver instance supports vector operations.
+     * PostgreSQL drivers enable this only when pgvector is available.
+     */
+    supportsVector: boolean;
+    /**
      * Whether database supports WHERE clauses in upsert/ON CONFLICT:
      * - targetWhere: ON CONFLICT (id) WHERE <targetWhere> DO UPDATE ... (partial unique index)
      * - setWhere: ON CONFLICT ... DO UPDATE SET x = y WHERE <setWhere> (conditional update)

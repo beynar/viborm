@@ -11,11 +11,12 @@ import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { type Dialect, Driver } from "@drivers";
 import { ValidationError } from "@errors";
+import { buildOrderByParts } from "@query-engine/builders/orderby-builder";
 import { buildWhere } from "@query-engine/builders/where-builder";
 import { buildWhereUnique } from "@query-engine/builders/where-unique-builder";
 import { createQueryContext, getTableName } from "@query-engine/context";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
-import { hydrateSchemaNames } from "@schema";
+import { hydrateSchemaNames, s } from "@schema";
 import { createSchemaRegistry } from "@validation";
 import { beforeAll, describe, expect, test } from "vitest";
 import { sqlGenerationUserPostSchema } from "../fixtures/user-post-schema";
@@ -79,6 +80,67 @@ const IS_NOT_NULL_REGEX = /IS NOT NULL|EXISTS/i;
 
 const { Author, Post, Tag, Membership } = sqlGenerationUserPostSchema;
 
+const nestedRelationOrderBySchema = (() => {
+  const Country = s
+    .model({
+      id: s.string().id(),
+      name: s.string(),
+    })
+    .map("nested_order_countries");
+
+  const Publisher = s
+    .model({
+      id: s.string().id(),
+      name: s.string(),
+      rank: s.int(),
+      countryId: s.string(),
+      country: s
+        .manyToOne(() => Country)
+        .fields("countryId")
+        .references("id"),
+    })
+    .map("nested_order_publishers");
+
+  const Author = s
+    .model({
+      id: s.string().id(),
+      name: s.string(),
+      publisherId: s.string(),
+      publisher: s
+        .manyToOne(() => Publisher)
+        .fields("publisherId")
+        .references("id"),
+      posts: s.oneToMany(() => NestedPost),
+    })
+    .map("nested_order_authors");
+
+  const NestedPost = s
+    .model({
+      id: s.string().id(),
+      title: s.string(),
+      authorId: s.string(),
+      author: s
+        .manyToOne(() => Author)
+        .fields("authorId")
+        .references("id"),
+    })
+    .map("nested_order_posts");
+
+  const Comment = s
+    .model({
+      id: s.string().id(),
+      text: s.string(),
+      postId: s.string(),
+      post: s
+        .manyToOne(() => NestedPost)
+        .fields("postId")
+        .references("id"),
+    })
+    .map("nested_order_comments");
+
+  return { Country, Publisher, Author, NestedPost, Comment };
+})();
+
 // =============================================================================
 // TEST SETUP
 // =============================================================================
@@ -117,10 +179,16 @@ const dialectCases: DialectCase[] = [
 
 let registry: ReturnType<typeof createModelRegistry>;
 let engine: QueryEngine;
+let nestedRelationOrderByRegistry: ReturnType<typeof createModelRegistry>;
 
 beforeAll(() => {
   registry = createModelRegistry(schema, createSchemaRegistry(schema));
   engine = new QueryEngine(mockDriver, registry);
+  hydrateSchemaNames(nestedRelationOrderBySchema);
+  nestedRelationOrderByRegistry = createModelRegistry(
+    nestedRelationOrderBySchema,
+    createSchemaRegistry(nestedRelationOrderBySchema)
+  );
 });
 
 // Helper to get SQL string and values
@@ -131,6 +199,16 @@ function getSql(model: any, operation: any, args: any) {
     values: sql.values,
     raw: sql,
   };
+}
+
+function getWhiteBoxOrderByParts(model: any, orderBy: Record<string, unknown>) {
+  const ctx = createQueryContext(
+    adapter,
+    model,
+    nestedRelationOrderByRegistry,
+    mockDriver
+  );
+  return buildOrderByParts(ctx, orderBy, ctx.rootAlias);
 }
 
 // =============================================================================
@@ -331,6 +409,92 @@ describe("Basic CRUD Operations", () => {
 
       expect(statement).toMatch(/LEFT JOIN/i);
       expect(statement).toContain('ORDER BY "t1"."name" ASC');
+    });
+
+    test("builder chains 2-hop to-one relation orderBy joins", () => {
+      const parts = getWhiteBoxOrderByParts(
+        nestedRelationOrderBySchema.NestedPost,
+        {
+          author: {
+            publisher: {
+              name: "asc",
+              rank: "desc",
+            },
+          },
+        }
+      );
+      const joins = parts.joins.map((join) => join.toStatement("$n"));
+
+      expect(joins).toHaveLength(2);
+      expect(joins[0]).toContain(
+        'LEFT JOIN "nested_order_authors" AS "t1" ON "t0"."authorId" = "t1"."id"'
+      );
+      expect(joins[1]).toContain(
+        'LEFT JOIN "nested_order_publishers" AS "t2" ON "t1"."publisherId" = "t2"."id"'
+      );
+      expect(parts.orderBy?.toStatement("$n")).toBe(
+        '"t2"."name" ASC, "t2"."rank" DESC'
+      );
+    });
+
+    test("builder chains 3-hop to-one relation orderBy joins", () => {
+      const parts = getWhiteBoxOrderByParts(
+        nestedRelationOrderBySchema.Comment,
+        {
+          post: {
+            author: {
+              publisher: {
+                name: "asc",
+              },
+            },
+          },
+        }
+      );
+      const joins = parts.joins.map((join) => join.toStatement("$n"));
+
+      expect(joins).toHaveLength(3);
+      expect(joins[0]).toContain(
+        'LEFT JOIN "nested_order_posts" AS "t1" ON "t0"."postId" = "t1"."id"'
+      );
+      expect(joins[1]).toContain(
+        'LEFT JOIN "nested_order_authors" AS "t2" ON "t1"."authorId" = "t2"."id"'
+      );
+      expect(joins[2]).toContain(
+        'LEFT JOIN "nested_order_publishers" AS "t3" ON "t2"."publisherId" = "t3"."id"'
+      );
+      expect(parts.orderBy?.toStatement("$n")).toBe('"t3"."name" ASC');
+    });
+
+    test("builder rejects to-many relation orderBy mid-chain", () => {
+      expect(() =>
+        getWhiteBoxOrderByParts(nestedRelationOrderBySchema.NestedPost, {
+          author: {
+            posts: {
+              _count: "desc",
+            },
+          },
+        })
+      ).toThrow(
+        "Relation orderBy 'author.posts' cannot order through a to-many relation; use '_count'."
+      );
+    });
+
+    test("builder rejects relation orderBy past the depth cap", () => {
+      expect(() =>
+        getWhiteBoxOrderByParts(nestedRelationOrderBySchema.Comment, {
+          post: {
+            author: {
+              publisher: {
+                country: {
+                  name: "asc",
+                },
+              },
+            },
+          },
+        })
+      ).toThrow(
+        "Relation orderBy path 'post.author.publisher.country' exceeds maximum depth of 3 relation hops."
+      );
     });
 
     test("to-many relation _count orderBy uses count subquery", () => {

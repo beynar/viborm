@@ -18,6 +18,7 @@ import {
 import { runClientRawBehavior } from "./client-raw-behavior";
 import { runListJsonFilterBehavior } from "./list-json-filter-behavior";
 import { runM2mDeleteManyStalenessBehavior } from "./m2m-deletemany-staleness-behavior";
+import { runNestedOrderByBehavior } from "./nested-orderby-behavior";
 import { runNestedWriteAdvancedBehavior } from "./nested-write-advanced-behavior";
 import { runNestedWriteBehavior } from "./nested-write-behavior";
 import { runNestedWriteConcurrencyBehavior } from "./nested-write-concurrency-behavior";
@@ -27,6 +28,7 @@ import {
   runScalarRoundtripBehavior,
 } from "./scalar-roundtrip-behavior";
 import { runUpsertAtomicityBehavior } from "./upsert-atomicity-behavior";
+import { runVectorBehavior } from "./vector-behavior";
 
 // =============================================================================
 // SCHEMA DEFINITION
@@ -81,7 +83,15 @@ async function setupDatabase(driver: PgDriver) {
 
 // Skip tests if no PostgreSQL connection is available
 const TEST_CONNECTION_STRING = process.env.PG_TEST_CONNECTION_STRING;
+const PGVECTOR_TEST_CONNECTION_STRING = process.env.PGVECTOR_TEST_CONNECTION_STRING;
 const describeIf = TEST_CONNECTION_STRING ? describe : describe.skip;
+
+function requirePgvectorConnectionString(): string {
+  if (!PGVECTOR_TEST_CONNECTION_STRING) {
+    throw new Error("PGVECTOR_TEST_CONNECTION_STRING is required.");
+  }
+  return PGVECTOR_TEST_CONNECTION_STRING;
+}
 
 describeIf("pg Driver", () => {
   // The shared behavior suites and client-integration tests assume a fresh
@@ -512,9 +522,23 @@ describeIf("pg Driver", () => {
     driverName: "pg",
     createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
   });
+  runNestedOrderByBehavior({
+    driverName: "pg",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
 
   // The remaining behavior suites are not wired here: they are adapter-level
   // and already run on PGlite, which shares the postgres adapter; this file
   // covers what depends on the real driver (param serialization, pooling,
   // transactions, races).
+});
+
+runVectorBehavior({
+  driverName: "pg",
+  enabled: Boolean(PGVECTOR_TEST_CONNECTION_STRING),
+  createDriver: () =>
+    new PgDriver({
+      databaseUrl: requirePgvectorConnectionString(),
+      pgvector: true,
+    }),
 });
