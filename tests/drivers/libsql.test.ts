@@ -1,9 +1,11 @@
 import { createInMemoryLibSQLDriver } from "../fixtures/drivers/libsql";
+import { runClientRawBehavior } from "./client-raw-behavior";
 import { runCompoundKeyBehavior } from "./compound-key-behavior";
 import { runCountAggregateWindowBehavior } from "./count-aggregate-window-behavior";
 import { runDistinctSkipWindowBehavior } from "./distinct-skip-window-behavior";
 import { runLikeEscapeBehavior } from "./like-escape-behavior";
 import { runListJsonFilterBehavior } from "./list-json-filter-behavior";
+import { runManyAndReturnBehavior } from "./many-and-return-behavior";
 import { runManyToManyBehavior } from "./many-to-many-behavior";
 import { runNestedWriteAdvancedBehavior } from "./nested-write-advanced-behavior";
 import { runNestedWriteBehavior } from "./nested-write-behavior";
@@ -12,6 +14,7 @@ import { runOrderingArrayCreateBehavior } from "./ordering-array-create-behavior
 import { runPrismaParityBehavior } from "./prisma-parity-behavior";
 import { runReadPathRegressionBehavior } from "./read-path-regression-behavior";
 import { runRelationFilterMutationBehavior } from "./relation-filter-mutation-behavior";
+import { runRelationReadAggregateBehavior } from "./relation-read-aggregate-behavior";
 import {
   runFullScalarRoundtripBehavior,
   runScalarRoundtripBehavior,
@@ -63,6 +66,16 @@ describe("LibSQL Driver", () => {
     createDriver: createInMemoryLibSQLDriver,
   });
 
+  // LibSQL supports RETURNING, so the full suite applies. Caveat for the
+  // atomic-divide scenario: @libsql/client binds JS numbers as REAL
+  // (float64), so `qty / 2` on an INT column yields 3.5 where better-sqlite3
+  // (INTEGER binding, integer division) yields 3 — same dialect, different
+  // driver binding.
+  runManyAndReturnBehavior({
+    driverName: "LibSQL",
+    createDriver: createInMemoryLibSQLDriver,
+  });
+
   runLikeEscapeBehavior({
     driverName: "LibSQL",
     createDriver: createInMemoryLibSQLDriver,
@@ -84,6 +97,16 @@ describe("LibSQL Driver", () => {
   });
 
   runReadPathRegressionBehavior({
+    driverName: "LibSQL",
+    createDriver: createInMemoryLibSQLDriver,
+  });
+
+  runRelationReadAggregateBehavior({
+    driverName: "LibSQL",
+    createDriver: createInMemoryLibSQLDriver,
+  });
+
+  runClientRawBehavior({
     driverName: "LibSQL",
     createDriver: createInMemoryLibSQLDriver,
   });

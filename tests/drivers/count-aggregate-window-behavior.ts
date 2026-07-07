@@ -108,6 +108,32 @@ export function runCountAggregateWindowBehavior({
       expect(result).toEqual({ _all: 2, id: 2 });
     });
 
+    test("aggregate _count object form counts non-null values per field", async () => {
+      const c = requireClient(client);
+      // Give field-level counts a NULL to skip: _all sees the row, the
+      // nullable columns do not.
+      await c.user.create({
+        data: { id: "u4", name: null, email: "dana@test.com", age: null },
+      });
+
+      const result = await c.user.aggregate({
+        _count: { _all: true, name: true, age: true },
+      });
+
+      expect(result._count).toEqual({ _all: 4, name: 3, age: 3 });
+    });
+
+    test("aggregate _count object form applies the input window", async () => {
+      const result = await requireClient(client).post.aggregate({
+        orderBy: { id: "asc" },
+        skip: 1,
+        take: 2,
+        _count: { _all: true, id: true },
+      });
+
+      expect(result._count).toEqual({ _all: 2, id: 2 });
+    });
+
     test("count honors supported relation order in input window", async () => {
       const result = await requireClient(client).post.count({
         orderBy: { author: { name: "desc" } },

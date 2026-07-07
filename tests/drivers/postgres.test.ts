@@ -13,9 +13,11 @@ import {
 } from "@drivers/postgres";
 import { push } from "@migrations";
 import { s } from "@schema";
+import { runClientRawBehavior } from "./client-raw-behavior";
 import { runListJsonFilterBehavior } from "./list-json-filter-behavior";
 import { runNestedWriteAdvancedBehavior } from "./nested-write-advanced-behavior";
 import { runNestedWriteBehavior } from "./nested-write-behavior";
+import { runRelationReadAggregateBehavior } from "./relation-read-aggregate-behavior";
 import {
   runFullScalarRoundtripBehavior,
   runScalarRoundtripBehavior,
@@ -425,6 +427,22 @@ describeIf("postgres.js Driver", () => {
   });
 
   runNestedWriteAdvancedBehavior({
+    driverName: "postgres.js",
+    createDriver: () =>
+      new PostgresDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  // Raw-string $queryRaw params and sql`` rendering go through the real
+  // postgres.js wire protocol here ($n placeholders), unlike the PGlite run.
+  runClientRawBehavior({
+    driverName: "postgres.js",
+    createDriver: () =>
+      new PostgresDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  // Relation _count / relation orderBy / every-none read filters over the
+  // real driver (correlated-subquery results cross real result parsing).
+  runRelationReadAggregateBehavior({
     driverName: "postgres.js",
     createDriver: () =>
       new PostgresDriver({ databaseUrl: TEST_CONNECTION_STRING }),

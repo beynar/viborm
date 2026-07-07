@@ -9,6 +9,7 @@ import { windowUserPostSchema } from "../fixtures/user-post-schema";
 import { seedWindowUserPosts } from "../fixtures/user-post-seed";
 import { runBatchPrimaryKeyDataflowBehavior } from "./batch-primary-key-dataflow-behavior";
 import { runBatchRefSmokeBehavior } from "./batch-ref-smoke-behavior";
+import { runClientRawBehavior } from "./client-raw-behavior";
 import { runCompoundKeyBehavior } from "./compound-key-behavior";
 import { runCountAggregateWindowBehavior } from "./count-aggregate-window-behavior";
 import { runDistinctSkipWindowBehavior } from "./distinct-skip-window-behavior";
@@ -23,6 +24,7 @@ import { runOrderingArrayCreateBehavior } from "./ordering-array-create-behavior
 import { runPrismaParityBehavior } from "./prisma-parity-behavior";
 import { runReadPathRegressionBehavior } from "./read-path-regression-behavior";
 import { runRelationFilterMutationBehavior } from "./relation-filter-mutation-behavior";
+import { runRelationReadAggregateBehavior } from "./relation-read-aggregate-behavior";
 import {
   runFullScalarRoundtripBehavior,
   runScalarRoundtripBehavior,
@@ -108,6 +110,14 @@ describe("PGlite Driver", () => {
     createDriver: createInMemoryPGliteDriver,
   });
   runReadPathRegressionBehavior({
+    driverName: "PGlite",
+    createDriver: createInMemoryPGliteDriver,
+  });
+  runRelationReadAggregateBehavior({
+    driverName: "PGlite",
+    createDriver: createInMemoryPGliteDriver,
+  });
+  runClientRawBehavior({
     driverName: "PGlite",
     createDriver: createInMemoryPGliteDriver,
   });

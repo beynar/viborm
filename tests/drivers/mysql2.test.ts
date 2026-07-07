@@ -17,6 +17,7 @@ import {
   MySQL2BeforeFirstBatchDriver,
   MySQL2RacePlantingBatchDriver,
 } from "./batch-forced-mysql2";
+import { runClientRawBehavior } from "./client-raw-behavior";
 import { runCompoundKeyBehavior } from "./compound-key-behavior";
 import { runCountAggregateWindowBehavior } from "./count-aggregate-window-behavior";
 import { runDistinctSkipWindowBehavior } from "./distinct-skip-window-behavior";
@@ -33,6 +34,7 @@ import { runOrderingArrayCreateBehavior } from "./ordering-array-create-behavior
 import { runPrismaParityBehavior } from "./prisma-parity-behavior";
 import { runReadPathRegressionBehavior } from "./read-path-regression-behavior";
 import { runRelationFilterMutationBehavior } from "./relation-filter-mutation-behavior";
+import { runRelationReadAggregateBehavior } from "./relation-read-aggregate-behavior";
 import {
   runFullScalarRoundtripBehavior,
   runScalarRoundtripBehavior,
@@ -107,6 +109,44 @@ describeIf("MySQL2 Driver", () => {
     }
   });
 
+  // Proves the isolationLevel option is accepted and the transaction commits
+  // on a real MySQL server (SET TRANSACTION ISOLATION LEVEL runs before
+  // BEGIN) — not proving isolation semantics.
+  describe("$transaction isolationLevel", () => {
+    const entry = s
+      .model({
+        id: s.string().id(),
+        note: s.string(),
+      })
+      .map("isolation_entries");
+
+    for (const level of ["serializable", "read_committed"] as const) {
+      test(`callback transaction with ${level} isolation commits`, async () => {
+        const client = createClient({
+          schema: { entry },
+          driver: createMySQL2Driver(),
+        });
+        try {
+          await push(client, { force: true });
+
+          const created = await client.$transaction(
+            async (tx) => {
+              await tx.entry.create({ data: { id: "e1", note: "first" } });
+              return tx.entry.create({ data: { id: "e2", note: "second" } });
+            },
+            { isolationLevel: level }
+          );
+          expect(created.id).toBe("e2");
+
+          const rows = await client.entry.findMany({ orderBy: { id: "asc" } });
+          expect(rows.map((r) => r.id)).toEqual(["e1", "e2"]);
+        } finally {
+          await client.$disconnect();
+        }
+      });
+    }
+  });
+
   runOrderingArrayCreateBehavior({
     driverName: "MySQL2",
     createDriver: createMySQL2Driver,
@@ -138,6 +178,16 @@ describeIf("MySQL2 Driver", () => {
   });
 
   runReadPathRegressionBehavior({
+    driverName: "MySQL2",
+    createDriver: createMySQL2Driver,
+  });
+
+  runRelationReadAggregateBehavior({
+    driverName: "MySQL2",
+    createDriver: createMySQL2Driver,
+  });
+
+  runClientRawBehavior({
     driverName: "MySQL2",
     createDriver: createMySQL2Driver,
   });

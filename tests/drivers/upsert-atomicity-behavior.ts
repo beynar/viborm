@@ -169,6 +169,92 @@ export function runUpsertAtomicityBehavior({
       expect(updated).toEqual({ name: "selected", count: 4 });
     });
 
+    test("upsert with include returns the relation payload on both branches", async () => {
+      const currentClient = requireClient(client);
+
+      // Create branch: the nested create runs through the transaction
+      // fallback; the returned payload must include the created relation.
+      const created = await currentClient.user.upsert({
+        where: { id: "include-user" },
+        create: {
+          id: "include-user",
+          name: "created",
+          posts: { create: { id: "include-post", title: "Included" } },
+        },
+        update: { name: "updated" },
+        include: { posts: true },
+      });
+
+      expect(created.id).toBe("include-user");
+      expect(created.name).toBe("created");
+      expect(created.posts).toHaveLength(1);
+      expect(created.posts[0]).toMatchObject({
+        id: "include-post",
+        title: "Included",
+        userId: "include-user",
+      });
+
+      // Update branch: the create payload is ignored; the include must
+      // reflect the already-persisted relation rows.
+      const updated = await currentClient.user.upsert({
+        where: { id: "include-user" },
+        create: {
+          id: "include-user",
+          name: "never",
+          posts: { create: { id: "include-post-unused", title: "Never" } },
+        },
+        update: { name: "updated" },
+        include: { posts: true },
+      });
+
+      expect(updated.id).toBe("include-user");
+      expect(updated.name).toBe("updated");
+      expect(updated.posts).toHaveLength(1);
+      expect(updated.posts[0]).toMatchObject({
+        id: "include-post",
+        title: "Included",
+        userId: "include-user",
+      });
+
+      const posts = await currentClient.post.findMany();
+      expect(posts).toHaveLength(1);
+    });
+
+    test("delete with include returns the relation payload", async () => {
+      const currentClient = requireClient(client);
+      await currentClient.user.create({
+        data: {
+          id: "delete-include-user",
+          name: "Author",
+          posts: { create: { id: "delete-include-post", title: "Doomed" } },
+        },
+      });
+
+      const deleted = await currentClient.post.delete({
+        where: { id: "delete-include-post" },
+        include: { author: true },
+      });
+
+      expect(deleted).toMatchObject({
+        id: "delete-include-post",
+        title: "Doomed",
+        userId: "delete-include-user",
+      });
+      expect(deleted.author).toMatchObject({
+        id: "delete-include-user",
+        name: "Author",
+      });
+
+      const [posts, author] = await Promise.all([
+        currentClient.post.findMany(),
+        currentClient.user.findUnique({
+          where: { id: "delete-include-user" },
+        }),
+      ]);
+      expect(posts).toHaveLength(0);
+      expect(author?.name).toBe("Author");
+    });
+
     test("concurrent plain upserts of the same missing key both succeed", async () => {
       const currentClient = requireClient(client);
 

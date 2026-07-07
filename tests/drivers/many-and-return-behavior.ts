@@ -45,10 +45,12 @@ export function runManyAndReturnBehavior({
   describe(`${driverName} createManyAndReturn / updateManyAndReturn`, () => {
     let client: ManyAndReturnClient | undefined;
     let supportsReturning = true;
+    let dialect = "postgresql";
 
     beforeEach(async () => {
       const driver = createDriver();
       supportsReturning = driver.adapter.capabilities.supportsReturning;
+      dialect = driver.dialect;
       client = createClient({ schema, driver });
       await push(client, { force: true });
     });
@@ -178,6 +180,96 @@ export function runManyAndReturnBehavior({
       for (const row of rows) {
         expect(Object.keys(row).sort()).toEqual(["id", "qty"]);
       }
+    });
+
+    test("updateManyAndReturn applies atomic decrement and multiply", async () => {
+      await client!.gadget.createMany({
+        data: [
+          { id: "g1", code: "c1", name: "Alpha", qty: 10 },
+          { id: "g2", code: "c2", name: "Beta", qty: 4 },
+        ],
+      });
+
+      const decremented = await client!.gadget.updateManyAndReturn({
+        data: { qty: { decrement: 3 } },
+        select: { id: true, qty: true },
+      });
+      expect(decremented).toHaveLength(2);
+      const decrementedById = new Map(decremented.map((r) => [r.id, r.qty]));
+      expect(decrementedById.get("g1")).toBe(7);
+      expect(decrementedById.get("g2")).toBe(1);
+
+      const multiplied = await client!.gadget.updateManyAndReturn({
+        data: { qty: { multiply: 5 } },
+        select: { id: true, qty: true },
+      });
+      expect(multiplied).toHaveLength(2);
+      const multipliedById = new Map(multiplied.map((r) => [r.id, r.qty]));
+      expect(multipliedById.get("g1")).toBe(35);
+      expect(multipliedById.get("g2")).toBe(5);
+
+      const persisted = await client!.gadget.findMany({
+        orderBy: { id: "asc" },
+      });
+      expect(persisted.map((r) => r.qty)).toEqual([35, 5]);
+    });
+
+    test("updateManyAndReturn applies atomic divide (exact quotient)", async () => {
+      await client!.gadget.create({
+        data: { id: "g1", code: "c1", name: "Exact", qty: 8 },
+      });
+
+      const rows = await client!.gadget.updateManyAndReturn({
+        data: { qty: { divide: 2 } },
+        select: { id: true, qty: true },
+      });
+
+      // 8 / 2 divides exactly, so every dialect agrees on 4.
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ id: "g1", qty: 4 });
+
+      const persisted = await client!.gadget.findUnique({
+        where: { id: "g1" },
+      });
+      expect(persisted?.qty).toBe(4);
+    });
+
+    test("atomic divide pins integer-division semantics on inexact quotients", async (ctx) => {
+      // KNOWN BUG (sqlite dialect: sqlite3/libsql): expected 7 / 2 = 3
+      // (SQLite integer division, and what Prisma persists on SQLite), but
+      // the drivers bind the JS number 2 as a REAL, so `qty = qty / ?` runs
+      // REAL division and persists 3.5 into the Int column (SQLite's INTEGER
+      // affinity keeps the lossy REAL as-is). Reads then return 3.5 for an
+      // s.int() field, breaking the scalar contract. A SQL literal `qty / 2`
+      // yields 3, so this is a parameter-binding bug, not server semantics.
+      ctx.skip(
+        dialect === "sqlite",
+        "KNOWN BUG: sqlite drivers bind divide operand as REAL; expected 3, actual 3.5 persisted"
+      );
+
+      await client!.gadget.create({
+        data: { id: "g1", code: "c1", name: "Inexact", qty: 7 },
+      });
+
+      const rows = await client!.gadget.updateManyAndReturn({
+        data: { qty: { divide: 2 } },
+        select: { id: true, qty: true },
+      });
+
+      // Every adapter emits the same `qty = qty / 2` SQL
+      // (adapters/shared/standard-sql.ts), but the dialects genuinely
+      // disagree on inexact INT division: PostgreSQL integer division
+      // truncates toward zero (3), while MySQL's `/` yields DECIMAL 3.5000
+      // which rounds half-away-from-zero when assigned back into the INT
+      // column (4).
+      const inexactQuotient = dialect === "mysql" ? 4 : 3;
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ id: "g1", qty: inexactQuotient });
+
+      const persisted = await client!.gadget.findUnique({
+        where: { id: "g1" },
+      });
+      expect(persisted?.qty).toBe(inexactQuotient);
     });
 
     test("updateManyAndReturn returns empty array when nothing matches", async () => {

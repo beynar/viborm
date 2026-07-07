@@ -1024,6 +1024,352 @@ const fkScenarios: Scenario<NestedWriteSchema>[] = [
 ];
 
 // ---------------------------------------------------------------------------
+// Group 1b: to-one relation ops in update context, both FK directions.
+// post.author is the FK-holder side (the FK lives on the row being updated:
+// post.userId); user.profile is the inverse side (the FK lives on the related
+// row: profile.userId). These validated inputs previously had no head-to-head
+// execution coverage. Semantics per DESIGN.md §9 (update / disconnect / delete
+// rows) and §5.3 (`disconnect: true` / `delete: true` are lax — a missing
+// related row is a no-op, never an error).
+// ---------------------------------------------------------------------------
+
+const toOneScenarios: Scenario<NestedWriteSchema>[] = [
+  {
+    name: "to-one update (FK-holder side) updates the connected author",
+    seed: (client) =>
+      client.user.create({
+        data: {
+          id: "u1",
+          name: "Before",
+          posts: { create: { id: "po1", title: "Post" } },
+        },
+      }),
+    act: (client) =>
+      client.post.update({
+        where: { id: "po1" },
+        data: { author: { update: { name: "After" } } },
+      }),
+    expected: {
+      users: [{ id: "u1", name: "After" }],
+      posts: [{ id: "po1", title: "Post", userId: "u1" }],
+      profiles: [],
+      tags: [],
+      postTags: [],
+    },
+  },
+  {
+    name: "to-one update (FK-holder side) with nothing connected rejects, state unchanged",
+    expectReject: true,
+    seed: (client) =>
+      client.post.create({
+        data: { id: "po1", title: "Orphan", userId: null },
+      }),
+    act: (client) =>
+      client.post.update({
+        where: { id: "po1" },
+        data: {
+          title: "Changed",
+          author: { update: { name: "Nobody" } },
+        },
+      }),
+    expected: {
+      users: [],
+      posts: [{ id: "po1", title: "Orphan", userId: null }],
+      profiles: [],
+      tags: [],
+      postTags: [],
+    },
+  },
+  {
+    name: "to-one disconnect true (FK-holder side) nulls the FK, both rows survive",
+    seed: (client) =>
+      client.user.create({
+        data: {
+          id: "u1",
+          name: "Owner",
+          posts: { create: { id: "po1", title: "Linked" } },
+        },
+      }),
+    act: (client) =>
+      client.post.update({
+        where: { id: "po1" },
+        data: { author: { disconnect: true } },
+      }),
+    expected: {
+      users: [{ id: "u1", name: "Owner" }],
+      posts: [{ id: "po1", title: "Linked", userId: null }],
+      profiles: [],
+      tags: [],
+      postTags: [],
+    },
+  },
+  {
+    name: "to-one disconnect true (FK-holder side) with nothing connected is a no-op",
+    seed: (client) =>
+      client.post.create({
+        data: { id: "po1", title: "Orphan", userId: null },
+      }),
+    act: (client) =>
+      client.post.update({
+        where: { id: "po1" },
+        data: {
+          title: "Touched",
+          author: { disconnect: true },
+        },
+      }),
+    expected: {
+      users: [],
+      posts: [{ id: "po1", title: "Touched", userId: null }],
+      profiles: [],
+      tags: [],
+      postTags: [],
+    },
+  },
+  {
+    name: "to-one delete true (FK-holder side) nulls the FK then deletes the target",
+    seed: (client) =>
+      client.user.create({
+        data: {
+          id: "u1",
+          name: "Doomed",
+          posts: { create: { id: "po1", title: "Survivor" } },
+        },
+      }),
+    act: (client) =>
+      client.post.update({
+        where: { id: "po1" },
+        data: { author: { delete: true } },
+      }),
+    expected: {
+      users: [],
+      posts: [{ id: "po1", title: "Survivor", userId: null }],
+      profiles: [],
+      tags: [],
+      postTags: [],
+    },
+  },
+  {
+    name: "to-one connect (inverse side) sets the FK on the related row",
+    seed: async (client) => {
+      await client.user.create({ data: { id: "u1", name: "Owner" } });
+      await client.profile.create({
+        data: { id: "pr1", bio: "orphan", userId: null },
+      });
+    },
+    act: (client) =>
+      client.user.update({
+        where: { id: "u1" },
+        data: { profile: { connect: { id: "pr1" } } },
+      }),
+    expected: {
+      users: [{ id: "u1", name: "Owner" }],
+      posts: [],
+      profiles: [{ id: "pr1", bio: "orphan", userId: "u1" }],
+      tags: [],
+      postTags: [],
+    },
+  },
+  {
+    name: "to-one connectOrCreate (inverse side) connects an existing profile",
+    seed: async (client) => {
+      await client.user.create({ data: { id: "u1", name: "Owner" } });
+      await client.profile.create({
+        data: { id: "pr1", bio: "existing", userId: null },
+      });
+    },
+    act: (client) =>
+      client.user.update({
+        where: { id: "u1" },
+        data: {
+          profile: {
+            connectOrCreate: {
+              where: { id: "pr1" },
+              create: { id: "pr1", bio: "should not create" },
+            },
+          },
+        },
+      }),
+    expected: {
+      users: [{ id: "u1", name: "Owner" }],
+      posts: [],
+      profiles: [{ id: "pr1", bio: "existing", userId: "u1" }],
+      tags: [],
+      postTags: [],
+    },
+  },
+  {
+    name: "to-one connectOrCreate (inverse side) creates a missing profile",
+    seed: (client) => client.user.create({ data: { id: "u1", name: "Owner" } }),
+    act: (client) =>
+      client.user.update({
+        where: { id: "u1" },
+        data: {
+          profile: {
+            connectOrCreate: {
+              where: { id: "pr1" },
+              create: { id: "pr1", bio: "created" },
+            },
+          },
+        },
+      }),
+    expected: {
+      users: [{ id: "u1", name: "Owner" }],
+      posts: [],
+      profiles: [{ id: "pr1", bio: "created", userId: "u1" }],
+      tags: [],
+      postTags: [],
+    },
+  },
+  {
+    name: "to-one update (inverse side) updates the connected profile",
+    seed: (client) =>
+      client.user.create({
+        data: {
+          id: "u1",
+          name: "Owner",
+          profile: { create: { id: "pr1", bio: "old" } },
+        },
+      }),
+    act: (client) =>
+      client.user.update({
+        where: { id: "u1" },
+        data: { profile: { update: { bio: "new" } } },
+      }),
+    expected: {
+      users: [{ id: "u1", name: "Owner" }],
+      posts: [],
+      profiles: [{ id: "pr1", bio: "new", userId: "u1" }],
+      tags: [],
+      postTags: [],
+    },
+  },
+  {
+    name: "to-one upsert (inverse side) creates then updates the profile",
+    seed: (client) => client.user.create({ data: { id: "u1", name: "Owner" } }),
+    act: async (client) => {
+      await client.user.update({
+        where: { id: "u1" },
+        data: {
+          profile: {
+            upsert: {
+              create: { id: "pr1", bio: "Created" },
+              update: { bio: "Unused" },
+            },
+          },
+        },
+      });
+      await client.user.update({
+        where: { id: "u1" },
+        data: {
+          profile: {
+            upsert: {
+              create: { id: "pr-unused", bio: "Should not create" },
+              update: { bio: "Updated" },
+            },
+          },
+        },
+      });
+    },
+    expected: {
+      users: [{ id: "u1", name: "Owner" }],
+      posts: [],
+      profiles: [{ id: "pr1", bio: "Updated", userId: "u1" }],
+      tags: [],
+      postTags: [],
+    },
+  },
+  {
+    name: "to-one disconnect true (inverse side) nulls the child FK",
+    seed: (client) =>
+      client.user.create({
+        data: {
+          id: "u1",
+          name: "Owner",
+          profile: { create: { id: "pr1", bio: "kept" } },
+        },
+      }),
+    act: (client) =>
+      client.user.update({
+        where: { id: "u1" },
+        data: { profile: { disconnect: true } },
+      }),
+    expected: {
+      users: [{ id: "u1", name: "Owner" }],
+      posts: [],
+      profiles: [{ id: "pr1", bio: "kept", userId: null }],
+      tags: [],
+      postTags: [],
+    },
+  },
+  {
+    name: "to-one disconnect true (inverse side) with no related row is a no-op",
+    seed: (client) => client.user.create({ data: { id: "u1", name: "Owner" } }),
+    act: (client) =>
+      client.user.update({
+        where: { id: "u1" },
+        data: {
+          name: "Renamed",
+          profile: { disconnect: true },
+        },
+      }),
+    expected: {
+      users: [{ id: "u1", name: "Renamed" }],
+      posts: [],
+      profiles: [],
+      tags: [],
+      postTags: [],
+    },
+  },
+  {
+    name: "to-one delete true (inverse side) deletes the related row",
+    seed: (client) =>
+      client.user.create({
+        data: {
+          id: "u1",
+          name: "Owner",
+          profile: { create: { id: "pr1", bio: "doomed" } },
+        },
+      }),
+    act: (client) =>
+      client.user.update({
+        where: { id: "u1" },
+        data: { profile: { delete: true } },
+      }),
+    expected: {
+      users: [{ id: "u1", name: "Owner" }],
+      posts: [],
+      profiles: [],
+      tags: [],
+      postTags: [],
+    },
+  },
+  {
+    // DESIGN §5.3 pins `delete: true` as lax (requireAffected: false), so a
+    // missing related row is a NO-OP in both modes. NOTE: this deliberately
+    // diverges from Prisma, which throws P2025 ("depends on one or more
+    // records that were required but not found") for nested delete of an
+    // absent to-one record. The DESIGN is normative here.
+    name: "to-one delete true (inverse side) with no related row is a no-op (DESIGN §5.3; Prisma would throw P2025)",
+    seed: (client) => client.user.create({ data: { id: "u1", name: "Owner" } }),
+    act: (client) =>
+      client.user.update({
+        where: { id: "u1" },
+        data: {
+          name: "Renamed",
+          profile: { delete: true },
+        },
+      }),
+    expected: {
+      users: [{ id: "u1", name: "Renamed" }],
+      posts: [],
+      profiles: [],
+      tags: [],
+      postTags: [],
+    },
+  },
+];
+
+// ---------------------------------------------------------------------------
 // Group 2: mapped-column FK propagation (own dump so raw column names are
 // checked for parity).
 // ---------------------------------------------------------------------------
@@ -1288,6 +1634,23 @@ const m2mScenarios: Scenario<ManyToManySchema>[] = [
       });
     },
     expected: m2mExpected({ membership: { p1: ["t2"] } }),
+  },
+  {
+    name: "m2m multi-item disconnect removes each listed association only",
+    seed: m2mBaselineSeed,
+    act: async (client) => {
+      await client.post.update({
+        where: { id: "p1" },
+        data: {
+          tags: { connect: [{ id: "t1" }, { id: "t2" }, { id: "t3" }] },
+        },
+      });
+      await client.post.update({
+        where: { id: "p1" },
+        data: { tags: { disconnect: [{ id: "t1" }, { id: "t2" }] } },
+      });
+    },
+    expected: m2mExpected({ membership: { p1: ["t3"] } }),
   },
   {
     name: "m2m boolean disconnect is rejected, membership unchanged",
@@ -1708,6 +2071,12 @@ registerGroup("nested-write conformance: FK relations (tx vs batch)", {
   schema: nestedWriteBehaviorSchema,
   dump: dumpNestedWrite,
   scenarios: fkScenarios,
+});
+
+registerGroup("nested-write conformance: to-one ops (tx vs batch)", {
+  schema: nestedWriteBehaviorSchema,
+  dump: dumpNestedWrite,
+  scenarios: toOneScenarios,
 });
 
 registerGroup("nested-write conformance: mapped-column FKs (tx vs batch)", {

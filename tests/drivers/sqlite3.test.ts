@@ -15,6 +15,7 @@ import {
 import { seedWindowUserPosts } from "../fixtures/user-post-seed";
 import { runBatchPrimaryKeyDataflowBehavior } from "./batch-primary-key-dataflow-behavior";
 import { runBatchRefSmokeBehavior } from "./batch-ref-smoke-behavior";
+import { runClientRawBehavior } from "./client-raw-behavior";
 import { runCompoundKeyBehavior } from "./compound-key-behavior";
 import { runCountAggregateWindowBehavior } from "./count-aggregate-window-behavior";
 import { runDistinctSkipWindowBehavior } from "./distinct-skip-window-behavior";
@@ -29,6 +30,7 @@ import { runOrderingArrayCreateBehavior } from "./ordering-array-create-behavior
 import { runPrismaParityBehavior } from "./prisma-parity-behavior";
 import { runReadPathRegressionBehavior } from "./read-path-regression-behavior";
 import { runRelationFilterMutationBehavior } from "./relation-filter-mutation-behavior";
+import { runRelationReadAggregateBehavior } from "./relation-read-aggregate-behavior";
 import {
   runFullScalarRoundtripBehavior,
   runScalarRoundtripBehavior,
@@ -594,6 +596,14 @@ describe("SQLite3 Driver", () => {
     createDriver: createInMemorySQLite3Driver,
   });
   runReadPathRegressionBehavior({
+    driverName: "SQLite3",
+    createDriver: createInMemorySQLite3Driver,
+  });
+  runRelationReadAggregateBehavior({
+    driverName: "SQLite3",
+    createDriver: createInMemorySQLite3Driver,
+  });
+  runClientRawBehavior({
     driverName: "SQLite3",
     createDriver: createInMemorySQLite3Driver,
   });

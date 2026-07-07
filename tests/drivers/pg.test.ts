@@ -15,11 +15,13 @@ import {
   PgBeforeFirstBatchDriver,
   PgRacePlantingBatchDriver,
 } from "./batch-forced-pg";
+import { runClientRawBehavior } from "./client-raw-behavior";
 import { runListJsonFilterBehavior } from "./list-json-filter-behavior";
 import { runM2mDeleteManyStalenessBehavior } from "./m2m-deletemany-staleness-behavior";
 import { runNestedWriteAdvancedBehavior } from "./nested-write-advanced-behavior";
 import { runNestedWriteBehavior } from "./nested-write-behavior";
 import { runNestedWriteConcurrencyBehavior } from "./nested-write-concurrency-behavior";
+import { runRelationReadAggregateBehavior } from "./relation-read-aggregate-behavior";
 import {
   runFullScalarRoundtripBehavior,
   runScalarRoundtripBehavior,
@@ -403,6 +405,36 @@ describeIf("pg Driver", () => {
 
       await client.$disconnect();
     });
+
+    // Proves the isolationLevel option is accepted end-to-end through
+    // client.$transaction and the transaction commits — not proving
+    // isolation semantics (the driver-level test above covers the SQL).
+    test("performs callback transaction with serializable isolation via client", async () => {
+      const client = await PgCreateClient({
+        schema,
+        databaseUrl: TEST_CONNECTION_STRING,
+      });
+
+      await push(client, { force: true });
+
+      const created = await client.$transaction(
+        async (tx) => {
+          await tx.user.create({
+            data: { id: "iso-user-1", email: "iso@example.com" },
+          });
+          return tx.user.create({
+            data: { id: "iso-user-2", email: "iso2@example.com" },
+          });
+        },
+        { isolationLevel: "serializable" }
+      );
+      expect(created.id).toBe("iso-user-2");
+
+      const users = await client.user.findMany({ orderBy: { id: "asc" } });
+      expect(users.map((u) => u.id)).toEqual(["iso-user-1", "iso-user-2"]);
+
+      await client.$disconnect();
+    });
   });
 
   // Real multi-connection driver: the concurrent upsert tests in this suite
@@ -463,6 +495,20 @@ describeIf("pg Driver", () => {
   });
 
   runNestedWriteAdvancedBehavior({
+    driverName: "pg",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  // Raw-string $queryRaw params and sql`` rendering go through the real pg
+  // wire protocol here ($n placeholders), unlike the PGlite in-memory run.
+  runClientRawBehavior({
+    driverName: "pg",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  // Relation _count / relation orderBy / every-none read filters over the
+  // real driver (correlated-subquery results cross real result parsing).
+  runRelationReadAggregateBehavior({
     driverName: "pg",
     createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
   });

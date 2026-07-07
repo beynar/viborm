@@ -395,6 +395,85 @@ export function runNestedWriteBehavior({
       expect(users[0]?.name).toBe("Updated");
     });
 
+    test("to-one nested update modifies the connected author", async () => {
+      const currentClient = requireClient(client);
+      await currentClient.user.create({
+        data: {
+          id: "user-toone-update",
+          name: "Before",
+          posts: { create: { id: "post-toone-update", title: "Post" } },
+        },
+      });
+
+      const updated = await currentClient.post.update({
+        where: { id: "post-toone-update" },
+        data: { author: { update: { name: "After" } } },
+      });
+      expect(updated.id).toBe("post-toone-update");
+      expect(updated.title).toBe("Post");
+      expect(updated.userId).toBe("user-toone-update");
+
+      const users = await currentClient.user.findMany();
+      expect(users.map((user) => [user.id, user.name])).toEqual([
+        ["user-toone-update", "After"],
+      ]);
+    });
+
+    test("to-one disconnect true nulls the foreign key, both rows survive", async () => {
+      const currentClient = requireClient(client);
+      await currentClient.user.create({
+        data: {
+          id: "user-toone-disconnect",
+          name: "Owner",
+          posts: { create: { id: "post-toone-disconnect", title: "Linked" } },
+        },
+      });
+
+      const updated = await currentClient.post.update({
+        where: { id: "post-toone-disconnect" },
+        data: { author: { disconnect: true } },
+      });
+      expect(updated.id).toBe("post-toone-disconnect");
+      expect(updated.userId).toBeNull();
+
+      const [user, post] = await Promise.all([
+        currentClient.user.findUnique({
+          where: { id: "user-toone-disconnect" },
+        }),
+        currentClient.post.findUnique({
+          where: { id: "post-toone-disconnect" },
+        }),
+      ]);
+      expect(user?.name).toBe("Owner");
+      expect(post?.title).toBe("Linked");
+      expect(post?.userId).toBeNull();
+    });
+
+    test("to-one delete true deletes the related row", async () => {
+      const currentClient = requireClient(client);
+      await currentClient.user.create({
+        data: {
+          id: "user-toone-delete",
+          name: "Keeper",
+          profile: { create: { id: "profile-toone-delete", bio: "doomed" } },
+        },
+      });
+
+      const updated = await currentClient.user.update({
+        where: { id: "user-toone-delete" },
+        data: { profile: { delete: true } },
+      });
+      expect(updated.id).toBe("user-toone-delete");
+      expect(updated.name).toBe("Keeper");
+
+      const [user, profiles] = await Promise.all([
+        currentClient.user.findUnique({ where: { id: "user-toone-delete" } }),
+        currentClient.profile.findMany(),
+      ]);
+      expect(user?.name).toBe("Keeper");
+      expect(profiles).toHaveLength(0);
+    });
+
     test("explicit join rows work as a practical many-to-many case", async () => {
       const currentClient = requireClient(client);
       await currentClient.tag.create({

@@ -5,10 +5,20 @@ import {
 } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import { push } from "@migrations";
+import { s } from "@schema";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { windowUserPostSchema } from "../fixtures/user-post-schema";
 
-const schema = windowUserPostSchema;
+// Enum-carrying model for in/notIn parity checks (the shared user/post
+// fixture has no enum column).
+const roleAccount = s
+  .model({
+    id: s.string().id(),
+    role: s.enum(["admin", "member", "guest"]).nullable(),
+  })
+  .map("window_role_accounts");
+
+const schema = { ...windowUserPostSchema, roleAccount };
 
 type ParityClientConfig = VibORMConfig & {
   schema: typeof schema;
@@ -33,9 +43,13 @@ export interface PrismaParityBehaviorOptions {
 /**
  * Execution-backed Prisma-parity checks:
  * - mode: "insensitive" applies to equals/not/in/notIn (not just contains)
+ * - mode: "insensitive" applies to startsWith/endsWith with escaping intact
+ * - NOT/OR combinators follow Prisma's SQL null semantics
+ * - enum in/notIn behave like their string counterparts
  * - empty select throws instead of silently selecting all scalars
  * - groupBy orderBy is restricted to `by` fields and supports aggregates
  * - groupBy having handles in: [] and equals/not null correctly
+ * - groupBy supports where, take/skip with orderBy, and multi-field `by`
  */
 export function runPrismaParityBehavior({
   driverName,
@@ -134,6 +148,209 @@ export function runPrismaParityBehavior({
             name: { notIn: ["ALICE", "BOB"], mode: "insensitive" },
           })
         ).toEqual(["decoy", "percent"]);
+      });
+    });
+
+    // Default-mode (case-sensitive) startsWith/endsWith is deliberately NOT
+    // asserted here: SQLite's LIKE is ASCII-case-insensitive regardless of
+    // collation, so only the insensitive mode has a single cross-dialect
+    // answer (caseInsensitiveDefaultEquals only covers the equals family).
+    describe("insensitive mode on startsWith/endsWith", () => {
+      beforeEach(async () => {
+        await requireClient(client).user.createMany({
+          data: [
+            { id: "alice", name: "Alice", email: "a@example.com" },
+            { id: "bob", name: "Bob", email: "b@example.com" },
+            { id: "percent", name: "100% Organic", email: "p@example.com" },
+            { id: "decoy", name: "100x Organic", email: "d@example.com" },
+          ],
+        });
+      });
+
+      async function findIds(where: Record<string, unknown>) {
+        const users = await requireClient(client).user.findMany({ where });
+        return users.map((u) => u.id).sort();
+      }
+
+      test("startsWith matches case-insensitively", async () => {
+        expect(
+          await findIds({ name: { startsWith: "aL", mode: "insensitive" } })
+        ).toEqual(["alice"]);
+      });
+
+      test("endsWith matches case-insensitively", async () => {
+        expect(
+          await findIds({ name: { endsWith: "ICE", mode: "insensitive" } })
+        ).toEqual(["alice"]);
+      });
+
+      test("insensitive endsWith matches every case variant", async () => {
+        expect(
+          await findIds({ name: { endsWith: "organic", mode: "insensitive" } })
+        ).toEqual(["decoy", "percent"]);
+      });
+
+      test("insensitive startsWith does not treat % as a wildcard", async () => {
+        // Unescaped, '100%' would also match '100x Organic'
+        expect(
+          await findIds({ name: { startsWith: "100%", mode: "insensitive" } })
+        ).toEqual(["percent"]);
+      });
+
+      test("insensitive endsWith does not treat % as a wildcard", async () => {
+        // Unescaped, '%% ORGANIC' would also match '100x Organic'
+        expect(
+          await findIds({
+            name: { endsWith: "% ORGANIC", mode: "insensitive" },
+          })
+        ).toEqual(["percent"]);
+      });
+    });
+
+    describe("NOT and OR combinators", () => {
+      beforeEach(async () => {
+        // Case-neutral data: no case-variant decoys, so MySQL's CI default
+        // collation and SQLite's ASCII-CI LIKE agree with PG on every
+        // assertion below.
+        await requireClient(client).user.createMany({
+          data: [
+            { id: "n1", name: "Alice", email: "n1@test.com", age: 25 },
+            { id: "n2", name: "Bob", email: "n2@test.com", age: 30 },
+            { id: "n3", name: null, email: "n3@test.com", age: null },
+            { id: "n4", name: "Dave", email: "n4@test.com", age: 40 },
+          ],
+        });
+      });
+
+      async function findIds(where: Record<string, unknown>) {
+        const users = await requireClient(client).user.findMany({ where });
+        return users.map((u) => u.id).sort();
+      }
+
+      test("top-level NOT excludes matching rows", async () => {
+        expect(await findIds({ NOT: { name: { contains: "li" } } })).toEqual([
+          "n2",
+          "n4",
+        ]);
+      });
+
+      test("NOT {contains} does not match NULL rows (Prisma parity)", async () => {
+        // 'zzz' matches nothing, yet the NULL-name row stays excluded:
+        // NOT (name LIKE '%zzz%') is NULL, not TRUE, for NULL names.
+        expect(await findIds({ NOT: { name: { contains: "zzz" } } })).toEqual([
+          "n1",
+          "n2",
+          "n4",
+        ]);
+      });
+
+      test("NOT with equality also skips NULL rows", async () => {
+        expect(await findIds({ NOT: { name: "Alice" } })).toEqual(["n2", "n4"]);
+      });
+
+      test("NOT combines with AND", async () => {
+        expect(
+          await findIds({
+            AND: [{ age: { gte: 25 } }],
+            NOT: { name: { contains: "ob" } },
+          })
+        ).toEqual(["n1", "n4"]);
+      });
+
+      test("NOT combines with OR", async () => {
+        expect(
+          await findIds({
+            OR: [{ age: { gte: 30 } }, { name: { startsWith: "A" } }],
+            NOT: { name: { equals: "Dave" } },
+          })
+        ).toEqual(["n1", "n2"]);
+      });
+
+      test("nested NOT double-negates but still skips NULL rows", async () => {
+        expect(await findIds({ NOT: { NOT: { name: "Alice" } } })).toEqual([
+          "n1",
+        ]);
+      });
+
+      // KNOWN BUG: Prisma negates each NOT-array item individually and ANDs
+      // the negations (prisma-engines sql-query-builder filter/visitor.rs:
+      // Filter::Not(filters) -> AND of per-filter .not()), i.e.
+      // NOT c1 AND NOT c2 — "all conditions must return false". VibORM's
+      // buildLogicalNot (src/query-engine/builders/where-builder.ts) ANDs the
+      // items first and negates once: NOT (c1 AND c2). For this data Prisma
+      // returns ["n2"] but VibORM returns ["n1", "n2", "n4"].
+      // biome-ignore lint/suspicious/noSkippedTests: deliberately pinned known bug, unskip when NOT-array folding matches Prisma
+      test.skip("KNOWN BUG: NOT array negates each condition and ANDs them (Prisma parity)", async () => {
+        // Prisma: NOT [c1, c2] means "all conditions must return false",
+        // i.e. NOT c1 AND NOT c2 — not NOT (c1 AND c2).
+        expect(
+          await findIds({
+            NOT: [{ name: { contains: "li" } }, { age: { gte: 40 } }],
+          })
+        ).toEqual(["n2"]);
+      });
+
+      test("OR of two scalar predicates", async () => {
+        expect(
+          await findIds({ OR: [{ name: "Alice" }, { age: { gte: 40 } }] })
+        ).toEqual(["n1", "n4"]);
+      });
+
+      test("OR with a null check matches NULL rows via IS NULL", async () => {
+        expect(
+          await findIds({ OR: [{ name: null }, { age: { gte: 40 } }] })
+        ).toEqual(["n3", "n4"]);
+      });
+    });
+
+    describe("enum in/notIn filters", () => {
+      beforeEach(async () => {
+        await requireClient(client).roleAccount.createMany({
+          data: [
+            { id: "e1", role: "admin" },
+            { id: "e2", role: "member" },
+            { id: "e3", role: null },
+            { id: "e4", role: "guest" },
+          ],
+        });
+      });
+
+      async function findIds(where: Record<string, unknown>) {
+        const accounts = await requireClient(client).roleAccount.findMany({
+          where,
+        });
+        return accounts.map((a) => a.id).sort();
+      }
+
+      test("enum equals matches a single value", async () => {
+        expect(await findIds({ role: "admin" })).toEqual(["e1"]);
+      });
+
+      test("enum in matches listed values and skips NULL rows", async () => {
+        expect(await findIds({ role: { in: ["admin", "guest"] } })).toEqual([
+          "e1",
+          "e4",
+        ]);
+      });
+
+      test("enum in with empty list matches nothing", async () => {
+        expect(await findIds({ role: { in: [] } })).toEqual([]);
+      });
+
+      test("enum notIn excludes listed values and NULL rows", async () => {
+        expect(await findIds({ role: { notIn: ["admin"] } })).toEqual([
+          "e2",
+          "e4",
+        ]);
+      });
+
+      test("enum notIn with empty list matches every row", async () => {
+        expect(await findIds({ role: { notIn: [] } })).toEqual([
+          "e1",
+          "e2",
+          "e3",
+          "e4",
+        ]);
       });
     });
 
@@ -273,6 +490,77 @@ export function runPrismaParityBehavior({
           orderBy: { id: "asc" },
         });
         expect(groups.map((g) => g.id)).toEqual(["u1", "u2"]);
+      });
+
+      test("where filters rows before grouping", async () => {
+        const groups = await requireClient(client).post.groupBy({
+          by: ["authorId"],
+          where: { published: true },
+          _sum: { views: true },
+          orderBy: { authorId: "asc" },
+        });
+        // p2 (unpublished, 50 views) is filtered out before grouping
+        expect(groups).toEqual([
+          { authorId: "u1", _sum: { views: 100 } },
+          { authorId: "u2", _sum: { views: 200 } },
+        ]);
+      });
+
+      test("take with orderBy limits groups", async () => {
+        const groups = await requireClient(client).post.groupBy({
+          by: ["authorId"],
+          orderBy: { authorId: "asc" },
+          take: 1,
+        });
+        expect(groups.map((g) => g.authorId)).toEqual(["u1"]);
+      });
+
+      test("take and skip with orderBy window the groups", async () => {
+        const groups = await requireClient(client).post.groupBy({
+          by: ["authorId"],
+          orderBy: { authorId: "asc" },
+          take: 1,
+          skip: 1,
+        });
+        expect(groups.map((g) => g.authorId)).toEqual(["u2"]);
+      });
+
+      test("take and skip with aggregate orderBy window the groups", async () => {
+        const groups = await requireClient(client).post.groupBy({
+          by: ["authorId"],
+          _sum: { views: true },
+          orderBy: { _sum: { views: "desc" } },
+          take: 1,
+          skip: 1,
+        });
+        // Order by summed views: u2 (200) then u1 (150) — skip u2, keep u1
+        expect(groups).toEqual([{ authorId: "u1", _sum: { views: 150 } }]);
+      });
+
+      test("multi-field by groups on the field combination", async () => {
+        const groups = await requireClient(client).post.groupBy({
+          by: ["authorId", "published"],
+          _count: true,
+          orderBy: [{ authorId: "asc" }, { published: "asc" }],
+        });
+        expect(groups).toEqual([
+          { authorId: "u1", published: false, _count: 1 },
+          { authorId: "u1", published: true, _count: 1 },
+          { authorId: "u2", published: true, _count: 1 },
+        ]);
+      });
+
+      test("multi-field by supports having on aggregates", async () => {
+        const groups = await requireClient(client).post.groupBy({
+          by: ["authorId", "published"],
+          _sum: { views: true },
+          having: { views: { _sum: { gte: 100 } } },
+          orderBy: [{ authorId: "asc" }, { published: "asc" }],
+        });
+        expect(groups).toEqual([
+          { authorId: "u1", published: true, _sum: { views: 100 } },
+          { authorId: "u2", published: true, _sum: { views: 200 } },
+        ]);
       });
     });
   });
