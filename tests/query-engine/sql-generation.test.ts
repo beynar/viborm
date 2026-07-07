@@ -235,14 +235,19 @@ describe("Basic CRUD Operations", () => {
       expect(values).toContain("member-2");
     });
 
-    test("cursor orderBy mismatch fails closed", () => {
-      expect(() =>
-        getSql(Author, "findMany", {
-          cursor: { id: "cursor-id" },
-          orderBy: { name: "asc" },
-          take: 2,
-        })
-      ).toThrow("Cursor pagination orderBy must use cursor field");
+    test("cursor with non-cursor orderBy builds a keyset comparison (Prisma parity)", () => {
+      const { statement, values } = getSql(Author, "findMany", {
+        cursor: { id: "cursor-id" },
+        orderBy: { name: "asc" },
+        take: 2,
+      });
+
+      // The order column drives the comparison; the cursor row's value for it
+      // comes from a scalar subquery on the cursor's unique field.
+      expect(statement).toContain("ORDER BY");
+      expect(statement).toContain('"t0"."name"');
+      expect(statement).toContain("(SELECT");
+      expect(values).toContain("cursor-id");
     });
 
     test("invalid pagination values reject before SQL generation", () => {

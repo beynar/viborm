@@ -10,7 +10,7 @@ import {
   getWhereUniqueEntries,
   type WhereUniqueEntry,
 } from "../builders/where-unique-builder";
-import { getColumnName } from "../context";
+import { getColumnName, getTableName, isScalarField } from "../context";
 import { type QueryContext, QueryEngineError } from "../types";
 
 type OrderByInput =
@@ -89,7 +89,9 @@ function getLogicalOrderBy(
   isBackwardPagination: boolean
 ): OrderByInput {
   if (cursorEntries && orderBy) {
-    assertCursorOrderByMatches(cursorEntries, orderBy);
+    // Any orderBy is allowed with a cursor (Prisma parity). When it does not
+    // line up with the cursor field(s), buildCursorCondition falls back to a
+    // keyset row-value comparison against the cursor row's order values.
     return orderBy;
   }
 
@@ -108,31 +110,32 @@ function getLogicalOrderBy(
   return orderBy;
 }
 
-function assertCursorOrderByMatches(
+/**
+ * The cursor's single/compound-tuple fast path applies only when the orderBy
+ * is exactly the cursor field(s) in cursor order — then the cursor's own input
+ * values drive the comparison. Otherwise we need the keyset path.
+ */
+function orderByMatchesCursorFields(
   cursorEntries: WhereUniqueEntry[],
-  orderBy: Record<string, unknown> | Record<string, unknown>[]
-): void {
+  orderBy: OrderByInput
+): boolean {
+  if (!orderBy) {
+    return true;
+  }
   const cursorFields = cursorEntries.map(({ fieldName }) => fieldName);
   const orderFields = getOrderByFields(orderBy);
 
   if (orderFields.length !== cursorFields.length) {
-    throw new QueryEngineError(
-      "Cursor pagination orderBy must use exactly the cursor field(s)."
-    );
+    return false;
   }
 
-  for (let i = 0; i < cursorFields.length; i++) {
-    if (orderFields[i] !== cursorFields[i]) {
-      throw new QueryEngineError(
-        "Cursor pagination orderBy must use cursor field(s) in cursor order."
-      );
-    }
-  }
+  return orderFields.every((field, i) => field === cursorFields[i]);
 }
 
-function getOrderByFields(
-  orderBy: Record<string, unknown> | Record<string, unknown>[]
-): string[] {
+function getOrderByFields(orderBy: OrderByInput): string[] {
+  if (!orderBy) {
+    return [];
+  }
   const fields: string[] = [];
   const items = Array.isArray(orderBy) ? orderBy : [orderBy];
 
@@ -252,12 +255,116 @@ function buildCursorCondition(
     }
   }
 
+  // Keyset path: the orderBy is not the cursor field(s), so compare the
+  // ordered columns against the cursor row's order values (Prisma parity).
+  if (!orderByMatchesCursorFields(cursorEntries, orderBy)) {
+    return buildKeysetCursor(ctx, cursorEntries, orderBy, alias);
+  }
+
   if (cursorEntries.length === 1) {
     const { fieldName, value } = cursorEntries[0]!;
     return buildSingleFieldCursor(ctx, fieldName, value, orderBy, alias);
   }
 
   return buildCompoundCursor(ctx, cursorEntries, orderBy, alias);
+}
+
+/**
+ * Build a keyset (row-value) cursor comparison over an arbitrary orderBy.
+ *
+ * For orderBy (o1 d1, o2 d2, …), rows at-or-after the cursor row C are:
+ *   (o1 ⋈1 c1)
+ *   OR (o1 = c1 AND o2 ⋈2 c2)
+ *   OR … OR (o1 = c1 AND … AND o_{n-1} = c_{n-1} AND on ⋈n cn)
+ *   OR (o1 = c1 AND … AND on = cn)              -- inclusive of the cursor row
+ * where ⋈i is `>` for asc / `<` for desc. Each ci is the cursor row's value
+ * for that column: the cursor's own input value when the column is a cursor
+ * field, otherwise a scalar subquery selecting it from the cursor row.
+ */
+function buildKeysetCursor(
+  ctx: QueryContext,
+  cursorEntries: WhereUniqueEntry[],
+  orderBy: OrderByInput,
+  alias: string
+): Sql {
+  const { adapter } = ctx;
+  const fields = getOrderByFields(orderBy);
+  const cursorValues = new Map(
+    cursorEntries.map(({ fieldName, value }) => [fieldName, value])
+  );
+
+  const cols: Sql[] = [];
+  const values: Sql[] = [];
+  const directions: ("asc" | "desc")[] = [];
+  for (const field of fields) {
+    if (!isScalarField(ctx.model, field)) {
+      throw new QueryEngineError(
+        `Cursor pagination orderBy field '${field}' must be a scalar field.`
+      );
+    }
+    cols.push(
+      adapter.identifiers.column(alias, getColumnName(ctx.model, field))
+    );
+    values.push(cursorRowValue(ctx, cursorEntries, cursorValues, field));
+    directions.push(getFieldDirection(field, orderBy));
+  }
+
+  const orTerms: Sql[] = [];
+  for (let i = 0; i < fields.length; i++) {
+    const andParts: Sql[] = [];
+    for (let j = 0; j < i; j++) {
+      andParts.push(adapter.operators.eq(cols[j]!, values[j]!));
+    }
+    const strict =
+      directions[i] === "desc" ? adapter.operators.lt : adapter.operators.gt;
+    andParts.push(strict(cols[i]!, values[i]!));
+    orTerms.push(
+      andParts.length === 1 ? andParts[0]! : adapter.operators.and(...andParts)
+    );
+  }
+
+  // Inclusive of the cursor row itself (Prisma includes it unless skipped).
+  const allEqual = cols.map((col, i) => adapter.operators.eq(col, values[i]!));
+  orTerms.push(adapter.operators.and(...allEqual));
+
+  return adapter.operators.or(...orTerms);
+}
+
+/**
+ * The cursor row's value for one order column: the cursor input value when the
+ * column is itself a cursor field, otherwise an uncorrelated scalar subquery
+ * fetching it from the cursor row (identified by the unique cursor condition).
+ */
+function cursorRowValue(
+  ctx: QueryContext,
+  cursorEntries: WhereUniqueEntry[],
+  cursorValues: Map<string, unknown>,
+  field: string
+): Sql {
+  if (cursorValues.has(field)) {
+    return scalarValueLiteral(ctx, field, cursorValues.get(field));
+  }
+
+  const { adapter } = ctx;
+  const subAlias = ctx.nextAlias();
+  const from = adapter.identifiers.table(getTableName(ctx.model), subAlias);
+  const column = adapter.identifiers.column(
+    subAlias,
+    getColumnName(ctx.model, field)
+  );
+  const whereConditions = cursorEntries.map(({ fieldName, value }) =>
+    adapter.operators.eq(
+      adapter.identifiers.column(subAlias, getColumnName(ctx.model, fieldName)),
+      scalarValueLiteral(ctx, fieldName, value)
+    )
+  );
+  const select = adapter.assemble.select({
+    columns: column,
+    from,
+    where: adapter.operators.and(...whereConditions),
+    limit: adapter.literals.value(1),
+  });
+  return sql`(${select})`;
 }
 
 function buildSingleFieldCursor(

@@ -263,14 +263,12 @@ export function runDistinctSkipWindowBehavior({
         expect(users.map((u) => u.name)).toEqual(["Bob", "Alice"]);
       });
 
-      // KNOWN BUG: Prisma supports cursor pagination with an arbitrary
-      // orderBy (prisma-engines builds row comparisons against the cursor
-      // row's order values in cursor_condition.rs). VibORM fails closed:
-      // find-pagination.ts throws "Cursor pagination orderBy must use
-      // exactly the cursor field(s)." — expected ["p2", "p3"], actual:
-      // QueryEngineError before any rows are returned.
-      // biome-ignore lint/suspicious/noSkippedTests: deliberately pinned known bug, unskip when cursor supports non-cursor orderBy
-      test.skip("KNOWN BUG: cursor combined with multi-key orderBy fails closed", async () => {
+      // Prisma supports cursor pagination with an arbitrary orderBy
+      // (prisma-engines builds row comparisons against the cursor row's order
+      // values in cursor_condition.rs). find-pagination.ts now builds a keyset
+      // comparison over the ordered columns, sourcing the cursor row's order
+      // values via a scalar subquery when they are not cursor fields.
+      test("cursor combined with multi-key orderBy paginates in order", async () => {
         const posts = await requireClient(client).post.findMany({
           cursor: { id: "p2" },
           orderBy: [{ authorId: "asc" }, { views: "desc" }],
