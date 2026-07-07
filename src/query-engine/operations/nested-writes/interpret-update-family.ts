@@ -2,7 +2,6 @@ import type { Model } from "@schema/model";
 import { isSql, type Sql } from "@sql";
 import { getPrimaryKeyFields } from "../../builders/correlation-utils";
 import {
-  buildConnectFkValues,
   type ConnectOrCreateInput,
   type FkDirection,
   getFkDirection,
@@ -48,6 +47,7 @@ import { interpretManyToMany } from "./interpret-m2m";
 import {
   carrierToExpr,
   childCtx,
+  connectOrCreateFoundPin,
   correlatedFailure,
   emitGuard,
   emitTargetExistsGuard,
@@ -55,6 +55,9 @@ import {
   exprToCarrier,
   hasPrimaryKeyUpdate,
   isPlainRecord,
+  parentFkExprsFromConnect,
+  parentFkExprsFromIdentity,
+  parentFkExprsFromRecord,
 } from "./interpret-shared";
 import { interpretNestedUpsert } from "./interpret-upsert-family";
 import type { Interp } from "./interpreter";
@@ -469,9 +472,10 @@ async function interpretUpdateRelation(
 
 /**
  * A nested `update` of a related row (§9 update). To-one: match by FK. To-many:
- * match by unique ∧ parent correlation. Assert existence (probe/pin), apply the
- * scalar update with `requireAffected: correlated`, rebind the updated PK and
- * every updated column, then recurse into nested relations.
+ * match by unique ∧ parent correlation. The located-child body (probe/pin,
+ * scalar update with `requireAffected: correlated`, rebind, recursion) is
+ * `interpretConnectedChildUpdate` — the same body the m2m update and m2m
+ * upsert found branch run over their membership predicate.
  */
 export async function interpretNestedUpdate(
   interp: Interp,
@@ -503,67 +507,91 @@ export async function interpretNestedUpdate(
           buildWhereUnique(child, one.where!, getTableName(target)),
           parentData
         );
-
-    const { scalarData, relations } = separateData(child, one.data);
-    const needsBeforeImage =
-      hasPrimaryKeyUpdate(target, scalarData) ||
-      Object.keys(relations).length > 0;
-
-    // Locate the child: required + pinned exists (correlated). The before-image
-    // is read only when a downstream consumer exists (the PK change or a nested
-    // relation) — a scalar-only leaf update skips it (§6.2 over-approximation).
-    const probe = await interp.mode.probe(child, {
-      model: target,
-      where: whereSql,
-      select: needsBeforeImage ? "record" : "exists",
-      required: correlatedFailure(relationInfo.name, "update"),
-      pin: {
-        whenFound: existsGuard(
-          target,
-          whereSql,
-          () =>
-            recordNotFoundError({
-              relationName: relationInfo.name,
-              operation: "update",
-              kind: "correlated",
-            }),
-          false
-        ),
-      },
-    });
-    if (!probe.found) {
-      throw correlatedFailure(relationInfo.name, "update").error();
-    }
-    await emitGuard(interp, probe.guard);
-
-    if (!needsBeforeImage) {
-      // Scalar-only leaf update, no PK change, no nested relations: emit the
-      // correlated UPDATE directly. Its identity is never consumed (only the
-      // top-level update refetches by identity), so no before-image is needed.
-      if (Object.keys(scalarData).length > 0) {
-        await interp.emit({
-          kind: "update",
-          model: target,
-          set: {},
-          rawSet: scalarData,
-          where: whereSql,
-          requireAffected: correlatedFailure(relationInfo.name, "update"),
-          produces: [],
-        });
-      }
-      continue;
-    }
-
-    await applyScalarUpdateAndRelations(
+    await interpretConnectedChildUpdate(
       interp,
       child,
-      probe.record ?? {},
+      relationInfo,
+      target,
       whereSql,
-      scalarData,
-      relations,
-      { relationName: relationInfo.name, operation: "update" }
+      one.data
     );
   }
+}
+
+/**
+ * Apply a scalar update + nested relations to a child matched by an already-built
+ * correlated `whereSql` (shared by the FK nested update above and by m2m update
+ * and m2m upsert's found branch). Probe-and-pin the located child (correlated),
+ * then reuse `applyScalarUpdateAndRelations` so nested relations under the child
+ * recurse through the one interpreter.
+ */
+export async function interpretConnectedChildUpdate(
+  interp: Interp,
+  child: QueryContext,
+  relationInfo: RelationInfo,
+  target: Model<any>,
+  whereSql: Sql,
+  data: Record<string, unknown>
+): Promise<void> {
+  const { scalarData, relations } = separateData(child, data);
+  const needsBeforeImage =
+    hasPrimaryKeyUpdate(target, scalarData) ||
+    Object.keys(relations).length > 0;
+
+  // Locate the child: required + pinned exists (correlated). The before-image
+  // is read only when a downstream consumer exists (the PK change or a nested
+  // relation) — a scalar-only leaf update skips it (§6.2 over-approximation).
+  const probe = await interp.mode.probe(child, {
+    model: target,
+    where: whereSql,
+    select: needsBeforeImage ? "record" : "exists",
+    required: correlatedFailure(relationInfo.name, "update"),
+    pin: {
+      whenFound: existsGuard(
+        target,
+        whereSql,
+        () =>
+          recordNotFoundError({
+            relationName: relationInfo.name,
+            operation: "update",
+            kind: "correlated",
+          }),
+        false
+      ),
+    },
+  });
+  if (!probe.found) {
+    throw correlatedFailure(relationInfo.name, "update").error();
+  }
+  await emitGuard(interp, probe.guard);
+
+  if (!needsBeforeImage) {
+    // Scalar-only leaf update, no PK change, no nested relations: emit the
+    // correlated UPDATE directly. Its identity is never consumed (only the
+    // top-level update refetches by identity), so no before-image is needed.
+    if (Object.keys(scalarData).length > 0) {
+      await interp.emit({
+        kind: "update",
+        model: target,
+        set: {},
+        rawSet: scalarData,
+        where: whereSql,
+        requireAffected: correlatedFailure(relationInfo.name, "update"),
+        produces: [],
+      });
+    }
+    return;
+  }
+
+  await applyScalarUpdateAndRelations(
+    interp,
+    child,
+    probe.record ?? {},
+    whereSql,
+    scalarData,
+    relations,
+    { relationName: relationInfo.name, operation: "update" }
+  );
 }
 
 /** A nested `updateMany` (§9 updateMany): set-based UPDATE over
@@ -688,17 +716,7 @@ async function interpretParentHoldsFkConnectOrCreate(
     where: whereSql,
     select: "record",
     pin: {
-      whenFound: existsGuard(
-        target,
-        whereSql,
-        () =>
-          recordNotFoundError({
-            relationName: relationInfo.name,
-            operation: "connectOrCreate",
-            kind: "target",
-          }),
-        false
-      ),
+      whenFound: connectOrCreateFoundPin(relationInfo, whereSql),
     },
   });
 
@@ -751,60 +769,6 @@ function rebindParentFk(
     parentIdentity[fkField] = expr;
     parentData[fkField] = exprToCarrier(mode, expr);
   }
-}
-
-function parentFkExprsFromIdentity(
-  fkDir: FkDirection,
-  childIdentity: Record<string, Expr>
-): Record<string, Expr> {
-  const fkExprs: Record<string, Expr> = {};
-  for (let i = 0; i < fkDir.fkFields.length; i++) {
-    const fkField = fkDir.fkFields[i]!;
-    const pkField = fkDir.pkFields[i]!;
-    const value = childIdentity[pkField];
-    if (value === undefined) {
-      throw new NestedWriteError(
-        `Cannot connect relation: child is missing primary key field '${pkField}'.`,
-        fkField
-      );
-    }
-    fkExprs[fkField] = value;
-  }
-  return fkExprs;
-}
-
-function parentFkExprsFromRecord(
-  fkDir: FkDirection,
-  record: Readonly<Record<string, unknown>>,
-  relationName: string
-): Record<string, Expr> {
-  const fkExprs: Record<string, Expr> = {};
-  for (let i = 0; i < fkDir.fkFields.length; i++) {
-    const fkField = fkDir.fkFields[i]!;
-    const pkField = fkDir.pkFields[i]!;
-    const value = record[pkField];
-    if (value === undefined) {
-      throw new NestedWriteError(
-        `Cannot connect relation '${relationName}': target record is missing primary key field '${pkField}'.`,
-        relationName
-      );
-    }
-    fkExprs[fkField] = { kind: "lit", value };
-  }
-  return fkExprs;
-}
-
-function parentFkExprsFromConnect(
-  ctx: QueryContext,
-  relationInfo: RelationInfo,
-  connectInput: Record<string, unknown>
-): Record<string, Expr> {
-  const fkValues = buildConnectFkValues(ctx, relationInfo, connectInput);
-  const fkExprs: Record<string, Expr> = {};
-  for (const [field, valueSql] of Object.entries(fkValues)) {
-    fkExprs[field] = { kind: "sql", sql: valueSql };
-  }
-  return fkExprs;
 }
 
 // --- disconnect / delete / deleteMany --------------------------------------

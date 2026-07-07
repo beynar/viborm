@@ -1359,17 +1359,18 @@ substrate duplication.
 The original target for (4) was "net LOC of the directory materially down
 (6,598 → target ≤ ~3,200 including kept shared builders); if the LOC does
 not drop materially, the abstraction failed and we say so." **It was not
-met, and here we say so.** Measured at M10 (`nested-writes/` = **6,729 LOC**):
-`interpreter.ts` 3,666 + `planned-mode.ts` 844 + `live-mode.ts` 505 +
-`legality.ts` 462 + `semantic-plan.ts` 360 + `fk.ts` 247 + `effects.ts` 150
-+ `mode.ts` 148 + `effect-lowering.ts` 147 + `record-access.ts` 106 +
-`assertions.ts` 57 + `expr.ts` 37. That is **−726 vs the M9 peak (7,455)**
-but **+131 vs the 6,598 two-engine anchor**, and **2.1× over the ≤~3,200
-target**. The §14 phrasing "6,598 lines → … materially smaller" is therefore
-**false as a raw line count** and is corrected below.
+met, and here we say so.** Measured at M10, before the interpreter-simplification
+follow-up (`nested-writes/` = **6,729 LOC**): a single `interpreter.ts` of
+3,666 + `planned-mode.ts` 844 + `live-mode.ts` 505 + `legality.ts` 462 +
+`semantic-plan.ts` 360 + `fk.ts` 247 + `effects.ts` 150 + `mode.ts` 148 +
+`effect-lowering.ts` 147 + `record-access.ts` 106 + `assertions.ts` 57 +
+`expr.ts` 37. That was **−726 vs the M9 peak (7,455)** but **+131 vs the
+6,598 two-engine anchor**, and **2.1× over the ≤~3,200 target**. The §14
+phrasing "6,598 lines → … materially smaller" is therefore **false as a raw
+line count** and is corrected below.
 
 Root cause, verified in code (not improvised around): the miss is entirely
-the **3,666-line interpreter body** — 83 functions, one per semantic case,
+the **~3,666-line interpreter body** — 83 functions, one per semantic case,
 with the M2M-upsert consolidated onto the relation-upsert shape (§6.1
 honored: no inline duplicate) and the small FK-expr helper families kept
 distinct only because each carries a mandated byte-identical error message
@@ -1386,32 +1387,56 @@ surface is larger than either half was. The ≤~3,200 estimate confused
 copy of the union of both copies' cases" (which is what correctness
 requires and what the interpreter is).
 
+**The navigability follow-up, now landed (2026-07-07).** The 3,666-line
+`interpreter.ts` was split along mutation-family seams as pure moves plus one
+bounded consolidation pass — it remains **ONE** interpreter (the seams are
+file boundaries, not semantic ones; the families recurse into each other and
+none consults a mode implementation, grep-gated). Post-split roster
+(`nested-writes/` = **6,842 LOC**): `interpret-update-family.ts` 1,360 +
+`interpret-m2m.ts` 941 + `planned-mode.ts` 844 + `interpret-create-family.ts`
+628 + `live-mode.ts` 505 + `interpret-upsert-family.ts` 474 + `legality.ts`
+462 + `semantic-plan.ts` 360 + `fk.ts` 247 + `interpret-shared.ts` 242 +
+`effects.ts` 150 + `mode.ts` 148 + `effect-lowering.ts` 147 + `interpreter.ts`
+(entry: dispatch + the `Interp` bundle) 134 + `record-access.ts` 106 +
+`assertions.ts` 57 + `expr.ts` 37. The largest single file is now **1,360**
+(down from 3,666); the entry is **134**. The split *added* **+113** (per-file
+import headers and banners across six modules, net of the consolidation pass,
+which removed the FK/m2m connected-child-update duplicate, three inlined
+FK-expr helper copies, and four identical connectOrCreate-found pins — every
+error message preserved byte-identically per §5.2). So the directory is
+**6,842**: **−613 vs the M9 peak (7,455)**, **+244 vs the 6,598 anchor**. The
+raw line count still did not fall below the anchor, and for the same root
+cause above; the split buys navigability, not fewer lines.
+
 **Revised target for gate (4):** the directory must be **below the M9
 coexistence peak (7,455)** and must contain **exactly one implementation of
 each mutation kind** (gate (3), machine-enforced) with **no `batch-*`/`tx`
-substrate split** (gate (1)/(2), machine-enforced). Both hold: 6,729 < 7,455,
-and the structural gates are green. The ≤~3,200 figure is **withdrawn** as an
-estimate made against the wrong baseline; it is not reinstated at a new
-number because the load-bearing property was never line count — it was
-"no second semantic surface" (§14's final bullet), which is what gates
-(1)–(3) actually enforce.
+substrate split** (gate (1)/(2), machine-enforced). Both hold: 6,842 < 7,455,
+and the structural gates are green (now including gate 5: no
+`interpret-*.ts` family module imports a mode implementation). The ≤~3,200
+figure is **withdrawn** as an estimate made against the wrong baseline; it is
+not reinstated at a new number because the load-bearing property was never
+line count — it was "no second semantic surface" (§14's final bullet), which
+is what gates (1)–(3) actually enforce.
 
 **Did the abstraction fail?** By the design's own decisive test — "a feature
 request touching nested-write semantics can be implemented without editing
-either mode file" (§14) — no: the semantics live in one body, the modes hold
-only substrate mechanics, and the historical double-bug class (a kind
-implemented twice and drifting) is structurally impossible. What failed is
-the *prediction* that consolidation would also shrink the raw line count
-below the two-engine anchor; it did not, because the anchor counted two
-half-surfaces, not one whole one. That prediction is corrected here rather
-than passed silently — which is exactly what the "we say so" clause demands.
+either mode file" (§14) — no: the semantics live in one body (now one body
+across family files, not one file), the modes hold only substrate mechanics,
+and the historical double-bug class (a kind implemented twice and drifting)
+is structurally impossible. What failed is the *prediction* that
+consolidation would also shrink the raw line count below the two-engine
+anchor; it did not, because the anchor counted two half-surfaces, not one
+whole one. That prediction is corrected here rather than passed silently —
+which is exactly what the "we say so" clause demands.
 **Maintainer sign-off: ACCEPTED** (2026-07-06, "as long as unification
 happened and duplication is gone" — the load-bearing property is the
 structural one, enforced by gates (1)–(3)). A raw line-count target is not
-reinstated. The remaining follow-up is navigability only: splitting
-`interpreter.ts` along mutation-family seams as pure moves — it must not
-come from re-splitting the semantics without reintroducing the drift
-surface this whole design exists to remove.
+reinstated. The navigability follow-up (splitting `interpreter.ts` along
+mutation-family seams as pure moves) is **done** (2026-07-07) and did not
+re-split the semantics or reintroduce the drift surface this whole design
+exists to remove — the mode-import ban is now machine-enforced across every
+family module (gate 5).
 
 ---
 
@@ -1535,8 +1560,12 @@ that M0's calendar cost is open-ended by design — it is the price of making
 
 ## 14. Definition of done
 
-- One interpreter file owns every semantic decision; two mode files own only
-  substrate mechanics; `selectMode` is the only capability fork
+- One interpreter owns every semantic decision — as of the 2026-07-07
+  navigability split, across the `interpret-*.ts` family modules
+  (create/update/upsert/m2m + shared leaves) behind a small `interpreter.ts`
+  entry, still ONE body (the families recurse into each other; no family
+  module imports a mode implementation, gate-5-enforced); two mode files own
+  only substrate mechanics; `selectMode` is the only capability fork
   (grep-gated).
 - `nested-write-conformance.test.ts` (now covering every kind + M2M +
   divergence probes) and every `tests/drivers/*-behavior.ts` suite green,
@@ -1546,13 +1575,14 @@ that M0's calendar cost is open-ended by design — it is the price of making
   abort.
 - Every divergence in §10 is closed, absorbed, or preserved-with-rationale —
   none silent.
-- 6,598 lines (two engines) → one interpreter + two modes + the kept shared
-  builders; every §11 deletion is gone and no mutation kind exists twice.
-  **The raw line count did not shrink below the two-engine anchor** — it
-  landed at 6,729 (−726 vs the M9 peak, +131 vs anchor, 2.1× over the
-  original ≤~3,200 estimate). That estimate was made against the wrong
+- 6,598 lines (two engines) → one interpreter (across family modules) + two
+  modes + the kept shared builders; every §11 deletion is gone and no
+  mutation kind exists twice. **The raw line count did not shrink below the
+  two-engine anchor** — it landed at 6,729 pre-split, then 6,842 after the
+  navigability split (−613 vs the M9 peak, +244 vs anchor, still well over
+  the original ≤~3,200 estimate). That estimate was made against the wrong
   baseline and is withdrawn; the miss and its root cause (the irreducible
-  3,666-line consolidated semantic surface, which the two half-engines never
+  ~3,666-line consolidated semantic surface, which the two half-engines never
   materialized in one place to be counted) are recorded in full at §11 M10
   gate (4). The abstraction did **not** fail by its own decisive test (next
   bullet); the *line-count prediction* failed, and we say so.

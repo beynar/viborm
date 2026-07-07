@@ -2,7 +2,6 @@ import type { Model } from "@schema/model";
 import { getPrimaryKeyFields } from "../../builders/correlation-utils";
 import { isGeneratedIncrementDefault } from "../../builders/generated-scalar";
 import {
-  buildConnectFkValues,
   type ConnectOrCreateInput,
   type FkDirection,
   getFkDirection,
@@ -21,14 +20,16 @@ import type { Expr, WriteSymbol } from "./expr";
 import { interpretManyToMany } from "./interpret-m2m";
 import {
   childCtx,
+  connectOrCreateFoundPin,
   correlatedFailure,
   emitGuard,
   emitTargetExistsGuard,
-  existsGuard,
   identityCarrierRecord,
+  parentFkExprsFromConnect,
+  parentFkExprsFromIdentity,
+  parentFkExprsFromRecord,
 } from "./interpret-shared";
 import type { Interp } from "./interpreter";
-import { recordNotFoundError } from "./record-access";
 import {
   planRelationMutationSteps,
   splitRelationMutationsByFk,
@@ -229,17 +230,7 @@ async function interpretConnectOrCreateBeforeParent(
     pin: {
       // found → target-exists pin (kind by direction: parent holds FK ⇒
       // target). missing → NO pin (Pin Rule 2).
-      whenFound: existsGuard(
-        target,
-        whereSql,
-        () =>
-          recordNotFoundError({
-            relationName: relationInfo.name,
-            operation: "connectOrCreate",
-            kind: "target",
-          }),
-        false
-      ),
+      whenFound: connectOrCreateFoundPin(relationInfo, whereSql),
     },
   });
 
@@ -448,17 +439,7 @@ export async function interpretConnectOrCreateAfterParent(
     where: whereSql,
     select: "record",
     pin: {
-      whenFound: existsGuard(
-        target,
-        whereSql,
-        () =>
-          recordNotFoundError({
-            relationName: relationInfo.name,
-            operation: "connectOrCreate",
-            kind: "target",
-          }),
-        false
-      ),
+      whenFound: connectOrCreateFoundPin(relationInfo, whereSql),
     },
   });
 
@@ -568,18 +549,7 @@ function bindParentFkFromIdentity(
   childIdentity: Record<string, Expr>,
   parentData: Record<string, Expr>
 ): void {
-  for (let i = 0; i < fkDir.fkFields.length; i++) {
-    const fkField = fkDir.fkFields[i]!;
-    const pkField = fkDir.pkFields[i]!;
-    const value = childIdentity[pkField];
-    if (value === undefined) {
-      throw new NestedWriteError(
-        `Cannot connect relation: child is missing primary key field '${pkField}'.`,
-        fkField
-      );
-    }
-    parentData[fkField] = value;
-  }
+  Object.assign(parentData, parentFkExprsFromIdentity(fkDir, childIdentity));
 }
 
 /** Bind the parent's FK columns from a probe record (connectOrCreate found). */
@@ -589,18 +559,10 @@ function bindParentFkFromRecord(
   parentData: Record<string, Expr>,
   relationName: string
 ): void {
-  for (let i = 0; i < fkDir.fkFields.length; i++) {
-    const fkField = fkDir.fkFields[i]!;
-    const pkField = fkDir.pkFields[i]!;
-    const value = record[pkField];
-    if (value === undefined) {
-      throw new NestedWriteError(
-        `Cannot connect relation '${relationName}': target record is missing primary key field '${pkField}'.`,
-        relationName
-      );
-    }
-    parentData[fkField] = { kind: "lit", value };
-  }
+  Object.assign(
+    parentData,
+    parentFkExprsFromRecord(fkDir, record, relationName)
+  );
 }
 
 /** Bind the parent's FK columns from a connect where-unique (literal or
@@ -611,10 +573,10 @@ function bindParentFkFromConnect(
   connectInput: Record<string, unknown>,
   parentData: Record<string, Expr>
 ): void {
-  const fkValues = buildConnectFkValues(ctx, relationInfo, connectInput);
-  for (const [field, valueSql] of Object.entries(fkValues)) {
-    parentData[field] = { kind: "sql", sql: valueSql };
-  }
+  Object.assign(
+    parentData,
+    parentFkExprsFromConnect(ctx, relationInfo, connectInput)
+  );
 }
 
 /** Stamp a related child's FK column(s) as Exprs (createMany row builder). */

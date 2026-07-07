@@ -1,9 +1,17 @@
 import type { Model } from "@schema/model";
 import { isSql, type Sql } from "@sql";
 import { getPrimaryKeyFields } from "../../builders/correlation-utils";
+import {
+  buildConnectFkValues,
+  type FkDirection,
+} from "../../builders/relation-data-builder";
 import { buildWhereUnique } from "../../builders/where-unique-builder";
 import { createChildContext, getTableName } from "../../context";
-import type { NestedWriteError, QueryContext, RelationInfo } from "../../types";
+import {
+  NestedWriteError,
+  type QueryContext,
+  type RelationInfo,
+} from "../../types";
 import type { Guard, GuardFailure } from "./effects";
 import type { Expr } from "./expr";
 import type { Interp } from "./interpreter";
@@ -79,6 +87,89 @@ export function correlatedFailure(
       recordNotFoundError({ relationName, operation, kind: "correlated" }),
     raceable: false,
   };
+}
+
+/** The found-branch pin of a connectOrCreate probe: the probed target row must
+ *  still exist where the connect lands (Pin Rule 1, kind by direction:
+ *  `target`). The missing branch is never pinned (Pin Rule 2) — the create
+ *  branch's own INSERT constraint enforces it. One constructor so every
+ *  connectOrCreate site (before-parent, after-parent, parent-holds-FK update,
+ *  m2m) carries the same typed error. */
+export function connectOrCreateFoundPin(
+  relationInfo: RelationInfo,
+  whereSql: Sql
+): Guard {
+  return existsGuard(
+    relationInfo.targetModel,
+    whereSql,
+    () =>
+      recordNotFoundError({
+        relationName: relationInfo.name,
+        operation: "connectOrCreate",
+        kind: "target",
+      }),
+    false
+  );
+}
+
+// --- FK expr leaves ----------------------------------------------------------
+// The parent's FK column Exprs resolved from the three sources a relation step
+// can bind them from. The create family assigns them into the parent INSERT
+// data; the update family SETs them on the existing parent row — same values,
+// same missing-PK errors, resolved once here.
+
+export function parentFkExprsFromIdentity(
+  fkDir: FkDirection,
+  childIdentity: Record<string, Expr>
+): Record<string, Expr> {
+  const fkExprs: Record<string, Expr> = {};
+  for (let i = 0; i < fkDir.fkFields.length; i++) {
+    const fkField = fkDir.fkFields[i]!;
+    const pkField = fkDir.pkFields[i]!;
+    const value = childIdentity[pkField];
+    if (value === undefined) {
+      throw new NestedWriteError(
+        `Cannot connect relation: child is missing primary key field '${pkField}'.`,
+        fkField
+      );
+    }
+    fkExprs[fkField] = value;
+  }
+  return fkExprs;
+}
+
+export function parentFkExprsFromRecord(
+  fkDir: FkDirection,
+  record: Readonly<Record<string, unknown>>,
+  relationName: string
+): Record<string, Expr> {
+  const fkExprs: Record<string, Expr> = {};
+  for (let i = 0; i < fkDir.fkFields.length; i++) {
+    const fkField = fkDir.fkFields[i]!;
+    const pkField = fkDir.pkFields[i]!;
+    const value = record[pkField];
+    if (value === undefined) {
+      throw new NestedWriteError(
+        `Cannot connect relation '${relationName}': target record is missing primary key field '${pkField}'.`,
+        relationName
+      );
+    }
+    fkExprs[fkField] = { kind: "lit", value };
+  }
+  return fkExprs;
+}
+
+export function parentFkExprsFromConnect(
+  ctx: QueryContext,
+  relationInfo: RelationInfo,
+  connectInput: Record<string, unknown>
+): Record<string, Expr> {
+  const fkValues = buildConnectFkValues(ctx, relationInfo, connectInput);
+  const fkExprs: Record<string, Expr> = {};
+  for (const [field, valueSql] of Object.entries(fkValues)) {
+    fkExprs[field] = { kind: "sql", sql: valueSql };
+  }
+  return fkExprs;
 }
 
 // --- small helpers ----------------------------------------------------------

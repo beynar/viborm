@@ -36,14 +36,13 @@ import type { GuardFailure } from "./effects";
 import { interpretCreate } from "./interpret-create-family";
 import {
   childCtx,
-  correlatedFailure,
+  connectOrCreateFoundPin,
   emitGuard,
   emitTargetExistsGuard,
   existsGuard,
-  hasPrimaryKeyUpdate,
   identityCarrierRecord,
 } from "./interpret-shared";
-import { applyScalarUpdateAndRelations } from "./interpret-update-family";
+import { interpretConnectedChildUpdate } from "./interpret-update-family";
 import type { Interp } from "./interpreter";
 import {
   assertUpdateManyDataHasNoRelations,
@@ -323,17 +322,7 @@ async function interpretM2mConnectOrCreate(
     where: whereSql,
     select: "exists",
     pin: {
-      whenFound: existsGuard(
-        target,
-        whereSql,
-        () =>
-          recordNotFoundError({
-            relationName: relationInfo.name,
-            operation: "connectOrCreate",
-            kind: "target",
-          }),
-        false
-      ),
+      whenFound: connectOrCreateFoundPin(relationInfo, whereSql),
     },
   });
 
@@ -817,76 +806,6 @@ async function interpretM2mChildUpdate(
     target,
     whereSql,
     data
-  );
-}
-
-/**
- * Apply a scalar update + nested relations to a child matched by an already-built
- * correlated `whereSql` (shared by m2m update and m2m upsert's found branch).
- * Probe-and-pin the connected child (correlated), then reuse
- * `applyScalarUpdateAndRelations` (the same body FK updates use) so nested
- * relations under the m2m child recurse through the one interpreter.
- */
-async function interpretConnectedChildUpdate(
-  interp: Interp,
-  child: QueryContext,
-  relationInfo: RelationInfo,
-  target: Model<any>,
-  whereSql: Sql,
-  data: Record<string, unknown>
-): Promise<void> {
-  const { scalarData, relations } = separateData(child, data);
-  const needsBeforeImage =
-    hasPrimaryKeyUpdate(target, scalarData) ||
-    Object.keys(relations).length > 0;
-
-  const probe = await interp.mode.probe(child, {
-    model: target,
-    where: whereSql,
-    select: needsBeforeImage ? "record" : "exists",
-    required: correlatedFailure(relationInfo.name, "update"),
-    pin: {
-      whenFound: existsGuard(
-        target,
-        whereSql,
-        () =>
-          recordNotFoundError({
-            relationName: relationInfo.name,
-            operation: "update",
-            kind: "correlated",
-          }),
-        false
-      ),
-    },
-  });
-  if (!probe.found) {
-    throw correlatedFailure(relationInfo.name, "update").error();
-  }
-  await emitGuard(interp, probe.guard);
-
-  if (!needsBeforeImage) {
-    if (Object.keys(scalarData).length > 0) {
-      await interp.emit({
-        kind: "update",
-        model: target,
-        set: {},
-        rawSet: scalarData,
-        where: whereSql,
-        requireAffected: correlatedFailure(relationInfo.name, "update"),
-        produces: [],
-      });
-    }
-    return;
-  }
-
-  await applyScalarUpdateAndRelations(
-    interp,
-    child,
-    probe.record ?? {},
-    whereSql,
-    scalarData,
-    relations,
-    { relationName: relationInfo.name, operation: "update" }
   );
 }
 

@@ -93,11 +93,29 @@ reads that decide branches (upsert exists?, connectOrCreate found?), and
 invariants that must hold at commit — committing atomically on one connection.
 
 There is **one interpreter** that owns every semantic decision, parameterized by
-a two-implementation `Mode` capability object. This is the whole architecture:
+a two-implementation `Mode` capability object. It is split across the
+`interpret-*.ts` family modules purely for navigability (§11 M10 gate 4
+follow-up) — the file boundaries carry no semantic meaning; the families recurse
+into each other and none of them consults a mode implementation. This is the
+whole architecture:
 
-- **`interpreter.ts`** — owns all semantics once: FK direction, step order,
-  correlation, branch decisions, guard attachment, error kinds, result shape.
-  Emits ordered `Effect`s over `Expr` values into a mode-owned atomic scope.
+- **`interpreter.ts`** (entry) — dispatch, the per-operation `Interp` bundle
+  (mode + effect sink + symbol minter), and the `selectMode` re-export. The only
+  family-layer file that may touch a concrete mode (`bindContext`).
+- **`interpret-create-family.ts`** — create / createMany / connect /
+  connectOrCreate, both FK directions. These bodies are also the create branches
+  that update/upsert/m2m trees recurse into.
+- **`interpret-update-family.ts`** — update / updateMany / disconnect / delete /
+  deleteMany / set, the parent-holds-FK update-tree bodies, the shared
+  `interpretConnectedChildUpdate` (reused by m2m), and the PK-change / D4 overlay
+  plumbing.
+- **`interpret-upsert-family.ts`** — top-level and nested (to-one / to-many)
+  upsert, targetWhere / setWhere.
+- **`interpret-m2m.ts`** — every many-to-many kind, including the
+  filtered-deleteMany symmetric-difference staleness guards.
+- **`interpret-shared.ts`** — the cross-family leaves: guard constructors /
+  emitters, `childCtx`, the FK-expr helpers, and the `Expr` ↔ raw-carrier
+  plumbing (Axis A). No semantic decision lives here.
 - **`mode.ts`** — the `Mode` interface plus **`selectMode`**, the single
   capability fork. `selectMode` is the **only** place a driver's
   `supportsTransactions`/`supportsBatch` are read (a transaction driver →
@@ -124,6 +142,14 @@ Everything else the two modes differ on is a consequence of that bit.
    belongs in the interpreter.
 3. No mutation kind has a second implementation — the old dual engines were
    deleted, and nothing re-imports a deleted engine/scaffolding module.
+4. The directory roster is exactly the interpreter entry + the `interpret-*.ts`
+   family modules + the two modes + the kept shared builders (a new file is a
+   deliberate, reviewed addition).
+5. No `interpret-*.ts` family module imports a mode implementation
+   (`live-mode.ts` / `planned-mode.ts`) — the split is navigability only, so a
+   family module that reaches a concrete mode is a per-mode branch smuggled into
+   the semantics. Only the `interpreter.ts` entry (for `bindContext`) and
+   `mode.ts` (for `selectMode`) may.
 
 **The test of the whole design:** a feature request touching nested-write
 semantics is implementable without editing either mode file. If a change edits
