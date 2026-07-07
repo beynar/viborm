@@ -318,6 +318,9 @@ function createRowParser(
     }
 
     if (key === "_distance") {
+      // Reserved result alias (like `_count`): a `_distance` select is a vector
+      // distance score, always numeric. A user scalar column literally named
+      // `_distance` would be routed here too — accepted trade-off for the alias.
       steps[i] = (result, value) => {
         result[key] = parseVectorDistanceValue(value);
       };
@@ -378,6 +381,8 @@ function assignParsedField(
   }
 
   if (key === "_distance") {
+    // Reserved result alias (see the batch-parse path above): vector distance
+    // score, always numeric.
     result[key] = parseVectorDistanceValue(value);
     return;
   }
