@@ -32,6 +32,7 @@
     "client/queries",
     "client/find-many",
     "client/find-unique",
+    "client/exist",
     "client/aggregations",
     "client/mutations",
     "client/create",

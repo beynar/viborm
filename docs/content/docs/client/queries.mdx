@@ -14,6 +14,9 @@ icon: Search
 | `findFirstOrThrow` | Find first or throw | `T` |
 | `findUniqueOrThrow` | Find unique or throw | `T` |
 | `exist` | Check existence | `boolean` |
+| `count` | Count matching records | `number` |
+| `aggregate` | Compute min/max/sum/avg/count | aggregate result |
+| `groupBy` | Group records and aggregate per group | grouped rows |
 
 ## Common Options
 
@@ -75,6 +78,11 @@ const hasAdmin = await client.user.exist({
     title="findUnique"
     description="Find single record by unique identifier"
     href="/docs/client/find-unique"
+  />
+  <Card
+    title="exist"
+    description="Check whether any record matches a filter"
+    href="/docs/client/exist"
   />
   <Card
     title="Aggregations"
