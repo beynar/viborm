@@ -16,6 +16,7 @@ import { generate } from "../../migrations/generate";
 import { createFsStorageDriver } from "../../migrations/storage/drivers/fs";
 import type { MigrationEntry, MigrationStatus } from "../../migrations/types";
 import { formatMigrationFilename } from "../../migrations/utils";
+import { isCleanProcessExit } from "../command-factory";
 import { displayOperations, displaySQL, interactiveResolver } from "../prompts";
 import { formatDuration, loadConfig } from "../utils";
 
@@ -99,12 +100,7 @@ function generateCommand(): Command {
         const duration = Date.now() - startTime;
         p.outro(`Done in ${formatDuration(duration)}`);
       } catch (error) {
-        if (error instanceof Error) {
-          p.log.error(error.message);
-        } else {
-          p.log.error(String(error));
-        }
-        process.exit(1);
+        exitWithError(error);
       }
     });
 }
@@ -227,12 +223,7 @@ function applyCommand(): Command {
         const duration = Date.now() - startTime;
         p.outro(`Done in ${formatDuration(duration)}`);
       } catch (error) {
-        if (error instanceof Error) {
-          p.log.error(error.message);
-        } else {
-          p.log.error(String(error));
-        }
-        process.exit(1);
+        exitWithError(error);
       }
     });
 }
@@ -359,12 +350,7 @@ function downCommand(): Command {
         const duration = Date.now() - startTime;
         p.outro(`Done in ${formatDuration(duration)}`);
       } catch (error) {
-        if (error instanceof Error) {
-          p.log.error(error.message);
-        } else {
-          p.log.error(String(error));
-        }
-        process.exit(1);
+        exitWithError(error);
       }
     });
 }
@@ -433,12 +419,7 @@ function statusCommand(): Command {
         const duration = Date.now() - startTime;
         p.outro(`Done in ${formatDuration(duration)}`);
       } catch (error) {
-        if (error instanceof Error) {
-          p.log.error(error.message);
-        } else {
-          p.log.error(String(error));
-        }
-        process.exit(1);
+        exitWithError(error);
       }
     });
 }
@@ -539,12 +520,7 @@ function dropCommand(): Command {
         const duration = Date.now() - startTime;
         p.outro(`Done in ${formatDuration(duration)}`);
       } catch (error) {
-        if (error instanceof Error) {
-          p.log.error(error.message);
-        } else {
-          p.log.error(String(error));
-        }
-        process.exit(1);
+        exitWithError(error);
       }
     });
 }
@@ -552,6 +528,19 @@ function dropCommand(): Command {
 // =============================================================================
 // DISPLAY HELPERS
 // =============================================================================
+
+function exitWithError(error: unknown): never {
+  if (isCleanProcessExit(error)) {
+    throw error;
+  }
+
+  if (error instanceof Error) {
+    p.log.error(error.message);
+  } else {
+    p.log.error(String(error));
+  }
+  process.exit(1);
+}
 
 function displayPendingMigrations(migrations: MigrationEntry[]): void {
   const lines = migrations.map(

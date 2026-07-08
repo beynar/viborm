@@ -157,11 +157,27 @@ export function createCommand(
       const duration = Date.now() - startTime;
       p.outro(`Done in ${formatDuration(duration)}`);
     } catch (error) {
-      handleCommandError(error, spinner, config.requiresConnection);
+      handleCommandError(error, spinner);
     }
   });
 
   return cmd;
+}
+
+export function isCleanProcessExit(error: unknown): boolean {
+  if (typeof error !== "object" || error === null || !("code" in error)) {
+    return false;
+  }
+
+  if (error.code !== 0) {
+    return false;
+  }
+
+  if ("name" in error && error.name === "ProcessExitError") {
+    return true;
+  }
+
+  return "message" in error && error.message === "process.exit(0)";
 }
 
 /**
@@ -169,9 +185,12 @@ export function createCommand(
  */
 function handleCommandError(
   error: unknown,
-  spinner: ReturnType<typeof p.spinner>,
-  wasConnected?: boolean
+  spinner: ReturnType<typeof p.spinner>
 ): never {
+  if (isCleanProcessExit(error)) {
+    throw error;
+  }
+
   // Stop spinner if it's running
   try {
     spinner.stop("Error");

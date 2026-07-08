@@ -444,8 +444,7 @@ describe("migrate", () => {
       );
 
       // "Operation cancelled." is emitted and nothing was applied — the reliable,
-      // user-visible contract. (Exit code is corrupted to 1 by a real bug; see
-      // the KNOWN BUG skip below.)
+      // user-visible contract.
       expect(result.output).toContain("Operation cancelled.");
 
       const status = await cli(
@@ -477,18 +476,7 @@ describe("migrate", () => {
       expect(status.output).toContain("Applied: 0, Pending: 1");
     });
 
-    // biome-ignore lint/suspicious/noSkippedTests: intentional KNOWN BUG regression skip (see CHECKLIST §0)
-    it.skip("KNOWN BUG: user-cancel should exit 0, but the command's own try/catch swallows process.exit(0) and re-exits 1", async () => {
-      // Expected: cancelling apply reaches `process.exit(0)` (clean cancel).
-      // Actual: the cancel block's `process.exit(0)` lives INSIDE the action's
-      // try, so its ProcessExitError (which extends Error) is caught by the same
-      // catch, which logs it and calls process.exit(1). Observable proof: the
-      // clack log ends with BOTH "cancel Operation cancelled." AND
-      // "error process.exit(0)", and result.exitCode is 1 not 0.
-      // In real Node process.exit(0) terminates synchronously so the catch never
-      // runs — this only surfaces under a process.exit-as-throw test seam — but
-      // the pattern (catching your own exit) is a latent defect. Fix: move the
-      // exit outside the try, or special-case ProcessExitError in the catch.
+    it("user-cancel exits 0", async () => {
       writePersistentConfig(project);
       await cli(
         ["migrate", "generate", "--config", project.configPath],
@@ -871,8 +859,7 @@ describe("migrate", () => {
       );
 
       // Cancel message emitted and the table survives (nothing rolled back).
-      // Exit code is corrupted to 1 by the same swallowed-process.exit(0) bug
-      // documented under the apply suite's KNOWN BUG skip.
+      expect(result.exitCode).toBe(0);
       expect(result.output).toContain("Operation cancelled.");
       expect(await tableExists(project.configPath, "user")).toBe(true);
     });
@@ -1066,8 +1053,8 @@ describe("migrate", () => {
         project.dir
       );
 
-      // Cancel message emitted; tracking untouched (still applied). Exit code is
-      // corrupted to 1 by the swallowed-process.exit(0) bug (see KNOWN BUG skip).
+      // Cancel message emitted; tracking untouched (still applied).
+      expect(result.exitCode).toBe(0);
       expect(result.output).toContain("Operation cancelled.");
 
       const status = await cli(

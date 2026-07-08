@@ -471,6 +471,24 @@ describe("command-factory: createCommand error handling", () => {
       "Could not find VibORM configuration file"
     );
   });
+
+  it("handler clean cancel exits 0 without logging an error", async () => {
+    writeConfigFixture(project);
+
+    const cmd = createCommand({ name: "demo", description: "d" }, async () => {
+      cancelOperation("bye now");
+    });
+
+    const result = await runCommand(
+      cmd,
+      ["demo", "--config", project.configPath],
+      project.dir
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(p.cancel).toHaveBeenCalledWith("bye now");
+    expect(p.log.error).not.toHaveBeenCalled();
+  });
 });
 
 describe("command-factory: confirmAction", () => {
