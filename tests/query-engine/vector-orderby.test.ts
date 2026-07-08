@@ -128,6 +128,32 @@ describe("Vector distance orderBy SQL generation", () => {
     expect(l2Vector?.toStatement("$n")).toBe("VECTOR_LITERAL");
   });
 
+  test("uses descending order for farthest-first vector distance", () => {
+    const adapter = new PostgresAdapter();
+    adapter.capabilities.supportsVector = true;
+    adapter.vector = {
+      literal: () => sql.raw`VECTOR_LITERAL`,
+      l2: () => sql.raw`VECTOR_DISTANCE`,
+      cosine: () => sql.raw`UNUSED_COSINE_DISTANCE`,
+    };
+
+    const query = createEngine(adapter).build(vectorOrderSchema.doc, "findMany", {
+      orderBy: {
+        embedding: {
+          _distance: {
+            to: [1, 2, 3],
+            metric: "l2",
+            sort: "desc",
+          },
+        },
+      },
+    });
+
+    expect(query.toStatement("$n")).toContain(
+      "ORDER BY VECTOR_DISTANCE DESC"
+    );
+  });
+
   test("uses the cosine adapter method for cosine distance order", () => {
     const adapter = new PostgresAdapter();
     adapter.capabilities.supportsVector = true;

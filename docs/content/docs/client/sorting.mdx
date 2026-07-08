@@ -64,6 +64,74 @@ const users = await client.user.findMany({
   `nulls: "first" | "last"` works identically on PostgreSQL, MySQL, and SQLite. PostgreSQL uses native `NULLS FIRST`/`NULLS LAST`; MySQL and SQLite emulate the same ordering with an `(column IS NULL)` sort key.
 </Callout>
 
+## Vector Distance Sorting
+
+Sort vector scalars by distance to a query vector:
+
+```ts
+const queryEmbedding = [0.12, 0.34, 0.56];
+
+const nearest = await client.document.findMany({
+  select: { id: true, title: true },
+  orderBy: {
+    embedding: {
+      _distance: {
+        to: queryEmbedding,
+        metric: "cosine", // "l2" | "cosine"
+      },
+    },
+  },
+  take: 10,
+});
+```
+
+`sort` is optional. `"asc"` means nearest-first and is the default; `"desc"` means farthest-first:
+
+```ts
+const farthest = await client.document.findMany({
+  orderBy: {
+    embedding: {
+      _distance: {
+        to: queryEmbedding,
+        metric: "l2",
+        sort: "desc",
+      },
+    },
+  },
+  take: 10,
+});
+```
+
+Select the distance score with the same `_distance` object. The selected score is returned as `_distance: number`:
+
+```ts
+const results = await client.document.findMany({
+  select: {
+    id: true,
+    embedding: {
+      _distance: {
+        to: queryEmbedding,
+        metric: "cosine",
+      },
+    },
+  },
+  orderBy: {
+    embedding: {
+      _distance: {
+        to: queryEmbedding,
+        metric: "cosine",
+      },
+    },
+  },
+});
+
+results[0]?._distance; // number | undefined
+```
+
+<Callout type="warning">
+  Vector distance sorting requires a pgvector-enabled PostgreSQL driver, for example `new PgDriver({ pgvector: true })`. Other drivers throw `FeatureNotSupportedError`, and the `to` vector length must match the scalar dimension.
+</Callout>
+
 ## Relation Sorting
 
 Sort by a scalar field of a to-one relation:

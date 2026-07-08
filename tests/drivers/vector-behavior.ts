@@ -90,6 +90,24 @@ export function runVectorBehavior({
       expect(docs.map((doc) => doc.id)).toEqual(["exact", "near"]);
     });
 
+    test("orders farthest-first by l2 distance when distance sort is desc", async () => {
+      const docs = await requireClient(client).doc.findMany({
+        select: { id: true },
+        orderBy: {
+          embedding: {
+            _distance: {
+              to: [1, 0, 0],
+              metric: "l2",
+              sort: "desc",
+            },
+          },
+        },
+        take: 2,
+      });
+
+      expect(docs.map((doc) => doc.id)).toEqual(["opposite", "orthogonal"]);
+    });
+
     test("orders nearest-first by cosine distance and honors take", async () => {
       const docs = await requireClient(client).doc.findMany({
         select: { id: true },

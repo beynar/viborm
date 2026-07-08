@@ -3,6 +3,8 @@ import type { StringKeyOf } from "@schema/model/helper";
 import type { RelationState } from "@schema/relation/types";
 import type { ScalarState } from "@schema/scalars";
 import v, { type V } from "../primitives/v";
+import { createSchema, fail } from "../primitives/helpers";
+import type { VibSchema } from "../types";
 import {
   type SortOrderSchema,
   type VectorSortOrderSchema,
@@ -107,6 +109,21 @@ const isToOneRelation = (state: RelationState): boolean => {
   return state.type === "oneToOne" || state.type === "manyToOne";
 };
 
+type ToManyRelationOrderByFailureSchema = VibSchema<never, never>;
+type RuntimeToOneRelationOrderByEntry =
+  | (() => ToOneModelOrderBySchema<AnyModel, []>)
+  | ToManyRelationOrderByFailureSchema;
+
+const createToManyRelationOrderByFailureSchema = (
+  relationName: string
+): ToManyRelationOrderByFailureSchema => {
+  return createSchema<never, never>("relation_orderby_to_many", () =>
+    fail(
+      `Relation orderBy '${relationName}' cannot order through a to-many relation; use '_count'.`
+    )
+  );
+};
+
 const getModelScalarOrderByEntries = <M extends AnyModel>(
   target: M
 ): ModelScalarOrderByEntries<M> => {
@@ -151,19 +168,18 @@ const getToOneRelationOrderByEntries = <
     return {} as ToOneRelationOrderByEntries<M, Depth>;
   }
 
-  const relationEntries: Record<
-    string,
-    () => ToOneModelOrderBySchema<AnyModel, []>
-  > = {};
+  const relationEntries: Record<string, RuntimeToOneRelationOrderByEntry> = {};
   const relations = target["~"].state.relations as RuntimeRelationMap;
   for (const [relationName, relation] of Object.entries(relations)) {
     const relationState = relation["~"].state;
-    if (!isToOneRelation(relationState)) {
+    if (isToOneRelation(relationState)) {
+      relationEntries[relationName] = () =>
+        buildToOneOrderBySchema(relationState.getter() as AnyModel, depth - 1);
       continue;
     }
 
-    relationEntries[relationName] = () =>
-      buildToOneOrderBySchema(relationState.getter() as AnyModel, depth - 1);
+    relationEntries[relationName] =
+      createToManyRelationOrderByFailureSchema(relationName);
   }
 
   return relationEntries as ToOneRelationOrderByEntries<M, Depth>;

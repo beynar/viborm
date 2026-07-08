@@ -99,6 +99,16 @@ describe("ToOne OrderBy (Post.author)", () => {
       const schema = getSchema();
       const result = parse(schema, { posts: { _count: "asc" } });
       expect(result.issues).toBeDefined();
+      expect(result.issues?.[0]?.message).toBe(
+        "Relation orderBy 'posts' cannot order through a to-many relation; use '_count'."
+      );
+    });
+
+    test("runtime: keeps unknown orderBy keys as unknown keys", () => {
+      const schema = getSchema();
+      const result = parse(schema, { unknownRelation: { _count: "asc" } });
+      expect(result.issues).toBeDefined();
+      expect(result.issues?.[0]?.message).toBe("Unknown key: unknownRelation");
     });
   });
 });

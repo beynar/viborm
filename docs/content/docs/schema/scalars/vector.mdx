@@ -14,6 +14,7 @@ icon: Sparkles
 import { s } from "viborm";
 
 s.vector()               // Required number[]
+s.vector().dimension(3)  // Fixed-length number[]
 s.vector().nullable()    // number[] | null
 ```
 
@@ -21,6 +22,7 @@ s.vector().nullable()    // number[] | null
 
 ```ts
 s.vector()
+  .dimension(1536)      // Require a fixed vector length
   .nullable()           // Allow NULL
   .default([])          // Default value
   .map("column_name")   // Custom column name
@@ -31,6 +33,7 @@ s.vector()
 | Modifier | TypeScript | PostgreSQL | MySQL | SQLite |
 |----------|------------|------------|-------|--------|
 | `s.vector()` | `number[]` | `vector` | N/A | N/A |
+| `.dimension(1536)` | `number[]` | `vector(1536)` | N/A | N/A |
 | `.nullable()` | `number[] \| null` | `vector NULL` | N/A | N/A |
 
 ## PostgreSQL Setup
@@ -45,10 +48,10 @@ CREATE EXTENSION IF NOT EXISTS vector;
 
 ```ts
 // OpenAI embedding (1536 dimensions)
-const embedding = s.vector();
+const embedding = s.vector().dimension(1536);
 
 // Nullable embedding
-const optionalEmbedding = s.vector().nullable();
+const optionalEmbedding = s.vector().dimension(1536).nullable();
 ```
 
 ## Complete Example
@@ -57,7 +60,7 @@ const optionalEmbedding = s.vector().nullable();
 const document = s.model({
   id: s.string().id().ulid(),
   content: s.string(),
-  embedding: s.vector(),  // Store embedding
+  embedding: s.vector().dimension(1536),  // Store embedding
   createdAt: s.dateTime().now(),
 }).map("documents");
 
@@ -65,24 +68,61 @@ const document = s.model({
 await client.document.create({
   data: {
     content: "Hello, world!",
-    embedding: [0.1, 0.2, 0.3, ...], // 1536 floats for OpenAI
+    embedding: [0.1, 0.2, 0.3 /* 1533 more values */],
   }
 });
 ```
 
 ## Similarity Search
 
-Vector similarity search is typically done with raw SQL or a specialized query:
+Use `_distance` in `orderBy` for nearest-neighbor searches:
 
 ```ts
-// Using raw SQL for cosine similarity
-const similar = await client.$queryRaw`
-  SELECT id, content, 1 - (embedding <=> ${queryVector}::vector) as similarity
-  FROM documents
-  ORDER BY embedding <=> ${queryVector}::vector
-  LIMIT 10
-`;
+const queryEmbedding = [0.1, 0.2, 0.3 /* 1533 more values */];
+
+const similar = await client.document.findMany({
+  select: { id: true, content: true },
+  orderBy: {
+    embedding: {
+      _distance: {
+        to: queryEmbedding,
+        metric: "cosine", // "l2" | "cosine"
+      },
+    },
+  },
+  take: 10,
+});
 ```
+
+Set `sort: "desc"` to return farthest matches first. You can also select the distance score; it is returned as `_distance: number`:
+
+```ts
+const scored = await client.document.findMany({
+  select: {
+    id: true,
+    embedding: {
+      _distance: {
+        to: queryEmbedding,
+        metric: "l2",
+      },
+    },
+  },
+  orderBy: {
+    embedding: {
+      _distance: {
+        to: queryEmbedding,
+        metric: "l2",
+      },
+    },
+  },
+});
+
+scored[0]?._distance; // number | undefined
+```
+
+<Callout type="warning">
+  Distance ordering and selection require a pgvector-enabled PostgreSQL driver, for example `new PgDriver({ pgvector: true })`. Other drivers throw `FeatureNotSupportedError`, and the query vector length must match `.dimension(...)` when a dimension is declared.
+</Callout>
 
 ## Vector Dimensions
 
@@ -124,4 +164,3 @@ CREATE INDEX ON documents USING ivfflat (embedding vector_cosine_ops)
 | Recommendation | Vector embeddings |
 | Full-text search | PostgreSQL tsvector or dedicated search |
 | Exact matching | Regular scalars with indexes |
-

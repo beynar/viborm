@@ -35,7 +35,18 @@ function buildVectorDistanceOrder(
     field,
     "orderBy"
   );
-  return ctx.adapter.orderBy.asc(distance);
+
+  const sort = isRecord(value) ? value.sort : undefined;
+  if (sort === undefined || sort === "asc") {
+    return ctx.adapter.orderBy.asc(distance);
+  }
+  if (sort === "desc") {
+    return ctx.adapter.orderBy.desc(distance);
+  }
+
+  throw new QueryEngineError(
+    "Vector distance orderBy sort must be 'asc' or 'desc'."
+  );
 }
 
 export function buildSingleOrder(
@@ -53,7 +64,7 @@ export function buildSingleOrder(
   }
 
   if (isRecord(value)) {
-    if ("_distance" in value) {
+    if (value._distance !== undefined) {
       return buildVectorDistanceOrder(ctx, column, value._distance, field);
     }
 

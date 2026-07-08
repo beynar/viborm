@@ -43,6 +43,35 @@ describe("Vector OrderBy Schema", () => {
     expectTypeOf(input).toMatchTypeOf<Input>();
   });
 
+  test("type: accepts desc sort inside _distance order", () => {
+    const input = {
+      embedding: {
+        _distance: {
+          to: [0.1, 0.2, 0.3],
+          metric: "l2",
+          sort: "desc",
+        },
+      },
+    } satisfies Input;
+
+    expectTypeOf(input).toMatchTypeOf<Input>();
+  });
+
+  test("type: rejects sibling sort next to _distance order", () => {
+    const input: Input = {
+      embedding: {
+        // @ts-expect-error distance sort belongs inside _distance
+        _distance: {
+          to: [0.1, 0.2, 0.3],
+          metric: "l2",
+        },
+        sort: "desc",
+      },
+    };
+
+    expect(input).toBeDefined();
+  });
+
   test("type: keeps plain sort order available on vector scalar fields", () => {
     const input = {
       embedding: "asc",
@@ -91,6 +120,34 @@ describe("Vector OrderBy Schema", () => {
     });
 
     expect(result.issues).toBeUndefined();
+  });
+
+  test("runtime: accepts desc sort inside _distance order", () => {
+    const result = parse(vectorOrderSchemas.core.orderBy, {
+      embedding: {
+        _distance: {
+          to: [0.1, 0.2, 0.3],
+          metric: "l2",
+          sort: "desc",
+        },
+      },
+    });
+
+    expect(result.issues).toBeUndefined();
+  });
+
+  test("runtime: rejects sibling sort next to _distance order", () => {
+    const result = parse(vectorOrderSchemas.core.orderBy, {
+      embedding: {
+        _distance: {
+          to: [0.1, 0.2, 0.3],
+          metric: "l2",
+        },
+        sort: "desc",
+      },
+    });
+
+    expect(result.issues).toBeDefined();
   });
 
   test("runtime: rejects _distance order on non-vector scalar fields", () => {

@@ -1,20 +1,28 @@
 import type { AnyModel } from "@schema/model";
 import type { StringKeyOf } from "@schema/model/helper";
 import type { ScalarState } from "@schema/scalars";
+import { createSchema, fail } from "../../primitives/helpers";
 import v, { type V } from "../../primitives/v";
+import type { VibSchema } from "../../types";
 import type { ScalarSchemas } from "../index";
 
 const orderEnum = v.enum(["asc", "desc"]);
 const vectorDistanceMetricSchema = v.enum(["l2", "cosine"]);
+const forbiddenOrderByKeySchema = (key: string): VibSchema<never, never> => {
+  return createSchema<never, never>("forbidden_orderby_key", () =>
+    fail(`OrderBy key '${key}' is not valid here.`)
+  );
+};
 
 export const sortOrderSchema = v.union([
   orderEnum,
   v.object(
     {
       sort: orderEnum,
-      nulls: v.enum(["first", "last"], { optional: true }),
+      nulls: v.enum(["first", "last"]),
+      _distance: forbiddenOrderByKeySchema("_distance"),
     },
-    { partial: false }
+    { atLeast: ["sort"] }
   ),
 ]);
 export type SortOrderSchema = typeof sortOrderSchema;
@@ -25,11 +33,14 @@ export const vectorDistanceOrderSchema = v.object(
       {
         to: v.array(v.number()),
         metric: vectorDistanceMetricSchema,
+        sort: orderEnum,
       },
-      { partial: false }
+      { atLeast: ["to", "metric"] }
     ),
+    sort: forbiddenOrderByKeySchema("sort"),
+    nulls: forbiddenOrderByKeySchema("nulls"),
   },
-  { partial: false }
+  { atLeast: ["_distance"] }
 );
 export type VectorDistanceOrderSchema = typeof vectorDistanceOrderSchema;
 
