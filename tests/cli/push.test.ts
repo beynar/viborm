@@ -76,12 +76,7 @@ const DEFAULT_MODEL = `
   const schema = { user };
 `;
 
-// A model with NO unique field. Re-pushing a model that HAS a .unique() field is
-// broken on postgres/pglite (see the "KNOWN BUG" test below): the second push
-// mis-diffs the unique constraint's backing index as a droppable index. Tests
-// that push the same schema twice therefore use this unique-free model so they
-// exercise their actual target (idempotency, drop-column) without tripping that
-// unrelated bug.
+// A model with no unique field for tests that only need plain column behavior.
 const NO_UNIQUE_MODEL = `
   const user = s.model({
     id: s.string().id(),
@@ -251,19 +246,7 @@ describe("push command", () => {
     expect(await tableExists(project, "user")).toBe(true);
   });
 
-  // KNOWN BUG: re-pushing a schema that has a `.unique()` field is NOT
-  // idempotent on postgres/pglite. The first push creates the column's unique
-  // constraint (which owns a backing index of the same name, e.g.
-  // `user_email_key`). On the second push, introspection + diff mis-classify
-  // that constraint-owned index as a standalone droppable index and emit a
-  // `dropIndex user_email_key`, which postgres rejects.
-  //   EXPECTED: second push finds no changes, exits cleanly (exitCode null),
-  //             prints "No changes detected. Your database is up to date."
-  //   ACTUAL:   second push exits 1 with
-  //             'cannot drop index user_email_key because constraint
-  //              user_email_key on table "user" requires it'.
-  // biome-ignore lint/suspicious/noSkippedTests: intentional KNOWN BUG record — this asserts the fixed behavior and stays skipped until the unique-constraint re-diff is fixed in src.
-  it.skip("KNOWN BUG: re-push of a .unique() field is idempotent", async () => {
+  it("re-push of a .unique() field is idempotent", async () => {
     writePersistentConfig(project); // DEFAULT_MODEL — email is .unique()
 
     queueAnswers([true]);
@@ -370,8 +353,8 @@ describe("push command", () => {
   // We can't swap the config's schema mid-test (the module is import-cached),
   // so we apply the schema, then add an EXTRA column the schema doesn't declare;
   // pushing again then wants to DROP that column — a destructive change routed
-  // through interactiveResolve. Uses NO_UNIQUE_MODEL so the second push isn't
-  // derailed by the unrelated `.unique()` re-diff bug (see KNOWN BUG above).
+  // through interactiveResolve. Uses NO_UNIQUE_MODEL so the test only exercises
+  // the destructive column diff.
   async function seedUserWithExtraColumn(): Promise<void> {
     writePersistentConfig(project, NO_UNIQUE_MODEL);
     queueAnswers([true]);
