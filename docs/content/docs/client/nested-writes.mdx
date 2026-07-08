@@ -4,26 +4,7 @@ description: Create, update, and manage related records in a single operation
 icon: Layers
 ---
 
-<Callout type="warn" title="Supported subset">
-VibORM supports a Prisma-inspired subset of nested writes. Supported and intentionally excluded operations are listed in [Compatibility](/docs/client/compatibility#nested-write-support).
-</Callout>
-
-## Contract Rules
-
-- The nested-write contract is provider-independent. Query-engine code decides what mutation graph is valid; adapters and drivers decide how to execute it atomically.
-- Accepted nested-write inputs must work correctly or reject before query generation.
-- Unsupported or excluded nested-write keys must reject before the parent mutation executes.
-- Parent and nested mutations must be atomic. A driver path that cannot guarantee atomic execution must reject instead of partially mutating data.
-- Atomic-batch driver paths support generated and updated primary-key dataflow through internal semantic references. The query engine tracks value dependencies, adapters own the reference SQL, and drivers execute one atomic batch.
-- Impossible or unsafe primary-key shapes fail closed before mutation instead of accepting and ignoring a nested branch.
-- Runtime behavior and TypeScript behavior should agree where practical. VibORM does not need Prisma's `XOR`, `Exact`, or generated helper type surface to express this contract.
-- Parent `create` and the create branch of parent `upsert` intentionally exclude update/delete-like nested operations because there is no existing related record under the new parent.
-
-## Provider And Batch Behavior
-
-Nested-write support is not a provider-specific public surface. Transactional drivers execute the semantic plan inside a callback transaction. Batch-only atomic drivers lower the same semantic plan into a planned batch and use adapter-owned reference SQL to pass generated or updated primary keys to dependent child mutations, final refetches, and relation counts.
-
-Local conformance currently proves the behavior on PGlite/Postgres-style and SQLite-family paths. Hosted D1, D1 HTTP, and Neon HTTP are not documented as blanket nested-write gaps, but they need external conformance runs before docs can claim hosted verification.
+Nested writes let you create, connect, update, and delete related records in the same call as their parent. The whole operation is **atomic** — if any part fails, nothing is written — and generated IDs flow automatically from a parent to its children.
 
 ## Create Operations
 
@@ -121,7 +102,7 @@ const post = await client.post.create({
 
 ### update (nested)
 
-A to-one nested update targets the currently related row. If no correlated row exists, the operation throws and the parent update is not committed:
+A to-one nested update targets the currently related row. If there's no related row yet, the operation throws and nothing is written:
 
 ```ts
 const user = await client.user.update({
@@ -134,7 +115,7 @@ const user = await client.user.update({
 });
 ```
 
-A to-many nested update targets a specific related row. The `where` selector may identify a real row, but VibORM must also prove that the row belongs to the parent being mutated:
+A to-many nested update targets a specific related row. The `where` must identify a row that belongs to the parent you're updating — targeting another record's row is rejected:
 
 ```ts
 const user = await client.user.update({
@@ -190,7 +171,7 @@ const user = await client.user.update({
 });
 ```
 
-To-one `updateMany` is intentionally excluded and must reject before query generation.
+`updateMany` applies to to-many relations only.
 
 ### upsert (nested)
 
@@ -286,7 +267,7 @@ const post = await client.post.update({
 
 ### delete (nested)
 
-Delete related records. A specific nested `delete` target throws when no correlated row is found, including when the selector matches a row owned by another parent:
+Delete related records. A nested `delete` throws when the target isn't found, including when it matches a row that belongs to another parent:
 
 ```ts
 const user = await client.user.update({
@@ -343,13 +324,13 @@ const user = await client.user.update({
 });
 ```
 
-To-one `deleteMany` is intentionally excluded. Use `delete: true` where a to-one delete is valid.
+`deleteMany` applies to to-many relations only. For a to-one relation, use `delete: true`.
 
-## Rejection Examples
+## What's not allowed
 
 ### Required relations
 
-These inputs must reject before parent mutation when the relation uses a non-nullable foreign key:
+When a relation's foreign key is required, you can't detach or orphan its records — these are rejected and nothing is written:
 
 ```ts
 // post.authorId is required, so the author cannot be disconnected.
@@ -390,9 +371,9 @@ await client.user.update({
 });
 ```
 
-### Intentionally excluded create-branch shapes
+### Update and delete inside a create
 
-Update/delete-like nested operations are excluded from parent `create` and from the create branch of parent `upsert`:
+You can't update or delete related records inside a `create` (or the create branch of an `upsert`) — there's no existing related record yet:
 
 ```ts
 await client.user.create({

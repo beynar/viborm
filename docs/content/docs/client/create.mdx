@@ -19,7 +19,7 @@ const user = await client.user.create({
 
 ### With Relations
 
-Nested relation examples below use the supported subset documented in [Compatibility](/docs/client/compatibility#nested-write-support).
+You can create, connect, and connect-or-create related records in the same call. See [Nested writes](/docs/client/nested-writes) for the full set of relation operations.
 
 ```ts
 // Create with nested records
@@ -109,7 +109,7 @@ const result = await client.user.createMany({
 </Callout>
 
 <Callout type="warn">
-  **MySQL divergence:** `skipDuplicates` compiles to `ON CONFLICT DO NOTHING` on PostgreSQL/SQLite, which only skips unique-constraint conflicts. On MySQL it compiles to `INSERT IGNORE`, which downgrades **more** errors to skips: foreign-key violations, `NOT NULL` violations, and data truncation are silently ignored too. A row rejected with an error on PostgreSQL/SQLite may be silently dropped on MySQL. If those failure modes matter, validate rows before inserting or insert without `skipDuplicates` and handle the typed constraint errors.
+  On MySQL, `skipDuplicates` can skip **more** than unique-constraint conflicts — foreign-key violations, `NOT NULL` violations, and data truncation are silently dropped too, where other databases would raise an error. If those cases matter, validate rows first or insert without `skipDuplicates` and handle the constraint errors. See [Compatibility](/docs/client/compatibility) for the details.
 </Callout>
 
 ## Options

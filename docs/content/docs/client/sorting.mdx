@@ -61,7 +61,7 @@ const users = await client.user.findMany({
 ```
 
 <Callout type="info">
-  `nulls: "first" | "last"` works identically on PostgreSQL, MySQL, and SQLite. PostgreSQL uses native `NULLS FIRST`/`NULLS LAST`; MySQL and SQLite emulate the same ordering with an `(column IS NULL)` sort key.
+  `nulls: "first" | "last"` controls where null values land in the order, and works the same on every database.
 </Callout>
 
 ## Vector Distance Sorting

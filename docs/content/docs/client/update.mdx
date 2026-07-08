@@ -52,7 +52,7 @@ await client.post.update({
 
 ### With Relations
 
-VibORM supports the documented nested-write subset listed in the [compatibility table](/docs/client/compatibility#nested-write-support). Parent `update` supports `create`, `createMany`, `connect`, `connectOrCreate`, `disconnect`, `delete`, `set`, `update`, to-many `updateMany`, `upsert`, and to-many `deleteMany` where the relation shape allows them. Unsupported or excluded shapes reject before the parent mutation executes.
+From an `update` you can `create`, `connect`, `connectOrCreate`, `disconnect`, `delete`, `set`, `update`, `updateMany`, `upsert`, and `deleteMany` related records. See [Nested writes](/docs/client/nested-writes) for each one.
 
 ```ts
 // Create related records
