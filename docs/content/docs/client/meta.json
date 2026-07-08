@@ -3,13 +3,20 @@
   "pages": [
     "index",
     "queries",
+    "find-many",
+    "find-unique",
+    "aggregations",
     "mutations",
-    "transactions",
-    "compatibility",
+    "create",
+    "update",
+    "upsert",
+    "delete",
+    "nested-writes",
     "filtering",
-    "relations",
     "selecting",
     "sorting",
-    "pagination"
+    "pagination",
+    "transactions",
+    "compatibility"
   ]
 }
