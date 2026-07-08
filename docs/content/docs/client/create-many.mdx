@@ -1,0 +1,61 @@
+---
+title: createMany
+description: Create multiple records in a single operation
+icon: CopyPlus
+---
+
+Create multiple records in one call:
+
+```ts
+const result = await client.user.createMany({
+  data: [
+    { email: "alice@example.com", name: "Alice" },
+    { email: "bob@example.com", name: "Bob" },
+    { email: "carol@example.com", name: "Carol" },
+  ],
+});
+// Result: { count: 3 }
+```
+
+`createMany` returns a `{ count }`. It doesn't accept nested relations — for that, use [`create`](/docs/client/create) or [nested writes](/docs/client/nested-writes).
+
+## Skip duplicates
+
+```ts
+const result = await client.user.createMany({
+  data: [
+    { email: "alice@example.com", name: "Alice" },
+    { email: "alice@example.com", name: "Alice Duplicate" }, // Skipped
+  ],
+  skipDuplicates: true,
+});
+// Result: { count: 1 }
+```
+
+<Callout type="warn">
+  On MySQL, `skipDuplicates` can skip **more** than unique-constraint conflicts — foreign-key violations, `NOT NULL` violations, and data truncation are silently dropped too, where other databases would raise an error. If those cases matter, validate rows first or insert without `skipDuplicates` and handle the constraint errors. See [Compatibility](/docs/client/compatibility) for the details.
+</Callout>
+
+## createManyAndReturn
+
+Same as `createMany`, but returns the created rows instead of a count:
+
+```ts
+const users = await client.user.createManyAndReturn({
+  data: [
+    { email: "alice@example.com", name: "Alice" },
+    { email: "bob@example.com", name: "Bob" },
+  ],
+  select: { id: true, email: true },
+});
+// Type: { id: string; email: string }[]
+```
+
+## Options
+
+```ts
+await client.user.createMany({
+  data: [{ ... }],      // Required: array of records
+  skipDuplicates: true, // Optional: skip constraint violations
+});
+```

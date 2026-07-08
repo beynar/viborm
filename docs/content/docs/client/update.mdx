@@ -119,42 +119,7 @@ await client.user.update({
 });
 ```
 
-## updateMany
-
-Update multiple records matching criteria:
-
-```ts
-const result = await client.user.updateMany({
-  where: { role: "GUEST" },
-  data: { role: "USER" },
-});
-// Result: { count: 42 }
-```
-
-### Examples
-
-```ts
-// Mark posts as archived
-await client.post.updateMany({
-  where: {
-    createdAt: { lt: new Date("2023-01-01") },
-    published: false,
-  },
-  data: { archived: true },
-});
-
-// Update all prices
-await client.product.updateMany({
-  where: { category: "electronics" },
-  data: {
-    price: { multiply: 0.9 },  // 10% discount
-  },
-});
-```
-
 ## Options
-
-### update
 
 ```ts
 await client.user.update({
@@ -162,15 +127,6 @@ await client.user.update({
   data: { ... },        // Required: fields to update
   select: { ... },      // Optional: fields to return
   include: { ... },     // Optional: relations to include
-});
-```
-
-### updateMany
-
-```ts
-await client.user.updateMany({
-  where: { ... },       // Optional: filter (all if empty)
-  data: { ... },        // Required: fields to update
 });
 ```
 

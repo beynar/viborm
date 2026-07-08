@@ -48,23 +48,38 @@ await client.user.upsert({
 <Cards>
   <Card
     title="create"
-    description="Create single or multiple records"
+    description="Create a single record, with relations"
     href="/docs/client/create"
   />
   <Card
+    title="createMany"
+    description="Create multiple records in one call"
+    href="/docs/client/create-many"
+  />
+  <Card
     title="update"
-    description="Update single or multiple records"
+    description="Update a single record by unique selector"
     href="/docs/client/update"
   />
   <Card
-    title="delete"
-    description="Delete single or multiple records"
-    href="/docs/client/delete"
+    title="updateMany"
+    description="Update every record matching a filter"
+    href="/docs/client/update-many"
   />
   <Card
     title="upsert"
     description="Create or update in one operation"
     href="/docs/client/upsert"
+  />
+  <Card
+    title="delete"
+    description="Delete a single record by unique selector"
+    href="/docs/client/delete"
+  />
+  <Card
+    title="deleteMany"
+    description="Delete every record matching a filter"
+    href="/docs/client/delete-many"
   />
 </Cards>
 

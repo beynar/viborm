@@ -34,72 +34,13 @@ const user = await client.user.delete({
 });
 ```
 
-## deleteMany
-
-Delete multiple records matching criteria:
-
-```ts
-const result = await client.post.deleteMany({
-  where: { published: false },
-});
-// Result: { count: 15 }
-```
-
-### Delete All
-
-```ts
-// Delete all records (use with caution!)
-const result = await client.post.deleteMany({});
-// or
-const result = await client.post.deleteMany();
-```
-
-### Examples
-
-```ts
-// Delete old drafts
-await client.post.deleteMany({
-  where: {
-    published: false,
-    createdAt: { lt: new Date("2023-01-01") },
-  },
-});
-
-// Delete by relation
-await client.post.deleteMany({
-  where: {
-    author: {
-      is: { status: "BANNED" },
-    },
-  },
-});
-
-// Delete inactive users
-await client.user.deleteMany({
-  where: {
-    lastLogin: { lt: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000) },
-    role: { not: "ADMIN" },
-  },
-});
-```
-
 ## Options
-
-### delete
 
 ```ts
 await client.user.delete({
   where: { ... },       // Required: unique identifier
   select: { ... },      // Optional: fields to return
   include: { ... },     // Optional: relations to include
-});
-```
-
-### deleteMany
-
-```ts
-await client.user.deleteMany({
-  where: { ... },       // Optional: filter (all if empty)
 });
 ```
 

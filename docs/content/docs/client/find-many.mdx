@@ -96,29 +96,6 @@ await client.user.findMany({
 
 At the top level, a negative `take` returns the last N records in the order. This "last N" form is top-level only — a negative `take` or a `cursor` inside a nested `include`/`select` isn't supported.
 
-## findFirst
-
-Same as `findMany` but returns single record or null:
-
-```ts
-const user = await client.user.findFirst({
-  where: { email: { contains: "alice" } },
-});
-// Type: User | null
-```
-
-## findFirstOrThrow
-
-Throws if no record found:
-
-```ts
-const user = await client.user.findFirstOrThrow({
-  where: { email: "alice@example.com" },
-});
-// Type: User (never null)
-// Throws: NotFoundError if not found
-```
-
 ## Return Type
 
 ```ts

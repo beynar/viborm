@@ -76,60 +76,13 @@ const user = await client.user.create({
 // Type: { id: string; email: string }
 ```
 
-## createMany
-
-Create multiple records in a single operation:
-
-```ts
-const result = await client.user.createMany({
-  data: [
-    { email: "alice@example.com", name: "Alice" },
-    { email: "bob@example.com", name: "Bob" },
-    { email: "carol@example.com", name: "Carol" },
-  ],
-});
-// Result: { count: 3 }
-```
-
-### Skip Duplicates
-
-```ts
-const result = await client.user.createMany({
-  data: [
-    { email: "alice@example.com", name: "Alice" },
-    { email: "alice@example.com", name: "Alice Duplicate" }, // Skipped
-  ],
-  skipDuplicates: true,
-});
-// Result: { count: 1 }
-```
-
-<Callout type="info">
-  Top-level `createMany` doesn't support relation envelopes. Nested `createMany` is a separate operation and is supported only where the compatibility table lists it.
-</Callout>
-
-<Callout type="warn">
-  On MySQL, `skipDuplicates` can skip **more** than unique-constraint conflicts — foreign-key violations, `NOT NULL` violations, and data truncation are silently dropped too, where other databases would raise an error. If those cases matter, validate rows first or insert without `skipDuplicates` and handle the constraint errors. See [Compatibility](/docs/client/compatibility) for the details.
-</Callout>
-
 ## Options
-
-### create
 
 ```ts
 await client.user.create({
   data: { ... },        // Required: record data
   select: { ... },      // Optional: fields to return
   include: { ... },     // Optional: relations to include
-});
-```
-
-### createMany
-
-```ts
-await client.user.createMany({
-  data: [{ ... }],      // Required: array of records
-  skipDuplicates: true, // Optional: skip constraint violations
 });
 ```
 
