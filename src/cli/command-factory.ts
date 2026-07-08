@@ -130,27 +130,30 @@ export function createCommand(
       const loaded = await loadConfig({ config: options.config });
       spinner.stop("Configuration loaded");
 
-      // Connect to database if required
-      if (config.requiresConnection && loaded.driver.connect) {
-        spinner.start("Connecting to database...");
-        await loaded.driver.connect();
-        spinner.stop("Connected to database");
-      }
+      let didConnect = false;
+      try {
+        // Connect to database if required
+        if (config.requiresConnection && loaded.driver.connect) {
+          spinner.start("Connecting to database...");
+          await loaded.driver.connect();
+          didConnect = true;
+          spinner.stop("Connected to database");
+        }
 
-      // Create context
-      const ctx: CommandContext = {
-        ...loaded,
-        startTime,
-        spinner,
-        options,
-      };
+        // Create context
+        const ctx: CommandContext = {
+          ...loaded,
+          startTime,
+          spinner,
+          options,
+        };
 
-      // Run handler
-      await handler(ctx);
-
-      // Disconnect if we connected
-      if (config.requiresConnection && loaded.driver.disconnect) {
-        await loaded.driver.disconnect();
+        // Run handler
+        await handler(ctx);
+      } finally {
+        if (didConnect && loaded.driver.disconnect) {
+          await loaded.driver.disconnect();
+        }
       }
 
       // Show completion

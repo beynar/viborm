@@ -177,6 +177,25 @@ async function runCommand(
 
 const asFn = (f: unknown) => f as ReturnType<typeof vi.fn>;
 
+interface ConnectableDriver {
+  connect?: () => Promise<void>;
+  disconnect: () => Promise<void>;
+}
+
+async function loadProjectDriver(
+  project: TempProject
+): Promise<ConnectableDriver> {
+  const { loadConfig } = await import("../../src/cli/utils");
+  const cwd = process.cwd();
+  process.chdir(project.dir);
+  try {
+    const loaded = await loadConfig({ config: project.configPath });
+    return loaded.driver as ConnectableDriver;
+  } finally {
+    process.chdir(cwd);
+  }
+}
+
 describe("command-factory: createCommand wiring", () => {
   it("adds the standard --config option", () => {
     const cmd = createCommand({ name: "demo", description: "d" }, async () => {
@@ -300,16 +319,7 @@ describe("command-factory: createCommand action", () => {
     // the factory will connect/disconnect. The base Driver has no `connect`
     // method (it's an optional interface member the factory guards on), so we
     // install one to exercise the connect branch, and spy the real `disconnect`.
-    const { loadConfig } = await import("../../src/cli/utils");
-    const cwd = process.cwd();
-    process.chdir(project.dir);
-    const loaded = await loadConfig({ config: project.configPath });
-    process.chdir(cwd);
-
-    const driver = loaded.driver as {
-      connect?: () => Promise<void>;
-      disconnect: () => Promise<void>;
-    };
+    const driver = await loadProjectDriver(project);
     const origConnect = driver.connect;
     driver.connect = vi.fn(async () => {
       order.push("connect");
@@ -343,19 +353,49 @@ describe("command-factory: createCommand action", () => {
     disconnectSpy.mockRestore();
   });
 
+  it("requiresConnection:true disconnects when the handler throws", async () => {
+    writeConfigFixture(project);
+    const order: string[] = [];
+
+    const driver = await loadProjectDriver(project);
+    const origConnect = driver.connect;
+    driver.connect = vi.fn(async () => {
+      order.push("connect");
+    });
+    const disconnectSpy = vi
+      .spyOn(driver, "disconnect")
+      .mockImplementation(async () => {
+        order.push("disconnect");
+      });
+
+    const cmd = createCommand(
+      { name: "demo", description: "d", requiresConnection: true },
+      async () => {
+        order.push("handler");
+        throw new Error("boom from handler");
+      }
+    );
+
+    const result = await runCommand(
+      cmd,
+      ["demo", "--config", project.configPath],
+      project.dir
+    );
+
+    expect(result.exitCode).toBe(1);
+    expect(asFn(driver.connect)).toHaveBeenCalledTimes(1);
+    expect(disconnectSpy).toHaveBeenCalledTimes(1);
+    expect(order).toEqual(["connect", "handler", "disconnect"]);
+    expect(p.log.error).toHaveBeenCalledWith("boom from handler");
+
+    driver.connect = origConnect;
+    disconnectSpy.mockRestore();
+  });
+
   it("requiresConnection:false (default) does NOT connect or disconnect", async () => {
     writeConfigFixture(project);
 
-    const { loadConfig } = await import("../../src/cli/utils");
-    const cwd = process.cwd();
-    process.chdir(project.dir);
-    const loaded = await loadConfig({ config: project.configPath });
-    process.chdir(cwd);
-
-    const driver = loaded.driver as {
-      connect?: () => Promise<void>;
-      disconnect: () => Promise<void>;
-    };
+    const driver = await loadProjectDriver(project);
     const origConnect = driver.connect;
     driver.connect = vi.fn(async () => {
       // installed so the factory *could* call it — it must not.
