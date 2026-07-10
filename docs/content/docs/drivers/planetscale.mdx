@@ -45,7 +45,11 @@ const client = createClient({
 
 ## Transactions & Batching
 
-PlanetScale driver supports **full transactions** via the `@planetscale/database` Client's `transaction()` method.
+PlanetScale transactions use one `@planetscale/database` Connection and force
+Vitess `transaction_mode = 'single'` before `BEGIN`. This preserves atomic
+commit semantics: work that would span shards is rejected instead of falling
+back to best-effort multi-shard commit behavior. See the
+[Vitess distributed transaction modes](https://vitess.io/docs/24.0/reference/features/distributed-transaction/).
 
 ### Dynamic Transactions
 
@@ -76,19 +80,17 @@ const [users, posts] = await client.$transaction([
 
 ### Migrations
 
-Migrations run atomically using transactions - all statements succeed or none are applied.
+Migration atomicity is limited: Vitess online-DDL behavior and MySQL-family
+implicit commits mean a failed migration can leave earlier statements applied.
 
 ## Capabilities
 
-| Feature | Support |
-|---------|---------|
-| Dynamic transactions | Full |
-| Batch mode | Full (transaction wrapper) |
-| Migration atomicity | Full |
+Dynamic transactions and batch mode are fully supported. See the [feature matrix](/docs/drivers#feature-matrix) for the full comparison.
 
 ## Limitations
 
 - No `RETURNING` clause - uses `LAST_INSERT_ID()`
+- Cross-shard transactions are rejected to preserve atomicity
 - JSON columns return as strings and are parsed automatically
 - Boolean values stored as `TINYINT(1)`
 

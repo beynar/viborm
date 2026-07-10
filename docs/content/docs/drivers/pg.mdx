@@ -78,18 +78,4 @@ const client = createClient({
 
 ## Transactions
 
-pg supports full transactions with savepoints for nested transactions and isolation levels.
-
-```typescript
-await client.$transaction(async (tx) => {
-  await tx.user.create({ data: { name: "Alice" } });
-  await tx.post.create({ data: { title: "Hello", authorId: "..." } });
-}, { isolationLevel: "serializable" });
-```
-
-## Features
-
-- Connection pooling
-- Full transaction support with isolation levels
-- Savepoints for nested transactions
-- pgvector and PostGIS extensions
+pg supports full transactions with savepoints for nested transactions — see [Transactions](/docs/client/transactions).

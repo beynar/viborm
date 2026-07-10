@@ -26,8 +26,6 @@ const client = createClient({
 |--------|------|-------------|
 | `databaseUrl` | `string` | PostgreSQL connection URL |
 | `options.fetchOptions` | `RequestInit` | Custom fetch options |
-| `options.arrayMode` | `boolean` | Return rows as arrays |
-| `options.fullResults` | `boolean` | Return full result metadata |
 | `pgvector` | `boolean` | Enable pgvector support |
 | `postgis` | `boolean` | Enable PostGIS support |
 
@@ -89,25 +87,22 @@ await client.$transaction(async (tx) => {
 ```
 
 <Callout type="warn">
-For Neon HTTP, use batch mode (`$transaction([...])`) for operations that can be planned up front. Batch mode provides atomicity through Neon's `transaction()` function. Documented nested writes may carry internal generated or updated primary-key references through VibORM's planned batch path.
+For Neon HTTP, use batch mode (`$transaction([...])`) for operations that can be planned up front. Nested writes are supported inside a batch, but sibling operations cannot read each other's results.
 </Callout>
 
 ### Migrations
 
-Migrations run atomically on Neon HTTP using the `transaction()` function - all statements succeed or none are applied.
+Schema `push` executes atomically through Neon's `transaction()` function.
+File-based `migrate apply` requires a callback transaction and rejects on
+Neon HTTP.
 
 ## Capabilities
 
-| Feature | Support |
-|---------|---------|
-| Dynamic transactions | Unsupported; rejects |
-| Batch mode | Full (`transaction()` function) |
-| Nested writes | Same public contract through atomic batch; hosted conformance requires external runs |
-| Migration atomicity | Full |
+Dynamic transactions reject; batch mode is fully supported via Neon's `transaction()` function. See the [feature matrix](/docs/drivers#feature-matrix) for the full comparison.
 
 ## Limitations
 
-- **No callback-visible read-your-writes in batch** - sibling operations cannot consume previous sibling results; use one nested write for supported dependent relation mutations
+- Batch operations cannot read each other's results — use a single nested write for dependent mutations
 - HTTP-based: slightly higher latency than traditional connections
 - Best suited for serverless environments with simple queries
 - For full transaction support, use `@neondatabase/serverless` Pool with WebSockets

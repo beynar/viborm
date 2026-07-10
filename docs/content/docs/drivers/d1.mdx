@@ -5,7 +5,7 @@ description: SQLite driver for Cloudflare D1 using Worker bindings
 
 ## Requirements
 
-- Cloudflare Workers environment
+- Cloudflare Workers environment (no `nodejs_compat` flag needed)
 
 ## Configuration
 
@@ -30,6 +30,12 @@ export default {
 | Option | Type | Description |
 |--------|------|-------------|
 | `database` | `D1Database` | D1 database binding from Worker env |
+
+## Binary values
+
+Blob fields bind `Uint8Array` values directly to D1, and D1's byte-array
+results are normalized back to a plain `Uint8Array` — no Node `Buffer` or
+`nodejs_compat` flag involved.
 
 ### wrangler.toml
 
@@ -69,26 +75,23 @@ await client.$transaction(async (tx) => {
 ```
 
 <Callout type="warn">
-For D1, use batch mode (`$transaction([...])`) for operations that can be planned up front. Batch mode provides atomicity through D1's native `batch()` API. Documented nested writes may carry internal generated or updated primary-key references through VibORM's planned batch path.
+For D1, use batch mode (`$transaction([...])`) for operations that can be planned up front. Nested writes are supported inside a batch, but sibling operations cannot read each other's results.
 </Callout>
 
 ### Migrations
 
-Migrations run atomically on D1 using the native `batch()` API - all statements succeed or none are applied.
+Schema `push` executes atomically through D1's native `batch()`. File-based
+`migrate apply` requires a callback transaction and rejects on D1 — apply
+migrations with `wrangler d1 migrations` instead.
 
 ## Capabilities
 
-| Feature | Support |
-|---------|---------|
-| Dynamic transactions | Unsupported; rejects |
-| Batch mode | Full (native `batch()`) |
-| Nested writes | Same public contract through atomic batch; hosted conformance requires external runs |
-| Migration atomicity | Full |
+Dynamic transactions reject; batch mode is fully supported via D1's native `batch()`. See the [feature matrix](/docs/drivers#feature-matrix) for the full comparison.
 
 ## Limitations
 
-- **No callback-visible read-your-writes in batch** - sibling operations cannot consume previous sibling results; use one nested write for supported dependent relation mutations
+- Batch operations cannot read each other's results — use a single nested write for dependent mutations
 - Only available in Cloudflare Workers
 - SQLite dialect - no `LATERAL` joins, limited `FULL OUTER JOIN`
-- JSON columns return as strings and are parsed automatically
+- JSON columns are parsed automatically
 - Boolean values stored as integers (0/1)

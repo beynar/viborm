@@ -68,14 +68,7 @@ const client = createClient({
 
 ## Transactions
 
-LibSQL supports full transactions with savepoints for nested transactions.
-
-```typescript
-await client.$transaction(async (tx) => {
-  await tx.user.create({ data: { name: "Alice" } });
-  await tx.post.create({ data: { title: "Hello", authorId: "..." } });
-});
-```
+LibSQL supports full transactions with savepoints for nested transactions — see [Transactions](/docs/client/transactions).
 
 ## Limitations
 

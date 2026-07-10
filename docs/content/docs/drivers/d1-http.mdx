@@ -39,9 +39,17 @@ Use D1 HTTP when you need to access D1 from:
 
 For Cloudflare Workers, prefer the [D1 bindings driver](/docs/drivers/d1).
 
+## Binary values
+
+The documented D1 REST query schema does not define an encoding for BLOB
+parameters. VibORM therefore rejects `Uint8Array`, `ArrayBuffer`, and typed
+array-view parameters before making the HTTP request instead of allowing JSON
+serialization to corrupt their shape. Use the [D1 bindings driver](/docs/drivers/d1)
+for blob create and update operations.
+
 ## Transactions & Batching
 
-The D1 HTTP API supports **neither dynamic transactions nor atomic batches**. Cloudflare documents rollback-on-failure only for the Workers binding `batch()` - the REST API's batch mode carries no atomicity guarantee. Rather than risk silent partial writes, VibORM rejects both transaction forms on this driver:
+The D1 HTTP API supports **neither dynamic transactions nor atomic batches**. Cloudflare documents rollback-on-failure only for the Workers binding `batch()` - the REST API's batch mode carries no atomicity guarantee. Rather than risk silent partial writes, VibORM rejects callback transactions and non-empty array transactions on this driver:
 
 ```typescript
 // Throws TransactionError: supports neither transactions nor atomic batch execution
@@ -58,6 +66,8 @@ await client.$transaction(async (tx) => {
 ```
 
 Nested writes (which require atomicity) reject as well.
+An empty array is the cross-driver exception: `$transaction([])` returns `[]`
+without contacting the provider because there is no work to make atomic.
 
 <Callout type="warn">
 If you need transactions or nested writes against D1, run inside a Worker and use the [D1 bindings driver](/docs/drivers/d1), whose `batch()` API is documented as atomic.
@@ -69,16 +79,12 @@ Migrations cannot run atomically over the HTTP API for the same reason. Apply mi
 
 ## Capabilities
 
-| Feature | Support |
-|---------|---------|
-| Dynamic transactions | Unsupported; rejects |
-| Batch mode | Unsupported; rejects (REST API batching has no documented atomicity) |
-| Nested writes | Unsupported; rejects (require atomic execution) |
-| Migration atomicity | Unsupported over HTTP; use wrangler or the bindings driver |
+Transactions, batch mode, and nested writes all reject on this driver — there is no atomic execution path over the HTTP API. See the [feature matrix](/docs/drivers#feature-matrix) for the full comparison.
 
 ## Limitations
 
-- **No atomic multi-statement execution** - `$transaction` (both forms) and nested writes reject; use the D1 bindings driver from a Worker instead
+- **No atomic multi-statement execution** - callback and non-empty array transactions, plus nested writes, reject; use the D1 bindings driver from a Worker instead
+- **No documented REST BLOB parameter encoding** - binary write parameters reject before fetch; use the D1 bindings driver
 - Higher latency than D1 bindings (HTTP overhead)
 - Requires API token management
 - SQLite dialect - no `LATERAL` joins, limited `FULL OUTER JOIN`

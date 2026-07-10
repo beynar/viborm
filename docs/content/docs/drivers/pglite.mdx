@@ -74,17 +74,9 @@ const client = createClient({
 
 ## Transactions
 
-PGlite supports transactions but nested transactions have limitations.
-
-```typescript
-await client.$transaction(async (tx) => {
-  await tx.user.create({ data: { name: "Alice" } });
-  await tx.post.create({ data: { title: "Hello", authorId: "..." } });
-});
-```
+PGlite supports full transactions with savepoints for nested transactions — see [Transactions](/docs/client/transactions).
 
 ## Limitations
 
 - WASM-based: may have performance overhead for heavy workloads
-- Limited nested transaction support
 - Some PostgreSQL extensions not available

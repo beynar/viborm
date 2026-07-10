@@ -76,19 +76,4 @@ const client = createClient({
 
 ## Transactions
 
-postgres.js supports full transactions with automatic savepoints for nested transactions.
-
-```typescript
-await client.$transaction(async (tx) => {
-  await tx.user.create({ data: { name: "Alice" } });
-  await tx.post.create({ data: { title: "Hello", authorId: "..." } });
-});
-```
-
-## Features
-
-- Modern async/await API
-- Automatic connection management
-- Full transaction support with savepoints
-- pgvector and PostGIS extensions
-- High performance
+postgres.js supports full transactions with automatic savepoints for nested transactions — see [Transactions](/docs/client/transactions).

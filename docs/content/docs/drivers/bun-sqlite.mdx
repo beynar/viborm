@@ -60,18 +60,11 @@ const client = createClient({
 
 ## Transactions
 
-Bun SQLite supports full transactions with savepoints for nested transactions.
-
-```typescript
-await client.$transaction(async (tx) => {
-  await tx.user.create({ data: { name: "Alice" } });
-  await tx.post.create({ data: { title: "Hello", authorId: "..." } });
-});
-```
+Bun SQLite supports full transactions with savepoints for nested transactions — see [Transactions](/docs/client/transactions).
 
 ## Limitations
 
 - Only available in Bun runtime
-- JSON columns return as strings; JSON-encoded relation results are parsed via `tryParseJsonString()`
+- JSON columns are parsed automatically
 - Boolean values stored as integers (0/1)
 - Synchronous API internally (async wrapper)
