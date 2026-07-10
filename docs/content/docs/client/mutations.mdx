@@ -16,33 +16,6 @@ icon: PenLine
 | `deleteMany` | Delete multiple records | `{ count }` |
 | `upsert` | Create or update | `T` |
 
-## Quick Examples
-
-```ts
-// Create
-const user = await client.user.create({
-  data: { email: "alice@example.com", name: "Alice" },
-});
-
-// Update
-await client.user.update({
-  where: { id: "user_123" },
-  data: { name: "Alice Smith" },
-});
-
-// Delete
-await client.user.delete({
-  where: { id: "user_123" },
-});
-
-// Upsert
-await client.user.upsert({
-  where: { email: "alice@example.com" },
-  create: { email: "alice@example.com", name: "Alice" },
-  update: { name: "Alice Updated" },
-});
-```
-
 ## Pages
 
 <Cards>

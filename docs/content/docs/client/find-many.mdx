@@ -4,11 +4,11 @@ description: Find multiple records matching your criteria with filtering and pag
 icon: List
 ---
 
-## Basic Usage
+`findMany` returns every record matching a filter, as an array.
 
 ```ts
 const users = await client.user.findMany();
-// Returns all users
+// Result: all users
 ```
 
 ## With Filtering
@@ -22,58 +22,30 @@ const activeAdmins = await client.user.findMany({
 });
 ```
 
+See [Filtering](/docs/client/filtering) for the full operator reference.
+
 ## With Sorting
 
 ```ts
 const users = await client.user.findMany({
   orderBy: { createdAt: "desc" },
 });
-
-// Multiple sort fields
-const users = await client.user.findMany({
-  orderBy: [
-    { role: "asc" },
-    { name: "asc" },
-  ],
-});
 ```
+
+See [Sorting](/docs/client/sorting) for multi-field, relation, and aggregate ordering.
 
 ## With Pagination
 
 ```ts
-// Offset pagination
-const page1 = await client.user.findMany({
-  take: 10,
-  skip: 0,
-});
-
-// Cursor pagination
 const page2 = await client.user.findMany({
   take: 10,
-  cursor: { id: "last_id" },
   skip: 1,  // Skip the cursor itself
+  cursor: { id: lastId },
+  orderBy: { id: "asc" },
 });
 ```
 
-## With Relations
-
-```ts
-// Include relations
-const users = await client.user.findMany({
-  include: { posts: true },
-});
-
-// Select specific fields
-const users = await client.user.findMany({
-  select: {
-    id: true,
-    email: true,
-    posts: {
-      select: { title: true },
-    },
-  },
-});
-```
+See [Pagination](/docs/client/pagination) for offset and cursor pagination.
 
 ## All Options
 
@@ -89,6 +61,8 @@ await client.user.findMany({
   distinct: ["field"],      // Distinct by field
 });
 ```
+
+`select` and `include` control the returned shape — see [Selecting Fields](/docs/client/selecting).
 
 At the top level, a negative `take` returns the last N records in the order. This "last N" form is top-level only — a negative `take` or a `cursor` inside a nested `include`/`select` isn't supported.
 
@@ -114,27 +88,6 @@ const users = await client.user.findMany({
 
 ## Examples
 
-### Paginated List
-
-```ts
-async function getUsers(page: number, pageSize: number) {
-  const [users, total] = await Promise.all([
-    client.user.findMany({
-      take: pageSize,
-      skip: (page - 1) * pageSize,
-      orderBy: { createdAt: "desc" },
-    }),
-    client.user.count(),
-  ]);
-  
-  return {
-    users,
-    total,
-    pages: Math.ceil(total / pageSize),
-  };
-}
-```
-
 ### Search with Filters
 
 ```ts
@@ -155,20 +108,3 @@ async function searchUsers(query: string, role?: string) {
   });
 }
 ```
-
-### Load with Relations
-
-```ts
-const usersWithPosts = await client.user.findMany({
-  where: { active: true },
-  include: {
-    posts: {
-      where: { published: true },
-      orderBy: { createdAt: "desc" },
-      take: 5,
-    },
-    profile: true,
-  },
-});
-```
-

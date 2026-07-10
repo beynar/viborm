@@ -222,16 +222,4 @@ async function getInactiveUsers() {
 }
 ```
 
-### Count Relations
-
-```ts
-const usersWithPostCount = await client.user.findMany({
-  include: {
-    _count: {
-      select: { posts: true, comments: true },
-    },
-  },
-});
-// user._count.posts, user._count.comments
-```
 

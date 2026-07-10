@@ -4,34 +4,13 @@ description: Remove records from your database
 icon: Trash2
 ---
 
-## delete
-
-Delete a single record by unique identifier:
+`delete` removes a single record matched by a unique identifier and returns it. It throws if the record doesn't exist.
 
 ```ts
 const user = await client.user.delete({
   where: { id: "user_123" },
 });
-// Returns the deleted record
-```
-
-### With Return Scalars
-
-```ts
-const user = await client.user.delete({
-  where: { id: "user_123" },
-  select: { id: true, email: true },
-});
-// Type: { id: string; email: string }
-```
-
-### With Relations
-
-```ts
-const user = await client.user.delete({
-  where: { id: "user_123" },
-  include: { posts: true },  // Include relations in return
-});
+// Result: the deleted record
 ```
 
 ## Options
@@ -43,6 +22,8 @@ await client.user.delete({
   include: { ... },     // Optional: relations to include
 });
 ```
+
+`select` and `include` control the returned shape — see [Selecting Fields](/docs/client/selecting).
 
 ## Cascading Deletes
 
@@ -106,33 +87,13 @@ async function deleteAccount(userId: string) {
   await client.post.deleteMany({
     where: { authorId: userId },
   });
-  
+
   await client.profile.delete({
     where: { userId },
   }).catch(() => {}); // Ignore if no profile
-  
+
   return client.user.delete({
     where: { id: userId },
   });
 }
 ```
-
-### Cleanup Old Data
-
-```ts
-async function cleanupOldData() {
-  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-  
-  const [sessions, logs] = await Promise.all([
-    client.session.deleteMany({
-      where: { expiresAt: { lt: new Date() } },
-    }),
-    client.auditLog.deleteMany({
-      where: { createdAt: { lt: thirtyDaysAgo } },
-    }),
-  ]);
-  
-  console.log(`Deleted ${sessions.count} sessions, ${logs.count} logs`);
-}
-```
-

@@ -18,55 +18,6 @@ icon: Search
 | `aggregate` | Compute min/max/sum/avg/count | aggregate result |
 | `groupBy` | Group records and aggregate per group | grouped rows |
 
-## Common Options
-
-Read operations support these common options where listed in the operation reference:
-
-```ts
-{
-  where: { ... },           // Filter conditions
-  select: { ... },          // Select specific fields
-  include: { ... },         // Include relations
-}
-```
-
-`findMany` and `findFirst` additionally support:
-
-```ts
-{
-  orderBy: { ... },         // Sort results
-  take: 10,                 // Limit results
-  skip: 0,                  // Offset results
-  cursor: { ... },          // Cursor pagination
-}
-```
-
-`findMany` also supports `distinct: ["field"]`.
-
-## Quick Examples
-
-```ts
-// Find all active users
-const users = await client.user.findMany({
-  where: { active: true },
-});
-
-// Find first admin
-const admin = await client.user.findFirst({
-  where: { role: "ADMIN" },
-});
-
-// Find by ID
-const user = await client.user.findUnique({
-  where: { id: "user_123" },
-});
-
-// Check if admin exists
-const hasAdmin = await client.user.exist({
-  where: { role: "ADMIN" },
-});
-```
-
 ## Pages
 
 <Cards>

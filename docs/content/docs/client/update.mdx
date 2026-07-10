@@ -4,9 +4,7 @@ description: Update existing records in your database
 icon: Pencil
 ---
 
-## update
-
-Update a single record by unique identifier:
+`update` modifies a single record matched by a unique identifier and returns it. It throws if the record doesn't exist.
 
 ```ts
 const user = await client.user.update({
@@ -15,7 +13,7 @@ const user = await client.user.update({
 });
 ```
 
-### Scalar Operations
+## Scalar Operations
 
 ```ts
 // Set value
@@ -50,12 +48,11 @@ await client.post.update({
 });
 ```
 
-### With Relations
+## With Relations
 
-From an `update` you can `create`, `connect`, `connectOrCreate`, `disconnect`, `delete`, `set`, `update`, `updateMany`, `upsert`, and `deleteMany` related records. See [Nested writes](/docs/client/nested-writes) for each one.
+From an `update` you can `create`, `connect`, `connectOrCreate`, `disconnect`, `delete`, `set`, `update`, `updateMany`, `upsert`, and `deleteMany` related records:
 
 ```ts
-// Create related records
 await client.user.update({
   where: { id: "user_123" },
   data: {
@@ -64,60 +61,9 @@ await client.user.update({
     },
   },
 });
-
-// Connect existing records
-await client.user.update({
-  where: { id: "user_123" },
-  data: {
-    posts: {
-      connect: { id: "post_456" },
-    },
-  },
-});
-
-// Disconnect records (many-to-many)
-await client.post.update({
-  where: { id: "post_123" },
-  data: {
-    tags: {
-      disconnect: [{ id: "tag_1" }],
-    },
-  },
-});
-
-// Replace all (set)
-await client.post.update({
-  where: { id: "post_123" },
-  data: {
-    tags: {
-      set: [{ id: "tag_2" }, { id: "tag_3" }],
-    },
-  },
-});
-
-// Update related records
-await client.user.update({
-  where: { id: "user_123" },
-  data: {
-    posts: {
-      update: {
-        where: { id: "post_123" },
-        data: { published: true },
-      },
-    },
-  },
-});
-
-// Delete nested records
-await client.user.update({
-  where: { id: "user_123" },
-  data: {
-    posts: {
-      delete: { id: "post_123" },
-    },
-  },
-});
 ```
+
+See [Nested writes](/docs/client/nested-writes) for each operation.
 
 ## Options
 
@@ -129,6 +75,8 @@ await client.user.update({
   include: { ... },     // Optional: relations to include
 });
 ```
+
+`select` and `include` control the returned shape — see [Selecting Fields](/docs/client/selecting).
 
 ## Examples
 
@@ -161,20 +109,6 @@ async function recordView(postId: string) {
       views: { increment: 1 },
       lastViewedAt: new Date(),
     },
-  });
-}
-```
-
-### Bulk Status Update
-
-```ts
-async function archiveOldPosts(beforeDate: Date) {
-  return client.post.updateMany({
-    where: {
-      createdAt: { lt: beforeDate },
-      archived: false,
-    },
-    data: { archived: true },
   });
 }
 ```

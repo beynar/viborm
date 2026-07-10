@@ -4,9 +4,7 @@ description: Create new records in your database
 icon: Plus
 ---
 
-## create
-
-Create a single record:
+`create` inserts a single record and returns it.
 
 ```ts
 const user = await client.user.create({
@@ -17,12 +15,11 @@ const user = await client.user.create({
 });
 ```
 
-### With Relations
+## With Relations
 
-You can create, connect, and connect-or-create related records in the same call. See [Nested writes](/docs/client/nested-writes) for the full set of relation operations.
+You can create, connect, and connect-or-create related records in the same call:
 
 ```ts
-// Create with nested records
 const user = await client.user.create({
   data: {
     email: "alice@example.com",
@@ -39,42 +36,9 @@ const user = await client.user.create({
   },
   include: { posts: true, profile: true },
 });
-
-// Connect existing records
-const user = await client.user.create({
-  data: {
-    email: "bob@example.com",
-    name: "Bob",
-    posts: {
-      connect: [{ id: "post_1" }, { id: "post_2" }],
-    },
-  },
-});
-
-// Connect or create
-const user = await client.user.create({
-  data: {
-    email: "carol@example.com",
-    name: "Carol",
-    profile: {
-      connectOrCreate: {
-        where: { userId: "carol_123" },
-        create: { bio: "New profile", userId: "carol_123" },
-      },
-    },
-  },
-});
 ```
 
-### Return Selected Scalars
-
-```ts
-const user = await client.user.create({
-  data: { email: "alice@example.com", name: "Alice" },
-  select: { id: true, email: true },
-});
-// Type: { id: string; email: string }
-```
+See [Nested writes](/docs/client/nested-writes) for `connect`, `connectOrCreate`, and the full set of relation operations.
 
 ## Options
 
@@ -86,6 +50,8 @@ await client.user.create({
 });
 ```
 
+`select` and `include` control the returned shape — see [Selecting Fields](/docs/client/selecting).
+
 ## Examples
 
 ### User Registration
@@ -93,7 +59,7 @@ await client.user.create({
 ```ts
 async function registerUser(email: string, password: string, name: string) {
   const passwordHash = await hashPassword(password);
-  
+
   return client.user.create({
     data: {
       email,
@@ -129,19 +95,5 @@ async function createPost(authorId: string, title: string, tagNames: string[]) {
     },
     include: { tags: true },
   });
-}
-```
-
-### Bulk Import
-
-```ts
-async function importUsers(users: { email: string; name: string }[]) {
-  const result = await client.user.createMany({
-    data: users,
-    skipDuplicates: true,
-  });
-  
-  console.log(`Imported ${result.count} users`);
-  return result;
 }
 ```
