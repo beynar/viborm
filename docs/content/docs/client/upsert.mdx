@@ -4,7 +4,7 @@ description: Create a record if it doesn't exist, or update it if it does
 icon: RefreshCw
 ---
 
-## Basic Usage
+`upsert` updates the record matching `where` if it exists, otherwise creates it — in a single atomic statement.
 
 ```ts
 const user = await client.user.upsert({
@@ -19,15 +19,7 @@ const user = await client.user.upsert({
 });
 ```
 
-## How It Works
-
-1. Search for record matching `where`
-2. If found → apply `update`
-3. If not found → apply `create`
-
-<Callout type="info">
-  `upsert` is atomic and race-safe: if two upserts race to create the same missing row, the loser retries once and takes the update branch instead of failing.
-</Callout>
+`upsert` is atomic and race-safe: concurrent upserts on the same key never fail with a duplicate error — one creates, the other updates.
 
 ## Options
 

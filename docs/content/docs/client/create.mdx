@@ -114,8 +114,6 @@ async function registerUser(email: string, password: string, name: string) {
 
 ### Create Post with Tags
 
-This example is conceptual unless your relation shape matches the supported nested `connectOrCreate` cases in the compatibility table.
-
 ```ts
 async function createPost(authorId: string, title: string, tagNames: string[]) {
   return client.post.create({

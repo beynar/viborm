@@ -32,9 +32,7 @@ const result = await client.user.createMany({
 // Result: { count: 1 }
 ```
 
-<Callout type="warn">
-  On MySQL, `skipDuplicates` can skip **more** than unique-constraint conflicts — foreign-key violations, `NOT NULL` violations, and data truncation are silently dropped too, where other databases would raise an error. If those cases matter, validate rows first or insert without `skipDuplicates` and handle the constraint errors. See [Compatibility](/docs/client/compatibility) for the details.
-</Callout>
+On MySQL, `skipDuplicates` can silently skip more than duplicates — see [Compatibility](/docs/client/compatibility#database-differences).
 
 ## createManyAndReturn
 

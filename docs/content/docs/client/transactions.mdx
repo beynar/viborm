@@ -4,10 +4,11 @@ description: Execute multiple operations with callback transactions or atomic ba
 icon: Layers
 ---
 
-VibORM gives you two ways to run several operations together, and both are **atomic** — if any operation fails, none are applied:
+VibORM gives you two supported ways to run several operations together, and
+both are **atomic** — if any operation fails, none are applied:
 
 1. **Interactive transactions** — a callback where later operations can use results from earlier ones.
-2. **Batch mode** — an array of independent operations that run together in one round-trip.
+2. **Batch mode** — an array of independent operations that share one atomic boundary.
 
 ## Dynamic Transactions
 
@@ -30,19 +31,23 @@ await client.$transaction(async (tx) => {
 });
 ```
 
-### Transaction Options
+### Portable option contract
 
-```ts
-await client.$transaction(
-  async (tx) => {
-    // ... operations
-  },
-  {
-    isolationLevel: "serializable",  // PostgreSQL and MySQL drivers; not SQLite
-    timeout: 5000,                    // Max duration in ms
-  }
-);
-```
+`$transaction` does not accept a second options argument. Isolation levels,
+timeouts, and access modes are provider-specific, so the portable client
+rejects them — see [Compatibility](/docs/client/compatibility). Use a
+documented provider-native escape hatch when database-specific transaction
+behavior is intentional. Ordinary raw SQL does not guarantee a pinned session
+on pooled or HTTP drivers.
+
+### Use only the supplied transaction client
+
+Portable callback-transaction code performs database work through the `tx`
+client supplied to the callback. Starting work through the originating client
+while that callback is active is outside the portable contract because drivers
+have different connection topologies: single-connection drivers reject that
+work fail-closed, and pooled drivers are not globally serialized. Do not depend
+on originating-client concurrency inside a callback transaction.
 
 ## Batch Mode (Prisma-style)
 
@@ -98,13 +103,20 @@ const [users, posts] = await client.$transaction([
 
 ## Driver support
 
-Every driver supports both forms, **except the serverless HTTP drivers — D1, D1 HTTP, and Neon HTTP — which are batch-only**. On those, use the array form; the callback form throws.
+Every connection-oriented driver supports both forms. D1 bindings and Neon HTTP
+are batch-only, so their callback form throws. D1 HTTP exposes neither an
+interactive transaction nor a proven atomic batch primitive; its callback and
+non-empty array forms reject instead of executing non-atomically. An empty
+array always returns `[]` without contacting a provider.
 
 ### The difference
 
 **Interactive transactions** give you read-your-writes: later operations can use the results of earlier ones.
 
-**Batch mode** runs independent operations together in one round-trip — often faster — but siblings can't read each other's results.
+**Batch mode** runs independent operations under one atomic boundary, but
+siblings can't read each other's results. Drivers with native batch APIs may
+submit one provider call; connection-oriented drivers may execute sequential
+statements inside a transaction.
 
 Both are all-or-nothing.
 
@@ -132,8 +144,8 @@ await client.$transaction(async (tx) => {
 ### Use Batch Mode When:
 
 - Operations are independent (any dependency inside a single nested write is fine)
-- You want the extra performance of a single round-trip
-- You're on a serverless driver (D1, D1 HTTP, Neon HTTP)
+- You want independent operations to share one atomic boundary
+- You're on a serverless driver that only supports batch mode (see [Driver support](#driver-support))
 
 ```ts
 // Good: sibling operations can be planned up front
@@ -146,4 +158,10 @@ const [users, posts, stats] = await client.$transaction([
 
 ## Error handling
 
-If any operation in a transaction or batch fails, the whole thing is rolled back — you never end up with a partial write.
+If any operation in a supported transaction or atomic batch fails, the whole
+thing is rolled back — you never end up with a partial write.
+
+If rollback or savepoint cleanup also fails, the original operation failure
+remains the primary error and cleanup failures are attached in an
+`AggregateError`. A driver whose transaction state can no longer be proven safe
+is closed or poisoned instead of being reused.

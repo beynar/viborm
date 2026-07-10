@@ -131,7 +131,7 @@ const user = await client.user.update({
 });
 ```
 
-The to-many form may also accept an array of targeted updates:
+The to-many form also accepts an array of targeted updates:
 
 ```ts
 const user = await client.user.update({
@@ -211,7 +211,7 @@ const user = await client.user.update({
 });
 ```
 
-The to-many form may also accept an array of `{ where, create, update }` envelopes.
+The to-many form also accepts an array of `{ where, create, update }` envelopes.
 
 ## Connection Management
 
@@ -308,7 +308,7 @@ const user = await client.user.update({
 });
 ```
 
-The to-many form may also accept an array of filters:
+The to-many form also accepts an array of filters:
 
 ```ts
 const user = await client.user.update({
@@ -444,8 +444,6 @@ async function registerUser(data: {
 ```
 
 ### Update Post with Tags
-
-This example assumes `tags` is a to-many relation where `set` and `connectOrCreate` are supported.
 
 ```ts
 async function updatePostTags(postId: string, tagNames: string[]) {

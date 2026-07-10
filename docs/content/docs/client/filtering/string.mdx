@@ -12,6 +12,8 @@ icon: Type
 | `not` | Not equal |
 | `in` | Match any in array |
 | `notIn` | Match none in array |
+| `lt` / `lte` | Sorts before (exclusive / inclusive) |
+| `gt` / `gte` | Sorts after (exclusive / inclusive) |
 | `contains` | Contains substring |
 | `startsWith` | Starts with prefix |
 | `endsWith` | Ends with suffix |
@@ -80,13 +82,7 @@ where: { name: { contains: "alice", mode: "insensitive" } }
 
 `mode: "insensitive"` applies to `equals`, `not`, `in`, `notIn`, `contains`, `startsWith`, and `endsWith`.
 
-<Callout type="info">
-  Case-sensitivity behavior is database-dependent, matching Prisma's documented tradeoffs:
-
-  - **PostgreSQL** is case-sensitive by default; `mode: "insensitive"` uses `ILIKE` (or an escaped-pattern equivalent for `equals`/`in`).
-  - **MySQL**'s default collations (e.g. `utf8mb4_0900_ai_ci`) are already case-insensitive, so both default and `insensitive` mode behave the same way unless you configure a case-sensitive collation on the column.
-  - **SQLite** is case-insensitive for ASCII characters by default in `LIKE`-based comparisons, regardless of `mode` — this is a SQLite limitation, not a VibORM choice.
-</Callout>
+Default case sensitivity follows your database's collation — see [Compatibility](/docs/client/compatibility#database-differences).
 
 ## Combined Example
 

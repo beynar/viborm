@@ -82,8 +82,7 @@ where: {
 }
 ```
 
-Matching is case-sensitive on PostgreSQL and MySQL. SQLite's `LIKE` is
-case-insensitive for ASCII, so matches there ignore ASCII case.
+Matching is case-sensitive — see [Compatibility](/docs/client/compatibility#database-differences) for per-database caveats.
 
 ## Array Operations
 
@@ -160,13 +159,3 @@ async function getPostsByTag(tag: string) {
   });
 }
 ```
-
-## Database Support
-
-All operators work on PostgreSQL (`jsonb` with `#>`/`@>`), MySQL
-(`JSON_EXTRACT`/`JSON_CONTAINS`), and SQLite (`->`/`->>`/`json_each`),
-with two SQLite caveats:
-
-- Object keys containing `"` or `\` cannot be addressed by `path` (SQLite's
-  JSON path grammar has no escape syntax); such filters match nothing.
-- String operators ignore ASCII case (SQLite `LIKE` semantics).

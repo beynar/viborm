@@ -278,20 +278,3 @@ async function getLeaderboard() {
 |-------|-------------|
 | `"asc"` | Ascending (A-Z, 0-9, oldest-newest) |
 | `"desc"` | Descending (Z-A, 9-0, newest-oldest) |
-
-## Database Collation
-
-String sorting depends on database collation:
-
-```ts
-// PostgreSQL: Case-sensitive by default
-// MySQL: Depends on collation setting
-// SQLite: Case-sensitive by default
-
-// Use case-insensitive collation in PostgreSQL
-const users = await client.user.findMany({
-  orderBy: {
-    name: "asc",  // Uses database collation
-  },
-});
-```

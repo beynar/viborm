@@ -90,10 +90,6 @@ await client.user.findMany({
 });
 ```
 
-<Callout type="info">
-  `distinct` combined with `orderBy`, and `skip` without `take`, both behave as expected — your ordering is preserved and results are consistent everywhere.
-</Callout>
-
 At the top level, a negative `take` returns the last N records in the order. This "last N" form is top-level only — a negative `take` or a `cursor` inside a nested `include`/`select` isn't supported.
 
 ## Return Type
