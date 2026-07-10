@@ -21,12 +21,7 @@ import type {
   InferSelectInclude,
 } from "./result-types";
 
-/**
- * Callback to extend the lifetime of the request until the promise resolves.
- * Used in serverless environments (Cloudflare Workers, Vercel Edge) to keep
- * the runtime alive for background operations like SWR revalidation.
- */
-export type WaitUntilFn = (promise: Promise<unknown>) => void;
+export type { WaitUntilFn } from "../cache/cache-contract";
 
 export type Schema = Record<string, Model<any>>;
 
@@ -135,9 +130,13 @@ export type OperationPayload<
                                       "updateManyAndReturn"
                                     >
                                   : O extends "exist"
-                                    ? {
-                                        where: ModelCoreInput<M, "where">;
-                                      }
+                                    ? // Optional like the runtime (count
+                                      // schema): exist() with no filter
+                                      // reports whether any row exists.
+                                      | {
+                                          where?: ModelCoreInput<M, "where">;
+                                        }
+                                      | undefined
                                     : never;
 
 /**

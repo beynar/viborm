@@ -45,7 +45,7 @@ const stats = await client.post.groupBy({
   where: { published: true },
   _count: true,
   having: {
-    _count: { _all: { gt: 5 } }, // Only authors with 5+ posts
+    authorId: { _count: { gt: 5 } }, // Only authors with 5+ posts
   },
   orderBy: { _count: { _all: "desc" } },
   take: 10,
@@ -71,7 +71,7 @@ await client.post.groupBy({
 ```
 
 <Callout type="info">
-  Every `orderBy` field must either appear in `by` or be an aggregate key (`_count`, `_avg`, `_sum`, `_min`, `_max`). Ordering by an aggregate works the same way `having` does:
+  Every `orderBy` field must either appear in `by` or be an aggregate key (`_count`, `_avg`, `_sum`, `_min`, `_max`). Note the two shapes differ: `orderBy` takes the aggregate at the top level, while `having` is keyed by field name with the aggregate nested inside (`having: { authorId: { _count: { gt: 5 } } }`).
 
   ```ts
   await client.post.groupBy({
@@ -108,7 +108,7 @@ async function getCategoryStats() {
     _count: true,
     _avg: { views: true },
     having: {
-      _count: { _all: { gte: 1 } },
+      categoryId: { _count: { gte: 1 } },
     },
   });
 }

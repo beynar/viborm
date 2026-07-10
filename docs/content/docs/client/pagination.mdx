@@ -40,7 +40,7 @@ async function getPage(page: number, pageSize: number) {
     }),
     client.user.count(),
   ]);
-  
+
   return {
     items,
     total,
@@ -71,6 +71,27 @@ const page2 = await client.user.findMany({
 });
 ```
 
+### Total-order contract
+
+VibORM gives every scalar cursor query one deterministic total order on
+PostgreSQL, MySQL, and SQLite-family databases:
+
+- Requested scalar `orderBy` keys keep their declared precedence.
+- VibORM appends the model's primary identity as an ascending tie-breaker when
+  it is missing: a scalar ID first, otherwise the compound ID in model-field
+  order. Remaining fields from an alternate unique cursor are appended after
+  that canonical identity. They do not change the order because the canonical
+  identity is already unique.
+- A bare ascending order places `null` last. A bare descending order places
+  `null` first. Use `{ sort, nulls }` to choose the other placement explicitly.
+- The same normalized keys drive both `ORDER BY` and the cursor predicate, so
+  tied and nullable values cannot duplicate or omit records between pages.
+- A cursor that does not identify an existing row returns an empty page.
+
+Cursor pagination currently accepts direct scalar `asc`/`desc` order keys.
+Relation ordering and vector-distance ordering must be queried without a
+cursor.
+
 ### Bi-directional Cursor
 
 Navigate forward and backward:
@@ -92,6 +113,11 @@ const prev = await client.user.findMany({
   orderBy: { id: "asc" },
 });
 ```
+
+Negative `take` reverses every sort direction and null placement for the SQL
+window, applies `skip` from the cursor, takes the requested number of rows, and
+then returns those rows in the original logical order. There is only one result
+reversal; callers should not reverse the returned page again.
 
 ## take and skip
 
@@ -137,10 +163,10 @@ async function loadMore(cursor?: string, limit = 20) {
     }),
     orderBy: { createdAt: "desc" },
   });
-  
+
   const hasMore = items.length > limit;
   const data = hasMore ? items.slice(0, -1) : items;
-  
+
   return {
     data,
     hasMore,
@@ -168,18 +194,22 @@ async function getConnection(
   last?: number,
   before?: string
 ): Promise<Connection<User>> {
-  const take = first ?? -(last ?? 10);
+  const pageSize = first ?? last ?? 10;
+  const take = first !== undefined ? pageSize + 1 : -(pageSize + 1);
   const cursor = after ?? before;
-  
+
   const items = await client.user.findMany({
-    take: Math.abs(take) + 1,
+    take,
     ...(cursor && { skip: 1, cursor: { id: cursor } }),
     orderBy: { id: "asc" },
   });
-  
-  const hasMore = items.length > Math.abs(take);
-  const nodes = hasMore ? items.slice(0, -1) : items;
-  
+
+  const hasMore = items.length > pageSize;
+  let nodes = items;
+  if (hasMore) {
+    nodes = first !== undefined ? items.slice(0, -1) : items.slice(1);
+  }
+
   return {
     edges: nodes.map(node => ({
       node,
@@ -233,4 +263,3 @@ const unique = await client.post.findMany({
   distinct: ["authorId", "categoryId"],
 });
 ```
-

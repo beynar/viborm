@@ -7,15 +7,12 @@ icon: Terminal
 ## Creating a Client
 
 ```ts
-import { createClient } from "viborm";
-import { PostgresAdapter } from "viborm/adapters/postgres";
+import { createClient } from "viborm/pg";
 import { user, post } from "./schema";
 
 const client = createClient({
   schema: { user, post },
-  adapter: new PostgresAdapter({
-    connectionString: process.env.DATABASE_URL,
-  }),
+  databaseUrl: process.env.DATABASE_URL,
 });
 ```
 
@@ -153,9 +150,9 @@ await client.user.create({
     href="/docs/client/filtering"
   />
   <Card
-    title="Relations"
+    title="Relation Filters"
     description="Query and filter on relations"
-    href="/docs/client/relations"
+    href="/docs/client/filtering/relations"
   />
   <Card
     title="Selecting"
