@@ -98,18 +98,3 @@ async function getTopAuthors(limit = 10) {
   });
 }
 ```
-
-### Category stats
-
-```ts
-async function getCategoryStats() {
-  return client.post.groupBy({
-    by: ["categoryId"],
-    _count: true,
-    _avg: { views: true },
-    having: {
-      categoryId: { _count: { gte: 1 } },
-    },
-  });
-}
-```

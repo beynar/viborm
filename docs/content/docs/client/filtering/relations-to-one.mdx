@@ -153,48 +153,4 @@ async function getPostsByAuthorEmail(email: string) {
 }
 ```
 
-### Find Users Without Profile
-
-```ts
-async function getUsersWithoutProfile() {
-  return client.user.findMany({
-    where: {
-      profile: { is: null },
-    },
-  });
-}
-```
-
-### Filter by Organization
-
-```ts
-async function getTeamPosts(orgId: string) {
-  return client.post.findMany({
-    where: {
-      author: {
-        is: {
-          organizationId: orgId,
-        },
-      },
-      published: true,
-    },
-    orderBy: { createdAt: "desc" },
-  });
-}
-```
-
-### Exclude Banned Authors
-
-```ts
-async function getPublicPosts() {
-  return client.post.findMany({
-    where: {
-      published: true,
-      author: {
-        isNot: { status: "BANNED" },
-      },
-    },
-  });
-}
-```
 

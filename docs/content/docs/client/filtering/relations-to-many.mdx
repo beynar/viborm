@@ -160,40 +160,6 @@ const engagedUsers = await client.user.findMany({
 
 ## Examples
 
-### Find Active Authors
-
-```ts
-async function getActiveAuthors() {
-  return client.user.findMany({
-    where: {
-      posts: {
-        some: {
-          published: true,
-          createdAt: { gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) },
-        },
-      },
-    },
-  });
-}
-```
-
-### Find Popular Posts
-
-```ts
-async function getPopularPosts() {
-  return client.post.findMany({
-    where: {
-      comments: {
-        some: {},  // Has at least one comment
-      },
-      tags: {
-        some: { name: "popular" },
-      },
-    },
-  });
-}
-```
-
 ### Find Posts by Tag
 
 ```ts
@@ -205,19 +171,6 @@ async function getPostsByTags(tagNames: string[]) {
       })),
     },
     include: { tags: true },
-  });
-}
-```
-
-### Find Users Without Activity
-
-```ts
-async function getInactiveUsers() {
-  return client.user.findMany({
-    where: {
-      posts: { none: {} },
-      comments: { none: {} },
-    },
   });
 }
 ```

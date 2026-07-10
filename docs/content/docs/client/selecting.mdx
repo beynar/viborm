@@ -181,41 +181,6 @@ async function getPublicProfile(userId: string) {
 }
 ```
 
-### Minimal List
-
-```ts
-async function getUserList() {
-  return client.user.findMany({
-    select: {
-      id: true,
-      name: true,
-      email: true,
-    },
-    orderBy: { name: "asc" },
-  });
-}
-```
-
-### Full Detail
-
-```ts
-async function getUserDetail(userId: string) {
-  return client.user.findUnique({
-    where: { id: userId },
-    include: {
-      profile: true,
-      posts: {
-        include: {
-          tags: true,
-          _count: { select: { comments: true } },
-        },
-      },
-      settings: true,
-    },
-  });
-}
-```
-
 ### API Response
 
 ```ts

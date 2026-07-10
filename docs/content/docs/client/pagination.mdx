@@ -119,28 +119,6 @@ reverse the returned page yourself.
 
 ## Examples
 
-### Simple Paginator
-
-```ts
-async function paginate<T>(
-  findMany: (args: { take: number; skip: number }) => Promise<T[]>,
-  page: number,
-  pageSize: number
-) {
-  return findMany({
-    take: pageSize,
-    skip: (page - 1) * pageSize,
-  });
-}
-
-// Usage
-const users = await paginate(
-  (args) => client.user.findMany({ ...args, orderBy: { name: "asc" } }),
-  1,
-  20
-);
-```
-
 ### Infinite Scroll
 
 ```ts
@@ -223,19 +201,6 @@ async function getConnection(
 | Performance | ⚠️ Degrades on large offsets | ✅ Consistent |
 | Random access | ✅ Any page | ❌ Sequential only |
 | Real-time data | ⚠️ Can skip/duplicate | ✅ Consistent |
-
-### When to Use Offset
-
-- Small datasets (&lt;10k records)
-- Need random page access
-- Simple admin interfaces
-
-### When to Use Cursor
-
-- Large datasets
-- Infinite scroll
-- Real-time feeds
-- Mobile apps
 
 ## distinct
 

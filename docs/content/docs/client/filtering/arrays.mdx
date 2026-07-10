@@ -14,7 +14,7 @@ Array scalars (`s.string().array()`, `s.int().array()`, etc.) work identically o
 | `hasEvery` | Array contains all values |
 | `hasSome` | Array contains any value |
 | `isEmpty` | Array is empty |
-| `equals` | Exact array match |
+| `equals` | Exact array match (order matters) |
 
 ## has
 
@@ -79,96 +79,6 @@ where: {
 // Has at least one tag
 where: {
   tags: { isEmpty: false },
-}
-```
-
-## equals
-
-Exact array match (order matters):
-
-```ts
-// Exactly these tags in this order
-where: {
-  tags: { equals: ["featured", "top"] },
-}
-```
-
-## Examples
-
-### Tagged Content
-
-```ts
-async function getPostsByTag(tag: string) {
-  return client.post.findMany({
-    where: {
-      tags: { has: tag },
-      published: true,
-    },
-  });
-}
-```
-
-### Multiple Tags
-
-```ts
-async function getPostsWithAllTags(tags: string[]) {
-  return client.post.findMany({
-    where: {
-      tags: { hasEvery: tags },
-    },
-  });
-}
-
-async function getPostsWithAnyTag(tags: string[]) {
-  return client.post.findMany({
-    where: {
-      tags: { hasSome: tags },
-    },
-  });
-}
-```
-
-### Permission Check
-
-```ts
-async function getUsersWithPermission(permission: string) {
-  return client.user.findMany({
-    where: {
-      permissions: { has: permission },
-    },
-  });
-}
-
-async function getUsersWithAllPermissions(permissions: string[]) {
-  return client.user.findMany({
-    where: {
-      permissions: { hasEvery: permissions },
-    },
-  });
-}
-```
-
-### Untagged Content
-
-```ts
-async function getUntaggedPosts() {
-  return client.post.findMany({
-    where: {
-      tags: { isEmpty: true },
-    },
-  });
-}
-```
-
-### Role-Based Access
-
-```ts
-async function getAdminUsers() {
-  return client.user.findMany({
-    where: {
-      roles: { hasSome: ["ADMIN", "SUPERADMIN"] },
-    },
-  });
 }
 ```
 

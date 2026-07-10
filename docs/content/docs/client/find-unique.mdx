@@ -81,7 +81,6 @@ const user = await client.user.findUniqueOrThrow({
 ## Return Type
 
 ```ts
-// Returns T | null
 const user = await client.user.findUnique({
   where: { id: "user_123" },
 });
