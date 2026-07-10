@@ -2,7 +2,6 @@
   "title": "Client",
   "pages": [
     "index",
-    "queries",
     "find-many",
     "find-first",
     "find-unique",
@@ -10,7 +9,6 @@
     "count",
     "aggregate",
     "group-by",
-    "mutations",
     "create",
     "create-many",
     "update",

@@ -35,10 +35,10 @@ await client.$transaction(async (tx) => {
 
 `$transaction` does not accept a second options argument. Isolation levels,
 timeouts, and access modes are provider-specific, so the portable client
-rejects them — see [Compatibility](/docs/client/compatibility). Use a
-documented provider-native escape hatch when database-specific transaction
-behavior is intentional. Ordinary raw SQL does not guarantee a pinned session
-on pooled or HTTP drivers.
+rejects them — see [Compatibility](/docs/client/compatibility). VibORM currently
+exposes no provider-native transaction-option escape hatch; use the database
+provider client directly when database-specific behavior is intentional.
+Ordinary raw SQL does not guarantee a pinned session on pooled or HTTP drivers.
 
 ### Use only the supplied transaction client
 
@@ -48,6 +48,10 @@ while that callback is active is outside the portable contract because drivers
 have different connection topologies: single-connection drivers reject that
 work fail-closed, and pooled drivers are not globally serialized. Do not depend
 on originating-client concurrency inside a callback transaction.
+
+At every nesting level, use the client supplied to that callback. Parent-scope
+work admitted before nested activation is serialized after it; new parent-scope
+calls during the nested callback reject fail-closed.
 
 ## Batch Mode (Prisma-style)
 
