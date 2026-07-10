@@ -2,6 +2,7 @@
   "title": "Documentation",
   "pages": [
     "index",
+    "why",
     "---Getting Started---",
     "getting-started/index",
     "getting-started/quick-start",

@@ -74,61 +74,7 @@ All migration options can be overridden via CLI flags:
 
 ## Database Drivers
 
-VibORM supports multiple database drivers. Choose the one that matches your database:
-
-### PostgreSQL
-
-<Tabs items={["PGlite (Embedded)", "node-postgres (pg)", "Postgres.js"]}>
-  <Tab value="PGlite (Embedded)">
-```ts title="src/db.ts"
-import { createClient } from "viborm/pglite";
-import * as schema from "./schema";
-
-// In-memory database (default)
-export const client = createClient({ schema });
-
-// Or with persistence
-// export const client = createClient({
-//   schema,
-//   dataDir: "./data/mydb",
-// });
-```
-  </Tab>
-  <Tab value="node-postgres (pg)">
-```ts title="src/db.ts"
-import { createClient } from "viborm/pg";
-import * as schema from "./schema";
-
-export const client = createClient({
-  schema,
-  databaseUrl: process.env.DATABASE_URL,
-});
-```
-  </Tab>
-  <Tab value="Postgres.js">
-```ts title="src/db.ts"
-import { createClient } from "viborm/postgres";
-import * as schema from "./schema";
-
-export const client = createClient({
-  schema,
-  databaseUrl: process.env.DATABASE_URL,
-});
-```
-  </Tab>
-</Tabs>
-
-### SQLite
-
-```ts title="src/db.ts"
-import { createClient } from "viborm/sqlite3";
-import * as schema from "./schema";
-
-export const client = createClient({
-  schema,
-  dataDir: "./data/mydb.sqlite",
-});
-```
+VibORM ships a driver per database library (`viborm/pg`, `viborm/postgres`, `viborm/sqlite3`, `viborm/pglite`, and more) — see [Drivers](/docs/drivers) for the full list and their options.
 
 ## Migration Storage
 
@@ -196,7 +142,7 @@ import * as schema from "./schema";
 // VibORM extracts only the model definitions
 export const client = createClient({
   schema,
-  options: { connectionString: process.env.DATABASE_URL },
+  databaseUrl: process.env.DATABASE_URL,
 });
 ```
 
@@ -214,17 +160,11 @@ import * as schema from "./schema";
 
 export const client = createClient({
   schema,
-  options: {
-    connectionString: process.env.DATABASE_URL,
-    // Or individual options:
-    // host: process.env.DB_HOST,
-    // port: Number(process.env.DB_PORT),
-    // user: process.env.DB_USER,
-    // password: process.env.DB_PASSWORD,
-    // database: process.env.DB_NAME,
-  },
+  databaseUrl: process.env.DATABASE_URL,
 });
 ```
+
+If a URL isn't enough, every driver also accepts an `options` object with library-specific settings (host, port, ssl, pool size, ...) — see [Drivers](/docs/drivers).
 
 ```bash title=".env"
 DATABASE_URL=postgresql://user:password@localhost:5432/mydb
@@ -259,12 +199,9 @@ const isProduction = process.env.NODE_ENV === "production";
 
 export const client = createClient({
   schema,
-  options: {
-    connectionString: isProduction
-      ? process.env.DATABASE_URL
-      : "postgresql://localhost:5432/mydb_dev",
-    ssl: isProduction ? { rejectUnauthorized: false } : undefined,
-  },
+  databaseUrl: isProduction
+    ? process.env.DATABASE_URL
+    : "postgresql://localhost:5432/mydb_dev",
 });
 ```
 
@@ -297,7 +234,7 @@ import * as schema from "./schema";
 
 export const client = createClient({
   schema,
-  options: { connectionString: process.env.DATABASE_URL },
+  databaseUrl: process.env.DATABASE_URL,
 });
 ```
 
@@ -324,23 +261,6 @@ bun viborm push --config viborm.config.prod.ts
 ```
   </Tab>
 </Tabs>
-
-## TypeScript Support
-
-The `defineConfig` helper provides full TypeScript support:
-
-```ts
-import { defineConfig } from "viborm/config";
-import { client } from "./src/db";
-
-export default defineConfig({
-  client, // Type-checked
-  migrations: {
-    dir: "./migrations",
-    tableName: "_viborm_migrations",
-  },
-});
-```
 
 ## Next Steps
 

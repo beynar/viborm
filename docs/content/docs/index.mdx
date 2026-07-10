@@ -4,82 +4,11 @@ description: Prisma-inspired TypeScript ORM without code generation or WASM quer
 icon: Database
 ---
 
-# VibORM
+VibORM is a **Prisma-inspired TypeScript ORM with zero code generation**: types are inferred from your schema the moment you save, and there is no WASM query engine, so it runs anywhere TypeScript runs — including edge runtimes like Cloudflare Workers.
 
-VibORM started as an experiment: **how far can we push vibe coding?** Can we build something as complex as an ORM with AI assistance?
-
-The answer, so far, is yes - and the result gives you a **Prisma-inspired query API** without the code generation step or WASM query-engine deployment headaches.
-
-## The Origin
-
-This project was born from two things: frustration with Prisma's developer experience friction, and the opportunity presented by new AI models like Claude Opus and agents like Cursor.
-
-The name says it: **Vib**e coding + **ORM** = **VibORM**.
-
-Unlike Prisma's codebase (which can be intimidating), VibORM is designed to be **accessible to mid-level TypeScript engineers**. The architecture is organized into clean layers, each documented by `AGENTS.md` files that explain what each layer does, why it exists, and how to modify it. This makes it easy for contributors - and their AI assistants - to understand the codebase and make quality pull requests.
-
-Check out the [Internals](/docs/internals) section to see how it's structured.
-
-## Feature Goals
-
-We want the same developer-experience strengths that make Prisma useful:
-
-- **Implicit many-to-many** - Define relations without manual join tables
-- **Rich filtering** - `contains`, `startsWith`, `in`, `not`, and more
-- **Deep relation filtering** - Filter by nested relation fields (`where: { posts: { some: { published: true } } }`)
-- **Single query execution** - No N+1 problem, relations loaded in one roundtrip
-- **Supported nested writes** - Create or connect related records in a single operation where the compatibility contract lists support
-
-And we want to explore features that don't exist yet but should be possible:
-
-- **Polymorphic relations** - A comment that can belong to either a Post or a Video
-- **Recursive queries** - Query self-referencing relationships (org hierarchies, threaded comments)
-
-We also have **deep Standard Schema integration**. You can extend scalar definitions with additional constraints using Zod, Valibot, or any Standard Schema compliant library:
-
-```typescript
-import { z } from "zod";
-
-const user = s.model({
-  // Add custom validation beyond what the database enforces
-  email: s.string().schema(z.string().email()),
-  
-  // Or use branded types for stricter typing
-  id: s.string().schema(z.string().brand<"UserId">()),
-});
-```
-
-This lets you go beyond database-level constraints - add email validation, URL checks, branded types for type-safe IDs, or any custom logic your app needs.
-
-## Why We Built This
-
-We loved Prisma's developer experience - the intuitive query API, the nested includes, the type safety, and especially the **schema definition** where relations are declared within the model itself. But two things kept causing friction:
-
-### Code Generation
-
-Every schema change requires `prisma generate`. Forget to run it and you're debugging phantom type errors. We wanted **types that update instantly on save**.
-
-### WASM Deployment Issues
-
-Prisma's query engine is compiled to WASM, which creates deployment problems - bundle size concerns, cold start latency, and compatibility issues with edge runtimes like Cloudflare Workers. We wanted a **pure TypeScript solution**.
-
-## Built From First Principles
-
-We tried to reproduce Prisma's schema DDL in pure TypeScript - not like Drizzle where models and relations are defined in separate places, but where **relations live inside the model definition**:
-
-```typescript
-// What we wanted - relations declared within the model
-const user = s.model({
-  id: s.string().id(),
-  posts: s.oneToMany(() => post),  // Relation here, not in a separate file
-});
-```
-
-This immediately confronted us with **circular reference issues** - User references Post, Post references User. TypeScript and JavaScript don't handle this well out of the box.
-
-Solving this led us to build our own validation engine using **thunks** (`() => model`) for lazy evaluation. To have types inferred without code generation, we needed a way to **declare the type surface that also validates at runtime** - and handle circular references correctly.
-
-This is what "from first principles" means for us: starting with the schema definition we wanted, hitting real problems, and building solutions as we went.
+<Callout type="warn" title="Early Alpha">
+VibORM is in early alpha and **not ready for production use**. APIs may change, features are incomplete, and there will be bugs. Use it for experimentation and side projects, not critical systems.
+</Callout>
 
 ## What It Looks Like
 
@@ -98,110 +27,39 @@ const user = s.model({
 const post = s.model({
   id: s.string().id().ulid(),
   title: s.string(),
+  published: s.boolean().default(false),
   authorId: s.string(),
   author: s.manyToOne(() => user).fields("authorId").references("id"),
 });
 
 // Create client
-const orm = createClient({
+const client = createClient({
   schema: { user, post },
   databaseUrl: process.env.DATABASE_URL,
 });
 
 // Prisma-inspired queries, fully typed
-const users = await orm.user.findMany({
+const users = await client.user.findMany({
   where: { email: { contains: "@company.com" } },
   include: { posts: { where: { published: true } } },
 });
 ```
 
-## What to Expect
+If you know Prisma, this should feel familiar: `findMany`, `findFirst`, `create`, `update`, `delete`, nested `include`, and `where` filters follow the same patterns. The public contract is intentionally narrower than Prisma today — see [Compatibility](/docs/client/compatibility) for supported operations and known differences.
 
-<Callout type="warn" title="Early Alpha">
-VibORM is in early alpha and **not ready for production use**. APIs may change, features are incomplete, and there will be bugs. Use it for experimentation and side projects, not critical systems.
-</Callout>
+## Features
 
-### Familiar API
+- **PostgreSQL, MySQL, and SQLite** supported through adapters
+- **Implicit many-to-many** — define relations without manual join tables
+- **Rich filtering** — `contains`, `startsWith`, `in`, `not`, and more
+- **Deep relation filtering** — `where: { posts: { some: { published: true } } }`
+- **Single query execution** — relations loaded in one roundtrip, no N+1
+- **Nested writes** — create or connect related records in one operation where the [compatibility contract](/docs/client/compatibility) lists support
+- **Standard Schema integration** — extend any scalar with Zod, Valibot, or any [Standard Schema](https://standardschema.dev/) validator via `.schema()`
 
-If you know Prisma, VibORM should feel familiar: `findMany`, `findFirst`, `create`, `update`, `delete`, nested `include`, and `where` filters use similar patterns. The public contract is intentionally narrower than Prisma today; see [Compatibility](/docs/client/compatibility) for supported operations and known differences.
+Beyond schema definition, every operation schema (where, create, update) is Standard Schema V1 compliant and exportable to JSON Schema — reuse them in API routes, OpenAPI generation, or AI tool calling via `getSchemas`. See [Standard Schema](/docs/internals/validation/standard-schema).
 
-### Database Support
-
-PostgreSQL, MySQL, and SQLite supported through adapters.
-
-### Still Evolving
-
-Some features are in progress:
-- Transactions (partial)
-- Raw SQL escape hatches
-- Migration edge cases
-
-If you need stability today, Prisma is battle-tested. If code generation and WASM deployment are pain points and you want to explore an alternative approach, VibORM might be interesting to follow.
-
-## How It Works
-
-```mermaid
-flowchart TB
-    subgraph Definition
-        S["s.string().nullable()"]
-    end
-    
-    subgraph Validation
-        V["v.string({nullable})"]
-    end
-    
-    subgraph Types
-        T["string | null"]
-    end
-    
-    subgraph Execution
-        QE["Query Engine"]
-        AD["Adapter"]
-        DB[(Database)]
-    end
-    
-    S --> V
-    V --> T
-    T --> QE
-    QE -->|"what to query"| AD
-    AD -->|"dialect SQL"| DB
-    DB --> R["Typed Results"]
-```
-
-The schema you write generates validation schemas. TypeScript infers types from those schemas. Query engine builds database-agnostic queries. Adapters handle the dialect-specific SQL.
-
-## Benefits of Our Own Validation Engine
-
-Building our own [validation layer](/docs/internals/validation) turned out to unlock some nice features:
-
-### Standard Schema Access
-
-Every operation schema (where, create, update, args) is accessible and [Standard Schema V1](https://standardschema.dev/) compliant. You can reuse them in your server routes:
-
-```typescript
-import { getSchemas } from "viborm";
-
-const schemas = getSchemas(mySchema);
-
-// Use in your API routes
-app.post("/users", async (req) => {
-  const result = schemas.user.core.create["~standard"].validate(req.body);
-  if (result.issues) return { error: result.issues };
-  // ...
-});
-```
-
-### JSON Schema Export
-
-Schemas can export to JSON Schema format, making them usable with AI tools, OpenAPI generation, or any JSON Schema consumer:
-
-```typescript
-const jsonSchema = schemas.user.core.create["~standard"].jsonSchema.output({
-  target: "openapi-3.0",
-});
-
-// Use with AI tool calling, API docs, etc.
-```
+Some features are still in progress: transactions (partial), raw SQL escape hatches, and migration edge cases. If you need stability today, Prisma is battle-tested.
 
 ## Next Steps
 
@@ -222,3 +80,7 @@ const jsonSchema = schemas.user.core.create["~standard"].jsonSchema.output({
     href="/docs/internals"
   />
 </Cards>
+
+## Why VibORM?
+
+VibORM started as an experiment in how far vibe coding can go, driven by two Prisma friction points: the `prisma generate` step and WASM query-engine deployment issues. Read [the full story](/docs/why).
