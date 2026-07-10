@@ -62,15 +62,15 @@ const clientLoader = browserCollections.docs.createClientLoader({
 
 function Page() {
   const data = Route.useLoaderData();
-  const Content = clientLoader.getComponent(data.path);
+  const content = clientLoader.useContent(data.path);
   const tree = useMemo(
-    () => transformPageTree(data.tree as PageTree.Folder),
+    () => transformPageTree(data.tree as PageTree.Root),
     [data.tree]
   );
 
   return (
     <DocsLayout {...baseOptions()} tree={tree}>
-      <Content />
+      {content}
     </DocsLayout>
   );
 }
