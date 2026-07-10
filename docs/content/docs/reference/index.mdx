@@ -17,6 +17,11 @@ icon: Book
     description="Operations and query options reference"
     href="/docs/reference/client-api"
   />
+  <Card
+    title="Exports"
+    description="Every entry point and what it exports"
+    href="/docs/reference/exports"
+  />
 </Cards>
 
 ## Quick Links
@@ -33,9 +38,12 @@ icon: Book
 | `s.bigInt()` | BigInt scalar |
 | `s.boolean()` | Boolean scalar |
 | `s.dateTime()` | DateTime scalar |
+| `s.date()` | Date scalar |
+| `s.time()` | Time scalar |
 | `s.json()` | JSON scalar |
 | `s.blob()` | Binary scalar |
 | `s.enum()` | Enum scalar |
+| `s.point()` | Point scalar |
 | `s.vector()` | Vector scalar |
 | `s.oneToOne()` | One-to-one relation |
 | `s.oneToMany()` | One-to-many relation |
@@ -48,11 +56,16 @@ icon: Book
 |-----|-------------|
 | `findMany` | Find multiple records |
 | `findFirst` | Find first matching |
+| `findFirstOrThrow` | Find first or throw |
 | `findUnique` | Find by unique ID |
+| `findUniqueOrThrow` | Find by unique ID or throw |
+| `exist` | Check whether any row matches |
 | `create` | Create record |
 | `createMany` | Create multiple |
+| `createManyAndReturn` | Create multiple, return rows |
 | `update` | Update record |
 | `updateMany` | Update multiple |
+| `updateManyAndReturn` | Update multiple, return rows |
 | `delete` | Delete record |
 | `deleteMany` | Delete multiple |
 | `upsert` | Create or update |

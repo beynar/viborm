@@ -25,6 +25,7 @@ const user = s.model({
 | `.index(fields, options?)` | Add index |
 | `.id(fields, options?)` | Compound primary key |
 | `.unique(fields, options?)` | Compound unique constraint |
+| `.omit(items)` | Exclude fields from default query results |
 | `.extends(fields)` | Add fields |
 
 ## Scalar Types
@@ -32,8 +33,10 @@ const user = s.model({
 ### String
 
 ```ts
+import { PG } from "viborm/schema";
+
 s.string()
-s.string(TYPES.PG.STRING.VARCHAR(255))
+s.string(PG.STRING.VARCHAR(255))
 ```
 
 | Method | Description |
@@ -43,7 +46,7 @@ s.string(TYPES.PG.STRING.VARCHAR(255))
 | `.nullable()` | Allow NULL |
 | `.array()` | Array type |
 | `.default(value)` | Default value |
-| `.validator(schema)` | Custom validation |
+| `.schema(standardSchema)` | Custom validation (any Standard Schema, e.g. Zod) |
 | `.map(name)` | Column name |
 | `.uuid()` | Auto-generate UUID |
 | `.ulid()` | Auto-generate ULID |
@@ -92,17 +95,36 @@ s.dateTime()
 | `.now()` | Default to current time |
 | `.updatedAt()` | Auto-update on change |
 
-### JSON
+### Date and Time
+
+Date-only and time-only scalars, stored and returned as ISO strings:
 
 ```ts
-s.json()
-s.json(zodSchema)
+s.date()  // "2026-07-10"
+s.time()  // "14:30:00"
 ```
 
 | Method | Description |
 |--------|-------------|
 | `.nullable()` | Allow NULL |
 | `.default(value)` | Default value |
+| `.now()` | Default to current date/time |
+| `.updatedAt()` | Auto-update on change |
+
+### JSON
+
+```ts
+s.json()
+s.json(PG.JSON.JSONB)  // optional native type
+```
+
+Use `.schema(standardSchema)` to validate JSON contents with any Standard Schema validator (e.g. Zod).
+
+| Method | Description |
+|--------|-------------|
+| `.nullable()` | Allow NULL |
+| `.default(value)` | Default value |
+| `.schema(standardSchema)` | Validate JSON contents |
 
 ### Enum
 
@@ -124,6 +146,20 @@ s.blob()
 | Method | Description |
 |--------|-------------|
 | `.nullable()` | Allow NULL |
+
+### Point
+
+2D point, typed as `{ x: number, y: number }`:
+
+```ts
+s.point()
+```
+
+| Method | Description |
+|--------|-------------|
+| `.nullable()` | Allow NULL |
+| `.default(value)` | Default value |
+| `.map(name)` | Column name |
 
 ### Vector
 

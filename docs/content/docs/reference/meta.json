@@ -1,4 +1,4 @@
 {
   "title": "Reference",
-  "pages": ["index", "schema-api", "client-api"]
+  "pages": ["index", "exports", "schema-api", "client-api"]
 }

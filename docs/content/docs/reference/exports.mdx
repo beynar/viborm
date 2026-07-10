@@ -9,30 +9,49 @@ VibORM uses multiple entry points to enable tree-shaking. Import only what you n
 
 ## Quick Overview
 
-| Entry Point | Size | Description |
-|-------------|------|-------------|
-| `viborm` | ~1 KB | Main entry - client creation, errors, utilities |
-| `viborm/schema` | ~33 KB | Schema builder and native types |
-| `viborm/pg` | ~2 KB | PostgreSQL driver (node-postgres) |
-| `viborm/postgres` | ~2 KB | PostgreSQL driver (postgres.js) |
-| `viborm/pglite` | ~1 KB | PGlite driver |
-| `viborm/mysql2` | ~2 KB | MySQL driver |
-| `viborm/sqlite3` | ~1 KB | SQLite driver (better-sqlite3) |
-| `viborm/cache` | ~0.3 KB | Cache types and utilities |
-| `viborm/cache/memory` | ~0.7 KB | In-memory cache driver |
-| `viborm/validation` | ~1 KB | Validation library |
-| `viborm/instrumentation` | ~1 KB | OpenTelemetry integration |
-| `viborm/migrations` | ~7 KB | Migration utilities |
+| Entry Point | Description |
+|-------------|-------------|
+| `viborm` | Main entry - client creation, schema builder `s`, errors |
+| `viborm/schema` | Schema builder and native types |
+| `viborm/client` | Advanced client types |
+| `viborm/driver` | Base driver classes for custom drivers |
+| `viborm/pg` | PostgreSQL driver (node-postgres) |
+| `viborm/postgres` | PostgreSQL driver (postgres.js) |
+| `viborm/pglite` | PGlite driver (embedded PostgreSQL) |
+| `viborm/neon-http` | Neon serverless PostgreSQL driver (HTTP) |
+| `viborm/bun-sql` | Bun built-in PostgreSQL driver |
+| `viborm/mysql2` | MySQL driver (mysql2) |
+| `viborm/planetscale` | PlanetScale serverless MySQL driver |
+| `viborm/sqlite3` | SQLite driver (better-sqlite3) |
+| `viborm/libsql` | LibSQL/Turso driver |
+| `viborm/bun-sqlite` | Bun built-in SQLite driver |
+| `viborm/d1` | Cloudflare D1 driver (binding) |
+| `viborm/d1-http` | Cloudflare D1 driver (HTTP API) |
+| `viborm/cache` | Cache types and utilities |
+| `viborm/cache/memory` | In-memory cache driver |
+| `viborm/cache/cloudflare-kv` | Cloudflare KV cache driver |
+| `viborm/migrations` | Migration utilities |
+| `viborm/migrations/storage/fs` | Filesystem migration storage driver |
+| `viborm/config` | `defineConfig` for `viborm.config.ts` |
+| `viborm/validation` | Validation library |
+| `viborm/instrumentation` | OpenTelemetry integration |
+| `viborm/adapters` | SQL adapters (advanced/internal use) |
 
 ---
 
 ## viborm
 
-Main entry point for creating clients and handling errors.
+Main entry point for creating clients, defining schemas, and handling errors.
 
 ```ts
-import { createClient, validateSchema, getSchemas } from "viborm";
+import { createClient, s, validateSchema, getSchemas } from "viborm";
 ```
+
+### Schema Builder
+
+| Export | Description |
+|--------|-------------|
+| `s` | Schema builder object (same as the one in `viborm/schema`) |
 
 ### Functions
 
@@ -59,6 +78,8 @@ import { createClient, validateSchema, getSchemas } from "viborm";
 | `TransactionError` | Transaction-related error |
 | `UniqueConstraintError` | Unique constraint violation |
 | `ForeignKeyError` | Foreign key constraint violation |
+| `CheckConstraintError` | Check constraint violation |
+| `NotNullConstraintError` | NOT NULL constraint violation |
 | `NotFoundError` | Record not found (for `findUniqueOrThrow`, etc.) |
 | `NestedWriteError` | Error in nested create/update operations |
 | `FeatureNotSupportedError` | Feature not supported by the current driver |
@@ -82,6 +103,7 @@ import { createClient, validateSchema, getSchemas } from "viborm";
 | `QueryMetadata` | Metadata about executed queries |
 | `RawQueryResult` | Raw result from database driver |
 | `ResultParser` | Parser for transforming raw results |
+| `DiagnosticDisclosure` | Controls whether errors include SQL text and parameters |
 | `UnwrapPendingOperation` | Utility type to unwrap `PendingOperation<T>` to `T` |
 | `UnwrapPendingOperations` | Utility type to unwrap array of pending operations |
 
@@ -108,12 +130,16 @@ The `s` object provides:
 s.string()      // String scalar
 s.int()         // Integer scalar
 s.float()       // Float scalar
+s.decimal()     // Decimal scalar
+s.bigInt()      // BigInt scalar
 s.boolean()     // Boolean scalar
-s.datetime()    // DateTime scalar
+s.dateTime()    // DateTime scalar
+s.date()        // Date scalar (ISO date string)
+s.time()        // Time scalar (ISO time string)
 s.json()        // JSON scalar
-s.bigint()      // BigInt scalar
-s.bytes()       // Binary/Blob scalar
+s.blob()        // Binary/Blob scalar
 s.enum()        // Enum scalar
+s.point()       // 2D point scalar
 s.vector()      // Vector scalar (for embeddings)
 
 // Relations
@@ -134,13 +160,13 @@ s.model()       // Define a model
 | `MYSQL` | MySQL native type mappings |
 | `SQLITE` | SQLite native type mappings |
 
-Example usage:
+Native types are passed as arguments to the scalar factory:
 
 ```ts
 const user = s.model({
-  id: s.string().id().ulid(),
-  balance: s.float().native(PG.DoublePrecision, MYSQL.Double),
-  metadata: s.json().native(PG.Jsonb),
+  id: s.string(PG.STRING.UUID).id().uuid(),
+  balance: s.float(PG.FLOAT.DOUBLE_PRECISION),
+  metadata: s.json(PG.JSON.JSONB),
 });
 ```
 
@@ -189,6 +215,8 @@ import { Driver, TransactionBoundDriver } from "viborm/driver";
 | `TransactionError` | Transaction-related error |
 | `UniqueConstraintError` | Unique constraint violation |
 | `ForeignKeyError` | Foreign key constraint violation |
+| `CheckConstraintError` | Check constraint violation |
+| `NotNullConstraintError` | NOT NULL constraint violation |
 | `FeatureNotSupportedError` | Feature not supported by the driver |
 
 ### Functions
@@ -204,11 +232,10 @@ import { Driver, TransactionBoundDriver } from "viborm/driver";
 | `AnyDriver` | Any driver type |
 | `DriverResultParser` | Parser for driver results |
 | `QueryExecutionContext` | Context for query execution |
+| `BatchQuery` | A query in an atomic batch (for batch-capable drivers) |
 | `Dialect` | Database dialect (`postgres`, `mysql`, `sqlite`) |
-| `IsolationLevel` | Transaction isolation level |
 | `LogFunction` | Logging function type |
 | `QueryResult` | Query result type |
-| `TransactionOptions` | Transaction options |
 
 ---
 
@@ -260,12 +287,12 @@ import { PostgresDriver, createClient } from "viborm/postgres";
 [PGlite](https://github.com/electric-sql/pglite) driver for embedded PostgreSQL.
 
 ```ts
-import { PgliteDriver, createClient } from "viborm/pglite";
+import { PGliteDriver, createClient } from "viborm/pglite";
 ```
 
 | Export | Description |
 |--------|-------------|
-| `PgliteDriver` | PGlite driver class |
+| `PGliteDriver` | PGlite driver class |
 | `createClient` | Creates a client with PGlite driver pre-configured |
 
 ---
@@ -275,12 +302,12 @@ import { PgliteDriver, createClient } from "viborm/pglite";
 [Neon](https://neon.tech/) serverless PostgreSQL driver over HTTP.
 
 ```ts
-import { NeonHttpDriver, createClient } from "viborm/neon-http";
+import { NeonHTTPDriver, createClient } from "viborm/neon-http";
 ```
 
 | Export | Description |
 |--------|-------------|
-| `NeonHttpDriver` | Neon HTTP driver class |
+| `NeonHTTPDriver` | Neon HTTP driver class |
 | `createClient` | Creates a client with Neon HTTP driver pre-configured |
 
 ---
@@ -290,12 +317,12 @@ import { NeonHttpDriver, createClient } from "viborm/neon-http";
 Bun's built-in PostgreSQL driver.
 
 ```ts
-import { BunSqlDriver, createClient } from "viborm/bun-sql";
+import { BunSQLDriver, createClient } from "viborm/bun-sql";
 ```
 
 | Export | Description |
 |--------|-------------|
-| `BunSqlDriver` | Bun SQL driver class |
+| `BunSQLDriver` | Bun SQL driver class |
 | `createClient` | Creates a client with Bun SQL driver pre-configured |
 
 ---
@@ -305,12 +332,12 @@ import { BunSqlDriver, createClient } from "viborm/bun-sql";
 MySQL driver using [mysql2](https://github.com/sidorares/node-mysql2).
 
 ```ts
-import { Mysql2Driver, createClient } from "viborm/mysql2";
+import { MySQL2Driver, createClient } from "viborm/mysql2";
 ```
 
 | Export | Description |
 |--------|-------------|
-| `Mysql2Driver` | MySQL2 driver class |
+| `MySQL2Driver` | MySQL2 driver class |
 | `createClient` | Creates a client with MySQL2 driver pre-configured |
 
 ---
@@ -320,12 +347,12 @@ import { Mysql2Driver, createClient } from "viborm/mysql2";
 [PlanetScale](https://planetscale.com/) serverless MySQL driver.
 
 ```ts
-import { PlanetscaleDriver, createClient } from "viborm/planetscale";
+import { PlanetScaleDriver, createClient } from "viborm/planetscale";
 ```
 
 | Export | Description |
 |--------|-------------|
-| `PlanetscaleDriver` | PlanetScale driver class |
+| `PlanetScaleDriver` | PlanetScale driver class |
 | `createClient` | Creates a client with PlanetScale driver pre-configured |
 
 ---
@@ -350,12 +377,12 @@ import { SQLite3Driver, createClient } from "viborm/sqlite3";
 [LibSQL/Turso](https://turso.tech/) driver.
 
 ```ts
-import { LibsqlDriver, createClient } from "viborm/libsql";
+import { LibSQLDriver, createClient } from "viborm/libsql";
 ```
 
 | Export | Description |
 |--------|-------------|
-| `LibsqlDriver` | LibSQL driver class |
+| `LibSQLDriver` | LibSQL driver class |
 | `createClient` | Creates a client with LibSQL driver pre-configured |
 
 ---
@@ -365,12 +392,12 @@ import { LibsqlDriver, createClient } from "viborm/libsql";
 Bun's built-in SQLite driver.
 
 ```ts
-import { BunSqliteDriver, createClient } from "viborm/bun-sqlite";
+import { BunSQLiteDriver, createClient } from "viborm/bun-sqlite";
 ```
 
 | Export | Description |
 |--------|-------------|
-| `BunSqliteDriver` | Bun SQLite driver class |
+| `BunSQLiteDriver` | Bun SQLite driver class |
 | `createClient` | Creates a client with Bun SQLite driver pre-configured |
 
 ---
@@ -395,12 +422,12 @@ import { D1Driver, createClient } from "viborm/d1";
 Cloudflare D1 driver over HTTP API.
 
 ```ts
-import { D1HttpDriver, createClient } from "viborm/d1-http";
+import { D1HTTPDriver, createClient } from "viborm/d1-http";
 ```
 
 | Export | Description |
 |--------|-------------|
-| `D1HttpDriver` | D1 HTTP driver class |
+| `D1HTTPDriver` | D1 HTTP driver class |
 | `createClient` | Creates a client with D1 HTTP driver pre-configured |
 
 ---
@@ -585,6 +612,7 @@ import { SPAN_OPERATION, ATTR_DB_SYSTEM } from "viborm/instrumentation";
 | `ATTR_CACHE_KEY` | Cache key |
 | `ATTR_CACHE_RESULT` | Cache result (hit/miss) |
 | `ATTR_CACHE_TTL` | Cache TTL |
+| `ATTR_VIBORM_CORRELATION_ID` | Caller-supplied ID correlating one execution across outputs |
 
 ### Types
 
@@ -636,7 +664,8 @@ v.optional()    // Optional wrapper
 
 // Utilities
 v.lazy()        // Lazy evaluation (for recursive types)
-v.custom()      // Custom validation
+v.pipe()        // Compose a schema with transform actions
+v.record()      // Record schema
 ```
 
 ---
@@ -761,6 +790,40 @@ import { createMigrationClient, push, diff } from "viborm/migrations";
 
 ---
 
+## viborm/migrations/storage/fs
+
+Filesystem storage driver for migration files (Node.js environments).
+
+```ts
+import { FsStorageDriver, createFsStorageDriver } from "viborm/migrations/storage/fs";
+```
+
+| Export | Description |
+|--------|-------------|
+| `FsStorageDriver` | Filesystem migration storage driver class |
+| `createFsStorageDriver` | Creates a filesystem storage driver |
+
+---
+
+## viborm/config
+
+Configuration helper for the VibORM CLI.
+
+```ts
+import { defineConfig } from "viborm/config";
+
+export default defineConfig({
+  // ...
+});
+```
+
+| Export | Description |
+|--------|-------------|
+| `defineConfig` | Typed helper for `viborm.config.ts` |
+| `VibORMConfig` | Configuration type |
+
+---
+
 ## viborm/adapters
 
 Database adapters (advanced/internal use).
@@ -771,8 +834,11 @@ import { PostgresAdapter, MySQLAdapter, SQLiteAdapter } from "viborm/adapters";
 
 | Export | Description |
 |--------|-------------|
-| `PostgresAdapter` | PostgreSQL SQL adapter |
-| `MySQLAdapter` | MySQL SQL adapter |
-| `SQLiteAdapter` | SQLite SQL adapter |
+| `PostgresAdapter` | PostgreSQL SQL adapter class |
+| `postgresAdapter` | Shared PostgreSQL adapter instance |
+| `MySQLAdapter` | MySQL SQL adapter class |
+| `mysqlAdapter` | Shared MySQL adapter instance |
+| `SQLiteAdapter` | SQLite SQL adapter class |
+| `sqliteAdapter` | Shared SQLite adapter instance |
 
 These are used internally by drivers to generate database-specific SQL.
