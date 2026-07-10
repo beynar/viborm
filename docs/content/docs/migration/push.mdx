@@ -77,7 +77,7 @@ npx viborm push
 # Auto-accept all changes without prompting
 npx viborm push --force
 
-# Fail on any changes requiring resolution
+# Always ask for approval before executing SQL statements
 npx viborm push --strict
 ```
   </Tab>
@@ -160,19 +160,6 @@ interface EnumValueRemovalChange {
   reject(): ResolveResult;      // Abort the operation
 }
 ```
-
-### Resolution Methods
-
-| Change Type | Available Methods | Description |
-|-------------|-------------------|-------------|
-| `destructive` | `change.proceed()` | Accept the data loss |
-| `destructive` | `change.reject()` | Abort the operation |
-| `ambiguous` | `change.rename()` | Treat as rename (preserves data) |
-| `ambiguous` | `change.addAndDrop()` | Treat as separate add + drop (data loss) |
-| `ambiguous` | `change.reject()` | Abort the operation |
-| `enumValueRemoval` | `change.mapValues({...})` | Map old values to new values or NULL |
-| `enumValueRemoval` | `change.useNull()` | Set all removed values to NULL |
-| `enumValueRemoval` | `change.reject()` | Abort the operation |
 
 <Callout type="info" title="Per-Column Resolution">
 Enum value removals are resolved per-column, allowing different mappings for different columns using the same enum. This lets you map `PENDING` to `INACTIVE` in one column but to `NULL` in another.
@@ -307,8 +294,8 @@ When a storage driver is configured, `forceReset` also clears the migration jour
 | `--dry-run` | Preview SQL without executing |
 | `--force` | Skip all resolution prompts |
 | `--force-reset` | Drop all tables before pushing |
-| `--strict` | Require confirmation before executing |
-| `--verbose` | Show detailed output |
+| `--strict` | Always ask for approval before executing SQL statements |
+| `--verbose` | Print all SQL statements prior to execution |
 | `--config <path>` | Path to config file |
 
 ## API Options
@@ -318,6 +305,7 @@ interface PushOptions {
   force?: boolean;
   forceReset?: boolean;
   dryRun?: boolean;
+  skipValidation?: boolean;
   resolve?: ResolveCallback;
 }
 ```
@@ -327,6 +315,7 @@ interface PushOptions {
 | `force` | `boolean` | `false` | Auto-accept all changes. Can be combined with `resolve` to auto-accept unhandled changes. |
 | `forceReset` | `boolean` | `false` | Drop all tables before pushing |
 | `dryRun` | `boolean` | `false` | Preview SQL without executing |
+| `skipValidation` | `boolean` | `false` | Skip schema validation before pushing. Validation catches definition errors that would otherwise corrupt data silently — only skip it when deliberately pushing a shape the validator flags. |
 | `resolve` | `ResolveCallback` | - | Callback for resolving changes. Return `undefined` to let `force` handle it. |
 
 ## API Result
@@ -377,15 +366,7 @@ const result = await migrations.push({
 });
 ```
 
-The `EnumValueRemovalChange` provides:
-- `enumName`: The enum being modified
-- `tableName`: The table containing the column
-- `columnName`: The column using this enum
-- `isNullable`: Whether the column allows NULL
-- `removedValues`: Array of values being removed
-- `availableValues`: Array of values you can map to
-- `mapValues(replacements)`: Method to specify the mapping
-- `useNull()`: Set all removed values to NULL (for nullable columns)
+See the [ResolveChange interface](#resolvechange-interface) above for the full `EnumValueRemovalChange` contract.
 
 ## Next Steps
 

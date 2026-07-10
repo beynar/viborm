@@ -35,71 +35,7 @@ abstract class MigrationStorageDriver {
 | `put(path, content)` | Write content to path, creates directories as needed |
 | `delete(path)` | Delete file at path, no-op if not found |
 
-## High-Level Operations
-
-The base class provides high-level operations built on the three core methods:
-
-### Journal Management
-
-```ts
-// Read the migration journal
-const journal = await storage.readJournal();
-
-// Write the journal
-await storage.writeJournal(journal);
-
-// Get or create journal
-const journal = await storage.getOrCreateJournal("postgresql");
-```
-
-### Snapshot Management
-
-```ts
-// Read the schema snapshot
-const snapshot = await storage.readSnapshot();
-
-// Write the snapshot
-await storage.writeSnapshot(snapshot);
-
-// Get snapshot or empty
-const snapshot = await storage.getSnapshotOrEmpty();
-```
-
-### Migration Files
-
-```ts
-// Read a migration
-const sql = await storage.readMigration(entry);
-
-// Write a migration
-await storage.writeMigration(entry, sql);
-
-// Delete a migration
-await storage.deleteMigration(entry);
-
-// Check if migration exists
-const exists = await storage.migrationExists(entry);
-```
-
-### Down Migrations
-
-```ts
-// Read down migration
-const downSql = await storage.readDownMigration(entry);
-
-// Write down migration
-await storage.writeDownMigration(entry, downSql);
-```
-
-### Backup Operations
-
-```ts
-// Backup a migration (copies to _backup/)
-await storage.backupMigration(entry);
-
-// Archive a migration (moves to _archive/)
-await storage.archiveMigration(entry);
-```
+The base class builds everything else (journal, snapshot, migration, and backup handling) on top of these three methods, so a custom driver only needs to implement them.
 
 ## Directory Structure
 
@@ -187,8 +123,8 @@ const migrations = createMigrationClient(client, {
     href="/docs/migration/storage/filesystem"
   />
   <Card
-    title="Migration Client"
-    description="Using storage with the client"
-    href="/docs/migration/client"
+    title="Migrations"
+    description="Push and migrate workflows"
+    href="/docs/migration"
   />
 </Cards>

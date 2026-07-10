@@ -1,0 +1,111 @@
+---
+title: MySQL Driver
+description: MySQL migration support with inline ENUM columns, btree/fulltext/spatial indexes, and InnoDB-aware type handling
+icon: Server
+---
+
+## Capabilities
+
+| Feature | Supported |
+|---------|-----------|
+| Native enums | Yes (inline `ENUM` column type) |
+| Native arrays | No (stored as `JSON`) |
+| Index types | btree, fulltext, spatial |
+| Transactions | Limited — DDL statements implicitly commit |
+
+## Type Mappings
+
+| VibORM Scalar | MySQL Type |
+|-------------|------------|
+| `string()` | `TEXT` |
+| `int()` | `INT` |
+| `bigint()` | `BIGINT` |
+| `float()` | `DOUBLE` |
+| `decimal()` | `DECIMAL(65,30)` |
+| `boolean()` | `TINYINT(1)` |
+| `datetime()` | `DATETIME(3)` |
+| `date()` | `DATE` |
+| `time()` | `TIME(3)` |
+| `json()` | `JSON` |
+| `blob()` | `BLOB` |
+| `enumScalar()` | Inline `ENUM('a', 'b', ...)` |
+| Array scalars | `JSON` |
+
+`DATETIME(3)` and `TIME(3)` preserve JavaScript `Date` millisecond precision.
+
+## Auto-Increment
+
+`AUTO_INCREMENT` requires an integer column type (`TINYINT`, `SMALLINT`, `MEDIUMINT`, `INT`, `BIGINT`); the driver rejects it on anything else:
+
+```ts
+const User = model("users", {
+  id: int().primaryKey().autoIncrement(),
+});
+```
+
+Generates:
+
+```sql
+CREATE TABLE `users` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY
+);
+```
+
+## Enums
+
+MySQL has no standalone enum type — the `ENUM` is part of the column definition:
+
+```ts
+const User = model("users", {
+  status: enumScalar(["active", "inactive", "pending"]),
+});
+```
+
+Generates:
+
+```sql
+CREATE TABLE `users` (
+  `status` ENUM('active', 'inactive', 'pending') NOT NULL
+);
+```
+
+Changing an enum's values therefore issues a `MODIFY COLUMN` for every column using it.
+
+<Callout type="warn" title="Transaction Limitation">
+`MODIFY COLUMN` is DDL and causes an implicit commit, so enum changes (like MySQL DDL in general) can't be rolled back if a later statement in the migration fails.
+</Callout>
+
+## Index Types
+
+The driver generates and introspects btree (default), `FULLTEXT`, and `SPATIAL` indexes. InnoDB does not support user-defined hash indexes. See [Index Options](/docs/schema/model#index-options) for declaring indexes on models.
+
+## Indexed TEXT Columns
+
+InnoDB can't index a `TEXT` column without an explicit key length. When a `string()` column participates in a primary key, unique constraint, index, or foreign key, the driver maps it to `VARCHAR(191)` instead (191 × 4 bytes fits the 767-byte InnoDB key limit).
+
+## Column Defaults
+
+MySQL doesn't allow `DEFAULT` values on `TEXT`, `BLOB`, `JSON`, or spatial columns; the driver omits defaults for those types.
+
+## Limitations
+
+| Limitation | Behavior |
+|------------|----------|
+| DDL in transactions | Statements implicitly commit — a failed migration can leave earlier statements applied |
+| Native arrays | Stored as `JSON` |
+| Hash indexes | Not supported by InnoDB |
+
+## Next Steps
+
+<Cards>
+  <Card
+    title="PostgreSQL Driver"
+    description="PostgreSQL-specific features"
+    href="/docs/migration/drivers/postgresql"
+  />
+  <Card
+    title="SQLite Driver"
+    description="SQLite-specific features and limitations"
+    href="/docs/migration/drivers/sqlite"
+  />
+</Cards>

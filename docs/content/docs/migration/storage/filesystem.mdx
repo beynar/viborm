@@ -33,16 +33,6 @@ const storage = createFsStorageDriver(baseDir);
 
 The `baseDir` should be an absolute path or relative to the current working directory.
 
-## Characteristics
-
-| Property | Value |
-|----------|-------|
-| Storage | Local filesystem |
-| Persistence | Permanent (until deleted) |
-| Version control | Yes (commit to git) |
-| Team collaboration | Via git |
-| Performance | Fast (local I/O) |
-
 ## Directory Structure
 
 ```
@@ -130,51 +120,7 @@ JSON representation of the current schema:
 }
 ```
 
-## Use Cases
-
-### Local Development
-
-```ts
-import { createMigrationClient } from "viborm/migrations";
-import { createFsStorageDriver } from "viborm/migrations/storage/fs";
-
-const migrations = createMigrationClient(client, {
-  storageDriver: createFsStorageDriver("./migrations"),
-});
-
-// Generate migrations as you develop
-await migrations.generate({ name: "add-feature" });
-
-// Apply to local database
-await migrations.apply();
-```
-
-### CI/CD Pipelines
-
-```yaml
-# .github/workflows/migrate.yml
-- name: Apply migrations
-  run: |
-    npx ts-node scripts/migrate.ts
-```
-
-```ts
-// scripts/migrate.ts
-import { createMigrationClient } from "viborm/migrations";
-import { createFsStorageDriver } from "viborm/migrations/storage/fs";
-
-const migrations = createMigrationClient(client, {
-  storageDriver: createFsStorageDriver("./migrations"),
-});
-
-const pending = await migrations.pending();
-if (pending.length > 0) {
-  console.log(`Applying ${pending.length} migrations...`);
-  await migrations.apply();
-}
-```
-
-### Version Control
+## Version Control
 
 Migration files are designed to be committed to git:
 
@@ -186,6 +132,8 @@ Migration files are designed to be committed to git:
 git add migrations/
 git commit -m "Add user table migration"
 ```
+
+For the generate/apply/status workflow, see [Migrate](/docs/migration/migrate).
 
 ## Error Handling
 
@@ -214,8 +162,8 @@ try {
     href="/docs/migration/storage"
   />
   <Card
-    title="Migration Client"
-    description="Full client API"
-    href="/docs/migration/client"
+    title="Migrations"
+    description="Push and migrate workflows"
+    href="/docs/migration"
   />
 </Cards>

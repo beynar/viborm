@@ -143,46 +143,7 @@ For operations SQLite doesn't support natively, VibORM uses table recreation:
 - **Add/drop primary key**
 - **Alter/drop enum** (updating CHECK constraints)
 
-### Recreation Process
-
-When table recreation is needed, VibORM generates:
-
-```sql
--- 1. Disable foreign keys
-PRAGMA foreign_keys=OFF;
-
--- 2. Create new table with desired schema
-CREATE TABLE "__new_users" (
-  "id" INTEGER PRIMARY KEY,
-  "email" TEXT NOT NULL,
-  "status" TEXT CHECK("status" IN ('active', 'suspended')) NOT NULL
-);
-
--- 3. Copy data (column mapping handles renames)
-INSERT INTO "__new_users" ("id", "email", "status")
-SELECT "id", "email", "status" FROM "users";
-
--- 4. Drop old table
-DROP TABLE "users";
-
--- 5. Rename new table
-ALTER TABLE "__new_users" RENAME TO "users";
-
--- 6. Recreate indexes
-CREATE UNIQUE INDEX "users_email_idx" ON "users" ("email");
-
--- 7. Re-enable foreign keys
-PRAGMA foreign_keys=ON;
-```
-
-### Column Mapping
-
-The recreation process handles:
-
-- **Renamed columns**: Maps old names to new names
-- **New columns**: Uses default values or NULL
-- **Dropped columns**: Excludes from copy
-- **Type changes**: Preserves data when possible
+These operations rewrite the whole table (create a new table, copy the data across, drop the old one, rename, recreate indexes) — slow on large tables. Renamed columns are mapped to their new names during the copy, new columns get their defaults, and dropped columns are excluded.
 
 ## DDL Examples
 
@@ -226,24 +187,15 @@ ALTER TABLE "users" DROP COLUMN "bio";
 | Limited ALTER TABLE | Table recreation |
 | No concurrent writes | File-level locking |
 
-## Performance Considerations
-
-### Table Recreation
-
-Table recreation can be slow for large tables. Consider:
-
-- Running migrations during low-traffic periods
-- Testing on staging with production-like data volumes
-- Breaking large schema changes into smaller migrations
-
-### JSON Arrays
+## Querying JSON Arrays
 
 Querying JSON arrays requires SQLite's JSON functions:
 
 ```sql
 -- Check if array contains value
-SELECT * FROM users WHERE json_each.value = 'admin'
-FROM users, json_each(users.tags);
+SELECT users.*
+FROM users, json_each(users.tags)
+WHERE json_each.value = 'admin';
 ```
 
 ## LibSQL / Turso

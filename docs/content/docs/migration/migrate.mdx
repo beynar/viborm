@@ -52,9 +52,10 @@ const result = await migrations.generate({
   name: "add-users-table",
 });
 
-if (result.hasChanges) {
-  console.log(`Created: ${result.migrationPath}`);
+if (result.entry) {
+  console.log(result.message); // e.g. "Generated migration 0003_add-users-table"
   console.log(`Operations: ${result.operations.length}`);
+  console.log(`Files written: ${result.written}`);
 } else {
   console.log("No changes detected");
 }
@@ -70,9 +71,10 @@ const preview = await migrations.preview();
 | Option | CLI | API | Description |
 |--------|-----|-----|-------------|
 | Name | `--name <name>` | `name: string` | Custom migration name |
-| Table name | `--table-name <name>` | `tableName: string` | Migrations tracking table name |
+| Output directory | `--out <dir>` | `dir: string` | Output directory (default: `./migrations`) |
 | Dry run | `--dry-run` | `dryRun: boolean` | Preview without creating files |
 | Resolver | - | `resolver: Resolver` | Handle ambiguous changes |
+| Enum resolver | - | `enumValueResolver: EnumValueResolver` | Handle enum value removals |
 
 ## Check Migration Status
 
@@ -114,6 +116,7 @@ console.log(`${pending.length} migrations pending`);
 
 | Option | CLI | API | Description |
 |--------|-----|-----|-------------|
+| Directory | `--dir <dir>` | - | Migrations directory (default: `./migrations`) |
 | Table name | `--table-name <name>` | `tableName: string` | Migrations tracking table name |
 
 ## Apply Migrations
@@ -153,6 +156,7 @@ await migrations.apply({ dryRun: true });
 | Option | CLI | API | Description |
 |--------|-----|-----|-------------|
 | To | `--to <index>` | `to: number` | Apply up to this migration index |
+| Directory | `--dir <dir>` | - | Migrations directory (default: `./migrations`) |
 | Table name | `--table-name <name>` | `tableName: string` | Migrations tracking table name |
 | Dry run | `--dry-run` | `dryRun: boolean` | Preview without applying |
 | Force | `--force` | - | Skip confirmation prompts |
@@ -201,37 +205,29 @@ await migrations.down({ steps: 1, dryRun: true });
 |--------|-----|-----|-------------|
 | Steps | `--steps <n>` | `steps: number` | Number of migrations to roll back |
 | To | `--to <migration>` | `to: string \| number` | Roll back to this migration (exclusive) |
+| Directory | `--dir <dir>` | - | Migrations directory (default: `./migrations`) |
+| Table name | `--table-name <name>` | `tableName: string` | Migrations tracking table name |
 | Dry run | `--dry-run` | `dryRun: boolean` | Preview without executing |
 | Force | `--force` | - | Skip confirmation prompts |
 
-## Reset Database
+## Drop Migration Tracking
 
-Reset drops all tables and re-applies all migrations from scratch:
+`migrate drop` removes the last N migrations (default: 1) from the tracking table. It does **not** revert any database changes — to undo schema changes, use `migrate down` instead:
 
 <Tabs items={["CLI", "Migration Client"]}>
   <Tab value="CLI">
 ```bash
-# Drop migration tracking table only
+# Remove the last migration from tracking
 npx viborm migrate drop
 
-# Drop with custom tracking table
-npx viborm migrate drop --table-name _custom_migrations
-
-# Drop the last N migrations from tracking
+# Remove the last 3 migrations from tracking
 npx viborm migrate drop --count 3
 ```
   </Tab>
   <Tab value="Migration Client">
 ```ts
-// Rollback removes from tracking only (doesn't drop tables)
+// Removes from tracking only (doesn't touch tables or data)
 await migrations.rollback({ count: 1 });
-
-// Reset:
-// 1. Drops ALL tables (except system tables)
-// 2. Drops all enums
-// 3. Clears migration tracking table
-// 4. Re-applies all migrations from journal
-await migrations.reset();
 ```
   </Tab>
 </Tabs>
@@ -240,10 +236,19 @@ await migrations.reset();
 
 | Option | CLI | API | Description |
 |--------|-----|-----|-------------|
-| Last | `--last` | - | Drop only the last migration |
+| Last | `--last` | - | Drop only the last migration (the default) |
 | Count | `--count <n>` | `count: number` | Drop the last N migrations |
+| Directory | `--dir <dir>` | - | Migrations directory (default: `./migrations`) |
 | Table name | `--table-name <name>` | `tableName: string` | Migrations tracking table name |
 | Force | `--force` | - | Skip confirmation prompts |
+
+## Reset Database (API only)
+
+`reset()` drops all tables and enums, clears the migration tracking table, and re-applies every migration from the journal. There is no CLI equivalent:
+
+```ts
+await migrations.reset();
+```
 
 <Callout type="warn" title="Destructive Operation">
 `reset()` drops ALL tables and data, then re-applies all migrations from scratch. Use with extreme caution and never in production.
@@ -324,13 +329,15 @@ Tracks migration metadata:
 
 ```json title="migrations/meta/_journal.json"
 {
+  "version": "1",
   "dialect": "postgresql",
   "entries": [
     {
       "idx": 0,
+      "version": "20240115120000",
       "name": "initial",
-      "version": "0000",
-      "checksum": "abc123..."
+      "when": 1705320000000,
+      "checksum": "sha256:abc123..."
     }
   ]
 }

@@ -122,58 +122,7 @@ CREATE TABLE "users" (
 
 ## Index Types
 
-PostgreSQL supports multiple index types:
-
-### B-tree (default)
-
-Standard index for equality and range queries:
-
-```ts
-const User = model("users", {
-  email: string().unique(),
-}).index("email_idx", ["email"]);
-```
-
-### Hash
-
-Optimized for equality comparisons only:
-
-```ts
-.index("email_hash_idx", ["email"], { type: "hash" })
-```
-
-### GIN
-
-Generalized Inverted Index for arrays and full-text search:
-
-```ts
-.index("tags_idx", ["tags"], { type: "gin" })
-```
-
-### GiST
-
-Generalized Search Tree for geometric and range types:
-
-```ts
-.index("location_idx", ["location"], { type: "gist" })
-```
-
-## Partial Indexes
-
-PostgreSQL supports partial indexes with WHERE clauses:
-
-```ts
-.index("active_users_idx", ["email"], {
-  where: '"status" = \'active\''
-})
-```
-
-Generates:
-
-```sql
-CREATE INDEX "active_users_idx" ON "users" ("email")
-WHERE "status" = 'active';
-```
+The driver generates btree (default), hash, GIN, and GiST indexes, as well as partial indexes with `WHERE` clauses. See [Index Options](/docs/schema/model#index-options) for declaring them on models.
 
 ## Advisory Locks
 
@@ -186,45 +135,6 @@ SELECT pg_advisory_unlock(123456789);
 ```
 
 This ensures only one migration process runs at a time, even across multiple application instances.
-
-## DDL Examples
-
-### Create Table
-
-```sql
-CREATE TABLE "users" (
-  "id" serial PRIMARY KEY,
-  "email" text NOT NULL,
-  "name" text,
-  "created_at" timestamp DEFAULT NOW()
-);
-```
-
-### Alter Column
-
-```sql
--- Change type
-ALTER TABLE "users"
-ALTER COLUMN "name" TYPE varchar(255)
-USING "name"::varchar(255);
-
--- Change nullability
-ALTER TABLE "users"
-ALTER COLUMN "name" SET NOT NULL;
-
--- Change default
-ALTER TABLE "users"
-ALTER COLUMN "created_at" SET DEFAULT NOW();
-```
-
-### Add Foreign Key
-
-```sql
-ALTER TABLE "posts"
-ADD CONSTRAINT "posts_user_id_fkey"
-FOREIGN KEY ("user_id") REFERENCES "users" ("id")
-ON DELETE CASCADE;
-```
 
 ## Limitations
 
