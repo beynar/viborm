@@ -9,16 +9,17 @@ icon: Activity
 - **OpenTelemetry Tracing** - Automatic span creation for all database operations
 - **Structured Logging** - Callback-based logging with level filtering
 - **Graceful Degradation** - Tracing works without OTel installed (no-op)
-- **Serverless Compatible** - No module-level state, safe for edge runtimes
-- **Security Defaults** - SQL shown by default, parameters hidden
+- **Serverless Compatible** - No module-level request context, safe for edge runtimes
+- **Security Defaults** - SQL and parameters hidden unless explicitly enabled
+- **Request-Scoped Attribution** - Concurrent clients keep separate model, operation, and correlation metadata
 
 ## Quick Example
 
 ```typescript
-import { VibORM } from "viborm";
+import { createClient } from "viborm";
 
 // Simple: enable both with defaults
-const client = VibORM.create({
+const client = createClient({
   schema,
   driver,
   instrumentation: {
@@ -28,12 +29,12 @@ const client = VibORM.create({
 });
 
 // Advanced: custom configuration
-const clientAdvanced = VibORM.create({
+const clientAdvanced = createClient({
   schema,
   driver,
   instrumentation: {
     tracing: {
-      includeSql: true,    // Include SQL in spans (default: true)
+      includeSql: true,    // Explicitly include SQL in spans
       includeParams: false // Exclude params for security (default: false)
     },
     logging: {
@@ -42,6 +43,10 @@ const clientAdvanced = VibORM.create({
         errorTracker.capture(event.error);
         log();                           // Also use default logger
       }
+    },
+    diagnostics: {
+      includeSql: false,   // Error metadata is independently private
+      includeParams: false
     }
   }
 });
@@ -49,21 +54,34 @@ const clientAdvanced = VibORM.create({
 
 ## Configuration
 
-The `instrumentation` option accepts two optional configurations:
+The `instrumentation` option accepts three optional configurations:
 
 | Option | Description |
 |--------|-------------|
 | `tracing` | OpenTelemetry tracing configuration |
 | `logging` | Structured logging configuration |
+| `diagnostics` | SQL/parameter disclosure in thrown and serialized errors |
 
-Both are fully independent - you can enable one, both, or neither.
+All three are independent - enable only the outputs each destination needs.
 
 ## Privacy & Security
 
-By default, VibORM includes SQL query text but excludes query parameters:
+By default, VibORM excludes both SQL query text and query parameters:
 
-- **`includeSql: true`** (default) - SQL statements are visible in traces/logs
+- **`includeSql: false`** (default) - SQL statements are hidden
 - **`includeParams: false`** (default) - Parameters are hidden to protect sensitive data
+
+Logging, tracing, and error diagnostics have independent disclosure options.
+Enabling SQL for one output does not enable it for the others.
+
+Thrown `VibORMError` instances, their `meta` fields, nested causes, and
+`toJSON()` output follow the diagnostics policy. Raw provider messages and
+undeclared provider fields are redacted. Stable provider codes remain available
+for retry and incident classification.
+
+Cache keys, including custom keys, are omitted from logs and spans. Cache
+event/status, model, operation, and correlation ID remain available for
+diagnosis without deriving another identifier from private key material.
 
 <Callout type="warn">
 Only enable `includeParams` in development or staging environments. Query parameters may contain sensitive user data.

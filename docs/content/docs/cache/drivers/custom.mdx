@@ -6,7 +6,7 @@ description: Implement your own cache driver for any backend by extending CacheD
 ## Interface
 
 ```typescript
-import { CacheDriver, type CacheEntry } from "viborm";
+import { CacheDriver, type CacheEntry } from "viborm/cache";
 
 abstract class CacheDriver {
   // Get a cache entry by key
@@ -40,7 +40,7 @@ interface CacheEntry<T = unknown> {
 ## Redis Example
 
 ```typescript
-import { CacheDriver, type CacheEntry } from "viborm";
+import { CacheDriver, type CacheEntry } from "viborm/cache";
 import { Redis } from "ioredis";
 
 export class RedisCache extends CacheDriver {
@@ -113,7 +113,7 @@ const client = createClient({
 For serverless environments, Upstash provides a REST-based Redis:
 
 ```typescript
-import { CacheDriver, type CacheEntry } from "viborm";
+import { CacheDriver, type CacheEntry } from "viborm/cache";
 import { Redis } from "@upstash/redis";
 
 export class UpstashCache extends CacheDriver {
@@ -203,7 +203,7 @@ protected async get<T>(key: string): Promise<CacheEntry<T> | null> {
 
 ### 3. Respect Storage TTL
 
-The `storageTtl` parameter is already calculated (2x user TTL for SWR support). Use it directly:
+The `storageTtl` parameter is already calculated (the user TTL, extended by the stale window when SWR is enabled). Use it directly:
 
 ```typescript
 protected async set<T>(key: string, storageTtl: number, entry: CacheEntry<T>) {

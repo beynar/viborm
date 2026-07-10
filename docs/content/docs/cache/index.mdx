@@ -17,7 +17,8 @@ icon: Database
 ## Quick Start
 
 ```typescript
-import { createClient, MemoryCache } from "viborm";
+import { createClient } from "viborm";
+import { MemoryCache } from "viborm/cache/memory";
 
 const client = createClient({
   schema: { user, post },
@@ -38,7 +39,8 @@ const users = await client.$withCache().user.findMany({
 Pass a cache driver when creating the client:
 
 ```typescript
-import { MemoryCache, CloudflareKVCache } from "viborm";
+import { MemoryCache } from "viborm/cache/memory";
+import { CloudflareKVCache } from "viborm/cache/cloudflare-kv";
 
 // In-memory cache (development/single instance)
 const client = createClient({
@@ -96,7 +98,7 @@ const fresh = client.$withCache({ bypass: true });
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `ttl` | `string \| number` | `300000` (5 min) | Cache duration. String format: "1 hour", "30 seconds", etc. |
-| `swr` | `boolean \| string \| number` | `false` | Enable stale-while-revalidate. When `true`, uses 2x TTL. Can also specify a custom SWR window duration. |
+| `swr` | `boolean \| string \| number` | `false` | Enable stale-while-revalidate. When `true`, the stale window equals the TTL (entries stored for 2x TTL). A duration sets a custom stale window (entries stored for TTL + window). |
 | `key` | `string` | auto-generated | Custom cache key (overrides automatic key generation) |
 | `bypass` | `boolean` | `false` | Skip cache read and force fresh fetch (still writes to cache) |
 
@@ -166,16 +168,16 @@ const users3 = await cached.user.findMany(); // ~1ms (stale data returned)
 2. **Stale hit** (TTL < age < SWR window): Return stale data, refresh in background
 3. **Miss** (age > SWR window or not cached): Execute query, cache result
 
-By default, the SWR window is 2× the TTL. You can customize this:
+With `swr: true`, the stale window equals the TTL, so entries are stored for 2× the TTL. A custom duration sets the stale window explicitly, so entries are stored for TTL + window:
 
 ```typescript
-// Default: SWR window is 2x TTL (10 minutes total storage)
+// Default: stale window equals the TTL (stored for 10 minutes total)
 const cached = client.$withCache({ ttl: "5 minutes", swr: true });
 
-// Custom SWR window of 1 hour (stored for 1 hour total)
+// Custom stale window of 1 hour (stored for 5 min + 1 hour = 65 minutes total)
 const cached = client.$withCache({ ttl: "5 minutes", swr: "1 hour" });
 
-// Custom SWR window in milliseconds
+// Custom stale window in milliseconds
 const cached = client.$withCache({ ttl: 300000, swr: 3600000 });
 ```
 
@@ -340,7 +342,7 @@ const users = await cached.user.findMany({
 Use `generateCacheKey` to create keys matching the auto-generated format:
 
 ```typescript
-import { generateCacheKey } from "viborm";
+import { generateCacheKey } from "viborm/cache";
 
 // Generate the same key that would be used for a cached query
 const key = generateCacheKey(
@@ -374,9 +376,11 @@ Cache operations emit OpenTelemetry spans when instrumentation is configured.
 | Attribute | Description |
 |-----------|-------------|
 | `cache.driver` | Driver name (memory, cloudflare-kv, etc.) |
-| `cache.key` | Cache key being accessed |
 | `cache.result` | Result of cache read: `hit`, `miss`, `stale`, or `bypass` |
 | `cache.ttl` | TTL in milliseconds |
+
+Cache keys, including custom keys, are omitted from spans and logs — see
+[Privacy & Security](/docs/instrumentation#privacy--security).
 
 ### Example Trace
 
@@ -403,88 +407,3 @@ VibORM includes built-in cache drivers and supports custom implementations.
 | [Custom](/docs/cache/drivers/custom) | Redis, Upstash, etc. | Varies |
 
 See [Cache Drivers](/docs/cache/drivers) for detailed configuration and implementation guides.
-
-## Examples
-
-### Basic Caching
-
-```typescript
-const client = createClient({
-  schema: { user, post },
-  driver,
-  cache: new MemoryCache(),
-});
-
-// Cache user queries for 10 minutes
-const cached = client.$withCache({ ttl: "10 minutes" });
-
-const users = await cached.user.findMany({
-  where: { active: true },
-  include: { posts: true },
-});
-```
-
-### SWR with Cloudflare Workers
-
-```typescript
-import { createClient, CloudflareKVCache } from "viborm";
-
-export default {
-  async fetch(request, env, ctx) {
-    const client = createClient({
-      schema: { user },
-      driver: createD1Driver(env.DB),
-      cache: new CloudflareKVCache(env.CACHE),
-      waitUntil: ctx.waitUntil.bind(ctx),
-    });
-
-    const users = await client
-      .$withCache({ ttl: "5 minutes", swr: true })
-      .user.findMany({ where: { active: true } });
-
-    return Response.json(users);
-  }
-}
-```
-
-### Invalidation on Write
-
-```typescript
-// Create a post and invalidate related caches
-await client.post.create({
-  data: {
-    title: "New Post",
-    authorId: userId,
-  },
-  cache: {
-    invalidate: [
-      "post:findMany:*",           // All post lists
-      `user:${userId}:posts:*`,    // This user's post caches
-    ],
-  },
-});
-```
-
-### Different TTLs for Different Queries
-
-```typescript
-// Short TTL for frequently changing data
-const recentPosts = await client
-  .$withCache({ ttl: "1 minute" })
-  .post.findMany({
-    orderBy: { createdAt: "desc" },
-    take: 10,
-  });
-
-// Longer TTL for stable data
-const categories = await client
-  .$withCache({ ttl: "1 hour" })
-  .category.findMany();
-
-// SWR for user-facing pages
-const featuredUsers = await client
-  .$withCache({ ttl: "5 minutes", swr: true })
-  .user.findMany({
-    where: { featured: true },
-  });
-```
