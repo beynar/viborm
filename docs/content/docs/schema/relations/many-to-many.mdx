@@ -33,63 +33,18 @@ VibORM automatically creates a junction table `post_tag` with `postId` and `tagI
 | Can be empty | Yes (empty array) |
 | FK location | Junction table |
 
-## Chainable Methods
+## Configuration
 
-### `.through(tableName)`
-
-Specify a custom junction table name:
-
-```ts
-s.manyToMany(() => tag).through("post_tags")
-```
-
-### `.A(fieldName)`
-
-Specify the junction table FK column for the source model:
+The distinctive rule of many-to-many: the FKs live in a junction table, configured with `.through()`, `.A()`, and `.B()`. See the [relation method reference](/docs/schema/relations) and [referential actions](/docs/schema/relations#referential-actions):
 
 ```ts
 s.manyToMany(() => tag)
-  .through("post_tags")
-  .A("post_id")  // FK to posts table
-```
-
-### `.B(fieldName)`
-
-Specify the junction table FK column for the target model:
-
-```ts
-s.manyToMany(() => tag)
-  .through("post_tags")
-  .A("post_id")
-  .B("tag_id")  // FK to tags table
-```
-
-### `.onDelete(action)`
-
-Referential action for both FKs in the junction table:
-
-```ts
-s.manyToMany(() => tag)
-  .through("post_tags")
-  .onDelete("cascade")  // Remove junction rows when post/tag deleted
-```
-
-### `.onUpdate(action)`
-
-Referential action when referenced PKs change:
-
-```ts
-s.manyToMany(() => tag)
-  .through("post_tags")
-  .onUpdate("cascade")
-```
-
-### `.name(relationName)`
-
-Set a custom relation name:
-
-```ts
-s.manyToMany(() => tag).name("labels")
+  .through("post_tags")     // Junction table name
+  .A("post_id")             // Source FK column in junction table
+  .B("tag_id")              // Target FK column in junction table
+  .onDelete("cascade")      // Referential action (applies to both FKs)
+  .onUpdate("cascade")      // Referential action (applies to both FKs)
+  .name("labels")           // Custom relation name
 ```
 
 ## Auto-Generated Junction Table
@@ -106,7 +61,7 @@ Table name is derived from model names in alphabetical order: `post` + `tag` →
 
 ## Explicit Junction Table
 
-For full control:
+For full control, note the `A`/`B` columns swap on the inverse side:
 
 ```ts
 const post = s.model({
@@ -128,37 +83,6 @@ const tag = s.model({
 });
 ```
 
-## Complete Example
-
-```ts
-// Users can follow other users
-const user = s.model({
-  id: s.string().id().ulid(),
-  name: s.string(),
-  following: s.manyToMany(() => user)
-    .through("user_follows")
-    .A("follower_id")
-    .B("following_id"),
-  followers: s.manyToMany(() => user)
-    .through("user_follows")
-    .A("following_id")
-    .B("follower_id"),
-});
-
-// Products and categories
-const product = s.model({
-  id: s.string().id().ulid(),
-  name: s.string(),
-  categories: s.manyToMany(() => category),
-});
-
-const category = s.model({
-  id: s.string().id().ulid(),
-  name: s.string(),
-  products: s.manyToMany(() => product),
-});
-```
-
 ## Querying Many-to-Many
 
 ```ts
@@ -169,107 +93,25 @@ const post = await client.post.findUnique({
 });
 // post.tags: Tag[]
 
-// Filter posts by tags
-const posts = await client.post.findMany({
-  where: {
+// Connect and disconnect tags
+await client.post.update({
+  where: { id: "post_123" },
+  data: {
     tags: {
-      some: { name: "featured" }  // Has "featured" tag
+      connect: [{ id: "tag_1" }],
+      disconnect: [{ id: "tag_2" }],
     }
-  }
-});
-
-// Posts with ALL specified tags
-const posts = await client.post.findMany({
-  where: {
-    tags: {
-      every: { name: { in: ["tech", "tutorial"] } }
-    }
-  }
-});
-
-// Posts with NONE of specified tags
-const posts = await client.post.findMany({
-  where: {
-    tags: {
-      none: { name: "draft" }
-    }
-  }
-});
-
-// Count tags per post
-const posts = await client.post.findMany({
-  include: {
-    _count: { select: { tags: true } }
   }
 });
 ```
 
-## Managing Relations
-
-```ts
-// Connect existing tags
-await client.post.update({
-  where: { id: "post_123" },
-  data: {
-    tags: {
-      connect: [
-        { id: "tag_1" },
-        { id: "tag_2" },
-      ]
-    }
-  }
-});
-
-// Disconnect tags
-await client.post.update({
-  where: { id: "post_123" },
-  data: {
-    tags: {
-      disconnect: [{ id: "tag_1" }]
-    }
-  }
-});
-
-// Set tags (replace all)
-await client.post.update({
-  where: { id: "post_123" },
-  data: {
-    tags: {
-      set: [{ id: "tag_2" }, { id: "tag_3" }]
-    }
-  }
-});
-
-// Create new tags and connect
-await client.post.update({
-  where: { id: "post_123" },
-  data: {
-    tags: {
-      create: { name: "new-tag" },
-      connect: { id: "existing_tag" },
-    }
-  }
-});
-
-// Connect or create
-await client.post.update({
-  where: { id: "post_123" },
-  data: {
-    tags: {
-      connectOrCreate: {
-        where: { name: "tech" },
-        create: { name: "tech" }
-      }
-    }
-  }
-});
-```
+See [To-Many Relation Filters](/docs/client/filtering/relations-to-many) for `some`/`every`/`none` and [Nested Writes](/docs/client/nested-writes) for `connect`/`disconnect`/`set`/`connectOrCreate`.
 
 ## Common Patterns
 
 ### Explicit Junction Model
 
-When you need additional data on the relation:
+When you need additional data on the relation, model the junction table yourself with two [many-to-one](/docs/schema/relations/many-to-one) relations:
 
 ```ts
 // Junction model with extra fields
@@ -308,9 +150,13 @@ const course = s.model({
 const user = s.model({
   id: s.string().id().ulid(),
   name: s.string(),
-  friends: s.manyToMany(() => user)
-    .through("friendships")
-    .A("user_id")
-    .B("friend_id"),
+  following: s.manyToMany(() => user)
+    .through("user_follows")
+    .A("follower_id")
+    .B("following_id"),
+  followers: s.manyToMany(() => user)
+    .through("user_follows")
+    .A("following_id")
+    .B("follower_id"),
 });
 ```

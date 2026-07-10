@@ -38,7 +38,7 @@ const post = s.model({
 
 ## No FK on This Side
 
-The one-to-many side does NOT have a foreign key. The FK is on the many-to-one side:
+The distinctive rule of one-to-many: this side does NOT own a foreign key, so it needs almost no configuration. All FK setup lives on the [many-to-one](/docs/schema/relations/many-to-one) side:
 
 ```ts
 // ✅ Correct - no FK configuration needed
@@ -48,76 +48,12 @@ posts: s.oneToMany(() => post)
 posts: s.oneToMany(() => post).fields("???")
 ```
 
-## Minimal Configuration
-
-One-to-many relations have minimal configuration since they don't own the FK:
-
-```ts
-s.oneToMany(() => post)
-// That's it! No .fields(), .references(), or .optional()
-```
-
-### Available Methods
-
-| Method | Description |
-|--------|-------------|
-| `.name(relationName)` | Set a custom relation name |
-
-That's it! All FK configuration is done on the `manyToOne` side.
-
-## Complete Example
-
-```ts
-const user = s.model({
-  id: s.string().id().ulid(),
-  email: s.string().unique(),
-  name: s.string(),
-  // One user has many posts
-  posts: s.oneToMany(() => post),
-  // One user has many comments
-  comments: s.oneToMany(() => comment),
-});
-
-const post = s.model({
-  id: s.string().id().ulid(),
-  title: s.string(),
-  content: s.string(),
-  authorId: s.string(),
-  // Many posts belong to one user
-  author: s.manyToOne(() => user)
-    .fields("authorId")
-    .references("id"),
-  // One post has many comments
-  comments: s.oneToMany(() => comment),
-});
-
-const comment = s.model({
-  id: s.string().id().ulid(),
-  content: s.string(),
-  authorId: s.string(),
-  postId: s.string(),
-  // Many comments belong to one user
-  author: s.manyToOne(() => user)
-    .fields("authorId")
-    .references("id"),
-  // Many comments belong to one post
-  post: s.manyToOne(() => post)
-    .fields("postId")
-    .references("id"),
-});
-```
+The only available method is `.name(relationName)` for a custom relation name — see the [relation method reference](/docs/schema/relations).
 
 ## Querying One-to-Many
 
 ```ts
-// Include posts when fetching user
-const user = await client.user.findUnique({
-  where: { id: "user_123" },
-  include: { posts: true },
-});
-// user.posts: Post[]
-
-// Filter and paginate included posts
+// Include posts, filtered and paginated
 const user = await client.user.findUnique({
   where: { id: "user_123" },
   include: {
@@ -128,6 +64,7 @@ const user = await client.user.findUnique({
     }
   }
 });
+// user.posts: Post[]
 
 // Filter users by their posts
 const authors = await client.user.findMany({
@@ -137,58 +74,11 @@ const authors = await client.user.findMany({
     }
   }
 });
-
-// Users with ALL published posts
-const consistentAuthors = await client.user.findMany({
-  where: {
-    posts: {
-      every: { published: true }
-    }
-  }
-});
-
-// Users with NO posts
-const newUsers = await client.user.findMany({
-  where: {
-    posts: {
-      none: {}
-    }
-  }
-});
 ```
 
-## Creating Related Records
+See [To-Many Relation Filters](/docs/client/filtering/relations-to-many) for `some`/`every`/`none` and [Nested Writes](/docs/client/nested-writes) for creating related records.
 
-```ts
-// Create user with posts
-const user = await client.user.create({
-  data: {
-    email: "alice@example.com",
-    name: "Alice",
-    posts: {
-      create: [
-        { title: "First Post", content: "Hello!" },
-        { title: "Second Post", content: "World!" },
-      ]
-    }
-  },
-  include: { posts: true },
-});
-
-// Add posts to existing user
-await client.user.update({
-  where: { id: "user_123" },
-  data: {
-    posts: {
-      create: { title: "New Post", content: "Content" },
-    }
-  }
-});
-```
-
-## Common Patterns
-
-### Blog with Categories
+## Common Pattern: Blog with Categories
 
 ```ts
 const category = s.model({
@@ -203,29 +93,6 @@ const post = s.model({
   categoryId: s.string(),
   category: s.manyToOne(() => category)
     .fields("categoryId")
-    .references("id"),
-});
-```
-
-### Organization with Members
-
-```ts
-const organization = s.model({
-  id: s.string().id().ulid(),
-  name: s.string(),
-  members: s.oneToMany(() => membership),
-});
-
-const membership = s.model({
-  id: s.string().id().ulid(),
-  role: s.enum(["ADMIN", "MEMBER"]),
-  orgId: s.string(),
-  userId: s.string(),
-  organization: s.manyToOne(() => organization)
-    .fields("orgId")
-    .references("id"),
-  user: s.manyToOne(() => user)
-    .fields("userId")
     .references("id"),
 });
 ```

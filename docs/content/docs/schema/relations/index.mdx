@@ -98,24 +98,16 @@ s.manyToMany(() => target)
 
 ## Referential Actions
 
+`.onDelete()` and `.onUpdate()` accept one of four actions:
+
 | Action | Description |
 |--------|-------------|
 | `cascade` | Delete/update related records |
-| `setNull` | Set FK to NULL (requires nullable FK) |
+| `setNull` | Set FK to NULL (requires nullable FK and `.optional()`) |
 | `restrict` | Prevent delete/update if related records exist |
 | `noAction` | Database default behavior |
 
-## Class Structure
-
-VibORM uses standalone classes for different relation types:
-
-```
-ToOneRelation       → oneToOne, manyToOne
-ToManyRelation      → oneToMany
-ManyToManyRelation  → manyToMany
-```
-
-Each class only exposes methods relevant to that relation type.
+This is the canonical reference — the per-relation pages link back here.
 
 ## Pages
 

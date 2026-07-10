@@ -34,47 +34,29 @@ const user = s.model({
 | Can be null | Yes, with `.optional()` |
 | Required by default | Yes |
 
-## Chainable Methods
+## Configuration
 
-### `.fields(...fieldNames)`
-
-**Required.** Specifies the FK field(s) on this model:
-
-```ts
-s.manyToOne(() => user).fields("authorId")
-
-// Composite FK
-s.manyToOne(() => organization).fields("orgId", "teamId")
-```
-
-### `.references(...fieldNames)`
-
-**Required.** Specifies the referenced field(s) on the target:
+Many-to-one is the FK-owning side — `.fields()` and `.references()` are required. See the [relation method reference](/docs/schema/relations) and [referential actions](/docs/schema/relations#referential-actions):
 
 ```ts
 s.manyToOne(() => user)
-  .fields("authorId")
-  .references("id")
+  .fields("authorId")   // FK field(s) on this model - required
+  .references("id")     // Referenced field(s) on the target - required
+  .optional()           // Relation can be null
+  .onDelete("cascade")  // Referential action on delete
+  .onUpdate("cascade")  // Referential action on update
+  .name("writer")       // Custom relation name
+```
 
-// Composite reference
+Composite foreign keys pass multiple fields:
+
+```ts
 s.manyToOne(() => organization)
   .fields("orgId", "teamId")
   .references("id", "teamId")
 ```
 
-### `.optional()`
-
-Makes the relation optional (FK can be null):
-
-```ts
-// Post may or may not have an author
-author: s.manyToOne(() => user)
-  .fields("authorId")
-  .references("id")
-  .optional()
-```
-
-When using `.optional()`, the FK field should also be nullable:
+**When using `.optional()`, the FK field itself must also be `.nullable()`:**
 
 ```ts
 authorId: s.string().nullable(),
@@ -82,43 +64,6 @@ author: s.manyToOne(() => user)
   .fields("authorId")
   .references("id")
   .optional()
-```
-
-### `.onDelete(action)`
-
-Referential action when the related record is deleted:
-
-```ts
-s.manyToOne(() => user)
-  .fields("authorId")
-  .references("id")
-  .onDelete("cascade")  // Delete posts when user is deleted
-```
-
-| Action | Effect |
-|--------|--------|
-| `cascade` | Delete this record too |
-| `setNull` | Set FK to null (requires `.optional()`) |
-| `restrict` | Prevent deletion |
-| `noAction` | Database default |
-
-### `.onUpdate(action)`
-
-Referential action when the referenced field changes:
-
-```ts
-s.manyToOne(() => user)
-  .fields("authorId")
-  .references("id")
-  .onUpdate("cascade")  // Update FK when user ID changes
-```
-
-### `.name(relationName)`
-
-Set a custom relation name:
-
-```ts
-s.manyToOne(() => user).name("writer")
 ```
 
 ## Complete Example
@@ -129,14 +74,14 @@ const post = s.model({
   title: s.string(),
   content: s.string(),
   published: s.boolean().default(false),
-  
+
   // Required author
   authorId: s.string(),
   author: s.manyToOne(() => user)
     .fields("authorId")
     .references("id")
     .onDelete("cascade"),
-  
+
   // Optional category
   categoryId: s.string().nullable(),
   category: s.manyToOne(() => category)
@@ -157,95 +102,37 @@ const post = await client.post.findUnique({
 });
 // post.author: User
 
-// Filter posts by author
-const posts = await client.post.findMany({
-  where: {
-    author: {
-      is: { role: "ADMIN" }
-    }
-  }
-});
-
-// Filter posts without author (optional relation)
-const orphanedPosts = await client.post.findMany({
-  where: {
-    author: {
-      is: null
-    }
-  }
-});
-
-// Select specific author fields
-const posts = await client.post.findMany({
-  select: {
-    title: true,
-    author: {
-      select: { name: true, email: true }
-    }
-  }
-});
-```
-
-## Creating with Relations
-
-```ts
-// Connect to existing user
-const post = await client.post.create({
+// Connect to an existing user on create (or set authorId directly)
+const created = await client.post.create({
   data: {
     title: "My Post",
-    content: "Hello!",
     author: {
       connect: { id: "user_123" }
     }
   }
 });
-
-// Or use FK directly
-const post = await client.post.create({
-  data: {
-    title: "My Post",
-    content: "Hello!",
-    authorId: "user_123"
-  }
-});
-
-// Create and connect in one operation
-const post = await client.post.create({
-  data: {
-    title: "My Post",
-    content: "Hello!",
-    author: {
-      connectOrCreate: {
-        where: { email: "alice@example.com" },
-        create: { email: "alice@example.com", name: "Alice" }
-      }
-    }
-  }
-});
 ```
 
-## Common Patterns
+See [To-One Relation Filters](/docs/client/filtering/relations-to-one) for filter operators and [Nested Writes](/docs/client/nested-writes) for `create`/`connect`/`connectOrCreate`.
 
-### Required vs Optional
+## Self-Referential
 
-```ts
-// Required: Every post MUST have an author
-authorId: s.string(),
-author: s.manyToOne(() => user)
-  .fields("authorId")
-  .references("id")
-
-// Optional: Post MAY have a category
-categoryId: s.string().nullable(),
-category: s.manyToOne(() => category)
-  .fields("categoryId")
-  .references("id")
-  .optional()
-```
-
-### Self-Referential (Tree Structure)
+The parent/child pattern — an entity pointing at another row of the same model — is a many-to-one relation with a one-to-many inverse:
 
 ```ts
+// Employees and their manager
+const employee = s.model({
+  id: s.string().id().ulid(),
+  name: s.string(),
+  managerId: s.string().nullable(),
+  manager: s.manyToOne(() => employee)
+    .fields("managerId")
+    .references("id")
+    .optional(),
+  reports: s.oneToMany(() => employee),
+});
+
+// Threaded comments
 const comment = s.model({
   id: s.string().id().ulid(),
   content: s.string(),
