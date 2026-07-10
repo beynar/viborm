@@ -46,15 +46,17 @@ First, the current TypeScript schema is serialized into a database-agnostic snap
 }
 ```
 
-### 2. Database Introspection
+### 2. The Comparison Baseline
 
-The current database state is read through the driver:
+`viborm push` reads the current database state through the driver:
 
 ```sql
 SELECT column_name, data_type, is_nullable 
 FROM information_schema.columns 
 WHERE table_name = 'user';
 ```
+
+`viborm migrate generate` instead compares against the snapshot stored with the previous migration — no live database needed.
 
 ### 3. Diffing
 
@@ -77,17 +79,28 @@ adapter.addColumn(operation)  // → ALTER TABLE ... ADD COLUMN ...
 
 ## Operation Types
 
+The full `DiffOperation` union (see `src/migrations/types.ts`):
+
 | Operation | Description |
 |-----------|-------------|
 | `createTable` | New table |
 | `dropTable` | Remove table |
+| `renameTable` | Rename table |
 | `addColumn` | Add column to table |
 | `dropColumn` | Remove column |
+| `renameColumn` | Rename column |
 | `alterColumn` | Change column type/constraints |
 | `createIndex` | Add index |
 | `dropIndex` | Remove index |
 | `addForeignKey` | Add foreign key constraint |
 | `dropForeignKey` | Remove foreign key constraint |
+| `addUniqueConstraint` | Add unique constraint |
+| `dropUniqueConstraint` | Remove unique constraint |
+| `addPrimaryKey` | Add primary key |
+| `dropPrimaryKey` | Remove primary key |
+| `createEnum` | Create enum type |
+| `dropEnum` | Remove enum type |
+| `alterEnum` | Add/remove enum values |
 
 ## Ambiguous Changes
 
@@ -123,19 +136,31 @@ viborm push
 
 Best for: Development, prototyping
 
-### Migration Files (Planned)
+### `viborm migrate`
 
-Generate SQL files for review:
+Generate SQL migration files for review, then apply them:
 
 ```bash
 viborm migrate generate
-# Creates: migrations/20240115_add_name.sql
+# Diffs schema against the last snapshot
+# Writes an up/down migration to the migrations directory
 
 viborm migrate apply
-# Executes pending migrations
+# Executes pending migrations (tracked in a migrations table)
+
+viborm migrate down
+# Rolls back applied migrations using the generated down SQL
+
+viborm migrate status
+# Shows applied vs pending migrations
+
+viborm migrate drop
+# Removes migration tracking (does NOT revert database changes)
 ```
 
 Best for: Production, team workflows
+
+See `src/cli/commands/migrate.ts` for the CLI and `viborm/migrations` for the programmatic API (`generate`, `apply`, `down`, `status`, `push`, `reset`, `squash`, ...).
 
 ## Connection to Other Layers
 

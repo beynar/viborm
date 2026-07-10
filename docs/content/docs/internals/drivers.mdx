@@ -28,42 +28,54 @@ Drivers abstract these differences behind a common interface.
 
 ## Driver Interface
 
+Drivers extend the abstract `Driver` base class (see `src/drivers/driver.ts`). It is generic over the underlying client and transaction handle, carries the SQL adapter for its dialect, and manages lazy connection, transaction queuing, and error mapping. Subclasses implement five methods:
+
 ```typescript
-interface Driver {
-  // Execute and return rows
-  query<T>(sql: string, params: unknown[]): Promise<T[]>;
-  
-  // Execute without return (INSERT/UPDATE/DELETE)
-  execute(sql: string, params: unknown[]): Promise<void>;
-  
-  // Transaction support
-  transaction<T>(fn: (tx: Driver) => Promise<T>): Promise<T>;
-  
-  // Connection management
-  connect(): Promise<void>;
-  disconnect(): Promise<void>;
+abstract class Driver<TClient, TTransaction> {
+  readonly dialect: Dialect;                    // "postgres" | "mysql" | "sqlite"
+  readonly driverName: string;
+  abstract readonly adapter: DatabaseAdapter;   // SQL adapter for this dialect
+  readonly supportsTransactions: boolean;       // false for HTTP drivers (D1, Neon HTTP)
+  readonly supportsBatch: boolean;              // true for atomic-batch APIs (D1, Neon HTTP)
+
+  // Subclasses implement:
+  protected abstract initClient(): Promise<TClient>;
+  protected abstract closeClient(client: TClient | TTransaction): Promise<void>;
+  protected abstract execute<T>(client, sql, params, context?): Promise<QueryResult<T>>;
+  protected abstract executeRaw<T>(client, sql, params, context?): Promise<QueryResult<T>>;
+  protected abstract transaction<T>(client, fn: (tx: TTransaction) => Promise<T>, context?): Promise<T>;
 }
 ```
 
 ## Available Drivers
 
-| Driver | Client | Use Case |
-|--------|--------|----------|
-| `PgDriver` | node-postgres | PostgreSQL servers |
-| `PGliteDriver` | PGlite | Embedded PostgreSQL |
-| `MySQL2Driver` | mysql2 | MySQL servers |
-| `SQLite3Driver` | better-sqlite3 | SQLite files |
+| Driver | Entry Point | Client | Use Case |
+|--------|-------------|--------|----------|
+| `PgDriver` | `viborm/pg` | node-postgres | PostgreSQL servers |
+| `PostgresDriver` | `viborm/postgres` | postgres.js | PostgreSQL servers |
+| `PGliteDriver` | `viborm/pglite` | PGlite | Embedded PostgreSQL |
+| `NeonHTTPDriver` | `viborm/neon-http` | Neon HTTP | Serverless PostgreSQL |
+| `BunSQLDriver` | `viborm/bun-sql` | Bun SQL | PostgreSQL from Bun |
+| `MySQL2Driver` | `viborm/mysql2` | mysql2 | MySQL servers |
+| `PlanetScaleDriver` | `viborm/planetscale` | PlanetScale | Serverless MySQL |
+| `SQLite3Driver` | `viborm/sqlite3` | better-sqlite3 | SQLite files |
+| `LibSQLDriver` | `viborm/libsql` | libSQL | Turso / libSQL |
+| `BunSQLiteDriver` | `viborm/bun-sqlite` | bun:sqlite | SQLite from Bun |
+| `D1Driver` | `viborm/d1` | D1 binding | Cloudflare Workers |
+| `D1HTTPDriver` | `viborm/d1-http` | D1 HTTP API | Cloudflare D1 remote |
 
 ## What Drivers Handle
 
-### Connection Pooling
+### Connection Management
 
-For server databases, drivers manage connection pools:
+Drivers connect lazily and accept either an existing client or connection options. For example, `PostgresDriver` (postgres.js):
 
 ```typescript
 const driver = new PostgresDriver({
-  connectionString: "postgres://...",
-  pool: { min: 2, max: 10 }
+  databaseUrl: "postgres://...",  // or options: { host, port, database, ... }
+  // client: existingPostgresJsInstance,
+  // pgvector: true,
+  // postgis: true,
 });
 ```
 

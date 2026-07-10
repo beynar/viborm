@@ -148,9 +148,10 @@ Migrations handle **schema evolution** independently.
 ```
 src/
 ├── validation/           # L1: Validation primitives
-├── schema/               # L2-L5: Schema system
+│   ├── model/            # L3: Operation schemas (where/create/update/args)
+│   └── relations/        # L3: Relation operation schemas
+├── schema/               # L2, L4, L5: Schema system
 │   ├── scalars/          # L2: Scalar types
-│   ├── model/schemas/    # L3: Query schemas
 │   ├── relation/         # L4: Relations
 │   └── validation/       # L5: Schema validation
 ├── query-engine/         # L6: Query engine

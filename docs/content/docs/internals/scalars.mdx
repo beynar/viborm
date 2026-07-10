@@ -44,11 +44,13 @@ The key insight: **immutability enables type tracking**. If we mutated the scala
 |---------|---------------|-----------------|
 | `s.string()` | VARCHAR/TEXT | `string` |
 | `s.int()` | INTEGER | `number` |
-| `s.bigint()` | BIGINT | `bigint` |
+| `s.bigInt()` | BIGINT | `bigint` |
 | `s.float()` | FLOAT/DOUBLE | `number` |
-| `s.decimal()` | DECIMAL | `string` |
+| `s.decimal()` | DECIMAL | `number` |
 | `s.boolean()` | BOOLEAN | `boolean` |
-| `s.datetime()` | DATETIME/TIMESTAMP | `Date` |
+| `s.dateTime()` | DATETIME/TIMESTAMP | `Date` |
+| `s.date()` | DATE | `string` (ISO date) |
+| `s.time()` | TIME | `string` (ISO time) |
 | `s.json<T>()` | JSON/JSONB | `T` |
 | `s.enum(values)` | ENUM/VARCHAR | `values[number]` |
 | `s.blob()` | BLOB/BYTEA | `Uint8Array` |
@@ -66,8 +68,8 @@ Modifiers work across scalar types where applicable:
 | `.id()` | Mark as primary key |
 | `.unique()` | Add unique constraint |
 | `.map(columnName)` | Map to different column name |
-| `.auto.uuid()` | Auto-generate UUIDs |
-| `.auto.ulid()` | Auto-generate ULIDs |
+| `.uuid()` | Auto-generate UUIDs (string) |
+| `.ulid()` | Auto-generate ULIDs (string) |
 
 ## Lazy Schema Building
 
