@@ -13,72 +13,23 @@ s.json(); // Required JSON (unknown type)
 s.json().nullable(); // JSON | null
 ```
 
+JSON scalars support `.nullable()`, `.default()`, `.map()`, and `.schema()` — but **not** `.array()`, `.id()`, or `.unique()`. See the [support matrix](/docs/schema/scalars) and [Native Types](/docs/schema/native-types) for column types (`jsonb` vs `json` on PostgreSQL, etc.).
+
 ## Typed JSON
 
 Provide a StandardSchema (Valibot, Zod, etc.) for type-safe JSON using the `.schema()` method:
 
 ```ts
-import { object, enum_, boolean, string } from "valibot";
+import { object, picklist, boolean, string } from "valibot";
 
 const settingsSchema = object({
-  theme: enum_(["light", "dark"]),
+  theme: picklist(["light", "dark"]),
   notifications: boolean(),
   language: string(),
 });
 
 s.json().schema(settingsSchema); // Typed as { theme: "light" | "dark"; ... }
 ```
-
-## Chainable Methods
-
-```ts
-s.json()
-  .nullable() // Allow NULL
-  .schema(schema) // Custom StandardSchema validator
-  .default({}) // Static default
-  .default(() => ({})) // Runtime default
-  .map("column_name"); // Custom column name
-```
-
-## Native Database Types
-
-<Tabs items={["PostgreSQL", "MySQL", "SQLite"]}>
-  <Tab value="PostgreSQL">
-```ts
-import { TYPES } from "viborm";
-
-s.json(TYPES.PG.JSON.JSON) // JSON (text-based)
-s.json(TYPES.PG.JSON.JSONB) // JSONB (binary, indexable, default)
-
-```
-  </Tab>
-  <Tab value="MySQL">
-```ts
-import { TYPES } from "viborm";
-
-s.json(TYPES.MYSQL.JSON.JSON)  // JSON
-```
-
-  </Tab>
-  <Tab value="SQLite">
-```ts
-import { TYPES } from "viborm";
-
-s.json(TYPES.SQLITE.JSON.TEXT) // TEXT (stored as string)
-
-```
-  </Tab>
-</Tabs>
-
-## Type Mapping
-
-| Modifier | TypeScript | PostgreSQL | MySQL | SQLite |
-|----------|------------|------------|-------|--------|
-| `s.json()` | `unknown` | `JSONB` | `JSON` | `TEXT` |
-| `.schema(schema)` | Inferred | `JSONB` | `JSON` | `TEXT` |
-| `.nullable()` | `T \| null` | `JSONB NULL` | `JSON NULL` | `TEXT NULL` |
-
-**Note:** JSON scalars do not support `.array()` modifier or shorthand syntax for updates/filters. You must use explicit operations like `{ set: value }` and `{ equals: value }`.
 
 ## Examples
 
@@ -94,12 +45,10 @@ const tags = s.json().default([]);
 ```ts
 import {
   object,
-  enum_,
+  picklist,
   number,
   boolean,
   string,
-  array,
-  optional,
   pipe,
   minValue,
   maxValue,
@@ -107,7 +56,7 @@ import {
 
 // User preferences
 const preferencesSchema = object({
-  theme: enum_(["light", "dark", "system"]),
+  theme: picklist(["light", "dark", "system"]),
   fontSize: pipe(number(), minValue(10), maxValue(24)),
   notifications: object({
     email: boolean(),
@@ -182,24 +131,6 @@ await client.user.findMany({
   },
 });
 
-// String operations on JSON strings
-await client.user.findMany({
-  where: {
-    metadata: {
-      string_contains: "premium",
-    },
-  },
-});
-
-// Array operations
-await client.user.findMany({
-  where: {
-    tags: {
-      array_contains: "featured",
-    },
-  },
-});
-
 // Updates must use { set: value }
 await client.user.update({
   where: { id: "user_123" },
@@ -213,21 +144,10 @@ await client.user.update({
 
 ## JSON vs Separate Scalars
 
-| Approach        | Pros                       | Cons                            |
-| --------------- | -------------------------- | ------------------------------- |
+| Approach         | Pros                       | Cons                            |
+| ---------------- | -------------------------- | ------------------------------- |
 | JSON scalar      | Flexible, no migrations    | Harder to query, no constraints |
 | Separate scalars | Type-safe queries, indexes | Schema changes need migrations  |
-| Related table   | Full SQL power             | More complex queries            |
+| Related table    | Full SQL power             | More complex queries            |
 
-Use JSON for:
-
-- User preferences
-- Metadata that varies per record
-- Third-party API responses
-- Audit logs
-
-Use separate scalars for:
-
-- Data you need to filter/sort by
-- Data with strict validation
-- Data referenced in relations
+Use JSON for user preferences, per-record metadata, third-party API responses, and audit logs. Use separate scalars for data you filter or sort by, data with strict validation, and data referenced in relations.

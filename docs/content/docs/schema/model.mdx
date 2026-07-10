@@ -1,6 +1,6 @@
 ---
 title: Model
-description: Define database tables with fields: scalar columns and relation associations
+description: "Define database tables with fields: scalar columns and relation associations"
 icon: Table
 ---
 
@@ -45,11 +45,11 @@ Sets the database table name.
 
 ### `.index(fields, options?)`
 
-Adds an index on one or more fields.
+Adds an index on one or more fields. Fields are always passed as an array:
 
 ```ts
 // Single field index
-.index("email")
+.index(["email"])
 
 // Composite index
 .index(["lastName", "firstName"])
@@ -129,6 +129,7 @@ const user = s
     // Required fields
     email: s.string().unique(),
     passwordHash: s.string(),
+    orgId: s.string(),
 
     // Optional fields
     name: s.string().nullable(),
@@ -144,30 +145,7 @@ const user = s
     posts: s.oneToMany(() => post),
     profile: s.oneToOne(() => profile).optional(),
   })
-  .index("email")
+  .index(["email"])
   .index(["role", "active"])
   .unique(["email", "orgId"]);
-```
-
-## Accessing Model Internals
-
-The `~` property exposes internal state (for advanced use):
-
-```ts
-const user = s.model({ ... });
-
-user["~"].state.scalars  // Record<string, Scalar>
-user["~"].state.relations // Record<string, Relation>
-user["~"].state.tableName // Table name
-user["~"].state.indexes   // Index definitions
-user["~"].state.compoundId // Compound PK (if any)
-```
-
-## Type Inference
-
-Access the inferred type for a model:
-
-```ts
-type User = (typeof user)["~"]["infer"];
-// { id: string; email: string; name: string | null; ... }
 ```

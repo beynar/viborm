@@ -1,4 +1,4 @@
 {
   "title": "Schema",
-  "pages": ["index", "model", "scalars", "relations", "validation"]
+  "pages": ["index", "model", "scalars", "relations", "native-types", "validation"]
 }

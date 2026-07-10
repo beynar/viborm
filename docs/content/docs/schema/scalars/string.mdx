@@ -10,98 +10,44 @@ icon: Type
 import { s } from "viborm";
 
 s.string(); // Required string
-s.string().nullable(); // String | null
-s.string().array(); // String[] (native on PG, JSON on MySQL/SQLite)
+s.string().nullable(); // string | null
+s.string().array(); // string[] (native on PG, JSON on MySQL/SQLite)
 ```
 
-## Chainable Methods
+Common modifiers (`.nullable()`, `.unique()`, `.default()`, `.map()`, `.schema()`) are covered in the [modifier reference](/docs/schema/scalars). To override the column type (`varchar(n)`, `uuid`, `citext`, ...), see [Native Types](/docs/schema/native-types).
 
-### Common Modifiers
+## IDs and Auto-Generation
+
+`.id()` marks the field as the primary key and auto-generates a **ULID** by default:
 
 ```ts
-s.string()
-  .nullable() // Allow NULL
-  .array() // Array type (native on PG, JSON on MySQL/SQLite)
-  .id() // Primary key
-  .unique() // Unique constraint
-  .default("value") // Static default
-  .default(() => "x") // Runtime default
-  .map("column_name"); // Custom column name
+s.string().id(); // PK, auto-generated ULID: "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+s.string().id("user"); // Prefixed: "user-01ARZ3NDEKTSV4RRFFQ69G5FAV"
 ```
 
-### Auto-Generation
-
-String scalars support automatic ID generation:
+Chain a generator to pick a different format:
 
 ```ts
 s.string().id().uuid(); // UUIDv4: "550e8400-e29b-41d4-a716-446655440000"
-s.string().id().ulid(); // ULID: "01ARZ3NDEKTSV4RRFFQ69G5FAV" (sortable)
+s.string().id().ulid(); // ULID: "01ARZ3NDEKTSV4RRFFQ69G5FAV" (sortable, the default)
 s.string().id().nanoid(); // NanoID: "V1StGXR8_Z5jdHi6B-myT"
+s.string().id().nanoid(10); // NanoID with custom length
 s.string().id().cuid(); // CUID: "cjld2cjxh0000qzrmn831i7rn"
 ```
 
-### Custom Validation
+Every generator accepts a prefix — `.ulid("user")` produces `"user-01ARZ..."`. For `.nanoid()`, the prefix is the second argument: `.nanoid(21, "user")`.
+
+## Custom Validation
+
+`.schema()` accepts any Standard Schema. Valibot actions like `email()` are not schemas on their own — wrap them in `pipe()`:
 
 ```ts
-import { email, pipe, string, minLength, maxLength, regex } from "valibot";
+import { email, maxLength, minLength, pipe, regex, string } from "valibot";
 
-s.string().schema(email());
+s.string().schema(pipe(string(), email()));
 s.string().schema(pipe(string(), minLength(3), maxLength(100)));
 s.string().schema(pipe(string(), regex(/^[a-z]+$/)));
 ```
-
-## Native Database Types
-
-Override the default database type:
-
-<Tabs items={["PostgreSQL", "MySQL", "SQLite"]}>
-  <Tab value="PostgreSQL">
-```ts
-import { TYPES } from "viborm";
-
-s.string(TYPES.PG.STRING.TEXT) // TEXT (default)
-s.string(TYPES.PG.STRING.VARCHAR(255)) // VARCHAR(255)
-s.string(TYPES.PG.STRING.CHAR(10)) // CHAR(10)
-s.string(TYPES.PG.STRING.CITEXT) // Case-insensitive text
-s.string(TYPES.PG.STRING.UUID) // UUID native type
-s.string(TYPES.PG.STRING.XML) // XML
-s.string(TYPES.PG.STRING.INET) // IP address
-s.string(TYPES.PG.STRING.CIDR) // IP network
-s.string(TYPES.PG.STRING.MACADDR) // MAC address
-s.string(TYPES.PG.STRING.TSVECTOR) // Full-text search
-
-```
-  </Tab>
-  <Tab value="MySQL">
-```ts
-import { TYPES } from "viborm";
-
-s.string(TYPES.MYSQL.STRING.VARCHAR(255))  // VARCHAR(255)
-s.string(TYPES.MYSQL.STRING.CHAR(10))      // CHAR(10)
-s.string(TYPES.MYSQL.STRING.TEXT)          // TEXT
-s.string(TYPES.MYSQL.STRING.TINYTEXT)      // TINYTEXT
-s.string(TYPES.MYSQL.STRING.MEDIUMTEXT)    // MEDIUMTEXT
-s.string(TYPES.MYSQL.STRING.LONGTEXT)      // LONGTEXT
-```
-
-  </Tab>
-  <Tab value="SQLite">
-```ts
-import { TYPES } from "viborm";
-
-s.string(TYPES.SQLITE.STRING.TEXT) // TEXT (only option)
-
-```
-  </Tab>
-</Tabs>
-
-## Type Mapping
-
-| Modifier | TypeScript | PostgreSQL | MySQL | SQLite |
-|----------|------------|------------|-------|--------|
-| `s.string()` | `string` | `TEXT` | `VARCHAR(191)` | `TEXT` |
-| `.nullable()` | `string \| null` | `TEXT NULL` | `VARCHAR(191) NULL` | `TEXT NULL` |
-| `.array()` | `string[]` | `TEXT[]` | `JSON` | `JSON` |
 
 ## Examples
 
@@ -109,9 +55,9 @@ s.string(TYPES.SQLITE.STRING.TEXT) // TEXT (only option)
 import { email, pipe, string, minLength, maxLength, regex } from "valibot";
 
 // Email with validation
-const email = s.string()
+const userEmail = s.string()
   .unique()
-  .schema(email());
+  .schema(pipe(string(), email()));
 
 // Username with constraints
 const username = s.string()
@@ -124,6 +70,6 @@ const id = s.string().id().ulid();
 // Optional bio
 const bio = s.string().nullable().default(null);
 
-// Tags array (PostgreSQL)
+// Tags array (native array on PostgreSQL)
 const tags = s.string().array().default([]);
 ```

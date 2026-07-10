@@ -1,210 +1,38 @@
 ---
 title: Schema Validation
-description: Comprehensive validation system that checks your schema for errors before runtime
+description: Schema validation runs automatically on push and migrate — call it manually for early startup checks
 icon: ShieldCheck
 ---
 
-import { Callout } from "fumadocs-ui/components/callout";
-
-## Automatic Validation
-
-<Callout type="info" title="CLI Validation">
-Schema validation runs automatically when using CLI commands like `viborm push` or `viborm migrate`. You don't need to call validation manually unless you want to validate at application startup.
-</Callout>
+Schema validation checks your models for structural errors — missing IDs, broken foreign keys, invalid referential actions, database-specific constraints — before anything touches the database. It runs automatically on `viborm push` and `viborm migrate`; you only call it yourself if you want errors surfaced at application startup.
 
 ## Manual Validation
 
-### `validateSchema(schema)`
-
-Returns a validation result with all errors and warnings:
-
 ```ts
-import { validateSchema } from "viborm";
+import { validateSchema, validateSchemaOrThrow } from "viborm";
 import * as schema from "./schema";
 
-const result = validateSchema(schema);
+// Throws with all error messages if the schema is invalid (good for startup)
+validateSchemaOrThrow(schema);
 
+// Or inspect the result yourself
+const result = validateSchema(schema);
 if (!result.valid) {
   for (const error of result.errors) {
     console.log(`[${error.code}] ${error.message}`);
   }
 }
-
-// Also check warnings
 for (const warning of result.warnings) {
   console.log(`[${warning.code}] Warning: ${warning.message}`);
 }
 ```
 
-### `validateSchemaOrThrow(schema)`
-
-Throws on the first error (useful for startup):
-
-```ts
-import { validateSchemaOrThrow } from "viborm";
-import * as schema from "./schema";
-
-// Throws if invalid
-validateSchemaOrThrow(schema);
-```
-
-### `SchemaValidator` Class
-
-For custom validation with specific rules:
-
-```ts
-import { SchemaValidator, fkRules, relationRules } from "viborm";
-import * as schema from "./schema";
-
-const validator = new SchemaValidator()
-  .registerAll(schema);
-
-// Validate with all rules
-const result = validator.validate();
-
-// Or validate with specific rules only
-const fkResult = validator.validate([...fkRules, ...relationRules]);
-```
-
-## Rule Categories
-
-| Code | Category | Description |
-|------|----------|-------------|
-| **M0xx** | Model | Basic model structure |
-| **F0xx** | Field | Field-level constraints |
-| **I0xx** | Index | Index definitions |
-| **R0xx** | Relation | Relation configuration |
-| **JT0xx** | Junction | Many-to-many tables |
-| **SR0xx** | Self-ref | Self-referential relations |
-| **CM0xx** | Cross-model | Cross-model dependencies |
-| **FK0xx** | Foreign Key | FK scalar field-key validation |
-| **RA0xx** | Referential Action | onDelete/onUpdate rules |
-| **DB0xx** | Database | Database-specific constraints |
-
-## Model Rules (M0xx)
-
-| Code | Rule | Description |
-|------|------|-------------|
-| M001 | `modelHasFields` | Model must have at least one scalar field |
-| M002 | `modelUniqueName` | Model names must be unique |
-| M003 | `modelNameValid` | Model name cannot be empty |
-| M004 | `modelNameNotReserved` | Model name cannot be SQL reserved word |
-
-## Field Rules (F0xx)
-
-| Code | Rule | Description |
-|------|------|-------------|
-| F001 | `noDuplicateFields` | No duplicate field names |
-| F002 | `modelHasId` | Model must have exactly one ID (scalar field or compound ID) |
-| F003 | `defaultTypeMatch` | Default value must match scalar type |
-| F004 | `arrayFieldsSupported` | Array scalar fields only on supported DBs |
-
-## Index Rules (I0xx)
-
-| Code | Rule | Description |
-|------|------|-------------|
-| I001 | `indexFieldsExist` | Index fields must exist in model |
-| I002 | `indexNameUnique` | Index names must be unique per model |
-| I003 | `compoundFieldsExist` | Compound ID/unique fields must exist |
-
-## Relation Rules (R0xx)
-
-| Code | Rule | Description |
-|------|------|-------------|
-| R001 | `relationTargetExists` | Relation target model must exist |
-| R002 | `relationHasInverse` | Bidirectional relations should have inverse |
-| R003 | `relationNameUnique` | Relation names must be unique per model |
-
-## Foreign Key Rules (FK0xx)
-
-| Code | Rule | Description |
-|------|------|-------------|
-| FK001 | `fkFieldExists` | FK field must exist in model |
-| FK002 | `fkReferenceExists` | Referenced field must exist in target |
-| FK003 | `fkTypeMatch` | FK and reference types must match |
-| FK004 | `fkRequiredForOwning` | Owning side must have FK |
-| FK005 | `fkReferencesUnique` | FK must reference unique field |
-| FK006 | `fkFieldNotRelation` | FK field cannot be a relation |
-| FK007 | `fkCardinalityMatch` | FK count must match relation cardinality |
-
-## Referential Action Rules (RA0xx)
-
-| Code | Rule | Description |
-|------|------|-------------|
-| RA001 | `onDeleteValid` | onDelete action must be valid |
-| RA002 | `onUpdateValid` | onUpdate action must be valid |
-| RA003 | `cascadeOnRequiredWarning` | Warning: CASCADE on required relation |
-| RA004 | `setNullRequiresNullable` | SET NULL requires nullable FK |
-
-## Junction Table Rules (JT0xx)
-
-| Code | Rule | Description |
-|------|------|-------------|
-| JT001 | `junctionTableUnique` | Junction table names must be unique |
-| JT002 | `junctionFieldsValid` | Junction FK columns must be valid |
-| JT003 | `junctionFieldsDistinct` | A and B columns must be different |
-| JT004 | `selfRefJunctionOrder` | Self-ref junction must have consistent order |
-| JT005 | `throughOnlyManyToMany` | `.through()` only on many-to-many |
-
-## Self-Reference Rules (SR0xx)
-
-| Code | Rule | Description |
-|------|------|-------------|
-| SR001 | `selfRefValidInverse` | Self-ref must have valid inverse |
-| SR002 | `selfRefDistinctNames` | Self-ref relations must have distinct names |
-
-## Cross-Model Rules (CM0xx)
-
-| Code | Rule | Description |
-|------|------|-------------|
-| CM001 | `noOrphanFkFields` | FK fields should have relation |
-| CM002 | `relationPairFkSingleSide` | Only one side should have FK |
-| CM003 | `polymorphicRelationWarning` | Warning for polymorphic pattern |
-| CM004 | `noCircularRequiredChain` | No circular required relations |
-
-## Database Rules (DB0xx)
-
-| Code | Rule | Description |
-|------|------|-------------|
-| DB001 | `mysqlNoArrayFields` | MySQL doesn't support array scalar fields |
-| DB002 | `sqliteNoEnum` | SQLite enum is stored as TEXT |
-
-## Error Structure
-
-```ts
-interface ValidationError {
-  code: string;        // e.g., "F002"
-  severity: "error" | "warning";
-  message: string;     // Human-readable message
-  model?: string;      // Model name (if applicable)
-  field?: string;      // Scalar field name (if applicable)
-  relation?: string;   // Relation name (if applicable)
-}
-
-interface ValidationResult {
-  valid: boolean;
-  errors: ValidationError[];
-  warnings: ValidationError[];
-}
-```
+`validateSchema(models)` returns `{ valid, errors, warnings }`, where each entry has a `code`, a `severity` (`"error" | "warning"`), and a human-readable `message`. `validateSchemaOrThrow(models)` throws an `Error` listing every failed check.
 
 ## Example Errors
 
-```ts
-import { validateSchema } from "viborm";
-import * as schema from "./schema";
-
-const result = validateSchema(schema);
-
-// Example errors:
-// [F002] Model 'user' must have exactly one ID field
-// [FK003] Post.authorId: FK type 'int' doesn't match reference type 'string'
-// [RA004] Comment.postId: SET NULL requires nullable FK field
 ```
-
-## Best Practices
-
-1. **Let CLI validate** — CLI commands validate automatically
-2. **Validate on startup** — Call `validateSchemaOrThrow` in production for early error detection
-3. **Check warnings** — Warnings may indicate potential issues
-4. **Use specific rules** — For performance, validate with only the rules you need
+[M001] 'user' must have an ID field (or use .id() for compound key)
+[F006] ID 'id' in 'user' cannot be nullable
+[F004] Default value for 'age' in 'user' doesn't match type
+```

@@ -5,7 +5,7 @@ icon: Sparkles
 ---
 
 <Callout type="info">
-  Vector scalars are primarily supported in PostgreSQL with the `pgvector` extension.
+  Vector scalars require PostgreSQL with the `pgvector` extension. On MySQL and SQLite the values are stored as JSON and similarity search is unavailable.
 </Callout>
 
 ## Basic Usage
@@ -18,23 +18,7 @@ s.vector().dimension(3)  // Fixed-length number[]
 s.vector().nullable()    // number[] | null
 ```
 
-## Chainable Methods
-
-```ts
-s.vector()
-  .dimension(1536)      // Require a fixed vector length
-  .nullable()           // Allow NULL
-  .default([])          // Default value
-  .map("column_name")   // Custom column name
-```
-
-## Type Mapping
-
-| Modifier | TypeScript | PostgreSQL | MySQL | SQLite |
-|----------|------------|------------|-------|--------|
-| `s.vector()` | `number[]` | `vector` | N/A | N/A |
-| `.dimension(1536)` | `number[]` | `vector(1536)` | N/A | N/A |
-| `.nullable()` | `number[] \| null` | `vector NULL` | N/A | N/A |
+Stored as a pgvector `vector(n)` column. Vectors support `.nullable()`, `.default()`, `.map()`, and `.dimension(n)` — but **not** `.array()`, `.id()`, `.unique()`, or `.schema()`. See the [support matrix](/docs/schema/scalars).
 
 ## PostgreSQL Setup
 
@@ -42,16 +26,6 @@ Enable the pgvector extension:
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS vector;
-```
-
-## Examples
-
-```ts
-// OpenAI embedding (1536 dimensions)
-const embedding = s.vector().dimension(1536);
-
-// Nullable embedding
-const optionalEmbedding = s.vector().dimension(1536).nullable();
 ```
 
 ## Complete Example
@@ -146,14 +120,6 @@ CREATE INDEX ON documents USING hnsw (embedding vector_cosine_ops);
 CREATE INDEX ON documents USING ivfflat (embedding vector_cosine_ops)
   WITH (lists = 100);
 ```
-
-## Distance Functions
-
-| Operator | Function | Use Case |
-|----------|----------|----------|
-| `\<->` | L2 distance | General |
-| `\<#>` | Inner product | Normalized vectors |
-| `\<=>` | Cosine distance | Text embeddings |
 
 ## When to Use Vector
 

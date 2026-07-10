@@ -1,6 +1,6 @@
 ---
 title: DateTime
-description: DateTime scalar type for timestamps and dates with auto-timestamp helpers
+description: DateTime, date, and time scalar types for timestamps with auto-timestamp helpers
 icon: Calendar
 ---
 
@@ -9,75 +9,31 @@ icon: Calendar
 ```ts
 import { s } from "viborm";
 
-s.dateTime()               // Required datetime
-s.dateTime().nullable()    // DateTime | null
+s.dateTime()               // Required timestamp (Date)
+s.dateTime().nullable()    // Date | null
+s.date()                   // Calendar date, no time component (Date)
+s.time()                   // Time of day, no date component (string)
 ```
 
-## Chainable Methods
+All three support the full [modifier reference](/docs/schema/scalars). Column types and precision options live on [Native Types](/docs/schema/native-types).
 
-```ts
-s.dateTime()
-  .nullable()                      // Allow NULL
-  .id()                            // Primary key (rare)
-  .unique()                        // Unique constraint
-  .default(new Date())             // Static default (fixed time)
-  .default(() => new Date())       // Runtime default (current time)
-  .map("column_name")              // Custom column name
-```
-
-### Auto-Timestamps
+## Auto-Timestamps
 
 ```ts
 s.dateTime().now()        // Default to current timestamp on create
 s.dateTime().updatedAt()  // Update to current timestamp on every update
 ```
 
-## Native Database Types
+`.now()` and `.updatedAt()` also exist on `s.date()` and `s.time()`.
 
-<Tabs items={["PostgreSQL", "MySQL", "SQLite"]}>
-  <Tab value="PostgreSQL">
+## Timezones
+
+`s.dateTime()` and `s.time()` are timezone-aware by default (`timestamptz` / `timetz` on PostgreSQL). Chain `.withoutTimezone()` to store without timezone:
+
 ```ts
-import { TYPES } from "viborm";
-
-s.dateTime(TYPES.PG.DATETIME.TIMESTAMP())      // TIMESTAMP
-s.dateTime(TYPES.PG.DATETIME.TIMESTAMP(3))     // TIMESTAMP(3) - ms precision
-s.dateTime(TYPES.PG.DATETIME.TIMESTAMPTZ())    // TIMESTAMP WITH TIME ZONE
-s.dateTime(TYPES.PG.DATETIME.TIMESTAMPTZ(3))   // TIMESTAMPTZ(3)
-s.dateTime(TYPES.PG.DATETIME.DATE)             // DATE only
-s.dateTime(TYPES.PG.DATETIME.TIME())           // TIME only
-s.dateTime(TYPES.PG.DATETIME.TIMETZ())         // TIME WITH TIME ZONE
-s.dateTime(TYPES.PG.DATETIME.INTERVAL)         // INTERVAL
+s.dateTime().withoutTimezone()  // timestamp instead of timestamptz
+s.time().withoutTimezone()      // time instead of timetz
 ```
-  </Tab>
-  <Tab value="MySQL">
-```ts
-import { TYPES } from "viborm";
-
-s.dateTime(TYPES.MYSQL.DATETIME.DATETIME())    // DATETIME
-s.dateTime(TYPES.MYSQL.DATETIME.DATETIME(3))   // DATETIME(3) - ms precision
-s.dateTime(TYPES.MYSQL.DATETIME.TIMESTAMP())   // TIMESTAMP
-s.dateTime(TYPES.MYSQL.DATETIME.DATE)          // DATE only
-s.dateTime(TYPES.MYSQL.DATETIME.TIME())        // TIME only
-```
-  </Tab>
-  <Tab value="SQLite">
-```ts
-import { TYPES } from "viborm";
-
-s.dateTime(TYPES.SQLITE.DATETIME.TEXT)     // TEXT (ISO format)
-s.dateTime(TYPES.SQLITE.DATETIME.REAL)     // REAL (Julian day)
-s.dateTime(TYPES.SQLITE.DATETIME.INTEGER)  // INTEGER (Unix timestamp)
-```
-  </Tab>
-</Tabs>
-
-## Type Mapping
-
-| Modifier | TypeScript | PostgreSQL | MySQL | SQLite |
-|----------|------------|------------|-------|--------|
-| `s.dateTime()` | `Date` | `TIMESTAMP` | `DATETIME` | `TEXT` |
-| `.nullable()` | `Date \| null` | `TIMESTAMP NULL` | `DATETIME NULL` | `TEXT NULL` |
-| `.array()` | `Date[]` | `TIMESTAMP[]` | `JSON` | `JSON` |
 
 ## Input Types
 
@@ -97,8 +53,6 @@ await client.user.create({
 
 ```ts
 // Created timestamp (set once)
-const createdAt = s.dateTime().default(() => new Date());
-// or
 const createdAt = s.dateTime().now();
 
 // Updated timestamp (auto-updates)
@@ -107,11 +61,11 @@ const updatedAt = s.dateTime().updatedAt();
 // Optional date
 const lastLogin = s.dateTime().nullable();
 
-// Scheduled date
-const publishAt = s.dateTime().nullable();
+// Birthday - no time component needed
+const birthday = s.date().nullable();
 
-// Expiration date
-const expiresAt = s.dateTime();
+// Opening hours
+const opensAt = s.time();
 ```
 
 ## Common Patterns
@@ -137,15 +91,7 @@ const post = s.model({
 });
 ```
 
-### Soft Delete with Timestamp
-
-```ts
-const user = s.model({
-  id: s.string().id().ulid(),
-  deleted: s.boolean().default(false),
-  deletedAt: s.dateTime().nullable(),
-});
-```
+For the soft-delete pattern (`deleted` flag + `deletedAt` timestamp), see [Boolean](/docs/schema/scalars/boolean#soft-delete).
 
 ### Scheduled Publishing
 
@@ -165,4 +111,3 @@ await client.post.findMany({
   },
 });
 ```
-

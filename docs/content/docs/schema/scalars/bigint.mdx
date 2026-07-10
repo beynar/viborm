@@ -10,74 +10,31 @@ icon: Binary
 import { s } from "viborm";
 
 s.bigInt()               // Required bigint
-s.bigInt().nullable()    // BigInt | null
+s.bigInt().nullable()    // bigint | null
+s.bigInt().default(0n)   // With default
 ```
 
-## Chainable Methods
+Use `s.bigInt()` when values can exceed `Number.MAX_SAFE_INTEGER` (2^53 - 1) — snowflake IDs, cryptocurrency amounts, nanosecond timestamps; otherwise [`s.int()`](/docs/schema/scalars/number) is enough.
+
+BigInt supports the full [modifier reference](/docs/schema/scalars). Column types live on [Native Types](/docs/schema/native-types).
+
+## Auto-Increment
 
 ```ts
-s.bigInt()
-  .nullable()           // Allow NULL
-  .id()                 // Primary key
-  .unique()             // Unique constraint
-  .default(0n)          // Static default
-  .default(() => 0n)    // Runtime default
-  .map("column_name")   // Custom column name
+s.bigInt().id().increment(); // Auto-incrementing bigint primary key
 ```
-
-## Native Database Types
-
-<Tabs items={["PostgreSQL", "MySQL", "SQLite"]}>
-  <Tab value="PostgreSQL">
-```ts
-import { TYPES } from "viborm";
-
-s.bigInt(TYPES.PG.BIGINT.BIGINT)  // BIGINT
-```
-  </Tab>
-  <Tab value="MySQL">
-```ts
-import { TYPES } from "viborm";
-
-s.bigInt(TYPES.MYSQL.BIGINT.BIGINT)           // BIGINT (signed)
-s.bigInt(TYPES.MYSQL.BIGINT.BIGINT_UNSIGNED)  // BIGINT UNSIGNED
-```
-  </Tab>
-  <Tab value="SQLite">
-```ts
-import { TYPES } from "viborm";
-
-s.bigInt(TYPES.SQLITE.BIGINT.INTEGER)  // INTEGER
-```
-  </Tab>
-</Tabs>
-
-## Type Mapping
-
-| Modifier | TypeScript | PostgreSQL | MySQL | SQLite |
-|----------|------------|------------|-------|--------|
-| `s.bigInt()` | `bigint` | `BIGINT` | `BIGINT` | `INTEGER` |
-| `.nullable()` | `bigint \| null` | `BIGINT NULL` | `BIGINT NULL` | `INTEGER NULL` |
-| `.array()` | `bigint[]` | `BIGINT[]` | `JSON` | `JSON` |
-
-## Range
-
-| Type | Range |
-|------|-------|
-| `BIGINT` | -9,223,372,036,854,775,808 to 9,223,372,036,854,775,807 |
-| `BIGINT UNSIGNED` (MySQL) | 0 to 18,446,744,073,709,551,615 |
 
 ## Examples
 
 ```ts
-// Large counter
-const viewCount = s.bigInt().default(0n);
+// Auto-incrementing primary key
+const id = s.bigInt().id().increment();
 
 // Twitter-style snowflake ID
 const snowflakeId = s.bigInt().id();
 
-// Unix timestamp in milliseconds
-const timestampMs = s.bigInt();
+// Large counter
+const viewCount = s.bigInt().default(0n);
 
 // Cryptocurrency amount (in smallest unit)
 const satoshis = s.bigInt().default(0n);
@@ -94,14 +51,7 @@ await client.post.create({
   }
 });
 
-// Filter with bigint
-await client.post.findMany({
-  where: {
-    viewCount: { gte: 1000000n },
-  }
-});
-
-// Update with bigint
+// Filter and update with bigint
 await client.post.update({
   where: { id: 1n },
   data: {
@@ -109,14 +59,3 @@ await client.post.update({
   }
 });
 ```
-
-## When to Use BigInt
-
-| Use Case | Recommended |
-|----------|-------------|
-| Counts &lt; 9 quadrillion | `s.int()` is sufficient |
-| Twitter/Discord IDs | `s.bigInt()` |
-| Cryptocurrency amounts | `s.bigInt()` |
-| Nanosecond timestamps | `s.bigInt()` |
-| Scientific computing | `s.bigInt()` |
-

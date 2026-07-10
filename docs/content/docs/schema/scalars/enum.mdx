@@ -14,20 +14,12 @@ import { s } from "viborm";
 
 s.enum(["PENDING", "ACTIVE", "SUSPENDED"]); // Required enum
 s.enum(["PENDING", "ACTIVE"]).nullable(); // Enum | null
+s.enum(["USER", "ADMIN"]).default("USER"); // Default (must be in enum)
 ```
 
-## Chainable Methods
+Enums support `.nullable()`, `.array()`, `.default()`, and `.map()` — but **not** `.id()`, `.unique()`, or `.schema()`. See the [support matrix](/docs/schema/scalars).
 
-```ts
-s.enum(["USER", "ADMIN", "MODERATOR"])
-  .name("role")         // Set database enum type name (for reuse across tables)
-  .nullable()           // Allow NULL
-  .schema(schema)       // Custom StandardSchema validator (e.g., branded types)
-  .default("USER")      // Default value (must be in enum)
-  .map("column_name");  // Custom column name
-```
-
-### Naming Enums for Reuse
+## Naming Enums for Reuse
 
 By default, VibORM generates enum type names based on the table and column (e.g., `user_status_enum`). Use `.name()` to create a shared enum type that can be reused across multiple tables:
 
@@ -57,17 +49,6 @@ With `.name("status")`, both columns share the same `status` enum type.
 Named enums are tracked as a single type. When you modify the enum values, VibORM generates one `ALTER TYPE` instead of multiple.
 </Callout>
 
-### Custom Schema Validation
-
-You can add custom validation or branded types to enum scalars:
-
-```ts
-import { pipe, picklist, brand } from "valibot";
-
-// Branded enum type
-const role = s.enum(["USER", "ADMIN", "MODERATOR"]).schema(brand("Role"));
-```
-
 ## Type Inference
 
 The TypeScript type is automatically inferred as a union:
@@ -84,12 +65,12 @@ const status = s.enum(["draft", "published", "archived"]).nullable();
 
 <Tabs items={["PostgreSQL", "MySQL", "SQLite"]}>
   <Tab value="PostgreSQL">
-PostgreSQL creates a native `ENUM` type:
+PostgreSQL creates a native `ENUM` type, named `<table>_<column>_enum` unless overridden with `.name()`:
 
 ```sql
-CREATE TYPE "Role" AS ENUM ('USER', 'ADMIN', 'MODERATOR');
+CREATE TYPE "users_role_enum" AS ENUM ('USER', 'ADMIN', 'MODERATOR');
 CREATE TABLE users (
-  role "Role" NOT NULL
+  role "users_role_enum" NOT NULL
 );
 ```
 
@@ -116,14 +97,6 @@ CREATE TABLE users (
   </Tab>
 </Tabs>
 
-## Type Mapping
-
-| Modifier        | TypeScript  | PostgreSQL  | MySQL       | SQLite      |
-| --------------- | ----------- | ----------- | ----------- | ----------- |
-| `s.enum([...])` | Union type  | `ENUM`      | `ENUM`      | `TEXT`      |
-| `.nullable()`   | `T \| null` | `ENUM NULL` | `ENUM NULL` | `TEXT NULL` |
-| `.array()`      | `T[]`       | `ENUM[]`    | `JSON`      | `JSON`      |
-
 ## Examples
 
 ```ts
@@ -147,31 +120,6 @@ const visibility = s.enum(["PUBLIC", "PRIVATE", "UNLISTED"]).default("PUBLIC");
 
 // Priority level
 const priority = s.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]);
-
-// Subscription tier
-const tier = s.enum(["FREE", "PRO", "ENTERPRISE"]).default("FREE");
-```
-
-## Using with TypeScript
-
-Extract the enum type for use elsewhere:
-
-```ts
-import type { InferOutput } from "viborm/validation";
-
-const statusScalar = s.enum(["ACTIVE", "INACTIVE", "PENDING"]);
-
-// Extract type from scalar
-type Status = InferOutput<(typeof statusScalar)["~"]["state"]["base"]>;
-// "ACTIVE" | "INACTIVE" | "PENDING"
-
-// Use in your code
-function updateStatus(id: string, status: Status) {
-  return client.user.update({
-    where: { id },
-    data: { status },
-  });
-}
 ```
 
 ## Enum vs String
@@ -180,40 +128,7 @@ function updateStatus(id: string, status: Status) {
 | ----------- | -------------------------------- | ---------------------- |
 | Type safety | Compile-time restricted          | Any string             |
 | Validation  | Database enforced                | Needs custom validator |
-| Storage     | Optimized (integer internally)   | Full string            |
 | Flexibility | Fixed set                        | Any value              |
 | Migrations  | Requires migration to add values | No migration needed    |
 
-### When to Use Enum
-
-- Fixed set of values that rarely changes
-- Status scalars, roles, types
-- Need database-level enforcement
-
-### When to Use String
-
-- Values may change frequently
-- User-defined categories
-- Need flexibility without migrations
-
-## Common Patterns
-
-### State Machine
-
-```ts
-const orderStatus = s.enum([
-  "PENDING", // Initial state
-  "CONFIRMED", // After payment
-  "PROCESSING", // Being prepared
-  "SHIPPED", // In transit
-  "DELIVERED", // Completed
-  "CANCELLED", // Cancelled by user
-  "REFUNDED", // Money returned
-]);
-```
-
-### Multi-Level Permissions
-
-```ts
-const permission = s.enum(["NONE", "READ", "WRITE", "ADMIN"]);
-```
+Use an enum for a fixed set of values that rarely changes (statuses, roles, tiers) and needs database-level enforcement. Use a string when values change frequently or are user-defined.
