@@ -1,5 +1,7 @@
 # Engine Unification — A Migration-First (Strangler) Design
 
+> **Historical proposal.** This document predates the shipped unified engine and the removal of the D1 REST driver. It is retained only as design history; `DESIGN.md`, current exports, and the conformance suites are authoritative.
+
 Status: design proposal. Anchor commit `2fa49b6`, branch `prisma-parity`.
 Author lens: **migration-first**. The best design here is worthless if it cannot
 land one operation at a time with `tests/query-engine/nested-write-conformance.test.ts`

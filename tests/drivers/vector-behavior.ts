@@ -60,6 +60,8 @@ export function runVectorBehavior({
       await driver._executeRaw("CREATE EXTENSION IF NOT EXISTS vector");
       client = createClient({ schema, driver });
       await push(client, { force: true });
+      await driver._executeRaw('DELETE FROM "vector_behavior_docs"');
+      await driver._executeRaw('DELETE FROM "vector_behavior_collections"');
       await seedVectorDocs(driver);
     });
 

@@ -24,6 +24,34 @@ afterEach(() => {
 });
 
 describe("createLogger — dispatch & level isolation", () => {
+  it("snapshots handler identity and freezes the logger facade", () => {
+    const original = captureLogs();
+    const mutated = captureLogs();
+    const config = {
+      includeParams: true,
+      includeSql: true,
+      query: original.callback,
+    };
+    const logger = createLogger(config);
+
+    config.includeParams = false;
+    config.includeSql = false;
+    config.query = mutated.callback;
+    logger.query({
+      timestamp: ts,
+      sql: "SELECT private_sql",
+      params: ["private-param"],
+    });
+
+    expect(Object.isFrozen(logger)).toBe(true);
+    expect(original.events).toHaveLength(1);
+    expect(original.events[0]).toMatchObject({
+      sql: "SELECT private_sql",
+      params: ["private-param"],
+    });
+    expect(mutated.events).toHaveLength(0);
+  });
+
   it("routes logger.query to the query handler; other levels do not reach it", () => {
     const q = captureLogs();
     const logger = createLogger({ query: q.callback });
@@ -159,13 +187,13 @@ describe("createLogger — callback receives (sanitizedEvent, defaultLog)", () =
 });
 
 describe("sanitizeEvent — sql/params gating", () => {
-  it("includeSql default true: sql passes through", () => {
+  it("includeSql defaults false: sql is omitted", () => {
     const cap = captureLogs();
     const logger = createLogger({ query: cap.callback });
 
     logger.query({ timestamp: ts, sql: "SELECT 1" });
 
-    expect(cap.events[0]?.sql).toBe("SELECT 1");
+    expect(cap.events[0]?.sql).toBeUndefined();
   });
 
   it("includeSql:false: emitted sql is undefined even when source carried it", () => {
@@ -195,7 +223,7 @@ describe("sanitizeEvent — sql/params gating", () => {
     expect(cap.events[0]?.params).toEqual([1, 2, 3]);
   });
 
-  it("preserves all other fields while nulling sql/params per config", () => {
+  it("preserves declared fields while dropping arbitrary metadata", () => {
     const cap = captureLogs();
     const logger = createLogger({
       query: cap.callback,
@@ -218,10 +246,211 @@ describe("sanitizeEvent — sql/params gating", () => {
     expect(e?.model).toBe("user");
     expect(e?.operation).toBe("findMany");
     expect(e?.duration).toBe(42);
-    expect(e?.meta).toEqual(meta);
-    expect(e?.timestamp).toBe(ts);
+    expect(e?.meta).toEqual({});
+    expect(e?.timestamp).toEqual(ts);
     expect(e?.sql).toBeUndefined();
     expect(e?.params).toBeUndefined();
+  });
+
+  it("does not treat disclosure flags as authorization for arbitrary metadata", () => {
+    const sqlOnly = captureLogs();
+    const paramsOnly = captureLogs();
+    createLogger({
+      query: sqlOnly.callback,
+      includeSql: true,
+    }).query({
+      timestamp: ts,
+      meta: { nested: { sql: "SELECT secret", params: ["secret"] } },
+    });
+    createLogger({
+      query: paramsOnly.callback,
+      includeParams: true,
+    }).query({
+      timestamp: ts,
+      meta: { nested: { sql: "SELECT secret", params: ["secret"] } },
+    });
+
+    expect(sqlOnly.events[0]?.meta).toEqual({});
+    expect(paramsOnly.events[0]?.meta).toEqual({});
+    expect(JSON.stringify(sqlOnly.events[0])).not.toContain("secret");
+    expect(JSON.stringify(paramsOnly.events[0])).not.toContain("secret");
+  });
+
+  it("bounds and serializes bigint, binary, cycles, sparse arrays, and hostile properties", () => {
+    const cap = captureLogs();
+    const logger = createLogger({
+      query: cap.callback,
+      includeParams: true,
+    });
+    const cyclic: Record<string, unknown> = {
+      bigint: 9_007_199_254_740_993n,
+      hugeBigint: BigInt("9".repeat(10_000)),
+      binary: new Uint8Array([1, 2, 3]),
+      long: "x".repeat(10_000),
+    };
+    const hostileDate = new Date(0);
+    Object.defineProperty(hostileDate, "toISOString", {
+      value: () => "date-override-secret".repeat(1000),
+    });
+    cyclic.date = hostileDate;
+    cyclic.error = Object.assign(new Error("private error detail"), {
+      code: "c".repeat(10_000),
+    });
+    cyclic[`key-${"y".repeat(10_000)}`] = "bounded-key";
+    cyclic.self = cyclic;
+    Object.defineProperty(cyclic, "hostile", {
+      enumerable: true,
+      get() {
+        throw new Error("getter must not run");
+      },
+    });
+    const sparse: unknown[] = [];
+    sparse[2] = "present";
+    const hostileProxy = new Proxy(
+      {},
+      {
+        ownKeys() {
+          throw new Error("proxy must not escape");
+        },
+      }
+    );
+
+    expect(() =>
+      logger.query({
+        timestamp: ts,
+        params: [cyclic, sparse, hostileProxy],
+      })
+    ).not.toThrow();
+    const serialized = JSON.stringify(cap.events[0]);
+    expect(serialized).toContain('"bigint":"9007199254740993"');
+    expect(serialized).toContain('"self":"[Circular]"');
+    expect(serialized).toContain('"hostile":"[Unreadable]"');
+    expect(serialized).not.toContain("y".repeat(5000));
+    expect(serialized).not.toContain("9".repeat(5000));
+    expect(serialized).not.toContain("c".repeat(5000));
+    expect(serialized).not.toContain("date-override-secret");
+    expect(serialized.length).toBeLessThan(40_000);
+  });
+
+  it("isolates throwing callbacks and pretty-console failures", () => {
+    const callbackLogger = createLogger({
+      query: () => {
+        throw new Error("callback failed");
+      },
+    });
+    expect(() => callbackLogger.query({ timestamp: ts })).not.toThrow();
+
+    vi.spyOn(console, "log").mockImplementation(() => {
+      throw new Error("console failed");
+    });
+    const prettyLogger = createLogger({ query: true });
+    expect(() => prettyLogger.query({ timestamp: ts })).not.toThrow();
+
+    let deferredDefaultLog: (() => void) | undefined;
+    const callbackLoggerWithDeferredConsole = createLogger({
+      query: (_event, defaultLog) => {
+        deferredDefaultLog = defaultLog;
+      },
+    });
+    callbackLoggerWithDeferredConsole.query({ timestamp: ts });
+    expect(() => deferredDefaultLog?.()).not.toThrow();
+  });
+
+  it("observes and contains async callback rejections", async () => {
+    const logger = createLogger({
+      query: async () => {
+        throw new Error("async callback failed");
+      },
+    });
+
+    expect(() => logger.query({ timestamp: ts })).not.toThrow();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  it("isolates hostile top-level events and drops undeclared aliases", () => {
+    const cap = captureLogs();
+    const logger = createLogger({ query: cap.callback });
+    const hostileEvent = new Proxy(
+      { timestamp: ts },
+      {
+        get() {
+          throw new Error("top-level getter failed");
+        },
+      }
+    );
+    const aliasedSecrets = {
+      timestamp: ts,
+      statement: "SELECT private",
+      bindings: ["private-value"],
+    };
+
+    expect(() => logger.query(hostileEvent)).not.toThrow();
+    logger.query(aliasedSecrets);
+
+    expect(cap.events).toHaveLength(1);
+    expect(cap.events[0]).not.toHaveProperty("statement");
+    expect(cap.events[0]).not.toHaveProperty("bindings");
+  });
+
+  it.each([
+    { includeSql: false, includeParams: false },
+    { includeSql: true, includeParams: false },
+    { includeSql: false, includeParams: true },
+    { includeSql: true, includeParams: true },
+  ])("keeps raw error identity private for disclosure %#", ({
+    includeSql,
+    includeParams,
+  }) => {
+    const errorCanary = "phase7-error-canary";
+    const sqlCanary = "phase7-sql-canary";
+    const parameterCanary = "phase7-parameter-canary";
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const capture = captureLogs(true);
+    const logger = createLogger({
+      error: capture.callback,
+      includeSql,
+      includeParams,
+    });
+    const cause = Object.assign(new Error(errorCanary), {
+      code: errorCanary,
+      meta: { token: errorCanary },
+    });
+    const raw = Object.assign(new Error(errorCanary), {
+      cause,
+      code: errorCanary,
+      meta: { token: errorCanary },
+      name: errorCanary,
+      sqlState: errorCanary,
+      status: errorCanary,
+    });
+
+    logger.error({
+      timestamp: ts,
+      error: raw,
+      sql: sqlCanary,
+      params: [parameterCanary],
+      meta: { token: errorCanary },
+    });
+
+    const event = capture.events[0];
+    const callbackOutput = JSON.stringify(event);
+    const consoleOutput = consoleError.mock.calls.flat().join(" ");
+    expect(callbackOutput).not.toContain(errorCanary);
+    expect(consoleOutput).not.toContain(errorCanary);
+    expect(event?.error).toMatchObject({
+      name: "Error",
+      message: "Error details redacted",
+    });
+    expect(event?.error).not.toHaveProperty("code");
+    expect(event?.error).not.toHaveProperty("meta");
+    expect(callbackOutput.includes(sqlCanary)).toBe(includeSql);
+    expect(callbackOutput.includes(parameterCanary)).toBe(includeParams);
+    expect(consoleOutput.includes(sqlCanary)).toBe(includeSql);
+    expect(consoleOutput).not.toContain(parameterCanary);
+    consoleError.mockRestore();
   });
 });
 
@@ -283,7 +512,7 @@ describe("prettyLog — query branch", () => {
 });
 
 describe("prettyLog — cache branch", () => {
-  it("reads meta.event/status/key; uses console.log", () => {
+  it("reads event/status and omits the cache key", () => {
     const spy = vi.spyOn(console, "log").mockImplementation(() => undefined);
     const logger = createLogger({ cache: true });
 
@@ -295,7 +524,8 @@ describe("prettyLog — cache branch", () => {
     const out = spy.mock.calls.map((c) => c.join(" ")).join("\n");
     expect(out).toContain("hit");
     expect(out).toContain("(fresh)");
-    expect(out).toContain("user:1");
+    expect(out).not.toContain("cache-key:");
+    expect(out).not.toContain("user:1");
   });
 
   it("defaults cacheEvent to 'unknown' when meta absent", () => {
@@ -327,7 +557,7 @@ describe("prettyLog — warning branch", () => {
 });
 
 describe("prettyLog — error branch", () => {
-  it("uses console.error; logs error.message and sql lines", () => {
+  it("uses console.error; redacts raw error messages and logs opted-in SQL", () => {
     const error = vi
       .spyOn(console, "error")
       .mockImplementation(() => undefined);
@@ -342,7 +572,8 @@ describe("prettyLog — error branch", () => {
     });
 
     const out = error.mock.calls.map((c) => c.join(" ")).join("\n");
-    expect(out).toContain("constraint violation");
+    expect(out).toContain("Error details redacted");
+    expect(out).not.toContain("constraint violation");
     expect(out).toContain("INSERT INTO user");
   });
 
@@ -459,7 +690,7 @@ describe("createErrorLogEvent", () => {
 });
 
 describe("createCacheLogEvent", () => {
-  it("builds meta={event,key,status}, optional error, no top-level model/operation, no level key", () => {
+  it("builds privacy-safe event/status metadata without exposing the key", () => {
     const err = new Error("stale read");
     const e = createCacheLogEvent({
       event: "revalidate",
@@ -474,9 +705,9 @@ describe("createCacheLogEvent", () => {
     expect(e.error).toBe(err);
     expect(e.meta).toEqual({
       event: "revalidate",
-      key: "user:1",
       status: "stale",
     });
+    expect(JSON.stringify(e)).not.toContain("user:1");
     expect(e.timestamp).toBeInstanceOf(Date);
   });
 

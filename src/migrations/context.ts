@@ -256,7 +256,7 @@ export class MigrationContext {
    * Filters out empty lines and comments, ensures semicolons.
    *
    * Uses the following priority for atomicity:
-   * 1. Native batch (if driver.supportsBatch) - D1, D1-HTTP, Neon-HTTP
+   * 1. Native batch (if driver.supportsBatch) - D1 bindings, Neon HTTP
    * 2. Transaction wrapper (if driver.supportsTransactions) - most drivers
    * 3. Sequential execution with warning (no atomicity)
    *

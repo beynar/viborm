@@ -95,9 +95,15 @@ export class PostgresAdapter implements DatabaseAdapter {
     notLike: (column: Sql, pattern: Sql): Sql =>
       sql`${column} NOT LIKE ${pattern} ESCAPE '\\'`,
     ilike: (column: Sql, pattern: Sql): Sql =>
-      sql`${column} ILIKE ${pattern} ESCAPE '\\'`,
+      sql`TRANSLATE(${column}, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz') LIKE TRANSLATE(${pattern}, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz') ESCAPE '\\'`,
     notIlike: (column: Sql, pattern: Sql): Sql =>
-      sql`${column} NOT ILIKE ${pattern} ESCAPE '\\'`,
+      sql`TRANSLATE(${column}, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz') NOT LIKE TRANSLATE(${pattern}, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz') ESCAPE '\\'`,
+    containsText: (column: Sql, value: Sql): Sql =>
+      sql`POSITION(${value} IN ${column}) > 0`,
+    startsWithText: (column: Sql, value: Sql): Sql =>
+      sql`LEFT(${column}, LENGTH(${value})) = ${value}`,
+    endsWithText: (column: Sql, value: Sql): Sql =>
+      sql`RIGHT(${column}, LENGTH(${value})) = ${value}`,
 
     // Set membership — values is a parenthesized list from literals.list(),
     // so ANY/ALL (which need an array) would produce invalid SQL here
@@ -122,6 +128,10 @@ export class PostgresAdapter implements DatabaseAdapter {
 
   expressions = {
     ...createCommonExpressions(),
+
+    asciiCaseFold: (expr: Sql): Sql =>
+      sql`TRANSLATE(${expr}, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')`,
+    caseSensitiveText: (expr: Sql): Sql => expr,
 
     // String concatenation via ||
     concat: (...parts: Sql[]): Sql => {
@@ -316,7 +326,10 @@ export class PostgresAdapter implements DatabaseAdapter {
   // ============================================================
 
   mutations = {
+    skipDuplicatesStrategy: "sql" as const,
     insert: createInsertStatement(quoteIdent),
+    insertDefault: (table: Sql): Sql =>
+      sql`INSERT INTO ${table} DEFAULT VALUES`,
 
     ...createMutationCommands(),
 

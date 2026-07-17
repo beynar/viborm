@@ -11,19 +11,29 @@ import {
 } from "@adapters/shared/result-parsing";
 import type { DriverResultParser } from "../driver";
 
+export type SQLiteBinaryValue = ArrayBuffer | ArrayBufferView;
+
+export function isSQLiteBinaryValue(
+  value: unknown
+): value is SQLiteBinaryValue {
+  return value instanceof ArrayBuffer || ArrayBuffer.isView(value);
+}
+
+export function sqliteBinaryToUint8Array(value: SQLiteBinaryValue): Uint8Array {
+  if (value instanceof ArrayBuffer) {
+    return new Uint8Array(value);
+  }
+  return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+}
+
 /**
- * Convert JavaScript values to SQLite-compatible values.
- * - Booleans become 0/1
- * - undefined becomes null
- * - Uint8Array becomes Buffer (better-sqlite3 only binds Buffer blobs)
+ * Convert provider-neutral scalar values to SQLite values. Binary values stay
+ * in their standard Web API form; each provider owns any narrower conversion.
  */
 export function convertValuesForSQLite(values: unknown[]): unknown[] {
   return values.map((v) => {
     if (typeof v === "boolean") return v ? 1 : 0;
     if (v === undefined) return null;
-    if (v instanceof Uint8Array && !Buffer.isBuffer(v)) {
-      return Buffer.from(v.buffer, v.byteOffset, v.byteLength);
-    }
     return v;
   });
 }
@@ -51,16 +61,12 @@ export const sqliteResultParser: DriverResultParser = {
   parseField: (value, scalarType, next) => {
     if (scalarType === "boolean") {
       const parsed = parseIntegerBoolean(value);
-      if (parsed !== undefined) return parsed;
+      if (parsed !== undefined) return next(parsed, scalarType);
     }
     // SQLite stores json as TEXT — decode here where we know the string is
     // serialized JSON (the default parser never sniffs json strings)
     if (scalarType === "json" && typeof value === "string") {
-      try {
-        return JSON.parse(value);
-      } catch {
-        return next(value, scalarType);
-      }
+      return next(JSON.parse(value), scalarType);
     }
     return next(value, scalarType);
   },

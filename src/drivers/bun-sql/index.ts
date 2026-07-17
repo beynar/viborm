@@ -1,7 +1,7 @@
 /**
  * Bun SQL Driver
  *
- * Driver implementation for Bun's built-in PostgreSQL client (bun:sql).
+ * Driver implementation for Bun's built-in PostgreSQL client.
  */
 
 import type { DatabaseAdapter } from "@adapters/database-adapter";
@@ -12,18 +12,21 @@ import {
   type VibORMClient,
 } from "@client/client";
 import { unsupportedGeospatial, unsupportedVector } from "@errors";
-import { Driver } from "../driver";
-import { getSqlIsolationLevel } from "../shared";
-import type { QueryResult, TransactionOptions } from "../types";
+import { Driver, type QueryExecutionContext } from "../driver";
+import { normalizeProviderRowCount } from "../normalized-result";
+import {
+  nestedTransactionDispatchError,
+  runProviderManagedTransaction,
+} from "../shared";
+import type { QueryResult } from "../types";
 
 // ============================================================
-// TYPE DECLARATIONS FOR BUN:SQL
+// TYPE DECLARATIONS FOR BUN SQL
 // ============================================================
 
 // Bun's SQL type - we define inline to avoid requiring bun types at compile time
-// Non-RETURNING mutations resolve to an empty array carrying the affected
-// row count on `count`.
-type BunSQLResult<T> = T[] & { count?: number };
+// Every result is an array carrying its required provider row count.
+type BunSQLResult<T> = T[] & { count: number };
 
 interface BunSQL {
   (strings: TemplateStringsArray, ...values: unknown[]): Promise<unknown[]>;
@@ -32,7 +35,7 @@ interface BunSQL {
     params?: unknown[]
   ): Promise<BunSQLResult<T>>;
   begin<T>(fn: (sql: BunSQLTransaction) => Promise<T>): Promise<T>;
-  close(): void;
+  close(): Promise<void>;
   reserve(): Promise<BunSQLReservedConnection>;
 }
 
@@ -106,9 +109,7 @@ export class BunSQLDriver extends Driver<BunSQL, BunSQLTransaction> {
   }
 
   protected async initClient(): Promise<BunSQL> {
-    // bun:sql is a Bun-only built-in module - types may not be available at compile time
-    // @ts-expect-error - bun:sql is only available in Bun runtime
-    const { SQL } = await import("bun:sql");
+    const { SQL } = await import("bun");
 
     if (this.driverOptions.databaseUrl) {
       return new SQL(this.driverOptions.databaseUrl) as unknown as BunSQL;
@@ -118,59 +119,59 @@ export class BunSQLDriver extends Driver<BunSQL, BunSQLTransaction> {
   }
 
   protected async closeClient(sql: BunSQL): Promise<void> {
-    sql.close();
+    await sql.close();
   }
 
   protected async execute<T>(
     client: BunSQL | BunSQLTransaction,
     sql: string,
-    params: unknown[]
+    params: unknown[],
+    context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
+    const operation = context?.operation ?? "execute";
     const result = await client.unsafe<T>(sql, params);
     return {
       rows: result,
-      rowCount: result.count ?? result.length,
+      rowCount: normalizeProviderRowCount(result.count, {
+        provider: "bun-sql",
+        operation,
+      }),
     };
   }
 
   protected async executeRaw<T>(
     client: BunSQL | BunSQLTransaction,
     sql: string,
-    params?: unknown[]
+    params: unknown[] | undefined,
+    context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
+    const operation = context?.operation ?? "executeRaw";
     const result = await client.unsafe<T>(sql, params);
     return {
       rows: result,
-      rowCount: result.count ?? result.length,
+      rowCount: normalizeProviderRowCount(result.count, {
+        provider: "bun-sql",
+        operation,
+      }),
     };
   }
 
   protected async transaction<T>(
     client: BunSQL | BunSQLTransaction,
-    fn: (tx: BunSQLTransaction) => Promise<T>,
-    options?: TransactionOptions
+    fn: (tx: BunSQLTransaction) => Promise<T>
   ): Promise<T> {
-    // Check if we're already in a transaction
     if ("savepoint" in client) {
-      // Nested transaction - use savepoint
-      const tx = client as BunSQLTransaction;
-      return tx.savepoint(fn);
+      throw nestedTransactionDispatchError(this.driverName);
     }
 
-    // Start new transaction
-    const sql = client as BunSQL;
-
-    // Bun SQL's begin() doesn't support isolation level as argument
-    // Set it manually before the transaction if specified
-    if (options?.isolationLevel) {
-      const level = getSqlIsolationLevel(options.isolationLevel);
-      return sql.begin(async (tx) => {
-        await tx.unsafe(`SET TRANSACTION ISOLATION LEVEL ${level}`);
-        return fn(tx);
-      });
-    }
-
-    return sql.begin(fn);
+    return runProviderManagedTransaction({
+      run: (callback) => client.begin(callback),
+      callback: fn,
+      close: async () => {
+        await client.close();
+        this.client = null;
+      },
+    });
   }
 }
 

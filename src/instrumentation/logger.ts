@@ -4,8 +4,15 @@
  * Provides pretty console output or custom callbacks per log level.
  */
 
-import type { VibORMError } from "@errors";
+import {
+  resolveDiagnosticDisclosure,
+  sanitizeDiagnosticParameters,
+  sanitizeErrorForLogging,
+  sanitizeLogMetadata,
+  type VibORMError,
+} from "@errors";
 import type { Operation } from "../query-engine/types";
+import { ignoreObserverFailure } from "./ignore-observer-failure";
 import type {
   LogEvent,
   LoggingConfig,
@@ -88,18 +95,15 @@ function prettyLog(event: LogEvent): void {
     }
     case "cache": {
       const prefix = `${backgrounds.bgGreen(`${colors.green}[CACHE]${colors.reset}`)}`;
-      const meta = event.meta as
-        | { event?: string; status?: string; key?: string }
-        | undefined;
-      const cacheEvent = meta?.event ?? "unknown";
-      const status = meta?.status ? `(${meta.status})` : "";
-      const key = meta?.key ? `${colors.dim}${meta.key}${colors.reset}` : "";
+      const cacheEvent =
+        typeof event.meta?.event === "string" ? event.meta.event : "unknown";
+      const status =
+        typeof event.meta?.status === "string" ? `(${event.meta.status})` : "";
       console.log(
         prefix,
         time,
         `${colors.magenta}${cacheEvent}${colors.reset}`,
-        status,
-        key
+        status
       );
       break;
     }
@@ -108,7 +112,7 @@ function prettyLog(event: LogEvent): void {
       const target = event.model
         ? `${colors.cyan}${event.model}${colors.reset}`
         : "";
-      console.warn(prefix, time, target, event.meta ?? "");
+      console.warn(prefix, time, target, formatDiagnostic(event.meta));
       break;
     }
     case "error": {
@@ -131,6 +135,15 @@ function prettyLog(event: LogEvent): void {
   }
 }
 
+function formatDiagnostic(value: unknown): string {
+  if (value === undefined) return "";
+  try {
+    return JSON.stringify(value) ?? "";
+  } catch {
+    return "[Unserializable]";
+  }
+}
+
 /**
  * Get the handler for a specific level from config
  * Falls back to `all` handler if specific level is not defined
@@ -139,18 +152,22 @@ function getHandler(
   config: LoggingConfig,
   level: LogLevel
 ): LogLevelHandler | undefined {
-  switch (level) {
-    case "query":
-      return config.query ?? config.all;
-    case "cache":
-      return config.cache ?? config.all;
-    case "warning":
-      return config.warning ?? config.all;
-    case "error":
-      return config.error ?? config.all;
-    default: {
-      //
-    }
+  const specific = readLoggingHandler(config, level);
+  if (specific !== undefined) return specific;
+  return readLoggingHandler(config, "all");
+}
+
+function readLoggingHandler(
+  config: LoggingConfig,
+  key: LogLevel | "all"
+): LogLevelHandler | undefined {
+  try {
+    const handler = config[key];
+    return handler === true || typeof handler === "function"
+      ? handler
+      : undefined;
+  } catch {
+    return undefined;
   }
 }
 
@@ -158,60 +175,104 @@ function getHandler(
  * Create a logger instance from config
  */
 export function createLogger(config: LoggingConfig): Logger {
-  const includeSql = config.includeSql ?? true; // SQL enabled by default
-  const includeParams = config.includeParams ?? false; // Params disabled by default
+  const disclosure = resolveDiagnosticDisclosure(config);
+  const handlers: Readonly<Record<LogLevel, LogLevelHandler | undefined>> =
+    Object.freeze({
+      cache: getHandler(config, "cache"),
+      error: getHandler(config, "error"),
+      query: getHandler(config, "query"),
+      warning: getHandler(config, "warning"),
+    });
 
-  function sanitizeEvent(event: LogEvent): LogEvent {
-    const result = {
-      ...event,
-      sql: includeSql ? event.sql : undefined,
-      params: includeParams ? event.params : undefined,
+  function sanitizeEvent(
+    event: LogEvent | Omit<LogEvent, "level">,
+    level: LogLevel
+  ): LogEvent {
+    const sanitizedParams = disclosure.includeParams
+      ? sanitizeDiagnosticParameters(event.params, disclosure)
+      : undefined;
+    return {
+      level,
+      timestamp: sanitizeTimestamp(event.timestamp),
+      duration:
+        typeof event.duration === "number" && Number.isFinite(event.duration)
+          ? event.duration
+          : undefined,
+      model: event.model,
+      operation: event.operation,
+      correlationId: event.correlationId,
+      sql: disclosure.includeSql ? event.sql : undefined,
+      params: Array.isArray(sanitizedParams) ? sanitizedParams : undefined,
+      error: event.error
+        ? sanitizeErrorForLogging(event.error, disclosure)
+        : undefined,
+      meta: event.meta
+        ? sanitizeLogMetadata(event.meta, disclosure)
+        : undefined,
     };
-
-    return result;
   }
 
-  function emit(event: LogEvent): void {
-    const handler = getHandler(config, event.level);
-    if (!handler) return;
-
-    const sanitized = sanitizeEvent(event);
-
-    // Create the default logger function to pass to callbacks
-    const defaultLog = () => prettyLog(sanitized);
-
-    if (handler === true) {
-      prettyLog(sanitized);
-    } else {
-      handler(sanitized, defaultLog);
+  function emit(
+    event: LogEvent | Omit<LogEvent, "level">,
+    forcedLevel?: LogLevel
+  ): void {
+    try {
+      const level = forcedLevel ?? ("level" in event ? event.level : undefined);
+      if (!level) return;
+      const handler = handlers[level];
+      if (!handler) return;
+      const sanitized = sanitizeEvent(event, level);
+      const defaultLog = () => {
+        try {
+          prettyLog(sanitized);
+        } catch {
+          // Console output remains observational even when invoked later.
+        }
+      };
+      if (handler === true) {
+        defaultLog();
+      } else {
+        ignoreObserverFailure(handler(sanitized, defaultLog));
+      }
+    } catch {
+      // Logging is observational and cannot alter application behavior.
     }
   }
 
-  return {
+  return Object.freeze({
     log(event: LogEvent): void {
       emit(event);
     },
 
     query(event: Omit<LogEvent, "level">): void {
-      emit({ ...event, level: "query" });
+      emit(event, "query");
     },
 
     cache(event: Omit<LogEvent, "level">): void {
-      emit({ ...event, level: "cache" });
+      emit(event, "cache");
     },
 
     warn(event: Omit<LogEvent, "level">): void {
-      emit({ ...event, level: "warning" });
+      emit(event, "warning");
     },
 
     error(event: Omit<LogEvent, "level">): void {
-      emit({ ...event, level: "error" });
+      emit(event, "error");
     },
 
     isLevelEnabled(level: LogLevel): boolean {
-      return getHandler(config, level) !== undefined;
+      return handlers[level] !== undefined;
     },
-  };
+  });
+}
+
+function sanitizeTimestamp(timestamp: Date): Date {
+  try {
+    const milliseconds = Date.prototype.getTime.call(timestamp);
+    return Number.isFinite(milliseconds) ? new Date(milliseconds) : new Date(0);
+  } catch {
+    return new Date(0);
+  }
 }
 
 /**
@@ -219,7 +280,8 @@ export function createLogger(config: LoggingConfig): Logger {
  */
 export function createQueryLogEvent(params: {
   model?: string | undefined;
-  operation?: Operation | undefined;
+  operation?: Operation | string | undefined;
+  correlationId?: string | undefined;
   duration?: number | undefined;
   sql?: string | undefined;
   sqlParams?: unknown[] | undefined;
@@ -229,6 +291,7 @@ export function createQueryLogEvent(params: {
     timestamp: new Date(),
     model: params.model,
     operation: params.operation,
+    correlationId: params.correlationId,
     duration: params.duration,
     sql: params.sql,
     params: params.sqlParams,
@@ -242,7 +305,8 @@ export function createQueryLogEvent(params: {
 export function createErrorLogEvent(params: {
   error: Error | VibORMError;
   model?: string | undefined;
-  operation?: Operation | undefined;
+  operation?: Operation | string | undefined;
+  correlationId?: string | undefined;
   duration?: number | undefined;
   meta?: Record<string, unknown> | undefined;
 }): Omit<LogEvent, "level"> {
@@ -251,6 +315,7 @@ export function createErrorLogEvent(params: {
     error: params.error,
     model: params.model,
     operation: params.operation,
+    correlationId: params.correlationId,
     duration: params.duration,
     meta: params.meta,
   };
@@ -275,7 +340,6 @@ export function createCacheLogEvent(params: {
     error: params.error,
     meta: {
       event: params.event,
-      key: params.key,
       status: params.status,
     },
   };

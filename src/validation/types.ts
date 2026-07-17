@@ -91,6 +91,8 @@ export interface ScalarOptions<T, TOut = T, TSchemaOut = TOut> {
   nullable?: boolean;
   array?: boolean;
   default?: any | (() => any) | undefined;
+  /** Internal create-input guard used by portable auto-increment scalars. */
+  disallowZero?: boolean;
   /** Transform function applied AFTER schema validation */
   transform?: ((value: TSchemaOut) => TOut) | undefined;
   /** Additional StandardSchema for extra validation. Its output flows to transform. */

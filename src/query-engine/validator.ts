@@ -8,6 +8,7 @@
 import { ValidationError } from "@errors";
 import type { Model } from "@schema/model";
 import { parse, type SchemaRegistryLookup, type VibSchema } from "@validation";
+import { assertPortablePrimaryKeyUpdateInput } from "./operations/mutation-identity";
 import type { Operation } from "./types";
 
 /**
@@ -96,6 +97,7 @@ export function validate<T>(
     throw new ValidationError(operation, issues);
   }
 
+  assertPortablePrimaryKeyUpdateInput(model, operation, result.value);
   return result.value as T;
 }
 

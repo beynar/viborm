@@ -10,12 +10,8 @@ import {
   getJunctionTableName,
 } from "@schema/relation/helpers";
 import { type Sql, sql } from "@sql";
-import { createChildContext, getColumnName, getTableName } from "../context";
-import {
-  NestedWriteError,
-  type QueryContext,
-  type RelationInfo,
-} from "../types";
+import { createChildScope, getColumnName, getTableName } from "../context";
+import { NestedWriteError, type QueryScope, type RelationInfo } from "../types";
 import { getRequiredSinglePrimaryKeyField } from "./correlation-utils";
 import { buildScalarSqlValue } from "./values-builder";
 import { buildWhereUnique } from "./where-unique-builder";
@@ -42,7 +38,7 @@ export interface ManyToManyJoinInfo {
  * Get junction table metadata for a many-to-many relation
  */
 export function getManyToManyJoinInfo(
-  ctx: QueryContext,
+  ctx: QueryScope,
   relationInfo: RelationInfo
 ): ManyToManyJoinInfo {
   const sourceModelName = ctx.model["~"].names.ts ?? "unknown";
@@ -87,7 +83,7 @@ export function getManyToManyJoinInfo(
  * @returns fromClause: junction_table jt, target_table t
  */
 export function buildManyToManyJoinParts(
-  ctx: QueryContext,
+  ctx: QueryScope,
   joinInfo: ManyToManyJoinInfo,
   parentAlias: string,
   junctionAlias: string,
@@ -134,7 +130,7 @@ export function buildManyToManyJoinParts(
 
 // ============================================================
 // JUNCTION WRITE BUILDERS
-// Shared by the transaction and batch nested-write engines.
+// Shared by the transaction and batch relation programs.
 // ============================================================
 
 /**
@@ -144,7 +140,7 @@ export function buildManyToManyJoinParts(
  * batch reference — buildScalarSqlValue lowers all of these.
  */
 export function buildJunctionParentValue(
-  ctx: QueryContext,
+  ctx: QueryScope,
   joinInfo: ManyToManyJoinInfo,
   parentData: Record<string, unknown>,
   relationName: string
@@ -164,7 +160,7 @@ export function buildJunctionParentValue(
  * Resolve a target record's PK value for junction row writes.
  */
 export function buildJunctionTargetValue(
-  ctx: QueryContext,
+  ctx: QueryScope,
   relationInfo: RelationInfo,
   joinInfo: ManyToManyJoinInfo,
   targetRecord: Record<string, unknown>,
@@ -192,18 +188,30 @@ export function buildJunctionTargetValue(
  * junction PK (source, target) makes a repeat connect a no-op conflict).
  */
 export function buildJunctionInsert(
-  ctx: QueryContext,
+  ctx: QueryScope,
   joinInfo: ManyToManyJoinInfo,
   parentValue: Sql,
   targetValue: Sql
 ): Sql {
+  return buildJunctionInsertMany(ctx, joinInfo, parentValue, [targetValue]);
+}
+
+/** INSERT junction rows in one portable duplicate-skipping statement. */
+export function buildJunctionInsertMany(
+  ctx: QueryScope,
+  joinInfo: ManyToManyJoinInfo,
+  parentValue: Sql,
+  targetValues: readonly Sql[]
+): Sql {
   const { adapter } = ctx;
   const table = adapter.identifiers.escape(joinInfo.junctionTableName);
-  const { prefix, suffix } = adapter.mutations.skipDuplicates();
+  const { prefix, suffix } = adapter.mutations.skipDuplicates(
+    joinInfo.sourceFieldName
+  );
   const insertSql = adapter.mutations.insert(
     table,
     [joinInfo.sourceFieldName, joinInfo.targetFieldName],
-    [[parentValue, targetValue]],
+    targetValues.map((targetValue) => [parentValue, targetValue]),
     prefix
   );
   return sql`${insertSql} ${suffix}`;
@@ -211,7 +219,7 @@ export function buildJunctionInsert(
 
 /** Condition: junction.source = parentValue (unqualified, for junction DML). */
 export function buildJunctionSourceMatch(
-  ctx: QueryContext,
+  ctx: QueryScope,
   joinInfo: ManyToManyJoinInfo,
   parentValue: Sql
 ): Sql {
@@ -223,7 +231,7 @@ export function buildJunctionSourceMatch(
 
 /** Condition: junction.target IN (values | subquery) (for junction DML). */
 export function buildJunctionTargetIn(
-  ctx: QueryContext,
+  ctx: QueryScope,
   joinInfo: ManyToManyJoinInfo,
   targetValues: Sql
 ): Sql {
@@ -238,13 +246,13 @@ export function buildJunctionTargetIn(
  * (SELECT target.pk FROM target WHERE <unique>)
  */
 export function buildTargetPkSubquery(
-  ctx: QueryContext,
+  ctx: QueryScope,
   relationInfo: RelationInfo,
   joinInfo: ManyToManyJoinInfo,
   whereUnique: Record<string, unknown>
 ): Sql {
   const { adapter } = ctx;
-  const childCtx = createChildContext(
+  const childCtx = createChildScope(
     ctx,
     relationInfo.targetModel,
     ctx.nextAlias()
@@ -266,7 +274,7 @@ export function buildTargetPkSubquery(
  * junction: target.pk IN (SELECT junction.target FROM junction WHERE source = parent)
  */
 export function buildJunctionMembership(
-  ctx: QueryContext,
+  ctx: QueryScope,
   joinInfo: ManyToManyJoinInfo,
   parentValue: Sql,
   targetTableOrAlias: string
@@ -285,11 +293,11 @@ export function buildJunctionMembership(
 /**
  * Where-unique on the target table, additionally scoped to rows connected to
  * this parent through the junction (unique ∧ membership). The correlated
- * predicate the m2m update/upsert interpreter matches a connected child by.
+ * predicate the relation compiler uses to match a connected child.
  */
 export function buildConnectedUniqueWhere(
-  ctx: QueryContext,
-  childCtx: QueryContext,
+  ctx: QueryScope,
+  childCtx: QueryScope,
   joinInfo: ManyToManyJoinInfo,
   parentValue: Sql,
   whereUnique: Record<string, unknown>
@@ -312,7 +320,7 @@ export function buildConnectedUniqueWhere(
  * child DELETE cannot trip an FK constraint (§9 m2m delete/deleteMany).
  */
 export function buildJunctionDeleteCondition(
-  ctx: QueryContext,
+  ctx: QueryScope,
   relationInfo: RelationInfo,
   joinInfo: ManyToManyJoinInfo,
   targetPks: Sql

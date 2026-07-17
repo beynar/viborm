@@ -4,6 +4,7 @@
  * Driver implementation for better-sqlite3 (synchronous SQLite).
  */
 
+import { Buffer } from "node:buffer";
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import {
@@ -14,14 +15,25 @@ import {
 import Database from "better-sqlite3";
 import { Driver, type DriverResultParser } from "../driver";
 import {
-  assertSQLiteIsolationLevel,
   convertValuesForSQLite,
-  runSavepoint,
+  isSQLiteBinaryValue,
+  runTransactionLifecycle,
+  sqliteBinaryToUint8Array,
   sqliteResultParser,
 } from "../shared";
-import type { QueryResult, TransactionOptions } from "../types";
+import type { QueryResult } from "../types";
 
 type SQLite3Database = Database.Database;
+
+function convertValuesForSQLite3(values: unknown[]): unknown[] {
+  return convertValuesForSQLite(values).map((value) => {
+    if (Buffer.isBuffer(value) || !isSQLiteBinaryValue(value)) {
+      return value;
+    }
+    const bytes = sqliteBinaryToUint8Array(value);
+    return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  });
+}
 
 // ============================================================
 // EXPORTED OPTIONS
@@ -74,7 +86,7 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
     sql: string,
     params: unknown[]
   ): Promise<QueryResult<T>> {
-    const values = convertValuesForSQLite(params);
+    const values = convertValuesForSQLite3(params);
     return this.runStatement<T>(client, sql, values, true);
   }
 
@@ -83,7 +95,7 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
     sql: string,
     params?: unknown[]
   ): Promise<QueryResult<T>> {
-    const values = params ? convertValuesForSQLite(params) : undefined;
+    const values = params ? convertValuesForSQLite3(params) : undefined;
     // Raw results bypass the result parser — keep better-sqlite3's plain
     // numbers instead of surfacing BigInt to raw callers
     return this.runStatement<T>(client, sql, values, false);
@@ -96,12 +108,8 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
     safeIntegers: boolean
   ): QueryResult<T> {
     const stmt = db.prepare(sql);
-    const normalized = sql.trim().toUpperCase();
-    const isSelect =
-      normalized.startsWith("SELECT") || normalized.startsWith("WITH");
-    const isReturning = normalized.includes("RETURNING");
 
-    if (isSelect || isReturning) {
+    if (stmt.reader) {
       if (safeIntegers) {
         // INTEGER columns come back as BigInt so values >2^53 survive; the
         // result parser converts int columns back to number
@@ -117,31 +125,29 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
 
   protected async transaction<T>(
     client: SQLite3Database,
-    fn: (tx: SQLite3Database) => Promise<T>,
-    options?: TransactionOptions
+    fn: (tx: SQLite3Database) => Promise<T>
   ): Promise<T> {
-    assertSQLiteIsolationLevel(this.driverName, options);
-
-    if (this.inTransaction) {
-      // Nested transaction - use savepoint
-      return runSavepoint(
-        (statement) => client.exec(statement),
-        () => fn(client)
-      );
-    }
-
-    // Start a new transaction
-    client.exec("BEGIN");
-    this.inTransaction = true;
-    try {
-      const result = await fn(client);
-      client.exec("COMMIT");
-      return result;
-    } catch (error) {
-      client.exec("ROLLBACK");
-      throw error;
-    }
-    // Note: this.inTransaction reset is handled by base Driver._transaction()
+    let shouldClose = false;
+    const executeOrClose = (statement: string) => {
+      try {
+        client.exec(statement);
+      } catch (error) {
+        shouldClose = true;
+        throw error;
+      }
+    };
+    return runTransactionLifecycle({
+      begin: () => executeOrClose("BEGIN"),
+      callback: () => fn(client),
+      commit: () => executeOrClose("COMMIT"),
+      rollback: () => executeOrClose("ROLLBACK"),
+      close: () => {
+        if (shouldClose) {
+          client.close();
+          this.client = null;
+        }
+      },
+    });
   }
 }
 

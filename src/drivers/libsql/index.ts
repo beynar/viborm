@@ -11,15 +11,22 @@ import {
   type DriverConfig,
   type VibORMClient,
 } from "@client/client";
-import type { Client, Config, Transaction } from "@libsql/client";
-import { Driver, type DriverResultParser } from "../driver";
+import type { Client, Config, InValue, Transaction } from "@libsql/client";
 import {
-  assertSQLiteIsolationLevel,
+  Driver,
+  type DriverResultParser,
+  type QueryExecutionContext,
+} from "../driver";
+import { normalizeProviderRowCount } from "../normalized-result";
+import {
   convertValuesForSQLite,
-  runSavepoint,
+  isSQLiteBinaryValue,
+  nestedTransactionDispatchError,
+  runTransactionLifecycle,
+  sqliteBinaryToUint8Array,
   sqliteResultParser,
 } from "../shared";
-import type { QueryResult, TransactionOptions } from "../types";
+import type { QueryResult } from "../types";
 
 // ============================================================
 // EXPORTED OPTIONS
@@ -38,13 +45,44 @@ export interface LibSQLDriverOptions {
 export type LibSQLClientConfig<C extends DriverConfig> = LibSQLDriverOptions &
   C;
 
+function convertValuesForLibSQL(values: unknown[]): InValue[] {
+  return convertValuesForSQLite(values).map((value) => {
+    if (isSQLiteBinaryValue(value)) {
+      return value instanceof ArrayBuffer
+        ? value
+        : sqliteBinaryToUint8Array(value);
+    }
+    if (
+      value === null ||
+      typeof value === "string" ||
+      typeof value === "number" ||
+      typeof value === "bigint" ||
+      typeof value === "boolean" ||
+      value instanceof Date
+    ) {
+      return value;
+    }
+    throw new TypeError(
+      'Driver "libsql" received an unsupported SQLite parameter value.'
+    );
+  });
+}
+
 // libsql reports rowsAffected: 0 for mutations with a RETURNING clause even
 // when rows come back, so returned rows are the more reliable count.
-const libsqlRowCount = (result: {
-  rows: unknown[];
-  rowsAffected?: number;
-}): number =>
-  result.rows.length > 0 ? result.rows.length : (result.rowsAffected ?? 0);
+const libsqlRowCount = (
+  result: {
+    rows: unknown[];
+    rowsAffected: number;
+  },
+  operation: string
+): number => {
+  const affected = normalizeProviderRowCount(result.rowsAffected, {
+    provider: "libsql",
+    operation,
+  });
+  return result.rows.length > 0 ? result.rows.length : affected;
+};
 
 // ============================================================
 // DRIVER IMPLEMENTATION
@@ -53,13 +91,14 @@ const libsqlRowCount = (result: {
 export class LibSQLDriver extends Driver<Client, Client | Transaction> {
   readonly adapter: DatabaseAdapter = new SQLiteAdapter();
   readonly result: DriverResultParser = sqliteResultParser;
-  protected override readonly serializeTransactions = true;
+  protected override readonly serializeTransactions: boolean;
 
   private readonly driverOptions: LibSQLDriverOptions;
 
   constructor(options: LibSQLDriverOptions = {}) {
     super("sqlite", "libsql");
     this.driverOptions = options;
+    this.serializeTransactions = this.usesInMemoryDatabase();
 
     if (options.client) {
       this.client = options.client;
@@ -93,73 +132,79 @@ export class LibSQLDriver extends Driver<Client, Client | Transaction> {
   protected async execute<T>(
     client: Client | Transaction,
     sql: string,
-    params: unknown[]
+    params: unknown[],
+    context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
-    const values = convertValuesForSQLite(params);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const result = await client.execute({ sql, args: values as any });
+    const operation = context?.operation ?? "execute";
+    const values = convertValuesForLibSQL(params);
+    const result = await client.execute({ sql, args: values });
     return {
       rows: result.rows as T[],
-      rowCount: libsqlRowCount(result),
+      rowCount: libsqlRowCount(result, operation),
     };
   }
 
   protected async executeRaw<T>(
     client: Client | Transaction,
     sql: string,
-    params?: unknown[]
+    params: unknown[] | undefined,
+    context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
-    const values = params ? convertValuesForSQLite(params) : [];
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const result = await client.execute({ sql, args: values as any });
+    const operation = context?.operation ?? "executeRaw";
+    const values = params ? convertValuesForLibSQL(params) : [];
+    const result = await client.execute({ sql, args: values });
     return {
       rows: result.rows as T[],
-      rowCount: libsqlRowCount(result),
+      rowCount: libsqlRowCount(result, operation),
     };
   }
 
   protected async transaction<T>(
     client: Client | Transaction,
-    fn: (tx: Client | Transaction) => Promise<T>,
-    options?: TransactionOptions
+    fn: (tx: Client | Transaction) => Promise<T>
   ): Promise<T> {
-    assertSQLiteIsolationLevel(this.driverName, options);
-
-    if (this.inTransaction || "commit" in client) {
-      // Nested transaction - use savepoint
-      const tx = client;
-      return runSavepoint(
-        (statement) => tx.execute(statement),
-        () => fn(tx)
-      );
+    if ("commit" in client) {
+      throw nestedTransactionDispatchError(this.driverName);
     }
 
     if (this.usesInMemoryDatabase()) {
-      await client.execute("BEGIN");
-      this.inTransaction = true;
-      try {
-        const result = await fn(client);
-        await client.execute("COMMIT");
-        return result;
-      } catch (error) {
-        await client.execute("ROLLBACK");
-        throw error;
-      }
+      let shouldClose = false;
+      const executeOrClose = async (statement: string) => {
+        try {
+          await client.execute(statement);
+        } catch (error) {
+          shouldClose = true;
+          throw error;
+        }
+      };
+      return runTransactionLifecycle({
+        begin: () => executeOrClose("BEGIN"),
+        callback: () => fn(client),
+        commit: () => executeOrClose("COMMIT"),
+        rollback: () => executeOrClose("ROLLBACK"),
+        close: () => {
+          if (shouldClose) {
+            client.close();
+            this.client = null;
+          }
+        },
+      });
     }
 
-    // Start new transaction from client
     const tx = await client.transaction("write");
-    this.inTransaction = true;
+    return runTransactionLifecycle({
+      begin: () => undefined,
+      callback: () => fn(tx),
+      commit: () => tx.commit(),
+      rollback: () => tx.rollback(),
+      close: () => tx.close(),
+    });
+  }
 
-    try {
-      const result = await fn(tx);
-      await tx.commit();
-      return result;
-    } catch (error) {
-      await tx.rollback();
-      throw error;
+  protected override transactionCleanupFailed(error: Error): void {
+    if (this.usesInMemoryDatabase()) {
+      super.transactionCleanupFailed(error);
     }
-    // Note: this.inTransaction reset is handled by base Driver._transaction()
   }
 
   private getDatabaseUrl(): string {

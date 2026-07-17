@@ -1,5 +1,7 @@
 # Semantic Map — TX Engine: update / upsert / set / disconnect / delete / deleteMany / updateMany + atomic-runner + transaction-flow entry & race retry
 
+> **Historical snapshot.** This map documents the deleted pre-unification engines and is not the current runtime contract. `DESIGN.md` and the conformance/behavior suites are authoritative.
+
 Slice owner: MAPPER. Files read completely:
 - `src/query-engine/transaction-flow.ts` (entry, dispatch, race retry)
 - `src/query-engine/operations/nested-writes/update.ts`

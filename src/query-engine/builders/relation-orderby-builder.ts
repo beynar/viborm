@@ -6,18 +6,14 @@
 
 import type { Sql } from "@sql";
 import {
-  createChildContext,
+  createChildScope,
   getColumnName,
   getRelationInfo,
   getTableName,
   isRelation,
   isScalarField,
 } from "../context";
-import {
-  type QueryContext,
-  QueryEngineError,
-  type RelationInfo,
-} from "../types";
+import { QueryEngineError, type QueryScope, type RelationInfo } from "../types";
 import { buildCorrelation } from "./correlation-utils";
 import { buildRelationCount } from "./relation-count-builder";
 import { buildSingleOrder } from "./sort-order-builder";
@@ -34,7 +30,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> => {
 const MAX_RELATION_ORDER_DEPTH = 3;
 
 export function buildRelationOrders(
-  ctx: QueryContext,
+  ctx: QueryScope,
   relationInfo: RelationInfo,
   value: unknown,
   parentAlias: string,
@@ -68,7 +64,7 @@ export function buildRelationOrders(
 }
 
 function buildToOneRelationOrders(
-  ctx: QueryContext,
+  ctx: QueryScope,
   relationInfo: RelationInfo,
   orderBy: Record<string, unknown>,
   parentAlias: string,
@@ -90,7 +86,7 @@ function buildToOneRelationOrders(
     relationAliases,
     relationPath
   ).alias;
-  const targetCtx = createChildContext(
+  const targetCtx = createChildScope(
     ctx,
     relationInfo.targetModel,
     relatedAlias
@@ -170,7 +166,7 @@ function buildToOneRelationOrders(
 }
 
 function getRelationOrderAlias(
-  ctx: QueryContext,
+  ctx: QueryScope,
   relationInfo: RelationInfo,
   parentAlias: string,
   relationAliases: Map<string, RelationOrderAlias>,
@@ -200,7 +196,7 @@ function getRelationOrderAlias(
 }
 
 function buildToManyRelationOrders(
-  ctx: QueryContext,
+  ctx: QueryScope,
   relationInfo: RelationInfo,
   orderBy: Record<string, unknown>,
   parentAlias: string

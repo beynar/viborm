@@ -294,7 +294,7 @@ export class MySQLMigrationDriver extends MigrationDriver {
       columnDefs.push(fkDef);
     }
 
-    const sql = `CREATE TABLE ${this.escapeIdentifier(table.name)} (\n  ${columnDefs.join(",\n  ")}\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`;
+    const sql = `CREATE TABLE ${this.escapeIdentifier(table.name)} (\n  ${columnDefs.join(",\n  ")}\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin`;
 
     const statements = [sql];
 
@@ -560,7 +560,7 @@ export class MySQLMigrationDriver extends MigrationDriver {
   name VARCHAR(255) NOT NULL UNIQUE,
   checksum VARCHAR(64) NOT NULL,
   applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin`;
   }
 
   generateInsertMigration(tableName: string): {

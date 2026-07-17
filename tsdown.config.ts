@@ -28,7 +28,6 @@ export default defineConfig({
     sqlite3: "./src/drivers/sqlite3/index.ts",
     libsql: "./src/drivers/libsql/index.ts",
     d1: "./src/drivers/d1/index.ts",
-    "d1-http": "./src/drivers/d1-http/index.ts",
     "bun-sqlite": "./src/drivers/bun-sqlite/index.ts",
 
     // Cache (viborm/cache, viborm/cache/memory, etc.)
@@ -90,6 +89,7 @@ export default defineConfig({
     // Peer dependencies
     "@electric-sql/pglite",
     "@cloudflare/workers-types",
+    "@opentelemetry/api",
     "@neondatabase/serverless",
     "@planetscale/database",
     "@libsql/client",

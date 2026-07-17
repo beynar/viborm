@@ -1,5 +1,9 @@
+import type { DatabaseAdapter } from "@adapters/database-adapter";
+import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { describe, expect, test } from "vitest";
+import { Driver, TransactionBoundDriver } from "../../src/drivers/driver";
 import { SavepointQueue } from "../../src/drivers/savepoint-queue";
+import type { QueryResult } from "../../src/drivers/types";
 
 describe("SavepointQueue", () => {
   test("executes single operation immediately", async () => {
@@ -267,3 +271,266 @@ describe("SavepointQueue", () => {
     });
   });
 });
+
+type CleanupFailurePoint =
+  | "both"
+  | "create"
+  | "release-success-and-recovery"
+  | "rollback"
+  | "release-after-rollback"
+  | undefined;
+
+class SavepointFailureDriver extends Driver<object, object> {
+  readonly adapter: DatabaseAdapter = new SQLiteAdapter();
+  readonly statements: string[] = [];
+  readonly rollbackError = new Error("private rollback cleanup detail");
+  readonly releaseError = new Error("private release cleanup detail");
+  private readonly failurePoint: CleanupFailurePoint;
+  private hasRolledBack = false;
+
+  constructor(failurePoint: CleanupFailurePoint) {
+    super("sqlite", "savepoint-failure");
+    this.failurePoint = failurePoint;
+  }
+
+  createTransactionDriver(): TransactionBoundDriver<object, object> {
+    return new TransactionBoundDriver(this, {});
+  }
+
+  protected async initClient(): Promise<object> {
+    return {};
+  }
+
+  protected async closeClient(): Promise<void> {
+    // No provider resource to release.
+  }
+
+  protected async execute<T>(): Promise<QueryResult<T>> {
+    return { rows: [], rowCount: 0 };
+  }
+
+  protected async executeRaw<T>(
+    _client: object,
+    statement: string
+  ): Promise<QueryResult<T>> {
+    this.statements.push(statement);
+
+    if (statement.startsWith("SAVEPOINT") && this.failurePoint === "create") {
+      throw new Error("savepoint response was lost");
+    }
+
+    if (statement.startsWith("ROLLBACK TO SAVEPOINT")) {
+      this.hasRolledBack = true;
+      if (this.failurePoint === "rollback" || this.failurePoint === "both") {
+        throw this.rollbackError;
+      }
+    }
+
+    if (
+      statement.startsWith("RELEASE SAVEPOINT") &&
+      ((this.hasRolledBack &&
+        (this.failurePoint === "release-after-rollback" ||
+          this.failurePoint === "both")) ||
+        this.failurePoint === "release-success-and-recovery")
+    ) {
+      throw this.releaseError;
+    }
+
+    return { rows: [], rowCount: 0 };
+  }
+
+  protected async transaction<T>(
+    _client: object,
+    fn: (tx: object) => Promise<T>
+  ): Promise<T> {
+    return fn({});
+  }
+}
+
+describe("nested transaction failure contracts", () => {
+  test("preserves the callback failure and exposes rollback failure as secondary context", async () => {
+    const driver = new SavepointFailureDriver("rollback");
+    const primaryError = new Error("nested callback failed");
+    let thrown: unknown;
+
+    try {
+      await driver
+        .createTransactionDriver()
+        .withTransaction(async () => Promise.reject(primaryError));
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(AggregateError);
+    if (!(thrown instanceof AggregateError)) {
+      throw new Error("expected an AggregateError");
+    }
+    expect(thrown.cause).toBe(primaryError);
+    expect(thrown.message).toBe(primaryError.message);
+    expect(thrown.errors[0]).toBe(primaryError);
+    expect(thrown.errors[1]).toMatchObject({
+      name: "QueryError",
+      code: "V2001",
+      meta: { driver: "savepoint-failure" },
+    });
+    expect(driver.statements.map(statementKind)).toEqual([
+      "SAVEPOINT",
+      "ROLLBACK",
+      "RELEASE",
+    ]);
+  });
+
+  test("preserves the callback failure and exposes post-rollback release failure", async () => {
+    const driver = new SavepointFailureDriver("release-after-rollback");
+    const primaryError = new Error("nested callback failed");
+    let thrown: unknown;
+
+    try {
+      await driver
+        .createTransactionDriver()
+        .withTransaction(async () => Promise.reject(primaryError));
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(AggregateError);
+    if (!(thrown instanceof AggregateError)) {
+      throw new Error("expected an AggregateError");
+    }
+    expect(thrown.cause).toBe(primaryError);
+    expect(thrown.message).toBe(primaryError.message);
+    expect(thrown.errors[0]).toBe(primaryError);
+    expect(thrown.errors[1]).toMatchObject({
+      name: "QueryError",
+      code: "V2001",
+      meta: { driver: "savepoint-failure" },
+    });
+    expect(driver.statements.map(statementKind)).toEqual([
+      "SAVEPOINT",
+      "ROLLBACK",
+      "RELEASE",
+    ]);
+  });
+
+  test("preserves rollback and release failures in cleanup order", async () => {
+    const driver = new SavepointFailureDriver("both");
+    const primaryError = new Error("nested callback failed");
+    const txDriver = driver.createTransactionDriver();
+    let thrown: unknown;
+
+    try {
+      await txDriver.withTransaction(async () => Promise.reject(primaryError));
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(AggregateError);
+    if (!(thrown instanceof AggregateError)) {
+      throw new Error("expected an AggregateError");
+    }
+    expect(thrown.cause).toBe(primaryError);
+    expect(thrown.errors).toHaveLength(3);
+    expect(thrown.errors[0]).toBe(primaryError);
+    expect(thrown.errors.slice(1)).toEqual([
+      expect.objectContaining({ name: "QueryError", code: "V2001" }),
+      expect.objectContaining({ name: "QueryError", code: "V2001" }),
+    ]);
+    expect(driver.statements.map(statementKind)).toEqual([
+      "SAVEPOINT",
+      "ROLLBACK",
+      "RELEASE",
+    ]);
+    expect(() => txDriver.assertTransactionCommittable()).toThrow(thrown);
+    await expect(txDriver._executeRaw("SELECT 1")).rejects.toBe(thrown);
+  });
+
+  test("ordinary callback rollback leaves the parent scope usable", async () => {
+    const driver = new SavepointFailureDriver(undefined);
+    const txDriver = driver.createTransactionDriver();
+    const primaryError = new Error("nested callback failed");
+
+    await expect(
+      txDriver.withTransaction(async () => Promise.reject(primaryError))
+    ).rejects.toBe(primaryError);
+    await expect(txDriver._executeRaw("SELECT 1")).resolves.toEqual({
+      rows: [],
+      rowCount: 0,
+    });
+    expect(() => txDriver.assertTransactionCommittable()).not.toThrow();
+  });
+
+  test("a failed SAVEPOINT create poisons the parent scope", async () => {
+    const driver = new SavepointFailureDriver("create");
+    const txDriver = driver.createTransactionDriver();
+    let callbackCalled = false;
+
+    await expect(
+      txDriver.withTransaction(async () => {
+        callbackCalled = true;
+      })
+    ).rejects.toMatchObject({ name: "QueryError", code: "V2001" });
+    expect(callbackCalled).toBe(false);
+    expect(driver.statements.map(statementKind)).toEqual(["SAVEPOINT"]);
+    expect(() => txDriver.assertTransactionCommittable()).toThrow();
+    await expect(txDriver._executeRaw("SELECT 1")).rejects.toMatchObject({
+      name: "QueryError",
+      code: "V2001",
+    });
+  });
+
+  test("successful callback release failure retains recovery cleanup failure", async () => {
+    const driver = new SavepointFailureDriver("release-success-and-recovery");
+    const txDriver = driver.createTransactionDriver();
+    const thrown = await txDriver
+      .withTransaction(async () => "result")
+      .catch((error) => error);
+
+    expect(thrown).toBeInstanceOf(AggregateError);
+    expect(thrown.errors).toEqual([
+      expect.objectContaining({ name: "QueryError", code: "V2001" }),
+      expect.objectContaining({ name: "QueryError", code: "V2001" }),
+    ]);
+    expect(driver.statements.map(statementKind)).toEqual([
+      "SAVEPOINT",
+      "RELEASE",
+      "ROLLBACK",
+      "RELEASE",
+    ]);
+    expect(() => txDriver.assertTransactionCommittable()).toThrow(thrown);
+  });
+
+  test("rejects removed options before opening a savepoint", async () => {
+    const driver = new SavepointFailureDriver(undefined);
+    let callbackCalled = false;
+    let thrown: unknown;
+
+    try {
+      const txDriver = driver.createTransactionDriver();
+      await Reflect.apply(txDriver.withTransaction, txDriver, [
+        async () => {
+          callbackCalled = true;
+        },
+        { isolationLevel: "serializable" },
+      ]);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect({
+      callbackCalled,
+      errorName: thrown instanceof Error ? thrown.name : undefined,
+      statements: driver.statements,
+    }).toEqual({
+      callbackCalled: false,
+      errorName: "TransactionError",
+      statements: [],
+    });
+  });
+});
+
+function statementKind(statement: string): string {
+  if (statement.startsWith("ROLLBACK TO SAVEPOINT")) return "ROLLBACK";
+  if (statement.startsWith("RELEASE SAVEPOINT")) return "RELEASE";
+  if (statement.startsWith("SAVEPOINT")) return "SAVEPOINT";
+  return "OTHER";
+}

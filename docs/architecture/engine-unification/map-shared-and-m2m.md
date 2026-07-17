@@ -1,5 +1,7 @@
 # Semantic Map — Shared Layer + Many-to-Many
 
+> **Historical snapshot.** This map documents the deleted pre-unification engines and is not the current runtime contract. `DESIGN.md` and the conformance/behavior suites are authoritative.
+
 Scope of this slice:
 
 - `src/query-engine/operations/nested-writes/semantic-plan.ts` (the step model both engines consult) and **both** its consumers (`relation-mutation.ts` tx dispatch, `batch-relations.ts` batch dispatch).

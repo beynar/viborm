@@ -1,6 +1,12 @@
 # Code Organization Cleanup Plan
 
-**Status:** Phases 0-2 and 4-6 executed in the working tree as of 2026-07-02
+> **Superseded historical plan.** Later operation-program work removed the
+> query-engine orchestration and nested-write structures described here. Keep
+> this document as the record of the earlier cleanup; use
+> [`query-engine-operation-program-implementation-plan.md`](./query-engine-operation-program-implementation-plan.md)
+> and current architecture guides for the implemented layout.
+
+**Historical status:** Phases 0-2 and 4-6 executed in the working tree as of 2026-07-02
 (uncommitted). Phase 3 (query engine orchestration split) is also executed
 (`executor.ts`, `cache-flow.ts`, `transaction-flow.ts`, `result-flow.ts` exist
 alongside a 171-LOC `query-engine.ts`). The Phase 5 driver-base split

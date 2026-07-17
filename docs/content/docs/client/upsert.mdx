@@ -4,7 +4,7 @@ description: Create a record if it doesn't exist, or update it if it does
 icon: RefreshCw
 ---
 
-`upsert` updates the record matching `where` if it exists, otherwise creates it — in a single atomic statement.
+`upsert` updates the record matching `where` if it exists, otherwise creates it — in a single atomic operation.
 
 ```ts
 const user = await client.user.upsert({
@@ -101,5 +101,4 @@ async function recordPageView(pageId: string) {
 
 ## vs Create + Update
 
-Prefer `upsert` over a find-then-create/update sequence: it's a single atomic query with no race window. Use separate queries only when the two branches have genuinely different logic or you need to know which one ran.
-
+Prefer `upsert` over a find-then-create/update sequence: it's an atomic operation with no exposed race window. Use separate queries only when the two branches have genuinely different logic or you need to know which one ran.

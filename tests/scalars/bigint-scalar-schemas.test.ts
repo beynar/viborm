@@ -575,16 +575,22 @@ describe("Increment BigInt Scalar", () => {
     expectTypeOf<bigint | undefined>().toExtend<Create>();
   });
 
-  test("runtime: undefined uses default", () => {
+  test("runtime: undefined remains absent for database generation", () => {
     const result = parse(schemas.create, undefined);
     if (result.issues) throw new Error("Expected success");
-    expect(result.value).toBe(0n);
+    expect(result.value).toBeUndefined();
   });
 
   test("runtime: accepts explicit value", () => {
     const result = parse(schemas.create, 100n);
     if (result.issues) throw new Error("Expected success");
     expect(result.value).toBe(100n);
+  });
+
+  test("runtime: rejects non-portable explicit zero", () => {
+    expect(parse(schemas.create, 0n).issues?.[0]?.message).toContain(
+      "Explicit zero"
+    );
   });
 });
 

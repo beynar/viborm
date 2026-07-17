@@ -4,6 +4,7 @@ import {
   type VibORMConfig,
 } from "@client/client";
 import type { AnyDriver } from "@drivers";
+import { UniqueConstraintError } from "@errors";
 import { push } from "@migrations";
 import { s } from "@schema";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
@@ -125,6 +126,20 @@ export function runRelationFilterMutationBehavior({
       return users.map((matchedUser) => matchedUser.name);
     }
 
+    async function postIds(): Promise<string[]> {
+      const posts = await requireClient(client).post.findMany({
+        orderBy: { id: "asc" },
+      });
+      return posts.map((matchedPost) => matchedPost.id);
+    }
+
+    async function postTitles(): Promise<string[]> {
+      const posts = await requireClient(client).post.findMany({
+        orderBy: { id: "asc" },
+      });
+      return posts.map((matchedPost) => matchedPost.title);
+    }
+
     test("updateMany with some relation filter affects only matching rows", async () => {
       const result = await requireClient(client).user.updateMany({
         where: { posts: { some: { published: false } } },
@@ -181,6 +196,191 @@ export function runRelationFilterMutationBehavior({
 
       expect(result.count).toBe(2);
       expect(await userNames()).toEqual(["Bob"]);
+    });
+
+    describe("combined relation operators", () => {
+      test("updateMany applies same-object some and none filters", async () => {
+        const result = await requireClient(client).user.updateMany({
+          where: {
+            posts: {
+              some: { published: true },
+              none: { published: false },
+            },
+          },
+          data: { name: "Updated" },
+        });
+
+        expect(result.count).toBe(1);
+        expect(await userNames()).toEqual(["Updated", "Bob", "Cara"]);
+      });
+
+      test("updateMany applies same-object some and every filters", async () => {
+        const result = await requireClient(client).user.updateMany({
+          where: {
+            posts: {
+              some: { published: true },
+              every: { published: true },
+            },
+          },
+          data: { name: "Updated" },
+        });
+
+        expect(result.count).toBe(1);
+        expect(await userNames()).toEqual(["Updated", "Bob", "Cara"]);
+      });
+
+      test("updateMany applies same-object every and none filters", async () => {
+        const result = await requireClient(client).user.updateMany({
+          where: {
+            posts: {
+              every: { published: true },
+              none: { title: "Alice One" },
+            },
+          },
+          data: { name: "Updated" },
+        });
+
+        expect(result.count).toBe(1);
+        expect(await userNames()).toEqual(["Alice", "Bob", "Updated"]);
+      });
+
+      test("updateMany applies same-object some, every, and none filters", async () => {
+        const result = await requireClient(client).user.updateMany({
+          where: {
+            posts: {
+              some: { published: true },
+              every: { published: true },
+              none: { title: "Alice One" },
+            },
+          },
+          data: { name: "Updated" },
+        });
+
+        expect(result.count).toBe(0);
+        expect(await userNames()).toEqual(["Alice", "Bob", "Cara"]);
+      });
+
+      test("updateMany applies same-object is and isNot filters", async () => {
+        const result = await requireClient(client).post.updateMany({
+          where: {
+            author: {
+              is: { name: "Alice" },
+              isNot: { name: "Alice" },
+            },
+          },
+          data: { title: "Updated" },
+        });
+
+        expect(result.count).toBe(0);
+        expect(await postTitles()).toEqual([
+          "Alice One",
+          "Alice Two",
+          "Bob One",
+          "Bob Draft",
+        ]);
+      });
+
+      test("deleteMany applies reversed same-object none and some filters", async () => {
+        const result = await requireClient(client).user.deleteMany({
+          where: {
+            posts: {
+              none: { published: false },
+              some: { published: true },
+            },
+          },
+        });
+
+        expect(result.count).toBe(1);
+        expect(await userNames()).toEqual(["Bob", "Cara"]);
+      });
+
+      test("deleteMany applies reversed same-object every and some filters", async () => {
+        const result = await requireClient(client).user.deleteMany({
+          where: {
+            posts: {
+              every: { published: true },
+              some: { published: true },
+            },
+          },
+        });
+
+        expect(result.count).toBe(1);
+        expect(await userNames()).toEqual(["Bob", "Cara"]);
+      });
+
+      test("deleteMany applies reversed same-object none and every filters", async () => {
+        const result = await requireClient(client).user.deleteMany({
+          where: {
+            posts: {
+              none: { title: "Alice One" },
+              every: { published: true },
+            },
+          },
+        });
+
+        expect(result.count).toBe(1);
+        expect(await userNames()).toEqual(["Alice", "Bob"]);
+      });
+
+      test("deleteMany applies reversed same-object none, every, and some filters", async () => {
+        const result = await requireClient(client).user.deleteMany({
+          where: {
+            posts: {
+              none: { title: "Alice One" },
+              every: { published: true },
+              some: { published: true },
+            },
+          },
+        });
+
+        expect(result.count).toBe(0);
+        expect(await userNames()).toEqual(["Alice", "Bob", "Cara"]);
+      });
+
+      test("deleteMany applies reversed same-object isNot and is filters", async () => {
+        const result = await requireClient(client).post.deleteMany({
+          where: {
+            author: {
+              isNot: { name: "Alice" },
+              is: { name: "Alice" },
+            },
+          },
+        });
+
+        expect(result.count).toBe(0);
+        expect(await postIds()).toEqual([
+          "post-1",
+          "post-2",
+          "post-3",
+          "post-4",
+        ]);
+      });
+
+      test("rolls back a combined-filter mutation when a later operation fails", async () => {
+        let mutationCount: number | undefined;
+
+        await expect(
+          requireClient(client).$transaction(async (tx) => {
+            const result = await tx.user.updateMany({
+              where: {
+                posts: {
+                  some: { published: true },
+                  none: { published: false },
+                },
+              },
+              data: { name: "Must roll back" },
+            });
+            mutationCount = result.count;
+
+            await tx.user.create({
+              data: { id: "user-1", name: "Duplicate primary key" },
+            });
+          })
+        ).rejects.toBeInstanceOf(UniqueConstraintError);
+
+        expect(mutationCount).toBe(1);
+        expect(await userNames()).toEqual(["Alice", "Bob", "Cara"]);
+      });
     });
 
     // Self-relation filters make the mutated table appear in the subquery

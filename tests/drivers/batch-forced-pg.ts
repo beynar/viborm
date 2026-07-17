@@ -19,13 +19,7 @@ export class PgBatchForcedDriver extends PgDriver {
     client: Pool | PoolClient,
     queries: BatchQuery[]
   ): Promise<QueryResult<T>[]> {
-    return this.transaction(client, async (tx) => {
-      const results: QueryResult<T>[] = [];
-      for (const query of queries) {
-        results.push(await this.executeRaw<T>(tx, query.sql, query.params));
-      }
-      return results;
-    });
+    return this.transaction(client, (tx) => super.executeBatch<T>(tx, queries));
   }
 }
 

@@ -1,22 +1,30 @@
 import { VibORMError, VibORMErrorCode, type VibORMErrorMeta } from "./base";
+import type { DiagnosticDisclosure } from "./diagnostics";
 
 /**
  * Connection-related errors
  */
 export class ConnectionError extends VibORMError {
+  static override readonly diagnosticName = "ConnectionError";
+
   constructor(
     message: string,
     options?: {
       cause?: Error | undefined;
+      diagnostics?: DiagnosticDisclosure | undefined;
       meta?: VibORMErrorMeta | undefined;
       code?: VibORMErrorCode | undefined;
     }
   ) {
-    const opts: { cause?: Error; meta?: VibORMErrorMeta } = {};
+    const opts: {
+      cause?: Error;
+      diagnostics?: DiagnosticDisclosure;
+      meta?: VibORMErrorMeta;
+    } = {};
     if (options?.cause) opts.cause = options.cause;
+    if (options?.diagnostics) opts.diagnostics = options.diagnostics;
     if (options?.meta) opts.meta = options.meta;
     super(message, options?.code ?? VibORMErrorCode.CONNECTION_FAILED, opts);
-    this.name = "ConnectionError";
   }
 }
 
@@ -24,19 +32,26 @@ export class ConnectionError extends VibORMError {
  * Query execution errors
  */
 export class QueryError extends VibORMError {
+  static override readonly diagnosticName = "QueryError";
+
   constructor(
     message: string,
     options?: {
       cause?: Error | undefined;
+      diagnostics?: DiagnosticDisclosure | undefined;
       meta?: VibORMErrorMeta | undefined;
       code?: VibORMErrorCode | undefined;
     }
   ) {
-    const opts: { cause?: Error; meta?: VibORMErrorMeta } = {};
+    const opts: {
+      cause?: Error;
+      diagnostics?: DiagnosticDisclosure;
+      meta?: VibORMErrorMeta;
+    } = {};
     if (options?.cause) opts.cause = options.cause;
+    if (options?.diagnostics) opts.diagnostics = options.diagnostics;
     if (options?.meta) opts.meta = options.meta;
     super(message, options?.code ?? VibORMErrorCode.QUERY_FAILED, opts);
-    this.name = "QueryError";
   }
 }
 
@@ -44,6 +59,8 @@ export class QueryError extends VibORMError {
  * Record not found (for OrThrow operations)
  */
 export class NotFoundError extends VibORMError {
+  static override readonly diagnosticName = "NotFoundError";
+
   constructor(
     model: string,
     operation: string,
@@ -56,7 +73,6 @@ export class NotFoundError extends VibORMError {
         meta: { ...options?.meta, model, operation },
       }
     );
-    this.name = "NotFoundError";
   }
 }
 
@@ -64,26 +80,28 @@ export class NotFoundError extends VibORMError {
  * Nested write operation errors
  */
 export class NestedWriteError extends VibORMError {
+  static override readonly diagnosticName = "NestedWriteError";
+
   constructor(
     message: string,
     relation: string,
     options?: {
       cause?: Error | undefined;
+      diagnostics?: DiagnosticDisclosure | undefined;
       meta?: VibORMErrorMeta | undefined;
       code?: VibORMErrorCode | undefined;
     }
   ) {
-    const opts: { cause?: Error; meta?: VibORMErrorMeta } = {
+    const opts: {
+      cause?: Error;
+      diagnostics?: DiagnosticDisclosure;
+      meta?: VibORMErrorMeta;
+    } = {
       meta: { ...options?.meta, relation },
     };
     if (options?.cause) opts.cause = options.cause;
+    if (options?.diagnostics) opts.diagnostics = options.diagnostics;
     super(message, options?.code ?? VibORMErrorCode.NESTED_WRITE_FAILED, opts);
-    this.name = "NestedWriteError";
-
-    // Preserve the original stack trace if available
-    if (options?.cause?.stack) {
-      this.stack = `${this.stack}\nCaused by: ${options.cause.stack}`;
-    }
   }
 }
 
@@ -97,18 +115,25 @@ export class NestedWriteError extends VibORMError {
  * error mapping normalizes all of them to this type.
  */
 export class NestedWriteAssertionError extends VibORMError {
+  static override readonly diagnosticName = "NestedWriteAssertionError";
+
   constructor(
     message: string,
     options?: {
       cause?: Error | undefined;
+      diagnostics?: DiagnosticDisclosure | undefined;
       meta?: VibORMErrorMeta | undefined;
     }
   ) {
-    const opts: { cause?: Error; meta?: VibORMErrorMeta } = {};
+    const opts: {
+      cause?: Error;
+      diagnostics?: DiagnosticDisclosure;
+      meta?: VibORMErrorMeta;
+    } = {};
     if (options?.cause) opts.cause = options.cause;
+    if (options?.diagnostics) opts.diagnostics = options.diagnostics;
     if (options?.meta) opts.meta = options.meta;
     super(message, VibORMErrorCode.NESTED_WRITE_ASSERTION_FAILED, opts);
-    this.name = "NestedWriteAssertionError";
   }
 }
 
@@ -116,6 +141,8 @@ export class NestedWriteAssertionError extends VibORMError {
  * Feature not supported errors
  */
 export class FeatureNotSupportedError extends VibORMError {
+  static override readonly diagnosticName = "FeatureNotSupportedError";
+
   constructor(feature: string, method: string, suggestion?: string) {
     const message = suggestion
       ? `${feature}.${method} is not supported. ${suggestion}`
@@ -123,7 +150,6 @@ export class FeatureNotSupportedError extends VibORMError {
     super(message, VibORMErrorCode.FEATURE_NOT_SUPPORTED, {
       meta: { feature, method },
     });
-    this.name = "FeatureNotSupportedError";
   }
 }
 
@@ -134,16 +160,18 @@ export class FeatureNotSupportedError extends VibORMError {
  * such as awaiting after executeWith() or calling executeWith() after await.
  */
 export class PendingOperationError extends VibORMError {
+  static override readonly diagnosticName = "PendingOperationError";
+
   constructor(
     message: string,
     code:
       | VibORMErrorCode.OPERATION_ALREADY_EXECUTED
       | VibORMErrorCode.OPERATION_EXECUTION_CONFLICT
-      | VibORMErrorCode.OPERATION_CLIENT_MISMATCH,
+      | VibORMErrorCode.OPERATION_CLIENT_MISMATCH
+      | VibORMErrorCode.OPERATION_SCOPE_MISMATCH,
     options?: { meta?: VibORMErrorMeta }
   ) {
     super(message, code, { meta: options?.meta });
-    this.name = "PendingOperationError";
   }
 
   /**
@@ -208,6 +236,20 @@ export class PendingOperationError extends VibORMError {
       { meta: { model, operation } }
     );
   }
+
+  /** Create error for mixing root and transaction-bound operation scopes. */
+  static scopeMismatch(
+    model: string,
+    operation: string
+  ): PendingOperationError {
+    return new PendingOperationError(
+      `Cannot execute ${model}.${operation}() in this transaction: ` +
+        "the operation was created outside this transaction scope. " +
+        "Create the operation from the client provided to this transaction callback.",
+      VibORMErrorCode.OPERATION_SCOPE_MISMATCH,
+      { meta: { model, operation } }
+    );
+  }
 }
 
 /**
@@ -223,6 +265,8 @@ export function isPendingOperationError(
  * Internal query engine error
  */
 export class QueryEngineError extends VibORMError {
+  static override readonly diagnosticName = "QueryEngineError";
+
   constructor(
     message: string,
     options?: {
@@ -234,7 +278,6 @@ export class QueryEngineError extends VibORMError {
     if (options?.cause) opts.cause = options.cause;
     if (options?.meta) opts.meta = options.meta;
     super(message, VibORMErrorCode.INTERNAL_ERROR, opts);
-    this.name = "QueryEngineError";
   }
 }
 

@@ -3,27 +3,20 @@ import { PGliteDriver } from "@drivers/pglite";
 import type { BatchQuery, QueryResult } from "@drivers/types";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { push } from "@migrations";
-import { LiveMode } from "@query-engine/operations/nested-writes/live-mode";
-import { PlannedMode } from "@query-engine/operations/nested-writes/planned-mode";
 import { s } from "@schema";
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test } from "vitest";
 import { manyToManySchema } from "../fixtures/many-to-many-schema";
 import { nestedWriteBehaviorSchema } from "../fixtures/nested-write-behavior-schema";
 
 /**
- * M5 gate (§11 M5): the update family (update / updateMany / disconnect /
- * delete / deleteMany / set) over FK-only trees runs THROUGH THE INTERPRETER in
- * both modes. Load-bearing assertions beyond the conformance oracle:
+ * FK update/removal and many-to-many trees compile into OperationProgram.
  *
- *  1. Routing spy — `LiveMode.bindContext` / `PlannedMode.bindContext` fire
- *     exactly once per eligible top-level `update` (the old engines never touch
- *     these modes, so a call proves the tree was interpreted).
+ *  1. Routing gate — every update family returns an operation-atomic program;
+ *     many-to-many mutations appear as declarative relation statements.
  *  2. PK-change conformance — a literal PK rename and a computed `increment` PK
- *     update persist byte-identical end state in both modes, exercising the
- *     `computedPk` symbol path (live: scalar SELECT read-back; planned:
- *     store(valueSql)).
- *  3. An m2m-touching update tree IS eligible at M9 (m2m migrated), so the
- *     interpreter mode is bound (assertion updated at M9).
+ *     update persist byte-identical end state in transaction and batch
+ *     runtimes, exercising the computed-primary-key value path.
+ *  3. No test binds or imports the deleted interpreter modes.
  */
 
 type BehaviorSchema = typeof nestedWriteBehaviorSchema;
@@ -75,10 +68,10 @@ const counterSchema = (() => {
   return { counter };
 })();
 
-describe("M5 update-family interpreter", () => {
-  describe("update trees route through the interpreter", () => {
+describe("update-family operation programs", () => {
+  describe("update trees compile without legacy mode binding", () => {
     test(
-      "live mode binds LiveMode exactly once per update",
+      "transaction runtime executes the compiled relation program",
       { timeout: 30_000 },
       async () => {
         const db = await setupBehaviorDb();
@@ -90,30 +83,26 @@ describe("M5 update-family interpreter", () => {
             posts: { create: { id: "po1", title: "Draft" } },
           },
         });
-        const liveSpy = vi.spyOn(LiveMode.prototype, "bindContext");
-        const plannedSpy = vi.spyOn(PlannedMode.prototype, "bindContext");
-
-        await client.user.update({
+        const operation = client.user.update({
           where: { id: "u1" },
           data: {
             name: "Renamed",
             posts: {
               update: { where: { id: "po1" }, data: { title: "Published" } },
-              create: { id: "po2", title: "New" },
             },
           },
         });
+        const program = operation.compile();
 
-        expect(liveSpy).toHaveBeenCalledTimes(1);
-        expect(plannedSpy).not.toHaveBeenCalled();
-        liveSpy.mockRestore();
-        plannedSpy.mockRestore();
+        expect(program.atomicity).toBe("operation");
+        expect(program.steps.length).toBeGreaterThan(1);
+        await operation;
         await client.$disconnect();
       }
     );
 
     test(
-      "batch mode binds PlannedMode exactly once per update",
+      "batch runtime executes the same compiled relation program",
       { timeout: 30_000 },
       async () => {
         const db = await setupBehaviorDb();
@@ -125,10 +114,7 @@ describe("M5 update-family interpreter", () => {
             posts: { create: { id: "po1", title: "Draft" } },
           },
         });
-        const liveSpy = vi.spyOn(LiveMode.prototype, "bindContext");
-        const plannedSpy = vi.spyOn(PlannedMode.prototype, "bindContext");
-
-        await client.user.update({
+        const operation = client.user.update({
           where: { id: "u1" },
           data: {
             posts: {
@@ -136,17 +122,45 @@ describe("M5 update-family interpreter", () => {
             },
           },
         });
+        const program = operation.compile();
 
-        expect(plannedSpy).toHaveBeenCalledTimes(1);
-        expect(liveSpy).not.toHaveBeenCalled();
-        liveSpy.mockRestore();
-        plannedSpy.mockRestore();
+        expect(program.atomicity).toBe("operation");
+        expect(program.steps.length).toBeGreaterThan(1);
+        await operation;
         await client.$disconnect();
       }
     );
 
     test(
-      "an m2m-touching update routes through the interpreter (M9)",
+      "update-governed createMany composes the relation program",
+      { timeout: 30_000 },
+      async () => {
+        const db = await setupBehaviorDb();
+        const client = bootBehavior(new BatchDriver({ client: db }));
+        await client.user.create({ data: { id: "u1", name: "Owner" } });
+        const operation = client.user.update({
+          where: { id: "u1" },
+          data: {
+            posts: {
+              createMany: {
+                data: [{ id: "po1", title: "Program child" }],
+              },
+            },
+          },
+        });
+        const program = operation.compile();
+
+        expect(program.atomicity).toBe("operation");
+        await operation;
+        await expect(
+          client.post.findUnique({ where: { id: "po1" } })
+        ).resolves.toMatchObject({ userId: "u1" });
+        await client.$disconnect();
+      }
+    );
+
+    test(
+      "an m2m-touching update compiles a relation statement",
       { timeout: 30_000 },
       async () => {
         const db = new PGlite();
@@ -163,21 +177,21 @@ describe("M5 update-family interpreter", () => {
           data: { id: "t1", name: "tag-1", featuredPostId: null },
         });
         await client.post.create({ data: { id: "p1", title: "Post 1" } });
-        const liveSpy = vi.spyOn(LiveMode.prototype, "bindContext");
-
-        await client.post.update({
+        const operation = client.post.update({
           where: { id: "p1" },
           data: { tags: { connect: { id: "t1" } } },
         });
+        const program = operation.compile();
 
-        expect(liveSpy).toHaveBeenCalledTimes(1);
-        liveSpy.mockRestore();
+        expect(program.atomicity).toBe("operation");
+        expect(JSON.stringify(program)).toContain('"kind":"relation"');
+        await operation;
         await client.$disconnect();
       }
     );
   });
 
-  describe("PK-change conformance: identical end state in both modes", () => {
+  describe("PK-change conformance: identical end state in both runtimes", () => {
     async function runPkChange(
       createDriver: (db: PGlite) => PGliteDriver,
       act: (client: ReturnType<typeof bootCounter>) => PromiseLike<unknown>
@@ -201,7 +215,7 @@ describe("M5 update-family interpreter", () => {
     }
 
     test(
-      "literal PK rename persists identical state in both modes",
+      "literal PK rename persists identical state in both runtimes",
       { timeout: 30_000 },
       async () => {
         const act = (client: ReturnType<typeof bootCounter>) =>
@@ -223,7 +237,7 @@ describe("M5 update-family interpreter", () => {
     );
 
     test(
-      "computed increment PK update persists identical state in both modes",
+      "computed increment PK update persists identical state in both runtimes",
       { timeout: 30_000 },
       async () => {
         const act = (client: ReturnType<typeof bootCounter>) =>

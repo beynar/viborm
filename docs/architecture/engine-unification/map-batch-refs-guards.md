@@ -1,5 +1,7 @@
 # Engine unification map: batch value-reference mechanism, SQL guards, and the batch execution contract
 
+> **Historical snapshot.** This map documents the deleted pre-unification engines and is not the current runtime contract. `DESIGN.md` and the conformance/behavior suites are authoritative.
+
 Slice owner: the batch-only lowering substrate. Files read completely:
 
 - `src/query-engine/operations/nested-writes/batch-references.ts` (the symbol/ref model + `PlanState` + adapter capability detection)
@@ -232,17 +234,18 @@ Every op appends `buildFindUnique(ctx, {where: finalWhere, select, include})` as
 
 ## 6. Driver `_executeBatch` contract (`driver.ts`) and the batch-only drivers
 
-### 6.1 The base `_executeBatch(queries, options)` dispatch
+### 6.1 The base `_executeBatch(queries)` dispatch
 
 ```
+if a second argument is supplied -> reject INVALID_TRANSACTION_INPUT
 if queries.length === 0 -> []
 client = getClient()
 if supportsBatch:                        // native atomic batch (D1, Neon-HTTP)
     join sql with "; " for the ONE instrumentation span,
-    pass the queries ARRAY (not the joined string) to executeBatch(client, queries, options)
+    pass the queries ARRAY (not the joined string) to executeBatch(client, queries)
 else if supportsTransactions:            // wrap in a tx (or reuse current one)
-    if inTransaction: executeBatch(client, queries, options)
-    else: _transaction(tx => executeBatch(tx, queries, options))
+    if inTransaction: executeBatch(client, queries)
+    else: _transaction(tx => executeBatch(tx, queries))
 else:                                     // neither -> hard reject
     throw TransactionError("supports neither transactions nor atomic batch execution")
 ```
@@ -252,7 +255,9 @@ else:                                     // neither -> hard reject
 - **In-order sequential execution.** Statements run in array order. The ref mechanism *requires* this: a `store` must run before the `read` that consumes it; `storeLastInsertId` must run before the next INSERT. Native batch APIs (D1 `batch()`, Neon `transaction()`) guarantee ordered sequential execution within the batch.
 - **Shared session/connection.** `last_insert_rowid()`/`LAST_INSERT_ID()`/`lastval()` and the temp table are session-scoped; the whole batch must run on one connection. Both native paths satisfy this (one HTTP request / one binding call).
 - **One result row per statement, in order.** The parse offset math (`slice(start, start+length)`) assumes `results[i]` corresponds to `queries[i]`.
-- **Options honored or rejected, never ignored.** The base `executeBatch` docstring and both overrides throw when they cannot honor `isolationLevel`/`timeout` rather than silently dropping them.
+- **Empty portable option subset.** `_executeBatch` accepts no second options
+  argument. Any supplied value rejects before the empty-array fast path,
+  capability checks, client lookup, or provider work.
 
 The default (non-native) `executeBatch` loops `executeRaw` per statement — used only when `supportsTransactions` wraps it in a real tx. Batch-only drivers **must override** `executeBatch` with a genuinely atomic primitive.
 
@@ -261,7 +266,7 @@ The default (non-native) `executeBatch` loops `executeRaw` per statement — use
 | driver | `supportsTransactions` | `supportsBatch` | atomic primitive | notes |
 |---|---|---|---|---|
 | **d1** | false | **true** | `client.batch(statements)` (Workers binding) | true atomicity per Cloudflare; params SQLite-converted; `rowCount = meta.changes \|\| results.length` |
-| **neon-http** | false | **true** | `client.transaction(txFn => queries.map(...))` | full PG tx semantics over one HTTP request; maps isolation level; rejects `timeout` |
+| **neon-http** | false | **true** | `client.transaction(txFn => queries.map(...))` | full PG tx semantics over one HTTP request; no portable isolation or timeout option |
 | **d1-http** | false | **false** | — | **NOT batch-capable.** REST API documents no atomicity for batched queries, so it declares `supportsBatch=false` to avoid silent partial writes. Nested writes and `$transaction([...])` **reject loudly** on d1-http. |
 
 So the batch-nested-write engine is reachable **only on d1 and neon-http** in production. d1-http is the deliberate negative case: `atomic-runner` / `transaction-flow` / `client.$transaction` all route it into the "neither transactions nor atomic batch" rejection rather than emitting a non-atomic plan.
@@ -315,7 +320,7 @@ These are the exact places the two engines differ in *mechanism*, and where beha
 
 7. **TEXT round-trip fidelity + mandatory cast-back.** If refs are stored as TEXT, the consumer MUST cast back to the column's logical type (`getScalarCastType`), and the storage format MUST be lossless for every scalar type that can be a FK/PK. A unified design either preserves this cast discipline or uses a typed storage that removes the need.
 
-8. **Capability honesty.** `supportsBatch` must mean *genuinely atomic, ordered, single-connection batch*. A driver that cannot guarantee that must declare `false` and be rejected loudly (d1-http), never emit a non-atomic plan. Options (`isolationLevel`/`timeout`) that a backend cannot honor must be rejected, not ignored.
+8. **Capability honesty.** `supportsBatch` must mean *genuinely atomic, ordered, single-connection batch*. A driver that cannot guarantee that must declare `false` and be rejected loudly (d1-http), never emit a non-atomic plan. The portable transaction option subset is empty; any second argument rejects before dispatch.
 
 9. **Adapter completeness gate.** A batch-only driver's adapter must expose a full `batchRefs` (six methods) and `assertions` (two methods) and `lastInsertId`. The unified design must fail fast (as `lowerBatchResolvableValue` does) if a backend lacks the primitives, rather than silently degrade.
 

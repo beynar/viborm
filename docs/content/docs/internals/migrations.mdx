@@ -1,5 +1,5 @@
 ---
-title: L10 - Migrations
+title: L12 - Migrations
 description: Synchronize your TypeScript schema with the database through diffing and DDL generation
 icon: GitBranch
 ---
@@ -71,10 +71,10 @@ The differ compares snapshots and produces operations:
 
 ### 4. DDL Generation
 
-Each operation becomes database-specific DDL via the adapter:
+Each operation becomes database-specific DDL via the migration driver:
 
 ```typescript
-adapter.addColumn(operation)  // → ALTER TABLE ... ADD COLUMN ...
+migrationDriver.generateDDL(operation)  // → ALTER TABLE ... ADD COLUMN ...
 ```
 
 ## Operation Types

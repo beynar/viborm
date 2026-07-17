@@ -32,7 +32,7 @@ export {
   PendingOperation,
   type UnwrapPendingOperation,
   type UnwrapPendingOperations,
-} from "./client/pending-operation.js";
+} from "./query-engine/pending-operation.js";
 // Schema builder — every doc example teaches `import { s } from "viborm"`
 export { s } from "./schema/index.js";
 
@@ -44,6 +44,7 @@ export {
   // Specific errors
   CheckConstraintError,
   ConnectionError,
+  type DiagnosticDisclosure,
   FeatureNotSupportedError,
   ForeignKeyError,
   // Utilities

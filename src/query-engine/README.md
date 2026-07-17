@@ -1,232 +1,167 @@
 # Query Engine
 
-The query engine validates input, builds SQL using the database adapter, and parses results into typed objects.
+The query engine turns one validated client operation into a database-agnostic
+`OperationProgram`, executes that program atomically through a driver, and
+parses its declared result. PostgreSQL, MySQL, SQLite, LibSQL, and PGlite share
+the same operation semantics; dialect SQL remains adapter-owned.
 
-## Architecture
+## Ownership
 
-```
-query-engine/
-├── index.ts                      # Public exports
-├── types.ts                      # Shared types
-├── query-engine.ts               # Public QueryEngine shell (build/prepare/execute)
-├── executor.ts                   # Validates + builds SQL for an operation
-├── result-flow.ts                # Result parsing/hydration flow
-├── transaction-flow.ts           # $transaction callback/batch execution
-├── cache-flow.ts                 # Cache read/write orchestration
-├── errors.ts                     # QueryEngineError and friends
-├── validator.ts                  # Single validator using SchemaRegistry
-│
-├── context/
-│   ├── index.ts
-│   ├── alias-generator.ts        # Generates t0, t1, t2... aliases
-│   └── query-context.ts          # Holds adapter, model, registry
-│
-├── builders/
-│   ├── index.ts
-│   ├── where-builder.ts          # WHERE clauses
-│   ├── relation-filter-builder.ts # some/every/none/is/isNot
-│   ├── select-builder.ts         # SELECT columns
-│   ├── include-builder.ts        # Nested relation subqueries
-│   ├── orderby-builder.ts        # ORDER BY clauses
-│   ├── values-builder.ts         # VALUES for INSERT
-│   └── set-builder.ts            # SET for UPDATE
-│
-├── operations/
-│   ├── index.ts
-│   ├── find-first.ts
-│   ├── find-many.ts
-│   ├── find-unique.ts
-│   ├── create.ts
-│   ├── update.ts
-│   ├── delete.ts
-│   ├── upsert.ts
-│   ├── count.ts
-│   ├── aggregate.ts
-│   ├── groupby.ts
-│   └── nested-writes/             # Nested create/update/connect/disconnect planning
-│
-└── result/
-    ├── index.ts
-    └── result-parser.ts          # JSON parsing, type coercion
+```text
+QueryEngine
+└── creates PendingOperation
+    ├── OperationCompiler → OperationProgram → SQL builders → adapter
+    ├── OperationRuntime  → OperationProgram → driver
+    └── OperationResults  → declared result shape → result parsers
 ```
 
-## Usage
+| Owner | Responsibility |
+| --- | --- |
+| `QueryEngine` | Client-scoped driver, model/schema registry, instrumentation, client identity, and transaction-scope identity |
+| `PendingOperation` | The sole lazy, Promise-like operation lifecycle |
+| `OperationCompiler` | Exhaustive operation dispatch and program compilation |
+| `WriteOperations` | Write compilation, including all relation mutations |
+| `OperationProgram` | Data-only steps, dependencies, branches, guards, produced values, atomicity, and the declared public result |
+| `OperationRuntime` | Select transaction or atomic-batch execution for the same program |
+| `OperationBatchRuntime` | Specialize dynamic program branches and lower produced values for atomic batches |
+| `OperationResults` | Provider result attribution, affected-row assertions, parsing, pagination reversal, and not-found handling |
+| `QueryScope` | SQL-construction state only: adapter, model, aliases, root alias, and optional mutation target |
+| `builders/` | Pure, adapter-backed SQL construction by semantic concern |
+| `result/` | Strict row, relation, aggregate, count, scalar, and shape parsing |
 
-### Basic Usage
+`QueryEngine` is not a passthrough. Transaction-bound engines preserve the
+originating `clientId`, mint a new `scopeId`, and own the driver used to create
+and execute operations.
+
+## Operation Flow
+
+```text
+client call
+  → QueryEngine.prepare(...)
+  → PendingOperation (still unvalidated and unexecuted)
+  → validation
+  → OperationCompiler
+  → OperationProgram
+  → OperationRuntime
+       ├── one statement
+       ├── one interactive transaction
+       └── one atomic driver batch
+  → OperationResults
+  → typed public value
+```
+
+Every operation compiles to a program. A simple read or write is a one-step
+program; relation writes, non-`RETURNING` emulation, deep returns, produced
+keys, and dynamic branches use the same step vocabulary.
+
+## Program Vocabulary
+
+`operation-program.ts` defines a deliberately small declarative program, not a
+second SQL AST:
+
+- `read` and `write` execute adapter-built `Sql` fragments;
+- `guard` asserts a database premise and fails closed when it changes;
+- `branch` selects one declared step sequence from a prior read;
+- `failure` represents an explicit typed failure;
+- produced values reference prior step outputs as data.
+
+Programs contain no callbacks, execution closures, relation objects, adapter
+implementations, or driver instances. Relation semantics remain in the
+compiler; runtime modules consume only program data.
+
+## SQL Construction
+
+SQL lives in `builders/` because the existing name remains accurate and a
+folder rename would add path churn without deleting a concept. Independent
+concerns remain separate:
+
+| Concern | Primary module |
+| --- | --- |
+| scalar/logical where | `where-builder.ts` |
+| relation predicates | `relation-filter-builder.ts` |
+| selection and recursive includes | `select-builder.ts`, `include-builder.ts`, `include-many-to-many.ts` |
+| ordering | `orderby-builder.ts`, `relation-orderby-builder.ts` |
+| aggregation | `aggregate-utils.ts`, relation counts |
+| insert values and row shapes | `values-builder.ts`, `insert-row-shapes.ts` |
+| mutation assignments | `set-builder.ts` |
+| many-to-many junction SQL | `many-to-many-utils.ts` |
+
+The golden rule is absolute: query-engine code decides what the query means;
+adapters decide how that meaning is written in a dialect.
 
 ```ts
-import { createQueryEngine, PostgresAdapter } from "viborm";
+// Wrong: dialect syntax in the query engine
+sql`COALESCE(json_agg(...), '[]'::json)`;
 
-// Create engine with a driver, models, and the schema registry
-const engine = createQueryEngine(
-  driver, // AnyDriver - wraps the adapter and connection
-  { user: userModel, post: postModel },
-  schemaRegistry
-);
-
-// Build SQL without executing
-const sql = engine.build(userModel, "findMany", {
-  where: { name: { contains: "Alice" } },
-  include: { posts: true },
-  orderBy: { createdAt: "desc" },
-  take: 10,
-});
-
-// Execute and get parsed result
-const users = await engine.execute(userModel, "findMany", {
-  where: { name: { contains: "Alice" } },
-});
+// Right: adapter-owned syntax
+scope.adapter.json.agg(expression);
 ```
 
-### Supported Operations
+Builders return parameterized `Sql` fragments, never interpolated SQL strings.
+Runtime import cycles are forbidden and enforced by architecture gates.
 
-| Operation | Description |
-|-----------|-------------|
-| `findFirst` | Find single record matching criteria |
-| `findMany` | Find multiple records |
-| `findUnique` | Find by unique identifier |
-| `create` | Insert single record |
-| `createMany` | Insert multiple records |
-| `update` | Update single record by unique key |
-| `updateMany` | Update multiple records |
-| `delete` | Delete single record by unique key |
-| `deleteMany` | Delete multiple records |
-| `upsert` | Insert or update on conflict |
-| `count` | Count matching records |
+## Relation Mutations
 
-### Input Validation
+A nested write is a public feature, not a separate engine. `WriteOperations`
+owns relation compilation through `RelationMutations` and its cohesive relation
+compiler children. The compiler emits ordinary program steps; runtime does not
+import relation semantics or select a nested-write interpreter.
 
-All inputs are validated against registry model schemas:
+The same program must preserve:
 
-```ts
-import { validate } from "viborm/query-engine";
+- foreign-key direction and compound-key behavior;
+- connect, create, update, upsert, set, disconnect, and delete semantics;
+- own-write visibility and concurrency guards;
+- one-operation atomicity;
+- equivalent transaction and atomic-batch outcomes.
 
-try {
-  const validated = validate(userModel, "findMany", input);
-} catch (error) {
-  if (error instanceof ValidationError) {
-    console.log(error.details); // Detailed validation error
-  }
-}
+## Results
+
+`OperationResults` owns the declared public result. It validates that each
+declared source was produced, keeps parser middleware caches isolated per
+driver, and delegates strict shape parsing to `result/`.
+
+Provider middleware order remains:
+
+```text
+driver parser → adapter parser → default strict parser
 ```
 
-## Builders
+Absent rows, missing relation values, malformed scalar carriers, unexpected
+columns, and invalid counts raise typed errors. Result code never substitutes a
+plausible empty object, array, count, or null for malformed provider output.
 
-### Where Builder
+## Single-Statement Inspection
 
-Builds WHERE clauses from filter objects:
+`QueryEngine.build()` is intentionally a single-statement inspection API. It
+returns SQL only when the compiled program contains exactly one executable SQL
+step. Multi-step programs throw `QueryEngineError`; they never masquerade as
+one statement. Use `prepare()` or execute the returned `PendingOperation` for
+general operations.
 
-```ts
-import { buildWhere } from "viborm/query-engine";
+## Lifecycle Compatibility
 
-const where = buildWhere(ctx, {
-  name: { contains: "Alice" },
-  age: { gte: 18 },
-  posts: { some: { published: true } },
-}, "t0");
-```
+`PendingOperation` is the only deferred-operation class and is exported from
+the package root and `viborm/client`. The deprecated `QueryMetadata<T>` name is
+a type-only alias to `PendingOperation<T>` for the next published compatibility
+release. No runtime metadata object or closure bag exists; the alias is planned
+for removal after that compatibility window.
 
-Supported filters:
-- **Scalar**: equals, not, gt, gte, lt, lte, in, notIn
-- **String**: contains, startsWith, endsWith
-- **Array**: has, hasEvery, hasSome, isEmpty
-- **Logical**: AND, OR, NOT
-- **Relations**: some, every, none, is, isNot
+The internal `src/query-engine/index.ts` barrel deliberately preserves the
+advanced SQL-builder and parser exports used by repository integrations and
+tests. These helpers do not create a second lifecycle.
 
-### Select Builder
+## Verification
 
-Builds SELECT columns with JSON for relations:
+The architecture gates assert that:
 
-```ts
-import { buildSelect, buildSelectAsJson } from "viborm/query-engine";
+- the retired nested-write directory and routing do not exist;
+- `PendingOperation` is the lifecycle composition root;
+- runtime modules cannot import compiler relation semantics;
+- compiler modules cannot import concrete runtimes;
+- result modules cannot import compiler or runtime implementations;
+- `QueryScope` contains only SQL-construction state;
+- the query-engine runtime import graph is acyclic.
 
-// Regular columns
-const cols = buildSelect(ctx, { name: true, email: true }, undefined, "t0");
-
-// As JSON object (for subqueries)
-const json = buildSelectAsJson(ctx, { name: true, email: true }, undefined, "t0");
-```
-
-### Include Builder
-
-Builds nested relation subqueries:
-
-```ts
-import { buildInclude } from "viborm/query-engine";
-
-const include = buildInclude(ctx, relationInfo, {
-  select: { title: true },
-  where: { published: true },
-  orderBy: { createdAt: "desc" },
-  take: 5,
-}, "t0");
-```
-
-### Order By Builder
-
-```ts
-import { buildOrderBy } from "viborm/query-engine";
-
-const orderBy = buildOrderBy(ctx, [
-  { createdAt: "desc" },
-  { name: "asc" },
-], "t0");
-```
-
-### Set Builder
-
-Builds SET clause for UPDATE:
-
-```ts
-import { buildSet } from "viborm/query-engine";
-
-const set = buildSet(ctx, {
-  name: "New Name",
-  views: { increment: 1 },
-  tags: { push: "new-tag" },
-});
-```
-
-## Result Parsing
-
-Results are automatically parsed:
-
-- JSON strings (MySQL/SQLite) are parsed to objects
-- Null values are coalesced for optional relations
-- Empty arrays for missing to-many relations
-
-```ts
-import { parseResult } from "viborm/query-engine";
-
-const users = parseResult<User[]>(ctx, "findMany", rawResult);
-```
-
-## Query Context
-
-The context holds shared state for query building:
-
-```ts
-interface QueryContext {
-  adapter: DatabaseAdapter;    // SQL generation
-  model: Model<any>;          // Current model
-  registry: ModelRegistry;    // Access related models
-  schemaRegistry: SchemaRegistryLookup; // Operation validation schemas
-  nextAlias: () => string;    // Generate t1, t2, ...
-  rootAlias: string;          // Root alias (t0)
-}
-```
-
-## Cross-Database Support
-
-The query engine works with all supported adapters:
-
-| Feature | PostgreSQL | MySQL | SQLite |
-|---------|:----------:|:-----:|:------:|
-| JSON aggregation | ✅ | ✅ | ✅ |
-| Nested includes | ✅ | ✅ | ✅ |
-| Relation filters | ✅ | ✅ | ✅ |
-| RETURNING clause | ✅ | ❌ | ✅ |
-| Array operations | ✅ native | ✅ JSON | ✅ JSON |
-
-For MySQL (no RETURNING), mutations return the input data or require a follow-up SELECT.
-
+Behavior is proved by the shared query-engine suite and the same portable driver
+contracts on PostgreSQL, MySQL, SQLite, LibSQL, and PGlite.

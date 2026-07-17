@@ -15,11 +15,23 @@ Databases have different syntax for the same operations:
 | Identifier quote | `"column"` | `` `column` `` | `"column"` |
 | String concat | `\|\|` | `CONCAT()` | `\|\|` |
 | JSON aggregation | `json_agg()` | `JSON_ARRAYAGG()` | `json_group_array()` |
-| Upsert | `ON CONFLICT ... DO UPDATE` | `ON DUPLICATE KEY UPDATE` | `ON CONFLICT ... DO UPDATE` |
+| Low-level upsert primitive | `ON CONFLICT ... DO UPDATE` | `ON DUPLICATE KEY UPDATE` | `ON CONFLICT ... DO UPDATE` |
 | Boolean | `true/false` | `1/0` | `1/0` |
 | RETURNING | `RETURNING *` | Requires separate SELECT | `RETURNING *` |
 
 The adapter pattern lets VibORM support multiple databases without scattering conditionals throughout the codebase.
+
+MySQL's low-level primitive reacts to any unique collision, so VibORM does not
+use it for public non-returning upserts. The query engine selects and locks the
+requested target, chooses the create/update branch, and refetches inside one
+transaction. This preserves the same target-specific public behavior as
+PostgreSQL and SQLite.
+
+MySQL duplicate skipping likewise avoids `INSERT IGNORE`, which suppresses
+unrelated failures. Top-level bulk creates execute row-level inserts inside one
+transaction and recover only mapped duplicate-key errors; nested idempotent
+inserts use a duplicate-key no-op update. Both paths surface foreign-key,
+`NOT NULL`, conversion, truncation, and other integrity failures.
 
 ## Adapter Interface
 
@@ -109,4 +121,4 @@ The query engine doesn't know which SQL was generated - it just gets a composabl
 
 - **L6 (Query Engine)**: Query engine delegates all SQL syntax to adapters
 - **L8 (Drivers)**: Adapters produce SQL that drivers execute
-- **L10 (Migrations)**: Adapters generate DDL for their database
+- **L12 (Migrations)**: Migration drivers, not query adapters, generate database-specific DDL

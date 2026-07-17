@@ -10,7 +10,8 @@ import { buildOrderByParts } from "../builders/orderby-builder";
 import { buildSelectWithAliases } from "../builders/select-builder";
 import { buildWhere } from "../builders/where-builder";
 import { getColumnName, getScalarFieldNames, getTableName } from "../context";
-import { type QueryContext, QueryEngineError } from "../types";
+import { QueryEngineError, type QueryScope } from "../types";
+import { buildNormalizedOrderBy } from "./cursor-order";
 import { buildFindPagination } from "./find-pagination";
 
 /**
@@ -26,6 +27,13 @@ export interface FindArgs {
   distinct?: string[];
   /** Add FOR UPDATE row locking (engine-internal, e.g. MySQL refetch flows) */
   forUpdate?: boolean;
+}
+
+export type FindFirstArgs = FindArgs;
+
+export interface FindManyArgs extends FindArgs {
+  /** Maximum number of records to return. */
+  take?: number;
 }
 
 /**
@@ -45,7 +53,7 @@ export interface FindOptions {
  * @returns SQL statement
  */
 export function buildFind(
-  ctx: QueryContext,
+  ctx: QueryScope,
   args: FindArgs,
   options: FindOptions = {}
 ): Sql {
@@ -80,7 +88,12 @@ export function buildFind(
   }
 
   // Build ORDER BY
-  const orderByParts = buildOrderByParts(ctx, pagination.orderBy, rootAlias);
+  const orderByParts = pagination.normalizedOrder
+    ? {
+        orderBy: buildNormalizedOrderBy(ctx, pagination.normalizedOrder),
+        joins: [],
+      }
+    : buildOrderByParts(ctx, pagination.orderBy, rootAlias);
 
   // Build LIMIT
   const limit =
@@ -135,7 +148,7 @@ export function buildFind(
  * @returns SQL for DISTINCT clause
  */
 function buildDistinct(
-  ctx: QueryContext,
+  ctx: QueryScope,
   distinct: string[],
   alias: string
 ): Sql | undefined {

@@ -24,7 +24,7 @@ strategy.
 As of the Phase 6 docs pass, batch-only atomic paths are documented as
 supporting generated and updated primary-key dataflow through internal semantic
 references. Local PGlite/Postgres-style and SQLite-family conformance is the
-current proof. Hosted D1, D1 HTTP, and Neon HTTP are not blanket nested-write
+current proof. Hosted D1 bindings and Neon HTTP are not blanket nested-write
 gaps, but hosted conformance should be called externally verified only after
 external runs.
 
@@ -396,7 +396,7 @@ Update docs so nested-write batch support claims are honest and exact.
   - no provider-specific public nested-write surface;
   - impossible or unsafe PK shapes fail closed.
 - Update compatibility matrix:
-  - D1/D1 HTTP/Neon HTTP are not blanket nested-write gaps;
+  - D1 bindings and Neon HTTP are not blanket nested-write gaps;
   - mark hosted conformance as externally verified only after external runs.
 - Update architecture docs:
   - query engine tracks semantic refs;
@@ -450,7 +450,7 @@ git diff --check
 
 ## Residual Risks
 
-- Hosted D1/D1 HTTP/Neon HTTP still need external conformance runs after local
+- Hosted D1 bindings and Neon HTTP still need external conformance runs after local
   proof.
 - Temp storage syntax can differ subtly across hosted environments; adapter tests
   reduce but do not remove that risk.

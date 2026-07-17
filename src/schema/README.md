@@ -78,6 +78,12 @@ const post = s.model({
 | **Registry Validation** | Schema state feeds `SchemaRegistry` operation validation |
 | **Database Agnostic** | Core abstractions work across PostgreSQL, MySQL, and SQLite |
 
+For portable schemas, model keys, mapped table names, scalar and relation keys,
+and mapped column names must be ASCII SQL identifiers (letters, digits, and
+underscores, not starting with a digit) of at most 63 bytes. Names inherited
+from `Object.prototype`, such as `constructor` and `toString`, are reserved to
+prevent dictionary collisions at runtime.
+
 ---
 
 ## Quick Start

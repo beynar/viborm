@@ -14,12 +14,16 @@ import { ValidationError } from "@errors";
 import { buildOrderByParts } from "@query-engine/builders/orderby-builder";
 import { buildWhere } from "@query-engine/builders/where-builder";
 import { buildWhereUnique } from "@query-engine/builders/where-unique-builder";
-import { createQueryContext, getTableName } from "@query-engine/context";
+import { createQueryScope, getTableName } from "@query-engine/context";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
 import { createSchemaRegistry } from "@validation";
 import { beforeAll, describe, expect, test } from "vitest";
 import { sqlGenerationUserPostSchema } from "../fixtures/user-post-schema";
+
+const DESC_SQL = /DESC/i;
+const LEFT_JOIN_SQL = /LEFT JOIN/i;
+const ORDER_BY_COUNT_SQL = /ORDER BY \(SELECT COUNT\(\*\)/i;
 
 // =============================================================================
 // MOCK DRIVER FOR TESTING
@@ -41,7 +45,9 @@ class MockDriver extends Driver<null, null> {
     return null;
   }
 
-  protected async closeClient() {}
+  protected async closeClient() {
+    // The SQL-only driver opens no provider resource.
+  }
 
   protected async execute<T>(
     _client: null,
@@ -179,16 +185,11 @@ const dialectCases: DialectCase[] = [
 
 let registry: ReturnType<typeof createModelRegistry>;
 let engine: QueryEngine;
-let nestedRelationOrderByRegistry: ReturnType<typeof createModelRegistry>;
 
 beforeAll(() => {
   registry = createModelRegistry(schema, createSchemaRegistry(schema));
   engine = new QueryEngine(mockDriver, registry);
   hydrateSchemaNames(nestedRelationOrderBySchema);
-  nestedRelationOrderByRegistry = createModelRegistry(
-    nestedRelationOrderBySchema,
-    createSchemaRegistry(nestedRelationOrderBySchema)
-  );
 });
 
 // Helper to get SQL string and values
@@ -202,12 +203,7 @@ function getSql(model: any, operation: any, args: any) {
 }
 
 function getWhiteBoxOrderByParts(model: any, orderBy: Record<string, unknown>) {
-  const ctx = createQueryContext(
-    adapter,
-    model,
-    nestedRelationOrderByRegistry,
-    mockDriver
-  );
+  const ctx = createQueryScope(adapter, model);
   return buildOrderByParts(ctx, orderBy, ctx.rootAlias);
 }
 
@@ -253,7 +249,7 @@ describe("Basic CRUD Operations", () => {
     });
 
     test("with pagination (take/skip)", () => {
-      const { statement, values } = getSql(Author, "findMany", {
+      const { statement } = getSql(Author, "findMany", {
         take: 10,
         skip: 5,
       });
@@ -352,7 +348,7 @@ describe("Basic CRUD Operations", () => {
       });
 
       expect(statement).toContain("#>>");
-      expect(statement).toContain("LIKE");
+      expect(statement).toContain("POSITION");
       expect(values).toContainEqual(["status"]);
       expect(values).toContain("active");
     });
@@ -407,7 +403,7 @@ describe("Basic CRUD Operations", () => {
         orderBy: { author: { name: "asc" } },
       });
 
-      expect(statement).toMatch(/LEFT JOIN/i);
+      expect(statement).toMatch(LEFT_JOIN_SQL);
       expect(statement).toContain('ORDER BY "t1"."name" ASC');
     });
 
@@ -502,10 +498,10 @@ describe("Basic CRUD Operations", () => {
         orderBy: { posts: { _count: "desc" } },
       });
 
-      expect(statement).not.toMatch(/LEFT JOIN/i);
-      expect(statement).toMatch(/ORDER BY \(SELECT COUNT\(\*\)/i);
+      expect(statement).not.toMatch(LEFT_JOIN_SQL);
+      expect(statement).toMatch(ORDER_BY_COUNT_SQL);
       expect(statement).toContain('FROM "posts" AS "t1"');
-      expect(statement).toMatch(/DESC/i);
+      expect(statement).toMatch(DESC_SQL);
     });
 
     test("to-many relation scalar orderBy fails closed", () => {
@@ -525,7 +521,7 @@ describe("Basic CRUD Operations", () => {
     });
 
     test("unknown builder filter operation fails closed", () => {
-      const ctx = createQueryContext(adapter, Author, registry, mockDriver);
+      const ctx = createQueryScope(adapter, Author);
 
       expect(() =>
         buildWhere(ctx, { age: { unsupported: 1 } }, ctx.rootAlias)
@@ -535,7 +531,7 @@ describe("Basic CRUD Operations", () => {
     });
 
     test("unknown builder where field fails closed", () => {
-      const ctx = createQueryContext(adapter, Author, registry, mockDriver);
+      const ctx = createQueryScope(adapter, Author);
 
       expect(() =>
         buildWhere(ctx, { unknownField: { equals: "value" } }, ctx.rootAlias)
@@ -543,7 +539,7 @@ describe("Basic CRUD Operations", () => {
     });
 
     test("empty unique builder fails closed", () => {
-      const ctx = createQueryContext(adapter, Author, registry, mockDriver);
+      const ctx = createQueryScope(adapter, Author);
 
       expect(() => buildWhereUnique(ctx, {}, ctx.rootAlias)).toThrow(
         "whereUnique requires at least one unique discriminator"
@@ -551,7 +547,7 @@ describe("Basic CRUD Operations", () => {
     });
 
     test("non-unique unique builder field fails closed", () => {
-      const ctx = createQueryContext(adapter, Author, registry, mockDriver);
+      const ctx = createQueryScope(adapter, Author);
 
       expect(() =>
         buildWhereUnique(ctx, { name: "Alice" }, ctx.rootAlias)
@@ -624,7 +620,7 @@ describe("Basic CRUD Operations", () => {
     });
 
     test("with defaults", () => {
-      const { statement, values } = getSql(Post, "create", {
+      const { statement } = getSql(Post, "create", {
         data: { id: "post-1", title: "Hello", authorId: "author-1" },
       });
 
@@ -691,7 +687,7 @@ describe("Basic CRUD Operations", () => {
       ).toThrow("Object cannot be empty");
     });
 
-    test("nested update branch fails closed before SQL generation", () => {
+    test("multi-step upsert rejects the single-statement build API", () => {
       expect(() =>
         getSql(Author, "upsert", {
           where: { id: "author-1" },
@@ -709,7 +705,9 @@ describe("Basic CRUD Operations", () => {
             },
           },
         })
-      ).toThrow("Cannot build a single SQL statement for nested upsert writes");
+      ).toThrow(
+        "Operation 'upsert' does not compile to one SQL statement. Execute the operation instead."
+      );
     });
   });
 });
@@ -788,7 +786,7 @@ describe("Select/Include (Relation Loading)", () => {
 
   describe("select with where filter on relation", () => {
     test("select posts with where", () => {
-      const { statement, values } = getSql(Author, "findMany", {
+      const { statement } = getSql(Author, "findMany", {
         select: {
           id: true,
           posts: {
@@ -873,7 +871,7 @@ describe("Select/Include (Relation Loading)", () => {
 describe("Relation Filters in WHERE", () => {
   describe("to-many filters", () => {
     test("some filter", () => {
-      const { statement, values } = getSql(Author, "findMany", {
+      const { statement } = getSql(Author, "findMany", {
         where: {
           posts: {
             some: { published: true },
@@ -885,7 +883,7 @@ describe("Relation Filters in WHERE", () => {
     });
 
     test("every filter", () => {
-      const { statement, values } = getSql(Author, "findMany", {
+      const { statement } = getSql(Author, "findMany", {
         where: {
           posts: {
             every: { published: true },
@@ -897,7 +895,7 @@ describe("Relation Filters in WHERE", () => {
     });
 
     test("none filter", () => {
-      const { statement, values } = getSql(Author, "findMany", {
+      const { statement } = getSql(Author, "findMany", {
         where: {
           posts: {
             none: { published: true },
@@ -906,6 +904,51 @@ describe("Relation Filters in WHERE", () => {
       });
 
       expect(statement).toContain("NOT EXISTS");
+    });
+
+    test("combines all supplied filters independent of key order", () => {
+      const ordered = getSql(Author, "findMany", {
+        where: {
+          posts: {
+            some: { title: "some-title" },
+            every: { title: "every-title" },
+            none: { title: "none-title" },
+          },
+        },
+      });
+      const reordered = getSql(Author, "findMany", {
+        where: {
+          posts: {
+            none: { title: "none-title" },
+            every: { title: "every-title" },
+            some: { title: "some-title" },
+          },
+        },
+      });
+
+      expect(ordered.statement).toBe(reordered.statement);
+      expect(ordered.values).toEqual(reordered.values);
+      expect(ordered.statement.match(/EXISTS/g)).toHaveLength(3);
+      expect(ordered.statement).toContain(" AND ");
+      expect(ordered.values).toEqual([
+        "some-title",
+        "every-title",
+        "none-title",
+      ]);
+    });
+
+    test("empty every predicates lower to portable true", () => {
+      const empty = getSql(Author, "findMany", {
+        where: { posts: { every: {} } },
+      });
+      const normalizedEmpty = getSql(Author, "findMany", {
+        where: { posts: { every: { AND: [{}] } } },
+      });
+
+      expect(empty.statement).not.toContain("EXISTS");
+      expect(normalizedEmpty.statement).not.toContain("EXISTS");
+      expect(empty.statement).toContain("TRUE");
+      expect(normalizedEmpty.statement).toContain("TRUE");
     });
   });
 
@@ -924,7 +967,7 @@ describe("Relation Filters in WHERE", () => {
     });
 
     test("isNot filter", () => {
-      const { statement, values } = getSql(Post, "findMany", {
+      const { statement } = getSql(Post, "findMany", {
         where: {
           author: {
             isNot: { name: "Admin" },
@@ -933,6 +976,57 @@ describe("Relation Filters in WHERE", () => {
       });
 
       expect(statement).toContain("NOT EXISTS");
+    });
+
+    test("combines is and isNot independent of key order", () => {
+      const ordered = getSql(Post, "findMany", {
+        where: {
+          author: {
+            is: { name: "Alice" },
+            isNot: { name: "Admin" },
+          },
+        },
+      });
+      const reordered = getSql(Post, "findMany", {
+        where: {
+          author: {
+            isNot: { name: "Admin" },
+            is: { name: "Alice" },
+          },
+        },
+      });
+
+      expect(ordered.statement).toBe(reordered.statement);
+      expect(ordered.values).toEqual(reordered.values);
+      expect(ordered.statement.match(/EXISTS/g)).toHaveLength(2);
+      expect(ordered.statement).toContain(" AND ");
+      expect(ordered.values).toEqual(["Alice", "Admin"]);
+    });
+
+    test("combines null and object forms", () => {
+      const isNull = getSql(Post, "findMany", {
+        where: {
+          author: {
+            is: null,
+            isNot: { name: "Alice" },
+          },
+        },
+      });
+      const isNotNull = getSql(Post, "findMany", {
+        where: {
+          author: {
+            is: { name: "Alice" },
+            isNot: null,
+          },
+        },
+      });
+
+      expect(isNull.statement).toMatch(IS_NULL_REGEX);
+      expect(isNull.statement).toContain("NOT EXISTS");
+      expect(isNull.statement).toContain(" AND ");
+      expect(isNotNull.statement).toContain("EXISTS");
+      expect(isNotNull.statement).toMatch(IS_NOT_NULL_REGEX);
+      expect(isNotNull.statement).toContain(" AND ");
     });
   });
 
@@ -1002,7 +1096,7 @@ describe("Many-to-Many Relations", () => {
 
   describe("filter with manyToMany", () => {
     test("some filter through junction", () => {
-      const { statement, values } = getSql(Post, "findMany", {
+      const { statement } = getSql(Post, "findMany", {
         where: {
           tags: {
             some: { name: "typescript" },
@@ -1035,6 +1129,49 @@ describe("Many-to-Many Relations", () => {
       });
 
       expect(statement).toContain("NOT EXISTS");
+    });
+
+    test("combines all supplied filters through the junction independent of key order", () => {
+      const ordered = getSql(Post, "findMany", {
+        where: {
+          tags: {
+            some: { name: "some-tag" },
+            every: { name: "every-tag" },
+            none: { name: "none-tag" },
+          },
+        },
+      });
+      const reordered = getSql(Post, "findMany", {
+        where: {
+          tags: {
+            none: { name: "none-tag" },
+            every: { name: "every-tag" },
+            some: { name: "some-tag" },
+          },
+        },
+      });
+
+      expect(ordered.statement).toBe(reordered.statement);
+      expect(ordered.values).toEqual(reordered.values);
+      expect(ordered.statement.match(/EXISTS/g)).toHaveLength(3);
+      expect(ordered.statement).toContain(" AND ");
+      expect(ordered.values).toEqual(["some-tag", "every-tag", "none-tag"]);
+    });
+
+    test("empty every through the junction lowers to portable true", () => {
+      const empty = getSql(Post, "findMany", {
+        where: { tags: { every: {} } },
+      });
+      const normalizedEmpty = getSql(Post, "findMany", {
+        where: { tags: { every: { AND: [{}] } } },
+      });
+
+      expect(empty.statement).not.toContain("EXISTS");
+      expect(empty.statement).not.toContain("post_tag");
+      expect(normalizedEmpty.statement).not.toContain("EXISTS");
+      expect(normalizedEmpty.statement).not.toContain("post_tag");
+      expect(empty.statement).toContain("TRUE");
+      expect(normalizedEmpty.statement).toContain("TRUE");
     });
   });
 });
@@ -1080,23 +1217,25 @@ describe("Relation _count", () => {
 // 6. NESTED WRITES
 // =============================================================================
 
-describe("Nested Writes", () => {
+describe("Multi-step writes", () => {
   describe("create with nested", () => {
-    test("create with connect", () => {
-      const { statement, values } = getSql(Post, "create", {
-        data: {
-          id: "post-1",
-          title: "Hello",
-          author: {
-            connect: { id: "author-1" },
+    test("create with connect rejects the single-statement build API", () => {
+      expect(() =>
+        getSql(Post, "create", {
+          data: {
+            id: "post-1",
+            title: "Hello",
+            author: {
+              connect: { id: "author-1" },
+            },
           },
-        },
-      });
-
-      expect(statement).toContain("INSERT");
+        })
+      ).toThrow(
+        "Operation 'create' does not compile to one SQL statement. Execute the operation instead."
+      );
     });
 
-    test("create with nested create fails closed before SQL generation", () => {
+    test("create with nested create rejects the single-statement build API", () => {
       expect(() =>
         getSql(Author, "create", {
           data: {
@@ -1108,10 +1247,12 @@ describe("Nested Writes", () => {
             },
           },
         })
-      ).toThrow("Cannot build a single SQL statement for nested create writes");
+      ).toThrow(
+        "Operation 'create' does not compile to one SQL statement. Execute the operation instead."
+      );
     });
 
-    test("create with nested createMany fails closed before SQL generation", () => {
+    test("create with nested createMany rejects the single-statement build API", () => {
       expect(() =>
         getSql(Author, "create", {
           data: {
@@ -1125,10 +1266,12 @@ describe("Nested Writes", () => {
             },
           },
         })
-      ).toThrow("Cannot build a single SQL statement for nested create writes");
+      ).toThrow(
+        "Operation 'create' does not compile to one SQL statement. Execute the operation instead."
+      );
     });
 
-    test("create with nested create list fails closed before SQL generation", () => {
+    test("create with nested create list rejects the single-statement build API", () => {
       expect(() =>
         getSql(Author, "create", {
           data: {
@@ -1150,38 +1293,44 @@ describe("Nested Writes", () => {
             },
           },
         })
-      ).toThrow("Cannot build a single SQL statement for nested create writes");
+      ).toThrow(
+        "Operation 'create' does not compile to one SQL statement. Execute the operation instead."
+      );
     });
   });
 
   describe("update with nested", () => {
-    test("update with connect", () => {
-      const { statement, values } = getSql(Post, "update", {
-        where: { id: "post-1" },
-        data: {
-          author: {
-            connect: { id: "author-2" },
+    test("update with connect rejects the single-statement build API", () => {
+      expect(() =>
+        getSql(Post, "update", {
+          where: { id: "post-1" },
+          data: {
+            author: {
+              connect: { id: "author-2" },
+            },
           },
-        },
-      });
-
-      expect(statement).toContain("UPDATE");
+        })
+      ).toThrow(
+        "Operation 'update' does not compile to one SQL statement. Execute the operation instead."
+      );
     });
 
-    test("update with disconnect", () => {
-      const { statement } = getSql(Post, "update", {
-        where: { id: "post-1" },
-        data: {
-          author: {
-            disconnect: true,
+    test("required relation disconnect fails before SQL generation", () => {
+      expect(() =>
+        getSql(Post, "update", {
+          where: { id: "post-1" },
+          data: {
+            author: {
+              disconnect: true,
+            },
           },
-        },
-      });
-
-      expect(statement).toContain("UPDATE");
+        })
+      ).toThrow(
+        "Cannot disconnect relation 'author' because foreign key field(s) authorId are required."
+      );
     });
 
-    test("update with nested update fails closed before SQL generation", () => {
+    test("update with nested update rejects the single-statement build API", () => {
       expect(() =>
         getSql(Author, "update", {
           where: { id: "author-1" },
@@ -1194,7 +1343,9 @@ describe("Nested Writes", () => {
             },
           },
         })
-      ).toThrow("Cannot build a single SQL statement for nested update writes");
+      ).toThrow(
+        "Operation 'update' does not compile to one SQL statement. Execute the operation instead."
+      );
     });
   });
 
@@ -1264,7 +1415,7 @@ describe("Aggregates", () => {
     });
 
     test("count with where", () => {
-      const { statement, values } = getSql(Author, "count", {
+      const { statement } = getSql(Author, "count", {
         where: { name: "Alice" },
       });
 
@@ -1315,7 +1466,7 @@ describe("Aggregates", () => {
       });
 
       expect(statement).toContain("FROM (SELECT");
-      expect(statement).toMatch(/LEFT JOIN/i);
+      expect(statement).toMatch(LEFT_JOIN_SQL);
       expect(statement).toContain('ORDER BY "t1"."name" ASC');
       expect(statement).toContain("LIMIT");
     });
@@ -1372,7 +1523,7 @@ describe("Aggregates", () => {
       });
 
       expect(statement).toContain("FROM (SELECT");
-      expect(statement).toMatch(/LEFT JOIN/i);
+      expect(statement).toMatch(LEFT_JOIN_SQL);
       expect(statement).toContain('ORDER BY "t1"."name" ASC');
       expect(statement).toContain("LIMIT");
     });
@@ -1390,7 +1541,7 @@ describe("Aggregates", () => {
 
   describe("groupBy", () => {
     test("with aggregate having (_count)", () => {
-      const { statement, values } = getSql(Post, "groupBy", {
+      const { statement } = getSql(Post, "groupBy", {
         by: ["authorId"],
         _count: { id: true },
         having: {

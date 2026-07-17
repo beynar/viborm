@@ -16,13 +16,23 @@
  * to stay isolated.
  */
 
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import type { DatabaseAdapter } from "@adapters/database-adapter";
+import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
+import { Driver } from "@drivers/driver";
+import type { QueryResult } from "@drivers/types";
+import { isVibORMError } from "@errors";
+import { sql } from "@sql";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   createInstrumentationContext,
   hasActiveInstrumentation,
   isLoggingActive,
   isTracingActive,
 } from "../../src/instrumentation/context";
+import {
+  runWithTracer,
+  runWithTracerSync,
+} from "../../src/instrumentation/run-with-tracer";
 import {
   ATTR_CACHE_DRIVER,
   ATTR_CACHE_KEY,
@@ -34,6 +44,7 @@ import {
   ATTR_DB_QUERY_PARAMETER_PREFIX,
   ATTR_DB_QUERY_TEXT,
   ATTR_DB_SYSTEM,
+  ATTR_VIBORM_CORRELATION_ID,
   SPAN_BUILD,
   SPAN_CACHE_GET,
   SPAN_CACHE_SET,
@@ -42,7 +53,12 @@ import {
   SPAN_PARSE,
   SPAN_VALIDATE,
 } from "../../src/instrumentation/spans";
-import { getNoopTracer } from "../../src/instrumentation/tracer";
+import {
+  createTracerWrapper,
+  getNoopTracer,
+  type TracerWrapper,
+  type VibORMSpanOptions,
+} from "../../src/instrumentation/tracer";
 import {
   captureLogs,
   type OtelRecorder,
@@ -257,5 +273,350 @@ describe("span + attribute constants", () => {
       SPAN_CACHE_SET,
     ];
     expect(new Set(names).size).toBe(names.length);
+  });
+});
+
+function createGate() {
+  let resolveGate: (() => void) | undefined;
+  const promise = new Promise<void>((resolve) => {
+    resolveGate = resolve;
+  });
+
+  return {
+    promise,
+    open(): void {
+      if (!resolveGate) {
+        throw new Error("gate was not initialized");
+      }
+      resolveGate();
+    },
+  };
+}
+
+class AttributionTracer implements TracerWrapper {
+  readonly attributions: Array<{
+    model: unknown;
+    operation: unknown;
+    correlationId: unknown;
+  }> = [];
+
+  async startActiveSpan<T>(
+    options: VibORMSpanOptions,
+    fn: () => T | Promise<T>
+  ): Promise<T> {
+    if (options.name === SPAN_EXECUTE) {
+      this.attributions.push({
+        model: options.attributes?.[ATTR_DB_COLLECTION],
+        operation: options.attributes?.[ATTR_DB_OPERATION_NAME],
+        correlationId: options.attributes?.[ATTR_VIBORM_CORRELATION_ID],
+      });
+    }
+    return fn();
+  }
+
+  startActiveSpanSync<T>(options: VibORMSpanOptions, fn: () => T): T {
+    if (options.name === SPAN_EXECUTE) {
+      this.attributions.push({
+        model: options.attributes?.[ATTR_DB_COLLECTION],
+        operation: options.attributes?.[ATTR_DB_OPERATION_NAME],
+        correlationId: options.attributes?.[ATTR_VIBORM_CORRELATION_ID],
+      });
+    }
+    return fn();
+  }
+
+  isEnabled(): boolean {
+    return true;
+  }
+}
+
+class OverlappingFailureDriver extends Driver<object, object> {
+  readonly adapter: DatabaseAdapter = new SQLiteAdapter();
+  readonly initializationStarted = createGate();
+  readonly allowInitialization = createGate();
+
+  constructor() {
+    super("sqlite", "overlapping-failure");
+  }
+
+  protected async initClient(): Promise<object> {
+    this.initializationStarted.open();
+    await this.allowInitialization.promise;
+    return {};
+  }
+
+  protected async closeClient(): Promise<void> {
+    // No provider resource to release.
+  }
+
+  protected async execute<T>(): Promise<QueryResult<T>> {
+    throw new Error("fixture execution failure");
+  }
+
+  protected async executeRaw<T>(): Promise<QueryResult<T>> {
+    throw new Error("fixture execution failure");
+  }
+
+  protected async transaction<T>(
+    _client: object,
+    fn: (tx: object) => Promise<T>
+  ): Promise<T> {
+    return fn({});
+  }
+}
+
+describe("overlapping driver operation attribution", () => {
+  it("retains each operation's model and action in its span and error", async () => {
+    const driver = new OverlappingFailureDriver();
+    const tracer = new AttributionTracer();
+    driver.setInstrumentation({ config: { tracing: true }, tracer });
+
+    const first = driver
+      ._execute(sql`SELECT ${"first"}`, {
+        model: "user",
+        operation: "findMany",
+        correlationId: "first-operation",
+      })
+      .catch((error) => error);
+    await driver.initializationStarted.promise;
+
+    const second = driver
+      ._execute(sql`SELECT ${"second"}`, {
+        model: "post",
+        operation: "delete",
+        correlationId: "second-operation",
+      })
+      .catch((error) => error);
+    driver.allowInitialization.open();
+
+    const errors = await Promise.all([first, second]);
+    const errorAttributions = errors.map((error) => {
+      if (!isVibORMError(error)) {
+        throw new Error("expected a VibORMError");
+      }
+      return {
+        model: error.meta.model,
+        operation: error.meta.operation,
+        correlationId: error.meta.correlationId,
+      };
+    });
+
+    expect({
+      errors: errorAttributions,
+      spans: tracer.attributions,
+    }).toEqual({
+      errors: [
+        {
+          model: "user",
+          operation: "findMany",
+          correlationId: "first-operation",
+        },
+        {
+          model: "post",
+          operation: "delete",
+          correlationId: "second-operation",
+        },
+      ],
+      spans: [
+        {
+          model: "user",
+          operation: "findMany",
+          correlationId: "first-operation",
+        },
+        {
+          model: "post",
+          operation: "delete",
+          correlationId: "second-operation",
+        },
+      ],
+    });
+  });
+});
+
+describe("synchronous tracer isolation", () => {
+  it("returns the operation outcome once when a tracer throws after invoking it", () => {
+    const operation = vi.fn(() => "operation-result");
+    const tracer: TracerWrapper = {
+      async startActiveSpan(_options, fn) {
+        return fn();
+      },
+      startActiveSpanSync(_options, fn) {
+        fn();
+        throw new Error("tracer hook failed");
+      },
+      isEnabled: () => true,
+    };
+
+    expect(runWithTracerSync(tracer, { name: SPAN_VALIDATE }, operation)).toBe(
+      "operation-result"
+    );
+    expect(operation).toHaveBeenCalledTimes(1);
+  });
+
+  it("runs async application work once under re-entrant tracer callbacks", async () => {
+    let outerCallback: (() => Promise<void>) | undefined;
+    let operationCount = 0;
+    const tracer: TracerWrapper = {
+      async startActiveSpan(options, fn) {
+        if (options.name === SPAN_OPERATION) {
+          outerCallback = () => Promise.resolve(fn()).then(() => undefined);
+        }
+        return fn();
+      },
+      startActiveSpanSync(options, fn) {
+        if (options.name === SPAN_VALIDATE) {
+          outerCallback?.().catch(() => undefined);
+        }
+        return fn();
+      },
+      isEnabled: () => true,
+    };
+
+    const result = await runWithTracer(
+      tracer,
+      { name: SPAN_OPERATION },
+      async () => {
+        operationCount += 1;
+        return runWithTracerSync(
+          tracer,
+          { name: SPAN_VALIDATE },
+          () => "authoritative"
+        );
+      }
+    );
+
+    expect(result).toBe("authoritative");
+    expect(operationCount).toBe(1);
+  });
+
+  it("runs sync application work once under re-entrant tracer callbacks", () => {
+    let outerCallback: (() => void) | undefined;
+    let operationCount = 0;
+    const tracer: TracerWrapper = {
+      async startActiveSpan(_options, fn) {
+        return fn();
+      },
+      startActiveSpanSync(options, fn) {
+        if (options.name === SPAN_OPERATION) outerCallback = fn;
+        if (options.name === SPAN_VALIDATE) outerCallback?.();
+        return fn();
+      },
+      isEnabled: () => true,
+    };
+
+    const result = runWithTracerSync(tracer, { name: SPAN_OPERATION }, () => {
+      operationCount += 1;
+      return runWithTracerSync(
+        tracer,
+        { name: SPAN_VALIDATE },
+        () => "authoritative"
+      );
+    });
+
+    expect(result).toBe("authoritative");
+    expect(operationCount).toBe(1);
+  });
+
+  it("snapshots and freezes span attribution before custom tracer hooks", async () => {
+    const tags = ["read", "portable"];
+    const attributes = {
+      [ATTR_DB_COLLECTION]: "user",
+      [ATTR_DB_OPERATION_NAME]: "findMany",
+      [ATTR_VIBORM_CORRELATION_ID]: "original-correlation",
+      "test.tags": tags,
+    };
+    const observed: unknown[] = [];
+    const tracer: TracerWrapper = {
+      async startActiveSpan(options, fn) {
+        const receivedTags = options.attributes?.["test.tags"];
+        observed.push({
+          ...options.attributes,
+          "test.tags": Array.isArray(receivedTags)
+            ? [...receivedTags]
+            : receivedTags,
+        });
+        expect(Object.isFrozen(options)).toBe(true);
+        expect(Object.isFrozen(options.attributes)).toBe(true);
+        expect(Object.isFrozen(receivedTags)).toBe(true);
+        try {
+          Object.assign(options.attributes ?? {}, {
+            [ATTR_DB_COLLECTION]: "mutated",
+            [ATTR_DB_OPERATION_NAME]: "mutated",
+            [ATTR_VIBORM_CORRELATION_ID]: "mutated",
+          });
+        } catch {
+          // Frozen snapshots reject hostile mutation in strict mode.
+        }
+        if (Array.isArray(receivedTags)) {
+          try {
+            receivedTags[0] = "mutated";
+          } catch {
+            // Nested attribute arrays are frozen snapshots too.
+          }
+        }
+        return fn();
+      },
+      startActiveSpanSync(_options, fn) {
+        return fn();
+      },
+      isEnabled: () => true,
+    };
+
+    await runWithTracer(tracer, { name: SPAN_OPERATION, attributes }, () =>
+      Promise.resolve()
+    );
+    await runWithTracer(tracer, { name: SPAN_EXECUTE, attributes }, () =>
+      Promise.resolve()
+    );
+
+    expect(observed).toEqual([attributes, attributes]);
+    expect(attributes).toEqual({
+      [ATTR_DB_COLLECTION]: "user",
+      [ATTR_DB_OPERATION_NAME]: "findMany",
+      [ATTR_VIBORM_CORRELATION_ID]: "original-correlation",
+      "test.tags": ["read", "portable"],
+    });
+    expect(tags).toEqual(["read", "portable"]);
+  });
+
+  it("does not trust a custom tracer with a copied wrapper prototype", async () => {
+    const genuine = createTracerWrapper();
+    let patchedWrapperCalled = false;
+    const patch = () => {
+      patchedWrapperCalled = true;
+      return Promise.resolve("patched");
+    };
+    expect(Reflect.set(genuine, "startActiveSpan", patch)).toBe(false);
+    expect(Reflect.get(genuine, "constructor")).toBeUndefined();
+    expect(
+      Reflect.set(Object.getPrototypeOf(genuine), "startActiveSpan", patch)
+    ).toBe(false);
+    await expect(
+      runWithTracer(genuine, { name: SPAN_VALIDATE }, () =>
+        Promise.resolve("trusted-result")
+      )
+    ).resolves.toBe("trusted-result");
+    expect(patchedWrapperCalled).toBe(false);
+
+    let observedResult: unknown = "not-called";
+    const forged: TracerWrapper = {
+      async startActiveSpan(_options, fn) {
+        const result = await fn();
+        observedResult = result;
+        return result;
+      },
+      startActiveSpanSync(_options, fn) {
+        return fn();
+      },
+      isEnabled: () => true,
+    };
+    Object.setPrototypeOf(forged, Object.getPrototypeOf(genuine));
+
+    await expect(
+      runWithTracer(forged, { name: SPAN_OPERATION }, () =>
+        Promise.resolve("private-result")
+      )
+    ).resolves.toBe("private-result");
+    expect(observedResult).toBeUndefined();
   });
 });

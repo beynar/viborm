@@ -1,11 +1,7 @@
 import { createClient, type VibORMClient } from "@client/client";
 import type { Driver } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
-import type {
-  BatchQuery,
-  QueryResult,
-  TransactionOptions,
-} from "@drivers/types";
+import type { BatchQuery, QueryResult } from "@drivers/types";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { push } from "@migrations";
 import { describe, expect, test } from "vitest";
@@ -48,11 +44,10 @@ class TxSpyDriver extends PGliteDriver {
   txOpened = 0;
 
   override withTransaction<T>(
-    fn: (txDriver: Driver<PGlite, Transaction>) => Promise<T>,
-    options?: TransactionOptions
+    fn: (txDriver: Driver<PGlite, Transaction>) => Promise<T>
   ): Promise<T> {
     this.txOpened++;
-    return super.withTransaction(fn, options);
+    return super.withTransaction(fn);
   }
 }
 
@@ -144,117 +139,133 @@ describe("M2 legality gate", () => {
     // validated. The frozen engines create the row and succeed; the gate must
     // not pre-reject it. The spy proves the operation actually executed (it was
     // not short-circuited by a static throw).
-    test("transaction mode: missing target with invalid update branch succeeds", { timeout: 30_000 }, async () => {
-      const db = await setupDb();
-      const driver = new TxSpyDriver({ client: db });
-      const client = bootShared(driver);
-      const txBefore = driver.txOpened;
+    test(
+      "transaction mode: missing target with invalid update branch succeeds",
+      { timeout: 30_000 },
+      async () => {
+        const db = await setupDb();
+        const driver = new TxSpyDriver({ client: db });
+        const client = bootShared(driver);
+        const txBefore = driver.txOpened;
 
-      const created = await client.user.upsert({
-        where: { id: "u-new" },
-        create: { id: "u-new", name: "Created" },
-        update: {
-          name: "Never",
-          posts: {
-            updateMany: {
-              where: {},
-              data: { title: "X", author: { connect: { id: "u-new" } } },
+        const created = await client.user.upsert({
+          where: { id: "u-new" },
+          create: { id: "u-new", name: "Created" },
+          update: {
+            name: "Never",
+            posts: {
+              updateMany: {
+                where: {},
+                data: { title: "X", author: { connect: { id: "u-new" } } },
+              },
             },
           },
-        },
-      });
+        });
 
-      expect(created.name).toBe("Created");
-      // The create branch ran inside an atomic scope — not short-circuited.
-      expect(driver.txOpened - txBefore).toBeGreaterThan(0);
-      const counts = await dumpCounts(client);
-      expect(counts.users).toBe(1);
-      await client.$disconnect();
-    });
+        expect(created.name).toBe("Created");
+        // The create branch ran inside an atomic scope — not short-circuited.
+        expect(driver.txOpened - txBefore).toBeGreaterThan(0);
+        const counts = await dumpCounts(client);
+        expect(counts.users).toBe(1);
+        await client.$disconnect();
+      }
+    );
 
-    test("batch mode: missing target with invalid update branch succeeds", { timeout: 30_000 }, async () => {
-      const db = await setupDb();
-      const driver = new BatchSpyDriver({ client: db });
-      const client = bootShared(driver);
+    test(
+      "batch mode: missing target with invalid update branch succeeds",
+      { timeout: 30_000 },
+      async () => {
+        const db = await setupDb();
+        const driver = new BatchSpyDriver({ client: db });
+        const client = bootShared(driver);
 
-      const created = await client.user.upsert({
-        where: { id: "u-new" },
-        create: { id: "u-new", name: "Created" },
-        update: {
-          name: "Never",
-          posts: {
-            updateMany: {
-              where: {},
-              data: { title: "X", author: { connect: { id: "u-new" } } },
+        const created = await client.user.upsert({
+          where: { id: "u-new" },
+          create: { id: "u-new", name: "Created" },
+          update: {
+            name: "Never",
+            posts: {
+              updateMany: {
+                where: {},
+                data: { title: "X", author: { connect: { id: "u-new" } } },
+              },
             },
           },
-        },
-      });
+        });
 
-      expect(created.name).toBe("Created");
-      const counts = await dumpCounts(client);
-      expect(counts.users).toBe(1);
-      await client.$disconnect();
-    });
+        expect(created.name).toBe("Created");
+        const counts = await dumpCounts(client);
+        expect(counts.users).toBe(1);
+        await client.$disconnect();
+      }
+    );
 
     // The update branch IS validated when it is actually taken (target
     // exists) — by the frozen engines, with the identical typed message in
     // both modes, and with no partial state persisted.
-    test("transaction mode: existing target rejects the taken update branch", { timeout: 30_000 }, async () => {
-      const db = await setupDb();
-      const driver = new TxSpyDriver({ client: db });
-      const client = bootShared(driver);
-      await client.user.create({ data: { id: "u1", name: "A" } });
+    test(
+      "transaction mode: existing target rejects the taken update branch",
+      { timeout: 30_000 },
+      async () => {
+        const db = await setupDb();
+        const driver = new TxSpyDriver({ client: db });
+        const client = bootShared(driver);
+        await client.user.create({ data: { id: "u1", name: "A" } });
 
-      await expect(
-        client.user.upsert({
-          where: { id: "u1" },
-          create: { id: "u1", name: "New" },
-          update: {
-            name: "Changed",
-            posts: {
-              updateMany: {
-                where: {},
-                data: { title: "X", author: { connect: { id: "u1" } } },
+        await expect(
+          client.user.upsert({
+            where: { id: "u1" },
+            create: { id: "u1", name: "New" },
+            update: {
+              name: "Changed",
+              posts: {
+                updateMany: {
+                  where: {},
+                  data: { title: "X", author: { connect: { id: "u1" } } },
+                },
               },
             },
-          },
-        })
-      ).rejects.toThrow(UPDATE_MANY_RELATION_MESSAGE);
+          })
+        ).rejects.toThrow(UPDATE_MANY_RELATION_MESSAGE);
 
-      const user = await client.user.findUnique({ where: { id: "u1" } });
-      expect(user?.name).toBe("A");
-      await client.$disconnect();
-    });
+        const user = await client.user.findUnique({ where: { id: "u1" } });
+        expect(user?.name).toBe("A");
+        await client.$disconnect();
+      }
+    );
 
-    test("batch mode: existing target rejects the taken update branch, same message", { timeout: 30_000 }, async () => {
-      const db = await setupDb();
-      const driver = new BatchSpyDriver({ client: db });
-      const client = bootShared(driver);
-      await client.user.create({ data: { id: "u1", name: "A" } });
-      await client.post.create({
-        data: { id: "p1", title: "T", userId: "u1" },
-      });
+    test(
+      "batch mode: existing target rejects the taken update branch, same message",
+      { timeout: 30_000 },
+      async () => {
+        const db = await setupDb();
+        const driver = new BatchSpyDriver({ client: db });
+        const client = bootShared(driver);
+        await client.user.create({ data: { id: "u1", name: "A" } });
+        await client.post.create({
+          data: { id: "p1", title: "T", userId: "u1" },
+        });
 
-      await expect(
-        client.user.upsert({
-          where: { id: "u1" },
-          create: { id: "u1", name: "New" },
-          update: {
-            name: "Changed",
-            posts: {
-              updateMany: {
-                where: {},
-                data: { title: "X", author: { connect: { id: "u1" } } },
+        await expect(
+          client.user.upsert({
+            where: { id: "u1" },
+            create: { id: "u1", name: "New" },
+            update: {
+              name: "Changed",
+              posts: {
+                updateMany: {
+                  where: {},
+                  data: { title: "X", author: { connect: { id: "u1" } } },
+                },
               },
             },
-          },
-        })
-      ).rejects.toThrow(UPDATE_MANY_RELATION_MESSAGE);
+          })
+        ).rejects.toThrow(UPDATE_MANY_RELATION_MESSAGE);
 
-      const user = await client.user.findUnique({ where: { id: "u1" } });
-      expect(user?.name).toBe("A");
-      await client.$disconnect();
-    });
+        const user = await client.user.findUnique({ where: { id: "u1" } });
+        expect(user?.name).toBe("A");
+        await client.$disconnect();
+      }
+    );
   });
 });

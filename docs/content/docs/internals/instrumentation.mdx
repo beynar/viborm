@@ -1,0 +1,32 @@
+---
+title: L11 - Instrumentation
+description: Observe VibORM operations without changing their query semantics
+icon: Activity
+---
+
+**Location:** `src/instrumentation/`
+
+## Why This Layer Exists
+
+Production database work needs tracing, structured logs, and safe diagnostics.
+L11 creates the instrumentation context shared by the client, query engine,
+cache, and drivers so one operation can be followed across layer boundaries.
+
+Instrumentation is optional. When disabled—or when OpenTelemetry is not
+installed—the underlying operation still executes with the same result and
+error behavior.
+
+## Boundary
+
+L11 records what happened; it does not decide what query to run, alter cache
+policy, translate SQL, or recover from failures. SQL and parameter disclosure
+remain explicit configuration choices because they may expose sensitive data.
+
+See [Instrumentation](/docs/instrumentation) for logging, tracing, and privacy
+configuration.
+
+## Connection to Other Layers
+
+- **L9 (Client)**: Creates operation and transaction context
+- **L10 (Cache)**: Emits cache events and spans
+- **L6-L8 (Execution)**: Emits validation, build, execution, and driver spans

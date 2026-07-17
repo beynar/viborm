@@ -11,7 +11,7 @@ import { buildSet } from "../builders/set-builder";
 import { buildWhere } from "../builders/where-builder";
 import { buildWhereUnique } from "../builders/where-unique-builder";
 import { getRelationInfo, getTableName, isRelation } from "../context";
-import type { QueryContext } from "../types";
+import type { QueryScope } from "../types";
 
 interface UpdateArgs {
   where: Record<string, unknown>;
@@ -35,7 +35,7 @@ interface UpdateManyArgs {
  * @returns Processed data with FK assignments from relation operations
  */
 function processRelationOperations(
-  ctx: QueryContext,
+  ctx: QueryScope,
   data: Record<string, unknown>
 ): Record<string, unknown> {
   const result: Record<string, unknown> = {};
@@ -98,7 +98,7 @@ function processRelationOperations(
  * @param args - Update arguments
  * @returns SQL statement (UPDATE with optional RETURNING)
  */
-export function buildUpdate(ctx: QueryContext, args: UpdateArgs): Sql {
+export function buildUpdate(ctx: QueryScope, args: UpdateArgs): Sql {
   const { adapter } = ctx;
   const tableName = getTableName(ctx.model);
 
@@ -139,11 +139,11 @@ export function buildUpdate(ctx: QueryContext, args: UpdateArgs): Sql {
  * Build SQL for updateManyAndReturn operation
  *
  * UPDATE ... RETURNING on adapters that support it. On adapters without
- * RETURNING (MySQL) the executor uses a transactional select/update/re-select
- * flow instead of this statement.
+ * RETURNING the operation program uses an atomic select/update/re-select
+ * sequence instead of this statement.
  */
 export function buildUpdateManyAndReturn(
-  ctx: QueryContext,
+  ctx: QueryScope,
   args: UpdateManyArgs & { select?: Record<string, unknown> }
 ): Sql {
   const updateSql = buildUpdateMany(ctx, args);
@@ -158,7 +158,7 @@ export function buildUpdateManyAndReturn(
   return sql`${updateSql} ${returningSql}`;
 }
 
-export function buildUpdateMany(ctx: QueryContext, args: UpdateManyArgs): Sql {
+export function buildUpdateMany(ctx: QueryScope, args: UpdateManyArgs): Sql {
   const { adapter } = ctx;
   const tableName = getTableName(ctx.model);
 

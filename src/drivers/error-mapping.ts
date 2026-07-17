@@ -1,5 +1,7 @@
 import {
   CheckConstraintError,
+  ConnectionError,
+  type DiagnosticDisclosure,
   ForeignKeyError,
   isVibORMError,
   NestedWriteAssertionError,
@@ -7,32 +9,16 @@ import {
   QueryError,
   TransactionError,
   UniqueConstraintError,
+  type VibORMError,
   VibORMErrorCode,
   type VibORMErrorMeta,
 } from "@errors";
-import type { Operation } from "@query-engine/types";
-
-interface DriverErrorShape {
-  code?: string | number;
-  errno?: number;
-  constraint?: string;
-  table?: string;
-  column?: string;
-  // postgres.js (porsager) exposes the same fields with _name suffixes
-  constraint_name?: string;
-  table_name?: string;
-  column_name?: string;
-  detail?: string;
-  message?: string;
-}
-
-interface DriverErrorContext {
-  driverName: string;
-  model?: string;
-  operation?: Operation;
-  query?: string;
-  params?: unknown[];
-}
+import {
+  attachExecutionContext,
+  buildMeta,
+  type DriverErrorContext,
+  type DriverErrorShape,
+} from "./driver-error-context";
 
 const POSTGRES_UNIQUE = "23505";
 const POSTGRES_FOREIGN_KEY = "23503";
@@ -50,10 +36,7 @@ const MYSQL_DEADLOCK = 1213;
 const MYSQL_LOCK_WAIT_TIMEOUT = 1205;
 // Stop at ":" so D1's "users.email: SQLITE_CONSTRAINT" suffix isn't captured
 const SQLITE_CONSTRAINT_COLUMNS_PATTERN = /constraint failed: ([^:]+)/;
-// PlanetScale (Vitess) buries the MySQL errno in the message text
 const MYSQL_ERRNO_IN_MESSAGE_PATTERN = /\(errno (\d+)\)/;
-const MYSQL_KEY_IN_MESSAGE_PATTERN = /for key '([^']+)'/;
-
 // Batch-plan assertions (adapter.assertions) fail on purpose with a
 // dialect-specific trick: division by zero on PG (SQLSTATE 22012), invalid
 // JSON via JSON_EXTRACT/json_extract on MySQL (errno 3141) and SQLite
@@ -81,29 +64,35 @@ export function normalizeDriverError(
   error: unknown,
   context: DriverErrorContext
 ): Error {
-  if (isVibORMError(error)) {
-    return error;
+  if (isKnownVibORMError(error)) {
+    return attachExecutionContext(error, context);
   }
 
-  const cause = error instanceof Error ? error : new Error(String(error));
-  const dbError = error as DriverErrorShape;
-  const meta = buildMeta(dbError, context, cause.message);
+  const cause = toError(error);
+  const rawMessage = getErrorMessage(cause);
+  const dbError = readDriverErrorShape(error);
+  const meta = buildMeta(dbError, context, rawMessage);
   const code = dbError.code;
-  const errno = dbError.errno ?? parseMessageErrno(cause.message);
+  const errno = dbError.errno ?? parseMessageErrno(rawMessage);
+  const diagnostics = context.diagnostics;
+  if (errno !== undefined && meta.providerErrno === undefined) {
+    meta.providerErrno = errno;
+  }
 
   if (
     context.query?.includes(ASSERTION_MARKER) &&
-    isAssertionFailure(code, errno, cause.message)
+    isAssertionFailure(code, errno, rawMessage)
   ) {
     return new NestedWriteAssertionError(
       "Nested write assertion failed: a batch precondition (e.g. a connect/disconnect target or ownership check) did not hold.",
-      { cause, meta }
+      { cause, diagnostics, meta }
     );
   }
 
   if (code === POSTGRES_UNIQUE || code === "SQLITE_CONSTRAINT_UNIQUE") {
     return new UniqueConstraintError("Unique constraint violation", {
       cause,
+      diagnostics,
       meta,
     });
   }
@@ -114,6 +103,7 @@ export function normalizeDriverError(
   ) {
     return new ForeignKeyError("Foreign key constraint violation", {
       cause,
+      diagnostics,
       meta,
     });
   }
@@ -121,6 +111,7 @@ export function normalizeDriverError(
   if (code === POSTGRES_NOT_NULL || code === "SQLITE_CONSTRAINT_NOTNULL") {
     return new NotNullConstraintError("Not-null constraint violation", {
       cause,
+      diagnostics,
       meta,
     });
   }
@@ -128,6 +119,7 @@ export function normalizeDriverError(
   if (code === POSTGRES_CHECK || code === "SQLITE_CONSTRAINT_CHECK") {
     return new CheckConstraintError("Check constraint violation", {
       cause,
+      diagnostics,
       meta,
     });
   }
@@ -135,6 +127,7 @@ export function normalizeDriverError(
   if (code === POSTGRES_SERIALIZATION) {
     return new TransactionError("Transaction serialization failure", {
       cause,
+      diagnostics,
       meta,
       code: VibORMErrorCode.SERIALIZATION_FAILURE,
     });
@@ -143,6 +136,7 @@ export function normalizeDriverError(
   if (code === POSTGRES_DEADLOCK) {
     return new TransactionError("Transaction deadlock detected", {
       cause,
+      diagnostics,
       meta,
       code: VibORMErrorCode.DEADLOCK,
     });
@@ -151,6 +145,7 @@ export function normalizeDriverError(
   if (errno === MYSQL_UNIQUE || code === "ER_DUP_ENTRY") {
     return new UniqueConstraintError("Unique constraint violation", {
       cause,
+      diagnostics,
       meta,
     });
   }
@@ -163,6 +158,7 @@ export function normalizeDriverError(
   ) {
     return new ForeignKeyError("Foreign key constraint violation", {
       cause,
+      diagnostics,
       meta,
     });
   }
@@ -170,6 +166,7 @@ export function normalizeDriverError(
   if (errno === MYSQL_NOT_NULL || code === "ER_BAD_NULL_ERROR") {
     return new NotNullConstraintError("Not-null constraint violation", {
       cause,
+      diagnostics,
       meta,
     });
   }
@@ -177,6 +174,7 @@ export function normalizeDriverError(
   if (errno === MYSQL_CHECK || code === "ER_CHECK_CONSTRAINT_VIOLATED") {
     return new CheckConstraintError("Check constraint violation", {
       cause,
+      diagnostics,
       meta,
     });
   }
@@ -189,6 +187,7 @@ export function normalizeDriverError(
   ) {
     return new TransactionError("Transaction deadlock detected", {
       cause,
+      diagnostics,
       meta,
       code: VibORMErrorCode.DEADLOCK,
     });
@@ -197,23 +196,136 @@ export function normalizeDriverError(
   if (
     code === "SQLITE_BUSY" ||
     code === "SQLITE_LOCKED" ||
-    cause.message.includes("SQLITE_BUSY") ||
-    cause.message.includes("SQLITE_LOCKED")
+    rawMessage.includes("SQLITE_BUSY") ||
+    rawMessage.includes("SQLITE_LOCKED")
   ) {
     // DEADLOCK code so the write-race retry logic treats it as retryable
     return new TransactionError("Database is locked", {
       cause,
+      diagnostics,
       meta,
       code: VibORMErrorCode.DEADLOCK,
     });
   }
 
-  const sqliteConstraint = mapSQLiteConstraint(cause.message, meta, cause);
+  const sqliteConstraint = mapSQLiteConstraint(
+    rawMessage,
+    meta,
+    cause,
+    diagnostics
+  );
   if (sqliteConstraint) {
     return sqliteConstraint;
   }
 
-  return new QueryError(cause.message, { cause, meta });
+  return new QueryError("Query execution failed", {
+    cause,
+    diagnostics,
+    meta,
+  });
+}
+
+export function normalizeDriverConnectionError(
+  error: unknown,
+  context: DriverErrorContext,
+  message = "Database connection failed"
+): Error {
+  if (isKnownVibORMError(error)) {
+    return attachExecutionContext(error, context);
+  }
+
+  const cause = toError(error);
+  const rawMessage = getErrorMessage(cause);
+  const dbError = readDriverErrorShape(error);
+  const meta = buildMeta(dbError, context, rawMessage);
+  const errno = dbError.errno ?? parseMessageErrno(rawMessage);
+  if (errno !== undefined && meta.providerErrno === undefined) {
+    meta.providerErrno = errno;
+  }
+  return new ConnectionError(message, {
+    cause,
+    diagnostics: context.diagnostics,
+    meta,
+  });
+}
+
+function isKnownVibORMError(error: unknown): error is VibORMError {
+  try {
+    return isVibORMError(error);
+  } catch {
+    return false;
+  }
+}
+
+function toError(error: unknown): Error {
+  try {
+    return error instanceof Error ? error : new Error("Unknown provider error");
+  } catch {
+    return new Error("Unknown provider error");
+  }
+}
+
+function getErrorMessage(error: Error): string {
+  try {
+    return typeof error.message === "string"
+      ? error.message
+      : "Unknown provider error";
+  } catch {
+    return "Unknown provider error";
+  }
+}
+
+function readDriverErrorShape(error: unknown): DriverErrorShape {
+  if ((typeof error !== "object" && typeof error !== "function") || !error) {
+    return {};
+  }
+  const body = readProperty(error, "body");
+  return {
+    code: readStringOrNumber(error, "code"),
+    bodyCode:
+      body && (typeof body === "object" || typeof body === "function")
+        ? readStringOrNumber(body, "code")
+        : undefined,
+    errno: readNumber(error, "errno"),
+    constraint: readString(error, "constraint"),
+    table: readString(error, "table"),
+    column: readString(error, "column"),
+    constraint_name: readString(error, "constraint_name"),
+    table_name: readString(error, "table_name"),
+    column_name: readString(error, "column_name"),
+    sqlState: readString(error, "sqlState"),
+    sqlstate: readString(error, "sqlstate"),
+    status: readStringOrNumber(error, "status"),
+    statusCode: readStringOrNumber(error, "statusCode"),
+  };
+}
+
+function readString(value: object, key: string): string | undefined {
+  const member = readProperty(value, key);
+  return typeof member === "string" ? member : undefined;
+}
+
+function readNumber(value: object, key: string): number | undefined {
+  const member = readProperty(value, key);
+  return typeof member === "number" ? member : undefined;
+}
+
+function readStringOrNumber(
+  value: object,
+  key: string
+): string | number | undefined {
+  const member = readProperty(value, key);
+  return typeof member === "string" || typeof member === "number"
+    ? member
+    : undefined;
+}
+
+function readProperty(value: object, key: string): unknown {
+  try {
+    return Reflect.get(value, key);
+  } catch {
+    return undefined;
+  }
 }
 
 function parseMessageErrno(message: string): number | undefined {
@@ -221,48 +333,11 @@ function parseMessageErrno(message: string): number | undefined {
   return match?.[1] ? Number(match[1]) : undefined;
 }
 
-function buildMeta(
-  error: DriverErrorShape,
-  context: DriverErrorContext,
-  message: string
-): VibORMErrorMeta {
-  const meta: VibORMErrorMeta = {
-    driver: context.driverName,
-  };
-
-  if (context.model) meta.model = context.model;
-  if (context.operation) meta.operation = context.operation;
-  if (context.query) meta.query = context.query;
-  if (context.params) meta.params = context.params;
-
-  const constraint = error.constraint ?? error.constraint_name;
-  const table = error.table ?? error.table_name;
-  const column = error.column ?? error.column_name;
-  if (constraint) meta.constraint = constraint;
-  if (table) meta.table = table;
-  if (column) meta.columns = [column];
-
-  // MySQL reports the violated key only in the message: "for key 'users.email_key'"
-  if (!meta.constraint) {
-    const key = MYSQL_KEY_IN_MESSAGE_PATTERN.exec(message)?.[1];
-    if (key) {
-      const dotIndex = key.indexOf(".");
-      if (dotIndex === -1) {
-        meta.constraint = key;
-      } else {
-        meta.constraint = key.slice(dotIndex + 1);
-        if (!meta.table) meta.table = key.slice(0, dotIndex);
-      }
-    }
-  }
-
-  return meta;
-}
-
 function mapSQLiteConstraint(
   message: string,
   meta: VibORMErrorMeta,
-  cause: Error
+  cause: Error,
+  diagnostics: DiagnosticDisclosure | undefined
 ): Error | undefined {
   const isSQLiteConstraint =
     message.includes("SQLITE_CONSTRAINT") ||
@@ -278,6 +353,7 @@ function mapSQLiteConstraint(
   if (message.includes("UNIQUE constraint failed")) {
     return new UniqueConstraintError("Unique constraint violation", {
       cause,
+      diagnostics,
       meta: { ...meta, columns: parseSQLiteColumns(message) },
     });
   }
@@ -285,6 +361,7 @@ function mapSQLiteConstraint(
   if (message.includes("FOREIGN KEY constraint failed")) {
     return new ForeignKeyError("Foreign key constraint violation", {
       cause,
+      diagnostics,
       meta,
     });
   }
@@ -292,6 +369,7 @@ function mapSQLiteConstraint(
   if (message.includes("NOT NULL constraint failed")) {
     return new NotNullConstraintError("Not-null constraint violation", {
       cause,
+      diagnostics,
       meta: { ...meta, columns: parseSQLiteColumns(message) },
     });
   }
@@ -299,6 +377,7 @@ function mapSQLiteConstraint(
   if (message.includes("CHECK constraint failed")) {
     return new CheckConstraintError("Check constraint violation", {
       cause,
+      diagnostics,
       meta,
     });
   }

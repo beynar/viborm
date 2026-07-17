@@ -1,6 +1,11 @@
 # Code Organization Refactor Map
 
-**Status:** The splits below for Shared Test Infrastructure, Nested Writes,
+> **Superseded historical map.** This captures the pre-operation-program module
+> boundaries. It is retained for provenance, not contributor navigation; use
+> [`query-engine-operation-program-implementation-plan.md`](./query-engine-operation-program-implementation-plan.md)
+> and current architecture guides for the implemented layout.
+
+**Historical status:** The splits below for Shared Test Infrastructure, Nested Writes,
 Query Engine Orchestration, Migration Push, Driver And Adapter Deduplication
 (shared helpers only), and Error Domain are executed in the working tree as of
 2026-07-02 (uncommitted). The Client split (`model-proxy.ts`, `cache-client.ts`,

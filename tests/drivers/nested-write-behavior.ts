@@ -55,6 +55,40 @@ export function runNestedWriteBehavior({
       expect(driver.supportsTransactions || driver.supportsBatch).toBe(true);
     });
 
+    test("rejects default-only createMany duplicate skipping before writing", async () => {
+      const currentClient = requireClient(client);
+
+      await expect(
+        currentClient.defaultOnlyRecord.createMany({
+          data: [{}, {}],
+          skipDuplicates: true,
+        })
+      ).rejects.toThrow("no portable duplicate-only DEFAULT VALUES primitive");
+
+      expect(await currentClient.defaultOnlyRecord.count()).toBe(0);
+    });
+
+    test("rejects nested default-only duplicate skipping before the parent write", async () => {
+      const currentClient = requireClient(client);
+
+      await expect(
+        currentClient.defaultOnlyParent.create({
+          data: {
+            id: "default-only-parent",
+            children: {
+              createMany: {
+                data: [{}],
+                skipDuplicates: true,
+              },
+            },
+          },
+        })
+      ).rejects.toThrow("no portable duplicate-only DEFAULT VALUES primitive");
+
+      expect(await currentClient.defaultOnlyParent.count()).toBe(0);
+      expect(await currentClient.defaultOnlyChild.count()).toBe(0);
+    });
+
     test("create derives to-one and to-many foreign keys", async () => {
       const currentClient = requireClient(client);
 
@@ -106,34 +140,54 @@ export function runNestedWriteBehavior({
           name: "Bob",
           posts: {
             connect: { id: "post-connect" },
-            connectOrCreate: [
-              {
-                where: { id: "post-coc-existing" },
-                create: { id: "post-coc-existing", title: "Ignored" },
-              },
-              {
-                where: { id: "post-coc-created" },
-                create: { id: "post-coc-created", title: "Created" },
-              },
-            ],
+            connectOrCreate: {
+              where: { id: "post-coc-existing" },
+              create: { id: "post-coc-existing", title: "Ignored" },
+            },
           },
         },
       });
 
-      const posts = await currentClient.post.findMany({
+      const connectedPosts = await currentClient.post.findMany({
         orderBy: { id: "asc" },
       });
-      expect(posts.map((post) => post.id)).toEqual([
+      expect(connectedPosts.map((post) => post.id)).toEqual([
+        "post-coc-existing",
+        "post-connect",
+      ]);
+      expect(connectedPosts.map((post) => post.userId)).toEqual([
+        "user-connect",
+        "user-connect",
+      ]);
+
+      // The planner cannot inspect custom/existing column collations, so it
+      // conservatively keeps distinct string decisions in separate operations.
+      await currentClient.user.update({
+        where: { id: "user-connect" },
+        data: {
+          posts: {
+            connectOrCreate: {
+              where: { id: "post-coc-created" },
+              create: { id: "post-coc-created", title: "Created" },
+            },
+          },
+        },
+      });
+
+      const postsAfterCreate = await currentClient.post.findMany({
+        orderBy: { id: "asc" },
+      });
+      expect(postsAfterCreate.map((post) => post.id)).toEqual([
         "post-coc-created",
         "post-coc-existing",
         "post-connect",
       ]);
-      expect(posts.map((post) => post.userId)).toEqual([
+      expect(postsAfterCreate.map((post) => post.userId)).toEqual([
         "user-connect",
         "user-connect",
         "user-connect",
       ]);
-      expect(posts.map((post) => post.title)).toEqual([
+      expect(postsAfterCreate.map((post) => post.title)).toEqual([
         "Created",
         "Already here",
         "Existing",

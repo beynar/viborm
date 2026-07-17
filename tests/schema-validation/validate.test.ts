@@ -9,6 +9,7 @@
 
 import { describe, expect, it } from "vitest";
 import { s } from "../../src/schema";
+import { isValidSchemaIdentifier } from "../../src/schema/identifier";
 import {
   validateSchema,
   validateSchemaOrThrow,
@@ -24,6 +25,70 @@ function codes(result: { errors: { code: string }[] }): string[] {
 
 function warningCodes(result: { warnings: { code: string }[] }): string[] {
   return result.warnings.map((w) => w.code);
+}
+
+const PROTOTYPE_COLLISION_IDENTIFIERS = [
+  "__proto__",
+  "constructor",
+  "toString",
+] as const;
+
+function getIdentifierContracts() {
+  return [
+    {
+      code: "M005",
+      createSchema: (identifier: string) => ({
+        [identifier]: s.model({ id: s.string().id() }),
+      }),
+      surface: "model key",
+    },
+    {
+      code: "M007",
+      createSchema: (identifier: string) => ({
+        mappedTable: s.model({ id: s.string().id() }).map(identifier),
+      }),
+      surface: "mapped table",
+    },
+    {
+      code: "F001",
+      createSchema: (identifier: string) => ({
+        scalarKey: s.model({
+          id: s.string().id(),
+          [identifier]: s.string(),
+        }),
+      }),
+      surface: "scalar key",
+    },
+    {
+      code: "F009",
+      createSchema: (identifier: string) => ({
+        mappedColumn: s.model({
+          id: s.string().id(),
+          value: s.string().map(identifier),
+        }),
+      }),
+      surface: "mapped column",
+    },
+    {
+      code: "F001",
+      createSchema: (identifier: string) => {
+        const relationParent = s.model({
+          id: s.string().id(),
+          [identifier]: s.oneToMany(() => relationChild),
+        });
+        const relationChild = s.model({
+          id: s.string().id(),
+          parentId: s.string(),
+          parent: s
+            .manyToOne(() => relationParent)
+            .fields("parentId")
+            .references("id"),
+        });
+        return { relationParent, relationChild };
+      },
+      surface: "relation key",
+    },
+  ];
 }
 
 // =============================================================================
@@ -492,6 +557,53 @@ describe("referential action rules", () => {
 // =============================================================================
 
 describe("model and field rules", () => {
+  it("accepts 63-byte identifiers and rejects 64-byte identifiers", () => {
+    const validIdentifier = `f${"a".repeat(62)}`;
+    const invalidIdentifier = `f${"a".repeat(63)}`;
+    const identifierContracts = getIdentifierContracts();
+
+    for (const contract of identifierContracts) {
+      expect(
+        codes(validateSchema(contract.createSchema(validIdentifier))),
+        `${contract.surface} should accept 63 bytes`
+      ).not.toContain(contract.code);
+      expect(
+        codes(validateSchema(contract.createSchema(invalidIdentifier))),
+        `${contract.surface} should reject 64 bytes`
+      ).toContain(contract.code);
+    }
+  });
+
+  it("rejects every Object.prototype property name as an identifier", () => {
+    for (const identifier of Object.getOwnPropertyNames(Object.prototype)) {
+      expect(isValidSchemaIdentifier(identifier), identifier).toBe(false);
+    }
+  });
+
+  it.each(
+    PROTOTYPE_COLLISION_IDENTIFIERS
+  )("rejects Object.prototype collision %j across schema name surfaces", (identifier) => {
+    for (const contract of getIdentifierContracts()) {
+      expect(
+        codes(validateSchema(contract.createSchema(identifier))),
+        `${contract.surface} should reject ${identifier}`
+      ).toContain(contract.code);
+    }
+  });
+
+  it("rejects empty mapped table and column names", () => {
+    const emptyTable = s.model({ id: s.string().id() }).map("");
+    const emptyColumn = s.model({
+      id: s.string().id(),
+      value: s.string().map(""),
+    });
+
+    expect(codes(validateSchema({ emptyTable }))).toContain("M007");
+    expect(codes(validateSchema({ emptyColumn }))).toContain("F009");
+    expect(isValidSchemaIdentifier(null)).toBe(false);
+    expect(isValidSchemaIdentifier(Symbol("identifier"))).toBe(false);
+  });
+
   it("errors M001 when a model has no ID", () => {
     const user = s.model({ name: s.string() });
     expect(codes(validateSchema({ user }))).toContain("M001");
@@ -532,6 +644,26 @@ describe("model and field rules", () => {
       other: s.string().id(),
     });
     expect(codes(validateSchema({ user }))).toContain("F002");
+  });
+
+  it.each([
+    "0viborm_vector_distance",
+    "0viborm_relation_counts",
+  ])("errors F001 when a relation uses private carrier name %j", (name) => {
+    const parent = s.model({
+      id: s.string().id(),
+      [name]: s.oneToMany(() => child),
+    });
+    const child = s.model({
+      id: s.string().id(),
+      parentId: s.string(),
+      parent: s
+        .manyToOne(() => parent)
+        .fields("parentId")
+        .references("id"),
+    });
+
+    expect(codes(validateSchema({ parent, child }))).toContain("F001");
   });
 
   it("errors F002 when .id() is called twice on a model", () => {

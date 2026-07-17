@@ -12,11 +12,15 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 // Schema: users with posts, nullable author FK so isNot can pin null-FK rows
 // =============================================================================
 
+const LONG_RELATION_NAME =
+  "archivedItemRelationNameFortyOneCharsLongBoundaryTwentyTwoChars";
+
 const user = s
   .model({
     id: s.string().id(),
     name: s.string(),
     posts: s.oneToMany(() => post),
+    [LONG_RELATION_NAME]: s.oneToMany(() => archive),
   })
   .map("rel_agg_users");
 
@@ -34,7 +38,18 @@ const post = s
   })
   .map("rel_agg_posts");
 
-const schema = { user, post };
+const archive = s
+  .model({
+    id: s.string().id(),
+    userId: s.string(),
+    user: s
+      .manyToOne(() => user)
+      .fields("userId")
+      .references("id"),
+  })
+  .map("rel_agg_archives");
+
+const schema = { user, post, archive };
 
 type RelationReadAggregateClientConfig = VibORMConfig & {
   schema: typeof schema;
@@ -93,6 +108,13 @@ export function runRelationReadAggregateBehavior({
           { id: "p6", title: "D1", published: true, authorId: "u4" },
         ],
       });
+      await client.archive.createMany({
+        data: [
+          { id: "a1", userId: "u1" },
+          { id: "a2", userId: "u1" },
+          { id: "a3", userId: "u3" },
+        ],
+      });
     });
 
     afterEach(async () => {
@@ -114,6 +136,55 @@ export function runRelationReadAggregateBehavior({
         ]);
         // Exactly the selected keys, nothing else
         expect(Object.keys(users[0]!).sort()).toEqual(["_count", "id"]);
+      });
+
+      test("returns multiple counts with a long public relation name", async () => {
+        const users = await client.user.findMany({
+          orderBy: { id: "asc" },
+          select: {
+            id: true,
+            _count: {
+              select: { posts: true, [LONG_RELATION_NAME]: true },
+            },
+          },
+        });
+
+        expect(users).toEqual([
+          {
+            id: "u1",
+            _count: { posts: 3, [LONG_RELATION_NAME]: 2 },
+          },
+          {
+            id: "u2",
+            _count: { posts: 1, [LONG_RELATION_NAME]: 0 },
+          },
+          {
+            id: "u3",
+            _count: { posts: 0, [LONG_RELATION_NAME]: 1 },
+          },
+          {
+            id: "u4",
+            _count: { posts: 1, [LONG_RELATION_NAME]: 0 },
+          },
+        ]);
+      });
+
+      test("includes a long relation under its exact public name", async () => {
+        const alice = await client.user.findUnique({
+          where: { id: "u1" },
+          select: {
+            id: true,
+            [LONG_RELATION_NAME]: {
+              select: { id: true },
+              orderBy: { id: "asc" },
+            },
+          },
+        });
+
+        expect(alice).toEqual({
+          id: "u1",
+          [LONG_RELATION_NAME]: [{ id: "a1" }, { id: "a2" }],
+        });
       });
 
       test("select _count on findUnique with zero relations", async () => {
@@ -237,9 +308,156 @@ export function runRelationReadAggregateBehavior({
         });
         expect(byAlice.map((p) => p.id)).toEqual(["p1", "p2", "p3"]);
       });
+
+      test("findMany applies same-object is and isNot filters independent of key order", async () => {
+        const posts = await client.post.findMany({
+          where: {
+            author: {
+              is: { name: "Alice" },
+              isNot: { name: "Alice" },
+            },
+          },
+          orderBy: { id: "asc" },
+          select: { id: true },
+        });
+
+        expect(posts).toEqual([]);
+
+        const reorderedPosts = await client.post.findMany({
+          where: {
+            author: {
+              isNot: { name: "Alice" },
+              is: { name: "Alice" },
+            },
+          },
+          orderBy: { id: "asc" },
+          select: { id: true },
+        });
+
+        expect(reorderedPosts).toEqual([]);
+      });
+
+      test("findMany combines null and object to-one filters", async () => {
+        const nullThenObject = await client.post.findMany({
+          where: {
+            author: {
+              is: null,
+              isNot: { name: "Alice" },
+            },
+          },
+          orderBy: { id: "asc" },
+          select: { id: true },
+        });
+        const objectThenNull = await client.post.findMany({
+          where: {
+            author: {
+              is: { name: "Alice" },
+              isNot: null,
+            },
+          },
+          orderBy: { id: "asc" },
+          select: { id: true },
+        });
+
+        expect(nullThenObject.map((matchedPost) => matchedPost.id)).toEqual([
+          "p5",
+        ]);
+        expect(objectThenNull.map((matchedPost) => matchedPost.id)).toEqual([
+          "p1",
+          "p2",
+          "p3",
+        ]);
+      });
     });
 
     describe("to-many relation filters on the read path", () => {
+      test("findMany applies same-object some and none filters independent of key order", async () => {
+        const users = await client.user.findMany({
+          where: {
+            posts: {
+              some: { published: true },
+              none: { published: false },
+            },
+          },
+          orderBy: { id: "asc" },
+          select: { id: true },
+        });
+
+        expect(users.map((matchedUser) => matchedUser.id)).toEqual(["u4"]);
+
+        const reorderedUsers = await client.user.findMany({
+          where: {
+            posts: {
+              none: { published: false },
+              some: { published: true },
+            },
+          },
+          orderBy: { id: "asc" },
+          select: { id: true },
+        });
+
+        expect(reorderedUsers.map((matchedUser) => matchedUser.id)).toEqual([
+          "u4",
+        ]);
+      });
+
+      test("findMany applies same-object some and every filters independent of key order", async () => {
+        const users = await client.user.findMany({
+          where: {
+            posts: {
+              some: { published: true },
+              every: { published: true },
+            },
+          },
+          orderBy: { id: "asc" },
+          select: { id: true },
+        });
+
+        expect(users.map((matchedUser) => matchedUser.id)).toEqual(["u4"]);
+
+        const reorderedUsers = await client.user.findMany({
+          where: {
+            posts: {
+              every: { published: true },
+              some: { published: true },
+            },
+          },
+          orderBy: { id: "asc" },
+          select: { id: true },
+        });
+
+        expect(reorderedUsers.map((matchedUser) => matchedUser.id)).toEqual([
+          "u4",
+        ]);
+      });
+
+      test("every with an empty condition matches zero related rows", async () => {
+        const users = await client.user.findMany({
+          where: { id: "u3", posts: { every: {} } },
+          select: { id: true },
+        });
+
+        expect(users.map((matchedUser) => matchedUser.id)).toEqual(["u3"]);
+      });
+
+      test("every with an empty condition matches one related row", async () => {
+        const users = await client.user.findMany({
+          where: { id: "u4", posts: { every: {} } },
+          select: { id: true },
+        });
+
+        expect(users.map((matchedUser) => matchedUser.id)).toEqual(["u4"]);
+      });
+
+      test("every with an empty condition matches several related rows", async () => {
+        const users = await client.user.findMany({
+          where: { id: "u1", posts: { every: {} } },
+          select: { id: true },
+        });
+
+        expect(users.map((matchedUser) => matchedUser.id)).toEqual(["u1"]);
+      });
+
       test("every matches vacuously for zero relations", async () => {
         const users = await client.user.findMany({
           where: { posts: { every: { published: true } } },

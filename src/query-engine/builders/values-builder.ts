@@ -12,12 +12,17 @@ import type {
 import type { Model } from "@schema/model";
 import { isSql, type Sql } from "@sql";
 import { getColumnName } from "../context";
-import { type QueryContext, QueryEngineError } from "../types";
-import { isGeneratedIncrementDefault } from "./generated-scalar";
+import { QueryEngineError, type QueryScope } from "../types";
+import { shouldOmitInsertValue } from "./generated-scalar";
+import { planInsertRowShapes } from "./insert-row-shapes";
 
-interface ValuesResult {
+export interface ValuesResult {
   columns: string[];
   values: Sql[][];
+}
+
+export interface ValuesGroup extends ValuesResult {
+  inputIndexes: number[];
 }
 
 /**
@@ -27,8 +32,8 @@ interface ValuesResult {
  * — a symbol the planned substrate defers through the scratch table
  * (`batchRefs.store`/`read`). `buildScalarSqlValue` is the one leaf that lowers
  * all three, so the carrier lives here beside it rather than in a mode file:
- * both the interpreter and the shared FK/condition builders speak it, and none
- * of them may depend on `planned-mode.ts`.
+ * operation programs and the shared FK/condition builders speak it, while the
+ * SQL lowering remains adapter-owned.
  */
 export interface BatchValueRef {
   readonly kind: "batchValueRef";
@@ -36,8 +41,8 @@ export interface BatchValueRef {
   readonly key: string;
 }
 
-/** A value that flows through a nested write: a literal, a pre-built `Sql`
- *  fragment, or a deferred `BatchValueRef` (planned mode). */
+/** A value that flows through a relation write: a literal, a pre-built `Sql`
+ *  fragment, or a deferred `BatchValueRef` lowered by atomic-batch runtime. */
 export type BatchResolvableValue = unknown | Sql | BatchValueRef;
 
 export function isBatchValueRef(value: unknown): value is BatchValueRef {
@@ -105,90 +110,86 @@ function isBatchReferenceSqlAdapter(
  * @returns Object with columns (actual DB column names) and values arrays
  */
 export function buildValues(
-  ctx: QueryContext,
+  ctx: QueryScope,
   data: Record<string, unknown> | Record<string, unknown>[]
 ): ValuesResult {
   const records = Array.isArray(data) ? data : [data];
-
-  if (records.length === 0) {
+  const groups = buildValueGroups(ctx, records);
+  if (groups.length === 0) {
     return { columns: [], values: [] };
   }
+  if (groups.length !== 1) {
+    throw new QueryEngineError(
+      "Heterogeneous insert rows require grouped execution."
+    );
+  }
+  return { columns: groups[0]!.columns, values: groups[0]!.values };
+}
 
-  // Get cached scalar field Set for O(1) lookups
-  const scalarFieldSet = ctx.model["~"].scalarFieldSet;
-
-  // Determine which fields to include (all fields that have values in any record)
-  const fieldsSet = new Set<string>();
-
-  for (const record of records) {
-    // Use Object.keys + direct access instead of Object.entries to avoid tuple allocation
-    const keys = Object.keys(record);
-    for (const key of keys) {
-      const value = record[key];
-      if (value === undefined) {
-        continue;
-      }
-      // Use cached Set for O(1) lookup instead of array.includes() O(n)
-      if (!scalarFieldSet.has(key)) {
-        continue; // Skip relations and unknown fields
-      }
-      const field = ctx.model["~"].state.scalars[key];
-      if (isGeneratedIncrementDefault(field, value)) {
-        continue;
-      }
-      fieldsSet.add(key);
-    }
+/** Build independently executable VALUES groups for heterogeneous rows. */
+export function buildValueGroups(
+  ctx: QueryScope,
+  records: readonly Record<string, unknown>[]
+): ValuesGroup[] {
+  if (records.length === 0) {
+    return [];
   }
 
-  // Check for auto-generated fields that weren't provided
-  for (const fieldName of ctx.model["~"].scalarFieldNames) {
-    const scalar = ctx.model["~"].state.scalars[fieldName];
-    if (scalar) {
-      const state = scalar["~"].state;
-      // Throw if scalar has auto-generate (uuid, ulid, cuid, etc.) but wasn't provided
-      // and doesn't have a database default
-      if (state?.autoGenerate && !fieldsSet.has(fieldName)) {
-        const genType = state.autoGenerate;
-        // Check if it's a supported database-level auto-generate
-        if (genType !== "increment") {
-          throw new QueryEngineError(
-            `Auto-generated value '${genType}' for field '${fieldName}' must be provided explicitly or ` +
-              "handled by the database. Application-level ID generation (uuid, ulid, cuid) is not yet implemented."
-          );
-        }
-      }
-    }
-  }
-
-  // Convert field names to arrays (keeping order for both)
-  const fieldNames = Array.from(fieldsSet);
-  // Map field names to actual column names (handles .map() overrides)
-  const columns = fieldNames.map((fieldName) =>
-    getColumnName(ctx.model, fieldName)
+  assertApplicationGeneratedValues(ctx, records);
+  const fieldOrder = ctx.model["~"].scalarFieldNames;
+  const shapes = planInsertRowShapes(fieldOrder, records, (field, value) =>
+    shouldOmitInsertValue(ctx.model["~"].state.scalars[field], value)
   );
 
-  // Build values for each record
-  const values: Sql[][] = [];
+  return shapes.map((shape) => ({
+    columns: shape.fields.map((field) => getColumnName(ctx.model, field)),
+    inputIndexes: [...shape.inputIndexes],
+    values: shape.rows.map((record) =>
+      shape.fields.map((field) =>
+        buildScalarSqlValue(ctx, ctx.model, field, record[field])
+      )
+    ),
+  }));
+}
 
-  for (const record of records) {
-    const row: Sql[] = [];
-
-    for (const fieldName of fieldNames) {
-      const value = record[fieldName];
-      row.push(buildScalarSqlValue(ctx, ctx.model, fieldName, value));
+function assertApplicationGeneratedValues(
+  ctx: QueryScope,
+  records: readonly Record<string, unknown>[]
+): void {
+  for (const fieldName of ctx.model["~"].scalarFieldNames) {
+    const scalar = ctx.model["~"].state.scalars[fieldName];
+    const genType = scalar?.["~"].state.autoGenerate;
+    if (!genType) {
+      continue;
     }
-
-    values.push(row);
+    for (const record of records) {
+      if (
+        genType === "increment" &&
+        (record[fieldName] === 0 || record[fieldName] === 0n)
+      ) {
+        throw new QueryEngineError(
+          `Explicit zero is not portable for auto-increment field '${fieldName}'.`
+        );
+      }
+      if (genType === "increment") {
+        continue;
+      }
+      if (!shouldOmitInsertValue(scalar, record[fieldName])) {
+        continue;
+      }
+      throw new QueryEngineError(
+        `Auto-generated value '${genType}' for field '${fieldName}' must be provided explicitly or ` +
+          "handled by the database. Application-level ID generation (uuid, ulid, cuid) is not yet implemented."
+      );
+    }
   }
-
-  return { columns, values };
 }
 
 /**
  * Build value SQL for a single field, handling special types
  */
 export function buildScalarSqlValue(
-  ctx: QueryContext,
+  ctx: QueryScope,
   model: Model<any>,
   fieldName: string,
   value: unknown
@@ -238,7 +239,7 @@ export function buildScalarSqlValue(
  * serialization. Used by where/set/cursor builders.
  */
 export function scalarValueLiteral(
-  ctx: QueryContext,
+  ctx: QueryScope,
   fieldName: string,
   value: unknown
 ): Sql {
@@ -258,7 +259,7 @@ export function scalarValueLiteral(
 }
 
 function castBatchRefValue(
-  ctx: QueryContext,
+  ctx: QueryScope,
   model: Model<any>,
   fieldName: string,
   value: Sql
@@ -296,18 +297,20 @@ export function getScalarCastType(
  * Build a single INSERT statement
  */
 export function buildInsert(
-  ctx: QueryContext,
+  ctx: QueryScope,
   tableName: string,
   data: Record<string, unknown>
 ): Sql {
   const { columns, values } = buildValues(ctx, data);
 
-  if (columns.length === 0) {
-    // No columns to insert - this shouldn't happen normally
+  if (values.length === 0) {
     throw new QueryEngineError("No columns to insert");
   }
 
   const table = ctx.adapter.identifiers.escape(tableName);
+  if (columns.length === 0) {
+    return ctx.adapter.mutations.insertDefault(table);
+  }
   return ctx.adapter.mutations.insert(table, columns, values);
 }
 
@@ -315,16 +318,24 @@ export function buildInsert(
  * Build INSERT for createMany
  */
 export function buildInsertMany(
-  ctx: QueryContext,
+  ctx: QueryScope,
   tableName: string,
   data: Record<string, unknown>[]
 ): Sql {
   const { columns, values } = buildValues(ctx, data);
 
-  if (columns.length === 0 || values.length === 0) {
+  if (values.length === 0) {
     throw new QueryEngineError("No data to insert");
   }
 
   const table = ctx.adapter.identifiers.escape(tableName);
+  if (columns.length === 0) {
+    if (values.length !== 1) {
+      throw new QueryEngineError(
+        "Multiple default-only rows require grouped execution."
+      );
+    }
+    return ctx.adapter.mutations.insertDefault(table);
+  }
   return ctx.adapter.mutations.insert(table, columns, values);
 }

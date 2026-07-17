@@ -73,7 +73,7 @@ const nonPkReferenceSchema = (() => {
 // to the same model, its FK (`parentId`) sitting on the parent row. A nested
 // `parent: { create }` inserts a SAME-MODEL child BEFORE the top-level row
 // (before-parent FK split), so the top-level create's own row is not the first
-// insert into the model — the review found LiveMode's old first-insert anchor
+// insert into the model — the review found transaction strategy's old first-insert anchor
 // returned the nested child. This group pins two-mode persisted-state parity for
 // that tree class (the returned-record parity is pinned in the M3 gate).
 const selfRefFkSchema = (() => {
@@ -94,6 +94,282 @@ const selfRefFkSchema = (() => {
   return { category };
 })();
 
+const createRootDependencySchema = (() => {
+  const node = s
+    .model({
+      id: s.int().id(),
+      label: s.string(),
+      parentId: s.int().nullable(),
+      parent: s
+        .manyToOne(() => node)
+        .fields("parentId")
+        .references("id")
+        .optional(),
+      children: s.oneToMany(() => node),
+      links: s
+        .manyToMany(() => node)
+        .A("sourceId")
+        .B("targetId"),
+      linkedBy: s.manyToMany(() => node),
+    })
+    .map("conformance_create_root_nodes");
+
+  return { node };
+})();
+
+const membershipDependencySchema = (() => {
+  const container = s
+    .model({
+      id: s.int().id(),
+      nodes: s.oneToMany(() => node),
+    })
+    .map("conformance_membership_containers");
+
+  const node = s
+    .model({
+      id: s.int().id(),
+      label: s.string(),
+      containerId: s.int().nullable(),
+      container: s
+        .manyToOne(() => container)
+        .fields("containerId")
+        .references("id")
+        .onUpdate("cascade")
+        .optional(),
+      parentId: s.int().nullable(),
+      parent: s
+        .manyToOne(() => node)
+        .fields("parentId")
+        .references("id")
+        .name("parent")
+        .optional(),
+      children: s.oneToMany(() => node).name("parent"),
+      partnerId: s.int().unique().nullable(),
+      partner: s
+        .oneToOne(() => node)
+        .fields("partnerId")
+        .references("id")
+        .name("partner")
+        .optional(),
+      partnerOf: s
+        .oneToOne(() => node)
+        .name("partner")
+        .optional(),
+    })
+    .map("conformance_membership_nodes");
+
+  return { container, node };
+})();
+
+const numericDependencySchema = (() => {
+  const owner = s
+    .model({
+      id: s.int().id(),
+      name: s.string(),
+      items: s.oneToMany(() => item),
+      profile: s.oneToOne(() => profile).optional(),
+    })
+    .map("conformance_dependency_owners");
+
+  const item = s
+    .model({
+      id: s.int().id(),
+      label: s.string(),
+      ownerId: s.int().nullable(),
+      owner: s
+        .manyToOne(() => owner)
+        .fields("ownerId")
+        .references("id")
+        .optional(),
+    })
+    .map("conformance_dependency_items");
+
+  const profile = s
+    .model({
+      id: s.int().id(),
+      bio: s.string(),
+      ownerId: s.int().unique().nullable(),
+      owner: s
+        .oneToOne(() => owner)
+        .fields("ownerId")
+        .references("id")
+        .optional(),
+    })
+    .map("conformance_dependency_profiles");
+
+  return { owner, item, profile };
+})();
+
+const crossRelationTargetSchema = (() => {
+  const account = s
+    .model({
+      id: s.int().id(),
+      label: s.string(),
+      primaryRecords: s.oneToMany(() => record).name("primary"),
+      secondaryRecords: s.oneToMany(() => record).name("secondary"),
+    })
+    .map("conformance_cross_target_accounts");
+
+  const record = s
+    .model({
+      id: s.int().id(),
+      primaryId: s.int().nullable(),
+      secondaryId: s.int().nullable(),
+      primary: s
+        .manyToOne(() => account)
+        .fields("primaryId")
+        .references("id")
+        .name("primary")
+        .optional(),
+      secondary: s
+        .manyToOne(() => account)
+        .fields("secondaryId")
+        .references("id")
+        .name("secondary")
+        .optional(),
+    })
+    .map("conformance_cross_target_records");
+
+  return { account, record };
+})();
+
+const transitiveTargetDependencySchema = (() => {
+  const workspace = s
+    .model({
+      id: s.int().id(),
+      projects: s.manyToMany(() => project).name("workspaceProjects"),
+      tags: s.manyToMany(() => tag).name("workspaceTags"),
+    })
+    .map("conformance_transitive_workspaces");
+
+  const project = s
+    .model({
+      id: s.int().id(),
+      workspaces: s.manyToMany(() => workspace).name("workspaceProjects"),
+      tags: s.manyToMany(() => tag).name("projectTags"),
+      components: s.manyToMany(() => component).name("projectComponents"),
+    })
+    .map("conformance_transitive_projects");
+
+  const tag = s
+    .model({
+      id: s.int().id(),
+      workspaces: s.manyToMany(() => workspace).name("workspaceTags"),
+      projects: s.manyToMany(() => project).name("projectTags"),
+      components: s.manyToMany(() => component).name("componentTags"),
+    })
+    .map("conformance_transitive_tags");
+
+  const component = s
+    .model({
+      id: s.int().id(),
+      projects: s.manyToMany(() => project).name("projectComponents"),
+      tags: s.manyToMany(() => tag).name("componentTags"),
+    })
+    .map("conformance_transitive_components");
+
+  return { workspace, project, tag, component };
+})();
+
+const transitiveCreateManySchema = (() => {
+  const owner = s
+    .model({
+      id: s.int().id(),
+      cohorts: s.oneToMany(() => cohort),
+      selectedItems: s.manyToMany(() => item).name("selectedItems"),
+    })
+    .map("conformance_transitive_create_many_owners");
+
+  const item = s
+    .model({
+      id: s.int().id(),
+      groupId: s.int().nullable(),
+      creator: s
+        .manyToOne(() => cohort)
+        .fields("groupId")
+        .references("id")
+        .name("createdItems")
+        .optional(),
+      selectedBy: s.manyToMany(() => owner).name("selectedItems"),
+    })
+    .map("conformance_transitive_create_many_items");
+
+  const cohort = s
+    .model({
+      id: s.int().id(),
+      ownerId: s.int().nullable(),
+      owner: s
+        .manyToOne(() => owner)
+        .fields("ownerId")
+        .references("id")
+        .optional(),
+      createdItems: s.oneToMany(() => item).name("createdItems"),
+    })
+    .map("conformance_transitive_create_many_groups");
+
+  return { owner, cohort, item };
+})();
+
+const transitivePredicateDependencySchema = (() => {
+  const workspace = s
+    .model({
+      id: s.int().id(),
+      projects: s.manyToMany(() => project).name("predicateProjects"),
+      tags: s.manyToMany(() => tag).name("predicateWorkspaceTags"),
+    })
+    .map("conformance_transitive_predicate_workspaces");
+
+  const project = s
+    .model({
+      id: s.int().id(),
+      workspaces: s.manyToMany(() => workspace).name("predicateProjects"),
+      tags: s.manyToMany(() => tag).name("predicateProjectTags"),
+    })
+    .map("conformance_transitive_predicate_projects");
+
+  const tag = s
+    .model({
+      id: s.int().id(),
+      label: s.string(),
+      workspaces: s.manyToMany(() => workspace).name("predicateWorkspaceTags"),
+      projects: s.manyToMany(() => project).name("predicateProjectTags"),
+    })
+    .map("conformance_transitive_predicate_tags");
+
+  return { workspace, project, tag };
+})();
+
+const transitiveMembershipDependencySchema = (() => {
+  const node = s
+    .model({
+      id: s.int().id(),
+      label: s.string(),
+      parentId: s.int().nullable(),
+      parent: s
+        .manyToOne(() => node)
+        .fields("parentId")
+        .references("id")
+        .name("membershipParent")
+        .optional(),
+      children: s.oneToMany(() => node).name("membershipParent"),
+      friends: s
+        .manyToMany(() => node)
+        .name("membershipFriends")
+        .A("friendSourceId")
+        .B("friendTargetId"),
+      friendedBy: s.manyToMany(() => node).name("membershipFriends"),
+      allies: s
+        .manyToMany(() => node)
+        .name("membershipAllies")
+        .A("allySourceId")
+        .B("allyTargetId"),
+      alliedBy: s.manyToMany(() => node).name("membershipAllies"),
+    })
+    .map("conformance_transitive_membership_nodes");
+
+  return { node };
+})();
+
 type SchemaClient<TSchema extends Schema> = VibORMClient<{
   schema: TSchema;
   driver: PGliteDriver;
@@ -103,8 +379,15 @@ type PersistedState = Record<string, unknown[]>;
 
 // The observable result of running a scenario on one mode: whether the act
 // rejected, plus the persisted state afterwards.
+interface ErrorOutcome {
+  name: string;
+  code?: string | number;
+  message: string;
+}
+
 interface Outcome {
   rejected: boolean;
+  error?: ErrorOutcome;
   state: PersistedState;
 }
 
@@ -115,17 +398,8 @@ interface Scenario<TSchema extends Schema> {
   // If set, the act is expected to reject in both modes. State must still be
   // byte-identical across modes and equal to `expected` (rolled-back state).
   expectReject?: boolean;
+  expectedError?: string;
   expected: PersistedState;
-  // A DELIBERATE, DESIGN-SANCTIONED tx-vs-batch asymmetry (DESIGN.md §6.2.3):
-  // a residual cross-step dependency the batch engine cannot resolve at plan
-  // time surfaces as an abort where the transaction engine succeeds. When set,
-  // each mode is asserted against its own declared outcome instead of against
-  // byte-identical parity — the asymmetry is pinned as a contract.
-  asymmetric?: {
-    reason: string;
-    transaction: { reject: boolean; state: PersistedState };
-    batch: { reject: boolean; state: PersistedState };
-  };
 }
 
 interface SchemaGroup<TSchema extends Schema> {
@@ -133,6 +407,16 @@ interface SchemaGroup<TSchema extends Schema> {
   // Dump every table in a stable order so tx-vs-batch state is comparable.
   dump: (client: SchemaClient<TSchema>) => Promise<PersistedState>;
   scenarios: Scenario<TSchema>[];
+}
+
+function normalizeErrorOutcome(error: unknown): ErrorOutcome {
+  if (!(error instanceof Error)) throw error;
+  const code = "code" in error ? error.code : undefined;
+  const stableCode =
+    typeof code === "string" || typeof code === "number" ? code : undefined;
+  return stableCode === undefined
+    ? { name: error.name, message: error.message }
+    : { name: error.name, code: stableCode, message: error.message };
 }
 
 async function runScenario<TSchema extends Schema>(
@@ -154,12 +438,14 @@ async function runScenario<TSchema extends Schema>(
   try {
     await scenario.seed?.(client);
     let rejected = false;
+    let errorOutcome: ErrorOutcome | undefined;
     try {
       await scenario.act(client);
-    } catch {
+    } catch (error) {
       rejected = true;
+      errorOutcome = normalizeErrorOutcome(error);
     }
-    return { rejected, state: await group.dump(client) };
+    return { rejected, error: errorOutcome, state: await group.dump(client) };
   } finally {
     await client.$disconnect();
   }
@@ -185,23 +471,15 @@ function registerGroup<TSchema extends Schema>(
           (db) => new BatchOnlyPGliteDriver({ client: db })
         );
 
-        if (scenario.asymmetric) {
-          // Pin the design-sanctioned divergence: each mode against its own
-          // declared outcome. NOT byte-identical by construction.
-          expect(transaction.rejected).toBe(
-            scenario.asymmetric.transaction.reject
-          );
-          expect(transaction.state).toEqual(
-            scenario.asymmetric.transaction.state
-          );
-          expect(batch.rejected).toBe(scenario.asymmetric.batch.reject);
-          expect(batch.state).toEqual(scenario.asymmetric.batch.state);
-          return;
-        }
-
         // Both modes must agree on whether the act rejected.
         expect(batch.rejected).toBe(transaction.rejected);
         expect(transaction.rejected).toBe(scenario.expectReject === true);
+        // Every rejected scenario must expose the same stable error contract.
+        // `expectedError` below is only an additional semantic substring pin.
+        expect(batch.error).toEqual(transaction.error);
+        if (scenario.expectedError) {
+          expect(transaction.error?.message).toContain(scenario.expectedError);
+        }
         // The load-bearing oracle assertion: the two substrates persist
         // byte-identical state for the same scenario.
         expect(batch.state).toEqual(transaction.state);
@@ -320,6 +598,34 @@ const fkScenarios: Scenario<NestedWriteSchema>[] = [
     expected: {
       users: [],
       posts: [{ id: "po1", title: "Orphan", userId: null }],
+      profiles: [],
+      tags: [],
+      postTags: [],
+    },
+  },
+  {
+    name: "parent-holds-FK scalar rebind targets the final related row",
+    seed: async (client) => {
+      await client.user.create({ data: { id: "u1", name: "Original" } });
+      await client.user.create({ data: { id: "u2", name: "Final" } });
+      await client.post.create({
+        data: { id: "po1", title: "Rebound", userId: "u1" },
+      });
+    },
+    act: (client) =>
+      client.post.update({
+        where: { id: "po1" },
+        data: {
+          userId: "u2",
+          author: { update: { name: "Updated final" } },
+        },
+      }),
+    expected: {
+      users: [
+        { id: "u1", name: "Original" },
+        { id: "u2", name: "Updated final" },
+      ],
+      posts: [{ id: "po1", title: "Rebound", userId: "u2" }],
       profiles: [],
       tags: [],
       postTags: [],
@@ -1566,7 +1872,10 @@ const m2mScenarios: Scenario<ManyToManySchema>[] = [
     }),
   },
   {
-    name: "m2m connectOrCreate connects existing and creates missing",
+    name: "m2m connectOrCreate string-selector array rejects unknown overlap",
+    expectReject: true,
+    expectedError:
+      "depends on an earlier 'connectOrCreate' target write in the same nested write",
     seed: m2mBaselineSeed,
     act: (client) =>
       client.post.update({
@@ -1580,10 +1889,7 @@ const m2mScenarios: Scenario<ManyToManySchema>[] = [
           },
         },
       }),
-    expected: m2mExpected({
-      membership: { p1: ["t1", "t9"] },
-      tags: { ...BASELINE_M2M_TAGS, t9: "tag-9" },
-    }),
+    expected: m2mExpected(),
   },
   {
     name: "m2m connectOrCreate dedupes duplicate targets to one association",
@@ -1737,8 +2043,9 @@ const m2mScenarios: Scenario<ManyToManySchema>[] = [
     expected: m2mExpected({ tags: { t3: "tag-3" } }),
   },
   {
-    name: "m2m connect combined with deleteMany in one update is rejected",
+    name: "m2m overlapping connect and deleteMany reject membership dependency",
     expectReject: true,
+    expectedError: "depends on an earlier 'connect' membership write",
     seed: m2mBaselineSeed,
     act: async (client) => {
       await client.post.update({
@@ -1756,6 +2063,174 @@ const m2mScenarios: Scenario<ManyToManySchema>[] = [
       });
     },
     expected: m2mExpected({ membership: { p1: ["t1"] } }),
+  },
+  {
+    name: "m2m overlapping create and deleteMany reject target dependency",
+    expectReject: true,
+    expectedError: "depends on an earlier 'create' target write",
+    seed: m2mBaselineSeed,
+    act: (client) =>
+      client.post.update({
+        where: { id: "p1" },
+        data: {
+          tags: {
+            create: { id: "t9", name: "tag-9" },
+            deleteMany: { id: "t9" },
+          },
+        },
+      }),
+    expected: m2mExpected(),
+  },
+  {
+    name: "m2m overlapping set and deleteMany reject membership dependency",
+    expectReject: true,
+    expectedError: "depends on an earlier 'set' membership write",
+    seed: m2mBaselineSeed,
+    act: (client) =>
+      client.post.update({
+        where: { id: "p1" },
+        data: {
+          tags: { set: [{ id: "t1" }], deleteMany: { id: "t1" } },
+        },
+      }),
+    expected: m2mExpected(),
+  },
+  {
+    name: "m2m connectOrCreate then deleteMany rejects target dependency",
+    expectReject: true,
+    expectedError: "depends on an earlier 'connectOrCreate' target write",
+    seed: m2mBaselineSeed,
+    act: (client) =>
+      client.post.update({
+        where: { id: "p1" },
+        data: {
+          tags: {
+            connectOrCreate: {
+              where: { id: "t9" },
+              create: { id: "t9", name: "tag-9" },
+            },
+            deleteMany: { id: "t9" },
+          },
+        },
+      }),
+    expected: m2mExpected(),
+  },
+  {
+    name: "m2m explicit delete then deleteMany rejects target dependency",
+    expectReject: true,
+    expectedError: "depends on an earlier 'delete' target write",
+    seed: async (client) => {
+      await m2mBaselineSeed(client);
+      await client.post.update({
+        where: { id: "p1" },
+        data: { tags: { connect: { id: "t1" } } },
+      });
+    },
+    act: (client) =>
+      client.post.update({
+        where: { id: "p1" },
+        data: {
+          tags: { delete: { id: "t1" }, deleteMany: { id: "t1" } },
+        },
+      }),
+    expected: m2mExpected({ membership: { p1: ["t1"] } }),
+  },
+  {
+    name: "m2m disconnect then deleteMany rejects membership dependency",
+    expectReject: true,
+    expectedError: "depends on an earlier 'disconnect' membership write",
+    seed: async (client) => {
+      await m2mBaselineSeed(client);
+      await client.post.update({
+        where: { id: "p1" },
+        data: { tags: { connect: { id: "t1" } } },
+      });
+    },
+    act: (client) =>
+      client.post.update({
+        where: { id: "p1" },
+        data: {
+          tags: {
+            disconnect: { id: "t1" },
+            deleteMany: { id: "t1" },
+          },
+        },
+      }),
+    expected: m2mExpected({ membership: { p1: ["t1"] } }),
+  },
+  {
+    name: "m2m update then deleteMany rejects target dependency",
+    expectReject: true,
+    expectedError: "depends on an earlier 'update' target write",
+    seed: async (client) => {
+      await m2mBaselineSeed(client);
+      await client.post.update({
+        where: { id: "p1" },
+        data: { tags: { connect: { id: "t1" } } },
+      });
+    },
+    act: (client) =>
+      client.post.update({
+        where: { id: "p1" },
+        data: {
+          tags: {
+            update: { where: { id: "t1" }, data: { name: "changed" } },
+            deleteMany: { name: "changed" },
+          },
+        },
+      }),
+    expected: m2mExpected({ membership: { p1: ["t1"] } }),
+  },
+  {
+    name: "m2m updateMany then deleteMany rejects filter dependency",
+    expectReject: true,
+    expectedError: "depends on an earlier 'updateMany' target write",
+    seed: async (client) => {
+      await m2mBaselineSeed(client);
+      await client.post.update({
+        where: { id: "p1" },
+        data: { tags: { connect: { id: "t1" } } },
+      });
+    },
+    act: (client) =>
+      client.post.update({
+        where: { id: "p1" },
+        data: {
+          tags: {
+            updateMany: { where: { id: "t1" }, data: { name: "changed" } },
+            deleteMany: { name: "changed" },
+          },
+        },
+      }),
+    expected: m2mExpected({ membership: { p1: ["t1"] } }),
+  },
+  {
+    name: "m2m multiple deleteMany filters reject internal dependency",
+    expectReject: true,
+    expectedError: "depends on an earlier 'deleteMany' target write",
+    seed: async (client) => {
+      await m2mBaselineSeed(client);
+      await client.post.update({
+        where: { id: "p1" },
+        data: { tags: { connect: [{ id: "t1" }, { id: "t2" }] } },
+      });
+    },
+    act: (client) =>
+      client.post.update({
+        where: { id: "p1" },
+        data: { tags: { deleteMany: [{ id: "t1" }, { id: "t2" }] } },
+      }),
+    expected: m2mExpected({ membership: { p1: ["t1", "t2"] } }),
+  },
+  {
+    name: "standalone m2m deleteMany with no matching member is a no-op",
+    seed: m2mBaselineSeed,
+    act: (client) =>
+      client.post.update({
+        where: { id: "p1" },
+        data: { tags: { deleteMany: { name: "tag-1" } } },
+      }),
+    expected: m2mExpected(),
   },
   {
     name: "m2m nested update modifies only a connected record",
@@ -1795,6 +2270,54 @@ const m2mScenarios: Scenario<ManyToManySchema>[] = [
         },
       });
     },
+    expected: m2mExpected({ membership: { p1: ["t1"] } }),
+  },
+  {
+    name: "m2m connect then overlapping upsert rejects before effects",
+    expectReject: true,
+    expectedError: "depends on an earlier 'connect' membership write",
+    seed: m2mBaselineSeed,
+    act: (client) =>
+      client.post.update({
+        where: { id: "p1" },
+        data: {
+          tags: {
+            connect: { id: "t1" },
+            upsert: {
+              where: { id: "t1" },
+              create: { id: "t1", name: "create" },
+              update: { name: "update" },
+            },
+          },
+        },
+      }),
+    expected: m2mExpected(),
+  },
+  {
+    name: "m2m deleteMany then upsert rejects prior delete effects",
+    expectReject: true,
+    expectedError: "depends on an earlier 'deleteMany' target write",
+    seed: async (client) => {
+      await m2mBaselineSeed(client);
+      await client.post.update({
+        where: { id: "p1" },
+        data: { tags: { connect: { id: "t1" } } },
+      });
+    },
+    act: (client) =>
+      client.post.update({
+        where: { id: "p1" },
+        data: {
+          tags: {
+            deleteMany: { id: "t1" },
+            upsert: {
+              where: { id: "t1" },
+              create: { id: "t1", name: "create" },
+              update: { name: "update" },
+            },
+          },
+        },
+      }),
     expected: m2mExpected({ membership: { p1: ["t1"] } }),
   },
   {
@@ -1870,6 +2393,27 @@ const m2mScenarios: Scenario<ManyToManySchema>[] = [
 // ---------------------------------------------------------------------------
 
 const selfRefM2mScenarios: Scenario<ManyToManySchema>[] = [
+  {
+    name: "self m2m connect then inverse upsert rejects shared junction dependency",
+    seed: (client) => client.user.create({ data: { id: "u1", name: "Alice" } }),
+    act: (client) =>
+      client.user.update({
+        where: { id: "u1" },
+        data: {
+          follows: { connect: { id: "u1" } },
+          followedBy: {
+            upsert: {
+              where: { id: "u1" },
+              create: { id: "u1", name: "create" },
+              update: { name: "updated" },
+            },
+          },
+        },
+      }),
+    expectReject: true,
+    expectedError: "depends on an earlier 'connect' membership write",
+    expected: { follows: [], followedBy: [] },
+  },
   {
     name: "self-referential m2m connect then disconnect",
     seed: async (client) => {
@@ -1996,19 +2540,1835 @@ const selfRefFkScenarios: Scenario<SelfRefFkSchema>[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// Group 6: cross-step dependency (DESIGN.md §6.2.3). Within one relation, a
-// create and a connectOrCreate for the SAME key across two steps.
-//
-// This is a DESIGN-SANCTIONED tx-vs-batch ASYMMETRY, pinned here so it is a
-// contract rather than an accident. The transaction engine executes the
-// create, then the connectOrCreate's probe observes the just-created row
-// (own writes visible) and connects it — success. The batch engine resolves
-// the connectOrCreate's "missing?" probe at plan time against committed
-// state, which does not yet contain the create's own write, plans the create
-// branch, and the second INSERT (or its guard) aborts the atomic unit — a
-// fail-closed rejection, never a silent wrong branch. §6.2.3 states this
-// residual cross-step dependency surfaces as an abort on planned mode where
-// live mode succeeds.
+// Group 5c: the create-family current row enters the target-existence ledger at
+// its actual execution point: after parent-held FK relations, before related-
+// held FK and M2M relations.
+// ---------------------------------------------------------------------------
+
+type CreateRootDependencySchema = typeof createRootDependencySchema;
+
+async function dumpCreateRootDependency(
+  client: SchemaClient<CreateRootDependencySchema>
+): Promise<PersistedState> {
+  const nodes = await client.node.findMany({ orderBy: { id: "asc" } });
+  return { nodes };
+}
+
+const createRootDependencyScenarios: Scenario<CreateRootDependencySchema>[] = [
+  {
+    name: "after-parent self connectOrCreate cannot depend on the current insert",
+    act: (client) =>
+      client.node.create({
+        data: {
+          id: 1,
+          label: "root",
+          children: {
+            connectOrCreate: {
+              where: { id: 1 },
+              create: { id: 1, label: "duplicate" },
+            },
+          },
+        },
+      }),
+    expectReject: true,
+    expectedError: "depends on an earlier 'create' target write",
+    expected: { nodes: [] },
+  },
+  {
+    name: "after-parent self connectOrCreate allows a disjoint numeric id",
+    act: (client) =>
+      client.node.create({
+        data: {
+          id: 1,
+          label: "root",
+          children: {
+            connectOrCreate: {
+              where: { id: 2 },
+              create: { id: 2, label: "child" },
+            },
+          },
+        },
+      }),
+    expected: {
+      nodes: [
+        { id: 1, label: "root", parentId: null },
+        { id: 2, label: "child", parentId: 1 },
+      ],
+    },
+  },
+  {
+    name: "before-parent self connect is unaffected by the future insert",
+    act: (client) =>
+      client.node.create({
+        data: {
+          id: 1,
+          label: "root",
+          parent: { connect: { id: 1 } },
+        },
+      }),
+    expectReject: true,
+    expectedError: "target record was not found",
+    expected: { nodes: [] },
+  },
+  {
+    name: "nested create keeps its before-parent decision ahead of its insert",
+    act: (client) =>
+      client.node.create({
+        data: {
+          id: 10,
+          label: "outer",
+          children: {
+            create: {
+              id: 1,
+              label: "child",
+              parent: { connect: { id: 1 } },
+            },
+          },
+        },
+      }),
+    expectReject: true,
+    expectedError: "target record was not found",
+    expected: { nodes: [] },
+  },
+  {
+    name: "missing top-level upsert applies the create-branch insert barrier",
+    act: (client) =>
+      client.node.upsert({
+        where: { id: 1 },
+        create: {
+          id: 1,
+          label: "root",
+          children: {
+            connectOrCreate: {
+              where: { id: 1 },
+              create: { id: 1, label: "duplicate" },
+            },
+          },
+        },
+        update: { label: "unused" },
+      }),
+    expectReject: true,
+    expectedError: "depends on an earlier 'create' target write",
+    expected: { nodes: [] },
+  },
+];
+
+async function dumpUpdatePredicateDependency(
+  client: SchemaClient<CreateRootDependencySchema>
+): Promise<PersistedState> {
+  const records = await client.node.findMany({
+    orderBy: { id: "asc" },
+    include: { links: { orderBy: { id: "asc" } } },
+  });
+  const nodes: unknown[] = [];
+  const links: unknown[] = [];
+  for (const record of records as Array<{
+    id: number;
+    label: string;
+    parentId: number | null;
+    links?: Array<{ id: number }>;
+  }>) {
+    nodes.push({
+      id: record.id,
+      label: record.label,
+      parentId: record.parentId,
+    });
+    const targetIds = (record.links ?? []).map((target) => target.id);
+    if (targetIds.length > 0) links.push({ sourceId: record.id, targetIds });
+  }
+  return { nodes, links };
+}
+
+const UPDATE_PREDICATE_ERROR = "depends on an earlier 'update' target write";
+
+const updatePredicateScenarios: Scenario<CreateRootDependencySchema>[] = [
+  {
+    name: "root id transition rejects a later self decision on the old id",
+    seed: (client) => client.node.create({ data: { id: 1, label: "root" } }),
+    act: (client) =>
+      client.node.update({
+        where: { id: 1 },
+        data: {
+          id: 2,
+          links: {
+            connectOrCreate: {
+              where: { id: 1 },
+              create: { id: 1, label: "old" },
+            },
+          },
+        },
+      }),
+    expectReject: true,
+    expectedError: UPDATE_PREDICATE_ERROR,
+    expected: {
+      nodes: [{ id: 1, label: "root", parentId: null }],
+      links: [],
+    },
+  },
+  {
+    name: "root id transition rejects a later self decision on the new id",
+    seed: (client) => client.node.create({ data: { id: 1, label: "root" } }),
+    act: (client) =>
+      client.node.update({
+        where: { id: 1 },
+        data: {
+          id: { set: 2 },
+          links: {
+            connectOrCreate: {
+              where: { id: 2 },
+              create: { id: 2, label: "new" },
+            },
+          },
+        },
+      }),
+    expectReject: true,
+    expectedError: UPDATE_PREDICATE_ERROR,
+    expected: {
+      nodes: [{ id: 1, label: "root", parentId: null }],
+      links: [],
+    },
+  },
+  {
+    name: "root id transition allows a disjoint numeric self decision",
+    seed: (client) => client.node.create({ data: { id: 1, label: "root" } }),
+    act: (client) =>
+      client.node.update({
+        where: { id: 1 },
+        data: {
+          id: 2,
+          links: {
+            connectOrCreate: {
+              where: { id: 3 },
+              create: { id: 3, label: "target" },
+            },
+          },
+        },
+      }),
+    expected: {
+      nodes: [
+        { id: 2, label: "root", parentId: null },
+        { id: 3, label: "target", parentId: null },
+      ],
+      links: [{ sourceId: 2, targetIds: [3] }],
+    },
+  },
+  {
+    name: "payload update does not block self connectOrCreate by id",
+    seed: async (client) => {
+      await client.node.create({ data: { id: 1, label: "before" } });
+      await client.node.create({ data: { id: 2, label: "target" } });
+    },
+    act: (client) =>
+      client.node.update({
+        where: { id: 1 },
+        data: {
+          label: "after",
+          links: {
+            connectOrCreate: {
+              where: { id: 2 },
+              create: { id: 2, label: "unused" },
+            },
+          },
+        },
+      }),
+    expected: {
+      nodes: [
+        { id: 1, label: "after", parentId: null },
+        { id: 2, label: "target", parentId: null },
+      ],
+      links: [{ sourceId: 1, targetIds: [2] }],
+    },
+  },
+  {
+    name: "payload update does not block self upsert by id",
+    seed: async (client) => {
+      await client.node.create({ data: { id: 1, label: "before" } });
+      await client.node.create({ data: { id: 2, label: "target" } });
+      await client.node.update({
+        where: { id: 1 },
+        data: { links: { connect: { id: 2 } } },
+      });
+    },
+    act: (client) =>
+      client.node.update({
+        where: { id: 1 },
+        data: {
+          label: "after",
+          links: {
+            upsert: {
+              where: { id: 2 },
+              create: { id: 2, label: "unused" },
+              update: { label: "target-after" },
+            },
+          },
+        },
+      }),
+    expected: {
+      nodes: [
+        { id: 1, label: "after", parentId: null },
+        { id: 2, label: "target-after", parentId: null },
+      ],
+      links: [{ sourceId: 1, targetIds: [2] }],
+    },
+  },
+  {
+    name: "nested payload update does not taint a sibling target decision",
+    seed: async (client) => {
+      await client.node.create({ data: { id: 10, label: "parent" } });
+      await client.node.create({
+        data: { id: 1, label: "child", parentId: 10 },
+      });
+    },
+    act: (client) =>
+      client.node.update({
+        where: { id: 10 },
+        data: {
+          children: {
+            update: {
+              where: { id: 1 },
+              data: { label: "after" },
+            },
+          },
+          links: {
+            connectOrCreate: {
+              where: { id: 1 },
+              create: { id: 1, label: "unused" },
+            },
+          },
+        },
+      }),
+    expected: {
+      nodes: [
+        { id: 1, label: "after", parentId: 10 },
+        { id: 10, label: "parent", parentId: null },
+      ],
+      links: [{ sourceId: 10, targetIds: [1] }],
+    },
+  },
+  {
+    name: "payload update conflicts with a recursive m2m deleteMany filter",
+    seed: async (client) => {
+      await client.node.create({ data: { id: 1, label: "before" } });
+      await client.node.update({
+        where: { id: 1 },
+        data: { links: { connect: { id: 1 } } },
+      });
+    },
+    act: (client) =>
+      client.node.update({
+        where: { id: 1 },
+        data: {
+          label: "after",
+          links: { deleteMany: { AND: [{ label: "after" }] } },
+        },
+      }),
+    expectReject: true,
+    expectedError: UPDATE_PREDICATE_ERROR,
+    expected: {
+      nodes: [{ id: 1, label: "before", parentId: null }],
+      links: [{ sourceId: 1, targetIds: [1] }],
+    },
+  },
+  {
+    name: "nested to-many update rejects its old selector inside the child",
+    seed: async (client) => {
+      await client.node.create({ data: { id: 10, label: "parent" } });
+      await client.node.create({
+        data: { id: 1, label: "child", parentId: 10 },
+      });
+    },
+    act: (client) =>
+      client.node.update({
+        where: { id: 10 },
+        data: {
+          children: {
+            update: {
+              where: { id: 1 },
+              data: {
+                id: 2,
+                links: {
+                  connectOrCreate: {
+                    where: { id: 1 },
+                    create: { id: 1, label: "old" },
+                  },
+                },
+              },
+            },
+          },
+        },
+      }),
+    expectReject: true,
+    expectedError: UPDATE_PREDICATE_ERROR,
+    expected: {
+      nodes: [
+        { id: 1, label: "child", parentId: 10 },
+        { id: 10, label: "parent", parentId: null },
+      ],
+      links: [],
+    },
+  },
+  {
+    name: "nested to-many update allows a disjoint child decision",
+    seed: async (client) => {
+      await client.node.create({ data: { id: 10, label: "parent" } });
+      await client.node.create({
+        data: { id: 1, label: "child", parentId: 10 },
+      });
+    },
+    act: (client) =>
+      client.node.update({
+        where: { id: 10 },
+        data: {
+          children: {
+            update: {
+              where: { id: 1 },
+              data: {
+                id: 2,
+                links: {
+                  connectOrCreate: {
+                    where: { id: 3 },
+                    create: { id: 3, label: "target" },
+                  },
+                },
+              },
+            },
+          },
+        },
+      }),
+    expected: {
+      nodes: [
+        { id: 2, label: "child", parentId: 10 },
+        { id: 3, label: "target", parentId: null },
+        { id: 10, label: "parent", parentId: null },
+      ],
+      links: [{ sourceId: 2, targetIds: [3] }],
+    },
+  },
+  {
+    name: "nested to-one update uses an unknown child selector conservatively",
+    seed: async (client) => {
+      await client.node.create({ data: { id: 1, label: "parent" } });
+      await client.node.create({
+        data: { id: 10, label: "root", parentId: 1 },
+      });
+    },
+    act: (client) =>
+      client.node.update({
+        where: { id: 10 },
+        data: {
+          parent: {
+            update: {
+              id: 2,
+              links: {
+                connectOrCreate: {
+                  where: { id: 3 },
+                  create: { id: 3, label: "target" },
+                },
+              },
+            },
+          },
+        },
+      }),
+    expectReject: true,
+    expectedError: UPDATE_PREDICATE_ERROR,
+    expected: {
+      nodes: [
+        { id: 1, label: "parent", parentId: null },
+        { id: 10, label: "root", parentId: 1 },
+      ],
+      links: [],
+    },
+  },
+  {
+    name: "existing top-level upsert uses its exact pk for disjointness",
+    seed: (client) => client.node.create({ data: { id: 1, label: "root" } }),
+    act: (client) =>
+      client.node.upsert({
+        where: { id: 1 },
+        create: { id: 1, label: "unused" },
+        update: {
+          id: 2,
+          links: {
+            connectOrCreate: {
+              where: { id: 3 },
+              create: { id: 3, label: "target" },
+            },
+          },
+        },
+      }),
+    expected: {
+      nodes: [
+        { id: 2, label: "root", parentId: null },
+        { id: 3, label: "target", parentId: null },
+      ],
+      links: [{ sourceId: 2, targetIds: [3] }],
+    },
+  },
+];
+
+type MembershipDependencySchema = typeof membershipDependencySchema;
+
+async function dumpMembershipDependency(
+  client: SchemaClient<MembershipDependencySchema>
+): Promise<PersistedState> {
+  const [containers, nodes] = await Promise.all([
+    client.container.findMany({ orderBy: { id: "asc" } }),
+    client.node.findMany({ orderBy: { id: "asc" } }),
+  ]);
+  return { containers, nodes };
+}
+
+const UPDATE_MEMBERSHIP_ERROR =
+  "depends on an earlier 'update' membership write";
+
+async function seedCrossScopeMembershipBase(
+  client: SchemaClient<MembershipDependencySchema>
+): Promise<void> {
+  await client.container.create({ data: { id: 10 } });
+  await client.node.create({
+    data: { id: 9, label: "nine", containerId: 10 },
+  });
+  await client.node.create({
+    data: { id: 1, label: "one", containerId: 10, parentId: 9 },
+  });
+  await client.node.create({
+    data: { id: 4, label: "four", containerId: 10 },
+  });
+}
+
+async function seedCrossScopeMembershipWithTarget(
+  client: SchemaClient<MembershipDependencySchema>
+): Promise<void> {
+  await seedCrossScopeMembershipBase(client);
+  await client.node.create({ data: { id: 2, label: "two" } });
+}
+
+function runCrossScopeMembershipMutation(
+  client: SchemaClient<MembershipDependencySchema>,
+  firstOperation: "connect" | "connectOrCreate" | "create",
+  laterNodeId: 1 | 4
+): PromiseLike<unknown> {
+  const partnerOf =
+    firstOperation === "create"
+      ? { create: { id: 2, label: "two" } }
+      : firstOperation === "connect"
+        ? { connect: { id: 2 } }
+        : {
+            connectOrCreate: {
+              where: { id: 2 },
+              create: { id: 2, label: "unused" },
+            },
+          };
+
+  return client.node.update({
+    where: { id: 9 },
+    data: {
+      children: {
+        update: {
+          where: { id: 1 },
+          data: { partnerOf },
+        },
+      },
+      container: {
+        update: {
+          nodes: {
+            update: {
+              where: { id: laterNodeId },
+              data: {
+                partnerOf: {
+                  upsert: {
+                    create: { id: 3, label: "three" },
+                    update: { label: "updated" },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+}
+
+const CROSS_SCOPE_MEMBERSHIP_BASE_NODES: unknown[] = [
+  {
+    id: 1,
+    label: "one",
+    containerId: 10,
+    parentId: 9,
+    partnerId: null,
+  },
+  {
+    id: 4,
+    label: "four",
+    containerId: 10,
+    parentId: null,
+    partnerId: null,
+  },
+  {
+    id: 9,
+    label: "nine",
+    containerId: 10,
+    parentId: null,
+    partnerId: null,
+  },
+];
+
+const CROSS_SCOPE_MEMBERSHIP_BASE: PersistedState = {
+  containers: [{ id: 10 }],
+  nodes: CROSS_SCOPE_MEMBERSHIP_BASE_NODES,
+};
+
+const CROSS_SCOPE_MEMBERSHIP_WITH_TARGET: PersistedState = {
+  containers: [{ id: 10 }],
+  nodes: [
+    CROSS_SCOPE_MEMBERSHIP_BASE_NODES[0],
+    {
+      id: 2,
+      label: "two",
+      containerId: null,
+      parentId: null,
+      partnerId: null,
+    },
+    ...CROSS_SCOPE_MEMBERSHIP_BASE_NODES.slice(1),
+  ],
+};
+
+const CROSS_SCOPE_MEMBERSHIP_DISJOINT: PersistedState = {
+  containers: [{ id: 10 }],
+  nodes: [
+    CROSS_SCOPE_MEMBERSHIP_BASE_NODES[0],
+    {
+      id: 2,
+      label: "two",
+      containerId: null,
+      parentId: null,
+      partnerId: 1,
+    },
+    {
+      id: 3,
+      label: "three",
+      containerId: null,
+      parentId: null,
+      partnerId: 4,
+    },
+    ...CROSS_SCOPE_MEMBERSHIP_BASE_NODES.slice(1),
+  ],
+};
+
+const membershipDependencyScenarios: Scenario<MembershipDependencySchema>[] = [
+  {
+    name: "nested create membership rejects a later cross-scope to-one upsert",
+    seed: seedCrossScopeMembershipBase,
+    act: (client) => runCrossScopeMembershipMutation(client, "create", 1),
+    expectReject: true,
+    expectedError: "depends on an earlier 'create' membership write",
+    expected: CROSS_SCOPE_MEMBERSHIP_BASE,
+  },
+  {
+    name: "nested create membership allows a disjoint cross-scope to-one upsert",
+    seed: seedCrossScopeMembershipBase,
+    act: (client) => runCrossScopeMembershipMutation(client, "create", 4),
+    expected: CROSS_SCOPE_MEMBERSHIP_DISJOINT,
+  },
+  {
+    name: "connectOrCreate membership rejects a later cross-scope to-one upsert",
+    seed: seedCrossScopeMembershipWithTarget,
+    act: (client) =>
+      runCrossScopeMembershipMutation(client, "connectOrCreate", 1),
+    expectReject: true,
+    expectedError: "depends on an earlier 'connectOrCreate' membership write",
+    expected: CROSS_SCOPE_MEMBERSHIP_WITH_TARGET,
+  },
+  {
+    name: "connectOrCreate membership allows a disjoint cross-scope to-one upsert",
+    seed: seedCrossScopeMembershipWithTarget,
+    act: (client) =>
+      runCrossScopeMembershipMutation(client, "connectOrCreate", 4),
+    expected: CROSS_SCOPE_MEMBERSHIP_DISJOINT,
+  },
+  {
+    name: "found connect membership rejects a later cross-scope to-one upsert",
+    seed: seedCrossScopeMembershipWithTarget,
+    act: (client) => runCrossScopeMembershipMutation(client, "connect", 1),
+    expectReject: true,
+    expectedError: "depends on an earlier 'connect' membership write",
+    expected: CROSS_SCOPE_MEMBERSHIP_WITH_TARGET,
+  },
+  {
+    name: "self to-one inverse upsert rejects a current-row FK membership move",
+    seed: async (client) => {
+      await client.node.create({
+        data: { id: 1, label: "one", partnerId: 1 },
+      });
+      await client.node.create({ data: { id: 2, label: "two" } });
+    },
+    act: (client) =>
+      client.node.update({
+        where: { id: 1 },
+        data: {
+          partnerId: 2,
+          partnerOf: {
+            upsert: {
+              create: { id: 3, label: "three" },
+              update: { label: "occupied" },
+            },
+          },
+        },
+      }),
+    expectReject: true,
+    expectedError: UPDATE_MEMBERSHIP_ERROR,
+    expected: {
+      containers: [],
+      nodes: [
+        {
+          id: 1,
+          label: "one",
+          containerId: null,
+          parentId: null,
+          partnerId: 1,
+        },
+        {
+          id: 2,
+          label: "two",
+          containerId: null,
+          parentId: null,
+          partnerId: null,
+        },
+      ],
+    },
+  },
+  {
+    name: "direct self partner update consumes the rebound FK and stays legal",
+    seed: async (client) => {
+      await client.node.create({
+        data: { id: 1, label: "one", partnerId: 1 },
+      });
+      await client.node.create({ data: { id: 2, label: "two" } });
+    },
+    act: (client) =>
+      client.node.update({
+        where: { id: 1 },
+        data: {
+          partnerId: 2,
+          partner: { update: { label: "rebound" } },
+        },
+      }),
+    expected: {
+      containers: [],
+      nodes: [
+        {
+          id: 1,
+          label: "one",
+          containerId: null,
+          parentId: null,
+          partnerId: 2,
+        },
+        {
+          id: 2,
+          label: "rebound",
+          containerId: null,
+          parentId: null,
+          partnerId: null,
+        },
+      ],
+    },
+  },
+  {
+    name: "inverse root seed does not taint a direct relation in the same write",
+    seed: async (client) => {
+      await client.node.create({
+        data: { id: 1, label: "one", partnerId: 1 },
+      });
+      await client.node.create({ data: { id: 2, label: "two" } });
+      await client.node.create({ data: { id: 3, label: "three" } });
+    },
+    act: (client) =>
+      client.node.update({
+        where: { id: 1 },
+        data: {
+          partnerId: 2,
+          partner: { update: { label: "rebound" } },
+          partnerOf: { connect: { id: 3 } },
+        },
+      }),
+    expected: {
+      containers: [],
+      nodes: [
+        {
+          id: 1,
+          label: "one",
+          containerId: null,
+          parentId: null,
+          partnerId: 2,
+        },
+        {
+          id: 2,
+          label: "rebound",
+          containerId: null,
+          parentId: null,
+          partnerId: null,
+        },
+        {
+          id: 3,
+          label: "three",
+          containerId: null,
+          parentId: null,
+          partnerId: 1,
+        },
+      ],
+    },
+  },
+  ...(["direct-first", "inverse-first"] as const).map(
+    (order): Scenario<MembershipDependencySchema> => ({
+      name: `self parent and inverse disjoint updates stay legal (${order})`,
+      seed: async (client) => {
+        await client.node.create({
+          data: { id: 1, label: "one", parentId: 1 },
+        });
+        await client.node.create({ data: { id: 2, label: "two" } });
+        await client.node.create({
+          data: { id: 3, label: "three", parentId: 1 },
+        });
+      },
+      act: (client) => {
+        const parent = { update: { label: "parent-updated" } };
+        const children = {
+          update: {
+            where: { id: 3 },
+            data: { label: "child-updated" },
+          },
+        };
+        const relations =
+          order === "direct-first"
+            ? { parent, children }
+            : { children, parent };
+        return client.node.update({
+          where: { id: 1 },
+          data: { parentId: 2, ...relations },
+        });
+      },
+      expected: {
+        containers: [],
+        nodes: [
+          {
+            id: 1,
+            label: "one",
+            containerId: null,
+            parentId: 2,
+            partnerId: null,
+          },
+          {
+            id: 2,
+            label: "parent-updated",
+            containerId: null,
+            parentId: null,
+            partnerId: null,
+          },
+          {
+            id: 3,
+            label: "child-updated",
+            containerId: null,
+            parentId: 1,
+            partnerId: null,
+          },
+        ],
+      },
+    })
+  ),
+  {
+    name: "self to-many inverse update rejects the moved current row",
+    seed: async (client) => {
+      await client.node.create({
+        data: { id: 1, label: "one", parentId: 1 },
+      });
+      await client.node.create({
+        data: { id: 2, label: "two", parentId: 1 },
+      });
+    },
+    act: (client) =>
+      client.node.update({
+        where: { id: 1 },
+        data: {
+          parentId: 2,
+          children: {
+            update: { where: { id: 1 }, data: { label: "moved" } },
+          },
+        },
+      }),
+    expectReject: true,
+    expectedError: UPDATE_MEMBERSHIP_ERROR,
+    expected: {
+      containers: [],
+      nodes: [
+        {
+          id: 1,
+          label: "one",
+          containerId: null,
+          parentId: 1,
+          partnerId: null,
+        },
+        {
+          id: 2,
+          label: "two",
+          containerId: null,
+          parentId: 1,
+          partnerId: null,
+        },
+      ],
+    },
+  },
+  {
+    name: "self to-many inverse update allows a disjoint numeric target",
+    seed: async (client) => {
+      await client.node.create({
+        data: { id: 1, label: "one", parentId: 1 },
+      });
+      await client.node.create({
+        data: { id: 2, label: "two", parentId: 1 },
+      });
+    },
+    act: (client) =>
+      client.node.update({
+        where: { id: 1 },
+        data: {
+          parentId: 2,
+          children: {
+            update: { where: { id: 2 }, data: { label: "updated" } },
+          },
+        },
+      }),
+    expected: {
+      containers: [],
+      nodes: [
+        {
+          id: 1,
+          label: "one",
+          containerId: null,
+          parentId: 2,
+          partnerId: null,
+        },
+        {
+          id: 2,
+          label: "updated",
+          containerId: null,
+          parentId: 1,
+          partnerId: null,
+        },
+      ],
+    },
+  },
+  {
+    name: "direct self parent update stays legal after scalar FK rebind",
+    seed: async (client) => {
+      await client.node.create({
+        data: { id: 1, label: "one", parentId: 1 },
+      });
+      await client.node.create({ data: { id: 2, label: "two" } });
+    },
+    act: (client) =>
+      client.node.update({
+        where: { id: 1 },
+        data: {
+          parentId: 2,
+          parent: { update: { label: "rebound" } },
+        },
+      }),
+    expected: {
+      containers: [],
+      nodes: [
+        {
+          id: 1,
+          label: "one",
+          containerId: null,
+          parentId: 2,
+          partnerId: null,
+        },
+        {
+          id: 2,
+          label: "rebound",
+          containerId: null,
+          parentId: null,
+          partnerId: null,
+        },
+      ],
+    },
+  },
+  {
+    name: "nested to-many child update carries its selector into inverse membership",
+    seed: async (client) => {
+      await client.container.create({ data: { id: 10 } });
+      await client.node.create({
+        data: { id: 1, label: "one", containerId: 10, partnerId: 1 },
+      });
+      await client.node.create({ data: { id: 2, label: "two" } });
+    },
+    act: (client) =>
+      client.container.update({
+        where: { id: 10 },
+        data: {
+          nodes: {
+            update: {
+              where: { id: 1 },
+              data: {
+                partnerId: 2,
+                partnerOf: {
+                  upsert: {
+                    create: { id: 3, label: "three" },
+                    update: { label: "occupied" },
+                  },
+                },
+              },
+            },
+          },
+        },
+      }),
+    expectReject: true,
+    expectedError: UPDATE_MEMBERSHIP_ERROR,
+    expected: {
+      containers: [{ id: 10 }],
+      nodes: [
+        {
+          id: 1,
+          label: "one",
+          containerId: 10,
+          parentId: null,
+          partnerId: 1,
+        },
+        {
+          id: 2,
+          label: "two",
+          containerId: null,
+          parentId: null,
+          partnerId: null,
+        },
+      ],
+    },
+  },
+  {
+    name: "same-node non-self FK rebind rejects inverse descent through the final target",
+    seed: async (client) => {
+      await client.container.create({ data: { id: 10 } });
+      await client.container.create({ data: { id: 20 } });
+      await client.node.create({
+        data: { id: 1, label: "one", containerId: 10 },
+      });
+    },
+    act: (client) =>
+      client.node.update({
+        where: { id: 1 },
+        data: {
+          containerId: 20,
+          container: {
+            update: {
+              nodes: {
+                update: { where: { id: 1 }, data: { label: "after" } },
+              },
+            },
+          },
+        },
+      }),
+    expectReject: true,
+    expectedError: UPDATE_MEMBERSHIP_ERROR,
+    expected: {
+      containers: [{ id: 10 }, { id: 20 }],
+      nodes: [
+        {
+          id: 1,
+          label: "one",
+          containerId: 10,
+          parentId: null,
+          partnerId: null,
+        },
+      ],
+    },
+  },
+  {
+    name: "same-node non-self FK rebind allows a disjoint inverse holder",
+    seed: async (client) => {
+      await client.container.create({ data: { id: 10 } });
+      await client.container.create({ data: { id: 20 } });
+      await client.node.create({
+        data: { id: 1, label: "one", containerId: 10 },
+      });
+      await client.node.create({
+        data: { id: 3, label: "three", containerId: 20 },
+      });
+    },
+    act: (client) =>
+      client.node.update({
+        where: { id: 1 },
+        data: {
+          containerId: 20,
+          container: {
+            update: {
+              nodes: {
+                update: { where: { id: 3 }, data: { label: "after" } },
+              },
+            },
+          },
+        },
+      }),
+    expected: {
+      containers: [{ id: 10 }, { id: 20 }],
+      nodes: [
+        {
+          id: 1,
+          label: "one",
+          containerId: 20,
+          parentId: null,
+          partnerId: null,
+        },
+        {
+          id: 3,
+          label: "after",
+          containerId: 20,
+          parentId: null,
+          partnerId: null,
+        },
+      ],
+    },
+  },
+  {
+    name: "non-self nested FK rebind rejects a later inverse read of the same holder",
+    seed: async (client) => {
+      await client.container.create({ data: { id: 10 } });
+      await client.container.create({ data: { id: 20 } });
+      await client.node.create({
+        data: { id: 9, label: "root", containerId: 10 },
+      });
+      await client.node.create({
+        data: { id: 1, label: "one", containerId: 10, parentId: 9 },
+      });
+    },
+    act: (client) =>
+      client.node.update({
+        where: { id: 9 },
+        data: {
+          children: {
+            update: { where: { id: 1 }, data: { containerId: 20 } },
+          },
+          container: {
+            update: {
+              nodes: {
+                update: { where: { id: 1 }, data: { label: "after" } },
+              },
+            },
+          },
+        },
+      }),
+    expectReject: true,
+    expectedError: UPDATE_MEMBERSHIP_ERROR,
+    expected: {
+      containers: [{ id: 10 }, { id: 20 }],
+      nodes: [
+        {
+          id: 1,
+          label: "one",
+          containerId: 10,
+          parentId: 9,
+          partnerId: null,
+        },
+        {
+          id: 9,
+          label: "root",
+          containerId: 10,
+          parentId: null,
+          partnerId: null,
+        },
+      ],
+    },
+  },
+  {
+    name: "non-self nested FK rebind allows a disjoint inverse holder",
+    seed: async (client) => {
+      await client.container.create({ data: { id: 10 } });
+      await client.container.create({ data: { id: 20 } });
+      await client.node.create({
+        data: { id: 9, label: "root", containerId: 10 },
+      });
+      await client.node.create({
+        data: { id: 1, label: "one", containerId: 10, parentId: 9 },
+      });
+      await client.node.create({
+        data: { id: 3, label: "three", containerId: 10 },
+      });
+    },
+    act: (client) =>
+      client.node.update({
+        where: { id: 9 },
+        data: {
+          children: {
+            update: { where: { id: 1 }, data: { containerId: 20 } },
+          },
+          container: {
+            update: {
+              nodes: {
+                update: { where: { id: 3 }, data: { label: "after" } },
+              },
+            },
+          },
+        },
+      }),
+    expected: {
+      containers: [{ id: 10 }, { id: 20 }],
+      nodes: [
+        {
+          id: 1,
+          label: "one",
+          containerId: 20,
+          parentId: 9,
+          partnerId: null,
+        },
+        {
+          id: 3,
+          label: "after",
+          containerId: 10,
+          parentId: null,
+          partnerId: null,
+        },
+        {
+          id: 9,
+          label: "root",
+          containerId: 10,
+          parentId: null,
+          partnerId: null,
+        },
+      ],
+    },
+  },
+  {
+    name: "non-self child-holds cascade keeps membership through a key transition",
+    seed: async (client) => {
+      await client.container.create({ data: { id: 10 } });
+      await client.node.create({
+        data: { id: 1, label: "before", containerId: 10 },
+      });
+    },
+    act: (client) =>
+      client.container.update({
+        where: { id: 10 },
+        data: {
+          id: 11,
+          nodes: {
+            update: { where: { id: 1 }, data: { label: "after" } },
+          },
+        },
+      }),
+    expected: {
+      containers: [{ id: 11 }],
+      nodes: [
+        {
+          id: 1,
+          label: "after",
+          containerId: 11,
+          parentId: null,
+          partnerId: null,
+        },
+      ],
+    },
+  },
+];
+
+// ---------------------------------------------------------------------------
+// Group 6: same-relation own-write decisions over numeric identities. Unequal
+// integers are the portable disjoint control; overlapping or unknown target /
+// membership dependencies reject before either execution mode writes.
+// ---------------------------------------------------------------------------
+
+type NumericDependencySchema = typeof numericDependencySchema;
+
+async function dumpNumericDependency(
+  client: SchemaClient<NumericDependencySchema>
+): Promise<PersistedState> {
+  const [owners, items, profiles] = await Promise.all([
+    client.owner.findMany({ orderBy: { id: "asc" } }),
+    client.item.findMany({ orderBy: { id: "asc" } }),
+    client.profile.findMany({ orderBy: { id: "asc" } }),
+  ]);
+  return { owners, items, profiles };
+}
+
+const OWN_WRITE_ERROR = "depends on an earlier";
+
+const numericDependencyScenarios: Scenario<NumericDependencySchema>[] = [
+  {
+    name: "create then overlapping update rejects before effects",
+    seed: (client) => client.owner.create({ data: { id: 1, name: "Owner" } }),
+    act: (client) =>
+      client.owner.update({
+        where: { id: 1 },
+        data: {
+          items: {
+            create: { id: 1, label: "created" },
+            update: { where: { id: 1 }, data: { label: "updated" } },
+          },
+        },
+      }),
+    expectReject: true,
+    expectedError: OWN_WRITE_ERROR,
+    expected: {
+      owners: [{ id: 1, name: "Owner" }],
+      items: [],
+      profiles: [],
+    },
+  },
+  {
+    name: "create then disjoint numeric update is allowed",
+    seed: async (client) => {
+      await client.owner.create({ data: { id: 1, name: "Owner" } });
+      await client.item.create({
+        data: { id: 1, label: "before", ownerId: 1 },
+      });
+    },
+    act: (client) =>
+      client.owner.update({
+        where: { id: 1 },
+        data: {
+          items: {
+            create: { id: 2, label: "created" },
+            update: { where: { id: 1 }, data: { label: "after" } },
+          },
+        },
+      }),
+    expected: {
+      owners: [{ id: 1, name: "Owner" }],
+      items: [
+        { id: 1, label: "after", ownerId: 1 },
+        { id: 2, label: "created", ownerId: 1 },
+      ],
+      profiles: [],
+    },
+  },
+  {
+    name: "connect then overlapping update rejects",
+    seed: async (client) => {
+      await client.owner.create({ data: { id: 1, name: "Owner" } });
+      await client.item.create({
+        data: { id: 1, label: "free", ownerId: null },
+      });
+    },
+    act: (client) =>
+      client.owner.update({
+        where: { id: 1 },
+        data: {
+          items: {
+            connect: { id: 1 },
+            update: { where: { id: 1 }, data: { label: "changed" } },
+          },
+        },
+      }),
+    expectReject: true,
+    expectedError: OWN_WRITE_ERROR,
+    expected: {
+      owners: [{ id: 1, name: "Owner" }],
+      items: [{ id: 1, label: "free", ownerId: null }],
+      profiles: [],
+    },
+  },
+  {
+    name: "connect then overlapping upsert rejects",
+    seed: async (client) => {
+      await client.owner.create({ data: { id: 1, name: "Owner" } });
+      await client.item.create({
+        data: { id: 1, label: "free", ownerId: null },
+      });
+    },
+    act: (client) =>
+      client.owner.update({
+        where: { id: 1 },
+        data: {
+          items: {
+            connect: { id: 1 },
+            upsert: {
+              where: { id: 1 },
+              create: { id: 1, label: "created" },
+              update: { label: "updated" },
+            },
+          },
+        },
+      }),
+    expectReject: true,
+    expectedError: OWN_WRITE_ERROR,
+    expected: {
+      owners: [{ id: 1, name: "Owner" }],
+      items: [{ id: 1, label: "free", ownerId: null }],
+      profiles: [],
+    },
+  },
+  {
+    name: "disconnect then to-one upsert rejects",
+    seed: async (client) => {
+      await client.owner.create({ data: { id: 1, name: "Owner" } });
+      await client.profile.create({
+        data: { id: 1, bio: "before", ownerId: 1 },
+      });
+    },
+    act: (client) =>
+      client.owner.update({
+        where: { id: 1 },
+        data: {
+          profile: {
+            disconnect: true,
+            upsert: {
+              create: { id: 2, bio: "created" },
+              update: { bio: "updated" },
+            },
+          },
+        },
+      }),
+    expectReject: true,
+    expectedError: OWN_WRITE_ERROR,
+    expected: {
+      owners: [{ id: 1, name: "Owner" }],
+      items: [],
+      profiles: [{ id: 1, bio: "before", ownerId: 1 }],
+    },
+  },
+  {
+    name: "delete then to-one upsert rejects",
+    seed: async (client) => {
+      await client.owner.create({ data: { id: 1, name: "Owner" } });
+      await client.profile.create({
+        data: { id: 1, bio: "before", ownerId: 1 },
+      });
+    },
+    act: (client) =>
+      client.owner.update({
+        where: { id: 1 },
+        data: {
+          profile: {
+            delete: true,
+            upsert: {
+              create: { id: 2, bio: "created" },
+              update: { bio: "updated" },
+            },
+          },
+        },
+      }),
+    expectReject: true,
+    expectedError: OWN_WRITE_ERROR,
+    expected: {
+      owners: [{ id: 1, name: "Owner" }],
+      items: [],
+      profiles: [{ id: 1, bio: "before", ownerId: 1 }],
+    },
+  },
+  {
+    name: "delete then overlapping set rejects",
+    seed: async (client) => {
+      await client.owner.create({ data: { id: 1, name: "Owner" } });
+      await client.item.create({
+        data: { id: 1, label: "before", ownerId: 1 },
+      });
+    },
+    act: (client) =>
+      client.owner.update({
+        where: { id: 1 },
+        data: { items: { delete: { id: 1 }, set: [{ id: 1 }] } },
+      }),
+    expectReject: true,
+    expectedError: OWN_WRITE_ERROR,
+    expected: {
+      owners: [{ id: 1, name: "Owner" }],
+      items: [{ id: 1, label: "before", ownerId: 1 }],
+      profiles: [],
+    },
+  },
+  {
+    name: "overlapping update array rejects",
+    seed: async (client) => {
+      await client.owner.create({ data: { id: 1, name: "Owner" } });
+      await client.item.create({
+        data: { id: 1, label: "before", ownerId: 1 },
+      });
+    },
+    act: (client) =>
+      client.owner.update({
+        where: { id: 1 },
+        data: {
+          items: {
+            update: [
+              { where: { id: 1 }, data: { label: "first" } },
+              { where: { id: 1 }, data: { label: "second" } },
+            ],
+          },
+        },
+      }),
+    expectReject: true,
+    expectedError: OWN_WRITE_ERROR,
+    expected: {
+      owners: [{ id: 1, name: "Owner" }],
+      items: [{ id: 1, label: "before", ownerId: 1 }],
+      profiles: [],
+    },
+  },
+  {
+    name: "disjoint numeric update array is allowed",
+    seed: async (client) => {
+      await client.owner.create({ data: { id: 1, name: "Owner" } });
+      await client.item.create({ data: { id: 1, label: "a", ownerId: 1 } });
+      await client.item.create({ data: { id: 2, label: "b", ownerId: 1 } });
+    },
+    act: (client) =>
+      client.owner.update({
+        where: { id: 1 },
+        data: {
+          items: {
+            update: [
+              { where: { id: 1 }, data: { label: "one" } },
+              { where: { id: 2 }, data: { label: "two" } },
+            ],
+          },
+        },
+      }),
+    expected: {
+      owners: [{ id: 1, name: "Owner" }],
+      items: [
+        { id: 1, label: "one", ownerId: 1 },
+        { id: 2, label: "two", ownerId: 1 },
+      ],
+      profiles: [],
+    },
+  },
+  {
+    name: "overlapping upsert array rejects",
+    seed: async (client) => {
+      await client.owner.create({ data: { id: 1, name: "Owner" } });
+      await client.item.create({
+        data: { id: 1, label: "before", ownerId: 1 },
+      });
+    },
+    act: (client) =>
+      client.owner.update({
+        where: { id: 1 },
+        data: {
+          items: {
+            upsert: [
+              {
+                where: { id: 1 },
+                create: { id: 1, label: "create-1" },
+                update: { label: "first" },
+              },
+              {
+                where: { id: 1 },
+                create: { id: 1, label: "create-2" },
+                update: { label: "second" },
+              },
+            ],
+          },
+        },
+      }),
+    expectReject: true,
+    expectedError: OWN_WRITE_ERROR,
+    expected: {
+      owners: [{ id: 1, name: "Owner" }],
+      items: [{ id: 1, label: "before", ownerId: 1 }],
+      profiles: [],
+    },
+  },
+  {
+    name: "disjoint numeric upsert array is allowed",
+    seed: (client) => client.owner.create({ data: { id: 1, name: "Owner" } }),
+    act: (client) =>
+      client.owner.update({
+        where: { id: 1 },
+        data: {
+          items: {
+            upsert: [
+              {
+                where: { id: 1 },
+                create: { id: 1, label: "one" },
+                update: { label: "updated-one" },
+              },
+              {
+                where: { id: 2 },
+                create: { id: 2, label: "two" },
+                update: { label: "updated-two" },
+              },
+            ],
+          },
+        },
+      }),
+    expected: {
+      owners: [{ id: 1, name: "Owner" }],
+      items: [
+        { id: 1, label: "one", ownerId: 1 },
+        { id: 2, label: "two", ownerId: 1 },
+      ],
+      profiles: [],
+    },
+  },
+  {
+    name: "to-one update slot mutation then upsert rejects",
+    seed: async (client) => {
+      await client.owner.create({ data: { id: 1, name: "Owner" } });
+      await client.profile.create({
+        data: { id: 1, bio: "before", ownerId: 1 },
+      });
+    },
+    act: (client) =>
+      client.owner.update({
+        where: { id: 1 },
+        data: {
+          profile: {
+            update: { ownerId: null },
+            upsert: {
+              create: { id: 2, bio: "created" },
+              update: { bio: "updated" },
+            },
+          },
+        },
+      }),
+    expectReject: true,
+    expectedError: "depends on an earlier 'update' membership write",
+    expected: {
+      owners: [{ id: 1, name: "Owner" }],
+      items: [],
+      profiles: [{ id: 1, bio: "before", ownerId: 1 }],
+    },
+  },
+  {
+    name: "updateMany then upsert rejects unknown prior writes",
+    seed: async (client) => {
+      await client.owner.create({ data: { id: 1, name: "Owner" } });
+      await client.item.create({
+        data: { id: 1, label: "before", ownerId: 1 },
+      });
+    },
+    act: (client) =>
+      client.owner.update({
+        where: { id: 1 },
+        data: {
+          items: {
+            updateMany: { where: { id: 1 }, data: { label: "changed" } },
+            upsert: {
+              where: { id: 1 },
+              create: { id: 1, label: "created" },
+              update: { label: "updated" },
+            },
+          },
+        },
+      }),
+    expectReject: true,
+    expectedError: "depends on an earlier 'updateMany' target write",
+    expected: {
+      owners: [{ id: 1, name: "Owner" }],
+      items: [{ id: 1, label: "before", ownerId: 1 }],
+      profiles: [],
+    },
+  },
+  {
+    name: "deleteMany then upsert rejects unknown prior writes",
+    seed: async (client) => {
+      await client.owner.create({ data: { id: 1, name: "Owner" } });
+      await client.item.create({
+        data: { id: 1, label: "before", ownerId: 1 },
+      });
+    },
+    act: (client) =>
+      client.owner.update({
+        where: { id: 1 },
+        data: {
+          items: {
+            deleteMany: { id: 1 },
+            upsert: {
+              where: { id: 1 },
+              create: { id: 1, label: "created" },
+              update: { label: "updated" },
+            },
+          },
+        },
+      }),
+    expectReject: true,
+    expectedError: "depends on an earlier 'deleteMany' target write",
+    expected: {
+      owners: [{ id: 1, name: "Owner" }],
+      items: [{ id: 1, label: "before", ownerId: 1 }],
+      profiles: [],
+    },
+  },
+];
+
+// ---------------------------------------------------------------------------
+// Group 7: cross-relation target-row dependencies. Target writes flow across
+// sibling relation fields when they address the same model; membership stays
+// local to the physical relation.
+// ---------------------------------------------------------------------------
+
+type CrossRelationTargetSchema = typeof crossRelationTargetSchema;
+
+async function dumpCrossRelationTarget(
+  client: SchemaClient<CrossRelationTargetSchema>
+): Promise<PersistedState> {
+  const [accounts, records] = await Promise.all([
+    client.account.findMany({ orderBy: { id: "asc" } }),
+    client.record.findMany({ orderBy: { id: "asc" } }),
+  ]);
+  return { accounts, records };
+}
+
+const crossRelationTargetScenarios: Scenario<CrossRelationTargetSchema>[] = [
+  {
+    name: "parent-holds create then connect on one relation rejects in update",
+    seed: (client) =>
+      client.record.create({
+        data: { id: 1, primaryId: null, secondaryId: null },
+      }),
+    act: (client) =>
+      client.record.update({
+        where: { id: 1 },
+        data: {
+          primary: {
+            create: { id: 2, label: "created" },
+            connect: { id: 2 },
+          },
+        },
+      }),
+    expectReject: true,
+    expectedError: "depends on an earlier 'create' target write",
+    expected: {
+      accounts: [],
+      records: [{ id: 1, primaryId: null, secondaryId: null }],
+    },
+  },
+  {
+    name: "sibling create then parent-holds connect rejects same target",
+    seed: (client) =>
+      client.record.create({
+        data: { id: 1, primaryId: null, secondaryId: null },
+      }),
+    act: (client) =>
+      client.record.update({
+        where: { id: 1 },
+        data: {
+          primary: { create: { id: 2, label: "created" } },
+          secondary: { connect: { id: 2 } },
+        },
+      }),
+    expectReject: true,
+    expectedError: "depends on an earlier 'create' target write",
+    expected: {
+      accounts: [],
+      records: [{ id: 1, primaryId: null, secondaryId: null }],
+    },
+  },
+  {
+    name: "sibling create and disjoint numeric connect are allowed",
+    seed: async (client) => {
+      await client.account.create({ data: { id: 1, label: "existing" } });
+      await client.record.create({
+        data: { id: 1, primaryId: null, secondaryId: null },
+      });
+    },
+    act: (client) =>
+      client.record.update({
+        where: { id: 1 },
+        data: {
+          primary: { create: { id: 2, label: "created" } },
+          secondary: { connect: { id: 1 } },
+        },
+      }),
+    expected: {
+      accounts: [
+        { id: 1, label: "existing" },
+        { id: 2, label: "created" },
+      ],
+      records: [{ id: 1, primaryId: 2, secondaryId: 1 }],
+    },
+  },
+  {
+    name: "create-family sibling create then connect observes the earlier insert",
+    act: (client) =>
+      client.record.create({
+        data: {
+          id: 1,
+          primary: { create: { id: 2, label: "created" } },
+          secondary: { connect: { id: 2 } },
+        },
+      }),
+    expected: {
+      accounts: [{ id: 2, label: "created" }],
+      records: [{ id: 1, primaryId: 2, secondaryId: 2 }],
+    },
+  },
+];
+
+type NamedM2mSchema = typeof manyToManySchema;
+
+async function dumpNamedM2m(
+  client: SchemaClient<NamedM2mSchema>
+): Promise<PersistedState> {
+  const [alphas, betas] = await Promise.all([
+    client.alpha.findMany({
+      orderBy: { id: "asc" },
+      include: {
+        likes: { orderBy: { id: "asc" } },
+        stars: { orderBy: { id: "asc" } },
+      },
+    }),
+    client.beta.findMany({ orderBy: { id: "asc" } }),
+  ]);
+  return { alphas, betas };
+}
+
+const namedM2mTargetScenarios: Scenario<NamedM2mSchema>[] = [
+  {
+    name: "named likes create then stars connectOrCreate rejects target dependency",
+    seed: (client) => client.alpha.create({ data: { id: "a1" } }),
+    act: (client) =>
+      client.alpha.update({
+        where: { id: "a1" },
+        data: {
+          likes: { create: { id: "b1" } },
+          stars: {
+            connectOrCreate: {
+              where: { id: "b1" },
+              create: { id: "b1" },
+            },
+          },
+        },
+      }),
+    expectReject: true,
+    expectedError: "depends on an earlier 'create' target write",
+    expected: {
+      alphas: [{ id: "a1", likes: [], stars: [] }],
+      betas: [],
+    },
+  },
+  {
+    name: "named likes membership does not taint distinct stars membership",
+    seed: async (client) => {
+      await client.alpha.create({ data: { id: "a1" } });
+      await client.beta.create({ data: { id: "b1" } });
+    },
+    act: (client) =>
+      client.alpha.update({
+        where: { id: "a1" },
+        data: {
+          likes: { connect: { id: "b1" } },
+          stars: { set: [{ id: "b1" }] },
+        },
+      }),
+    expected: {
+      alphas: [
+        {
+          id: "a1",
+          likes: [{ id: "b1" }],
+          stars: [{ id: "b1" }],
+        },
+      ],
+      betas: [{ id: "b1" }],
+    },
+  },
+];
+
+// ---------------------------------------------------------------------------
+// Group 8: cross-step dependency. Within one relation, a create and a
+// connectOrCreate for the SAME key across two steps are rejected uniformly
+// before either mode writes. Planned mode cannot observe the earlier create
+// while resolving the later branch, so accepting the shape would make the
+// public result substrate-dependent.
 // ---------------------------------------------------------------------------
 
 const CROSS_STEP_EMPTY: PersistedState = {
@@ -2021,7 +4381,9 @@ const CROSS_STEP_EMPTY: PersistedState = {
 
 const crossStepScenarios: Scenario<NestedWriteSchema>[] = [
   {
-    name: "cross-step: create then connectOrCreate the same key (design-sanctioned tx-vs-batch asymmetry)",
+    name: "cross-step: create then connectOrCreate the same key rejects uniformly",
+    expectedError:
+      "depends on an earlier 'create' target write in the same nested write",
     seed: (client) => client.user.create({ data: { id: "u1", name: "Owner" } }),
     act: (client) =>
       client.user.update({
@@ -2036,32 +4398,1484 @@ const crossStepScenarios: Scenario<NestedWriteSchema>[] = [
           },
         },
       }),
-    // Unused (asymmetric path) but required by the Scenario shape; kept as the
-    // transaction (live) end state for documentation.
-    expected: {
-      users: [{ id: "u1", name: "Owner" }],
-      posts: [{ id: "po-shared", title: "Created first", userId: "u1" }],
-      profiles: [],
-      tags: [],
-      postTags: [],
-    },
-    asymmetric: {
-      reason:
-        "§6.2.3 residual cross-step dependency: live observes its own write and connects; planned resolves the probe against committed state and fails closed.",
-      transaction: {
-        reject: false,
-        state: {
-          users: [{ id: "u1", name: "Owner" }],
-          posts: [{ id: "po-shared", title: "Created first", userId: "u1" }],
-          profiles: [],
-          tags: [],
-          postTags: [],
-        },
+    expectReject: true,
+    expected: CROSS_STEP_EMPTY,
+  },
+];
+
+type TransitiveTargetDependencySchema = typeof transitiveTargetDependencySchema;
+
+async function dumpTransitiveTargetDependency(
+  client: SchemaClient<TransitiveTargetDependencySchema>
+): Promise<PersistedState> {
+  const [workspaces, projects, tags] = await Promise.all([
+    client.workspace.findMany({
+      orderBy: { id: "asc" },
+      include: {
+        projects: { orderBy: { id: "asc" } },
+        tags: { orderBy: { id: "asc" } },
       },
-      batch: { reject: true, state: CROSS_STEP_EMPTY },
+    }),
+    client.project.findMany({
+      orderBy: { id: "asc" },
+      include: { tags: { orderBy: { id: "asc" } } },
+    }),
+    client.tag.findMany({ orderBy: { id: "asc" } }),
+  ]);
+  return { workspaces, projects, tags };
+}
+
+const TRANSITIVE_TARGET_SEED: PersistedState = {
+  workspaces: [{ id: 1, projects: [{ id: 1 }], tags: [] }],
+  projects: [{ id: 1, tags: [] }],
+  tags: [],
+};
+
+const transitiveTargetDependencyScenarios: Scenario<TransitiveTargetDependencySchema>[] =
+  [
+    {
+      name: "nested create then later root connectOrCreate rejects",
+      seed: (client) =>
+        client.workspace.create({
+          data: { id: 1, projects: { create: { id: 1 } } },
+        }),
+      act: (client) =>
+        client.workspace.update({
+          where: { id: 1 },
+          data: {
+            projects: {
+              update: {
+                where: { id: 1 },
+                data: { tags: { create: { id: 100 } } },
+              },
+            },
+            tags: {
+              connectOrCreate: {
+                where: { id: 100 },
+                create: { id: 100 },
+              },
+            },
+          },
+        }),
+      expectReject: true,
+      expectedError: "depends on an earlier 'create' target write",
+      expected: TRANSITIVE_TARGET_SEED,
+    },
+    {
+      name: "nested create and disjoint later root connectOrCreate succeed",
+      seed: (client) =>
+        client.workspace.create({
+          data: { id: 1, projects: { create: { id: 1 } } },
+        }),
+      act: (client) =>
+        client.workspace.update({
+          where: { id: 1 },
+          data: {
+            projects: {
+              update: {
+                where: { id: 1 },
+                data: { tags: { create: { id: 100 } } },
+              },
+            },
+            tags: {
+              connectOrCreate: {
+                where: { id: 101 },
+                create: { id: 101 },
+              },
+            },
+          },
+        }),
+      expected: {
+        workspaces: [{ id: 1, projects: [{ id: 1 }], tags: [{ id: 101 }] }],
+        projects: [{ id: 1, tags: [{ id: 100 }] }],
+        tags: [{ id: 100 }, { id: 101 }],
+      },
+    },
+    {
+      name: "outer create then nested connectOrCreate rejects",
+      seed: (client) =>
+        client.workspace.create({
+          data: { id: 1, projects: { create: { id: 1 } } },
+        }),
+      act: (client) =>
+        client.workspace.update({
+          where: { id: 1 },
+          data: {
+            tags: { create: { id: 100 } },
+            projects: {
+              update: {
+                where: { id: 1 },
+                data: {
+                  tags: {
+                    connectOrCreate: {
+                      where: { id: 100 },
+                      create: { id: 100 },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        }),
+      expectReject: true,
+      expectedError: "depends on an earlier 'create' target write",
+      expected: TRANSITIVE_TARGET_SEED,
+    },
+    {
+      name: "outer create and disjoint nested connectOrCreate succeed",
+      seed: (client) =>
+        client.workspace.create({
+          data: { id: 1, projects: { create: { id: 1 } } },
+        }),
+      act: (client) =>
+        client.workspace.update({
+          where: { id: 1 },
+          data: {
+            tags: { create: { id: 100 } },
+            projects: {
+              update: {
+                where: { id: 1 },
+                data: {
+                  tags: {
+                    connectOrCreate: {
+                      where: { id: 101 },
+                      create: { id: 101 },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        }),
+      expected: {
+        workspaces: [{ id: 1, projects: [{ id: 1 }], tags: [{ id: 100 }] }],
+        projects: [{ id: 1, tags: [{ id: 101 }] }],
+        tags: [{ id: 100 }, { id: 101 }],
+      },
+    },
+    {
+      name: "connectOrCreate payload keeps its fresh local dependency gate",
+      seed: (client) => client.workspace.create({ data: { id: 1 } }),
+      act: (client) =>
+        client.workspace.update({
+          where: { id: 1 },
+          data: {
+            projects: {
+              connectOrCreate: {
+                where: { id: 1 },
+                create: {
+                  id: 1,
+                  tags: {
+                    create: { id: 100 },
+                    connectOrCreate: {
+                      where: { id: 100 },
+                      create: { id: 100 },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        }),
+      expectReject: true,
+      expectedError: "depends on an earlier 'create' target write",
+      expected: {
+        workspaces: [{ id: 1, projects: [], tags: [] }],
+        projects: [],
+        tags: [],
+      },
+    },
+    {
+      name: "upsert alternatives keep their fresh local dependency gates",
+      seed: (client) => client.workspace.create({ data: { id: 1 } }),
+      act: (client) =>
+        client.workspace.update({
+          where: { id: 1 },
+          data: {
+            projects: {
+              upsert: {
+                where: { id: 1 },
+                create: {
+                  id: 1,
+                  tags: {
+                    create: { id: 100 },
+                    connectOrCreate: {
+                      where: { id: 100 },
+                      create: { id: 100 },
+                    },
+                  },
+                },
+                update: {},
+              },
+            },
+          },
+        }),
+      expectReject: true,
+      expectedError: "depends on an earlier 'create' target write",
+      expected: {
+        workspaces: [{ id: 1, projects: [], tags: [] }],
+        projects: [],
+        tags: [],
+      },
+    },
+    {
+      name: "selected top-level upsert create branch gets inherited traversal",
+      act: (client) =>
+        client.workspace.upsert({
+          where: { id: 1 },
+          create: {
+            id: 1,
+            projects: {
+              create: {
+                id: 1,
+                tags: { create: { id: 100 } },
+              },
+            },
+            tags: {
+              connectOrCreate: {
+                where: { id: 100 },
+                create: { id: 100 },
+              },
+            },
+          },
+          update: {},
+        }),
+      expectReject: true,
+      expectedError: "depends on an earlier 'create' target write",
+      expected: { workspaces: [], projects: [], tags: [] },
+    },
+    {
+      name: "selected top-level upsert update branch gets inherited traversal",
+      seed: (client) =>
+        client.workspace.create({
+          data: { id: 1, projects: { create: { id: 1 } } },
+        }),
+      act: (client) =>
+        client.workspace.upsert({
+          where: { id: 1 },
+          create: { id: 1 },
+          update: {
+            projects: {
+              update: {
+                where: { id: 1 },
+                data: { tags: { create: { id: 100 } } },
+              },
+            },
+            tags: {
+              connectOrCreate: {
+                where: { id: 100 },
+                create: { id: 100 },
+              },
+            },
+          },
+        }),
+      expectReject: true,
+      expectedError: "depends on an earlier 'create' target write",
+      expected: TRANSITIVE_TARGET_SEED,
+    },
+  ];
+
+const alternativeBranchDependencyScenarios: Scenario<TransitiveTargetDependencySchema>[] =
+  [
+    {
+      name: "upsert alternatives may repeat a nested connectOrCreate key when the target exists",
+      seed: (client) =>
+        client.workspace.create({
+          data: { id: 1, projects: { create: { id: 1 } } },
+        }),
+      act: (client) =>
+        client.workspace.update({
+          where: { id: 1 },
+          data: {
+            projects: {
+              upsert: {
+                where: { id: 1 },
+                create: {
+                  id: 1,
+                  tags: {
+                    connectOrCreate: {
+                      where: { id: 100 },
+                      create: { id: 100 },
+                    },
+                  },
+                },
+                update: {
+                  tags: {
+                    connectOrCreate: {
+                      where: { id: 100 },
+                      create: { id: 100 },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        }),
+      expected: {
+        workspaces: [{ id: 1, projects: [{ id: 1 }], tags: [] }],
+        projects: [{ id: 1, tags: [{ id: 100 }] }],
+        tags: [{ id: 100 }],
+      },
+    },
+    {
+      name: "upsert alternatives may repeat a nested connectOrCreate key when the target is missing",
+      seed: (client) => client.workspace.create({ data: { id: 1 } }),
+      act: (client) =>
+        client.workspace.update({
+          where: { id: 1 },
+          data: {
+            projects: {
+              upsert: {
+                where: { id: 1 },
+                create: {
+                  id: 1,
+                  tags: {
+                    connectOrCreate: {
+                      where: { id: 100 },
+                      create: { id: 100 },
+                    },
+                  },
+                },
+                update: {
+                  tags: {
+                    connectOrCreate: {
+                      where: { id: 100 },
+                      create: { id: 100 },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        }),
+      expected: {
+        workspaces: [{ id: 1, projects: [{ id: 1 }], tags: [] }],
+        projects: [{ id: 1, tags: [{ id: 100 }] }],
+        tags: [{ id: 100 }],
+      },
+    },
+    {
+      name: "an upsert update alternative keeps its own dependency gate",
+      seed: (client) =>
+        client.workspace.create({
+          data: { id: 1, projects: { create: { id: 1 } } },
+        }),
+      act: (client) =>
+        client.workspace.update({
+          where: { id: 1 },
+          data: {
+            projects: {
+              upsert: {
+                where: { id: 1 },
+                create: { id: 1 },
+                update: {
+                  tags: {
+                    create: { id: 100 },
+                    connectOrCreate: {
+                      where: { id: 100 },
+                      create: { id: 100 },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        }),
+      expectReject: true,
+      expectedError: "depends on an earlier 'create' target write",
+      expected: TRANSITIVE_TARGET_SEED,
+    },
+    {
+      name: "a connectOrCreate create alternative inherits earlier sibling writes",
+      seed: (client) =>
+        client.workspace.create({
+          data: { id: 1, projects: { create: { id: 1 } } },
+        }),
+      act: (client) =>
+        client.workspace.update({
+          where: { id: 1 },
+          data: {
+            tags: { create: { id: 100 } },
+            projects: {
+              connectOrCreate: {
+                where: { id: 1 },
+                create: {
+                  id: 1,
+                  tags: {
+                    connectOrCreate: {
+                      where: { id: 100 },
+                      create: { id: 100 },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        }),
+      expectReject: true,
+      expectedError: "depends on an earlier 'create' target write",
+      expected: TRANSITIVE_TARGET_SEED,
+    },
+    {
+      name: "a later sibling sees writes from a connectOrCreate create alternative",
+      seed: (client) =>
+        client.workspace.create({
+          data: { id: 1, projects: { create: { id: 1 } } },
+        }),
+      act: (client) =>
+        client.workspace.update({
+          where: { id: 1 },
+          data: {
+            projects: {
+              connectOrCreate: {
+                where: { id: 1 },
+                create: {
+                  id: 1,
+                  tags: { create: { id: 100 } },
+                },
+              },
+            },
+            tags: {
+              connectOrCreate: {
+                where: { id: 100 },
+                create: { id: 100 },
+              },
+            },
+          },
+        }),
+      expectReject: true,
+      expectedError: "depends on an earlier 'create' target write",
+      expected: TRANSITIVE_TARGET_SEED,
+    },
+    {
+      name: "a later sibling sees writes from an upsert create alternative",
+      seed: (client) =>
+        client.workspace.create({
+          data: { id: 1, projects: { create: { id: 1 } } },
+        }),
+      act: (client) =>
+        client.workspace.update({
+          where: { id: 1 },
+          data: {
+            projects: {
+              upsert: {
+                where: { id: 1 },
+                create: {
+                  id: 1,
+                  tags: { create: { id: 100 } },
+                },
+                update: {},
+              },
+            },
+            tags: {
+              connectOrCreate: {
+                where: { id: 100 },
+                create: { id: 100 },
+              },
+            },
+          },
+        }),
+      expectReject: true,
+      expectedError: "depends on an earlier 'create' target write",
+      expected: TRANSITIVE_TARGET_SEED,
+    },
+    {
+      name: "a later sibling sees writes from an upsert update alternative",
+      seed: (client) => client.workspace.create({ data: { id: 1 } }),
+      act: (client) =>
+        client.workspace.update({
+          where: { id: 1 },
+          data: {
+            projects: {
+              upsert: {
+                where: { id: 1 },
+                create: { id: 1 },
+                update: { tags: { create: { id: 100 } } },
+              },
+            },
+            tags: {
+              connectOrCreate: {
+                where: { id: 100 },
+                create: { id: 100 },
+              },
+            },
+          },
+        }),
+      expectReject: true,
+      expectedError: "depends on an earlier 'create' target write",
+      expected: {
+        workspaces: [{ id: 1, projects: [], tags: [] }],
+        projects: [],
+        tags: [],
+      },
+    },
+    {
+      name: "merged alternative writes allow a numerically disjoint later sibling",
+      seed: (client) =>
+        client.workspace.create({
+          data: { id: 1, projects: { create: { id: 1 } } },
+        }),
+      act: (client) =>
+        client.workspace.update({
+          where: { id: 1 },
+          data: {
+            projects: {
+              upsert: {
+                where: { id: 1 },
+                create: {
+                  id: 1,
+                  tags: { create: { id: 100 } },
+                },
+                update: { tags: { create: { id: 101 } } },
+              },
+            },
+            tags: {
+              connectOrCreate: {
+                where: { id: 102 },
+                create: { id: 102 },
+              },
+            },
+          },
+        }),
+      expected: {
+        workspaces: [{ id: 1, projects: [{ id: 1 }], tags: [{ id: 102 }] }],
+        projects: [{ id: 1, tags: [{ id: 101 }] }],
+        tags: [{ id: 101 }, { id: 102 }],
+      },
+    },
+    {
+      name: "upsert array merges a mismatched create identity before the next input",
+      seed: (client) => client.workspace.create({ data: { id: 1 } }),
+      act: (client) =>
+        client.workspace.update({
+          where: { id: 1 },
+          data: {
+            projects: {
+              upsert: [
+                {
+                  where: { id: 100 },
+                  create: { id: 101 },
+                  update: {},
+                },
+                {
+                  where: { id: 101 },
+                  create: { id: 102 },
+                  update: {},
+                },
+              ],
+            },
+          },
+        }),
+      expectReject: true,
+      expectedError: "depends on an earlier 'upsert' target write",
+      expected: {
+        workspaces: [{ id: 1, projects: [], tags: [] }],
+        projects: [],
+        tags: [],
+      },
+    },
+    {
+      name: "upsert array keeps the found branch membership on its selector",
+      seed: (client) =>
+        client.workspace.create({
+          data: { id: 1, projects: { create: { id: 100 } } },
+        }),
+      act: (client) =>
+        client.workspace.update({
+          where: { id: 1 },
+          data: {
+            projects: {
+              upsert: [
+                {
+                  where: { id: 100 },
+                  create: { id: 101 },
+                  update: {},
+                },
+                {
+                  where: { id: 100 },
+                  create: { id: 102 },
+                  update: {},
+                },
+              ],
+            },
+          },
+        }),
+      expectReject: true,
+      expectedError: "depends on an earlier 'upsert' membership write",
+      expected: {
+        workspaces: [{ id: 1, projects: [{ id: 100 }], tags: [] }],
+        projects: [{ id: 100, tags: [] }],
+        tags: [],
+      },
+    },
+  ];
+
+async function dumpDeepTransitiveTargetDependency(
+  client: SchemaClient<TransitiveTargetDependencySchema>
+): Promise<PersistedState> {
+  const [workspaces, projects, components, tags] = await Promise.all([
+    client.workspace.findMany({
+      orderBy: { id: "asc" },
+      include: {
+        projects: { orderBy: { id: "asc" } },
+        tags: { orderBy: { id: "asc" } },
+      },
+    }),
+    client.project.findMany({
+      orderBy: { id: "asc" },
+      include: { components: { orderBy: { id: "asc" } } },
+    }),
+    client.component.findMany({
+      orderBy: { id: "asc" },
+      include: { tags: { orderBy: { id: "asc" } } },
+    }),
+    client.tag.findMany({ orderBy: { id: "asc" } }),
+  ]);
+  return { workspaces, projects, components, tags };
+}
+
+const DEEP_TRANSITIVE_TARGET_SEED: PersistedState = {
+  workspaces: [{ id: 1, projects: [{ id: 1 }], tags: [] }],
+  projects: [{ id: 1, components: [{ id: 1 }] }],
+  components: [{ id: 1, tags: [] }],
+  tags: [],
+};
+
+const deepTransitiveTargetScenarios: Scenario<TransitiveTargetDependencySchema>[] =
+  [
+    {
+      name: "deep nested update create then root decision rejects",
+      seed: (client) =>
+        client.workspace.create({
+          data: {
+            id: 1,
+            projects: {
+              create: { id: 1, components: { create: { id: 1 } } },
+            },
+          },
+        }),
+      act: (client) =>
+        client.workspace.update({
+          where: { id: 1 },
+          data: {
+            projects: {
+              update: {
+                where: { id: 1 },
+                data: {
+                  components: {
+                    update: {
+                      where: { id: 1 },
+                      data: { tags: { create: { id: 100 } } },
+                    },
+                  },
+                },
+              },
+            },
+            tags: {
+              connectOrCreate: {
+                where: { id: 100 },
+                create: { id: 100 },
+              },
+            },
+          },
+        }),
+      expectReject: true,
+      expectedError: "depends on an earlier 'create' target write",
+      expected: DEEP_TRANSITIVE_TARGET_SEED,
+    },
+    {
+      name: "deep nested update create and disjoint root decision succeed",
+      seed: (client) =>
+        client.workspace.create({
+          data: {
+            id: 1,
+            projects: {
+              create: { id: 1, components: { create: { id: 1 } } },
+            },
+          },
+        }),
+      act: (client) =>
+        client.workspace.update({
+          where: { id: 1 },
+          data: {
+            projects: {
+              update: {
+                where: { id: 1 },
+                data: {
+                  components: {
+                    update: {
+                      where: { id: 1 },
+                      data: { tags: { create: { id: 100 } } },
+                    },
+                  },
+                },
+              },
+            },
+            tags: {
+              connectOrCreate: {
+                where: { id: 101 },
+                create: { id: 101 },
+              },
+            },
+          },
+        }),
+      expected: {
+        workspaces: [{ id: 1, projects: [{ id: 1 }], tags: [{ id: 101 }] }],
+        projects: [{ id: 1, components: [{ id: 1 }] }],
+        components: [{ id: 1, tags: [{ id: 100 }] }],
+        tags: [{ id: 100 }, { id: 101 }],
+      },
+    },
+  ];
+
+type TransitiveCreateManySchema = typeof transitiveCreateManySchema;
+
+async function dumpTransitiveCreateMany(
+  client: SchemaClient<TransitiveCreateManySchema>
+): Promise<PersistedState> {
+  const [owners, cohorts, items] = await Promise.all([
+    client.owner.findMany({ orderBy: { id: "asc" } }),
+    client.cohort.findMany({ orderBy: { id: "asc" } }),
+    client.item.findMany({ orderBy: { id: "asc" } }),
+  ]);
+  return { owners, cohorts, items };
+}
+
+const transitiveCreateManyScenarios: Scenario<TransitiveCreateManySchema>[] = [
+  {
+    name: "nested createMany then later decision rejects",
+    seed: (client) =>
+      client.owner.create({
+        data: { id: 1, cohorts: { create: { id: 1 } } },
+      }),
+    act: (client) =>
+      client.owner.update({
+        where: { id: 1 },
+        data: {
+          cohorts: {
+            update: {
+              where: { id: 1 },
+              data: {
+                createdItems: { createMany: { data: [{ id: 100 }] } },
+              },
+            },
+          },
+          selectedItems: {
+            connectOrCreate: {
+              where: { id: 100 },
+              create: { id: 100 },
+            },
+          },
+        },
+      }),
+    expectReject: true,
+    expectedError: "depends on an earlier 'createMany' target write",
+    expected: {
+      owners: [{ id: 1 }],
+      cohorts: [{ id: 1, ownerId: 1 }],
+      items: [],
+    },
+  },
+  {
+    name: "nested createMany and disjoint later decision succeed",
+    seed: (client) =>
+      client.owner.create({
+        data: { id: 1, cohorts: { create: { id: 1 } } },
+      }),
+    act: (client) =>
+      client.owner.update({
+        where: { id: 1 },
+        data: {
+          cohorts: {
+            update: {
+              where: { id: 1 },
+              data: {
+                createdItems: { createMany: { data: [{ id: 100 }] } },
+              },
+            },
+          },
+          selectedItems: {
+            connectOrCreate: {
+              where: { id: 101 },
+              create: { id: 101 },
+            },
+          },
+        },
+      }),
+    expected: {
+      owners: [{ id: 1 }],
+      cohorts: [{ id: 1, ownerId: 1 }],
+      items: [
+        { id: 100, groupId: 1 },
+        { id: 101, groupId: null },
+      ],
     },
   },
 ];
+
+type TransitivePredicateDependencySchema =
+  typeof transitivePredicateDependencySchema;
+
+async function dumpTransitivePredicateDependency(
+  client: SchemaClient<TransitivePredicateDependencySchema>
+): Promise<PersistedState> {
+  const [workspaces, projects, tags] = await Promise.all([
+    client.workspace.findMany({
+      orderBy: { id: "asc" },
+      include: {
+        projects: { orderBy: { id: "asc" } },
+        tags: { orderBy: { id: "asc" } },
+      },
+    }),
+    client.project.findMany({
+      orderBy: { id: "asc" },
+      include: { tags: { orderBy: { id: "asc" } } },
+    }),
+    client.tag.findMany({ orderBy: { id: "asc" } }),
+  ]);
+  return {
+    workspaces: workspaces.map((workspace) => ({
+      id: workspace.id,
+      projectIds: workspace.projects.map((project) => project.id),
+      tagIds: workspace.tags.map((tag) => tag.id),
+    })),
+    projects: projects.map((project) => ({
+      id: project.id,
+      tagIds: project.tags.map((tag) => tag.id),
+    })),
+    tags,
+  };
+}
+
+async function seedTransitivePredicateDependency(
+  client: SchemaClient<TransitivePredicateDependencySchema>
+): Promise<void> {
+  await client.workspace.create({ data: { id: 1 } });
+  await client.project.create({ data: { id: 1 } });
+  await client.tag.create({ data: { id: 100, label: "old" } });
+  await client.workspace.update({
+    where: { id: 1 },
+    data: {
+      projects: { connect: { id: 1 } },
+      tags: { connect: { id: 100 } },
+    },
+  });
+  await client.project.update({
+    where: { id: 1 },
+    data: { tags: { connect: { id: 100 } } },
+  });
+}
+
+const TRANSITIVE_PREDICATE_SEED: PersistedState = {
+  workspaces: [{ id: 1, projectIds: [1], tagIds: [100] }],
+  projects: [{ id: 1, tagIds: [100] }],
+  tags: [{ id: 100, label: "old" }],
+};
+
+const transitivePredicateDependencyScenarios: Scenario<TransitivePredicateDependencySchema>[] =
+  [
+    {
+      name: "nested predicate update rejects a later overlapping root filter",
+      seed: seedTransitivePredicateDependency,
+      act: (client) =>
+        client.workspace.update({
+          where: { id: 1 },
+          data: {
+            projects: {
+              update: {
+                where: { id: 1 },
+                data: {
+                  tags: {
+                    update: {
+                      where: { id: 100 },
+                      data: { label: "after" },
+                    },
+                  },
+                },
+              },
+            },
+            tags: { deleteMany: { label: "after" } },
+          },
+        }),
+      expectReject: true,
+      expectedError: "depends on an earlier 'update' target write",
+      expected: TRANSITIVE_PREDICATE_SEED,
+    },
+    {
+      name: "nested predicate update allows a later identity-only root filter",
+      seed: seedTransitivePredicateDependency,
+      act: (client) =>
+        client.workspace.update({
+          where: { id: 1 },
+          data: {
+            projects: {
+              update: {
+                where: { id: 1 },
+                data: {
+                  tags: {
+                    update: {
+                      where: { id: 100 },
+                      data: { label: "after" },
+                    },
+                  },
+                },
+              },
+            },
+            tags: { deleteMany: { id: 100 } },
+          },
+        }),
+      expected: {
+        workspaces: [{ id: 1, projectIds: [1], tagIds: [] }],
+        projects: [{ id: 1, tagIds: [] }],
+        tags: [],
+      },
+    },
+    {
+      name: "nested predicate update allows a numerically disjoint root filter",
+      seed: seedTransitivePredicateDependency,
+      act: (client) =>
+        client.workspace.update({
+          where: { id: 1 },
+          data: {
+            projects: {
+              update: {
+                where: { id: 1 },
+                data: {
+                  tags: {
+                    update: {
+                      where: { id: 100 },
+                      data: { label: "after" },
+                    },
+                  },
+                },
+              },
+            },
+            tags: { deleteMany: { id: 101, label: "after" } },
+          },
+        }),
+      expected: {
+        workspaces: [{ id: 1, projectIds: [1], tagIds: [100] }],
+        projects: [{ id: 1, tagIds: [100] }],
+        tags: [{ id: 100, label: "after" }],
+      },
+    },
+    {
+      name: "upsert update alternative exports its predicate delta to a later filter",
+      seed: seedTransitivePredicateDependency,
+      act: (client) =>
+        client.workspace.update({
+          where: { id: 1 },
+          data: {
+            projects: {
+              upsert: {
+                where: { id: 1 },
+                create: { id: 1 },
+                update: {
+                  tags: {
+                    update: {
+                      where: { id: 100 },
+                      data: { label: "after" },
+                    },
+                  },
+                },
+              },
+            },
+            tags: { deleteMany: { label: "after" } },
+          },
+        }),
+      expectReject: true,
+      expectedError: "depends on an earlier 'update' target write",
+      expected: TRANSITIVE_PREDICATE_SEED,
+    },
+    {
+      name: "upsert update alternative predicate delta ignores an id-only filter",
+      seed: seedTransitivePredicateDependency,
+      act: (client) =>
+        client.workspace.update({
+          where: { id: 1 },
+          data: {
+            projects: {
+              upsert: {
+                where: { id: 1 },
+                create: { id: 1 },
+                update: {
+                  tags: {
+                    update: {
+                      where: { id: 100 },
+                      data: { label: "after" },
+                    },
+                  },
+                },
+              },
+            },
+            tags: { deleteMany: { id: 100 } },
+          },
+        }),
+      expected: {
+        workspaces: [{ id: 1, projectIds: [1], tagIds: [] }],
+        projects: [{ id: 1, tagIds: [] }],
+        tags: [],
+      },
+    },
+  ];
+
+type TransitiveMembershipDependencySchema =
+  typeof transitiveMembershipDependencySchema;
+
+async function dumpTransitiveMembershipDependency(
+  client: SchemaClient<TransitiveMembershipDependencySchema>
+): Promise<PersistedState> {
+  const records = await client.node.findMany({
+    orderBy: { id: "asc" },
+    include: {
+      friends: { orderBy: { id: "asc" } },
+      allies: { orderBy: { id: "asc" } },
+    },
+  });
+  return {
+    nodes: records.map((node) => ({
+      id: node.id,
+      label: node.label,
+      parentId: node.parentId,
+    })),
+    friends: records.flatMap((node) =>
+      node.friends.map((friend) => ({ sourceId: node.id, targetId: friend.id }))
+    ),
+    allies: records.flatMap((node) =>
+      node.allies.map((ally) => ({ sourceId: node.id, targetId: ally.id }))
+    ),
+  };
+}
+
+const transitiveMembershipDependencyScenarios: Scenario<TransitiveMembershipDependencySchema>[] =
+  [
+    {
+      name: "provably disjoint m2m connect and deleteMany execute together",
+      seed: async (client) => {
+        await client.node.create({ data: { id: 1, label: "one" } });
+        await client.node.create({ data: { id: 2, label: "two" } });
+        await client.node.create({ data: { id: 3, label: "three" } });
+        await client.node.update({
+          where: { id: 1 },
+          data: { friends: { connect: { id: 3 } } },
+        });
+      },
+      act: (client) =>
+        client.node.update({
+          where: { id: 1 },
+          data: {
+            friends: {
+              connect: { id: 2 },
+              deleteMany: { id: 3 },
+            },
+          },
+        }),
+      expected: {
+        nodes: [
+          { id: 1, label: "one", parentId: null },
+          { id: 2, label: "two", parentId: null },
+        ],
+        friends: [{ sourceId: 1, targetId: 2 }],
+        allies: [],
+      },
+    },
+    {
+      name: "nested physical membership rejects a later same-edge root update",
+      seed: async (client) => {
+        await client.node.create({
+          data: { id: 1, label: "one", parentId: 1 },
+        });
+        await client.node.create({ data: { id: 2, label: "two" } });
+      },
+      act: (client) =>
+        client.node.update({
+          where: { id: 1 },
+          data: {
+            children: {
+              update: {
+                where: { id: 1 },
+                data: { friends: { connect: { id: 2 } } },
+              },
+            },
+            friends: {
+              update: { where: { id: 2 }, data: { label: "after" } },
+            },
+          },
+        }),
+      expectReject: true,
+      expectedError: "depends on an earlier 'connect' membership write",
+      expected: {
+        nodes: [
+          { id: 1, label: "one", parentId: 1 },
+          { id: 2, label: "two", parentId: null },
+        ],
+        friends: [],
+        allies: [],
+      },
+    },
+    {
+      name: "nested physical membership rejects a later same-edge root upsert",
+      seed: async (client) => {
+        await client.node.create({
+          data: { id: 1, label: "one", parentId: 1 },
+        });
+        await client.node.create({ data: { id: 2, label: "two" } });
+      },
+      act: (client) =>
+        client.node.update({
+          where: { id: 1 },
+          data: {
+            children: {
+              update: {
+                where: { id: 1 },
+                data: { friends: { connect: { id: 2 } } },
+              },
+            },
+            friends: {
+              upsert: {
+                where: { id: 2 },
+                create: { id: 2, label: "created" },
+                update: { label: "after" },
+              },
+            },
+          },
+        }),
+      expectReject: true,
+      expectedError: "depends on an earlier 'connect' membership write",
+      expected: {
+        nodes: [
+          { id: 1, label: "one", parentId: 1 },
+          { id: 2, label: "two", parentId: null },
+        ],
+        friends: [],
+        allies: [],
+      },
+    },
+    {
+      name: "nested physical membership allows a disjoint target endpoint",
+      seed: async (client) => {
+        await client.node.create({
+          data: { id: 1, label: "one", parentId: 1 },
+        });
+        await client.node.create({ data: { id: 2, label: "two" } });
+        await client.node.create({ data: { id: 3, label: "three" } });
+        await client.node.update({
+          where: { id: 1 },
+          data: { friends: { connect: { id: 3 } } },
+        });
+      },
+      act: (client) =>
+        client.node.update({
+          where: { id: 1 },
+          data: {
+            children: {
+              update: {
+                where: { id: 1 },
+                data: { friends: { connect: { id: 2 } } },
+              },
+            },
+            friends: {
+              update: { where: { id: 3 }, data: { label: "after" } },
+            },
+          },
+        }),
+      expected: {
+        nodes: [
+          { id: 1, label: "one", parentId: 1 },
+          { id: 2, label: "two", parentId: null },
+          { id: 3, label: "after", parentId: null },
+        ],
+        friends: [
+          { sourceId: 1, targetId: 2 },
+          { sourceId: 1, targetId: 3 },
+        ],
+        allies: [],
+      },
+    },
+    {
+      name: "nested physical membership allows a disjoint source endpoint",
+      seed: async (client) => {
+        await client.node.create({ data: { id: 1, label: "one" } });
+        await client.node.create({ data: { id: 2, label: "two" } });
+        await client.node.create({
+          data: { id: 3, label: "three", parentId: 1 },
+        });
+        await client.node.update({
+          where: { id: 1 },
+          data: { friends: { connect: { id: 2 } } },
+        });
+      },
+      act: (client) =>
+        client.node.update({
+          where: { id: 1 },
+          data: {
+            children: {
+              update: {
+                where: { id: 3 },
+                data: { friends: { connect: { id: 2 } } },
+              },
+            },
+            friends: {
+              update: { where: { id: 2 }, data: { label: "after" } },
+            },
+          },
+        }),
+      expected: {
+        nodes: [
+          { id: 1, label: "one", parentId: null },
+          { id: 2, label: "after", parentId: null },
+          { id: 3, label: "three", parentId: 1 },
+        ],
+        friends: [
+          { sourceId: 1, targetId: 2 },
+          { sourceId: 3, targetId: 2 },
+        ],
+        allies: [],
+      },
+    },
+    {
+      name: "nested physical membership stays isolated by named junction scope",
+      seed: async (client) => {
+        await client.node.create({
+          data: { id: 1, label: "one", parentId: 1 },
+        });
+        await client.node.create({ data: { id: 2, label: "two" } });
+        await client.node.update({
+          where: { id: 1 },
+          data: { allies: { connect: { id: 2 } } },
+        });
+      },
+      act: (client) =>
+        client.node.update({
+          where: { id: 1 },
+          data: {
+            children: {
+              update: {
+                where: { id: 1 },
+                data: { friends: { connect: { id: 2 } } },
+              },
+            },
+            allies: {
+              update: { where: { id: 2 }, data: { label: "after" } },
+            },
+          },
+        }),
+      expected: {
+        nodes: [
+          { id: 1, label: "one", parentId: 1 },
+          { id: 2, label: "after", parentId: null },
+        ],
+        friends: [{ sourceId: 1, targetId: 2 }],
+        allies: [{ sourceId: 1, targetId: 2 }],
+      },
+    },
+    {
+      name: "nested scalar FK rebind rejects a later inverse read of the same holder",
+      seed: async (client) => {
+        await client.node.create({ data: { id: 10, label: "root" } });
+        await client.node.create({ data: { id: 2, label: "two" } });
+        await client.node.create({
+          data: { id: 1, label: "one", parentId: 10 },
+        });
+        await client.node.update({
+          where: { id: 10 },
+          data: { friends: { connect: { id: 1 } } },
+        });
+      },
+      act: (client) =>
+        client.node.update({
+          where: { id: 10 },
+          data: {
+            friends: {
+              update: { where: { id: 1 }, data: { parentId: 2 } },
+            },
+            children: {
+              update: { where: { id: 1 }, data: { label: "after" } },
+            },
+          },
+        }),
+      expectReject: true,
+      expectedError: "depends on an earlier 'update' membership write",
+      expected: {
+        nodes: [
+          { id: 1, label: "one", parentId: 10 },
+          { id: 2, label: "two", parentId: null },
+          { id: 10, label: "root", parentId: null },
+        ],
+        friends: [{ sourceId: 10, targetId: 1 }],
+        allies: [],
+      },
+    },
+    {
+      name: "nested scalar FK rebind rejects a later inverse upsert of the same holder",
+      seed: async (client) => {
+        await client.node.create({ data: { id: 10, label: "root" } });
+        await client.node.create({ data: { id: 2, label: "two" } });
+        await client.node.create({
+          data: { id: 1, label: "one", parentId: 10 },
+        });
+        await client.node.update({
+          where: { id: 10 },
+          data: { friends: { connect: { id: 1 } } },
+        });
+      },
+      act: (client) =>
+        client.node.update({
+          where: { id: 10 },
+          data: {
+            friends: {
+              update: { where: { id: 1 }, data: { parentId: 2 } },
+            },
+            children: {
+              upsert: {
+                where: { id: 1 },
+                create: { id: 1, label: "created" },
+                update: { label: "after" },
+              },
+            },
+          },
+        }),
+      expectReject: true,
+      expectedError: "depends on an earlier 'update' membership write",
+      expected: {
+        nodes: [
+          { id: 1, label: "one", parentId: 10 },
+          { id: 2, label: "two", parentId: null },
+          { id: 10, label: "root", parentId: null },
+        ],
+        friends: [{ sourceId: 10, targetId: 1 }],
+        allies: [],
+      },
+    },
+    {
+      name: "nested scalar FK rebind allows a disjoint inverse holder",
+      seed: async (client) => {
+        await client.node.create({ data: { id: 10, label: "root" } });
+        await client.node.create({ data: { id: 2, label: "two" } });
+        await client.node.create({
+          data: { id: 1, label: "one", parentId: 10 },
+        });
+        await client.node.create({
+          data: { id: 3, label: "three", parentId: 10 },
+        });
+        await client.node.update({
+          where: { id: 10 },
+          data: { friends: { connect: { id: 1 } } },
+        });
+      },
+      act: (client) =>
+        client.node.update({
+          where: { id: 10 },
+          data: {
+            friends: {
+              update: { where: { id: 1 }, data: { parentId: 2 } },
+            },
+            children: {
+              update: { where: { id: 3 }, data: { label: "after" } },
+            },
+          },
+        }),
+      expected: {
+        nodes: [
+          { id: 1, label: "one", parentId: 2 },
+          { id: 2, label: "two", parentId: null },
+          { id: 3, label: "after", parentId: 10 },
+          { id: 10, label: "root", parentId: null },
+        ],
+        friends: [{ sourceId: 10, targetId: 1 }],
+        allies: [],
+      },
+    },
+    {
+      name: "nested scalar FK rebind does not leak into a direct relation read",
+      seed: async (client) => {
+        await client.node.create({ data: { id: 1, label: "one" } });
+        await client.node.create({ data: { id: 2, label: "two" } });
+        await client.node.create({
+          data: { id: 10, label: "root", parentId: 1 },
+        });
+        await client.node.update({
+          where: { id: 1 },
+          data: { parentId: 10 },
+        });
+        await client.node.update({
+          where: { id: 10 },
+          data: { friends: { connect: { id: 1 } } },
+        });
+      },
+      act: (client) =>
+        client.node.update({
+          where: { id: 10 },
+          data: {
+            friends: {
+              update: { where: { id: 1 }, data: { parentId: 2 } },
+            },
+            parent: { update: { label: "after" } },
+          },
+        }),
+      expected: {
+        nodes: [
+          { id: 1, label: "after", parentId: 2 },
+          { id: 2, label: "two", parentId: null },
+          { id: 10, label: "root", parentId: 1 },
+        ],
+        friends: [{ sourceId: 10, targetId: 1 }],
+        allies: [],
+      },
+    },
+    {
+      name: "nested identity transition exports the exact final membership source",
+      seed: async (client) => {
+        await client.node.create({ data: { id: 10, label: "root" } });
+        await client.node.create({ data: { id: 2, label: "two" } });
+        await client.node.create({
+          data: { id: 1, label: "one", parentId: 10 },
+        });
+        await client.node.create({
+          data: { id: 3, label: "three", parentId: 10 },
+        });
+        await client.node.update({
+          where: { id: 3 },
+          data: { friends: { connect: { id: 2 } } },
+        });
+      },
+      act: (client) =>
+        client.node.update({
+          where: { id: 10 },
+          data: {
+            children: {
+              update: [
+                {
+                  where: { id: 1 },
+                  data: { id: 4, friends: { connect: { id: 2 } } },
+                },
+                {
+                  where: { id: 3 },
+                  data: {
+                    friends: {
+                      update: { where: { id: 2 }, data: { label: "after" } },
+                    },
+                  },
+                },
+              ],
+            },
+          },
+        }),
+      expected: {
+        nodes: [
+          { id: 2, label: "after", parentId: null },
+          { id: 3, label: "three", parentId: 10 },
+          { id: 4, label: "one", parentId: 10 },
+          { id: 10, label: "root", parentId: null },
+        ],
+        friends: [
+          { sourceId: 3, targetId: 2 },
+          { sourceId: 4, targetId: 2 },
+        ],
+        allies: [],
+      },
+    },
+  ];
 
 // ---------------------------------------------------------------------------
 // Registration.
@@ -2109,8 +5923,107 @@ registerGroup("nested-write conformance: self-referential FK (tx vs batch)", {
   scenarios: selfRefFkScenarios,
 });
 
+registerGroup("nested-write conformance: create root barrier (tx vs batch)", {
+  schema: createRootDependencySchema,
+  dump: dumpCreateRootDependency,
+  scenarios: createRootDependencyScenarios,
+});
+
+registerGroup("nested-write conformance: update predicate root (tx vs batch)", {
+  schema: createRootDependencySchema,
+  dump: dumpUpdatePredicateDependency,
+  scenarios: updatePredicateScenarios,
+});
+
+registerGroup(
+  "nested-write conformance: update membership root (tx vs batch)",
+  {
+    schema: membershipDependencySchema,
+    dump: dumpMembershipDependency,
+    scenarios: membershipDependencyScenarios,
+  }
+);
+
+registerGroup(
+  "nested-write conformance: own-write dependencies (tx vs batch)",
+  {
+    schema: numericDependencySchema,
+    dump: dumpNumericDependency,
+    scenarios: numericDependencyScenarios,
+  }
+);
+
+registerGroup(
+  "nested-write conformance: cross-relation targets (tx vs batch)",
+  {
+    schema: crossRelationTargetSchema,
+    dump: dumpCrossRelationTarget,
+    scenarios: crossRelationTargetScenarios,
+  }
+);
+
+registerGroup("nested-write conformance: named m2m targets (tx vs batch)", {
+  schema: manyToManySchema,
+  dump: dumpNamedM2m,
+  scenarios: namedM2mTargetScenarios,
+});
+
 registerGroup("nested-write conformance: cross-step dependency (tx vs batch)", {
   schema: nestedWriteBehaviorSchema,
   dump: dumpNestedWrite,
   scenarios: crossStepScenarios,
 });
+
+registerGroup(
+  "nested-write conformance: transitive target dependencies (tx vs batch)",
+  {
+    schema: transitiveTargetDependencySchema,
+    dump: dumpTransitiveTargetDependency,
+    scenarios: transitiveTargetDependencyScenarios,
+  }
+);
+
+registerGroup(
+  "nested-write conformance: alternative branch dependencies (tx vs batch)",
+  {
+    schema: transitiveTargetDependencySchema,
+    dump: dumpTransitiveTargetDependency,
+    scenarios: alternativeBranchDependencyScenarios,
+  }
+);
+
+registerGroup(
+  "nested-write conformance: deep transitive target dependencies (tx vs batch)",
+  {
+    schema: transitiveTargetDependencySchema,
+    dump: dumpDeepTransitiveTargetDependency,
+    scenarios: deepTransitiveTargetScenarios,
+  }
+);
+
+registerGroup(
+  "nested-write conformance: transitive createMany dependencies (tx vs batch)",
+  {
+    schema: transitiveCreateManySchema,
+    dump: dumpTransitiveCreateMany,
+    scenarios: transitiveCreateManyScenarios,
+  }
+);
+
+registerGroup(
+  "nested-write conformance: transitive predicate dependencies (tx vs batch)",
+  {
+    schema: transitivePredicateDependencySchema,
+    dump: dumpTransitivePredicateDependency,
+    scenarios: transitivePredicateDependencyScenarios,
+  }
+);
+
+registerGroup(
+  "nested-write conformance: transitive membership dependencies (tx vs batch)",
+  {
+    schema: transitiveMembershipDependencySchema,
+    dump: dumpTransitiveMembershipDependency,
+    scenarios: transitiveMembershipDependencyScenarios,
+  }
+);

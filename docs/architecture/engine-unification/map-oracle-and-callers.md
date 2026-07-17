@@ -1,5 +1,7 @@
 # Engine Unification Map — Acceptance Oracle & Callers
 
+> **Historical snapshot.** This map documents the deleted pre-unification engines and is not the current runtime contract. `DESIGN.md` and the conformance/behavior suites are authoritative.
+
 Scope of this map (the "oracle + callers" slice):
 
 1. **The conformance oracle** — `tests/query-engine/nested-write-conformance.test.ts`: the
@@ -150,7 +152,7 @@ For a **batch-only** driver (`!supportsTransactions && supportsBatch`), the clie
    this is correct **only because** they all reference the *same shared* `PlanState`, so every
    op's `preparedBatch.setupQueries` is the same growing array. A unified engine must preserve
    this "shared setup is monotonic and identical across ops" property.
-4. Executes `driver._executeBatch(batchQueries, options)`, then each parser slices
+4. Executes `driver._executeBatch(batchQueries)`, then each parser slices
    `results[setupOffset + start : +length]` and calls its `parse`.
 
 For a **transaction** driver, the client executes each op's `execute(txDriver)` inside a real

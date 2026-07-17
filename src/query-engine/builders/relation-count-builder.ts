@@ -5,13 +5,8 @@
  */
 
 import { type Sql, sql } from "@sql";
-import { parse } from "@validation";
-import { createChildContext, getTableName } from "../context";
-import {
-  type QueryContext,
-  QueryEngineError,
-  type RelationInfo,
-} from "../types";
+import { createChildScope, getTableName } from "../context";
+import { QueryEngineError, type QueryScope, type RelationInfo } from "../types";
 import { buildCorrelation } from "./correlation-utils";
 import {
   buildManyToManyJoinParts,
@@ -47,7 +42,7 @@ const getWhereConfig = (
  * @returns SQL for COUNT subquery
  */
 export function buildRelationCount(
-  ctx: QueryContext,
+  ctx: QueryScope,
   relationInfo: RelationInfo,
   config: unknown,
   parentAlias: string
@@ -71,7 +66,7 @@ export function buildRelationCount(
 
   const rawWhere = getWhereConfig(config);
   if (rawWhere) {
-    const childCtx = createChildContext(
+    const childCtx = createChildScope(
       ctx,
       relationInfo.targetModel,
       targetAlias
@@ -95,7 +90,7 @@ export function buildRelationCount(
 }
 
 function buildManyToManyCount(
-  ctx: QueryContext,
+  ctx: QueryScope,
   relationInfo: RelationInfo,
   config: unknown,
   parentAlias: string
@@ -117,19 +112,12 @@ function buildManyToManyCount(
 
   const rawWhere = getWhereConfig(config);
   if (rawWhere) {
-    const childCtx = createChildContext(
+    const childCtx = createChildScope(
       ctx,
       relationInfo.targetModel,
       targetAlias
     );
-    const whereSchema = ctx.schemaRegistry.getModelSchemas(
-      relationInfo.targetModel
-    ).core.where;
-    const parsedWhere = parse(whereSchema, rawWhere);
-    if (parsedWhere.issues) {
-      throw new QueryEngineError("Invalid nested relation count where clause");
-    }
-    const innerWhere = buildWhere(childCtx, parsedWhere.value, targetAlias);
+    const innerWhere = buildWhere(childCtx, rawWhere, targetAlias);
     if (innerWhere) {
       conditions.push(innerWhere);
     }

@@ -1,63 +1,65 @@
-/**
- * Query Engine
- *
- * Public orchestration shell for validated query execution.
- */
-
-import type { DatabaseAdapter } from "@adapters";
-import type { PendingOperation } from "@client/pending-operation";
 import type { AnyDriver } from "@drivers";
 import type { InstrumentationContext } from "@instrumentation";
 import type { Model } from "@schema/model";
-import type { Sql } from "@sql";
+import { isSql, type Sql } from "@sql";
 import type { SchemaRegistryLookup } from "@validation";
-import { buildValidatedOperation, createPreparedOperation } from "./executor";
+import { PendingOperation } from "./pending-operation";
 import {
   type ModelRegistry,
   type Operation,
   type PrepareOptions,
-  type QueryEngineDependencies,
   QueryEngineError,
 } from "./types";
 
-/**
- * Query Engine class
- *
- * Responsible for:
- * 1. Validating input against model schemas
- * 2. Building SQL using the adapter
- * 3. Executing queries via driver
- * 4. Parsing results into typed objects
- */
+/** Client-scoped owner of query infrastructure and operation creation. */
 export class QueryEngine {
-  private readonly adapter: DatabaseAdapter;
-  private readonly registry: ModelRegistry;
-  private readonly driver: AnyDriver;
-  private readonly instrumentation: InstrumentationContext | undefined;
-  private readonly schemaRegistry: SchemaRegistryLookup;
+  readonly driver: AnyDriver;
+  readonly registry: ModelRegistry;
+  readonly instrumentation: InstrumentationContext | undefined;
 
   /**
-   * Unique identifier for this engine instance.
-   * Used to verify that operations belong to the same client in $transaction.
+   * Identity of the originating client lineage. Transaction-bound engines
+   * preserve this identifier.
    */
   readonly clientId: symbol;
+  /** Identity of the current root or transaction-bound execution scope. */
+  readonly scopeId: symbol;
 
   constructor(
     driver: AnyDriver,
     registry: ModelRegistry,
-    instrumentation?: InstrumentationContext
+    instrumentation?: InstrumentationContext,
+    clientId = Symbol("viborm.client"),
+    scopeId = Symbol("viborm.scope")
   ) {
     this.driver = driver;
-    this.adapter = driver.adapter;
     this.registry = registry;
     if (!registry.schemas) {
       throw new QueryEngineError(
         "Schema registry is required for query engine"
       );
     }
-    this.schemaRegistry = registry.schemas;
     this.instrumentation = instrumentation;
-    this.clientId = Symbol("viborm.client");
+    this.clientId = clientId;
+    this.scopeId = scopeId;
+  }
+
+  get adapter() {
+    return this.driver.adapter;
+  }
+
+  get schemaRegistry(): SchemaRegistryLookup {
+    return this.registry.schemas;
+  }
+
+  bind(driver: AnyDriver): QueryEngine {
+    return new QueryEngine(
+      driver,
+      this.registry,
+      this.instrumentation,
+      this.clientId,
+      Symbol("viborm.scope")
+    );
   }
 
   /**
@@ -69,11 +71,18 @@ export class QueryEngine {
     operation: Operation,
     args: Record<string, unknown>
   ): Sql {
-    return buildValidatedOperation(
-      this.getDependencies(),
-      model,
-      operation,
-      args
+    const program = this.prepare<unknown>(model, operation, args).compile();
+    const [step] = program.steps;
+    if (
+      program.steps.length === 1 &&
+      step &&
+      (step.kind === "read" || step.kind === "write") &&
+      isSql(step.statement)
+    ) {
+      return step.statement;
+    }
+    throw new QueryEngineError(
+      `Operation '${operation}' does not compile to one SQL statement. Execute the operation instead.`
     );
   }
 
@@ -86,13 +95,7 @@ export class QueryEngine {
     args: Record<string, unknown>,
     options?: PrepareOptions
   ): PendingOperation<T> {
-    return createPreparedOperation<T>(
-      this.getDependencies(),
-      model,
-      operation,
-      args,
-      options
-    );
+    return PendingOperation.create<T>(this, model, operation, args, options);
   }
 
   /**
@@ -105,24 +108,6 @@ export class QueryEngine {
     args: Record<string, unknown>
   ): Promise<T> {
     return this.prepare<T>(model, operation, args).execute();
-  }
-
-  /**
-   * Get the driver instance for direct access.
-   */
-  getDriver(): AnyDriver | undefined {
-    return this.driver;
-  }
-
-  private getDependencies(): QueryEngineDependencies {
-    return {
-      adapter: this.adapter,
-      registry: this.registry,
-      driver: this.driver,
-      schemaRegistry: this.schemaRegistry,
-      instrumentation: this.instrumentation,
-      clientId: this.clientId,
-    };
   }
 }
 

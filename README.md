@@ -34,7 +34,7 @@ Status legend:
 | Single-record reads | `findUnique`, `findUniqueOrThrow`, `findFirst`, `findFirstOrThrow` with `where`, `orderBy`, `select`, `include` | Same core operations; unique reads require real unique selectors and or-throw variants throw `NotFoundError` | `Supported` |
 | Multi-record reads | `findMany` with filters, ordering, pagination, `distinct`, `select`, `include` | Supports scalar/relation filters, scalar and supported relation ordering, cursor/offset pagination, negative `take`, `distinct`, `select`, `include` | `Supported` |
 | Create one | `create` with scalar data, nested writes, `select`, `include` | Supports scalar data and documented nested writes; unsupported nested write keys reject before parent mutation | `Supported` |
-| Create many | `createMany` returns `{ count }`; `skipDuplicates` is provider-dependent; `createManyAndReturn` is provider-specific | `createMany` returns `{ count }`; `skipDuplicates` is adapter-scoped; no `createManyAndReturn` | `Subset` |
+| Create many | `createMany` returns `{ count }`; `createManyAndReturn` is provider-specific | `createMany` returns `{ count }`; `skipDuplicates` skips duplicate-key conflicts only; `createManyAndReturn` returns inserted rows | `Supported` |
 | Update one | `update` by unique selector; returns updated row; supports atomic numeric ops and nested writes | Requires unique `where`; throws on missing row; supports scalar updates, atomic numeric ops, and documented nested writes | `Supported` |
 | Update many | `updateMany` returns `{ count }`; `updateManyAndReturn` is provider-specific | `updateMany` returns `{ count }`; no `updateManyAndReturn` | `Subset` |
 | Upsert | `upsert` with unique `where`, `create`, `update`; returns row | Same core shape; supported nested writes are allowed in covered branches | `Supported` |
@@ -371,14 +371,13 @@ s.dateTime().updatedAt()    // Update timestamp on every update
 | `sqlite3` | `better-sqlite3` | Node.js (synchronous) |
 | `libsql` | `@libsql/client` | Turso / LibSQL |
 | `d1` | Cloudflare binding | Cloudflare D1 (Workers) |
-| `d1-http` | Cloudflare API | Cloudflare D1 (HTTP) |
 | `bun-sqlite` | Built-in | Bun runtime |
 
 ---
 
 ## Repository Structure
 
-VibORM uses a **10-layer architecture**. Each layer has an `AGENTS.md` with detailed documentation.
+VibORM uses a **12-layer architecture**. Each layer has an `AGENTS.md` with detailed documentation.
 
 ```
 src/
@@ -398,13 +397,17 @@ src/
 │                          PostgreSQL, MySQL, SQLite dialect implementations
 │
 ├── drivers/           L8  Connection management, query execution
-│                          12 drivers: pglite, pg, postgres, neon-http, bun-sql,
-│                          mysql2, planetscale, sqlite3, libsql, d1, d1-http, bun-sqlite
+│                          11 drivers: pglite, pg, postgres, neon-http, bun-sql,
+│                          mysql2, planetscale, sqlite3, libsql, d1, bun-sqlite
 │
 ├── client/            L9  Type inference, ORM interface
 │                          Recursive proxy pattern, result types
 │
-└── migrations/        L10 Schema diffing, push
+├── cache/             L10 Query caching, invalidation, stale-while-revalidate
+│
+├── instrumentation/   L11 Tracing, structured logging, diagnostics
+│
+└── migrations/        L12 Schema diffing, push, migration files, DDL
 ```
 
 ### Key Architecture Rules
@@ -550,7 +553,7 @@ Most tests run against PGlite (in-memory PostgreSQL). Driver tests in `tests/dri
 - Parent `create` and the create branch of parent `upsert` intentionally exclude update/delete-like nested operations.
 - Impossible or unsafe primary-key dataflow shapes reject before mutation instead of partially applying nested writes.
 - Raw query APIs intentionally differ from Prisma: `$queryRaw` uses `string, params?`, and `$executeRaw` uses a `Sql` fragment.
-- Local nested-write conformance is proven on PGlite/Postgres-style and SQLite-family paths; hosted D1, D1 HTTP, and Neon HTTP need external runs before claiming hosted verification.
+- Local nested-write conformance is proven on PGlite/Postgres-style and SQLite-family paths; hosted D1 binding and Neon HTTP need external runs before claiming hosted verification.
 
 **Future features** (documented in `features-docs/`):
 - Polymorphic relations

@@ -1,6 +1,12 @@
 # Nested-Write Engine Unification — THE Design
 
-Status: **decided**. Anchor: branch `prisma-parity`, commit `2fa49b6`.
+> **Superseded historical design.** The operation-program implementation in
+> [`query-engine-operation-program-implementation-plan.md`](../query-engine-operation-program-implementation-plan.md)
+> replaced the interpreter/mode architecture described here. This document is
+> retained as the decision record that preceded the migration; the current
+> query-engine guides and architecture gates are authoritative.
+
+Historical status: **decided**. Anchor: branch `prisma-parity`, commit `2fa49b6`.
 This document supersedes the four candidate designs in this directory
 (`design-total-ir.md`, `design-one-interpreter.md`, `design-type-driven.md`,
 `design-strangler.md`). Those documents remain as the record of the argument;
@@ -52,16 +58,12 @@ engines already share their entire *semantic* layer — `getFkDirection`,
 `planExistingUpsertBranch`, `buildScalarSqlValue`, the junction builders, the
 not-found taxonomy — and differ **only in substrate**.
 
-### 0.1 The single axis of variation
+### 0.1 The single substrate boundary
 
-The code reduces the substrate difference to **one capability bit**:
-
-> **`canObserveOwnWrites`** — can a read issued mid-operation see writes this
-> same operation has already issued but not yet committed?
-
-`true` for interactive-transaction drivers; `false` for batch-only drivers
-(D1, Neon-HTTP). Every entry in the maps' divergence tables is a consequence
-of this bit, along exactly two axes (design-strangler's framing, adopted):
+The code contains no semantic capability bit. `selectMode` chooses one of two
+substrate implementations once, and the shared interpreter calls behavioral
+`Mode` methods without branching on driver capabilities. The implementations
+differ along exactly two mechanical axes:
 
 - **Axis A — how a produced value is carried.** Live: `await`, read the JS
   value, thread it. Deferred: a symbol, lowered to a
@@ -282,21 +284,19 @@ modeled in `Mode`: `supportsReturning` inside the live insert realization
 executor entry that routes upserts into this engine (map-oracle §B.4,
 untouched), dialect `lastInsertId`/assertion SQL behind the adapter (I9).
 Folding them into `Mode` would couple unrelated capability surfaces; leaving
-them out keeps `Mode` the minimal seam. If a *nested-write semantic* ever
-branches on one of them, that branch lives in the interpreter — one place.
+them out keeps `Mode` the minimal seam. Realizations must preserve the one
+semantic contract. If a required capability cannot do so, support is withheld
+at the driver boundary or the operation fails uniformly before effects; the
+interpreter never gains a provider-capability branch.
 
 **A8 [total-ir attacker: the symbol taxonomy has no case for a single
 DB-default generated non-increment PK (e.g. `gen_random_uuid()`), so a
-future feature mis-mints or errors — REBUTTED as designed behavior, with
-the lift path recorded].** Such a PK is `opaqueGenerated` (§4.1): live mode
-reads it back via RETURNING; planned mode rejects with the existing typed
-"known before execution" message at the single gate. Not silent, not
-mis-minted. Lifting it later = teaching the planned emit a RETURNING-based
-store for dialects that support `INSERT … RETURNING` into the scratch table
-— a scoped, test-first change that touches only `planned-mode.ts` and the
-gate. Today app-generated uuid/ulid values are client-supplied literals and
-unaffected (verified: `values-builder.ts` throws "not yet implemented" for
-DB-generated non-increment, so no live behavior exists to preserve).
+future feature could mis-mint it — CLOSED by a uniform unsupported contract].**
+The shared interpreter does not produce an `opaqueGenerated` symbol. Any
+generated identity it cannot carry through both modes fails with the same typed
+error before effects. Lifting this later requires one symbol producer and both
+mode lowerings in the same change. Today app-generated uuid/ulid values are
+client-supplied literals and unaffected.
 
 **A9 [type-driven attacker: `Guard.onFail{errorKind, relationName, op}` is
 too poor to reconstruct bespoke messages like the set-orphan field list —
@@ -346,11 +346,11 @@ members keep `requireAffected: correlated` (live: rowCount — today's
 behavior preserved, and the MySQL no-change-0-rows false positive cannot
 fire because already-connected rows were skipped; planned: a preceding
 exists-assert — today's batch shape). Net: live behavior is unchanged;
-planned becomes *less* silent than today (it currently rewrites all members
-with no vanish detection at all). The irreducible residues are documented:
-planned's one-statement skew between assert and write (§5.1, common to all
-write-coupled premises) and live's unlocked-skip window (present today;
-unchanged).
+planned becomes *less* silent than the design anchor (it rewrote all members
+with no vanish detection). The remaining mechanical window is planned mode's
+one-statement skew between assert and write (§5.1, common to all write-coupled
+premises). Live probes the row with `FOR UPDATE`, so there is no unlocked-skip
+window to preserve.
 
 **S1 [one-interpreter self-doubt: "guards are no-ops in live mode" would
 drop non-probe-backed premises — FIXED].** The three-source premise taxonomy
@@ -359,14 +359,11 @@ the probe ran in the same scope; write-coupled premises realize as rowCount
 checks; standalone premises realize as SELECT-then-throw. `LiveMode` tracks
 which premises arrived via `ProbeResult`; anything else executes.
 
-**S2 [one-interpreter self-doubt §8: uniform rejection of compound-generated
-PKs — REBUTTED, gap kept as typed].** "Succeeds on Postgres, throws typed on
-D1" is not silent divergence; it is the maintainer's sanctioned outcome
-("identical observable behavior … **or a clear typed error**", codified as
-map-oracle invariant 11). Uniform rejection would delete a working live
-capability to serve a symmetry nothing demands. The gap is raised by the
-single legality gate (§6.3), so the two modes can never disagree on where
-the line is.
+**S2 [one-interpreter self-doubt §8: compound-generated PK propagation].**
+The contract is uniform rejection until the shared symbol model can carry the
+identity through every mode. The check runs in the shared interpreter before
+effects, and its message names the unsupported nested operation rather than an
+execution substrate.
 
 **S3 [type-driven `assertBatchLowerable` needs `as Plan<BatchLowerable>` —
 FIXED by replacement].** The project bans type assertions (AGENTS.md
@@ -506,12 +503,12 @@ batch planner already throws typed errors at plan time today).
 ### 3.5 `Guard` + `GuardFailure` — a premise that must hold at commit, carrying its typed error
 
 **Exists because** (i) a plan-time decision opens a staleness window that
-must fail closed (I2, I3), and (ii) the worst observable divergence in the
-system today is D1: the tx path throws `NestedWriteError`/
+must fail closed (I2, I3), and (ii) the worst observable divergence at the
+design anchor was D1: the tx path threw `NestedWriteError`/
 `recordNotFoundError` with pinned messages while the batch guard surfaces a
-raw dialect abort normalized to a generic `NestedWriteAssertionError` — the
-behavior suite literally branches on `driver.supportsTransactions` to assert
-two different messages. Making the guard carry the domain error it stands
+raw dialect abort normalized to a generic `NestedWriteAssertionError`; the
+behavior suite then branched on `driver.supportsTransactions` to assert two
+different messages. Making the guard carry the domain error it stands
 for (`failure`, a **closure** — §1.2 A9) is what lets both modes surface the
 **same typed error with the same message** (§7). The guard *vocabulary* is
 the existing `NestedWriteGuard` union (`semantic-plan.ts`) plus
@@ -519,11 +516,11 @@ arbitrary-`Sql` premises — the shapes `assertions.ts` already lowers.
 
 ### 3.6 `Mode` — the capability object (the load-bearing seam)
 
-**Exists because** the one real axis of variation (§0.1) manifests as five
+**Exists because** the one real substrate boundary (§0.1) manifests as five
 coordinated behaviors that must stay consistent — symbol resolution, probe
 timing+pinning, produced-value capture, guard/rowCount realization, atomic
-scope. Scattered `if (canObserveOwnWrites)` checks would let them drift
-apart; a backend split would duplicate the ~90% that is identical. Two
+scope. Scattered capability checks would let them drift apart; a backend split
+would duplicate the ~90% that is identical. Two
 implementations exist because two substrates exist in reality — this is not
 the banned interface-with-one-implementation, and no third mode is
 contemplated or provided for. Orthogonal driver features
@@ -581,9 +578,9 @@ export type SymbolOrigin =
    *  Live: computed/read back. Planned: batchRefs.store(valueSql).
    *  Planned-legal. */
   | { readonly kind: "computedPk"; readonly valueSql: Sql }
-  /** Any other generated identity (compound generated PK, DB-default
-   *  non-increment PK). Live-only; the legality gate (§6.3) rejects it for
-   *  planned mode with the existing typed message. Lift path: §1.2 A8. */
+  /** Reserved for a future generated identity that both modes can lower.
+   *  The current interpreter never produces this origin; unsupported generated
+   *  identities fail uniformly before effects. Lift path: §1.2 A8. */
   | { readonly kind: "opaqueGenerated"; readonly reason: string };
 ```
 
@@ -682,8 +679,6 @@ export type ProbeResult =
 
 ```ts
 export interface Mode {
-  readonly canObserveOwnWrites: boolean;   // Live: true; Planned: false
-
   /** Axis A: lower a symbol into SQL for a consuming statement.
    *  Live: the captured JS literal via buildScalarSqlValue.
    *  Planned: batchRefs.read(...) via buildScalarSqlValue (already handles
@@ -691,15 +686,20 @@ export interface Mode {
   resolveSymbol(ctx: QueryContext, model: Model<any>, field: string, sym: WriteSymbol): Sql;
 
   /** True iff the symbol already has a concrete value (Live after capture).
-   *  Used by the Probe Independence Rule (§6.2) and identity rebinding. */
+   *  Used by symbol lowering and identity rebinding. */
   isResolved(sym: WriteSymbol): boolean;
+
+  /** Return the parent snapshot visible to a decision-time correlation.
+   *  Live sees the post-write snapshot; Planned reads the committed snapshot
+   *  before batch execution. This is timing, never branch semantics. */
+  decisionParentData(committed: Record<string, unknown>, final: Record<string, unknown>): Record<string, unknown>;
 
   /** Axis B: run a deciding read.
    *  Live: now, on the tx driver (sees own writes; honors forUpdate); the
    *  returned guard realizes as a no-op (§5.1).
    *  Planned: now, on the base driver (committed state, plan time); the
    *  returned guard MUST be emitted and realizes as an assertion statement.
-   *  Planned enforces the Probe Independence Rule (§6.2). */
+   *  Uniform preflight rejects same-operation dependencies first. */
   probe(ctx: QueryContext, p: Probe): Promise<ProbeResult>;
 
   /** The atomic scope: all-or-nothing + ordered + one connection. */
@@ -764,7 +764,7 @@ FK direction + correlation, preserving the direction-dependent error-kind
 invariant (parent-holds-FK connect ⇒ `target`; child-holds-FK connect ⇒
 `correlated`; map-tx-create §5, invariant 6).
 
-### 5.3 `requireAffected` truth table (the true-vs-explicit asymmetry, pinned)
+### 5.3 `requireAffected` truth table (the true-vs-explicit input contract)
 
 | Operation | requireAffected |
 |---|---|
@@ -861,42 +861,52 @@ duplicate (map-shared §D.10 — "highest divergence risk") and becomes the
 same function body as the relation upsert, specialized only by membership
 predicate (junction membership vs FK match).
 
-### 6.2 The Probe Independence Rule (generalizing three ad-hoc rules)
+### 6.2 Uniform own-write preflight and branch ledgers
 
-> **In planned mode, a probe reads committed state and therefore must not
-> depend on this operation's own writes — neither through data flow (a
-> `where` referencing an unresolved symbol) nor through order (a premise
-> the operation itself will establish or invalidate).**
+> **Before either mode performs a deciding read or emits an effect, preflight
+> proves that the decision is independent of every earlier possible write in
+> the same nested operation. The proof is semantic and mode-independent.**
 
-Where an input would violate this, the interpreter does one of three
-things, in preference order:
+The ledger records three exact footprint dimensions:
 
-1. **Normalize it away.** `dedupeConnectOrCreateInputs` (first-create-wins)
-   stays, reclassified from "divergence-avoidance shim" to the semantic rule
-   it always was: within one connectOrCreate array, the second probe of the
-   same key would depend on the first's write; deduping removes the
-   dependence identically in both modes. (D8 resolved by promotion. Without
-   the dedupe the second INSERT would unique-violate and converge via retry
-   — correct but wasteful; the dedupe also fixes which create payload wins.)
-2. **Reject it, typed, uniformly.** (a) The M2M
-   deleteMany-combined-with-create/connect/connectOrCreate/set ban
-   (`assertManyToManyStepCombinationIsSupported`) stays: deleteMany's
-   plan-time membership read would deterministically miss the same
-   operation's own junction writes, and with the §9 gap guards the combined
-   form would deterministically abort on planned mode while succeeding on
-   live — worse than the uniform typed error. (b) A probe whose `where`
-   references a symbol not `isResolved` in planned mode throws the existing
-   typed "requires primary key … known before execution" error. This
-   generalizes the existing `appendJunctionDeleteMany` ref-parent rejection
-   to the whole system and closes a latent hazard: a plan-time probe whose
-   `where` embedded a `batchRefs.read` subquery would silently read an empty
-   scratch table and return "absent".
-3. **Fail closed at execution.** Residual cross-step dependencies no static
-   rule can see (e.g. `posts.create[k]` followed by
-   `posts.connectOrCreate[k]` across two steps of one relation) surface as
-   a constraint violation or pinned abort on planned mode where live mode
-   succeeds; raceable signals converge via retry. A conformance scenario
-   (M0) pins the asymmetry so it is a contract, not an accident.
+1. **Target existence** — created/deleted identities and identity-changing
+   updates, normalized across every unique selector.
+2. **Target predicates** — scalar fields changed by an update, intersected
+   with the fields read by later filters.
+3. **Relation membership** — canonical holder/referenced endpoints plus the
+   physical FK or named-junction scope and read orientation.
+
+Deterministic steps share one ledger in semantic execution order. Nested
+deterministic descendants inherit it; operation-visible deltas return to the
+caller. Create-family footprints enter at their real barriers: a current row
+at its insert, a related-held edge at the child insert, a current-held edge at
+the parent insert, and an M2M edge after the junction write. Update-family
+membership changes are operation-visible because the physical FK/junction has
+already changed when later decisions run.
+
+`connectOrCreate` and nested `upsert` alternatives use branch ledgers:
+
+1. Assert the decision against the inherited ledger.
+2. Fork every alternative from that same inherited checkpoint.
+3. Analyze each alternative independently; no branch can observe another
+   alternative's possible writes.
+4. Merge every alternative's possible deltas only after all alternatives have
+   been analyzed. For array inputs, merge input N before deciding input N+1.
+
+Create alternatives publish the identity actually created, while found/update
+alternatives publish their selector or occupied slot. Root provenance remains
+`connectOrCreate`/`upsert`; ordinary descendants retain their own operation
+labels. A top-level upsert remains chosen-branch-gated because its existence
+probe is the only information that selects the executable root branch.
+
+This replaces the old blanket M2M mixed-step rejection. Independent steps
+(for example, connect one target and deleteMany a provably disjoint numeric or
+boolean target) are legal. Unequal strings remain conservatively unknown across
+portable database collations.
+An actual target, predicate, or membership overlap rejects during uniform
+preflight with the same `NestedWriteError` in both modes, before any effect.
+External staleness after preflight is still handled by the Pin Rule and the
+constraint-backed missing-branch rule; it is not a same-operation escape hatch.
 
 The two enumerated pin-free probe *shapes* (beyond Pin Rule 2's
 missing-branch outcomes):
@@ -916,32 +926,26 @@ missing-branch outcomes):
 
 ### 6.3 The legality gate — `assertPlanExecutable(ctx, operation, args, mode)` (`legality.ts`)
 
-Runs **before any effect, in both modes**, walking the whole tree (adopting
-the batch engine's deeper validation uniformly — D5 closed: live mode now
-also rejects before writing anything). It is the union of today's static
-checks plus symbol-origin legality:
+Runs **before any effect, in both modes**, walking the deterministic create or
+update tree. It is one mode-independent preflight surface:
 
 1. `separateData` parse validation (already shared; parse errors are
    engine-independent).
 2. `assertNoPlannedNestedMutationExecution` (create / upsertCreate branches:
    only create/createMany/connect/connectOrCreate legal — I6).
 3. `assertNestedUpdatePlanIsExecutable` + `assertUpdateManyDataHasNoRelations`.
-4. `assertManyToManyStepCombinationIsSupported` (I8).
-5. FK-nullability static checks (`assertFkCanBeSetNull` for disconnect /
+4. **Own-write dependency analysis** (§6.2): the ordered target, predicate,
+   and membership ledger, including independently forked nested alternatives.
+5. Relation-key and FK-nullability static checks (`assertFkCanBeSetNull` for disconnect /
    parent-holds-FK delete; `set`-on-FK-holder rejection).
-6. **Symbol-origin legality** (planned mode only): every identity the plan
-   must defer must have origin `generatedPk` (single column) or
-   `computedPk`; `opaqueGenerated` → the existing typed messages ("cannot
-   propagate generated compound primary keys", "requires primary key field
-   '…' to be known before execution"). Also: PK update values must be
-   literal/`{set}`/numeric-op (`assertSafePrimaryKeyUpdateValue` family).
-7. **Probe independence** (planned mode only): rejects the statically
-   detectable symbol-dependent probes (§6.2.2b).
+6. Portable primary-key update shape checks: literals, `{set}`, and supported
+   numeric operations only.
 
-This is the **single throw site** for the capability contract. Gates 1–5
-are semantic invariants (both modes); gates 6–7 are mode-scoped by the
-`mode` parameter — one function, one place, so the two modes can never
-disagree about where the line is (§1.2 S2).
+Effect-specific checks that require a selected runtime branch stay beside that
+effect in the shared interpreter. A top-level upsert therefore validates only
+the branch selected by its root existence probe; nested alternatives are fully
+analyzed during their enclosing update preflight. `Mode` contains substrate
+realization only and cannot add or waive semantic legality.
 
 ---
 
@@ -951,9 +955,9 @@ disagree about where the line is (§1.2 S2).
 
 | Error | Raised for | Notes |
 |---|---|---|
-| `NestedWriteError` | correlation/existence/orphan/fk-required/unsupported-combination/capability-gap failures | messages pinned by the behavior suites; produced from `GuardFailure.error()` or the legality gate; gains an optional `raceable` meta flag (§7.4) |
+| `NestedWriteError` | correlation/existence/orphan/fk-required/own-write-dependency/unsupported-identity failures | messages pinned by the behavior suites; produced from `GuardFailure.error()`, uniform preflight, or the shared interpreter; gains an optional `raceable` meta flag (§7.4) |
 | `NotFoundError` | top-level update/upsert target absent | unchanged |
-| `QueryEngineError` | routing/atomicity impossibility ("supports neither callback transactions nor atomic batch"), internal invariant breaches | d1-http keeps its loud rejection |
+| `QueryEngineError` | routing/atomicity impossibility ("supports neither callback transactions nor atomic batch"), internal invariant breaches | unsupported custom drivers reject before effects |
 | `UniqueConstraintError`, DEADLOCK, SERIALIZATION_FAILURE | real constraint races | passed through **unwrapped** so the retry wrapper classifies them (load-bearing per the Pin Rule) |
 
 The `kind → message` mapping (`target` / `correlated` / `nested-write`,
@@ -1049,8 +1053,8 @@ function selectMode(driver: AnyDriver, shared?: BatchPreparationContext): Mode {
 ```
 
 Capability precedence preserved exactly: a driver supporting both takes
-`LiveMode` (map-oracle §A). d1-http falls to the throw (capability honesty,
-map-batch-refs §6.2). This subsumes `runNestedWriteOperation`'s fork and
+`LiveMode` (map-oracle §A). A custom driver exposing neither atomic strategy
+falls to the throw. This subsumes `runNestedWriteOperation`'s fork and
 `atomic-runner`'s defensive mis-routing throw — there is no second path to
 mis-route into. Grep gate (M10): no `supportsTransactions|supportsBatch`
 reads anywhere in `nested-writes/` outside `selectMode` and the two mode
@@ -1153,7 +1157,7 @@ probes per §6.
 | **connect**, m2m | standalone guard(target `exists`, `kind:target`) + `insert(J){source: parentExpr, target: buildTargetPkSubquery}` `skipDuplicates` | guard target | idempotent; unrelated FKs untouched |
 | **connectOrCreate** (all shapes) | deduped inputs (first-create-wins, §6.2.1); probe(pin: found→`exists` (kind by direction); missing→**no pin**, Pin Rule 2); found → connect branch; missing → create branch (recursively interpreted) | found pinned; missing constraint-enforced | staleness of "missing" surfaces as `UniqueConstraintError` → retry converges (F1 fix); create payload ignored when found (Prisma parity); recursive nested writes legal in the create branch |
 | **disconnect**, parent holds FK | (legality: FK nullable) `update(P){fk: lit(null)} requireAffected: correlated`; **rebind** the parent identity's FK `Expr`s to `lit(null)` for downstream steps | requireAffected correlated | kills DIVERGENCE-PARENTDATA-MUTATION: no JS record mutation; downstream correlation reads the rebound `Expr` in both modes |
-| **disconnect**, child holds FK | `update(C){fk: null}`; `true` → where fkMatch, lax; explicit → correlated where, `requireAffected: correlated` | per §5.3 | true-lax / explicit-strict asymmetry |
+| **disconnect**, child holds FK | `update(C){fk: null}`; `true` → where fkMatch, lax; explicit → correlated where, `requireAffected: correlated` | per §5.3 | true-lax / explicit-strict input contract |
 | **disconnect**, m2m | `delete(J)` by source (+ target-in per item); boolean `disconnect:true` on m2m → typed reject (unchanged) | — | child survives |
 | **delete** | parent-holds-FK: null parent FK first (as disconnect) then `delete(C)`; else `delete(C)`; `true` lax / explicit `requireAffected: correlated` | per §5.3 | FK-null-before-child-delete ordering |
 | **delete / deleteMany**, m2m | membership probe (pin-free shape, §6.2) → `delete(J)` junction-first (incl. self-ref source side via `buildJunctionDeleteCondition`) → `delete(C)` by PK-in / by own where-unique (MySQL self-subquery rule preserved) | per-item connected-guard (`exists`, correlated) for `delete: unique` | junction-first FK safety |
@@ -1182,14 +1186,14 @@ PK otherwise; mapped columns translated to field names at the read boundary
 |---|---|
 | D1 error type/message (incl. set-orphan, correlation reject) | **Closed** — `GuardFailure` closures + attribution ladder (§7.3); behavior-suite `supportsTransactions` branches deleted at M7 |
 | D2 branch timing | **Absorbed** — one decision body; mode owns probe timing; Pin Rule pins (§6.1) |
-| D3 value substrate / capability gap | **Absorbed / typed** — `Expr`+`WriteSymbol`; origin legality at one gate (§6.3); gap stays a typed error (§1.2 S2) |
-| D4 updated-parent overlay (non-PK correlation column) | **Closed** — rebind every potentially-downstream-read column, static over-approximation, decided once (§6.2, §9); M0 adds the missing scenario |
+| D3 value substrate | **Absorbed / typed** — `Expr`+`WriteSymbol`; unsupported identities fail uniformly in the shared interpreter (§1.2 S2) |
+| D4 updated-parent overlay (non-PK correlation column) | **Closed** — rebind every potentially-downstream-read column, static over-approximation, decided once (§9); the conformance oracle pins the case |
 | D5 (oracle map: tx-only fast paths) | **Dropped pending benchmark** — §13 Q1; observable state identical either way |
 | D5 (batch map: validation depth) | **Closed** — uniform whole-tree legality gate, both modes (§6.3) |
 | D6 statement-count / setup-cleanup structure | **Inherent to planned mode** — preserved (setup offset, lazy setup, shared PlanState) |
 | D6 (batch map: set skip-already-connected) | **Unified** — the skip is a mode-independent interpreter decision from the member probe, pinned in planned mode; rowCount contract kept on non-skipped members (§5.3, §1.2 A13) |
 | D7 concurrency lock-vs-assertion; batch retry gap | **Unified, and the shipped batch bug fixed** — Pin Rule 2 makes the constraint violation the signal; retry above the interpreter covers both modes (§7.4); M8 concurrent gate |
-| D8 connectOrCreate dedupe | **Promoted to rule** (first-create-wins) under the Probe Independence Rule (§6.2.1) |
+| D8 connectOrCreate dedupe | **Promoted to rule** (first-create-wins); branch-ledger analysis covers every non-deduped alternative (§6.2) |
 | D8 (batch map: correlated-update read avoidance) | **Promoted** to a mode-independent "probe iff downstream consumer" decision (§6.2) |
 | D9 dispatch entries / atomic-runner defensive throw | **Subsumed** by `selectMode`; the throw's message survives as `selectMode`'s rejection |
 | DIVERGENCE-RECURSION-ATOMICITY | **Removed** — one flat scope (§8.2), with the no-catch-and-continue proof (§1.2 A5), spy-gated at M4 |
@@ -1197,11 +1201,11 @@ PK otherwise; mapped columns translated to field names at the read boundary
 | DIVERGENCE-UPSERT-EXISTING-WHERE (concurrent-delete error split) | **Closed** — one `GuardFailure` for the staleness case (§9 upsert row) |
 | connectOrCreate found+after refetch discrepancy (map-tx-create §12.7) | **Unified** — the found branch returns the probe record; a post-link refetch happens only if a downstream consumer reads non-PK columns (same rule as D4); the sole historical consumer (`related` map) is deleted (§13 Q2) |
 | M2M filtered-deleteMany silent staleness gap | **Closed fail-closed + raceable** — symmetric-difference guards; retry converges; residual window = tx's own window class (§1.2 A6) |
-| M2M deleteMany-combination ban | **Kept** — uniform typed error; rationale updated (§6.2.2a) |
-| compound-generated-PK gap | **Kept** as mode-scoped typed error at the single gate (§1.2 S2); DB-default-uuid lift path recorded (§1.2 A8) |
+| M2M mixed relation steps | **Unified** — the blanket ban is removed; exact target, predicate, and membership overlap rejects in preflight, while disjoint steps execute in the shared order (§6.2) |
+| compound-generated-PK propagation | **Uniformly unsupported** — the shared interpreter throws one typed error before effects; the all-mode lift path is recorded (§1.2 A8/S2) |
 | `txCtx.createdRecords` / `generatedIds` | **Deleted, not ported** — dead on the create path; symbols and `IdentityExprs` replace the update path's use; the `related` map is dropped (§13 Q2) |
 | TEXT round-trip + cast-back | **Preserved** (`buildScalarSqlValue` unchanged) |
-| Capability honesty (d1-http), lazy setup, result window, shared PlanState | **Preserved verbatim** |
+| Capability honesty, lazy setup, result window, shared PlanState | **Preserved**; a public driver is shipped only when its atomic strategy is documented and testable |
 
 ---
 
@@ -1252,9 +1256,9 @@ nested upsert to-one and to-many (incl. uncorrelated-exists → state
 unchanged), and the full M2M family (connect+idempotency,
 create-through-junction, connectOrCreate+dedupe, set, disconnect, delete,
 deleteMany filtered + `true`, upsert connected/uncorrelated/create,
-self-referential delete, deleteMany-combination rejection). Add the D4
-scenario (non-PK correlation column changed mid-update) and the §6.2.3
-cross-step scenario.
+self-referential delete, overlapping mixed-step rejection, and provably disjoint
+mixed-step success). Add the D4 scenario (non-PK correlation column changed
+mid-update) and exact own-write target/predicate/membership dependency cases.
 *Gate:* every new scenario passes on both **existing** engines unchanged.
 Any failure = a shipped divergence, fixed first as its own scoped change
 (this is de-risking working as intended, not a plan failure).
@@ -1265,7 +1269,7 @@ Land `expr.ts`, `effects.ts`, `mode.ts`, `live-mode.ts`, `planned-mode.ts`,
 delegating 100% to the old engines.
 *Gate:* full suite green; a capability-matrix unit test proves `selectMode`
 routes every driver class identically to `runNestedWriteOperation` today,
-including the d1-http rejection message.
+including the unsupported-custom-driver rejection message.
 
 **M2 — Uniform legality gate.**
 Route all static validation (both modes) through `assertPlanExecutable`
@@ -1327,7 +1331,8 @@ failure is proven un-retried (spy on attempt count).
 
 **M9 — M2M through the interpreter; bulk deletion of the old engines.**
 One upsert/membership decision body; junction effects; filtered-deleteMany
-symmetric-difference guards (planned, raceable); combination ban kept.
+symmetric-difference guards (planned, raceable); mixed relation steps governed
+by uniform own-write preflight rather than a blanket ban.
 *Deletions (now unreachable):* `create.ts`, `connect.ts`,
 `connect-or-create.ts`, `update.ts`, `update-many.ts`, `upsert.ts`,
 `disconnect.ts`, `delete.ts`, `delete-many.ts`, `set.ts`,
@@ -1462,10 +1467,10 @@ family module (gate 5).
 4. **High-level macro effects (`ReplaceSet`, `UpsertInto`) interpreted by
    backends** (strangler). Rejected: moves set/upsert semantics into
    per-backend realizations — the drift surface itself.
-5. **Uniform rejection of compound-generated PKs in both modes**
-   (one-interpreter). Rejected: deletes a working live capability to serve
-   a symmetry the value system does not demand; the sanctioned outcome for
-   a capability gap is a clear typed error, centralized (§1.2 S2).
+5. **Per-mode support for compound-generated PK propagation.** Rejected: the
+   shared interpreter must carry one identity contract through every mode.
+   Until both lowerings exist, the operation fails uniformly before effects
+   (§1.2 A8/S2).
 6. **Compiler resolves every branch / a `Branch` node carrying both compiled
    arms** (orchestrator frame, total-ir §4.6). Rejected: branch resolution
    without I/O is impossible and the I/O timing *is* the substrate
@@ -1486,36 +1491,31 @@ family module (gate 5).
    filtered m2m deleteMany on batch drivers was also considered and
    rejected: it would break currently-working, behavior-covered
    functionality for the common uncontended case.)
-10. **Lifting the M2M deleteMany-combination ban.** Rejected for now: with
-    plan-time membership reads, the combined form would deterministically
-    abort on planned mode (its own writes invalidate the premise) while
-    succeeding on live — worse than the uniform typed error (§6.2.2a).
-    Revisit only with a design that defers the membership read itself.
-11. **Keeping per-substrate error messages / the `supportsTransactions`
+10. **Keeping per-substrate error messages / the `supportsTransactions`
     test branches.** Rejected: D1 is an artifact, not a contract
     (map-oracle D1 says so verbatim); the change lands isolated at M7.
-12. **Porting `txCtx.createdRecords`/`generatedIds`, nested
+11. **Porting `txCtx.createdRecords`/`generatedIds`, nested
     `withTransaction` re-entrancy, or the in-place `parentData` mutation.**
     Rejected: substrate artifacts, replaced by symbols, the flat scope
     (with the §1.2 A5 proof), and `Expr` rebinding.
-13. **An N-backend/plugin `Mode` registry.** Rejected: exactly two
+12. **An N-backend/plugin `Mode` registry.** Rejected: exactly two
     substrates exist; speculative extensibility is ceremony. A genuinely
     new substrate implements `Mode` when it exists.
-14. **Blanket-accepting `NestedWriteAssertionError` (or any
+13. **Blanket-accepting `NestedWriteAssertionError` (or any
     guard-abort error class) in `isWriteRaceLoserError`.** Rejected: it
     would retry non-raceable correlation/orphan failures (re-running, and
     under concurrent state change potentially taking a different branch).
     Raceability is a per-guard fact set by the interpreter and carried in
     the planned scope's side table — never inferred from an error class
     (§1.2 A1).
-15. **Pinning raceable create branches and rewrapping the abort as a typed
+14. **Pinning raceable create branches and rewrapping the abort as a typed
     raceable error** (total-ir §8.2 + the "raceable tag" repair). Rejected:
     even repaired, the pin double-enforces a constraint the DB already
     enforces, adds a per-dialect abort-attribution dependency to the *hot*
     race path, and remains stricter than live semantics. Deleting the pin
     (Pin Rule 2) is strictly simpler and preserves map-oracle D7's coupling
     verbatim.
-16. **Per-kind routing with mixed old/new trees.** Rejected: the value
+15. **Per-kind routing with mixed old/new trees.** Rejected: the value
     substrates do not interoperate (concrete `parentData` vs `Expr`s), the
     old engines are mutually recursive, and a per-step interop shim would
     be a third semantics. Whole-tree routing costs slower coverage growth

@@ -82,6 +82,8 @@ export interface ScalarState<T extends ScalarType = ScalarType> {
   isUnique: boolean;
   default: DefaultValue<any> | undefined;
   autoGenerate: AutoGenerateType | undefined;
+  /** Runtime create validation for portable auto-increment semantics. */
+  disallowZero?: boolean;
   schema: StandardSchemaV1<any, any> | undefined;
   optional: boolean;
   /** Custom column name in the database (set via .map()) */
@@ -175,6 +177,7 @@ export const createDefaultState = <
   isUnique: false,
   default: undefined,
   autoGenerate: undefined,
+  disallowZero: false,
   schema: undefined,
   columnName: undefined,
   optional: false,

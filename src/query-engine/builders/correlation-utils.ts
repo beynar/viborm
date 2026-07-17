@@ -6,14 +6,10 @@
  */
 
 import type { Model } from "@schema/model";
-import type { AnyRelation } from "@schema/relation";
+import type { AnyRelation, ReferentialAction } from "@schema/relation";
 import type { Sql } from "@sql";
 import { getColumnName } from "../context";
-import {
-  type QueryContext,
-  QueryEngineError,
-  type RelationInfo,
-} from "../types";
+import { QueryEngineError, type QueryScope, type RelationInfo } from "../types";
 
 /**
  * Build correlation condition between parent and related table.
@@ -30,7 +26,7 @@ import {
  * @throws QueryEngineError if unable to determine correlation
  */
 export function buildCorrelation(
-  ctx: QueryContext,
+  ctx: QueryScope,
   relationInfo: RelationInfo,
   parentAlias: string,
   relatedAlias: string
@@ -116,7 +112,13 @@ export function buildCorrelation(
 export function findInverseRelationState(
   sourceModel: Model<any>,
   relationInfo: RelationInfo
-): { fields: string[]; references: string[] | undefined } | undefined {
+):
+  | {
+      fields: string[];
+      references: string[] | undefined;
+      onUpdate: ReferentialAction | undefined;
+    }
+  | undefined {
   const { targetModel } = relationInfo;
   const currentRelationName = relationInfo.relation["~"].state.name;
   const targetRelations = targetModel["~"].state.relations;
@@ -125,6 +127,7 @@ export function findInverseRelationState(
     relationName?: string;
     fields: string[];
     references: string[] | undefined;
+    onUpdate: ReferentialAction | undefined;
   }> = [];
 
   for (const relation of Object.values(targetRelations ?? {})) {
@@ -135,6 +138,7 @@ export function findInverseRelationState(
         relationName: relState.name,
         fields,
         references: relState.references,
+        onUpdate: relState.onUpdate,
       });
     }
   }
@@ -145,7 +149,11 @@ export function findInverseRelationState(
 
   if (potentialInverses.length === 1) {
     const inverse = potentialInverses[0]!;
-    return { fields: inverse.fields, references: inverse.references };
+    return {
+      fields: inverse.fields,
+      references: inverse.references,
+      onUpdate: inverse.onUpdate,
+    };
   }
 
   // Multiple potential inverses - disambiguate by explicit relation name (.name())
@@ -154,7 +162,11 @@ export function findInverseRelationState(
       (inv) => inv.relationName === currentRelationName
     );
     if (matchByName) {
-      return { fields: matchByName.fields, references: matchByName.references };
+      return {
+        fields: matchByName.fields,
+        references: matchByName.references,
+        onUpdate: matchByName.onUpdate,
+      };
     }
   }
 
@@ -171,7 +183,7 @@ export function findInverseRelationState(
  * inverse with both fields and references exists.
  */
 function findInverseRelation(
-  ctx: QueryContext,
+  ctx: QueryScope,
   relationInfo: RelationInfo
 ): { fields: string[]; references: string[] } | undefined {
   const inverse = findInverseRelationState(ctx.model, relationInfo);

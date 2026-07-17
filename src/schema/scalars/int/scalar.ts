@@ -106,7 +106,8 @@ export class IntScalar<State extends ScalarState<"int">> {
       updateState(this, {
         hasDefault: true,
         autoGenerate: "increment",
-        default: 0,
+        default: undefined,
+        disallowZero: true,
         optional: true,
       }),
       this._nativeType

@@ -13,10 +13,20 @@ import {
   type VibORMClient,
 } from "@client/client";
 import type { D1Database } from "@cloudflare/workers-types";
-import { TransactionError, VibORMErrorCode } from "@errors";
-import { Driver, type DriverResultParser } from "../driver";
-import { convertValuesForSQLite, sqliteResultParser } from "../shared";
-import type { BatchQuery, QueryResult, TransactionOptions } from "../types";
+import { QueryError } from "@errors";
+import {
+  Driver,
+  type DriverResultParser,
+  type QueryExecutionContext,
+} from "../driver";
+import { isNormalizedResultRow } from "../normalized-result";
+import {
+  classifySQLiteStatementResult,
+  convertValuesForSQLite,
+  sqliteResultParser,
+  unsupportedCallbackTransactionError,
+} from "../shared";
+import type { BatchQuery, QueryResult } from "../types";
 
 // ============================================================
 // EXPORTED OPTIONS
@@ -27,6 +37,95 @@ export interface D1DriverOptions {
 }
 
 export type D1ClientConfig<C extends DriverConfig> = D1DriverOptions & C;
+
+interface D1BindingResult<T> {
+  success: true;
+  results: T[] | null;
+  meta: { changes: number };
+}
+
+const ROW_PRODUCING_OPERATIONS = new Set([
+  "aggregate",
+  "count",
+  "create",
+  "createManyAndReturn",
+  "delete",
+  "exist",
+  "findFirst",
+  "findMany",
+  "findUnique",
+  "groupBy",
+  "update",
+  "updateManyAndReturn",
+  "upsert",
+]);
+
+function malformedD1Result(
+  context: QueryExecutionContext,
+  reason: string
+): QueryError {
+  const operation = context.operation ?? "execute";
+  return new QueryError(
+    `Driver "d1" returned a malformed result payload for operation "${operation}": ${reason}.`,
+    { meta: { driver: "d1", ...context, operation } }
+  );
+}
+
+function assertD1BindingResult<T>(
+  result: unknown,
+  context: QueryExecutionContext
+): asserts result is D1BindingResult<T> {
+  if (
+    !isNormalizedResultRow(result) ||
+    result.success !== true ||
+    (result.results !== null &&
+      !(
+        Array.isArray(result.results) &&
+        result.results.every(isNormalizedResultRow)
+      )) ||
+    !isNormalizedResultRow(result.meta) ||
+    typeof result.meta.changes !== "number" ||
+    !Number.isFinite(result.meta.changes) ||
+    !Number.isSafeInteger(result.meta.changes) ||
+    result.meta.changes < 0
+  ) {
+    throw malformedD1Result(
+      context,
+      "expected explicit object rows (or null) and non-negative changes metadata"
+    );
+  }
+}
+
+function normalizeD1Result<T>(
+  result: unknown,
+  sql: string,
+  context: QueryExecutionContext,
+  enforceOperationContract: boolean
+): QueryResult<T> {
+  const operation = context.operation ?? "execute";
+  assertD1BindingResult<T>(result, context);
+  let rows: T[];
+  if (result.results === null) {
+    const operationRequiresRows =
+      enforceOperationContract && ROW_PRODUCING_OPERATIONS.has(operation);
+    if (
+      operationRequiresRows ||
+      classifySQLiteStatementResult(sql) !== "no-rows"
+    ) {
+      throw malformedD1Result(
+        context,
+        "null results are not valid for a row-producing or unknown statement"
+      );
+    }
+    rows = [];
+  } else {
+    rows = result.results;
+  }
+  return {
+    rows,
+    rowCount: result.meta.changes === 0 ? rows.length : result.meta.changes,
+  };
+}
 
 // ============================================================
 // DRIVER IMPLEMENTATION
@@ -59,47 +158,48 @@ export class D1Driver extends Driver<D1Database, D1Database> {
   protected async execute<T>(
     client: D1Database,
     sql: string,
-    params: unknown[]
+    params: unknown[],
+    context?: QueryExecutionContext
+  ): Promise<QueryResult<T>> {
+    return this.executeStatement<T>(
+      client,
+      sql,
+      params,
+      context ?? { operation: "execute" }
+    );
+  }
+
+  private async executeStatement<T>(
+    client: D1Database,
+    sql: string,
+    params: unknown[],
+    context: QueryExecutionContext
   ): Promise<QueryResult<T>> {
     const values = convertValuesForSQLite(params);
     const stmt = client.prepare(sql).bind(...values);
-
-    const normalized = sql.trim().toUpperCase();
-    const isSelect =
-      normalized.startsWith("SELECT") || normalized.startsWith("WITH");
-    const isReturning = normalized.includes("RETURNING");
-
-    if (isSelect || isReturning) {
-      const result = await stmt.all<T>();
-      return {
-        rows: result.results,
-        rowCount: result.results.length,
-      };
-    }
-
-    const result = await stmt.run<T>();
-    return {
-      rows: result.results,
-      rowCount: result.meta.changes,
-    };
+    const result: unknown = await stmt.run<T>();
+    return normalizeD1Result<T>(result, sql, context, true);
   }
 
   protected async executeRaw<T>(
     client: D1Database,
     sql: string,
-    params?: unknown[]
+    params: unknown[] | undefined,
+    context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
-    return this.execute<T>(client, sql, params ?? []);
+    return this.executeStatement<T>(
+      client,
+      sql,
+      params ?? [],
+      context ?? { operation: "executeRaw" }
+    );
   }
 
-  protected async transaction<T>(
-    client: D1Database,
-    fn: (tx: D1Database) => Promise<T>,
-    _options?: TransactionOptions
+  protected transaction<T>(
+    _client: D1Database,
+    _fn: (tx: D1Database) => Promise<T>
   ): Promise<T> {
-    // D1 does not support true transactions - just execute directly
-    // Warning is handled by base Driver.withTransaction()
-    return fn(client);
+    return Promise.reject(unsupportedCallbackTransactionError(this.driverName));
   }
 
   /**
@@ -109,35 +209,55 @@ export class D1Driver extends Driver<D1Database, D1Database> {
   protected async executeBatch<T>(
     client: D1Database,
     queries: BatchQuery[],
-    options?: TransactionOptions
+    context?: QueryExecutionContext
   ): Promise<QueryResult<T>[]> {
-    if (
-      options?.isolationLevel !== undefined ||
-      options?.timeout !== undefined
-    ) {
-      throw new TransactionError(
-        `Driver "${this.driverName}" cannot honor transaction options (isolationLevel/timeout) in batch execution.`,
-        {
-          code: VibORMErrorCode.INVALID_TRANSACTION_INPUT,
-          meta: { driver: this.driverName, method: "$transaction([...])" },
-        }
-      );
+    const batchContext = context ?? { operation: "executeBatch" };
+    const statements: ReturnType<D1Database["prepare"]>[] = [];
+    for (const query of queries) {
+      const statementContext = query.context ?? batchContext;
+      try {
+        const values = query.params ? convertValuesForSQLite(query.params) : [];
+        statements.push(client.prepare(query.sql).bind(...values));
+      } catch (error) {
+        throw this.normalizeExecutionError(
+          error,
+          query.sql,
+          this.getBatchDiagnosticParameters(query),
+          statementContext
+        );
+      }
     }
-    // Prepare all statements
-    const statements = queries.map((query) => {
-      const values = query.params ? convertValuesForSQLite(query.params) : [];
-      return client.prepare(query.sql).bind(...values);
-    });
 
     // Execute all statements atomically
-    const results = await client.batch<T>(statements);
+    const results: unknown = await client.batch<T>(statements);
 
-    // Map results to QueryResult format
-    // D1's meta.changes is 0 for SELECTs, so we use results.length for row count when no changes
-    return results.map((result) => ({
-      rows: result.results,
-      rowCount: result.meta.changes || result.results.length,
-    }));
+    if (!Array.isArray(results) || results.length !== queries.length) {
+      const actualResultCount = Array.isArray(results) ? results.length : 0;
+      throw malformedD1Result(
+        batchContext,
+        `expected ${queries.length} statement results but received ${actualResultCount}`
+      );
+    }
+
+    const normalized: QueryResult<T>[] = [];
+    for (let index = 0; index < results.length; index += 1) {
+      const query = queries[index];
+      if (!query) {
+        throw malformedD1Result(
+          batchContext,
+          `missing statement metadata at batch result index ${index}`
+        );
+      }
+      normalized.push(
+        normalizeD1Result<T>(
+          results[index],
+          query.sql,
+          query.context ?? batchContext,
+          false
+        )
+      );
+    }
+    return normalized;
   }
 }
 

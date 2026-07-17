@@ -27,9 +27,8 @@ export type {
 // Base driver for custom implementations
 export { Driver, TransactionBoundDriver } from "./driver";
 export type {
+  BatchQuery,
   Dialect,
-  IsolationLevel,
   LogFunction,
   QueryResult,
-  TransactionOptions,
 } from "./types";

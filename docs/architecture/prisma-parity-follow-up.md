@@ -313,26 +313,20 @@ Status: done. `src/errors/constraints.ts` defines `UniqueConstraintError`,
 serialization/deadlock mapping lives in `src/drivers/error-mapping.ts` and
 `src/errors/base.ts`.
 
-#### Unit 1.4: Transaction Options — Done
+#### Unit 1.4: Transaction Options — Superseded
 
-Current risk:
-
-- `TransactionOptions.timeout` is declared but not enforced.
-
-Plan decision:
-
-- Implement `TransactionOptions.timeout`.
-- Do not remove the option because it is part of the intended Prisma-like
-  transaction developer experience.
-
-Status: done. `Driver.wrapTransactionCallbackFor` in `src/drivers/driver.ts`
-enforces `timeout` with a real `setTimeout`/`TransactionError` race.
+Phase 8 of the query-engine correctness remediation plan replaced the earlier
+timeout design with an empty portable option subset. `$transaction` accepts no
+second options argument because timeout, isolation, access-mode, and
+provider-specific settings do not have one honest meaning across every
+advertised driver. Removed options reject before callback or provider work; the
+old `Promise.race` timeout path no longer exists.
 
 ### Exit Criteria
 
 - Transaction behavior is explicit per driver.
 - Common database errors are normalized.
-- No declared transaction option is a no-op.
+- The portable API declares no transaction option it cannot honor everywhere.
 
 ## Remaining Phase 2: Documentation and Public Contract Cleanup
 

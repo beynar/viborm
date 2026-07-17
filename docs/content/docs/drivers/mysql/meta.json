@@ -1,0 +1,5 @@
+{
+  "title": "MySQL",
+  "defaultOpen": false,
+  "pages": ["mysql2", "planetscale"]
+}

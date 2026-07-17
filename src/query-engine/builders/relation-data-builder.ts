@@ -8,29 +8,22 @@
  */
 
 import type { Model } from "@schema/model";
+import type { ReferentialAction } from "@schema/relation";
 import { type Sql, sql } from "@sql";
-import {
-  createChildContext,
-  getColumnName,
-  getRelationInfo,
-  getTableName,
-  isRelation,
-} from "../context";
+import { createChildScope, getColumnName, getTableName } from "../context";
 import {
   NestedWriteError,
-  type QueryContext,
   QueryEngineError,
+  type QueryScope,
   type RelationInfo,
 } from "../types";
 import {
   findInverseRelationState,
   getPrimaryKeyFields,
 } from "./correlation-utils";
-import {
-  hasSupportedNestedWriteInput,
-  SUPPORTED_NESTED_WRITE_KEYS,
-} from "./nested-write-detector";
 import { buildWhereUnique } from "./where-unique-builder";
+
+export { separateData } from "./relation-mutation-parser";
 
 // ============================================================
 // TYPES
@@ -131,293 +124,8 @@ export interface FkDirection {
   fkHolder: Model<any>;
   /** Which model is referenced */
   referenced: Model<any>;
-}
-
-// ============================================================
-// SEPARATING DATA
-// ============================================================
-
-/**
- * Separate scalar data from relation mutations
- *
- * @param ctx - Query context
- * @param data - Input data with mixed scalar and relation fields
- * @returns Separated scalar and relation data
- */
-export function separateData(
-  ctx: QueryContext,
-  data: Record<string, unknown>
-): SeparatedData {
-  const scalarData: Record<string, unknown> = {};
-  const relations: Record<string, RelationMutation> = {};
-
-  for (const [key, value] of Object.entries(data)) {
-    if (value === undefined) {
-      continue;
-    }
-
-    if (isRelation(ctx.model, key)) {
-      const relationInfo = getRelationInfo(ctx, key);
-      if (!relationInfo) {
-        continue;
-      }
-
-      // Parse relation mutation
-      const mutation = parseRelationMutation(relationInfo, value);
-      if (mutation) {
-        relations[key] = mutation;
-      }
-    } else {
-      // Scalar field
-      scalarData[key] = value;
-    }
-  }
-
-  return { scalarData, relations };
-}
-
-/**
- * Parse a relation value into a RelationMutation
- */
-function parseRelationMutation(
-  relationInfo: RelationInfo,
-  value: unknown
-): RelationMutation | undefined {
-  if (!hasSupportedNestedWriteInput(value)) {
-    if (
-      value !== null &&
-      typeof value === "object" &&
-      !Array.isArray(value) &&
-      Object.keys(value).length > 0
-    ) {
-      throw new NestedWriteError(
-        `Unsupported nested write operation on relation '${relationInfo.name}': ${Object.keys(
-          value
-        ).join(", ")}`,
-        relationInfo.name
-      );
-    }
-    return undefined;
-  }
-
-  const input = value as Record<string, unknown>;
-  const mutation: RelationMutation = { relationInfo };
-
-  for (const key of SUPPORTED_NESTED_WRITE_KEYS) {
-    if (!(key in input) || input[key] === undefined) {
-      continue;
-    }
-
-    switch (key) {
-      case "connect":
-        mutation.connect = input.connect as
-          | Record<string, unknown>
-          | Record<string, unknown>[];
-        break;
-      case "disconnect":
-        mutation.disconnect = input.disconnect as
-          | boolean
-          | Record<string, unknown>
-          | Record<string, unknown>[];
-        break;
-      case "create":
-        mutation.create = input.create as
-          | Record<string, unknown>
-          | Record<string, unknown>[];
-        break;
-      case "createMany":
-        mutation.createMany = input.createMany as CreateManyInput;
-        break;
-      case "connectOrCreate":
-        mutation.connectOrCreate = input.connectOrCreate as
-          | ConnectOrCreateInput
-          | ConnectOrCreateInput[];
-        break;
-      case "delete":
-        mutation.delete = input.delete as
-          | boolean
-          | Record<string, unknown>
-          | Record<string, unknown>[];
-        break;
-      case "set":
-        mutation.set = Array.isArray(input.set)
-          ? (input.set as Record<string, unknown>[])
-          : ([input.set] as Record<string, unknown>[]);
-        break;
-      case "update":
-        mutation.update = parseNestedUpdateInput(relationInfo, input.update);
-        break;
-      case "updateMany":
-        mutation.updateMany = parseNestedUpdateManyInput(
-          relationInfo,
-          input.updateMany
-        );
-        break;
-      case "upsert":
-        mutation.upsert = parseNestedUpsertInput(relationInfo, input.upsert);
-        break;
-      case "deleteMany":
-        mutation.deleteMany = parseNestedDeleteManyInput(
-          relationInfo,
-          input.deleteMany
-        );
-        break;
-      default:
-        break;
-    }
-  }
-
-  return mutation;
-}
-
-function parseNestedUpdateInput(
-  relationInfo: RelationInfo,
-  value: unknown
-): Record<string, unknown> | NestedUpdateInput | NestedUpdateInput[] {
-  if (relationInfo.isToOne) {
-    return requireRecordEnvelope(relationInfo, "update", value);
-  }
-
-  return parseSingleOrArrayRecord(value, relationInfo, "update").map(
-    (input) => {
-      const where = requireRecordField(relationInfo, "update", input, "where");
-      const data = requireRecordField(relationInfo, "update", input, "data");
-      return { where, data };
-    }
-  );
-}
-
-function parseNestedUpdateManyInput(
-  relationInfo: RelationInfo,
-  value: unknown
-): NestedUpdateManyInput | NestedUpdateManyInput[] {
-  rejectToOneOperation(relationInfo, "updateMany");
-
-  return parseSingleOrArrayRecord(value, relationInfo, "updateMany").map(
-    (input) => {
-      const data = requireRecordField(
-        relationInfo,
-        "updateMany",
-        input,
-        "data"
-      );
-      const parsed: NestedUpdateManyInput = { data };
-      if (input.where !== undefined) {
-        parsed.where = requireRecordField(
-          relationInfo,
-          "updateMany",
-          input,
-          "where"
-        );
-      }
-      return parsed;
-    }
-  );
-}
-
-function parseNestedUpsertInput(
-  relationInfo: RelationInfo,
-  value: unknown
-): NestedUpsertInput | NestedUpsertInput[] {
-  if (relationInfo.isToOne && Array.isArray(value)) {
-    throw new NestedWriteError(
-      `Malformed nested 'upsert' operation on relation '${relationInfo.name}': expected a single object envelope for to-one relations.`,
-      relationInfo.name,
-      { meta: { operation: "upsert" } }
-    );
-  }
-
-  const inputs = parseSingleOrArrayRecord(value, relationInfo, "upsert");
-  const parsed = inputs.map((input) => {
-    const create = requireRecordField(relationInfo, "upsert", input, "create");
-    const update = requireRecordField(relationInfo, "upsert", input, "update");
-    const upsertInput: NestedUpsertInput = { create, update };
-
-    if (relationInfo.isToMany) {
-      upsertInput.where = requireRecordField(
-        relationInfo,
-        "upsert",
-        input,
-        "where"
-      );
-    }
-
-    return upsertInput;
-  });
-
-  return relationInfo.isToOne ? parsed[0]! : parsed;
-}
-
-function parseNestedDeleteManyInput(
-  relationInfo: RelationInfo,
-  value: unknown
-): Record<string, unknown> | Record<string, unknown>[] {
-  rejectToOneOperation(relationInfo, "deleteMany");
-  return parseSingleOrArrayRecord(value, relationInfo, "deleteMany");
-}
-
-function parseSingleOrArrayRecord(
-  value: unknown,
-  relationInfo: RelationInfo,
-  operation: string
-): Record<string, unknown>[] {
-  const values = Array.isArray(value) ? value : [value];
-  return values.map((entry) =>
-    requireRecordEnvelope(relationInfo, operation, entry)
-  );
-}
-
-function requireRecordEnvelope(
-  relationInfo: RelationInfo,
-  operation: string,
-  value: unknown
-): Record<string, unknown> {
-  if (isRecord(value)) {
-    return value;
-  }
-
-  throw new NestedWriteError(
-    `Malformed nested '${operation}' operation on relation '${relationInfo.name}': expected an object envelope.`,
-    relationInfo.name,
-    { meta: { operation } }
-  );
-}
-
-function requireRecordField(
-  relationInfo: RelationInfo,
-  operation: string,
-  input: Record<string, unknown>,
-  field: string
-): Record<string, unknown> {
-  const value = input[field];
-  if (isRecord(value)) {
-    return value;
-  }
-
-  throw new NestedWriteError(
-    `Malformed nested '${operation}' operation on relation '${relationInfo.name}': expected '${field}' to be an object.`,
-    relationInfo.name,
-    { meta: { operation, field } }
-  );
-}
-
-function rejectToOneOperation(
-  relationInfo: RelationInfo,
-  operation: string
-): void {
-  if (!relationInfo.isToOne) {
-    return;
-  }
-
-  throw new NestedWriteError(
-    `Nested operation '${operation}' is not supported for to-one relation '${relationInfo.name}'.`,
-    relationInfo.name,
-    { meta: { operation } }
-  );
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
+  /** Database action when the referenced key changes. */
+  onUpdate: ReferentialAction | undefined;
 }
 
 // ============================================================
@@ -436,7 +144,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * @returns FK direction info
  */
 export function getFkDirection(
-  ctx: QueryContext,
+  ctx: QueryScope,
   relationInfo: RelationInfo
 ): FkDirection {
   // Must come before any inverse-FK scanning: a to-one relation on the target
@@ -461,6 +169,7 @@ export function getFkDirection(
       pkFields: references ?? getPrimaryKeyFields(targetModel),
       fkHolder: ctx.model,
       referenced: targetModel,
+      onUpdate: relationInfo.relation["~"].state.onUpdate,
     };
   }
 
@@ -486,6 +195,7 @@ export function getFkDirection(
         : getPrimaryKeyFields(ctx.model),
     fkHolder: targetModel,
     referenced: ctx.model,
+    onUpdate: inverse.onUpdate,
   };
 }
 
@@ -505,7 +215,7 @@ export function getFkDirection(
  * @returns Map of FK field name to value/subquery
  */
 export function buildConnectFkValues(
-  ctx: QueryContext,
+  ctx: QueryScope,
   relationInfo: RelationInfo,
   connectInput: Record<string, unknown>
 ): Record<string, Sql> {
@@ -572,7 +282,7 @@ export function buildConnectFkValues(
  * Build subquery to select a specific field for connect
  */
 function buildConnectSubqueryForField(
-  ctx: QueryContext,
+  ctx: QueryScope,
   relationInfo: RelationInfo,
   connectInput: Record<string, unknown>,
   selectField: string
@@ -582,7 +292,7 @@ function buildConnectSubqueryForField(
 
   const targetTable = getTableName(targetModel);
   const subAlias = ctx.nextAlias();
-  const childCtx = createChildContext(ctx, targetModel, subAlias);
+  const childCtx = createChildScope(ctx, targetModel, subAlias);
 
   const whereClause = buildWhereUnique(childCtx, connectInput, subAlias);
 
@@ -601,7 +311,7 @@ function buildConnectSubqueryForField(
 /**
  * Check if the current model holds the FK for a relation
  *
- * Simplified check that doesn't require full QueryContext.
+ * Simplified check that doesn't require full QueryScope.
  * For to-many relations (oneToMany), FK is always on the related model.
  * For to-one relations (manyToOne), FK is on current model if fields defined.
  *

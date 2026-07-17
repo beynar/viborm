@@ -10,7 +10,7 @@ import {
   buildAggregateColumn,
   buildCountAggregate,
 } from "../builders/aggregate-utils";
-import { type QueryContext, QueryEngineError } from "../types";
+import { QueryEngineError, type QueryScope } from "../types";
 import { buildAggregateInputWindow } from "./aggregate-input";
 
 /**
@@ -36,7 +36,7 @@ export interface AggregateArgs {
  * @param args - Aggregate arguments
  * @returns SQL statement
  */
-export function buildAggregate(ctx: QueryContext, args: AggregateArgs): Sql {
+export function buildAggregate(ctx: QueryScope, args: AggregateArgs): Sql {
   const { adapter } = ctx;
 
   // Build aggregate columns
@@ -108,7 +108,7 @@ function addSelectedFields(
  * Build aggregate columns from args using shared helpers
  */
 function buildAggregateColumns(
-  ctx: QueryContext,
+  ctx: QueryScope,
   args: AggregateArgs,
   alias: string
 ): Sql[] {

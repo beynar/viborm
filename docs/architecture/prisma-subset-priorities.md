@@ -14,14 +14,11 @@ rejected shapes.
 |------|----------------|------------------|
 | Nested writes | Core documented nested `update`, `updateMany`, `upsert`, and `deleteMany` shapes are implemented for callback-transaction and atomic-batch driver paths, including generated and updated primary-key dataflow where the shape is safe. The remaining risk is hosted-provider proof. | Keep local conformance coverage green, track hosted-provider gaps explicitly, and reject only driver paths that provide no atomic strategy or cannot prove a specific unsafe shape before mutation. |
 | `distinct` semantics | `distinct` interacts with `select`, `orderBy`, pagination, and dialect SQL. A weak subset can surprise users. | Either harden the documented SQL-backed subset or reject risky combinations before SQL generation. |
-| `createMany.skipDuplicates` | Prisma makes this provider-dependent; VibORM should be equally explicit per adapter. Silent ignore would be dangerous. | Add/verify adapter capability behavior: implement where supported, reject where unsupported. |
 
 ## Priority 2: Maybe Later
 
 | Area | Why not first | Target direction |
 |------|---------------|------------------|
-| `createManyAndReturn` | Provider-specific in Prisma and not required for core CRUD parity. | Consider only after mutation return behavior is stable across local and hosted drivers. |
-| `updateManyAndReturn` | Provider-specific in Prisma and harder to make cross-dialect safe. | Consider only with a clear adapter capability contract and return-row tests. |
 | Query-level `omit` | Real Prisma ergonomics gap, but `select` already covers explicit projection. | Keep unsupported until there is a concrete product reason to add it. |
 
 ## Priority 3: Do Not Chase for Core Parity
@@ -35,9 +32,7 @@ rejected shapes.
 
 1. Nested-write conformance and final audit.
 2. `distinct` semantics.
-3. `createMany.skipDuplicates` adapter capability behavior.
-4. Query-level `omit`, only if projection ergonomics become a real product need.
-5. Provider-specific returning APIs, only after cross-dialect mutation returns are boring.
+3. Query-level `omit`, only if projection ergonomics become a real product need.
 
 ## Guardrails
 

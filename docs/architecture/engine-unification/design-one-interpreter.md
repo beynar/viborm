@@ -1,5 +1,7 @@
 # Design — One Interpreter: nested writes as a single execution engine with a capability-parameterized read mode
 
+> **Historical proposal.** This document predates the shipped unified engine and the removal of the D1 REST driver. It is retained only as design history; `DESIGN.md`, current exports, and the conformance suites are authoritative.
+
 Status: proposal. Anchor: branch `prisma-parity`, nested-writes dir ~7,200 LOC across
 `src/query-engine/operations/nested-writes/` + `src/query-engine/transaction-flow.ts`.
 

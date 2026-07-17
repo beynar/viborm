@@ -154,29 +154,17 @@ describe("Nested Mutation Routing", () => {
         id: "user-1",
         name: "Alice",
         posts: {
-          connectOrCreate: [
-            {
-              where: { id: "post-1" },
-              create: { id: "post-1", title: "Should not create" },
-            },
-            {
-              where: { id: "post-2" },
-              create: { id: "post-2", title: "Created and connected" },
-            },
-          ],
+          connectOrCreate: {
+            where: { id: "post-1" },
+            create: { id: "post-1", title: "Should not create" },
+          },
         },
       },
     });
 
     const posts = await client.post.findMany({ orderBy: { id: "asc" } });
-    expect(posts.map((currentPost) => currentPost.userId)).toEqual([
-      "user-1",
-      "user-1",
-    ]);
-    expect(posts.map((currentPost) => currentPost.title)).toEqual([
-      "Existing",
-      "Created and connected",
-    ]);
+    expect(posts.map((currentPost) => currentPost.userId)).toEqual(["user-1"]);
+    expect(posts.map((currentPost) => currentPost.title)).toEqual(["Existing"]);
   });
 
   test("update executes nested createMany on to-many relation", async () => {
@@ -1970,7 +1958,7 @@ describe("Nested Mutation Routing", () => {
           },
         })
       ).rejects.toThrow(
-        "supports neither callback transactions nor atomic batch execution"
+        "supports neither transactions nor atomic batch execution"
       );
 
       const [user, posts] = await Promise.all([

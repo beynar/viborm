@@ -87,8 +87,9 @@ adapter.operators.gte(left, right)     // → left >= right
 // Pattern matching
 adapter.operators.like(col, pattern)      // → col LIKE pattern
 adapter.operators.ilike(col, pattern)     // → col ILIKE pattern (PG)
-                                          // → col LIKE pattern COLLATE utf8mb4_unicode_ci (MySQL)
-                                          // → col LIKE pattern COLLATE NOCASE (SQLite)
+adapter.operators.containsText(col, value)   // exact literal substring
+adapter.operators.startsWithText(col, value) // exact literal prefix
+adapter.operators.endsWithText(col, value)   // exact literal suffix
 
 // Set membership
 adapter.operators.in(col, values)      // → col IN values
@@ -475,7 +476,9 @@ The adapter handles SQL syntax differences. The query engine must handle:
 1. **MySQL RETURNING workaround**: Execute SELECT after mutations
 2. **JSON result parsing**: MySQL/SQLite may return JSON as strings - parse if needed
 3. **Feature degradation**: Document features that don't work on all databases
-4. **Transaction management**: All databases support transactions, but syntax varies slightly
+4. **Atomic execution capabilities**: Drivers advertise callback-transaction
+   and atomic-batch support independently; unsupported forms reject instead of
+   executing non-atomically
 
 ---
 
@@ -501,4 +504,3 @@ const query = adapter.assemble.select({
   )
 });
 ```
-

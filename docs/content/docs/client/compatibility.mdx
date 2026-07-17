@@ -61,21 +61,31 @@ Nested writes are supported inside `create`, `update`, and both branches of `ups
 - Nested `updateMany` and `deleteMany` may match zero rows without throwing.
 - A nested `upsert` creates only when nothing matches `where`; if the match belongs to another parent, it's rejected rather than stolen or duplicated.
 - You can't `disconnect`, empty-`set`, or otherwise orphan records on a **required** relation.
+- `createMany` with `skipDuplicates` rejects a row containing only database-owned defaults before any parent or child write.
 
 ## Database differences
 
-The API is provider-agnostic, but a few behaviors are inherently database-specific:
+The API is provider-agnostic. Remaining differences are limited to features
+whose underlying data model is not shared by every database:
+
+Portable string `mode: "insensitive"` folds ASCII `A`-`Z` only on every
+database. Non-ASCII code points remain exact, so behavior does not depend on a
+database's locale or ICU installation.
 
 | Behavior | Difference |
 |----------|-----------|
-| `createMany({ skipDuplicates })` on **MySQL** | Skips more than duplicates — foreign-key violations, `NOT NULL` violations, and data truncation are silently dropped, where other databases raise an error. Validate rows first if that matters. |
-| `upsert` on **MySQL** | Takes the update branch on a collision with **any** unique key, not just the one in `where`. (Same as Prisma.) |
-| String `mode` on **MySQL** | Default collations (e.g. `utf8mb4_0900_ai_ci`) are already case-insensitive, so default and `insensitive` mode behave the same unless the column uses a case-sensitive collation. |
-| Case-insensitive filters on **SQLite** | Apply to ASCII characters only, regardless of `mode`. JSON string operators (`string_contains` etc.) also ignore ASCII case on SQLite. |
-| JSON `path` on **SQLite** | Object keys containing `"` or `\` can't be addressed (SQLite's JSON path grammar has no escape syntax); such filters match nothing. |
-| `orderBy` `nulls` and null-position on **SQLite** | Default string comparison is case-sensitive. |
-| Transactions on serverless drivers | **D1 bindings** and **Neon HTTP** support batch mode only; **D1 HTTP** supports neither callback transactions nor non-empty atomic batches. Unsupported forms throw. See [Transactions](/docs/client/transactions). |
+| Transactions on serverless drivers | **D1 Workers bindings** and **Neon HTTP** support batch mode only. Cloudflare D1 support uses the binding because its `batch()` primitive provides the required atomic boundary. See [Transactions](/docs/client/transactions). |
 | Vector / geospatial | PostgreSQL with the relevant extension enabled; unsupported (and clearly errors) elsewhere. |
+
+JSON filter paths use one portable grammar. Segments containing `"` or `\`
+reject before SQL generation on every database; they never degrade to an empty
+result on one provider.
+
+New MySQL 8 tables use the binary, no-pad `utf8mb4_0900_bin` collation so
+string keys preserve case, accents, and trailing spaces like PostgreSQL and
+SQLite. Existing tables require the explicit collation migration described in
+the [MySQL migration driver guide](/docs/migration/drivers/mysql); upgrading the
+package does not rewrite deployed tables.
 
 ## Type and API differences
 

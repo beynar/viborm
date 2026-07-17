@@ -107,11 +107,11 @@ const [users, posts] = await client.$transaction([
 
 ## Driver support
 
-Every connection-oriented driver supports both forms. D1 bindings and Neon HTTP
-are batch-only, so their callback form throws. D1 HTTP exposes neither an
-interactive transaction nor a proven atomic batch primitive; its callback and
-non-empty array forms reject instead of executing non-atomically. An empty
-array always returns `[]` without contacting a provider.
+Every connection-oriented driver supports both forms. D1 Workers bindings and
+Neon HTTP are batch-only, so their callback form throws. Cloudflare D1 support
+uses the Workers binding: its `batch()` primitive is the documented atomic path
+required by VibORM. An empty array always returns `[]` without contacting a
+provider.
 
 ### The difference
 

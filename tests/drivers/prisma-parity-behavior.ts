@@ -30,14 +30,6 @@ type ParityClient = VibORMClient<ParityClientConfig>;
 export interface PrismaParityBehaviorOptions {
   driverName: string;
   createDriver: () => AnyDriver;
-  /**
-   * EXPECTED DIVERGENCE: MySQL's default collations (e.g.
-   * utf8mb4_0900_ai_ci) make default-mode `equals`/`not`/`in`/`notIn`
-   * case-insensitive, where PG/SQLite compare case-sensitively. Setting this
-   * pins that behavior instead of skipping the suite, so a change in either
-   * direction fails loudly. See docs/content/docs/client/filtering/string.mdx.
-   */
-  caseInsensitiveDefaultEquals?: boolean;
 }
 
 /**
@@ -54,7 +46,6 @@ export interface PrismaParityBehaviorOptions {
 export function runPrismaParityBehavior({
   driverName,
   createDriver,
-  caseInsensitiveDefaultEquals = false,
 }: PrismaParityBehaviorOptions) {
   describe(`${driverName} Prisma parity`, () => {
     let client: ParityClient | undefined;
@@ -82,6 +73,7 @@ export function runPrismaParityBehavior({
             { id: "bob", name: "Bob", email: "b@example.com" },
             { id: "percent", name: "100% Organic", email: "p@example.com" },
             { id: "decoy", name: "100x Organic", email: "d@example.com" },
+            { id: "accent", name: "Éclair", email: "e@example.com" },
           ],
         });
       });
@@ -97,17 +89,52 @@ export function runPrismaParityBehavior({
         ).toEqual(["alice"]);
       });
 
-      if (caseInsensitiveDefaultEquals) {
-        test("equals is case-insensitive without mode (pinned dialect divergence)", async () => {
-          expect(await findIds({ name: { equals: "ALICE" } })).toEqual([
-            "alice",
-          ]);
-        });
-      } else {
-        test("equals stays case-sensitive without mode", async () => {
-          expect(await findIds({ name: { equals: "ALICE" } })).toEqual([]);
-        });
-      }
+      test("insensitive equality and set filters fold ASCII only", async () => {
+        expect(
+          await findIds({ name: { equals: "ÉCLAIR", mode: "insensitive" } })
+        ).toEqual(["accent"]);
+        expect(
+          await findIds({ name: { equals: "éCLAIR", mode: "insensitive" } })
+        ).toEqual([]);
+        expect(
+          await findIds({ name: { in: ["ÉCLAIR"], mode: "insensitive" } })
+        ).toEqual(["accent"]);
+        expect(
+          await findIds({ name: { not: "ÉCLAIR", mode: "insensitive" } })
+        ).toEqual(["alice", "bob", "decoy", "percent"]);
+        expect(
+          await findIds({ name: { notIn: ["ÉCLAIR"], mode: "insensitive" } })
+        ).toEqual(["alice", "bob", "decoy", "percent"]);
+      });
+
+      test("equals stays case-sensitive without mode", async () => {
+        expect(await findIds({ name: { equals: "ALICE" } })).toEqual([]);
+      });
+
+      test("not stays case-sensitive without mode", async () => {
+        expect(await findIds({ name: { not: "ALICE" } })).toEqual([
+          "accent",
+          "alice",
+          "bob",
+          "decoy",
+          "percent",
+        ]);
+      });
+
+      test("in stays case-sensitive without mode", async () => {
+        expect(await findIds({ name: { in: ["ALICE", "Bob"] } })).toEqual([
+          "bob",
+        ]);
+      });
+
+      test("notIn stays case-sensitive without mode", async () => {
+        expect(await findIds({ name: { notIn: ["ALICE", "Bob"] } })).toEqual([
+          "accent",
+          "alice",
+          "decoy",
+          "percent",
+        ]);
+      });
 
       test("insensitive equals does not treat % as a wildcard", async () => {
         // Unescaped, '100% ORGANIC' would also match '100x Organic'
@@ -121,7 +148,7 @@ export function runPrismaParityBehavior({
       test("not excludes case-insensitively", async () => {
         expect(
           await findIds({ name: { not: "ALICE", mode: "insensitive" } })
-        ).toEqual(["bob", "decoy", "percent"]);
+        ).toEqual(["accent", "bob", "decoy", "percent"]);
       });
 
       test("in matches case-insensitively", async () => {
@@ -147,15 +174,11 @@ export function runPrismaParityBehavior({
           await findIds({
             name: { notIn: ["ALICE", "BOB"], mode: "insensitive" },
           })
-        ).toEqual(["decoy", "percent"]);
+        ).toEqual(["accent", "decoy", "percent"]);
       });
     });
 
-    // Default-mode (case-sensitive) startsWith/endsWith is deliberately NOT
-    // asserted here: SQLite's LIKE is ASCII-case-insensitive regardless of
-    // collation, so only the insensitive mode has a single cross-dialect
-    // answer (caseInsensitiveDefaultEquals only covers the equals family).
-    describe("insensitive mode on startsWith/endsWith", () => {
+    describe("string substring filters", () => {
       beforeEach(async () => {
         await requireClient(client).user.createMany({
           data: [
@@ -163,6 +186,14 @@ export function runPrismaParityBehavior({
             { id: "bob", name: "Bob", email: "b@example.com" },
             { id: "percent", name: "100% Organic", email: "p@example.com" },
             { id: "decoy", name: "100x Organic", email: "d@example.com" },
+            { id: "underscore", name: "under_score", email: "u@example.com" },
+            {
+              id: "underscore-decoy",
+              name: "underXscore",
+              email: "ux@example.com",
+            },
+            { id: "backslash", name: "path\\leaf", email: "s@example.com" },
+            { id: "accent", name: "Éclair", email: "e@example.com" },
           ],
         });
       });
@@ -171,6 +202,71 @@ export function runPrismaParityBehavior({
         const users = await requireClient(client).user.findMany({ where });
         return users.map((u) => u.id).sort();
       }
+
+      test("contains stays case-sensitive without mode", async () => {
+        expect(await findIds({ name: { contains: "LI" } })).toEqual([]);
+        expect(await findIds({ name: { contains: "li" } })).toEqual([
+          "alice",
+        ]);
+      });
+
+      test("startsWith stays case-sensitive without mode", async () => {
+        expect(await findIds({ name: { startsWith: "aL" } })).toEqual([]);
+        expect(await findIds({ name: { startsWith: "Al" } })).toEqual([
+          "alice",
+        ]);
+      });
+
+      test("endsWith stays case-sensitive without mode", async () => {
+        expect(await findIds({ name: { endsWith: "ICE" } })).toEqual([]);
+        expect(await findIds({ name: { endsWith: "ice" } })).toEqual([
+          "alice",
+        ]);
+      });
+
+      test("default substring filters treat wildcard characters literally", async () => {
+        expect(await findIds({ name: { contains: "%" } })).toEqual([
+          "percent",
+        ]);
+        expect(await findIds({ name: { startsWith: "100%" } })).toEqual([
+          "percent",
+        ]);
+        expect(await findIds({ name: { endsWith: "% Organic" } })).toEqual([
+          "percent",
+        ]);
+        expect(await findIds({ name: { contains: "_" } })).toEqual([
+          "underscore",
+        ]);
+        expect(await findIds({ name: { contains: "\\" } })).toEqual([
+          "backslash",
+        ]);
+      });
+
+      test("default substring filters handle empty and non-ASCII values exactly", async () => {
+        expect(await findIds({ name: { contains: "Éc" } })).toEqual([
+          "accent",
+        ]);
+        expect(await findIds({ name: { contains: "éc" } })).toEqual([]);
+        expect(await findIds({ name: { startsWith: "É" } })).toEqual([
+          "accent",
+        ]);
+        expect(await findIds({ name: { endsWith: "air" } })).toEqual([
+          "accent",
+        ]);
+        const allIds = [
+          "accent",
+          "alice",
+          "backslash",
+          "bob",
+          "decoy",
+          "percent",
+          "underscore",
+          "underscore-decoy",
+        ];
+        expect(await findIds({ name: { contains: "" } })).toEqual(allIds);
+        expect(await findIds({ name: { startsWith: "" } })).toEqual(allIds);
+        expect(await findIds({ name: { endsWith: "" } })).toEqual(allIds);
+      });
 
       test("startsWith matches case-insensitively", async () => {
         expect(
@@ -188,6 +284,21 @@ export function runPrismaParityBehavior({
         expect(
           await findIds({ name: { endsWith: "organic", mode: "insensitive" } })
         ).toEqual(["decoy", "percent"]);
+      });
+
+      test("insensitive substring filters fold ASCII only", async () => {
+        expect(
+          await findIds({ name: { contains: "ÉCL", mode: "insensitive" } })
+        ).toEqual(["accent"]);
+        expect(
+          await findIds({ name: { startsWith: "ÉCL", mode: "insensitive" } })
+        ).toEqual(["accent"]);
+        expect(
+          await findIds({ name: { endsWith: "LAIR", mode: "insensitive" } })
+        ).toEqual(["accent"]);
+        expect(
+          await findIds({ name: { contains: "écl", mode: "insensitive" } })
+        ).toEqual([]);
       });
 
       test("insensitive startsWith does not treat % as a wildcard", async () => {
@@ -209,9 +320,6 @@ export function runPrismaParityBehavior({
 
     describe("NOT and OR combinators", () => {
       beforeEach(async () => {
-        // Case-neutral data: no case-variant decoys, so MySQL's CI default
-        // collation and SQLite's ASCII-CI LIKE agree with PG on every
-        // assertion below.
         await requireClient(client).user.createMany({
           data: [
             { id: "n1", name: "Alice", email: "n1@test.com", age: 25 },

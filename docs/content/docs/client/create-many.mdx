@@ -32,7 +32,13 @@ const result = await client.user.createMany({
 // Result: { count: 1 }
 ```
 
-On MySQL, `skipDuplicates` can silently skip more than duplicates — see [Compatibility](/docs/client/compatibility#database-differences).
+`skipDuplicates` skips unique/primary-key conflicts only. Foreign-key,
+`NOT NULL`, validation, conversion, and other integrity failures still reject
+the whole operation on every supported database.
+
+A row containing only database-owned defaults cannot use `skipDuplicates`.
+VibORM rejects that shape before writing because no supported database shares a
+duplicate-only `DEFAULT VALUES` primitive.
 
 ## createManyAndReturn
 
@@ -54,6 +60,6 @@ const users = await client.user.createManyAndReturn({
 ```ts
 await client.user.createMany({
   data: [{ ... }],      // Required: array of records
-  skipDuplicates: true, // Optional: skip constraint violations
+  skipDuplicates: true, // Optional: skip duplicate-key conflicts
 });
 ```

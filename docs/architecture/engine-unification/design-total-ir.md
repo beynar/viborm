@@ -1,5 +1,7 @@
 # Design — Total Plan IR for Nested Writes (IR-completeness lens)
 
+> **Historical proposal.** This document predates the shipped unified engine and the removal of the D1 REST driver. It is retained only as design history; `DESIGN.md`, current exports, and the conformance suites are authoritative.
+
 Status: design proposal. Anchor: branch `prisma-parity`, commit `2fa49b6`.
 Author lens: **IR-completeness** — every semantic decision (ordering, FK direction,
 branch strategy, guards, junction rows) is decided by ONE compiler and *encoded in

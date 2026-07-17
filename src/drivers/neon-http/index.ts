@@ -16,34 +16,18 @@ import {
   type DriverConfig,
   type VibORMClient,
 } from "@client/client";
-import {
-  TransactionError,
-  unsupportedGeospatial,
-  unsupportedVector,
-  VibORMErrorCode,
-} from "@errors";
+import { QueryError, unsupportedGeospatial, unsupportedVector } from "@errors";
 import type {
-  FullQueryResults,
   NeonQueryFunction,
   NeonQueryFunctionInTransaction,
 } from "@neondatabase/serverless";
-import { Driver } from "../driver";
-import type {
-  BatchQuery,
-  IsolationLevel,
-  QueryResult,
-  TransactionOptions,
-} from "../types";
-
-const NEON_ISOLATION_LEVELS: Record<
-  IsolationLevel,
-  "ReadUncommitted" | "ReadCommitted" | "RepeatableRead" | "Serializable"
-> = {
-  read_uncommitted: "ReadUncommitted",
-  read_committed: "ReadCommitted",
-  repeatable_read: "RepeatableRead",
-  serializable: "Serializable",
-};
+import { Driver, type QueryExecutionContext } from "../driver";
+import { isNormalizedResultRow } from "../normalized-result";
+import {
+  normalizePostgresRowCount,
+  unsupportedCallbackTransactionError,
+} from "../shared";
+import type { BatchQuery, QueryResult } from "../types";
 
 // ============================================================
 // EXPORTED OPTIONS
@@ -76,6 +60,49 @@ type NeonQuery = NeonQueryFunction<false, true>;
  * Configured with arrayMode=false and fullResults=true to match the main client.
  */
 type NeonTx = NeonQueryFunctionInTransaction<false, true>;
+
+interface NeonFullResult<T> {
+  fields: unknown[];
+  command: string;
+  rowCount: number | null;
+  rows: T[];
+  rowAsArray: false;
+}
+
+function malformedNeonResult(
+  context: QueryExecutionContext,
+  reason: string
+): QueryError {
+  const operation = context.operation ?? "execute";
+  return new QueryError(
+    `Driver "neon-http" returned a malformed result payload for operation "${operation}": ${reason}.`,
+    { meta: { driver: "neon-http", ...context, operation } }
+  );
+}
+
+function assertNeonFullResult<T>(
+  result: unknown,
+  context: QueryExecutionContext
+): asserts result is NeonFullResult<T> {
+  if (
+    !(isNormalizedResultRow(result) && Array.isArray(result.fields)) ||
+    typeof result.command !== "string" ||
+    !Object.hasOwn(result, "rowCount") ||
+    (result.rowCount !== null &&
+      (typeof result.rowCount !== "number" ||
+        !Number.isFinite(result.rowCount) ||
+        !Number.isSafeInteger(result.rowCount) ||
+        result.rowCount < 0)) ||
+    !Array.isArray(result.rows) ||
+    !result.rows.every(isNormalizedResultRow) ||
+    result.rowAsArray !== false
+  ) {
+    throw malformedNeonResult(
+      context,
+      "expected fullResults object with object rows and explicit rowCount"
+    );
+  }
+}
 
 // ============================================================
 // DRIVER IMPLEMENTATION
@@ -150,31 +177,48 @@ export class NeonHTTPDriver extends Driver<NeonQuery, NeonTx> {
   protected async execute<T>(
     client: NeonQuery | NeonTx,
     sql: string,
-    params: unknown[]
+    params: unknown[],
+    context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
+    return this.executeQuery<T>(client, sql, params, context, "execute");
+  }
+
+  private async executeQuery<T>(
+    client: NeonQuery | NeonTx,
+    sql: string,
+    params: unknown[],
+    context: QueryExecutionContext | undefined,
+    fallbackOperation: string
+  ): Promise<QueryResult<T>> {
+    const executionContext = context ?? { operation: fallbackOperation };
     // NeonQuery supports options, NeonTx only accepts (sql, params)
     const result = isNeonQueryFunction(client)
       ? await client(sql, params, { arrayMode: false, fullResults: true })
       : await client(sql, params);
 
-    return this.parseResult<T>(result);
+    return this.parseResult<T>(result, executionContext);
   }
 
   protected async executeRaw<T>(
     client: NeonQuery | NeonTx,
     sql: string,
-    params?: unknown[]
+    params: unknown[] | undefined,
+    context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
-    return this.execute<T>(client, sql, params ?? []);
+    return this.executeQuery<T>(
+      client,
+      sql,
+      params ?? [],
+      context,
+      "executeRaw"
+    );
   }
 
-  protected async transaction<T>(
-    client: NeonQuery | NeonTx,
-    fn: (tx: NeonTx) => Promise<T>
+  protected transaction<T>(
+    _client: NeonQuery | NeonTx,
+    _fn: (tx: NeonTx) => Promise<T>
   ): Promise<T> {
-    // Neon HTTP does not support interactive transactions - just execute directly
-    // Warning is handled by base Driver.withTransaction()
-    return fn(client as NeonTx);
+    return Promise.reject(unsupportedCallbackTransactionError(this.driverName));
   }
 
   /**
@@ -184,56 +228,61 @@ export class NeonHTTPDriver extends Driver<NeonQuery, NeonTx> {
   protected async executeBatch<T>(
     client: NeonQuery,
     queries: BatchQuery[],
-    options?: TransactionOptions
+    context?: QueryExecutionContext
   ): Promise<QueryResult<T>[]> {
-    if (options?.timeout !== undefined) {
-      // The HTTP transaction is a single request; a client-side timeout can't
-      // stop it server-side, so reject instead of pretending to honor it.
-      throw new TransactionError(
-        `Driver "${this.driverName}" cannot honor a transaction timeout in batch execution.`,
-        {
-          code: VibORMErrorCode.INVALID_TRANSACTION_INPUT,
-          meta: { driver: this.driverName, method: "$transaction([...])" },
+    const batchContext = context ?? { operation: "executeBatch" };
+    // Use Neon's transaction function with a callback that returns query array
+    const results: unknown = await client.transaction((txFn) =>
+      queries.map((query) => {
+        const statementContext = query.context ?? batchContext;
+        try {
+          return txFn(query.sql, query.params ?? []);
+        } catch (error) {
+          throw this.normalizeExecutionError(
+            error,
+            query.sql,
+            this.getBatchDiagnosticParameters(query),
+            statementContext
+          );
         }
+      })
+    );
+
+    if (!Array.isArray(results) || results.length !== queries.length) {
+      const actualResultCount = Array.isArray(results) ? results.length : 0;
+      throw malformedNeonResult(
+        batchContext,
+        `expected ${queries.length} statement results but received ${actualResultCount}`
       );
     }
 
-    // Use Neon's transaction function with a callback that returns query array
-    const results = await client.transaction(
-      (txFn) => queries.map((query) => txFn(query.sql, query.params ?? [])),
-      options?.isolationLevel
-        ? { isolationLevel: NEON_ISOLATION_LEVELS[options.isolationLevel] }
-        : undefined
+    return results.map((result, index) =>
+      this.parseResult<T>(result, queries[index]?.context ?? batchContext)
     );
-
-    // Map results to QueryResult format
-    return results.map((result) => this.parseResult<T>(result));
   }
 
   /**
    * Parse Neon result into QueryResult format.
    */
-  private parseResult<T>(result: unknown): QueryResult<T> {
-    // Handle FullQueryResults object (when fullResults=true)
-    const fullResult = result as FullQueryResults<false>;
-    if (fullResult.rows !== undefined) {
-      return {
-        rows: fullResult.rows as T[],
-        rowCount: fullResult.rowCount ?? fullResult.rows.length,
-      };
-    }
-
-    // Fallback for array result (when fullResults=false)
-    if (Array.isArray(result)) {
-      return {
-        rows: result as T[],
-        rowCount: result.length,
-      };
-    }
-
+  private parseResult<T>(
+    result: unknown,
+    context: QueryExecutionContext
+  ): QueryResult<T> {
+    const operation = context.operation ?? "execute";
+    assertNeonFullResult<T>(result, context);
     return {
-      rows: [],
-      rowCount: 0,
+      rows: result.rows,
+      rowCount: normalizePostgresRowCount(
+        result.rowCount,
+        result.command,
+        result.rows,
+        {
+          provider: "neon-http",
+          operation,
+          model: context.model,
+          correlationId: context.correlationId,
+        }
+      ),
     };
   }
 }

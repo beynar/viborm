@@ -4,9 +4,10 @@
  * Builds WHERE clauses from unique selector objects.
  */
 
+import type { Model } from "@schema/model";
 import type { Sql } from "@sql";
 import { getColumnName } from "../context";
-import { type QueryContext, QueryEngineError } from "../types";
+import { QueryEngineError, type QueryScope } from "../types";
 import { buildScalarSqlValue } from "./values-builder";
 
 /**
@@ -19,7 +20,7 @@ import { buildScalarSqlValue } from "./values-builder";
  * - Named compound: { uq_name_org: { name: "Alice", orgId: "org1" } }
  */
 export function buildWhereUnique(
-  ctx: QueryContext,
+  ctx: QueryScope,
   where: Record<string, unknown>,
   alias: string
 ): Sql {
@@ -32,7 +33,7 @@ export function buildWhereUnique(
 }
 
 export function getWhereUniqueFieldNames(
-  ctx: QueryContext,
+  ctx: QueryScope,
   where: Record<string, unknown>
 ): string[] {
   return getWhereUniqueEntries(ctx, where).map(({ fieldName }) => fieldName);
@@ -43,8 +44,10 @@ export type WhereUniqueEntry = {
   value: unknown;
 };
 
+type WhereUniqueModelContext = { model: Model<any> };
+
 export function getWhereUniqueEntries(
-  ctx: QueryContext,
+  ctx: WhereUniqueModelContext,
   where: Record<string, unknown>
 ): WhereUniqueEntry[] {
   const entries: WhereUniqueEntry[] = [];
@@ -61,7 +64,7 @@ export function getWhereUniqueEntries(
     const compoundConstraint = getCompoundUniqueConstraint(ctx, key);
     if (compoundConstraint) {
       entries.push(
-        ...buildCompoundUniqueConditions(ctx, key, compoundConstraint, value)
+        ...buildCompoundUniqueConditions(key, compoundConstraint, value)
       );
       continue;
     }
@@ -80,12 +83,15 @@ export function getWhereUniqueEntries(
   return entries;
 }
 
-function isUniqueScalarDiscriminator(ctx: QueryContext, key: string): boolean {
+function isUniqueScalarDiscriminator(
+  ctx: WhereUniqueModelContext,
+  key: string
+): boolean {
   return key in ctx.model["~"].state.uniques;
 }
 
 function getCompoundUniqueConstraint(
-  ctx: QueryContext,
+  ctx: WhereUniqueModelContext,
   key: string
 ): { entries: Record<string, unknown> } | undefined {
   const state = ctx.model["~"].state;
@@ -93,7 +99,6 @@ function getCompoundUniqueConstraint(
 }
 
 function buildCompoundUniqueConditions(
-  ctx: QueryContext,
   key: string,
   compoundConstraint: { entries: Record<string, unknown> },
   value: unknown
@@ -138,7 +143,7 @@ function buildCompoundUniqueConditions(
 }
 
 function buildUniqueEquality(
-  ctx: QueryContext,
+  ctx: QueryScope,
   fieldName: string,
   value: unknown,
   alias: string

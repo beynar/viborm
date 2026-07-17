@@ -16,9 +16,13 @@ import postgres, {
   type Options as PostgresOptionsType,
   type Sql as PostgresSql,
 } from "postgres";
-import { Driver } from "../driver";
-import { getPostgresJsIsolationLevel } from "../shared";
-import type { QueryResult, TransactionOptions } from "../types";
+import { Driver, type QueryExecutionContext } from "../driver";
+import {
+  nestedTransactionDispatchError,
+  normalizePostgresRowCount,
+  runProviderManagedTransaction,
+} from "../shared";
+import type { QueryResult } from "../types";
 
 export type PostgresOptions = PostgresOptionsType<
   Record<string, postgres.PostgresType>
@@ -128,51 +132,65 @@ export class PostgresDriver extends Driver<
   protected async execute<T>(
     client: PostgresClient | PostgresTransaction,
     sqlStr: string,
-    params: unknown[]
+    params: unknown[],
+    context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
+    const operation = context?.operation ?? "execute";
     // postgres.js unsafe() takes (query, parameters?, queryOptions?)
     // parameters must be cast as postgres expects specific types
     const result = await client.unsafe<T[]>(sqlStr, params);
     return {
       rows: result,
-      rowCount: result.count,
+      rowCount: normalizePostgresRowCount(
+        result.count,
+        result.command,
+        result,
+        {
+          provider: "postgres",
+          operation,
+        }
+      ),
     };
   }
 
   protected async executeRaw<T>(
     client: PostgresClient | PostgresTransaction,
     sqlStr: string,
-    params?: unknown[]
+    params: unknown[] | undefined,
+    context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
+    const operation = context?.operation ?? "executeRaw";
     const result = await client.unsafe<T[]>(sqlStr, params);
     return {
       rows: result,
-      rowCount: result.count,
+      rowCount: normalizePostgresRowCount(
+        result.count,
+        result.command,
+        result,
+        {
+          provider: "postgres",
+          operation,
+        }
+      ),
     };
   }
 
   protected async transaction<T>(
     client: PostgresClient | PostgresTransaction,
-    fn: (tx: PostgresTransaction) => Promise<T>,
-    options?: TransactionOptions
+    fn: (tx: PostgresTransaction) => Promise<T>
   ): Promise<T> {
-    // postgres.js begin()/savepoint() return Promise<UnwrapPromiseArray<T>>
-    // Since we don't use pipelining (returning arrays of promises), cast to T
     if (isTransaction(client)) {
-      // Nested transaction - use savepoint
-      const savepointName = `sp_${crypto.randomUUID().replace(/-/g, "")}`;
-      return client.savepoint(savepointName, fn) as Promise<T>;
+      throw nestedTransactionDispatchError(this.driverName);
     }
 
-    // Handle isolation level if specified
-    if (options?.isolationLevel) {
-      const level = getPostgresJsIsolationLevel(options.isolationLevel);
-      // postgres.js appends this to BEGIN, so it needs the full clause
-      return client.begin(`isolation level ${level}`, fn) as Promise<T>;
-    }
-
-    return client.begin(fn) as Promise<T>;
-    // Note: this.inTransaction reset is handled by base Driver._transaction()
+    return runProviderManagedTransaction({
+      run: (callback) => client.begin(callback),
+      callback: fn,
+      close: async () => {
+        await client.end();
+        this.client = null;
+      },
+    });
   }
 }
 

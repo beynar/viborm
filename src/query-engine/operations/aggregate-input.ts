@@ -8,7 +8,8 @@ import { type Sql, sql } from "@sql";
 import { buildOrderByParts } from "../builders/orderby-builder";
 import { buildWhere } from "../builders/where-builder";
 import { getColumnName, getTableName } from "../context";
-import type { QueryContext } from "../types";
+import type { QueryScope } from "../types";
+import { buildNormalizedOrderBy } from "./cursor-order";
 import { buildFindPagination } from "./find-pagination";
 
 export interface AggregateInputArgs {
@@ -25,7 +26,7 @@ export interface AggregateInputWindow {
 }
 
 export function buildAggregateInputWindow(
-  ctx: QueryContext,
+  ctx: QueryScope,
   args: AggregateInputArgs,
   fieldNames: Iterable<string>
 ): AggregateInputWindow {
@@ -41,7 +42,12 @@ export function buildAggregateInputWindow(
       : pagination.cursorCondition;
   }
 
-  const orderByParts = buildOrderByParts(ctx, pagination.orderBy, rootAlias);
+  const orderByParts = pagination.normalizedOrder
+    ? {
+        orderBy: buildNormalizedOrderBy(ctx, pagination.normalizedOrder),
+        joins: [],
+      }
+    : buildOrderByParts(ctx, pagination.orderBy, rootAlias);
   const innerParts: Parameters<typeof adapter.assemble.select>[0] = {
     columns: buildInputColumns(ctx, fieldNames, rootAlias),
     from: adapter.identifiers.table(tableName, rootAlias),
@@ -69,7 +75,7 @@ export function buildAggregateInputWindow(
 }
 
 function buildInputColumns(
-  ctx: QueryContext,
+  ctx: QueryScope,
   fieldNames: Iterable<string>,
   alias: string
 ): Sql {

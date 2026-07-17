@@ -58,10 +58,6 @@
       "types": "./dist/d1.d.mts",
       "import": "./dist/d1.mjs"
     },
-    "./d1-http": {
-      "types": "./dist/d1-http.d.mts",
-      "import": "./dist/d1-http.mjs"
-    },
     "./bun-sqlite": {
       "types": "./dist/bun-sqlite.d.mts",
       "import": "./dist/bun-sqlite.mjs"
@@ -121,9 +117,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
-    "test:types": "vitest run tests/types/",
+    "test:types": "tsc --noEmit",
     "test:runtime": "vitest run tests/runtime/",
-    "test:gates": "vitest run tests/query-engine/nested-write-architecture-gates.test.ts",
+    "test:gates": "vitest run tests/query-engine/operation-boundary-architecture-gates.test.ts tests/query-engine/operation-program-architecture-gates.test.ts",
     "test:pg": "vitest run --no-file-parallelism tests/drivers/pg.test.ts tests/drivers/postgres.test.ts",
     "test:pglite": "vitest run tests/drivers/pglite.test.ts",
     "test:sqlite": "vitest run tests/drivers/sqlite3.test.ts tests/drivers/libsql.test.ts",
@@ -137,6 +133,8 @@
     "db:push": "prisma db push",
     "db:generate": "prisma generate",
     "package:build": "tsdown",
+    "test:package:error-names": "pnpm package:build && node tests/package-error-names-smoke.mjs",
+    "test:package:phase7": "pnpm package:build && node tests/package-error-names-smoke.mjs && node tests/package-otel-absent-smoke.mjs",
     "package:dev": "tsdown --watch",
     "size": "size-limit",
     "size:why": "size-limit --why"

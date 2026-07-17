@@ -1,3 +1,11 @@
+import {
+  type DiagnosticDisclosure,
+  registerTrustedError,
+  sanitizeErrorCause,
+  sanitizeErrorMetadata,
+  serializeTrustedError,
+} from "./diagnostics";
+
 /**
  * Error codes for programmatic error handling
  */
@@ -70,6 +78,7 @@ export enum VibORMErrorCode {
   OPERATION_ALREADY_EXECUTED = "V12001",
   OPERATION_EXECUTION_CONFLICT = "V12002",
   OPERATION_CLIENT_MISMATCH = "V12003",
+  OPERATION_SCOPE_MISMATCH = "V12004",
 
   // Internal errors (9xxx)
   INTERNAL_ERROR = "V9001",
@@ -108,6 +117,9 @@ export interface VibORMErrorMeta {
  * Base error class for all VibORM errors
  */
 export class VibORMError extends Error {
+  /** Stable serialized name that survives package minification. */
+  static readonly diagnosticName: string = "VibORMError";
+
   /** Error code for programmatic handling */
   readonly code: VibORMErrorCode;
   /** Original cause if wrapping another error */
@@ -123,14 +135,30 @@ export class VibORMError extends Error {
     options?: {
       cause?: Error | undefined;
       meta?: VibORMErrorMeta | undefined;
+      diagnostics?: DiagnosticDisclosure | undefined;
     }
   ) {
     super(message);
-    this.name = "VibORMError";
+    const diagnosticName = readDiagnosticName(new.target);
+    this.name = diagnosticName;
     this.code = code;
-    this.originalCause = options?.cause;
-    this.meta = options?.meta ?? {};
+    this.originalCause = options?.cause
+      ? sanitizeErrorCause(options.cause)
+      : undefined;
+    this.meta = sanitizeErrorMetadata(
+      options?.meta ?? {},
+      options?.diagnostics
+    );
     this.timestamp = new Date();
+    registerTrustedError(this, {
+      cause: this.originalCause,
+      code,
+      disclosure: options?.diagnostics,
+      message,
+      meta: this.meta,
+      name: diagnosticName,
+      timestamp: this.timestamp,
+    });
 
     // Maintain proper stack trace
     if (Error.captureStackTrace) {
@@ -154,15 +182,44 @@ export class VibORMError extends Error {
    * Convert to JSON for logging/serialization
    */
   toJSON(): Record<string, unknown> {
-    return {
-      name: this.name,
-      message: this.message,
-      code: this.code,
-      meta: this.meta,
-      timestamp: this.timestamp.toISOString(),
-      cause: this.originalCause?.message,
-    };
+    return (
+      serializeTrustedError(this) ?? {
+        name: "VibORMError",
+        message: "VibORM operation failed",
+        code: VibORMErrorCode.INTERNAL_ERROR,
+        meta: {},
+        timestamp: "Invalid Date",
+      }
+    );
   }
+}
+
+function readDiagnosticName(errorConstructor: unknown): string {
+  let candidate = errorConstructor;
+  for (
+    let depth = 0;
+    depth < 16 && typeof candidate === "function";
+    depth += 1
+  ) {
+    try {
+      const descriptor = Reflect.getOwnPropertyDescriptor(
+        candidate,
+        "diagnosticName"
+      );
+      if (
+        descriptor &&
+        "value" in descriptor &&
+        typeof descriptor.value === "string" &&
+        descriptor.value.length > 0
+      ) {
+        return descriptor.value;
+      }
+      candidate = Object.getPrototypeOf(candidate);
+    } catch {
+      return "VibORMError";
+    }
+  }
+  return "VibORMError";
 }
 
 /**
@@ -213,5 +270,5 @@ export function wrapError(
   }
 
   const cause = error instanceof Error ? error : new Error(String(error));
-  return new VibORMError(cause.message, code, { cause, meta });
+  return new VibORMError("VibORM operation failed", code, { cause, meta });
 }

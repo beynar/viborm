@@ -67,7 +67,6 @@ import { PlanetScaleDriver } from "viborm/planetscale";
 import { SQLite3Driver } from "viborm/sqlite3";
 import { LibSQLDriver } from "viborm/libsql";
 import { D1Driver } from "viborm/d1";
-import { D1HTTPDriver } from "viborm/d1-http";
 import { BunSQLiteDriver } from "viborm/bun-sqlite";
 ```
 
@@ -166,7 +165,6 @@ import type {
 | `viborm/sqlite3` | better-sqlite3 | `SQLite3Driver` |
 | `viborm/libsql` | LibSQL/Turso | `LibSQLDriver` |
 | `viborm/d1` | Cloudflare D1 | `D1Driver` |
-| `viborm/d1-http` | D1 HTTP API | `D1HTTPDriver` |
 | `viborm/bun-sqlite` | Bun SQLite | `BunSQLiteDriver` |
 | `viborm/driver` | Driver base | `Driver`, types |
 | `viborm/cache` | Cache types | `CacheDriver`, `generateCacheKey` |
@@ -205,7 +203,6 @@ export default defineConfig({
     sqlite3: "./src/drivers/sqlite3/index.ts",
     libsql: "./src/drivers/libsql/index.ts",
     d1: "./src/drivers/d1/index.ts",
-    "d1-http": "./src/drivers/d1-http/index.ts",
     "bun-sqlite": "./src/drivers/bun-sqlite/index.ts",
     
     // Cache
@@ -286,10 +283,6 @@ export default defineConfig({
       "types": "./dist/d1.d.ts",
       "import": "./dist/d1.mjs"
     },
-    "./d1-http": {
-      "types": "./dist/d1-http.d.ts",
-      "import": "./dist/d1-http.mjs"
-    },
     "./bun-sqlite": {
       "types": "./dist/bun-sqlite.d.ts",
       "import": "./dist/bun-sqlite.mjs"
@@ -365,11 +358,10 @@ export type {
 } from "./driver";
 
 export type {
+  BatchQuery,
   Dialect,
-  IsolationLevel,
   LogFunction,
   QueryResult,
-  TransactionOptions,
 } from "./types";
 
 // Errors (commonly needed with drivers)

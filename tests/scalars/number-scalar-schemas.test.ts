@@ -595,16 +595,22 @@ describe("Int Scalar", () => {
       expectTypeOf<number | undefined>().toExtend<Create>();
     });
 
-    test("runtime: undefined uses default", () => {
+    test("runtime: undefined remains absent for database generation", () => {
       const result = parse(schemas.create, undefined);
       if (result.issues) throw new Error("Expected success");
-      expect(result.value).toBe(0);
+      expect(result.value).toBeUndefined();
     });
 
     test("runtime: accepts explicit value", () => {
       const result = parse(schemas.create, 100);
       if (result.issues) throw new Error("Expected success");
       expect(result.value).toBe(100);
+    });
+
+    test("runtime: rejects non-portable explicit zero", () => {
+      expect(parse(schemas.create, 0).issues?.[0]?.message).toContain(
+        "Explicit zero"
+      );
     });
   });
 

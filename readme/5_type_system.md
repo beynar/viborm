@@ -781,8 +781,9 @@ These types are shared across all models:
 #### Transaction Types
 
 - `TransactionClient` - Client interface within transactions
-- `InteractiveTransactionOptions` - Options for interactive transactions
-- `BatchTransactionOptions` - Options for batch transactions
+- The portable `$transaction` API intentionally exposes no options type;
+  provider-specific timeout, isolation, and access-mode settings are outside
+  the cross-database contract
 
 This list describes the intended VibORM type surface. It is Prisma-inspired, but it does not claim complete equivalence with Prisma's generated helper types.
 

@@ -7,10 +7,13 @@
     "scalars",
     "query-schemas",
     "relations",
+    "schema-validation",
     "query-engine",
     "adapters",
     "drivers",
     "client",
+    "cache",
+    "instrumentation",
     "migrations"
   ]
 }

@@ -25,7 +25,9 @@ class MockDriver extends Driver<null, null> {
     return null;
   }
 
-  protected async closeClient() {}
+  protected async closeClient() {
+    // The recording fixture owns no provider resource.
+  }
 
   protected async execute<T>(
     _client: null,
@@ -82,7 +84,10 @@ const vectorOrderSchema = vectorOrderModels;
 
 hydrateSchemaNames(vectorOrderSchema);
 
-function createEngine(adapter: DatabaseAdapter, dialect: Dialect = "postgresql") {
+function createEngine(
+  adapter: DatabaseAdapter,
+  dialect: Dialect = "postgresql"
+) {
   const schemaRegistry = createSchemaRegistry(vectorOrderSchema);
   const registry = createModelRegistry(vectorOrderSchema, schemaRegistry);
   return new QueryEngine(new MockDriver(adapter, dialect), registry);
@@ -109,20 +114,22 @@ describe("Vector distance orderBy SQL generation", () => {
       cosine: () => sql.raw`UNUSED_COSINE_DISTANCE`,
     };
 
-    const query = createEngine(adapter).build(vectorOrderSchema.doc, "findMany", {
-      orderBy: {
-        embedding: {
-          _distance: {
-            to: [1, 2, 3],
-            metric: "l2",
+    const query = createEngine(adapter).build(
+      vectorOrderSchema.doc,
+      "findMany",
+      {
+        orderBy: {
+          embedding: {
+            _distance: {
+              to: [1, 2, 3],
+              metric: "l2",
+            },
           },
         },
-      },
-    });
-
-    expect(query.toStatement("$n")).toContain(
-      "ORDER BY VECTOR_DISTANCE ASC"
+      }
     );
+
+    expect(query.toStatement("$n")).toContain("ORDER BY VECTOR_DISTANCE ASC");
     expect(literalValues).toEqual([1, 2, 3]);
     expect(l2Column?.toStatement("$n")).toBe('"t0"."embedding"');
     expect(l2Vector?.toStatement("$n")).toBe("VECTOR_LITERAL");
@@ -137,21 +144,23 @@ describe("Vector distance orderBy SQL generation", () => {
       cosine: () => sql.raw`UNUSED_COSINE_DISTANCE`,
     };
 
-    const query = createEngine(adapter).build(vectorOrderSchema.doc, "findMany", {
-      orderBy: {
-        embedding: {
-          _distance: {
-            to: [1, 2, 3],
-            metric: "l2",
-            sort: "desc",
+    const query = createEngine(adapter).build(
+      vectorOrderSchema.doc,
+      "findMany",
+      {
+        orderBy: {
+          embedding: {
+            _distance: {
+              to: [1, 2, 3],
+              metric: "l2",
+              sort: "desc",
+            },
           },
         },
-      },
-    });
-
-    expect(query.toStatement("$n")).toContain(
-      "ORDER BY VECTOR_DISTANCE DESC"
+      }
     );
+
+    expect(query.toStatement("$n")).toContain("ORDER BY VECTOR_DISTANCE DESC");
   });
 
   test("uses the cosine adapter method for cosine distance order", () => {
@@ -167,16 +176,20 @@ describe("Vector distance orderBy SQL generation", () => {
       },
     };
 
-    const query = createEngine(adapter).build(vectorOrderSchema.doc, "findMany", {
-      orderBy: {
-        embedding: {
-          _distance: {
-            to: [1, 2, 3],
-            metric: "cosine",
+    const query = createEngine(adapter).build(
+      vectorOrderSchema.doc,
+      "findMany",
+      {
+        orderBy: {
+          embedding: {
+            _distance: {
+              to: [1, 2, 3],
+              metric: "cosine",
+            },
           },
         },
-      },
-    });
+      }
+    );
 
     expect(query.toStatement("$n")).toContain("ORDER BY COSINE_DISTANCE ASC");
     expect(cosineCalled).toBe(true);
@@ -186,16 +199,20 @@ describe("Vector distance orderBy SQL generation", () => {
     const adapter = new PostgresAdapter();
     adapter.capabilities.supportsVector = true;
 
-    const query = createEngine(adapter).build(vectorOrderSchema.doc, "findMany", {
-      orderBy: {
-        embedding: {
-          _distance: {
-            to: [1, 2, 3],
-            metric: "cosine",
+    const query = createEngine(adapter).build(
+      vectorOrderSchema.doc,
+      "findMany",
+      {
+        orderBy: {
+          embedding: {
+            _distance: {
+              to: [1, 2, 3],
+              metric: "cosine",
+            },
           },
         },
-      },
-    });
+      }
+    );
 
     expect(query.toStatement("$n")).toContain(
       'ORDER BY "t0"."embedding" <=> $1::vector ASC'
@@ -223,19 +240,23 @@ describe("Vector distance orderBy SQL generation", () => {
       cosine: () => sql.raw`UNUSED_COSINE_DISTANCE`,
     };
 
-    const query = createEngine(adapter).build(vectorOrderSchema.doc, "findMany", {
-      select: {
-        embedding: {
-          _distance: {
-            to: [1, 2, 3],
-            metric: "l2",
+    const query = createEngine(adapter).build(
+      vectorOrderSchema.doc,
+      "findMany",
+      {
+        select: {
+          embedding: {
+            _distance: {
+              to: [1, 2, 3],
+              metric: "l2",
+            },
           },
         },
-      },
-    });
+      }
+    );
 
     expect(query.toStatement("$n")).toContain(
-      'SELECT VECTOR_DISTANCE AS "_distance"'
+      'SELECT VECTOR_DISTANCE AS "0viborm_vector_distance"'
     );
     expect(literalValues).toEqual([1, 2, 3]);
     expect(l2Column?.toStatement("$n")).toBe('"t0"."embedding"');
@@ -246,20 +267,24 @@ describe("Vector distance orderBy SQL generation", () => {
     const adapter = new PostgresAdapter();
     adapter.capabilities.supportsVector = true;
 
-    const query = createEngine(adapter).build(vectorOrderSchema.doc, "findMany", {
-      select: {
-        id: true,
-        embedding: {
-          _distance: {
-            to: [1, 2, 3],
-            metric: "cosine",
+    const query = createEngine(adapter).build(
+      vectorOrderSchema.doc,
+      "findMany",
+      {
+        select: {
+          id: true,
+          embedding: {
+            _distance: {
+              to: [1, 2, 3],
+              metric: "cosine",
+            },
           },
         },
-      },
-    });
+      }
+    );
 
     expect(query.toStatement("$n")).toContain(
-      '"t0"."embedding" <=> $1::vector AS "_distance"'
+      '"t0"."embedding" <=> $1::vector AS "0viborm_vector_distance"'
     );
     expect(query.values).toEqual(["[1,2,3]"]);
   });
@@ -290,7 +315,9 @@ describe("Vector distance orderBy SQL generation", () => {
           },
         },
       })
-    ).toThrow("vector distance select requires a pgvector-enabled PostgreSQL driver");
+    ).toThrow(
+      "vector distance select requires a pgvector-enabled PostgreSQL driver"
+    );
   });
 
   test("throws a clear error when selected query vector dimension does not match", () => {
@@ -343,33 +370,35 @@ describe("Vector distance orderBy SQL generation", () => {
     const adapter = new PostgresAdapter();
     adapter.capabilities.supportsVector = true;
 
-    const query = createEngine(adapter).build(vectorOrderSchema.doc, "findMany", {
-      select: {
-        id: true,
-        embedding: {
-          _distance: {
-            to: [1, 0, 0],
-            metric: "l2",
+    const query = createEngine(adapter).build(
+      vectorOrderSchema.doc,
+      "findMany",
+      {
+        select: {
+          id: true,
+          embedding: {
+            _distance: {
+              to: [1, 0, 0],
+              metric: "l2",
+            },
           },
         },
-      },
-      orderBy: {
-        embedding: {
-          _distance: {
-            to: [1, 0, 0],
-            metric: "l2",
+        orderBy: {
+          embedding: {
+            _distance: {
+              to: [1, 0, 0],
+              metric: "l2",
+            },
           },
         },
-      },
-    });
+      }
+    );
 
     const statement = query.toStatement("$n");
     expect(statement).toContain(
-      '"t0"."embedding" <-> $1::vector AS "_distance"'
+      '"t0"."embedding" <-> $1::vector AS "0viborm_vector_distance"'
     );
-    expect(statement).toContain(
-      'ORDER BY "t0"."embedding" <-> $2::vector ASC'
-    );
+    expect(statement).toContain('ORDER BY "t0"."embedding" <-> $2::vector ASC');
     expect(query.values).toEqual(["[1,0,0]", "[1,0,0]"]);
   });
 
@@ -449,9 +478,7 @@ describe("Vector distance orderBy SQL generation", () => {
 
     const statement = query.toStatement("$n");
     expect(statement).toContain("LEFT JOIN LATERAL");
-    expect(statement).toContain(
-      'ORDER BY "t1"."embedding" <-> $2::vector ASC'
-    );
+    expect(statement).toContain('ORDER BY "t1"."embedding" <-> $2::vector ASC');
     expect(statement).toContain("LIMIT $3");
     expect(query.values).toEqual(["id", "[1,2,3]", 2]);
   });
@@ -484,9 +511,7 @@ describe("Vector distance orderBy SQL generation", () => {
 
     const statement = query.toStatement("$n");
     expect(statement).not.toContain("LEFT JOIN LATERAL");
-    expect(statement).toContain(
-      'ORDER BY "t1"."embedding" <=> $2::vector ASC'
-    );
+    expect(statement).toContain('ORDER BY "t1"."embedding" <=> $2::vector ASC');
     expect(statement).toContain("LIMIT $3");
     expect(query.values).toEqual(["id", "[1,2,3]", 2]);
   });
@@ -521,26 +546,28 @@ describe("Vector distance orderBy SQL generation", () => {
     const adapter = new PostgresAdapter();
     adapter.capabilities.supportsVector = true;
 
-    const query = createEngine(adapter).build(vectorOrderSchema.doc, "findMany", {
-      orderBy: {
-        collection: {
-          centroid: {
-            _distance: {
-              to: [1, 2, 3],
-              metric: "l2",
+    const query = createEngine(adapter).build(
+      vectorOrderSchema.doc,
+      "findMany",
+      {
+        orderBy: {
+          collection: {
+            centroid: {
+              _distance: {
+                to: [1, 2, 3],
+                metric: "l2",
+              },
             },
           },
         },
-      },
-    });
+      }
+    );
 
     const statement = query.toStatement("$n");
     expect(statement).toContain(
       'LEFT JOIN "vector_order_collections" AS "t1" ON "t0"."collectionId" = "t1"."id"'
     );
-    expect(statement).toContain(
-      'ORDER BY "t1"."centroid" <-> $1::vector ASC'
-    );
+    expect(statement).toContain('ORDER BY "t1"."centroid" <-> $1::vector ASC');
     expect(query.values).toEqual(["[1,2,3]"]);
   });
 

@@ -18,9 +18,13 @@ import {
   type Transaction,
 } from "@electric-sql/pglite";
 import { unsupportedGeospatial, unsupportedVector } from "@errors";
-import { Driver } from "../driver";
-import { getSqlIsolationLevel } from "../shared";
-import type { QueryResult, TransactionOptions } from "../types";
+import { Driver, type QueryExecutionContext } from "../driver";
+import { normalizeProviderRowCount } from "../normalized-result";
+import {
+  nestedTransactionDispatchError,
+  runProviderManagedTransaction,
+} from "../shared";
+import type { QueryResult } from "../types";
 
 // ============================================================
 // EXPORTED OPTIONS
@@ -44,6 +48,7 @@ export type PGliteConfig<C extends DriverConfig> = PGliteDriverOptions & C;
 
 export class PGliteDriver extends Driver<PGlite, Transaction> {
   readonly adapter: DatabaseAdapter;
+  protected override readonly serializeTransactions = true;
 
   private readonly driverOptions: PGliteDriverOptions;
 
@@ -90,45 +95,54 @@ export class PGliteDriver extends Driver<PGlite, Transaction> {
   protected async execute<T>(
     client: PGlite | Transaction,
     sql: string,
-    params: unknown[]
+    params: unknown[],
+    context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
+    const operation = context?.operation ?? "execute";
     const result = await client.query<T>(sql, params);
+    const affectedRows = normalizeProviderRowCount(result.affectedRows, {
+      provider: "pglite",
+      operation,
+    });
     return {
       rows: result.rows,
-      rowCount: result.affectedRows ?? result.rows.length,
+      rowCount: result.rows.length > 0 ? result.rows.length : affectedRows,
     };
   }
 
   protected async executeRaw<T>(
     client: PGlite | Transaction,
     sql: string,
-    params?: unknown[]
+    params: unknown[] | undefined,
+    context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
+    const operation = context?.operation ?? "executeRaw";
     const result = await client.query<T>(sql, params);
+    const affectedRows = normalizeProviderRowCount(result.affectedRows, {
+      provider: "pglite",
+      operation,
+    });
     return {
       rows: result.rows,
-      rowCount: result.affectedRows ?? result.rows.length,
+      rowCount: result.rows.length > 0 ? result.rows.length : affectedRows,
     };
   }
 
   protected transaction<T>(
     client: PGlite | Transaction,
-    fn: (tx: Transaction) => Promise<T>,
-    options?: TransactionOptions
+    fn: (tx: Transaction) => Promise<T>
   ): Promise<T> {
-    if (client instanceof PGlite) {
-      // Start a new transaction
-      if (options?.isolationLevel) {
-        const level = getSqlIsolationLevel(options.isolationLevel);
-        return client.transaction(async (tx) => {
-          await tx.exec(`SET TRANSACTION ISOLATION LEVEL ${level}`);
-          return fn(tx);
-        });
-      }
-      return client.transaction(fn);
+    if (!(client instanceof PGlite)) {
+      throw nestedTransactionDispatchError(this.driverName);
     }
-    // Nested transactions not supported in PGlite
-    return fn(client);
+    return runProviderManagedTransaction({
+      run: (callback) => client.transaction(callback),
+      callback: fn,
+      close: async () => {
+        await client.close();
+        this.client = null;
+      },
+    });
   }
 }
 

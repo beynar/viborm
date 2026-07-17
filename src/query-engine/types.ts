@@ -5,9 +5,8 @@
  */
 
 import type { DatabaseAdapter } from "@adapters";
-import type { AnyDriver } from "@drivers/driver";
+import type { QueryExecutionContext } from "@drivers/driver";
 import type { QueryResult } from "@drivers/types";
-import type { InstrumentationContext } from "@instrumentation";
 import type { Model } from "@schema/model";
 import type { AnyRelation } from "@schema/relation";
 import type { SchemaRegistryLookup } from "@validation";
@@ -33,6 +32,12 @@ export { Sql } from "@sql";
  */
 export type RawQueryResult = unknown[] | { rowCount: number };
 
+/** Raw rows/count produced by one mutation result-emulation scope. */
+export interface MutationQueryResult {
+  rows: Record<string, unknown>[];
+  rowCount: number;
+}
+
 /**
  * Result parser function type
  * Transforms raw database result into typed application objects
@@ -47,49 +52,17 @@ export interface PreparedQuery {
   sql: string;
   /** Query parameters */
   params: unknown[];
+  /** Immutable attribution captured when the ORM operation was created. */
+  context: QueryExecutionContext;
 }
 
 /**
- * Query metadata for lazy execution
- *
- * Validation and SQL building are deferred to execution time.
- * This enables proper span ordering and prepares for future prepared statement support.
+ * @deprecated `PendingOperation` now owns this lifecycle directly. This
+ * type-only alias remains through the next published compatibility release;
+ * no metadata object is created at runtime.
  */
-export interface QueryMetadata<T> {
-  /** Unique identifier for the client that created this operation */
-  clientId: symbol;
-  /** Raw arguments (not yet validated) */
-  args: Record<string, unknown>;
-  /** The operation type */
-  operation: Operation;
-  /** Model name */
-  model: string;
-  /** Function to execute the operation (validates, builds SQL, executes, parses) */
-  execute: (driverOverride?: AnyDriver) => Promise<T>;
-  /**
-   * Function to prepare the query (validate, build SQL) without executing.
-   * Returns the SQL string and parameters for batch execution.
-   * Only available for operations that can be batched (no nested writes).
-   */
-  prepare?: (driverOverride?: AnyDriver) => PreparedQuery;
-  /**
-   * Function to prepare one logical operation as an atomic batch.
-   * Used for nested writes on batch-only drivers.
-   */
-  prepareBatch?: (
-    driverOverride?: AnyDriver,
-    context?: BatchPreparationContext
-  ) => Promise<PreparedBatchOperation<T>>;
-  /**
-   * Function to parse raw query result into typed result.
-   * Used after batch execution to transform the raw result.
-   */
-  parseResult?: (raw: { rows: unknown[]; rowCount: number }) => T;
-  /** Whether this is a batch operation (returns rowCount instead of rows) */
-  isBatchOperation: boolean;
-  /** Whether this operation has nested writes (can't be batched) */
-  hasNestedWrites: boolean;
-}
+export type QueryMetadata<T> =
+  import("./pending-operation").PendingOperation<T>;
 
 /**
  * One logical operation expanded into driver-level batch queries.
@@ -98,7 +71,34 @@ export interface PreparedBatchOperation<T = unknown> {
   queries: PreparedQuery[];
   setupQueries?: PreparedQuery[];
   cleanupQueries?: PreparedQuery[];
+  guards?: PreparedBatchGuard[];
+  /** Exact selected create steps that may lose their probed unique race. */
+  racePins?: PreparedBatchRacePin[];
   parseResult: (results: QueryResult<unknown>[]) => T;
+}
+
+export interface PreparedBatchRacePin {
+  readonly queryIndex: number;
+  readonly pin: import("./operation-program").UniqueConflictPin;
+}
+
+/** Declarative ownership for one assertion query in a prepared operation. */
+export interface PreparedBatchGuard {
+  readonly queryIndex: number;
+  readonly premise: "exists" | "notExists";
+  readonly probe: import("@sql").Sql;
+  readonly failure: import("./operation-program").ProgramFailure;
+  readonly model: string;
+  readonly operation: Operation;
+}
+
+/** Shared lowering state for several programs in one atomic driver batch. */
+export interface OperationProgramBatchState {
+  readonly batchId: string;
+  nextReference: number;
+  initialized: boolean;
+  readonly setup: import("@sql").Sql[];
+  readonly cleanup: import("@sql").Sql[];
 }
 
 /**
@@ -106,7 +106,7 @@ export interface PreparedBatchOperation<T = unknown> {
  * atomic driver batch.
  */
 export interface BatchPreparationContext {
-  nestedWriteState?: unknown;
+  operationProgramState?: OperationProgramBatchState;
 }
 
 /**
@@ -176,49 +176,29 @@ export interface ModelRegistry {
   readonly schemas: SchemaRegistryLookup;
 }
 
-/**
- * Dependencies shared by query-engine execution flows.
- */
-export interface QueryEngineDependencies {
-  adapter: DatabaseAdapter;
-  registry: ModelRegistry;
-  driver: AnyDriver;
-  schemaRegistry: SchemaRegistryLookup;
-  instrumentation: InstrumentationContext | undefined;
-  clientId: symbol;
+/** Requested fields inside one aggregate JSON carrier. */
+export interface ExpectedAggregateResultShape {
+  /** Undefined only for the scalar `_count: true` result. */
+  fields?: ReadonlySet<string>;
 }
 
-/**
- * Query context passed to all builders
- */
-export interface QueryContext {
-  /** Database driver (optional, for result parsing) */
-  driver?: AnyDriver;
-  /** Database adapter for SQL generation */
-  adapter: DatabaseAdapter;
-  /** Current model being queried */
-  model: Model<any>;
-  /** Model registry for relation lookups */
-  registry: ModelRegistry;
-  /** Runtime schema registry for operation and nested input validation */
-  schemaRegistry: SchemaRegistryLookup;
-  /** Alias generator for table aliases */
-  nextAlias: () => string;
-  /** Get root alias (t0) */
-  rootAlias: string;
-  /**
-   * Table currently targeted by an UPDATE/DELETE. Set while building the
-   * mutation's WHERE so relation-filter subqueries selecting from this table
-   * can be wrapped in a derived table on dialects where referencing it is
-   * illegal (MySQL error 1093 — see capabilities.supportsMutationTargetInSubquery).
-   */
-  mutationTable?: string;
-  /** Cached parse result chain (lazily initialized) */
-  _parseResultChain?: (value: unknown, op: Operation) => unknown;
-  /** Cached parse field chains by scalar type (lazily initialized) */
-  _parseFieldChains?: Map<string, (value: unknown) => unknown>;
-  /** Cached parse relation chains by relation name (lazily initialized) */
-  _parseRelationChains?: Map<string, (value: unknown) => unknown>;
+/** Exact raw columns and nested projections expected for one returned row. */
+export interface ExpectedResultShape {
+  /** Raw statement carrier declared by the compiled operation result. */
+  carrier: "rows" | "count" | "existence";
+  rawKeys: readonly string[];
+  relations: ReadonlyMap<string, ExpectedResultShape>;
+  aggregates: ReadonlyMap<string, ExpectedAggregateResultShape>;
+  relationCounts: ReadonlySet<string>;
+}
+
+/** Minimal SQL-construction state shared by related model scopes. */
+export interface QueryScope {
+  readonly adapter: DatabaseAdapter;
+  readonly model: Model<any>;
+  readonly nextAlias: () => string;
+  readonly rootAlias: string;
+  readonly mutationTable?: string;
 }
 
 /**

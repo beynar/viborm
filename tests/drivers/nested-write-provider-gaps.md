@@ -11,7 +11,6 @@ Hosted/external execution suites are not added in this phase because this
 repository does not currently provide stable local fixtures or credentials for:
 
 - D1
-- D1 HTTP
 - Neon HTTP
 - PlanetScale
 

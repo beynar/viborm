@@ -1,4 +1,5 @@
 import { createClient } from "@client/client";
+import { D1Driver } from "@drivers/d1";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import type { BatchQuery, QueryResult } from "@drivers/types";
 import {
@@ -10,17 +11,21 @@ import {
 import { push } from "@migrations";
 import { s } from "@schema";
 import type Database from "better-sqlite3";
+import { vi } from "vitest";
+import { batchPrimaryKeyDataflowSchema } from "../fixtures/batch-primary-key-dataflow-schema";
 import {
   createInMemorySQLite3Driver,
   createSQLite3UserPostClient,
   setupSQLite3UserPostDatabase,
 } from "../fixtures/drivers/sqlite3";
 import { seedWindowUserPosts } from "../fixtures/user-post-seed";
+import { runCreateNestedUpsertBehavior } from "../query-engine-v2/create-nested-upsert-behavior";
 import { runBatchPrimaryKeyDataflowBehavior } from "./batch-primary-key-dataflow-behavior";
 import { runBatchRefSmokeBehavior } from "./batch-ref-smoke-behavior";
 import { runClientRawBehavior } from "./client-raw-behavior";
 import { runCompoundKeyBehavior } from "./compound-key-behavior";
 import { runCountAggregateWindowBehavior } from "./count-aggregate-window-behavior";
+import { runCursorPaginationBehavior } from "./cursor-pagination-behavior";
 import { runDistinctSkipWindowBehavior } from "./distinct-skip-window-behavior";
 import { runLikeEscapeBehavior } from "./like-escape-behavior";
 import { runListJsonFilterBehavior } from "./list-json-filter-behavior";
@@ -179,6 +184,101 @@ describe("SQLite3 Driver", () => {
       );
 
       expect(result.rowCount).toBe(1);
+    });
+
+    test("does not treat an identifier containing returning as a row-producing statement", async () => {
+      const result = await driver._executeRaw(
+        `CREATE TABLE "returning_events" ("id" TEXT PRIMARY KEY)`
+      );
+
+      expect(result.rows).toEqual([]);
+      expect(result.rowCount).toBe(0);
+    });
+
+    test("does not treat a comment containing returning as a row-producing statement", async () => {
+      const result = await driver._executeRaw(
+        `INSERT INTO "users" ("id", "email", "name") VALUES (?, ?, ?) /* returning is only a comment */`,
+        ["comment-user", "comment@example.com", "Comment User"]
+      );
+
+      expect(result.rows).toEqual([]);
+      expect(result.rowCount).toBe(1);
+    });
+
+    test("does not treat a string literal containing returning as a row-producing statement", async () => {
+      const result = await driver._executeRaw(
+        `INSERT INTO "users" ("id", "email", "name") VALUES ('literal-user', 'literal@example.com', 'contains returning text')`
+      );
+
+      expect(result.rows).toEqual([]);
+      expect(result.rowCount).toBe(1);
+    });
+
+    test("returns rows for a genuine mutation RETURNING clause", async () => {
+      const result = await driver._executeRaw<{
+        id: string;
+        email: string;
+        name: string;
+      }>(
+        `INSERT INTO "users" ("id", "email", "name") VALUES (?, ?, ?) RETURNING "id", "email", "name"`,
+        ["returned-user", "returned@example.com", "Returned User"]
+      );
+
+      expect(result.rows).toEqual([
+        {
+          id: "returned-user",
+          email: "returned@example.com",
+          name: "Returned User",
+        },
+      ]);
+      expect(result.rowCount).toBe(1);
+    });
+  });
+
+  describe("Worker-safe D1 binary parameters", () => {
+    test("binds Uint8Array blobs when Buffer is unavailable", async () => {
+      const boundValues: unknown[] = [];
+      const statement = {
+        bind(...values: unknown[]) {
+          boundValues.push(...values);
+          return statement;
+        },
+        async run() {
+          return { success: true, results: [], meta: { changes: 1 } };
+        },
+      };
+      // This fake intentionally implements only the D1 surface exercised here.
+      const database = {
+        prepare() {
+          return statement;
+        },
+      } as unknown as ConstructorParameters<typeof D1Driver>[0]["database"];
+      const driver = new D1Driver({ database });
+      const payload = new Uint8Array([1, 2, 3]);
+
+      vi.stubGlobal("Buffer", undefined);
+      try {
+        await driver._executeRaw(`INSERT INTO "blobs" ("payload") VALUES (?)`, [
+          payload,
+        ]);
+      } finally {
+        vi.unstubAllGlobals();
+        await driver.disconnect();
+      }
+
+      const [boundValue] = boundValues;
+      if (boundValue instanceof Uint8Array) {
+        expect(Object.getPrototypeOf(boundValue)).toBe(Uint8Array.prototype);
+        expect(Array.from(boundValue)).toEqual([1, 2, 3]);
+        return;
+      }
+      if (boundValue instanceof ArrayBuffer) {
+        expect(Array.from(new Uint8Array(boundValue))).toEqual([1, 2, 3]);
+        return;
+      }
+      throw new Error(
+        "D1 blob parameters must remain Worker-compatible binary"
+      );
     });
   });
 
@@ -597,6 +697,11 @@ describe("SQLite3 Driver", () => {
     createDriver: createInMemorySQLite3Driver,
   });
 
+  runCursorPaginationBehavior({
+    driverName: "SQLite3",
+    createDriver: createInMemorySQLite3Driver,
+  });
+
   runNestedWriteBehavior({
     driverName: "SQLite3",
     createDriver: createInMemorySQLite3Driver,
@@ -670,12 +775,50 @@ describe("SQLite3 Driver", () => {
     driverName: "SQLite3",
     createDriver: createInMemorySQLite3Driver,
   });
+  test("transactional nested update divides an integer PK and propagates it", async () => {
+    const driver = createInMemorySQLite3Driver();
+    const client = createClient({
+      schema: batchPrimaryKeyDataflowSchema,
+      driver,
+    });
+
+    try {
+      await push(client, { force: true });
+      await client.mutableUser.create({
+        data: { id: 330, name: "Divide operation" },
+      });
+
+      const updated = await client.mutableUser.update({
+        where: { id: 330 },
+        data: {
+          id: { divide: 3 },
+          name: "Divide operation updated",
+          posts: { create: { title: "Divide operation child" } },
+        },
+      });
+
+      const posts = await client.mutablePost.findMany();
+      expect(updated.id).toBe(110);
+      expect(posts).toHaveLength(1);
+      expect(posts[0]?.userId).toBe(110);
+    } finally {
+      await client.$disconnect();
+    }
+  });
   runBatchPrimaryKeyDataflowBehavior({
     driverName: "SQLite3 batch-only",
     createDriver: createBatchOnlySQLite3Driver,
   });
   runBatchRefSmokeBehavior({
     driverName: "SQLite3 batch-only",
+    createDriver: createBatchOnlySQLite3Driver,
+  });
+  runCreateNestedUpsertBehavior({
+    name: "SQLite3 transaction",
+    createDriver: createInMemorySQLite3Driver,
+  });
+  runCreateNestedUpsertBehavior({
+    name: "SQLite3 atomic batch",
     createDriver: createBatchOnlySQLite3Driver,
   });
 });

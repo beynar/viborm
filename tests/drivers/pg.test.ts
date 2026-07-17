@@ -8,8 +8,10 @@
 
 import { VibORM } from "@client/client";
 import { createClient as PgCreateClient, PgDriver } from "@drivers/pg";
+import { UniqueConstraintError } from "@errors";
 import { push } from "@migrations";
 import { s } from "@schema";
+import { runCreateNestedUpsertBehavior } from "../query-engine-v2/create-nested-upsert-behavior";
 import {
   PgBatchForcedDriver,
   PgBeforeFirstBatchDriver,
@@ -83,7 +85,8 @@ async function setupDatabase(driver: PgDriver) {
 
 // Skip tests if no PostgreSQL connection is available
 const TEST_CONNECTION_STRING = process.env.PG_TEST_CONNECTION_STRING;
-const PGVECTOR_TEST_CONNECTION_STRING = process.env.PGVECTOR_TEST_CONNECTION_STRING;
+const PGVECTOR_TEST_CONNECTION_STRING =
+  process.env.PGVECTOR_TEST_CONNECTION_STRING;
 const describeIf = TEST_CONNECTION_STRING ? describe : describe.skip;
 
 function requirePgvectorConnectionString(): string {
@@ -123,7 +126,7 @@ describeIf("pg Driver", () => {
       const driver = new PgDriver({
         options: {
           host: url.hostname,
-          port: Number.parseInt(url.port) || 5432,
+          port: Number.parseInt(url.port, 10) || 5432,
           database: url.pathname.slice(1),
           user: url.username,
           password: url.password,
@@ -132,6 +135,34 @@ describeIf("pg Driver", () => {
       expect(driver.dialect).toBe("postgresql");
       await driver.disconnect();
     });
+  });
+
+  test("attributes a sequential atomic-batch failure to its exact statement", async () => {
+    const driver = new PgBatchForcedDriver({
+      databaseUrl: TEST_CONNECTION_STRING,
+    });
+    await setupDatabase(driver);
+
+    const error = await driver
+      ._executeBatch([
+        {
+          sql: `INSERT INTO "pg_test_users" ("id", "email") VALUES ($1, $2)`,
+          params: ["batch-user", "first@example.com"],
+        },
+        {
+          sql: `INSERT INTO "pg_test_users" ("id", "email") VALUES ($1, $2)`,
+          params: ["batch-user", "second@example.com"],
+        },
+      ])
+      .catch((caught) => caught);
+
+    expect(error).toBeInstanceOf(UniqueConstraintError);
+    expect(error.meta).toMatchObject({
+      statementIndex: 1,
+      table: "pg_test_users",
+      constraint: "pg_test_users_pkey",
+    });
+    await driver.disconnect();
   });
 
   describe("Raw SQL Execution", () => {
@@ -229,7 +260,7 @@ describeIf("pg Driver", () => {
       const result = await driver._executeRaw<{ count: string }>(
         `SELECT COUNT(*) as count FROM "pg_test_users"`
       );
-      expect(Number.parseInt(result.rows[0]?.count ?? "0")).toBe(2);
+      expect(Number.parseInt(result.rows[0]?.count ?? "0", 10)).toBe(2);
     });
 
     test("rolls back transaction on error", async () => {
@@ -246,7 +277,7 @@ describeIf("pg Driver", () => {
       const result = await driver._executeRaw<{ count: string }>(
         `SELECT COUNT(*) as count FROM "pg_test_users"`
       );
-      expect(Number.parseInt(result.rows[0]?.count ?? "0")).toBe(0);
+      expect(Number.parseInt(result.rows[0]?.count ?? "0", 10)).toBe(0);
     });
 
     test("supports nested transactions with savepoints", async () => {
@@ -274,24 +305,20 @@ describeIf("pg Driver", () => {
         `SELECT COUNT(*) as count FROM "pg_test_users"`
       );
       // Only user-1 should exist (user-2 was rolled back by nested transaction)
-      expect(Number.parseInt(result.rows[0]?.count ?? "0")).toBe(1);
+      expect(Number.parseInt(result.rows[0]?.count ?? "0", 10)).toBe(1);
     });
 
-    test("supports isolation levels", async () => {
-      await driver.withTransaction(
-        async (txDriver) => {
-          await txDriver._executeRaw(
-            `INSERT INTO "pg_test_users" ("id", "email", "name") VALUES ($1, $2, $3)`,
-            ["user-1", "test@example.com", "Test User"]
-          );
-        },
-        { isolationLevel: "serializable" }
-      );
-
-      const result = await driver._executeRaw<{ count: string }>(
-        `SELECT COUNT(*) as count FROM "pg_test_users"`
-      );
-      expect(Number.parseInt(result.rows[0]?.count ?? "0")).toBe(1);
+    test("rejects removed isolation before opening a transaction", async () => {
+      let callbackCalled = false;
+      await expect(
+        Reflect.apply(driver.withTransaction, driver, [
+          async () => {
+            callbackCalled = true;
+          },
+          { isolationLevel: "serializable" },
+        ])
+      ).rejects.toMatchObject({ name: "TransactionError", code: "V5005" });
+      expect(callbackCalled).toBe(false);
     });
   });
 
@@ -416,10 +443,7 @@ describeIf("pg Driver", () => {
       await client.$disconnect();
     });
 
-    // Proves the isolationLevel option is accepted end-to-end through
-    // client.$transaction and the transaction commits — not proving
-    // isolation semantics (the driver-level test above covers the SQL).
-    test("performs callback transaction with serializable isolation via client", async () => {
+    test("rejects removed isolation at the client boundary", async () => {
       const client = await PgCreateClient({
         schema,
         databaseUrl: TEST_CONNECTION_STRING,
@@ -427,21 +451,16 @@ describeIf("pg Driver", () => {
 
       await push(client, { force: true });
 
-      const created = await client.$transaction(
-        async (tx) => {
-          await tx.user.create({
-            data: { id: "iso-user-1", email: "iso@example.com" },
-          });
-          return tx.user.create({
-            data: { id: "iso-user-2", email: "iso2@example.com" },
-          });
-        },
-        { isolationLevel: "serializable" }
-      );
-      expect(created.id).toBe("iso-user-2");
-
-      const users = await client.user.findMany({ orderBy: { id: "asc" } });
-      expect(users.map((u) => u.id)).toEqual(["iso-user-1", "iso-user-2"]);
+      let callbackCalled = false;
+      await expect(
+        Reflect.apply(client.$transaction, client, [
+          async () => {
+            callbackCalled = true;
+          },
+          { isolationLevel: "serializable" },
+        ])
+      ).rejects.toMatchObject({ name: "TransactionError", code: "V5005" });
+      expect(callbackCalled).toBe(false);
 
       await client.$disconnect();
     });
@@ -525,6 +544,16 @@ describeIf("pg Driver", () => {
   runNestedOrderByBehavior({
     driverName: "pg",
     createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  runCreateNestedUpsertBehavior({
+    name: "pg transaction",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+  runCreateNestedUpsertBehavior({
+    name: "pg atomic batch",
+    createDriver: () =>
+      new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
   });
 
   // The remaining behavior suites are not wired here: they are adapter-level

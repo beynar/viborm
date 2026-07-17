@@ -11,7 +11,7 @@ import {
   isRelation,
   isScalarField,
 } from "../context";
-import { type QueryContext, QueryEngineError } from "../types";
+import { QueryEngineError, type QueryScope } from "../types";
 import {
   buildRelationOrders,
   type RelationOrderAlias,
@@ -32,7 +32,7 @@ export interface OrderByParts {
  * @returns SQL for ORDER BY or undefined if no ordering
  */
 export function buildOrderBy(
-  ctx: QueryContext,
+  ctx: QueryScope,
   orderBy: Record<string, unknown> | Record<string, unknown>[] | undefined,
   alias: string
 ): Sql | undefined {
@@ -43,7 +43,7 @@ export function buildOrderBy(
  * Build ORDER BY clause and relation joins for SELECT queries.
  */
 export function buildOrderByParts(
-  ctx: QueryContext,
+  ctx: QueryScope,
   orderBy: Record<string, unknown> | Record<string, unknown>[] | undefined,
   alias: string
 ): OrderByParts {
@@ -51,7 +51,7 @@ export function buildOrderByParts(
 }
 
 function buildOrderByInternal(
-  ctx: QueryContext,
+  ctx: QueryScope,
   orderBy: Record<string, unknown> | Record<string, unknown>[] | undefined,
   alias: string,
   allowRelationOrder: boolean

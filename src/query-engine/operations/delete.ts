@@ -9,7 +9,7 @@ import { buildSelect } from "../builders/select-builder";
 import { buildWhere } from "../builders/where-builder";
 import { buildWhereUnique } from "../builders/where-unique-builder";
 import { getTableName } from "../context";
-import type { QueryContext } from "../types";
+import type { QueryScope } from "../types";
 
 interface DeleteArgs {
   where: Record<string, unknown>;
@@ -28,7 +28,7 @@ interface DeleteManyArgs {
  * @param args - Delete arguments
  * @returns SQL statement (DELETE with optional RETURNING)
  */
-export function buildDelete(ctx: QueryContext, args: DeleteArgs): Sql {
+export function buildDelete(ctx: QueryScope, args: DeleteArgs): Sql {
   const { adapter } = ctx;
   const tableName = getTableName(ctx.model);
 
@@ -59,7 +59,7 @@ export function buildDelete(ctx: QueryContext, args: DeleteArgs): Sql {
  * @param args - DeleteMany arguments
  * @returns SQL statement
  */
-export function buildDeleteMany(ctx: QueryContext, args: DeleteManyArgs): Sql {
+export function buildDeleteMany(ctx: QueryScope, args: DeleteManyArgs): Sql {
   const { adapter } = ctx;
   const tableName = getTableName(ctx.model);
 

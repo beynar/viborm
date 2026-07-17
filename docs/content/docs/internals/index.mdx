@@ -1,10 +1,10 @@
 ---
 title: Internals Overview
-description: The 10-layer architecture transforming type-safe schema definitions into database queries without code generation
+description: The 12-layer architecture transforming type-safe schema definitions into database queries without code generation
 icon: Layers
 ---
 
-## The 10-Layer Architecture
+## The 12-Layer Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -32,7 +32,11 @@ icon: Layers
 ├───────────────────────┼─────────────────────────────────────────────────┤
 │  L9: Client           │ Type-safe ORM interface via recursive proxies   │
 ├───────────────────────┼─────────────────────────────────────────────────┤
-│  L10: Migrations      │ Schema diffing and database synchronization     │
+│  L10: Cache           │ Query caching, invalidation, and SWR             │
+├───────────────────────┼─────────────────────────────────────────────────┤
+│  L11: Instrumentation │ Tracing, structured logging, and diagnostics     │
+├───────────────────────┼─────────────────────────────────────────────────┤
+│  L12: Migrations      │ Schema diffing and database synchronization     │
 └───────────────────────┴─────────────────────────────────────────────────┘
 ```
 
@@ -49,7 +53,9 @@ icon: Layers
 | **L7: Adapters** | `src/adapters/` | **Database-specific SQL** | Query logic |
 | **L8: Drivers** | `src/drivers/` | Connection, execution | Query building |
 | **L9: Client** | `src/client/` | Result types, proxies | Query construction |
-| **L10: Migrations** | `src/migrations/` | Schema diffing, push | Schema definition |
+| **L10: Cache** | `src/cache/` | Query caching, invalidation | Query execution |
+| **L11: Instrumentation** | `src/instrumentation/` | Tracing, logging, diagnostics | Query logic |
+| **L12: Migrations** | `src/migrations/` | Schema sync, migration files, DDL | Schema definition |
 
 ## Why This Architecture?
 
@@ -129,11 +135,14 @@ This is the most important architectural boundary. The query engine decides **WH
 | [L2: Scalars](/docs/internals/scalars) | Scalar types with State generic for type tracking |
 | [L3: Operation Schemas](/docs/internals/query-schemas) | Registry schema generation for where/create/update |
 | [L4: Relations](/docs/internals/relations) | Model relationships with thunks for circular refs |
+| [L5: Schema Validation](/docs/internals/schema-validation) | Definition-time structural correctness checks |
 | [L6: Query Engine](/docs/internals/query-engine) | Database-agnostic query structure |
 | [L7: Adapters](/docs/internals/adapters) | Database-specific SQL dialects |
 | [L8: Drivers](/docs/internals/drivers) | Connection management and execution |
 | [L9: Client](/docs/internals/client) | The public `orm.model.operation()` API |
-| [L10: Migrations](/docs/internals/migrations) | Schema diffing and synchronization |
+| [L10: Cache](/docs/internals/cache) | Query result caching and invalidation |
+| [L11: Instrumentation](/docs/internals/instrumentation) | Tracing, logging, and diagnostics |
+| [L12: Migrations](/docs/internals/migrations) | Schema diffing and synchronization |
 
 ## Next Steps
 

@@ -18,7 +18,7 @@
  * Normalized column name for COUNT results.
  * Used by adapters to normalize database-specific column names.
  */
-export const COUNT_RESULT_KEY = "_result" as const;
+export const COUNT_RESULT_KEY = "0viborm_count_result" as const;
 
 /**
  * Parse JSON string values (MySQL/SQLite return JSON as strings).
@@ -71,11 +71,15 @@ export function parseIntegerBoolean(
   value: unknown
 ): boolean | null | undefined {
   if (typeof value === "number") {
-    return value === 1;
+    if (value === 1) return true;
+    if (value === 0) return false;
+    return undefined;
   }
   // SQLite drivers read integers safely (BigInt), including boolean columns
   if (typeof value === "bigint") {
-    return value === 1n;
+    if (value === 1n) return true;
+    if (value === 0n) return false;
+    return undefined;
   }
   if (value === null || value === undefined) {
     return null;
@@ -103,26 +107,25 @@ export function convertBigIntToNumber(value: unknown): number | undefined {
 
 /**
  * Normalize COUNT result column name.
- * Different databases return COUNT(*) with different column names:
- * - PostgreSQL: "count" (lowercase)
- * - MySQL: "COUNT(*)" (uppercase with parens)
- * - SQLite: "COUNT(*)" (uppercase with parens)
+ * VibORM aliases simple COUNT queries with an identifier that model schemas
+ * cannot define. Raw COUNT expressions are also recognized for providers that
+ * do not preserve the SQL alias.
  *
  * This normalizes to `{ [COUNT_RESULT_KEY]: N }` for consistent parsing.
  *
  * @param raw - Raw database result (array or object)
- * @returns Normalized result with `_result` key, or `undefined` if not a COUNT result
+ * @returns Normalized result with the private count key, or `undefined` if not a COUNT result
  *
  * @example
- * normalizeCountResult([{ 'COUNT(*)': 5 }])  // [{ _result: 5 }]
- * normalizeCountResult([{ count: 5 }])       // [{ _result: 5 }]
+ * normalizeCountResult([{ 'COUNT(*)': 5 }])  // [{ '0viborm_count_result': 5 }]
+ * normalizeCountResult([{ count: 5 }])       // undefined (valid model scalar)
  * normalizeCountResult([{ name: 'Alice' }])  // undefined (not a COUNT)
  */
 export function normalizeCountResult(
   raw: unknown
 ): [{ [COUNT_RESULT_KEY]: unknown }] | undefined {
   // Handle array with single row
-  if (Array.isArray(raw) && raw.length > 0) {
+  if (Array.isArray(raw) && raw.length === 1) {
     const firstRow = raw[0];
     if (typeof firstRow === "object" && firstRow !== null) {
       const countValue = extractCountValue(firstRow as Record<string, unknown>);
@@ -148,14 +151,19 @@ export function normalizeCountResult(
  * Case-insensitive to handle variations across databases.
  */
 function extractCountValue(row: Record<string, unknown>): unknown | undefined {
-  const keys = Object.keys(row);
+  const entries = Object.entries(row);
+  if (entries.length !== 1) {
+    return undefined;
+  }
 
-  for (const key of keys) {
-    const lowerKey = key.toLowerCase();
-    // Match: count, count(*), COUNT(*), count(distinct x), etc.
-    if (lowerKey === "count" || lowerKey.startsWith("count(")) {
-      return row[key];
-    }
+  const [entry] = entries;
+  if (!entry) {
+    return undefined;
+  }
+
+  const [key, value] = entry;
+  if (key === COUNT_RESULT_KEY || key.toLowerCase().startsWith("count(")) {
+    return value;
   }
 
   return undefined;

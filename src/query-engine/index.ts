@@ -35,10 +35,8 @@ export {
 } from "./builders";
 // Context utilities
 export {
-  AliasGenerator,
-  createAliasGenerator,
-  createChildContext,
-  createQueryContext,
+  createChildScope,
+  createQueryScope,
   getRelationInfo,
   getRelationNames,
   getScalarFieldNames,
@@ -64,8 +62,6 @@ export {
   buildDelete,
   buildDeleteMany,
   buildFind,
-  buildFindFirst,
-  buildFindMany,
   buildFindUnique,
   buildGroupBy,
   buildUpdate,
@@ -79,13 +75,13 @@ export {
   QueryEngine,
 } from "./query-engine";
 // Result parsing
-export { parseMutationCount, parseResult } from "./result";
+export { parseMutationCount, parseResult, ResultParser } from "./result";
 // Types
 export type {
   ModelRegistry,
   Operation,
   PreparedQuery,
-  QueryContext,
+  QueryScope,
   RelationInfo,
 } from "./types";
 export {

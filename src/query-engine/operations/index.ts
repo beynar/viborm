@@ -12,14 +12,17 @@ export {
   buildCreate,
   buildCreateMany,
   buildCreateManyAndReturn,
+  buildCreateManyPlan,
+  type CreateManyPlan,
 } from "./create";
 export { buildDelete, buildDeleteMany } from "./delete";
-export { buildFind, type FindArgs, type FindOptions } from "./find-common";
-export type { FindFirstArgs } from "./find-first";
-// Find operations
-export { buildFindFirst } from "./find-first";
-export type { FindManyArgs } from "./find-many";
-export { buildFindMany } from "./find-many";
+export {
+  buildFind,
+  type FindArgs,
+  type FindFirstArgs,
+  type FindManyArgs,
+  type FindOptions,
+} from "./find-common";
 export { buildFindUnique } from "./find-unique";
 export { buildGroupBy, type GroupByArgs } from "./groupby";
 export {

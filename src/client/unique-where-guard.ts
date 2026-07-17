@@ -1,5 +1,5 @@
 import { ValidationError } from "@errors";
-import type { Operation as QueryOperation } from "@query-engine/types";
+import type { Operation as ValidationOperation } from "@query-engine/types";
 import type { Operations } from "./types";
 
 const UNIQUE_SELECTOR_OPERATIONS: Set<Operations> = new Set([
@@ -36,7 +36,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-function toUniqueValidationOperation(operation: Operations): QueryOperation {
+function toUniqueValidationOperation(
+  operation: Operations
+): ValidationOperation {
   switch (operation) {
     case "findUnique":
     case "update":

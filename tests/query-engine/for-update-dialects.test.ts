@@ -14,6 +14,8 @@ import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { sql } from "@sql";
 import { describe, expect, test } from "vitest";
 
+const INSERT_INTO_SQL = /INSERT\s+INTO/;
+
 describe("FOR UPDATE SQL Generation", () => {
   describe("PostgreSQL", () => {
     const adapter: DatabaseAdapter = new PostgresAdapter();
@@ -152,7 +154,7 @@ describe("Skip Duplicates SQL Generation", () => {
     adapter: DatabaseAdapter,
     table: ReturnType<typeof sql>
   ) => {
-    const { prefix, suffix } = adapter.mutations.skipDuplicates();
+    const { prefix, suffix } = adapter.mutations.skipDuplicates("id");
     const insert = adapter.mutations.insert(
       table,
       ["id", "name"],
@@ -169,7 +171,7 @@ describe("Skip Duplicates SQL Generation", () => {
       sql`"users"`
     ).toStatement("$n");
 
-    expect(statement).toMatch(/INSERT\s+INTO/);
+    expect(statement).toMatch(INSERT_INTO_SQL);
     expect(statement).toContain("ON CONFLICT DO NOTHING");
     expect(statement).not.toContain("INSERT IGNORE");
   });
@@ -181,19 +183,20 @@ describe("Skip Duplicates SQL Generation", () => {
       sql`"users"`
     ).toStatement("?");
 
-    expect(statement).toMatch(/INSERT\s+INTO/);
+    expect(statement).toMatch(INSERT_INTO_SQL);
     expect(statement).toContain("ON CONFLICT DO NOTHING");
     expect(statement).not.toContain("INSERT IGNORE");
   });
 
-  test("MySQL emits INSERT IGNORE", () => {
+  test("MySQL emits a duplicate-key-only no-op update", () => {
     const adapter = new MySQLAdapter();
     const statement = buildCreateManySkipDuplicates(
       adapter,
       sql`\`users\``
     ).toStatement("?");
 
-    expect(statement).toContain("INSERT IGNORE INTO");
-    expect(statement).not.toContain("ON CONFLICT");
+    expect(statement).toMatch(INSERT_INTO_SQL);
+    expect(statement).toContain("ON DUPLICATE KEY UPDATE `id` = `id`");
+    expect(statement).not.toContain("INSERT IGNORE");
   });
 });

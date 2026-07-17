@@ -11,14 +11,13 @@ import { upsertAtomicitySchema as schema } from "../fixtures/upsert-atomicity-sc
 
 /**
  * M8 concurrent suite (§11 M8, §7.4, D7). The write-race retry is unified above
- * `selectMode`, so BOTH substrates converge on a rerun after losing a
- * missing-key create-branch race. This needs two REAL connections that actually
- * race — PGlite is single-connection — so it lives with the Docker-gated driver
- * tests (PG 5434 / MySQL 3307).
+ * `selectMode`, so every configured substrate converges after losing a
+ * missing-key create-branch race. This needs two real connections — PGlite is
+ * single-connection — so it lives with the Docker-gated driver tests.
  *
- * A caller wires two driver factories over the SAME database:
+ * A caller wires driver factories over the SAME database:
  *  - `createTxDriver`   — the interactive-transaction substrate (LiveMode).
- *  - `createBatchDriver` — a batch-forced sibling of the same driver
+ *  - optional `createBatchDriver` — a batch-forced sibling of the same driver
  *    (`supportsTransactions:false`, `supportsBatch:true`) that runs the planned
  *    plan as one real atomic batch (PlannedMode). This is the ONLY way to
  *    exercise the planned path against a real racing database, since every real
@@ -26,11 +25,11 @@ import { upsertAtomicitySchema as schema } from "../fixtures/upsert-atomicity-sc
  *
  * Gates:
  *  1. Concurrent top-level upsert of a missing unique key converges to exactly
- *     one committed row in BOTH modes (the loser reruns and takes the update
+ *     one committed row in every configured mode (the loser takes the update
  *     branch, never a second insert, never a surfaced constraint error).
  *  2. Concurrent nested connectOrCreate of a missing key converges to exactly
- *     one committed row in BOTH modes.
- *  3. On the planned path, the loser's PRE-RETRY error is a
+ *     one committed row in every configured mode.
+ *  3. When the planned path is configured, the loser's PRE-RETRY error is a
  *     `UniqueConstraintError` (Pin Rule 2: no `notExists` pin precedes the
  *     create INSERT, so the DB constraint is the enforcer and its violation is
  *     the already-retryable signal) — NOT a rewrapped assertion abort.
@@ -49,13 +48,13 @@ export interface NestedWriteConcurrencyBehaviorOptions {
   createTxDriver: () => AnyDriver;
   /** A batch-forced sibling of the same driver (PlannedMode), racing the same
    *  database over a real connection. */
-  createBatchDriver: () => AnyDriver;
+  createBatchDriver?: () => AnyDriver;
   /** A batch-forced driver that, before running its FIRST atomic batch, commits
    *  the given conflicting row out-of-band — deterministically forcing the
    *  create-branch INSERT to violate the unique constraint, so the loser's
    *  pre-retry error can be observed without a real timing race. `onBatchError`
    *  fires with the error thrown by each atomic batch (the pre-retry signal). */
-  createRacePlantingBatchDriver: (config: {
+  createRacePlantingBatchDriver?: (config: {
     plant: { sql: string; params: unknown[] };
     onBatchError: (error: unknown) => void;
   }) => AnyDriver;
@@ -105,13 +104,20 @@ export function runNestedWriteConcurrencyBehavior({
       clients = [];
     });
 
-    // --- Gate 1: concurrent top-level upsert converges, both modes -----------
+    // --- Gate 1: concurrent top-level upsert converges ----------------------
 
-    for (const mode of ["tx", "batch"] as const) {
-      const makeDriver = mode === "tx" ? createTxDriver : createBatchDriver;
+    const modes: Array<{
+      name: "tx" | "batch";
+      createDriver: () => AnyDriver;
+    }> = [{ name: "tx", createDriver: createTxDriver }];
+    if (createBatchDriver) {
+      modes.push({ name: "batch", createDriver: createBatchDriver });
+    }
+    for (const mode of modes) {
+      const makeDriver = mode.createDriver;
 
       test(
-        `concurrent upsert of a missing key converges to one row (${mode})`,
+        `concurrent upsert of a missing key converges to one row (${mode.name})`,
         { timeout: 30_000 },
         async () => {
           const a = boot(makeDriver());
@@ -144,7 +150,7 @@ export function runNestedWriteConcurrencyBehavior({
       );
 
       test(
-        `concurrent nested connectOrCreate of a missing key converges to one row (${mode})`,
+        `concurrent nested connectOrCreate of a missing key converges to one row (${mode.name})`,
         { timeout: 30_000 },
         async () => {
           const a = boot(makeDriver());
@@ -185,78 +191,74 @@ export function runNestedWriteConcurrencyBehavior({
 
     // --- Gate 3: the planned-path loser's pre-retry signal ------------------
 
-    test(
-      "planned-path create-branch race loser surfaces a UniqueConstraintError, then the retry converges",
-      { timeout: 30_000 },
-      async () => {
-        // A batch-forced driver that plants the winner's author row (same PK
-        // `coc-author`) just before its FIRST atomic batch runs. The nested
-        // connectOrCreate forces the interpreter's planned path (a plain tag
-        // upsert would use the native ON CONFLICT and never reach a batch); the
-        // create branch — chosen against the plan-time probe that saw no author —
-        // deterministically violates the PK constraint at INSERT time. The
-        // driver records the error each atomic batch threw (the pre-retry
-        // signal).
-        const batchErrors: unknown[] = [];
-        const driver = createRacePlantingBatchDriver({
-          plant: {
-            sql: insertUserSql(driverName).sql,
-            params: ["coc-author", "planted-winner"],
-          },
-          onBatchError: (error) => batchErrors.push(error),
-        });
-        const client = boot(driver);
+    if (createRacePlantingBatchDriver) {
+      test(
+        "planned-path create-branch race loser surfaces a UniqueConstraintError, then the retry converges",
+        { timeout: 30_000 },
+        async () => {
+          // A batch-forced driver that plants the winner's author row (same PK
+          // `coc-author`) just before its FIRST atomic batch runs. The nested
+          // connectOrCreate forces the interpreter's planned path (a plain tag
+          // upsert would use the native ON CONFLICT and never reach a batch); the
+          // create branch — chosen against the plan-time probe that saw no author —
+          // deterministically violates the PK constraint at INSERT time. The
+          // driver records the error each atomic batch threw (the pre-retry
+          // signal).
+          const batchErrors: unknown[] = [];
+          const driver = createRacePlantingBatchDriver({
+            plant: {
+              sql: insertUserSql().sql,
+              params: ["coc-author", "planted-winner"],
+            },
+            onBatchError: (error) => batchErrors.push(error),
+          });
+          const client = boot(driver);
 
-        // With no committed author at plan time the planned plan takes the
-        // connectOrCreate create branch; the planted author lands first, so the
-        // create INSERT hits the PK constraint. The retry wrapper (§7.4) reruns;
-        // the second plan-time probe sees the planted author and takes the
-        // connect branch, converging.
-        const post = await client.post.create({
-          data: {
-            id: "coc-post",
-            title: "Converged",
-            author: {
-              connectOrCreate: {
-                where: { id: "coc-author" },
-                create: { id: "coc-author", name: "mine" },
+          // With no committed author at plan time the planned plan takes the
+          // connectOrCreate create branch; the planted author lands first, so the
+          // create INSERT hits the PK constraint. The retry wrapper (§7.4) reruns;
+          // the second plan-time probe sees the planted author and takes the
+          // connect branch, converging.
+          const post = await client.post.create({
+            data: {
+              id: "coc-post",
+              title: "Converged",
+              author: {
+                connectOrCreate: {
+                  where: { id: "coc-author" },
+                  create: { id: "coc-author", name: "mine" },
+                },
               },
             },
-          },
-        });
+          });
 
-        // The loser's PRE-RETRY error was the DB's own constraint violation,
-        // passed through the ladder unchanged (§7.3 step 1). Pin Rule 2 (§5.5,
-        // F1 fix): the create-branch premise is NOT pinned by a `notExists`
-        // assertion, so the abort is a real UniqueConstraintError — the
-        // already-retryable signal — not a rewrapped NestedWriteAssertionError.
-        // Were it rewrapped, the retry would never fire and this operation would
-        // hard-fail instead of converging.
-        expect(batchErrors.length).toBeGreaterThanOrEqual(1);
-        expect(batchErrors[0]).toBeInstanceOf(UniqueConstraintError);
+          // The loser's PRE-RETRY error was the DB's own constraint violation,
+          // passed through the ladder unchanged (§7.3 step 1). Pin Rule 2 (§5.5,
+          // F1 fix): the create-branch premise is NOT pinned by a `notExists`
+          // assertion, so the abort is a real UniqueConstraintError — the
+          // already-retryable signal — not a rewrapped NestedWriteAssertionError.
+          // Were it rewrapped, the retry would never fire and this operation would
+          // hard-fail instead of converging.
+          expect(batchErrors.length).toBeGreaterThanOrEqual(1);
+          expect(batchErrors[0]).toBeInstanceOf(UniqueConstraintError);
 
-        // Converged onto the planted winner via the connect branch.
-        expect(post.userId).toBe("coc-author");
+          // Converged onto the planted winner via the connect branch.
+          expect(post.userId).toBe("coc-author");
 
-        const observer = boot(createTxDriver());
-        const authors = await observer.user.findMany({
-          where: { id: "coc-author" },
-        });
-        expect(authors).toHaveLength(1);
-        expect(authors[0]?.name).toBe("planted-winner");
-      }
-    );
+          const observer = boot(createTxDriver());
+          const authors = await observer.user.findMany({
+            where: { id: "coc-author" },
+          });
+          expect(authors).toHaveLength(1);
+          expect(authors[0]?.name).toBe("planted-winner");
+        }
+      );
+    }
   });
 }
 
-/** A raw INSERT into the users table for the race-planting driver, dialect
- *  quoting per driver. `id`, `name` positional params. */
-function insertUserSql(driverName: string): { sql: string } {
-  if (driverName === "mysql2" || driverName === "mysql") {
-    return {
-      sql: "INSERT INTO `upsert_atomicity_users` (`id`, `name`) VALUES (?, ?)",
-    };
-  }
+/** PostgreSQL INSERT used by the planned race-planting driver. */
+function insertUserSql(): { sql: string } {
   return {
     sql: 'INSERT INTO "upsert_atomicity_users" ("id", "name") VALUES ($1, $2)',
   };

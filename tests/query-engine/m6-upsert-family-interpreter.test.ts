@@ -3,30 +3,25 @@ import { PGliteDriver } from "@drivers/pglite";
 import type { BatchQuery, QueryResult } from "@drivers/types";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { push } from "@migrations";
-import { LiveMode } from "@query-engine/operations/nested-writes/live-mode";
-import { PlannedMode } from "@query-engine/operations/nested-writes/planned-mode";
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test } from "vitest";
 import { manyToManySchema } from "../fixtures/many-to-many-schema";
 import { nestedWriteBehaviorSchema } from "../fixtures/nested-write-behavior-schema";
 
 /**
- * M6 gate (§11 M6): the upsert family (top-level upsert + nested to-one/to-many
- * upsert) over FK-only trees runs THROUGH THE INTERPRETER in both modes. Gates:
+ * The upsert family (top-level and nested to-one/to-many) compiles into one
+ * OperationProgram for both transaction and batch runtimes. Gates:
  *
- *  1. Routing spy — `LiveMode.bindContext` / `PlannedMode.bindContext` fire
- *     exactly once per eligible top-level `upsert` (create branch and update
- *     branch alike); the old engines never touch these modes, so a call proves
- *     the tree was interpreted.
- *  2. Skip branches leave state untouched in both modes — a targetWhere/setWhere
- *     no-match is a silent no-op returning the existing row, persisting nothing.
+ *  1. Top-level and nested upserts expose declarative BranchSteps, with no
+ *     import or binding of the deleted interpreter modes.
+ *  2. Skip branches leave state untouched in both runtimes — a
+ *     targetWhere/setWhere no-match returns the existing row and persists
+ *     nothing.
  *  3. F1 regression guard (§0.3, §5.5 Pin Rule 2) — a top-level upsert of a
  *     MISSING key takes the create branch; the planned statement list must
  *     contain NO `NOT EXISTS` assertion before the create-branch INSERT. The
  *     shipped batch bug emitted `appendAssertUniqueMissing` before the INSERT,
  *     preempting the retryable `UniqueConstraintError`; Pin Rule 2 deletes it.
- *  4. A nested upsert routes through the interpreter (to-one and to-many).
- *  5. An m2m-touching upsert IS eligible at M9 (m2m migrated), so the
- *     interpreter mode is bound (assertion updated at M9).
+ *  4. Nested and many-to-many upserts use the same program route.
  */
 
 type BehaviorSchema = typeof nestedWriteBehaviorSchema;
@@ -69,18 +64,15 @@ function boot<TDriver extends PGliteDriver>(
   return createClient({ schema: nestedWriteBehaviorSchema, driver });
 }
 
-describe("M6 upsert-family interpreter", () => {
-  describe("upsert trees route through the interpreter", () => {
+describe("upsert-family operation programs", () => {
+  describe("upsert trees compile without legacy mode binding", () => {
     test(
-      "live mode binds LiveMode exactly once per upsert (create branch)",
+      "transaction runtime executes the create-branch program",
       { timeout: 30_000 },
       async () => {
         const db = await setupDb();
         const client = boot(new PGliteDriver({ client: db }));
-        const liveSpy = vi.spyOn(LiveMode.prototype, "bindContext");
-        const plannedSpy = vi.spyOn(PlannedMode.prototype, "bindContext");
-
-        await client.user.upsert({
+        const operation = client.user.upsert({
           where: { id: "u1" },
           create: {
             id: "u1",
@@ -89,17 +81,17 @@ describe("M6 upsert-family interpreter", () => {
           },
           update: { name: "Unused" },
         });
+        const program = operation.compile();
 
-        expect(liveSpy).toHaveBeenCalledTimes(1);
-        expect(plannedSpy).not.toHaveBeenCalled();
-        liveSpy.mockRestore();
-        plannedSpy.mockRestore();
+        expect(program.atomicity).toBe("operation");
+        expect(program.steps.some((step) => step.kind === "branch")).toBe(true);
+        await operation;
         await client.$disconnect();
       }
     );
 
     test(
-      "batch mode binds PlannedMode exactly once per upsert (update branch)",
+      "batch runtime executes the update-branch program",
       { timeout: 30_000 },
       async () => {
         const db = await setupDb();
@@ -112,10 +104,7 @@ describe("M6 upsert-family interpreter", () => {
           },
         });
         const client = boot(new RecordingBatchDriver({ client: db }));
-        const liveSpy = vi.spyOn(LiveMode.prototype, "bindContext");
-        const plannedSpy = vi.spyOn(PlannedMode.prototype, "bindContext");
-
-        await client.user.upsert({
+        const operation = client.user.upsert({
           where: { id: "u1" },
           create: { id: "u1", name: "Unused" },
           update: {
@@ -125,19 +114,18 @@ describe("M6 upsert-family interpreter", () => {
             },
           },
         });
+        const program = operation.compile();
 
-        expect(plannedSpy).toHaveBeenCalledTimes(1);
-        expect(liveSpy).not.toHaveBeenCalled();
-        liveSpy.mockRestore();
-        plannedSpy.mockRestore();
+        expect(program.atomicity).toBe("operation");
+        expect(program.steps.some((step) => step.kind === "branch")).toBe(true);
+        await operation;
         await client.$disconnect();
       }
     );
 
-    // A nested to-one AND to-many upsert inside a top-level update stays eligible
-    // and is interpreted end to end.
+    // A nested to-one upsert inside a top-level update stays in the same program.
     test(
-      "a nested upsert tree routes through the interpreter",
+      "a nested upsert tree compiles a branch step",
       { timeout: 30_000 },
       async () => {
         const db = await setupDb();
@@ -145,9 +133,7 @@ describe("M6 upsert-family interpreter", () => {
         await client.post.create({
           data: { id: "po1", title: "Orphan", userId: null },
         });
-        const liveSpy = vi.spyOn(LiveMode.prototype, "bindContext");
-
-        await client.post.update({
+        const operation = client.post.update({
           where: { id: "po1" },
           data: {
             author: {
@@ -158,18 +144,19 @@ describe("M6 upsert-family interpreter", () => {
             },
           },
         });
+        const program = operation.compile();
 
-        expect(liveSpy).toHaveBeenCalledTimes(1);
-        liveSpy.mockRestore();
+        expect(program.atomicity).toBe("operation");
+        expect(program.steps.some((step) => step.kind === "branch")).toBe(true);
+        await operation;
         await client.$disconnect();
       }
     );
 
-    // A top-level upsert whose UPDATE branch touches a true many-to-many relation
-    // IS eligible at M9 (m2m migrated): whole-tree routing sends it to the
-    // interpreter, so the mode is bound.
+    // A top-level upsert whose update branch touches a true many-to-many
+    // relation emits relation statements inside its branch.
     test(
-      "an m2m-touching upsert routes through the interpreter (M9)",
+      "an m2m-touching upsert compiles relation statements",
       { timeout: 30_000 },
       async () => {
         const db = new PGlite();
@@ -186,22 +173,22 @@ describe("M6 upsert-family interpreter", () => {
           data: { id: "t1", name: "tag-1", featuredPostId: null },
         });
         await client.post.create({ data: { id: "p1", title: "Post 1" } });
-        const liveSpy = vi.spyOn(LiveMode.prototype, "bindContext");
-
-        await client.post.upsert({
+        const operation = client.post.upsert({
           where: { id: "p1" },
           create: { id: "p1", title: "Post 1" },
           update: { tags: { connect: { id: "t1" } } },
         });
+        const program = operation.compile();
 
-        expect(liveSpy).toHaveBeenCalledTimes(1);
-        liveSpy.mockRestore();
+        expect(program.atomicity).toBe("operation");
+        expect(JSON.stringify(program)).toContain('"kind":"relation"');
+        await operation;
         await client.$disconnect();
       }
     );
   });
 
-  describe("skip branches leave state untouched in both modes", () => {
+  describe("skip branches leave state untouched in both runtimes", () => {
     async function runTargetWhereSkip(
       createDriver: (db: PGlite) => PGliteDriver
     ): Promise<{ userName: string; postTitle: string }> {
@@ -240,7 +227,7 @@ describe("M6 upsert-family interpreter", () => {
     }
 
     test(
-      "targetWhere no-match persists nothing in both modes",
+      "targetWhere no-match persists nothing in both runtimes",
       { timeout: 30_000 },
       async () => {
         const tx = await runTargetWhereSkip(

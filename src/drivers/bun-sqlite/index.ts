@@ -13,12 +13,13 @@ import {
 } from "@client/client";
 import { Driver, type DriverResultParser } from "../driver";
 import {
-  assertSQLiteIsolationLevel,
   convertValuesForSQLite,
-  runSavepoint,
+  isSQLiteBinaryValue,
+  runTransactionLifecycle,
+  sqliteBinaryToUint8Array,
   sqliteResultParser,
 } from "../shared";
-import type { QueryResult, TransactionOptions } from "../types";
+import type { QueryResult } from "../types";
 
 // ============================================================
 // TYPE DECLARATIONS FOR BUN:SQLITE
@@ -35,6 +36,7 @@ interface BunSQLiteDatabase {
 }
 
 interface BunSQLiteStatement<T = unknown> {
+  readonly columnNames: string[];
   all(...params: unknown[]): T[];
   get(...params: unknown[]): T | null;
   run(...params: unknown[]): {
@@ -42,6 +44,15 @@ interface BunSQLiteStatement<T = unknown> {
     lastInsertRowid: number | bigint;
   };
   values(...params: unknown[]): unknown[][];
+}
+
+function convertValuesForBunSQLite(values: unknown[]): unknown[] {
+  return convertValuesForSQLite(values).map((value) => {
+    if (value instanceof Uint8Array || !isSQLiteBinaryValue(value)) {
+      return value;
+    }
+    return sqliteBinaryToUint8Array(value);
+  });
 }
 
 // ============================================================
@@ -106,7 +117,7 @@ export class BunSQLiteDriver extends Driver<
     sql: string,
     params: unknown[]
   ): Promise<QueryResult<T>> {
-    const values = convertValuesForSQLite(params);
+    const values = convertValuesForBunSQLite(params);
     return this.runStatement<T>(client, sql, values);
   }
 
@@ -115,7 +126,7 @@ export class BunSQLiteDriver extends Driver<
     sql: string,
     params?: unknown[]
   ): Promise<QueryResult<T>> {
-    const values = params ? convertValuesForSQLite(params) : undefined;
+    const values = params ? convertValuesForBunSQLite(params) : undefined;
     return this.runStatement<T>(client, sql, values);
   }
 
@@ -125,12 +136,8 @@ export class BunSQLiteDriver extends Driver<
     values?: unknown[]
   ): QueryResult<T> {
     const stmt = db.prepare(sql);
-    const normalized = sql.trim().toUpperCase();
-    const isSelect =
-      normalized.startsWith("SELECT") || normalized.startsWith("WITH");
-    const isReturning = normalized.includes("RETURNING");
 
-    if (isSelect || isReturning) {
+    if (stmt.columnNames.length > 0) {
       const rows = (values ? stmt.all(...values) : stmt.all()) as T[];
       return { rows, rowCount: rows.length };
     }
@@ -141,31 +148,29 @@ export class BunSQLiteDriver extends Driver<
 
   protected async transaction<T>(
     client: BunSQLiteDatabase,
-    fn: (tx: BunSQLiteDatabase) => Promise<T>,
-    options?: TransactionOptions
+    fn: (tx: BunSQLiteDatabase) => Promise<T>
   ): Promise<T> {
-    assertSQLiteIsolationLevel(this.driverName, options);
-
-    if (this.inTransaction) {
-      // Nested transaction - use savepoint
-      return runSavepoint(
-        (statement) => client.exec(statement),
-        () => fn(client)
-      );
-    }
-
-    // Start a new transaction
-    client.exec("BEGIN");
-    this.inTransaction = true;
-    try {
-      const result = await fn(client);
-      client.exec("COMMIT");
-      return result;
-    } catch (error) {
-      client.exec("ROLLBACK");
-      throw error;
-    }
-    // Note: this.inTransaction reset is handled by base Driver._transaction()
+    let shouldClose = false;
+    const executeOrClose = (statement: string) => {
+      try {
+        client.exec(statement);
+      } catch (error) {
+        shouldClose = true;
+        throw error;
+      }
+    };
+    return runTransactionLifecycle({
+      begin: () => executeOrClose("BEGIN"),
+      callback: () => fn(client),
+      commit: () => executeOrClose("COMMIT"),
+      rollback: () => executeOrClose("ROLLBACK"),
+      close: () => {
+        if (shouldClose) {
+          client.close();
+          this.client = null;
+        }
+      },
+    });
   }
 }
 

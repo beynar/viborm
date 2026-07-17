@@ -1,5 +1,5 @@
 import browserCollections from "fumadocs-mdx:collections/browser";
-import { createFileRoute, notFound } from "@tanstack/react-router";
+import { createFileRoute, notFound, redirect } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import type * as PageTree from "fumadocs-core/page-tree";
 import * as TabsComponents from "fumadocs-ui/components/tabs";
@@ -19,12 +19,31 @@ import { source } from "@/lib/source";
 export const Route = createFileRoute("/docs/$")({
   component: Page,
   loader: async ({ params }) => {
+    const legacyDriverPath = legacyDriverPaths[params._splat ?? ""];
+    if (legacyDriverPath) {
+      throw redirect({ href: legacyDriverPath, statusCode: 308 });
+    }
+
     const slugs = params._splat?.split("/") ?? [];
     const data = await loader({ data: slugs });
     await clientLoader.preload(data.path);
     return data;
   },
 });
+
+const legacyDriverPaths: Record<string, string> = {
+  "drivers/pg": "/docs/drivers/postgresql/pg",
+  "drivers/postgres": "/docs/drivers/postgresql/postgres",
+  "drivers/pglite": "/docs/drivers/postgresql/pglite",
+  "drivers/neon-http": "/docs/drivers/postgresql/neon-http",
+  "drivers/bun-sql": "/docs/drivers/postgresql/bun-sql",
+  "drivers/mysql2": "/docs/drivers/mysql/mysql2",
+  "drivers/planetscale": "/docs/drivers/mysql/planetscale",
+  "drivers/sqlite3": "/docs/drivers/sqlite/sqlite3",
+  "drivers/libsql": "/docs/drivers/sqlite/libsql",
+  "drivers/bun-sqlite": "/docs/drivers/sqlite/bun-sqlite",
+  "drivers/d1": "/docs/drivers/sqlite/d1",
+};
 
 const loader = createServerFn({
   method: "GET",

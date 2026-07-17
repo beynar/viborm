@@ -4,7 +4,7 @@
  * Configuration interfaces for OpenTelemetry tracing and structured logging.
  */
 
-import type { VibORMError } from "@errors";
+import type { DiagnosticDisclosure, VibORMError } from "@errors";
 import type { Operation } from "../query-engine/types";
 
 /**
@@ -25,12 +25,14 @@ export interface LogEvent {
   /** Model name */
   model?: string | undefined;
   /** Operation being performed */
-  operation?: Operation | undefined;
+  operation?: Operation | string | undefined;
+  /** Correlation identifier supplied for this execution */
+  correlationId?: string | undefined;
   /** Error if applicable */
   error?: VibORMError | Error | undefined;
   /** SQL query (only if includeSql is enabled) */
   sql?: string | undefined;
-  /** Query parameters (only if includeSql is enabled) */
+  /** Query parameters (only if includeParams is enabled) */
   params?: unknown[] | undefined;
   /** Additional metadata */
   meta?: Record<string, unknown> | undefined;
@@ -41,15 +43,18 @@ export interface LogEvent {
  * @param event - The log event
  * @param log - Call this to invoke the default pretty logger
  */
-export type LogCallback = (event: LogEvent, log: () => void) => void;
+export type LogCallback = (
+  event: LogEvent,
+  log: () => void
+) => void | Promise<void>;
 
 /**
  * Tracing configuration options
  */
-export interface TracingConfig {
+export interface TracingConfig extends DiagnosticDisclosure {
   /**
    * Include SQL query text in spans.
-   * @default true
+   * @default false
    */
   includeSql?: boolean | undefined;
 
@@ -94,7 +99,7 @@ export type LogLevelHandler = true | LogCallback;
  * }
  * ```
  */
-export interface LoggingConfig {
+export interface LoggingConfig extends DiagnosticDisclosure {
   /**
    * Catch-all handler for all log levels.
    * Applied when a specific level handler is not defined.
@@ -127,7 +132,7 @@ export interface LoggingConfig {
 
   /**
    * Include SQL query text in log events.
-   * @default true
+   * @default false
    */
   includeSql?: boolean | undefined;
 
@@ -144,8 +149,15 @@ export interface LoggingConfig {
  */
 export interface InstrumentationConfig {
   /**
+   * Control SQL and parameter disclosure on thrown/serialized errors.
+   * This policy is independent from logging and tracing disclosure.
+   * Both fields default to false.
+   */
+  diagnostics?: DiagnosticDisclosure | undefined;
+
+  /**
    * Enable OpenTelemetry tracing.
-   * - `true` enables with defaults (includeSql: true, includeParams: false)
+   * - `true` enables with private defaults (includeSql: false, includeParams: false)
    * - Object for custom configuration
    */
   tracing?: true | TracingConfig | undefined;

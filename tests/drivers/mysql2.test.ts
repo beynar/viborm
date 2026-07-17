@@ -8,28 +8,34 @@
  *   MYSQL_TEST_CONNECTION_STRING=mysql://root:password@127.0.0.1:3307/viborm
  */
 
+import { COUNT_RESULT_KEY } from "@adapters/shared/result-parsing";
 import { createClient } from "@client/client";
 import { MySQL2Driver } from "@drivers/mysql2";
 import { push } from "@migrations";
-import { s } from "@schema";
 import {
-  MySQL2BatchForcedDriver,
-  MySQL2BeforeFirstBatchDriver,
-  MySQL2RacePlantingBatchDriver,
-} from "./batch-forced-mysql2";
+  EMPTY_ROW_RESULT_KEY,
+  getAggregateResultKey,
+  RELATION_COUNTS_RESULT_KEY,
+  VECTOR_DISTANCE_RESULT_KEY,
+} from "@query-engine/result-aliases";
+import { s } from "@schema";
+import { sql } from "@sql";
+import { runCreateNestedUpsertBehavior } from "../query-engine-v2/create-nested-upsert-behavior";
+import { MySQL2BatchForcedDriver } from "./batch-forced-mysql2";
 import { runClientRawBehavior } from "./client-raw-behavior";
 import { runCompoundKeyBehavior } from "./compound-key-behavior";
 import { runCountAggregateWindowBehavior } from "./count-aggregate-window-behavior";
+import { runCursorPaginationBehavior } from "./cursor-pagination-behavior";
 import { runDistinctSkipWindowBehavior } from "./distinct-skip-window-behavior";
 import { runLikeEscapeBehavior } from "./like-escape-behavior";
 import { runListJsonFilterBehavior } from "./list-json-filter-behavior";
-import { runM2mDeleteManyStalenessBehavior } from "./m2m-deletemany-staleness-behavior";
 import { runManyAndReturnBehavior } from "./many-and-return-behavior";
 import { runManyToManyBehavior } from "./many-to-many-behavior";
 import { runNestedOrderByBehavior } from "./nested-orderby-behavior";
 import { runNestedWriteAdvancedBehavior } from "./nested-write-advanced-behavior";
 import { runNestedWriteBehavior } from "./nested-write-behavior";
 import { runNestedWriteConcurrencyBehavior } from "./nested-write-concurrency-behavior";
+import { runNonReturningMutationAtomicityBehavior } from "./non-returning-mutation-atomicity-behavior";
 import { runOptionalRelationParityBehavior } from "./optional-relation-parity-behavior";
 import { runOrderingArrayCreateBehavior } from "./ordering-array-create-behavior";
 import { runPrismaParityBehavior } from "./prisma-parity-behavior";
@@ -64,6 +70,33 @@ describeIf("MySQL2 Driver", () => {
     expect(driver.dialect).toBe("mysql");
     expect(driver.adapter).toBeDefined();
     await driver.disconnect();
+  });
+
+  test("preserves every private result alias exactly", async () => {
+    const driver = createMySQL2Driver();
+    const aliases = [
+      COUNT_RESULT_KEY,
+      VECTOR_DISTANCE_RESULT_KEY,
+      RELATION_COUNTS_RESULT_KEY,
+      EMPTY_ROW_RESULT_KEY,
+      getAggregateResultKey("_count"),
+      getAggregateResultKey("_avg"),
+      getAggregateResultKey("_sum"),
+      getAggregateResultKey("_min"),
+      getAggregateResultKey("_max"),
+    ];
+    const projections = aliases.map((alias, index) =>
+      driver.adapter.identifiers.aliased(sql.raw`${index + 1}`, alias)
+    );
+
+    try {
+      const result = await driver._execute<Record<string, unknown>>(
+        sql`SELECT ${sql.join(projections, ", ")}`
+      );
+      expect(Object.keys(result.rows[0] ?? {})).toEqual(aliases);
+    } finally {
+      await driver.disconnect();
+    }
   });
 
   test("self-referencing tree deleteMany succeeds with default referential actions", async () => {
@@ -110,10 +143,7 @@ describeIf("MySQL2 Driver", () => {
     }
   });
 
-  // Proves the isolationLevel option is accepted and the transaction commits
-  // on a real MySQL server (SET TRANSACTION ISOLATION LEVEL runs before
-  // BEGIN) — not proving isolation semantics.
-  describe("$transaction isolationLevel", () => {
+  describe("$transaction portable option boundary", () => {
     const entry = s
       .model({
         id: s.string().id(),
@@ -121,31 +151,27 @@ describeIf("MySQL2 Driver", () => {
       })
       .map("isolation_entries");
 
-    for (const level of ["serializable", "read_committed"] as const) {
-      test(`callback transaction with ${level} isolation commits`, async () => {
-        const client = createClient({
-          schema: { entry },
-          driver: createMySQL2Driver(),
-        });
-        try {
-          await push(client, { force: true });
-
-          const created = await client.$transaction(
-            async (tx) => {
-              await tx.entry.create({ data: { id: "e1", note: "first" } });
-              return tx.entry.create({ data: { id: "e2", note: "second" } });
-            },
-            { isolationLevel: level }
-          );
-          expect(created.id).toBe("e2");
-
-          const rows = await client.entry.findMany({ orderBy: { id: "asc" } });
-          expect(rows.map((r) => r.id)).toEqual(["e1", "e2"]);
-        } finally {
-          await client.$disconnect();
-        }
+    test("rejects removed isolation before the callback", async () => {
+      const client = createClient({
+        schema: { entry },
+        driver: createMySQL2Driver(),
       });
-    }
+      let callbackCalled = false;
+      try {
+        const transaction = client.$transaction;
+        await expect(
+          Reflect.apply(transaction, client, [
+            async () => {
+              callbackCalled = true;
+            },
+            { isolationLevel: "serializable" },
+          ])
+        ).rejects.toMatchObject({ name: "TransactionError", code: "V5005" });
+        expect(callbackCalled).toBe(false);
+      } finally {
+        await client.$disconnect();
+      }
+    });
   });
 
   runOrderingArrayCreateBehavior({
@@ -217,6 +243,11 @@ describeIf("MySQL2 Driver", () => {
     createDriver: createMySQL2Driver,
   });
 
+  runCursorPaginationBehavior({
+    driverName: "MySQL2",
+    createDriver: createMySQL2Driver,
+  });
+
   runScalarRoundtripBehavior({
     driverName: "MySQL2",
     createDriver: createMySQL2Driver,
@@ -227,12 +258,9 @@ describeIf("MySQL2 Driver", () => {
     createDriver: createMySQL2Driver,
   });
 
-  // Default-mode equals is case-insensitive under MySQL's default CI
-  // collations — pinned explicitly instead of omitting the suite.
   runPrismaParityBehavior({
     driverName: "MySQL2",
     createDriver: createMySQL2Driver,
-    caseInsensitiveDefaultEquals: true,
   });
 
   runOptionalRelationParityBehavior({
@@ -245,41 +273,65 @@ describeIf("MySQL2 Driver", () => {
     createDriver: createMySQL2Driver,
   });
 
-  // Plain upserts run natively as INSERT ... ON DUPLICATE KEY UPDATE with a
-  // refetch; nested upserts exercise the transaction fallback and its
-  // unique-race retry.
+  // Non-returning upserts use the locked interpreter branch path so branch
+  // identity and result refetch stay on one transaction connection.
   runUpsertAtomicityBehavior({
     driverName: "MySQL2",
     createDriver: createMySQL2Driver,
   });
 
-  // M8 (§7.4, D7): the write-race retry unified above selectMode. Two real
-  // connections race; the batch-forced sibling exercises the PlannedMode
-  // converge-on-rerun (on MySQL the loser typically aborts with a gap-lock
-  // deadlock, also a retryable signal). Needs a real multi-connection database.
+  runNonReturningMutationAtomicityBehavior(
+    TEST_CONNECTION_STRING ?? "mysql://unconfigured.invalid/viborm"
+  );
+
+  // M8 (§7.4, D7): two real transaction-capable connections race. PlannedMode
+  // real-race coverage stays on PostgreSQL because MySQL's public adapter is
+  // non-returning and cannot roll public parsing back after a batch commits.
   runNestedWriteConcurrencyBehavior({
     driverName: "mysql2",
     createTxDriver: () =>
       new MySQL2Driver({ databaseUrl: TEST_CONNECTION_STRING }),
-    createBatchDriver: () =>
-      new MySQL2BatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-    createRacePlantingBatchDriver: ({ plant, onBatchError }) =>
-      new MySQL2RacePlantingBatchDriver(plant, onBatchError, {
-        databaseUrl: TEST_CONNECTION_STRING,
-      }),
   });
 
-  // M9 (§9, §5.5 Rule 3): filtered-M2M-deleteMany staleness guards. A member
-  // added on a real second connection after the plan-time read aborts the guard
-  // (raceable); the retry re-plans and converges. Docker-gated (multi-connection).
-  runM2mDeleteManyStalenessBehavior({
-    driverName: "mysql2",
-    createTxDriver: () =>
-      new MySQL2Driver({ databaseUrl: TEST_CONNECTION_STRING }),
-    createStalePlanBatchDriver: ({ beforeFirstBatch, onBatchError }) =>
-      new MySQL2BeforeFirstBatchDriver(beforeFirstBatch, onBatchError, {
+  runCreateNestedUpsertBehavior({
+    name: "MySQL2 transaction",
+    createDriver: createMySQL2Driver,
+  });
+  runCreateNestedUpsertBehavior({
+    name: "MySQL2 atomic batch",
+    createDriver: () =>
+      new MySQL2BatchForcedDriver({
         databaseUrl: TEST_CONNECTION_STRING,
       }),
+    createStateDriver: createMySQL2Driver,
+  });
+
+  test("rejects artificial batch-only non-returning writes before provider access", async () => {
+    const entry = s
+      .model({
+        id: s.string().id(),
+        email: s.string().unique(),
+      })
+      .map("batch_only_nonreturn_entries");
+    const client = createClient({
+      schema: { entry },
+      driver: new MySQL2BatchForcedDriver({
+        databaseUrl: "mysql://invalid.invalid/viborm",
+      }),
+    });
+    try {
+      await expect(
+        client.entry.upsert({
+          where: { email: "entry@test.com" },
+          create: { id: "entry", email: "entry@test.com" },
+          update: { email: "entry@test.com" },
+        })
+      ).rejects.toThrow(
+        "cannot execute non-returning upsert writes atomically because public result parsing cannot be rolled back after an atomic batch commits"
+      );
+    } finally {
+      await client.$disconnect();
+    }
   });
 
   // The batch-only suites (batch-primary-key-dataflow, batch-ref-smoke) are

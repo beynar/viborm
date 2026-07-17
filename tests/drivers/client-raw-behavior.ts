@@ -129,6 +129,23 @@ export function runClientRawBehavior({
       });
     });
 
+    describe("direct mutation misses", () => {
+      test("update reports NotFoundError", async () => {
+        await expect(
+          client.item.update({
+            where: { id: "missing" },
+            data: { label: "Missing" },
+          })
+        ).rejects.toBeInstanceOf(NotFoundError);
+      });
+
+      test("delete reports NotFoundError", async () => {
+        await expect(
+          client.item.delete({ where: { id: "missing" } })
+        ).rejects.toBeInstanceOf(NotFoundError);
+      });
+    });
+
     describe("findFirstOrThrow", () => {
       test("returns the matching row when found", async () => {
         const found = await client.item.findFirstOrThrow({

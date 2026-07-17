@@ -35,7 +35,7 @@ abstract class Driver<TClient, TTransaction> {
   readonly dialect: Dialect;                    // "postgres" | "mysql" | "sqlite"
   readonly driverName: string;
   abstract readonly adapter: DatabaseAdapter;   // SQL adapter for this dialect
-  readonly supportsTransactions: boolean;       // false for HTTP drivers (D1, Neon HTTP)
+  readonly supportsTransactions: boolean;       // false for batch-only clients (D1 binding, Neon HTTP)
   readonly supportsBatch: boolean;              // true for atomic-batch APIs (D1, Neon HTTP)
 
   // Subclasses implement:
@@ -62,7 +62,6 @@ abstract class Driver<TClient, TTransaction> {
 | `LibSQLDriver` | `viborm/libsql` | libSQL | Turso / libSQL |
 | `BunSQLiteDriver` | `viborm/bun-sqlite` | bun:sqlite | SQLite from Bun |
 | `D1Driver` | `viborm/d1` | D1 binding | Cloudflare Workers |
-| `D1HTTPDriver` | `viborm/d1-http` | D1 HTTP API | Cloudflare D1 remote |
 
 ## What Drivers Handle
 

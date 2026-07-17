@@ -1,5 +1,6 @@
 // Model & Scalar Validation Rules
 
+import { isValidSchemaIdentifier } from "../../identifier";
 import type { Model, ModelState } from "../../model";
 import type { Scalar } from "../../scalars/base";
 import type { Schema, ValidationError } from "../types";
@@ -7,6 +8,24 @@ import type { Schema, ValidationError } from "../types";
 /** Helper to get typed scalar field entries */
 function getScalars(model: Model<any>): [string, Scalar][] {
   return Object.entries(model["~"].state.scalars) as [string, Scalar][];
+}
+
+function validateFieldNames(
+  modelName: string,
+  model: Model<any>
+): ValidationError[] {
+  const errors: ValidationError[] = [];
+  for (const fieldName of Object.keys(model["~"].state.shape)) {
+    if (isValidSchemaIdentifier(fieldName)) continue;
+    errors.push({
+      code: "F001",
+      message: `Field '${fieldName}' in '${modelName}' is invalid identifier`,
+      severity: "error",
+      model: modelName,
+      field: fieldName,
+    });
+  }
+  return errors;
 }
 
 const RESERVED = new Set([
@@ -61,8 +80,6 @@ const RESERVED = new Set([
   "truncate",
 ]);
 
-const VALID_ID = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
-
 // =============================================================================
 // MODEL RULES (M001-M006)
 // =============================================================================
@@ -115,7 +132,7 @@ export function modelNameValid(
   name: string,
   _m: Model<any>
 ): ValidationError[] {
-  if (!VALID_ID.test(name)) {
+  if (!isValidSchemaIdentifier(name)) {
     return [
       {
         code: "M005",
@@ -135,11 +152,11 @@ export function modelMappedNameValid(
   model: Model<any>
 ): ValidationError[] {
   const tableName = model["~"].state.tableName;
-  if (tableName && !VALID_ID.test(tableName)) {
+  if (tableName !== undefined && !isValidSchemaIdentifier(tableName)) {
     return [
       {
         code: "M007",
-        message: `Mapped table name '${tableName}' on '${name}' is not a valid identifier`,
+        message: `Mapped table name '${String(tableName)}' on '${name}' is not a valid identifier`,
         severity: "error",
         model: name,
       },
@@ -205,7 +222,7 @@ export function validateFieldsSinglePass(
   name: string,
   model: Model<any>
 ): ValidationError[] {
-  const errors: ValidationError[] = [];
+  const errors = validateFieldNames(name, model);
 
   // Accumulators for cross-scalar checks
   let idCount = 0;
@@ -214,22 +231,14 @@ export function validateFieldsSinglePass(
   for (const [fname, scalar] of getScalars(model)) {
     const st = scalar["~"].state;
 
-    // F001: Scalar name valid
-    if (!VALID_ID.test(fname)) {
-      errors.push({
-        code: "F001",
-        message: `Scalar '${fname}' in '${name}' is invalid identifier`,
-        severity: "error",
-        model: name,
-        field: fname,
-      });
-    }
-
     // F009: Mapped column name (.map()) valid
-    if (st.columnName && !VALID_ID.test(st.columnName)) {
+    if (
+      st.columnName !== undefined &&
+      !isValidSchemaIdentifier(st.columnName)
+    ) {
       errors.push({
         code: "F009",
-        message: `Mapped column name '${st.columnName}' for '${fname}' in '${name}' is not a valid identifier`,
+        message: `Mapped column name '${String(st.columnName)}' for '${fname}' in '${name}' is not a valid identifier`,
         severity: "error",
         model: name,
         field: fname,

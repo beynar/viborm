@@ -33,6 +33,27 @@ icon: Server
 
 `DATETIME(3)` and `TIME(3)` preserve JavaScript `Date` millisecond precision.
 
+## Portable String Collation
+
+VibORM's MySQL adapter targets MySQL 8.0+. New tables use
+`utf8mb4_0900_bin`. Its binary, no-pad comparison keeps case,
+accents, and trailing spaces distinct for primary keys and unique constraints,
+matching PostgreSQL and SQLite-family behavior.
+
+Existing MySQL tables are not converted automatically because VibORM's schema
+snapshot does not track table collation. Apply an explicit migration for each
+existing table that participates in portable string comparisons:
+
+```sql
+ALTER TABLE `users`
+  CONVERT TO CHARACTER SET utf8mb4
+  COLLATE utf8mb4_0900_bin;
+```
+
+This rebuilds character columns and their indexes and may lock or copy a large
+table. Review the database's online-DDL plan and deploy the migration
+deliberately; a code upgrade alone does not change existing schema semantics.
+
 ## Auto-Increment
 
 `AUTO_INCREMENT` requires an integer column type (`TINYINT`, `SMALLINT`, `MEDIUMINT`, `INT`, `BIGINT`); the driver rejects it on anything else:

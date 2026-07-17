@@ -12,6 +12,7 @@ import { runBatchRefSmokeBehavior } from "./batch-ref-smoke-behavior";
 import { runClientRawBehavior } from "./client-raw-behavior";
 import { runCompoundKeyBehavior } from "./compound-key-behavior";
 import { runCountAggregateWindowBehavior } from "./count-aggregate-window-behavior";
+import { runCursorPaginationBehavior } from "./cursor-pagination-behavior";
 import { runDistinctSkipWindowBehavior } from "./distinct-skip-window-behavior";
 import { runLikeEscapeBehavior } from "./like-escape-behavior";
 import { runListJsonFilterBehavior } from "./list-json-filter-behavior";
@@ -61,6 +62,11 @@ describe("PGlite Driver", () => {
   });
 
   runDistinctSkipWindowBehavior({
+    driverName: "PGlite",
+    createDriver: createInMemoryPGliteDriver,
+  });
+
+  runCursorPaginationBehavior({
     driverName: "PGlite",
     createDriver: createInMemoryPGliteDriver,
   });

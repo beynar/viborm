@@ -4,13 +4,13 @@ import type {
   WithCacheOptions,
 } from "@cache";
 import { type CacheExecutionOptions, withCacheSchema } from "@cache";
-import type { PendingOperation } from "@client/pending-operation";
-import type { AnyDriver } from "@drivers";
+import type { AnyDriver, QueryExecutionContext } from "@drivers";
 import {
   CacheConfigurationError,
   CacheOperationNotCacheableError,
 } from "@errors";
 import { parse } from "@validation";
+import type { PendingOperation } from "./pending-operation";
 import type { PrepareOptions } from "./types";
 
 type WaitUntilFn = (promise: Promise<unknown>) => void;
@@ -58,7 +58,11 @@ export function withMutationCacheInvalidation<T>(
 
   return pendingOperation.wrapExecutor(async (execute) => {
     const result = await execute();
-    await cache._invalidate(modelName, cacheOptions);
+    await cache._invalidate(
+      modelName,
+      cacheOptions,
+      pendingOperation.getExecutionContext()
+    );
     return result;
   });
 }
@@ -110,7 +114,8 @@ export function executeCachedOperation<T>(
 
 export async function invalidateManualCache(
   cache: CacheDriver | undefined,
-  keys: string[]
+  keys: string[],
+  context?: QueryExecutionContext
 ): Promise<void> {
   if (!cache) {
     throw new CacheConfigurationError(
@@ -118,7 +123,7 @@ export async function invalidateManualCache(
     );
   }
 
-  await cache._invalidate("manual", { invalidate: keys });
+  await cache._invalidate("manual", { invalidate: keys }, context);
 }
 
 function resolveSwr(

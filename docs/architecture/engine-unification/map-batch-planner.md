@@ -1,5 +1,7 @@
 # Batch-Planner Engine — Semantic Map
 
+> **Historical snapshot.** This map documents the deleted pre-unification engines and is not the current runtime contract. `DESIGN.md` and the conformance/behavior suites are authoritative.
+
 Scope of this map: the batch-planner engine for drivers without interactive
 transactions. Files:
 

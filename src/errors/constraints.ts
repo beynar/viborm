@@ -1,13 +1,17 @@
 import { VibORMError, VibORMErrorCode, type VibORMErrorMeta } from "./base";
+import type { DiagnosticDisclosure } from "./diagnostics";
 
 /**
  * Unique constraint violation
  */
 export class UniqueConstraintError extends VibORMError {
+  static override readonly diagnosticName = "UniqueConstraintError";
+
   constructor(
     message: string,
     options?: {
       cause?: Error | undefined;
+      diagnostics?: DiagnosticDisclosure | undefined;
       meta?: VibORMErrorMeta & {
         constraint?: string;
         table?: string;
@@ -15,11 +19,15 @@ export class UniqueConstraintError extends VibORMError {
       };
     }
   ) {
-    const opts: { cause?: Error; meta?: VibORMErrorMeta } = {};
+    const opts: {
+      cause?: Error;
+      diagnostics?: DiagnosticDisclosure;
+      meta?: VibORMErrorMeta;
+    } = {};
     if (options?.cause) opts.cause = options.cause;
+    if (options?.diagnostics) opts.diagnostics = options.diagnostics;
     if (options?.meta) opts.meta = options.meta;
     super(message, VibORMErrorCode.UNIQUE_CONSTRAINT, opts);
-    this.name = "UniqueConstraintError";
   }
 }
 
@@ -27,18 +35,25 @@ export class UniqueConstraintError extends VibORMError {
  * Foreign key constraint violation
  */
 export class ForeignKeyError extends VibORMError {
+  static override readonly diagnosticName = "ForeignKeyError";
+
   constructor(
     message: string,
     options?: {
       cause?: Error | undefined;
+      diagnostics?: DiagnosticDisclosure | undefined;
       meta?: VibORMErrorMeta & { constraint?: string };
     }
   ) {
-    const opts: { cause?: Error; meta?: VibORMErrorMeta } = {};
+    const opts: {
+      cause?: Error;
+      diagnostics?: DiagnosticDisclosure;
+      meta?: VibORMErrorMeta;
+    } = {};
     if (options?.cause) opts.cause = options.cause;
+    if (options?.diagnostics) opts.diagnostics = options.diagnostics;
     if (options?.meta) opts.meta = options.meta;
     super(message, VibORMErrorCode.FOREIGN_KEY_CONSTRAINT, opts);
-    this.name = "ForeignKeyError";
   }
 }
 
@@ -46,21 +61,28 @@ export class ForeignKeyError extends VibORMError {
  * Not-null constraint violation
  */
 export class NotNullConstraintError extends VibORMError {
+  static override readonly diagnosticName = "NotNullConstraintError";
+
   constructor(
     message: string,
     options?: {
       cause?: Error | undefined;
+      diagnostics?: DiagnosticDisclosure | undefined;
       meta?: VibORMErrorMeta & {
         table?: string;
         columns?: string[];
       };
     }
   ) {
-    const opts: { cause?: Error; meta?: VibORMErrorMeta } = {};
+    const opts: {
+      cause?: Error;
+      diagnostics?: DiagnosticDisclosure;
+      meta?: VibORMErrorMeta;
+    } = {};
     if (options?.cause) opts.cause = options.cause;
+    if (options?.diagnostics) opts.diagnostics = options.diagnostics;
     if (options?.meta) opts.meta = options.meta;
     super(message, VibORMErrorCode.NOT_NULL_CONSTRAINT, opts);
-    this.name = "NotNullConstraintError";
   }
 }
 
@@ -68,18 +90,25 @@ export class NotNullConstraintError extends VibORMError {
  * Check constraint violation
  */
 export class CheckConstraintError extends VibORMError {
+  static override readonly diagnosticName = "CheckConstraintError";
+
   constructor(
     message: string,
     options?: {
       cause?: Error | undefined;
+      diagnostics?: DiagnosticDisclosure | undefined;
       meta?: VibORMErrorMeta & { constraint?: string };
     }
   ) {
-    const opts: { cause?: Error; meta?: VibORMErrorMeta } = {};
+    const opts: {
+      cause?: Error;
+      diagnostics?: DiagnosticDisclosure;
+      meta?: VibORMErrorMeta;
+    } = {};
     if (options?.cause) opts.cause = options.cause;
+    if (options?.diagnostics) opts.diagnostics = options.diagnostics;
     if (options?.meta) opts.meta = options.meta;
     super(message, VibORMErrorCode.CHECK_CONSTRAINT, opts);
-    this.name = "CheckConstraintError";
   }
 }
 

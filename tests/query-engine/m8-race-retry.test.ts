@@ -1,11 +1,7 @@
 import { createClient, type VibORMClient } from "@client/client";
 import type { Driver } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
-import type {
-  BatchQuery,
-  QueryResult,
-  TransactionOptions,
-} from "@drivers/types";
+import type { BatchQuery, QueryResult } from "@drivers/types";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import {
   NestedWriteAssertionError,
@@ -13,17 +9,12 @@ import {
   UniqueConstraintError,
 } from "@errors";
 import { push } from "@migrations";
-import {
-  isRaceableGuardError,
-  RACEABLE_META_KEY,
-  surfaceGuardFailure,
-} from "@query-engine/operations/nested-writes/effects";
 import { describe, expect, test } from "vitest";
 import { nestedWriteBehaviorSchema } from "../fixtures/nested-write-behavior-schema";
 
 /**
  * M8 gate (DESIGN.md §11 M8, §7.4). The write-race retry is unified above
- * `selectMode`, so both substrates converge on a rerun after losing a
+ * `strategy selection`, so both substrates converge on a rerun after losing a
  * missing-key create-branch race. The full converge-under-real-concurrency
  * proof needs two real connections and lives with the Docker-gated driver tests
  * (`nested-write-concurrency-behavior.ts`); PGlite is single-connection.
@@ -54,7 +45,7 @@ type BehaviorSchema = typeof nestedWriteBehaviorSchema;
  *  it (Ultracite). */
 const USERS_TABLE_PATTERN = /nested_behavior_users/;
 
-/** A batch-only PGlite driver (PlannedMode), counting atomic batches so a
+/** A batch-only PGlite driver (batch strategy), counting atomic batches so a
  *  retry is visible as a second batch, and counting top-level locate probes so
  *  a retry is visible even when the failure fires at PLAN time (before any
  *  batch — a correlated locate that misses throws during plan construction). */
@@ -122,17 +113,16 @@ class UnattributableAbortDriver extends PGliteDriver {
   }
 }
 
-/** A LiveMode PGlite driver counting `withTransaction` scopes, so a retry is
+/** A transaction strategy PGlite driver counting `withTransaction` scopes, so a retry is
  *  visible as a second scope. */
 class CountingTxDriver extends PGliteDriver {
   txCount = 0;
 
   override withTransaction<T>(
-    fn: (txDriver: Driver<PGlite, Transaction>) => Promise<T>,
-    options?: TransactionOptions
+    fn: (txDriver: Driver<PGlite, Transaction>) => Promise<T>
   ): Promise<T> {
     this.txCount++;
-    return super.withTransaction<T>(fn, options);
+    return super.withTransaction<T>(fn);
   }
 }
 
@@ -336,50 +326,4 @@ describe("M8 race-retry classification", () => {
       await client.$disconnect();
     }
   );
-});
-
-/**
- * The raceable classification wiring (§7.4). After the Pin Rule the ONLY
- * raceable premise class is the filtered-M2M-deleteMany staleness pin, which
- * lands at M9; M8 puts the wiring in place and proves it here, so the retry
- * wrapper's `isWriteRaceLoserError` accepts a raceable-tagged NestedWriteError
- * (and only a raceable one) without waiting for M2M. Raceability is a per-guard
- * fact carried in the typed error's meta — NEVER inferred from an error class
- * (§12.14).
- */
-describe("M8 raceable classification wiring", () => {
-  test("surfaceGuardFailure stamps meta.raceable when the failure is raceable", () => {
-    const raceable = surfaceGuardFailure({
-      error: () =>
-        new NestedWriteError("stale membership", "postTags", {
-          meta: { relation: "postTags" },
-        }),
-      raceable: true,
-    });
-    expect(raceable).toBeInstanceOf(NestedWriteError);
-    expect(raceable.meta[RACEABLE_META_KEY]).toBe(true);
-    expect(isRaceableGuardError(raceable)).toBe(true);
-  });
-
-  test("surfaceGuardFailure leaves a non-raceable failure untagged", () => {
-    const nonRaceable = surfaceGuardFailure({
-      error: () =>
-        new NestedWriteError("correlated miss", "posts", {
-          meta: { relation: "posts" },
-        }),
-      raceable: false,
-    });
-    expect(nonRaceable.meta[RACEABLE_META_KEY]).toBeUndefined();
-    expect(isRaceableGuardError(nonRaceable)).toBe(false);
-  });
-
-  test("isRaceableGuardError rejects unrelated errors and the assertion floor", () => {
-    expect(isRaceableGuardError(new Error("plain"))).toBe(false);
-    expect(isRaceableGuardError(new NestedWriteAssertionError("floor"))).toBe(
-      false
-    );
-    expect(
-      isRaceableGuardError(new NestedWriteError("floor", "", { meta: {} }))
-    ).toBe(false);
-  });
 });

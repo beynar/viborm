@@ -19,6 +19,8 @@ import { sql } from "@sql";
 import { createSchemaRegistry } from "@validation";
 import { beforeAll, describe, expect, test } from "vitest";
 
+const PARAMETERIZED_LIMIT_SQL = /LIMIT \$\d+/;
+
 // =============================================================================
 // TEST MODELS
 // =============================================================================
@@ -64,7 +66,9 @@ class MockDriver extends Driver<null, null> {
     return null;
   }
 
-  protected async closeClient() {}
+  protected async closeClient() {
+    // The SQL-only driver opens no provider resource.
+  }
 
   protected async execute<T>(): Promise<{ rows: T[]; rowCount: number }> {
     return { rows: [], rowCount: 0 };
@@ -213,7 +217,7 @@ describe("Lateral Joins", () => {
         expect(statement).toContain("LEFT JOIN LATERAL");
         expect(statement).toContain("ON TRUE");
         // LIMIT is parameterized (LIMIT $1, $2, etc.)
-        expect(statement).toMatch(/LIMIT \$\d+/);
+        expect(statement).toMatch(PARAMETERIZED_LIMIT_SQL);
       });
 
       test("include with where filter", () => {
@@ -227,7 +231,7 @@ describe("Lateral Joins", () => {
         const statement = result.toStatement("$n");
 
         expect(statement).toContain("LEFT JOIN LATERAL");
-        expect(statement).toContain("LIKE");
+        expect(statement).toContain("POSITION");
       });
 
       test("include with orderBy", () => {

@@ -12,7 +12,7 @@ import { buildValues } from "../builders/values-builder";
 import { buildWhere } from "../builders/where-builder";
 import { getWhereUniqueFieldNames } from "../builders/where-unique-builder";
 import { getColumnName, getTableName } from "../context";
-import { type QueryContext, QueryEngineError } from "../types";
+import { QueryEngineError, type QueryScope } from "../types";
 
 interface UpsertArgs {
   where: Record<string, unknown>;
@@ -37,7 +37,7 @@ interface UpsertArgs {
  * @param args - Upsert arguments
  * @returns SQL statement for the adapter-owned upsert form
  */
-export function buildUpsert(ctx: QueryContext, args: UpsertArgs): Sql {
+export function buildUpsert(ctx: QueryScope, args: UpsertArgs): Sql {
   const { adapter } = ctx;
   const tableName = getTableName(ctx.model);
 
@@ -96,7 +96,7 @@ export function buildUpsert(ctx: QueryContext, args: UpsertArgs): Sql {
  * Extracts the unique key fields from the where clause
  */
 function buildConflictTarget(
-  ctx: QueryContext,
+  ctx: QueryScope,
   where: Record<string, unknown>
 ): Sql {
   const { adapter } = ctx;

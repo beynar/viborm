@@ -83,9 +83,9 @@ describe("createTracerWrapper (OTel present)", () => {
     );
   });
 
-  it("includeSql default true sets db.query.text; false omits it", async () => {
-    const withSql = createTracerWrapper();
-    const noSql = createTracerWrapper({ includeSql: false });
+  it("includeSql defaults false and requires explicit opt-in", async () => {
+    const withSql = createTracerWrapper({ includeSql: true });
+    const noSql = createTracerWrapper();
 
     await withSql.startActiveSpan(
       { name: SPAN_EXECUTE, sql: { query: "SELECT 1" } },
@@ -111,7 +111,10 @@ describe("createTracerWrapper (OTel present)", () => {
     await withParams.startActiveSpan(
       {
         name: SPAN_EXECUTE,
-        sql: { query: "SELECT $1, $2", params: ["alice", { id: 5 }] },
+        sql: {
+          query: "SELECT $1, $2",
+          params: ["alice", { id: 5, sql: "business-value" }],
+        },
       },
       () => undefined
     );
@@ -125,10 +128,37 @@ describe("createTracerWrapper (OTel present)", () => {
 
     const withAttrs = findLast(SPAN_EXECUTE)?.attributes;
     expect(withAttrs?.["db.query.parameter.0"]).toBe("alice");
-    expect(withAttrs?.["db.query.parameter.1"]).toBe(JSON.stringify({ id: 5 }));
+    expect(withAttrs?.["db.query.parameter.1"]).toBe(
+      JSON.stringify({ id: 5, sql: "business-value" })
+    );
 
     const noAttrs = findLast(SPAN_VALIDATE)?.attributes;
     expect(noAttrs?.["db.query.parameter.0"]).toBeUndefined();
+  });
+
+  it.each([
+    { includeSql: false, includeParams: false },
+    { includeSql: true, includeParams: false },
+    { includeSql: false, includeParams: true },
+    { includeSql: true, includeParams: true },
+  ])("keeps SQL and parameter disclosure independent for %#", async (config) => {
+    const tracer = createTracerWrapper(config);
+    const query = "SELECT secret_column FROM private_table WHERE id = $1";
+    const parameter = "private-parameter";
+
+    await tracer.startActiveSpan(
+      {
+        name: SPAN_EXECUTE,
+        sql: { query, params: [parameter] },
+      },
+      () => undefined
+    );
+
+    const attributes = findLast(SPAN_EXECUTE)?.attributes ?? {};
+    expect(attributes["db.query.text"] === query).toBe(config.includeSql);
+    expect(attributes["db.query.parameter.0"] === parameter).toBe(
+      config.includeParams
+    );
   });
 
   it("emits no param attributes when includeParams true but sql.params absent", async () => {
@@ -143,6 +173,27 @@ describe("createTracerWrapper (OTel present)", () => {
     expect(
       Object.keys(attrs).some((k) => k.startsWith("db.query.parameter"))
     ).toBe(false);
+  });
+
+  it("bounds the total parameter attributes and serialized payload", async () => {
+    const tracer = createTracerWrapper({ includeParams: true });
+
+    await tracer.startActiveSpan(
+      {
+        name: SPAN_EXECUTE,
+        sql: {
+          params: Array.from({ length: 1000 }, () => "x".repeat(10_000)),
+        },
+      },
+      () => undefined
+    );
+
+    const attrs = findLast(SPAN_EXECUTE)?.attributes ?? {};
+    const paramKeys = Object.keys(attrs).filter((key) =>
+      key.startsWith("db.query.parameter")
+    );
+    expect(paramKeys.length).toBeLessThanOrEqual(128);
+    expect(JSON.stringify(attrs).length).toBeLessThan(45_000);
   });
 
   it("nested spans are parented (child's parent is the outer span)", async () => {
@@ -176,11 +227,12 @@ describe("createTracerWrapper (OTel present)", () => {
 
     const span = findLast(SPAN_OPERATION);
     expect(span?.status.code).toBe(SpanStatusCode.ERROR);
-    expect(span?.status.message).toBe("boom");
+    expect(span?.status.message).toBe("Operation failed");
     expect(span?.events.some((e) => e.name === "exception")).toBe(true);
+    expect(JSON.stringify(span?.events)).not.toContain("boom");
   });
 
-  it("throwing non-Error: status ERROR 'Unknown error', no exception event, rethrows", async () => {
+  it("throwing non-Error: records only generic diagnostics and rethrows", async () => {
     const tracer = createTracerWrapper();
 
     await expect(
@@ -192,8 +244,26 @@ describe("createTracerWrapper (OTel present)", () => {
 
     const span = findLast(SPAN_OPERATION);
     expect(span?.status.code).toBe(SpanStatusCode.ERROR);
-    expect(span?.status.message).toBe("Unknown error");
-    expect(span?.events.some((e) => e.name === "exception")).toBe(false);
+    expect(span?.status.message).toBe("Operation failed");
+    expect(span?.events.some((e) => e.name === "exception")).toBe(true);
+    expect(JSON.stringify(span?.events)).not.toContain("just a string");
+  });
+
+  it("preserves a revoked proxy thrown by the operation", async () => {
+    const tracer = createTracerWrapper();
+    const revocable = Proxy.revocable({}, {});
+    revocable.revoke();
+    let caught: unknown;
+
+    try {
+      await tracer.startActiveSpan({ name: SPAN_OPERATION }, () => {
+        throw revocable.proxy;
+      });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBe(revocable.proxy);
   });
 
   it("root:true starts a new root span (not parented to the ambient active span)", async () => {
@@ -258,6 +328,20 @@ describe("createTracerWrapper (OTel present)", () => {
     expect(countOf(SPAN_VALIDATE)).toBe(before);
   });
 
+  it("snapshots ignore patterns when the tracer is created", async () => {
+    const ignoreSpanTypes = [SPAN_VALIDATE];
+    const tracer = createTracerWrapper({ ignoreSpanTypes });
+    const validateBefore = countOf(SPAN_VALIDATE);
+    const operationBefore = countOf(SPAN_OPERATION);
+
+    ignoreSpanTypes[0] = SPAN_OPERATION;
+    await tracer.startActiveSpan({ name: SPAN_VALIDATE }, () => undefined);
+    await tracer.startActiveSpan({ name: SPAN_OPERATION }, () => undefined);
+
+    expect(countOf(SPAN_VALIDATE)).toBe(validateBefore);
+    expect(countOf(SPAN_OPERATION)).toBe(operationBefore + 1);
+  });
+
   it("ignoreSpanTypes RegExp: matching name skipped, non-matching recorded", async () => {
     const tracer = createTracerWrapper({
       ignoreSpanTypes: [VALIDATE_PATTERN],
@@ -270,6 +354,18 @@ describe("createTracerWrapper (OTel present)", () => {
 
     expect(countOf(SPAN_VALIDATE)).toBe(skipBefore);
     expect(countOf(SPAN_OPERATION)).toBe(keepBefore + 1);
+  });
+
+  it("applies global ignore patterns consistently across repeated calls", async () => {
+    const tracer = createTracerWrapper({
+      ignoreSpanTypes: [/^viborm\.validate$/g],
+    });
+    const before = countOf(SPAN_VALIDATE);
+
+    await tracer.startActiveSpan({ name: SPAN_VALIDATE }, () => undefined);
+    await tracer.startActiveSpan({ name: SPAN_VALIDATE }, () => undefined);
+
+    expect(countOf(SPAN_VALIDATE)).toBe(before);
   });
 
   it("startActiveSpanSync (OTel loaded) records a span, returns value, sets OK", async () => {
@@ -299,8 +395,9 @@ describe("createTracerWrapper (OTel present)", () => {
 
     const span = findLast(SPAN_EXECUTE);
     expect(span?.status.code).toBe(SpanStatusCode.ERROR);
-    expect(span?.status.message).toBe("sync-boom");
+    expect(span?.status.message).toBe("Operation failed");
     expect(span?.events.some((e) => e.name === "exception")).toBe(true);
+    expect(JSON.stringify(span?.events)).not.toContain("sync-boom");
   });
 
   it("startActiveSpanSync respects ignoreSpanTypes (skipped name → callback runs, no span)", async () => {

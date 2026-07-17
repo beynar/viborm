@@ -824,7 +824,7 @@ describe("MySQL DDL Generation", () => {
 
       expect(ddl).toContain("ENGINE=InnoDB");
       expect(ddl).toContain("DEFAULT CHARSET=utf8mb4");
-      expect(ddl).toContain("COLLATE=utf8mb4_unicode_ci");
+      expect(ddl).toContain("COLLATE=utf8mb4_0900_bin");
     });
 
     it("should generate CREATE TABLE with AUTO_INCREMENT", () => {

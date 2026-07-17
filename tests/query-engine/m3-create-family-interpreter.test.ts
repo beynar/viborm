@@ -3,8 +3,7 @@ import { PGliteDriver } from "@drivers/pglite";
 import type { BatchQuery, QueryResult } from "@drivers/types";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { push } from "@migrations";
-import { LiveMode } from "@query-engine/operations/nested-writes/live-mode";
-import { PlannedMode } from "@query-engine/operations/nested-writes/planned-mode";
+import { RelationMutations } from "@query-engine/RelationMutations";
 import { s } from "@schema";
 import { describe, expect, test, vi } from "vitest";
 import { manyToManySchema } from "../fixtures/many-to-many-schema";
@@ -15,7 +14,7 @@ import { nestedWriteBehaviorSchema } from "../fixtures/nested-write-behavior-sch
 // with a nested `parent: { create }` inserts a SAME-MODEL child (the parent's
 // parent) BEFORE the top-level row (FK split, before-parent). A scalar-only
 // create must still return the TOP-LEVEL row, not the nested child — the review
-// found LiveMode's old first-insert-into-root-model anchor heuristic returned
+// found transaction strategy's old first-insert-into-root-model anchor heuristic returned
 // the child here (a two-mode divergence and a regression vs the frozen engines).
 const selfRefFkSchema = (() => {
   const category = s
@@ -35,14 +34,11 @@ const selfRefFkSchema = (() => {
 })();
 
 /**
- * M3 gate (§11 M3): the create family (create / createMany / connect /
- * connectOrCreate) over FK-only trees runs THROUGH THE INTERPRETER in both
- * modes. Two load-bearing assertions:
+ * Create/createMany/connect/connectOrCreate and many-to-many trees compile to
+ * one OperationProgram for transaction and atomic-batch execution.
  *
- *  1. Routing spy — `LiveMode.bindContext` / `PlannedMode.bindContext` are
- *     called exactly once per eligible create operation. The interpreter binds
- *     the root context before `scope.run`; the old engines never touch these
- *     modes, so a call proves the tree was interpreted, not delegated.
+ *  1. Routing spy — `RelationMutations.compileCreate` is called exactly once
+ *     and yields an operation-atomic program for an eligible create.
  *
  *  2. F1 regression guard (§0.3, §5.5 Pin Rule 2) — the planned statement list
  *     for a connectOrCreate/upsert-shaped create-branch contains NO `NOT
@@ -94,16 +90,18 @@ function boot<TDriver extends PGliteDriver>(
   return createClient({ schema: nestedWriteBehaviorSchema, driver });
 }
 
-describe("M3 create-family interpreter", () => {
-  describe("create trees route through the interpreter", () => {
+describe("relation create-family execution", () => {
+  describe("pure FK create trees route through OperationProgram", () => {
     test(
-      "live mode binds LiveMode exactly once per create",
+      "transaction execution compiles one create program",
       { timeout: 30_000 },
       async () => {
         const db = await setupDb();
         const client = boot(new PGliteDriver({ client: db }));
-        const liveSpy = vi.spyOn(LiveMode.prototype, "bindContext");
-        const plannedSpy = vi.spyOn(PlannedMode.prototype, "bindContext");
+        const compileSpy = vi.spyOn(
+          RelationMutations.prototype,
+          "compileCreate"
+        );
 
         await client.user.create({
           data: {
@@ -121,22 +119,25 @@ describe("M3 create-family interpreter", () => {
           },
         });
 
-        expect(liveSpy).toHaveBeenCalledTimes(1);
-        expect(plannedSpy).not.toHaveBeenCalled();
-        liveSpy.mockRestore();
-        plannedSpy.mockRestore();
+        expect(compileSpy).toHaveBeenCalledTimes(1);
+        expect(compileSpy.mock.results[0]?.value).toMatchObject({
+          atomicity: "operation",
+        });
+        compileSpy.mockRestore();
         await client.$disconnect();
       }
     );
 
     test(
-      "batch mode binds PlannedMode exactly once per create",
+      "batch execution compiles one create program",
       { timeout: 30_000 },
       async () => {
         const db = await setupDb();
         const client = boot(new RecordingBatchDriver({ client: db }));
-        const liveSpy = vi.spyOn(LiveMode.prototype, "bindContext");
-        const plannedSpy = vi.spyOn(PlannedMode.prototype, "bindContext");
+        const compileSpy = vi.spyOn(
+          RelationMutations.prototype,
+          "compileCreate"
+        );
 
         await client.user.create({
           data: {
@@ -146,25 +147,64 @@ describe("M3 create-family interpreter", () => {
           },
         });
 
-        expect(plannedSpy).toHaveBeenCalledTimes(1);
-        expect(liveSpy).not.toHaveBeenCalled();
-        liveSpy.mockRestore();
-        plannedSpy.mockRestore();
+        expect(compileSpy).toHaveBeenCalledTimes(1);
+        expect(compileSpy.mock.results[0]?.value).toMatchObject({
+          atomicity: "operation",
+        });
+        compileSpy.mockRestore();
+        await client.$disconnect();
+      }
+    );
+
+    test(
+      "native transaction arrays use only compiled nested create programs",
+      { timeout: 30_000 },
+      async () => {
+        const db = await setupDb();
+        const driver = new RecordingBatchDriver({ client: db });
+        const client = boot(driver);
+        const compileSpy = vi.spyOn(
+          RelationMutations.prototype,
+          "compileCreate"
+        );
+
+        const [created] = await client.$transaction([
+          client.user.create({
+            data: {
+              id: "u1",
+              name: "Alice",
+              posts: { create: { id: "po1", title: "First" } },
+            },
+          }),
+        ]);
+
+        expect(created.id).toBe("u1");
+        expect(compileSpy).toHaveBeenCalled();
+        expect(
+          compileSpy.mock.results.every(
+            (result) => result.value?.atomicity === "operation"
+          )
+        ).toBe(true);
+        expect(driver.batches).toHaveLength(1);
+        compileSpy.mockRestore();
         await client.$disconnect();
       }
     );
 
     // A deep FK-only create tree (junction rows here are a plain FK oneToMany,
     // and their `tag: { connect }` is manyToOne — both FK) stays eligible and
-    // is interpreted end to end.
+    // is compiled end to end.
     test(
-      "a deep FK-only create tree routes through the interpreter",
+      "a deep FK-only create tree compiles recursively",
       { timeout: 30_000 },
       async () => {
         const db = await setupDb();
         const client = boot(new PGliteDriver({ client: db }));
         await client.tag.create({ data: { id: "t1", name: "tag" } });
-        const liveSpy = vi.spyOn(LiveMode.prototype, "bindContext");
+        const compileSpy = vi.spyOn(
+          RelationMutations.prototype,
+          "compileCreate"
+        );
 
         await client.post.create({
           data: {
@@ -175,17 +215,22 @@ describe("M3 create-family interpreter", () => {
           },
         });
 
-        expect(liveSpy).toHaveBeenCalledTimes(1);
-        liveSpy.mockRestore();
+        const program = compileSpy.mock.results[0]?.value;
+        expect(compileSpy).toHaveBeenCalledTimes(1);
+        expect(
+          program?.steps.filter((step) => step.kind === "write")
+        ).toHaveLength(2);
+        expect(program?.steps.some((step) => step.kind === "guard")).toBe(true);
+        compileSpy.mockRestore();
         await client.$disconnect();
       }
     );
 
-    // A create tree touching a TRUE many-to-many relation IS eligible at M9
-    // (m2m migrated): whole-tree routing sends it to the interpreter, so the
-    // mode is bound.
+    // A true many-to-many create is part of the same operation program. The
+    // relation statement remains compiler-owned and the runtime sees only the
+    // closed program vocabulary.
     test(
-      "an m2m create-through-junction routes through the interpreter (M9)",
+      "an m2m create-through-junction compiles into OperationProgram",
       { timeout: 30_000 },
       async () => {
         const db = new PGlite();
@@ -201,18 +246,18 @@ describe("M3 create-family interpreter", () => {
         await client.tag.create({
           data: { id: "t1", name: "tag-1", featuredPostId: null },
         });
-        const liveSpy = vi.spyOn(LiveMode.prototype, "bindContext");
-
-        await client.post.create({
+        const operation = client.post.create({
           data: {
             id: "p1",
             title: "Post 1",
             tags: { connect: { id: "t1" } },
           },
         });
+        const program = operation.compile();
 
-        expect(liveSpy).toHaveBeenCalledTimes(1);
-        liveSpy.mockRestore();
+        expect(program.atomicity).toBe("operation");
+        expect(JSON.stringify(program)).toContain('"kind":"relation"');
+        await operation;
         await client.$disconnect();
       }
     );
@@ -315,7 +360,7 @@ describe("M3 create-family interpreter", () => {
   );
 
   // Regression (§6.1/§9, §8.2): a self-referential parent-holds-FK create with a
-  // scalar-only result must return the TOP-LEVEL row in BOTH modes. LiveMode
+  // scalar-only result must return the TOP-LEVEL row in BOTH modes. transaction strategy
   // used to return the nested same-model child (the "grandparent") because its
   // anchor was the first insert into the root model, and the before-parent child
   // insert fires first for a self-referential FK. The interpreter now threads the

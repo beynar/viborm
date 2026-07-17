@@ -7,7 +7,8 @@
 
 import type { Sql } from "@sql";
 import { getColumnName } from "../context";
-import type { QueryContext } from "../types";
+import { getAggregateResultKey } from "../result-aliases";
+import type { QueryScope } from "../types";
 
 /**
  * Aggregate function types
@@ -27,7 +28,7 @@ export type AggregateType = "count" | "avg" | "sum" | "min" | "max";
  * @returns SQL expression for count aggregate (aliased)
  */
 export function buildCountAggregate(
-  ctx: QueryContext,
+  ctx: QueryScope,
   countSpec: true | Record<string, boolean>,
   alias: string
 ): Sql | undefined {
@@ -35,7 +36,10 @@ export function buildCountAggregate(
 
   // Simple count all
   if (countSpec === true) {
-    return adapter.identifiers.aliased(adapter.aggregates.count(), "_count");
+    return adapter.identifiers.aliased(
+      adapter.aggregates.count(),
+      getAggregateResultKey("_count")
+    );
   }
 
   // Object with field selections
@@ -59,7 +63,7 @@ export function buildCountAggregate(
 
   return adapter.identifiers.aliased(
     adapter.json.objectFromColumns(pairs),
-    "_count"
+    getAggregateResultKey("_count")
   );
 }
 
@@ -73,7 +77,7 @@ export function buildCountAggregate(
  * @returns SQL expression for aggregate (aliased) or undefined if no fields
  */
 export function buildAggregateColumn(
-  ctx: QueryContext,
+  ctx: QueryScope,
   spec: true | Record<string, boolean>,
   alias: string,
   aggType: AggregateType
@@ -97,7 +101,7 @@ export function buildAggregateColumn(
 
   // Get the appropriate aggregate function
   const aggFn = getAggregateFn(adapter, aggType);
-  const aggName = `_${aggType}`;
+  const aggName = getAggregateResultKey(`_${aggType}`);
 
   const scalars = ctx.model["~"].state.scalars;
   const pairs: [string, Sql][] = entries.map(([field]) => {
@@ -123,7 +127,7 @@ export function buildAggregateColumn(
  * Get the aggregate function from adapter based on type
  */
 function getAggregateFn(
-  adapter: QueryContext["adapter"],
+  adapter: QueryScope["adapter"],
   aggType: "avg" | "sum" | "min" | "max"
 ): (expr: Sql) => Sql {
   switch (aggType) {

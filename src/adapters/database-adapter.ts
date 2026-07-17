@@ -1,24 +1,18 @@
 import type { Sql } from "@sql";
+import type { DatabaseAdapterCapabilities } from "./adapter-capabilities";
+import type { BatchReferenceSqlAdapter, CastType } from "./adapter-core-types";
+import type { QueryParts } from "./adapter-query-parts";
+import type { AdapterResultParser } from "./adapter-result-parser";
 
-/**
- * Logical cast types that adapters map to dialect-specific SQL types.
- *
- * Instead of hardcoding SQL type names like "TEXT" or "VARCHAR",
- * use these logical types and let each adapter map to the correct syntax.
- */
-export type CastType = "text" | "integer" | "boolean" | "numeric";
-
-/**
- * @internal Adapter-owned SQL for atomic batch reference storage.
- */
-export interface BatchReferenceSqlAdapter {
-  setup: (batchId: string) => Sql[];
-  clear: (batchId: string) => Sql;
-  cleanup: (batchId: string) => Sql;
-  store: (batchId: string, key: string, valueSql: Sql) => Sql;
-  read: (batchId: string, key: string) => Sql;
-  storeLastInsertId: (batchId: string, key: string) => Sql;
-}
+export type { DatabaseAdapterCapabilities } from "./adapter-capabilities";
+export type { BatchReferenceSqlAdapter, CastType } from "./adapter-core-types";
+export type {
+  DeleteParts,
+  InsertParts,
+  QueryParts,
+  UpdateParts,
+} from "./adapter-query-parts";
+export type { AdapterResultParser } from "./adapter-result-parser";
 
 /**
  * DatabaseAdapter Interface
@@ -97,9 +91,13 @@ export interface DatabaseAdapter {
     // Pattern matching
     like: (column: Sql, pattern: Sql) => Sql;
     notLike: (column: Sql, pattern: Sql) => Sql;
-    /** Case-insensitive LIKE (PG: ILIKE; MySQL/SQLite: plain LIKE, already CI under their default collations) */
+    /** Case-insensitive LIKE. */
     ilike: (column: Sql, pattern: Sql) => Sql;
     notIlike: (column: Sql, pattern: Sql) => Sql;
+    /** Case-sensitive substring predicates, independent of database collation. */
+    containsText: (column: Sql, value: Sql) => Sql;
+    startsWithText: (column: Sql, value: Sql) => Sql;
+    endsWithText: (column: Sql, value: Sql) => Sql;
 
     // Set membership
     in: (column: Sql, values: Sql) => Sql;
@@ -138,6 +136,10 @@ export interface DatabaseAdapter {
     concat: (...parts: Sql[]) => Sql;
     upper: (expr: Sql) => Sql;
     lower: (expr: Sql) => Sql;
+    /** Fold ASCII A-Z to a-z without provider-native Unicode case folding. */
+    asciiCaseFold: (expr: Sql) => Sql;
+    /** Force exact text comparison semantics independent of column/database collation. */
+    caseSensitiveText: (expr: Sql) => Sql;
 
     // Utility
     coalesce: (...exprs: Sql[]) => Sql;
@@ -297,8 +299,10 @@ export interface DatabaseAdapter {
      * Divide: "col" = "col" / value.
      * `columnIsInteger` tells the adapter the target column is integer-typed
      * so it can force integer division where the dialect would otherwise do
-     * real division (SQLite binds the operand as REAL). Postgres/MySQL follow
-     * their native integer-column division and ignore the flag.
+     * real division. SQLite binds the operand as REAL, while MySQL `/` returns
+     * a decimal quotient even for integer columns; both adapters use the flag
+     * to preserve truncation toward zero. PostgreSQL integer division already
+     * has that behavior and ignores the flag.
      */
     divide: (column: Sql, by: Sql, columnIsInteger?: boolean) => Sql;
     /**
@@ -371,13 +375,17 @@ export interface DatabaseAdapter {
    * Insert, Update, Delete operations
    */
   mutations: {
-    /** INSERT INTO table (cols) VALUES (...), with optional prefix (e.g., IGNORE for MySQL) */
+    /** How top-level bulk create realizes duplicate-only skipping. */
+    skipDuplicatesStrategy: "sql" | "recoverableUniqueError";
+    /** INSERT INTO table (cols) VALUES (...), with an optional dialect prefix. */
     insert: (
       table: Sql,
       columns: string[],
       values: Sql[][],
       prefix?: Sql
     ) => Sql;
+    /** Insert one row using only database defaults. */
+    insertDefault: (table: Sql) => Sql;
     /** UPDATE table SET ... WHERE ... */
     update: (table: Sql, sets: Sql, where?: Sql) => Sql;
     /** DELETE FROM table WHERE ... */
@@ -402,9 +410,12 @@ export interface DatabaseAdapter {
     /**
      * Skip duplicate key errors (for createMany with skipDuplicates: true)
      * PostgreSQL/SQLite: ON CONFLICT DO NOTHING (suffix)
-     * MySQL: INSERT IGNORE (prefix)
+     * MySQL: duplicate-key-only no-op update (suffix)
      */
-    skipDuplicates: () => { prefix: Sql; suffix: Sql };
+    skipDuplicates: (duplicateNoopColumn: string) => {
+      prefix: Sql;
+      suffix: Sql;
+    };
   };
 
   /**
@@ -418,60 +429,7 @@ export interface DatabaseAdapter {
     notExists: (query: Sql) => Sql;
   };
 
-  /**
-   * CAPABILITIES
-   * Database feature flags for conditional query building
-   */
-  capabilities: {
-    /** Whether database supports RETURNING clause (PG, SQLite 3.35+) */
-    supportsReturning: boolean;
-    /**
-     * Whether database supports CTEs with data-modifying statements (PG, SQLite).
-     * Reserved — not consulted by the query engine yet.
-     */
-    supportsCteWithMutations: boolean;
-    /**
-     * Whether database supports FULL OUTER JOIN.
-     * Not consulted by the query engine yet; joins.full throws with a hint
-     * referencing this flag on dialects where it is false.
-     */
-    supportsFullOuterJoin: boolean;
-    /**
-     * Whether database supports LATERAL joins (PG 9.3+, MySQL 8.0.14+)
-     * When true, include builder uses lateral joins for better performance
-     * When false, falls back to correlated subqueries
-     */
-    supportsLateralJoins: boolean;
-    /**
-     * Whether this driver instance supports vector operations.
-     * PostgreSQL drivers enable this only when pgvector is available.
-     */
-    supportsVector: boolean;
-    /**
-     * Whether database supports WHERE clauses in upsert/ON CONFLICT:
-     * - targetWhere: ON CONFLICT (id) WHERE <targetWhere> DO UPDATE ... (partial unique index)
-     * - setWhere: ON CONFLICT ... DO UPDATE SET x = y WHERE <setWhere> (conditional update)
-     *
-     * PostgreSQL/SQLite: true - native support
-     * MySQL: false - ON DUPLICATE KEY UPDATE doesn't support WHERE clauses
-     *
-     * When false, the query engine falls back to a transaction-based approach
-     * using SELECT FOR UPDATE + conditional INSERT/UPDATE.
-     */
-    supportsUpsertWhere: boolean;
-    /**
-     * Whether UPDATE/DELETE may reference the mutated table in a subquery.
-     *
-     * PostgreSQL/SQLite: true
-     * MySQL: false - ERROR 1093 ("You can't specify target table for update
-     * in FROM clause")
-     *
-     * When false, the query engine wraps relation-filter subqueries that
-     * select from the mutated table in a derived table so the database
-     * materializes them.
-     */
-    supportsMutationTargetInSubquery: boolean;
-  };
+  capabilities: DatabaseAdapterCapabilities;
 
   /**
    * LAST INSERT ID
@@ -592,155 +550,5 @@ export interface DatabaseAdapter {
     dWithin: (geom1: Sql, geom2: Sql, distance: Sql) => Sql;
   };
 
-  /**
-   * RESULT PARSING
-   * Database-specific result parsing middleware.
-   * Each method receives a `next` function that calls the default parsing logic.
-   *
-   * ## Usage Pattern
-   *
-   * - `next()` - Continue with original value (passthrough)
-   * - `next(transformed)` - Continue with transformed value
-   * - `return value` - Short-circuit, skip default parsing
-   *
-   * ## Database Behaviors
-   *
-   * - **PostgreSQL**: Mostly passthrough (native JSON, native booleans)
-   * - **MySQL/SQLite**: Parse JSON strings, convert 0/1 to booleans
-   */
-  result: {
-    /**
-     * Parse operation result (count, aggregate, etc.)
-     *
-     * @param raw - Raw database result
-     * @param operation - Query operation type
-     * @param next - Call to continue with default parsing
-     *   - `next()` uses original raw value
-     *   - `next(transformed)` uses the transformed value
-     *
-     * @returns Parsed result or result of `next()`
-     *
-     * @example
-     * // Normalize COUNT(*) column name
-     * parseResult: (raw, op, next) => {
-     *   if (op === 'count') {
-     *     const normalized = normalizeCountResult(raw);
-     *     if (normalized) return next(normalized);
-     *   }
-     *   return next();
-     * }
-     */
-    parseResult: (
-      raw: unknown,
-      operation: import("../query-engine/types").Operation,
-      next: (value?: unknown) => unknown
-    ) => unknown;
-
-    /**
-     * Parse relation value (nested JSON from includes)
-     *
-     * @param value - Raw relation value from database
-     * @param type - Relation type (oneToMany, manyToOne, etc.)
-     * @param next - Call to continue with default parsing
-     *   - `next()` uses original value
-     *   - `next(parsed)` uses the parsed value
-     *
-     * @returns Parsed relation or result of `next()`
-     *
-     * @example
-     * // Parse JSON strings (MySQL/SQLite)
-     * parseRelation: (value, type, next) => {
-     *   const parsed = tryParseJsonString(value);
-     *   return parsed !== undefined ? next(parsed) : next();
-     * }
-     */
-    parseRelation: (
-      value: unknown,
-      type: import("../schema/relation/types").RelationType,
-      next: (value?: unknown) => unknown
-    ) => unknown;
-
-    /**
-     * Parse field value by type
-     *
-     * @param value - Raw field value from database
-     * @param scalarType - Scalar type (boolean, datetime, bigint, etc.)
-     * @param next - Call to continue with default parsing
-     *   - `next()` uses original value
-     *   - `next(converted)` uses the converted value
-     *
-     * @returns Parsed value, or result of `next()`, or short-circuit return
-     *
-     * @example
-     * // Convert 0/1 to boolean (SQLite/MySQL)
-     * parseField: (value, scalarType, next) => {
-     *   if (scalarType === 'boolean') {
-     *     const bool = parseIntegerBoolean(value);
-     *     if (bool !== undefined) return bool; // Short-circuit
-     *   }
-     *   return next();
-     * }
-     */
-    parseField: (
-      value: unknown,
-      scalarType: string,
-      next: (value?: unknown) => unknown
-    ) => unknown;
-  };
-}
-
-/**
- * Type for query parts assembly
- */
-export interface QueryParts {
-  columns: Sql;
-  from: Sql;
-  joins?: Sql[];
-  where?: Sql;
-  groupBy?: Sql;
-  having?: Sql;
-  orderBy?: Sql;
-  limit?: Sql;
-  offset?: Sql;
-  /** DISTINCT ON columns (PostgreSQL), or simulated via ROW_NUMBER() (MySQL/SQLite) */
-  distinct?: Sql;
-  /** Column alias names for outer SELECT when using DISTINCT simulation (MySQL/SQLite) */
-  distinctColumnAliases?: string[];
-  /**
-   * Add FOR UPDATE clause for row locking.
-   * Used in transaction-based upserts to prevent race conditions.
-   * PostgreSQL/MySQL: FOR UPDATE
-   * SQLite: No-op (SQLite uses database-level locking)
-   */
-  forUpdate?: boolean;
-}
-
-/**
- * Type for insert parts assembly
- */
-export interface InsertParts {
-  table: Sql;
-  columns: string[];
-  values: Sql[][];
-  onConflict?: Sql;
-  returning?: Sql;
-}
-
-/**
- * Type for update parts assembly
- */
-export interface UpdateParts {
-  table: Sql;
-  set: Sql;
-  where?: Sql;
-  returning?: Sql;
-}
-
-/**
- * Type for delete parts assembly
- */
-export interface DeleteParts {
-  table: Sql;
-  where?: Sql;
-  returning?: Sql;
+  result: AdapterResultParser;
 }

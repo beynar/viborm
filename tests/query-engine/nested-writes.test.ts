@@ -5,14 +5,13 @@
  */
 
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
-import { createModelRegistry, createQueryContext } from "@query-engine";
+import { createQueryScope } from "@query-engine";
 import {
   getFkDirection,
   needsTransaction,
   separateData,
 } from "@query-engine/builders/relation-data-builder";
 import { s } from "@schema";
-import { createSchemaRegistry } from "@validation";
 import { describe, expect, it } from "vitest";
 
 // =============================================================================
@@ -49,15 +48,6 @@ const UserWithPosts = s.model({
   posts: s.oneToMany(() => Post),
 });
 
-// Model with compound ID
-const CompoundUser = s
-  .model({
-    email: s.string(),
-    orgId: s.string(),
-    name: s.string(),
-  })
-  .id(["email", "orgId"]);
-
 const NamedUser = s.model({
   id: s.string().id(),
   posts: s.oneToMany(() => NamedPost).name("author"),
@@ -86,23 +76,13 @@ const NamedPost = s.model({
 // =============================================================================
 
 const adapter = new PostgresAdapter();
-const schema = {
-  User,
-  Post,
-  UserWithPosts,
-  CompoundUser,
-  NamedUser,
-  NamedPost,
-};
-const registry = createModelRegistry(schema, createSchemaRegistry(schema));
-
 // =============================================================================
 // SEPARATE DATA TESTS
 // =============================================================================
 
 describe("separateData", () => {
   it("separates scalar fields from relation fields", () => {
-    const ctx = createQueryContext(adapter, UserWithPosts, registry);
+    const ctx = createQueryScope(adapter, UserWithPosts);
 
     const data = {
       name: "Alice",
@@ -123,7 +103,7 @@ describe("separateData", () => {
   });
 
   it("handles data with only scalar fields", () => {
-    const ctx = createQueryContext(adapter, User, registry);
+    const ctx = createQueryScope(adapter, User);
 
     const data = {
       name: "Alice",
@@ -137,7 +117,7 @@ describe("separateData", () => {
   });
 
   it("handles connect mutation", () => {
-    const ctx = createQueryContext(adapter, Post, registry);
+    const ctx = createQueryScope(adapter, Post);
 
     const data = {
       title: "Hello",
@@ -153,7 +133,7 @@ describe("separateData", () => {
   });
 
   it("handles disconnect mutation", () => {
-    const ctx = createQueryContext(adapter, Post, registry);
+    const ctx = createQueryScope(adapter, Post);
 
     const data = {
       title: "Hello",
@@ -168,7 +148,7 @@ describe("separateData", () => {
   });
 
   it("handles connectOrCreate mutation", () => {
-    const ctx = createQueryContext(adapter, Post, registry);
+    const ctx = createQueryScope(adapter, Post);
 
     const data = {
       title: "Hello",
@@ -188,7 +168,7 @@ describe("separateData", () => {
   });
 
   it("handles delete mutation", () => {
-    const ctx = createQueryContext(adapter, UserWithPosts, registry);
+    const ctx = createQueryScope(adapter, UserWithPosts);
 
     const data = {
       name: "Alice",
@@ -203,7 +183,7 @@ describe("separateData", () => {
   });
 
   it("handles set mutation for to-many", () => {
-    const ctx = createQueryContext(adapter, UserWithPosts, registry);
+    const ctx = createQueryScope(adapter, UserWithPosts);
 
     const data = {
       name: "Alice",
@@ -218,7 +198,7 @@ describe("separateData", () => {
   });
 
   it("handles update mutation for to-many", () => {
-    const ctx = createQueryContext(adapter, UserWithPosts, registry);
+    const ctx = createQueryScope(adapter, UserWithPosts);
 
     const data = {
       name: "Alice",
@@ -241,7 +221,7 @@ describe("separateData", () => {
   });
 
   it("handles updateMany mutation for to-many", () => {
-    const ctx = createQueryContext(adapter, UserWithPosts, registry);
+    const ctx = createQueryScope(adapter, UserWithPosts);
 
     const data = {
       name: "Alice",
@@ -264,7 +244,7 @@ describe("separateData", () => {
   });
 
   it("handles deleteMany mutation for to-many", () => {
-    const ctx = createQueryContext(adapter, UserWithPosts, registry);
+    const ctx = createQueryScope(adapter, UserWithPosts);
 
     const data = {
       name: "Alice",
@@ -279,7 +259,7 @@ describe("separateData", () => {
   });
 
   it("skips undefined values", () => {
-    const ctx = createQueryContext(adapter, User, registry);
+    const ctx = createQueryScope(adapter, User);
 
     const data = {
       name: "Alice",
@@ -299,7 +279,7 @@ describe("separateData", () => {
 
 describe("needsTransaction", () => {
   it("returns true when create is present", () => {
-    const ctx = createQueryContext(adapter, UserWithPosts, registry);
+    const ctx = createQueryScope(adapter, UserWithPosts);
     const data = {
       posts: {
         create: { title: "Hello" },
@@ -311,7 +291,7 @@ describe("needsTransaction", () => {
   });
 
   it("returns true when connectOrCreate is present", () => {
-    const ctx = createQueryContext(adapter, Post, registry);
+    const ctx = createQueryScope(adapter, Post);
     const data = {
       author: {
         connectOrCreate: {
@@ -326,7 +306,7 @@ describe("needsTransaction", () => {
   });
 
   it("returns true when delete is present", () => {
-    const ctx = createQueryContext(adapter, UserWithPosts, registry);
+    const ctx = createQueryScope(adapter, UserWithPosts);
     const data = {
       posts: {
         delete: { id: "post-123" },
@@ -338,7 +318,7 @@ describe("needsTransaction", () => {
   });
 
   it("returns true when set is present", () => {
-    const ctx = createQueryContext(adapter, UserWithPosts, registry);
+    const ctx = createQueryScope(adapter, UserWithPosts);
     const data = {
       posts: {
         set: [{ id: "post-123" }],
@@ -350,7 +330,7 @@ describe("needsTransaction", () => {
   });
 
   it("returns true for simple connect when current holds FK", () => {
-    const ctx = createQueryContext(adapter, Post, registry);
+    const ctx = createQueryScope(adapter, Post);
     const data = {
       author: {
         connect: { id: "user-123" },
@@ -363,7 +343,7 @@ describe("needsTransaction", () => {
   });
 
   it("returns true for connect when related holds FK", () => {
-    const ctx = createQueryContext(adapter, UserWithPosts, registry);
+    const ctx = createQueryScope(adapter, UserWithPosts);
     const data = {
       posts: {
         connect: { id: "post-123" },
@@ -382,7 +362,7 @@ describe("needsTransaction", () => {
 
 describe("error handling", () => {
   it("handles empty data gracefully", () => {
-    const ctx = createQueryContext(adapter, User, registry);
+    const ctx = createQueryScope(adapter, User);
 
     const { scalarData, relations } = separateData(ctx, {});
 
@@ -391,7 +371,7 @@ describe("error handling", () => {
   });
 
   it("ignores null relation value", () => {
-    const ctx = createQueryContext(adapter, Post, registry);
+    const ctx = createQueryScope(adapter, Post);
 
     const data = {
       title: "Hello",
@@ -404,7 +384,7 @@ describe("error handling", () => {
   });
 
   it("handles array of creates", () => {
-    const ctx = createQueryContext(adapter, UserWithPosts, registry);
+    const ctx = createQueryScope(adapter, UserWithPosts);
 
     const data = {
       name: "Alice",
@@ -420,7 +400,7 @@ describe("error handling", () => {
   });
 
   it("handles array of connects", () => {
-    const ctx = createQueryContext(adapter, UserWithPosts, registry);
+    const ctx = createQueryScope(adapter, UserWithPosts);
 
     const data = {
       posts: {
@@ -435,7 +415,7 @@ describe("error handling", () => {
   });
 
   it("handles createMany mutation", () => {
-    const ctx = createQueryContext(adapter, UserWithPosts, registry);
+    const ctx = createQueryScope(adapter, UserWithPosts);
 
     const data = {
       name: "Alice",
@@ -459,7 +439,7 @@ describe("error handling", () => {
   });
 
   it("handles createMany with skipDuplicates", () => {
-    const ctx = createQueryContext(adapter, UserWithPosts, registry);
+    const ctx = createQueryScope(adapter, UserWithPosts);
 
     const data = {
       posts: {
@@ -482,7 +462,7 @@ describe("error handling", () => {
 
 describe("needsTransaction with createMany", () => {
   it("returns true when createMany is present", () => {
-    const ctx = createQueryContext(adapter, UserWithPosts, registry);
+    const ctx = createQueryScope(adapter, UserWithPosts);
     const data = {
       posts: {
         createMany: {
@@ -502,7 +482,7 @@ describe("needsTransaction with createMany", () => {
 
 describe("named inverse relations", () => {
   it("chooses the FK matching the relation name", () => {
-    const ctx = createQueryContext(adapter, NamedUser, registry);
+    const ctx = createQueryScope(adapter, NamedUser);
     const { relations } = separateData(ctx, {
       posts: {
         create: { id: "post-1", title: "Post" },

@@ -13,8 +13,8 @@ import { nestedWriteBehaviorSchema } from "../fixtures/nested-write-behavior-sch
  * operation. The two load-bearing assertions the milestone demands:
  *
  *  1. A driver spy asserts exactly ONE `withTransaction` per interpreter
- *     operation on the LiveMode substrate (and exactly one `_executeBatch` on
- *     the PlannedMode substrate). Recursion threads the same `emit`/scope; there
+ *     operation on the transaction strategy substrate (and exactly one `_executeBatch` on
+ *     the batch strategy substrate). Recursion threads the same `emit`/scope; there
  *     is never a nested `withTransaction` (the frozen tx engine's per-level
  *     `runNestedMutationAtomically` / savepoint mechanism is gone on this path —
  *     §8.2, DIVERGENCE-RECURSION-ATOMICITY removed). A savepoint would open a
@@ -41,7 +41,7 @@ type BehaviorSchema = typeof nestedWriteBehaviorSchema;
 // a flat interpreter scope issues none.
 const SAVEPOINT_PATTERN = /SAVEPOINT/i;
 
-// A batch-only PGlite driver forced down the atomic-batch (PlannedMode) path,
+// A batch-only PGlite driver forced down the atomic-batch (batch strategy) path,
 // recording how many batches it runs. Mirrors the conformance harness.
 class BatchOnlyPGliteDriver extends PGliteDriver {
   override readonly supportsTransactions = false;

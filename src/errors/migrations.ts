@@ -20,6 +20,8 @@ export interface MigrationErrorMeta extends VibORMErrorMeta {
  * Migration-related errors
  */
 export class MigrationError extends VibORMError {
+  static override readonly diagnosticName = "MigrationError";
+
   constructor(
     message: string,
     code: VibORMErrorCode = VibORMErrorCode.MIGRATION_FAILED,
@@ -32,7 +34,6 @@ export class MigrationError extends VibORMError {
     if (options?.cause) opts.cause = options.cause;
     if (options?.meta) opts.meta = options.meta;
     super(message, code, opts);
-    this.name = "MigrationError";
   }
 }
 

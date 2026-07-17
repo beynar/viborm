@@ -1,5 +1,7 @@
 # Semantic Map — Transaction Engine: create / connect / connectOrCreate / dispatch / timing / FK direction
 
+> **Historical snapshot.** This map documents the deleted pre-unification engines and is not the current runtime contract. `DESIGN.md` and the conformance/behavior suites are authoritative.
+
 Slice owner scope: the **transaction-path** engine's create family and its shared substrate.
 Files fully read for this map:
 

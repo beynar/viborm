@@ -11,6 +11,7 @@
  * This allows the same scalar to be reused across multiple models with different keys.
  */
 
+import { isValidSchemaIdentifier } from "./identifier";
 import type { Model, NameRegistry } from "./model";
 import type { AnyRelation } from "./relation";
 import type { Scalar } from "./scalars/base";
@@ -49,6 +50,14 @@ function hydrateModel(modelKey: string, model: Model<any>): void {
   const state = model["~"].state;
   const registry = model["~"].nameRegistry as NameRegistry;
 
+  assertValidIdentifier("Model", modelKey);
+  if (state.tableName !== undefined) {
+    assertValidIdentifier("Mapped table", state.tableName, modelKey);
+  }
+  for (const fieldKey of Object.keys(state.shape)) {
+    assertValidIdentifier("Field", fieldKey, modelKey);
+  }
+
   // Set model names
   names.ts = modelKey;
   names.sql = state.tableName ?? modelKey;
@@ -57,6 +66,13 @@ function hydrateModel(modelKey: string, model: Model<any>): void {
   for (const [fieldKey, scalar] of Object.entries(
     state.scalars as Record<string, Scalar>
   )) {
+    if (scalar["~"].state.columnName !== undefined) {
+      assertValidIdentifier(
+        "Mapped column",
+        scalar["~"].state.columnName,
+        modelKey
+      );
+    }
     const fieldNames: SchemaNames = {
       ts: fieldKey,
       sql: scalar["~"].state.columnName ?? fieldKey,
@@ -80,6 +96,19 @@ function hydrateModel(modelKey: string, model: Model<any>): void {
   }
 
   // Operation schemas are built by SchemaRegistry, not during name hydration.
+}
+
+function assertValidIdentifier(
+  kind: "Field" | "Mapped column" | "Mapped table" | "Model",
+  identifier: unknown,
+  modelName?: string
+): void {
+  if (isValidSchemaIdentifier(identifier)) return;
+  const location = modelName ? ` in '${modelName}'` : "";
+  const renderedIdentifier = String(identifier);
+  throw new Error(
+    `${kind} '${renderedIdentifier}'${location} is invalid identifier; identifiers must be ASCII, at most 63 bytes, and must not collide with Object.prototype properties`
+  );
 }
 
 /**

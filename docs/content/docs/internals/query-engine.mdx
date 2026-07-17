@@ -1,186 +1,137 @@
 ---
 title: L6 - Query Engine
-description: Transform VibORM queries into SQL without knowing which database you're using
+description: Compile one portable operation program and execute it consistently on every supported database
 icon: Database
 ---
 
 **Location:** `src/query-engine/`
 
-## Why This Layer Exists
+## Purpose
 
-VibORM supports PostgreSQL, MySQL, and SQLite. Each has different syntax:
+The query engine owns database-agnostic query meaning. Every accepted client
+operation compiles to one declarative `OperationProgram`; adapters express its
+SQL and drivers execute it. PostgreSQL, MySQL, SQLite, LibSQL, and PGlite may use
+different syntax or execution capabilities, but portable operations retain the
+same accepted inputs, atomic effects, results, and failures.
 
-```sql
--- PostgreSQL
-SELECT COALESCE(json_agg(row_to_json(t)), '[]'::json) FROM ...
+## Ownership Graph
 
--- MySQL  
-SELECT JSON_ARRAYAGG(JSON_OBJECT(...)) FROM ...
-
--- SQLite
-SELECT json_group_array(json_object(...)) FROM ...
+```text
+QueryEngine
+└── PendingOperation
+    ├── OperationCompiler → OperationProgram → SQL builders → adapter
+    ├── OperationRuntime  → OperationProgram → driver
+    └── OperationResults  → result shape → strict parsers
 ```
 
-If the query engine generated dialect-specific SQL, adding a database would require modifying 50+ files. Instead:
+| Owner | Responsibility |
+| --- | --- |
+| `QueryEngine` | Client-scoped driver, registry, instrumentation, client identity, and transaction scope |
+| `PendingOperation` | The sole lazy and Promise-like operation lifecycle |
+| `OperationCompiler` | Exhaustive read/write dispatch and program construction |
+| `WriteOperations` | Every write semantic, including relation mutations |
+| `OperationProgram` | Data-only steps, dependencies, guards, branches, produced values, atomicity, and result declaration |
+| `OperationRuntime` | Select statement, transaction, or atomic-batch execution |
+| `OperationResults` | Attribute provider outputs and produce the declared public result |
+| `QueryScope` | Adapter, current model, alias allocation, root alias, and mutation target for SQL construction only |
 
-- **Query engine** decides WHAT to query (structure, joins, conditions)
-- **Adapters** decide HOW to express it (syntax, functions, quotes)
+`QueryEngine` is a real owner rather than a forwarding shell. A transaction-
+bound engine preserves its originating client identity and receives a new scope
+identity.
 
-## The Golden Rule
+## One Program Vocabulary
 
-> Query engine NEVER generates dialect-specific SQL. ALWAYS delegate to adapter.
+A simple read or write is a one-step program. Multi-step non-`RETURNING`
+emulation, bulk operations, relation mutations, deep returns, and dynamic
+branches compose from the same vocabulary:
+
+- `read` and `write` execute adapter-built SQL fragments;
+- `guard` fails when a required database premise no longer holds;
+- `branch` chooses a declared step sequence from a prior read;
+- `failure` represents an explicit typed error;
+- produced values reference earlier outputs without runtime callbacks.
+
+This is an operation program, not a second SQL AST. Programs contain no
+callbacks, relation semantics, adapters, drivers, or arbitrary context bags.
+
+## Execution
+
+```text
+client call
+  → PendingOperation (lazy)
+  → validation
+  → OperationCompiler
+  → OperationProgram
+  → OperationRuntime
+       ├── direct statement
+       ├── interactive transaction
+       └── atomic driver batch
+  → OperationResults
+  → typed value
+```
+
+Runtime modules do not import relation semantics. Transaction and batch paths
+specialize the same program: one may observe uncommitted writes directly,
+while the other lowers references and guards into an ordered atomic batch.
+
+## Relation Writes
+
+Nested writes remain a public feature, but there is no nested-write engine.
+Relation mutation semantics live under `WriteOperations`, compile into ordinary
+program steps, and use the same runtime as every other operation.
+
+This keeps create, connect, connect-or-create, update, upsert, set, disconnect,
+delete, and many-to-many membership behavior equivalent across providers.
+
+## SQL and Adapter Boundary
+
+The golden rule remains:
+
+> The query engine decides what to query. The adapter decides how the database
+> expresses it.
 
 ```typescript
-// ❌ WRONG: Hardcoded PostgreSQL
-sql`COALESCE(json_agg(...), '[]'::json)`
+// Wrong: PostgreSQL syntax in the query engine
+sql`COALESCE(json_agg(...), '[]'::json)`;
 
-// ✅ RIGHT: Delegate to adapter
-ctx.adapter.json.agg(subquery)
+// Right: adapter-owned syntax
+scope.adapter.json.agg(expression);
 ```
 
-This is the most important architectural rule in VibORM.
+SQL construction remains in `builders/`, grouped by real concerns: where,
+relation filters, selections, includes, ordering, aggregation, mutation values,
+row shapes, and many-to-many junctions. Builders return parameterized `Sql`
+fragments and never interpolate user values into SQL strings.
 
-## Structure
+## Strict Results
 
-| File | Purpose |
-|------|---------|
-| `query-engine.ts` | Public `QueryEngine` shell (build/prepare/execute) |
-| `executor.ts` | Validates + builds SQL for an operation |
-| `result-flow.ts` | Result parsing/hydration flow |
-| `transaction-flow.ts` | `$transaction` + the nested-write entry point |
-| `cache-flow.ts` | Cache read/write orchestration |
-| `validator.ts` | Input validation through `SchemaRegistry` |
-| `context/` | `QueryContext`, alias generation (t0, t1, ...) |
-| `builders/` | SQL fragment builders |
-| `operations/` | Per-operation SQL construction |
-| `operations/nested-writes/` | The nested-write interpreter (see below) |
-| `result/` | Result parsing, JSON coercion |
+`OperationResults` validates program result sources and owns one parser identity
+per execution driver. Provider middleware runs in this order:
 
-## How It Works
-
-### 1. Query Context
-
-Every query operation receives a context:
-
-```typescript
-interface QueryContext {
-  adapter: DatabaseAdapter;             // Database-specific methods
-  model: Model;                         // The model being queried
-  registry: ModelRegistry;              // Access to related models
-  schemaRegistry: SchemaRegistryLookup; // Operation validation schemas
-  nextAlias(): string;                  // Generate t0, t1, t2...
-}
+```text
+driver parser → adapter parser → default strict parser
 ```
 
-### 2. SQL Fragments
+Row, relation, aggregate, count, scalar, and expected-shape parsing remain
+separate cohesive concerns under `result/`. Missing or malformed provider data
+raises typed errors; parsing never replaces it with a plausible default.
 
-Builders return `Sql` fragments, not strings:
+## SQL Inspection
 
-```typescript
-const fragment = sql`WHERE ${field} = ${value}`;
-// Contains: template strings + parameter values (separated)
-```
+`QueryEngine.build()` is deliberately limited to programs containing exactly
+one executable SQL step. It throws for multi-step programs instead of pretending
+that an atomic operation is one SQL statement. General operations use
+`prepare()` or execute the returned `PendingOperation`.
 
-Fragments enable:
-- **Parameterization**: Values stay separate from SQL (prevents injection)
-- **Composition**: Fragments can nest inside other fragments
+## Compatibility
 
-### 3. Operation Flow
+`PendingOperation` is the sole deferred-operation class. The deprecated
+`QueryMetadata<T>` export is only a type alias to `PendingOperation<T>` through
+the next published compatibility release; no runtime metadata object exists.
 
-```typescript
-orm.user.findMany({ where: { email: "..." } })
+## Architecture Gates
 
-// 1. Query enters operations/find-many.ts
-// 2. Builders construct SQL fragments
-// 3. Fragments delegate to adapter for syntax
-// 4. Driver executes final SQL
-```
-
-## Supported Operations
-
-All operations from `src/query-engine/types.ts` (`OrThrow` variants are handled by the engine as a suffix on the base operation):
-
-| Operation | Description |
-|-----------|-------------|
-| `findFirst` | SELECT with LIMIT 1 |
-| `findMany` | SELECT with relations |
-| `findUnique` | SELECT by unique constraint |
-| `exist` | SELECT EXISTS check |
-| `create` | INSERT single row |
-| `createMany` | INSERT multiple rows (returns count) |
-| `createManyAndReturn` | INSERT multiple rows, return them |
-| `update` | UPDATE by unique constraint |
-| `updateMany` | UPDATE multiple rows (returns count) |
-| `updateManyAndReturn` | UPDATE multiple rows, return them |
-| `delete` | DELETE by unique constraint |
-| `deleteMany` | DELETE multiple rows (returns count) |
-| `upsert` | INSERT or UPDATE on conflict |
-| `count` | COUNT with conditions |
-| `aggregate` | SUM, AVG, MIN, MAX, COUNT |
-| `groupBy` | GROUP BY with per-group aggregates |
-
-## Builders
-
-The fragment builders in `src/query-engine/builders/`:
-
-| Builder | Purpose |
-|---------|---------|
-| `where-builder` | WHERE clauses from filter objects |
-| `where-unique-builder` | WHERE for unique constraints (incl. compound keys) |
-| `relation-filter-builder` | `some`/`every`/`none`/`is`/`isNot` |
-| `select-builder` | SELECT columns, JSON object shapes |
-| `include-builder` | Nested relation subqueries (lateral join or correlated) |
-| `relation-count-builder` | `_count` of relations |
-| `orderby-builder` | ORDER BY clauses |
-| `relation-orderby-builder` | Ordering by related fields |
-| `sort-order-builder` | Sort direction / nulls handling |
-| `vector-distance-builder` | `_distance` ordering and selection |
-| `values-builder` | VALUES for INSERT (incl. `BatchValueRef` carriers) |
-| `insert-row-shapes` | Row shaping for multi-row inserts |
-| `set-builder` | SET for UPDATE (incl. `increment`, `push`, ...) |
-| `generated-scalar` | Auto-generated values (uuid/ulid/nanoid/cuid, `now`) |
-| `aggregate-utils` | Aggregate selection helpers |
-| `correlation-utils` | Correlated subquery helpers |
-| `many-to-many-utils` | Junction-table fragments |
-| `relation-data-builder` | Relation payload extraction for nested writes |
-| `nested-write-detector` | Detects which mutations carry nested writes |
-
-## Nested-Write Interpreter
-
-The largest subsystem in the engine lives in `operations/nested-writes/`. A nested write (`create`/`update`/`upsert` carrying relation mutations) is an ordered plan over uncertain state — DB-assigned IDs a later statement needs, reads that decide branches (does the upsert target exist? did `connectOrCreate` find a row?), and invariants that must hold at commit — executed atomically on one connection.
-
-There is **one interpreter** that owns every semantic decision, parameterized by a two-implementation `Mode` capability object:
-
-- `interpreter.ts` — entry point: dispatch and the per-operation bundle. Semantics live here and in the family modules, never in the modes.
-- `interpret-create-family.ts` — `create`/`createMany`/`connect`/`connectOrCreate`, both FK directions.
-- `interpret-update-family.ts` — `update`/`updateMany`/`disconnect`/`delete`/`deleteMany`/`set`.
-- `interpret-upsert-family.ts` — top-level and nested upsert.
-- `interpret-m2m.ts` — every many-to-many mutation kind.
-- `interpret-shared.ts` — cross-family leaves (guards, FK expression helpers).
-- `mode.ts` — the `Mode` interface plus `selectMode`, the **single capability fork**: the only place a driver's `supportsTransactions`/`supportsBatch` flags are read.
-- `live-mode.ts` — for drivers with callback transactions: executes each effect immediately inside one transaction and can read its own uncommitted writes.
-- `planned-mode.ts` — for batch-only drivers (D1, Neon HTTP): lowers effects into one ordered statement list, defers produced values through a scratch table (`adapter.batchRefs`), and pins plan-time branch decisions with SQL assertions.
-
-The single axis of variation is one capability bit — *can a read issued mid-operation see this operation's own uncommitted writes?* Drivers that support neither transactions nor atomic batches get a typed rejection from `selectMode`.
-
-Two test suites gate this design:
-
-- **Conformance oracle** (`tests/query-engine/nested-write-conformance.test.ts`): runs identical nested-write scenarios through both modes on PGlite and asserts byte-identical persisted state.
-- **Architecture gates** (`pnpm test:gates`): grep-based checks that capability flags are read only in `mode.ts`, that mode files import no semantic layer, and that no family module imports a concrete mode.
-
-Full design: `docs/architecture/engine-unification/DESIGN.md`.
-
-## Result Parsing
-
-Results are automatically parsed in `result/`:
-
-- JSON strings (MySQL/SQLite) are parsed to objects
-- Null values are coalesced for optional relations
-- Empty arrays for missing to-many relations
-
-## Connection to Other Layers
-
-- **L3 (Operation Schemas)**: Query engine validates inputs against schemas
-- **L7 (Adapters)**: All SQL syntax delegated to adapters
-- **L8 (Drivers)**: Drivers execute the generated SQL
-- **L9 (Client)**: Client calls query engine operations
+`pnpm test:gates` enforces lifecycle ownership, compiler/runtime/result import
+boundaries, the narrow `QueryScope`, removal of the retired subsystem, and an
+acyclic query-engine runtime import graph. Shared provider suites then prove the
+same portable behavior on PostgreSQL, MySQL, SQLite, LibSQL, and PGlite.

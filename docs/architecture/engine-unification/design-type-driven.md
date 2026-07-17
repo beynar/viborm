@@ -1,5 +1,7 @@
 # Engine Unification — Type-Driven Design
 
+> **Historical proposal.** This document predates the shipped unified engine and the removal of the D1 REST driver. It is retained only as design history; `DESIGN.md`, current exports, and the conformance suites are authoritative.
+
 > Design lens: **make illegal states unrepresentable.** The IR types carry the
 > substrate-capability contract. The compiler produces the *most static plan
 > possible*; a plan that cannot run on a batch driver must not typecheck as a

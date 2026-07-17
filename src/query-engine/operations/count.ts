@@ -5,9 +5,10 @@
  * Returns the number of records matching the criteria.
  */
 
+import { COUNT_RESULT_KEY } from "@adapters/shared/result-parsing";
 import { type Sql, sql } from "@sql";
 import { getColumnName } from "../context";
-import type { QueryContext } from "../types";
+import type { QueryScope } from "../types";
 import { buildAggregateInputWindow } from "./aggregate-input";
 
 interface CountArgs {
@@ -26,7 +27,7 @@ interface CountArgs {
  * @param args - Count arguments
  * @returns SQL statement
  */
-export function buildCount(ctx: QueryContext, args: CountArgs): Sql {
+export function buildCount(ctx: QueryScope, args: CountArgs): Sql {
   const { adapter } = ctx;
   const input = buildAggregateInputWindow(
     ctx,
@@ -57,15 +58,17 @@ function getCountFieldNames(select?: Record<string, boolean>): string[] {
  * Build count columns based on select input
  */
 function buildCountColumns(
-  ctx: QueryContext,
+  ctx: QueryScope,
   select: Record<string, boolean> | undefined,
   alias: string
 ): Sql {
   const { adapter } = ctx;
 
   if (!select) {
-    // Simple count all - adapter.result.parseResult normalizes database-specific column names
-    return adapter.aggregates.count();
+    return adapter.identifiers.aliased(
+      adapter.aggregates.count(),
+      COUNT_RESULT_KEY
+    );
   }
 
   // Build count for specific fields
@@ -88,7 +91,10 @@ function buildCountColumns(
   }
 
   if (counts.length === 0) {
-    return adapter.aggregates.count();
+    return adapter.identifiers.aliased(
+      adapter.aggregates.count(),
+      COUNT_RESULT_KEY
+    );
   }
 
   return sql.join(counts, ", ");

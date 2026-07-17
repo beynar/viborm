@@ -16,7 +16,8 @@ type ManyToManyClientConfig = VibORMConfig & {
 
 type ManyToManyClient = VibORMClient<ManyToManyClientConfig>;
 
-const DELETE_MANY_CONFLICT = /deleteMany/;
+const DELETE_MANY_MEMBERSHIP_DEPENDENCY =
+  /depends on an earlier 'connect' membership write/;
 const NAME_DISAMBIGUATION = /\.name\(\)/;
 
 export interface ManyToManyBehaviorOptions {
@@ -133,17 +134,36 @@ export function runManyToManyBehavior({
         where: { id: "p1" },
         data: {
           tags: {
-            connectOrCreate: [
-              { where: { id: "t1" }, create: { id: "t1", name: "ignored" } },
-              { where: { id: "t9" }, create: { id: "t9", name: "tag-9" } },
-            ],
+            connectOrCreate: {
+              where: { id: "t1" },
+              create: { id: "t1", name: "ignored" },
+            },
+          },
+        },
+      });
+
+      expect(await tagIdsOf("p1")).toEqual(["t1"]);
+      const t1 = await c.tag.findUnique({ where: { id: "t1" } });
+      expect(t1?.name).toBe("tag-1");
+
+      // The planner cannot inspect custom/existing column collations, so two
+      // string selectors are not certified disjoint inside one planned
+      // operation. Exercise the missing branch separately.
+      await c.post.update({
+        where: { id: "p1" },
+        data: {
+          tags: {
+            connectOrCreate: {
+              where: { id: "t9" },
+              create: { id: "t9", name: "tag-9" },
+            },
           },
         },
       });
 
       expect(await tagIdsOf("p1")).toEqual(["t1", "t9"]);
-      const t1 = await c.tag.findUnique({ where: { id: "t1" } });
-      expect(t1?.name).toBe("tag-1");
+      const t9 = await c.tag.findUnique({ where: { id: "t9" } });
+      expect(t9?.name).toBe("tag-9");
     });
 
     test("disconnect removes the association and keeps the row", async () => {
@@ -421,7 +441,7 @@ export function runManyToManyBehavior({
       expect(await tagIdsOf("p1")).toEqual([]);
     });
 
-    test("connect combined with deleteMany in one update is rejected", async () => {
+    test("overlapping connect and deleteMany reject a membership dependency", async () => {
       const c = requireClient(client);
       await c.post.update({
         where: { id: "p1" },
@@ -438,7 +458,7 @@ export function runManyToManyBehavior({
             },
           },
         })
-      ).rejects.toThrow(DELETE_MANY_CONFLICT);
+      ).rejects.toThrow(DELETE_MANY_MEMBERSHIP_DEPENDENCY);
 
       expect(await tagIdsOf("p1")).toEqual(["t1"]);
       expect(await c.tag.findUnique({ where: { id: "t2" } })).not.toBeNull();

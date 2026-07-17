@@ -1,25 +1,11 @@
+import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
-import { QueryEngineError } from "@errors";
-import { selectMode } from "@query-engine/operations/nested-writes/interpreter";
-import { LiveMode } from "@query-engine/operations/nested-writes/live-mode";
-import { PlannedMode } from "@query-engine/operations/nested-writes/planned-mode";
-import { describe, expect, test } from "vitest";
-
-/**
- * M1 capability-matrix gate (§11 M1 / §8.1), still enforced after the M9 old-
- * engine deletion.
- *
- * `selectMode` is the single capability fork and must route every driver class:
- *   - a transaction driver (incl. one that also supports batch) → LiveMode
- *   - a batch-only driver (D1 / Neon-HTTP class) → PlannedMode
- *   - a driver with neither atomic strategy (d1-http class) → the same
- *     "supports neither" rejection.
- *
- * The neither-capability rejection message and meta (`driver`, `operation`,
- * `strategy`) are pinned VERBATIM as string literals — §11 M1 required the
- * d1-http rejection to survive byte-identically to the frozen `atomic-runner`
- * path, and that literal is the surviving contract now the old path is deleted.
- */
+import type { BatchQuery, QueryResult } from "@drivers/types";
+import { PGlite, type Transaction } from "@electric-sql/pglite";
+import { TransactionError } from "@errors";
+import { push } from "@migrations";
+import { describe, expect, test, vi } from "vitest";
+import { nestedWriteBehaviorSchema } from "../fixtures/nested-write-behavior-schema";
 
 class BothCapabilitiesDriver extends PGliteDriver {
   override readonly supportsTransactions = true;
@@ -29,6 +15,21 @@ class BothCapabilitiesDriver extends PGliteDriver {
 class BatchOnlyDriver extends PGliteDriver {
   override readonly supportsTransactions = false;
   override readonly supportsBatch = true;
+
+  protected override async executeBatch<T>(
+    client: PGlite | Transaction,
+    queries: BatchQuery[]
+  ): Promise<QueryResult<T>[]> {
+    return this.transaction(client, async (transaction) => {
+      const results: QueryResult<T>[] = [];
+      for (const query of queries) {
+        results.push(
+          await this.executeRaw<T>(transaction, query.sql, query.params)
+        );
+      }
+      return results;
+    });
+  }
 }
 
 class NoAtomicDriver extends PGliteDriver {
@@ -36,54 +37,155 @@ class NoAtomicDriver extends PGliteDriver {
   override readonly supportsBatch = false;
 }
 
-const NESTED_OPERATIONS = ["create", "update", "upsert"] as const;
+type AtomicOperation = "create" | "update" | "upsert";
 
-describe("selectMode capability matrix", () => {
-  test("transaction driver routes to LiveMode", () => {
-    const mode = selectMode(new PGliteDriver(), "create");
-    expect(mode).toBeInstanceOf(LiveMode);
-    expect(mode.canObserveOwnWrites).toBe(true);
+const ATOMIC_OPERATIONS: readonly AtomicOperation[] = [
+  "create",
+  "update",
+  "upsert",
+];
+
+async function setupDb(): Promise<PGlite> {
+  const db = new PGlite();
+  const client = createClient({
+    schema: nestedWriteBehaviorSchema,
+    driver: new PGliteDriver({ client: db }),
   });
+  await push(client, { force: true });
+  return db;
+}
 
-  test("driver supporting both transactions and batch prefers LiveMode", () => {
-    const mode = selectMode(new BothCapabilitiesDriver(), "update");
-    expect(mode).toBeInstanceOf(LiveMode);
-    expect(mode.canObserveOwnWrites).toBe(true);
-  });
+function nestedCreate(driver: PGliteDriver, suffix: string) {
+  const client = createClient({ schema: nestedWriteBehaviorSchema, driver });
+  return {
+    client,
+    operation: client.user.create({
+      data: {
+        id: `user-${suffix}`,
+        name: "Owner",
+        posts: {
+          create: { id: `post-${suffix}`, title: "Nested" },
+        },
+      },
+    }),
+  };
+}
 
-  test("batch-only driver routes to PlannedMode", () => {
-    const mode = selectMode(new BatchOnlyDriver(), "upsert");
-    expect(mode).toBeInstanceOf(PlannedMode);
-    expect(mode.canObserveOwnWrites).toBe(false);
-  });
+function unsupportedOperation(
+  driver: NoAtomicDriver,
+  operation: AtomicOperation
+): PromiseLike<unknown> {
+  const client = createClient({ schema: nestedWriteBehaviorSchema, driver });
+  switch (operation) {
+    case "create":
+      return client.user.create({
+        data: {
+          id: "u-create",
+          name: "Owner",
+          posts: { create: { id: "p-create", title: "Nested" } },
+        },
+      });
+    case "update":
+      return client.user.update({
+        where: { id: "u-update" },
+        data: {
+          posts: { create: { id: "p-update", title: "Nested" } },
+        },
+      });
+    case "upsert":
+      return client.user.upsert({
+        where: { id: "u-upsert" },
+        create: {
+          id: "u-upsert",
+          name: "Owner",
+          posts: { create: { id: "p-upsert", title: "Nested" } },
+        },
+        update: { name: "Updated" },
+      });
+    default:
+      throw new Error(`Unknown atomic operation '${operation}'.`);
+  }
+}
 
-  describe("neither-capability driver rejects with the pinned message", () => {
-    for (const operation of NESTED_OPERATIONS) {
-      test(`operation '${operation}'`, () => {
+describe("OperationRuntime capability matrix", () => {
+  test(
+    "transaction driver executes an operation program in one transaction",
+    { timeout: 30_000 },
+    async () => {
+      const db = await setupDb();
+      const driver = new PGliteDriver({ client: db });
+      const transactionSpy = vi.spyOn(driver, "withTransaction");
+      const batchSpy = vi.spyOn(driver, "_executeBatch");
+      const { client, operation } = nestedCreate(driver, "transaction");
+
+      expect(operation.compile()).toMatchObject({ atomicity: "operation" });
+      await operation;
+
+      expect(transactionSpy).toHaveBeenCalledTimes(1);
+      expect(batchSpy).not.toHaveBeenCalled();
+      await client.$disconnect();
+    }
+  );
+
+  test(
+    "driver supporting both capabilities prefers transaction execution",
+    { timeout: 30_000 },
+    async () => {
+      const db = await setupDb();
+      const driver = new BothCapabilitiesDriver({ client: db });
+      const transactionSpy = vi.spyOn(driver, "withTransaction");
+      const batchSpy = vi.spyOn(driver, "_executeBatch");
+      const { client, operation } = nestedCreate(driver, "both");
+
+      expect(operation.compile()).toMatchObject({ atomicity: "operation" });
+      await operation;
+
+      expect(transactionSpy).toHaveBeenCalledTimes(1);
+      expect(batchSpy).not.toHaveBeenCalled();
+      await client.$disconnect();
+    }
+  );
+
+  test(
+    "batch-only driver executes the same operation program in one atomic batch",
+    { timeout: 30_000 },
+    async () => {
+      const db = await setupDb();
+      const driver = new BatchOnlyDriver({ client: db });
+      const transactionSpy = vi.spyOn(driver, "withTransaction");
+      const batchSpy = vi.spyOn(driver, "_executeBatch");
+      const { client, operation } = nestedCreate(driver, "batch");
+
+      expect(operation.compile()).toMatchObject({ atomicity: "operation" });
+      await operation;
+
+      expect(batchSpy).toHaveBeenCalledTimes(1);
+      expect(transactionSpy).not.toHaveBeenCalled();
+      await client.$disconnect();
+    }
+  );
+
+  describe("driver with neither atomic capability fails closed", () => {
+    for (const operationName of ATOMIC_OPERATIONS) {
+      test(`operation '${operationName}'`, async () => {
         const driver = new NoAtomicDriver();
 
         let thrown: unknown;
         try {
-          selectMode(driver, operation);
+          await unsupportedOperation(driver, operationName);
         } catch (error) {
           thrown = error;
         }
 
-        expect(thrown).toBeInstanceOf(QueryEngineError);
-        if (!(thrown instanceof QueryEngineError)) {
-          throw new Error("expected a QueryEngineError");
+        expect(thrown).toBeInstanceOf(TransactionError);
+        if (!(thrown instanceof TransactionError)) {
+          throw new Error("expected a TransactionError");
         }
-
-        // Message pinned verbatim, including the operation name interpolated
-        // ("nested create writes", etc.).
         expect(thrown.message).toBe(
-          `Driver '${driver.driverName}' cannot execute nested ${operation} writes atomically because it supports neither callback transactions nor atomic batch execution.`
+          `Driver '${driver.driverName}' supports neither transactions nor atomic batch execution.`
         );
-
-        // Meta pinned by shape, including meta.operation.
         expect(thrown.meta.driver).toBe(driver.driverName);
-        expect(thrown.meta.operation).toBe(operation);
-        expect(thrown.meta.strategy).toBe("unsupported");
+        expect(thrown.meta.operation).toBe(operationName);
       });
     }
   });

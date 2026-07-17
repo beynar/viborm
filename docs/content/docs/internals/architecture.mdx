@@ -92,22 +92,28 @@ sequenceDiagram
     participant U as User
     participant C as Client
     participant V as Validator
-    participant Q as QueryEngine
+    participant P as PendingOperation
+    participant Q as OperationCompiler
     participant A as Adapter
+    participant R as OperationRuntime
     participant D as Driver
     participant DB as Database
+    participant O as OperationResults
 
     U->>C: orm.user.findMany({ where: { name: "Alice" } })
-    C->>V: Validate args against schema
-    V-->>C: Validated & normalized args
-    C->>Q: Execute operation
-    Q->>A: Build SQL via adapter methods
-    A-->>Q: Sql fragments
-    Q->>D: Execute SQL
+    C->>P: Create lazy operation
+    P->>V: Validate on execution
+    V-->>Q: Validated operation
+    Q->>A: Build adapter-backed Sql fragments
+    A-->>Q: Parameterized Sql
+    Q-->>R: OperationProgram
+    R->>D: Execute statement, transaction, or atomic batch
     D->>DB: Query
     DB-->>D: Raw results
-    D-->>Q: Transform results
-    Q-->>C: Typed results
+    D-->>R: Provider results
+    R->>O: Resolve declared program result
+    O-->>P: Typed result
+    P-->>C: Resolve Promise-like operation
     C-->>U: User[]
 ```
 
@@ -131,7 +137,7 @@ These layers handle **query building and execution**.
 
 | Layer | Purpose |
 |-------|---------|
-| L6: Query Engine | Database-agnostic query structure (WHAT) |
+| L6: Query Engine | Compiles one database-agnostic operation program and resolves its declared result (WHAT) |
 | L7: Adapters | Database-specific SQL syntax (HOW) |
 | L8: Drivers | Connection management and execution |
 
@@ -139,9 +145,13 @@ These layers handle **query building and execution**.
 
 The client layer provides the **public API** and type inference.
 
-### Management Layer (L10)
+### Extension and Management Layers (L10-L12)
 
-Migrations handle **schema evolution** independently.
+| Layer | Purpose |
+|-------|---------|
+| L10: Cache | Caches read results and coordinates invalidation without owning query execution |
+| L11: Instrumentation | Observes operations through tracing, logging, and diagnostics without owning query logic |
+| L12: Migrations | Handles schema evolution through snapshots, diffs, and database-specific DDL |
 
 ## File Structure
 
@@ -158,5 +168,7 @@ src/
 ├── adapters/             # L7: Database adapters
 ├── drivers/              # L8: Database drivers
 ├── client/               # L9: ORM client
-└── migrations/           # L10: Schema migrations
+├── cache/                # L10: Query cache and invalidation
+├── instrumentation/      # L11: Tracing, logging, and diagnostics
+└── migrations/           # L12: Schema migrations
 ```

@@ -5,7 +5,7 @@
  */
 
 import type { Sql } from "@sql";
-import { type QueryContext, QueryEngineError } from "../types";
+import { QueryEngineError, type QueryScope } from "../types";
 import { buildVectorDistanceExpression } from "./vector-distance-builder";
 
 type SortableScalarState = {
@@ -23,7 +23,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> => {
 };
 
 function buildVectorDistanceOrder(
-  ctx: QueryContext,
+  ctx: QueryScope,
   column: Sql,
   value: unknown,
   field: SortOrderField | undefined
@@ -50,7 +50,7 @@ function buildVectorDistanceOrder(
 }
 
 export function buildSingleOrder(
-  ctx: QueryContext,
+  ctx: QueryScope,
   column: Sql,
   value: unknown,
   field?: SortOrderField

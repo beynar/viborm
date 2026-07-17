@@ -1,5 +1,10 @@
 # Prisma Nested Writes Implementation Plan
 
+> **Superseded historical plan.** This plan established the portable nested-
+> write contract. Its separate engine structure was later replaced by the
+> universal operation program documented in
+> [`query-engine-operation-program-implementation-plan.md`](./query-engine-operation-program-implementation-plan.md).
+
 ## Purpose
 
 Close the nested-write gap identified in `prisma-subset-priorities.md`.
@@ -398,7 +403,6 @@ coverage where practical.
 - Add hosted/external suites only when credentials or stable local emulators are
   available:
   - D1;
-  - D1 HTTP;
   - Neon HTTP;
   - MySQL/PlanetScale.
 - If any supported driver lacks an atomic nested-write strategy, keep the phase

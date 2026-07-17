@@ -9,6 +9,11 @@ import { s } from "@schema";
 import { sql } from "@sql";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
+const AMBIGUOUS_RELATION_PATTERN = /Ambiguous relation .*\.name\(\)/s;
+const CURSOR_PATTERN = /cursor/;
+const EMPTY_SELECT_PATTERN = /at least one truthy value/i;
+const TAKE_PATTERN = /take/i;
+
 // =============================================================================
 // Schema 1: two named relations between the same models + mapped FK column
 // + a string scalar holding JSON-looking content
@@ -124,6 +129,41 @@ type ManyToManyClientConfig = VibORMConfig & {
   driver: AnyDriver;
 };
 type ManyToManyClient = VibORMClient<ManyToManyClientConfig>;
+
+// =============================================================================
+// Schema 4: default projections with every scalar omitted
+// =============================================================================
+
+const emptyProjectionParent = s
+  .model({
+    id: s.string().id(),
+    children: s.oneToMany(() => emptyProjectionChild),
+  })
+  .omit({ id: true })
+  .map("read_path_empty_parents");
+
+const emptyProjectionChild = s
+  .model({
+    id: s.string().id(),
+    parentId: s.string(),
+    parent: s
+      .manyToOne(() => emptyProjectionParent)
+      .fields("parentId")
+      .references("id"),
+  })
+  .omit({ id: true, parentId: true })
+  .map("read_path_empty_children");
+
+const emptyProjectionSchema = {
+  parent: emptyProjectionParent,
+  child: emptyProjectionChild,
+};
+
+type EmptyProjectionClientConfig = VibORMConfig & {
+  schema: typeof emptyProjectionSchema;
+  driver: AnyDriver;
+};
+type EmptyProjectionClient = VibORMClient<EmptyProjectionClientConfig>;
 
 export interface ReadPathRegressionBehaviorOptions {
   driverName: string;
@@ -242,12 +282,22 @@ export function runReadPathRegressionBehavior({
         expect(withAuthored?.authored[0]?.notes).toBe('{"sneaky": true}');
       });
 
+      test("groupBy returns mapped scalars under their public names", async () => {
+        const groups = await client.post.groupBy({
+          by: "editorId",
+          where: { editorId: { not: null } },
+          _count: true,
+        });
+
+        expect(groups).toEqual([{ editorId: "u2", _count: 1 }]);
+      });
+
       test("nested cursor is rejected instead of silently ignored", async () => {
         // `cursor` is also rejected at the type level; cast to reach the runtime guard
         const invalidInclude = { authored: { cursor: { id: "p1" } } } as never;
         await expect(
           client.user.findMany({ include: invalidInclude })
-        ).rejects.toThrow(/cursor/);
+        ).rejects.toThrow(CURSOR_PATTERN);
       });
 
       test("nested negative take is rejected instead of mis-paginating", async () => {
@@ -255,13 +305,73 @@ export function runReadPathRegressionBehavior({
           client.user.findMany({
             include: { authored: { take: -1 } },
           })
-        ).rejects.toThrow(/take/i);
+        ).rejects.toThrow(TAKE_PATTERN);
 
         const limited = await client.user.findUnique({
           where: { id: "u2" },
           include: { edited: { take: 1 } },
         });
         expect(limited?.edited).toHaveLength(1);
+      });
+    });
+
+    describe("empty default projections", () => {
+      let client: EmptyProjectionClient;
+
+      beforeEach(async () => {
+        client = createClient({
+          schema: emptyProjectionSchema,
+          driver: createDriver(),
+        });
+        await push(client, { force: true });
+        await client.parent.createMany({
+          data: [{ id: "parent-1" }, { id: "parent-2" }],
+        });
+        await client.child.createMany({
+          data: [
+            { id: "child-1", parentId: "parent-1" },
+            { id: "child-2", parentId: "parent-1" },
+          ],
+        });
+      });
+
+      afterEach(async () => {
+        await client.$disconnect();
+      });
+
+      test("preserves root and nested row cardinality", async () => {
+        const roots = await client.parent.findMany({ orderBy: { id: "asc" } });
+        expect(roots).toEqual([{}, {}]);
+
+        const nested = await client.parent.findMany({
+          orderBy: { id: "asc" },
+          include: { children: { orderBy: { id: "asc" } } },
+        });
+        expect(nested).toEqual([{ children: [{}, {}] }, { children: [] }]);
+      });
+
+      test("still rejects an explicit empty select", async () => {
+        await expect(client.parent.findMany({ select: {} })).rejects.toThrow(
+          EMPTY_SELECT_PATTERN
+        );
+      });
+
+      test("returns an empty public object from a live nested create", async () => {
+        const created = await client.parent.create({
+          data: {
+            id: "parent-3",
+            children: {
+              create: [{ id: "child-3" }, { id: "child-4" }],
+            },
+          },
+        });
+
+        expect(created).toEqual({});
+        const persisted = await client.parent.findUnique({
+          where: { id: "parent-3" },
+          include: { children: true },
+        });
+        expect(persisted).toEqual({ children: [{}, {}] });
       });
     });
 
@@ -284,7 +394,7 @@ export function runReadPathRegressionBehavior({
       test("include throws a descriptive error instead of picking the first FK", async () => {
         await expect(
           client.user.findMany({ include: { posts: true } })
-        ).rejects.toThrow(/Ambiguous relation .*\.name\(\)/s);
+        ).rejects.toThrow(AMBIGUOUS_RELATION_PATTERN);
       });
     });
 

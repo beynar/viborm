@@ -84,5 +84,40 @@ export const nestedWriteBehaviorSchema = (() => {
     })
     .map("nested_behavior_mapped_posts");
 
-  return { user, profile, post, tag, postTag, mappedUser, mappedPost };
+  const defaultOnlyRecord = s
+    .model({
+      id: s.int().id().increment(),
+    })
+    .map("nested_behavior_default_only_records");
+
+  const defaultOnlyParent = s
+    .model({
+      id: s.string().id(),
+      children: s.oneToMany(() => defaultOnlyChild),
+    })
+    .map("nested_behavior_default_only_parents");
+
+  const defaultOnlyChild = s
+    .model({
+      id: s.int().id().increment(),
+      parentId: s.string(),
+      parent: s
+        .manyToOne(() => defaultOnlyParent)
+        .fields("parentId")
+        .references("id"),
+    })
+    .map("nested_behavior_default_only_children");
+
+  return {
+    user,
+    profile,
+    post,
+    tag,
+    postTag,
+    mappedUser,
+    mappedPost,
+    defaultOnlyRecord,
+    defaultOnlyParent,
+    defaultOnlyChild,
+  };
 })();

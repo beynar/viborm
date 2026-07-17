@@ -1,7 +1,12 @@
+import { LibSQLDriver } from "@drivers/libsql";
+import type { BatchQuery, QueryResult } from "@drivers/types";
+import type { Client, Transaction } from "@libsql/client";
 import { createInMemoryLibSQLDriver } from "../fixtures/drivers/libsql";
+import { runCreateNestedUpsertBehavior } from "../query-engine-v2/create-nested-upsert-behavior";
 import { runClientRawBehavior } from "./client-raw-behavior";
 import { runCompoundKeyBehavior } from "./compound-key-behavior";
 import { runCountAggregateWindowBehavior } from "./count-aggregate-window-behavior";
+import { runCursorPaginationBehavior } from "./cursor-pagination-behavior";
 import { runDistinctSkipWindowBehavior } from "./distinct-skip-window-behavior";
 import { runLikeEscapeBehavior } from "./like-escape-behavior";
 import { runListJsonFilterBehavior } from "./list-json-filter-behavior";
@@ -22,9 +27,25 @@ import {
 } from "./scalar-roundtrip-behavior";
 import { runUpsertAtomicityBehavior } from "./upsert-atomicity-behavior";
 
-// The batch-only suites (batch-primary-key-dataflow, batch-ref-smoke) are not
-// wired here: they need a batch-only driver subclass and the batch dataflow is
-// already covered by PGlite and SQLite3 batch-only variants.
+class BatchOnlyLibSQLDriver extends LibSQLDriver {
+  override readonly supportsTransactions = false;
+  override readonly supportsBatch = true;
+
+  protected override async executeBatch<T>(
+    client: Client | Transaction,
+    queries: BatchQuery[]
+  ): Promise<QueryResult<T>[]> {
+    return this.transaction(client, async (transaction) => {
+      const results: QueryResult<T>[] = [];
+      for (const query of queries) {
+        results.push(
+          await this.executeRaw<T>(transaction, query.sql, query.params)
+        );
+      }
+      return results;
+    });
+  }
+}
 
 describe("LibSQL Driver", () => {
   runCountAggregateWindowBehavior({
@@ -33,6 +54,11 @@ describe("LibSQL Driver", () => {
   });
 
   runDistinctSkipWindowBehavior({
+    driverName: "LibSQL",
+    createDriver: createInMemoryLibSQLDriver,
+  });
+
+  runCursorPaginationBehavior({
     driverName: "LibSQL",
     createDriver: createInMemoryLibSQLDriver,
   });
@@ -129,5 +155,14 @@ describe("LibSQL Driver", () => {
   runUpsertAtomicityBehavior({
     driverName: "LibSQL",
     createDriver: createInMemoryLibSQLDriver,
+  });
+
+  runCreateNestedUpsertBehavior({
+    name: "LibSQL transaction",
+    createDriver: createInMemoryLibSQLDriver,
+  });
+  runCreateNestedUpsertBehavior({
+    name: "LibSQL atomic batch",
+    createDriver: () => new BatchOnlyLibSQLDriver(),
   });
 });

@@ -42,6 +42,18 @@ import {
 } from "../../shared/standard-sql";
 
 const quoteIdent = createIdentifierQuoter("`");
+const ASCII_UPPERCASE = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+const ASCII_LOWERCASE = "abcdefghijklmnopqrstuvwxyz";
+
+const asciiCaseFold = (expr: Sql): Sql => {
+  let folded = expr;
+  for (let index = 0; index < ASCII_UPPERCASE.length; index++) {
+    const upper = sql.raw`'${ASCII_UPPERCASE[index]}'`;
+    const lower = sql.raw`'${ASCII_LOWERCASE[index]}'`;
+    folded = sql`REPLACE(${folded}, ${upper}, ${lower})`;
+  }
+  return folded;
+};
 
 // MySQL DATETIME rejects ISO-8601's 'Z' suffix ("Incorrect datetime value"),
 // so datetimes are stored as naive UTC wall-clock 'YYYY-MM-DD HH:MM:SS.mmm'.
@@ -77,7 +89,7 @@ const inlineIntegerLiteral = (fragment: Sql): Sql => {
  * Key MySQL features:
  * - Backtick identifier escaping: `table`.`column`
  * - No native ARRAY type - uses JSON for arrays
- * - LIKE is case-insensitive by default (with collation)
+ * - Portable string filters override the database collation explicitly
  * - JSON_OBJECT(), JSON_ARRAYAGG() for JSON operations
  * - No RETURNING clause (use LAST_INSERT_ID())
  * - No NULLS FIRST/LAST ordering
@@ -130,16 +142,16 @@ export class MySQLAdapter implements DatabaseAdapter {
       sql`${column} LIKE ${pattern} ESCAPE '\\\\'`,
     notLike: (column: Sql, pattern: Sql): Sql =>
       sql`${column} NOT LIKE ${pattern} ESCAPE '\\\\'`,
-    // MySQL's default collations (utf8mb4_0900_ai_ci, utf8mb4_unicode_ci) are
-    // already case-insensitive, so plain LIKE is CI and keeps index range
-    // scans usable for startsWith. Forcing COLLATE on the pattern would
-    // defeat those scans and error on non-utf8mb4 columns. Consequently
-    // `like` (the "sensitive" op) is also CI on MySQL unless the column uses
-    // a _bin collation — same tradeoff Prisma makes.
     ilike: (column: Sql, pattern: Sql): Sql =>
-      sql`${column} LIKE ${pattern} ESCAPE '\\\\'`,
+      sql`${asciiCaseFold(column)} LIKE ${asciiCaseFold(pattern)} ESCAPE '\\\\'`,
     notIlike: (column: Sql, pattern: Sql): Sql =>
-      sql`${column} NOT LIKE ${pattern} ESCAPE '\\\\'`,
+      sql`${asciiCaseFold(column)} NOT LIKE ${asciiCaseFold(pattern)} ESCAPE '\\\\'`,
+    containsText: (column: Sql, value: Sql): Sql =>
+      sql`LOCATE(BINARY ${value}, BINARY ${column}) > 0`,
+    startsWithText: (column: Sql, value: Sql): Sql =>
+      sql`LEFT(BINARY ${column}, OCTET_LENGTH(${value})) = BINARY ${value}`,
+    endsWithText: (column: Sql, value: Sql): Sql =>
+      sql`RIGHT(BINARY ${column}, OCTET_LENGTH(${value})) = BINARY ${value}`,
 
     // Set membership
     ...createMembershipOperators(),
@@ -163,6 +175,9 @@ export class MySQLAdapter implements DatabaseAdapter {
 
   expressions = {
     ...createCommonExpressions(),
+
+    asciiCaseFold,
+    caseSensitiveText: (expr: Sql): Sql => sql`BINARY ${expr}`,
 
     // String operations - MySQL uses CONCAT() function
     concat: (...parts: Sql[]): Sql => {
@@ -309,6 +324,13 @@ export class MySQLAdapter implements DatabaseAdapter {
   set = {
     ...createNumericSetOperations(),
 
+    // MySQL `/` yields DECIMAL and rounds when assigned to an integer column.
+    // Truncate explicitly so integer division matches PostgreSQL and SQLite.
+    divide: (column: Sql, by: Sql, columnIsInteger?: boolean): Sql =>
+      columnIsInteger
+        ? sql`${column} = TRUNCATE(${column} / ${by}, 0)`
+        : sql`${column} = ${column} / ${by}`,
+
     push: (column: Sql, values: unknown[]): Sql =>
       sql`${column} = JSON_MERGE_PRESERVE(COALESCE(${column}, JSON_ARRAY()), CAST(${stringifyJson(values)} AS JSON))`,
 
@@ -373,7 +395,9 @@ export class MySQLAdapter implements DatabaseAdapter {
   // ============================================================
 
   mutations = {
+    skipDuplicatesStrategy: "recoverableUniqueError" as const,
     insert: createInsertStatement(quoteIdent),
+    insertDefault: (table: Sql): Sql => sql`INSERT INTO ${table} () VALUES ()`,
 
     ...createMutationCommands(),
 
@@ -381,14 +405,10 @@ export class MySQLAdapter implements DatabaseAdapter {
     // Use LAST_INSERT_ID() or SELECT after mutation
     returning: (_columns: Sql): Sql => sql.empty,
 
-    // MySQL uses ON DUPLICATE KEY UPDATE syntax
-    // targetWhere/setWhere are handled by the query engine via transaction-based fallback
-    //
-    // KNOWN DIVERGENCE: _target is ignored — ON DUPLICATE KEY UPDATE fires on
-    // ANY unique key collision, not just the targeted constraint. An upsert
-    // colliding on a different unique key updates on MySQL where PG/SQLite
-    // throw a unique-constraint error. Prisma shares this behavior. Documented
-    // in docs/content/docs/client/mutations/upsert.mdx.
+    // This low-level MySQL primitive ignores `_target`: ON DUPLICATE KEY UPDATE
+    // fires on any unique collision. Public non-returning upserts therefore do
+    // not execute this primitive; the query engine uses a locked, target-aware
+    // branch so an unrelated unique collision still throws on every database.
     onConflict: (_target: Sql | null, action: Sql, _targetWhere?: Sql): Sql => {
       return sql`ON DUPLICATE KEY UPDATE ${action}`;
     },
@@ -396,11 +416,15 @@ export class MySQLAdapter implements DatabaseAdapter {
     // MySQL doesn't need UPDATE SET prefix - onConflict already includes UPDATE
     onConflictUpdate: (sets: Sql, _setWhere?: Sql): Sql => sets,
 
-    // KNOWN DIVERGENCE: INSERT IGNORE swallows more than duplicate-key errors
-    // (FK violations, NOT NULL, data truncation become warnings), unlike
-    // ON CONFLICT DO NOTHING on PG/SQLite which only skips unique conflicts.
-    // Documented in docs/content/docs/client/mutations/create.mdx.
-    skipDuplicates: () => ({ prefix: sql`IGNORE`, suffix: sql`` }),
+    // A self-assignment reacts only to duplicate-key conflicts. Unlike
+    // INSERT IGNORE, unrelated constraint and conversion failures still abort.
+    skipDuplicates: (duplicateNoopColumn: string) => {
+      const column = sql.raw`${quoteIdent(duplicateNoopColumn)}`;
+      return {
+        prefix: sql.empty,
+        suffix: sql`ON DUPLICATE KEY UPDATE ${column} = ${column}`,
+      };
+    },
   };
 
   assertions = {
@@ -490,7 +514,7 @@ export class MySQLAdapter implements DatabaseAdapter {
       operation: import("../../../query-engine/types").Operation,
       next: (value?: unknown) => unknown
     ): unknown => {
-      // For count operation, normalize column name to _result
+      // Normalize raw count expressions to VibORM's private result carrier.
       if (operation === "count" || operation === "exist") {
         const normalized = normalizeCountResult(raw);
         if (normalized) {
@@ -522,7 +546,7 @@ export class MySQLAdapter implements DatabaseAdapter {
       if (scalarType === "boolean") {
         const parsed = parseIntegerBoolean(value);
         if (parsed !== undefined) {
-          return parsed;
+          return next(parsed);
         }
       }
       // Datetime strings are naive UTC wall-clock; without this, the default

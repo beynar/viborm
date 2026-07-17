@@ -364,6 +364,8 @@ export function runListJsonFilterBehavior({
                 level: 2,
                 pet: { name: "Fido", toys: ["ball", "rope"] },
                 tags: ["admin", "beta"],
+                literal: "100%_\\done",
+                accent: "Éclair",
                 "weird.key": { 'quote"key': "gotcha" },
               },
             },
@@ -458,25 +460,19 @@ export function runListJsonFilterBehavior({
         ).toEqual(["dark"]);
       });
 
-      test("path segments cannot splice extra path legs", async () => {
+      test("non-portable JSON path segments reject before execution", async () => {
         await seedJsonDocs();
-        // A segment with quotes/path syntax must be taken as one literal
-        // key (or match nothing), never re-parsed into multiple legs
-        expect(
-          await findNames({
+        await expect(
+          findNames({
             metadata: { path: ['pet".name'], equals: "Fido" },
           })
-        ).toEqual([]);
-        expect(
-          await findNames({
-            metadata: { path: ["pet.name"], equals: "Fido" },
+        ).rejects.toThrow("portable JSON path");
+        await expect(
+          findNames({
+            metadata: { path: ["pet\\name"], equals: "Fido" },
           })
-        ).toEqual([]);
-        expect(
-          await findNames({
-            metadata: { path: ["pet", 'toys"[0]'], equals: "ball" },
-          })
-        ).toEqual([]);
+        ).rejects.toThrow("portable JSON path");
+        expect(await requireClient(client).entry.count()).toBe(5);
       });
 
       test("string_contains at a path", async () => {
@@ -511,16 +507,26 @@ export function runListJsonFilterBehavior({
         ).toEqual(["light"]);
       });
 
-      test("string ops treat LIKE wildcards as literals", async () => {
+      test("JSON string ops are exact across case, wildcards, and Unicode", async () => {
         await seedJsonDocs();
         expect(
           await findNames({
-            metadata: { path: ["theme"], string_contains: "%" },
+            metadata: { path: ["theme"], string_contains: "ARK" },
           })
         ).toEqual([]);
         expect(
           await findNames({
-            metadata: { path: ["theme"], string_contains: "_ark" },
+            metadata: { path: ["literal"], string_contains: "%_\\" },
+          })
+        ).toEqual(["dark"]);
+        expect(
+          await findNames({
+            metadata: { path: ["accent"], string_starts_with: "Écl" },
+          })
+        ).toEqual(["dark"]);
+        expect(
+          await findNames({
+            metadata: { path: ["accent"], string_starts_with: "écl" },
           })
         ).toEqual([]);
       });

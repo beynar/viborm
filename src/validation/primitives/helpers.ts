@@ -202,6 +202,7 @@ export function buildValidator<T, TOut, TSchemaOut = T>(
     default: defaultVal,
     transform,
     schema,
+    disallowZero,
   } = options;
 
   // Check what we have
@@ -211,6 +212,21 @@ export function buildValidator<T, TOut, TSchemaOut = T>(
 
   // Build the core validator (base + schema + transform chain)
   let validate: ValidatorFn<any> = baseValidate;
+
+  if (disallowZero) {
+    const prev = validate;
+    validate = (value): ValidationResult<any> => {
+      const result = prev(value);
+      if (result.issues) return result;
+      const validated = (result as { value: unknown }).value;
+      if (validated === 0 || validated === 0n) {
+        return fail(
+          "Explicit zero is not portable for an auto-increment field"
+        );
+      }
+      return result;
+    };
+  }
 
   // Chain custom schema validation (if any)
 

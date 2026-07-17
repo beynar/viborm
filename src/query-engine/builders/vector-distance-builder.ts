@@ -1,6 +1,6 @@
 import { FeatureNotSupportedError } from "@errors";
 import type { Sql } from "@sql";
-import { type QueryContext, QueryEngineError } from "../types";
+import { QueryEngineError, type QueryScope } from "../types";
 
 type VectorDistanceMetric = "l2" | "cosine";
 type VectorDistanceUsage = "orderBy" | "select";
@@ -11,6 +11,7 @@ type VectorDistanceField = {
     | {
         type: string;
         dimension?: number | undefined;
+        nullable?: boolean | undefined;
       }
     | undefined;
 };
@@ -41,7 +42,7 @@ const getUnsupportedMessage = (usage: VectorDistanceUsage): string =>
     : "vector distance select requires a pgvector-enabled PostgreSQL driver";
 
 export function buildVectorDistanceExpression(
-  ctx: QueryContext,
+  ctx: QueryScope,
   column: Sql,
   value: unknown,
   field: VectorDistanceField | undefined,
@@ -52,6 +53,12 @@ export function buildVectorDistanceExpression(
   if (field?.scalarState?.type !== "vector") {
     throw new QueryEngineError(
       `Vector distance ${label} requires a vector scalar field.`
+    );
+  }
+
+  if (usage === "select" && field.scalarState.nullable === true) {
+    throw new QueryEngineError(
+      `Vector distance select does not support nullable vector field '${field.name}'.`
     );
   }
 

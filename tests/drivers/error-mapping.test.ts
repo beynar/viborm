@@ -9,14 +9,24 @@ import { PGlite } from "@electric-sql/pglite";
 import {
   CheckConstraintError,
   ForeignKeyError,
+  isVibORMError,
   NestedWriteAssertionError,
   NotNullConstraintError,
+  QueryError,
+  sanitizeErrorMetadata,
   TransactionError,
   UniqueConstraintError,
+  ValidationError,
+  VibORMError,
   VibORMErrorCode,
 } from "@errors";
+import { createInstrumentationContext } from "@instrumentation/context";
+import type { LogEvent } from "@instrumentation/types";
 import { push } from "@migrations";
 import { s } from "@schema";
+
+const REDACTED_ERROR_CONTENT_PATTERN =
+  /secret-password-value|SELECT id FROM users/;
 
 const user = s.model({
   id: s.string().id(),
@@ -43,25 +53,38 @@ async function createConstraintTables(driver: PGliteDriver): Promise<void> {
 
 describe("driver error mapping", () => {
   test("maps ORM unique constraint errors with model and operation context", async () => {
+    let loggedEvent: LogEvent | undefined;
     const driver = new PGliteDriver({ client: new PGlite() });
-    const client = createClient({ schema, driver });
+    const client = createClient({
+      schema,
+      driver,
+      instrumentation: {
+        logging: {
+          error: (event) => {
+            loggedEvent = event;
+          },
+        },
+      },
+    });
     await push(client, { force: true });
 
     await client.user.create({
       data: {
-        id: "duplicate-id",
+        id: "secret-password-value",
         email: "first@example.com",
       },
     });
 
-    await expect(
-      client.user.create({
+    const error = await client.user
+      .create({
         data: {
-          id: "duplicate-id",
+          id: "secret-password-value",
           email: "second@example.com",
         },
       })
-    ).rejects.toMatchObject({
+      .catch((caught) => caught);
+
+    expect(error).toMatchObject({
       name: "UniqueConstraintError",
       meta: {
         driver: "pglite",
@@ -69,6 +92,8 @@ describe("driver error mapping", () => {
         operation: "create",
       },
     });
+    expect(JSON.stringify(error)).not.toContain("secret-password-value");
+    expect(JSON.stringify(loggedEvent)).not.toContain("secret-password-value");
 
     await client.$disconnect();
   });
@@ -158,6 +183,10 @@ describe("normalizeDriverError fixtures", () => {
         driver: "planetscale",
         constraint: "users_email_key",
         table: "users",
+        providerCode: "ALREADY_EXISTS",
+        providerErrno: 1062,
+        providerSqlState: "23000",
+        providerStatus: 400,
       },
     });
   });
@@ -250,6 +279,234 @@ describe("normalizeDriverError fixtures", () => {
     expect(locked).toBeInstanceOf(TransactionError);
   });
 
+  test("clones reused VibORM errors with request-scoped disclosure and attribution", () => {
+    const shared = new QueryError("Shared safe error", {
+      diagnostics: { includeParams: true, includeSql: true },
+      meta: {
+        driver: "driver-a",
+        model: "account",
+        operation: "create",
+        correlationId: "source-correlation",
+        query: "SELECT source_private",
+        params: ["source-private-value"],
+      },
+    });
+
+    const first = normalizeDriverError(shared, {
+      driverName: "driver-a",
+      model: "account",
+      operation: "create",
+      correlationId: "first-correlation",
+      query: "SELECT first_private",
+      params: ["first-private-value"],
+      diagnostics: { includeParams: true, includeSql: true },
+    });
+    const disclosed = normalizeDriverError(first, {
+      driverName: "driver-b",
+      model: "user",
+      operation: "findMany",
+      correlationId: "second-correlation",
+      query: "SELECT second_private",
+      params: ["second-private-value"],
+      diagnostics: { includeParams: true, includeSql: true },
+    });
+    const privateError = normalizeDriverError(first, {
+      driverName: "driver-b",
+      model: "post",
+      operation: "delete",
+      correlationId: "third-correlation",
+    });
+
+    expect(disclosed).not.toBe(shared);
+    expect(privateError).not.toBe(shared);
+    expect(disclosed).toBeInstanceOf(QueryError);
+    expect(privateError).toBeInstanceOf(QueryError);
+    if (
+      !(disclosed instanceof QueryError && privateError instanceof QueryError)
+    ) {
+      throw new Error("expected cloned QueryError instances");
+    }
+    expect(disclosed).toMatchObject({
+      meta: {
+        driver: "driver-b",
+        model: "user",
+        operation: "findMany",
+        correlationId: "second-correlation",
+        query: "SELECT second_private",
+        params: ["second-private-value"],
+      },
+    });
+    expect(privateError).toMatchObject({
+      meta: {
+        driver: "driver-b",
+        model: "post",
+        operation: "delete",
+        correlationId: "third-correlation",
+      },
+    });
+    expect(JSON.stringify(disclosed)).not.toContain("first_private");
+    expect(JSON.stringify(disclosed)).not.toContain("first-private-value");
+    expect(privateError.meta).not.toHaveProperty("query");
+    expect(privateError.meta).not.toHaveProperty("params");
+    privateError.meta.query = "SELECT runtime_private";
+    privateError.meta.params = ["runtime-private-value"];
+    expect(JSON.stringify(privateError)).not.toContain("runtime_private");
+    expect(JSON.stringify(privateError)).not.toContain("runtime-private-value");
+    expect(shared.meta).toEqual({
+      driver: "driver-a",
+      model: "account",
+      operation: "create",
+      correlationId: "source-correlation",
+      query: "SELECT source_private",
+      params: ["source-private-value"],
+    });
+  });
+
+  test("replaces every execution-owned field when a normalized error is reused", () => {
+    const first = normalizeDriverError(new Error("private provider failure"), {
+      driverName: "driver-a",
+      model: "account",
+      operation: "create",
+      correlationId: "correlation-a",
+      query: "SELECT request_a",
+      params: ["request-a-secret"],
+      diagnostics: { includeParams: true, includeSql: true },
+    });
+    const second = normalizeDriverError(first, {
+      driverName: "driver-b",
+      model: "user",
+      operation: "findMany",
+      correlationId: "correlation-b",
+      query: "SELECT request_b",
+      params: ["request-b-secret"],
+      diagnostics: { includeParams: true, includeSql: true },
+      forceContext: true,
+    });
+    const privateSecond = normalizeDriverError(first, {
+      driverName: "driver-b",
+      model: "post",
+      operation: "delete",
+      correlationId: "correlation-private-b",
+      forceContext: true,
+    });
+
+    if (!(isVibORMError(second) && isVibORMError(privateSecond))) {
+      throw new Error("expected VibORM errors");
+    }
+    expect(second.meta).toEqual({
+      driver: "driver-b",
+      model: "user",
+      operation: "findMany",
+      correlationId: "correlation-b",
+      query: "SELECT request_b",
+      params: ["request-b-secret"],
+    });
+    expect(JSON.stringify(second)).not.toContain("request_a");
+    expect(JSON.stringify(second)).not.toContain("request-a-secret");
+    expect(privateSecond.meta).toEqual({
+      driver: "driver-b",
+      model: "post",
+      operation: "delete",
+      correlationId: "correlation-private-b",
+    });
+  });
+
+  test("clones validation errors without creating hollow subtype instances", () => {
+    const source = new ValidationError(
+      "create",
+      [{ path: "email", message: "Email is invalid" }],
+      { meta: { model: "user" } }
+    );
+    const normalized = normalizeDriverError(source, {
+      driverName: "test",
+      model: "user",
+      operation: "create",
+      correlationId: "validation-clone",
+      forceContext: true,
+    });
+
+    expect(normalized).toBeInstanceOf(ValidationError);
+    if (!(normalized instanceof ValidationError)) {
+      throw new Error("expected ValidationError");
+    }
+    expect(normalized.operation).toBe("create");
+    expect(normalized.issues).toEqual([
+      { path: "email", message: "Email is invalid" },
+    ]);
+    expect(normalized.issues).not.toBe(source.issues);
+    source.issues[0]!.message = "mutated";
+    expect(normalized.issues[0]?.message).toBe("Email is invalid");
+  });
+
+  test("flattens custom error subclasses instead of creating hollow instances", () => {
+    class StatefulQueryError extends QueryError {
+      readonly #marker = "initialized";
+
+      getMarker(): string {
+        return this.#marker;
+      }
+    }
+
+    const source = new StatefulQueryError("Custom query failure");
+    expect(source.getMarker()).toBe("initialized");
+
+    const normalized = normalizeDriverError(source, {
+      driverName: "test",
+      model: "user",
+      operation: "findMany",
+      correlationId: "custom-subclass",
+    });
+
+    expect(normalized).toBeInstanceOf(VibORMError);
+    expect(normalized).not.toBeInstanceOf(StatefulQueryError);
+    expect(normalized.name).toBe("VibORMError");
+    if (!isVibORMError(normalized)) {
+      throw new Error("expected flattened VibORMError");
+    }
+    expect(normalized.toJSON().name).toBe("VibORMError");
+  });
+
+  test("keeps metadata sanitization total for revoked parameter arrays", () => {
+    const revoked = Proxy.revocable<unknown[]>([], {});
+    revoked.revoke();
+
+    expect(() =>
+      sanitizeErrorMetadata({ params: revoked.proxy }, { includeParams: true })
+    ).not.toThrow();
+    expect(
+      sanitizeErrorMetadata({ params: revoked.proxy }, { includeParams: true })
+    ).toEqual({});
+    expect(
+      () =>
+        new QueryError("Safe query failure", {
+          diagnostics: { includeParams: true },
+          meta: { params: revoked.proxy },
+        })
+    ).not.toThrow();
+  });
+
+  test("flattens validation errors whose runtime issue array is unreadable", () => {
+    const source = new ValidationError("create", [
+      { path: "email", message: "Email is invalid" },
+    ]);
+    const revoked = Proxy.revocable<unknown[]>([], {});
+    revoked.revoke();
+    Object.defineProperty(source, "issues", {
+      configurable: true,
+      value: revoked.proxy,
+    });
+
+    const normalized = normalizeDriverError(source, {
+      driverName: "test",
+      model: "user",
+      operation: "create",
+    });
+
+    expect(normalized).toBeInstanceOf(VibORMError);
+    expect(normalized).not.toBeInstanceOf(ValidationError);
+    expect(normalized.name).toBe("VibORMError");
+  });
+
   test("maps batch-plan assertion failures to NestedWriteAssertionError on every dialect", () => {
     const assertQuery =
       'SELECT CASE WHEN EXISTS (SELECT 1) THEN 1 ELSE 0 END AS "__viborm_assert__"';
@@ -338,5 +595,376 @@ describe("native batch error normalization", () => {
       name: "UniqueConstraintError",
       meta: { driver: "fake-batch" },
     });
+  });
+});
+
+class SecretFailingDriver extends Driver<object, object> {
+  readonly adapter: DatabaseAdapter = new SQLiteAdapter();
+
+  constructor() {
+    super("sqlite", "secret-failing");
+  }
+
+  protected async initClient(): Promise<object> {
+    return {};
+  }
+
+  protected async closeClient(): Promise<void> {
+    // No provider resource to release.
+  }
+
+  protected async execute<T>(): Promise<QueryResult<T>> {
+    throw createSecretProviderError();
+  }
+
+  protected async executeRaw<T>(): Promise<QueryResult<T>> {
+    throw createSecretProviderError();
+  }
+
+  protected async transaction<T>(
+    _client: object,
+    fn: (tx: object) => Promise<T>
+  ): Promise<T> {
+    return fn({});
+  }
+}
+
+function createSecretProviderError(): Error {
+  const deepestCause = Object.assign(new Error("deep nested provider detail"), {
+    code: "ECONNRESET",
+  });
+  const middleCause = new Error("middle nested provider detail");
+  Object.defineProperty(middleCause, "cause", { value: deepestCause });
+  const error = new Error("fixture provider failure for secret-password-value");
+  Object.defineProperties(error, {
+    cause: { value: middleCause },
+    code: { enumerable: true, value: "UNKNOWN" },
+    errno: { enumerable: true, value: 9999 },
+    sqlState: { enumerable: true, value: "HY000" },
+    status: { enumerable: true, value: 503 },
+    detail: {
+      enumerable: true,
+      value: "detail contains secret-password-value",
+    },
+    meta: {
+      enumerable: true,
+      value: { token: "secret-password-value" },
+    },
+  });
+  return error;
+}
+
+describe("serialized error disclosure", () => {
+  test("preserves declared diagnostics and rejects deceptive value shapes", () => {
+    const declared = sanitizeErrorMetadata({
+      actualChecksum: "actual-checksum",
+      autoIncrement: true,
+      column: "id",
+      conflictsWith: "set",
+      context: "upsertCreate",
+      expectedChecksum: "expected-checksum",
+      hint: "Async validation is not supported",
+      migrationIndex: 3,
+      migrationsDir: "/migrations",
+      relations: ["posts", "profile"],
+      step: "upsert",
+    });
+
+    expect(declared).toEqual({
+      actualChecksum: "actual-checksum",
+      autoIncrement: true,
+      column: "id",
+      conflictsWith: "set",
+      context: "upsertCreate",
+      expectedChecksum: "expected-checksum",
+      hint: "Async validation is not supported",
+      migrationIndex: 3,
+      migrationsDir: "/migrations",
+      relations: ["posts", "profile"],
+      step: "upsert",
+    });
+
+    const canary = "phase7-meta-shape-canary";
+    const deceptive = sanitizeErrorMetadata({
+      autoIncrement: canary,
+      columns: ["id", { token: canary }],
+      expectedChecksum: { token: canary },
+      model: { token: canary },
+      params: [canary],
+      providerCode: canary,
+      query: canary,
+      relations: [canary, 1],
+      timeout: Number.POSITIVE_INFINITY,
+      token: canary,
+    });
+
+    expect(deceptive).toEqual({});
+    expect(JSON.stringify(deceptive)).not.toContain(canary);
+  });
+
+  test.each([
+    {
+      name: "neither SQL nor params",
+      diagnostics: undefined,
+      hasSql: false,
+      hasParams: false,
+    },
+    {
+      name: "SQL only",
+      diagnostics: { includeSql: true },
+      hasSql: true,
+      hasParams: false,
+    },
+    {
+      name: "params only",
+      diagnostics: { includeParams: true },
+      hasSql: false,
+      hasParams: true,
+    },
+    {
+      name: "SQL and params",
+      diagnostics: { includeSql: true, includeParams: true },
+      hasSql: true,
+      hasParams: true,
+    },
+  ])("discloses $name only when explicitly requested", async (scenario) => {
+    const driver = new SecretFailingDriver();
+    const secret = "secret-password-value";
+    const query = "SELECT id FROM users WHERE password = ?";
+    const cyclic: Record<string, unknown> = { id: 1n };
+    const jsonParameter = {
+      sql: "business-sql",
+      query: "business-query",
+      params: ["business-param"],
+      values: ["business-value"],
+    };
+    cyclic.self = cyclic;
+    driver.setInstrumentation(
+      createInstrumentationContext({
+        diagnostics: scenario.diagnostics,
+      })
+    );
+
+    let thrown: unknown;
+    try {
+      await driver._executeRaw(query, [secret, 2n, cyclic, jsonParameter], {
+        model: "user",
+        operation: "findMany",
+        correlationId: "error-disclosure",
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(isVibORMError(thrown)).toBe(true);
+    if (!isVibORMError(thrown)) {
+      throw new Error("expected a VibORMError");
+    }
+
+    const serialized = JSON.stringify(thrown.toJSON());
+    expect(thrown.meta).toMatchObject({
+      driver: "secret-failing",
+      model: "user",
+      operation: "findMany",
+      correlationId: "error-disclosure",
+      providerCode: "UNKNOWN",
+      providerErrno: 9999,
+      providerSqlState: "HY000",
+      providerStatus: 503,
+    });
+    if (scenario.hasSql) {
+      expect(thrown.meta).toHaveProperty("query", query);
+    } else {
+      expect(thrown.meta).not.toHaveProperty("query");
+    }
+    if (scenario.hasParams) {
+      expect(thrown.meta.params).toEqual([
+        secret,
+        "2",
+        { id: "1", self: "[Circular]" },
+        jsonParameter,
+      ]);
+    } else {
+      expect(thrown.meta).not.toHaveProperty("params");
+    }
+    expect(thrown.message).toBe("Query execution failed");
+    expect(thrown.originalCause?.message).toBe(
+      "Underlying error details redacted"
+    );
+    expect(thrown.originalCause).not.toHaveProperty("meta");
+    expect(serialized).not.toContain("fixture provider failure");
+    expect(serialized).not.toContain("middle nested provider detail");
+    expect(serialized).not.toContain("deep nested provider detail");
+    expect(serialized).toContain("ECONNRESET");
+    expect(serialized.match(/Underlying error details redacted/g)?.length).toBe(
+      3
+    );
+    if (!scenario.hasSql) expect(serialized).not.toContain(query);
+    if (!scenario.hasParams) expect(serialized).not.toContain(secret);
+  });
+
+  test("applies logger disclosure independently to raw and serialized errors", async () => {
+    let event: LogEvent | undefined;
+    const driver = new SecretFailingDriver();
+    driver.setInstrumentation(
+      createInstrumentationContext({
+        diagnostics: { includeSql: true, includeParams: true },
+        logging: {
+          error: (received) => {
+            event = received;
+          },
+          includeSql: false,
+          includeParams: false,
+        },
+      })
+    );
+
+    await driver
+      ._executeRaw(
+        "SELECT id FROM users WHERE password = ?",
+        ["secret-password-value"],
+        { model: "user", operation: "findMany" }
+      )
+      .catch(() => undefined);
+
+    expect(event).toBeDefined();
+    expect(event?.sql).toBeUndefined();
+    expect(event?.params).toBeUndefined();
+    expect(JSON.stringify(event?.error)).not.toMatch(
+      REDACTED_ERROR_CONTENT_PATTERN
+    );
+  });
+
+  test("keeps toJSON total and private after runtime mutation", () => {
+    const canary = "phase7-secret-canary";
+    const error = normalizeDriverError(
+      Object.assign(new Error(`provider ${canary}`), {
+        code: "23505",
+        sqlState: "23505",
+        status: 503,
+      }),
+      {
+        driverName: "test",
+        model: "user",
+        operation: "create",
+        correlationId: "mutation-isolation",
+      }
+    );
+    if (!isVibORMError(error)) throw new Error("expected a VibORMError");
+
+    error.meta.token = canary;
+    error.meta.params = [canary];
+    Object.defineProperty(error, "originalCause", {
+      configurable: true,
+      value: Object.assign(new Error(canary), {
+        code: canary,
+        meta: { token: canary },
+      }),
+    });
+    Object.defineProperty(error, "timestamp", {
+      configurable: true,
+      value: { toISOString: () => canary },
+    });
+    error.name = canary;
+    error.message = canary;
+
+    expect(() => JSON.stringify(error)).not.toThrow();
+    const serialized = JSON.stringify(error);
+    expect(serialized).not.toContain(canary);
+    expect(JSON.parse(serialized)).toMatchObject({
+      name: "UniqueConstraintError",
+      message: "Unique constraint violation",
+      code: VibORMErrorCode.UNIQUE_CONSTRAINT,
+      meta: {
+        driver: "test",
+        model: "user",
+        operation: "create",
+        correlationId: "mutation-isolation",
+        providerCode: "23505",
+        providerSqlState: "23505",
+        providerStatus: 503,
+      },
+    });
+  });
+
+  test("isolates reused error clones and rejects malicious provider tokens", () => {
+    const canary = "phase7-secret-canary";
+    const uppercaseCanary = "TOPSECRET";
+    const shared = new QueryError("Safe shared error", {
+      cause: Object.assign(new Error("provider detail"), { code: "23505" }),
+      meta: { operation: "execute" },
+    });
+    const first = normalizeDriverError(shared, {
+      driverName: "test",
+      model: "user",
+      operation: "findMany",
+      correlationId: "first",
+    });
+    shared.meta.model = canary;
+    shared.meta.operation = canary;
+    shared.meta.correlationId = canary;
+    const second = normalizeDriverError(shared, {
+      driverName: "test",
+      model: "post",
+      operation: "delete",
+      correlationId: "second",
+    });
+    const reusedAttributed = normalizeDriverError(first, {
+      driverName: "test",
+      model: "comment",
+      operation: "update",
+      correlationId: "third",
+    });
+    if (
+      !(
+        isVibORMError(first) &&
+        isVibORMError(second) &&
+        isVibORMError(reusedAttributed)
+      )
+    ) {
+      throw new Error("expected VibORM errors");
+    }
+
+    first.meta.token = canary;
+    first.timestamp.setTime(Number.NaN);
+    if (first.originalCause) first.originalCause.message = canary;
+
+    expect(JSON.stringify(first)).not.toContain(canary);
+    expect(JSON.stringify(second)).not.toContain(canary);
+    expect(JSON.stringify(reusedAttributed)).not.toContain(canary);
+    expect(second).toBeInstanceOf(QueryError);
+    expect(second.toJSON()).toMatchObject({
+      name: "QueryError",
+      meta: {
+        model: "post",
+        operation: "delete",
+        correlationId: "second",
+      },
+    });
+    expect(reusedAttributed.toJSON()).toMatchObject({
+      name: "QueryError",
+      meta: {
+        model: "comment",
+        operation: "update",
+        correlationId: "third",
+      },
+    });
+
+    const malicious = normalizeDriverError(
+      Object.assign(new Error(canary), {
+        code: uppercaseCanary,
+        sqlState: uppercaseCanary,
+        status: uppercaseCanary,
+        meta: { token: canary },
+      }),
+      { driverName: "test" }
+    );
+    expect(JSON.stringify(malicious)).not.toContain(canary);
+    expect(JSON.stringify(malicious)).not.toContain(uppercaseCanary);
+    expect(malicious).toMatchObject({ meta: { driver: "test" } });
+    if (!isVibORMError(malicious)) throw new Error("expected a VibORMError");
+    expect(malicious.meta).not.toHaveProperty("providerCode");
+    expect(malicious.meta).not.toHaveProperty("providerSqlState");
+    expect(malicious.meta).not.toHaveProperty("providerStatus");
   });
 });

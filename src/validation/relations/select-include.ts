@@ -2,9 +2,9 @@
 
 import type { ModelState } from "@schema/model";
 import type { RelationState } from "@schema/relation/types";
-import v, { type V } from "../primitives/v";
 import { rejectSelectInclude } from "../model/args/select-include-exclusivity";
 import { createSchema, fail, ok } from "../primitives/helpers";
+import v, { type V } from "../primitives/v";
 import type { GetTargetSchemas, SchemaGetter } from "./helpers";
 
 // =============================================================================
@@ -35,12 +35,14 @@ const includeToField =
   <V extends Record<string, any>>(
     value: V
   ): V & { select?: Record<string, true> } => {
-    if ("select" in value && value.select !== false) {
+    if (Object.hasOwn(value, "select") && value.select !== false) {
       return value;
     }
+    const select = buildSelectionFromState(relationState);
+    if (Object.keys(select).length === 0) return value;
     return {
       ...value,
-      select: buildSelectionFromState(relationState),
+      select,
     };
   };
 
@@ -70,7 +72,7 @@ const nestedTake: NestedTakeSchema = createSchema("number", (value) => {
 
 type BooleanToSelect = V.Coerce<
   V.Boolean,
-  { select: Record<string, true> } | false
+  { select?: Record<string, true> } | false
 >;
 
 // `false` stays `false` so the query engine omits the relation entirely
@@ -80,9 +82,10 @@ const booleanToSelect = <S extends RelationState>(
 ): BooleanToSelect =>
   v.coerce(
     v.boolean(),
-    (value: boolean): { select: Record<string, true> } | false => {
+    (value: boolean): { select?: Record<string, true> } | false => {
       if (value) {
-        return { select: buildSelectionFromState(relationState) };
+        const select = buildSelectionFromState(relationState);
+        return Object.keys(select).length > 0 ? { select } : {};
       }
       return false;
     }

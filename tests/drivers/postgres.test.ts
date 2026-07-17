@@ -78,7 +78,8 @@ async function setupDatabase(driver: PostgresDriver) {
 
 // Skip tests if no PostgreSQL connection is available
 const TEST_CONNECTION_STRING = process.env.PG_TEST_CONNECTION_STRING;
-const PGVECTOR_TEST_CONNECTION_STRING = process.env.PGVECTOR_TEST_CONNECTION_STRING;
+const PGVECTOR_TEST_CONNECTION_STRING =
+  process.env.PGVECTOR_TEST_CONNECTION_STRING;
 const describeIf = TEST_CONNECTION_STRING ? describe : describe.skip;
 
 function requirePgvectorConnectionString(): string {
@@ -117,7 +118,7 @@ describeIf("postgres.js Driver", () => {
       const driver = new PostgresDriver({
         options: {
           host: url.hostname,
-          port: Number.parseInt(url.port) || 5432,
+          port: Number.parseInt(url.port, 10) || 5432,
           database: url.pathname.slice(1),
           username: url.username,
           password: url.password,
@@ -223,7 +224,7 @@ describeIf("postgres.js Driver", () => {
       const result = await driver._executeRaw<{ count: string }>(
         `SELECT COUNT(*) as count FROM "postgresjs_test_users"`
       );
-      expect(Number.parseInt(result.rows[0]?.count ?? "0")).toBe(2);
+      expect(Number.parseInt(result.rows[0]?.count ?? "0", 10)).toBe(2);
     });
 
     test("rolls back transaction on error", async () => {
@@ -240,7 +241,7 @@ describeIf("postgres.js Driver", () => {
       const result = await driver._executeRaw<{ count: string }>(
         `SELECT COUNT(*) as count FROM "postgresjs_test_users"`
       );
-      expect(Number.parseInt(result.rows[0]?.count ?? "0")).toBe(0);
+      expect(Number.parseInt(result.rows[0]?.count ?? "0", 10)).toBe(0);
     });
 
     test("supports nested transactions with savepoints", async () => {
@@ -268,24 +269,20 @@ describeIf("postgres.js Driver", () => {
         `SELECT COUNT(*) as count FROM "postgresjs_test_users"`
       );
       // Only user-1 should exist (user-2 was rolled back by nested transaction)
-      expect(Number.parseInt(result.rows[0]?.count ?? "0")).toBe(1);
+      expect(Number.parseInt(result.rows[0]?.count ?? "0", 10)).toBe(1);
     });
 
-    test("supports isolation levels", async () => {
-      await driver.withTransaction(
-        async (txDriver) => {
-          await txDriver._executeRaw(
-            `INSERT INTO "postgresjs_test_users" ("id", "email", "name") VALUES ($1, $2, $3)`,
-            ["user-1", "test@example.com", "Test User"]
-          );
-        },
-        { isolationLevel: "serializable" }
-      );
-
-      const result = await driver._executeRaw<{ count: string }>(
-        `SELECT COUNT(*) as count FROM "postgresjs_test_users"`
-      );
-      expect(Number.parseInt(result.rows[0]?.count ?? "0")).toBe(1);
+    test("rejects removed isolation before opening a transaction", async () => {
+      let callbackCalled = false;
+      await expect(
+        Reflect.apply(driver.withTransaction, driver, [
+          async () => {
+            callbackCalled = true;
+          },
+          { isolationLevel: "serializable" },
+        ])
+      ).rejects.toMatchObject({ name: "TransactionError", code: "V5005" });
+      expect(callbackCalled).toBe(false);
     });
   });
 

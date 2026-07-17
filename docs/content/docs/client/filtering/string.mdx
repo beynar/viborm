@@ -60,7 +60,12 @@ where: { name: { contains: "alice", mode: "insensitive" } }
 
 `mode: "insensitive"` applies to `equals`, `not`, `in`, `notIn`, `contains`, `startsWith`, and `endsWith`.
 
-Default case sensitivity follows your database's collation — see [Compatibility](/docs/client/compatibility#database-differences).
+Insensitive mode folds ASCII `A`-`Z` only. Non-ASCII code points remain exact
+on every database, which keeps the result independent of provider collations
+and optional Unicode/ICU extensions.
+
+Default string equality, membership, and substring filters are case-sensitive
+on every supported database, independent of its default collation.
 
 ## Examples
 

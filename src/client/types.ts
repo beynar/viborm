@@ -6,13 +6,13 @@
  * All result types are inferred from result-types.ts.
  */
 
+import type { PendingOperation } from "@query-engine/pending-operation";
 import type { Model } from "@schema/model";
 import type { ModelShape } from "@schema/model/helper";
 import type { Prettify } from "@validation";
 import type { ModelCoreInput, ModelOperationInput } from "@validation/model";
 import type { CacheDriver } from "../cache/driver";
 import type { VibORMConfig } from "./client";
-import type { PendingOperation } from "./pending-operation";
 import type {
   AggregateResultType,
   BatchPayload,
@@ -133,10 +133,10 @@ export type OperationPayload<
                                     ? // Optional like the runtime (count
                                       // schema): exist() with no filter
                                       // reports whether any row exists.
-                                      | {
-                                          where?: ModelCoreInput<M, "where">;
-                                        }
-                                      | undefined
+                                        | {
+                                            where?: ModelCoreInput<M, "where">;
+                                          }
+                                        | undefined
                                     : never;
 
 /**

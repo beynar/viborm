@@ -34,7 +34,7 @@ export const mysqlResultParser: DriverResultParser = {
   parseField: (value, scalarType, next) => {
     if (scalarType === "boolean") {
       const parsed = parseIntegerBoolean(value);
-      if (parsed !== undefined) return parsed;
+      if (parsed !== undefined) return next(parsed, scalarType);
     }
     return next(value, scalarType);
   },

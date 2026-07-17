@@ -45,6 +45,9 @@ where: {
 }
 ```
 
+For one portable grammar, path segments containing `"` or `\` are rejected
+before SQL generation on every database.
+
 Rows where the path does not exist never match. Filtering `equals: null`
 with a `path` matches an explicit JSON `null` at that path (not missing
 keys); without a `path` it matches rows where the column is SQL `NULL`.
@@ -82,7 +85,7 @@ where: {
 }
 ```
 
-Matching is case-sensitive — see [Compatibility](/docs/client/compatibility#database-differences) for per-database caveats.
+Matching is case-sensitive on every database.
 
 ## Array Operations
 
@@ -113,4 +116,3 @@ where: {
 ```
 
 `array_contains` only matches when the value at the path is an array.
-

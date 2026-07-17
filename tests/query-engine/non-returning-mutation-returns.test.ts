@@ -37,6 +37,10 @@ class NonReturningPGliteDriver extends PGliteDriver {
     new NonReturningPostgresAdapter();
 }
 
+const FIRST_UPDATE_NAME = "first-update";
+const SECOND_UPDATE_NAME = "second-update";
+const OVERLAPPING_UPDATE_NAME = "Updated before delete";
+
 const user = s.model({
   id: s.string().id(),
   email: s.string().unique(),
@@ -79,10 +83,10 @@ const autoPost = s
 
 const schema = { user, post, autoUser, autoPost };
 
-function createNonReturningClient() {
+function createNonReturningClient(driver = new NonReturningPGliteDriver()) {
   return createClient({
     schema,
-    driver: new NonReturningPGliteDriver(),
+    driver,
   });
 }
 
@@ -195,24 +199,42 @@ describe("non-RETURNING mutation returns", () => {
     expect(oldRow).toBeNull();
   });
 
-  test("nested create, createMany, and connectOrCreate return refetched rows", async () => {
-    await client.user.create({
-      data: { id: "user-seed", email: "seed@test.com", name: "Seed" },
-    });
-    await client.post.create({
-      data: { id: "post-existing", title: "Existing", userId: "user-seed" },
-    });
-
-    const result = await client.user.create({
+  test("separate nested create operations return refetched rows", async () => {
+    const created = await client.user.create({
       data: {
         id: "user-1",
         email: "user-1@test.com",
         name: "Alice",
         posts: {
           create: { id: "post-created", title: "Created" },
+        },
+      },
+      include: { posts: { orderBy: { id: "asc" } } },
+    });
+    expect(created.posts.map((createdPost) => createdPost.id)).toEqual([
+      "post-created",
+    ]);
+
+    const withMany = await client.user.update({
+      where: { id: "user-1" },
+      data: {
+        posts: {
           createMany: {
             data: [{ id: "post-many", title: "Created many" }],
           },
+        },
+      },
+      include: { posts: { orderBy: { id: "asc" } } },
+    });
+    expect(withMany.posts.map((createdPost) => createdPost.id)).toEqual([
+      "post-created",
+      "post-many",
+    ]);
+
+    const withConnectOrCreate = await client.user.update({
+      where: { id: "user-1" },
+      data: {
+        posts: {
           connectOrCreate: {
             where: { id: "post-coc" },
             create: { id: "post-coc", title: "Connect or create" },
@@ -222,13 +244,13 @@ describe("non-RETURNING mutation returns", () => {
       include: { posts: { orderBy: { id: "asc" } } },
     });
 
-    expect(result.posts.map((createdPost) => createdPost.id)).toEqual([
-      "post-coc",
-      "post-created",
-      "post-many",
-    ]);
     expect(
-      result.posts.every((createdPost) => createdPost.userId === "user-1")
+      withConnectOrCreate.posts.map((createdPost) => createdPost.id)
+    ).toEqual(["post-coc", "post-created", "post-many"]);
+    expect(
+      withConnectOrCreate.posts.every(
+        (createdPost) => createdPost.userId === "user-1"
+      )
     ).toBe(true);
   });
 
@@ -264,5 +286,81 @@ describe("non-RETURNING mutation returns", () => {
     expect(children).toHaveLength(1);
     expect(children[0]?.title).toBe("No primary key");
     expect(children[0]?.userId).toBe("user-1");
+  });
+
+  test("concurrent updates return the row written by their own atomic operation", async () => {
+    await client.user.create({
+      data: { id: "race-user", email: "race@test.com", name: "Initial" },
+    });
+
+    const firstUpdate = client.user.update({
+      where: { id: "race-user" },
+      data: { name: FIRST_UPDATE_NAME },
+    });
+
+    const secondUpdate = client.user.update({
+      where: { id: "race-user" },
+      data: { name: SECOND_UPDATE_NAME },
+    });
+
+    const [firstResult, secondResult] = await Promise.all([
+      firstUpdate,
+      secondUpdate,
+    ]);
+
+    expect([firstResult.name, secondResult.name]).toEqual([
+      FIRST_UPDATE_NAME,
+      SECOND_UPDATE_NAME,
+    ]);
+  });
+
+  test("overlapping delete and update execute in submission order", async () => {
+    await client.user.create({
+      data: {
+        id: "delete-race-user",
+        email: "delete-race@test.com",
+        name: "Before update",
+      },
+    });
+
+    const pendingDelete = client.user.delete({
+      where: { id: "delete-race-user" },
+    });
+    const pendingUpdate = client.user.update({
+      where: { id: "delete-race-user" },
+      data: { name: OVERLAPPING_UPDATE_NAME },
+    });
+
+    const [deleteOutcome, updateOutcome] = await Promise.allSettled([
+      pendingDelete,
+      pendingUpdate,
+    ]);
+    const observedOutcome = {
+      delete:
+        deleteOutcome.status === "fulfilled"
+          ? { status: "fulfilled", name: deleteOutcome.value.name }
+          : {
+              status: "rejected",
+              error:
+                deleteOutcome.reason instanceof Error
+                  ? deleteOutcome.reason.name
+                  : String(deleteOutcome.reason),
+            },
+      update:
+        updateOutcome.status === "fulfilled"
+          ? { status: "fulfilled", name: updateOutcome.value.name }
+          : {
+              status: "rejected",
+              error:
+                updateOutcome.reason instanceof Error
+                  ? updateOutcome.reason.name
+                  : String(updateOutcome.reason),
+            },
+    };
+
+    expect(observedOutcome).toEqual({
+      delete: { status: "fulfilled", name: "Before update" },
+      update: { status: "rejected", error: NotFoundError.name },
+    });
   });
 });

@@ -43,16 +43,16 @@ const JSON_UNADDRESSABLE_LABEL = /["\\]/;
 // Each path segment binds as its own single-leg JSONPath ('$[N]' for
 // array indices, '$."seg"' otherwise) chained with -> , so segments can
 // never splice extra legs into the path. SQLite's path grammar has no
-// escape syntax inside quoted labels, so keys containing " or \ are not
-// addressable at all — those return null and the extraction collapses to
-// NULL, which never matches (Prisma has no SQLite JSON filters, so this
-// is best-effort beyond parity).
-const jsonPathLeg = (segment: string): string | null => {
+// escape syntax inside quoted labels, so the portable query contract rejects
+// keys containing " or \ before adapter execution. This throw is defensive.
+const jsonPathLeg = (segment: string): string => {
   if (JSON_ARRAY_INDEX_SEGMENT.test(segment)) {
     return `$[${segment}]`;
   }
   if (JSON_UNADDRESSABLE_LABEL.test(segment)) {
-    return null;
+    throw new Error(
+      'SQLite JSON path segments containing " or \\ must be rejected by the portable query contract.'
+    );
   }
   return `$."${segment}"`;
 };
@@ -74,7 +74,7 @@ const jsonArrayConcat = (left: Sql, right: Sql): Sql =>
  * Key SQLite features:
  * - Double-quote identifier escaping: "table"."column"
  * - No native ARRAY type - uses JSON for arrays
- * - LIKE is case-insensitive for ASCII by default
+ * - Portable text predicates do not depend on SQLite's LIKE behavior
  * - json_object(), json_group_array() for JSON operations (SQLite 3.38+)
  * - RETURNING clause supported (SQLite 3.35+)
  * - No NULLS FIRST/LAST ordering
@@ -125,13 +125,16 @@ export class SQLiteAdapter implements DatabaseAdapter {
       sql`${column} LIKE ${pattern} ESCAPE '\\'`,
     notLike: (column: Sql, pattern: Sql): Sql =>
       sql`${column} NOT LIKE ${pattern} ESCAPE '\\'`,
-    // SQLite LIKE is case-insensitive for ASCII by default and never consults
-    // collations (a COLLATE clause on the pattern is a silent no-op), so both
-    // `like` and `ilike` are ASCII-case-insensitive here.
     ilike: (column: Sql, pattern: Sql): Sql =>
-      sql`${column} LIKE ${pattern} ESCAPE '\\'`,
+      sql`lower(${column}) LIKE lower(${pattern}) ESCAPE '\\'`,
     notIlike: (column: Sql, pattern: Sql): Sql =>
-      sql`${column} NOT LIKE ${pattern} ESCAPE '\\'`,
+      sql`lower(${column}) NOT LIKE lower(${pattern}) ESCAPE '\\'`,
+    containsText: (column: Sql, value: Sql): Sql =>
+      sql`instr(${column}, ${value}) > 0`,
+    startsWithText: (column: Sql, value: Sql): Sql =>
+      sql`substr(${column}, 1, length(${value})) COLLATE BINARY = ${value}`,
+    endsWithText: (column: Sql, value: Sql): Sql =>
+      sql`CASE WHEN length(${value}) = 0 THEN 1 ELSE substr(${column}, -length(${value})) COLLATE BINARY = ${value} END`,
 
     // Set membership
     ...createMembershipOperators(),
@@ -155,6 +158,10 @@ export class SQLiteAdapter implements DatabaseAdapter {
 
   expressions = {
     ...createCommonExpressions(),
+
+    // SQLite lower() intentionally provides the portable ASCII-only contract.
+    asciiCaseFold: (expr: Sql): Sql => sql`lower(${expr})`,
+    caseSensitiveText: (expr: Sql): Sql => sql`${expr} COLLATE BINARY`,
 
     // String concatenation via ||
     concat: (...parts: Sql[]): Sql => {
@@ -220,9 +227,6 @@ export class SQLiteAdapter implements DatabaseAdapter {
       let expr = sql`${column} -> '$'`;
       for (const segment of path) {
         const leg = jsonPathLeg(segment);
-        if (leg === null) {
-          return sql.raw`NULL`;
-        }
         expr = sql`${expr} -> ${leg}`;
       }
       return expr;
@@ -233,9 +237,6 @@ export class SQLiteAdapter implements DatabaseAdapter {
       const legs: string[] = [];
       for (const segment of path) {
         const leg = jsonPathLeg(segment);
-        if (leg === null) {
-          return sql.raw`NULL`;
-        }
         legs.push(leg);
       }
       const last = legs.pop();
@@ -397,7 +398,10 @@ export class SQLiteAdapter implements DatabaseAdapter {
   // ============================================================
 
   mutations = {
+    skipDuplicatesStrategy: "sql" as const,
     insert: createInsertStatement(quoteIdent),
+    insertDefault: (table: Sql): Sql =>
+      sql`INSERT INTO ${table} DEFAULT VALUES`,
 
     ...createMutationCommands(),
 

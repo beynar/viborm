@@ -11,7 +11,7 @@ export {
   PendingOperation,
   type UnwrapPendingOperation,
   type UnwrapPendingOperations,
-} from "./pending-operation";
+} from "../query-engine/pending-operation";
 
 // Result types
 export type {

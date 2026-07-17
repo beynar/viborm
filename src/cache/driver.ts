@@ -6,15 +6,14 @@
  * Handles both storage operations and cache orchestration (hit/miss/stale/SWR).
  */
 
-import type { WaitUntilFn } from "@client/types";
+import type { QueryExecutionContext } from "@drivers";
+import { getExecutionInstrumentation } from "@drivers/execution-context";
 import type { InstrumentationContext } from "@instrumentation/context";
+import { runWithTracer } from "@instrumentation/run-with-tracer";
 import {
   ATTR_CACHE_DRIVER,
-  ATTR_CACHE_KEY,
   ATTR_CACHE_RESULT,
   ATTR_CACHE_TTL,
-  ATTR_DB_COLLECTION,
-  ATTR_DB_OPERATION_NAME,
   SPAN_CACHE_CLEAR,
   SPAN_CACHE_DELETE,
   SPAN_CACHE_GET,
@@ -23,56 +22,32 @@ import {
   SPAN_OPERATION,
   type VibORMSpanName,
 } from "@instrumentation/spans";
+import type { Span } from "@instrumentation/tracer";
+import {
+  REVALIDATING_SUFFIX,
+  REVALIDATING_TTL_MS,
+  scheduleBackground,
+} from "./cache-background";
+import type {
+  CacheEntry,
+  CacheExecutionOptions,
+  CacheSetOptions,
+} from "./cache-contract";
+import {
+  type CacheLogEvent,
+  emitCacheLogEvent,
+  getCacheOperationAttributes,
+  getCacheTracer,
+  setSpanAttribute,
+} from "./cache-instrumentation";
 import { CACHE_PREFIX, generateUnprefixedCacheKey } from "./key";
 import type { CacheInvalidationOptions } from "./schema";
 
-/**
- * Suffix for revalidating keys (used for SWR thundering herd prevention)
- */
-const REVALIDATING_SUFFIX = ":reval";
-
-/**
- * TTL for revalidating keys in milliseconds (30 seconds)
- * This is a safety net - keys are explicitly cleared after revalidation
- */
-const REVALIDATING_TTL_MS = 30_000;
-
-/**
- * Cache entry with metadata for SWR
- */
-export interface CacheEntry<T = unknown> {
-  value: T;
-  createdAt: number;
-  ttl: number;
-}
-
-/**
- * Cache options for set operations
- */
-export interface CacheSetOptions {
-  /** Time to live in milliseconds */
-  ttl: number;
-  /** SWR storage TTL in milliseconds (if provided, used as storage TTL instead of ttl) */
-  swrTtl?: number;
-}
-
-/**
- * Options for cached execution (internal, after parsing)
- */
-export interface CacheExecutionOptions {
-  /** Time to live in milliseconds (freshness duration) */
-  ttlMs: number;
-  /** SWR storage TTL in ms (ttl + staleWindow), or false to disable SWR */
-  swr: number | false;
-  /** Bypass cache read and force fresh fetch */
-  bypass: boolean;
-  /** Custom cache key override */
-  key?: string;
-  /** Callback for background operations in serverless environments */
-  waitUntil?: WaitUntilFn;
-  /** DB attributes for operation span (collection name, etc.) */
-  dbAttributes?: Record<string, string>;
-}
+export type {
+  CacheEntry,
+  CacheExecutionOptions,
+  CacheSetOptions,
+} from "./cache-contract";
 
 /**
  * Abstract base class for cache drivers.
@@ -169,12 +144,12 @@ export abstract class CacheDriver {
       if (options.bypass) {
         const result = await executor();
         this.setInBackground(cacheKey, result, options);
-        this.logCacheEvent(cacheKey, "bypass");
+        this.logExecutionCacheEvent(options, cacheKey, "bypass");
         return result;
       }
 
       // Try to get from cache
-      const cached = await this._get<T>(cacheKey);
+      const cached = await this._get<T>(cacheKey, options.executionContext);
 
       if (cached) {
         const age = Date.now() - cached.createdAt;
@@ -182,7 +157,7 @@ export abstract class CacheDriver {
 
         if (!isStale) {
           // Fresh cache hit
-          this.logCacheEvent(cacheKey, "hit");
+          this.logExecutionCacheEvent(options, cacheKey, "hit");
           return cached.value;
         }
 
@@ -194,8 +169,8 @@ export abstract class CacheDriver {
             cacheKey,
             executor,
             options
-          );
-          this.logCacheEvent(cacheKey, "hit", "stale");
+          ).catch(() => undefined);
+          this.logExecutionCacheEvent(options, cacheKey, "hit", "stale");
           return cached.value;
         }
 
@@ -205,26 +180,26 @@ export abstract class CacheDriver {
       // Cache miss or stale without SWR - execute query
       const result = await executor();
       this.setInBackground(cacheKey, result, options);
-      this.logCacheEvent(cacheKey, "miss");
+      this.logExecutionCacheEvent(options, cacheKey, "miss");
       return result;
     };
 
-    // Wrap with operation span if tracer available
-    if (this.instrumentation?.tracer) {
-      return this.instrumentation.tracer.startActiveSpan(
-        {
-          name: SPAN_OPERATION,
-          attributes: {
-            ...options.dbAttributes,
-            [ATTR_DB_COLLECTION]: modelName,
-            [ATTR_DB_OPERATION_NAME]: operation,
-          },
-        },
-        executeCore
-      );
-    }
-
-    return executeCore();
+    return runWithTracer(
+      getCacheTracer(
+        getExecutionInstrumentation(options.executionContext) ??
+          this.instrumentation
+      ),
+      {
+        name: SPAN_OPERATION,
+        attributes: getCacheOperationAttributes(
+          modelName,
+          operation,
+          options.dbAttributes,
+          options.executionContext
+        ),
+      },
+      executeCore
+    );
   }
 
   /**
@@ -235,16 +210,25 @@ export abstract class CacheDriver {
     value: T,
     options: CacheExecutionOptions
   ): void {
-    const cachePromise = this._set(key, value, {
-      ttl: options.ttlMs,
-      swrTtl: options.swr !== false ? options.swr : undefined,
-    }).catch((error) => {
-      this.logCacheEvent(key, "miss", "cache-set-failed", error);
+    const cachePromise = this._set(
+      key,
+      value,
+      {
+        ttl: options.ttlMs,
+        swrTtl: options.swr !== false ? options.swr : undefined,
+      },
+      options.executionContext
+    ).catch((error) => {
+      this.logExecutionCacheEvent(
+        options,
+        key,
+        "miss",
+        "cache-set-failed",
+        error
+      );
     });
 
-    if (options.waitUntil) {
-      options.waitUntil(cachePromise);
-    }
+    scheduleBackground(cachePromise, options.waitUntil);
   }
 
   /**
@@ -273,61 +257,76 @@ export abstract class CacheDriver {
 
     const doRevalidate = async () => {
       try {
-        this.logCacheEvent(cacheKey, "revalidate", "start");
+        this.logExecutionCacheEvent(options, cacheKey, "revalidate", "start");
 
         const result = await executor();
-        await this._set(cacheKey, result, {
-          ttl: options.ttlMs,
-          swrTtl: options.swr !== false ? options.swr : undefined,
-        });
+        await this._set(
+          cacheKey,
+          result,
+          {
+            ttl: options.ttlMs,
+            swrTtl: options.swr !== false ? options.swr : undefined,
+          },
+          options.executionContext
+        );
 
-        this.logCacheEvent(cacheKey, "revalidate", "success");
+        this.logExecutionCacheEvent(options, cacheKey, "revalidate", "success");
       } catch (error) {
         // Log error but don't throw - this is background operation
-        this.logCacheEvent(cacheKey, "revalidate", "error", error);
+        this.logExecutionCacheEvent(
+          options,
+          cacheKey,
+          "revalidate",
+          "error",
+          error
+        );
       } finally {
-        await this._clearRevalidating(cacheKey);
+        await this._clearRevalidating(cacheKey).catch(() => undefined);
       }
     };
 
     // Wrap with operation span if tracer available
     // Use root: true to create a new trace (not child of current context)
-    const revalidationPromise = this.instrumentation?.tracer
-      ? this.instrumentation.tracer.startActiveSpan(
-          {
-            name: SPAN_OPERATION,
-            attributes: {
-              ...options.dbAttributes,
-              [ATTR_DB_COLLECTION]: modelName,
-              [ATTR_DB_OPERATION_NAME]: operation,
-            },
-            root: true,
-          },
-          doRevalidate
-        )
-      : doRevalidate();
+    const revalidationPromise = runWithTracer(
+      getCacheTracer(
+        getExecutionInstrumentation(options.executionContext) ??
+          this.instrumentation
+      ),
+      {
+        name: SPAN_OPERATION,
+        attributes: getCacheOperationAttributes(
+          modelName,
+          operation,
+          options.dbAttributes,
+          options.executionContext
+        ),
+        root: true,
+      },
+      doRevalidate
+    );
 
-    if (options.waitUntil) {
-      options.waitUntil(revalidationPromise);
-    }
+    scheduleBackground(revalidationPromise, options.waitUntil);
   }
 
   /**
    * Log cache events
    */
-  private logCacheEvent(
+  private logExecutionCacheEvent(
+    options: CacheExecutionOptions,
     key: string,
-    event: "hit" | "miss" | "revalidate" | "bypass",
+    event: CacheLogEvent,
     status?: string,
     error?: unknown
   ): void {
-    if (!this.instrumentation?.logger) return;
-
-    this.instrumentation.logger.cache({
-      timestamp: new Date(),
-      error: error instanceof Error ? error : undefined,
-      meta: { event, key, status },
-    });
+    emitCacheLogEvent(
+      getExecutionInstrumentation(options.executionContext) ??
+        this.instrumentation,
+      key,
+      event,
+      status,
+      error,
+      options.executionContext
+    );
   }
 
   // ============================================================
@@ -348,22 +347,19 @@ export abstract class CacheDriver {
    */
   private withSpan<T>(
     spanName: VibORMSpanName,
-    key: string,
-    execute: (span?: {
-      setAttribute: (key: string, value: string) => void;
-    }) => Promise<T>,
-    extraAttributes?: Record<string, string>
+    _key: string,
+    execute: (span?: Span) => Promise<T>,
+    extraAttributes?: Record<string, string>,
+    context?: QueryExecutionContext
   ): Promise<T> {
-    if (!this.instrumentation?.tracer) {
-      return execute();
-    }
-
-    return this.instrumentation.tracer.startActiveSpan(
+    return runWithTracer(
+      getCacheTracer(
+        getExecutionInstrumentation(context) ?? this.instrumentation
+      ),
       {
         name: spanName,
         attributes: {
           ...this.getBaseAttributes(),
-          [ATTR_CACHE_KEY]: key,
           ...extraAttributes,
         },
       },
@@ -375,19 +371,28 @@ export abstract class CacheDriver {
    * Get a value from cache
    * @param key - Cache key (will be prefixed automatically)
    */
-  async _get<T>(key: string): Promise<CacheEntry<T> | null> {
+  async _get<T>(
+    key: string,
+    context?: QueryExecutionContext
+  ): Promise<CacheEntry<T> | null> {
     const prefixedKey = this.prefixKey(key);
 
-    return this.withSpan(SPAN_CACHE_GET, key, async (span) => {
-      const entry = await this.get<T>(prefixedKey);
-      if (entry) {
-        const isStale = Date.now() - entry.createdAt > entry.ttl;
-        span?.setAttribute(ATTR_CACHE_RESULT, isStale ? "stale" : "hit");
-      } else {
-        span?.setAttribute(ATTR_CACHE_RESULT, "miss");
-      }
-      return entry;
-    });
+    return this.withSpan(
+      SPAN_CACHE_GET,
+      key,
+      async (span) => {
+        const entry = await this.get<T>(prefixedKey);
+        if (entry) {
+          const isStale = Date.now() - entry.createdAt > entry.ttl;
+          setSpanAttribute(span, ATTR_CACHE_RESULT, isStale ? "stale" : "hit");
+        } else {
+          setSpanAttribute(span, ATTR_CACHE_RESULT, "miss");
+        }
+        return entry;
+      },
+      undefined,
+      context
+    );
   }
 
   /**
@@ -399,7 +404,8 @@ export abstract class CacheDriver {
   async _set<T>(
     key: string,
     value: T,
-    options: CacheSetOptions
+    options: CacheSetOptions,
+    context?: QueryExecutionContext
   ): Promise<void> {
     const entry: CacheEntry<T> = {
       value,
@@ -414,7 +420,8 @@ export abstract class CacheDriver {
       SPAN_CACHE_SET,
       key,
       () => this.set(this.prefixKey(key), storageTtl, entry),
-      { [ATTR_CACHE_TTL]: String(options.ttl) }
+      { [ATTR_CACHE_TTL]: String(options.ttl) },
+      context
     );
   }
 
@@ -422,11 +429,17 @@ export abstract class CacheDriver {
    * Delete a specific key (and its revalidating key)
    * @param key - Cache key (will be prefixed automatically)
    */
-  async _delete(key: string): Promise<void> {
+  async _delete(key: string, context?: QueryExecutionContext): Promise<void> {
     const prefixedKey = this.prefixKey(key);
     const keys = [prefixedKey, `${prefixedKey}${REVALIDATING_SUFFIX}`];
 
-    return this.withSpan(SPAN_CACHE_DELETE, key, () => this.delete(keys));
+    return this.withSpan(
+      SPAN_CACHE_DELETE,
+      key,
+      () => this.delete(keys),
+      undefined,
+      context
+    );
   }
 
   /**
@@ -436,13 +449,20 @@ export abstract class CacheDriver {
    * When cacheVersion is set, clearing without a prefix clears only the active
    * version namespace (e.g., viborm:v2:*), preserving other versions.
    */
-  async _clear(prefix?: string): Promise<void> {
+  async _clear(
+    prefix?: string,
+    context?: QueryExecutionContext
+  ): Promise<void> {
     // Use prefixKey("") to get the versioned base prefix (e.g., "viborm:v2")
     // This ensures we only clear within the active version namespace
     const prefixedPrefix = this.prefixKey(prefix ?? "");
 
-    return this.withSpan(SPAN_CACHE_CLEAR, prefix ?? "*", () =>
-      this.clear(prefixedPrefix)
+    return this.withSpan(
+      SPAN_CACHE_CLEAR,
+      prefix ?? "*",
+      () => this.clear(prefixedPrefix),
+      undefined,
+      context
     );
   }
 
@@ -485,32 +505,39 @@ export abstract class CacheDriver {
    */
   async _invalidate(
     modelName: string,
-    options?: CacheInvalidationOptions
+    options?: CacheInvalidationOptions,
+    context?: QueryExecutionContext
   ): Promise<void> {
-    return this.withSpan(SPAN_CACHE_INVALIDATE, modelName, async () => {
-      const promises: Promise<void>[] = [];
+    return this.withSpan(
+      SPAN_CACHE_INVALIDATE,
+      modelName,
+      async () => {
+        const promises: Promise<void>[] = [];
 
-      // Auto-invalidate model cache if enabled
-      if (options?.autoInvalidate) {
-        // Use modelName directly as unprefixed prefix - _clear() will add the full prefix
-        promises.push(this._clear(modelName));
-      }
+        // Auto-invalidate model cache if enabled
+        if (options?.autoInvalidate) {
+          // Use modelName directly as unprefixed prefix - _clear() will add the full prefix
+          promises.push(this._clear(modelName, context));
+        }
 
-      // Custom invalidation - detect prefix (ends with *) vs specific key
-      if (options?.invalidate) {
-        for (const entry of options.invalidate) {
-          if (entry.endsWith("*")) {
-            // Prefix invalidation - strip the * and clear by prefix
-            promises.push(this._clear(entry.slice(0, -1)));
-          } else {
-            // Specific key invalidation (include revalidating key)
-            promises.push(this._delete(entry));
+        // Custom invalidation - detect prefix (ends with *) vs specific key
+        if (options?.invalidate) {
+          for (const entry of options.invalidate) {
+            if (entry.endsWith("*")) {
+              // Prefix invalidation - strip the * and clear by prefix
+              promises.push(this._clear(entry.slice(0, -1), context));
+            } else {
+              // Specific key invalidation (include revalidating key)
+              promises.push(this._delete(entry, context));
+            }
           }
         }
-      }
 
-      await Promise.all(promises);
-    });
+        await Promise.all(promises);
+      },
+      undefined,
+      context
+    );
   }
 
   /**

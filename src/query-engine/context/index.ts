@@ -1,19 +1,18 @@
 /**
- * Context Module
+ * SQL compilation scope and model helpers.
  *
  * Exports context creation and utilities.
  */
 
-export { AliasGenerator, createAliasGenerator } from "./alias-generator";
 export {
-  createChildContext,
-  createQueryContext,
+  createChildScope,
+  createQueryScope,
   getColumnName,
+  getDefaultScalarFieldNames,
   getRelationInfo,
   getRelationNames,
   getScalarFieldNames,
   getTableName,
   isRelation,
   isScalarField,
-  translateRowToFieldNames,
-} from "./query-context";
+} from "./query-scope";

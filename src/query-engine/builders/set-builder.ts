@@ -7,7 +7,7 @@
 
 import { isSql, type Sql, sql } from "@sql";
 import { getColumnName, getScalarFieldNames, isRelation } from "../context";
-import { type QueryContext, QueryEngineError } from "../types";
+import { QueryEngineError, type QueryScope } from "../types";
 import { scalarValueLiteral } from "./values-builder";
 
 /**
@@ -19,7 +19,7 @@ import { scalarValueLiteral } from "./values-builder";
  * @returns SQL for SET clause
  */
 export function buildSet(
-  ctx: QueryContext,
+  ctx: QueryScope,
   data: Record<string, unknown>,
   alias?: string
 ): Sql {
@@ -65,7 +65,7 @@ export function buildSet(
  * - null becomes { set: null }
  */
 function buildAssignment(
-  ctx: QueryContext,
+  ctx: QueryScope,
   fieldName: string,
   column: Sql,
   value: unknown

@@ -4,9 +4,12 @@ import {
   type VibORMConfig,
 } from "@client/client";
 import type { AnyDriver } from "@drivers";
+import { UniqueConstraintError } from "@errors";
 import { push } from "@migrations";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { upsertAtomicitySchema as schema } from "../fixtures/upsert-atomicity-schema";
+
+const UPDATED_NAME_PATTERN = /^updated-/;
 
 type UpsertAtomicityClientConfig = VibORMConfig & {
   schema: typeof schema;
@@ -89,13 +92,76 @@ export function runUpsertAtomicityBehavior({
       expect(rows).toHaveLength(1);
     });
 
+    test("does not take the update branch for a conflict outside the requested target", async () => {
+      const currentClient = requireClient(client);
+      await currentClient.tag.create({
+        data: { id: "occupied-id", name: "existing-name", count: 1 },
+      });
+
+      await expect(
+        currentClient.tag.upsert({
+          where: { name: "requested-target" },
+          create: {
+            id: "occupied-id",
+            name: "requested-target",
+            count: 2,
+          },
+          update: { count: 99 },
+        })
+      ).rejects.toBeInstanceOf(UniqueConstraintError);
+
+      const existing = await currentClient.tag.findUnique({
+        where: { id: "occupied-id" },
+      });
+      const requestedTarget = await currentClient.tag.findUnique({
+        where: { name: "requested-target" },
+      });
+      expect({ existing, requestedTarget }).toMatchObject({
+        existing: { name: "existing-name", count: 1 },
+        requestedTarget: null,
+      });
+    });
+
+    test("unique upsert targets distinguish case, accents, and trailing spaces", async () => {
+      const currentClient = requireClient(client);
+      await currentClient.tag.createMany({
+        data: [
+          { id: "case-original", name: "Case", count: 1 },
+          { id: "accent-original", name: "résumé", count: 1 },
+          { id: "trailing-original", name: "trail", count: 1 },
+        ],
+      });
+
+      const cases = [
+        { id: "case-variant", name: "CASE" },
+        { id: "accent-variant", name: "resume" },
+        { id: "trailing-variant", name: "trail " },
+      ];
+      for (const variant of cases) {
+        const created = await currentClient.tag.upsert({
+          where: { name: variant.name },
+          create: { ...variant, count: 2 },
+          update: { count: 99 },
+        });
+        expect(created).toMatchObject({ ...variant, count: 2 });
+      }
+
+      const rows = await currentClient.tag.findMany();
+      expect(rows).toHaveLength(6);
+      expect(
+        rows
+          .filter((row) => row.id.endsWith("-original"))
+          .map((row) => row.count)
+      ).toEqual([1, 1, 1]);
+    });
+
     test("plain upsert returns the row when the update is a no-op", async () => {
       const currentClient = requireClient(client);
       await currentClient.tag.create({
         data: { id: "tag-noop", name: "noop", count: 7 },
       });
 
-      // MySQL reports 0 affected rows when ON DUPLICATE KEY UPDATE
+      // MySQL reports 0 affected rows when an UPDATE is a no-op.
       // leaves the row unchanged; the result must still be the row.
       const result = await currentClient.tag.upsert({
         where: { name: "noop" },
@@ -306,7 +372,7 @@ export function runUpsertAtomicityBehavior({
       expect(users).toHaveLength(1);
       // Exactly one upsert created; the other must have taken the
       // update branch (never a second create, never a raw constraint error).
-      expect(users[0]?.name).toMatch(/^updated-/);
+      expect(users[0]?.name).toMatch(UPDATED_NAME_PATTERN);
 
       const posts = await currentClient.post.findMany();
       expect(posts).toHaveLength(1);

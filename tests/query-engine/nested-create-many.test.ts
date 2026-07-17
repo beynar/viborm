@@ -39,7 +39,27 @@ const post = s
   })
   .map("posts");
 
-const schema = { user, post };
+const incrementParent = s
+  .model({
+    id: s.int().id().increment(),
+    name: s.string(),
+    children: s.oneToMany(() => incrementChild),
+  })
+  .map("nested_increment_parents");
+
+const incrementChild = s
+  .model({
+    id: s.int().id().increment(),
+    label: s.string(),
+    parentId: s.int(),
+    parent: s
+      .manyToOne(() => incrementParent)
+      .fields("parentId")
+      .references("id"),
+  })
+  .map("nested_increment_children");
+
+const schema = { user, post, incrementParent, incrementChild };
 
 // =============================================================================
 // TEST SETUP
@@ -60,6 +80,8 @@ afterAll(async () => {
 
 beforeEach(async () => {
   // Clean up data between tests
+  await client.incrementChild.deleteMany();
+  await client.incrementParent.deleteMany();
   await client.post.deleteMany();
   await client.user.deleteMany();
 });
@@ -170,6 +192,30 @@ describe("Nested CreateMany", () => {
       expect(posts.length).toBe(1);
       expect(posts[0]?.title).toBe("Only Post");
       expect(posts[0]?.userId).toBe("user-1");
+    });
+
+    test("preserves generation when another nested createMany row supplies an increment id", async () => {
+      const parent = await client.incrementParent.create({
+        data: {
+          name: "Parent",
+          children: {
+            createMany: {
+              data: [{ id: 10, label: "explicit" }, { label: "generated" }],
+            },
+          },
+        },
+      });
+
+      const children = await client.incrementChild.findMany({
+        where: { parentId: parent.id },
+      });
+      const idsByLabel = new Map(
+        children.map((child) => [child.label, child.id])
+      );
+
+      expect(idsByLabel.get("explicit")).toBe(10);
+      expect(idsByLabel.get("generated")).not.toBe(0);
+      expect(idsByLabel.get("generated")).not.toBe(10);
     });
 
     test("creates parent with empty createMany data array", async () => {

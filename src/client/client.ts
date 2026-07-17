@@ -3,7 +3,9 @@ import type {
   CacheInvalidationOptions,
   WithCacheOptions,
 } from "@cache";
-import type { AnyDriver, QueryResult, TransactionOptions } from "@drivers";
+import type { AnyDriver, BatchQuery, QueryResult } from "@drivers";
+import { assertNormalizedBatchResults } from "@drivers/normalized-result";
+import { assertNoTransactionOptions } from "@drivers/shared/transactions";
 import {
   CacheConfigurationError,
   InvalidTransactionInputError,
@@ -19,7 +21,7 @@ import {
 /**
  * Check if a value is an InstrumentationContext (already processed)
  * InstrumentationContext has 'config' and 'tracer' properties,
- * while InstrumentationConfig only has 'tracing' and 'logging'
+ * while InstrumentationConfig has no processed tracer instance
  */
 function isInstrumentationContext(
   value: InstrumentationConfig | InstrumentationContext | undefined
@@ -34,15 +36,20 @@ import {
   validateCacheableOperation,
   withMutationCacheInvalidation,
 } from "@query-engine/cache-flow";
+import { createOperationExecutionContext } from "@query-engine/execution-context";
+import { attributeOperationBatchError } from "@query-engine/OperationBatchRuntime";
+import {
+  isPendingOperation,
+  type PendingOperation,
+} from "@query-engine/pending-operation";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import type {
   BatchPreparationContext,
-  ModelRegistry,
+  PreparedBatchGuard,
 } from "@query-engine/types";
 import { hydrateSchemaNames } from "@schema/hydration";
 import type { Sql } from "@sql";
-import { createSchemaRegistry, type SchemaRegistry } from "@validation";
-import { isPendingOperation, type PendingOperation } from "./pending-operation";
+import { createSchemaRegistry } from "@validation";
 import type {
   CachedClient,
   Client,
@@ -90,6 +97,24 @@ function createModelProxy<S extends Schema, R>(
       return createOperation({ modelName, operation, args });
     },
   });
+}
+
+function assertOperationOwnership(
+  operation: PendingOperation<unknown>,
+  engine: QueryEngine
+): void {
+  if (operation.getClientId() !== engine.clientId) {
+    throw PendingOperationError.clientMismatch(
+      operation.getModel(),
+      operation.getOperation()
+    );
+  }
+  if (operation.getScopeId() !== engine.scopeId) {
+    throw PendingOperationError.scopeMismatch(
+      operation.getModel(),
+      operation.getOperation()
+    );
+  }
 }
 
 /**
@@ -148,14 +173,10 @@ export type VibORMClient<C extends VibORMConfig> = Client<C> &
        */
       $transaction: {
         // Overload 1: Dynamic transaction (callback)
-        <T>(
-          fn: (tx: Client<C>) => Promise<T>,
-          options?: TransactionOptions
-        ): Promise<T>;
+        <T>(fn: (tx: Client<C>) => Promise<T>): Promise<T>;
         // Overload 2: Batch of independent operations (Prisma-style)
         <T extends PendingOperation<unknown>[]>(
-          operations: [...T],
-          options?: TransactionOptions
+          operations: [...T]
         ): Promise<{ [K in keyof T]: Awaited<T[K]> }>;
       };
       /** Connect to the database */
@@ -174,14 +195,10 @@ export type VibORMClient<C extends VibORMConfig> = Client<C> &
  * VibORM Client
  */
 export class VibORM<C extends VibORMConfig> {
-  private readonly driver: AnyDriver;
   private readonly schema: C["schema"];
   private readonly cache: C["cache"];
-  private readonly instrumentation: InstrumentationContext | undefined;
   private readonly waitUntil: WaitUntilFn | undefined;
   private readonly cacheVersion: string | number | undefined;
-  private readonly registry: ModelRegistry;
-  private readonly schemaRegistry: SchemaRegistry<C["schema"]>;
   private readonly engine: QueryEngine;
 
   /**
@@ -193,11 +210,10 @@ export class VibORM<C extends VibORMConfig> {
   }
 
   constructor(config: C) {
-    this.driver = config.driver;
     this.schema = config.schema as C["schema"];
     this.cache = config.cache as C["cache"];
     // Accept either InstrumentationConfig (initial setup) or InstrumentationContext (internal reuse)
-    this.instrumentation = isInstrumentationContext(config.instrumentation)
+    const instrumentation = isInstrumentationContext(config.instrumentation)
       ? config.instrumentation
       : config.instrumentation
         ? createInstrumentationContext(config.instrumentation)
@@ -206,13 +222,9 @@ export class VibORM<C extends VibORMConfig> {
     this.cacheVersion = config.cacheVersion;
 
     // Create registry and engine once, reuse for all operations
-    this.schemaRegistry = createSchemaRegistry(this.schema);
-    this.registry = createModelRegistry(this.schema, this.schemaRegistry);
-    this.engine = new QueryEngine(
-      this.driver,
-      this.registry,
-      this.instrumentation
-    );
+    const schemaRegistry = createSchemaRegistry(this.schema);
+    const registry = createModelRegistry(this.schema, schemaRegistry);
+    this.engine = new QueryEngine(config.driver, registry, instrumentation);
   }
 
   /**
@@ -275,7 +287,7 @@ export class VibORM<C extends VibORMConfig> {
     const options = createCacheExecutionOptions(
       config,
       this.waitUntil,
-      this.driver.getBaseAttributes()
+      this.engine.driver.getBaseAttributes()
     );
 
     // Create proxy that validates cacheable operations and delegates to cache driver
@@ -304,24 +316,26 @@ export class VibORM<C extends VibORMConfig> {
         return Promise.reject(error);
       }
 
-      // Execute via cache with lazy executor - only prepares on cache miss
+      // Preparing remains lazy: it captures one immutable execution context
+      // now, while validation, SQL building, and execution still wait for a miss.
+      const pendingOperation = this.engine.prepare(
+        model,
+        operation,
+        (args ?? {}) as Record<string, unknown>,
+        {
+          skipSpan: true, // Cache driver provides its own SPAN_OPERATION
+        }
+      );
       return executeCachedOperation(
         this.cache!,
         modelNameStr,
         operation,
         args,
-        () =>
-          this.engine
-            .prepare(
-              model,
-              operation,
-              (args ?? {}) as Record<string, unknown>,
-              {
-                skipSpan: true, // Cache driver provides its own SPAN_OPERATION
-              }
-            )
-            .execute(),
-        options
+        () => pendingOperation.execute(),
+        {
+          ...options,
+          executionContext: pendingOperation.getExecutionContext(),
+        }
       );
     }) as CachedClient<C["schema"]>;
   }
@@ -335,12 +349,6 @@ export class VibORM<C extends VibORMConfig> {
 
     const orm = new VibORM<C>(config);
 
-    // Inject instrumentation into driver if supported
-    config.driver?.setInstrumentation(orm.instrumentation);
-
-    // Inject instrumentation into cache driver if supported
-    config.cache?.setInstrumentation(orm.instrumentation);
-
     // Set cache version on driver
     config.cache?.setVersion(config.cacheVersion);
 
@@ -351,7 +359,7 @@ export class VibORM<C extends VibORMConfig> {
       get(target, prop) {
         // Utility methods
         if (prop === "$driver") {
-          return orm.driver;
+          return orm.engine.driver;
         }
 
         if (prop === "$schema") {
@@ -359,12 +367,28 @@ export class VibORM<C extends VibORMConfig> {
         }
 
         if (prop === "$executeRaw") {
-          return <T>(query: Sql) => orm.driver._execute<T>(query);
+          return <T>(query: Sql) =>
+            orm.engine.driver._execute<T>(
+              query,
+              createOperationExecutionContext(
+                "$raw",
+                "$executeRaw",
+                orm.engine.instrumentation
+              )
+            );
         }
 
         if (prop === "$queryRaw") {
           return <T>(sql: string, params?: unknown[]) =>
-            orm.driver._executeRaw<T>(sql, params);
+            orm.engine.driver._executeRaw<T>(
+              sql,
+              params,
+              createOperationExecutionContext(
+                "$raw",
+                "$queryRaw",
+                orm.engine.instrumentation
+              )
+            );
         }
 
         if (prop === "$transaction") {
@@ -372,11 +396,16 @@ export class VibORM<C extends VibORMConfig> {
             input:
               | ((tx: Client<C>) => Promise<T>)
               | PendingOperation<unknown>[],
-            options?: TransactionOptions
+            unsupportedOptions?: unknown
           ): Promise<T | unknown[]> => {
-            // Client ID for validating operations belong to this client
-            const expectedClientId = orm.clientId;
-
+            assertNoTransactionOptions(unsupportedOptions);
+            const transactionContext = createOperationExecutionContext(
+              "$transaction",
+              Array.isArray(input)
+                ? "$transaction([...])"
+                : "$transaction(callback)",
+              orm.engine.instrumentation
+            );
             // Array of PendingOperations = batch mode
             if (Array.isArray(input)) {
               const operations = input as PendingOperation<unknown>[];
@@ -391,71 +420,113 @@ export class VibORM<C extends VibORMConfig> {
                 if (!isPendingOperation(op)) {
                   throw new InvalidTransactionInputError();
                 }
-                // Verify operation belongs to this client
-                if (op.getClientId() !== expectedClientId) {
-                  throw PendingOperationError.clientMismatch(
-                    op.getModel(),
-                    op.getOperation()
-                  );
-                }
+                assertOperationOwnership(op, orm.engine);
               }
 
               // Check driver capabilities for proper execution strategy
-              const driver = orm.driver;
+              const driver = orm.engine.driver;
               const supportsTransactions = driver.supportsTransactions;
               const supportsBatch = driver.supportsBatch;
 
-              // For batch-only drivers (D1, D1-HTTP, Neon-HTTP), use native batch execution
+              // Drivers with an atomic batch API (D1 bindings and Neon HTTP)
+              // can execute preplanned operations without callback transactions.
               // This provides atomicity for operations that can be batched
               if (!supportsTransactions && supportsBatch) {
-                const operationQueries: {
-                  sql: string;
-                  params?: unknown[];
-                }[] = [];
-                let setupQueries: { sql: string; params?: unknown[] }[] = [];
-                let cleanupQueries: { sql: string; params?: unknown[] }[] = [];
-                let hasNestedBatchPlan = false;
+                const operationQueries: BatchQuery[] = [];
+                let setupQueries: BatchQuery[] = [];
+                let cleanupQueries: BatchQuery[] = [];
+                let hasProgramBatchState = false;
                 const batchContext: BatchPreparationContext = {};
+                const batchGuards: PreparedBatchGuard[] = [];
                 const parsers: Array<{
                   start: number;
                   length: number;
                   parse: (
                     raw: Array<{ rows: unknown[]; rowCount: number }>
-                  ) => unknown;
+                  ) => Promise<unknown>;
                 }> = [];
 
                 for (const op of operations) {
-                  const prepared = op.prepare(driver);
-                  if (prepared) {
+                  const preparation = await op.observeBatchPhase(
+                    driver,
+                    async () => {
+                      const prepared = op.prepare(driver);
+                      if (prepared) {
+                        return { kind: "single" as const, prepared };
+                      }
+                      return {
+                        kind: "batch" as const,
+                        preparedBatch: await op.prepareBatch(
+                          driver,
+                          batchContext
+                        ),
+                      };
+                    }
+                  );
+                  if (preparation.kind === "single") {
                     const start = operationQueries.length;
-                    operationQueries.push(prepared);
+                    operationQueries.push(preparation.prepared);
                     parsers.push({
                       start,
                       length: 1,
-                      parse: (raw) => op.parseResult(raw[0]!),
+                      parse: (raw) =>
+                        op.observeBatchPhase(driver, () => {
+                          assertNormalizedBatchResults(raw, 1, {
+                            provider: driver.driverName,
+                            operation: op.getOperation(),
+                          });
+                          const [result] = raw;
+                          if (!result) {
+                            throw new TransactionError(
+                              `Driver "${driver.driverName}" omitted the result for operation "${op.getOperation()}".`,
+                              {
+                                meta: {
+                                  driver: driver.driverName,
+                                  operation: op.getOperation(),
+                                },
+                              }
+                            );
+                          }
+                          return op.parseResult(result);
+                        }),
                     });
                     continue;
                   }
 
-                  const preparedBatch = await op.prepareBatch(
-                    driver,
-                    batchContext
-                  );
+                  const { preparedBatch } = preparation;
                   if (!preparedBatch) {
                     break;
                   }
 
-                  hasNestedBatchPlan = true;
-                  setupQueries = preparedBatch.setupQueries ?? setupQueries;
-                  cleanupQueries =
-                    preparedBatch.cleanupQueries ?? cleanupQueries;
+                  hasProgramBatchState = true;
+                  setupQueries = (
+                    preparedBatch.setupQueries ?? setupQueries
+                  ).map((query) => ({
+                    ...query,
+                    context: transactionContext,
+                  }));
+                  cleanupQueries = (
+                    preparedBatch.cleanupQueries ?? cleanupQueries
+                  ).map((query) => ({
+                    ...query,
+                    context: transactionContext,
+                  }));
 
                   const start = operationQueries.length;
                   operationQueries.push(...preparedBatch.queries);
+                  for (const guard of preparedBatch.guards ?? []) {
+                    batchGuards.push({
+                      ...guard,
+                      queryIndex: start + guard.queryIndex,
+                    });
+                  }
                   parsers.push({
                     start,
                     length: preparedBatch.queries.length,
-                    parse: (raw) => preparedBatch.parseResult(raw),
+                    parse: (raw) =>
+                      op.observeBatchPhase(driver, () =>
+                        preparedBatch.parseResult(raw)
+                      ),
                   });
                 }
 
@@ -463,29 +534,56 @@ export class VibORM<C extends VibORMConfig> {
                   parsers.length === operations.length &&
                   operationQueries.length > 0
                 ) {
-                  const setupOffset = hasNestedBatchPlan
+                  const setupOffset = hasProgramBatchState
                     ? setupQueries.length
                     : 0;
-                  const batchQueries = hasNestedBatchPlan
+                  const batchQueries = hasProgramBatchState
                     ? [...setupQueries, ...operationQueries, ...cleanupQueries]
                     : operationQueries;
-                  const batchResults = await driver._executeBatch(
-                    batchQueries,
-                    options
+                  let batchResults: QueryResult<unknown>[];
+                  try {
+                    batchResults = await driver._executeBatch(
+                      batchQueries,
+                      undefined,
+                      transactionContext
+                    );
+                  } catch (error) {
+                    const guards = batchGuards.map((guard) => ({
+                      ...guard,
+                      queryIndex: setupOffset + guard.queryIndex,
+                    }));
+                    throw await attributeOperationBatchError(
+                      error,
+                      guards,
+                      driver
+                    );
+                  }
+                  const resultContext = {
+                    provider: driver.driverName,
+                    operation: "$transaction([...])",
+                  };
+                  assertNormalizedBatchResults(
+                    batchResults,
+                    batchQueries.length,
+                    resultContext
                   );
 
                   const results: unknown[] = [];
                   for (const parser of parsers) {
-                    const raw = batchResults
-                      .slice(
-                        setupOffset + parser.start,
-                        setupOffset + parser.start + parser.length
-                      )
-                      .map((result) => ({
-                        rows: (result?.rows ?? []) as Record<string, unknown>[],
-                        rowCount: result?.rowCount ?? 0,
-                      }));
-                    results.push(parser.parse(raw));
+                    const resultWindow = batchResults.slice(
+                      setupOffset + parser.start,
+                      setupOffset + parser.start + parser.length
+                    );
+                    assertNormalizedBatchResults(
+                      resultWindow,
+                      parser.length,
+                      resultContext
+                    );
+                    const raw = resultWindow.map((result) => ({
+                      rows: result.rows,
+                      rowCount: result.rowCount,
+                    }));
+                    results.push(await parser.parse(raw));
                   }
 
                   return results;
@@ -517,30 +615,34 @@ export class VibORM<C extends VibORMConfig> {
               // Execute all operations within a real transaction.
               // Each operation's executor handles its own tracing (validate, build, execute, parse)
               // Cache invalidation is already handled by the wrapped executor (see createClient)
-              return driver.withTransaction(async (txDriver) => {
-                const txDriverTyped = txDriver as AnyDriver;
+              return driver.withTransaction(
+                async (txDriver) => {
+                  const txDriverTyped = txDriver as AnyDriver;
 
-                // Execute operations sequentially to maintain order
-                // Each executor already has full tracing via query engine
-                // Cache invalidation with proper options is handled by the mutation wrapper
-                const results: unknown[] = [];
-                for (const op of operations) {
-                  const result = await op.executeWith(txDriverTyped);
-                  results.push(result);
-                }
+                  // Execute operations sequentially to maintain order
+                  // Each executor already has full tracing via query engine
+                  // Cache invalidation with proper options is handled by the mutation wrapper
+                  const results: unknown[] = [];
+                  for (const op of operations) {
+                    const result = await op.executeWith(txDriverTyped);
+                    results.push(result);
+                  }
 
-                return results;
-              }, options);
+                  return results;
+                },
+                undefined,
+                transactionContext
+              );
             }
 
             // Callback = dynamic transaction mode
             const fn = input as (tx: Client<C>) => Promise<T>;
-            if (!orm.driver.supportsTransactions) {
+            if (!orm.engine.driver.supportsTransactions) {
               throw new TransactionError(
-                `Driver "${orm.driver.driverName}" does not support callback transactions.`,
+                `Driver "${orm.engine.driver.driverName}" does not support callback transactions.`,
                 {
                   meta: {
-                    driver: orm.driver.driverName,
+                    driver: orm.engine.driver.driverName,
                     method: "$transaction(callback)",
                   },
                 }
@@ -549,118 +651,77 @@ export class VibORM<C extends VibORMConfig> {
 
             // Helper to create a transaction client with $transaction support
             const createTxClient = (txDriver: AnyDriver): Client<C> => {
-              const txEngine = new QueryEngine(
-                txDriver,
-                orm.registry,
-                orm.instrumentation
-              );
+              const txEngine = orm.engine.bind(txDriver);
               const baseClient = orm.createClient(txEngine);
-
-              // Use the transaction client's clientId for nested validation
-              const txClientId = txEngine.clientId;
 
               // Wrap with proxy to intercept $transaction
               return new Proxy(baseClient, {
                 get(target, prop) {
                   if (prop === "$transaction") {
-                    return async <NT>(
+                    return <NT>(
                       nestedInput:
                         | ((nestedTx: Client<C>) => Promise<NT>)
                         | PendingOperation<unknown>[],
-                      nestedOptions?: TransactionOptions
-                    ) => {
-                      if (Array.isArray(nestedInput)) {
-                        // Batch mode in nested transaction
-                        // Validate all items are PendingOperations from this transaction client
-                        const nestedOperations =
-                          nestedInput as PendingOperation<unknown>[];
-                        for (const op of nestedOperations) {
-                          if (!isPendingOperation(op)) {
-                            throw new InvalidTransactionInputError();
-                          }
-                          // Verify operation belongs to this transaction client
-                          if (op.getClientId() !== txClientId) {
-                            throw PendingOperationError.clientMismatch(
-                              op.getModel(),
-                              op.getOperation()
-                            );
-                          }
-                        }
-
-                        // For batch-only drivers (no real transactions), use native batch
-                        // execution for nested batches to preserve atomicity optimization
+                      nestedUnsupportedOptions?: unknown
+                    ): Promise<NT | unknown[]> => {
+                      try {
+                        assertNoTransactionOptions(nestedUnsupportedOptions);
                         if (
-                          !txDriver.supportsTransactions &&
-                          txDriver.supportsBatch
+                          Array.isArray(nestedInput) &&
+                          nestedInput.length === 0
                         ) {
-                          const allCanBatch = nestedOperations.every((op) =>
-                            op.canBatch()
+                          return Promise.resolve([]);
+                        }
+                        const nestedTransactionContext =
+                          createOperationExecutionContext(
+                            "$transaction",
+                            Array.isArray(nestedInput)
+                              ? "$transaction([...])"
+                              : "$transaction(callback)",
+                            orm.engine.instrumentation
                           );
-
-                          if (allCanBatch) {
-                            const batchQueries: {
-                              sql: string;
-                              params?: unknown[];
-                            }[] = [];
-                            for (const op of nestedOperations) {
-                              const prepared = op.prepare(
-                                txDriver as AnyDriver
-                              );
-                              if (!prepared) {
-                                break;
-                              }
-                              batchQueries.push(prepared);
+                        if (Array.isArray(nestedInput)) {
+                          // Batch mode in nested transaction
+                          // Validate all items are PendingOperations from this transaction client
+                          const nestedOperations =
+                            nestedInput as PendingOperation<unknown>[];
+                          for (const op of nestedOperations) {
+                            if (!isPendingOperation(op)) {
+                              throw new InvalidTransactionInputError();
                             }
+                            assertOperationOwnership(op, txEngine);
+                          }
 
-                            if (
-                              batchQueries.length === nestedOperations.length
-                            ) {
-                              const batchResults =
-                                await txDriver._executeBatch(batchQueries);
-
+                          return txDriver.withTransaction(
+                            async (nestedTxDriver) => {
                               const results: unknown[] = [];
-                              for (
-                                let i = 0;
-                                i < nestedOperations.length;
-                                i++
-                              ) {
-                                const op = nestedOperations[i]!;
-                                const raw = batchResults[i]!;
+                              for (const op of nestedOperations) {
                                 results.push(
-                                  op.parseResult({
-                                    rows: raw.rows as unknown[],
-                                    rowCount: raw.rowCount,
-                                  })
+                                  await op.executeWith(nestedTxDriver)
                                 );
                               }
                               return results;
-                            }
-                          }
-                          // Fall through to the transaction path below.
+                            },
+                            undefined,
+                            nestedTransactionContext
+                          );
                         }
-
+                        // Callback mode - create nested client recursively
                         return txDriver.withTransaction(
-                          async (nestedTxDriver) => {
-                            const results: unknown[] = [];
-                            for (const op of nestedOperations) {
-                              results.push(
-                                await op.executeWith(nestedTxDriver)
-                              );
-                            }
-                            return results;
+                          (nestedTxDriver) => {
+                            const nestedClient = createTxClient(
+                              nestedTxDriver as AnyDriver
+                            );
+                            return (
+                              nestedInput as (tx: Client<C>) => Promise<NT>
+                            )(nestedClient);
                           },
-                          nestedOptions
+                          undefined,
+                          nestedTransactionContext
                         );
+                      } catch (error) {
+                        return Promise.reject(error);
                       }
-                      // Callback mode - create nested client recursively
-                      return txDriver.withTransaction((nestedTxDriver) => {
-                        const nestedClient = createTxClient(
-                          nestedTxDriver as AnyDriver
-                        );
-                        return (nestedInput as (tx: Client<C>) => Promise<NT>)(
-                          nestedClient
-                        );
-                      }, nestedOptions);
                     };
                   }
                   // Forward all other property access to the base client
@@ -669,19 +730,37 @@ export class VibORM<C extends VibORMConfig> {
               }) as Client<C>;
             };
 
-            return orm.driver.withTransaction((txDriver) => {
-              const txClient = createTxClient(txDriver as AnyDriver);
-              return fn(txClient);
-            }, options);
+            return orm.engine.driver.withTransaction(
+              (txDriver) => {
+                const txClient = createTxClient(txDriver as AnyDriver);
+                return fn(txClient);
+              },
+              undefined,
+              transactionContext
+            );
           };
         }
 
         if (prop === "$connect") {
-          return () => orm.driver._connect();
+          return () =>
+            orm.engine.driver._connect(
+              createOperationExecutionContext(
+                "$connection",
+                "$connect",
+                orm.engine.instrumentation
+              )
+            );
         }
 
         if (prop === "$disconnect") {
-          return () => orm.driver._disconnect();
+          return () =>
+            orm.engine.driver._disconnect(
+              createOperationExecutionContext(
+                "$connection",
+                "$disconnect",
+                orm.engine.instrumentation
+              )
+            );
         }
 
         if (prop === "$withCache") {
@@ -691,7 +770,15 @@ export class VibORM<C extends VibORMConfig> {
 
         if (prop === "$invalidate") {
           return async (...keys: string[]) => {
-            await invalidateManualCache(orm.cache, keys);
+            await invalidateManualCache(
+              orm.cache,
+              keys,
+              createOperationExecutionContext(
+                "$cache",
+                "$invalidate",
+                orm.engine.instrumentation
+              )
+            );
           };
         }
 

@@ -1,0 +1,38 @@
+---
+title: L5 - Schema Validation
+description: Reject structurally invalid model definitions before database work begins
+icon: ShieldCheck
+---
+
+**Location:** `src/schema/validation/`
+
+## Why This Layer Exists
+
+Runtime validation answers whether query input has the right shape. Schema
+validation answers an earlier question: whether the model graph itself is
+coherent.
+
+It checks definition-time constraints such as model identifiers, foreign-key
+targets, referential actions, default values, and database-specific structural
+rules before migrations or queries depend on them.
+
+## Boundary
+
+L5 owns structural correctness of schema definitions. It does not validate
+query arguments, generate SQL, or inspect database state.
+
+| Concern | Owner |
+|---------|-------|
+| Runtime query input | L1 and L3 validation schemas |
+| Model graph correctness | L5 schema validation |
+| Database schema comparison | L12 migrations |
+
+Schema validation runs automatically before `push` and `migrate`. Applications
+can also call `validateSchema()` or `validateSchemaOrThrow()` to surface errors
+at startup. See [Schema Validation](/docs/schema/validation) for the public API.
+
+## Connection to Other Layers
+
+- **L2 (Scalars)**: Supplies scalar state and constraints
+- **L4 (Relations)**: Supplies relation targets and referential actions
+- **L12 (Migrations)**: Receives only structurally valid models

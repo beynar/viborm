@@ -73,9 +73,10 @@ describe("parseIntegerBoolean", () => {
     expect(parseIntegerBoolean({})).toBeUndefined();
   });
 
-  test("converts other numbers to boolean (truthy check)", () => {
-    expect(parseIntegerBoolean(2)).toBe(false); // Only 1 is true
-    expect(parseIntegerBoolean(-1)).toBe(false);
+  test("rejects integer values outside the boolean domain", () => {
+    expect(parseIntegerBoolean(2)).toBeUndefined();
+    expect(parseIntegerBoolean(-1)).toBeUndefined();
+    expect(parseIntegerBoolean(2n)).toBeUndefined();
   });
 });
 
@@ -99,8 +100,8 @@ describe("normalizeCountResult", () => {
     expect(result).toEqual([{ [COUNT_RESULT_KEY]: 5 }]);
   });
 
-  test("normalizes count column name (lowercase)", () => {
-    const result = normalizeCountResult([{ count: 10 }]);
+  test("preserves the private count carrier", () => {
+    const result = normalizeCountResult([{ [COUNT_RESULT_KEY]: 10 }]);
     expect(result).toEqual([{ [COUNT_RESULT_KEY]: 10 }]);
   });
 
@@ -121,7 +122,11 @@ describe("normalizeCountResult", () => {
 
   test("returns undefined for non-count results", () => {
     expect(normalizeCountResult([{ name: "Alice" }])).toBeUndefined();
+    expect(normalizeCountResult([{ count: 10 }])).toBeUndefined();
     expect(normalizeCountResult([{ id: 1, name: "Bob" }])).toBeUndefined();
+    expect(
+      normalizeCountResult([{ "COUNT(*)": 2, unexpected: true }])
+    ).toBeUndefined();
   });
 
   test("returns undefined for empty array", () => {
@@ -143,6 +148,6 @@ describe("normalizeCountResult", () => {
 
 describe("COUNT_RESULT_KEY", () => {
   test("is the expected value", () => {
-    expect(COUNT_RESULT_KEY).toBe("_result");
+    expect(COUNT_RESULT_KEY).toBe("0viborm_count_result");
   });
 });
