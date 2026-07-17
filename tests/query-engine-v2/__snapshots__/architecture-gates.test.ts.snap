@@ -1,0 +1,25 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`query-engine-v2 structural gates (PLAN P0) > (c) freezes the fragment module's exported type surface 1`] = `
+"export interface Failure { readonly kind: "nestedWrite" | "notFound" | "query"; readonly message: string; readonly relation?: string; readonly raceable: boolean; }
+
+export type FragmentOutputSource = | OperationValueReference | readonly OperationValueReference[];
+
+export interface GuardStep { readonly id: string; readonly kind: "guard"; readonly premise: { readonly kind: "exists" | "notExists"; readonly statement: Sql; }; readonly failure: Failure; }
+
+export interface OperationFragment { readonly steps: readonly OperationStep[]; readonly outputs: Readonly<Record<string, FragmentOutputSource>>; }
+
+export type OperationStep = StatementStep | GuardStep;
+
+export interface OperationValueReference { readonly kind: typeof OPERATION_VALUE_REFERENCE; readonly step: string; readonly output: string; }
+
+export type Postcondition = | { readonly kind: "exactlyOneRow"; readonly failure: Failure } | { readonly kind: "affectedRows"; readonly expected: number | { readonly min: number }; readonly failure: Failure; };
+
+export interface Probe { readonly read: StatementStep; readonly pin: { readonly whenFound: GuardStep | "none"; readonly whenMissing: GuardStep | "constraint" | "none"; }; }
+
+export type StatementOutputSource = | { readonly kind: "rows" } | { readonly kind: "rowCount" } | { readonly kind: "insertId" } | { readonly kind: "firstRowField"; readonly field: string };
+
+export interface StatementStep { readonly id: string; readonly kind: "read" | "write"; readonly statement: Sql; readonly outputs: Readonly<Record<string, StatementOutputSource>>; readonly expects?: Postcondition; readonly racePin?: TargetConstraintPin; }
+
+export interface TargetConstraintPin { readonly fields: readonly string[]; readonly table: string; readonly columns: readonly string[]; readonly constraints: readonly string[]; }"
+`;

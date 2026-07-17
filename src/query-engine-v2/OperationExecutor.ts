@@ -7,18 +7,17 @@ import {
 import {
   NestedWriteAssertionError,
   NestedWriteError,
+  NotFoundError,
   QueryEngineError,
   TransactionError,
 } from "@errors";
-import type { Model } from "@schema/model";
 import { isSql, Sql } from "@sql";
-import {
-  createCorrelationId,
-  createOperationExecutionContext,
-} from "../query-engine/execution-context";
+import { createCorrelationId } from "../query-engine/execution-context";
 import type { QueryEngine } from "../query-engine/query-engine";
-import { CreateOperation } from "./CreateOperation";
+import { validateFragment } from "./FragmentValidator";
 import {
+  type Failure,
+  type FragmentOutputSource,
   type GuardStep,
   isOperationValueReference,
   type OperationFragment,
@@ -26,14 +25,40 @@ import {
   type StatementOutputSource,
   type StatementStep,
 } from "./OperationFragment";
+import { isRecord } from "./shared";
 
 type RuntimeValues = Map<string, Map<string, unknown>>;
+
+/**
+ * The internal contract the executor drives. The executor knows nothing about
+ * what the operation means: it is handed a mode, a planning fragment, a
+ * per-branch compiler, and a result parser, and it only runs already-compiled
+ * fragments safely. Concrete operations own every semantic decision.
+ */
+export interface ExecutableOperation {
+  readonly mode: "transaction" | "batch";
+  planning(): OperationFragment;
+  compile(known: Readonly<Record<string, unknown>>): OperationFragment;
+  parse<T>(outputs: Readonly<Record<string, unknown>>): T;
+}
 
 interface BatchEntry {
   readonly statement: Sql;
   readonly step?: StatementStep;
   readonly guard?: GuardStep;
   readonly guardProbe?: Sql;
+}
+
+/**
+ * A compiled atomic unit: the materialized entries plus the values threaded
+ * through compilation and reused for output assembly. Shaped as a value so a
+ * future `$transaction([...])` path can pull entries out of several operations
+ * and merge them into one driver batch — the envelope is not privately owned.
+ */
+interface AtomicPlan {
+  readonly fragment: OperationFragment;
+  readonly entries: readonly BatchEntry[];
+  readonly values: RuntimeValues;
 }
 
 export class OperationExecutor {
@@ -43,63 +68,66 @@ export class OperationExecutor {
     this.engine = engine;
   }
 
-  async executeCreate<T>(
-    model: Model<any>,
-    args: Record<string, unknown>
+  execute<T>(
+    operation: ExecutableOperation,
+    context: QueryExecutionContext
   ): Promise<T> {
-    const operation = new CreateOperation(this.engine, model, args);
-    const context = createOperationExecutionContext(
-      getStepModelName(model, "model"),
-      "create",
-      this.engine.instrumentation
-    );
     if (operation.mode === "transaction") {
-      return this.executeTransaction<T>(operation, context);
+      return this.runTransaction<T>(operation, context);
     }
-    const outputs = await this.executePlannedBatch(operation, context);
-    return operation.parseResult<T>(outputs);
+    return this.runAtomicBatch<T>(operation, context);
   }
 
-  private executeTransaction<T>(
-    operation: CreateOperation,
+  private runTransaction<T>(
+    operation: ExecutableOperation,
     context: QueryExecutionContext
   ): Promise<T> {
     return this.engine.driver.withTransaction(
       async (driver) => {
+        const planning = operation.planning();
+        validateFragment(planning);
         const planningOutputs = await this.executeLinear(
-          operation.createPlanningFragment(),
+          planning,
           driver,
           new Map(),
           context
         );
+        const fragment = operation.compile(planningOutputs);
+        validateFragment(fragment);
         const outputs = await this.executeLinear(
-          operation.createFragment(planningOutputs),
+          fragment,
           driver,
           new Map(),
           context
         );
-        return operation.parseResult<T>(outputs);
+        return operation.parse<T>(outputs);
       },
       undefined,
       context
     );
   }
 
-  private async executePlannedBatch(
-    operation: CreateOperation,
+  private async runAtomicBatch<T>(
+    operation: ExecutableOperation,
     context: QueryExecutionContext
-  ): Promise<Readonly<Record<string, unknown>>> {
+  ): Promise<T> {
+    const planning = operation.planning();
+    validateFragment(planning);
     const planningOutputs = await this.executeLinear(
-      operation.createPlanningFragment(),
+      planning,
       this.engine.driver,
       new Map(),
       context
     );
-    return this.executeBatch(
-      operation.createFragment(planningOutputs),
+    const fragment = operation.compile(planningOutputs);
+    validateFragment(fragment);
+    const plan = this.compileToEntries(fragment);
+    const outputs = await this.executeEntries(
+      plan,
       this.engine.driver,
       context
     );
+    return operation.parse<T>(outputs);
   }
 
   private async executeLinear(
@@ -122,16 +150,14 @@ export class OperationExecutor {
         provider: driver.driverName,
         operation: step.id,
       });
+      enforcePostcondition(step, result, context);
       values.set(step.id, extractOutputs(step, result));
     }
     return resolveFragmentOutputs(fragment, values);
   }
 
-  private async executeBatch(
-    fragment: OperationFragment,
-    driver: AnyDriver,
-    context: QueryExecutionContext
-  ): Promise<Readonly<Record<string, unknown>>> {
+  /** Compile-to-entries half: lower a fragment into a runnable atomic unit. */
+  private compileToEntries(fragment: OperationFragment): AtomicPlan {
     const values: RuntimeValues = new Map();
     const batchId = `operation_${createCorrelationId()}`;
     const batchEntries: BatchEntry[] = [];
@@ -145,12 +171,16 @@ export class OperationExecutor {
           step.premise.kind === "exists"
             ? this.engine.adapter.assertions.exists(probe)
             : this.engine.adapter.assertions.notExists(probe);
-        batchEntries.push({
-          statement,
-          guard: step,
-          guardProbe: probe,
-        });
+        batchEntries.push({ statement, guard: step, guardProbe: probe });
         continue;
+      }
+
+      if (step.expects) {
+        // Batch lowering of postconditions is later-phase work. A step carrying
+        // one must fail closed here — never a silent skip (ATOM §1).
+        throw new QueryEngineError(
+          `Step '${step.id}' carries a postcondition that is not yet enforced in batch mode.`
+        );
       }
 
       batchEntries.push({
@@ -177,12 +207,25 @@ export class OperationExecutor {
       }
     }
 
-    const entries = buildBatchEntries(
-      batchEntries,
-      this.engine.adapter,
-      batchId,
-      usesScratch
-    );
+    return {
+      fragment,
+      entries: buildBatchEntries(
+        batchEntries,
+        this.engine.adapter,
+        batchId,
+        usesScratch
+      ),
+      values,
+    };
+  }
+
+  /** Execute-entries half: run the atomic unit and assemble declared outputs. */
+  private async executeEntries(
+    plan: AtomicPlan,
+    driver: AnyDriver,
+    context: QueryExecutionContext
+  ): Promise<Readonly<Record<string, unknown>>> {
+    const { fragment, entries, values } = plan;
     const queries = entries.map((entry) => driver._prepare(entry.statement));
 
     let results: QueryResult<unknown>[];
@@ -204,6 +247,48 @@ export class OperationExecutor {
     }
     return resolveFragmentOutputs(fragment, values);
   }
+}
+
+function enforcePostcondition(
+  step: StatementStep,
+  result: QueryResult<unknown>,
+  context: QueryExecutionContext
+): void {
+  const expects = step.expects;
+  if (!expects) return;
+  if (expects.kind === "exactlyOneRow") {
+    if (result.rows.length !== 1) {
+      throw failureError(expects.failure, context);
+    }
+    return;
+  }
+  const satisfied =
+    typeof expects.expected === "number"
+      ? result.rowCount === expects.expected
+      : result.rowCount >= expects.expected.min;
+  if (!satisfied) {
+    throw failureError(expects.failure, context);
+  }
+}
+
+function failureError(failure: Failure, context: QueryExecutionContext): Error {
+  if (failure.kind === "nestedWrite") {
+    const error = new NestedWriteError(failure.message, failure.relation ?? "");
+    if (failure.raceable) error.meta.raceable = true;
+    return error;
+  }
+  if (failure.kind === "notFound") {
+    return new NotFoundError(
+      context.model ?? "record",
+      context.operation ?? "query"
+    );
+  }
+  return new TransactionError(failure.message, {
+    meta: {
+      model: context.model ?? "record",
+      operation: context.operation ?? "query",
+    },
+  });
 }
 
 function materializeLinearSql(statement: Sql, values: RuntimeValues): Sql {
@@ -250,6 +335,7 @@ function extractOutput(
   result: QueryResult<unknown>
 ): unknown {
   if (source.kind === "rows") return result.rows;
+  if (source.kind === "rowCount") return result.rowCount;
   if (source.kind === "insertId") {
     if (result.insertId === undefined) {
       throw new TransactionError(
@@ -294,16 +380,59 @@ function resolveFragmentOutputs(
   values: RuntimeValues
 ): Readonly<Record<string, unknown>> {
   const outputs: Record<string, unknown> = {};
-  for (const [name, reference] of Object.entries(fragment.outputs)) {
-    const value = resolveRuntimeValue(reference, values);
-    if (isSql(value) || isOperationValueReference(value)) {
-      throw new QueryEngineError(
-        `Fragment output '${name}' did not resolve to a runtime value.`
-      );
-    }
-    outputs[name] = value;
+  for (const [name, source] of Object.entries(fragment.outputs)) {
+    outputs[name] = isReferenceList(source)
+      ? resolveOutputList(name, source, values)
+      : resolveSingleOutput(name, source, values);
   }
   return outputs;
+}
+
+function isReferenceList(
+  source: FragmentOutputSource
+): source is readonly OperationValueReference[] {
+  return Array.isArray(source);
+}
+
+function resolveSingleOutput(
+  name: string,
+  reference: OperationValueReference,
+  values: RuntimeValues
+): unknown {
+  const value = resolveRuntimeValue(reference, values);
+  if (isSql(value) || isOperationValueReference(value)) {
+    throw new QueryEngineError(
+      `Fragment output '${name}' did not resolve to a runtime value.`
+    );
+  }
+  return value;
+}
+
+/**
+ * An ordered list of refs resolves by concatenating rows or summing counts
+ * (ATOM §1). The list is homogeneous: mixing row and count sources is a typed
+ * error, never a silent coercion.
+ */
+function resolveOutputList(
+  name: string,
+  references: readonly OperationValueReference[],
+  values: RuntimeValues
+): unknown {
+  const resolved = references.map((reference) =>
+    resolveSingleOutput(name, reference, values)
+  );
+  if (resolved.every(Array.isArray)) {
+    return resolved.flat();
+  }
+  if (resolved.every((value) => typeof value === "number")) {
+    return (resolved as number[]).reduce((sum, value) => sum + value, 0);
+  }
+  if (resolved.every((value) => typeof value === "bigint")) {
+    return (resolved as bigint[]).reduce((sum, value) => sum + value, 0n);
+  }
+  throw new QueryEngineError(
+    `Fragment output '${name}' names sources that neither all concatenate as rows nor all sum as counts.`
+  );
 }
 
 function resolveRuntimeValue(
@@ -358,7 +487,7 @@ async function attributeGuardFailure(
   const statementIndex = error.meta.statementIndex;
   if (typeof statementIndex === "number") {
     const guard = entries[statementIndex]?.guard;
-    return guard ? createGuardError(guard) : error;
+    return guard ? guardError(guard) : error;
   }
   for (const entry of entries) {
     if (!(entry.guard && entry.guardProbe)) continue;
@@ -369,19 +498,16 @@ async function attributeGuardFailure(
     });
     const exists = result.rows.length > 0;
     const holds = entry.guard.premise.kind === "exists" ? exists : !exists;
-    if (!holds) return createGuardError(entry.guard);
+    if (!holds) return guardError(entry.guard);
   }
   return error;
 }
 
-function createGuardError(step: GuardStep): NestedWriteError {
-  return new NestedWriteError(step.failure.message, step.failure.relation);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function getStepModelName(model: Model<any>, fallback: string): string {
-  return model["~"].names.ts ?? model["~"].names.sql ?? fallback;
+function guardError(step: GuardStep): NestedWriteError {
+  const error = new NestedWriteError(
+    step.failure.message,
+    step.failure.relation ?? ""
+  );
+  if (step.failure.raceable) error.meta.raceable = true;
+  return error;
 }

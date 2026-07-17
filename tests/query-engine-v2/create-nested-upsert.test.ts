@@ -17,14 +17,15 @@ import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
 import { CreateOperation } from "../../src/query-engine-v2/CreateOperation";
-import { OperationExecutor } from "../../src/query-engine-v2/OperationExecutor";
 import {
   isOperationValueReference,
   ref,
+  type TargetConstraintPin,
 } from "../../src/query-engine-v2/OperationFragment";
 import {
   createNestedUpsertArgs,
   createOperationExecutor,
+  createOperationRunner,
   operationFragmentSchema,
   runCreateNestedUpsertBehavior,
 } from "./create-nested-upsert-behavior";
@@ -176,6 +177,14 @@ class GuardProviderFailureBatchDriver extends BatchProbeDriver {
   readonly failure = new QueryError("guard provider failure");
   guardIndex = -1;
 
+  // The planning read finds the child, so the operation takes the found branch —
+  // the only branch that carries a guard now that the Pin Rule removed the
+  // missing-branch notExists guard.
+  protected override async execute<T>(): Promise<QueryResult<T>> {
+    this.executions += 1;
+    return { rows: [{ id: 1 }] as T[], rowCount: 1 };
+  }
+
   override _executeBatch<T>(queries: BatchQuery[]): Promise<QueryResult<T>[]> {
     this.batchCalls += 1;
     this.guardIndex = queries.findIndex((query) =>
@@ -213,7 +222,7 @@ describe("query-engine-v2 linear operation fragments", () => {
   test("creates locked transaction planning and linear final fragments", () => {
     const driver = new TransactionProbeDriver();
     const operation = createOperation(driver);
-    const planning = operation.createPlanningFragment();
+    const planning = operation.planning();
     const planningStep = planning.steps[0];
 
     expect(operation.mode).toBe("transaction");
@@ -223,8 +232,8 @@ describe("query-engine-v2 linear operation fragments", () => {
     if (planningStep?.kind !== "read") return;
     expect(driver._prepare(planningStep.statement).sql).toContain("FOR UPDATE");
 
-    const existing = operation.createFragment({ rows: [{ id: 1 }] });
-    const missing = operation.createFragment({ rows: [] });
+    const existing = operation.compile({ rows: [{ id: 1 }] });
+    const missing = operation.compile({ rows: [] });
     expect(existing.steps.map((step) => step.id)).toEqual([
       "user.create",
       "post.update",
@@ -235,20 +244,38 @@ describe("query-engine-v2 linear operation fragments", () => {
       "post.create",
       "user.select",
     ]);
+    // No guards in transaction mode — the locked probe pins both premises.
     expect(
       [...existing.steps, ...missing.steps].every(
         (step) => step.kind !== "guard"
       )
     ).toBe(true);
+    // The found-branch update carries an affectedRows postcondition; the
+    // missing-branch create carries the racePin, never a postcondition.
+    const txUpdate = existing.steps[1];
+    expect(txUpdate?.kind === "write" && txUpdate.expects?.kind).toBe(
+      "affectedRows"
+    );
+    const txCreateChild = missing.steps[1];
+    expect(
+      txCreateChild?.kind === "write" && txCreateChild.racePin?.fields
+    ).toEqual(["id"]);
+    expect(txCreateChild?.kind === "write" && txCreateChild.expects).toBe(
+      undefined
+    );
+    const txTerminal = existing.steps[2];
+    expect(txTerminal?.kind === "read" && txTerminal.expects?.kind).toBe(
+      "exactlyOneRow"
+    );
     expect(existing.outputs).toEqual({
       result: ref("user.select", "result"),
     });
   });
 
-  test("creates unlocked batch planning and guarded linear final fragments", () => {
+  test("creates unlocked batch planning and a Pin-Rule-compliant final fragment", () => {
     const driver = new BatchProbeDriver();
     const operation = createOperation(driver);
-    const planning = operation.createPlanningFragment();
+    const planning = operation.planning();
     const planningStep = planning.steps[0];
 
     expect(operation.mode).toBe("batch");
@@ -258,8 +285,10 @@ describe("query-engine-v2 linear operation fragments", () => {
       "FOR UPDATE"
     );
 
-    const existing = operation.createFragment({ rows: [{ id: 1 }] });
-    const missing = operation.createFragment({ rows: [] });
+    const existing = operation.compile({ rows: [{ id: 1 }] });
+    const missing = operation.compile({ rows: [] });
+    // Found branch keeps its exists guard; missing branch has NO guard — the
+    // child's unique constraint enforces the premise (Pin Rule).
     expect(existing.steps.map((step) => step.id)).toEqual([
       "post.guard.exists",
       "user.create",
@@ -267,24 +296,34 @@ describe("query-engine-v2 linear operation fragments", () => {
       "user.select",
     ]);
     expect(missing.steps.map((step) => step.id)).toEqual([
-      "post.guard.notExists",
       "user.create",
       "post.create",
       "user.select",
     ]);
     expect(existing.steps[0]?.kind).toBe("guard");
-    expect(missing.steps[0]?.kind).toBe("guard");
+    expect(missing.steps.every((step) => step.kind !== "guard")).toBe(true);
+
     const existingGuard = existing.steps[0];
     if (existingGuard?.kind !== "guard") return;
-    expect(driver._prepare(existingGuard.premise.statement).sql).toContain(
+    // The stored batch guard probe no longer locks (dropped forUpdate: true).
+    expect(driver._prepare(existingGuard.premise.statement).sql).not.toContain(
       "FOR UPDATE"
     );
-    const createChild = missing.steps[2];
+    // An existing-row premise is pinned raceable: false.
+    expect(existingGuard.premise.kind).toBe("exists");
+    expect(existingGuard.failure.raceable).toBe(false);
+
+    // The missing-branch create carries the racePin and no postcondition; its
+    // constraint violation is the raceable signal.
+    const createChild = missing.steps[1];
     expect(createChild?.kind).toBe("write");
     if (createChild?.kind !== "write") return;
     expect(createChild.statement.values.some(isOperationValueReference)).toBe(
       true
     );
+    expect(createChild.racePin?.fields).toEqual(["id"]);
+    expect(createChild.racePin?.table).toBe("operation_fragment_posts");
+    expect(createChild.expects).toBeUndefined();
   });
 
   test("rejects unsupported shapes and unsupported drivers before I/O", () => {
@@ -357,7 +396,7 @@ describe("query-engine-v2 linear operation fragments", () => {
   test("passes engine-owned attribution through staged transaction execution", async () => {
     const driver = new TransactionProbeDriver();
     const instrumentation = createInstrumentationContext({});
-    const executor = new OperationExecutor(
+    const runner = createOperationRunner(
       new QueryEngine(
         driver,
         createModelRegistry(
@@ -369,7 +408,7 @@ describe("query-engine-v2 linear operation fragments", () => {
     );
 
     await expect(
-      executor.executeCreate(
+      runner.executeCreate(
         operationFragmentSchema.user,
         createNestedUpsertArgs()
       )
@@ -395,7 +434,7 @@ describe("query-engine-v2 linear operation fragments", () => {
     args.select.posts = false;
 
     expect(
-      operation.parseResult({
+      operation.parse({
         result: [{ name: "henry", posts: [] }],
       })
     ).toEqual({ name: "henry", posts: [] });
@@ -546,7 +585,142 @@ describe("query-engine-v2 linear operation fragments", () => {
       }
     }
   );
+
+  test("emits Pin-Rule guard flags per premise class", () => {
+    const batch = createOperation(new BatchProbeDriver());
+
+    // Existing-row premise: pinned by an exists guard, raceable: false.
+    const guard = batch.compile({ rows: [{ id: 1 }] }).steps[0];
+    expect(guard?.kind).toBe("guard");
+    if (guard?.kind !== "guard") return;
+    expect(guard.premise.kind).toBe("exists");
+    expect(guard.failure).toMatchObject({
+      kind: "nestedWrite",
+      relation: "posts",
+      raceable: false,
+    });
+
+    // Same-model-INSERT missing premise: never guarded — the child's unique
+    // constraint enforces it, and its racePin classifies the violation.
+    const missing = batch.compile({ rows: [] });
+    expect(missing.steps.some((step) => step.kind === "guard")).toBe(false);
+    const created = missing.steps[1];
+    expect(created?.kind === "write" && Boolean(created.racePin)).toBe(true);
+
+    // Transaction mode locks the probe, so neither branch carries a guard.
+    const tx = createOperation(new TransactionProbeDriver());
+    expect(
+      tx.compile({ rows: [{ id: 1 }] }).steps.every((s) => s.kind !== "guard")
+    ).toBe(true);
+    expect(
+      tx.compile({ rows: [] }).steps.every((s) => s.kind !== "guard")
+    ).toBe(true);
+  });
+
+  test(
+    "surfaces a create-branch race as a pinned unique conflict, never a guard abort",
+    { timeout: 30_000 },
+    async () => {
+      const db = new PGlite();
+      const setup = createClient({
+        schema: operationFragmentSchema,
+        driver: new PGliteDriver({ client: db }),
+      });
+      try {
+        await push(setup, { force: true });
+
+        // The racePin the missing-branch create carries (the child primary key).
+        const missing = createOperation(new BatchProbeDriver()).compile({
+          rows: [],
+        });
+        const createStep = missing.steps[1];
+        const racePin =
+          createStep?.kind === "write" ? createStep.racePin : undefined;
+        expect(racePin?.fields).toEqual(["id"]);
+        if (!racePin) return;
+
+        // A concurrent winner commits the same child primary key just before the
+        // loser's batch runs; the loser's INSERT then violates that key.
+        const driver = new BeforeBatchPGliteDriver(
+          async () => {
+            await setup.post.create({
+              data: {
+                id: 1,
+                title: "winner",
+                slug: "winner-key",
+                userId: null,
+              },
+            });
+          },
+          { client: db }
+        );
+
+        let caught: unknown;
+        await createOperationExecutor(driver)
+          .executeCreate(operationFragmentSchema.user, createNestedUpsertArgs())
+          .catch((error) => {
+            caught = error;
+          });
+
+        // The loser surfaces the pinned unique conflict, not a guard abort.
+        expect(caught).toBeInstanceOf(UniqueConstraintError);
+        expect(caught).not.toBeInstanceOf(NestedWriteError);
+        expect(matchesRacePin(caught as UniqueConstraintError, racePin)).toBe(
+          true
+        );
+        expect(driver.batchCalls).toBe(1);
+        await expect(setup.user.findMany()).resolves.toEqual([]);
+        await expect(setup.post.findMany()).resolves.toEqual([
+          { id: 1, title: "winner", slug: "winner-key", userId: null },
+        ]);
+      } finally {
+        await setup.$disconnect();
+      }
+    }
+  );
 });
+
+/**
+ * Mirrors V1's `matchesPinnedUniqueConstraint` (OperationRuntime.ts): a race is
+ * classified to the pin only when normalized provider metadata identifies the
+ * pinned table and constraint/columns. Missing attribution fails closed.
+ */
+function matchesRacePin(
+  error: UniqueConstraintError,
+  pin: TargetConstraintPin
+): boolean {
+  const normalize = (id: string) =>
+    (id.split(".").at(-1) ?? id).replace(/["`[\]]/g, "").toLowerCase();
+  const meta = error.meta as {
+    table?: string;
+    columns?: string[];
+    constraint?: string;
+  };
+  if (meta.table && normalize(meta.table) !== normalize(pin.table)) {
+    return false;
+  }
+  let matched = false;
+  if (meta.columns) {
+    matched = true;
+    const actual = meta.columns.map(normalize).sort();
+    const expected = pin.columns.map(normalize).sort();
+    if (
+      actual.length !== expected.length ||
+      !actual.every((column, index) => column === expected[index])
+    ) {
+      return false;
+    }
+  }
+  if (meta.constraint) {
+    matched = true;
+    if (
+      !new Set(pin.constraints.map(normalize)).has(normalize(meta.constraint))
+    ) {
+      return false;
+    }
+  }
+  return matched;
+}
 
 function driverEngine(driver: Driver<unknown, unknown>): QueryEngine {
   const schemas = createSchemaRegistry(operationFragmentSchema);

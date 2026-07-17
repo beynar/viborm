@@ -1,11 +1,15 @@
 import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import { push } from "@migrations";
+import { createOperationExecutionContext } from "@query-engine/execution-context";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
+import type { Model } from "@schema/model";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
+import { CreateOperation } from "../../src/query-engine-v2/CreateOperation";
 import { OperationExecutor } from "../../src/query-engine-v2/OperationExecutor";
+import { getStepModelName } from "../../src/query-engine-v2/shared";
 
 export const operationFragmentSchema = (() => {
   const user = s
@@ -33,8 +37,45 @@ export const operationFragmentSchema = (() => {
 
 hydrateSchemaNames(operationFragmentSchema);
 
-export function createOperationExecutor(driver: AnyDriver): OperationExecutor {
-  return new OperationExecutor(createOperationEngine(driver));
+/**
+ * Drives a create through the inverted executor: the concrete operation is
+ * constructed here and handed to the generic `execute(operation, context)`. The
+ * executor never learns what a create is; wiring an operation to it lives with
+ * the caller (the seam the client proxy will own in P1).
+ */
+export interface CreateOperationRunner {
+  readonly executor: OperationExecutor;
+  executeCreate<T = unknown>(
+    model: Model<any>,
+    args: Record<string, unknown>
+  ): Promise<T>;
+}
+
+export function createOperationExecutor(
+  driver: AnyDriver
+): CreateOperationRunner {
+  return createOperationRunner(createOperationEngine(driver));
+}
+
+export function createOperationRunner(
+  engine: QueryEngine
+): CreateOperationRunner {
+  const executor = new OperationExecutor(engine);
+  return {
+    executor,
+    executeCreate<T = unknown>(
+      model: Model<any>,
+      args: Record<string, unknown>
+    ) {
+      const operation = new CreateOperation(engine, model, args);
+      const context = createOperationExecutionContext(
+        getStepModelName(model, "model"),
+        "create",
+        engine.instrumentation
+      );
+      return executor.execute<T>(operation, context);
+    },
+  };
 }
 
 export function createOperationEngine(driver: AnyDriver): QueryEngine {

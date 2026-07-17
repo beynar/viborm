@@ -26,14 +26,22 @@ import {
 import type { QueryEngine } from "../query-engine/query-engine";
 import { ResultParser } from "../query-engine/result/ResultParser";
 import type { QueryScope } from "../query-engine/types";
+import { uniqueConflictTarget } from "../query-engine/WritePrograms";
+import { validateProbe } from "./FragmentValidator";
 import {
+  type Failure,
   type GuardStep,
   type OperationFragment,
   type OperationStep,
   type OperationValueReference,
+  type Postcondition,
+  type Probe,
   ref,
   type StatementStep,
+  type TargetConstraintPin,
 } from "./OperationFragment";
+import { StepScope } from "./StepScope";
+import { getStepModelName, isRecord } from "./shared";
 
 type ExecutionMode = "transaction" | "batch";
 
@@ -44,8 +52,12 @@ export class CreateOperation {
   private readonly model: Model<any>;
   private readonly resultArgs: Record<string, unknown>;
   private readonly planningFragment: OperationFragment;
-  private readonly existingFragment: OperationFragment;
-  private readonly missingFragment: OperationFragment;
+  private readonly probe: Probe;
+  private readonly createParent: StatementStep;
+  private readonly updateChild: StatementStep;
+  private readonly createChild: StatementStep;
+  private readonly selectParent: StatementStep;
+  private readonly resultOutputs: OperationFragment["outputs"];
 
   constructor(
     engine: QueryEngine,
@@ -55,6 +67,8 @@ export class CreateOperation {
     this.engine = engine;
     this.model = model;
     this.mode = selectExecutionMode(engine);
+    const txMode = this.mode === "transaction";
+    const scope = new StepScope();
 
     // 1. Validate literals and resolve the one supported relation shape.
     assertExactKeys(args, ["data", "select"], "create arguments");
@@ -181,9 +195,10 @@ export class CreateOperation {
     const childPrimaryKey = childPrimaryKeys[0]!;
 
     // 2. Build symbolic SQL only after every user-provided value is validated.
-    const parentCreateId = `${parentName}.create`;
-    const childFindId = `${childName}.find`;
-    const resultId = `${parentName}.select`;
+    //    Step ids come from the scope allocator so no two writes can collide.
+    const parentCreateId = scope.allocate(`${parentName}.create`);
+    const childFindId = scope.allocate(`${childName}.find`);
+    const resultId = scope.allocate(`${parentName}.select`);
     const parentId = ref(parentCreateId, "id");
     const childParentId = referenceSql(
       engine,
@@ -198,41 +213,37 @@ export class CreateOperation {
       parentId
     );
     const childIdentitySelect = { [childPrimaryKey]: true };
-    const guardProbe = buildFindUnique(child, {
-      where,
-      select: childIdentitySelect,
-      forUpdate: true,
-    });
+
     const find: StatementStep = {
       id: childFindId,
       kind: "read",
       statement: buildFindUnique(child, {
         where,
         select: childIdentitySelect,
-        forUpdate: this.mode === "transaction",
+        forUpdate: txMode,
       }),
       outputs: { rows: { kind: "rows" } },
     };
-    const createParent: StatementStep = {
+
+    this.createParent = {
       id: parentCreateId,
       kind: "write",
-      statement:
-        this.mode === "batch"
-          ? buildInsert(parent, getTableName(model), parentData)
-          : buildCreate(parent, {
-              data: parentData,
-              select: { [parentPrimaryKey]: true },
-            }),
+      statement: txMode
+        ? buildCreate(parent, {
+            data: parentData,
+            select: { [parentPrimaryKey]: true },
+          })
+        : buildInsert(parent, getTableName(model), parentData),
       outputs: {
         id:
-          this.mode === "transaction" &&
-          engine.adapter.capabilities.supportsReturning
+          txMode && engine.adapter.capabilities.supportsReturning
             ? { kind: "firstRowField", field: parentPrimaryKey }
             : { kind: "insertId" },
       },
     };
-    const updateChild: StatementStep = {
-      id: `${childName}.update`,
+
+    this.updateChild = {
+      id: scope.allocate(`${childName}.update`),
       kind: "write",
       statement: buildUpdate(child, {
         where,
@@ -243,17 +254,34 @@ export class CreateOperation {
         select: childIdentitySelect,
       }),
       outputs: {},
+      // The found premise is pinned by the locked probe (tx) or the exists guard
+      // (batch); an affected-row miss there is a not-found, never a race.
+      ...(txMode
+        ? {
+            expects: affectedRows(1, {
+              kind: "notFound",
+              message: `Nested upsert target for relation '${relationName}' vanished before its update.`,
+              relation: relationName,
+              raceable: false,
+            }),
+          }
+        : {}),
     };
-    const createChild: StatementStep = {
-      id: `${childName}.create`,
+
+    this.createChild = {
+      id: scope.allocate(`${childName}.create`),
       kind: "write",
       statement: buildInsert(child, getTableName(child.model), {
         ...childCreate.scalarData,
         [childForeignKey]: childParentId,
       }),
       outputs: {},
+      // The missing premise is enforced by the child's unique constraint; its
+      // violation is the raceable signal, matched against this pinned target.
+      racePin: childRacePin(child, where),
     };
-    const selectParent: StatementStep = {
+
+    this.selectParent = {
       id: resultId,
       kind: "read",
       statement: buildFindUnique(parent, {
@@ -261,70 +289,68 @@ export class CreateOperation {
         select: parsedSelect,
       }),
       outputs: { result: { kind: "rows" } },
+      ...(txMode
+        ? {
+            expects: exactlyOneRow({
+              kind: "query",
+              message: `query-engine-v2 create terminal read for relation '${relationName}' expected exactly one row.`,
+              raceable: false,
+            }),
+          }
+        : {}),
     };
-    const resultOutputs = { result: ref(resultId, "result") };
-    const existingSteps: OperationStep[] = [
-      createParent,
-      updateChild,
-      selectParent,
-    ];
-    const missingSteps: OperationStep[] = [
-      createParent,
-      createChild,
-      selectParent,
-    ];
 
-    if (this.mode === "batch") {
-      existingSteps.unshift(
-        createGuard(
-          `${childName}.guard.exists`,
-          "exists",
-          guardProbe,
-          relationName
-        )
-      );
-      missingSteps.unshift(
-        createGuard(
-          `${childName}.guard.notExists`,
-          "notExists",
-          guardProbe,
-          relationName
-        )
-      );
-    }
+    this.resultOutputs = { result: ref(resultId, "result") };
 
-    // 3. Freeze planning and both capability-specialized linear outcomes.
+    // 3. Pair the planning read with the premise its decision creates (ATOM §2).
+    //    The found branch is pinned by the exists guard in batch mode; the
+    //    missing branch is enforced by the constraint, never a notExists guard.
+    const foundPin: GuardStep | "none" = txMode
+      ? "none"
+      : existsGuard(
+          scope.allocate(`${childName}.guard.exists`),
+          buildFindUnique(child, { where, select: childIdentitySelect }),
+          relationName
+        );
+    this.probe = {
+      read: find,
+      pin: { whenFound: foundPin, whenMissing: "constraint" },
+    };
+    validateProbe(this.probe);
+
+    // 4. Freeze the planning fragment; the final fragment is compiled per branch.
     this.planningFragment = {
       steps: [find],
       outputs: { rows: ref(childFindId, "rows") },
     };
-    this.existingFragment = {
-      steps: existingSteps,
-      outputs: resultOutputs,
-    };
-    this.missingFragment = {
-      steps: missingSteps,
-      outputs: resultOutputs,
-    };
   }
 
-  createPlanningFragment(): OperationFragment {
+  planning(): OperationFragment {
     return this.planningFragment;
   }
 
-  createFragment(
-    planningOutputs: Readonly<Record<string, unknown>>
-  ): OperationFragment {
-    const rows = planningOutputs.rows;
+  compile(known: Readonly<Record<string, unknown>>): OperationFragment {
+    const rows = known.rows;
     if (!Array.isArray(rows)) {
       throw new QueryEngineError(
         "query-engine-v2 create planning did not expose rows."
       );
     }
-    return rows.length > 0 ? this.existingFragment : this.missingFragment;
+    const steps: OperationStep[] = [];
+    if (rows.length > 0) {
+      if (this.probe.pin.whenFound !== "none") {
+        steps.push(this.probe.pin.whenFound);
+      }
+      steps.push(this.createParent, this.updateChild, this.selectParent);
+    } else {
+      // whenMissing === "constraint": the create INSERT carries the racePin and
+      // no guard pins the premise (Pin Rule).
+      steps.push(this.createParent, this.createChild, this.selectParent);
+    }
+    return { steps, outputs: this.resultOutputs };
   }
 
-  parseResult<T>(outputs: Readonly<Record<string, unknown>>): T {
+  parse<T>(outputs: Readonly<Record<string, unknown>>): T {
     if (!Object.hasOwn(outputs, "result")) {
       throw new QueryEngineError(
         "query-engine-v2 create did not expose its result."
@@ -357,20 +383,34 @@ function referenceSql(
   return cast ? engine.adapter.expressions.cast(value, cast) : value;
 }
 
-function createGuard(
-  id: string,
-  kind: "exists" | "notExists",
-  statement: Sql,
-  relation: string
-): GuardStep {
+function childRacePin(
+  child: QueryScope,
+  where: Record<string, unknown>
+): TargetConstraintPin {
+  return uniqueConflictTarget(child, where);
+}
+
+function affectedRows(
+  expected: number | { readonly min: number },
+  failure: Failure
+): Postcondition {
+  return { kind: "affectedRows", expected, failure };
+}
+
+function exactlyOneRow(failure: Failure): Postcondition {
+  return { kind: "exactlyOneRow", failure };
+}
+
+function existsGuard(id: string, statement: Sql, relation: string): GuardStep {
   return {
     id,
     kind: "guard",
-    premise: { kind, statement },
+    premise: { kind: "exists", statement },
     failure: {
       kind: "nestedWrite",
       message: `Nested upsert premise changed for relation '${relation}'.`,
       relation,
+      raceable: false,
     },
   };
 }
@@ -462,12 +502,4 @@ function assertExactKeys(
 function requireRecord(value: unknown, label: string): Record<string, unknown> {
   if (isRecord(value)) return value;
   throw new QueryEngineError(`'${label}' must be an object.`);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function getStepModelName(model: Model<any>, fallback: string): string {
-  return model["~"].names.ts ?? model["~"].names.sql ?? fallback;
 }
