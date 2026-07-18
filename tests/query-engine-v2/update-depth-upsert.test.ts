@@ -1,0 +1,474 @@
+import { createClient } from "@client/client";
+import type { BatchQuery, QueryResult } from "@drivers";
+import { PGliteDriver } from "@drivers/pglite";
+import { PGlite, type Transaction } from "@electric-sql/pglite";
+import { NestedWriteError } from "@errors";
+import { push } from "@migrations";
+import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
+import { createSchemaRegistry } from "@validation";
+import { describe, expect, test } from "vitest";
+import { UpdateOperation } from "../../src/query-engine-v2/UpdateOperation";
+import {
+  createDepthSliceExecutor,
+  depthSliceSchema,
+  depthUpsertArgs,
+} from "./update-depth-upsert-behavior";
+
+class BatchOnlyPGliteDriver extends PGliteDriver {
+  override readonly supportsTransactions = false;
+  override readonly supportsBatch = true;
+
+  protected override async executeBatch<T>(
+    client: PGlite | Transaction,
+    queries: BatchQuery[]
+  ): Promise<QueryResult<T>[]> {
+    return this.transaction(client, async (transaction) => {
+      const results: QueryResult<T>[] = [];
+      for (const query of queries) {
+        results.push(
+          await this.executeRaw<T>(transaction, query.sql, query.params)
+        );
+      }
+      return results;
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The depth gate (PLAN P1): `update > upsert > upsert` with actual planning
+// reads. The middle upsert (posts) is located by its PK; its UPDATE arm carries
+// a deeper correlated upsert (comments). Recursion adds list entries and one
+// parent-id value, never a Part method, a step kind, or a parent reference.
+// ---------------------------------------------------------------------------
+
+function planningEngine() {
+  const schemas = createSchemaRegistry(depthSliceSchema);
+  return new QueryEngine(
+    new PGliteDriver(),
+    createModelRegistry(depthSliceSchema, schemas)
+  );
+}
+
+function batchPlanningEngine() {
+  const schemas = createSchemaRegistry(depthSliceSchema);
+  return new QueryEngine(
+    new BatchOnlyPGliteDriver(),
+    createModelRegistry(depthSliceSchema, schemas)
+  );
+}
+
+const gateArgs = () =>
+  depthUpsertArgs({
+    email: "z@x",
+    postId: 5,
+    postSlug: "s5",
+    commentId: 9,
+    commentTag: "t9",
+    commentBody: "deep",
+  });
+
+describe("query-engine-v2 depth gate: update > upsert > upsert composition", () => {
+  test("planning contributes one read per level (locate + two probes)", () => {
+    const operation = new UpdateOperation(
+      planningEngine(),
+      depthSliceSchema.user,
+      gateArgs()
+    );
+    const planning = operation.planning();
+    expect(planning.steps.map((step) => step.id)).toEqual([
+      "user.locate",
+      "post.find",
+      "comment.find",
+    ]);
+    expect(planning.steps.every((step) => step.kind === "read")).toBe(true);
+  });
+
+  test("post found + comment found → deep update fragment (tx: no guards)", () => {
+    const operation = new UpdateOperation(
+      planningEngine(),
+      depthSliceSchema.user,
+      gateArgs()
+    );
+    const fragment = operation.compile({
+      "user.locate.rows": [{ id: 42 }],
+      "post.find.rows": [{ id: 5, userId: 42 }],
+      "comment.find.rows": [{ id: 9, postId: 5 }],
+    });
+    expect(fragment.steps.map((step) => step.id)).toEqual([
+      "user.update",
+      "post.update",
+      "comment.update",
+      "user.select",
+    ]);
+    expect(fragment.steps.every((step) => step.kind !== "guard")).toBe(true);
+  });
+
+  test("post found + comment absent → deep create-comment fragment", () => {
+    const operation = new UpdateOperation(
+      planningEngine(),
+      depthSliceSchema.user,
+      gateArgs()
+    );
+    const fragment = operation.compile({
+      "user.locate.rows": [{ id: 42 }],
+      "post.find.rows": [{ id: 5, userId: 42 }],
+      "comment.find.rows": [],
+    });
+    const ids = fragment.steps.map((step) => step.id);
+    expect(ids).toEqual([
+      "user.update",
+      "post.update",
+      "comment.create",
+      "user.select",
+    ]);
+    // The deep create carries the racePin (its unique constraint enforces the
+    // missing premise); it never carries a guard.
+    const commentCreate = fragment.steps[2];
+    expect(
+      commentCreate?.kind === "write" && commentCreate.racePin?.fields
+    ).toEqual(["id"]);
+  });
+
+  test("batch mode hoists a guard per found level ahead of every write", () => {
+    const operation = new UpdateOperation(
+      batchPlanningEngine(),
+      depthSliceSchema.user,
+      gateArgs()
+    );
+    const fragment = operation.compile({
+      "user.locate.rows": [{ id: 42 }],
+      "post.find.rows": [{ id: 5, userId: 42 }],
+      "comment.find.rows": [{ id: 9, postId: 5 }],
+    });
+    expect(fragment.steps.map((step) => step.id)).toEqual([
+      "post.guard.exists",
+      "comment.guard.exists",
+      "user.update",
+      "post.update",
+      "comment.update",
+      "user.select",
+    ]);
+    const guards = fragment.steps.filter((step) => step.kind === "guard");
+    expect(guards).toHaveLength(2);
+    // Both are existing-row premises: pinned raceable: false (Pin Rule).
+    expect(
+      guards.every(
+        (step) =>
+          step.kind === "guard" &&
+          step.premise.kind === "exists" &&
+          step.failure.raceable === false
+      )
+    ).toBe(true);
+  });
+
+  test("found-uncorrelated comment under a correlated post → typed V7001 at compile", () => {
+    const operation = new UpdateOperation(
+      planningEngine(),
+      depthSliceSchema.user,
+      gateArgs()
+    );
+    // Post 5 belongs to the located user, but comment 9 belongs to a foreign
+    // post (postId 99 != this post's PK 5) — adopting it would steal it.
+    expect(() =>
+      operation.compile({
+        "user.locate.rows": [{ id: 42 }],
+        "post.find.rows": [{ id: 5, userId: 42 }],
+        "comment.find.rows": [{ id: 9, postId: 99 }],
+      })
+    ).toThrow(
+      "Cannot upsert relation 'comments': target record was not found for this parent."
+    );
+  });
+
+  test("create-arm nested relations are rejected typed (fresh-parent adopt deferred)", () => {
+    // A nested relation mutation inside the post's CREATE payload runs under a
+    // fresh child; that is the elision case, deferred to P2.
+    const args = {
+      where: { email: "z@x" },
+      data: {
+        count: { increment: 1 },
+        posts: {
+          upsert: {
+            where: { id: 5 },
+            create: {
+              id: 5,
+              title: "created-post",
+              slug: "s5",
+              comments: {
+                upsert: {
+                  where: { id: 9 },
+                  create: { id: 9, body: "b", tag: "t9" },
+                  update: { body: "b" },
+                },
+              },
+            },
+            update: { title: "updated-post" },
+          },
+        },
+      },
+      select: { email: true },
+    };
+    expect(
+      () => new UpdateOperation(planningEngine(), depthSliceSchema.user, args)
+    ).toThrow(
+      "does not support nested relation mutations in its create payload"
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Behavior on both substrates + the dual-run oracle (V1 vs V2 tx vs V2 batch).
+// ---------------------------------------------------------------------------
+
+type State = { users: unknown[]; posts: unknown[]; comments: unknown[] };
+
+interface ErrorShape {
+  name: string;
+  code?: string | number;
+  message: string;
+}
+
+interface Scenario {
+  name: string;
+  seed: (client: ReturnType<typeof makeClient>) => PromiseLike<unknown>;
+  args: Record<string, unknown>;
+  expectReject?: boolean;
+}
+
+function makeClient(db: PGlite) {
+  return createClient({
+    schema: depthSliceSchema,
+    driver: new PGliteDriver({ client: db }),
+  });
+}
+
+function normalizeError(error: unknown): ErrorShape {
+  if (!(error instanceof Error)) throw error;
+  const code = "code" in error ? (error as { code?: unknown }).code : undefined;
+  const stable =
+    typeof code === "string" || typeof code === "number" ? code : undefined;
+  return stable === undefined
+    ? { name: error.name, message: error.message }
+    : { name: error.name, code: stable, message: error.message };
+}
+
+async function dump(client: ReturnType<typeof makeClient>): Promise<State> {
+  const [users, posts, comments] = await Promise.all([
+    client.user.findMany({ orderBy: { id: "asc" } }),
+    client.post.findMany({ orderBy: { id: "asc" } }),
+    client.comment.findMany({ orderBy: { id: "asc" } }),
+  ]);
+  return { users, posts, comments };
+}
+
+type ArmKind = "v1" | "v2-tx" | "v2-batch";
+
+async function runArm(kind: ArmKind, scenario: Scenario) {
+  const db = new PGlite();
+  const client = makeClient(db);
+  await push(client, { force: true });
+  await scenario.seed(client);
+
+  let result: unknown;
+  let error: ErrorShape | undefined;
+  try {
+    if (kind === "v1") {
+      result = await client.user.update(scenario.args as never);
+    } else {
+      const driver =
+        kind === "v2-tx"
+          ? new PGliteDriver({ client: db })
+          : new BatchOnlyPGliteDriver({ client: db });
+      result = await createDepthSliceExecutor(driver).executeUpdate(
+        depthSliceSchema.user,
+        scenario.args
+      );
+    }
+  } catch (thrown) {
+    error = normalizeError(thrown);
+  }
+  const state = await dump(client);
+  await client.$disconnect();
+  return { result, error, state };
+}
+
+const seedUserPostComment = (
+  client: ReturnType<typeof makeClient>,
+  options: { commentPostId?: number } = {}
+) =>
+  client.user.create({
+    data: {
+      email: "z@x",
+      count: 0,
+      posts: {
+        create: {
+          id: 5,
+          title: "old-post",
+          slug: "s5",
+          comments: {
+            create: {
+              id: 9,
+              body: "old-comment",
+              tag: "t9",
+              // Optionally reparent to a foreign post to force uncorrelated.
+              ...(options.commentPostId !== undefined
+                ? { postId: options.commentPostId }
+                : {}),
+            },
+          },
+        },
+      },
+    },
+  });
+
+const dualRunScenarios: Scenario[] = [
+  {
+    name: "post found + comment found → deep nested update",
+    seed: (client) => seedUserPostComment(client),
+    args: depthUpsertArgs({
+      email: "z@x",
+      postId: 5,
+      postSlug: "s5",
+      commentId: 9,
+      commentTag: "t9",
+      commentBody: "fresh-comment",
+      increment: 2,
+    }),
+  },
+  {
+    name: "post found + comment absent → deep nested create",
+    seed: (client) =>
+      client.user.create({
+        data: {
+          email: "z@x",
+          count: 1,
+          posts: { create: { id: 5, title: "old-post", slug: "s5" } },
+        },
+      }),
+    args: depthUpsertArgs({
+      email: "z@x",
+      postId: 5,
+      postSlug: "s5",
+      commentId: 10,
+      commentTag: "t10",
+      commentBody: "brand-new",
+      increment: 3,
+    }),
+  },
+  {
+    name: "post absent → create post, no comment (create-arm has none)",
+    seed: (client) => client.user.create({ data: { email: "z@x", count: 5 } }),
+    args: depthUpsertArgs({
+      email: "z@x",
+      postId: 5,
+      postSlug: "s5",
+      commentId: 9,
+      commentTag: "t9",
+      commentBody: "unused",
+      increment: 1,
+    }),
+  },
+  {
+    name: "found-uncorrelated deep comment → typed V7001",
+    expectReject: true,
+    seed: async (client) => {
+      // Two posts under the user; the comment belongs to post 6, not post 5.
+      await client.user.create({
+        data: {
+          email: "z@x",
+          count: 0,
+          posts: {
+            create: [
+              { id: 5, title: "p5", slug: "s5" },
+              {
+                id: 6,
+                title: "p6",
+                slug: "s6",
+                comments: { create: { id: 9, body: "owned", tag: "t9" } },
+              },
+            ],
+          },
+        },
+      });
+    },
+    args: depthUpsertArgs({
+      email: "z@x",
+      postId: 5,
+      postSlug: "s5",
+      commentId: 9,
+      commentTag: "t9",
+      commentBody: "stolen",
+    }),
+  },
+];
+
+describe("query-engine-v2 depth gate dual-run oracle (V1 vs V2)", () => {
+  for (const scenario of dualRunScenarios) {
+    test(scenario.name, { timeout: 30_000 }, async () => {
+      const v1 = await runArm("v1", scenario);
+      const tx = await runArm("v2-tx", scenario);
+      const batch = await runArm("v2-batch", scenario);
+
+      expect(tx.error).toEqual(v1.error);
+      expect(batch.error).toEqual(v1.error);
+      expect(Boolean(v1.error)).toBe(scenario.expectReject === true);
+
+      if (!scenario.expectReject) {
+        expect(tx.result).toEqual(v1.result);
+        expect(batch.result).toEqual(v1.result);
+      }
+
+      // The load-bearing assertion: byte-identical persisted state at depth 3.
+      expect(tx.state).toEqual(v1.state);
+      expect(batch.state).toEqual(v1.state);
+    });
+  }
+});
+
+describe("query-engine-v2 depth gate: no partial mutation on the uncorrelated arm", () => {
+  test("V7001 leaves users, posts, and comments untouched (both substrates)", async () => {
+    for (const kind of ["v2-tx", "v2-batch"] as const) {
+      const db = new PGlite();
+      const client = makeClient(db);
+      await push(client, { force: true });
+      await client.user.create({
+        data: {
+          email: "z@x",
+          count: 0,
+          posts: {
+            create: [
+              { id: 5, title: "p5", slug: "s5" },
+              {
+                id: 6,
+                title: "p6",
+                slug: "s6",
+                comments: { create: { id: 9, body: "owned", tag: "t9" } },
+              },
+            ],
+          },
+        },
+      });
+      const before = await dump(client);
+      const driver =
+        kind === "v2-tx"
+          ? new PGliteDriver({ client: db })
+          : new BatchOnlyPGliteDriver({ client: db });
+      await expect(
+        createDepthSliceExecutor(driver).executeUpdate(
+          depthSliceSchema.user,
+          depthUpsertArgs({
+            email: "z@x",
+            postId: 5,
+            postSlug: "s5",
+            commentId: 9,
+            commentTag: "t9",
+            commentBody: "stolen",
+          })
+        )
+      ).rejects.toBeInstanceOf(NestedWriteError);
+      const after = await dump(client);
+      expect(after).toEqual(before);
+      await client.$disconnect();
+    }
+  });
+});

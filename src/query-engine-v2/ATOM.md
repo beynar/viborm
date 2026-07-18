@@ -326,10 +326,21 @@ V1 `operation-program.ts` concept and where it lives in V2:
 ### 8.1 P1 disposition — the freeze closes with no `TBD`
 
 At the end of P1 (composition: the `Part`, the preflight, the create+upsert and
-update+upsert slices, the `PendingOperation` contract) every row above is either
-**live in code** or carries an explicit *consumer-arrives-at-phase-X* note. The
-fragment type surface (`OperationFragment.ts`) was **unchanged** by P1, so the
-P0 snapshot + executor token gate remain the freeze mechanism.
+update+upsert slices, the **recursive-composition depth gate**
+`update > upsert > upsert`, the `PendingOperation` contract) every row above is
+either **live in code** or carries an explicit *consumer-arrives-at-phase-X*
+note. The fragment type surface (`OperationFragment.ts`) was **unchanged** by
+P1, so the P0 snapshot + executor token gate remain the freeze mechanism.
+
+The depth gate is what proves README Question 2 (compose *recursively* without a
+universal IR): a `RelationUpsertPart` whose found+correlated arm splices its own
+child parts, correlated to its (literal, located-by-PK) primary key. Recursion
+adds list entries and one parent-id value — never a Part method, a step kind, or
+a parent reference (WHY §4.2). Create-arm nested writes (a fresh child, ATOM
+§4's elision case) are the one deferral: they carry the fresh-parent adopt
+family and land in P2 — so a nested relation mutation inside an upsert's
+`create` payload is a typed rejection in P1, and depth composes only on the
+found arm, which the depth-gate dual-run oracle certifies at three levels.
 
 | V1 primitive | P1 status |
 | --- | --- |
@@ -337,7 +348,7 @@ P0 snapshot + executor token gate remain the freeze mechanism.
 | `ProducedRows` (multi-row capture) | inert — single-row probes only; multi-row inlining arrives P2c (`createMany`) |
 | `DerivedValue` (PK arithmetic) | inert — no PK arithmetic in P1; arrives P4 (`*AndReturn` refetch) |
 | `FallbackValue` | **gone** — `compile(known)` constructs the taken arm (build-don't-select); no pre-frozen pair |
-| `CapturedRead` / planning statements | **live** — the update slice plans a locate read + a widened probe. See design note **(a)** below: their dependency is realized at the compile-data boundary (`known`), not as a SQL-level probe→locate `Ref` |
+| `CapturedRead` / planning statements | **live** — the update slice plans a locate read + a widened probe; the depth gate plans one read per level (locate + two probes). Their cross-read dependency is realized at the compile-data boundary (`known`). Technique #1's SQL-level planning→planning `Ref` is **inert** (no positive witness in P1) — see design note **(a)**: the upsert family structurally cannot construct one; it arrives with a hard-correlation nested read (P2a) |
 | `BranchStep` + `whenTrue/whenFalse` | **gone** — the three-way (correlated / uncorrelated / absent) is `compile(known)` JS |
 | `BranchStep.pin` / `UniqueConflictPin` | **live** — `Probe.pin` (found: exists guard `raceable:false` / batch, lock / tx) + `Step.racePin` (missing arm) |
 | `expectedCardinality` / `affectedRows` | **live in tx** (executor result check: update-arm `affectedRows(1, notFound)`, terminal `exactlyOneRow`). Batch-mode adapter assertion arrives P2a. See design note **(b)**: P1's missing-root notFound is decided at compile from the locate read on both substrates, so batch parity holds without the assertion |
@@ -348,18 +359,35 @@ P0 snapshot + executor token gate remain the freeze mechanism.
 | `requiresAtomicResolution` refusal | inert — arrives P4 (non-returning `*AndReturn`) |
 | multi-statement results (ordered source lists) | type live; consumer arrives P2c/P4 |
 
-**Design note (a) — planning-refs-planning is realized at the compile-data
-boundary.** PLAN P1.1(b) anticipated the child probe carrying a SQL-level `Ref`
-to the locate read. In the delivered slice the two flattening techniques trade
-off inside one probe: technique #2 requires the probe to stay **uncorrelated**
-(so a found-uncorrelated row is observable for the typed V7001), which is
-incompatible with a correlating `WHERE fk = ref(locate)`; and a `firstRowField`
-ref from probe→locate would fail to resolve when the root is absent, defeating
-the clean missing-root `notFound`. The locate→probe dependency is therefore
-carried by `known` (invariant 3's sanctioned crossing): `compile` reads both
-planning reads' rows and decides the correlation in JS. The architecture still
-supports a SQL-level planning→planning `Ref` (the validator checks it; §9
-inv. 2) — the update slice simply does not need one. *(P1 refinement of reality.)*
+**Design note (a) — technique #1 (SQL planning→planning `Ref`) is inert in P1,
+and the upsert family cannot witness it.** PLAN P1.1(b) *designed* the parity
+slice to force a child probe carrying a SQL-level `Ref` to the locate read. The
+delivered slice discovered that intent to be unreachable for the *upsert*
+family, at any depth, for two independent structural reasons:
+
+1. **V7001 observability.** A correlated upsert must observe a
+   *found-uncorrelated* child to throw the typed V7001. That requires the probe
+   to stay **uncorrelated** (technique #2's widened superset); a correlating
+   `WHERE fk = ref(parentRead)` returns empty on the foreign row instead of
+   exposing it, so the error can never fire.
+2. **Absent-parent resolution.** The child probe runs at *planning*, before any
+   arm is chosen. If the parent read found nothing (missing root, or a
+   to-be-created middle child), a `firstRowField` ref into its rows is
+   unresolvable — it would throw at planning instead of yielding the clean
+   compile-time `notFound` / create-arm.
+
+Both hold at depth: the depth gate's grandchild probe is likewise uncorrelated,
+and its parent id is a compile-time literal (the located-by-PK middle child's
+key), never a SQL ref. So **every** P1 upsert shape decides correlation at the
+compile-data boundary (`known`, invariant 3's sanctioned crossing) — technique
+#1 has **no positive witness in P1**, and the census disposition above is
+*inert*, not "live via the validator." The architecture still *permits* a
+planning→planning `Ref` (invariant 2 accepts a backward one), but permission is
+negative space; the positive witness is a **hard-correlation nested read** — a
+child filtered by `WHERE fk = ref(parentRead)` as an existence test with *no*
+found-uncorrelated arm (nested `connect`/`update`, P2a). That shape genuinely
+needs the ref, and it is where technique #1 ships proven. *(P1 refinement of
+reality: PLAN P1.1(b)'s premise was wrong for upsert; corrected there.)*
 
 **Design note (b) — missing-root is a compile-time decision in P1.** The root
 `update` carries the `notFound` postcondition (tx: executor result check). Its

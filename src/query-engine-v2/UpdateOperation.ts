@@ -3,27 +3,25 @@ import { NotFoundError, QueryEngineError, ValidationError } from "@errors";
 import type { Model } from "@schema/model";
 import { parse, type VibSchema } from "@validation";
 import { getPrimaryKeyFields } from "../query-engine/builders/correlation-utils";
-import {
-  getFkDirection,
-  separateData,
-} from "../query-engine/builders/relation-data-builder";
+import { separateData } from "../query-engine/builders/relation-data-builder";
 import { getRelationMutationKinds } from "../query-engine/builders/relation-mutation-parser";
-import { getWhereUniqueEntries } from "../query-engine/builders/where-unique-builder";
 import { createQueryScope } from "../query-engine/context/query-scope";
 import { buildFindUnique, buildUpdate } from "../query-engine/operations";
 import type { QueryEngine } from "../query-engine/query-engine";
 import { ResultParser } from "../query-engine/result/ResultParser";
-import type { QueryScope } from "../query-engine/types";
 import { affectedRows, exactlyOneRow } from "./fragment-builders";
 import {
   type OperationFragment,
-  type OperationStep,
   ref,
   type StatementStep,
 } from "./OperationFragment";
 import { OwnWritePreflight } from "./OwnWritePreflight";
 import { planningKey, planningOutputs } from "./Part";
-import { plannedParentId, RelationUpsertPart } from "./RelationUpsertPart";
+import {
+  buildToManyUpsertParts,
+  plannedParentId,
+  type RelationUpsertPart,
+} from "./RelationUpsertPart";
 import { StepScope } from "./StepScope";
 import { getStepModelName, isRecord } from "./shared";
 
@@ -107,7 +105,11 @@ export class UpdateOperation {
       separated.scalarData,
       "data"
     );
-    this.parsedSelect = parseRecord(parentSchemas.core.select, select, "select");
+    this.parsedSelect = parseRecord(
+      parentSchemas.core.select,
+      select,
+      "select"
+    );
     this.resultArgs = { select: this.parsedSelect };
 
     // 2. Own-write preflight (ATOM §4): the same-child-unique upsert pair (and
@@ -121,9 +123,11 @@ export class UpdateOperation {
     this.terminalId = scope.allocate(`${parentName}.select`);
     this.relationName = relationEntries.map(([name]) => name).join(",");
 
-    // 3. The locate planning read (ATOM §3 technique 1): a non-PK-unique `where`
-    //    means the parent id is not a literal — it is produced here and consumed
-    //    by every correlated child arm and by the terminal read.
+    // 3. The locate planning read: a non-PK-unique `where` means the parent id
+    //    is not a compile-time literal — it is produced here (a planning value)
+    //    and consumed by every correlated child arm and by the terminal read at
+    //    the compile-data boundary (`known`), not a SQL planning→planning ref
+    //    (ATOM §8.1 design note (a): the upsert family cannot construct one).
     this.locate = {
       id: locateId,
       kind: "read",
@@ -160,7 +164,8 @@ export class UpdateOperation {
     };
 
     // 5. One correlated upsert part per upsert item (across every relation and
-    //    every array element). The scope disambiguates two same-model children.
+    //    every array element), each recursively composing its own update-arm
+    //    children (depth). The scope disambiguates two same-model children.
     const parts: RelationUpsertPart[] = [];
     for (const [relationName, mutation] of relationEntries) {
       if (
@@ -178,25 +183,27 @@ export class UpdateOperation {
         );
       }
       const relationInput = requireRecord(data[relationName], relationName);
+      // Validate the whole nested tree once, through the relation's update
+      // schema (its `upsert.update` recurses into the child's own relations).
       const parsed = parseRecord(
         relationSchemas.update,
         relationInput,
         `data.${relationName}`
       );
-      for (const item of normalizeUpsertItems(parsed.upsert, relationName)) {
-        parts.push(
-          this.buildChildPart(
-            scope,
-            parent,
-            relationName,
-            mutation.relationInfo.targetModel,
-            getFkDirection(parent, mutation.relationInfo),
-            item,
-            plannedParentId(locateId, this.parentPrimaryKey),
-            txMode
-          )
-        );
-      }
+      parts.push(
+        ...buildToManyUpsertParts(
+          scope,
+          parent,
+          this.engine,
+          relationName,
+          mutation.relationInfo,
+          normalizeUpsertItems(parsed.upsert, relationName),
+          plannedParentId(locateId, this.parentPrimaryKey),
+          this.parentPrimaryKey,
+          "correlated",
+          txMode
+        )
+      );
     }
     this.childParts = parts;
   }
@@ -219,10 +226,7 @@ export class UpdateOperation {
       );
     }
     if (locateRows.length === 0) {
-      throw new NotFoundError(
-        getStepModelName(this.model, "record"),
-        "update"
-      );
+      throw new NotFoundError(getStepModelName(this.model, "record"), "update");
     }
     const locatedId = (locateRows[0] as Record<string, unknown>)[
       this.parentPrimaryKey
@@ -279,77 +283,6 @@ export class UpdateOperation {
         : {}),
     };
   }
-
-  private buildChildPart(
-    scope: StepScope,
-    parent: QueryScope,
-    relationName: string,
-    targetModel: Model<any>,
-    fk: ReturnType<typeof getFkDirection>,
-    item: Record<string, unknown>,
-    parentId: ReturnType<typeof plannedParentId>,
-    txMode: boolean
-  ): RelationUpsertPart {
-    if (
-      fk.holdsFK ||
-      fk.fkFields.length !== 1 ||
-      fk.pkFields.length !== 1 ||
-      fk.pkFields[0] !== this.parentPrimaryKey
-    ) {
-      throw new QueryEngineError(
-        `Relation '${relationName}' must expose one child-held foreign key referencing the parent primary key.`
-      );
-    }
-    const childForeignKey = fk.fkFields[0]!;
-    const child = createQueryScope(this.engine.adapter, targetModel);
-    const where = requireRecord(item.where, `${relationName}.upsert.where`);
-    const create = requireRecord(item.create, `${relationName}.upsert.create`);
-    const update = requireRecord(item.update, `${relationName}.upsert.update`);
-    const childCreate = separateData(child, create);
-    const childUpdate = separateData(child, update);
-    if (
-      Object.keys(childCreate.relations).length > 0 ||
-      Object.keys(childUpdate.relations).length > 0
-    ) {
-      throw new QueryEngineError(
-        `Relation '${relationName}' does not support deeper relation mutations in query-engine-v2.`
-      );
-    }
-    if (
-      Object.hasOwn(childCreate.scalarData, childForeignKey) ||
-      Object.hasOwn(childUpdate.scalarData, childForeignKey)
-    ) {
-      throw new QueryEngineError(
-        `Relation '${relationName}' owns '${childForeignKey}'; omit it from nested create and update data.`
-      );
-    }
-    assertMatchingCreateIdentity(
-      child,
-      where,
-      childCreate.scalarData,
-      relationName
-    );
-    const childPrimaryKeys = getPrimaryKeyFields(child.model);
-    if (childPrimaryKeys.length !== 1) {
-      throw new QueryEngineError(
-        `Relation '${relationName}' requires a child with one primary key.`
-      );
-    }
-    return new RelationUpsertPart(scope, {
-      engine: this.engine,
-      childScope: child,
-      childName: getStepModelName(targetModel, relationName),
-      relationName,
-      where,
-      createData: childCreate.scalarData,
-      updateData: childUpdate.scalarData,
-      childForeignKey,
-      childPrimaryKey: childPrimaryKeys[0]!,
-      parentId,
-      correlation: "correlated",
-      txMode,
-    });
-  }
 }
 
 function selectExecutionMode(engine: QueryEngine): ExecutionMode {
@@ -394,23 +327,6 @@ function parseRecord(
     throw new QueryEngineError(`Validated '${path}' is not an object.`);
   }
   return result.value;
-}
-
-function assertMatchingCreateIdentity(
-  child: QueryScope,
-  where: Record<string, unknown>,
-  create: Record<string, unknown>,
-  relation: string
-): void {
-  for (const { fieldName, value } of getWhereUniqueEntries(child, where)) {
-    if (
-      !(Object.hasOwn(create, fieldName) && Object.is(create[fieldName], value))
-    ) {
-      throw new QueryEngineError(
-        `Relation '${relation}' requires nested create field '${fieldName}' to match its unique where value.`
-      );
-    }
-  }
 }
 
 function assertExactKeys(

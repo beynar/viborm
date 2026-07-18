@@ -117,12 +117,19 @@ classes; the vocabulary census closes; **then** the freeze begins.
    `create` + nested `upsert` (global lookup, adopt-and-update) — kept, but
    made honest: it validates through its new first-class create-input schema
    (P−1.2), never the update schema; (b) the **canonical parity slice** — `update`
-   located by a **non-PK unique** (`where: { email }`; this is deliberate —
-   the child probe must *ref a planning step's output*; locate by PK and the
-   parent id is a literal, leaving flattening technique #1 untested) +
+   located by a **non-PK unique** (`where: { email }`; this is deliberate — the
+   located parent id is then a *produced planning value*, not a compile-time
+   literal, so its provenance is exercised at the compile-data boundary.
+   [Correction: P1.1(b) originally justified the non-PK locate as forcing
+   flattening technique #1 — a SQL-level probe→locate `Ref`. The delivered
+   slice discovered the upsert family cannot construct one at any depth
+   (V7001 observability + absent-parent resolution); see ATOM §8.1 design note
+   (a). Technique #1's positive witness moves to P2a's hard-correlation nested
+   reads. The non-PK locate still earns its place: it proves planning-value
+   provenance, which a PK locate would inline away.]) +
    **correlated** nested to-many upsert by child unique, an atomic
    `increment` in the update arm, a deep terminal select. Exercises:
-   planning-refs-planning; probe-widening with the compile-time three-way
+   planning-value provenance; probe-widening with the compile-time three-way
    incl. the typed uncorrelated-exists error; constraint + `racePin` on the
    missing arm; `exists` pin (`raceable: false`) on the found arm; `notFound`
    postcondition (run the missing-root sibling); planning-value vs
@@ -147,8 +154,13 @@ classes; the vocabulary census closes; **then** the freeze begins.
    flow, and array batching actually call. Built now so P2's oracle can drive
    V2 through a real client proxy.
 6. **Census closes; freeze begins.** Every row of ATOM §8 dispositioned, no
-   TBD. From here, the fragment type-surface snapshot and executor token gate
-   are the freeze — mechanically checked, amendable only with a design note.
+   TBD — including the recursive-composition depth gate `update > upsert >
+   upsert` (delivered: the middle upsert's found arm splices its correlated
+   child parts) and technique #1's SQL planning→planning `Ref` (dispositioned
+   *inert*, with its positive witness scheduled for P2a — a valid non-TBD
+   disposition, not a deferred gate). From here, the fragment type-surface
+   snapshot and executor token gate are the freeze — mechanically checked,
+   amendable only with a design note.
 
 *Gate:* both slices green everywhere (Docker named) — the extension slice
 through its real schema, the parity slice through the dual-run oracle; two
@@ -176,8 +188,13 @@ the single-threaded oracle cannot observe raceability.
 
 - **P2a — update family, FK edges**: root `update` and root `delete`; nested
   connect/disconnect; postconditions live (`notFound` on missing root row;
-  `affectedRows` contracts). *Gate:* oracle parity for every P2a shape incl.
-  error classes and messages; structural gates green untouched.
+  `affectedRows` contracts); batch-mode `affectedRows` adapter assertions
+  (ATOM §8.1 note (b)'s deferral comes due). *Gate:* oracle parity for every
+  P2a shape incl. error classes and messages; structural gates green
+  untouched; **technique #1's positive witness** (the P1 disposition comes
+  due): at least one correlated nested read whose probe SQL contains a `Ref`
+  to an earlier planning step's output, proven by an emitted-planning-fragment
+  inspection test — not by the validator merely accepting the shape.
 - **P2b — upsert + connectOrCreate**: probe-first per ATOM §2/§4. The Pin Rule
   applied with its **exact scope** — pinned `exists` premises
   (`raceable: false`); same-model-INSERT missing premises by constraint +
@@ -185,9 +202,12 @@ the single-threaded oracle cannot observe raceability.
   targetWhere/setWhere skip, orphan guards — nothing here says "always".
   `ON CONFLICT` only per ATOM §4's narrow door (top-level scalar-arm), and
   only with a written parity disposition — otherwise probe-first everywhere.
+  **Create-arm nested writes inside an upsert** (ATOM §8.1's P1 deferral —
+  the fresh-parent adopt family) land here: the typed P1 rejection is
+  replaced by the composed shape, elision rule applied.
   *Gate:* oracle + race convergence (Docker, two connections, convergence
   assertions — dual-run cannot see races); the P0 race test extended to
-  connectOrCreate.
+  connectOrCreate; the create-arm depth scenarios join the depth oracle.
 - **P2c — nested update/updateMany/delete/deleteMany/set + createMany**: set's
   departing-rows orphan guard (a retained pin); `createMany` incl. the SQLite
   multi-statement summed-count plan and the skipDuplicates disposition
