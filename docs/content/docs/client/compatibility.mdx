@@ -63,6 +63,8 @@ Nested writes are supported inside `create`, `update`, and both branches of `ups
 - You can't `disconnect`, empty-`set`, or otherwise orphan records on a **required** relation.
 - `createMany` with `skipDuplicates` rejects a row containing only database-owned defaults before any parent or child write.
 
+**Planned superset — nested `upsert` under `create`:** Prisma has no `upsert` in a create input, and the current engine rejects it. VibORM's input surface accepts it as a deliberate superset with **global-lookup, adopt-and-update** semantics — the target is located by its own unique `where`, an existing row is adopted (reparented) and `update`d, and a missing row is created under the new parent. This completes the adopt family that `connect`/`connectOrCreate` already provide under `create`. It becomes executable only when the create tree routes to the query-engine-v2 path; until then it still rejects, so there is no mid-migration behavior change.
+
 ## Database differences
 
 The API is provider-agnostic. Remaining differences are limited to features

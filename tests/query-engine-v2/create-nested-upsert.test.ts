@@ -227,13 +227,15 @@ describe("query-engine-v2 linear operation fragments", () => {
 
     expect(operation.mode).toBe("transaction");
     expect(planning.steps.map((step) => step.id)).toEqual(["post.find"]);
-    expect(planning.outputs).toEqual({ rows: ref("post.find", "rows") });
+    expect(planning.outputs).toEqual({
+      "post.find.rows": ref("post.find", "rows"),
+    });
     expect(planningStep?.kind).toBe("read");
     if (planningStep?.kind !== "read") return;
     expect(driver._prepare(planningStep.statement).sql).toContain("FOR UPDATE");
 
-    const existing = operation.compile({ rows: [{ id: 1 }] });
-    const missing = operation.compile({ rows: [] });
+    const existing = operation.compile({ "post.find.rows": [{ id: 1 }] });
+    const missing = operation.compile({ "post.find.rows": [] });
     expect(existing.steps.map((step) => step.id)).toEqual([
       "user.create",
       "post.update",
@@ -285,8 +287,8 @@ describe("query-engine-v2 linear operation fragments", () => {
       "FOR UPDATE"
     );
 
-    const existing = operation.compile({ rows: [{ id: 1 }] });
-    const missing = operation.compile({ rows: [] });
+    const existing = operation.compile({ "post.find.rows": [{ id: 1 }] });
+    const missing = operation.compile({ "post.find.rows": [] });
     // Found branch keeps its exists guard; missing branch has NO guard — the
     // child's unique constraint enforces the premise (Pin Rule).
     expect(existing.steps.map((step) => step.id)).toEqual([
@@ -377,6 +379,30 @@ describe("query-engine-v2 linear operation fragments", () => {
       "supports neither transactions nor atomic batch execution"
     );
     expect(unsupported.executions).toBe(0);
+  });
+
+  test("slice (a): an invalid nested upsert payload fails at VALIDATION, not the engine", () => {
+    const driver = new TransactionProbeDriver();
+    // The nested upsert is now validated through the relation's first-class
+    // CREATE-input schema (the update-schema smuggling is gone). A wrong-typed
+    // create field is a ValidationError raised before any planning or I/O.
+    expect(
+      () =>
+        new CreateOperation(driverEngine(driver), operationFragmentSchema.user, {
+          data: {
+            name: "henry",
+            posts: {
+              upsert: {
+                where: { id: 1 },
+                create: { id: 1, title: 42, slug: "post-key" },
+                update: { title: "post" },
+              },
+            },
+          },
+          select: { name: true, posts: true },
+        })
+    ).toThrow("Validation failed for create");
+    expect(driver.executions).toBe(0);
   });
 
   test("plans on the transaction-bound driver and fails closed on a missing generated id", async () => {
@@ -590,7 +616,7 @@ describe("query-engine-v2 linear operation fragments", () => {
     const batch = createOperation(new BatchProbeDriver());
 
     // Existing-row premise: pinned by an exists guard, raceable: false.
-    const guard = batch.compile({ rows: [{ id: 1 }] }).steps[0];
+    const guard = batch.compile({ "post.find.rows": [{ id: 1 }] }).steps[0];
     expect(guard?.kind).toBe("guard");
     if (guard?.kind !== "guard") return;
     expect(guard.premise.kind).toBe("exists");
@@ -602,7 +628,7 @@ describe("query-engine-v2 linear operation fragments", () => {
 
     // Same-model-INSERT missing premise: never guarded — the child's unique
     // constraint enforces it, and its racePin classifies the violation.
-    const missing = batch.compile({ rows: [] });
+    const missing = batch.compile({ "post.find.rows": [] });
     expect(missing.steps.some((step) => step.kind === "guard")).toBe(false);
     const created = missing.steps[1];
     expect(created?.kind === "write" && Boolean(created.racePin)).toBe(true);
@@ -610,10 +636,10 @@ describe("query-engine-v2 linear operation fragments", () => {
     // Transaction mode locks the probe, so neither branch carries a guard.
     const tx = createOperation(new TransactionProbeDriver());
     expect(
-      tx.compile({ rows: [{ id: 1 }] }).steps.every((s) => s.kind !== "guard")
+      tx.compile({ "post.find.rows": [{ id: 1 }] }).steps.every((s) => s.kind !== "guard")
     ).toBe(true);
     expect(
-      tx.compile({ rows: [] }).steps.every((s) => s.kind !== "guard")
+      tx.compile({ "post.find.rows": [] }).steps.every((s) => s.kind !== "guard")
     ).toBe(true);
   });
 
@@ -631,7 +657,7 @@ describe("query-engine-v2 linear operation fragments", () => {
 
         // The racePin the missing-branch create carries (the child primary key).
         const missing = createOperation(new BatchProbeDriver()).compile({
-          rows: [],
+          "post.find.rows": [],
         });
         const createStep = missing.steps[1];
         const racePin =

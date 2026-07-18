@@ -1,7 +1,6 @@
 // biome-ignore-all lint/style/useFilenamingConvention: CreateOperation is the architecture name.
 import { QueryEngineError, TransactionError, ValidationError } from "@errors";
 import type { Model } from "@schema/model";
-import type { Sql } from "@sql";
 import { parse, type VibSchema } from "@validation";
 import { getPrimaryKeyFields } from "../query-engine/builders/correlation-utils";
 import {
@@ -9,37 +8,25 @@ import {
   separateData,
 } from "../query-engine/builders/relation-data-builder";
 import { getRelationMutationKinds } from "../query-engine/builders/relation-mutation-parser";
-import {
-  buildInsert,
-  getScalarCastType,
-} from "../query-engine/builders/values-builder";
+import { buildInsert } from "../query-engine/builders/values-builder";
 import { getWhereUniqueEntries } from "../query-engine/builders/where-unique-builder";
 import {
   createQueryScope,
   getTableName,
 } from "../query-engine/context/query-scope";
-import {
-  buildCreate,
-  buildFindUnique,
-  buildUpdate,
-} from "../query-engine/operations";
+import { buildCreate, buildFindUnique } from "../query-engine/operations";
 import type { QueryEngine } from "../query-engine/query-engine";
 import { ResultParser } from "../query-engine/result/ResultParser";
 import type { QueryScope } from "../query-engine/types";
-import { uniqueConflictTarget } from "../query-engine/WritePrograms";
-import { validateProbe } from "./FragmentValidator";
+import { exactlyOneRow, referenceSql } from "./fragment-builders";
 import {
-  type Failure,
-  type GuardStep,
   type OperationFragment,
-  type OperationStep,
-  type OperationValueReference,
-  type Postcondition,
-  type Probe,
   ref,
   type StatementStep,
-  type TargetConstraintPin,
 } from "./OperationFragment";
+import { OwnWritePreflight } from "./OwnWritePreflight";
+import { planningOutputs } from "./Part";
+import { RelationUpsertPart, refParentId } from "./RelationUpsertPart";
 import { StepScope } from "./StepScope";
 import { getStepModelName, isRecord } from "./shared";
 
@@ -50,12 +37,10 @@ export class CreateOperation {
 
   private readonly engine: QueryEngine;
   private readonly model: Model<any>;
+  private readonly scope: StepScope;
   private readonly resultArgs: Record<string, unknown>;
-  private readonly planningFragment: OperationFragment;
-  private readonly probe: Probe;
+  private readonly childParts: readonly RelationUpsertPart[];
   private readonly createParent: StatementStep;
-  private readonly updateChild: StatementStep;
-  private readonly createChild: StatementStep;
   private readonly selectParent: StatementStep;
   private readonly resultOutputs: OperationFragment["outputs"];
 
@@ -68,7 +53,8 @@ export class CreateOperation {
     this.model = model;
     this.mode = selectExecutionMode(engine);
     const txMode = this.mode === "transaction";
-    const scope = new StepScope();
+    this.scope = new StepScope();
+    const scope = this.scope;
 
     // 1. Validate literals and resolve the one supported relation shape.
     assertExactKeys(args, ["data", "select"], "create arguments");
@@ -114,8 +100,13 @@ export class CreateOperation {
       separated.scalarData,
       "data"
     );
+    // Slice (a), made honest (PLAN P−1.2): validate the nested upsert through
+    // the relation's first-class CREATE-input schema — which now carries an
+    // `upsert` member with global-lookup, adopt-and-update semantics — not the
+    // update schema. The update-schema smuggling is deleted; invalid upsert
+    // payloads now fail at validation, before the engine ever runs.
     const parsedRelation = parseRecord(
-      relationSchemas.update,
+      relationSchemas.create,
       relationInput,
       `data.${relationName}`
     );
@@ -194,36 +185,21 @@ export class CreateOperation {
 
     const childPrimaryKey = childPrimaryKeys[0]!;
 
-    // 2. Build symbolic SQL only after every user-provided value is validated.
-    //    Step ids come from the scope allocator so no two writes can collide.
+    // 2. Own-write preflight (ATOM §4): reject any payload whose nested decision
+    //    reads depend on this operation's own earlier writes, before planning.
+    new OwnWritePreflight().assertCreate(parent, data);
+
+    // 3. Build the shared root steps once; the nested upsert becomes a
+    //    composable child part. Step ids are scope-allocated so two same-model
+    //    children under one parent can never collide.
     const parentCreateId = scope.allocate(`${parentName}.create`);
-    const childFindId = scope.allocate(`${childName}.find`);
     const resultId = scope.allocate(`${parentName}.select`);
-    const parentId = ref(parentCreateId, "id");
-    const childParentId = referenceSql(
-      engine,
-      child.model,
-      childForeignKey,
-      parentId
-    );
     const selectedParentId = referenceSql(
       engine,
       model,
       parentPrimaryKey,
-      parentId
+      ref(parentCreateId, "id")
     );
-    const childIdentitySelect = { [childPrimaryKey]: true };
-
-    const find: StatementStep = {
-      id: childFindId,
-      kind: "read",
-      statement: buildFindUnique(child, {
-        where,
-        select: childIdentitySelect,
-        forUpdate: txMode,
-      }),
-      outputs: { rows: { kind: "rows" } },
-    };
 
     this.createParent = {
       id: parentCreateId,
@@ -240,45 +216,6 @@ export class CreateOperation {
             ? { kind: "firstRowField", field: parentPrimaryKey }
             : { kind: "insertId" },
       },
-    };
-
-    this.updateChild = {
-      id: scope.allocate(`${childName}.update`),
-      kind: "write",
-      statement: buildUpdate(child, {
-        where,
-        data: {
-          ...childUpdate.scalarData,
-          [childForeignKey]: childParentId,
-        },
-        select: childIdentitySelect,
-      }),
-      outputs: {},
-      // The found premise is pinned by the locked probe (tx) or the exists guard
-      // (batch); an affected-row miss there is a not-found, never a race.
-      ...(txMode
-        ? {
-            expects: affectedRows(1, {
-              kind: "notFound",
-              message: `Nested upsert target for relation '${relationName}' vanished before its update.`,
-              relation: relationName,
-              raceable: false,
-            }),
-          }
-        : {}),
-    };
-
-    this.createChild = {
-      id: scope.allocate(`${childName}.create`),
-      kind: "write",
-      statement: buildInsert(child, getTableName(child.model), {
-        ...childCreate.scalarData,
-        [childForeignKey]: childParentId,
-      }),
-      outputs: {},
-      // The missing premise is enforced by the child's unique constraint; its
-      // violation is the raceable signal, matched against this pinned target.
-      racePin: childRacePin(child, where),
     };
 
     this.selectParent = {
@@ -302,52 +239,45 @@ export class CreateOperation {
 
     this.resultOutputs = { result: ref(resultId, "result") };
 
-    // 3. Pair the planning read with the premise its decision creates (ATOM §2).
-    //    The found branch is pinned by the exists guard in batch mode; the
-    //    missing branch is enforced by the constraint, never a notExists guard.
-    const foundPin: GuardStep | "none" = txMode
-      ? "none"
-      : existsGuard(
-          scope.allocate(`${childName}.guard.exists`),
-          buildFindUnique(child, { where, select: childIdentitySelect }),
-          relationName
-        );
-    this.probe = {
-      read: find,
-      pin: { whenFound: foundPin, whenMissing: "constraint" },
-    };
-    validateProbe(this.probe);
-
-    // 4. Freeze the planning fragment; the final fragment is compiled per branch.
-    this.planningFragment = {
-      steps: [find],
-      outputs: { rows: ref(childFindId, "rows") },
-    };
+    // The nested upsert is a child-held-FK to-many under a fresh parent: global
+    // lookup, adopt-and-update (ATOM §4), its FK a Ref to the create above.
+    this.childParts = [
+      new RelationUpsertPart(scope, {
+        engine,
+        childScope: child,
+        childName,
+        relationName,
+        where,
+        createData: childCreate.scalarData,
+        updateData: childUpdate.scalarData,
+        childForeignKey,
+        childPrimaryKey,
+        parentId: refParentId(parentCreateId),
+        correlation: "global-adopt",
+        txMode,
+      }),
+    ];
   }
 
   planning(): OperationFragment {
-    return this.planningFragment;
+    const steps = this.childParts.flatMap((part) => part.planning(this.scope));
+    return { steps, outputs: planningOutputs(steps) };
   }
 
   compile(known: Readonly<Record<string, unknown>>): OperationFragment {
-    const rows = known.rows;
-    if (!Array.isArray(rows)) {
-      throw new QueryEngineError(
-        "query-engine-v2 create planning did not expose rows."
-      );
-    }
-    const steps: OperationStep[] = [];
-    if (rows.length > 0) {
-      if (this.probe.pin.whenFound !== "none") {
-        steps.push(this.probe.pin.whenFound);
-      }
-      steps.push(this.createParent, this.updateChild, this.selectParent);
-    } else {
-      // whenMissing === "constraint": the create INSERT carries the racePin and
-      // no guard pins the premise (Pin Rule).
-      steps.push(this.createParent, this.createChild, this.selectParent);
-    }
-    return { steps, outputs: this.resultOutputs };
+    // Build-don't-select (P1.2): each child part CONSTRUCTS its taken arm; the
+    // shared root write and terminal read are emitted once around them, spliced
+    // by FK direction (child-held FK → after the parent write). Guards are
+    // hoisted ahead of every write (batch mode pins the premise first).
+    const childSteps = this.childParts.flatMap((part) =>
+      part.compile(this.scope, known)
+    );
+    const guards = childSteps.filter((step) => step.kind === "guard");
+    const afterParent = childSteps.filter((step) => step.kind !== "guard");
+    return {
+      steps: [...guards, this.createParent, ...afterParent, this.selectParent],
+      outputs: this.resultOutputs,
+    };
   }
 
   parse<T>(outputs: Readonly<Record<string, unknown>>): T {
@@ -370,49 +300,6 @@ function selectExecutionMode(engine: QueryEngine): ExecutionMode {
   throw new TransactionError(
     `Driver '${engine.driver.driverName}' supports neither transactions nor atomic batch execution.`
   );
-}
-
-function referenceSql(
-  engine: QueryEngine,
-  model: Model<any>,
-  field: string,
-  reference: OperationValueReference
-): Sql {
-  const value = engine.adapter.literals.value(reference);
-  const cast = getScalarCastType(model, field);
-  return cast ? engine.adapter.expressions.cast(value, cast) : value;
-}
-
-function childRacePin(
-  child: QueryScope,
-  where: Record<string, unknown>
-): TargetConstraintPin {
-  return uniqueConflictTarget(child, where);
-}
-
-function affectedRows(
-  expected: number | { readonly min: number },
-  failure: Failure
-): Postcondition {
-  return { kind: "affectedRows", expected, failure };
-}
-
-function exactlyOneRow(failure: Failure): Postcondition {
-  return { kind: "exactlyOneRow", failure };
-}
-
-function existsGuard(id: string, statement: Sql, relation: string): GuardStep {
-  return {
-    id,
-    kind: "guard",
-    premise: { kind: "exists", statement },
-    failure: {
-      kind: "nestedWrite",
-      message: `Nested upsert premise changed for relation '${relation}'.`,
-      relation,
-      raceable: false,
-    },
-  };
 }
 
 function parseRecord(

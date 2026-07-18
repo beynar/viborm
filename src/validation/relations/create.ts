@@ -179,6 +179,26 @@ export type ToManyCreateSchema<
         { partial: false }
       >
     >;
+    // COMPATIBILITY NOTE (deliberate Prisma superset — query-engine-v2 PLAN
+    // P−1.2 / ATOM §4): nested `upsert` under a top-level `create` is NOT a
+    // Prisma create input. VibORM supports it with GLOBAL-LOOKUP,
+    // ADOPT-AND-UPDATE semantics: the target is located by its own unique
+    // `where` (no parent correlation is possible under a fresh parent), the
+    // found branch adopts it (reparents) and applies `update`, and the missing
+    // branch creates it under the new parent. This is the natural completion of
+    // the adopt family that `connect`/`connectOrCreate` already provide here.
+    // The difference is pinned in docs/content/docs/client/compatibility.mdx;
+    // it is never silently divergent.
+    upsert: () => V.SingleOrArray<
+      V.Object<
+        {
+          where: () => GetTargetSchemas<S>["core"]["whereUnique"];
+          create: () => CreateWithOmittedFk<S, Source>;
+          update: () => GetTargetSchemas<S>["core"]["update"];
+        },
+        { partial: false }
+      >
+    >;
   },
   { optional: true }
 >;
@@ -234,6 +254,20 @@ export const toManyCreateFactory = <
             {
               where: () => targetSchemas().core.whereUnique,
               create: getCreateSchema,
+            },
+            { partial: false }
+          )
+        ),
+      // Deliberate Prisma superset (see the type above): global-lookup,
+      // adopt-and-update. The engine (query-engine-v2 CreateOperation) owns the
+      // adopt semantics; this schema only pins the accepted input surface.
+      upsert: () =>
+        v.singleOrArray(
+          v.object(
+            {
+              where: () => targetSchemas().core.whereUnique,
+              create: getCreateSchema,
+              update: () => targetSchemas().core.update,
             },
             { partial: false }
           )

@@ -323,6 +323,52 @@ V1 `operation-program.ts` concept and where it lives in V2:
 | `requiresAtomicResolution` refusal | kept as typed contract (§7) unless a design note lifts it |
 | multi-statement results (SQLite createMany, AndReturn refetch) | fragment outputs as ordered source lists (§1) |
 
+### 8.1 P1 disposition — the freeze closes with no `TBD`
+
+At the end of P1 (composition: the `Part`, the preflight, the create+upsert and
+update+upsert slices, the `PendingOperation` contract) every row above is either
+**live in code** or carries an explicit *consumer-arrives-at-phase-X* note. The
+fragment type surface (`OperationFragment.ts`) was **unchanged** by P1, so the
+P0 snapshot + executor token gate remain the freeze mechanism.
+
+| V1 primitive | P1 status |
+| --- | --- |
+| `ProducedValue` | **live** — the create slice's child FK is `ref(user.create, id)` |
+| `ProducedRows` (multi-row capture) | inert — single-row probes only; multi-row inlining arrives P2c (`createMany`) |
+| `DerivedValue` (PK arithmetic) | inert — no PK arithmetic in P1; arrives P4 (`*AndReturn` refetch) |
+| `FallbackValue` | **gone** — `compile(known)` constructs the taken arm (build-don't-select); no pre-frozen pair |
+| `CapturedRead` / planning statements | **live** — the update slice plans a locate read + a widened probe. See design note **(a)** below: their dependency is realized at the compile-data boundary (`known`), not as a SQL-level probe→locate `Ref` |
+| `BranchStep` + `whenTrue/whenFalse` | **gone** — the three-way (correlated / uncorrelated / absent) is `compile(known)` JS |
+| `BranchStep.pin` / `UniqueConflictPin` | **live** — `Probe.pin` (found: exists guard `raceable:false` / batch, lock / tx) + `Step.racePin` (missing arm) |
+| `expectedCardinality` / `affectedRows` | **live in tx** (executor result check: update-arm `affectedRows(1, notFound)`, terminal `exactlyOneRow`). Batch-mode adapter assertion arrives P2a. See design note **(b)**: P1's missing-root notFound is decided at compile from the locate read on both substrates, so batch parity holds without the assertion |
+| `ProgramFailure.kind` | **live** — `nestedWrite` (V7001, verbatim), `notFound`, `query` |
+| `failure.raceable` | **live** — Pin-Rule values (found `false`, missing arm enforced by constraint) |
+| `onUniqueConflict: "skip"` | inert — arrives P2c (`createMany` skipDuplicates, savepoint effect) |
+| own-write independence | **live** — `OwnWritePreflight` wraps V1's `assert{Create,Update}OwnWriteSafety` verbatim; the same-child-unique upsert pair rejects typed |
+| `requiresAtomicResolution` refusal | inert — arrives P4 (non-returning `*AndReturn`) |
+| multi-statement results (ordered source lists) | type live; consumer arrives P2c/P4 |
+
+**Design note (a) — planning-refs-planning is realized at the compile-data
+boundary.** PLAN P1.1(b) anticipated the child probe carrying a SQL-level `Ref`
+to the locate read. In the delivered slice the two flattening techniques trade
+off inside one probe: technique #2 requires the probe to stay **uncorrelated**
+(so a found-uncorrelated row is observable for the typed V7001), which is
+incompatible with a correlating `WHERE fk = ref(locate)`; and a `firstRowField`
+ref from probe→locate would fail to resolve when the root is absent, defeating
+the clean missing-root `notFound`. The locate→probe dependency is therefore
+carried by `known` (invariant 3's sanctioned crossing): `compile` reads both
+planning reads' rows and decides the correlation in JS. The architecture still
+supports a SQL-level planning→planning `Ref` (the validator checks it; §9
+inv. 2) — the update slice simply does not need one. *(P1 refinement of reality.)*
+
+**Design note (b) — missing-root is a compile-time decision in P1.** The root
+`update` carries the `notFound` postcondition (tx: executor result check). Its
+batch-mode adapter assertion is P2a work (staleness). P1 needs no such assertion
+because the locate planning read observes the root's absence *before* any write,
+so `compile` throws `NotFoundError` on both substrates with no partial mutation —
+the same fail-closed outcome the postcondition would give, minus race coverage
+(which the single-threaded P1 oracle cannot exercise anyway; P2a adds it).
+
 ---
 
 ## 9. Invariants (the executable contract)

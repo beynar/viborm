@@ -3,6 +3,7 @@ import type { BatchQuery, QueryResult } from "@drivers/types";
 import type { Client, Transaction } from "@libsql/client";
 import { createInMemoryLibSQLDriver } from "../fixtures/drivers/libsql";
 import { runCreateNestedUpsertBehavior } from "../query-engine-v2/create-nested-upsert-behavior";
+import { runUpdateNestedUpsertBehavior } from "../query-engine-v2/update-nested-upsert-behavior";
 import { runClientRawBehavior } from "./client-raw-behavior";
 import { runCompoundKeyBehavior } from "./compound-key-behavior";
 import { runCountAggregateWindowBehavior } from "./count-aggregate-window-behavior";
@@ -162,6 +163,15 @@ describe("LibSQL Driver", () => {
     createDriver: createInMemoryLibSQLDriver,
   });
   runCreateNestedUpsertBehavior({
+    name: "LibSQL atomic batch",
+    createDriver: () => new BatchOnlyLibSQLDriver(),
+  });
+
+  runUpdateNestedUpsertBehavior({
+    name: "LibSQL transaction",
+    createDriver: createInMemoryLibSQLDriver,
+  });
+  runUpdateNestedUpsertBehavior({
     name: "LibSQL atomic batch",
     createDriver: () => new BatchOnlyLibSQLDriver(),
   });

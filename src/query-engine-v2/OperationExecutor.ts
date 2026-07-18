@@ -70,8 +70,15 @@ export class OperationExecutor {
 
   execute<T>(
     operation: ExecutableOperation,
-    context: QueryExecutionContext
+    context: QueryExecutionContext,
+    driverOverride?: AnyDriver
   ): Promise<T> {
+    // A caller-supplied driver is already inside its own atomic scope (the
+    // client's callback-transaction seam); run the fragments on it linearly
+    // rather than opening a second envelope.
+    if (driverOverride) {
+      return this.runLinearOn<T>(operation, context, driverOverride);
+    }
     if (operation.mode === "transaction") {
       return this.runTransaction<T>(operation, context);
     }
@@ -83,51 +90,88 @@ export class OperationExecutor {
     context: QueryExecutionContext
   ): Promise<T> {
     return this.engine.driver.withTransaction(
-      async (driver) => {
-        const planning = operation.planning();
-        validateFragment(planning);
-        const planningOutputs = await this.executeLinear(
-          planning,
-          driver,
-          new Map(),
-          context
-        );
-        const fragment = operation.compile(planningOutputs);
-        validateFragment(fragment);
-        const outputs = await this.executeLinear(
-          fragment,
-          driver,
-          new Map(),
-          context
-        );
-        return operation.parse<T>(outputs);
-      },
+      (driver) => this.runLinearOn<T>(operation, context, driver),
       undefined,
       context
     );
+  }
+
+  private async runLinearOn<T>(
+    operation: ExecutableOperation,
+    context: QueryExecutionContext,
+    driver: AnyDriver
+  ): Promise<T> {
+    const planning = operation.planning();
+    validateFragment(planning);
+    const planningOutputs = await this.executeLinear(
+      planning,
+      driver,
+      new Map(),
+      context
+    );
+    const fragment = operation.compile(planningOutputs);
+    validateFragment(fragment);
+    const outputs = await this.executeLinear(
+      fragment,
+      driver,
+      new Map(),
+      context
+    );
+    return operation.parse<T>(outputs);
   }
 
   private async runAtomicBatch<T>(
     operation: ExecutableOperation,
     context: QueryExecutionContext
   ): Promise<T> {
-    const planning = operation.planning();
-    validateFragment(planning);
-    const planningOutputs = await this.executeLinear(
-      planning,
-      this.engine.driver,
-      new Map(),
-      context
-    );
-    const fragment = operation.compile(planningOutputs);
-    validateFragment(fragment);
-    const plan = this.compileToEntries(fragment);
+    const plan = await this.buildAtomicPlan(operation, this.engine.driver, context);
     const outputs = await this.executeEntries(
       plan,
       this.engine.driver,
       context
     );
     return operation.parse<T>(outputs);
+  }
+
+  /**
+   * The `prepareBatch` seam of the PendingOperation contract (PLAN P1.5): run
+   * planning, compile the taken fragment, and RETURN the atomic-batch entries
+   * plus a `parseResult` closure — consumable by the client's shared batch
+   * protocol (the `$transaction([...])` array path), which merges entries from
+   * several operations into one driver batch. It never executes them itself.
+   */
+  async prepareBatch<T>(
+    operation: ExecutableOperation,
+    driver: AnyDriver,
+    context: QueryExecutionContext
+  ): Promise<{
+    readonly queries: readonly Sql[];
+    parseResult(results: readonly QueryResult<unknown>[]): T;
+  }> {
+    const plan = await this.buildAtomicPlan(operation, driver, context);
+    return {
+      queries: plan.entries.map((entry) => entry.statement),
+      parseResult: (results) =>
+        operation.parse<T>(assembleOutputs(plan, results)),
+    };
+  }
+
+  private async buildAtomicPlan(
+    operation: ExecutableOperation,
+    driver: AnyDriver,
+    context: QueryExecutionContext
+  ): Promise<AtomicPlan> {
+    const planning = operation.planning();
+    validateFragment(planning);
+    const planningOutputs = await this.executeLinear(
+      planning,
+      driver,
+      new Map(),
+      context
+    );
+    const fragment = operation.compile(planningOutputs);
+    validateFragment(fragment);
+    return this.compileToEntries(fragment);
   }
 
   private async executeLinear(
@@ -238,15 +282,27 @@ export class OperationExecutor {
       provider: driver.driverName,
       operation: "query-engine-v2",
     });
-
-    for (let index = 0; index < entries.length; index += 1) {
-      const step = entries[index]?.step;
-      const result = results[index];
-      if (!(step && result)) continue;
-      mergeBatchOutputs(step, result, values);
-    }
-    return resolveFragmentOutputs(fragment, values);
+    return assembleOutputs(plan, results);
   }
+}
+
+/**
+ * Assemble a fragment's declared outputs from one atomic batch's results —
+ * shared by the executed path and the `prepareBatch` seam so a returned plan
+ * parses identically to an executed one.
+ */
+function assembleOutputs(
+  plan: AtomicPlan,
+  results: readonly QueryResult<unknown>[]
+): Readonly<Record<string, unknown>> {
+  const { fragment, entries, values } = plan;
+  for (let index = 0; index < entries.length; index += 1) {
+    const step = entries[index]?.step;
+    const result = results[index];
+    if (!(step && result)) continue;
+    mergeBatchOutputs(step, result, values);
+  }
+  return resolveFragmentOutputs(fragment, values);
 }
 
 function enforcePostcondition(
