@@ -297,6 +297,71 @@ describe("query-engine-v2 per-tree routing (upsert)", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Scope-shrink routing (attack #4): a depth-2 shape whose grandchild is a to-one
+// relation is inside V1's surface but outside V2's narrow door. V2's depth
+// recursion must reject it as an UnsupportedOperationError (a QueryEngineError
+// SUBCLASS) so the proxy catches it and routes the WHOLE tree to V1 — never a
+// bare QueryEngineError that hard-fails a shape V1 supports. `posts.upsert` is
+// one-to-many (V2 depth-composes it), but its update arm's `author` is a
+// many-to-one grandchild: the RelationUpsertPart depth builder throws during
+// UpdateOperation construction, before any I/O, and the tree falls to V1.
+// ---------------------------------------------------------------------------
+
+describe("query-engine-v2 per-tree routing (depth-2 to-one grandchild)", () => {
+  test("nested upsert whose update arm has a to-one connectOrCreate falls to V1", async () => {
+    const db = new PGlite();
+    const client = makeClient(db);
+    await push(client, { force: true });
+    await client.user.create({ data: { email: "gp@x", score: 0 } });
+    await client.post.create({
+      data: { id: 50, title: "orig", slug: "s50", userId: 1 },
+    });
+
+    const routed = createV2RoutedClient({
+      schema: upsertFamilySchema,
+      client: client as unknown as Record<string, RoutedModel>,
+      driver: new PGliteDriver({ client: db }),
+    });
+
+    // `posts.upsert` is one-to-many (V2's surface), but `update.author` is a
+    // many-to-one grandchild (V1's surface, not V2's). The whole tree routes to
+    // V1 and returns cleanly — the fix under test is that V2's rejection is an
+    // UnsupportedOperationError, not a bare QueryEngineError that would propagate.
+    const result = await routed.client.user!.update!({
+      where: { email: "gp@x" },
+      data: {
+        posts: {
+          upsert: [
+            {
+              where: { id: 50 },
+              create: { id: 50, title: "created", slug: "s50c" },
+              update: {
+                author: {
+                  connectOrCreate: {
+                    where: { id: 1 },
+                    create: { id: 1, email: "gp@x", score: 0 },
+                  },
+                },
+              },
+            },
+          ],
+        },
+      },
+      select: { email: true },
+    });
+
+    expect(result).toEqual({ email: "gp@x" });
+    expect(routed.routes.at(-1)).toEqual({
+      model: "user",
+      operation: "update",
+      engine: "v1",
+    });
+
+    await client.$disconnect();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Staleness injection (PLAN P2b instrument): the single-threaded oracle cannot
 // observe raceability, so each NEW premise class gets a before-batch hook that
 // mutates committed state after V2's unlocked planning read decides the arm but

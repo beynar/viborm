@@ -1,5 +1,5 @@
 // biome-ignore-all lint/style/useFilenamingConvention: RelationUpsertPart is the architecture name.
-import { NestedWriteError, QueryEngineError } from "@errors";
+import { NestedWriteError } from "@errors";
 import type { Sql } from "@sql";
 import { getPrimaryKeyFields } from "../query-engine/builders/correlation-utils";
 import {
@@ -41,7 +41,11 @@ import {
 import type { Part, PlanningKnown } from "./Part";
 import { planningKey } from "./Part";
 import type { StepScope } from "./StepScope";
-import { getStepModelName, isRecord } from "./shared";
+import {
+  getStepModelName,
+  isRecord,
+  UnsupportedOperationError,
+} from "./shared";
 
 /**
  * Where the parent id the child FK points at comes from — a first-class value,
@@ -436,7 +440,11 @@ export function buildToManyUpsertParts(
   family: UpsertFamily = "upsert"
 ): RelationUpsertPart[] {
   if (relationInfo.type !== "oneToMany") {
-    throw new QueryEngineError(
+    // A to-one or many-to-many nested target is outside V2's narrow door but
+    // within V1's — an UnsupportedOperationError so the whole tree routes to V1
+    // (shared.ts routing contract), never a bare QueryEngineError that hard-fails
+    // a shape V1 supports. All shape rejections in this file are typed this way.
+    throw new UnsupportedOperationError(
       `query-engine-v2 supports only one-to-many nested ${family}; received '${relationName}'.`
     );
   }
@@ -511,8 +519,9 @@ function buildOneUpsertPart(
     fk.pkFields[0] !== parentPrimaryKey
   ) {
     // The child must hold one FK referencing the parent's primary key — the key
-    // the parent-id value (`planned`/`literal`/`ref`) actually carries.
-    throw new QueryEngineError(
+    // the parent-id value (`planned`/`literal`/`ref`) actually carries. A
+    // parent-held FK or compound key is V1's surface, not V2's: route the tree.
+    throw new UnsupportedOperationError(
       `Relation '${relationName}' must expose one child-held foreign key referencing the parent primary key.`
     );
   }
@@ -533,7 +542,7 @@ function buildOneUpsertPart(
     Object.hasOwn(childCreate.scalarData, childForeignKey) ||
     Object.hasOwn(childUpdate.scalarData, childForeignKey)
   ) {
-    throw new QueryEngineError(
+    throw new UnsupportedOperationError(
       `Relation '${relationName}' owns '${childForeignKey}'; omit it from nested create and update data.`
     );
   }
@@ -545,7 +554,7 @@ function buildOneUpsertPart(
   );
   const childPrimaryKeys = getPrimaryKeyFields(child.model);
   if (childPrimaryKeys.length !== 1) {
-    throw new QueryEngineError(
+    throw new UnsupportedOperationError(
       `Relation '${relationName}' requires a child with one primary key.`
     );
   }
@@ -630,7 +639,7 @@ function buildArmChildParts(
     (entry) => entry.fieldName === childPrimaryKey
   );
   if (pkEntry === undefined) {
-    throw new QueryEngineError(
+    throw new UnsupportedOperationError(
       `Relation '${relationName}' carries nested relation mutations; its upsert must locate the child by its primary key '${childPrimaryKey}' so the deeper foreign key is a known value.`
     );
   }
@@ -672,7 +681,7 @@ function buildArmChildParts(
       );
       continue;
     }
-    throw new QueryEngineError(
+    throw new UnsupportedOperationError(
       `query-engine-v2 supports only nested ${arm === "create" ? "connectOrCreate" : "upsert/connectOrCreate"} one level deeper on the ${arm} arm; relation '${childRelationName}' uses '${kinds}'.`
     );
   }
@@ -686,7 +695,7 @@ function normalizeUpsertItems(
   const items = Array.isArray(value) ? value : [value];
   return items.map((item) => {
     if (!isRecord(item)) {
-      throw new QueryEngineError(
+      throw new UnsupportedOperationError(
         `Relation '${relation}' upsert item must be an object.`
       );
     }
@@ -704,7 +713,7 @@ function assertMatchingCreateIdentity(
     if (
       !(Object.hasOwn(create, fieldName) && Object.is(create[fieldName], value))
     ) {
-      throw new QueryEngineError(
+      throw new UnsupportedOperationError(
         `Relation '${relation}' requires nested create field '${fieldName}' to match its unique where value.`
       );
     }
@@ -713,5 +722,5 @@ function assertMatchingCreateIdentity(
 
 function requireRecord(value: unknown, label: string): Record<string, unknown> {
   if (isRecord(value)) return value;
-  throw new QueryEngineError(`'${label}' must be an object.`);
+  throw new UnsupportedOperationError(`'${label}' must be an object.`);
 }
