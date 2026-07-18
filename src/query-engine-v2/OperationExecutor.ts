@@ -124,7 +124,11 @@ export class OperationExecutor {
     operation: ExecutableOperation,
     context: QueryExecutionContext
   ): Promise<T> {
-    const plan = await this.buildAtomicPlan(operation, this.engine.driver, context);
+    const plan = await this.buildAtomicPlan(
+      operation,
+      this.engine.driver,
+      context
+    );
     const outputs = await this.executeEntries(
       plan,
       this.engine.driver,
@@ -543,7 +547,7 @@ async function attributeGuardFailure(
   const statementIndex = error.meta.statementIndex;
   if (typeof statementIndex === "number") {
     const guard = entries[statementIndex]?.guard;
-    return guard ? guardError(guard) : error;
+    return guard ? failureError(guard.failure, context) : error;
   }
   for (const entry of entries) {
     if (!(entry.guard && entry.guardProbe)) continue;
@@ -554,16 +558,7 @@ async function attributeGuardFailure(
     });
     const exists = result.rows.length > 0;
     const holds = entry.guard.premise.kind === "exists" ? exists : !exists;
-    if (!holds) return guardError(entry.guard);
+    if (!holds) return failureError(entry.guard.failure, context);
   }
-  return error;
-}
-
-function guardError(step: GuardStep): NestedWriteError {
-  const error = new NestedWriteError(
-    step.failure.message,
-    step.failure.relation ?? ""
-  );
-  if (step.failure.raceable) error.meta.raceable = true;
   return error;
 }

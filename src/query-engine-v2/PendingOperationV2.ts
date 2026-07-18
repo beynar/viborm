@@ -37,7 +37,11 @@ export class PendingOperationV2<T> {
    * already-transactional driver instead of opening a second envelope.
    */
   execute(driverOverride?: AnyDriver): Promise<T> {
-    return this.executor.execute<T>(this.operation, this.context, driverOverride);
+    return this.executor.execute<T>(
+      this.operation,
+      this.context,
+      driverOverride
+    );
   }
 
   /** Callback-transaction alias: execute on a caller-provided tx-bound driver. */
@@ -59,9 +63,7 @@ export class PendingOperationV2<T> {
    * consumable by the shared batch protocol (the array-`$transaction` path).
    * It does not execute them.
    */
-  async prepareBatch(
-    driver?: AnyDriver
-  ): Promise<{
+  async prepareBatch(driver?: AnyDriver): Promise<{
     readonly queries: readonly Sql[];
     parseResult(results: readonly QueryResult<unknown>[]): T;
   }> {

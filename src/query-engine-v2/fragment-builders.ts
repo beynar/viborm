@@ -4,6 +4,7 @@ import { getScalarCastType } from "../query-engine/builders/values-builder";
 import type { QueryEngine } from "../query-engine/query-engine";
 import type { QueryScope } from "../query-engine/types";
 import { uniqueConflictTarget } from "../query-engine/WritePrograms";
+import { upsertPremiseChanged } from "./messages";
 import type {
   Failure,
   GuardStep,
@@ -49,25 +50,55 @@ export function exactlyOneRow(failure: Failure): Postcondition {
   return { kind: "exactlyOneRow", failure };
 }
 
+/** A `notFound` failure — its message is informational; the executor builds the
+ *  public `NotFoundError` from the execution context's model/operation. */
+export function notFoundFailure(message: string): Failure {
+  return { kind: "notFound", message, raceable: false };
+}
+
+/** A `nestedWrite` failure (V1's `NestedWriteError`), raceable per the Pin Rule. */
+export function nestedWriteFailure(
+  message: string,
+  relation: string,
+  raceable = false
+): Failure {
+  return { kind: "nestedWrite", message, relation, raceable };
+}
+
+/** A `query` failure — a terminal read that did not observe its promised row. */
+export function queryFailure(message: string): Failure {
+  return { kind: "query", message, raceable: false };
+}
+
 /**
- * The found-branch exists guard (ATOM §2): an existing-row premise, pinned
- * `raceable: false`. Emitted only in batch mode; transaction mode locks the
- * probe instead.
+ * An existing-row premise guard (ATOM §2): pinned `raceable: false`, carrying an
+ * arbitrary typed {@link Failure}. Emitted only in batch mode; transaction mode
+ * pins the same premise with a locked planning read. This is the reusable
+ * adapter-assertion pin behind the found-upsert premise, the connect/disconnect
+ * target premise, and the batch-mode `affectedRows` enforcement (ATOM §8.1 note
+ * (b)) — all one existing-row premise, never a `notExists` create-branch guard.
+ */
+export function presenceGuard(
+  id: string,
+  statement: Sql,
+  failure: Failure
+): GuardStep {
+  return { id, kind: "guard", premise: { kind: "exists", statement }, failure };
+}
+
+/**
+ * The found-branch exists guard (ATOM §2) for the nested upsert: an existing-row
+ * premise pinned `raceable: false`, carrying V1's `Nested upsert premise changed`
+ * message. A thin wrapper over {@link presenceGuard}.
  */
 export function existsGuard(
   id: string,
   statement: Sql,
   relation: string
 ): GuardStep {
-  return {
+  return presenceGuard(
     id,
-    kind: "guard",
-    premise: { kind: "exists", statement },
-    failure: {
-      kind: "nestedWrite",
-      message: `Nested upsert premise changed for relation '${relation}'.`,
-      relation,
-      raceable: false,
-    },
-  };
+    statement,
+    nestedWriteFailure(upsertPremiseChanged(relation), relation, false)
+  );
 }

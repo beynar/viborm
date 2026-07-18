@@ -389,6 +389,19 @@ found-uncorrelated arm (nested `connect`/`update`, P2a). That shape genuinely
 needs the ref, and it is where technique #1 ships proven. *(P1 refinement of
 reality: PLAN P1.1(b)'s premise was wrong for upsert; corrected there.)*
 
+**P2a update (a) — the witness shipped.** The nested **disconnect** on a to-many
+FK edge (`UpdateOperation` → `RelationLinkPart`) reads the child `WHERE unique
+AND fk = ref(user.locate.id)` — a *planning* read whose `Sql.values` literally
+carries a backward `Ref` to the locate planning step, and whose existence test
+has **no** found-uncorrelated arm (disconnecting a foreign child is V1's verbatim
+`Cannot disconnect … for this parent`, not an adopt). The absent-parent hazard of
+note (a) point 2 is closed structurally: the locate read now carries the
+`notFound` postcondition, so a missing root aborts at planning *before* the
+correlated probe dereferences the located id. An emitted-planning-fragment
+**inspection** test asserts the `Ref` marker is present in the probe statement's
+`values` (not merely that the validator accepts the shape). Technique #1 is now
+positively witnessed.
+
 **Design note (b) — missing-root is a compile-time decision in P1.** The root
 `update` carries the `notFound` postcondition (tx: executor result check). Its
 batch-mode adapter assertion is P2a work (staleness). P1 needs no such assertion
@@ -396,6 +409,23 @@ because the locate planning read observes the root's absence *before* any write,
 so `compile` throws `NotFoundError` on both substrates with no partial mutation —
 the same fail-closed outcome the postcondition would give, minus race coverage
 (which the single-threaded P1 oracle cannot exercise anyway; P2a adds it).
+
+**P2a update (b) — the batch assertion shipped without a vocabulary change.**
+Root `update`/`delete` in batch mode emit an adapter-owned **`exists` assertion**
+on the located row's unique key (`presenceGuard`, `raceable: false`, `notFound`
+failure), hoisted ahead of every write inside the atomic unit — the
+affectedRows/notFound postcondition *lowered to the guard vocabulary that already
+existed* for the found-upsert premise, reusing `adapter.assertions.exists`. No
+`OperationFragment` type changed: the P0 fragment-surface snapshot and executor
+token gate stayed green, so the **freeze held** (no vocabulary change, hence no
+design-note-to-amend-the-freeze). The one generic executor change is that guard
+attribution now honours `failure.kind` (a `notFound` guard yields `NotFoundError`
+via the shared `failureError`, not always `NestedWriteError`) — taxonomy already
+in the census, not an operation-specific branch. Per-premise-class
+staleness-injection tests (the before-batch driver hook) prove each existing-row
+premise — root presence, upsert-found, connect-target, disconnect-correlation —
+aborts the batch typed; the assertion and the injection were each falsified once
+(removed → the staleness test fails → restored).
 
 ---
 

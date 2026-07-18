@@ -13,6 +13,7 @@ import { push } from "@migrations";
 import { s } from "@schema";
 import { runCreateNestedUpsertBehavior } from "../query-engine-v2/create-nested-upsert-behavior";
 import { runUpdateNestedUpsertBehavior } from "../query-engine-v2/update-nested-upsert-behavior";
+import { runUpdateFamilyBehavior } from "../query-engine-v2/update-family-behavior";
 import {
   PgBatchForcedDriver,
   PgBeforeFirstBatchDriver,
@@ -562,6 +563,16 @@ describeIf("pg Driver", () => {
     createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
   });
   runUpdateNestedUpsertBehavior({
+    name: "pg atomic batch",
+    createDriver: () =>
+      new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  runUpdateFamilyBehavior({
+    name: "pg transaction",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+  runUpdateFamilyBehavior({
     name: "pg atomic batch",
     createDriver: () =>
       new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),

@@ -25,6 +25,10 @@ import {
   referenceSql,
 } from "./fragment-builders";
 import {
+  upsertTargetNotFoundForParent,
+  upsertTargetVanished,
+} from "./messages";
+import {
   type OperationStep,
   type OperationValueReference,
   type Probe,
@@ -224,7 +228,7 @@ export class RelationUpsertPart implements Part {
         : undefined;
     if (fkEquals(childFk, parentId)) return "found";
     throw new NestedWriteError(
-      `Cannot upsert relation '${this.config.relationName}': target record was not found for this parent.`,
+      upsertTargetNotFoundForParent(this.config.relationName),
       this.config.relationName
     );
   }
@@ -274,7 +278,7 @@ export class RelationUpsertPart implements Part {
       ...step,
       expects: affectedRows(1, {
         kind: "notFound",
-        message: `Nested upsert target for relation '${relationName}' vanished before its update.`,
+        message: upsertTargetVanished(relationName),
         relation: relationName,
         raceable: false,
       }),

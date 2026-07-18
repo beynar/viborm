@@ -21,6 +21,7 @@ import {
 import { seedWindowUserPosts } from "../fixtures/user-post-seed";
 import { runCreateNestedUpsertBehavior } from "../query-engine-v2/create-nested-upsert-behavior";
 import { runUpdateNestedUpsertBehavior } from "../query-engine-v2/update-nested-upsert-behavior";
+import { runUpdateFamilyBehavior } from "../query-engine-v2/update-family-behavior";
 import { runBatchPrimaryKeyDataflowBehavior } from "./batch-primary-key-dataflow-behavior";
 import { runBatchRefSmokeBehavior } from "./batch-ref-smoke-behavior";
 import { runClientRawBehavior } from "./client-raw-behavior";
@@ -828,6 +829,15 @@ describe("SQLite3 Driver", () => {
     createDriver: createInMemorySQLite3Driver,
   });
   runUpdateNestedUpsertBehavior({
+    name: "SQLite3 atomic batch",
+    createDriver: createBatchOnlySQLite3Driver,
+  });
+
+  runUpdateFamilyBehavior({
+    name: "SQLite3 transaction",
+    createDriver: createInMemorySQLite3Driver,
+  });
+  runUpdateFamilyBehavior({
     name: "SQLite3 atomic batch",
     createDriver: createBatchOnlySQLite3Driver,
   });

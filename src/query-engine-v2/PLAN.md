@@ -186,15 +186,25 @@ suites assert byte-identical messages; every current V2 message differs); and
 **staleness-injection tests** per premise class (the before-batch hook), since
 the single-threaded oracle cannot observe raceability.
 
-- **P2a — update family, FK edges**: root `update` and root `delete`; nested
-  connect/disconnect; postconditions live (`notFound` on missing root row;
-  `affectedRows` contracts); batch-mode `affectedRows` adapter assertions
-  (ATOM §8.1 note (b)'s deferral comes due). *Gate:* oracle parity for every
-  P2a shape incl. error classes and messages; structural gates green
-  untouched; **technique #1's positive witness** (the P1 disposition comes
-  due): at least one correlated nested read whose probe SQL contains a `Ref`
-  to an earlier planning step's output, proven by an emitted-planning-fragment
-  inspection test — not by the validator merely accepting the shape.
+- **P2a — update family, FK edges** *(delivered)*: root `update` (generalized —
+  any unique `where`, scalar data, with/without nested) and root `delete`; nested
+  `connect`/`disconnect` on FK edges (to-many child-held as `RelationLinkPart`s;
+  to-one parent-held folded into the root SET), composed as Parts; postconditions
+  live (`notFound` on missing root row; `affectedRows` contracts); batch-mode
+  `affectedRows` enforcement via an adapter-owned `exists` assertion inside the
+  atomic unit (ATOM §8.1 note (b)'s deferral came due — reusing the existing
+  guard vocabulary, **no fragment change**, freeze held). The three shared
+  instruments landed here: the **V2-backed client proxy** (per-tree routing —
+  supported tree → V2, else the real V1 path; one call never mixes engines), the
+  **message catalog** (`messages.ts` — V1-verbatim strings sourced from V1's own
+  builders), and the **staleness-injection** hook (per premise class). *Gate
+  (met):* dual-run oracle parity for every P2a shape incl. error classes AND
+  messages, fresh instance per arm; routing asserted by a route spy; structural
+  gates + fragment snapshot untouched; **technique #1's positive witness** — the
+  correlated disconnect probe carries a SQL `Ref` to the locate step, proven by
+  an emitted-planning-fragment inspection test; per-premise-class staleness
+  aborts typed, with the batch assertion and the injection each falsified once;
+  all five DBs incl. the Docker mysql2/pg legs (pg serial).
 - **P2b — upsert + connectOrCreate**: probe-first per ATOM §2/§4. The Pin Rule
   applied with its **exact scope** — pinned `exists` premises
   (`raceable: false`); same-model-INSERT missing premises by constraint +

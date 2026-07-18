@@ -140,7 +140,10 @@ describe("query-engine-v2 depth gate: update > upsert > upsert composition", () 
       "post.find.rows": [{ id: 5, userId: 42 }],
       "comment.find.rows": [{ id: 9, postId: 5 }],
     });
+    // The root-presence guard (ATOM §8.1 note (b), P2a) leads: batch mode pins
+    // the located root inside the atomic unit, then each found child level.
     expect(fragment.steps.map((step) => step.id)).toEqual([
+      "user.guard.exists",
       "post.guard.exists",
       "comment.guard.exists",
       "user.update",
@@ -149,8 +152,8 @@ describe("query-engine-v2 depth gate: update > upsert > upsert composition", () 
       "user.select",
     ]);
     const guards = fragment.steps.filter((step) => step.kind === "guard");
-    expect(guards).toHaveLength(2);
-    // Both are existing-row premises: pinned raceable: false (Pin Rule).
+    expect(guards).toHaveLength(3);
+    // All are existing-row premises: pinned raceable: false (Pin Rule).
     expect(
       guards.every(
         (step) =>
