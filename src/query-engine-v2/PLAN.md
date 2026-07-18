@@ -205,19 +205,44 @@ the single-threaded oracle cannot observe raceability.
   an emitted-planning-fragment inspection test; per-premise-class staleness
   aborts typed, with the batch assertion and the injection each falsified once;
   all five DBs incl. the Docker mysql2/pg legs (pg serial).
-- **P2b — upsert + connectOrCreate**: probe-first per ATOM §2/§4. The Pin Rule
-  applied with its **exact scope** — pinned `exists` premises
-  (`raceable: false`); same-model-INSERT missing premises by constraint +
-  `racePin`, never guarded; and the **retained** `notExists` pins kept:
-  targetWhere/setWhere skip, orphan guards — nothing here says "always".
-  `ON CONFLICT` only per ATOM §4's narrow door (top-level scalar-arm), and
-  only with a written parity disposition — otherwise probe-first everywhere.
-  **Create-arm nested writes inside an upsert** (ATOM §8.1's P1 deferral —
-  the fresh-parent adopt family) land here: the typed P1 rejection is
-  replaced by the composed shape, elision rule applied.
-  *Gate:* oracle + race convergence (Docker, two connections, convergence
-  assertions — dual-run cannot see races); the P0 race test extended to
-  connectOrCreate; the create-arm depth scenarios join the depth oracle.
+- **P2b — upsert + connectOrCreate** *(delivered)*: probe-first per ATOM §2/§4.
+  Root (top-level) `upsert` (`UpsertOperation`) locates by any unique `where`;
+  absent → the create arm (constraint + `racePin`, never a guard); present →
+  the update arm, unless a `targetWhere`/`setWhere` conditional does not match,
+  in which case V1's silent no-op skip fires — pinned by the **retained
+  `notExists`** guard (`raceable: true`, `absenceGuard`). Nested
+  `connectOrCreate` (the update-less member of the adopt family, ATOM §6's
+  worked trace) is delivered under `update` and as a create-arm child, reusing
+  `RelationUpsertPart` with a `family` discriminator (found → pure connect,
+  absent → create). The Pin Rule holds with its **exact scope** — pinned
+  `exists` premises `raceable: false`; same-model-INSERT missing premises by
+  constraint + `racePin`, never guarded; the retained `notExists`
+  targetWhere/setWhere skip pins `raceable: true`. **Create-arm nested writes
+  inside an upsert** (ATOM §8.1's P1 deferral) land here: the typed P1 rejection
+  is replaced by the composed shape; the fresh child adopts globally (ATOM §4's
+  elision), restricted to `connectOrCreate` one level deeper (V1's runtime
+  rejects a nested `upsert` under a create payload as found-uncorrelated).
+  **Dispositions (recorded, P2b report):** (1) the `ON CONFLICT` narrow door is
+  **NOT** taken — root upsert is probe-first everywhere (no sequence burn, the
+  pinned-abort error class is retained), so no oracle divergence to disposition.
+  (2) `targetWhere`/`setWhere` scalar skip is an **extension scenario** (PLAN
+  P−1.2), certified by fixed expectation + staleness + falsify, NOT V1 dual-run:
+  V1's scalar-only upsert takes its `ON CONFLICT` fast-path where the skip does
+  not reproduce (targetWhere no-match silently updates, setWhere no-match raises
+  V9001); V2 implements V1's *intended* branch-runtime skip contract. (3) A V1
+  defect was found and RECORDED (not fixed here, pre-routing): `upsert` with an
+  atomic `increment` in the update arm generates ambiguous `ON CONFLICT` SQL
+  (postgres 42702); V2's probe-first plain UPDATE handles it correctly, so the
+  oracle uses plain `set` and the behavior suites prove V2's increment capability.
+  *Gate (met):* dual-run oracle parity (create/update branches, connectOrCreate
+  connect/create, create-arm create/adopt); the P0 race pattern extended to
+  connectOrCreate (before-batch hook, deterministic convergence — loser surfaces
+  the racePin-matched `UniqueConstraintError`, winner's row survives);
+  per-premise-class staleness (connectOrCreate found premise, targetWhere/setWhere
+  skip pins) each aborting typed, the targetWhere skip pin falsified once; per-tree
+  routing spy-asserted for `upsert`; create-arm depth scenarios joined the depth
+  oracle; structural gates + fragment snapshot untouched; all five DBs incl. the
+  Docker mysql2/pg legs (pg serial).
 - **P2c — nested update/updateMany/delete/deleteMany/set + createMany**: set's
   departing-rows orphan guard (a retained pin); `createMany` incl. the SQLite
   multi-statement summed-count plan and the skipDuplicates disposition

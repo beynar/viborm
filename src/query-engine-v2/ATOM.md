@@ -427,6 +427,37 @@ premise — root presence, upsert-found, connect-target, disconnect-correlation 
 aborts the batch typed; the assertion and the injection were each falsified once
 (removed → the staleness test fails → restored).
 
+**P2b update — the upsert family, and the create-arm deferral come due.** Root
+`upsert` (`UpsertOperation`) is **probe-first**: a locate read decides create-vs-
+update at planning, the `ON CONFLICT` narrow door (§4) deliberately **not** taken
+(no vocabulary change; recorded disposition, not a design-note-to-the-freeze,
+because the fragment surface was untouched). Three P2b facts land against the
+census with **no new vocabulary**:
+
+1. **`connectOrCreate` is the update-less adopt member (§6's trace), not a new
+   Part.** It reuses `RelationUpsertPart` with a `family` discriminator: found →
+   pure connect (empty update data → reparent only), absent → create (constraint
+   + `racePin`). Its found premise is the same `exists` guard (`raceable: false`),
+   carrying V1's verbatim `Record was replaced …` message. WHY §4.1 (one write
+   part, leaves differ) holds — no `RelationConnectOrCreate.ts` was born.
+2. **The `targetWhere`/`setWhere` skip pins are the RETAINED `notExists` pins of
+   §2, now live.** Planning decides the located row does not match the
+   conditional → silent no-op (V1's contract); batch pins that it still does not
+   match with an `absenceGuard` (`notExists`, `raceable: true`). The validator's
+   invariant-5 residue accepted them because the raceability is `true` (the
+   materialized-condition class). Falsified once (guard removed → the staleness
+   test passes with a stale skip → restored).
+3. **Create-arm nested writes (ATOM §8.1's one P1 deferral) compose now.** A
+   nested upsert's CREATE arm splices its own child parts under the freshly-
+   inserted child; the elision rule (§4) makes correlation statically empty, so
+   they adopt globally, correlated to the fresh child's compile-time literal PK.
+   Bounded to `connectOrCreate` one level deeper (V1's runtime rejects a nested
+   `upsert` under a create payload as found-uncorrelated, so V2 does not silently
+   diverge). Recursion still adds only list entries and one parent-id value.
+
+The `OperationFragment.ts` type surface was **unchanged** by P2b, so the P0
+fragment-surface snapshot + executor token gate stayed green — the **freeze held**.
+
 ---
 
 ## 9. Invariants (the executable contract)

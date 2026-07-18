@@ -22,9 +22,12 @@ import {
   affectedRows,
   childRacePin,
   existsGuard,
+  nestedWriteFailure,
+  presenceGuard,
   referenceSql,
 } from "./fragment-builders";
 import {
+  nestedReplacement,
   upsertTargetNotFoundForParent,
   upsertTargetVanished,
 } from "./messages";
@@ -74,6 +77,18 @@ export type ParentIdSource =
  */
 export type UpsertCorrelation = "global-adopt" | "correlated";
 
+/**
+ * Which member of the adopt family this part expresses (ATOM §6 — connectOrCreate
+ * is the simplest member, upsert-under-create/update adds the update payload):
+ * - `upsert`: found → reparent-and-update (or update, correlated); the found
+ *   premise carries the V2 extension `Nested upsert premise changed` wording.
+ * - `connectOrCreate`: found → pure connect (reparent, no update data); the found
+ *   premise carries V1's verbatim `Record was replaced …` replacement wording.
+ * Both share one probe, one create arm (constraint + `racePin`), one found guard
+ * (`raceable: false`) — the leaf differs, never the vocabulary (WHY §4.1).
+ */
+export type UpsertFamily = "connectOrCreate" | "upsert";
+
 export interface RelationUpsertConfig {
   readonly engine: QueryEngine;
   readonly childScope: QueryScope;
@@ -87,6 +102,8 @@ export interface RelationUpsertConfig {
   readonly parentId: ParentIdSource;
   readonly correlation: UpsertCorrelation;
   readonly txMode: boolean;
+  /** Adopt-family member (default `upsert`); `connectOrCreate` omits update data. */
+  readonly family?: UpsertFamily;
   /**
    * Depth: nested upsert parts contributed by this child's UPDATE payload. They
    * are emitted only on this part's found+correlated (update) arm — the same
@@ -94,6 +111,15 @@ export interface RelationUpsertConfig {
    * children (by FK direction), never its parent (WHY §4.2). Empty at depth 1.
    */
   readonly updateChildParts?: readonly Part[];
+  /**
+   * Depth on the CREATE arm (ATOM §8.1's P1 deferral, come due in P2b): nested
+   * parts contributed by this child's CREATE payload, emitted only when the
+   * absent → CREATE arm fires. The child is then fresh, so — the elision rule of
+   * ATOM §4 — a correlated probe under it is statically empty; these parts adopt
+   * globally, and their parent id is this child's own (compile-time literal) PK.
+   * Empty unless the create payload carries FK-edge relation mutations.
+   */
+  readonly createChildParts?: readonly Part[];
 }
 
 /**
@@ -120,10 +146,14 @@ export class RelationUpsertPart implements Part {
   private readonly guardId: string;
   private readonly find: StatementStep;
   private readonly updateChildParts: readonly Part[];
+  private readonly createChildParts: readonly Part[];
+  private readonly family: UpsertFamily;
 
   constructor(scope: StepScope, config: RelationUpsertConfig) {
     this.config = config;
+    this.family = config.family ?? "upsert";
     this.updateChildParts = config.updateChildParts ?? [];
+    this.createChildParts = config.createChildParts ?? [];
     const { childScope, childName, where, txMode, relationName } = config;
     this.probeId = scope.allocate(`${childName}.find`);
     this.createId = scope.allocate(`${childName}.create`);
@@ -151,13 +181,22 @@ export class RelationUpsertPart implements Part {
     // Found premise: pinned by the exists guard in batch mode (raceable: false),
     // by the lock in tx mode. Missing premise: enforced by the child's unique
     // constraint (the racePin on the create write), never a notExists guard.
+    const foundGuardStatement = buildFindUnique(childScope, {
+      where,
+      select: identitySelect,
+    });
     const foundPin = txMode
       ? ("none" as const)
-      : existsGuard(
-          this.guardId,
-          buildFindUnique(childScope, { where, select: identitySelect }),
-          relationName
-        );
+      : this.family === "connectOrCreate"
+        ? presenceGuard(
+            this.guardId,
+            foundGuardStatement,
+            nestedWriteFailure(
+              nestedReplacement("connectOrCreate"),
+              relationName
+            )
+          )
+        : existsGuard(this.guardId, foundGuardStatement, relationName);
     this.probe = {
       read: this.find,
       pin: { whenFound: foundPin, whenMissing: "constraint" },
@@ -171,11 +210,16 @@ export class RelationUpsertPart implements Part {
   }
 
   planning(scope: StepScope): readonly OperationStep[] {
-    // Planning is unconditional: this part's probe plus every update-arm child's
-    // probe run before any write, so `compile` has all three-way inputs in
-    // `known` regardless of which arm each level later takes.
+    // Planning is unconditional: this part's probe plus every arm's child probes
+    // run before any write, so `compile` has all three-way inputs in `known`
+    // regardless of which arm each level later takes. Both the update-arm and
+    // the create-arm children plan here (technique #2's widened superset); only
+    // the taken arm's children later compile.
     const steps: OperationStep[] = [this.find];
     for (const child of this.updateChildParts) {
+      steps.push(...child.planning(scope));
+    }
+    for (const child of this.createChildParts) {
       steps.push(...child.planning(scope));
     }
     return steps;
@@ -191,9 +235,17 @@ export class RelationUpsertPart implements Part {
     }
     const arm = this.decide(rows, known);
     if (arm === "create") {
-      // Create arm: this child is fresh, so its update-arm children do not run
-      // (nested writes in an UPDATE payload apply only when the row is found).
-      return [this.buildCreateArm(known)];
+      // Create arm: this child is fresh. Its update-arm children do not run
+      // (nested writes in an UPDATE payload apply only when the row is found);
+      // its create-arm children DO — spliced after the insert, adopting globally
+      // and correlated to this fresh child's (compile-time literal) PK. The
+      // fresh-parent elision (ATOM §4) makes any correlation under it empty, so
+      // they never need a produced value from the insert.
+      const createSteps: OperationStep[] = [this.buildCreateArm(known)];
+      for (const child of this.createChildParts) {
+        createSteps.push(...child.compile(scope, known));
+      }
+      return createSteps;
     }
     // Found: adopt-and-update (global) or update the correlated child. In batch
     // mode the found premise is pinned first by the exists guard. The update-arm
@@ -273,12 +325,16 @@ export class RelationUpsertPart implements Part {
     };
     if (!txMode) return step;
     // The found premise is pinned (locked probe / exists guard); an
-    // affected-row miss here is a not-found, never a race.
+    // affected-row miss here is a not-found, never a race. connectOrCreate's pure
+    // connect carries V1's replacement wording; upsert its extension wording.
     return {
       ...step,
       expects: affectedRows(1, {
         kind: "notFound",
-        message: upsertTargetVanished(relationName),
+        message:
+          this.family === "connectOrCreate"
+            ? nestedReplacement("connectOrCreate")
+            : upsertTargetVanished(relationName),
         relation: relationName,
         raceable: false,
       }),
@@ -376,11 +432,12 @@ export function buildToManyUpsertParts(
   parentId: ParentIdSource,
   parentPrimaryKey: string,
   correlation: UpsertCorrelation,
-  txMode: boolean
+  txMode: boolean,
+  family: UpsertFamily = "upsert"
 ): RelationUpsertPart[] {
   if (relationInfo.type !== "oneToMany") {
     throw new QueryEngineError(
-      `query-engine-v2 supports only one-to-many nested upsert; received '${relationName}'.`
+      `query-engine-v2 supports only one-to-many nested ${family}; received '${relationName}'.`
     );
   }
   return items.map((item) =>
@@ -394,8 +451,42 @@ export function buildToManyUpsertParts(
       parentId,
       parentPrimaryKey,
       correlation,
-      txMode
+      txMode,
+      family
     )
+  );
+}
+
+/**
+ * Build one `RelationUpsertPart` per `connectOrCreate` item — the update-less
+ * member of the adopt family (ATOM §6's worked trace). It is always global-adopt
+ * (`connect` performs a global lookup-and-adopt in both the create and update
+ * contexts, PLAN P−1.2), so it takes no correlation: found → connect (reparent),
+ * absent → create (constraint + `racePin`).
+ */
+export function buildConnectOrCreateParts(
+  scope: StepScope,
+  parentScope: QueryScope,
+  engine: QueryEngine,
+  relationName: string,
+  relationInfo: RelationInfo,
+  items: readonly Record<string, unknown>[],
+  parentId: ParentIdSource,
+  parentPrimaryKey: string,
+  txMode: boolean
+): RelationUpsertPart[] {
+  return buildToManyUpsertParts(
+    scope,
+    parentScope,
+    engine,
+    relationName,
+    relationInfo,
+    items,
+    parentId,
+    parentPrimaryKey,
+    "global-adopt",
+    txMode,
+    "connectOrCreate"
   );
 }
 
@@ -409,7 +500,8 @@ function buildOneUpsertPart(
   parentId: ParentIdSource,
   parentPrimaryKey: string,
   correlation: UpsertCorrelation,
-  txMode: boolean
+  txMode: boolean,
+  family: UpsertFamily
 ): RelationUpsertPart {
   const fk = getFkDirection(parentScope, relationInfo);
   if (
@@ -426,19 +518,17 @@ function buildOneUpsertPart(
   }
   const childForeignKey = fk.fkFields[0]!;
   const child = createQueryScope(engine.adapter, relationInfo.targetModel);
-  const where = requireRecord(item.where, `${relationName}.upsert.where`);
-  const create = requireRecord(item.create, `${relationName}.upsert.create`);
-  const update = requireRecord(item.update, `${relationName}.upsert.update`);
+  const where = requireRecord(item.where, `${relationName}.${family}.where`);
+  const create = requireRecord(item.create, `${relationName}.${family}.create`);
   const childCreate = separateData(child, create);
-  const childUpdate = separateData(child, update);
-  if (Object.keys(childCreate.relations).length > 0) {
-    // Create-arm nested writes run under a fresh child (no correlation exists
-    // yet — the elision case, ATOM §4). Deferred to P2 with the rest of the
-    // fresh-parent adopt family; P1 composes depth on the found+correlated arm.
-    throw new QueryEngineError(
-      `Relation '${relationName}' does not support nested relation mutations in its create payload in query-engine-v2 (nest under update).`
-    );
-  }
+  // connectOrCreate has no update payload; its found arm is a pure connect.
+  const childUpdate =
+    family === "connectOrCreate"
+      ? { scalarData: {}, relations: {} }
+      : separateData(
+          child,
+          requireRecord(item.update, `${relationName}.upsert.update`)
+        );
   if (
     Object.hasOwn(childCreate.scalarData, childForeignKey) ||
     Object.hasOwn(childUpdate.scalarData, childForeignKey)
@@ -461,7 +551,12 @@ function buildOneUpsertPart(
   }
   const childPrimaryKey = childPrimaryKeys[0]!;
 
-  const updateChildParts = buildUpdateArmChildParts(
+  // Depth on the found+update arm (correlated grandchildren) and on the fresh
+  // create arm (globally-adopting grandchildren, ATOM §4's elision). Both fold
+  // into the same linear fragment; both require this child to be located by its
+  // primary key so the deeper FK is a compile-time literal, not an arm-dependent
+  // produced value (that is what keeps depth linear — WHY §4.2).
+  const updateChildParts = buildArmChildParts(
     scope,
     child,
     engine,
@@ -469,7 +564,21 @@ function buildOneUpsertPart(
     childPrimaryKey,
     where,
     childUpdate.relations,
-    txMode
+    "correlated",
+    txMode,
+    "update"
+  );
+  const createChildParts = buildArmChildParts(
+    scope,
+    child,
+    engine,
+    relationName,
+    childPrimaryKey,
+    where,
+    childCreate.relations,
+    "global-adopt",
+    txMode,
+    "create"
   );
 
   return new RelationUpsertPart(scope, {
@@ -485,18 +594,25 @@ function buildOneUpsertPart(
     parentId,
     correlation,
     txMode,
+    family,
     updateChildParts,
+    createChildParts,
   });
 }
 
 /**
- * Fold this child's UPDATE-payload upsert relations into deeper parts. Their
- * parent id is this child's own PK — a compile-time literal — so this child must
- * be located by its primary key (its PK is neither produced by a probe nor an
- * insert). That constraint is what keeps depth linear: the grandchild's FK is a
- * known value, not an arm-dependent one.
+ * Fold one arm's payload relation mutations into deeper parts. Their parent id is
+ * this child's own PK — a compile-time literal — so this child must be located by
+ * its primary key (its PK is neither produced by a probe nor an insert). That
+ * constraint is what keeps depth linear: the grandchild's FK is a known value,
+ * not an arm-dependent one. The `arm` bounds what is legal one level deeper: the
+ * update arm takes the correlated adopt family (`upsert`, `connectOrCreate`); the
+ * create arm — a fresh child, ATOM §4's elision — takes only `connectOrCreate`
+ * (V1's runtime rejects a nested `upsert` under a create payload as
+ * found-uncorrelated, so V2 does not silently diverge by adopting there).
+ * `connectOrCreate` is always `global-adopt`; a nested `upsert` uses `correlation`.
  */
-function buildUpdateArmChildParts(
+function buildArmChildParts(
   scope: StepScope,
   child: QueryScope,
   engine: QueryEngine,
@@ -504,7 +620,9 @@ function buildUpdateArmChildParts(
   childPrimaryKey: string,
   where: Record<string, unknown>,
   relations: Record<string, RelationMutation>,
-  txMode: boolean
+  correlation: UpsertCorrelation,
+  txMode: boolean,
+  arm: "create" | "update"
 ): readonly Part[] {
   const entries = Object.entries(relations);
   if (entries.length === 0) return [];
@@ -516,26 +634,46 @@ function buildUpdateArmChildParts(
       `Relation '${relationName}' carries nested relation mutations; its upsert must locate the child by its primary key '${childPrimaryKey}' so the deeper foreign key is a known value.`
     );
   }
+  const parentId = literalParentId(pkEntry.value);
   const parts: Part[] = [];
   for (const [childRelationName, mutation] of entries) {
-    if (getRelationMutationKinds(mutation).join(",") !== "upsert") {
-      throw new QueryEngineError(
-        `query-engine-v2 supports only nested upsert one level deeper; relation '${childRelationName}' uses '${getRelationMutationKinds(mutation).join(",")}'.`
+    const kinds = getRelationMutationKinds(mutation).join(",");
+    if (kinds === "upsert" && arm === "update") {
+      parts.push(
+        ...buildToManyUpsertParts(
+          scope,
+          child,
+          engine,
+          childRelationName,
+          mutation.relationInfo,
+          normalizeUpsertItems(mutation.upsert, childRelationName),
+          parentId,
+          childPrimaryKey,
+          correlation,
+          txMode,
+          "upsert"
+        )
       );
+      continue;
     }
-    parts.push(
-      ...buildToManyUpsertParts(
-        scope,
-        child,
-        engine,
-        childRelationName,
-        mutation.relationInfo,
-        normalizeUpsertItems(mutation.upsert, childRelationName),
-        literalParentId(pkEntry.value),
-        childPrimaryKey,
-        "correlated",
-        txMode
-      )
+    if (kinds === "connectOrCreate") {
+      parts.push(
+        ...buildConnectOrCreateParts(
+          scope,
+          child,
+          engine,
+          childRelationName,
+          mutation.relationInfo,
+          normalizeUpsertItems(mutation.connectOrCreate, childRelationName),
+          parentId,
+          childPrimaryKey,
+          txMode
+        )
+      );
+      continue;
+    }
+    throw new QueryEngineError(
+      `query-engine-v2 supports only nested ${arm === "create" ? "connectOrCreate" : "upsert/connectOrCreate"} one level deeper on the ${arm} arm; relation '${childRelationName}' uses '${kinds}'.`
     );
   }
   return parts;

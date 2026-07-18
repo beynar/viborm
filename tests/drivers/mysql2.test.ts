@@ -23,6 +23,7 @@ import { sql } from "@sql";
 import { runCreateNestedUpsertBehavior } from "../query-engine-v2/create-nested-upsert-behavior";
 import { runUpdateNestedUpsertBehavior } from "../query-engine-v2/update-nested-upsert-behavior";
 import { runUpdateFamilyBehavior } from "../query-engine-v2/update-family-behavior";
+import { runUpsertFamilyBehavior } from "../query-engine-v2/upsert-family-behavior";
 import { MySQL2BatchForcedDriver } from "./batch-forced-mysql2";
 import { runClientRawBehavior } from "./client-raw-behavior";
 import { runCompoundKeyBehavior } from "./compound-key-behavior";
@@ -326,6 +327,19 @@ describeIf("MySQL2 Driver", () => {
     createDriver: createMySQL2Driver,
   });
   runUpdateFamilyBehavior({
+    name: "MySQL2 atomic batch",
+    createDriver: () =>
+      new MySQL2BatchForcedDriver({
+        databaseUrl: TEST_CONNECTION_STRING,
+      }),
+    createStateDriver: createMySQL2Driver,
+  });
+
+  runUpsertFamilyBehavior({
+    name: "MySQL2 transaction",
+    createDriver: createMySQL2Driver,
+  });
+  runUpsertFamilyBehavior({
     name: "MySQL2 atomic batch",
     createDriver: () =>
       new MySQL2BatchForcedDriver({

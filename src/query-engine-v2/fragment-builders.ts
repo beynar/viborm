@@ -71,6 +71,38 @@ export function queryFailure(message: string): Failure {
 }
 
 /**
+ * A raceable `query` failure — the abort class for a **retained `notExists`
+ * pin** (ATOM §2): the top-level upsert's targetWhere/setWhere skip premise (no
+ * INSERT exists for a constraint to fire on, so the constraint cannot enforce
+ * it). `raceable: true` per the Pin Rule's materialized-condition class, which
+ * the fragment validator requires of every `notExists` guard.
+ */
+export function raceableQueryFailure(message: string): Failure {
+  return { kind: "query", message, raceable: true };
+}
+
+/**
+ * A **retained `notExists` pin** (ATOM §2, the Pin Rule's own exception): batch
+ * mode pins that a conditional premise still does NOT hold (`raceable: true`).
+ * The only P2b user is the top-level upsert skip branch — planning decided the
+ * existing row does not match targetWhere/setWhere (silent no-op, V1's contract);
+ * this guard aborts the batch if a concurrent write made it match. Transaction
+ * mode pins the same premise with the locked planning read, needing no guard.
+ */
+export function absenceGuard(
+  id: string,
+  statement: Sql,
+  failure: Failure
+): GuardStep {
+  return {
+    id,
+    kind: "guard",
+    premise: { kind: "notExists", statement },
+    failure,
+  };
+}
+
+/**
  * An existing-row premise guard (ATOM §2): pinned `raceable: false`, carrying an
  * arbitrary typed {@link Failure}. Emitted only in batch mode; transaction mode
  * pins the same premise with a locked planning read. This is the reusable

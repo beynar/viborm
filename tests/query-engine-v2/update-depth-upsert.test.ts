@@ -183,41 +183,109 @@ describe("query-engine-v2 depth gate: update > upsert > upsert composition", () 
     );
   });
 
-  test("create-arm nested relations are rejected typed (fresh-parent adopt deferred)", () => {
+  test("create-arm nested relations compose (fresh-parent adopt, ATOM §8.1's P2b deferral)", () => {
     // A nested relation mutation inside the post's CREATE payload runs under a
-    // fresh child; that is the elision case, deferred to P2.
-    const args = {
-      where: { email: "z@x" },
-      data: {
-        count: { increment: 1 },
-        posts: {
-          upsert: {
-            where: { id: 5 },
-            create: {
-              id: 5,
-              title: "created-post",
-              slug: "s5",
-              comments: {
-                upsert: {
-                  where: { id: 9 },
-                  create: { id: 9, body: "b", tag: "t9" },
-                  update: { body: "b" },
-                },
-              },
-            },
-            update: { title: "updated-post" },
-          },
-        },
-      },
-      select: { email: true },
-    };
-    expect(
-      () => new UpdateOperation(planningEngine(), depthSliceSchema.user, args)
-    ).toThrow(
-      "does not support nested relation mutations in its create payload"
+    // FRESH child (ATOM §4's elision): correlation is statically empty, so it
+    // adopts globally. Depth composes on the create arm now — the P1 rejection is
+    // replaced by the composed shape.
+    const operation = new UpdateOperation(
+      planningEngine(),
+      depthSliceSchema.user,
+      createArmDepthArgs()
     );
+    // The create-arm comment probe is planned unconditionally (widened superset).
+    const planning = operation.planning();
+    expect(planning.steps.map((step) => step.id)).toEqual([
+      "user.locate",
+      "post.find",
+      "comment.find",
+    ]);
+    // Post absent → create the post, then its create-arm comment (absent → create,
+    // its unique constraint enforces the missing premise via racePin).
+    const absent = operation.compile({
+      "user.locate.rows": [{ id: 42 }],
+      "post.find.rows": [],
+      "comment.find.rows": [],
+    });
+    expect(absent.steps.map((step) => step.id)).toEqual([
+      "user.update",
+      "post.create",
+      "comment.create",
+      "user.select",
+    ]);
+    const commentCreate = absent.steps[2];
+    expect(
+      commentCreate?.kind === "write" && commentCreate.racePin?.fields
+    ).toEqual(["id"]);
+    // A globally-existing comment is ADOPTED under the fresh post — no V7001
+    // (correlation is meaningless under a parent that cannot have children yet).
+    const adopt = operation.compile({
+      "user.locate.rows": [{ id: 42 }],
+      "post.find.rows": [],
+      "comment.find.rows": [{ id: 9, postId: 999 }],
+    });
+    expect(adopt.steps.map((step) => step.id)).toEqual([
+      "user.update",
+      "post.create",
+      "comment.update",
+      "user.select",
+    ]);
+    // Post found → update arm; the create-arm comment does NOT run.
+    const found = operation.compile({
+      "user.locate.rows": [{ id: 42 }],
+      "post.find.rows": [{ id: 5, userId: 42 }],
+      "comment.find.rows": [],
+    });
+    expect(found.steps.map((step) => step.id)).toEqual([
+      "user.update",
+      "post.update",
+      "user.select",
+    ]);
   });
 });
+
+/**
+ * `update > upsert post > (CREATE-arm) connectOrCreate comment` — the fresh-parent
+ * path. connectOrCreate is the create-arm's supported adopt member (global lookup,
+ * found → connect/reparent, absent → create); V1's runtime rejects a nested
+ * `upsert` under a create payload, so the create arm takes connectOrCreate.
+ */
+function createArmDepthArgs(): Record<string, unknown> {
+  return {
+    where: { email: "z@x" },
+    data: {
+      count: { increment: 1 },
+      posts: {
+        upsert: {
+          where: { id: 5 },
+          create: {
+            id: 5,
+            title: "created-post",
+            slug: "s5",
+            comments: {
+              connectOrCreate: {
+                where: { id: 9 },
+                create: { id: 9, body: "deep", tag: "t9" },
+              },
+            },
+          },
+          update: { title: "updated-post" },
+        },
+      },
+    },
+    select: {
+      email: true,
+      count: true,
+      posts: {
+        select: {
+          id: true,
+          title: true,
+          comments: { select: { id: true, body: true, postId: true } },
+        },
+      },
+    },
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Behavior on both substrates + the dual-run oracle (V1 vs V2 tx vs V2 batch).
@@ -370,6 +438,23 @@ const dualRunScenarios: Scenario[] = [
       commentBody: "unused",
       increment: 1,
     }),
+  },
+  {
+    name: "post absent → create post AND its create-arm comment (fresh-parent, P2b)",
+    seed: (client) => client.user.create({ data: { email: "z@x", count: 5 } }),
+    args: createArmDepthArgs(),
+  },
+  {
+    name: "create-arm comment adopts a globally-existing orphan comment (P2b)",
+    seed: async (client) => {
+      await client.user.create({ data: { email: "z@x", count: 5 } });
+      // Comment 9 exists globally, unattached (postId null); the create arm's
+      // global-adopt reparents it under the freshly-created post 5.
+      await client.comment.create({
+        data: { id: 9, body: "orphan", tag: "t9", postId: null },
+      });
+    },
+    args: createArmDepthArgs(),
   },
   {
     name: "found-uncorrelated deep comment → typed V7001",

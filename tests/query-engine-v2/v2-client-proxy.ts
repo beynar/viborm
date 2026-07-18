@@ -8,6 +8,7 @@ import type { ExecutableOperation } from "../../src/query-engine-v2/OperationExe
 import { OperationExecutor } from "../../src/query-engine-v2/OperationExecutor";
 import { UnsupportedOperationError } from "../../src/query-engine-v2/shared";
 import { UpdateOperation } from "../../src/query-engine-v2/UpdateOperation";
+import { UpsertOperation } from "../../src/query-engine-v2/UpsertOperation";
 
 /**
  * The V2-backed client proxy (PLAN P2a instrument 1). It wraps a real V1 client
@@ -24,9 +25,11 @@ import { UpdateOperation } from "../../src/query-engine-v2/UpdateOperation";
  */
 export interface RouteRecord {
   readonly model: string;
-  readonly operation: "update" | "delete";
+  readonly operation: RoutedOperation;
   readonly engine: "v1" | "v2";
 }
+
+type RoutedOperation = "delete" | "update" | "upsert";
 
 export interface V2RoutedClient {
   readonly client: Record<string, ModelApi>;
@@ -41,10 +44,17 @@ type ConstructOperation = (
   args: Record<string, unknown>
 ) => ExecutableOperation;
 
-const CONSTRUCTORS: Record<"update" | "delete", ConstructOperation> = {
+const CONSTRUCTORS: Record<RoutedOperation, ConstructOperation> = {
   update: (engine, model, args) => new UpdateOperation(engine, model, args),
   delete: (engine, model, args) => new DeleteOperation(engine, model, args),
+  upsert: (engine, model, args) => new UpsertOperation(engine, model, args),
 };
+
+const ROUTED_OPERATIONS: ReadonlySet<string> = new Set([
+  "update",
+  "delete",
+  "upsert",
+]);
 
 export function createV2RoutedClient(options: {
   schema: Record<string, Model<any>>;
@@ -62,7 +72,7 @@ export function createV2RoutedClient(options: {
   const route = (
     modelName: string,
     model: Model<any>,
-    operation: "update" | "delete",
+    operation: RoutedOperation,
     args: Record<string, unknown>
   ): unknown => {
     let operationInstance: ExecutableOperation;
@@ -89,9 +99,9 @@ export function createV2RoutedClient(options: {
     const real = client[modelName]!;
     proxied[modelName] = new Proxy(real, {
       get(target, property, receiver) {
-        if (property === "update" || property === "delete") {
+        if (typeof property === "string" && ROUTED_OPERATIONS.has(property)) {
           return (args: Record<string, unknown>) =>
-            route(modelName, model, property, args);
+            route(modelName, model, property as RoutedOperation, args);
         }
         return Reflect.get(target, property, receiver);
       },

@@ -1,0 +1,441 @@
+// biome-ignore-all lint/style/useFilenamingConvention: UpsertOperation is the architecture name.
+import { QueryEngineError, ValidationError } from "@errors";
+import type { Model } from "@schema/model";
+import { parse, type VibSchema } from "@validation";
+import { getPrimaryKeyFields } from "../query-engine/builders/correlation-utils";
+import { separateData } from "../query-engine/builders/relation-data-builder";
+import { buildInsert } from "../query-engine/builders/values-builder";
+import { getWhereUniqueEntries } from "../query-engine/builders/where-unique-builder";
+import {
+  createQueryScope,
+  getTableName,
+} from "../query-engine/context/query-scope";
+import {
+  buildFind,
+  buildFindUnique,
+  buildUpdate,
+} from "../query-engine/operations";
+import type { QueryEngine } from "../query-engine/query-engine";
+import { ResultParser } from "../query-engine/result/ResultParser";
+import type { QueryScope } from "../query-engine/types";
+import {
+  absenceGuard,
+  affectedRows,
+  childRacePin,
+  exactlyOneRow,
+  notFoundFailure,
+  presenceGuard,
+  queryFailure,
+  raceableQueryFailure,
+} from "./fragment-builders";
+import { upsertSkipPremiseChanged } from "./messages";
+import {
+  type OperationFragment,
+  type OperationStep,
+  ref,
+  type StatementStep,
+} from "./OperationFragment";
+import { planningKey, planningOutputs } from "./Part";
+import { StepScope } from "./StepScope";
+import {
+  getStepModelName,
+  isRecord,
+  UnsupportedOperationError,
+} from "./shared";
+
+type ExecutionMode = "transaction" | "batch";
+
+/** A validated conditional filter on the located row (`targetWhere`/`setWhere`). */
+interface Conditional {
+  readonly field: "setWhere" | "targetWhere";
+  readonly where: Record<string, unknown>;
+  readonly probeId: string;
+  readonly guardId: string;
+  readonly probe: StatementStep;
+}
+
+/**
+ * The root (top-level) `upsert` (PLAN P2b), **probe-first per ATOM §2/§4** — the
+ * `ON CONFLICT` narrow door is deliberately NOT taken (see the P2b report's
+ * disposition): a locate read decides create-vs-update at planning, and every
+ * premise is pinned to the vocabulary the update/delete family already uses. It
+ * locates the row by any unique `where`; absent → the create arm (constraint +
+ * `racePin`, never a guard); present → the update arm, unless a `targetWhere` /
+ * `setWhere` conditional does not match, in which case V1's silent no-op skip
+ * fires — pinned by the **retained `notExists`** guard (ATOM §2, `raceable:
+ * true`). Scalar arms only; any nested relation mutation in an arm is a typed
+ * {@link UnsupportedOperationError} that routes the whole tree to V1.
+ */
+export class UpsertOperation {
+  readonly mode: ExecutionMode;
+
+  private readonly engine: QueryEngine;
+  private readonly model: Model<any>;
+  private readonly scope: StepScope;
+  private readonly resultArgs: Record<string, unknown>;
+  private readonly parentWhere: Record<string, unknown>;
+  private readonly parentPrimaryKey: string;
+  private readonly createData: Record<string, unknown>;
+  private readonly updateData: Record<string, unknown>;
+  private readonly conditionals: readonly Conditional[];
+  private readonly locate: StatementStep;
+  private readonly createId: string;
+  private readonly updateId: string;
+  private readonly terminalId: string;
+  private readonly foundGuardId: string;
+
+  constructor(
+    engine: QueryEngine,
+    model: Model<any>,
+    args: Record<string, unknown>
+  ) {
+    this.engine = engine;
+    this.model = model;
+    this.mode = selectExecutionMode(engine);
+    const txMode = this.mode === "transaction";
+    this.scope = new StepScope();
+    const scope = this.scope;
+
+    assertUpsertKeys(args);
+    const where = requireRecord(args.where, "upsert.where");
+    const create = requireRecord(args.create, "upsert.create");
+    const update = requireRecord(args.update, "upsert.update");
+    const parent = createQueryScope(engine.adapter, model);
+
+    const parentPrimaryKeys = getPrimaryKeyFields(model);
+    if (parentPrimaryKeys.length !== 1) {
+      throw new UnsupportedOperationError(
+        "query-engine-v2 upsert requires a parent with one primary key."
+      );
+    }
+    this.parentPrimaryKey = parentPrimaryKeys[0]!;
+
+    // Scalar arms only. A nested relation mutation in either arm routes the whole
+    // tree to V1 (P2b scope) — the create/update arms compose the same Parts the
+    // update family uses, but that surface is deferred; recorded in the report.
+    const createSep = separateData(parent, create);
+    const updateSep = separateData(parent, update);
+    if (
+      Object.keys(createSep.relations).length > 0 ||
+      Object.keys(updateSep.relations).length > 0
+    ) {
+      throw new UnsupportedOperationError(
+        "query-engine-v2 upsert supports only scalar create/update arms; nested relation mutations route to V1."
+      );
+    }
+
+    const parentSchemas = engine.schemaRegistry.getModelSchemas(model);
+    this.parentWhere = parseRecord(
+      parentSchemas.core.whereUnique,
+      where,
+      "where"
+    );
+    this.createData = parseRecord(
+      parentSchemas.core.scalarCreate,
+      createSep.scalarData,
+      "create"
+    );
+    this.updateData = parseRecord(
+      parentSchemas.core.scalarUpdate,
+      updateSep.scalarData,
+      "update"
+    );
+    const parsedSelect = isRecord(args.select)
+      ? parseRecord(parentSchemas.core.select, args.select, "select")
+      : defaultSelect(model);
+    this.resultArgs = { select: parsedSelect };
+
+    const parentName = getStepModelName(model, "parent");
+    const locateId = scope.allocate(`${parentName}.locate`);
+    this.createId = scope.allocate(`${parentName}.create`);
+    this.updateId = scope.allocate(`${parentName}.update`);
+    this.terminalId = scope.allocate(`${parentName}.select`);
+    this.foundGuardId = scope.allocate(`${parentName}.guard.exists`);
+
+    // The conditional filters (`targetWhere`/`setWhere`) each become one widened
+    // planning probe: `where ∧ conditional`. compile evaluates them in JS (SQL
+    // did the matching) and pins the taken outcome.
+    this.conditionals = this.buildConditionals(parent, parentSchemas, {
+      targetWhere: args.targetWhere,
+      setWhere: args.setWhere,
+    });
+
+    // The locate read decides create-vs-update. It carries NO postcondition — a
+    // missing row is the create arm, not a not-found error (upsert's contract).
+    this.locate = {
+      id: locateId,
+      kind: "read",
+      statement: buildFindUnique(parent, {
+        where: this.parentWhere,
+        select: { [this.parentPrimaryKey]: true },
+        forUpdate: txMode,
+      }),
+      outputs: { rows: { kind: "rows" } },
+    };
+  }
+
+  planning(): OperationFragment {
+    const steps: OperationStep[] = [this.locate];
+    for (const conditional of this.conditionals) steps.push(conditional.probe);
+    return { steps, outputs: planningOutputs(steps) };
+  }
+
+  compile(known: Readonly<Record<string, unknown>>): OperationFragment {
+    const locateRows = known[planningKey(this.locate.id, "rows")];
+    if (!Array.isArray(locateRows)) {
+      throw new QueryEngineError(
+        "query-engine-v2 upsert planning did not expose the locate rows."
+      );
+    }
+    const steps =
+      locateRows.length === 0
+        ? this.compileCreateArm()
+        : this.compileFoundArm(known);
+    return { steps, outputs: { result: ref(this.terminalId, "result") } };
+  }
+
+  parse<T>(outputs: Readonly<Record<string, unknown>>): T {
+    if (!Object.hasOwn(outputs, "result")) {
+      throw new QueryEngineError(
+        "query-engine-v2 upsert did not expose its result."
+      );
+    }
+    return new ResultParser(
+      this.engine.adapter,
+      this.model,
+      this.engine.driver
+    ).parse<T>("upsert", outputs.result, this.resultArgs);
+  }
+
+  // -------------------------------------------------------------------------
+
+  /** Absent → CREATE (constraint + `racePin`, never a guard) then terminal read. */
+  private compileCreateArm(): OperationStep[] {
+    const parent = createQueryScope(this.engine.adapter, this.model);
+    const create: StatementStep = {
+      id: this.createId,
+      kind: "write",
+      statement: buildInsert(parent, getTableName(this.model), this.createData),
+      outputs: {},
+      // The missing premise is enforced by the unique constraint the `where`
+      // targets; its violation is the raceable create-branch signal.
+      racePin: childRacePin(parent, this.parentWhere),
+    };
+    return [create, this.buildTerminal()];
+  }
+
+  /** Present → skip (conditional no-match) or update (all conditionals match). */
+  private compileFoundArm(
+    known: Readonly<Record<string, unknown>>
+  ): OperationStep[] {
+    const unmatched = this.conditionals.find(
+      (conditional) => !this.conditionalMatched(conditional, known)
+    );
+    if (unmatched) return this.compileSkipArm(unmatched);
+    return this.compileUpdateArm();
+  }
+
+  /**
+   * A conditional did not match → silent no-op (V1's contract): no write, just
+   * the terminal read of the unchanged row. Batch mode pins the skip premise with
+   * the retained `notExists` guard (the row still does NOT match the conditional,
+   * `raceable: true`); transaction mode's locked probe pins it, needing no guard.
+   */
+  private compileSkipArm(unmatched: Conditional): OperationStep[] {
+    if (this.mode === "transaction") return [this.buildTerminal()];
+    return [
+      absenceGuard(
+        unmatched.guardId,
+        unmatched.probe.statement,
+        raceableQueryFailure(upsertSkipPremiseChanged(unmatched.field))
+      ),
+      this.buildTerminal(),
+    ];
+  }
+
+  /** All conditionals match (or none present) → UPDATE the located row. */
+  private compileUpdateArm(): OperationStep[] {
+    const parent = createQueryScope(this.engine.adapter, this.model);
+    const txMode = this.mode === "transaction";
+    const guards: OperationStep[] = [];
+    if (!txMode) {
+      // Batch pins the update premise inside the atomic unit. Each conditional's
+      // match is pinned (exists, `raceable: false`); with none present a plain
+      // found premise on `where` catches a concurrent delete (both fail closed —
+      // the retry re-plans and converges).
+      if (this.conditionals.length === 0) {
+        guards.push(
+          presenceGuard(
+            this.foundGuardId,
+            buildFindUnique(parent, {
+              where: this.parentWhere,
+              select: { [this.parentPrimaryKey]: true },
+            }),
+            notFoundFailure(this.locateMissMessage())
+          )
+        );
+      } else {
+        for (const conditional of this.conditionals) {
+          guards.push(
+            presenceGuard(
+              conditional.guardId,
+              conditional.probe.statement,
+              queryFailure(
+                `query-engine-v2 top-level upsert ${conditional.field} match premise changed before the atomic batch.`
+              )
+            )
+          );
+        }
+      }
+    }
+    const update: StatementStep = {
+      id: this.updateId,
+      kind: "write",
+      statement: buildUpdate(parent, {
+        where: this.parentWhere,
+        data: this.updateData,
+        select: { [this.parentPrimaryKey]: true },
+      }),
+      outputs: {},
+      ...(txMode
+        ? {
+            expects: affectedRows(1, notFoundFailure(this.locateMissMessage())),
+          }
+        : {}),
+    };
+    return [...guards, update, this.buildTerminal()];
+  }
+
+  private buildTerminal(): StatementStep {
+    const parent = createQueryScope(this.engine.adapter, this.model);
+    const txMode = this.mode === "transaction";
+    return {
+      id: this.terminalId,
+      kind: "read",
+      statement: buildFindUnique(parent, {
+        where: this.parentWhere,
+        select: this.resultArgs.select as Record<string, unknown>,
+      }),
+      outputs: { result: { kind: "rows" } },
+      ...(txMode
+        ? {
+            expects: exactlyOneRow(
+              queryFailure(
+                "query-engine-v2 upsert terminal read expected exactly one row."
+              )
+            ),
+          }
+        : {}),
+    };
+  }
+
+  private buildConditionals(
+    parent: QueryScope,
+    parentSchemas: ReturnType<QueryEngine["schemaRegistry"]["getModelSchemas"]>,
+    inputs: { targetWhere: unknown; setWhere: unknown }
+  ): readonly Conditional[] {
+    const txMode = this.mode === "transaction";
+    const parentName = getStepModelName(this.model, "parent");
+    const uniqueFilters = getWhereUniqueEntries(parent, this.parentWhere).map(
+      ({ fieldName, value }) => ({ [fieldName]: { equals: value } })
+    );
+    const conditionals: Conditional[] = [];
+    for (const field of ["targetWhere", "setWhere"] as const) {
+      const raw = inputs[field];
+      if (!(isRecord(raw) && Object.keys(raw).length > 0)) continue;
+      const where = parseRecord(parentSchemas.core.where, raw, field);
+      const probeId = this.scope.allocate(`${parentName}.${field}`);
+      const guardId = this.scope.allocate(`${parentName}.guard.${field}`);
+      conditionals.push({
+        field,
+        where,
+        probeId,
+        guardId,
+        probe: {
+          id: probeId,
+          kind: "read",
+          statement: buildFind(
+            parent,
+            {
+              where: { AND: [...uniqueFilters, where] },
+              select: { [this.parentPrimaryKey]: true },
+              forUpdate: txMode,
+            },
+            { limit: 1 }
+          ),
+          outputs: { rows: { kind: "rows" } },
+        },
+      });
+    }
+    return conditionals;
+  }
+
+  private conditionalMatched(
+    conditional: Conditional,
+    known: Readonly<Record<string, unknown>>
+  ): boolean {
+    const rows = known[planningKey(conditional.probeId, "rows")];
+    if (!Array.isArray(rows)) {
+      throw new QueryEngineError(
+        `query-engine-v2 upsert ${conditional.field} probe did not expose rows.`
+      );
+    }
+    return rows.length > 0;
+  }
+
+  private locateMissMessage(): string {
+    return `query-engine-v2 upsert located no '${getStepModelName(this.model, "record")}' row for its unique where before the atomic batch.`;
+  }
+}
+
+function selectExecutionMode(engine: QueryEngine): ExecutionMode {
+  if (engine.driver.supportsTransactions) return "transaction";
+  if (engine.driver.supportsBatch) return "batch";
+  throw new QueryEngineError(
+    `Driver '${engine.driver.driverName}' supports neither transactions nor atomic batch execution.`
+  );
+}
+
+function defaultSelect(model: Model<any>): Record<string, unknown> {
+  return Object.fromEntries(
+    model["~"].scalarFieldNames.map((field: string) => [field, true])
+  );
+}
+
+function parseRecord(
+  schema: VibSchema,
+  value: unknown,
+  path: string
+): Record<string, unknown> {
+  const result = parse(schema, value);
+  if ("issues" in result && result.issues) {
+    throw new ValidationError(
+      "upsert",
+      result.issues.map((issue) => ({
+        path: [path, ...(issue.path?.map(String) ?? [])].join("."),
+        message: issue.message,
+      }))
+    );
+  }
+  if (!isRecord(result.value)) {
+    throw new QueryEngineError(`Validated '${path}' is not an object.`);
+  }
+  return result.value;
+}
+
+function assertUpsertKeys(value: Record<string, unknown>): void {
+  const required = ["where", "create", "update"] as const;
+  const optional = new Set(["select", "targetWhere", "setWhere"]);
+  const allowed = new Set<string>([...required, ...optional]);
+  const unexpected = Object.keys(value).filter((key) => !allowed.has(key));
+  const missing = required.filter((key) => !Object.hasOwn(value, key));
+  if (unexpected.length === 0 && missing.length === 0) return;
+  throw new UnsupportedOperationError(
+    `upsert arguments require ${required.join(", ")} (optional select, targetWhere, setWhere); received ${Object.keys(value).join(", ") || "none"}.`
+  );
+}
+
+function requireRecord(value: unknown, label: string): Record<string, unknown> {
+  if (isRecord(value)) return value;
+  throw new UnsupportedOperationError(`'${label}' must be an object.`);
+}

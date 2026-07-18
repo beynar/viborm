@@ -40,7 +40,11 @@ import { OwnWritePreflight } from "./OwnWritePreflight";
 import type { Part } from "./Part";
 import { planningKey, planningOutputs } from "./Part";
 import { buildToManyLinkParts } from "./RelationLinkPart";
-import { buildToManyUpsertParts, plannedParentId } from "./RelationUpsertPart";
+import {
+  buildConnectOrCreateParts,
+  buildToManyUpsertParts,
+  plannedParentId,
+} from "./RelationUpsertPart";
 import { StepScope } from "./StepScope";
 import {
   getStepModelName,
@@ -365,6 +369,25 @@ export class UpdateOperation {
           input.parentIdSource,
           this.parentPrimaryKey,
           "correlated",
+          input.txMode
+        )
+      );
+      return;
+    }
+    if (kind === "connectOrCreate") {
+      // connectOrCreate under update is still a GLOBAL lookup-and-adopt (found →
+      // reparent, absent → create), never correlated (PLAN P−1.2) — the update-
+      // less member of the adopt family, composed exactly like the upsert part.
+      input.childParts.push(
+        ...buildConnectOrCreateParts(
+          input.scope,
+          input.parent,
+          this.engine,
+          relationName,
+          relationInfo,
+          normalizeItems(parsedRelation.connectOrCreate, relationName),
+          input.parentIdSource,
+          this.parentPrimaryKey,
           input.txMode
         )
       );
