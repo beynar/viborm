@@ -1,0 +1,579 @@
+import { createClient } from "@client/client";
+import type { BatchQuery, QueryResult } from "@drivers";
+import { PGliteDriver } from "@drivers/pglite";
+import { PGlite, type Transaction } from "@electric-sql/pglite";
+import { push } from "@migrations";
+import { describe, expect, test } from "vitest";
+import { manyToManySchema } from "../fixtures/many-to-many-schema";
+import { createV2RoutedClient } from "./v2-client-proxy";
+
+/**
+ * The P3 many-to-many dual-run oracle: the FK conformance M2M scenario set
+ * (nested connect/disconnect/set/delete/deleteMany/update/updateMany, plus the
+ * own-write preflight rejections and the routing-boundary connectOrCreate/upsert
+ * shapes) run as the SAME payload through the real V1 client and, via the
+ * V2-routed proxy, through V2 (tx and forced batch), FRESH instances per arm,
+ * asserting byte-identical persisted state + result + error class AND message.
+ *
+ * `route: "v1"` marks a shape V2 deliberately hands back to V1 (nested upsert /
+ * connectOrCreate under a M2M target — their create arm is create-through-
+ * junction, V1's runtime); every other shape must run wholly on V2.
+ */
+
+class BatchOnlyPGliteDriver extends PGliteDriver {
+  override readonly supportsTransactions = false;
+  override readonly supportsBatch = true;
+
+  protected override async executeBatch<T>(
+    client: PGlite | Transaction,
+    queries: BatchQuery[]
+  ): Promise<QueryResult<T>[]> {
+    return this.transaction(client, async (transaction) => {
+      const results: QueryResult<T>[] = [];
+      for (const query of queries) {
+        results.push(
+          await this.executeRaw<T>(transaction, query.sql, query.params)
+        );
+      }
+      return results;
+    });
+  }
+}
+
+type RoutedModel = Record<string, (args: Record<string, unknown>) => unknown>;
+
+interface ErrorShape {
+  name: string;
+  code?: string | number;
+  message: string;
+}
+
+interface Scenario {
+  name: string;
+  seed?: (client: ReturnType<typeof makeClient>) => PromiseLike<unknown>;
+  act: (client: Record<string, RoutedModel>) => unknown;
+  expectReject?: boolean;
+  /** "v1": V2 hands the whole tree back to V1 (routing boundary). */
+  route?: "v1";
+}
+
+function makeClient(db: PGlite) {
+  return createClient({
+    schema: manyToManySchema,
+    driver: new PGliteDriver({ client: db }),
+  });
+}
+
+function normalizeError(error: unknown): ErrorShape {
+  if (!(error instanceof Error)) throw error;
+  const code = "code" in error ? (error as { code?: unknown }).code : undefined;
+  const stable =
+    typeof code === "string" || typeof code === "number" ? code : undefined;
+  return stable === undefined
+    ? { name: error.name, message: error.message }
+    : { name: error.name, code: stable, message: error.message };
+}
+
+async function dump(client: ReturnType<typeof makeClient>) {
+  const [posts, tags, categories] = await Promise.all([
+    client.post.findMany({
+      orderBy: { id: "asc" },
+      include: { tags: { orderBy: { id: "asc" } } },
+    }),
+    client.tag.findMany({ orderBy: { id: "asc" } }),
+    client.category.findMany({
+      orderBy: { id: "asc" },
+      include: { posts: { orderBy: { id: "asc" } } },
+    }),
+  ]);
+  return { posts, tags, categories };
+}
+
+type ArmKind = "v1" | "v2-tx" | "v2-batch";
+
+async function runArm(kind: ArmKind, scenario: Scenario) {
+  const db = new PGlite();
+  const client = makeClient(db);
+  await push(client, { force: true });
+  await scenario.seed?.(client);
+
+  let result: unknown;
+  let error: ErrorShape | undefined;
+  let routes: { engine: "v1" | "v2" }[] = [];
+  try {
+    if (kind === "v1") {
+      result = await scenario.act(
+        client as unknown as Record<string, RoutedModel>
+      );
+    } else {
+      const driver =
+        kind === "v2-tx"
+          ? new PGliteDriver({ client: db })
+          : new BatchOnlyPGliteDriver({ client: db });
+      const routed = createV2RoutedClient({
+        schema: manyToManySchema,
+        client: client as unknown as Record<string, RoutedModel>,
+        driver,
+      });
+      routes = routed.routes;
+      result = await scenario.act(routed.client);
+    }
+  } catch (thrown) {
+    error = normalizeError(thrown);
+  }
+  const routedToV2 =
+    routes.length > 0 && routes.every((r) => r.engine === "v2");
+  const state = await dump(client);
+  await client.$disconnect();
+  return { result, error, state, routedToV2 };
+}
+
+const seed = async (client: ReturnType<typeof makeClient>) => {
+  await client.post.create({ data: { id: "p1", title: "Post 1" } });
+  await client.post.create({ data: { id: "p2", title: "Post 2" } });
+  await client.tag.create({
+    data: { id: "t1", name: "tag-1", featuredPostId: null },
+  });
+  await client.tag.create({
+    data: { id: "t2", name: "tag-2", featuredPostId: null },
+  });
+  await client.tag.create({
+    data: { id: "t3", name: "tag-3", featuredPostId: null },
+  });
+};
+
+const scenarios: Scenario[] = [
+  {
+    name: "connect inserts junction rows and is idempotent",
+    seed,
+    act: async (c) => {
+      await c.post!.update!({
+        where: { id: "p1" },
+        data: { tags: { connect: [{ id: "t1" }, { id: "t2" }] } },
+      });
+      await c.post!.update!({
+        where: { id: "p1" },
+        data: { tags: { connect: { id: "t1" } } },
+      });
+    },
+  },
+  {
+    name: "connect of a missing target rejects, membership unchanged",
+    expectReject: true,
+    seed,
+    act: (c) =>
+      c.post!.update!({
+        where: { id: "p1" },
+        data: { tags: { connect: { id: "missing" } } },
+      }),
+  },
+  {
+    name: "set replaces the association set",
+    seed,
+    act: async (c) => {
+      await c.post!.update!({
+        where: { id: "p1" },
+        data: { tags: { connect: [{ id: "t1" }, { id: "t2" }] } },
+      });
+      await c.post!.update!({
+        where: { id: "p1" },
+        data: { tags: { set: [{ id: "t2" }, { id: "t3" }] } },
+      });
+    },
+  },
+  {
+    name: "set to empty clears the association",
+    seed,
+    act: async (c) => {
+      await c.post!.update!({
+        where: { id: "p1" },
+        data: { tags: { connect: [{ id: "t1" }, { id: "t2" }] } },
+      });
+      await c.post!.update!({
+        where: { id: "p1" },
+        data: { tags: { set: [] } },
+      });
+    },
+  },
+  {
+    name: "disconnect removes the association and keeps the row",
+    seed,
+    act: async (c) => {
+      await c.post!.update!({
+        where: { id: "p1" },
+        data: { tags: { connect: [{ id: "t1" }, { id: "t2" }] } },
+      });
+      await c.post!.update!({
+        where: { id: "p1" },
+        data: { tags: { disconnect: { id: "t1" } } },
+      });
+    },
+  },
+  {
+    name: "multi-item disconnect removes each listed association only",
+    seed,
+    act: async (c) => {
+      await c.post!.update!({
+        where: { id: "p1" },
+        data: { tags: { connect: [{ id: "t1" }, { id: "t2" }, { id: "t3" }] } },
+      });
+      await c.post!.update!({
+        where: { id: "p1" },
+        data: { tags: { disconnect: [{ id: "t1" }, { id: "t2" }] } },
+      });
+    },
+  },
+  {
+    name: "boolean disconnect is rejected, membership unchanged",
+    expectReject: true,
+    seed,
+    act: async (c) => {
+      await c.post!.update!({
+        where: { id: "p1" },
+        data: { tags: { connect: { id: "t1" } } },
+      });
+      await c.post!.update!({
+        where: { id: "p1" },
+        data: { tags: { disconnect: true } },
+      });
+    },
+  },
+  {
+    name: "delete removes the child row and all its associations",
+    seed,
+    act: async (c) => {
+      await c.post!.update!({
+        where: { id: "p1" },
+        data: { tags: { connect: [{ id: "t1" }, { id: "t2" }] } },
+      });
+      await c.post!.update!({
+        where: { id: "p2" },
+        data: { tags: { connect: { id: "t1" } } },
+      });
+      await c.post!.update!({
+        where: { id: "p1" },
+        data: { tags: { delete: { id: "t1" } } },
+      });
+    },
+  },
+  {
+    name: "delete of an unconnected record rejects, state unchanged",
+    expectReject: true,
+    seed,
+    act: (c) =>
+      c.post!.update!({
+        where: { id: "p1" },
+        data: { tags: { delete: { id: "t1" } } },
+      }),
+  },
+  {
+    name: "deleteMany deletes only connected rows matching the filter",
+    seed,
+    act: async (c) => {
+      await c.post!.update!({
+        where: { id: "p1" },
+        data: { tags: { connect: [{ id: "t1" }, { id: "t2" }] } },
+      });
+      await c.post!.update!({
+        where: { id: "p1" },
+        data: { tags: { deleteMany: { name: { in: ["tag-1", "tag-3"] } } } },
+      });
+    },
+  },
+  {
+    name: "deleteMany empty filter removes all connected rows",
+    seed,
+    act: async (c) => {
+      await c.post!.update!({
+        where: { id: "p1" },
+        data: { tags: { connect: [{ id: "t1" }, { id: "t2" }] } },
+      });
+      await c.post!.update!({
+        where: { id: "p1" },
+        data: { tags: { deleteMany: {} } },
+      });
+    },
+  },
+  {
+    name: "mixed connect and disconnect under one relation compose",
+    seed,
+    act: async (c) => {
+      await c.post!.update!({
+        where: { id: "p1" },
+        data: { tags: { connect: [{ id: "t1" }, { id: "t2" }] } },
+      });
+      // One payload, two kinds, disjoint targets: connect t3, disconnect t1.
+      await c.post!.update!({
+        where: { id: "p1" },
+        data: {
+          tags: { connect: { id: "t3" }, disconnect: { id: "t1" } },
+        },
+      });
+    },
+  },
+  {
+    name: "standalone deleteMany with no matching member is a no-op",
+    seed,
+    act: (c) =>
+      c.post!.update!({
+        where: { id: "p1" },
+        data: { tags: { deleteMany: { name: "tag-1" } } },
+      }),
+  },
+  {
+    name: "nested update modifies only a connected record",
+    seed,
+    act: async (c) => {
+      await c.post!.update!({
+        where: { id: "p1" },
+        data: { tags: { connect: { id: "t1" } } },
+      });
+      await c.post!.update!({
+        where: { id: "p1" },
+        data: {
+          tags: {
+            update: { where: { id: "t1" }, data: { name: "tag-1-renamed" } },
+          },
+        },
+      });
+    },
+  },
+  {
+    name: "nested update of an unconnected record rejects, state unchanged",
+    expectReject: true,
+    seed,
+    act: async (c) => {
+      await c.post!.update!({
+        where: { id: "p1" },
+        data: { tags: { connect: { id: "t1" } } },
+      });
+      await c.post!.update!({
+        where: { id: "p1" },
+        data: {
+          tags: { update: { where: { id: "t2" }, data: { name: "nope" } } },
+        },
+      });
+    },
+  },
+  {
+    name: "updateMany updates every connected matching record",
+    seed,
+    act: async (c) => {
+      await c.post!.update!({
+        where: { id: "p1" },
+        data: { tags: { connect: [{ id: "t1" }, { id: "t2" }] } },
+      });
+      await c.post!.update!({
+        where: { id: "p2" },
+        data: { tags: { connect: { id: "t3" } } },
+      });
+      // Correlated: only p1's connected tags get the new featuredPostId, not t3.
+      await c.post!.update!({
+        where: { id: "p1" },
+        data: {
+          tags: { updateMany: { where: {}, data: { featuredPostId: "p2" } } },
+        },
+      });
+    },
+  },
+  {
+    name: "overlapping connect and deleteMany reject membership dependency",
+    expectReject: true,
+    seed,
+    act: async (c) => {
+      await c.post!.update!({
+        where: { id: "p1" },
+        data: { tags: { connect: { id: "t1" } } },
+      });
+      await c.post!.update!({
+        where: { id: "p1" },
+        data: {
+          tags: { connect: { id: "t2" }, deleteMany: { name: "tag-2" } },
+        },
+      });
+    },
+  },
+  // Routing boundary: nested upsert / connectOrCreate under a M2M target keep
+  // V1's create-through-junction runtime; V2 hands the whole tree back.
+  {
+    name: "nested upsert updates a connected record (routes to V1)",
+    route: "v1",
+    seed,
+    act: async (c) => {
+      await c.post!.update!({
+        where: { id: "p1" },
+        data: { tags: { connect: { id: "t1" } } },
+      });
+      await c.post!.update!({
+        where: { id: "p1" },
+        data: {
+          tags: {
+            upsert: {
+              where: { id: "t1" },
+              create: { id: "t1", name: "never" },
+              update: { name: "tag-1-upserted" },
+            },
+          },
+        },
+      });
+    },
+  },
+  {
+    name: "connectOrCreate dedupes duplicate targets (routes to V1)",
+    route: "v1",
+    seed,
+    act: (c) =>
+      c.post!.update!({
+        where: { id: "p1" },
+        data: {
+          tags: {
+            connectOrCreate: [
+              { where: { id: "t9" }, create: { id: "t9", name: "tag-9" } },
+              { where: { id: "t9" }, create: { id: "t9", name: "tag-9b" } },
+            ],
+          },
+        },
+      }),
+  },
+];
+
+describe("query-engine-v2 many-to-many dual-run oracle (V1 vs V2)", () => {
+  for (const scenario of scenarios) {
+    test(scenario.name, { timeout: 30_000 }, async () => {
+      const v1 = await runArm("v1", scenario);
+      const tx = await runArm("v2-tx", scenario);
+      const batch = await runArm("v2-batch", scenario);
+
+      if (scenario.route === "v1") {
+        expect(tx.routedToV2).toBe(false);
+        expect(batch.routedToV2).toBe(false);
+      } else {
+        expect(tx.routedToV2).toBe(true);
+        expect(batch.routedToV2).toBe(true);
+      }
+
+      expect(tx.error).toEqual(v1.error);
+      expect(batch.error).toEqual(v1.error);
+      expect(Boolean(v1.error)).toBe(scenario.expectReject === true);
+
+      if (!scenario.expectReject) {
+        expect(tx.result).toEqual(v1.result);
+        expect(batch.result).toEqual(v1.result);
+      }
+
+      expect(tx.state).toEqual(v1.state);
+      expect(batch.state).toEqual(v1.state);
+    });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Self-referential M2M direction. `user.follows` is `.A("followerId")
+// .B("followedId")`, so its junction table is `user_user(followerId,
+// followedId)` and A/B orientation is the whole correctness question: a
+// connect must write (follower=parent, followed=target), not the reverse. The
+// dual-run oracle proves the observable follows/followedBy membership; the raw
+// junction-row inspection proves the underlying A/B column orientation V2's
+// reuse of V1's `getManyToManyJoinInfo` produces.
+// ---------------------------------------------------------------------------
+
+const selfRefSeed = async (client: ReturnType<typeof makeClient>) => {
+  await client.user.create({ data: { id: "u1", name: "Alice" } });
+  await client.user.create({ data: { id: "u2", name: "Bob" } });
+  await client.user.create({ data: { id: "u3", name: "Cara" } });
+};
+
+async function selfRefDump(client: ReturnType<typeof makeClient>) {
+  const users = (await client.user.findMany({
+    orderBy: { id: "asc" },
+    include: {
+      follows: { orderBy: { id: "asc" } },
+      followedBy: { orderBy: { id: "asc" } },
+    },
+  })) as {
+    id: string;
+    follows?: { id: string }[];
+    followedBy?: { id: string }[];
+  }[];
+  const follows: unknown[] = [];
+  const followedBy: unknown[] = [];
+  for (const user of users) {
+    const f = (user.follows ?? []).map((u) => u.id).sort();
+    const fb = (user.followedBy ?? []).map((u) => u.id).sort();
+    if (f.length > 0) follows.push({ userId: user.id, followsIds: f });
+    if (fb.length > 0) followedBy.push({ userId: user.id, followedByIds: fb });
+  }
+  return { follows, followedBy };
+}
+
+async function runSelfRefArm(
+  kind: ArmKind,
+  act: (client: Record<string, RoutedModel>) => Promise<unknown>
+) {
+  const db = new PGlite();
+  const client = makeClient(db);
+  await push(client, { force: true });
+  await selfRefSeed(client);
+  let routes: { engine: "v1" | "v2" }[] = [];
+  if (kind === "v1") {
+    await act(client as unknown as Record<string, RoutedModel>);
+  } else {
+    const driver =
+      kind === "v2-tx"
+        ? new PGliteDriver({ client: db })
+        : new BatchOnlyPGliteDriver({ client: db });
+    const routed = createV2RoutedClient({
+      schema: manyToManySchema,
+      client: client as unknown as Record<string, RoutedModel>,
+      driver,
+    });
+    routes = routed.routes;
+    await act(routed.client);
+  }
+  const state = await selfRefDump(client);
+  const junction = (
+    await db.query(
+      'SELECT "followerId", "followedId" FROM "user_user" ORDER BY "followerId", "followedId"'
+    )
+  ).rows;
+  const routedToV2 =
+    routes.length > 0 && routes.every((r) => r.engine === "v2");
+  await client.$disconnect();
+  return { state, junction, routedToV2 };
+}
+
+describe("query-engine-v2 self-referential M2M direction", () => {
+  const act = async (c: Record<string, RoutedModel>) => {
+    await c.user!.update!({
+      where: { id: "u1" },
+      data: { follows: { connect: [{ id: "u2" }, { id: "u3" }] } },
+    });
+    await c.user!.update!({
+      where: { id: "u1" },
+      data: { follows: { disconnect: { id: "u2" } } },
+    });
+  };
+
+  test(
+    "connect then disconnect keeps A/B orientation",
+    { timeout: 30_000 },
+    async () => {
+      const v1 = await runSelfRefArm("v1", act);
+      const tx = await runSelfRefArm("v2-tx", act);
+      const batch = await runSelfRefArm("v2-batch", act);
+
+      expect(tx.routedToV2).toBe(true);
+      expect(batch.routedToV2).toBe(true);
+
+      // Observable membership parity.
+      expect(tx.state).toEqual(v1.state);
+      expect(batch.state).toEqual(v1.state);
+
+      // Raw junction orientation: u1 follows u3 => (followerId=u1, followedId=u3),
+      // never the reverse. Byte-identical across V1 and both V2 substrates.
+      expect(tx.junction).toEqual([{ followerId: "u1", followedId: "u3" }]);
+      expect(v1.junction).toEqual(tx.junction);
+      expect(batch.junction).toEqual(tx.junction);
+    }
+  );
+});

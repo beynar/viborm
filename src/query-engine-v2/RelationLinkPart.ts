@@ -1,6 +1,5 @@
 // biome-ignore-all lint/style/useFilenamingConvention: RelationLinkPart is the architecture name.
 import { NestedWriteError, QueryEngineError } from "@errors";
-import type { Sql } from "@sql";
 import { getWhereUniqueEntries } from "../query-engine/builders/where-unique-builder";
 import {
   buildFind,
@@ -39,7 +38,13 @@ export interface RelationLinkConfig {
   readonly where?: Record<string, unknown>;
   /** `disconnect: true` — null every child currently connected to the parent. */
   readonly disconnectAll?: boolean;
-  readonly childForeignKey: string;
+  /**
+   * The child-held foreign-key columns and the parent columns they reference,
+   * index-aligned (compound keys are per-field, ATOM §1's multi-field produces).
+   * A single-column edge is the length-1 case; nothing else changes.
+   */
+  readonly fkFields: readonly string[];
+  readonly referencedFields: readonly string[];
   readonly childPrimaryKey: string;
   /**
    * Where the parent id the child FK points at comes from. In the update family
@@ -128,7 +133,7 @@ export class RelationLinkPart implements Part {
           where: {
             AND: [
               ...this.uniqueEqualityFilters(where),
-              this.correlationFilter(),
+              ...this.correlationFilters(),
             ],
           },
           select,
@@ -164,7 +169,7 @@ export class RelationLinkPart implements Part {
       kind: "write",
       statement: buildUpdate(childScope, {
         where,
-        data: { [this.config.childForeignKey]: this.parentIdValue(known) },
+        data: this.fkAssignData(known),
         select: { [this.config.childPrimaryKey]: true },
       }),
       outputs: {},
@@ -189,11 +194,7 @@ export class RelationLinkPart implements Part {
               where: {
                 AND: [
                   ...this.uniqueEqualityFilters(where),
-                  {
-                    [this.config.childForeignKey]: {
-                      equals: this.parentLiteral(known),
-                    },
-                  },
+                  ...this.guardCorrelationFilters(known),
                 ],
               },
               select: { [this.config.childPrimaryKey]: true },
@@ -209,7 +210,7 @@ export class RelationLinkPart implements Part {
       kind: "write",
       statement: buildUpdate(childScope, {
         where,
-        data: { [this.config.childForeignKey]: { set: null } },
+        data: this.fkNullData(),
         select: { [this.config.childPrimaryKey]: true },
       }),
       outputs: {},
@@ -218,13 +219,13 @@ export class RelationLinkPart implements Part {
   }
 
   private buildDisconnectAll(known: PlanningKnown): StatementStep {
-    const { childScope, childForeignKey } = this.config;
+    const { childScope } = this.config;
     return {
       id: this.writeId,
       kind: "write",
       statement: buildUpdateMany(childScope, {
-        where: { [childForeignKey]: { equals: this.parentLiteral(known) } },
-        data: { [childForeignKey]: { set: null } },
+        where: { AND: this.guardCorrelationFilters(known) },
+        data: this.fkNullData(),
       }),
       outputs: {},
     };
@@ -264,18 +265,57 @@ export class RelationLinkPart implements Part {
     );
   }
 
-  /** The FK expression the connect write assigns — the located parent id. */
-  private parentIdValue(known: PlanningKnown): Sql {
-    return referenceSql(
-      this.config.engine,
-      this.config.childScope.model,
-      this.config.childForeignKey,
-      this.parentLiteral(known)
-    );
+  /** The connect write's FK assignment: every FK column ← its referenced parent
+   *  column value (one entry per compound-key field, ATOM §1). */
+  private fkAssignData(known: PlanningKnown): Record<string, unknown> {
+    const data: Record<string, unknown> = {};
+    for (let index = 0; index < this.config.fkFields.length; index += 1) {
+      const fkField = this.config.fkFields[index]!;
+      data[fkField] = referenceSql(
+        this.config.engine,
+        this.config.childScope.model,
+        fkField,
+        this.parentReferenced(known, index)
+      );
+    }
+    return data;
   }
 
-  /** The concrete located parent id (never a Ref — inlined at compile). */
-  private parentLiteral(known: PlanningKnown): unknown {
+  /** The disconnect write's FK assignment: null every FK column. */
+  private fkNullData(): Record<string, unknown> {
+    const data: Record<string, unknown> = {};
+    for (const fkField of this.config.fkFields) data[fkField] = { set: null };
+    return data;
+  }
+
+  /** The disconnect probe's `fk_i = Ref(locate.referenced_i)` clauses — the
+   *  technique #1 markers, one per compound-key field. */
+  private correlationFilters(): Record<string, unknown>[] {
+    const source = this.config.parentId;
+    if (source.kind !== "planned") {
+      throw new QueryEngineError(
+        `query-engine-v2 disconnect for relation '${this.config.relationName}' requires a planned parent id to correlate its probe.`
+      );
+    }
+    return this.config.fkFields.map((fkField, index) => ({
+      [fkField]: {
+        equals: ref(source.readStep, this.config.referencedFields[index]!),
+      },
+    }));
+  }
+
+  /** The batch disconnect guard's `fk_i = <literal referenced_i>` clauses. */
+  private guardCorrelationFilters(
+    known: PlanningKnown
+  ): Record<string, unknown>[] {
+    return this.config.fkFields.map((fkField, index) => ({
+      [fkField]: { equals: this.parentReferenced(known, index) },
+    }));
+  }
+
+  /** The concrete value of the parent column the FK field `index` references
+   *  (never a Ref — inlined at compile). */
+  private parentReferenced(known: PlanningKnown, index: number): unknown {
     const source = this.config.parentId;
     if (source.kind === "literal") return source.value;
     if (source.kind !== "planned") {
@@ -291,22 +331,9 @@ export class RelationLinkPart implements Part {
         this.config.relationName
       );
     }
-    return (row as Record<string, unknown>)[source.field];
-  }
-
-  /** The disconnect probe's `fk = Ref(locate)` clause — the technique #1 marker. */
-  private correlationFilter(): Record<string, unknown> {
-    const source = this.config.parentId;
-    if (source.kind !== "planned") {
-      throw new QueryEngineError(
-        `query-engine-v2 disconnect for relation '${this.config.relationName}' requires a planned parent id to correlate its probe.`
-      );
-    }
-    return {
-      [this.config.childForeignKey]: {
-        equals: ref(source.readStep, source.field),
-      },
-    };
+    return (row as Record<string, unknown>)[
+      this.config.referencedFields[index]!
+    ];
   }
 
   private uniqueEqualityFilters(
@@ -340,7 +367,8 @@ export function buildToManyLinkParts(
   relationInfo: RelationInfo,
   childName: string,
   childScope: QueryScope,
-  childForeignKey: string,
+  fkFields: readonly string[],
+  referencedFields: readonly string[],
   childPrimaryKey: string,
   kind: LinkKind,
   input: unknown,
@@ -354,7 +382,8 @@ export function buildToManyLinkParts(
     relationName,
     relationInfo,
     kind,
-    childForeignKey,
+    fkFields,
+    referencedFields,
     childPrimaryKey,
     parentId,
     txMode,

@@ -518,6 +518,41 @@ crosses a write boundary at runtime. The step vocabulary is still exactly
 `{read, write, guard}` and the exported type-name set is unchanged, so gate (d)
 holds; only the `StatementStep` field snapshot moved, with this note attached.
 
+**P3 update — M2M and compound keys, with NO vocabulary change (freeze held).**
+Many-to-many is not special (WHY §4.3): the junction is two FK edges plus a
+join-row write **leaf**, and every membership kind under a root `update`
+(connect/disconnect/set/delete/deleteMany/update/updateMany) is one
+`RelationJunctionPart` — a *file*, never an `M2M*` file family. It composes V1's
+frozen junction SQL (`ManyToManyStatements.materialize` + `many-to-many-utils`,
+the sanctioned reuse) as its leaves, so junction identity, mapped columns, and
+self-referential A/B direction come from `getManyToManyJoinInfo` unchanged
+(proven by a raw junction-row inspection test). Two census rows go **live**
+without adding a primitive:
+
+- **`ProducedRows` (multi-row capture)** — a M2M `deleteMany` reads the
+  connected∧filter target set at *planning* (correlated to the located parent by
+  a SQL `Ref`, technique #1) and inlines it into the final junction/​child SQL at
+  compile. The set is **planning-time only** and never crosses a write boundary
+  at runtime (§3 corollary) — the disposition, now witnessed by a live consumer.
+- **materialized-set `notExists` pins (`raceable: true`, Pin Rule class 3)** —
+  the `deleteMany` added/removed symmetric-difference guards (§2's retained
+  pins). Falsified once (guards removed → the Docker-shaped staleness test with a
+  concurrently-added member passes with a stale under-delete → restored); a plain
+  rerun converges.
+
+Compound keys are **per-field** everywhere in the new shapes: the root
+`update`/`delete`/`upsert` locate and terminal reads carry every PK field
+(each a `firstRowField` output of the locate — the census's multi-field
+produces), the terminal read wraps them into the compound where-unique
+(`buildPrimaryKeyWhereUnique`), and a compound child FK edge
+(`RelationLinkPart`, connect/disconnect) writes/correlates every column from its
+index-aligned referenced parent column. `set`/`update`/`delete`/`upsert` on a
+compound FK child, and nested `create`/`connectOrCreate`/`upsert` under a M2M
+target, stay V1's surface (typed `UnsupportedOperationError` → whole tree routes
+to V1). The `OperationFragment.ts` type surface was **unchanged** by P3, so the
+P0 fragment-surface snapshot + executor token gate stayed green — the **freeze
+held**, no design-note-to-amend-the-freeze required.
+
 ---
 
 ## 9. Invariants (the executable contract)

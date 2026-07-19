@@ -45,7 +45,7 @@ export class DeleteOperation {
   private readonly scope: StepScope;
   private readonly resultArgs: Record<string, unknown>;
   private readonly parentWhere: Record<string, unknown>;
-  private readonly parentPrimaryKey: string;
+  private readonly parentPrimaryKeys: readonly string[];
   private readonly locate: StatementStep;
   private readonly readFull: StatementStep;
   private readonly deleteRow: StatementStep;
@@ -69,12 +69,14 @@ export class DeleteOperation {
     const parent = createQueryScope(engine.adapter, model);
 
     const parentPrimaryKeys = getPrimaryKeyFields(model);
-    if (parentPrimaryKeys.length !== 1) {
+    if (parentPrimaryKeys.length === 0) {
       throw new UnsupportedOperationError(
-        "query-engine-v2 delete requires a parent with one primary key."
+        "query-engine-v2 delete requires a parent with a primary key."
       );
     }
-    this.parentPrimaryKey = parentPrimaryKeys[0]!;
+    // Compound primary keys are supported: the locate/guard select every PK
+    // field, and the delete targets the parsed compound where-unique.
+    this.parentPrimaryKeys = parentPrimaryKeys;
 
     const parentSchemas = engine.schemaRegistry.getModelSchemas(model);
     this.parentWhere = parseRecord(
@@ -104,7 +106,7 @@ export class DeleteOperation {
       kind: "read",
       statement: buildFindUnique(parent, {
         where: this.parentWhere,
-        select: { [this.parentPrimaryKey]: true },
+        select: this.pkSelect(),
         forUpdate: txMode,
       }),
       outputs: { rows: { kind: "rows" } },
@@ -187,13 +189,17 @@ export class DeleteOperation {
     ).parse<T>("delete", outputs.result, this.resultArgs);
   }
 
+  private pkSelect(): Record<string, boolean> {
+    return Object.fromEntries(this.parentPrimaryKeys.map((pk) => [pk, true]));
+  }
+
   private buildRootPresenceGuard(): OperationStep {
     const parent = createQueryScope(this.engine.adapter, this.model);
     return presenceGuard(
       this.rootGuardId,
       buildFindUnique(parent, {
         where: this.parentWhere,
-        select: { [this.parentPrimaryKey]: true },
+        select: this.pkSelect(),
       }),
       notFoundFailure(
         `query-engine-v2 delete located no '${getStepModelName(this.model, "record")}' row for its unique where.`

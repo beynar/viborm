@@ -276,17 +276,40 @@ operation-specific branch; or a kind cannot express itself as
 probe-widened planning + linear steps. That is "rebuilding V1 under new
 names" — stop, design note, deliberate decision.
 
-## P3 — M2M, compound keys, the long tail of shapes
+## P3 — M2M, compound keys, the long tail of shapes *(delivered)*
 
 Junction part (two FK edges + join-row leaf); membership semantics as leaves —
 symmetric-difference `set`/`deleteMany` with **materialized-set pins,
 `raceable: true`** (Pin Rule class 3); self-referential M2M; compound keys
 (per-field refs); mapped columns; multi-item and mixed inputs.
-*Gate:* oracle + Docker staleness scenario (concurrently-added member aborts
-the batch and retry converges); the M2M behavior suites through the routing
-flag, every driver class.
-*Kill signal:* an `M2M*` file family forming, or a membership set needing to
-cross a write boundary at runtime (ATOM §3's stated boundary).
+
+**Delivered:** one `RelationJunctionPart` — junction as ordinary Parts, never an
+`M2M*` file family (WHY §4.3) — serves every membership kind under a root
+`update` (connect/disconnect/set/delete/deleteMany/update/updateMany, incl.
+multi-item and mixed kinds under one relation), composing V1's frozen junction
+SQL (`ManyToManyStatements`/`many-to-many-utils`) as its leaves. Membership reads
+are planning-time and inlined at compile (`deleteMany`'s connected set never
+crosses a write boundary; §3 corollary); its added/removed difference guards are
+the retained materialized-set `notExists` pins (`raceable: true`). Self-ref A/B
+direction reuses `getManyToManyJoinInfo` (raw junction-row inspection test).
+Nested `create`/`connectOrCreate`/`upsert` under a M2M target keep V1's
+create-through-junction runtime (typed `UnsupportedOperationError` → whole tree
+routes to V1). Compound keys are per-field: root `update`/`delete`/`upsert` by
+compound where-unique (every PK field a `firstRowField` produce), compound child
+FK connect/disconnect writing every column per-field; compound-FK
+`set`/`update`/`delete`/`upsert` route to V1. Mapped columns ride through the
+reused builders. **No vocabulary change — the fragment snapshot + executor token
+gate stayed green (freeze held); see ATOM §8.1 P3 update.**
+*Gate (met):* dual-run oracle parity (V1-vs-V2, fresh instance per arm,
+state+result+error+message) for the M2M scenario set (`m2m-mutation.test.ts`),
+the self-ref direction test, and the compound-key set (`compound-key.test.ts`);
+the Docker-shaped staleness scenario (a concurrently-added member trips the
+`deleteMany` materialized-set pin typed+raceable, a rerun converges — falsified
+once); per-tree routing spy-asserted (M2M/compound trees to V2, the
+create-through-junction shapes to V1); structural gates + fragment snapshot
+untouched; PGlite tx + forced batch both substrates; full suite green.
+*Kill signal (none tripped):* an `M2M*` file family forming, or a membership set
+needing to cross a write boundary at runtime (ATOM §3's stated boundary).
 
 ## P4 — Reads and the remaining surface
 

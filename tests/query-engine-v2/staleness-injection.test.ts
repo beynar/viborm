@@ -12,6 +12,7 @@ import { describe, expect, test } from "vitest";
 import { DeleteOperation } from "../../src/query-engine-v2/DeleteOperation";
 import { OperationExecutor } from "../../src/query-engine-v2/OperationExecutor";
 import { UpdateOperation } from "../../src/query-engine-v2/UpdateOperation";
+import { manyToManySchema } from "../fixtures/many-to-many-schema";
 import { nestedWriteBehaviorSchema } from "../fixtures/nested-write-behavior-schema";
 import { updateFamilySchema } from "./update-family-behavior";
 
@@ -355,6 +356,110 @@ describe("query-engine-v2 staleness injection (set orphan pin)", () => {
 
     // Both children survive; the set never fired.
     await expect(client.postTag.findMany()).resolves.toHaveLength(2);
+    await client.$disconnect();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The P3 premise class: the M2M `deleteMany` materialized-set symmetric-
+// difference pin (ATOM §2's RETAINED notExists guards, raceable: true — Pin
+// Rule class 3). Planning reads the connected∧filter member set; a concurrent
+// connect adds a NEW matching member BEFORE the batch, so the "added" difference
+// guard must abort the batch with a typed raceable failure. A plain RERUN then
+// converges (it captures the enlarged set and deletes it). Falsify once: with
+// the guards removed the stale batch would silently under-delete.
+// ---------------------------------------------------------------------------
+
+function makeM2mClient(db: PGlite) {
+  return createClient({
+    schema: manyToManySchema,
+    driver: new PGliteDriver({ client: db }),
+  });
+}
+
+function runM2mUpdate(
+  db: PGlite,
+  beforeBatch: (() => Promise<void>) | undefined,
+  model: Model<any>,
+  args: Record<string, unknown>
+): Promise<unknown> {
+  const driver = beforeBatch
+    ? new BeforeBatchPGliteDriver(beforeBatch, { client: db })
+    : new BeforeBatchPGliteDriver(
+        async () => {
+          /* no-op hook: forced-batch rerun */
+        },
+        { client: db }
+      );
+  const schemas = createSchemaRegistry(manyToManySchema);
+  const engine = new QueryEngine(
+    driver,
+    createModelRegistry(manyToManySchema, schemas)
+  );
+  const executor = new OperationExecutor(engine);
+  const operation = new UpdateOperation(engine, model, args);
+  const context = createOperationExecutionContext(
+    "post",
+    "update",
+    engine.instrumentation
+  );
+  return executor.execute(operation, context);
+}
+
+describe("query-engine-v2 staleness injection (M2M deleteMany materialized-set pin)", () => {
+  test("a concurrently added member aborts the batch typed and raceable, then a rerun converges", async () => {
+    const db = new PGlite();
+    const client = makeM2mClient(db);
+    await push(client, { force: true });
+    await client.post.create({ data: { id: "p1", title: "Post 1" } });
+    await client.tag.create({
+      data: { id: "t1", name: "tag-1", featuredPostId: null },
+    });
+    await client.tag.create({
+      data: { id: "t2", name: "tag-2", featuredPostId: null },
+    });
+    await client.post.update({
+      where: { id: "p1" },
+      data: { tags: { connect: { id: "t1" } } },
+    });
+
+    // Planning captures the connected∧filter set = {t1}. The hook connects t2
+    // (also matching the empty filter) before the batch → an "added" difference.
+    const injector = makeM2mClient(db);
+    const rejected = await runM2mUpdate(
+      db,
+      async () => {
+        await injector.post.update({
+          where: { id: "p1" },
+          data: { tags: { connect: { id: "t2" } } },
+        });
+      },
+      manyToManySchema.post,
+      { where: { id: "p1" }, data: { tags: { deleteMany: {} } } }
+    ).catch((error) => error);
+    expect(rejected).toBeInstanceOf(NestedWriteError);
+    expect((rejected as NestedWriteError).meta.raceable).toBe(true);
+
+    // The batch aborted whole: both members survive (nothing deleted).
+    const afterAbort = await client.post.findUnique({
+      where: { id: "p1" },
+      include: { tags: { orderBy: { id: "asc" } } },
+    });
+    expect(
+      (afterAbort as { tags: { id: string }[] }).tags.map((t) => t.id)
+    ).toEqual(["t1", "t2"]);
+
+    // Rerun with no concurrent change: it re-reads the enlarged set and converges.
+    await runM2mUpdate(db, undefined, manyToManySchema.post, {
+      where: { id: "p1" },
+      data: { tags: { deleteMany: {} } },
+    });
+    const afterRerun = await client.post.findUnique({
+      where: { id: "p1" },
+      include: { tags: true },
+    });
+    expect((afterRerun as { tags: unknown[] }).tags).toHaveLength(0);
+    expect(await client.tag.findMany()).toHaveLength(0);
     await client.$disconnect();
   });
 });

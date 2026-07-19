@@ -7,7 +7,10 @@ import {
 } from "@errors";
 import type { Model } from "@schema/model";
 import { parse, type VibSchema } from "@validation";
-import { getPrimaryKeyFields } from "../query-engine/builders/correlation-utils";
+import {
+  buildPrimaryKeyWhereUnique,
+  getPrimaryKeyFields,
+} from "../query-engine/builders/correlation-utils";
 import {
   type FkDirection,
   getFkDirection,
@@ -39,6 +42,7 @@ import {
 import { OwnWritePreflight } from "./OwnWritePreflight";
 import type { Part } from "./Part";
 import { planningKey, planningOutputs } from "./Part";
+import { buildJunctionParts } from "./RelationJunctionPart";
 import { buildToManyLinkParts } from "./RelationLinkPart";
 import {
   buildConnectOrCreateParts,
@@ -95,7 +99,7 @@ export class UpdateOperation {
   private readonly toOneLinks: readonly ToOneLink[];
   private readonly locate: StatementStep;
   private readonly updateParent?: StatementStep;
-  private readonly parentPrimaryKey: string;
+  private readonly parentPrimaryKeys: readonly string[];
   private readonly parentWhere: Record<string, unknown>;
   private readonly parsedSelect: Record<string, unknown>;
   private readonly terminalId: string;
@@ -124,12 +128,14 @@ export class UpdateOperation {
 
     const parentSchemas = engine.schemaRegistry.getModelSchemas(model);
     const parentPrimaryKeys = getPrimaryKeyFields(model);
-    if (parentPrimaryKeys.length !== 1) {
+    if (parentPrimaryKeys.length === 0) {
       throw new UnsupportedOperationError(
-        "query-engine-v2 update requires a parent with one primary key."
+        "query-engine-v2 update requires a parent with a primary key."
       );
     }
-    this.parentPrimaryKey = parentPrimaryKeys[0]!;
+    // Compound primary keys are supported: the locate reads and terminal read
+    // carry every PK field, and the child FK edges reference them per-field.
+    this.parentPrimaryKeys = parentPrimaryKeys;
 
     this.parentWhere = parseRecord(
       parentSchemas.core.whereUnique,
@@ -156,7 +162,10 @@ export class UpdateOperation {
     //    root-SET fold. The parent-id every child arm consumes is the located
     //    id — a planning value inlined at compile (the correlated disconnect
     //    probe additionally refs it in SQL: technique #1).
-    const parentIdSource = plannedParentId(locateId, this.parentPrimaryKey);
+    const parentIdSource = plannedParentId(
+      locateId,
+      this.parentPrimaryKeys[0]!
+    );
     const childParts: Part[] = [];
     const toOneLinks: ToOneLink[] = [];
     for (const [relationName, mutation] of Object.entries(
@@ -217,15 +226,19 @@ export class UpdateOperation {
       kind: "read",
       statement: buildFindUnique(parent, {
         where: this.parentWhere,
-        select: { [this.parentPrimaryKey]: true },
+        select: this.pkSelect(),
         forUpdate: txMode,
       }),
+      // Each PK field is a firstRowField output so a per-field child FK edge can
+      // ref it (compound keys — the census's multi-field produces).
       outputs: {
         rows: { kind: "rows" },
-        [this.parentPrimaryKey]: {
-          kind: "firstRowField",
-          field: this.parentPrimaryKey,
-        },
+        ...Object.fromEntries(
+          this.parentPrimaryKeys.map((pk) => [
+            pk,
+            { kind: "firstRowField", field: pk },
+          ])
+        ),
       },
       expects: exactlyOneRow(
         notFoundFailure(
@@ -257,9 +270,7 @@ export class UpdateOperation {
     if (locateRows.length === 0) {
       throw new NotFoundError(getStepModelName(this.model, "record"), "update");
     }
-    const locatedId = (locateRows[0] as Record<string, unknown>)[
-      this.parentPrimaryKey
-    ];
+    const locatedRow = locateRows[0] as Record<string, unknown>;
 
     // Build-don't-select (P1.2): to-one connect checks + child arms construct
     // their taken steps; the shared root update and deep terminal read emit once.
@@ -284,7 +295,7 @@ export class UpdateOperation {
     }
     const steps: OperationStep[] = [...guards];
     if (this.updateParent) steps.push(this.updateParent);
-    steps.push(...writes, this.buildTerminal(locatedId));
+    steps.push(...writes, this.buildTerminal(locatedRow));
     return { steps, outputs: { result: ref(this.terminalId, "result") } };
   }
 
@@ -317,6 +328,27 @@ export class UpdateOperation {
     const { relationName, mutation, parsedRelation } = input;
     const relationInfo = mutation.relationInfo;
     const kinds = getRelationMutationKinds(mutation);
+
+    if (relationInfo.type === "manyToMany") {
+      // Many-to-many is not special (WHY §4.3): junction as ordinary Parts. Each
+      // membership kind is a leaf feeding the same step vocabulary; the whole
+      // family lives in one file, never an `M2M*` subsystem.
+      input.childParts.push(
+        ...buildJunctionParts({
+          scope: input.scope,
+          engine: this.engine,
+          parentScope: input.parent,
+          relationName,
+          relationInfo,
+          mutation,
+          parsedRelation,
+          parentId: input.parentIdSource,
+          txMode: input.txMode,
+        })
+      );
+      return;
+    }
+
     const fk = getFkDirection(input.parent, relationInfo);
 
     if (fk.holdsFK) {
@@ -345,9 +377,18 @@ export class UpdateOperation {
         `query-engine-v2 update supports only one-to-many child-held relations; relation '${relationName}' is '${relationInfo.type}'.`
       );
     }
-    if (fk.fkFields.length !== 1 || fk.pkFields.length !== 1) {
+    // Compound foreign keys are supported on the connect/disconnect link edges
+    // (per-field refs, ATOM §1). Every referenced column must be one this
+    // operation's locate read exposes (a parent PK field); a foreign key
+    // referencing a non-PK unique needs the locate to select it (D4-style) and
+    // routes to V1 for now.
+    const compoundFk = fk.fkFields.length > 1;
+    if (
+      compoundFk &&
+      !fk.pkFields.every((field) => this.parentPrimaryKeys.includes(field))
+    ) {
       throw new UnsupportedOperationError(
-        `query-engine-v2 update supports only single-column foreign keys; relation '${relationName}' is compound.`
+        `query-engine-v2 update compound foreign key on relation '${relationName}' must reference the parent primary key.`
       );
     }
     const childScope = createQueryScope(
@@ -379,6 +420,13 @@ export class UpdateOperation {
     // contributes its own Part(s); they compose into the one linear fragment in
     // a stable, V1-mirroring order (link/adopt, then removals, then updates).
     for (const kind of kinds) {
+      if (compoundFk && kind !== "connect" && kind !== "disconnect") {
+        // Only link edges are per-field-generalized here; adopt/write/set on a
+        // compound FK stay V1's surface.
+        throw new UnsupportedOperationError(
+          `query-engine-v2 update supports only connect/disconnect on the compound-key relation '${relationName}'; received '${kind}'.`
+        );
+      }
       this.interpretToManyKind({
         kind,
         relationName,
@@ -389,6 +437,7 @@ export class UpdateOperation {
         childPrimaryKey: childPrimaryKeys[0]!,
         childForeignKey: fk.fkFields[0]!,
         fkFields: fk.fkFields,
+        referencedFields: fk.pkFields,
         writeBase,
         input,
       });
@@ -405,6 +454,7 @@ export class UpdateOperation {
     childPrimaryKey: string;
     childForeignKey: string;
     fkFields: readonly string[];
+    referencedFields: readonly string[];
     writeBase: Parameters<typeof buildToManyUpdateParts>[0];
     input: {
       scope: StepScope;
@@ -422,8 +472,8 @@ export class UpdateOperation {
       childScope,
       childName,
       childPrimaryKey,
-      childForeignKey,
       fkFields,
+      referencedFields,
       writeBase,
       input,
     } = args;
@@ -440,7 +490,7 @@ export class UpdateOperation {
             relationInfo,
             normalizeItems(parsedRelation.upsert, relationName),
             input.parentIdSource,
-            this.parentPrimaryKey,
+            this.parentPrimaryKeys[0]!,
             "correlated",
             input.txMode
           )
@@ -458,7 +508,7 @@ export class UpdateOperation {
             relationInfo,
             normalizeItems(parsedRelation.connectOrCreate, relationName),
             input.parentIdSource,
-            this.parentPrimaryKey,
+            this.parentPrimaryKeys[0]!,
             input.txMode
           )
         );
@@ -480,7 +530,8 @@ export class UpdateOperation {
             relationInfo,
             childName,
             childScope,
-            childForeignKey,
+            fkFields,
+            referencedFields,
             childPrimaryKey,
             kind,
             kind === "connect"
@@ -622,7 +673,7 @@ export class UpdateOperation {
       statement: buildUpdate(parent, {
         where: this.parentWhere,
         data: parentSet,
-        select: { [this.parentPrimaryKey]: true },
+        select: this.pkSelect(),
       }),
       outputs: {},
       ...(txMode
@@ -645,7 +696,7 @@ export class UpdateOperation {
       this.rootGuardId,
       buildFindUnique(parent, {
         where: this.parentWhere,
-        select: { [this.parentPrimaryKey]: true },
+        select: this.pkSelect(),
       }),
       notFoundFailure(
         `query-engine-v2 update located no '${getStepModelName(this.model, "record")}' row for its unique where.`
@@ -653,14 +704,25 @@ export class UpdateOperation {
     );
   }
 
-  private buildTerminal(locatedId: unknown): StatementStep {
+  private pkSelect(): Record<string, boolean> {
+    return Object.fromEntries(this.parentPrimaryKeys.map((pk) => [pk, true]));
+  }
+
+  private buildTerminal(locatedRow: Record<string, unknown>): StatementStep {
     const parent = createQueryScope(this.engine.adapter, this.model);
     const txMode = this.mode === "transaction";
     return {
       id: this.terminalId,
       kind: "read",
       statement: buildFindUnique(parent, {
-        where: { [this.parentPrimaryKey]: locatedId },
+        // Compound PK: wrap the located PK values into the compound where-unique
+        // shape (`{ tenantId_id: { … } }`); single-field PKs stay flat.
+        where: buildPrimaryKeyWhereUnique(
+          this.model,
+          Object.fromEntries(
+            this.parentPrimaryKeys.map((pk) => [pk, locatedRow[pk]])
+          )
+        ),
         select: this.parsedSelect,
       }),
       outputs: { result: { kind: "rows" } },

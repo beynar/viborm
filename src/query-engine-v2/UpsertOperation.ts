@@ -74,7 +74,7 @@ export class UpsertOperation {
   private readonly scope: StepScope;
   private readonly resultArgs: Record<string, unknown>;
   private readonly parentWhere: Record<string, unknown>;
-  private readonly parentPrimaryKey: string;
+  private readonly parentPrimaryKeys: readonly string[];
   private readonly createData: Record<string, unknown>;
   private readonly updateData: Record<string, unknown>;
   private readonly conditionals: readonly Conditional[];
@@ -103,12 +103,15 @@ export class UpsertOperation {
     const parent = createQueryScope(engine.adapter, model);
 
     const parentPrimaryKeys = getPrimaryKeyFields(model);
-    if (parentPrimaryKeys.length !== 1) {
+    if (parentPrimaryKeys.length === 0) {
       throw new UnsupportedOperationError(
-        "query-engine-v2 upsert requires a parent with one primary key."
+        "query-engine-v2 upsert requires a parent with a primary key."
       );
     }
-    this.parentPrimaryKey = parentPrimaryKeys[0]!;
+    // Compound primary keys are supported: every probe/guard selects each PK
+    // field; the create/update arms target the parsed compound where-unique, and
+    // `childRacePin`/`getWhereUniqueEntries` already expand the compound key.
+    this.parentPrimaryKeys = parentPrimaryKeys;
 
     // Scalar arms only. A nested relation mutation in either arm routes the whole
     // tree to V1 (P2b scope) — the create/update arms compose the same Parts the
@@ -167,7 +170,7 @@ export class UpsertOperation {
       kind: "read",
       statement: buildFindUnique(parent, {
         where: this.parentWhere,
-        select: { [this.parentPrimaryKey]: true },
+        select: this.pkSelect(),
         forUpdate: txMode,
       }),
       outputs: { rows: { kind: "rows" } },
@@ -269,7 +272,7 @@ export class UpsertOperation {
             this.foundGuardId,
             buildFindUnique(parent, {
               where: this.parentWhere,
-              select: { [this.parentPrimaryKey]: true },
+              select: this.pkSelect(),
             }),
             notFoundFailure(this.locateMissMessage())
           )
@@ -294,7 +297,7 @@ export class UpsertOperation {
       statement: buildUpdate(parent, {
         where: this.parentWhere,
         data: this.updateData,
-        select: { [this.parentPrimaryKey]: true },
+        select: this.pkSelect(),
       }),
       outputs: {},
       ...(txMode
@@ -329,6 +332,10 @@ export class UpsertOperation {
     };
   }
 
+  private pkSelect(): Record<string, boolean> {
+    return Object.fromEntries(this.parentPrimaryKeys.map((pk) => [pk, true]));
+  }
+
   private buildConditionals(
     parent: QueryScope,
     parentSchemas: ReturnType<QueryEngine["schemaRegistry"]["getModelSchemas"]>,
@@ -358,7 +365,7 @@ export class UpsertOperation {
             parent,
             {
               where: { AND: [...uniqueFilters, where] },
-              select: { [this.parentPrimaryKey]: true },
+              select: this.pkSelect(),
               forUpdate: txMode,
             },
             { limit: 1 }

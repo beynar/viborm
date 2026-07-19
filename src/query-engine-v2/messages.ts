@@ -59,6 +59,29 @@ export function upsertTargetNotFoundForParent(relationName: string): string {
 }
 
 /**
+ * V1's rejection of a boolean `disconnect` on a many-to-many relation — the
+ * junction cannot know which membership to remove without a target selector
+ * (V1's `ManyToManyMemberships.disconnect`). Reproduced verbatim so the M2M
+ * parity oracle asserts it byte-for-byte.
+ */
+export function m2mDisconnectRequiresSelector(relationName: string): string {
+  return `Nested operation 'disconnect' on many-to-many relation '${relationName}' requires a target selector.`;
+}
+
+/**
+ * V1's raceable failure when the materialized membership set of a M2M
+ * `delete`/`deleteMany` changed between the planning read and the atomic batch
+ * (V1's `ManyToManyMutations.raceFailure`). Only the staleness path observes it;
+ * `raceable: true` per the Pin Rule's materialized-set class (ATOM §2).
+ */
+export function m2mMembershipRace(
+  relationName: string,
+  operation: "delete" | "deleteMany"
+): string {
+  return `Concurrent membership change during '${operation}' on many-to-many relation '${relationName}': retry to converge.`;
+}
+
+/**
  * The found-premise replacement message V1 raises when a nested `upsert` or
  * `connectOrCreate` located a row at planning that a concurrent transaction
  * replaced before the write (V1's `RelationBranches.replacementFailure`). It is
