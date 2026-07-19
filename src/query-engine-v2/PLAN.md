@@ -243,13 +243,33 @@ the single-threaded oracle cannot observe raceability.
   routing spy-asserted for `upsert`; create-arm depth scenarios joined the depth
   oracle; structural gates + fragment snapshot untouched; all five DBs incl. the
   Docker mysql2/pg legs (pg serial).
-- **P2c — nested update/updateMany/delete/deleteMany/set + createMany**: set's
-  departing-rows orphan guard (a retained pin); `createMany` incl. the SQLite
-  multi-statement summed-count plan and the skipDuplicates disposition
-  (savepoint-wrapped executor effect in tx mode — not a plain SQL leaf);
-  `producedRows` shapes as planning-time inlined sets. *Gate:* oracle grown to
-  the full conformance scenario set for FK shapes; behavior suites green
-  through the routing flag on all drivers, Docker named.
+- **P2c — nested update/updateMany/delete/deleteMany/set + createMany**
+  *(delivered)*: the write family closes. Nested `update`/`delete` (correlated
+  existence probe + leaf write, technique #1's `Ref` to the located parent) and
+  `updateMany`/`deleteMany` (correlated bulk write, no probe) compose as
+  `RelationWritePart`s — one write part, leaves differ (WHY §4.1); `set`'s
+  departing-rows orphan guard is the **retained `notExists` pin**
+  (`RelationSetPart`, `raceable: true`), its departing set a planning-time read
+  inlined at compile (never crossing a write boundary — §3 corollary).
+  `UpdateOperation` now composes multiple mutation kinds per relation.
+  `createMany` (`CreateManyOperation`) is single-statement where dialects allow,
+  the multi-statement **summed** `rowCount` via ordered fragment output source
+  lists elsewhere (the SQLite plan), with `skipDuplicates` a plain SQL leaf on
+  `sql`-strategy dialects and the savepoint-wrapped executor effect
+  (`onUniqueConflict: "skip"`, reusing V1's `executeSkippableWrite`) on
+  `recoverableUniqueError` dialects (MySQL) — the ONE dispositioned vocabulary
+  row goes live (design note + snapshot + census, ATOM §8.1). **Batch
+  disposition (recorded):** the skip effect has no atomic-batch lowering and
+  fails closed there; MySQL runs it in tx mode, the `sql`-strategy batch path is
+  proven on PGlite/SQLite/LibSQL. *Gate (met):* dual-run oracle grown to the FK
+  conformance scenario set for nested update/updateMany/delete/deleteMany/set
+  (V1-vs-V2, fresh instance per arm, state+result+error+message) and root
+  createMany; staleness injection for the set orphan pin (a concurrently added
+  required-FK child aborts the batch typed, the pin falsified once); per-tree
+  routing spy-asserted (`createMany` and the nested trees to V2; a non-Unsupported
+  V2 rejection recorded as a V2 route); structural gates green with the one
+  deliberate `StatementStep` snapshot update; all five DBs incl. the Docker
+  mysql2/pg legs (pg serial).
 
 *Kill signal (all of P2):* the executor or frozen vocabulary needs an
 operation-specific branch; or a kind cannot express itself as

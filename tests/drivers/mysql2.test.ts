@@ -20,9 +20,11 @@ import {
 } from "@query-engine/result-aliases";
 import { s } from "@schema";
 import { sql } from "@sql";
+import { runCreateManyBehavior } from "../query-engine-v2/create-many-behavior";
 import { runCreateNestedUpsertBehavior } from "../query-engine-v2/create-nested-upsert-behavior";
-import { runUpdateNestedUpsertBehavior } from "../query-engine-v2/update-nested-upsert-behavior";
+import { runNestedMutationBehavior } from "../query-engine-v2/nested-mutation-behavior";
 import { runUpdateFamilyBehavior } from "../query-engine-v2/update-family-behavior";
+import { runUpdateNestedUpsertBehavior } from "../query-engine-v2/update-nested-upsert-behavior";
 import { runUpsertFamilyBehavior } from "../query-engine-v2/upsert-family-behavior";
 import { MySQL2BatchForcedDriver } from "./batch-forced-mysql2";
 import { runClientRawBehavior } from "./client-raw-behavior";
@@ -346,6 +348,28 @@ describeIf("MySQL2 Driver", () => {
         databaseUrl: TEST_CONNECTION_STRING,
       }),
     createStateDriver: createMySQL2Driver,
+  });
+
+  runNestedMutationBehavior({
+    name: "MySQL2 transaction",
+    createDriver: createMySQL2Driver,
+  });
+  runNestedMutationBehavior({
+    name: "MySQL2 atomic batch",
+    createDriver: () =>
+      new MySQL2BatchForcedDriver({
+        databaseUrl: TEST_CONNECTION_STRING,
+      }),
+    createStateDriver: createMySQL2Driver,
+  });
+
+  // createMany on MySQL only in transaction mode: skipDuplicates uses the
+  // savepoint effect (recoverableUniqueError strategy), which has no atomic-batch
+  // lowering (the recorded batch disposition). MySQL always runs transactions in
+  // production; the sql-strategy batch path is proven on PGlite/SQLite/LibSQL.
+  runCreateManyBehavior({
+    name: "MySQL2 transaction",
+    createDriver: createMySQL2Driver,
   });
 
   test("rejects artificial batch-only non-returning writes before provider access", async () => {

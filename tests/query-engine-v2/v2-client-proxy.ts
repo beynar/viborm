@@ -3,6 +3,7 @@ import { createOperationExecutionContext } from "@query-engine/execution-context
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import type { Model } from "@schema/model";
 import { createSchemaRegistry } from "@validation";
+import { CreateManyOperation } from "../../src/query-engine-v2/CreateManyOperation";
 import { DeleteOperation } from "../../src/query-engine-v2/DeleteOperation";
 import type { ExecutableOperation } from "../../src/query-engine-v2/OperationExecutor";
 import { OperationExecutor } from "../../src/query-engine-v2/OperationExecutor";
@@ -29,7 +30,7 @@ export interface RouteRecord {
   readonly engine: "v1" | "v2";
 }
 
-type RoutedOperation = "delete" | "update" | "upsert";
+type RoutedOperation = "createMany" | "delete" | "update" | "upsert";
 
 export interface V2RoutedClient {
   readonly client: Record<string, ModelApi>;
@@ -48,12 +49,15 @@ const CONSTRUCTORS: Record<RoutedOperation, ConstructOperation> = {
   update: (engine, model, args) => new UpdateOperation(engine, model, args),
   delete: (engine, model, args) => new DeleteOperation(engine, model, args),
   upsert: (engine, model, args) => new UpsertOperation(engine, model, args),
+  createMany: (engine, model, args) =>
+    new CreateManyOperation(engine, model, args),
 };
 
 const ROUTED_OPERATIONS: ReadonlySet<string> = new Set([
   "update",
   "delete",
   "upsert",
+  "createMany",
 ]);
 
 export function createV2RoutedClient(options: {
@@ -83,6 +87,11 @@ export function createV2RoutedClient(options: {
         routes.push({ model: modelName, operation, engine: "v1" });
         return client[modelName]![operation]!(args);
       }
+      // A non-Unsupported construction error is V2 REJECTING a payload it owns
+      // (a `ValidationError`, the own-write preflight, a required-FK disconnect
+      // rejected before any I/O) — V1 rejects it too. Record it as a V2 route so
+      // the oracle sees V2 handled the tree, then propagate the genuine error.
+      routes.push({ model: modelName, operation, engine: "v2" });
       throw error;
     }
     routes.push({ model: modelName, operation, engine: "v2" });

@@ -45,6 +45,13 @@ import {
   buildToManyUpsertParts,
   plannedParentId,
 } from "./RelationUpsertPart";
+import {
+  buildToManyDeleteManyParts,
+  buildToManyDeleteParts,
+  buildToManySetPart,
+  buildToManyUpdateManyParts,
+  buildToManyUpdateParts,
+} from "./RelationWritePart";
 import { StepScope } from "./StepScope";
 import {
   getStepModelName,
@@ -107,12 +114,11 @@ export class UpdateOperation {
     const scope = this.scope;
 
     // 1. Validate the argument shape. `where` locates by any unique; `data`
-    //    mixes scalar assignments and nested relation mutations; `select` shapes
-    //    the terminal read.
-    assertExactKeys(args, ["where", "data", "select"], "update arguments");
+    //    mixes scalar assignments and nested relation mutations; `select` is
+    //    optional and shapes the terminal read (Prisma's default is all scalars).
+    assertUpdateKeys(args);
     const where = requireRecord(args.where, "update.where");
     const data = requireRecord(args.data, "update.data");
-    const select = requireRecord(args.select, "update.select");
     const parent = createQueryScope(engine.adapter, model);
     const separated = separateData(parent, data);
 
@@ -130,11 +136,9 @@ export class UpdateOperation {
       where,
       "where"
     );
-    this.parsedSelect = parseRecord(
-      parentSchemas.core.select,
-      select,
-      "select"
-    );
+    this.parsedSelect = isRecord(args.select)
+      ? parseRecord(parentSchemas.core.select, args.select, "select")
+      : defaultSelect(model);
     this.resultArgs = { select: this.parsedSelect };
 
     // 2. Own-write preflight (ATOM §4): any decision read overlapping this
@@ -313,22 +317,23 @@ export class UpdateOperation {
     const { relationName, mutation, parsedRelation } = input;
     const relationInfo = mutation.relationInfo;
     const kinds = getRelationMutationKinds(mutation);
-    if (kinds.length !== 1) {
-      throw new UnsupportedOperationError(
-        `query-engine-v2 update supports one mutation kind per relation; relation '${relationName}' has ${kinds.join(", ") || "none"}.`
-      );
-    }
-    const kind = kinds[0]!;
     const fk = getFkDirection(input.parent, relationInfo);
 
     if (fk.holdsFK) {
+      // A parent-held FK is a same-row change (folded into the root SET). Only a
+      // single connect/disconnect is in P2a scope; anything else routes to V1.
+      if (kinds.length !== 1) {
+        throw new UnsupportedOperationError(
+          `query-engine-v2 update supports one mutation kind on the to-one relation '${relationName}'; it has ${kinds.join(", ") || "none"}.`
+        );
+      }
       input.toOneLinks.push(
         this.interpretToOneLink(
           input.scope,
           relationName,
           relationInfo,
           fk,
-          kind,
+          kinds[0]!,
           parsedRelation
         )
       );
@@ -356,67 +361,159 @@ export class UpdateOperation {
       );
     }
     const childName = getStepModelName(relationInfo.targetModel, relationName);
+    const writeBase = {
+      scope: input.scope,
+      engine: this.engine,
+      relationName,
+      relationInfo,
+      childName,
+      childScope,
+      childForeignKey: fk.fkFields[0]!,
+      childPrimaryKey: childPrimaryKeys[0]!,
+      parentId: input.parentIdSource,
+      txMode: input.txMode,
+    } as const;
 
-    if (kind === "upsert") {
-      input.childParts.push(
-        ...buildToManyUpsertParts(
-          input.scope,
-          input.parent,
-          this.engine,
-          relationName,
-          relationInfo,
-          normalizeItems(parsedRelation.upsert, relationName),
-          input.parentIdSource,
-          this.parentPrimaryKey,
-          "correlated",
-          input.txMode
-        )
-      );
-      return;
+    // Multiple mutation kinds may coexist on one to-many relation (V1's
+    // `{ delete, deleteMany }`, `{ update, updateMany }`, …). Each present kind
+    // contributes its own Part(s); they compose into the one linear fragment in
+    // a stable, V1-mirroring order (link/adopt, then removals, then updates).
+    for (const kind of kinds) {
+      this.interpretToManyKind({
+        kind,
+        relationName,
+        relationInfo,
+        parsedRelation,
+        childScope,
+        childName,
+        childPrimaryKey: childPrimaryKeys[0]!,
+        childForeignKey: fk.fkFields[0]!,
+        fkFields: fk.fkFields,
+        writeBase,
+        input,
+      });
     }
-    if (kind === "connectOrCreate") {
-      // connectOrCreate under update is still a GLOBAL lookup-and-adopt (found →
-      // reparent, absent → create), never correlated (PLAN P−1.2) — the update-
-      // less member of the adopt family, composed exactly like the upsert part.
-      input.childParts.push(
-        ...buildConnectOrCreateParts(
-          input.scope,
-          input.parent,
-          this.engine,
-          relationName,
-          relationInfo,
-          normalizeItems(parsedRelation.connectOrCreate, relationName),
-          input.parentIdSource,
-          this.parentPrimaryKey,
-          input.txMode
-        )
-      );
-      return;
+  }
+
+  private interpretToManyKind(args: {
+    kind: string;
+    relationName: string;
+    relationInfo: RelationInfo;
+    parsedRelation: Record<string, unknown>;
+    childScope: QueryScope;
+    childName: string;
+    childPrimaryKey: string;
+    childForeignKey: string;
+    fkFields: readonly string[];
+    writeBase: Parameters<typeof buildToManyUpdateParts>[0];
+    input: {
+      scope: StepScope;
+      parent: QueryScope;
+      parentIdSource: ReturnType<typeof plannedParentId>;
+      txMode: boolean;
+      childParts: Part[];
+    };
+  }): void {
+    const {
+      kind,
+      relationName,
+      relationInfo,
+      parsedRelation,
+      childScope,
+      childName,
+      childPrimaryKey,
+      childForeignKey,
+      fkFields,
+      writeBase,
+      input,
+    } = args;
+    const push = (parts: readonly Part[]) => input.childParts.push(...parts);
+
+    switch (kind) {
+      case "upsert":
+        push(
+          buildToManyUpsertParts(
+            input.scope,
+            input.parent,
+            this.engine,
+            relationName,
+            relationInfo,
+            normalizeItems(parsedRelation.upsert, relationName),
+            input.parentIdSource,
+            this.parentPrimaryKey,
+            "correlated",
+            input.txMode
+          )
+        );
+        return;
+      case "connectOrCreate":
+        // Still a GLOBAL lookup-and-adopt under update (found → reparent, absent
+        // → create), never correlated (PLAN P−1.2) — composed like the upsert part.
+        push(
+          buildConnectOrCreateParts(
+            input.scope,
+            input.parent,
+            this.engine,
+            relationName,
+            relationInfo,
+            normalizeItems(parsedRelation.connectOrCreate, relationName),
+            input.parentIdSource,
+            this.parentPrimaryKey,
+            input.txMode
+          )
+        );
+        return;
+      case "connect":
+      case "disconnect":
+        if (kind === "disconnect") {
+          // A required child FK cannot be nulled — V1's verbatim typed rejection.
+          assertNullable(
+            relationInfo,
+            getFkDirection(input.parent, relationInfo)
+          );
+        }
+        push(
+          buildToManyLinkParts(
+            input.scope,
+            this.engine,
+            relationName,
+            relationInfo,
+            childName,
+            childScope,
+            childForeignKey,
+            childPrimaryKey,
+            kind,
+            kind === "connect"
+              ? parsedRelation.connect
+              : parsedRelation.disconnect,
+            input.parentIdSource,
+            input.txMode
+          )
+        );
+        return;
+      case "update":
+        push(buildToManyUpdateParts(writeBase, parsedRelation.update));
+        return;
+      case "updateMany":
+        push(buildToManyUpdateManyParts(writeBase, parsedRelation.updateMany));
+        return;
+      case "delete":
+        push(buildToManyDeleteParts(writeBase, parsedRelation.delete));
+        return;
+      case "deleteMany":
+        push(buildToManyDeleteManyParts(writeBase, parsedRelation.deleteMany));
+        return;
+      case "set":
+        input.childParts.push(
+          buildToManySetPart(writeBase, fkFields, parsedRelation.set)
+        );
+        return;
+      default:
+        // create / createMany nested under update are V1's surface, not P2c's.
+        throw new UnsupportedOperationError(
+          `query-engine-v2 update does not support nested '${kind}' on relation '${relationName}'.`
+        );
     }
-    if (kind === "connect" || kind === "disconnect") {
-      input.childParts.push(
-        ...buildToManyLinkParts(
-          input.scope,
-          this.engine,
-          relationName,
-          relationInfo,
-          childName,
-          childScope,
-          fk.fkFields[0]!,
-          childPrimaryKeys[0]!,
-          kind,
-          kind === "connect"
-            ? parsedRelation.connect
-            : parsedRelation.disconnect,
-          input.parentIdSource,
-          input.txMode
-        )
-      );
-      return;
-    }
-    throw new UnsupportedOperationError(
-      `query-engine-v2 update does not support nested '${kind}' on relation '${relationName}' yet.`
-    );
   }
 
   private interpretToOneLink(
@@ -643,17 +740,20 @@ function parseRecord(
   return result.value;
 }
 
-function assertExactKeys(
-  value: Record<string, unknown>,
-  expected: readonly string[],
-  label: string
-): void {
-  const allowed = new Set(expected);
+function assertUpdateKeys(value: Record<string, unknown>): void {
+  const required = ["where", "data"] as const;
+  const allowed = new Set<string>([...required, "select"]);
   const unexpected = Object.keys(value).filter((key) => !allowed.has(key));
-  const missing = expected.filter((key) => !Object.hasOwn(value, key));
+  const missing = required.filter((key) => !Object.hasOwn(value, key));
   if (unexpected.length === 0 && missing.length === 0) return;
   throw new UnsupportedOperationError(
-    `${label} requires exactly ${expected.join(", ")}; received ${Object.keys(value).join(", ") || "none"}.`
+    `update arguments require where, data (optional select); received ${Object.keys(value).join(", ") || "none"}.`
+  );
+}
+
+function defaultSelect(model: Model<any>): Record<string, unknown> {
+  return Object.fromEntries(
+    model["~"].scalarFieldNames.map((field: string) => [field, true])
   );
 }
 

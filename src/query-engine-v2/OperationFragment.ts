@@ -73,6 +73,20 @@ export interface StatementStep {
   readonly expects?: Postcondition;
   /** Present on writes whose unique-constraint violation is the raceable signal. */
   readonly racePin?: TargetConstraintPin;
+  /**
+   * The census's `onUniqueConflict: "skip"` disposition (ATOM §8): a write whose
+   * unique-constraint violation is *absorbed* rather than propagated — the
+   * `createMany` skipDuplicates row on a dialect whose skip strategy is
+   * `recoverableUniqueError` (no portable `ON CONFLICT DO NOTHING` that reports a
+   * skipped-row count). It is an **executor effect**, not a plain SQL leaf: the
+   * executor runs the write behind a savepoint and, on a unique violation,
+   * yields a zero-row result instead of aborting the atomic unit (V1's
+   * `executeSkippableWrite`). It has no lowering to a plain atomic batch, so a
+   * batch-mode step carrying it fails closed. Dialects whose skip *is* a plain
+   * SQL leaf (`INSERT … ON CONFLICT DO NOTHING`, `INSERT OR IGNORE`) never set
+   * this — the leaf carries the semantics and lowers to batch unchanged.
+   */
+  readonly onUniqueConflict?: "skip";
 }
 
 export interface GuardStep {

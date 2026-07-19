@@ -19,7 +19,7 @@ export interface Probe { readonly read: StatementStep; readonly pin: { readonly 
 
 export type StatementOutputSource = | { readonly kind: "rows" } | { readonly kind: "rowCount" } | { readonly kind: "insertId" } | { readonly kind: "firstRowField"; readonly field: string };
 
-export interface StatementStep { readonly id: string; readonly kind: "read" | "write"; readonly statement: Sql; readonly outputs: Readonly<Record<string, StatementOutputSource>>; readonly expects?: Postcondition; readonly racePin?: TargetConstraintPin; }
+export interface StatementStep { readonly id: string; readonly kind: "read" | "write"; readonly statement: Sql; readonly outputs: Readonly<Record<string, StatementOutputSource>>; readonly expects?: Postcondition; readonly racePin?: TargetConstraintPin; readonly onUniqueConflict?: "skip"; }
 
 export interface TargetConstraintPin { readonly fields: readonly string[]; readonly table: string; readonly columns: readonly string[]; readonly constraints: readonly string[]; }"
 `;

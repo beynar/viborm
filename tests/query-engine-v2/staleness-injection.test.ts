@@ -12,6 +12,7 @@ import { describe, expect, test } from "vitest";
 import { DeleteOperation } from "../../src/query-engine-v2/DeleteOperation";
 import { OperationExecutor } from "../../src/query-engine-v2/OperationExecutor";
 import { UpdateOperation } from "../../src/query-engine-v2/UpdateOperation";
+import { nestedWriteBehaviorSchema } from "../fixtures/nested-write-behavior-schema";
 import { updateFamilySchema } from "./update-family-behavior";
 
 // ---------------------------------------------------------------------------
@@ -272,6 +273,88 @@ describe("query-engine-v2 staleness injection (per premise class)", () => {
         }
       )
     ).rejects.toBeInstanceOf(NestedWriteError);
+    await client.$disconnect();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The P2c new premise class: the `set` departing-rows orphan pin (ATOM §2's
+// RETAINED notExists guard, raceable: true). Planning finds no departing child
+// (the required-FK set is a no-op); a concurrent write connects a new child to
+// the parent BEFORE the batch, so a departing row now exists. The pinned guard
+// must abort the batch with the typed orphan failure — proving the retained pin
+// is enforced inside the atomic unit, not merely observed at planning.
+// ---------------------------------------------------------------------------
+
+function makeNestedClient(db: PGlite) {
+  return createClient({
+    schema: nestedWriteBehaviorSchema,
+    driver: new PGliteDriver({ client: db }),
+  });
+}
+
+function runNestedUpdate(
+  db: PGlite,
+  beforeBatch: () => Promise<void>,
+  modelName: string,
+  model: Model<any>,
+  args: Record<string, unknown>
+): Promise<unknown> {
+  const driver = new BeforeBatchPGliteDriver(beforeBatch, { client: db });
+  const schemas = createSchemaRegistry(nestedWriteBehaviorSchema);
+  const engine = new QueryEngine(
+    driver,
+    createModelRegistry(nestedWriteBehaviorSchema, schemas)
+  );
+  const executor = new OperationExecutor(engine);
+  const operation = new UpdateOperation(engine, model, args);
+  const context = createOperationExecutionContext(
+    modelName,
+    "update",
+    engine.instrumentation
+  );
+  return executor.execute(operation, context);
+}
+
+describe("query-engine-v2 staleness injection (set orphan pin)", () => {
+  test("set departing-rows orphan pin: a concurrently added required-FK child aborts the batch typed", async () => {
+    const db = new PGlite();
+    const client = makeNestedClient(db);
+    await push(client, { force: true });
+    await client.tag.create({ data: { id: "t1", name: "one" } });
+    await client.tag.create({ data: { id: "t2", name: "two" } });
+    await client.post.create({
+      data: {
+        id: "po1",
+        title: "Set no-op",
+        userId: null,
+        postTags: { create: { id: "j1", tag: { connect: { id: "t1" } } } },
+      },
+    });
+
+    // Planning sees po1's only child is j1 (in the target set) → the departing
+    // set is empty and the retained notExists guard is pinned. The hook connects
+    // a NEW child (j2) to po1 before the batch, making it a departing row.
+    const injector = makeNestedClient(db);
+    await expect(
+      runNestedUpdate(
+        db,
+        async () => {
+          await injector.postTag.create({
+            data: { id: "j2", postId: "po1", tagId: "t2" },
+          });
+        },
+        "post",
+        nestedWriteBehaviorSchema.post,
+        {
+          where: { id: "po1" },
+          data: { postTags: { set: [{ id: "j1" }] } },
+        }
+      )
+    ).rejects.toBeInstanceOf(NestedWriteError);
+
+    // Both children survive; the set never fired.
+    await expect(client.postTag.findMany()).resolves.toHaveLength(2);
     await client.$disconnect();
   });
 });

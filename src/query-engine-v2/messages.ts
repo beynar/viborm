@@ -34,6 +34,21 @@ export function relationTargetNotFound(
 }
 
 /**
+ * The `set` orphan-guard message V1 raises when a `set` would strand a child
+ * whose foreign key is required (the rows departing the membership cannot be
+ * nulled, so they must be deleted instead). V1 builds this string inline in
+ * `RelationRemovals.set` (not through `relationTargetFailure`), so it is
+ * reproduced verbatim here — the retained `notExists` orphan pin (ATOM §2)
+ * carries it, and the parity oracle asserts it byte-for-byte.
+ */
+export function setRequiredOrphan(
+  relationName: string,
+  requiredFields: readonly string[]
+): string {
+  return `Cannot set relation '${relationName}' because foreign key field(s) ${requiredFields.join(", ")} are required: rows removed from the set cannot be disconnected. Delete them instead.`;
+}
+
+/**
  * The nested-upsert found-uncorrelated error (V7001). V1 builds this string
  * inline in `RelationBranches` (not through `relationTargetFailure`, which has
  * no `upsert` operation), so it is reproduced verbatim here and asserted equal

@@ -13,6 +13,7 @@ import {
 } from "@errors";
 import { isSql, Sql } from "@sql";
 import { createCorrelationId } from "../query-engine/execution-context";
+import { executeSkippableWrite } from "../query-engine/OperationRuntime";
 import type { QueryEngine } from "../query-engine/query-engine";
 import { validateFragment } from "./FragmentValidator";
 import {
@@ -190,10 +191,16 @@ export class OperationExecutor {
           `Guard step '${step.id}' requires atomic batch execution.`
         );
       }
-      const result = await driver._execute(
-        materializeLinearSql(step.statement, values),
-        context
-      );
+      const statement = materializeLinearSql(step.statement, values);
+      // A write carrying the census `onUniqueConflict: "skip"` effect (ATOM §8)
+      // runs behind a savepoint: a unique violation is absorbed as a zero-row
+      // result rather than aborting the surrounding atomic scope (V1's
+      // `executeSkippableWrite`). This is a generic executor effect — no
+      // operation-kind knowledge — so any step declaring it is served identically.
+      const result =
+        step.kind === "write" && step.onUniqueConflict === "skip"
+          ? await executeSkippableWrite(driver, statement, context)
+          : await driver._execute(statement, context);
       assertNormalizedQueryResult(result, {
         provider: driver.driverName,
         operation: step.id,
@@ -228,6 +235,16 @@ export class OperationExecutor {
         // one must fail closed here — never a silent skip (ATOM §1).
         throw new QueryEngineError(
           `Step '${step.id}' carries a postcondition that is not yet enforced in batch mode.`
+        );
+      }
+
+      if (step.onUniqueConflict === "skip") {
+        // The savepoint-wrapped skip effect (ATOM §8) has no lowering to a plain
+        // atomic batch — a batch is one indivisible unit, so a per-row rollback
+        // is not expressible. Fail closed rather than silently propagate the
+        // violation and abort the whole batch (the recorded batch disposition).
+        throw new QueryEngineError(
+          `Step '${step.id}' carries an onUniqueConflict skip effect that has no atomic-batch lowering.`
         );
       }
 
@@ -273,7 +290,7 @@ export class OperationExecutor {
     driver: AnyDriver,
     context: QueryExecutionContext
   ): Promise<Readonly<Record<string, unknown>>> {
-    const { fragment, entries, values } = plan;
+    const { entries } = plan;
     const queries = entries.map((entry) => driver._prepare(entry.statement));
 
     let results: QueryResult<unknown>[];

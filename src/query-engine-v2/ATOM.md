@@ -458,6 +458,66 @@ census with **no new vocabulary**:
 The `OperationFragment.ts` type surface was **unchanged** by P2b, so the P0
 fragment-surface snapshot + executor token gate stayed green — the **freeze held**.
 
+**P2c update — the write family closes, and the one dispositioned vocabulary row
+goes live.** Nested `update`/`updateMany`/`delete`/`deleteMany`/`set` on a
+child-held-FK to-many relation, and root `createMany`, land. Four facts against
+the census:
+
+1. **The correlated-mutation family is one write Part, leaves differ (WHY §4.1).**
+   `RelationWritePart` serves nested `update`/`delete` (a *correlated* existence
+   probe carrying technique #1's `Ref` to the located parent, then `UPDATE …
+   SET`/`DELETE … WHERE unique`, pinned in batch by an exists guard; absent →
+   V1's verbatim `Cannot {op} … for this parent`) and nested
+   `updateMany`/`deleteMany` (one correlated bulk write `WHERE fk = parent AND
+   filter`, no probe, zero rows a silent success). It reuses the exact shape of
+   `RelationLinkPart`'s connect/disconnect — no new vocabulary, no new step kind.
+   `UpdateOperation` now composes **multiple** mutation kinds on one relation
+   (`{ delete, deleteMany }`, `{ update, updateMany }`) as several Parts in one
+   linear fragment.
+
+2. **`set` is membership as leaves, and the departing-rows orphan guard is a
+   RETAINED `notExists` pin (§2), now live.** `RelationSetPart` reads the
+   departing set at *planning* (correlated by a `Ref`) and inlines it into the
+   final SQL at compile (`fk = parent AND NOT (unique … )`) — the row set is
+   **planning-time only** and never crosses a write boundary at runtime (§3
+   corollary, `ProducedRows` disposition). A required FK cannot be nulled, so a
+   non-empty departing set is rejected at compile (V1's verbatim orphan message)
+   and, in batch, pinned by a `notExists` guard (`raceable: true`) — the
+   materialized-condition Pin-Rule class the validator's invariant-5 residue
+   already accepts. A nullable FK nulls the departing set with one correlated
+   bulk update. The pin was falsified once (guard removed → the staleness test
+   passes with a stale set → restored).
+
+3. **`createMany` consumes the multi-statement ordered-source-list output, and
+   `onUniqueConflict: "skip"` becomes the ONE live vocabulary row.** The bulk
+   insert is one INSERT where the dialect allows; where explicit row shapes
+   differ it is several statements whose `rowCount`s **sum** through a fragment
+   output source list (§1) — the SQLite multi-statement plan, but the rule is
+   dialect-agnostic. `skipDuplicates` is a plain SQL leaf on `sql`-strategy
+   dialects (`ON CONFLICT DO NOTHING`, `INSERT OR IGNORE` — the leaf carries the
+   semantics, lowers to batch unchanged) and the **savepoint-wrapped executor
+   effect** (`onUniqueConflict: "skip"`) on `recoverableUniqueError` dialects
+   (MySQL), reusing V1's `executeSkippableWrite` verbatim. **Batch disposition
+   (recorded):** the skip effect has no atomic-batch lowering — a batch is one
+   indivisible unit, so per-row rollback is inexpressible — and a batch-mode step
+   carrying it **fails closed**. MySQL runs transactions in production, so the
+   effect always executes in tx mode; the `sql`-strategy batch path is proven on
+   PGlite/SQLite/LibSQL.
+
+**Design note — the P2c vocabulary change (the freeze's sanctioned path, not a
+kill signal).** P2c adds exactly one field to `StatementStep`:
+`readonly onUniqueConflict?: "skip"`. This is the realization of a census row
+already dispositioned in P0 (§8's `onUniqueConflict: "skip"` = *an executor
+effect, not a plain SQL leaf*), so it is a **vocabulary change made the
+sanctioned way**: design note (here) + census row (already present, now marked
+live) + the P0 fragment-surface snapshot updated deliberately. It is **not** a
+kill signal: the executor handles it as a *generic* effect (any write declaring
+it runs behind a savepoint; no operation-kind, relation-kind, or `createMany`
+token enters the executor — the structural gate stays green), and no row set
+crosses a write boundary at runtime. The step vocabulary is still exactly
+`{read, write, guard}` and the exported type-name set is unchanged, so gate (d)
+holds; only the `StatementStep` field snapshot moved, with this note attached.
+
 ---
 
 ## 9. Invariants (the executable contract)

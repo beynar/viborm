@@ -19,9 +19,11 @@ import {
   setupSQLite3UserPostDatabase,
 } from "../fixtures/drivers/sqlite3";
 import { seedWindowUserPosts } from "../fixtures/user-post-seed";
+import { runCreateManyBehavior } from "../query-engine-v2/create-many-behavior";
 import { runCreateNestedUpsertBehavior } from "../query-engine-v2/create-nested-upsert-behavior";
-import { runUpdateNestedUpsertBehavior } from "../query-engine-v2/update-nested-upsert-behavior";
+import { runNestedMutationBehavior } from "../query-engine-v2/nested-mutation-behavior";
 import { runUpdateFamilyBehavior } from "../query-engine-v2/update-family-behavior";
+import { runUpdateNestedUpsertBehavior } from "../query-engine-v2/update-nested-upsert-behavior";
 import { runUpsertFamilyBehavior } from "../query-engine-v2/upsert-family-behavior";
 import { runBatchPrimaryKeyDataflowBehavior } from "./batch-primary-key-dataflow-behavior";
 import { runBatchRefSmokeBehavior } from "./batch-ref-smoke-behavior";
@@ -848,6 +850,24 @@ describe("SQLite3 Driver", () => {
     createDriver: createInMemorySQLite3Driver,
   });
   runUpsertFamilyBehavior({
+    name: "SQLite3 atomic batch",
+    createDriver: createBatchOnlySQLite3Driver,
+  });
+
+  runNestedMutationBehavior({
+    name: "SQLite3 transaction",
+    createDriver: createInMemorySQLite3Driver,
+  });
+  runNestedMutationBehavior({
+    name: "SQLite3 atomic batch",
+    createDriver: createBatchOnlySQLite3Driver,
+  });
+
+  runCreateManyBehavior({
+    name: "SQLite3 transaction",
+    createDriver: createInMemorySQLite3Driver,
+  });
+  runCreateManyBehavior({
     name: "SQLite3 atomic batch",
     createDriver: createBatchOnlySQLite3Driver,
   });

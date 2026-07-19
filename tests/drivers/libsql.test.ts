@@ -2,9 +2,11 @@ import { LibSQLDriver } from "@drivers/libsql";
 import type { BatchQuery, QueryResult } from "@drivers/types";
 import type { Client, Transaction } from "@libsql/client";
 import { createInMemoryLibSQLDriver } from "../fixtures/drivers/libsql";
+import { runCreateManyBehavior } from "../query-engine-v2/create-many-behavior";
 import { runCreateNestedUpsertBehavior } from "../query-engine-v2/create-nested-upsert-behavior";
-import { runUpdateNestedUpsertBehavior } from "../query-engine-v2/update-nested-upsert-behavior";
+import { runNestedMutationBehavior } from "../query-engine-v2/nested-mutation-behavior";
 import { runUpdateFamilyBehavior } from "../query-engine-v2/update-family-behavior";
+import { runUpdateNestedUpsertBehavior } from "../query-engine-v2/update-nested-upsert-behavior";
 import { runUpsertFamilyBehavior } from "../query-engine-v2/upsert-family-behavior";
 import { runClientRawBehavior } from "./client-raw-behavior";
 import { runCompoundKeyBehavior } from "./compound-key-behavior";
@@ -192,6 +194,24 @@ describe("LibSQL Driver", () => {
     createDriver: createInMemoryLibSQLDriver,
   });
   runUpsertFamilyBehavior({
+    name: "LibSQL atomic batch",
+    createDriver: () => new BatchOnlyLibSQLDriver(),
+  });
+
+  runNestedMutationBehavior({
+    name: "LibSQL transaction",
+    createDriver: createInMemoryLibSQLDriver,
+  });
+  runNestedMutationBehavior({
+    name: "LibSQL atomic batch",
+    createDriver: () => new BatchOnlyLibSQLDriver(),
+  });
+
+  runCreateManyBehavior({
+    name: "LibSQL transaction",
+    createDriver: createInMemoryLibSQLDriver,
+  });
+  runCreateManyBehavior({
     name: "LibSQL atomic batch",
     createDriver: () => new BatchOnlyLibSQLDriver(),
   });
