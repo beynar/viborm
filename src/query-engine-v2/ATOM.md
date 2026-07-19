@@ -132,8 +132,9 @@ error — the Pin Rule as an invariant, not a code-review hope.
 Retained `notExists` pins (the Pin Rule's own exceptions — do not "optimize"
 them away): the `targetWhere`/`setWhere` skip premise (no INSERT exists for a
 constraint to fire on), the `set` departing-rows orphan guard, and the
-materialized-set symmetric-difference guards (M2M `deleteMany`/`set`), which
-are `raceable: true`.
+materialized-set symmetric-difference guards (M2M `deleteMany`), which are
+`raceable: true`. (M2M `set` needs none: it is an unconditional delete-all plus
+probed inserts — no materialized set survives to go stale.)
 
 ---
 

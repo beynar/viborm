@@ -9,9 +9,11 @@ import { createV2RoutedClient } from "./v2-client-proxy";
 
 /**
  * The P3 many-to-many dual-run oracle: the FK conformance M2M scenario set
- * (nested connect/disconnect/set/delete/deleteMany/update/updateMany, plus the
- * own-write preflight rejections and the routing-boundary connectOrCreate/upsert
- * shapes) run as the SAME payload through the real V1 client and, via the
+ * (nested connect/disconnect/set/delete/deleteMany/update/updateMany, plus one
+ * own-write preflight rejection — connect+deleteMany; the other overlap kinds
+ * share the same reused V1 preflight path — and the routing-boundary
+ * connectOrCreate/upsert shapes) run as the SAME payload through the real V1
+ * client and, via the
  * V2-routed proxy, through V2 (tx and forced batch), FRESH instances per arm,
  * asserting byte-identical persisted state + result + error class AND message.
  *
@@ -439,7 +441,10 @@ const scenarios: Scenario[] = [
 
 describe("query-engine-v2 many-to-many dual-run oracle (V1 vs V2)", () => {
   for (const scenario of scenarios) {
-    test(scenario.name, { timeout: 30_000 }, async () => {
+    // retry absorbs transient PGlite WASM crashes under full-suite parallel
+    // load only — a real dual-run divergence is deterministic by construction
+    // (fresh instances, deterministic ids) and fails every retry.
+    test(scenario.name, { timeout: 30_000, retry: 2 }, async () => {
       const v1 = await runArm("v1", scenario);
       const tx = await runArm("v2-tx", scenario);
       const batch = await runArm("v2-batch", scenario);

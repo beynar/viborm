@@ -462,4 +462,65 @@ describe("query-engine-v2 staleness injection (M2M deleteMany materialized-set p
     expect(await client.tag.findMany()).toHaveLength(0);
     await client.$disconnect();
   });
+
+  test("a concurrently removed member aborts the batch typed and raceable, then a rerun converges", async () => {
+    const db = new PGlite();
+    const client = makeM2mClient(db);
+    await push(client, { force: true });
+    await client.post.create({ data: { id: "p1", title: "Post 1" } });
+    await client.tag.create({
+      data: { id: "t1", name: "tag-1", featuredPostId: null },
+    });
+    await client.tag.create({
+      data: { id: "t2", name: "tag-2", featuredPostId: null },
+    });
+    await client.post.update({
+      where: { id: "p1" },
+      data: { tags: { connect: [{ id: "t1" }, { id: "t2" }] } },
+    });
+
+    // Planning captures the connected∧filter set = {t1, t2}. The hook
+    // disconnects t2 before the batch → a "removed" difference: deleting the
+    // materialized set would now over-delete a child no longer connected.
+    const injector = makeM2mClient(db);
+    const rejected = await runM2mUpdate(
+      db,
+      async () => {
+        await injector.post.update({
+          where: { id: "p1" },
+          data: { tags: { disconnect: { id: "t2" } } },
+        });
+      },
+      manyToManySchema.post,
+      { where: { id: "p1" }, data: { tags: { deleteMany: {} } } }
+    ).catch((error) => error);
+    expect(rejected).toBeInstanceOf(NestedWriteError);
+    expect((rejected as NestedWriteError).meta.raceable).toBe(true);
+
+    // The batch aborted whole: t1 stays connected, t2 survives disconnected.
+    const afterAbort = await client.post.findUnique({
+      where: { id: "p1" },
+      include: { tags: true },
+    });
+    expect(
+      (afterAbort as { tags: { id: string }[] }).tags.map((t) => t.id)
+    ).toEqual(["t1"]);
+    expect(await client.tag.findMany()).toHaveLength(2);
+
+    // Rerun with no concurrent change: it re-reads the shrunken set {t1} and
+    // converges — t1 deleted, the disconnected t2 untouched.
+    await runM2mUpdate(db, undefined, manyToManySchema.post, {
+      where: { id: "p1" },
+      data: { tags: { deleteMany: {} } },
+    });
+    const afterRerun = await client.post.findUnique({
+      where: { id: "p1" },
+      include: { tags: true },
+    });
+    expect((afterRerun as { tags: unknown[] }).tags).toHaveLength(0);
+    expect(
+      (await client.tag.findMany()).map((t: { id: string }) => t.id)
+    ).toEqual(["t2"]);
+    await client.$disconnect();
+  });
 });
