@@ -232,4 +232,21 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
     }
     expect(routed).toEqual([REMAINING_ROUTE]);
   });
+
+  // The corpus above exercises the *tracked* shapes; this tripwire catches the
+  // untracked ones. Any new `throw new UnsupportedOperationError` site in the
+  // V2 source is a new route to V1 and must be added to the corpus (and to the
+  // P6 deletion accounting) — update the count only alongside that.
+  test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
+    const { readdir, readFile } = await import("node:fs/promises");
+    const { join } = await import("node:path");
+    const dir = join(__dirname, "../../src/query-engine-v2");
+    const files = (await readdir(dir)).filter((f) => f.endsWith(".ts"));
+    let sites = 0;
+    for (const file of files) {
+      const source = await readFile(join(dir, file), "utf8");
+      sites += source.split("new UnsupportedOperationError(").length - 1;
+    }
+    expect(sites).toBe(36);
+  });
 });

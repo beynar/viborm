@@ -3,7 +3,10 @@ import type { BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { push } from "@migrations";
+import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
+import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
+import { UpdateOperation } from "../../src/query-engine-v2/UpdateOperation";
 import { manyToManySchema } from "../fixtures/many-to-many-schema";
 import { createV2RoutedClient } from "./v2-client-proxy";
 
@@ -700,4 +703,84 @@ describe("query-engine-v2 self-referential M2M direction", () => {
       expect(batch.junction).toEqual(tx.junction);
     }
   );
+});
+
+// ---------------------------------------------------------------------------
+// Pin Rule structural witness for the P4.5 create-through-junction arms
+// (review residue): the connectOrCreate missing arm must carry the child
+// racePin (its unique-constraint violation is the raceable signal) and NO
+// guard; the found arm pins existence raceable:false. This is the assertion
+// whose absence let a dropped racePin pass the whole suite.
+// ---------------------------------------------------------------------------
+
+describe("M2M connectOrCreate Pin Rule structure", () => {
+  const makeOperation = () => {
+    const db = new PGlite();
+    const driver = new BatchOnlyPGliteDriver({ client: db });
+    // Hydrates the shared schema fixture's name registry (createClient does it
+    // as a side effect; no I/O happens — the operation is never executed).
+    createClient({ schema: manyToManySchema, driver });
+    const schemas = createSchemaRegistry(manyToManySchema);
+    const engine = new QueryEngine(
+      driver,
+      createModelRegistry(manyToManySchema, schemas)
+    );
+    return new UpdateOperation(engine, manyToManySchema.post, {
+      where: { id: "p1" },
+      data: {
+        tags: {
+          connectOrCreate: {
+            where: { id: "t9" },
+            create: { id: "t9", name: "tag-9" },
+          },
+        },
+      },
+    });
+  };
+
+  const knownFor = (
+    operation: ReturnType<typeof makeOperation>,
+    probeRows: Record<string, unknown>[]
+  ) => {
+    const known: Record<string, unknown> = {};
+    for (const step of operation.planning().steps) {
+      known[`${step.id}.rows`] = step.id.includes("tag")
+        ? probeRows
+        : [{ id: "p1" }];
+    }
+    return known;
+  };
+
+  test("missing arm: child INSERT carries the racePin, no tag-arm guard", () => {
+    const operation = makeOperation();
+    expect(operation.mode).toBe("batch");
+    const fragment = operation.compile(knownFor(operation, []));
+    // The root-presence guard is the update's own; the connectOrCreate missing
+    // arm must contribute NONE (Pin Rule: constraint, not notExists).
+    expect(
+      fragment.steps.some((s) => s.kind === "guard" && s.id.includes("tag"))
+    ).toBe(false);
+    const pinned = fragment.steps.filter(
+      (s) => s.kind === "write" && s.racePin !== undefined
+    );
+    expect(pinned).toHaveLength(1);
+    const child = pinned[0];
+    expect(child?.kind === "write" && child.racePin?.fields).toEqual(["id"]);
+    expect(child?.kind === "write" && child.expects).toBeUndefined();
+  });
+
+  test("found arm: one exists guard raceable:false, no racePin anywhere", () => {
+    const operation = makeOperation();
+    const fragment = operation.compile(knownFor(operation, [{ id: "t9" }]));
+    const guards = fragment.steps.filter(
+      (s) => s.kind === "guard" && s.id.includes("tag")
+    );
+    expect(guards).toHaveLength(1);
+    const guard = guards[0];
+    expect(guard?.kind === "guard" && guard.premise.kind).toBe("exists");
+    expect(guard?.kind === "guard" && guard.failure.raceable).toBe(false);
+    expect(
+      fragment.steps.some((s) => s.kind === "write" && s.racePin !== undefined)
+    ).toBe(false);
+  });
 });

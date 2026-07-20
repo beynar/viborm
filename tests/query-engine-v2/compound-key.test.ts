@@ -485,6 +485,29 @@ const scenarios: Scenario[] = [
       }),
   },
   {
+    // Claims a post owned by a *same-tenant sibling author*: the reparent write
+    // must set every FK column — writing only tenantId (already "t1") would be
+    // a silent no-op leaving the post with a2. This is the per-field WRITE-side
+    // witness the no-op p2 scenario above cannot provide.
+    name: "nested set claims a same-tenant post from another author per-field",
+    seed: async (client) => {
+      await compoundAuthorPosts(client);
+      await client.author.create({
+        data: {
+          tenantId: "t1",
+          id: "a2",
+          name: "Bob",
+          posts: { create: { id: "p9", title: "Bob's post" } },
+        },
+      });
+    },
+    act: (c) =>
+      c.author!.update!({
+        where: { tenantId_id: { tenantId: "t1", id: "a1" } },
+        data: { posts: { set: [{ id: "p9" }] } },
+      }),
+  },
+  {
     name: "nested upsert on a compound-FK child updates the correlated row",
     seed: compoundAuthorPosts,
     act: (c) =>
