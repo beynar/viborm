@@ -265,7 +265,13 @@ describe("atomic non-returning mutation emulation", () => {
     // kill signal — so the test is retargeted to the frozen V1 runtime and dies
     // with V1 at P6. V2's observable behavior (it also rolls the batch back) is
     // correct; only V1's exact message needs the extra postcondition variant.
-    client = createClient({ schema, driver, queryEngine: "v1" });
+    // The `queryEngine` escape-hatch option widens createClient's generic
+    // inference to the base config, so the schema-typed client is restored here.
+    client = createClient({
+      schema,
+      driver,
+      queryEngine: "v1",
+    }) as unknown as typeof client;
     driver.overrideNextMutationCount("INSERT", 0);
     await expect(
       client.item.create({

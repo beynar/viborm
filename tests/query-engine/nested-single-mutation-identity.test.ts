@@ -175,7 +175,13 @@ describe("nested single-mutation identity capture", () => {
     // null]); reproducing the deduped statement count needs cross-part
     // coordination the one-part-per-item atom lacks. Retargeted to the frozen V1
     // runtime — it dies with V1 at P6 — rather than weakening the assertion.
-    client = createClient({ schema, driver, queryEngine: "v1" });
+    // The `queryEngine` escape-hatch option widens createClient's generic
+    // inference to the base config, so the schema-typed client is restored here.
+    client = createClient({
+      schema,
+      driver,
+      queryEngine: "v1",
+    }) as unknown as typeof client;
     await client.parent.update({
       where: { id: "parent" },
       data: {

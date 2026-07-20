@@ -569,6 +569,82 @@ not literally met**; the residue is a documented architectural boundary
 forced. V2 converged on V1's *behavior*; the misses are statement-mechanics,
 frozen-vocabulary, and two returning-driver ordering edges.
 
+### P5 fix round final — the gate is MET (four fixes, two maintainer decisions)
+
+The closing round shut the four remaining V2 behavior/validation divergences by
+convergence (freeze held; `OperationFragment.ts` untouched; gates 22/22; V2 oracle
+337/337), and the maintainer recorded two decisions that resolve the residue
+honestly rather than by growing the frozen surface. **The estate is now entirely
+green under the default V2 flip: full local suite 0 failures, Docker MySQL
+468/468, Docker Postgres 407 passed (serial). The gate — "entire estate green with
+routing defaulted ON" — is MET.**
+
+The four fixes (each falsified):
+
+- **PK-transition + self-M2M write order — DONE.** When a root `update`'s SET
+  rewrites a child-referenced column (a PK transition `id: 2`, or a literal on a
+  non-PK referenced unique), the root parent UPDATE is emitted AFTER the child
+  edge writes. The child edges are written against the parent's pre-transition id,
+  and the FK's `ON UPDATE CASCADE` carries them to the new value; emitting the
+  root UPDATE first stranded a self-M2M junction row on the vacated id
+  (`ForeignKeyError`). Correlation of existing membership stays on the
+  pre-transition value — the row holds the old FK until the cascade fires
+  (`UpdateOperation.reorderRootUpdateAfterChildren`).
+- **`connectOrCreate` first-create-wins dedup — DONE.** A fixed-order compile-time
+  ledger over the sibling items' target PKs (the child-held analogue of the M2M
+  junction's runtime `created` set): a duplicate connectOrCreate item adopts the
+  earlier create (idempotent reparent, no found guard) instead of re-inserting its
+  PK (`RelationUpsertPart.duplicateOfEarlier`).
+- **`deleteMany`-on-to-one ordering/message — DONE.** `UpdateOperation` now runs
+  V1's whole-args `args.update` validation BEFORE `separateData`'s relation
+  parser, so an unknown nested key rejects "Unknown key: deleteMany" (V1's
+  message, before the parent mutation) instead of V2's later "not supported for
+  to-one relation".
+- **empty batch `createMany` — DONE.** An `assertBatchPreparable` hook on the
+  executor's batch-preparation seams (never the direct linear path) lets an empty
+  `createMany` throw V1's byte-identical "No data to insert for createMany." when
+  lowered into a `$transaction([...])` array, while a DIRECT empty `createMany`
+  stays Prisma's documented `{ count: 0 }` no-op — execution-context awareness.
+
+**Maintainer decisions (this session — each authorizes precisely what it names).**
+Two tests assert V1-internal mechanics rather than observable behavior, and
+reproducing them in V2 would grow the frozen surface. The maintainer authorized
+retargeting each to the frozen V1 runtime (`queryEngine: "v1"`), with an
+authorization comment at the site; both **die with V1 at P6**:
+
+- **Class B(1) — `maximumAffectedRows` (frozen-vocabulary boundary).**
+  `non-returning-mutation-atomicity` "rolls back malformed single-mutation
+  affected-row counts" asserts V1's defensive rollback of a *physically
+  unreachable* `count > 1` on a `WHERE`-PK write ("expected at most one"). V2
+  rolls the batch back too (observably correct); reproducing V1's exact message
+  needs a `maximumAffectedRows` postcondition — growing the FROZEN vocabulary,
+  which PLAN "what failure looks like" names as *the* kill signal. Retargeted to
+  V1, not absorbed.
+- **Class B(2) — disconnect-array statement count.**
+  `nested-single-mutation-identity` "explicit disconnect arrays lock and update
+  every captured PK separately" asserts V1's deduped statement count (2 UPDATEs,
+  not 3, for a repeated target). V2's shape is observably idempotent with
+  identical final state; the deduped count needs cross-part coordination the
+  one-part-per-item atom lacks. Retargeted to V1.
+
+- **Class C — write-path perf misses ACCEPTED (deliberate trade-off, deferred).**
+  The maintainer accepts `scalar update` (~1.37×) and `upsert` (~1.39×) exceeding
+  the ±10% A/B gate as a deliberate trade-off for now. Mechanism: after the P5
+  round-3 RETURNING fold closed the statement-count gap (reads and `updateMany`
+  are at parity), the residual is V2's fixed per-call construction cost
+  (`buildUpdate` + own-write preflight + schema parse) — dominant only on
+  in-memory SQLite's ~20 µs round-trip, noise on any networked driver; `upsert`
+  additionally keeps its probe-first locate (ATOM §4 keeps `ON CONFLICT` off the
+  table). Recorded in PERF.md P5. **Optimization is deferred as a named backlog
+  item ("V2 per-call construction cost on in-memory drivers"), NOT part of the P5
+  gate.**
+
+The kill signal held throughout: no behavior contract weakened, no test skipped
+or pinned-to-V1-to-hide a divergence, messages byte-identical, `OperationFragment.ts`
+frozen (snapshot + token gates green), the 36-throw-site route tripwire unchanged,
+no new effect annotation. The `queryEngine: "v1"` escape hatch is still scheduled
+for deletion in P6.
+
 ## P6 — Deletion and the honest audit
 
 Bulk-delete V1's operation/execution root once unreachable; keep what V2

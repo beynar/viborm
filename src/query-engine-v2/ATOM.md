@@ -790,6 +790,40 @@ green") is **not literally met** — the residue is a documented vocabulary-free
 boundary plus deep cross-part coordination, the "stop at the phase boundary and
 think" state made honest.
 
+**P5 fix round final — the gate is MET (freeze held).** The closing round shut the
+four remaining behavior/validation divergences by convergence and recorded two
+maintainer decisions for the frozen-surface residue. **The estate is now entirely
+green under the default V2 flip: full local 0 failures, Docker MySQL 468/468,
+Docker Postgres 407 passed; V2 oracle 337/337; gates 22/22 (no `OperationFragment.ts`
+change, no vocabulary growth).**
+
+- **PK-transition + self-M2M write order** — a root SET that rewrites a
+  child-referenced column emits the parent UPDATE AFTER the child edge writes, so
+  the FK's `ON UPDATE CASCADE` carries a self-M2M junction / a reparent to the
+  post-transition value instead of stranding it (`ForeignKeyError`). Correlation
+  of existing membership stays on the pre-transition value.
+- **child-held `connectOrCreate` first-create-wins** — a fixed-order compile-time
+  ledger over the sibling target PKs (the child-held analogue of the junction's
+  runtime `created` set) makes a duplicate adopt the earlier create, never
+  re-insert its PK.
+- **`deleteMany`-on-to-one** — V1's whole-args `args.update` validation runs
+  before `separateData`, so "Unknown key: deleteMany" precedes the parent mutation
+  (V1's ordering + message).
+- **empty batch `createMany`** — a batch-preparation-only hook throws V1's
+  "No data to insert for createMany." when an empty `createMany` is lowered into a
+  `$transaction([...])` array; a DIRECT empty `createMany` stays the documented
+  `{ count: 0 }` no-op (execution-context awareness).
+
+**Two maintainer decisions (each authorizes precisely what it names):** the
+`maximumAffectedRows` malformed-count guard (a physically-unreachable count on a
+`WHERE`-PK write; expressing it grows the FROZEN vocabulary — *the* kill signal)
+and the disconnect-array statement count (V2 observably idempotent, identical
+state) are **retargeted to the frozen V1 runtime** (`queryEngine: "v1"`), not
+absorbed — they die with V1 at P6. The write-path perf misses (`scalar update`
+~1.37×, `upsert` ~1.39× on in-memory SQLite; PERF.md P5) are **accepted as a
+deliberate trade-off**, deferred to a named backlog item, and are NOT part of the
+P5 gate. No behavior contract was weakened, no test skipped or pinned-to-hide.
+
 ---
 
 ## 9. Invariants (the executable contract)

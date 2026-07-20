@@ -119,3 +119,23 @@ statement without the `ON CONFLICT` door ATOM §4 rejects, so its locate is a
 permanent second statement by design. **The write ratios are an honest,
 mechanistically-explained miss of the ±10% gate on in-memory SQLite, not a
 statement-count regression.**
+
+## P5 — write-path perf miss ACCEPTED (maintainer decision, deferred backlog)
+
+The `scalar update` (~1.37×) and `upsert` (~1.39×) misses of the ±10% A/B gate are
+**accepted by the maintainer as a deliberate trade-off for now**; optimization is
+**deferred**. This is a Class C record from the P5 closing round — the miss is
+documented, not smoothed over, and it is **NOT part of the P5 gate**.
+
+- **Mechanism (unchanged from round 3):** the RETURNING fold already closed the
+  statement-count gap (reads and `updateMany` sit at parity). What remains is V2's
+  fixed **per-call construction cost** — a fresh operation object, the own-write
+  preflight, and a payload schema parse on every call, where V1's prepared path is
+  lighter. That cost is a fixed few µs: **dominant on an in-memory SQLite ~20 µs
+  round-trip (reads as ~15–40%), noise on any networked driver.** `upsert`
+  additionally keeps its probe-first locate (ATOM §4 deliberately keeps
+  `ON CONFLICT` off the table), a permanent second statement by design.
+- **Backlog item (named):** *"V2 per-call construction cost on in-memory drivers"*
+  — memoize/prepare the constructed operation + its compiled fragment across
+  repeat calls so the in-memory write ratios reach parity. Revisit post-P6, when
+  the V1 root is deleted and routing is unconditional. Not gating.
