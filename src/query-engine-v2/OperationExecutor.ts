@@ -95,14 +95,24 @@ export class OperationExecutor {
       return this.runLinearOn<T>(operation, context, driverOverride);
     }
     const driver = this.engine.driver;
-    // A driver with neither an atomic transaction nor an atomic batch can still
-    // run a SINGLE-statement operation directly (V1's statement-atomicity): a
-    // read or a scalar bulk write needs no atomic envelope. A multi-statement
-    // operation genuinely does — fail closed with V1's byte-identical error.
+    // A STATEMENT-ATOMIC operation runs directly with NO transaction/batch
+    // envelope on any driver — this is V1's `atomicity: "statement"`
+    // (`OperationRuntime`, which runs a one-step program through `executeLinear`
+    // with no `withTransaction`). It is one plain read/write statement: empty
+    // planning, exactly one non-guard step whose SQL carries no unresolved
+    // reference, insert-id scratch, or savepoint skip effect. A postcondition is
+    // permitted and enforced in JS after the single round-trip, with no partial
+    // state to roll back (the statement either committed its one row or affected
+    // none). This is the read fast path (a `findUnique`/`findMany` is one SELECT,
+    // not BEGIN+SELECT+COMMIT) and the returning-driver folded-mutation fast path
+    // (a scalar `update`/`delete` is one `… RETURNING`, closing the write-path
+    // regression PERF.md P5 named).
+    if (this.isStatementAtomic(operation)) {
+      return this.runLinearOn<T>(operation, context, driver);
+    }
+    // A driver with neither an atomic transaction nor an atomic batch cannot run
+    // a MULTI-statement operation — fail closed with V1's byte-identical error.
     if (!(driver.supportsTransactions || driver.supportsBatch)) {
-      if (this.singleStatementPlan(operation)) {
-        return this.runLinearOn<T>(operation, context, driver);
-      }
       return Promise.reject(
         noAtomicSubstrateError(driver.driverName, context.operation ?? "query")
       );
@@ -233,6 +243,30 @@ export class OperationExecutor {
       parseResult: (results) =>
         operation.parse<T>(assembleOutputs(plan, results)),
     };
+  }
+
+  /**
+   * A statement-atomic operation runs directly on the base driver with no atomic
+   * envelope (V1's `atomicity: "statement"`). It is one plain read/write step:
+   * empty planning, exactly one non-guard step whose SQL carries no unresolved
+   * reference, insert-id scratch, or savepoint skip effect. Unlike
+   * {@link singleStatementPlan} it PERMITS a postcondition — enforced in JS by
+   * `enforcePostcondition` after the single round-trip, with no partial state to
+   * roll back (a `… RETURNING` mutation either affected its one row or none). The
+   * skip effect is excluded because it needs a savepoint scope the bare path has
+   * no envelope for.
+   */
+  private isStatementAtomic(operation: ExecutableOperation): boolean {
+    if (operation.planning().steps.length > 0) return false;
+    const fragment = operation.compile({});
+    if (fragment.steps.length !== 1) return false;
+    const [step] = fragment.steps;
+    if (!step || step.kind === "guard") return false;
+    if (step.onUniqueConflict) return false;
+    if (!isSql(step.statement)) return false;
+    if (step.statement.values.some(isOperationValueReference)) return false;
+    if (stepUsesInsertIdScratch(step)) return false;
+    return true;
   }
 
   /**
