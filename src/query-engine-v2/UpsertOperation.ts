@@ -51,6 +51,13 @@ import {
 
 type ExecutionMode = "transaction" | "batch";
 
+/** A compiled arm's steps plus the id of the step exposing the `result` output —
+ *  the terminal read, or the folded `UPDATE … RETURNING` when it stands in for it. */
+interface ArmResult {
+  readonly steps: OperationStep[];
+  readonly resultId: string;
+}
+
 /** A validated conditional filter on the located row (`targetWhere`/`setWhere`). */
 interface Conditional {
   readonly field: "setWhere" | "targetWhere";
@@ -89,6 +96,15 @@ export class UpsertOperation {
   private readonly updateId: string;
   private readonly terminalId: string;
   private readonly foundGuardId: string;
+  private readonly parsedSelect: Record<string, unknown>;
+  // The update-arm RETURNING fold (finding 4 / PERF.md P5): on a RETURNING driver
+  // with a scalar-only projection the update arm folds its terminal refetch into
+  // the mutation — `UPDATE … RETURNING select` returns the updated row directly,
+  // dropping one statement. The probe-first locate stays (upsert must still decide
+  // create-vs-update at planning — ATOM §4 keeps `ON CONFLICT` off the table), so
+  // this shaves the refetch, not the locate. `false` for a non-returning driver or
+  // a relation projection (the terminal read's lateral joins have no RETURNING form).
+  private readonly canFoldUpdateArm: boolean;
 
   constructor(
     engine: QueryEngine,
@@ -149,10 +165,15 @@ export class UpsertOperation {
       updateSep.scalarData,
       "update"
     );
-    const parsedSelect = isRecord(args.select)
+    this.parsedSelect = isRecord(args.select)
       ? parseRecord(parentSchemas.core.select, args.select, "select")
       : defaultSelect(model);
-    this.resultArgs = { select: parsedSelect };
+    this.resultArgs = { select: this.parsedSelect };
+    const selectIsScalarOnly = !Object.keys(this.parsedSelect).some((field) =>
+      model["~"].relationSet.has(field)
+    );
+    this.canFoldUpdateArm =
+      engine.adapter.capabilities.supportsReturning && selectIsScalarOnly;
 
     const parentName = getStepModelName(model, "parent");
     const locateId = scope.allocate(`${parentName}.locate`);
@@ -196,11 +217,14 @@ export class UpsertOperation {
         "query-engine-v2 upsert planning did not expose the locate rows."
       );
     }
-    const steps =
+    const arm =
       locateRows.length === 0
         ? this.compileCreateArm()
         : this.compileFoundArm(known, locateRows[0] as Record<string, unknown>);
-    return { steps, outputs: { result: ref(this.terminalId, "result") } };
+    return {
+      steps: arm.steps,
+      outputs: { result: ref(arm.resultId, "result") },
+    };
   }
 
   parse<T>(outputs: Readonly<Record<string, unknown>>): T {
@@ -219,7 +243,7 @@ export class UpsertOperation {
   // -------------------------------------------------------------------------
 
   /** Absent → CREATE (constraint + `racePin`, never a guard) then terminal read. */
-  private compileCreateArm(): OperationStep[] {
+  private compileCreateArm(): ArmResult {
     const parent = createQueryScope(this.engine.adapter, this.model);
     const create: StatementStep = {
       id: this.createId,
@@ -233,14 +257,17 @@ export class UpsertOperation {
     // The created row is read back by its own primary key when the create data
     // carries it — the `where` may target a non-PK unique the create data does
     // not reproduce, so reading by `where` could miss the row it just inserted.
-    return [create, this.buildTerminal(this.createArmTerminalWhere())];
+    return {
+      steps: [create, this.buildTerminal(this.createArmTerminalWhere())],
+      resultId: this.terminalId,
+    };
   }
 
   /** Present → skip (conditional no-match) or update (all conditionals match). */
   private compileFoundArm(
     known: Readonly<Record<string, unknown>>,
     locatedRow: Record<string, unknown>
-  ): OperationStep[] {
+  ): ArmResult {
     const unmatched = this.conditionals.find(
       (conditional) => !this.conditionalMatched(conditional, known)
     );
@@ -257,23 +284,29 @@ export class UpsertOperation {
   private compileSkipArm(
     unmatched: Conditional,
     locatedRow: Record<string, unknown>
-  ): OperationStep[] {
+  ): ArmResult {
     const terminalWhere = this.locatedTerminalWhere(locatedRow);
-    if (this.mode === "transaction") return [this.buildTerminal(terminalWhere)];
-    return [
-      absenceGuard(
-        unmatched.guardId,
-        unmatched.probe.statement,
-        raceableQueryFailure(upsertSkipPremiseChanged(unmatched.field))
-      ),
-      this.buildTerminal(terminalWhere),
-    ];
+    if (this.mode === "transaction") {
+      return {
+        steps: [this.buildTerminal(terminalWhere)],
+        resultId: this.terminalId,
+      };
+    }
+    return {
+      steps: [
+        absenceGuard(
+          unmatched.guardId,
+          unmatched.probe.statement,
+          raceableQueryFailure(upsertSkipPremiseChanged(unmatched.field))
+        ),
+        this.buildTerminal(terminalWhere),
+      ],
+      resultId: this.terminalId,
+    };
   }
 
   /** All conditionals match (or none present) → UPDATE the located row. */
-  private compileUpdateArm(
-    locatedRow: Record<string, unknown>
-  ): OperationStep[] {
+  private compileUpdateArm(locatedRow: Record<string, unknown>): ArmResult {
     const parent = createQueryScope(this.engine.adapter, this.model);
     const txMode = this.mode === "transaction";
     const guards: OperationStep[] = [];
@@ -307,6 +340,28 @@ export class UpsertOperation {
         }
       }
     }
+    const enforceAffected =
+      txMode && this.engine.adapter.capabilities.supportsReturning;
+    const affected = enforceAffected
+      ? { expects: affectedRows(1, notFoundFailure(this.locateMissMessage())) }
+      : {};
+    // Fold: `UPDATE … RETURNING select` returns the updated row directly (incl.
+    // any PK the SET rewrote), so no terminal refetch is needed — one statement
+    // fewer. Gated to a RETURNING driver + scalar-only projection.
+    if (this.canFoldUpdateArm) {
+      const folded: StatementStep = {
+        id: this.updateId,
+        kind: "write",
+        statement: buildUpdate(parent, {
+          where: this.parentWhere,
+          data: this.updateData,
+          select: this.parsedSelect,
+        }),
+        outputs: { result: { kind: "rows" } },
+        ...affected,
+      };
+      return { steps: [...guards, folded], resultId: this.updateId };
+    }
     const update: StatementStep = {
       id: this.updateId,
       kind: "write",
@@ -319,21 +374,20 @@ export class UpsertOperation {
       // Exact-affected is a returning-driver check only (see UpdateOperation): on
       // a non-returning driver the locked locate already proved the row exists, so
       // a no-op UPDATE (0 rows changed) is V1's accepted contract, not a NotFound.
-      ...(txMode && this.engine.adapter.capabilities.supportsReturning
-        ? {
-            expects: affectedRows(1, notFoundFailure(this.locateMissMessage())),
-          }
-        : {}),
+      ...affected,
     };
     // The update arm may rewrite the very field the `where` located the row by
     // (a non-PK unique) or the PK itself. The terminal read must therefore address
     // the row by its POST-update primary key, not the original `where`, exactly as
     // UpdateOperation does — otherwise a renamed row is invisible to its own read.
-    return [
-      ...guards,
-      update,
-      this.buildTerminal(this.updatedTerminalWhere(locatedRow)),
-    ];
+    return {
+      steps: [
+        ...guards,
+        update,
+        this.buildTerminal(this.updatedTerminalWhere(locatedRow)),
+      ],
+      resultId: this.terminalId,
+    };
   }
 
   private buildTerminal(where: Record<string, unknown>): StatementStep {
