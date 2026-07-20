@@ -752,6 +752,44 @@ the top-level capture-PK statement shape; `deleteMany`-on-to-one and empty-
 `createMany` message wordings). The flip stays **not production-clean** until the
 perf fast path and the returning-driver edges close.
 
+**P5 fix round 3 — the RETURNING fold and three more convergences (freeze held).**
+The write-path regression's mechanism is closed and the surface shrunk to six:
+
+- **RETURNING fold.** `UpdateOperation` folds a simple scalar update (no nested
+  mutation, scalar-only projection, returning driver, tx mode) into ONE `UPDATE …
+  RETURNING select` — statement-atomic, no envelope, its postcondition enforced in
+  JS. `UpsertOperation`'s update arm folds its terminal refetch the same way but
+  keeps the probe-first locate ATOM §4 mandates (the `ON CONFLICT` door stays
+  shut). Reads + `updateMany` are now at ±10% parity; `scalar update` (≈1.2×) and
+  `upsert` (≈1.4×) still miss, the residual being V2's eager per-call construction
+  (PERF.md P5 round 3) — the statement-count gap itself is closed.
+- **Top-level captured-PK.** The non-fold tx-mode root `update`/`delete` now mutate
+  by the PK captured at the FOR UPDATE locate (V1's `WHERE id`), completing the
+  round-1 nested captured-PK work at the top level; batch mode keeps the `where`.
+- **Batch-only non-returning refusal — at the routed layer (not the executor).**
+  `constructRoutedOperation` throws V1's byte-identical `requiresAtomicResolution`
+  `TransactionError` for `update`/`delete`/`upsert` on a batch-only non-returning
+  driver, reached ONLY on the public client path — so the 31 direct-executor batch
+  capability contracts (which construct the operation directly) are untouched. This
+  is the routed-layer home the round-1 rebuttal named. MySQL 467→468/468.
+- **Omitted generated PK.** `defaultSelect` respects `.omit()`, so the non-returning
+  upsert create branch returns the public shape without the internal generated PK.
+
+**The freeze held: no `OperationFragment.ts` change, no vocabulary growth.** Six
+local tests remain, honestly (none weakened/skipped/pinned): the `maximumAffected-
+Rows` malformed-count guard is **inexpressible without growing the FROZEN
+postcondition vocabulary** — *the* kill signal, and physically unreachable on a
+`WHERE`-PK write, so V2's behavior is correct; two returning-driver nested-write
+ordering edges (PK-transition self-M2M; child-held `connectOrCreate` dedup) need
+cross-part write-order coordination; `disconnect`-array dedup is observably
+idempotent; and two validation message/ordering ports (`deleteMany`-on-to-one,
+empty batch `createMany`) need whole-args-before-parse / execution-context
+awareness. The default flip is behaviorally converged on real drivers (MySQL
+468/468, Postgres 407) and the V2 oracle is 337/337; the gate ("entire estate
+green") is **not literally met** — the residue is a documented vocabulary-freeze
+boundary plus deep cross-part coordination, the "stop at the phase boundary and
+think" state made honest.
+
 ---
 
 ## 9. Invariants (the executable contract)

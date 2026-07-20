@@ -763,9 +763,7 @@ export class UpdateOperation {
     ];
   }
 
-  private buildRootUpdate(
-    locatedRow: Record<string, unknown>
-  ): StatementStep {
+  private buildRootUpdate(locatedRow: Record<string, unknown>): StatementStep {
     const parent = createQueryScope(this.engine.adapter, this.model);
     const txMode = this.mode === "transaction";
     const parentName = getStepModelName(this.model, "parent");

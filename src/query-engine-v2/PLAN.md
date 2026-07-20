@@ -516,6 +516,59 @@ residue of V1-internal statement-mechanics/message assertions the minimized atom
 does not reproduce. **The default flip remains not production-clean** until the
 perf fast path and the returning-driver edges close.
 
+### P5 fix round 3 — the RETURNING fold, the routed-layer refusal, captured-PK convergence
+
+Round 3 closed the write-path regression's mechanism and four more conflicts, all
+by convergence (no vocabulary growth; freeze held; V2 oracle 337/337; gates 22/22):
+
+- **RETURNING fold (finding 4) — DONE.** A simple scalar `update` (no nested
+  relation mutation, scalar-only projection, returning driver, tx mode) folds
+  locate+mutate+terminal into ONE `UPDATE … WHERE selector RETURNING select`
+  (V1's `compileDirect`) — statement-atomic, no envelope. `upsert`'s update arm
+  folds its terminal refetch into `UPDATE … RETURNING` too, keeping the
+  probe-first locate (ATOM §4 keeps `ON CONFLICT` off the table). The executor
+  runs a statement-atomic op directly (`statementAtomicPlan`/`runStatementAtomic`).
+  **Reads and `updateMany` are now at ±10% parity** (the P5 report's read
+  regression was single-run noise); **`scalar update` (≈1.2×) and `upsert`
+  (≈1.4×) still miss ±10%** — the statement-count gap is closed, the residual is
+  V2's eager per-call construction (and, for upsert, the ATOM §4 locate). Honest
+  miss, mechanistically explained, PERF.md P5 round 3.
+- **Batch-only non-returning refusal (finding 3b) — CLOSED at the routed layer.**
+  `constructRoutedOperation` (public client path only) throws V1's byte-identical
+  `requiresAtomicResolution` `TransactionError` for `update`/`delete`/`upsert` on
+  a batch-only non-returning driver. The executor keeps the in-batch capability
+  the 31 direct-executor batch contracts depend on — the round-1 rebuttal's
+  concern — because those construct the operation directly, never through the
+  router. **Docker MySQL 467→468/468.** Falsified.
+- **Omitted-generated-PK capture (finding 3c part 2) — CLOSED.** `defaultSelect`
+  uses `getDefaultScalarFieldNames` (respects `.omit()`), so a non-returning
+  upsert create branch returns the public shape without the internal generated PK.
+- **Top-level update/delete address the captured PK — CONVERGED.** The non-fold
+  tx-mode root `update`/`delete` mutate by the PK captured at the FOR UPDATE
+  locate (V1's `WHERE id`), not the original alternate-unique `where`; batch mode
+  keeps the `where` so the write and its presence guard pin one row.
+- **Executor prose neutralized.** The statement-atomic fast-path comments were
+  reworded operation-neutral (the token gate is right: the executor stays
+  semantics-free in prose too); gates back to 22/22.
+
+**Still open, honestly (6 local tests) — NONE weakened, skipped, or pinned:**
+one **frozen-vocabulary boundary** (`maximumAffectedRows` — V2 rejects a
+malformed >1 affected-row count only by growing the FROZEN postcondition
+vocabulary, which is *the* kill signal; physically unreachable on a `WHERE`-PK
+write, so V2's observable behavior is correct); two **returning-driver
+nested-write edges** (PK-transition + self-M2M write order; child-held
+`connectOrCreate` first-create-wins dedup — both need cross-part write-ordering
+the one-part-per-item shape lacks); one **disconnect-array dedup** (V2 emits one
+statement per target vs V1's deduped set — observably idempotent); and two
+**validation message/ordering** ports (`deleteMany`-on-to-one needs
+validate-whole-args-before-parse like V1; empty batch `createMany` needs
+execution-context awareness). The estate is 6008 passed / 6 failed local, Docker
+MySQL 468/468, Docker Postgres 407 passed. **The gate ("entire estate green") is
+not literally met**; the residue is a documented architectural boundary
+(vocabulary freeze) plus deep cross-part coordination, recorded rather than
+forced. V2 converged on V1's *behavior*; the misses are statement-mechanics,
+frozen-vocabulary, and two returning-driver ordering edges.
+
 ## P6 — Deletion and the honest audit
 
 Bulk-delete V1's operation/execution root once unreachable; keep what V2

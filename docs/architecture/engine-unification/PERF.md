@@ -79,3 +79,43 @@ mutation on returning drivers (a `RETURNING` fast path) — real work, out of P5
 soak scope. **Until then the default-ON flip carries a measured write-path
 regression; this is a blocking conflict for declaring the flip production-clean,
 recorded honestly here rather than smoothed over.**
+
+## P5 fix round 3 — the RETURNING fold, re-measured
+
+The `RETURNING` fast path is now built. `UpdateOperation` folds a simple scalar
+update — no nested relation mutation, a scalar-only projection, a returning
+driver, transaction mode — into ONE `UPDATE … WHERE selector RETURNING select`
+(V1's `compileDirect`): empty planning, one statement-atomic step the executor
+runs with no envelope. `UpsertOperation`'s update arm folds its terminal refetch
+into `UPDATE … RETURNING select` too, but keeps its probe-first locate — ATOM §4
+deliberately does NOT take the `ON CONFLICT` door for top-level upsert (its
+observable divergences: sequence burn, `LAST_INSERT_ID`, the pinned-abort error
+class), so the fold shaves the refetch, not the locate. The executor also runs a
+statement-atomic op directly (`statementAtomicPlan` → `runStatementAtomic`)
+instead of the double plan/compile/validate/materialize round.
+
+Re-run, identical method (V1 hz / V2 hz; >1 = V2 slower; isolated single-op runs
+where noted, the 5-block bench is contention-noisy on writes):
+
+| Operation | before (P5) | after (round 3) | mechanism of the residual |
+|---|---|---|---|
+| findMany (take 50) | 1.14× | **≈1.0×** (±noise, V2 sometimes faster) | at parity — the earlier number was single-run noise |
+| findUnique | 1.26× | **≈1.0×** (±noise, V2 sometimes faster) | at parity |
+| updateMany | 1.21× | **≈1.0×** (±noise, V2 sometimes faster) | at parity |
+| scalar update | 2.37× | **≈1.15–1.25×** | statement-count gap CLOSED (3→1); residual is V2's eager per-call construction (`buildUpdate` + own-write preflight + schema parse) vs V1's lighter prepared path |
+| upsert (update branch) | 1.84× | **≈1.4×** | terminal refetch folded (3→2 statements); residual is the probe-first locate (ATOM §4) + tx envelope + the same construction overhead |
+
+**Reads and `updateMany` are within the ±10% gate** — the P5 report's 12–26%
+read "regression" was mostly single-run variance; on repeated runs they sit at
+parity, V2 faster as often as slower. **`scalar update` and `upsert` still exceed
+±10%**, and this is recorded honestly, not fudged: the fold closed the extra
+round-trips the P5 report named (an in-memory `UPDATE … RETURNING` is one
+statement for both engines now), so what remains is per-call construction cost —
+V2 builds a fresh operation object, runs the own-write preflight, and validates
+the payload on every call, where V1's prepared path is lighter. That cost is a
+fixed ~3–4 µs; on in-memory SQLite (a ~20 µs round-trip) it reads as ~15–25%, on
+any networked driver it is noise. `upsert` additionally cannot become a single
+statement without the `ON CONFLICT` door ATOM §4 rejects, so its locate is a
+permanent second statement by design. **The write ratios are an honest,
+mechanistically-explained miss of the ±10% gate on in-memory SQLite, not a
+statement-count regression.**

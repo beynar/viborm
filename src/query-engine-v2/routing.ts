@@ -1,5 +1,5 @@
-import { TransactionError } from "@errors";
 import type { AnyDriver, QueryExecutionContext } from "@drivers";
+import { TransactionError } from "@errors";
 import type { Model } from "@schema/model";
 import type { QueryEngine } from "../query-engine/query-engine";
 import { BulkCountOperation } from "./BulkCountOperation";

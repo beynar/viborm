@@ -121,7 +121,6 @@ export class DeleteOperation {
         )
       ),
     };
-
   }
 
   planning(): OperationFragment {
