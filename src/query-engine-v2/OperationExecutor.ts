@@ -107,9 +107,12 @@ export class OperationExecutor {
     // BEGIN+SELECT+COMMIT) and the returning-driver folded-mutation case (one
     // `… RETURNING` statement), which is what closes the write-path regression
     // PERF.md P5 named — the decision is a structural property of the fragment,
-    // never the payload's kind.
-    if (this.isStatementAtomic(operation)) {
-      return this.runLinearOn<T>(operation, context, driver);
+    // never the payload's kind. The plan is computed once here and executed
+    // directly (no re-plan/compile/validate/materialize round), so the fast path
+    // adds no per-call overhead beyond the single statement it runs.
+    const atomicPlan = this.statementAtomicPlan(operation);
+    if (atomicPlan) {
+      return this.runStatementAtomic<T>(atomicPlan, operation, driver, context);
     }
     // A driver with neither an atomic transaction nor an atomic batch cannot run
     // a MULTI-statement operation — fail closed with V1's byte-identical error.
@@ -255,19 +258,55 @@ export class OperationExecutor {
    * `enforcePostcondition` after the single round-trip, with no partial state to
    * roll back (a `… RETURNING` mutation either affected its one row or none). The
    * skip effect is excluded because it needs a savepoint scope the bare path has
-   * no envelope for.
+   * no envelope for. Returns the compiled plan (already validated) so the caller
+   * runs it without a second plan/compile/validate pass — `undefined` means the
+   * operation is multi-statement and takes the atomic-envelope path.
    */
-  private isStatementAtomic(operation: ExecutableOperation): boolean {
-    if (operation.planning().steps.length > 0) return false;
+  private statementAtomicPlan(
+    operation: ExecutableOperation
+  ): SingleStatementPlan | undefined {
+    if (operation.planning().steps.length > 0) return undefined;
     const fragment = operation.compile({});
-    if (fragment.steps.length !== 1) return false;
+    if (fragment.steps.length !== 1) return undefined;
     const [step] = fragment.steps;
-    if (!step || step.kind === "guard") return false;
-    if (step.onUniqueConflict) return false;
-    if (!isSql(step.statement)) return false;
-    if (step.statement.values.some(isOperationValueReference)) return false;
-    if (stepUsesInsertIdScratch(step)) return false;
-    return true;
+    if (!step || step.kind === "guard") return undefined;
+    if (step.onUniqueConflict) return undefined;
+    if (!isSql(step.statement)) return undefined;
+    if (step.statement.values.some(isOperationValueReference)) return undefined;
+    if (stepUsesInsertIdScratch(step)) return undefined;
+    validateFragment(fragment);
+    return { fragment, step };
+  }
+
+  /**
+   * Execute one already-compiled statement-atomic plan directly: a single
+   * round-trip on the base driver, its JS postcondition enforced after (no
+   * partial state to roll back), the fragment's outputs assembled and parsed. The
+   * statement carries no unresolved reference (checked in {@link
+   * statementAtomicPlan}), so it runs as-is with no materialization pass.
+   */
+  private async runStatementAtomic<T>(
+    plan: SingleStatementPlan,
+    operation: ExecutableOperation,
+    driver: AnyDriver,
+    context: QueryExecutionContext
+  ): Promise<T> {
+    const { step } = plan;
+    const result = await this.executeStatement(
+      step,
+      step.statement,
+      driver,
+      context
+    );
+    assertNormalizedQueryResult(result, {
+      provider: driver.driverName,
+      operation: step.id,
+    });
+    enforcePostcondition(step, result, context);
+    const values: RuntimeValues = new Map([
+      [step.id, extractOutputs(step, result)],
+    ]);
+    return operation.parse<T>(resolveFragmentOutputs(plan.fragment, values));
   }
 
   /**
