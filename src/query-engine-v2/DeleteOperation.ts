@@ -2,7 +2,10 @@
 import { NotFoundError, QueryEngineError, ValidationError } from "@errors";
 import type { Model } from "@schema/model";
 import { parse, type VibSchema } from "@validation";
-import { getPrimaryKeyFields } from "../query-engine/builders/correlation-utils";
+import {
+  buildPrimaryKeyWhereUnique,
+  getPrimaryKeyFields,
+} from "../query-engine/builders/correlation-utils";
 import { createQueryScope } from "../query-engine/context/query-scope";
 import { buildDelete, buildFindUnique } from "../query-engine/operations";
 import type { QueryEngine } from "../query-engine/query-engine";
@@ -46,10 +49,11 @@ export class DeleteOperation {
   private readonly scope: StepScope;
   private readonly resultArgs: Record<string, unknown>;
   private readonly parentWhere: Record<string, unknown>;
+  private readonly parsedSelect: Record<string, unknown>;
   private readonly parentPrimaryKeys: readonly string[];
   private readonly locate: StatementStep;
-  private readonly readFull: StatementStep;
-  private readonly deleteRow: StatementStep;
+  private readonly readId: string;
+  private readonly deleteId: string;
   private readonly rootGuardId: string;
 
   constructor(
@@ -85,17 +89,17 @@ export class DeleteOperation {
       where,
       "where"
     );
-    const parsedSelect = parseRecord(
+    this.parsedSelect = parseRecord(
       parentSchemas.core.select,
       select,
       "select"
     );
-    this.resultArgs = { select: parsedSelect };
+    this.resultArgs = { select: this.parsedSelect };
 
     const parentName = getStepModelName(model, "parent");
     const locateId = scope.allocate(`${parentName}.locate`);
-    const readId = scope.allocate(`${parentName}.read`);
-    const deleteId = scope.allocate(`${parentName}.delete`);
+    this.readId = scope.allocate(`${parentName}.read`);
+    this.deleteId = scope.allocate(`${parentName}.delete`);
     this.rootGuardId = scope.allocate(`${parentName}.guard.exists`);
 
     // The locate planning read enforces notFound before any write on both
@@ -118,36 +122,6 @@ export class DeleteOperation {
       ),
     };
 
-    // The final-fragment read that captures the row's selected shape immediately
-    // before it is deleted — portable across drivers with and without RETURNING
-    // (no dialect branch), and fragment-local so its output resolves at parse.
-    this.readFull = {
-      id: readId,
-      kind: "read",
-      statement: buildFindUnique(parent, {
-        where: this.parentWhere,
-        select: parsedSelect,
-        forUpdate: txMode,
-      }),
-      outputs: { result: { kind: "rows" } },
-    };
-
-    this.deleteRow = {
-      id: deleteId,
-      kind: "write",
-      statement: buildDelete(parent, { where: this.parentWhere }),
-      outputs: {},
-      ...(txMode
-        ? {
-            expects: affectedRows(
-              1,
-              notFoundFailure(
-                `query-engine-v2 delete located no '${parentName}' row for its unique where.`
-              )
-            ),
-          }
-        : {}),
-    };
   }
 
   planning(): OperationFragment {
@@ -167,14 +141,63 @@ export class DeleteOperation {
     if (rows.length === 0) {
       throw new NotFoundError(getStepModelName(this.model, "record"), "delete");
     }
+    const locatedRow = rows[0] as Record<string, unknown>;
+    const parent = createQueryScope(this.engine.adapter, this.model);
+    const txMode = this.mode === "transaction";
+    // Address the row by the PK captured at the (FOR UPDATE) locate rather than
+    // the original `where`: locating by an alternate unique then mutating by the
+    // immutable captured PK is V1's `WHERE id` mechanic (the alternate unique
+    // could be concurrently rewritten). Transaction mode only — batch mode keeps
+    // the original `where` so the write and its presence guard pin the same row.
+    const where = this.writeWhere(locatedRow);
+    const readFull: StatementStep = {
+      id: this.readId,
+      kind: "read",
+      statement: buildFindUnique(parent, {
+        where,
+        select: this.parsedSelect,
+        forUpdate: txMode,
+      }),
+      outputs: { result: { kind: "rows" } },
+    };
+    const deleteRow: StatementStep = {
+      id: this.deleteId,
+      kind: "write",
+      statement: buildDelete(parent, { where }),
+      outputs: {},
+      ...(txMode
+        ? {
+            expects: affectedRows(
+              1,
+              notFoundFailure(
+                `query-engine-v2 delete located no '${getStepModelName(this.model, "parent")}' row for its unique where.`
+              )
+            ),
+          }
+        : {}),
+    };
     const steps: OperationStep[] = [];
     if (this.mode === "batch") {
       steps.push(this.buildRootPresenceGuard());
     }
     // Capture the row, then delete it — both in the final fragment, so the
     // result output resolves fragment-locally at parse (ATOM §9 inv. 4).
-    steps.push(this.readFull, this.deleteRow);
-    return { steps, outputs: { result: ref(this.readFull.id, "result") } };
+    steps.push(readFull, deleteRow);
+    return { steps, outputs: { result: ref(this.readId, "result") } };
+  }
+
+  /** The row's post-locate address: the captured PK in transaction mode (V1's
+   *  `WHERE id`), the original `where` in batch mode (guard/write pin one row). */
+  private writeWhere(
+    locatedRow: Record<string, unknown>
+  ): Record<string, unknown> {
+    if (this.mode !== "transaction") return this.parentWhere;
+    return buildPrimaryKeyWhereUnique(
+      this.model,
+      Object.fromEntries(
+        this.parentPrimaryKeys.map((pk) => [pk, locatedRow[pk]])
+      )
+    );
   }
 
   parse<T>(outputs: Readonly<Record<string, unknown>>): T {

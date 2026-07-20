@@ -7,7 +7,10 @@ import {
 } from "@errors";
 import type { Model } from "@schema/model";
 import { parse, type VibSchema } from "@validation";
-import { getPrimaryKeyFields } from "../query-engine/builders/correlation-utils";
+import {
+  buildPrimaryKeyWhereUnique,
+  getPrimaryKeyFields,
+} from "../query-engine/builders/correlation-utils";
 import {
   type FkDirection,
   getFkDirection,
@@ -104,7 +107,10 @@ export class UpdateOperation {
   private readonly childParts: readonly Part[];
   private readonly toOneLinks: readonly ToOneLink[];
   private readonly locate: StatementStep;
-  private readonly updateParent?: StatementStep;
+  // Whether the non-fold path emits a parent-row UPDATE (a scalar SET ∪ to-one FK
+  // folds). Built at compile so it can address the captured PK (V1's `WHERE id`);
+  // `false` for a relation-only update (no parent row written) or the fold path.
+  private readonly needsRootUpdate: boolean;
   // The returning-driver fast path (finding 4 / PERF.md P5): a simple update
   // (scalar `data`, no nested relation mutation, a scalar-only projection) on a
   // driver with `RETURNING` folds locate+mutate+terminal into ONE `UPDATE …
@@ -308,10 +314,8 @@ export class UpdateOperation {
           ),
         }
       : undefined;
-    this.updateParent =
-      !this.directWrite && Object.keys(parentSet).length > 0
-        ? this.buildRootUpdate(parent, updateId, parentSet, parentName, txMode)
-        : undefined;
+    this.needsRootUpdate =
+      !this.directWrite && Object.keys(parentSet).length > 0;
 
     // 5. The locate planning read. It carries the `notFound` postcondition on
     //    BOTH substrates (enforced by the executor during planning): a missing
@@ -408,7 +412,9 @@ export class UpdateOperation {
       }
     }
     const steps: OperationStep[] = [...guards];
-    if (this.updateParent) steps.push(this.updateParent);
+    if (this.needsRootUpdate) {
+      steps.push(this.buildRootUpdate(locatedRow));
+    }
     steps.push(...writes, this.buildTerminal(locatedRow));
     return { steps, outputs: { result: ref(this.terminalId, "result") } };
   }
@@ -758,12 +764,11 @@ export class UpdateOperation {
   }
 
   private buildRootUpdate(
-    parent: QueryScope,
-    updateId: string,
-    parentSet: Record<string, unknown>,
-    parentName: string,
-    txMode: boolean
+    locatedRow: Record<string, unknown>
   ): StatementStep {
+    const parent = createQueryScope(this.engine.adapter, this.model);
+    const txMode = this.mode === "transaction";
+    const parentName = getStepModelName(this.model, "parent");
     // The exact-affected postcondition is a returning-driver check only. On a
     // non-returning driver V1 uses `affectedRows: unrestricted` (its
     // `compileMutationRefetch`): the locked locate already proved existence, so a
@@ -772,11 +777,15 @@ export class UpdateOperation {
     const enforceAffected =
       txMode && this.engine.adapter.capabilities.supportsReturning;
     return {
-      id: updateId,
+      id: this.updateId,
       kind: "write",
       statement: buildUpdate(parent, {
-        where: this.parentWhere,
-        data: parentSet,
+        // Address the row by the PK captured at the (FOR UPDATE) locate — V1's
+        // `WHERE id` mechanic (locate by an alternate unique, mutate by the
+        // immutable captured PK). Transaction mode only; batch mode keeps the
+        // original `where` so the write and its presence guard pin one row.
+        where: this.writeWhere(locatedRow),
+        data: this.parentUpdateData,
         select: this.pkSelect(),
       }),
       outputs: {},
@@ -791,6 +800,20 @@ export class UpdateOperation {
           }
         : {}),
     };
+  }
+
+  /** The row's post-locate address: the captured PK in transaction mode (V1's
+   *  `WHERE id`), the original `where` in batch mode (guard/write pin one row). */
+  private writeWhere(
+    locatedRow: Record<string, unknown>
+  ): Record<string, unknown> {
+    if (this.mode !== "transaction") return this.parentWhere;
+    return buildPrimaryKeyWhereUnique(
+      this.model,
+      Object.fromEntries(
+        this.parentPrimaryKeys.map((pk) => [pk, locatedRow[pk]])
+      )
+    );
   }
 
   /** The batch-mode root-presence assertion (ATOM §8.1 note (b)). */
