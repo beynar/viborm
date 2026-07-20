@@ -645,6 +645,57 @@ effect. The two new adopt premises (connectOrCreate found, upsert member) are th
 existing-row `presenceGuard` class (Pin Rule class 1, `raceable: false`), each
 given a before-batch staleness-injection test and each falsified once.
 
+**P5 update — the default flip is wired and default-ON, and the parity soak
+found real divergences (freeze held; NO vocabulary change).** The per-tree
+router (`routing.ts`) is built into the production dispatch
+(`client.ts` → `PendingOperation.createRouted` → the V2 executor), obeying the
+proxy's routing law: construct V2 for the whole payload; `UnsupportedOperationError`
+→ V1; any other construction error propagates. One migration-temporary escape
+hatch — `queryEngine: "v1"` — forces the frozen runtime for A/B and rollback,
+scheduled for deletion in P6. The `OperationFragment.ts` surface was **unchanged**
+by P5 (snapshot + token gate green).
+
+The soak — the **first** full-suite run of the V1 conformance corpus against V2
+(the P0–P4.5 oracle only ever certified V2's own scenarios) — surfaced behavior
+divergences the oracle never exercised. They are **adoption-standard conflicts**,
+recorded, not softened (KILL SIGNAL): none was routed away, no assertion loosened,
+no test pinned to V1 to hide it.
+
+- **One routing-completeness bug was fixed cleanly.** A nested relation write
+  inside `update`/`updateMany` data threw its `UnsupportedOperationError` from
+  `RelationWritePart.scalarData()` during `compile()` — *after* the planning read —
+  so the construction-time router could not fall back, and V2's message surfaced
+  where V1's was the contract. The payload-determined rejection now fires in the
+  Part constructor (before any I/O). This is the general shape of the class: **a
+  route decision must be made at construction, never deferred to compile.**
+- **Genuine behavior divergences remain open (conflicts).** On *returning* drivers
+  a handful of nested-write-conformance edges diverge (a PK-transition + self-M2M
+  emits a mis-ordered write → `ForeignKeyError` where V1 succeeds; several
+  "disjoint decision" scenarios are over-rejected). A concurrent selector-move
+  ("split-witness") is not caught by V2's correlated guard the way V1's
+  captured-PK+selector guard catches it — a race-safety gap. The batch-only
+  non-returning `upsert`/`update` `requiresAtomicResolution` refusal is not
+  reproduced (V2 fails at runtime as "Query execution failed" instead of V1's
+  byte-identical typed refusal). Several invalid-payload rejections differ in
+  message or are missing (`deleteMany` on a to-one; non-PK-referenced arithmetic;
+  divide-by-zero / float-PK wording; empty `createMany`). Real MySQL is 467/468
+  and Docker Postgres is at its 407/14 baseline, so V2 is **behaviorally close**
+  on real drivers; the divergences concentrate in the PGlite conformance/internals
+  corpus. A body of those failures assert V1's **non-returning statement mechanics**
+  (lock-by-selector → capture PK → mutate/refetch by captured PK, statement counts)
+  — V2's atom model produces correct behavior via different statements; those are
+  V1-internal-mechanics assertions listed in the P5 report.
+- **The flip carries a measured write-path performance regression** (PERF.md P5):
+  V2 is 1.84× slower on `upsert` and 2.37× slower on a scalar `update`, because
+  plan-then-execute issues locate+mutate+refetch where V1 folds `UPDATE … RETURNING`.
+
+The seam is correct and its six preserved contracts pass and are falsified
+(`p5-flip-contract.test.ts`). But the default-ON flip is **not** production-clean:
+the behavior conflicts and the write-path regression must be closed first. This is
+the "stop at the phase boundary, oracle green, and think" state — the V2 oracle is
+green (325/325), the gates are green, and the divergences are named for the next
+thread rather than papered over.
+
 ---
 
 ## 9. Invariants (the executable contract)

@@ -445,6 +445,42 @@ recorded either way, PERF.md precedent).
 *Kill signal:* any behavior contract weakened to route — adoption-standard
 failure by definition.
 
+### P5 delivered — seam ON, soak surfaced conflicts (NOT clean-green)
+
+The routing seam is built into production and default-ON: `client.ts` dispatches
+through `PendingOperation.createRouted` → `routing.ts` (`constructRoutedOperation`
++ `executeRoutedOperation`) → the V2 `OperationExecutor`, obeying the P2a proxy's
+routing law. The single migration-temporary escape hatch is the **`queryEngine:
+"v1" | "v2"`** client option (default `"v2"`); it exists only for the soak's A/B
+and the rollback story and is **scheduled for deletion in P6** (when V1's
+operation/execution root is removed and routing becomes unconditional). The write-
+race retry lives above the executor (`executeRoutedOperation`), byte-for-byte V1's
+one-retry policy. `race-retry.ts` ports V1's `markRetryableRace`/`isExplicitProgramRace`.
+
+The six preserved contracts pass and are falsified (`p5-flip-contract.test.ts`):
+callback-tx + `executeWith` driver threading with rollback; the cache
+single-statement `prepare()` seam; `$transaction([...])` one-merged-batch +
+mid-array abort; instrumentation event shape A/B; error taxonomy incl.
+`meta.raceable`; write-race retry both directions. The V2 oracle is 325/325 and
+the structural gates are green — the freeze held (no `OperationFragment.ts`
+change).
+
+**The gate ("entire estate green … benchmarks within noise") is NOT met.** The
+parity soak — the first full run of the V1 conformance corpus against V2 — found
+genuine divergences, recorded as conflicts (never softened, never routed away,
+never pinned-to-V1-to-hide): returning-driver nested-write edges (PK-transition
+FK mis-order; disjoint-decision over-rejection), a split-witness race-safety gap,
+the batch-only non-returning `requiresAtomicResolution` refusal (message), and
+several invalid-payload rejection message/coverage gaps. Real MySQL is 467/468,
+Docker Postgres is at its 407/14 baseline — V2 is behaviorally close on real
+drivers; divergences concentrate in the PGlite conformance/internals corpus, and
+a subset of those assert V1-internal statement mechanics rather than observable
+behavior. Benchmarks (PERF.md P5) show a write-path regression (upsert 1.84×,
+scalar update 2.37× slower) from plan-then-execute's extra round-trips. See the
+P5 report and ATOM §8.1 P5 note for the itemized conflict list. **P5 stops at the
+phase boundary with the oracle green: the divergences and the regression must be
+closed before the default flip is declared production-clean.**
+
 ## P6 — Deletion and the honest audit
 
 Bulk-delete V1's operation/execution root once unreachable; keep what V2
