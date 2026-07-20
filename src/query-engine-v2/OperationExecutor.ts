@@ -103,10 +103,11 @@ export class OperationExecutor {
     // reference, insert-id scratch, or savepoint skip effect. A postcondition is
     // permitted and enforced in JS after the single round-trip, with no partial
     // state to roll back (the statement either committed its one row or affected
-    // none). This is the read fast path (a `findUnique`/`findMany` is one SELECT,
-    // not BEGIN+SELECT+COMMIT) and the returning-driver folded-mutation fast path
-    // (a scalar `update`/`delete` is one `… RETURNING`, closing the write-path
-    // regression PERF.md P5 named).
+    // none). This covers both the single-SELECT read case (one SELECT, not
+    // BEGIN+SELECT+COMMIT) and the returning-driver folded-mutation case (one
+    // `… RETURNING` statement), which is what closes the write-path regression
+    // PERF.md P5 named — the decision is a structural property of the fragment,
+    // never the payload's kind.
     if (this.isStatementAtomic(operation)) {
       return this.runLinearOn<T>(operation, context, driver);
     }
