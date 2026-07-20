@@ -11,6 +11,7 @@ import { buildInsert } from "../query-engine/builders/values-builder";
 import { getWhereUniqueEntries } from "../query-engine/builders/where-unique-builder";
 import {
   createQueryScope,
+  getDefaultScalarFieldNames,
   getTableName,
 } from "../query-engine/context/query-scope";
 import {
@@ -473,8 +474,12 @@ export class UpsertOperation {
 }
 
 function defaultSelect(model: Model<any>): Record<string, unknown> {
+  // V1's default projection is every scalar EXCEPT `.omit()`-ed fields (a model
+  // with an omitted generated PK returns without it). Using the raw scalar names
+  // would leak the omitted column — e.g. the captured generated PK on a
+  // non-returning upsert create branch, which is internal, not public.
   return Object.fromEntries(
-    model["~"].scalarFieldNames.map((field: string) => [field, true])
+    getDefaultScalarFieldNames(model).map((field: string) => [field, true])
   );
 }
 

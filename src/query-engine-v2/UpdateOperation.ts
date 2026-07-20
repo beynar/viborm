@@ -15,7 +15,10 @@ import {
   separateData,
 } from "../query-engine/builders/relation-data-builder";
 import { getRelationMutationKinds } from "../query-engine/builders/relation-mutation-parser";
-import { createQueryScope } from "../query-engine/context/query-scope";
+import {
+  createQueryScope,
+  getDefaultScalarFieldNames,
+} from "../query-engine/context/query-scope";
 import { buildFindUnique, buildUpdate } from "../query-engine/operations";
 import {
   assertPortablePrimaryKeyUpdateInput,
@@ -948,8 +951,10 @@ function assertUpdateKeys(value: Record<string, unknown>): void {
 }
 
 function defaultSelect(model: Model<any>): Record<string, unknown> {
+  // V1's default projection is every scalar EXCEPT `.omit()`-ed fields — the raw
+  // scalar names would leak an omitted column into the public result.
   return Object.fromEntries(
-    model["~"].scalarFieldNames.map((field: string) => [field, true])
+    getDefaultScalarFieldNames(model).map((field: string) => [field, true])
   );
 }
 
