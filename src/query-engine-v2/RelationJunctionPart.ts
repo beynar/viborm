@@ -6,7 +6,11 @@ import {
   separateData,
 } from "../query-engine/builders/relation-data-builder";
 import { getRelationMutationKinds } from "../query-engine/builders/relation-mutation-parser";
-import { createQueryScope } from "../query-engine/context/query-scope";
+import { buildInsert } from "../query-engine/builders/values-builder";
+import {
+  createQueryScope,
+  getTableName,
+} from "../query-engine/context/query-scope";
 import { manyToManyStatement } from "../query-engine/ManyToManyMemberships";
 import { ManyToManyStatements } from "../query-engine/ManyToManyStatements";
 import {
@@ -17,11 +21,17 @@ import {
 } from "../query-engine/operations";
 import type { QueryEngine } from "../query-engine/query-engine";
 import type { QueryScope, RelationInfo } from "../query-engine/types";
-import { nestedWriteFailure, presenceGuard } from "./fragment-builders";
+import {
+  childRacePin,
+  nestedWriteFailure,
+  presenceGuard,
+} from "./fragment-builders";
 import {
   m2mDisconnectRequiresSelector,
   m2mMembershipRace,
+  nestedReplacement,
   relationTargetNotFound,
+  upsertTargetNotFoundForParent,
 } from "./messages";
 import {
   type GuardStep,
@@ -68,12 +78,15 @@ import { getStepModelName, UnsupportedOperationError } from "./shared";
  */
 export type JunctionKind =
   | "connect"
+  | "connectOrCreate"
+  | "create"
   | "delete"
   | "deleteMany"
   | "disconnect"
   | "set"
   | "update"
-  | "updateMany";
+  | "updateMany"
+  | "upsert";
 
 export interface RelationJunctionConfig {
   readonly engine: QueryEngine;
@@ -91,6 +104,19 @@ export interface RelationJunctionConfig {
   readonly data?: readonly Record<string, unknown>[];
   /** deleteMany/updateMany: the correlated filter(s). */
   readonly filters?: readonly Record<string, unknown>[];
+  /** create: the child create data (scalar only) for each item. */
+  readonly creates?: readonly Record<string, unknown>[];
+  /** connectOrCreate: each `{ where, create }` adopt-or-insert item. */
+  readonly adopts?: readonly {
+    readonly where: Record<string, unknown>;
+    readonly create: Record<string, unknown>;
+  }[];
+  /** upsert: each `{ where, create, update }` correlated three-way item. */
+  readonly upserts?: readonly {
+    readonly where: Record<string, unknown>;
+    readonly create: Record<string, unknown>;
+    readonly update: Record<string, unknown>;
+  }[];
 }
 
 /** A per-target probe slot (connect/set/delete/update) with its write ids. */
@@ -121,6 +147,44 @@ interface BareSlot {
   readonly data?: Record<string, unknown>;
 }
 
+/** A `create` slot — INSERT the fresh child, then INSERT the join row. The
+ *  target PK is validated present in the create data at construction (an
+ *  auto-generated identity routes the whole tree to V1). */
+interface CreateSlot {
+  readonly create: Record<string, unknown>;
+  readonly createPk: unknown;
+  readonly childId: string;
+  readonly joinId: string;
+}
+
+/** A `connectOrCreate` slot — a global probe, then adopt (join) or create+join. */
+interface AdoptSlot {
+  readonly where: Record<string, unknown>;
+  readonly create: Record<string, unknown>;
+  readonly createPk: unknown;
+  readonly probeId: string;
+  readonly guardId: string;
+  readonly childId: string;
+  readonly joinId: string;
+  readonly probe: StatementStep;
+}
+
+/** An `upsert` slot — a membership probe + a global probe decide the three-way. */
+interface UpsertSlot {
+  readonly where: Record<string, unknown>;
+  readonly create: Record<string, unknown>;
+  readonly createPk: unknown;
+  readonly update: Record<string, unknown>;
+  readonly membershipProbeId: string;
+  readonly globalProbeId: string;
+  readonly guardId: string;
+  readonly childId: string;
+  readonly updateId: string;
+  readonly joinId: string;
+  readonly membershipProbe: StatementStep;
+  readonly globalProbe: StatementStep;
+}
+
 export class RelationJunctionPart implements Part {
   private readonly config: RelationJunctionConfig;
   private readonly targetPkField: string;
@@ -129,6 +193,9 @@ export class RelationJunctionPart implements Part {
   private readonly targets: readonly TargetSlot[];
   private readonly bulks: readonly BulkSlot[];
   private readonly bare: readonly BareSlot[];
+  private readonly creates: readonly CreateSlot[];
+  private readonly adopts: readonly AdoptSlot[];
+  private readonly upserts: readonly UpsertSlot[];
   private readonly setClearId: string;
   private readonly setInsertId: string;
 
@@ -163,6 +230,22 @@ export class RelationJunctionPart implements Part {
           )
         : [];
     this.bare = this.buildBareSlots(scope);
+    this.creates =
+      kind === "create"
+        ? (config.creates ?? []).map((create) =>
+            this.buildCreateSlot(scope, create)
+          )
+        : [];
+    this.adopts =
+      kind === "connectOrCreate"
+        ? (config.adopts ?? []).map((item) => this.buildAdoptSlot(scope, item))
+        : [];
+    this.upserts =
+      kind === "upsert"
+        ? (config.upserts ?? []).map((item) =>
+            this.buildUpsertSlot(scope, item)
+          )
+        : [];
     this.setClearId =
       kind === "set" ? scope.allocate(`${config.childName}.set.clear`) : "";
     this.setInsertId =
@@ -173,6 +256,10 @@ export class RelationJunctionPart implements Part {
     const steps: OperationStep[] = [];
     for (const target of this.targets) steps.push(target.probe);
     for (const bulk of this.bulks) steps.push(bulk.read);
+    for (const adopt of this.adopts) steps.push(adopt.probe);
+    for (const upsert of this.upserts) {
+      steps.push(upsert.membershipProbe, upsert.globalProbe);
+    }
     return steps;
   }
 
@@ -193,6 +280,12 @@ export class RelationJunctionPart implements Part {
         return this.compileUpdate(parent, known);
       case "updateMany":
         return this.compileUpdateMany(parent);
+      case "create":
+        return this.compileCreate(parent);
+      case "connectOrCreate":
+        return this.compileConnectOrCreate(parent, known);
+      case "upsert":
+        return this.compileUpsert(parent, known);
       default: {
         const exhaustive: never = this.config.kind;
         throw new QueryEngineError(
@@ -361,6 +454,106 @@ export class RelationJunctionPart implements Part {
     return steps;
   }
 
+  // create — INSERT the fresh child row, then the join row (V1's
+  // `ManyToManyMemberships.create`). No probe, no missing premise: an
+  // unconditional insert whose own unique violation is a genuine error.
+  private compileCreate(parent: unknown): readonly OperationStep[] {
+    const steps: OperationStep[] = [];
+    for (const slot of this.creates) {
+      steps.push(this.childInsert(slot.childId, slot.create));
+      steps.push(
+        this.junctionWrite(slot.joinId, "junctionInsert", {
+          parentValue: parent,
+          targetValue: slot.createPk,
+        })
+      );
+    }
+    return steps;
+  }
+
+  // connectOrCreate — a global probe adopts (join) an existing target or creates
+  // it (V1's `ManyToManyMemberships.connectOrCreate`). Found premise pinned by
+  // the exists guard (raceable:false); missing premise enforced by the child's
+  // unique constraint (racePin), never a notExists guard (Pin Rule).
+  private compileConnectOrCreate(
+    parent: unknown,
+    known: PlanningKnown
+  ): readonly OperationStep[] {
+    const steps: OperationStep[] = [];
+    // Targets an earlier array item already created in THIS operation. V1
+    // processes the array sequentially (branch ledger: "merge input N before
+    // deciding input N+1"), so a duplicate target adopts the just-created row
+    // instead of re-creating it. V2 decides that at compile from the fixed order.
+    const created = new Set<string>();
+    for (const slot of this.adopts) {
+      const rows = known[planningKey(slot.probeId, "rows")];
+      const found = Array.isArray(rows) && rows.length > 0;
+      if (found) {
+        if (!this.config.txMode) steps.push(this.adoptFoundGuard(slot));
+        steps.push(this.joinInsert(slot.joinId, parent, this.pkOf(rows[0])));
+        continue;
+      }
+      if (created.has(pkKey(slot.createPk))) {
+        // Created by an earlier same-target item — adopt (the join is idempotent).
+        steps.push(this.joinInsert(slot.joinId, parent, slot.createPk));
+        continue;
+      }
+      created.add(pkKey(slot.createPk));
+      steps.push(
+        this.childInsert(slot.childId, slot.create, slot.where),
+        this.joinInsert(slot.joinId, parent, slot.createPk)
+      );
+    }
+    return steps;
+  }
+
+  // upsert — the correlated three-way (V1's `ManyToManyMutations.upsert`): a
+  // member is updated; a globally-existing non-member is the typed V7001; an
+  // absent target is created and joined. Member premise pinned by the membership
+  // exists guard (raceable:false); absent premise by the child constraint (racePin).
+  private compileUpsert(
+    parent: unknown,
+    known: PlanningKnown
+  ): readonly OperationStep[] {
+    const steps: OperationStep[] = [];
+    // Targets an earlier array item already created+joined in THIS operation: it
+    // is now a member, so a duplicate item updates it (V1's sequential merge).
+    const created = new Set<string>();
+    for (const slot of this.upserts) {
+      const memberRows = known[planningKey(slot.membershipProbeId, "rows")];
+      if (Array.isArray(memberRows) && memberRows.length > 0) {
+        if (!this.config.txMode) {
+          steps.push(this.upsertMemberGuard(slot, parent));
+        }
+        steps.push(
+          this.childUpdate(slot.updateId, this.pkOf(memberRows[0]), slot.update)
+        );
+        continue;
+      }
+      if (created.has(pkKey(slot.createPk))) {
+        // Created+joined by an earlier same-target item — now a member (no guard;
+        // our own earlier insert guarantees its presence). Update it.
+        steps.push(this.childUpdate(slot.updateId, slot.createPk, slot.update));
+        continue;
+      }
+      const globalRows = known[planningKey(slot.globalProbeId, "rows")];
+      if (Array.isArray(globalRows) && globalRows.length > 0) {
+        // Exists globally but is not a member of this parent — the correlated
+        // upsert cannot adopt a foreign row: V1's verbatim V7001 (ATOM §4).
+        throw new NestedWriteError(
+          upsertTargetNotFoundForParent(this.config.relationName),
+          this.config.relationName
+        );
+      }
+      created.add(pkKey(slot.createPk));
+      steps.push(
+        this.childInsert(slot.childId, slot.create, slot.where),
+        this.joinInsert(slot.joinId, parent, slot.createPk)
+      );
+    }
+    return steps;
+  }
+
   // -------------------------------------------------------------------------
   // Slot construction (all step ids scope-allocated once, at construction).
   // -------------------------------------------------------------------------
@@ -443,6 +636,95 @@ export class RelationJunctionPart implements Part {
     return [];
   }
 
+  private buildCreateSlot(
+    scope: StepScope,
+    create: Record<string, unknown>
+  ): CreateSlot {
+    const { childName } = this.config;
+    return {
+      create,
+      createPk: this.requireCreatePk(create),
+      childId: scope.allocate(`${childName}.create`),
+      joinId: scope.allocate(`${childName}.junction.insert`),
+    };
+  }
+
+  private buildAdoptSlot(
+    scope: StepScope,
+    item: { where: Record<string, unknown>; create: Record<string, unknown> }
+  ): AdoptSlot {
+    const { childName } = this.config;
+    const probeId = scope.allocate(`${childName}.find`);
+    return {
+      where: item.where,
+      create: item.create,
+      createPk: this.requireCreatePk(item.create),
+      probeId,
+      guardId: scope.allocate(`${childName}.guard.exists`),
+      childId: scope.allocate(`${childName}.create`),
+      joinId: scope.allocate(`${childName}.junction.insert`),
+      // Global lookup-and-adopt: an uncorrelated probe by the child unique.
+      probe: {
+        id: probeId,
+        kind: "read",
+        statement: buildFindUnique(this.childScope, {
+          where: item.where,
+          select: { [this.targetPkField]: true },
+          forUpdate: this.config.txMode,
+        }),
+        outputs: { rows: { kind: "rows" } },
+      },
+    };
+  }
+
+  private buildUpsertSlot(
+    scope: StepScope,
+    item: {
+      where: Record<string, unknown>;
+      create: Record<string, unknown>;
+      update: Record<string, unknown>;
+    }
+  ): UpsertSlot {
+    const { childName } = this.config;
+    const membershipProbeId = scope.allocate(`${childName}.member`);
+    const globalProbeId = scope.allocate(`${childName}.find`);
+    return {
+      where: item.where,
+      create: item.create,
+      createPk: this.requireCreatePk(item.create),
+      update: item.update,
+      membershipProbeId,
+      globalProbeId,
+      guardId: scope.allocate(`${childName}.guard.member`),
+      childId: scope.allocate(`${childName}.create`),
+      updateId: scope.allocate(`${childName}.update`),
+      joinId: scope.allocate(`${childName}.junction.insert`),
+      // Two widened probes (technique #2): whether the target is a member of this
+      // parent (correlated by a SQL Ref) AND whether it exists globally. `compile`
+      // decides member / exists-not-member / absent from both.
+      membershipProbe: {
+        id: membershipProbeId,
+        kind: "read",
+        statement: this.membershipRead({
+          parentValue: this.parentRef(),
+          whereUnique: item.where,
+          take: 1,
+        }),
+        outputs: { rows: { kind: "rows" } },
+      },
+      globalProbe: {
+        id: globalProbeId,
+        kind: "read",
+        statement: buildFindUnique(this.childScope, {
+          where: item.where,
+          select: { [this.targetPkField]: true },
+          forUpdate: this.config.txMode,
+        }),
+        outputs: { rows: { kind: "rows" } },
+      },
+    };
+  }
+
   // -------------------------------------------------------------------------
   // Leaf builders — junction (V1's ManyToManyStatements) and child (V2 ops).
   // -------------------------------------------------------------------------
@@ -505,6 +787,90 @@ export class RelationJunctionPart implements Part {
         select: { [this.targetPkField]: true },
       }),
       outputs: {},
+    };
+  }
+
+  /** The idempotent join-row insert (junction-PK skip) for a target PK. */
+  private joinInsert(id: string, parent: unknown, targetValue: unknown) {
+    return this.junctionWrite(id, "junctionInsert", {
+      parentValue: parent,
+      targetValue,
+    });
+  }
+
+  /** INSERT the fresh child row. A `where` present (connectOrCreate/upsert create
+   *  arm) means the missing premise is enforced by the child unique constraint —
+   *  its violation is the raceable signal (racePin), never a notExists guard. */
+  private childInsert(
+    id: string,
+    create: Record<string, unknown>,
+    where?: Record<string, unknown>
+  ): StatementStep {
+    const step: StatementStep = {
+      id,
+      kind: "write",
+      statement: buildInsert(
+        this.childScope,
+        getTableName(this.childScope.model),
+        create
+      ),
+      outputs: {},
+    };
+    return where
+      ? { ...step, racePin: childRacePin(this.childScope, where) }
+      : step;
+  }
+
+  /** The created child's primary key for the join row — a compile-time literal
+   *  the create data must carry (the M2M target unique). An auto-generated child
+   *  PK (absent from the create data) is create-through-junction with a produced
+   *  identity — V1's runtime; route the whole tree to V1. */
+  private requireCreatePk(create: Record<string, unknown>): unknown {
+    const pk = create[this.targetPkField];
+    if (pk === undefined || pk === null) {
+      throw new UnsupportedOperationError(
+        `query-engine-v2 create-through-junction for relation '${this.config.relationName}' requires the target primary key '${this.targetPkField}' in the create data.`
+      );
+    }
+    return pk;
+  }
+
+  /** connectOrCreate found premise (batch): the adopted target still exists.
+   *  Existing-row premise, pinned raceable:false, V1's replacement wording. */
+  private adoptFoundGuard(slot: AdoptSlot): GuardStep {
+    return presenceGuard(
+      slot.guardId,
+      buildFindUnique(this.childScope, {
+        where: slot.where,
+        select: { [this.targetPkField]: true },
+      }),
+      nestedWriteFailure(
+        nestedReplacement("connectOrCreate"),
+        this.config.relationName,
+        false
+      )
+    );
+  }
+
+  /** upsert member premise (batch): the target is still a member of this parent.
+   *  Existing-row premise, pinned raceable:false, V1's replacement wording. */
+  private upsertMemberGuard(slot: UpsertSlot, parent: unknown): GuardStep {
+    return {
+      id: slot.guardId,
+      kind: "guard",
+      premise: {
+        kind: "exists",
+        statement: this.membershipRead({
+          parentValue: parent,
+          whereUnique: slot.where,
+          take: 1,
+        }),
+      },
+      failure: nestedWriteFailure(
+        nestedReplacement("upsert"),
+        this.config.relationName,
+        false
+      ),
     };
   }
 
@@ -683,11 +1049,13 @@ export class RelationJunctionPart implements Part {
 
 // ---------------------------------------------------------------------------
 // Fold — one M2M relation's parsed mutation into its junction Parts. Each kind
-// (connect/disconnect/set/delete/deleteMany/update/updateMany) becomes one Part
-// carrying every item of that kind; several kinds coexist on one relation as
-// several Parts in the linear fragment. connectOrCreate/upsert/create nested
-// under a M2M target keep V1's runtime (their create arm is create-through-
-// junction), so they route the whole tree to V1 via UnsupportedOperationError.
+// (connect/disconnect/set/delete/deleteMany/update/updateMany, plus the adopt
+// family create/connectOrCreate/upsert) becomes one Part carrying every item of
+// that kind; several kinds coexist on one relation as several Parts in the
+// linear fragment. The adopt family's create arm is INSERT-child + INSERT-join
+// (V1's junction SQL as leaves); its child PK must be carried in the create data
+// (an auto-generated identity is create-through-junction with a produced value —
+// still V1's, routed via UnsupportedOperationError).
 // ---------------------------------------------------------------------------
 
 export function buildJunctionParts(input: {
@@ -843,15 +1211,137 @@ export function buildJunctionParts(input: {
         );
         break;
       }
+      case "create":
+        // INSERT the fresh child (scalar-only), then the join row (V1's
+        // `ManyToManyMemberships.create`). Deeper nested relations in the create
+        // data are create-through-junction depth — route the whole tree to V1.
+        parts.push(
+          new RelationJunctionPart(scope, {
+            ...base,
+            kind: "create",
+            creates: normalizeCreates(parsedRelation.create, relationName).map(
+              (create) => scalarOnly(childScope, create, relationName, kind)
+            ),
+          })
+        );
+        break;
+      case "connectOrCreate":
+        parts.push(
+          new RelationJunctionPart(scope, {
+            ...base,
+            kind: "connectOrCreate",
+            adopts: normalizeWhereCreate(
+              parsedRelation.connectOrCreate,
+              relationName,
+              kind
+            ).map((item) => ({
+              where: item.where,
+              create: scalarOnly(childScope, item.create, relationName, kind),
+            })),
+          })
+        );
+        break;
+      case "upsert":
+        parts.push(
+          new RelationJunctionPart(scope, {
+            ...base,
+            kind: "upsert",
+            upserts: normalizeUpserts(parsedRelation.upsert, relationName).map(
+              (item) => ({
+                where: item.where,
+                create: scalarOnly(childScope, item.create, relationName, kind),
+                update: scalarOnly(childScope, item.update, relationName, kind),
+              })
+            ),
+          })
+        );
+        break;
       default:
-        // create / connectOrCreate / upsert nested under a M2M target keep V1's
-        // create-through-junction runtime — route the whole tree to V1.
+        // createMany and any other kind not enumerated stay V1's surface — route
+        // the whole tree to V1.
         throw new UnsupportedOperationError(
           `query-engine-v2 does not support nested '${kind}' on many-to-many relation '${relationName}'.`
         );
     }
   }
   return parts;
+}
+
+function normalizeCreates(
+  value: unknown,
+  relation: string
+): Record<string, unknown>[] {
+  const items = Array.isArray(value) ? value : [value];
+  return items.map((item) => {
+    if (!(item && typeof item === "object")) {
+      throw new QueryEngineError(
+        `query-engine-v2 create for relation '${relation}' requires a create object.`
+      );
+    }
+    return item as Record<string, unknown>;
+  });
+}
+
+function normalizeWhereCreate(
+  value: unknown,
+  relation: string,
+  kind: string
+): { where: Record<string, unknown>; create: Record<string, unknown> }[] {
+  const items = Array.isArray(value) ? value : [value];
+  return items.map((item) => {
+    if (!(item && typeof item === "object")) {
+      throw new QueryEngineError(
+        `query-engine-v2 ${kind} for relation '${relation}' requires a { where, create } object.`
+      );
+    }
+    const record = item as Record<string, unknown>;
+    const where = requireObject(record.where, relation, kind, "where");
+    const create = requireObject(record.create, relation, kind, "create");
+    return { where, create };
+  });
+}
+
+function normalizeUpserts(
+  value: unknown,
+  relation: string
+): {
+  where: Record<string, unknown>;
+  create: Record<string, unknown>;
+  update: Record<string, unknown>;
+}[] {
+  const items = Array.isArray(value) ? value : [value];
+  return items.map((item) => {
+    if (!(item && typeof item === "object")) {
+      throw new QueryEngineError(
+        `query-engine-v2 upsert for relation '${relation}' requires a { where, create, update } object.`
+      );
+    }
+    const record = item as Record<string, unknown>;
+    return {
+      where: requireObject(record.where, relation, "upsert", "where"),
+      create: requireObject(record.create, relation, "upsert", "create"),
+      update: requireObject(record.update, relation, "upsert", "update"),
+    };
+  });
+}
+
+function requireObject(
+  value: unknown,
+  relation: string,
+  kind: string,
+  field: string
+): Record<string, unknown> {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  throw new QueryEngineError(
+    `query-engine-v2 ${kind} for relation '${relation}' requires a '${field}' object.`
+  );
+}
+
+/** A stable key for a target primary key value (dedup of same-op created targets). */
+function pkKey(value: unknown): string {
+  return typeof value === "bigint" ? value.toString() : JSON.stringify(value);
 }
 
 function scalarOnly(

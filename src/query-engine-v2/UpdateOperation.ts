@@ -168,6 +168,12 @@ export class UpdateOperation {
     );
     const childParts: Part[] = [];
     const toOneLinks: ToOneLink[] = [];
+    // Every parent column a child FK edge references must be exposed by the
+    // locate read (a compound edge references several; a D4-style edge references
+    // a non-PK unique). Collected here, unioned with the PK, and selected +
+    // exposed as firstRowField outputs below so a per-field child part can read
+    // each referenced value (compile literal) or ref it (planning correlation).
+    const locateFields = new Set<string>(this.parentPrimaryKeys);
     for (const [relationName, mutation] of Object.entries(
       separated.relations
     )) {
@@ -192,6 +198,7 @@ export class UpdateOperation {
         txMode,
         childParts,
         toOneLinks,
+        locateFields,
       });
     }
     this.childParts = childParts;
@@ -221,22 +228,26 @@ export class UpdateOperation {
     //    BOTH substrates (enforced by the executor during planning): a missing
     //    root aborts before any write AND before any correlated child probe can
     //    dereference a located id that does not exist (ATOM §8.1 note (a)/(b)).
+    const locateSelectFields = [...locateFields];
     this.locate = {
       id: locateId,
       kind: "read",
       statement: buildFindUnique(parent, {
         where: this.parentWhere,
-        select: this.pkSelect(),
+        select: Object.fromEntries(
+          locateSelectFields.map((field) => [field, true])
+        ),
         forUpdate: txMode,
       }),
-      // Each PK field is a firstRowField output so a per-field child FK edge can
-      // ref it (compound keys — the census's multi-field produces).
+      // Each PK field AND each child-FK-referenced field is a firstRowField
+      // output so a per-field child FK edge can ref it (compound keys / D4-style
+      // non-PK references — the census's multi-field produces).
       outputs: {
         rows: { kind: "rows" },
         ...Object.fromEntries(
-          this.parentPrimaryKeys.map((pk) => [
-            pk,
-            { kind: "firstRowField", field: pk },
+          locateSelectFields.map((field) => [
+            field,
+            { kind: "firstRowField", field },
           ])
         ),
       },
@@ -324,6 +335,7 @@ export class UpdateOperation {
     txMode: boolean;
     childParts: Part[];
     toOneLinks: ToOneLink[];
+    locateFields: Set<string>;
   }): void {
     const { relationName, mutation, parsedRelation } = input;
     const relationInfo = mutation.relationInfo;
@@ -377,20 +389,12 @@ export class UpdateOperation {
         `query-engine-v2 update supports only one-to-many child-held relations; relation '${relationName}' is '${relationInfo.type}'.`
       );
     }
-    // Compound foreign keys are supported on the connect/disconnect link edges
-    // (per-field refs, ATOM §1). Every referenced column must be one this
-    // operation's locate read exposes (a parent PK field); a foreign key
-    // referencing a non-PK unique needs the locate to select it (D4-style) and
-    // routes to V1 for now.
-    const compoundFk = fk.fkFields.length > 1;
-    if (
-      compoundFk &&
-      !fk.pkFields.every((field) => this.parentPrimaryKeys.includes(field))
-    ) {
-      throw new UnsupportedOperationError(
-        `query-engine-v2 update compound foreign key on relation '${relationName}' must reference the parent primary key.`
-      );
-    }
+    // Compound foreign keys are per-field (ATOM §1): every referenced parent
+    // column — the PK, a subset of it, or a non-PK unique (D4-style) — is added
+    // to the locate read's select/outputs so a per-field child part reads or refs
+    // each one. The whole family (link/adopt/write/set) generalizes together; no
+    // shape routes to V1 on account of compound arity any longer.
+    for (const field of fk.pkFields) input.locateFields.add(field);
     const childScope = createQueryScope(
       this.engine.adapter,
       relationInfo.targetModel
@@ -409,7 +413,8 @@ export class UpdateOperation {
       relationInfo,
       childName,
       childScope,
-      childForeignKey: fk.fkFields[0]!,
+      fkFields: fk.fkFields,
+      referencedFields: fk.pkFields,
       childPrimaryKey: childPrimaryKeys[0]!,
       parentId: input.parentIdSource,
       txMode: input.txMode,
@@ -420,13 +425,6 @@ export class UpdateOperation {
     // contributes its own Part(s); they compose into the one linear fragment in
     // a stable, V1-mirroring order (link/adopt, then removals, then updates).
     for (const kind of kinds) {
-      if (compoundFk && kind !== "connect" && kind !== "disconnect") {
-        // Only link edges are per-field-generalized here; adopt/write/set on a
-        // compound FK stay V1's surface.
-        throw new UnsupportedOperationError(
-          `query-engine-v2 update supports only connect/disconnect on the compound-key relation '${relationName}'; received '${kind}'.`
-        );
-      }
       this.interpretToManyKind({
         kind,
         relationName,
@@ -435,7 +433,6 @@ export class UpdateOperation {
         childScope,
         childName,
         childPrimaryKey: childPrimaryKeys[0]!,
-        childForeignKey: fk.fkFields[0]!,
         fkFields: fk.fkFields,
         referencedFields: fk.pkFields,
         writeBase,
@@ -452,7 +449,6 @@ export class UpdateOperation {
     childScope: QueryScope;
     childName: string;
     childPrimaryKey: string;
-    childForeignKey: string;
     fkFields: readonly string[];
     referencedFields: readonly string[];
     writeBase: Parameters<typeof buildToManyUpdateParts>[0];
@@ -490,7 +486,6 @@ export class UpdateOperation {
             relationInfo,
             normalizeItems(parsedRelation.upsert, relationName),
             input.parentIdSource,
-            this.parentPrimaryKeys[0]!,
             "correlated",
             input.txMode
           )
@@ -508,7 +503,6 @@ export class UpdateOperation {
             relationInfo,
             normalizeItems(parsedRelation.connectOrCreate, relationName),
             input.parentIdSource,
-            this.parentPrimaryKeys[0]!,
             input.txMode
           )
         );
@@ -556,7 +550,7 @@ export class UpdateOperation {
         return;
       case "set":
         input.childParts.push(
-          buildToManySetPart(writeBase, fkFields, parsedRelation.set)
+          buildToManySetPart(writeBase, parsedRelation.set)
         );
         return;
       default:

@@ -359,6 +359,76 @@ route to V1 (distinct from the refusal).
    gate stayed green; `StatementStep.onUniqueConflict` remains the only executor
    effect annotation (the orchestrator's watch-item — no second one formed).
 
+## P4.5 — absorbing the last routes *(delivered)*
+
+**Goal:** absorb the remaining V1-routed write shapes so that after this phase
+exactly ONE deliberate route to V1 remains — pinned by a test, not prose, for the
+P6 deletion accounting.
+
+**Delivered:** the two write-shape routes the P4 report tracked as remaining
+(`routedToV1StillRemaining`) are gone. No vocabulary change (the `OperationFragment.ts`
+snapshot + executor token gate stayed green — the **freeze held**; see ATOM §8.1
+P4.5 update); no new file family (WHY §4.3's `M2M*` kill signal never tripped).
+
+1. **M2M create/connectOrCreate/upsert through the junction** join
+   `RelationJunctionPart` as three more kinds (create/connectOrCreate/upsert),
+   composing V1's frozen junction SQL (`ManyToManyStatements`/
+   `ManyToManyMemberships` leaves) exactly as the P3 membership kinds do:
+   - *create* — INSERT child (scalar-only) + INSERT join row; no probe.
+   - *connectOrCreate* — an uncorrelated global probe (technique #2): found →
+     idempotent join (pinned `raceable: false`, V1's `Record was replaced …`);
+     absent → create + join (constraint + `racePin`, never a `notExists` guard).
+   - *upsert* — a membership probe + a global probe decide the correlated
+     three-way (V1's `ManyToManyMutations.upsert`): member → update
+     (membership `exists` guard, `raceable: false`); globally-existing non-member
+     → V1's verbatim V7001; absent → create + join.
+   Duplicate array targets deduplicate **at compile** (an earlier item's created
+   target makes a later same-target item adopt/update it) — V2's flat realization
+   of V1's sequential branch-ledger merge (DESIGN §6.2), so the "dedupe" oracle
+   scenario flips to V2. The join row's child PK is a compile-time literal the
+   create data carries; an auto-generated M2M child identity stays V1's (a
+   documented bound, routed at construction, never reached by a current schema).
+2. **Compound-FK nested writes** (`set`/`update`/`updateMany`/`delete`/
+   `deleteMany`/`upsert`/`connectOrCreate` on a child-held compound FK, and a
+   **D4-style** edge referencing a non-PK unique) are the per-field
+   generalization of P3's `RelationLinkPart` precedent, shared by
+   `RelationWritePart`/`RelationSetPart`/`RelationUpsertPart` through one
+   `parent-reference.ts` value resolver: every child FK column is
+   written/correlated from its index-aligned parent referenced column.
+   `UpdateOperation`'s locate read now selects and exposes every referenced column
+   (PK, a PK subset, or a non-PK unique) as a `firstRowField` output, so the D4
+   edge's non-PK reference resolves like any other. The P3 compound-arity routes
+   are removed.
+3. **Route flips + new oracle scenarios.** The two `route: "v1"` M2M oracle
+   scenarios flip to V2 (byte-identical state+result+error); new dual-run
+   scenarios cover M2M create/connectOrCreate/upsert (single, multi, mixed,
+   mapped columns, implicit junction, the V7001 reject) and compound-FK
+   set/update/delete/upsert/connectOrCreate + D4 connect/update. Two new adopt
+   premises (connectOrCreate found, upsert member — Pin Rule class 1) each get a
+   before-batch staleness-injection test, each falsified once; the V7001 throw
+   falsified once.
+4. **Route inventory.** `route-inventory.test.ts` runs every previously-routed
+   shape through V2 construction and asserts the set that still routes is EXACTLY
+   `['createManyAndReturn skipDuplicates on non-returning drivers']`.
+
+**Delivered-scope corrections (reality vs. plan text):**
+- *Duplicate connectOrCreate/upsert targets are expressible, not a route.* The
+  work order flagged the "dedupe duplicate targets" scenario to flip; the reality
+  is that V2 CAN produce V1's dedup result via a compile-time merge (mirroring
+  V1's branch-ledger sequencing), so it flips to V2 rather than staying a route.
+- *Auto-generated M2M child identity is a narrow documented bound.* M2M
+  create-through-junction where the child PK is NOT carried in the create data
+  (an auto-increment/ULID identity) needs a produced value for the join row —
+  still V1's runtime. No current test schema hits it (all M2M targets carry
+  provided PKs), so the route inventory over the reachable corpus is exactly one;
+  the bound is documented, not counted as a reachable route.
+
+*Gate (met):* dual-run oracle parity (fresh instance per arm, tx + forced batch,
+state+result+error class+message) for every absorbed shape; per-tree routing
+spy-asserted (all absorbed trees to V2); the route-inventory assertion; two new
+staleness pins each falsified once, plus the V7001 throw; structural gates +
+fragment snapshot untouched; full matrix incl. the Docker mysql2/pg legs.
+
 ## P5 — Default flip and the parity soak
 
 The seam has existed since P2a; P5 is turning it on for everyone and proving

@@ -30,9 +30,28 @@ export const compoundKeyBehaviorSchema = (() => {
       id: s.string().id(),
       provider: s.string(),
       providerId: s.string(),
+      memberships: s.oneToMany(() => membership),
     })
     .unique(["provider", "providerId"])
     .map("compound_accounts");
 
-  return { author, post, account };
+  // A child whose compound FK references a NON-PK compound unique of its parent
+  // (account's `[provider, providerId]`, not its `id` PK) — the D4-style shape.
+  // A root update on `account` must expose those referenced columns in its locate
+  // read so the per-field edge correlates/writes them.
+  const membership = s
+    .model({
+      id: s.string().id(),
+      role: s.string(),
+      accProvider: s.string().nullable(),
+      accProviderId: s.string().nullable(),
+      account: s
+        .manyToOne(() => account)
+        .fields("accProvider", "accProviderId")
+        .references("provider", "providerId")
+        .optional(),
+    })
+    .map("compound_memberships");
+
+  return { author, post, account, membership };
 })();

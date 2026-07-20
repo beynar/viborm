@@ -524,3 +524,102 @@ describe("query-engine-v2 staleness injection (M2M deleteMany materialized-set p
     await client.$disconnect();
   });
 });
+
+// ---------------------------------------------------------------------------
+// The P4.5 M2M adopt-family premises: connectOrCreate's found-target premise and
+// upsert's member premise are both existing-row premises (presenceGuard,
+// raceable: false — Pin Rule class 1). Planning finds the target present; a
+// concurrent delete/disconnect removes it before the batch; the pinned guard must
+// abort the atomic unit with V1's typed replacement failure. Falsify once: with
+// the guard removed the stale batch would proceed (join a deleted row / update a
+// vanished member).
+// ---------------------------------------------------------------------------
+
+describe("query-engine-v2 staleness injection (M2M adopt premises)", () => {
+  test("connectOrCreate found premise: a concurrent delete of the adopted target aborts the batch typed", async () => {
+    const db = new PGlite();
+    const client = makeM2mClient(db);
+    await push(client, { force: true });
+    await client.post.create({ data: { id: "p1", title: "Post 1" } });
+    await client.tag.create({
+      data: { id: "t1", name: "tag-1", featuredPostId: null },
+    });
+
+    // Planning's global probe finds t1 → the found (adopt) arm, pinned by the
+    // exists guard. The hook deletes t1 before the batch pins & joins it.
+    const injector = makeM2mClient(db);
+    const rejected = await runM2mUpdate(
+      db,
+      async () => {
+        await injector.tag.delete({ where: { id: "t1" } });
+      },
+      manyToManySchema.post,
+      {
+        where: { id: "p1" },
+        data: {
+          tags: {
+            connectOrCreate: {
+              where: { id: "t1" },
+              create: { id: "t1", name: "tag-1" },
+            },
+          },
+        },
+      }
+    ).catch((error) => error);
+    expect(rejected).toBeInstanceOf(NestedWriteError);
+
+    // The batch aborted whole: no join row survives.
+    const after = await client.post.findUnique({
+      where: { id: "p1" },
+      include: { tags: true },
+    });
+    expect((after as { tags: unknown[] }).tags).toHaveLength(0);
+    await client.$disconnect();
+  });
+
+  test("upsert member premise: a concurrent disconnect of the member aborts the batch typed", async () => {
+    const db = new PGlite();
+    const client = makeM2mClient(db);
+    await push(client, { force: true });
+    await client.post.create({ data: { id: "p1", title: "Post 1" } });
+    await client.tag.create({
+      data: { id: "t1", name: "tag-1", featuredPostId: null },
+    });
+    await client.post.update({
+      where: { id: "p1" },
+      data: { tags: { connect: { id: "t1" } } },
+    });
+
+    // Planning's membership probe finds t1 is a member of p1 → the update arm,
+    // pinned by the member exists guard. The hook disconnects t1 before the batch.
+    const injector = makeM2mClient(db);
+    const rejected = await runM2mUpdate(
+      db,
+      async () => {
+        await injector.post.update({
+          where: { id: "p1" },
+          data: { tags: { disconnect: { id: "t1" } } },
+        });
+      },
+      manyToManySchema.post,
+      {
+        where: { id: "p1" },
+        data: {
+          tags: {
+            upsert: {
+              where: { id: "t1" },
+              create: { id: "t1", name: "tag-1" },
+              update: { name: "tag-1-upserted" },
+            },
+          },
+        },
+      }
+    ).catch((error) => error);
+    expect(rejected).toBeInstanceOf(NestedWriteError);
+
+    // The batch aborted whole: t1's name is unchanged (the update never fired).
+    const after = await client.tag.findUnique({ where: { id: "t1" } });
+    expect((after as { name: string }).name).toBe("tag-1");
+    await client.$disconnect();
+  });
+});

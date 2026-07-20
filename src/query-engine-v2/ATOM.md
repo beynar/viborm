@@ -598,6 +598,53 @@ fragment-surface snapshot + executor token gate stayed green, the **freeze held*
 no design-note-to-amend-the-freeze required. `StatementStep.onUniqueConflict`
 remains the only executor effect annotation (no second one formed).
 
+**P4.5 update — the last routed write shapes absorbed, one route left, with NO
+vocabulary change (freeze held).** Two of the three routes the P4 report tracked
+(`routedToV1StillRemaining`) are gone; the third is now the *only* deliberate
+route to V1.
+
+- **M2M create/connectOrCreate/upsert through the junction** are ordinary
+  members of `RelationJunctionPart` — no `M2M*` file family formed (WHY §4.3, the
+  kill signal never tripped). `create` INSERTs the child then the join row (V1's
+  `ManyToManyMemberships.create` leaves); `connectOrCreate` is an *uncorrelated*
+  global probe (technique #2) whose found arm joins (pinned `raceable: false`,
+  V1's `Record was replaced …` wording) and whose missing arm creates + joins
+  (constraint + `racePin`, never a `notExists` guard — Pin Rule class 2);
+  `upsert` is the correlated three-way (V1's `ManyToManyMutations.upsert`): a
+  member updates (membership `exists` guard, `raceable: false`), a
+  globally-existing non-member throws V1's verbatim V7001, an absent target
+  creates + joins. Duplicate array targets are deduplicated **at compile** — an
+  earlier item's created target makes a later same-target item adopt/update it —
+  V2's flat realization of V1's sequential branch-ledger merge (DESIGN §6.2), so
+  no member set crosses a write boundary and no own-write dependency is
+  linearized. The child PK the join row needs is a compile-time literal the
+  create data carries; an auto-generated M2M child identity is
+  create-through-junction with a *produced* value and stays V1's (a documented
+  bound, routed at construction — never reached by any current schema, whose M2M
+  targets all carry provided PKs).
+- **Compound-FK nested writes** (`set`/`update`/`updateMany`/`delete`/
+  `deleteMany`/`upsert`/`connectOrCreate` on a child-held compound FK) are the
+  **per-field generalization** of P3's `RelationLinkPart` precedent, now shared by
+  every FK-edge Part through one `parent-reference.ts` value resolver: every child
+  FK column is written/correlated from its index-aligned parent *referenced*
+  column (ATOM §1's multi-field produces). A **D4-style** edge referencing a
+  *non-PK* unique rides the same path — `UpdateOperation`'s locate read selects and
+  exposes every referenced column (PK, a subset, or a non-PK unique) as a
+  `firstRowField` output, so the per-field parts read or ref each one. No shape
+  routes to V1 on account of compound arity any more.
+
+The one route that survives is `createManyAndReturn skipDuplicates` on a
+non-returning driver (a skipped INSERT would have to refetch a pre-existing row —
+inexpressible as linear steps; ATOM §7's honest route, distinct from the
+`requiresAtomicResolution` refusal). A **route-inventory** test pins it: it runs
+every previously-routed shape through V2's construction and asserts the set that
+still routes is EXACTLY that one. The `OperationFragment.ts` type surface was
+**unchanged** by P4.5 — the P0 snapshot + executor token gate stayed green, the
+**freeze held**, `StatementStep.onUniqueConflict` is still the only executor
+effect. The two new adopt premises (connectOrCreate found, upsert member) are the
+existing-row `presenceGuard` class (Pin Rule class 1, `raceable: false`), each
+given a before-batch staleness-injection test and each falsified once.
+
 ---
 
 ## 9. Invariants (the executable contract)

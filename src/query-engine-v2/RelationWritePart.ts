@@ -19,13 +19,10 @@ import {
   referenceSql,
 } from "./fragment-builders";
 import { relationTargetNotFound, setRequiredOrphan } from "./messages";
-import {
-  type OperationStep,
-  ref,
-  type StatementStep,
-} from "./OperationFragment";
+import type { OperationStep, StatementStep } from "./OperationFragment";
 import type { Part, PlanningKnown } from "./Part";
 import { planningKey } from "./Part";
+import { referencedFieldRef, referencedFieldValue } from "./parent-reference";
 import type { ParentIdSource } from "./RelationUpsertPart";
 import type { StepScope } from "./StepScope";
 import { UnsupportedOperationError } from "./shared";
@@ -64,7 +61,13 @@ export interface RelationWriteConfig {
   readonly relationName: string;
   readonly relationInfo: RelationInfo;
   readonly kind: RelationWriteKind;
-  readonly childForeignKey: string;
+  /**
+   * The child-held foreign-key columns and the parent columns they reference,
+   * index-aligned (compound keys are per-field, ATOM §1's multi-field produces).
+   * A single-column edge is the length-1 case; nothing else changes.
+   */
+  readonly fkFields: readonly string[];
+  readonly referencedFields: readonly string[];
   readonly childPrimaryKey: string;
   /** The located parent id (a planning value, inlined as a literal at compile). */
   readonly parentId: ParentIdSource;
@@ -200,11 +203,7 @@ export class RelationWritePart implements Part {
         where: {
           AND: [
             ...this.uniqueEqualityFilters(this.requiredWhere()),
-            {
-              [this.config.childForeignKey]: {
-                equals: useRef ? this.parentRef() : this.parentLiteral(known),
-              },
-            },
+            ...this.correlationFilters(known, useRef),
           ],
         },
         select: { [this.config.childPrimaryKey]: true },
@@ -216,13 +215,41 @@ export class RelationWritePart implements Part {
 
   /** `WHERE fk = <parentLiteral> [AND filter]` for a bulk write. */
   private correlatedFilter(known: PlanningKnown): Record<string, unknown> {
-    const correlation = {
-      [this.config.childForeignKey]: { equals: this.parentLiteral(known) },
-    };
+    const correlation =
+      this.config.fkFields.length === 1
+        ? this.correlationFilters(known, false)[0]!
+        : { AND: this.correlationFilters(known, false) };
     const filter = this.config.filter;
     return filter && Object.keys(filter).length > 0
       ? { AND: [correlation, filter] }
       : correlation;
+  }
+
+  /** `fk_i = <parent_i>` for every compound-key field — a SQL `Ref` to the
+   *  located-parent read at planning (technique #1), or the inlined literal at
+   *  compile. */
+  private correlationFilters(
+    known: PlanningKnown | undefined,
+    useRef: boolean
+  ): Record<string, unknown>[] {
+    return this.config.fkFields.map((fkField, index) => ({
+      [fkField]: {
+        equals: useRef
+          ? referencedFieldRef(
+              this.config.parentId,
+              this.config.referencedFields[index]!,
+              this.config.relationName,
+              this.config.kind
+            )
+          : referencedFieldValue(
+              this.config.parentId,
+              this.config.referencedFields[index]!,
+              known,
+              this.config.relationName,
+              this.config.kind
+            ),
+      },
+    }));
   }
 
   private scalarData(): Record<string, unknown> {
@@ -281,35 +308,6 @@ export class RelationWritePart implements Part {
     return this.config.kind === "update" || this.config.kind === "delete";
   }
 
-  private parentRef() {
-    const source = this.config.parentId;
-    if (source.kind !== "planned") {
-      throw new QueryEngineError(
-        `query-engine-v2 ${this.config.kind} for relation '${this.config.relationName}' requires a planned parent id to correlate its probe.`
-      );
-    }
-    return ref(source.readStep, source.field);
-  }
-
-  private parentLiteral(known: PlanningKnown | undefined): unknown {
-    const source = this.config.parentId;
-    if (source.kind === "literal") return source.value;
-    if (source.kind !== "planned" || !known) {
-      throw new QueryEngineError(
-        `query-engine-v2 ${this.config.kind} for relation '${this.config.relationName}' requires a planned parent id.`
-      );
-    }
-    const rows = known[planningKey(source.readStep, "rows")];
-    const row = Array.isArray(rows) ? rows[0] : undefined;
-    if (!(row && typeof row === "object")) {
-      throw new NestedWriteError(
-        `query-engine-v2 ${this.config.kind} for relation '${this.config.relationName}' could not resolve its parent id.`,
-        this.config.relationName
-      );
-    }
-    return (row as Record<string, unknown>)[source.field];
-  }
-
   private uniqueEqualityFilters(
     where: Record<string, unknown>
   ): Record<string, unknown>[] {
@@ -340,7 +338,9 @@ export interface RelationSetConfig {
   readonly childName: string;
   readonly relationName: string;
   readonly relationInfo: RelationInfo;
-  readonly childForeignKey: string;
+  /** Child FK columns and their index-aligned referenced parent columns (ATOM §1). */
+  readonly fkFields: readonly string[];
+  readonly referencedFields: readonly string[];
   readonly childPrimaryKey: string;
   readonly requiredFk: boolean;
   readonly requiredFields: readonly string[];
@@ -411,7 +411,7 @@ export class RelationSetPart implements Part {
       ? {
           id: this.departingId,
           kind: "read",
-          statement: this.departingStatement(this.parentRef()),
+          statement: this.departingStatement(undefined, true),
           outputs: { rows: { kind: "rows" } },
         }
       : undefined;
@@ -449,7 +449,7 @@ export class RelationSetPart implements Part {
         kind: "write",
         statement: buildUpdate(this.config.childScope, {
           where: target.where,
-          data: { [this.config.childForeignKey]: this.parentIdValue(known) },
+          data: this.fkAssignData(known),
           select: { [this.config.childPrimaryKey]: true },
         }),
         outputs: {},
@@ -482,7 +482,7 @@ export class RelationSetPart implements Part {
           kind: "guard",
           premise: {
             kind: "notExists",
-            statement: this.departingStatement(this.parentLiteral(known)),
+            statement: this.departingStatement(known, false),
           },
           failure: nestedWriteFailure(
             setRequiredOrphan(
@@ -500,8 +500,8 @@ export class RelationSetPart implements Part {
       id: this.orphanNullId,
       kind: "write",
       statement: buildUpdateMany(this.config.childScope, {
-        where: this.departingWhere(this.parentLiteral(known)),
-        data: { [this.config.childForeignKey]: { set: null } },
+        where: this.departingWhere(known, false),
+        data: this.fkNullData(),
       }),
       outputs: {},
     });
@@ -518,11 +518,14 @@ export class RelationSetPart implements Part {
     return rows;
   }
 
-  private departingStatement(parent: unknown): Sql {
+  private departingStatement(
+    known: PlanningKnown | undefined,
+    useRef: boolean
+  ): Sql {
     return buildFind(
       this.config.childScope,
       {
-        where: this.departingWhere(parent),
+        where: this.departingWhere(known, useRef),
         select: { [this.config.childPrimaryKey]: true },
         forUpdate: this.config.txMode,
       },
@@ -530,22 +533,26 @@ export class RelationSetPart implements Part {
     );
   }
 
-  /** `fk = <parent> AND NOT (unique(t1) OR unique(t2) …)`. */
-  private departingWhere(parent: unknown): Record<string, unknown> {
-    const correlation = { [this.config.childForeignKey]: { equals: parent } };
-    if (this.targets.length === 0) return correlation;
-    return {
-      AND: [
-        correlation,
-        {
-          NOT: {
-            OR: this.targets.map((target) => ({
-              AND: this.uniqueEqualityFilters(target.where),
-            })),
-          },
-        },
-      ],
-    };
+  /** `fk_i = <parent_i> [AND …] AND NOT (unique(t1) OR unique(t2) …)`. */
+  private departingWhere(
+    known: PlanningKnown | undefined,
+    useRef: boolean
+  ): Record<string, unknown> {
+    const correlation = this.correlationFilters(known, useRef);
+    const membership =
+      this.targets.length === 0
+        ? correlation
+        : [
+            ...correlation,
+            {
+              NOT: {
+                OR: this.targets.map((target) => ({
+                  AND: this.uniqueEqualityFilters(target.where),
+                })),
+              },
+            },
+          ];
+    return membership.length === 1 ? membership[0]! : { AND: membership };
   }
 
   private requireTargetExists(target: SetTarget, known: PlanningKnown): void {
@@ -564,42 +571,59 @@ export class RelationSetPart implements Part {
     }
   }
 
-  private parentIdValue(known: PlanningKnown): Sql {
-    return referenceSql(
-      this.config.engine,
-      this.config.childScope.model,
-      this.config.childForeignKey,
-      this.parentLiteral(known)
-    );
+  /** The reparent write's FK assignment: every FK column ← its referenced parent
+   *  column value (one entry per compound-key field, ATOM §1). */
+  private fkAssignData(known: PlanningKnown): Record<string, unknown> {
+    const data: Record<string, unknown> = {};
+    for (let index = 0; index < this.config.fkFields.length; index += 1) {
+      const fkField = this.config.fkFields[index]!;
+      data[fkField] = referenceSql(
+        this.config.engine,
+        this.config.childScope.model,
+        fkField,
+        referencedFieldValue(
+          this.config.parentId,
+          this.config.referencedFields[index]!,
+          known,
+          this.config.relationName,
+          "set"
+        )
+      );
+    }
+    return data;
   }
 
-  private parentRef() {
-    const source = this.config.parentId;
-    if (source.kind !== "planned") {
-      throw new QueryEngineError(
-        `query-engine-v2 set for relation '${this.config.relationName}' requires a planned parent id to correlate its departing read.`
-      );
-    }
-    return ref(source.readStep, source.field);
+  /** The departing-null write's FK assignment: null every FK column. */
+  private fkNullData(): Record<string, unknown> {
+    const data: Record<string, unknown> = {};
+    for (const fkField of this.config.fkFields) data[fkField] = { set: null };
+    return data;
   }
 
-  private parentLiteral(known: PlanningKnown): unknown {
-    const source = this.config.parentId;
-    if (source.kind === "literal") return source.value;
-    if (source.kind !== "planned") {
-      throw new QueryEngineError(
-        `query-engine-v2 set for relation '${this.config.relationName}' requires a planned parent id.`
-      );
-    }
-    const rows = known[planningKey(source.readStep, "rows")];
-    const row = Array.isArray(rows) ? rows[0] : undefined;
-    if (!(row && typeof row === "object")) {
-      throw new NestedWriteError(
-        `query-engine-v2 set for relation '${this.config.relationName}' could not resolve its parent id.`,
-        this.config.relationName
-      );
-    }
-    return (row as Record<string, unknown>)[source.field];
+  /** `fk_i = <parent_i>` for every compound-key field — a SQL `Ref` at planning
+   *  (technique #1), or the inlined literal at compile. */
+  private correlationFilters(
+    known: PlanningKnown | undefined,
+    useRef: boolean
+  ): Record<string, unknown>[] {
+    return this.config.fkFields.map((fkField, index) => ({
+      [fkField]: {
+        equals: useRef
+          ? referencedFieldRef(
+              this.config.parentId,
+              this.config.referencedFields[index]!,
+              this.config.relationName,
+              "set"
+            )
+          : referencedFieldValue(
+              this.config.parentId,
+              this.config.referencedFields[index]!,
+              known,
+              this.config.relationName,
+              "set"
+            ),
+      },
+    }));
   }
 
   private uniqueEqualityFilters(
@@ -623,7 +647,8 @@ interface WritePartBase {
   readonly relationInfo: RelationInfo;
   readonly childName: string;
   readonly childScope: QueryScope;
-  readonly childForeignKey: string;
+  readonly fkFields: readonly string[];
+  readonly referencedFields: readonly string[];
   readonly childPrimaryKey: string;
   readonly parentId: ParentIdSource;
   readonly txMode: boolean;
@@ -690,17 +715,17 @@ export function buildToManyDeleteManyParts(
 /** `set`: one membership Part over every unique target `where`. */
 export function buildToManySetPart(
   base: WritePartBase,
-  fkFields: readonly string[],
   input: unknown
 ): RelationSetPart {
-  const requiredFields = requiredFkFieldsFor(base, fkFields);
+  const requiredFields = requiredFkFieldsFor(base);
   return new RelationSetPart(base.scope, {
     engine: base.engine,
     childScope: base.childScope,
     childName: base.childName,
     relationName: base.relationName,
     relationInfo: base.relationInfo,
-    childForeignKey: base.childForeignKey,
+    fkFields: base.fkFields,
+    referencedFields: base.referencedFields,
     childPrimaryKey: base.childPrimaryKey,
     requiredFk: requiredFields.length > 0,
     requiredFields,
@@ -721,7 +746,8 @@ function partConfig(
     relationName: base.relationName,
     relationInfo: base.relationInfo,
     kind,
-    childForeignKey: base.childForeignKey,
+    fkFields: base.fkFields,
+    referencedFields: base.referencedFields,
     childPrimaryKey: base.childPrimaryKey,
     parentId: base.parentId,
     txMode: base.txMode,
@@ -729,12 +755,9 @@ function partConfig(
 }
 
 /** Which of the child's FK fields are required (non-nullable) — V1's rule. */
-function requiredFkFieldsFor(
-  base: WritePartBase,
-  fkFields: readonly string[]
-): string[] {
+function requiredFkFieldsFor(base: WritePartBase): string[] {
   const scalars = base.childScope.model["~"].state.scalars;
-  return fkFields.filter(
+  return base.fkFields.filter(
     (field) => scalars[field]?.["~"].state.nullable !== true
   );
 }

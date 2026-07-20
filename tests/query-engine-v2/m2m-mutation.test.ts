@@ -395,11 +395,93 @@ const scenarios: Scenario[] = [
       });
     },
   },
-  // Routing boundary: nested upsert / connectOrCreate under a M2M target keep
-  // V1's create-through-junction runtime; V2 hands the whole tree back.
+  // --- P4.5: the M2M adopt family through the junction, now on V2. Each is the
+  // create-arm-through-junction shape P3 routed to V1, absorbed as one
+  // RelationJunctionPart: INSERT child (V1's junction leaves) + INSERT join row.
   {
-    name: "nested upsert updates a connected record (routes to V1)",
-    route: "v1",
+    name: "nested create inserts the child and the join row",
+    seed,
+    act: (c) =>
+      c.post!.update!({
+        where: { id: "p1" },
+        data: { tags: { create: { id: "t10", name: "tag-10" } } },
+      }),
+  },
+  {
+    name: "nested create of multiple children (mapped junction columns)",
+    seed,
+    act: (c) =>
+      c.post!.update!({
+        where: { id: "p1" },
+        data: {
+          tags: {
+            create: [
+              { id: "t11", name: "tag-11" },
+              { id: "t12", name: "tag-12" },
+            ],
+          },
+        },
+      }),
+  },
+  {
+    name: "nested create on an implicit junction (categories)",
+    seed,
+    act: (c) =>
+      c.post!.update!({
+        where: { id: "p1" },
+        data: { categories: { create: { id: "c1", name: "cat-1" } } },
+      }),
+  },
+  {
+    name: "nested connectOrCreate connects an existing target",
+    seed,
+    act: (c) =>
+      c.post!.update!({
+        where: { id: "p1" },
+        data: {
+          tags: {
+            connectOrCreate: {
+              where: { id: "t1" },
+              create: { id: "t1", name: "never" },
+            },
+          },
+        },
+      }),
+  },
+  {
+    name: "nested connectOrCreate creates a missing target",
+    seed,
+    act: (c) =>
+      c.post!.update!({
+        where: { id: "p1" },
+        data: {
+          tags: {
+            connectOrCreate: {
+              where: { id: "t20" },
+              create: { id: "t20", name: "tag-20" },
+            },
+          },
+        },
+      }),
+  },
+  {
+    name: "connectOrCreate dedupes duplicate targets (compile-time merge)",
+    seed,
+    act: (c) =>
+      c.post!.update!({
+        where: { id: "p1" },
+        data: {
+          tags: {
+            connectOrCreate: [
+              { where: { id: "t9" }, create: { id: "t9", name: "tag-9" } },
+              { where: { id: "t9" }, create: { id: "t9", name: "tag-9b" } },
+            ],
+          },
+        },
+      }),
+  },
+  {
+    name: "nested upsert updates a connected (member) record",
     seed,
     act: async (c) => {
       await c.post!.update!({
@@ -421,18 +503,55 @@ const scenarios: Scenario[] = [
     },
   },
   {
-    name: "connectOrCreate dedupes duplicate targets (routes to V1)",
-    route: "v1",
+    name: "nested upsert creates a missing target (absent branch)",
     seed,
     act: (c) =>
       c.post!.update!({
         where: { id: "p1" },
         data: {
           tags: {
-            connectOrCreate: [
-              { where: { id: "t9" }, create: { id: "t9", name: "tag-9" } },
-              { where: { id: "t9" }, create: { id: "t9", name: "tag-9b" } },
-            ],
+            upsert: {
+              where: { id: "t30" },
+              create: { id: "t30", name: "tag-30" },
+              update: { name: "nope" },
+            },
+          },
+        },
+      }),
+  },
+  {
+    name: "nested upsert of a globally-existing non-member rejects (V7001)",
+    expectReject: true,
+    seed,
+    act: async (c) => {
+      await c.post!.update!({
+        where: { id: "p2" },
+        data: { tags: { connect: { id: "t1" } } },
+      });
+      await c.post!.update!({
+        where: { id: "p1" },
+        data: {
+          tags: {
+            upsert: {
+              where: { id: "t1" },
+              create: { id: "t1", name: "never" },
+              update: { name: "nope" },
+            },
+          },
+        },
+      });
+    },
+  },
+  {
+    name: "mixed connect and create under one M2M relation compose",
+    seed,
+    act: (c) =>
+      c.post!.update!({
+        where: { id: "p1" },
+        data: {
+          tags: {
+            connect: { id: "t2" },
+            create: { id: "t40", name: "tag-40" },
           },
         },
       }),

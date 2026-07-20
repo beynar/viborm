@@ -1,6 +1,5 @@
 // biome-ignore-all lint/style/useFilenamingConvention: RelationUpsertPart is the architecture name.
 import { NestedWriteError } from "@errors";
-import type { Sql } from "@sql";
 import { getPrimaryKeyFields } from "../query-engine/builders/correlation-utils";
 import {
   getFkDirection,
@@ -40,6 +39,7 @@ import {
 } from "./OperationFragment";
 import type { Part, PlanningKnown } from "./Part";
 import { planningKey } from "./Part";
+import { referencedFieldValue } from "./parent-reference";
 import type { StepScope } from "./StepScope";
 import {
   getStepModelName,
@@ -101,7 +101,14 @@ export interface RelationUpsertConfig {
   readonly where: Record<string, unknown>;
   readonly createData: Readonly<Record<string, unknown>>;
   readonly updateData: Readonly<Record<string, unknown>>;
-  readonly childForeignKey: string;
+  /**
+   * The child-held foreign-key columns and the parent columns they reference,
+   * index-aligned (compound keys are per-field, ATOM §1). A single-column edge is
+   * the length-1 case — and the only one the `ref`/`literal` parent-id kinds
+   * (create context / depth) support.
+   */
+  readonly fkFields: readonly string[];
+  readonly referencedFields: readonly string[];
   readonly childPrimaryKey: string;
   readonly parentId: ParentIdSource;
   readonly correlation: UpsertCorrelation;
@@ -165,11 +172,12 @@ export class RelationUpsertPart implements Part {
     this.guardId = scope.allocate(`${childName}.guard.exists`);
 
     // Widened probe (ATOM §3 technique 2): read the child by its own unique key,
-    // including its FK, so compile can decide the three-way. Locked in tx mode.
-    const identitySelect = {
+    // including every FK column, so compile can decide the three-way. Locked in
+    // tx mode.
+    const identitySelect: Record<string, boolean> = {
       [config.childPrimaryKey]: true,
-      [config.childForeignKey]: true,
     };
+    for (const fkField of config.fkFields) identitySelect[fkField] = true;
     this.find = {
       id: this.probeId,
       kind: "read",
@@ -276,13 +284,18 @@ export class RelationUpsertPart implements Part {
   ): "create" | "found" {
     if (rows.length === 0) return "create";
     if (this.config.correlation === "global-adopt") return "found";
-    const parentId = this.resolveParentId(known);
     const row = rows[0];
-    const childFk =
+    const record =
       row && typeof row === "object"
-        ? (row as Record<string, unknown>)[this.config.childForeignKey]
+        ? (row as Record<string, unknown>)
         : undefined;
-    if (fkEquals(childFk, parentId)) return "found";
+    // Correlated: found only if EVERY child FK column already equals its
+    // referenced parent column (a compound edge correlates per-field). A partial
+    // or foreign match is the found-uncorrelated V7001 (V1's verbatim message).
+    const correlated = this.config.fkFields.every((fkField, index) =>
+      fkEquals(record?.[fkField], this.parentReferenced(known, index))
+    );
+    if (correlated) return "found";
     throw new NestedWriteError(
       upsertTargetNotFoundForParent(this.config.relationName),
       this.config.relationName
@@ -290,13 +303,13 @@ export class RelationUpsertPart implements Part {
   }
 
   private buildCreateArm(known: PlanningKnown): StatementStep {
-    const { childScope, childForeignKey, where } = this.config;
+    const { childScope, where } = this.config;
     return {
       id: this.createId,
       kind: "write",
       statement: buildInsert(childScope, getTableName(childScope.model), {
         ...this.config.createData,
-        [childForeignKey]: this.parentIdValue(known),
+        ...this.fkAssignData(known),
       }),
       outputs: {},
       // The missing premise is enforced by the child's unique constraint; its
@@ -306,12 +319,11 @@ export class RelationUpsertPart implements Part {
   }
 
   private buildUpdateArm(known: PlanningKnown): StatementStep {
-    const { childScope, childForeignKey, where, txMode, relationName } =
-      this.config;
-    const identitySelect = {
+    const { childScope, where, txMode, relationName } = this.config;
+    const identitySelect: Record<string, boolean> = {
       [this.config.childPrimaryKey]: true,
-      [childForeignKey]: true,
     };
+    for (const fkField of this.config.fkFields) identitySelect[fkField] = true;
     const step: StatementStep = {
       id: this.updateId,
       kind: "write",
@@ -321,7 +333,7 @@ export class RelationUpsertPart implements Part {
           ...this.config.updateData,
           // global-adopt reparents to the new parent; correlated re-sets the
           // same value (idempotent). Both land the FK the terminal read expects.
-          [childForeignKey]: this.parentIdValue(known),
+          ...this.fkAssignData(known),
         },
         select: identitySelect,
       }),
@@ -346,43 +358,46 @@ export class RelationUpsertPart implements Part {
   }
 
   /**
-   * The FK the child arms write, as one cast SQL expression: a `Ref` to the
-   * parent create (create context), the located parent id inlined as a literal
-   * (update-by-unique context), or a compile-time literal (depth-composed
-   * grandchild). All ride in `Sql.values`, so the create INSERT and the update
-   * SET consume it identically.
+   * The FK columns the child arms write, each a cast SQL expression: a `Ref` to
+   * the parent create (create context, single-field), the located parent id
+   * inlined as a literal (update-by-unique context), or a compile-time literal
+   * (depth-composed grandchild). All ride in `Sql.values`, so the create INSERT
+   * and the update SET consume them identically. One entry per compound-key
+   * field (ATOM §1).
    */
-  private parentIdValue(known: PlanningKnown): Sql {
-    const source = this.config.parentId;
-    const value =
-      source.kind === "ref" ? source.ref : this.resolveParentId(known);
-    return referenceSql(
-      this.config.engine,
-      this.config.childScope.model,
-      this.config.childForeignKey,
-      value
-    );
+  private fkAssignData(known: PlanningKnown): Record<string, unknown> {
+    const data: Record<string, unknown> = {};
+    for (let index = 0; index < this.config.fkFields.length; index += 1) {
+      const fkField = this.config.fkFields[index]!;
+      data[fkField] = referenceSql(
+        this.config.engine,
+        this.config.childScope.model,
+        fkField,
+        this.fkValueAt(index, known)
+      );
+    }
+    return data;
   }
 
-  /** The concrete parent id for the correlated/literal arms (never a `ref`). */
-  private resolveParentId(known: PlanningKnown): unknown {
+  /** The value the child FK column at `index` is assigned: a symbolic `Ref` in
+   *  the create context (single-field), else the referenced parent column value
+   *  inlined at compile. */
+  private fkValueAt(index: number, known: PlanningKnown): unknown {
     const source = this.config.parentId;
-    if (source.kind === "literal") return source.value;
-    if (source.kind !== "planned") {
-      throw new NestedWriteError(
-        `query-engine-v2 correlated upsert for relation '${this.config.relationName}' requires a planned or literal parent id.`,
-        this.config.relationName
-      );
-    }
-    const rows = known[planningKey(source.readStep, "rows")];
-    const row = Array.isArray(rows) ? rows[0] : undefined;
-    if (!(row && typeof row === "object")) {
-      throw new NestedWriteError(
-        `query-engine-v2 correlated upsert for relation '${this.config.relationName}' could not resolve its parent id.`,
-        this.config.relationName
-      );
-    }
-    return (row as Record<string, unknown>)[source.field];
+    if (source.kind === "ref") return source.ref;
+    return this.parentReferenced(known, index);
+  }
+
+  /** The concrete value of the parent column the FK field `index` references
+   *  (literal/planned; never a `ref`). */
+  private parentReferenced(known: PlanningKnown, index: number): unknown {
+    return referencedFieldValue(
+      this.config.parentId,
+      this.config.referencedFields[index]!,
+      known,
+      this.config.relationName,
+      "upsert"
+    );
   }
 }
 
@@ -434,7 +449,6 @@ export function buildToManyUpsertParts(
   relationInfo: RelationInfo,
   items: readonly Record<string, unknown>[],
   parentId: ParentIdSource,
-  parentPrimaryKey: string,
   correlation: UpsertCorrelation,
   txMode: boolean,
   family: UpsertFamily = "upsert"
@@ -457,7 +471,6 @@ export function buildToManyUpsertParts(
       relationInfo,
       item,
       parentId,
-      parentPrimaryKey,
       correlation,
       txMode,
       family
@@ -480,7 +493,6 @@ export function buildConnectOrCreateParts(
   relationInfo: RelationInfo,
   items: readonly Record<string, unknown>[],
   parentId: ParentIdSource,
-  parentPrimaryKey: string,
   txMode: boolean
 ): RelationUpsertPart[] {
   return buildToManyUpsertParts(
@@ -491,7 +503,6 @@ export function buildConnectOrCreateParts(
     relationInfo,
     items,
     parentId,
-    parentPrimaryKey,
     "global-adopt",
     txMode,
     "connectOrCreate"
@@ -506,26 +517,24 @@ function buildOneUpsertPart(
   relationInfo: RelationInfo,
   item: Record<string, unknown>,
   parentId: ParentIdSource,
-  parentPrimaryKey: string,
   correlation: UpsertCorrelation,
   txMode: boolean,
   family: UpsertFamily
 ): RelationUpsertPart {
   const fk = getFkDirection(parentScope, relationInfo);
-  if (
-    fk.holdsFK ||
-    fk.fkFields.length !== 1 ||
-    fk.pkFields.length !== 1 ||
-    fk.pkFields[0] !== parentPrimaryKey
-  ) {
-    // The child must hold one FK referencing the parent's primary key — the key
-    // the parent-id value (`planned`/`literal`/`ref`) actually carries. A
-    // parent-held FK or compound key is V1's surface, not V2's: route the tree.
+  if (fk.holdsFK || fk.fkFields.length !== fk.pkFields.length) {
+    // The child must hold the foreign key referencing the parent (one column, or
+    // an index-aligned compound key — ATOM §1's per-field precedent). A
+    // parent-held FK is a same-row change, V1's surface: route the tree. The
+    // referenced parent columns are exposed by the caller's locate read (the
+    // `planned` parent id), which is what makes the compile-time literal read
+    // resolve; that contract is UpdateOperation's, enforced there.
     throw new UnsupportedOperationError(
-      `Relation '${relationName}' must expose one child-held foreign key referencing the parent primary key.`
+      `Relation '${relationName}' must expose a child-held foreign key referencing the parent.`
     );
   }
-  const childForeignKey = fk.fkFields[0]!;
+  const fkFields = fk.fkFields;
+  const referencedFields = fk.pkFields;
   const child = createQueryScope(engine.adapter, relationInfo.targetModel);
   const where = requireRecord(item.where, `${relationName}.${family}.where`);
   const create = requireRecord(item.create, `${relationName}.${family}.create`);
@@ -539,11 +548,14 @@ function buildOneUpsertPart(
           requireRecord(item.update, `${relationName}.upsert.update`)
         );
   if (
-    Object.hasOwn(childCreate.scalarData, childForeignKey) ||
-    Object.hasOwn(childUpdate.scalarData, childForeignKey)
+    fkFields.some(
+      (fkField) =>
+        Object.hasOwn(childCreate.scalarData, fkField) ||
+        Object.hasOwn(childUpdate.scalarData, fkField)
+    )
   ) {
     throw new UnsupportedOperationError(
-      `Relation '${relationName}' owns '${childForeignKey}'; omit it from nested create and update data.`
+      `Relation '${relationName}' owns '${fkFields.join(", ")}'; omit it from nested create and update data.`
     );
   }
   assertMatchingCreateIdentity(
@@ -598,7 +610,8 @@ function buildOneUpsertPart(
     where,
     createData: childCreate.scalarData,
     updateData: childUpdate.scalarData,
-    childForeignKey,
+    fkFields,
+    referencedFields,
     childPrimaryKey,
     parentId,
     correlation,
@@ -657,7 +670,6 @@ function buildArmChildParts(
           mutation.relationInfo,
           normalizeUpsertItems(mutation.upsert, childRelationName),
           parentId,
-          childPrimaryKey,
           correlation,
           txMode,
           "upsert"
@@ -675,7 +687,6 @@ function buildArmChildParts(
           mutation.relationInfo,
           normalizeUpsertItems(mutation.connectOrCreate, childRelationName),
           parentId,
-          childPrimaryKey,
           txMode
         )
       );
