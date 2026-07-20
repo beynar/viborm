@@ -554,6 +554,50 @@ to V1). The `OperationFragment.ts` type surface was **unchanged** by P3, so the
 P0 fragment-surface snapshot + executor token gate stayed green — the **freeze
 held**, no design-note-to-amend-the-freeze required.
 
+**P4 update — reads and the remaining surface, with NO vocabulary change (freeze
+held).** The read family (`findUnique`/`findFirst`/`findMany` + their `OrThrow`
+variants, `count`/`aggregate`/`groupBy`/`exist`) is genuinely single-statement:
+each is one `ReadOperation` whose compiled fragment is **exactly one read step**
+wrapping the same SQL the V1 read builders produce (`buildFind`/`buildFindUnique`/
+`buildCount`/`buildAggregate`/`buildGroupBy`, reused not re-derived), parsed
+through the same `ResultParser`. Planning is empty. `OrThrow` is a typed
+`notFound` surfaced **from the result** (a `null` findUnique is a value, not a
+postcondition), byte-identical to V1's `NotFoundError`. No read needed more than
+one step, so the kill signal never tripped.
+
+The named stragglers landed without a primitive, and the last two dormant census
+dispositions went **live**:
+
+- **`DerivedValue` (PK arithmetic)** — `updateManyAndReturn` on a non-returning
+  driver captures the target PK set at *planning* (locked), then re-reads the rows
+  by their **post-update** PKs, which `getUpdatedPrimaryKeyValues` computes by the
+  same portable arithmetic V1 uses. The captured set is planning-time only and
+  inlined at compile (§3 corollary), never crossing a write boundary.
+- **multi-statement results (ordered source lists whose rows *concatenate*)** —
+  `createManyAndReturn` is one `INSERT … RETURNING` per input row (returning
+  drivers) or an interleaved `INSERT`+refetch per row (non-returning, via
+  `getCreatedRowWhere` — the DB session `lastInsertId()` resolves each refetch),
+  whose rows concatenate **in input order** through a fragment output source list.
+  P2c made the *summed-`rowCount`* form live (`createMany`); P4 makes the
+  *concatenated-rows* form live. Root `updateMany`/`deleteMany` return `{ count }`
+  through the `rowCount` source (`BulkCountOperation`), one write step.
+
+- **`requiresAtomicResolution` refusal — KEPT AS CONTRACT (§7).** On a
+  non-returning driver in forced batch, a `*AndReturn` cannot resolve its returned
+  identity atomically (result parsing happens after the atomic unit commits and
+  cannot be rolled back). V2 refuses with V1's **byte-identical** typed
+  `TransactionError`, thrown at construction before any I/O — **never** weakened
+  into a route (an emitted-error inspection test runs V1 and V2 through one engine
+  and asserts equal `name`+`message`). The one genuinely inexpressible sub-shape —
+  `createManyAndReturn skipDuplicates` on a non-returning driver, where a skipped
+  INSERT would refetch a pre-existing row — is an honest per-tree
+  `UnsupportedOperationError` **route** to V1, distinct from the refusal.
+
+The `OperationFragment.ts` type surface was **unchanged** by P4 — the P0
+fragment-surface snapshot + executor token gate stayed green, the **freeze held**,
+no design-note-to-amend-the-freeze required. `StatementStep.onUniqueConflict`
+remains the only executor effect annotation (no second one formed).
+
 ---
 
 ## 9. Invariants (the executable contract)

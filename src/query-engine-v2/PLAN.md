@@ -311,7 +311,7 @@ untouched; PGlite tx + forced batch both substrates; full suite green.
 *Kill signal (none tripped):* an `M2M*` file family forming, or a membership set
 needing to cross a write boundary at runtime (ATOM §3's stated boundary).
 
-## P4 — Reads and the remaining surface
+## P4 — Reads and the remaining surface *(delivered)*
 
 `find*`(+OrThrow), `count`, `aggregate`, `groupBy`, `exist`: genuinely
 single-statement operations wrapping V1 builders — this part *should* be
@@ -322,6 +322,42 @@ non-returning drivers (`mutation-identity` pre/post reads and the
 `updateMany`/`deleteMany` `rowCount` results.
 *Gate:* full behavior-suite matrix through the routing flag for every migrated
 operation, all driver classes, Docker named.
+
+**Delivered:** every read is one `ReadOperation` (empty planning + one read step
+reusing the V1 read builders + `ResultParser`); the kill signal never tripped.
+`OrThrow` is a typed `notFound` surfaced from the result (byte-identical to V1's
+`NotFoundError`, carrying the original `…OrThrow` operation name). Root
+`updateMany`/`deleteMany` return `{ count }` via the `rowCount` source
+(`BulkCountOperation`, one write step). `createManyAndReturn`/`updateManyAndReturn`
+(`ManyAndReturnOperation`, one file, two leaves — WHY §4.1) make the census's
+**ordered source list whose rows concatenate** live (per-row `INSERT … RETURNING`
+on returning drivers; interleaved `INSERT`+`lastInsertId()`-refetch on
+non-returning MySQL — the mutation-identity technique) and the `DerivedValue`
+disposition live (`updateManyAndReturn` non-returning re-reads by the post-update
+PKs). The `requiresAtomicResolution` refusal is **kept as contract** (ATOM §7):
+byte-identical `TransactionError` on a batch-only non-returning driver, proven by
+running V1 and V2 through one engine; `createManyAndReturn skipDuplicates` on a
+non-returning driver is the one inexpressible sub-shape and is an honest per-tree
+route to V1 (distinct from the refusal).
+
+**Delivered-scope corrections (reality vs. plan text):**
+1. *Driver reality narrows the non-returning surface.* Only MySQL is
+   non-returning **and** it supports transactions, so the mutation-identity
+   refetch always runs linearly in a transaction; the `requiresAtomicResolution`
+   refusal is only reachable on a batch-only non-returning driver (D1/neon-http
+   class), which the natural matrix never routes to V2. It is proven by a
+   constructed batch-only-MySQL driver (no I/O — the refusal precedes it).
+2. *`createManyAndReturn skipDuplicates` on non-returning routes to V1.* A skipped
+   INSERT would refetch a pre-existing row, which the linear-steps model cannot
+   express; V2 declines the shape (`UnsupportedOperationError` → V1). Returning
+   drivers keep it (the skip is a `RETURNING`-empty SQL leaf).
+3. *Reads dual-run on ONE seeded database.* Because a read has no side effect,
+   the V1 and V2 arms read a single seeded instance (a stricter check than two
+   copies, and the only shape that works for shared-database drivers). The
+   forced-batch read arm binds a batch-mode driver to the same database.
+4. *No vocabulary change.* The `OperationFragment.ts` snapshot + executor token
+   gate stayed green; `StatementStep.onUniqueConflict` remains the only executor
+   effect annotation (the orchestrator's watch-item — no second one formed).
 
 ## P5 — Default flip and the parity soak
 

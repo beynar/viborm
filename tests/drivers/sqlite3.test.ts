@@ -25,6 +25,8 @@ import { runNestedMutationBehavior } from "../query-engine-v2/nested-mutation-be
 import { runUpdateFamilyBehavior } from "../query-engine-v2/update-family-behavior";
 import { runUpdateNestedUpsertBehavior } from "../query-engine-v2/update-nested-upsert-behavior";
 import { runUpsertFamilyBehavior } from "../query-engine-v2/upsert-family-behavior";
+import { runReadBehavior } from "../query-engine-v2/read-behavior";
+import { runBulkWriteBehavior } from "../query-engine-v2/bulk-write-behavior";
 import { runBatchPrimaryKeyDataflowBehavior } from "./batch-primary-key-dataflow-behavior";
 import { runBatchRefSmokeBehavior } from "./batch-ref-smoke-behavior";
 import { runClientRawBehavior } from "./client-raw-behavior";
@@ -863,6 +865,14 @@ describe("SQLite3 Driver", () => {
     createDriver: createBatchOnlySQLite3Driver,
   });
 
+  runReadBehavior({
+    name: "SQLite3",
+    createDriver: createInMemorySQLite3Driver,
+  });
+  runBulkWriteBehavior({
+    name: "SQLite3",
+    createDriver: createInMemorySQLite3Driver,
+  });
   runCreateManyBehavior({
     name: "SQLite3 transaction",
     createDriver: createInMemorySQLite3Driver,

@@ -17,6 +17,8 @@ import { runNestedMutationBehavior } from "../query-engine-v2/nested-mutation-be
 import { runUpdateFamilyBehavior } from "../query-engine-v2/update-family-behavior";
 import { runUpdateNestedUpsertBehavior } from "../query-engine-v2/update-nested-upsert-behavior";
 import { runUpsertFamilyBehavior } from "../query-engine-v2/upsert-family-behavior";
+import { runReadBehavior } from "../query-engine-v2/read-behavior";
+import { runBulkWriteBehavior } from "../query-engine-v2/bulk-write-behavior";
 import {
   PgBatchForcedDriver,
   PgBeforeFirstBatchDriver,
@@ -601,6 +603,14 @@ describeIf("pg Driver", () => {
       new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
   });
 
+  runReadBehavior({
+    name: "pg",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+  runBulkWriteBehavior({
+    name: "pg",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
   runCreateManyBehavior({
     name: "pg transaction",
     createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),

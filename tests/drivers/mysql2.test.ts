@@ -26,6 +26,8 @@ import { runNestedMutationBehavior } from "../query-engine-v2/nested-mutation-be
 import { runUpdateFamilyBehavior } from "../query-engine-v2/update-family-behavior";
 import { runUpdateNestedUpsertBehavior } from "../query-engine-v2/update-nested-upsert-behavior";
 import { runUpsertFamilyBehavior } from "../query-engine-v2/upsert-family-behavior";
+import { runReadBehavior } from "../query-engine-v2/read-behavior";
+import { runBulkWriteBehavior } from "../query-engine-v2/bulk-write-behavior";
 import { MySQL2BatchForcedDriver } from "./batch-forced-mysql2";
 import { runClientRawBehavior } from "./client-raw-behavior";
 import { runCompoundKeyBehavior } from "./compound-key-behavior";
@@ -367,6 +369,14 @@ describeIf("MySQL2 Driver", () => {
   // savepoint effect (recoverableUniqueError strategy), which has no atomic-batch
   // lowering (the recorded batch disposition). MySQL always runs transactions in
   // production; the sql-strategy batch path is proven on PGlite/SQLite/LibSQL.
+  runReadBehavior({
+    name: "MySQL2",
+    createDriver: createMySQL2Driver,
+  });
+  runBulkWriteBehavior({
+    name: "MySQL2",
+    createDriver: createMySQL2Driver,
+  });
   runCreateManyBehavior({
     name: "MySQL2 transaction",
     createDriver: createMySQL2Driver,

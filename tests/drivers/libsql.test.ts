@@ -8,6 +8,8 @@ import { runNestedMutationBehavior } from "../query-engine-v2/nested-mutation-be
 import { runUpdateFamilyBehavior } from "../query-engine-v2/update-family-behavior";
 import { runUpdateNestedUpsertBehavior } from "../query-engine-v2/update-nested-upsert-behavior";
 import { runUpsertFamilyBehavior } from "../query-engine-v2/upsert-family-behavior";
+import { runReadBehavior } from "../query-engine-v2/read-behavior";
+import { runBulkWriteBehavior } from "../query-engine-v2/bulk-write-behavior";
 import { runClientRawBehavior } from "./client-raw-behavior";
 import { runCompoundKeyBehavior } from "./compound-key-behavior";
 import { runCountAggregateWindowBehavior } from "./count-aggregate-window-behavior";
@@ -207,6 +209,14 @@ describe("LibSQL Driver", () => {
     createDriver: () => new BatchOnlyLibSQLDriver(),
   });
 
+  runReadBehavior({
+    name: "LibSQL",
+    createDriver: createInMemoryLibSQLDriver,
+  });
+  runBulkWriteBehavior({
+    name: "LibSQL",
+    createDriver: createInMemoryLibSQLDriver,
+  });
   runCreateManyBehavior({
     name: "LibSQL transaction",
     createDriver: createInMemoryLibSQLDriver,
