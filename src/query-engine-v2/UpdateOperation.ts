@@ -21,6 +21,7 @@ import { getUpdatedPrimaryKeyWhere } from "../query-engine/operations/mutation-i
 import type { QueryEngine } from "../query-engine/query-engine";
 import { assertNullable } from "../query-engine/RelationProgramValues";
 import { ResultParser } from "../query-engine/result/ResultParser";
+import { classifyRelationKeyScalarUpdate } from "../query-engine/TargetConstraint";
 import type { QueryScope, RelationInfo } from "../query-engine/types";
 import {
   affectedRows,
@@ -141,6 +142,20 @@ export class UpdateOperation {
     // Compound primary keys are supported: the locate reads and terminal read
     // carry every PK field, and the child FK edges reference them per-field.
     this.parentPrimaryKeys = parentPrimaryKeys;
+
+    // V1's relation-key legality (RelationUpdates.assertRelationKeyUpdatesAre-
+    // Compilable, ported verbatim): a relation-key field — the FK column when the
+    // parent holds it, else the parent column a child FK references (a non-PK
+    // unique like `code`) — cannot be rewritten by a non-literal arithmetic op
+    // while that relation is mutated, because the DerivedValue would desync the
+    // edge. Both substrates, before any effect. V2 previously only rejected the
+    // holds-FK case by routing to-one update/upsert to V1; the child-holds-FK
+    // referenced-field case (a supported one-to-many update) reached no check.
+    assertRelationKeyUpdatesAreCompilable(
+      parent,
+      separated.scalarData,
+      separated.relations
+    );
 
     this.parentWhere = parseRecord(
       parentSchemas.core.whereUnique,
@@ -746,6 +761,43 @@ export class UpdateOperation {
           }
         : {}),
     };
+  }
+}
+
+/**
+ * V1's `RelationUpdates.assertRelationKeyUpdatesAreCompilable`, ported byte-for-
+ * byte (including its message and `NestedWriteError` meta). For every non-M2M
+ * relation being mutated, the relation-key fields (the FK when the parent holds
+ * it, else the parent column the child FK references) may not be rewritten by a
+ * non-literal operation: a `DerivedValue` on the referenced key would break the
+ * correlation the nested write depends on.
+ */
+function assertRelationKeyUpdatesAreCompilable(
+  parent: QueryScope,
+  scalarData: Record<string, unknown>,
+  relations: Record<string, RelationMutation>
+): void {
+  const primaryKeyFields = new Set(getPrimaryKeyFields(parent.model));
+  for (const mutation of Object.values(relations)) {
+    if (mutation.relationInfo.type === "manyToMany") continue;
+    const fk = getFkDirection(parent, mutation.relationInfo);
+    const relationKeyFields = fk.holdsFK ? fk.fkFields : fk.pkFields;
+    for (const field of relationKeyFields) {
+      if (scalarData[field] === undefined) continue;
+      if (primaryKeyFields.has(field) && !fk.holdsFK) continue;
+      if (classifyRelationKeyScalarUpdate(scalarData[field]).resolved) continue;
+      throw new NestedWriteError(
+        `Cannot update relation key field '${field}' with a non-literal operation while mutating relation '${mutation.relationInfo.name}'. Use a literal value or '{ set: ... }'.`,
+        mutation.relationInfo.name,
+        {
+          meta: {
+            operation: "update",
+            field,
+            relation: mutation.relationInfo.name,
+          },
+        }
+      );
+    }
   }
 }
 
