@@ -712,10 +712,6 @@ without weakening a contract:
   replacement now leaves no row matching both, so the batch fails closed instead of
   mutating/linking the replacement. Closes the 5 split-witness witnesses + the
   captured-PK mechanics (`nested-single-mutation-identity`).
-- **Batch-only non-returning refusal (ATOM §7) — CLOSED for update/delete/upsert.**
-  `assertAtomicResolutionSupported` (shared.ts) raises V1's byte-identical typed
-  `TransactionError` in the constructor, mirroring `ManyAndReturnOperation`.
-  MySQL 468/468.
 - **Non-PK referenced-key arithmetic — CLOSED.** `assertRelationKeyUpdatesAre-
   Compilable` (V1's, ported verbatim) now runs in `UpdateOperation`, rejecting a
   non-literal op on the parent column a child FK references, not only the
@@ -724,18 +720,37 @@ without weakening a contract:
   postcondition is a returning-driver check only; on a non-returning driver the
   locked locate already proved existence, so a no-op UPDATE is accepted (V1's
   `affectedRows: unrestricted`).
+- **Nested/top-level PK-arithmetic message parity — CLOSED.** V1's
+  `assertPortablePrimaryKeyUpdateInput` (its shared validator's check) now runs at
+  construction in `UpdateOperation`/`RelationWritePart`/`RelationUpsertPart`, so
+  a non-portable float-PK, divide-by-zero, or stacked-op is rejected before I/O
+  with V1's byte-identical message.
+
+- **Batch-only non-returning refusal (ATOM §7) — REBUTTED, not a clean fix.** A
+  blanket constructor refusal on `upsert`/`update`/`delete` (mirroring
+  `ManyAndReturnOperation`) breaks **31** batch-execution behavior tests: V2
+  DELIBERATELY executes a non-returning `upsert`/`update`/`delete` in a forced
+  atomic batch — its public result comes from an **in-batch terminal `SELECT`**, so
+  there is no post-commit parse to roll back (the `MySQL2BatchForcedDriver` wraps
+  the batch in a real transaction; the tx-mode parse-failure rollback tests prove
+  the safety). This is genuinely UNLIKE `*AndReturn`, whose generated identities
+  require a post-commit read and which therefore does refuse. The single MySQL
+  467/468 witness (an invalid-DB pre-access refusal) encodes V1's over-conservative
+  blanket refusal; adopting it regresses 31 V2 capability contracts — the kill
+  signal. Recorded as an adoption-standard conflict; the refusal, if wanted, is a
+  routed-layer/design decision, not an operation-level fix.
 
 **Still open after round 1 (named, not hidden):** the RETURNING fast path (the
 write-path perf regression, PERF.md P5); the omitted-generated-PK capture in the
 non-returning upsert create branch; two returning-driver nested-write edges
 (PK-transition + self-M2M mis-order; child-held `connectOrCreate` first-create-wins
-dedup — both need cross-part/write-order coordination); and a set of
-message/statement-mechanics assertions the minimized atom does not reproduce
-(V1's max-affected postcondition — inexpressible without growing the FROZEN
-vocabulary; `disconnect` array dedup — observably idempotent; the nested float-PK /
-divide-by-zero / `deleteMany`-on-to-one / empty-`createMany` message wordings).
-The flip stays **not production-clean** until the perf fast path and the
-returning-driver edges close.
+dedup — both need cross-part/write-order coordination); the batch-only-refusal
+conflict above; and a set of message/statement-mechanics assertions the minimized
+atom does not reproduce (V1's max-affected postcondition — inexpressible without
+growing the FROZEN vocabulary; `disconnect` array dedup — observably idempotent;
+the top-level capture-PK statement shape; `deleteMany`-on-to-one and empty-
+`createMany` message wordings). The flip stays **not production-clean** until the
+perf fast path and the returning-driver edges close.
 
 ---
 

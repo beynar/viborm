@@ -493,20 +493,28 @@ with no vocabulary change (freeze held; V2 oracle 337/337, gates green):
   `RelationSetPart` / `RelationJunctionPart`): the write addresses the captured
   PK, and the batch guard requires selector ∧ captured-PK on one row, so a
   concurrent selector-move fails closed instead of acting on the replacement.
-- **Batch-only non-returning `requiresAtomicResolution` refusal — CLOSED** for
-  update/delete/upsert (byte-identical `TransactionError`, MySQL 468/468).
 - **Non-PK referenced-key arithmetic — CLOSED** (V1's `assertRelationKeyUpdates-
   AreCompilable` ported into `UpdateOperation`).
 - **Non-returning no-op count acceptance — CLOSED** (exact-affected is a
   returning-driver check; existence proven by the locked locate).
+- **Nested/top-level PK-arithmetic message parity — CLOSED** (V1's
+  `assertPortablePrimaryKeyUpdateInput` run at construction; float-PK /
+  divide-by-zero byte-identical).
+- **Batch-only non-returning refusal — REBUTTED, not a clean fix.** A blanket
+  constructor refusal breaks 31 batch-execution behavior tests (MySQL 467→437):
+  V2 deliberately executes non-returning upsert/update/delete in a forced batch
+  (result via an in-batch terminal `SELECT`), unlike `*AndReturn` which genuinely
+  refuses. Adopting V1's blanket refusal regresses those contracts — the kill
+  signal. Recorded as a conflict (report `fixRound1.rebuttals`); MySQL back to
+  467/468.
 
 Still open for a dedicated round (named in the P5 report and ATOM §8.1): the
 RETURNING fast path (perf), the non-returning upsert omitted-generated-PK
 capture, two returning-driver nested-write edges (PK-transition + self-M2M order;
-child-held `connectOrCreate` dedup), and a residue of V1-internal
-statement-mechanics/message assertions the minimized atom does not reproduce.
-**The default flip remains not production-clean** until the perf fast path and the
-returning-driver edges close.
+child-held `connectOrCreate` dedup), the batch-only-refusal conflict, and a
+residue of V1-internal statement-mechanics/message assertions the minimized atom
+does not reproduce. **The default flip remains not production-clean** until the
+perf fast path and the returning-driver edges close.
 
 ## P6 — Deletion and the honest audit
 
