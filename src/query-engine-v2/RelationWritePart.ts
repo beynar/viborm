@@ -93,6 +93,16 @@ export class RelationWritePart implements Part {
     this.writeId = scope.allocate(`${config.childName}.${config.kind}`);
     this.guardId = scope.allocate(`${config.childName}.guard.exists`);
     this.probe = this.isTargeted() ? this.buildProbe() : undefined;
+    // Payload-determined support decisions are made at CONSTRUCTION — before any
+    // I/O — so the per-tree router falls back to V1 for a shape V2 does not own.
+    // A nested relation write inside `update`/`updateMany` data (V1's surface,
+    // not P2c's) is such a shape. Deferring this `scalarData()` rejection to
+    // `compile()` fired it AFTER the planning read, escaping the router's
+    // construction-time `UnsupportedOperationError` catch and surfacing V2's
+    // message where V1's byte-identical error was the contract.
+    if (config.kind === "update" || config.kind === "updateMany") {
+      this.scalarData();
+    }
   }
 
   planning(): readonly OperationStep[] {
