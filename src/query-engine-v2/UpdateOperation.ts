@@ -56,10 +56,11 @@ import {
 } from "./RelationWritePart";
 import { StepScope } from "./StepScope";
 import {
-  UnsupportedOperationError,
+  assertAtomicResolutionSupported,
   getStepModelName,
   isRecord,
   selectExecutionMode,
+  UnsupportedOperationError,
 } from "./shared";
 
 type ExecutionMode = "transaction" | "batch";
@@ -262,6 +263,12 @@ export class UpdateOperation {
         )
       ),
     };
+
+    // ATOM §7 refusal (kept as contract), raised last so validation/compile
+    // errors take precedence (V1's execute-time ordering): a non-returning
+    // update resolves its returned row by a post-commit refetch, which a
+    // batch-only driver cannot roll back.
+    assertAtomicResolutionSupported(engine, "update", this.mode);
   }
 
   planning(): OperationFragment {
@@ -741,7 +748,6 @@ export class UpdateOperation {
     };
   }
 }
-
 
 function normalizeItems(
   value: unknown,

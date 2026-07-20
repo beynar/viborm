@@ -42,10 +42,11 @@ import {
 import { planningKey, planningOutputs } from "./Part";
 import { StepScope } from "./StepScope";
 import {
-  UnsupportedOperationError,
+  assertAtomicResolutionSupported,
   getStepModelName,
   isRecord,
   selectExecutionMode,
+  UnsupportedOperationError,
 } from "./shared";
 
 type ExecutionMode = "transaction" | "batch";
@@ -180,6 +181,12 @@ export class UpsertOperation {
       }),
       outputs: { rows: { kind: "rows" } },
     };
+
+    // ATOM §7 refusal (kept as contract), raised last so it mirrors V1's
+    // execute-time ordering (validation/compile errors take precedence): a
+    // non-returning upsert must resolve its returned identity by a post-commit
+    // read, which a batch-only driver cannot roll back.
+    assertAtomicResolutionSupported(engine, "upsert", this.mode);
   }
 
   planning(): OperationFragment {
@@ -325,7 +332,11 @@ export class UpsertOperation {
     // (a non-PK unique) or the PK itself. The terminal read must therefore address
     // the row by its POST-update primary key, not the original `where`, exactly as
     // UpdateOperation does — otherwise a renamed row is invisible to its own read.
-    return [...guards, update, this.buildTerminal(this.updatedTerminalWhere(locatedRow))];
+    return [
+      ...guards,
+      update,
+      this.buildTerminal(this.updatedTerminalWhere(locatedRow)),
+    ];
   }
 
   private buildTerminal(where: Record<string, unknown>): StatementStep {
@@ -358,7 +369,9 @@ export class UpsertOperation {
   ): Record<string, unknown> {
     return buildPrimaryKeyWhereUnique(
       this.model,
-      Object.fromEntries(this.parentPrimaryKeys.map((pk) => [pk, locatedRow[pk]]))
+      Object.fromEntries(
+        this.parentPrimaryKeys.map((pk) => [pk, locatedRow[pk]])
+      )
     );
   }
 
@@ -462,7 +475,6 @@ export class UpsertOperation {
     return `query-engine-v2 upsert located no '${getStepModelName(this.model, "record")}' row for its unique where before the atomic batch.`;
   }
 }
-
 
 function defaultSelect(model: Model<any>): Record<string, unknown> {
   return Object.fromEntries(

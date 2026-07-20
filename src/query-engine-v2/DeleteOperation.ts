@@ -22,10 +22,11 @@ import {
 import { planningKey, planningOutputs } from "./Part";
 import { StepScope } from "./StepScope";
 import {
-  UnsupportedOperationError,
+  assertAtomicResolutionSupported,
   getStepModelName,
   isRecord,
   selectExecutionMode,
+  UnsupportedOperationError,
 } from "./shared";
 
 type ExecutionMode = "transaction" | "batch";
@@ -148,6 +149,12 @@ export class DeleteOperation {
           }
         : {}),
     };
+
+    // ATOM §7 refusal (kept as contract), raised last so validation errors take
+    // precedence (V1's execute-time ordering): a non-returning delete captures
+    // its returned row by a pre-delete read whose parse a batch-only driver
+    // cannot roll back.
+    assertAtomicResolutionSupported(engine, "delete", this.mode);
   }
 
   planning(): OperationFragment {
@@ -208,7 +215,6 @@ export class DeleteOperation {
     );
   }
 }
-
 
 function parseRecord(
   schema: VibSchema,
