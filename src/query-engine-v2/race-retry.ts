@@ -39,9 +39,12 @@ export function markRaceable(error: unknown): void {
  * `meta.raceable`.
  */
 export function isRetryableRace(error: unknown): boolean {
-  if (typeof error === "object" && error !== null) {
-    if (PINNED_RETRYABLE_RACES.has(error)) return true;
-  }
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    PINNED_RETRYABLE_RACES.has(error)
+  )
+    return true;
   return isVibORMError(error) && error.meta.raceable === true;
 }
 
@@ -52,7 +55,10 @@ export function isRetryableRace(error: unknown): boolean {
  * builder only attaches exact pins — Pin Rule class 2), so no `isExact` gate is
  * needed here. Called by the executor from inside the atomic scope.
  */
-export function markRaceIfPinned(error: unknown, pin: TargetConstraintPin): void {
+export function markRaceIfPinned(
+  error: unknown,
+  pin: TargetConstraintPin
+): void {
   if (error instanceof UniqueConstraintError) {
     if (racePinMatches(error, pin)) markRaceable(error);
     return;
@@ -82,7 +88,10 @@ export function racePinMatches(
     columns?: string[];
     constraint?: string;
   };
-  if (meta.table && normalizeIdentifier(meta.table) !== normalizeIdentifier(pin.table)) {
+  if (
+    meta.table &&
+    normalizeIdentifier(meta.table) !== normalizeIdentifier(pin.table)
+  ) {
     return false;
   }
   let hasTargetAttribution = false;

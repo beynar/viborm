@@ -5,9 +5,12 @@ import { BulkCountOperation } from "./BulkCountOperation";
 import { CreateManyOperation } from "./CreateManyOperation";
 import { DeleteOperation } from "./DeleteOperation";
 import { ManyAndReturnOperation } from "./ManyAndReturnOperation";
-import type { ExecutableOperation, OperationExecutor } from "./OperationExecutor";
-import { isRetryableRace } from "./race-retry";
+import type {
+  ExecutableOperation,
+  OperationExecutor,
+} from "./OperationExecutor";
 import { ReadOperation } from "./ReadOperation";
+import { isRetryableRace } from "./race-retry";
 import { UnsupportedOperationError } from "./shared";
 import { UpdateOperation } from "./UpdateOperation";
 import { UpsertOperation } from "./UpsertOperation";

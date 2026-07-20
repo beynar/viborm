@@ -320,7 +320,12 @@ export class OperationExecutor {
       // result rather than aborting the surrounding atomic scope (V1's
       // `executeSkippableWrite`). This is a generic executor effect — no
       // operation-kind knowledge — so any step declaring it is served identically.
-      const result = await this.executeStatement(step, statement, driver, context);
+      const result = await this.executeStatement(
+        step,
+        statement,
+        driver,
+        context
+      );
       assertNormalizedQueryResult(result, {
         provider: driver.driverName,
         operation: step.id,
@@ -443,7 +448,12 @@ export class OperationExecutor {
     try {
       results = await driver._executeBatch(queries, undefined, context);
     } catch (rawError) {
-      const error = await attributeGuardFailure(rawError, entries, driver, context);
+      const error = await attributeGuardFailure(
+        rawError,
+        entries,
+        driver,
+        context
+      );
       // An insert-branch loser inside the atomic unit surfaces its pinned unique
       // violation; classify it against any racePin so the retry layer above the
       // executor converges (V1 parity, PLAN P5 item 2f). The batch is one unit,
