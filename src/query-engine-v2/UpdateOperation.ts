@@ -688,6 +688,13 @@ export class UpdateOperation {
     parentName: string,
     txMode: boolean
   ): StatementStep {
+    // The exact-affected postcondition is a returning-driver check only. On a
+    // non-returning driver V1 uses `affectedRows: unrestricted` (its
+    // `compileMutationRefetch`): the locked locate already proved existence, so a
+    // MySQL-style no-op UPDATE (0 rows changed because the value is unchanged) is
+    // accepted, not a spurious NotFound. The terminal read confirms the final row.
+    const enforceAffected =
+      txMode && this.engine.adapter.capabilities.supportsReturning;
     return {
       id: updateId,
       kind: "write",
@@ -697,7 +704,7 @@ export class UpdateOperation {
         select: this.pkSelect(),
       }),
       outputs: {},
-      ...(txMode
+      ...(enforceAffected
         ? {
             expects: affectedRows(
               1,

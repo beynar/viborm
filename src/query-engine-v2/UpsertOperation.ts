@@ -322,7 +322,10 @@ export class UpsertOperation {
         select: this.pkSelect(),
       }),
       outputs: {},
-      ...(txMode
+      // Exact-affected is a returning-driver check only (see UpdateOperation): on
+      // a non-returning driver the locked locate already proved the row exists, so
+      // a no-op UPDATE (0 rows changed) is V1's accepted contract, not a NotFound.
+      ...(txMode && this.engine.adapter.capabilities.supportsReturning
         ? {
             expects: affectedRows(1, notFoundFailure(this.locateMissMessage())),
           }
