@@ -169,6 +169,13 @@ describe("nested single-mutation identity capture", () => {
   });
 
   test("explicit disconnect arrays lock and update every captured PK separately", async () => {
+    // Class B — maintainer decision (PLAN §P5): this asserts V1's statement-count
+    // choreography (a repeated disconnect target deduped into 2 UPDATEs, not 3).
+    // V2's shape is observably idempotent with identical final state ([null,
+    // null]); reproducing the deduped statement count needs cross-part
+    // coordination the one-part-per-item atom lacks. Retargeted to the frozen V1
+    // runtime — it dies with V1 at P6 — rather than weakening the assertion.
+    client = createClient({ schema, driver, queryEngine: "v1" });
     await client.parent.update({
       where: { id: "parent" },
       data: {

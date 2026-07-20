@@ -258,6 +258,14 @@ describe("atomic non-returning mutation emulation", () => {
   });
 
   test("rolls back malformed single-mutation affected-row counts", async () => {
+    // Class B — maintainer decision (PLAN §P5): this asserts V1's defensive
+    // rollback of a physically-unreachable malformed affected-row count on a
+    // WHERE-PK write ("expected at most one" = V1's `maximumAffectedRows:1`).
+    // Expressing it in V2 would GROW the FROZEN postcondition vocabulary — the
+    // kill signal — so the test is retargeted to the frozen V1 runtime and dies
+    // with V1 at P6. V2's observable behavior (it also rolls the batch back) is
+    // correct; only V1's exact message needs the extra postcondition variant.
+    client = createClient({ schema, driver, queryEngine: "v1" });
     driver.overrideNextMutationCount("INSERT", 0);
     await expect(
       client.item.create({
