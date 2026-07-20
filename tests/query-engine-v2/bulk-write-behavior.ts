@@ -326,6 +326,41 @@ export function runBulkWriteBehavior(options: {
     );
 
     test(
+      "updateManyAndReturn with a PK-mutating increment returns post-update ids",
+      { timeout: 30_000 },
+      async () => {
+        const { client, dispose, andReturn } = await setup();
+        try {
+          await andReturn("ticket", "createManyAndReturn", {
+            data: [{ label: "one" }, { label: "two" }, { label: "three" }],
+          });
+          // Fresh table: increment ids are 1, 2, 3. The non-returning refetch
+          // must locate rows by their POST-update PKs (the DerivedValue
+          // arithmetic, getUpdatedPrimaryKeyValues) — a before-image WHERE
+          // would return [].
+          const rows = (await andReturn("ticket", "updateManyAndReturn", {
+            where: { id: { gt: 1 } },
+            data: { id: { increment: 100 } },
+          })) as Record<string, unknown>[];
+          expect(
+            rows
+              .map((r) => [r.id, r.label])
+              .sort((a, b) => (a[0] as number) - (b[0] as number))
+          ).toEqual([
+            [102, "two"],
+            [103, "three"],
+          ]);
+          const finals = await client.ticket.findMany({
+            orderBy: { id: "asc" },
+          });
+          expect(finals.map((r) => r.id)).toEqual([1, 102, 103]);
+        } finally {
+          await dispose();
+        }
+      }
+    );
+
+    test(
       "updateManyAndReturn matching nothing returns []",
       { timeout: 30_000 },
       async () => {

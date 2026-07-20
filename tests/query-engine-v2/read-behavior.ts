@@ -164,6 +164,17 @@ export const READ_SCENARIOS: readonly ReadScenario[] = [
     run: (c) => c.post!.findMany!({ orderBy: { views: "asc" }, take: -2 }),
   },
   {
+    name: "findMany cursor pagination (cursor + skip + take)",
+    routed: "findMany",
+    run: (c) =>
+      c.post!.findMany!({
+        orderBy: { views: "desc" },
+        cursor: { id: "p3" },
+        skip: 1,
+        take: 2,
+      }),
+  },
+  {
     name: "findMany empty result set",
     routed: "findMany",
     run: (c) => c.post!.findMany!({ where: { title: "nope" } }),

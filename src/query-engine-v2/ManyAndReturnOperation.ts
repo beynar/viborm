@@ -218,6 +218,11 @@ export class ManyAndReturnOperation {
     const beforeWhere = this.capturedFilterWhere(ctx, rows);
     const afterWhere = this.capturedFilterWhere(ctx, rows, this.updateData);
 
+    // V1 additionally pinned this write with `maximumAffectedRows`/
+    // `expectedRows` postconditions. They are structurally unnecessary here:
+    // the captured rows are FOR-UPDATE-locked in the same transaction envelope
+    // as this UPDATE, so the affected set cannot drift from the capture, and a
+    // PK collision surfaces as the UPDATE's own constraint error.
     const writeStep: StatementStep = {
       id: this.scope.allocate(`${this.modelName()}.updateManyReturn.write`),
       kind: "write",
