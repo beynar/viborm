@@ -1,3 +1,4 @@
+import { TransactionError } from "@errors";
 import type { AnyDriver, QueryExecutionContext } from "@drivers";
 import type { Model } from "@schema/model";
 import type { QueryEngine } from "../query-engine/query-engine";
@@ -74,12 +75,63 @@ export function constructRoutedOperation(
   args: Record<string, unknown>
 ): ExecutableOperation | undefined {
   if (!ROUTED_OPERATIONS.has(operation)) return undefined;
+  // V1's `requiresAtomicResolution` refusal (ATOM §7), reproduced at the ROUTED
+  // layer only. A batch-only, non-returning driver cannot resolve a single-row
+  // mutation's returned identity atomically — its public result is parsed after
+  // the atomic batch commits, and that parse cannot be rolled back — so V1
+  // refuses `update`/`delete`/`upsert` before any I/O with a typed
+  // `TransactionError`. V2's executor deliberately CAN run these in a forced
+  // batch (via an in-batch terminal SELECT), and 31 executor-level batch
+  // contracts depend on that capability, so the refusal must NOT live in the
+  // operation constructor (it would regress them). It lives here, on the public
+  // client path (this function is reached only through `client.ts` →
+  // `PendingOperation.createRouted`), so V2 converges on V1's user-visible
+  // behavior while the executor keeps its capability for the direct-executor
+  // contracts. `*AndReturn` refuses in its own constructor (its identities need a
+  // post-commit read no in-batch SELECT can supply); `create*`/`updateMany`/
+  // `deleteMany` do not require atomic resolution and are unaffected.
+  assertRoutedAtomicResolution(engine, operation);
   try {
     return constructOperation(engine, model, operation, args);
   } catch (error) {
     if (error instanceof UnsupportedOperationError) return undefined;
     throw error;
   }
+}
+
+/** The single-row refetch operations whose returned identity needs atomic
+ *  resolution on a non-returning driver — V1's `requiresAtomicResolution` set. */
+const ATOMIC_RESOLUTION_OPERATIONS: ReadonlySet<string> = new Set([
+  "update",
+  "delete",
+  "upsert",
+]);
+
+/**
+ * Throw V1's byte-identical `TransactionError` when a batch-only, non-returning
+ * driver is asked (through the public client path) for a single-row mutation
+ * whose returned identity requires post-commit parsing. Mirrors V1's
+ * `atomicExecutionErrorMessage` (`OperationRuntime`) exactly, per operation.
+ */
+function assertRoutedAtomicResolution(
+  engine: QueryEngine,
+  operation: string
+): void {
+  const { driver } = engine;
+  const batchOnlyNonReturning =
+    driver.supportsBatch &&
+    !driver.supportsTransactions &&
+    !engine.adapter.capabilities.supportsReturning;
+  if (!(batchOnlyNonReturning && ATOMIC_RESOLUTION_OPERATIONS.has(operation))) {
+    return;
+  }
+  const message =
+    operation === "upsert"
+      ? "cannot execute non-returning upsert writes atomically because public result parsing cannot be rolled back after an atomic batch commits"
+      : `Driver '${driver.driverName}' cannot execute '${operation}' because public result parsing cannot be rolled back.`;
+  throw new TransactionError(message, {
+    meta: { driver: driver.driverName, operation },
+  });
 }
 
 /**
