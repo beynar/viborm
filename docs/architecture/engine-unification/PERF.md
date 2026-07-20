@@ -40,3 +40,42 @@ rather than optimized, revisit only if cold-start budgets ever tighten.
 Baseline JSON is a machine-local artifact (`benchmarks/baseline.json`,
 untracked); regenerate with `pnpm bench:baseline` before comparing future
 changes.
+
+---
+
+# P5 — the default flip A/B (V1 runtime vs V2 engine, same process)
+
+Method: `benchmarks/p5-flip-ab.bench.ts`. The `queryEngine: "v1" | "v2"` escape
+hatch runs identical workloads through the frozen V1 runtime and the flipped V2
+engine on two in-memory SQLite databases seeded identically (200 rows), one
+process. Ratios are **V1 hz / V2 hz** (>1 means V2 is *slower*). Single run,
+rme ±2–5%; the write ratios are far outside noise and mechanistically explained.
+
+| Operation | V1 hz | V2 hz | V1/V2 | Verdict |
+|---|---|---|---|---|
+| findMany (take 50) | 14,455 | 12,710 | 1.14× | V2 −12% (regression) |
+| findUnique | 59,716 | 47,311 | 1.26× | V2 −21% (regression) |
+| updateMany | 36,116 | 29,902 | 1.21× | V2 −17% (regression) |
+| upsert (update branch) | 33,913 | 18,401 | **1.84×** | V2 −46% (regression) |
+| scalar update | 49,953 | 21,118 | **2.37×** | V2 −58% (regression) |
+
+**All five exceed the ±10% gate — recorded as P5 conflicts, not parity.**
+
+**Named suspect: V2's plan-then-execute issues extra statements/round-trips.**
+On a returning driver V1 folds a scalar update into one `UPDATE … RETURNING`;
+V2's `UpdateOperation` always plans a `SELECT … FOR UPDATE` locate, then the
+`UPDATE`, then a terminal `SELECT` refetch — three statements where V1 runs one,
+which on in-memory SQLite tracks the ~2.37× wall-clock gap almost exactly.
+`upsert` pays the same locate+mutate+refetch tax (1.84×). Reads regress a
+smaller, fixed amount (12–26%) from per-call routing/construction overhead
+(`PendingOperation.createRouted` → `constructRoutedOperation` builds a fresh V2
+operation object and compiles its fragment on every call, where V1's prepared
+path is lighter).
+
+This is architectural, not a bug: the atom model's "plan reads, then execute a
+linear fragment" is inherently more statements than V1's `RETURNING`-folded
+mutation. Closing it means teaching V2 to fold the locate/terminal into the
+mutation on returning drivers (a `RETURNING` fast path) — real work, out of P5's
+soak scope. **Until then the default-ON flip carries a measured write-path
+regression; this is a blocking conflict for declaring the flip production-clean,
+recorded honestly here rather than smoothed over.**
