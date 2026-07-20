@@ -49,6 +49,16 @@ export interface ExecutableOperation {
   planning(): OperationFragment;
   compile(known: Readonly<Record<string, unknown>>): OperationFragment;
   parse<T>(outputs: Readonly<Record<string, unknown>>): T;
+  /**
+   * Optional execution-context gate, invoked ONLY on the `$transaction([...])`
+   * array batch-preparation seams ({@link prepareBatch}/{@link prepareSharedBatch}),
+   * never on the direct linear path. An operation whose direct result is a
+   * documented no-op but whose batch-preparation V1 rejects — V1 builds its batch
+   * plan eagerly and raises where the payload has nothing to lower — surfaces that
+   * same rejection here, so the array path stays byte-identical to V1. The
+   * operation carries this semantics; the executor only invokes the hook.
+   */
+  assertBatchPreparable?(): void;
 }
 
 interface BatchEntry {
@@ -194,6 +204,7 @@ export class OperationExecutor {
     readonly queries: readonly Sql[];
     parseResult(results: readonly QueryResult<unknown>[]): T;
   }> {
+    operation.assertBatchPreparable?.();
     const plan = await this.buildAtomicPlan(operation, driver, context);
     return {
       queries: plan.entries.map((entry) => entry.statement),
@@ -220,6 +231,7 @@ export class OperationExecutor {
     context: QueryExecutionContext,
     operationName: Operation
   ): Promise<PreparedBatchOperation<T>> {
+    operation.assertBatchPreparable?.();
     const plan = await this.buildAtomicPlan(operation, driver, context);
     if (plan.entries.some((entry) => stepUsesInsertIdScratch(entry.step))) {
       throw new TransactionError(

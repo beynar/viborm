@@ -111,6 +111,12 @@ export class UpdateOperation {
   // folds). Built at compile so it can address the captured PK (V1's `WHERE id`);
   // `false` for a relation-only update (no parent row written) or the fold path.
   private readonly needsRootUpdate: boolean;
+  // Emit the root parent UPDATE AFTER the child edge writes (default: before).
+  // Set only when the root SET rewrites a child-referenced column (a PK
+  // transition, or a literal on a non-PK referenced unique): the child edges are
+  // written against the parent's pre-transition id and the root UPDATE's
+  // `ON UPDATE CASCADE` then carries them to the new value. See `compile`.
+  private readonly reorderRootUpdateAfterChildren: boolean;
   // The returning-driver fast path (finding 4 / PERF.md P5): a simple update
   // (scalar `data`, no nested relation mutation, a scalar-only projection) on a
   // driver with `RETURNING` folds locate+mutate+terminal into ONE `UPDATE …
@@ -153,6 +159,15 @@ export class UpdateOperation {
     //    mixes scalar assignments and nested relation mutations; `select` is
     //    optional and shapes the terminal read (Prisma's default is all scalars).
     assertUpdateKeys(args);
+    const parentSchemas = engine.schemaRegistry.getModelSchemas(model);
+    // V1's shared validator (validator.ts) validates the WHOLE args against the
+    // `args.update` schema BEFORE any relation parsing. V2's per-field parse path
+    // reaches `separateData`'s relation-mutation parser first, so an unknown nested
+    // key — a `deleteMany` on a to-one relation — surfaced V2's "Nested operation …
+    // is not supported for to-one relation" where V1 rejects "Unknown key:
+    // deleteMany" at schema validation, before the parent mutation. Run V1's
+    // whole-args validation first so the rejection ordering AND message match.
+    validateUpdateArgs(parentSchemas.args.update, args);
     const where = requireRecord(args.where, "update.where");
     const data = requireRecord(args.data, "update.data");
     // V1 runs this in its shared `validator` (validator.ts) for every operation;
@@ -164,7 +179,6 @@ export class UpdateOperation {
     const parent = createQueryScope(engine.adapter, model);
     const separated = separateData(parent, data);
 
-    const parentSchemas = engine.schemaRegistry.getModelSchemas(model);
     const parentPrimaryKeys = getPrimaryKeyFields(model);
     if (parentPrimaryKeys.length === 0) {
       throw new UnsupportedOperationError(
@@ -273,6 +287,16 @@ export class UpdateOperation {
     }
     for (const link of toOneLinks) Object.assign(parentSet, link.assignment);
     this.parentUpdateData = parentSet;
+
+    // Reorder the root UPDATE after the child edge writes when the SET rewrites a
+    // column some child FK references (the located fields are the PK ∪ every
+    // child-referenced column). A child edge written against the pre-transition id
+    // is then carried to the new value by the FK's `ON UPDATE CASCADE`, so a
+    // self-M2M junction / a reparent never strands on the vacated id. No child
+    // parts → nothing to reorder around.
+    this.reorderRootUpdateAfterChildren =
+      childParts.length > 0 &&
+      [...locateFields].some((field) => Object.hasOwn(parentSet, field));
 
     // Fast path (finding 4): a simple update — no nested relation mutation
     // (no child Parts, no to-one FK folds) with a non-empty scalar SET and a
@@ -412,10 +436,27 @@ export class UpdateOperation {
       }
     }
     const steps: OperationStep[] = [...guards];
-    if (this.needsRootUpdate) {
-      steps.push(this.buildRootUpdate(locatedRow));
+    const rootUpdate = this.needsRootUpdate
+      ? this.buildRootUpdate(locatedRow)
+      : undefined;
+    // A root SET that rewrites a child-referenced column (a PK transition
+    // `id: 2`, or a literal on a non-PK referenced unique) must land AFTER the
+    // child edge writes: a self-M2M junction row / a child reparent references the
+    // parent by its CURRENT (pre-transition) value, so the edge is written first
+    // against the located id and the root UPDATE's `ON UPDATE CASCADE` then carries
+    // it to the new value. Emitting the root UPDATE first would strand the edge on
+    // an id the transition just vacated (ForeignKeyError where V1 succeeds).
+    // Correlation stays on the pre-transition value — the row still holds the old
+    // FK until the cascade fires, so a nested update/delete of an existing member
+    // matches by the located id, not the post-transition one.
+    if (rootUpdate && !this.reorderRootUpdateAfterChildren) {
+      steps.push(rootUpdate);
     }
-    steps.push(...writes, this.buildTerminal(locatedRow));
+    steps.push(...writes);
+    if (rootUpdate && this.reorderRootUpdateAfterChildren) {
+      steps.push(rootUpdate);
+    }
+    steps.push(this.buildTerminal(locatedRow));
     return { steps, outputs: { result: ref(this.terminalId, "result") } };
   }
 
@@ -937,6 +978,27 @@ function normalizeSingle(
     );
   }
   return item;
+}
+
+/**
+ * V1's whole-args `args.update` validation (validator.ts's `validate`), ported so
+ * the schema-level rejection (an unknown nested key, a type mismatch) fires
+ * BEFORE `separateData`'s relation-mutation parser and before any I/O — V1's
+ * ordering and byte-identical `ValidationError` message. The validated value is
+ * discarded: V2 re-parses each piece from the original args, so this call is a
+ * pure legality gate, not a transform.
+ */
+function validateUpdateArgs(schema: VibSchema, args: unknown): void {
+  const result = parse(schema, args);
+  if ("issues" in result && result.issues) {
+    throw new ValidationError(
+      "update",
+      result.issues.map((issue) => ({
+        path: issue.path?.map(String).join(".") || "root",
+        message: issue.message,
+      }))
+    );
+  }
 }
 
 function parseRecord(

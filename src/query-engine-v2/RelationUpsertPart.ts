@@ -117,6 +117,17 @@ export interface RelationUpsertConfig {
   /** Adopt-family member (default `upsert`); `connectOrCreate` omits update data. */
   readonly family?: UpsertFamily;
   /**
+   * First-create-wins dedup across sibling parts (`connectOrCreate` only): an
+   * EARLIER connectOrCreate item of the same relation, in this one operation,
+   * already names this exact target (same child PK). V1 processes the array
+   * sequentially — "merge input N before deciding input N+1" — so the duplicate
+   * adopts the just-created row instead of re-inserting its PK. The M2M junction
+   * tracks this with a runtime `created` set within one Part; the child-held
+   * one-to-many is one Part per item, so the flag is computed at construction from
+   * the fixed item order (the target PKs are compile-time literals).
+   */
+  readonly duplicateOfEarlier?: boolean;
+  /**
    * Depth: nested upsert parts contributed by this child's UPDATE payload. They
    * are emitted only on this part's found+correlated (update) arm — the same
    * linear fragment, one level deeper (README §5, ATOM §6). This part holds its
@@ -160,12 +171,14 @@ export class RelationUpsertPart implements Part {
   private readonly updateChildParts: readonly Part[];
   private readonly createChildParts: readonly Part[];
   private readonly family: UpsertFamily;
+  private readonly duplicateOfEarlier: boolean;
 
   constructor(scope: StepScope, config: RelationUpsertConfig) {
     this.config = config;
     this.family = config.family ?? "upsert";
     this.updateChildParts = config.updateChildParts ?? [];
     this.createChildParts = config.createChildParts ?? [];
+    this.duplicateOfEarlier = config.duplicateOfEarlier ?? false;
     const { childScope, childName, where, txMode, relationName } = config;
     this.probeId = scope.allocate(`${childName}.find`);
     this.createId = scope.allocate(`${childName}.create`);
@@ -247,6 +260,16 @@ export class RelationUpsertPart implements Part {
       );
     }
     const arm = this.decide(rows, known);
+    if (arm === "create" && this.duplicateOfEarlier) {
+      // First-create-wins: an earlier connectOrCreate item of this relation in the
+      // same operation already created this exact target, so this duplicate adopts
+      // it (idempotent reparent) instead of re-inserting its PK. No found guard —
+      // presence is guaranteed by our own earlier create, not a pre-existing row
+      // (a batch hoists guards ahead of writes, so a guard here would precede that
+      // create). The connectOrCreate update payload is empty, so the adopt arm is a
+      // pure reparent SET, landing the same FK the terminal read expects.
+      return [this.buildUpdateArm(known)];
+    }
     if (arm === "create") {
       // Create arm: this child is fresh. Its update-arm children do not run
       // (nested writes in an UPDATE payload apply only when the row is found);
@@ -463,8 +486,24 @@ export function buildToManyUpsertParts(
       `query-engine-v2 supports only one-to-many nested ${family}; received '${relationName}'.`
     );
   }
-  return items.map((item) =>
-    buildOneUpsertPart(
+  // First-create-wins dedup is a connectOrCreate-only, fixed-order ledger over the
+  // sibling items' target PKs (compile-time literals) — the child-held analogue of
+  // the M2M junction's runtime `created` set. `upsert` is not deduped here (its
+  // array semantics differ; V1 merges each input's write before the next).
+  const child =
+    family === "connectOrCreate"
+      ? createQueryScope(engine.adapter, relationInfo.targetModel)
+      : undefined;
+  const childPk = child ? getPrimaryKeyFields(child.model)[0] : undefined;
+  const seenTargets = child ? new Set<string>() : undefined;
+  return items.map((item) => {
+    let duplicateOfEarlier = false;
+    if (seenTargets && childPk !== undefined) {
+      const key = connectOrCreateTargetKey(item, childPk);
+      duplicateOfEarlier = seenTargets.has(key);
+      seenTargets.add(key);
+    }
+    return buildOneUpsertPart(
       scope,
       parentScope,
       engine,
@@ -474,9 +513,22 @@ export function buildToManyUpsertParts(
       parentId,
       correlation,
       txMode,
-      family
-    )
-  );
+      family,
+      duplicateOfEarlier
+    );
+  });
+}
+
+/** The stable target-PK key of a connectOrCreate item (its create data's child
+ *  PK, falling back to the `where` unique) — the ledger key for first-create-wins. */
+function connectOrCreateTargetKey(
+  item: Record<string, unknown>,
+  childPk: string
+): string {
+  const create = isRecord(item.create) ? item.create : undefined;
+  const where = isRecord(item.where) ? item.where : undefined;
+  const value = create?.[childPk] ?? where?.[childPk];
+  return typeof value === "bigint" ? value.toString() : JSON.stringify(value);
 }
 
 /**
@@ -520,7 +572,8 @@ function buildOneUpsertPart(
   parentId: ParentIdSource,
   correlation: UpsertCorrelation,
   txMode: boolean,
-  family: UpsertFamily
+  family: UpsertFamily,
+  duplicateOfEarlier = false
 ): RelationUpsertPart {
   const fk = getFkDirection(parentScope, relationInfo);
   if (fk.holdsFK || fk.fkFields.length !== fk.pkFields.length) {
@@ -626,6 +679,7 @@ function buildOneUpsertPart(
     correlation,
     txMode,
     family,
+    duplicateOfEarlier,
     updateChildParts,
     createChildParts,
   });

@@ -14,10 +14,10 @@ import {
 } from "./OperationFragment";
 import { StepScope } from "./StepScope";
 import {
-  UnsupportedOperationError,
   getStepModelName,
   isRecord,
   selectExecutionMode,
+  UnsupportedOperationError,
 } from "./shared";
 
 type ExecutionMode = "transaction" | "batch";
@@ -104,6 +104,21 @@ export class CreateManyOperation {
     this.countOutput = refs;
   }
 
+  /**
+   * A DIRECT empty `createMany` is Prisma's documented `{ count: 0 }` no-op
+   * (returned by {@link parse}). But V1 builds its batch plan during
+   * `$transaction([...])` array preparation, and `buildCreateManyPlan` throws
+   * "No data to insert for createMany." on empty data — so a batch-prepared empty
+   * `createMany` rejects, byte-identically, where V1 does. This gate fires ONLY on
+   * the batch-preparation seam (never the direct execute path), keeping the direct
+   * no-op intact.
+   */
+  assertBatchPreparable(): void {
+    if (this.writes.length === 0) {
+      throw new QueryEngineError("No data to insert for createMany.");
+    }
+  }
+
   planning(): OperationFragment {
     // No decision, no planning read — createMany is a straight write.
     return { steps: [], outputs: {} };
@@ -127,7 +142,6 @@ export class CreateManyOperation {
     return { count: Number(count) } as T;
   }
 }
-
 
 function parseRecord(
   schema: VibSchema,
