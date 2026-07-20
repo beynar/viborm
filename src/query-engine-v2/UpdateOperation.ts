@@ -102,6 +102,15 @@ export class UpdateOperation {
   private readonly toOneLinks: readonly ToOneLink[];
   private readonly locate: StatementStep;
   private readonly updateParent?: StatementStep;
+  // The returning-driver fast path (finding 4 / PERF.md P5): a simple update
+  // (scalar `data`, no nested relation mutation) on a driver with `RETURNING`
+  // folds locate+mutate+terminal into ONE `UPDATE … WHERE selector RETURNING
+  // select` — V1's `compileDirect`. Statement-atomic (empty planning, one step),
+  // so the executor runs it with no transaction envelope, closing the write-path
+  // regression. `undefined` on non-returning drivers or when nested relations
+  // make the mutation genuinely multi-statement (the plan-then-execute path).
+  private readonly directWrite?: StatementStep;
+  private readonly updateId: string;
   private readonly parentPrimaryKeys: readonly string[];
   private readonly parentWhere: Record<string, unknown>;
   private readonly parsedSelect: Record<string, unknown>;
@@ -183,6 +192,7 @@ export class UpdateOperation {
     const parentName = getStepModelName(model, "parent");
     const locateId = scope.allocate(`${parentName}.locate`);
     const updateId = scope.allocate(`${parentName}.update`);
+    this.updateId = updateId;
     this.terminalId = scope.allocate(`${parentName}.select`);
     this.rootGuardId = scope.allocate(`${parentName}.guard.exists`);
 
@@ -248,8 +258,39 @@ export class UpdateOperation {
     }
     for (const link of toOneLinks) Object.assign(parentSet, link.assignment);
     this.parentUpdateData = parentSet;
+
+    // Fast path (finding 4): a simple update — no nested relation mutation
+    // (no child Parts, no to-one FK folds) with a non-empty scalar SET — on a
+    // RETURNING driver is V1's `compileDirect`: one `UPDATE … WHERE selector
+    // RETURNING select`, the updated row (incl. any PK the SET rewrote) coming
+    // straight back. No locate, no terminal, no envelope. buildUpdate emits the
+    // same RETURNING projection buildFindUnique gives the terminal read (relation
+    // selects lower to correlated subqueries), so the parsed result is identical.
+    const canFold =
+      engine.adapter.capabilities.supportsReturning &&
+      childParts.length === 0 &&
+      toOneLinks.length === 0 &&
+      Object.keys(parentSet).length > 0;
+    this.directWrite = canFold
+      ? {
+          id: updateId,
+          kind: "write",
+          statement: buildUpdate(parent, {
+            where: this.parentWhere,
+            data: parentSet,
+            select: this.parsedSelect,
+          }),
+          outputs: { result: { kind: "rows" } },
+          expects: affectedRows(
+            1,
+            notFoundFailure(
+              `query-engine-v2 update located no '${parentName}' row for its unique where.`
+            )
+          ),
+        }
+      : undefined;
     this.updateParent =
-      Object.keys(parentSet).length > 0
+      !this.directWrite && Object.keys(parentSet).length > 0
         ? this.buildRootUpdate(parent, updateId, parentSet, parentName, txMode)
         : undefined;
 
