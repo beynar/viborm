@@ -696,6 +696,47 @@ the "stop at the phase boundary, oracle green, and think" state — the V2 oracl
 green (325/325), the gates are green, and the divergences are named for the next
 thread rather than papered over.
 
+**P5 fix round 1 — the safety gap and three behavior divergences closed (no
+vocabulary change; freeze held).** Adversarial review confirmed the split-witness
+race as blocking. It and the tractable behavior conflicts are now fixed, each
+without weakening a contract:
+
+- **Split-witness race-safety (was blocking) — CLOSED.** V1's captured-PK+selector
+  correlation is ported into every nested targeted mutation. The targeted
+  `update`/`delete`/`set`/junction probe already captured the row's PK at
+  planning; the write now addresses that captured PK (V1's `WHERE id` mechanics),
+  and the batch presence guard requires the ORIGINAL selector AND the captured PK
+  to still name the same row (`RelationWritePart`, `RelationSetPart`,
+  `RelationJunctionPart` — child `SELECT` for adopt/set/connect, `membershipRead`
+  where-filter for delete/update/upsert-member). A concurrent selector-move onto a
+  replacement now leaves no row matching both, so the batch fails closed instead of
+  mutating/linking the replacement. Closes the 5 split-witness witnesses + the
+  captured-PK mechanics (`nested-single-mutation-identity`).
+- **Batch-only non-returning refusal (ATOM §7) — CLOSED for update/delete/upsert.**
+  `assertAtomicResolutionSupported` (shared.ts) raises V1's byte-identical typed
+  `TransactionError` in the constructor, mirroring `ManyAndReturnOperation`.
+  MySQL 468/468.
+- **Non-PK referenced-key arithmetic — CLOSED.** `assertRelationKeyUpdatesAre-
+  Compilable` (V1's, ported verbatim) now runs in `UpdateOperation`, rejecting a
+  non-literal op on the parent column a child FK references, not only the
+  parent-held FK.
+- **Non-returning no-op count — CLOSED.** The root update's exact-affected
+  postcondition is a returning-driver check only; on a non-returning driver the
+  locked locate already proved existence, so a no-op UPDATE is accepted (V1's
+  `affectedRows: unrestricted`).
+
+**Still open after round 1 (named, not hidden):** the RETURNING fast path (the
+write-path perf regression, PERF.md P5); the omitted-generated-PK capture in the
+non-returning upsert create branch; two returning-driver nested-write edges
+(PK-transition + self-M2M mis-order; child-held `connectOrCreate` first-create-wins
+dedup — both need cross-part/write-order coordination); and a set of
+message/statement-mechanics assertions the minimized atom does not reproduce
+(V1's max-affected postcondition — inexpressible without growing the FROZEN
+vocabulary; `disconnect` array dedup — observably idempotent; the nested float-PK /
+divide-by-zero / `deleteMany`-on-to-one / empty-`createMany` message wordings).
+The flip stays **not production-clean** until the perf fast path and the
+returning-driver edges close.
+
 ---
 
 ## 9. Invariants (the executable contract)

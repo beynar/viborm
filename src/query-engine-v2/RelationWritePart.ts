@@ -11,6 +11,7 @@ import {
   buildUpdate,
   buildUpdateMany,
 } from "../query-engine/operations";
+import { assertPortablePrimaryKeyUpdateInput } from "../query-engine/operations/mutation-identity";
 import type { QueryEngine } from "../query-engine/query-engine";
 import type { QueryScope, RelationInfo } from "../query-engine/types";
 import {
@@ -102,6 +103,19 @@ export class RelationWritePart implements Part {
     // message where V1's byte-identical error was the contract.
     if (config.kind === "update" || config.kind === "updateMany") {
       this.scalarData();
+      // V1's PK-arithmetic portability check on the nested child data (float/decimal
+      // non-portability, divide-by-zero, one-op) — a payload legality gate at
+      // construction (before the probe), matching RelationUpdates. Reuses V1's
+      // verbatim messages.
+      if (config.data) {
+        assertPortablePrimaryKeyUpdateInput(
+          config.childScope.model,
+          config.kind,
+          {
+            data: config.data,
+          }
+        );
+      }
     }
   }
 

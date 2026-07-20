@@ -17,7 +17,10 @@ import {
 import { getRelationMutationKinds } from "../query-engine/builders/relation-mutation-parser";
 import { createQueryScope } from "../query-engine/context/query-scope";
 import { buildFindUnique, buildUpdate } from "../query-engine/operations";
-import { getUpdatedPrimaryKeyWhere } from "../query-engine/operations/mutation-identity";
+import {
+  assertPortablePrimaryKeyUpdateInput,
+  getUpdatedPrimaryKeyWhere,
+} from "../query-engine/operations/mutation-identity";
 import type { QueryEngine } from "../query-engine/query-engine";
 import { assertNullable } from "../query-engine/RelationProgramValues";
 import { ResultParser } from "../query-engine/result/ResultParser";
@@ -129,6 +132,12 @@ export class UpdateOperation {
     assertUpdateKeys(args);
     const where = requireRecord(args.where, "update.where");
     const data = requireRecord(args.data, "update.data");
+    // V1 runs this in its shared `validator` (validator.ts) for every operation;
+    // V2's per-schema parse path bypasses it, so a top-level PK arithmetic that
+    // is not portable (float/decimal), divides by zero, or stacks operations was
+    // caught late (at the terminal read's `getUpdatedPrimaryKeyWhere`, after the
+    // locate ran) with V1's OTHER message. Run it at construction, before any I/O.
+    assertPortablePrimaryKeyUpdateInput(model, "update", args);
     const parent = createQueryScope(engine.adapter, model);
     const separated = separateData(parent, data);
 

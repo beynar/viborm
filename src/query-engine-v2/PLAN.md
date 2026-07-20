@@ -481,6 +481,33 @@ P5 report and ATOM §8.1 P5 note for the itemized conflict list. **P5 stops at t
 phase boundary with the oracle green: the divergences and the regression must be
 closed before the default flip is declared production-clean.**
 
+### P5 fix round 1 — safety gap + tractable behavior conflicts closed
+
+Adversarial review flagged the split-witness race as a **blocking** safety
+regression in the default engine, plus behavior divergences and the write-path
+regression. Round 1 closes the safety gap and the tractable behavior conflicts
+with no vocabulary change (freeze held; V2 oracle 337/337, gates green):
+
+- **Split-witness race-safety — CLOSED.** V1's captured-PK+selector correlation
+  ported into every nested targeted mutation (`RelationWritePart` /
+  `RelationSetPart` / `RelationJunctionPart`): the write addresses the captured
+  PK, and the batch guard requires selector ∧ captured-PK on one row, so a
+  concurrent selector-move fails closed instead of acting on the replacement.
+- **Batch-only non-returning `requiresAtomicResolution` refusal — CLOSED** for
+  update/delete/upsert (byte-identical `TransactionError`, MySQL 468/468).
+- **Non-PK referenced-key arithmetic — CLOSED** (V1's `assertRelationKeyUpdates-
+  AreCompilable` ported into `UpdateOperation`).
+- **Non-returning no-op count acceptance — CLOSED** (exact-affected is a
+  returning-driver check; existence proven by the locked locate).
+
+Still open for a dedicated round (named in the P5 report and ATOM §8.1): the
+RETURNING fast path (perf), the non-returning upsert omitted-generated-PK
+capture, two returning-driver nested-write edges (PK-transition + self-M2M order;
+child-held `connectOrCreate` dedup), and a residue of V1-internal
+statement-mechanics/message assertions the minimized atom does not reproduce.
+**The default flip remains not production-clean** until the perf fast path and the
+returning-driver edges close.
+
 ## P6 — Deletion and the honest audit
 
 Bulk-delete V1's operation/execution root once unreachable; keep what V2

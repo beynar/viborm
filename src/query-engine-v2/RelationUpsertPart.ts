@@ -14,6 +14,7 @@ import {
   getTableName,
 } from "../query-engine/context/query-scope";
 import { buildFindUnique, buildUpdate } from "../query-engine/operations";
+import { assertPortablePrimaryKeyUpdateInput } from "../query-engine/operations/mutation-identity";
 import type { QueryEngine } from "../query-engine/query-engine";
 import type { QueryScope, RelationInfo } from "../query-engine/types";
 import { validateProbe } from "./FragmentValidator";
@@ -547,6 +548,14 @@ function buildOneUpsertPart(
           child,
           requireRecord(item.update, `${relationName}.upsert.update`)
         );
+  if (family === "upsert") {
+    // V1's PK-arithmetic portability check on the nested upsert update arm
+    // (float/decimal non-portability, divide-by-zero, one-op) — a construction-
+    // time payload legality gate reusing V1's verbatim messages.
+    assertPortablePrimaryKeyUpdateInput(child.model, "update", {
+      data: item.update,
+    });
+  }
   if (
     fkFields.some(
       (fkField) =>
