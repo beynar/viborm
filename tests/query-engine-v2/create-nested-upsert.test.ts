@@ -328,7 +328,7 @@ describe("query-engine-v2 linear operation fragments", () => {
     expect(createChild.expects).toBeUndefined();
   });
 
-  test("rejects unsupported shapes and unsupported drivers before I/O", () => {
+  test("rejects unsupported shapes and unsupported drivers before I/O", async () => {
     const driver = new TransactionProbeDriver();
 
     expect(
@@ -374,8 +374,22 @@ describe("query-engine-v2 linear operation fragments", () => {
     ).toThrow("exactly one nested upsert object");
     expect(driver.executions).toBe(0);
 
+    // A neither-substrate driver is NOT rejected at construction — V1 parity
+    // (OperationRuntime.execute): a single-statement program runs directly on
+    // any driver via statement atomicity, so an operation must be constructible
+    // regardless of substrate. A MULTI-statement operation (this nested upsert)
+    // fails closed at EXECUTE, before any I/O, with V1's byte-identical
+    // TransactionError. The old construction-time throw diverged from V1 both in
+    // timing and in type (it raised QueryEngineError for most operations); the
+    // P5 flip corrected it (see report design decision).
     const unsupported = new UnsupportedDriver();
-    expect(() => createOperation(unsupported)).toThrow(
+    expect(() => createOperation(unsupported)).not.toThrow();
+    await expect(
+      createOperationExecutor(unsupported).executeCreate(
+        operationFragmentSchema.user,
+        createNestedUpsertArgs()
+      )
+    ).rejects.toThrow(
       "supports neither transactions nor atomic batch execution"
     );
     expect(unsupported.executions).toBe(0);
@@ -388,19 +402,23 @@ describe("query-engine-v2 linear operation fragments", () => {
     // create field is a ValidationError raised before any planning or I/O.
     expect(
       () =>
-        new CreateOperation(driverEngine(driver), operationFragmentSchema.user, {
-          data: {
-            name: "henry",
-            posts: {
-              upsert: {
-                where: { id: 1 },
-                create: { id: 1, title: 42, slug: "post-key" },
-                update: { title: "post" },
+        new CreateOperation(
+          driverEngine(driver),
+          operationFragmentSchema.user,
+          {
+            data: {
+              name: "henry",
+              posts: {
+                upsert: {
+                  where: { id: 1 },
+                  create: { id: 1, title: 42, slug: "post-key" },
+                  update: { title: "post" },
+                },
               },
             },
-          },
-          select: { name: true, posts: true },
-        })
+            select: { name: true, posts: true },
+          }
+        )
     ).toThrow("Validation failed for create");
     expect(driver.executions).toBe(0);
   });
@@ -501,116 +519,110 @@ describe("query-engine-v2 linear operation fragments", () => {
     expect(short.batchCalls).toBe(1);
   });
 
-  test(
-    "rolls back transaction writes when result parsing fails",
-    { timeout: 30_000 },
-    async () => {
-      const db = new PGlite();
-      const setup = createClient({
-        schema: operationFragmentSchema,
-        driver: new PGliteDriver({ client: db }),
-      });
-      const driver = new FailingResultPGliteDriver({ client: db });
-      try {
-        await push(setup, { force: true });
+  test("rolls back transaction writes when result parsing fails", {
+    timeout: 30_000,
+  }, async () => {
+    const db = new PGlite();
+    const setup = createClient({
+      schema: operationFragmentSchema,
+      driver: new PGliteDriver({ client: db }),
+    });
+    const driver = new FailingResultPGliteDriver({ client: db });
+    try {
+      await push(setup, { force: true });
 
-        await expect(
-          createOperationExecutor(driver).executeCreate(
-            operationFragmentSchema.user,
-            createNestedUpsertArgs()
-          )
-        ).rejects.toBe(driver.failure);
-        await expect(setup.user.findMany()).resolves.toEqual([]);
-        await expect(setup.post.findMany()).resolves.toEqual([]);
-      } finally {
-        await setup.$disconnect();
-      }
+      await expect(
+        createOperationExecutor(driver).executeCreate(
+          operationFragmentSchema.user,
+          createNestedUpsertArgs()
+        )
+      ).rejects.toBe(driver.failure);
+      await expect(setup.user.findMany()).resolves.toEqual([]);
+      await expect(setup.post.findMany()).resolves.toEqual([]);
+    } finally {
+      await setup.$disconnect();
     }
-  );
+  });
 
-  test(
-    "propagates a post-guard unique conflict and rolls back without retry",
-    { timeout: 30_000 },
-    async () => {
-      const db = new PGlite();
-      const setup = createClient({
-        schema: operationFragmentSchema,
-        driver: new PGliteDriver({ client: db }),
+  test("propagates a post-guard unique conflict and rolls back without retry", {
+    timeout: 30_000,
+  }, async () => {
+    const db = new PGlite();
+    const setup = createClient({
+      schema: operationFragmentSchema,
+      driver: new PGliteDriver({ client: db }),
+    });
+    const driver = new BatchOnlyPGliteDriver({ client: db });
+    try {
+      await push(setup, { force: true });
+      await setup.post.create({
+        data: {
+          id: 2,
+          title: "existing",
+          slug: "post-key",
+          userId: null,
+        },
       });
-      const driver = new BatchOnlyPGliteDriver({ client: db });
-      try {
-        await push(setup, { force: true });
-        await setup.post.create({
-          data: {
-            id: 2,
-            title: "existing",
-            slug: "post-key",
-            userId: null,
-          },
-        });
 
-        await expect(
-          createOperationExecutor(driver).executeCreate(
-            operationFragmentSchema.user,
-            createNestedUpsertArgs()
-          )
-        ).rejects.toBeInstanceOf(UniqueConstraintError);
-        expect(driver.batchCalls).toBe(1);
-        await expect(setup.user.findMany()).resolves.toEqual([]);
-        await expect(setup.post.findMany()).resolves.toEqual([
-          {
-            id: 2,
-            title: "existing",
-            slug: "post-key",
-            userId: null,
-          },
-        ]);
-      } finally {
-        await setup.$disconnect();
-      }
+      await expect(
+        createOperationExecutor(driver).executeCreate(
+          operationFragmentSchema.user,
+          createNestedUpsertArgs()
+        )
+      ).rejects.toBeInstanceOf(UniqueConstraintError);
+      expect(driver.batchCalls).toBe(1);
+      await expect(setup.user.findMany()).resolves.toEqual([]);
+      await expect(setup.post.findMany()).resolves.toEqual([
+        {
+          id: 2,
+          title: "existing",
+          slug: "post-key",
+          userId: null,
+        },
+      ]);
+    } finally {
+      await setup.$disconnect();
     }
-  );
+  });
 
-  test(
-    "fails a stale batch premise before writes and leaves no partial mutation",
-    { timeout: 30_000 },
-    async () => {
-      const db = new PGlite();
-      const setup = createClient({
-        schema: operationFragmentSchema,
-        driver: new PGliteDriver({ client: db }),
+  test("fails a stale batch premise before writes and leaves no partial mutation", {
+    timeout: 30_000,
+  }, async () => {
+    const db = new PGlite();
+    const setup = createClient({
+      schema: operationFragmentSchema,
+      driver: new PGliteDriver({ client: db }),
+    });
+    try {
+      await push(setup, { force: true });
+      await setup.post.create({
+        data: {
+          id: 1,
+          title: "draft",
+          slug: "post-key",
+          userId: null,
+        },
       });
-      try {
-        await push(setup, { force: true });
-        await setup.post.create({
-          data: {
-            id: 1,
-            title: "draft",
-            slug: "post-key",
-            userId: null,
-          },
-        });
-        const driver = new BeforeBatchPGliteDriver(
-          async () => {
-            await setup.post.delete({ where: { id: 1 } });
-          },
-          { client: db }
-        );
+      const driver = new BeforeBatchPGliteDriver(
+        async () => {
+          await setup.post.delete({ where: { id: 1 } });
+        },
+        { client: db }
+      );
 
-        await expect(
-          createOperationExecutor(driver).executeCreate(
-            operationFragmentSchema.user,
-            createNestedUpsertArgs("published")
-          )
-        ).rejects.toBeInstanceOf(NestedWriteError);
-        expect(driver.batchCalls).toBe(1);
-        await expect(setup.user.findMany()).resolves.toEqual([]);
-        await expect(setup.post.findMany()).resolves.toEqual([]);
-      } finally {
-        await setup.$disconnect();
-      }
+      await expect(
+        createOperationExecutor(driver).executeCreate(
+          operationFragmentSchema.user,
+          createNestedUpsertArgs("published")
+        )
+      ).rejects.toBeInstanceOf(NestedWriteError);
+      expect(driver.batchCalls).toBe(1);
+      await expect(setup.user.findMany()).resolves.toEqual([]);
+      await expect(setup.post.findMany()).resolves.toEqual([]);
+    } finally {
+      await setup.$disconnect();
     }
-  );
+  });
 
   test("emits Pin-Rule guard flags per premise class", () => {
     const batch = createOperation(new BatchProbeDriver());
@@ -636,74 +648,76 @@ describe("query-engine-v2 linear operation fragments", () => {
     // Transaction mode locks the probe, so neither branch carries a guard.
     const tx = createOperation(new TransactionProbeDriver());
     expect(
-      tx.compile({ "post.find.rows": [{ id: 1 }] }).steps.every((s) => s.kind !== "guard")
+      tx
+        .compile({ "post.find.rows": [{ id: 1 }] })
+        .steps.every((s) => s.kind !== "guard")
     ).toBe(true);
     expect(
-      tx.compile({ "post.find.rows": [] }).steps.every((s) => s.kind !== "guard")
+      tx
+        .compile({ "post.find.rows": [] })
+        .steps.every((s) => s.kind !== "guard")
     ).toBe(true);
   });
 
-  test(
-    "surfaces a create-branch race as a pinned unique conflict, never a guard abort",
-    { timeout: 30_000 },
-    async () => {
-      const db = new PGlite();
-      const setup = createClient({
-        schema: operationFragmentSchema,
-        driver: new PGliteDriver({ client: db }),
+  test("surfaces a create-branch race as a pinned unique conflict, never a guard abort", {
+    timeout: 30_000,
+  }, async () => {
+    const db = new PGlite();
+    const setup = createClient({
+      schema: operationFragmentSchema,
+      driver: new PGliteDriver({ client: db }),
+    });
+    try {
+      await push(setup, { force: true });
+
+      // The racePin the missing-branch create carries (the child primary key).
+      const missing = createOperation(new BatchProbeDriver()).compile({
+        "post.find.rows": [],
       });
-      try {
-        await push(setup, { force: true });
+      const createStep = missing.steps[1];
+      const racePin =
+        createStep?.kind === "write" ? createStep.racePin : undefined;
+      expect(racePin?.fields).toEqual(["id"]);
+      if (!racePin) return;
 
-        // The racePin the missing-branch create carries (the child primary key).
-        const missing = createOperation(new BatchProbeDriver()).compile({
-          "post.find.rows": [],
-        });
-        const createStep = missing.steps[1];
-        const racePin =
-          createStep?.kind === "write" ? createStep.racePin : undefined;
-        expect(racePin?.fields).toEqual(["id"]);
-        if (!racePin) return;
-
-        // A concurrent winner commits the same child primary key just before the
-        // loser's batch runs; the loser's INSERT then violates that key.
-        const driver = new BeforeBatchPGliteDriver(
-          async () => {
-            await setup.post.create({
-              data: {
-                id: 1,
-                title: "winner",
-                slug: "winner-key",
-                userId: null,
-              },
-            });
-          },
-          { client: db }
-        );
-
-        let caught: unknown;
-        await createOperationExecutor(driver)
-          .executeCreate(operationFragmentSchema.user, createNestedUpsertArgs())
-          .catch((error) => {
-            caught = error;
+      // A concurrent winner commits the same child primary key just before the
+      // loser's batch runs; the loser's INSERT then violates that key.
+      const driver = new BeforeBatchPGliteDriver(
+        async () => {
+          await setup.post.create({
+            data: {
+              id: 1,
+              title: "winner",
+              slug: "winner-key",
+              userId: null,
+            },
           });
+        },
+        { client: db }
+      );
 
-        // The loser surfaces the pinned unique conflict, not a guard abort.
-        expect(caught).toBeInstanceOf(UniqueConstraintError);
-        expect(caught).not.toBeInstanceOf(NestedWriteError);
-        expect(matchesRacePin(caught as UniqueConstraintError, racePin)).toBe(
-          true
-        );
-        expect(driver.batchCalls).toBe(1);
-        await expect(setup.user.findMany()).resolves.toEqual([]);
-        await expect(setup.post.findMany()).resolves.toEqual([
-          { id: 1, title: "winner", slug: "winner-key", userId: null },
-        ]);
-      } finally {
-        await setup.$disconnect();
-      }
+      let caught: unknown;
+      await createOperationExecutor(driver)
+        .executeCreate(operationFragmentSchema.user, createNestedUpsertArgs())
+        .catch((error) => {
+          caught = error;
+        });
+
+      // The loser surfaces the pinned unique conflict, not a guard abort.
+      expect(caught).toBeInstanceOf(UniqueConstraintError);
+      expect(caught).not.toBeInstanceOf(NestedWriteError);
+      expect(matchesRacePin(caught as UniqueConstraintError, racePin)).toBe(
+        true
+      );
+      expect(driver.batchCalls).toBe(1);
+      await expect(setup.user.findMany()).resolves.toEqual([]);
+      await expect(setup.post.findMany()).resolves.toEqual([
+        { id: 1, title: "winner", slug: "winner-key", userId: null },
+      ]);
+    } finally {
+      await setup.$disconnect();
     }
-  );
+  });
 });
 
 /**
