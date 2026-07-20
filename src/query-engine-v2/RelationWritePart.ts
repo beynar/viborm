@@ -115,25 +115,32 @@ export class RelationWritePart implements Part {
     return this.compileTargeted(known);
   }
 
-  /** `update` one / `delete` one: correlated probe, then the leaf write. */
+  /**
+   * `update` one / `delete` one: the leaf write addresses the **captured PK** the
+   * probe locked at planning, not the user selector (V1's mutation-identity, the
+   * `WHERE id` mechanics). In batch mode the presence guard correlates the ORIGINAL
+   * selector AND that captured PK on the same row (fk = parent too): a concurrent
+   * "split-witness" that moves the selector to a replacement row leaves no row
+   * matching both, so the guard fails and the batch rolls back — V2 never mutates
+   * the replacement the selector-alone guard would have found.
+   */
   private compileTargeted(known: PlanningKnown): readonly OperationStep[] {
-    this.requireProbeFound(known);
-    const where = this.requiredWhere();
+    const capturedPk = this.capturedPk(known);
+    const capturedWhere = { [this.config.childPrimaryKey]: capturedPk };
     const steps: OperationStep[] = [];
     if (!this.config.txMode) {
-      // Batch: pin the child is still this parent's before the write.
       steps.push(
         presenceGuard(
           this.guardId,
-          this.correlatedProbeStatement(known, false),
+          this.correlatedProbeStatement(known, false, capturedPk),
           this.targetFailure()
         )
       );
     }
     steps.push(
       this.config.kind === "update"
-        ? this.buildUpdateOne(where)
-        : this.buildDeleteOne(where)
+        ? this.buildUpdateOne(capturedWhere)
+        : this.buildDeleteOne(capturedWhere)
     );
     return steps;
   }
@@ -198,14 +205,18 @@ export class RelationWritePart implements Part {
   }
 
   /**
-   * `WHERE unique AND fk = <parent>`, limited to one row. When `useRef` the
-   * correlation carries a SQL `Ref` to the located-parent planning read
-   * (technique #1, in the planning probe); otherwise the located id is inlined
-   * as a literal (the batch exists guard, a final-fragment step).
+   * `WHERE unique AND fk = <parent> [AND pk = <capturedPk>]`, limited to one row.
+   * When `useRef` the correlation carries a SQL `Ref` to the located-parent
+   * planning read (technique #1, in the planning probe); otherwise the located id
+   * is inlined as a literal (the batch exists guard, a final-fragment step). The
+   * batch guard additionally pins the captured PK so the selector and the row the
+   * probe locked must still coincide (the split-witness correlation); the planning
+   * probe omits it (it is what captures the PK).
    */
   private correlatedProbeStatement(
     known: PlanningKnown | undefined,
-    useRef: boolean
+    useRef: boolean,
+    capturedPk?: unknown
   ): Sql {
     return buildFind(
       this.config.childScope,
@@ -214,6 +225,9 @@ export class RelationWritePart implements Part {
           AND: [
             ...this.uniqueEqualityFilters(this.requiredWhere()),
             ...this.correlationFilters(known, useRef),
+            ...(capturedPk === undefined
+              ? []
+              : [{ [this.config.childPrimaryKey]: { equals: capturedPk } }]),
           ],
         },
         select: { [this.config.childPrimaryKey]: true },
@@ -285,7 +299,12 @@ export class RelationWritePart implements Part {
     return scalarData;
   }
 
-  private requireProbeFound(known: PlanningKnown): void {
+  /**
+   * The primary key the correlated probe captured at planning — the row this
+   * targeted mutation is pinned to. Absent rows are V1's verbatim target-not-found
+   * (the correlated probe found no child of this parent matching the selector).
+   */
+  private capturedPk(known: PlanningKnown): unknown {
     const rows = known[planningKey(this.probeId, "rows")];
     if (!Array.isArray(rows)) {
       throw new NestedWriteError(
@@ -299,6 +318,14 @@ export class RelationWritePart implements Part {
         this.config.relationName
       );
     }
+    const first = rows[0];
+    if (!(first && typeof first === "object")) {
+      throw new NestedWriteError(
+        `query-engine-v2 ${this.config.kind} probe for relation '${this.config.relationName}' captured no row shape.`,
+        this.config.relationName
+      );
+    }
+    return (first as Record<string, unknown>)[this.config.childPrimaryKey];
   }
 
   private targetFailure() {
@@ -434,18 +461,35 @@ export class RelationSetPart implements Part {
   }
 
   compile(_scope: StepScope, known: PlanningKnown): readonly OperationStep[] {
-    for (const target of this.targets) this.requireTargetExists(target, known);
+    const capturedPks = this.targets.map((target) =>
+      this.capturedTargetPk(target, known)
+    );
     const steps: OperationStep[] = [];
     this.compileDeparting(known, steps);
-    for (const target of this.targets) {
+    for (let index = 0; index < this.targets.length; index += 1) {
+      const target = this.targets[index]!;
+      const capturedPk = capturedPks[index];
       if (!this.config.txMode) {
+        // Split-witness correlation: the guard requires the ORIGINAL selector and
+        // the captured PK to still name the same row. A concurrent move of the
+        // selector onto a replacement leaves no such row — reject, never adopt the
+        // replacement a selector-only guard would have found.
         steps.push(
           presenceGuard(
             target.guardId,
-            buildFindUnique(this.config.childScope, {
-              where: target.where,
-              select: { [this.config.childPrimaryKey]: true },
-            }),
+            buildFind(
+              this.config.childScope,
+              {
+                where: {
+                  AND: [
+                    ...this.uniqueEqualityFilters(target.where),
+                    { [this.config.childPrimaryKey]: { equals: capturedPk } },
+                  ],
+                },
+                select: { [this.config.childPrimaryKey]: true },
+              },
+              { limit: 1 }
+            ),
             nestedWriteFailure(
               relationTargetNotFound(this.config.relationInfo, "set"),
               this.config.relationName,
@@ -458,7 +502,9 @@ export class RelationSetPart implements Part {
         id: target.reparentId,
         kind: "write",
         statement: buildUpdate(this.config.childScope, {
-          where: target.where,
+          // Reparent the captured row by its PK, not the user selector (V1's
+          // mutation-identity), so the write can never land on a replacement.
+          where: { [this.config.childPrimaryKey]: capturedPk },
           data: this.fkAssignData(known),
           select: { [this.config.childPrimaryKey]: true },
         }),
@@ -565,7 +611,7 @@ export class RelationSetPart implements Part {
     return membership.length === 1 ? membership[0]! : { AND: membership };
   }
 
-  private requireTargetExists(target: SetTarget, known: PlanningKnown): void {
+  private capturedTargetPk(target: SetTarget, known: PlanningKnown): unknown {
     const rows = known[planningKey(target.existId, "rows")];
     if (!Array.isArray(rows)) {
       throw new NestedWriteError(
@@ -579,6 +625,14 @@ export class RelationSetPart implements Part {
         this.config.relationName
       );
     }
+    const first = rows[0];
+    if (!(first && typeof first === "object")) {
+      throw new NestedWriteError(
+        `query-engine-v2 set for relation '${this.config.relationName}' captured no target row shape.`,
+        this.config.relationName
+      );
+    }
+    return (first as Record<string, unknown>)[this.config.childPrimaryKey];
   }
 
   /** The reparent write's FK assignment: every FK column ← its referenced parent

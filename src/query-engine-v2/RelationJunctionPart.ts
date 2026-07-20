@@ -7,6 +7,7 @@ import {
 } from "../query-engine/builders/relation-data-builder";
 import { getRelationMutationKinds } from "../query-engine/builders/relation-mutation-parser";
 import { buildInsert } from "../query-engine/builders/values-builder";
+import { getWhereUniqueEntries } from "../query-engine/builders/where-unique-builder";
 import {
   createQueryScope,
   getTableName,
@@ -16,6 +17,7 @@ import { ManyToManyStatements } from "../query-engine/ManyToManyStatements";
 import {
   buildDelete,
   buildDeleteMany,
+  buildFind,
   buildFindUnique,
   buildUpdate,
 } from "../query-engine/operations";
@@ -304,7 +306,7 @@ export class RelationJunctionPart implements Part {
     for (const target of this.targets) {
       const targetPk = this.requireTarget(target, known, "connect");
       if (!this.config.txMode) {
-        steps.push(this.targetPresenceGuard(target, "connect"));
+        steps.push(this.targetPresenceGuard(target, "connect", targetPk));
       }
       steps.push(
         this.junctionWrite(target.writeId, "junctionInsert", {
@@ -334,9 +336,10 @@ export class RelationJunctionPart implements Part {
     const guards: OperationStep[] = [];
     const targetPks: unknown[] = [];
     for (const target of this.targets) {
-      targetPks.push(this.requireTarget(target, known, "set"));
+      const targetPk = this.requireTarget(target, known, "set");
+      targetPks.push(targetPk);
       if (!this.config.txMode) {
-        guards.push(this.targetPresenceGuard(target, "set"));
+        guards.push(this.targetPresenceGuard(target, "set", targetPk));
       }
     }
     const writes: OperationStep[] = [
@@ -365,7 +368,9 @@ export class RelationJunctionPart implements Part {
     for (const target of this.targets) {
       const targetPk = this.requireTarget(target, known, "delete");
       if (!this.config.txMode) {
-        guards.push(this.connectedPresenceGuard(target, parent, "delete"));
+        guards.push(
+          this.connectedPresenceGuard(target, parent, "delete", targetPk)
+        );
       }
       writes.push(
         this.junctionWrite(target.writeId, "junctionDeleteTargets", {
@@ -416,7 +421,9 @@ export class RelationJunctionPart implements Part {
       const target = this.targets[index]!;
       const targetPk = this.requireTarget(target, known, "update");
       if (!this.config.txMode) {
-        guards.push(this.connectedPresenceGuard(target, parent, "update"));
+        guards.push(
+          this.connectedPresenceGuard(target, parent, "update", targetPk)
+        );
       }
       writes.push(
         this.childUpdate(target.writeId, targetPk, data[index] ?? {})
@@ -489,8 +496,11 @@ export class RelationJunctionPart implements Part {
       const rows = known[planningKey(slot.probeId, "rows")];
       const found = Array.isArray(rows) && rows.length > 0;
       if (found) {
-        if (!this.config.txMode) steps.push(this.adoptFoundGuard(slot));
-        steps.push(this.joinInsert(slot.joinId, parent, this.pkOf(rows[0])));
+        const capturedPk = this.pkOf(rows[0]);
+        if (!this.config.txMode) {
+          steps.push(this.adoptFoundGuard(slot, capturedPk));
+        }
+        steps.push(this.joinInsert(slot.joinId, parent, capturedPk));
         continue;
       }
       if (created.has(pkKey(slot.createPk))) {
@@ -522,12 +532,11 @@ export class RelationJunctionPart implements Part {
     for (const slot of this.upserts) {
       const memberRows = known[planningKey(slot.membershipProbeId, "rows")];
       if (Array.isArray(memberRows) && memberRows.length > 0) {
+        const memberPk = this.pkOf(memberRows[0]);
         if (!this.config.txMode) {
-          steps.push(this.upsertMemberGuard(slot, parent));
+          steps.push(this.upsertMemberGuard(slot, parent, memberPk));
         }
-        steps.push(
-          this.childUpdate(slot.updateId, this.pkOf(memberRows[0]), slot.update)
-        );
+        steps.push(this.childUpdate(slot.updateId, memberPk, slot.update));
         continue;
       }
       if (created.has(pkKey(slot.createPk))) {
@@ -835,15 +844,14 @@ export class RelationJunctionPart implements Part {
     return pk;
   }
 
-  /** connectOrCreate found premise (batch): the adopted target still exists.
-   *  Existing-row premise, pinned raceable:false, V1's replacement wording. */
-  private adoptFoundGuard(slot: AdoptSlot): GuardStep {
+  /** connectOrCreate found premise (batch): the adopted target still exists AND
+   *  the captured PK still matches the selector (split-witness correlation — a
+   *  concurrent move of the selector onto a replacement leaves no such row, so the
+   *  join never links the replacement). Existing-row premise, raceable:false. */
+  private adoptFoundGuard(slot: AdoptSlot, capturedPk: unknown): GuardStep {
     return presenceGuard(
       slot.guardId,
-      buildFindUnique(this.childScope, {
-        where: slot.where,
-        select: { [this.targetPkField]: true },
-      }),
+      this.capturedSelectorRead(slot.where, capturedPk),
       nestedWriteFailure(
         nestedReplacement("connectOrCreate"),
         this.config.relationName,
@@ -852,9 +860,41 @@ export class RelationJunctionPart implements Part {
     );
   }
 
-  /** upsert member premise (batch): the target is still a member of this parent.
-   *  Existing-row premise, pinned raceable:false, V1's replacement wording. */
-  private upsertMemberGuard(slot: UpsertSlot, parent: unknown): GuardStep {
+  /**
+   * `SELECT pk FROM child WHERE <selector> AND pk = <capturedPk>` (limit 1): the
+   * row the planning probe locked must STILL be the one the user selector names.
+   * This is V1's captured-PK+selector correlation lowered to SQL — the guard fails
+   * closed when a split-witness moves the selector to a replacement row.
+   */
+  private capturedSelectorRead(
+    where: Record<string, unknown>,
+    capturedPk: unknown
+  ) {
+    return buildFind(
+      this.childScope,
+      {
+        where: {
+          AND: [
+            ...getWhereUniqueEntries(this.childScope, where).map(
+              ({ fieldName, value }) => ({ [fieldName]: { equals: value } })
+            ),
+            { [this.targetPkField]: { equals: capturedPk } },
+          ],
+        },
+        select: { [this.targetPkField]: true },
+      },
+      { limit: 1 }
+    );
+  }
+
+  /** upsert member premise (batch): the target is still a member of this parent
+   *  AND still the captured PK (split-witness correlation). Existing-row premise,
+   *  pinned raceable:false, V1's replacement wording. */
+  private upsertMemberGuard(
+    slot: UpsertSlot,
+    parent: unknown,
+    capturedPk: unknown
+  ): GuardStep {
     return {
       id: slot.guardId,
       kind: "guard",
@@ -863,6 +903,7 @@ export class RelationJunctionPart implements Part {
         statement: this.membershipRead({
           parentValue: parent,
           whereUnique: slot.where,
+          where: { [this.targetPkField]: { equals: capturedPk } },
           take: 1,
         }),
       },
@@ -936,14 +977,14 @@ export class RelationJunctionPart implements Part {
 
   private targetPresenceGuard(
     target: TargetSlot,
-    op: "connect" | "set"
+    op: "connect" | "set",
+    capturedPk: unknown
   ): GuardStep {
     return presenceGuard(
       target.guardId,
-      buildFindUnique(this.childScope, {
-        where: target.where,
-        select: { [this.targetPkField]: true },
-      }),
+      // Split-witness correlation: the captured target must still match the
+      // selector, so `set`/`connect` cannot adopt a replacement that inherited it.
+      this.capturedSelectorRead(target.where, capturedPk),
       nestedWriteFailure(
         relationTargetNotFound(this.config.relationInfo, op),
         this.config.relationName,
@@ -955,16 +996,22 @@ export class RelationJunctionPart implements Part {
   private connectedPresenceGuard(
     target: TargetSlot,
     parent: unknown,
-    op: "delete" | "update"
+    op: "delete" | "update",
+    capturedPk: unknown
   ): GuardStep {
     return {
       id: target.guardId,
       kind: "guard",
       premise: {
         kind: "exists",
+        // Split-witness correlation: the member matching the selector must still
+        // be the captured PK. A concurrent move that connects a replacement under
+        // the selector no longer satisfies `pk = capturedPk`, so delete/update
+        // fails closed instead of acting on the replacement.
         statement: this.membershipRead({
           parentValue: parent,
           whereUnique: target.where,
+          where: { [this.targetPkField]: { equals: capturedPk } },
           take: 1,
         }),
       },
