@@ -14,9 +14,10 @@ import {
 } from "./OperationFragment";
 import { StepScope } from "./StepScope";
 import {
+  UnsupportedOperationError,
   getStepModelName,
   isRecord,
-  UnsupportedOperationError,
+  selectExecutionMode,
 } from "./shared";
 
 type ExecutionMode = "transaction" | "batch";
@@ -52,7 +53,7 @@ export class CreateManyOperation {
     model: Model<any>,
     args: Record<string, unknown>
   ) {
-    this.mode = selectExecutionMode(engine);
+    this.mode = selectExecutionMode(engine, "createMany");
     const scope = new StepScope();
 
     const parentSchemas = engine.schemaRegistry.getModelSchemas(model);
@@ -127,13 +128,6 @@ export class CreateManyOperation {
   }
 }
 
-function selectExecutionMode(engine: QueryEngine): ExecutionMode {
-  if (engine.driver.supportsTransactions) return "transaction";
-  if (engine.driver.supportsBatch) return "batch";
-  throw new QueryEngineError(
-    `Driver '${engine.driver.driverName}' supports neither transactions nor atomic batch execution.`
-  );
-}
 
 function parseRecord(
   schema: VibSchema,

@@ -22,9 +22,10 @@ import {
 import { planningKey, planningOutputs } from "./Part";
 import { StepScope } from "./StepScope";
 import {
+  UnsupportedOperationError,
   getStepModelName,
   isRecord,
-  UnsupportedOperationError,
+  selectExecutionMode,
 } from "./shared";
 
 type ExecutionMode = "transaction" | "batch";
@@ -58,7 +59,7 @@ export class DeleteOperation {
   ) {
     this.engine = engine;
     this.model = model;
-    this.mode = selectExecutionMode(engine);
+    this.mode = selectExecutionMode(engine, "delete");
     const txMode = this.mode === "transaction";
     this.scope = new StepScope();
     const scope = this.scope;
@@ -208,13 +209,6 @@ export class DeleteOperation {
   }
 }
 
-function selectExecutionMode(engine: QueryEngine): ExecutionMode {
-  if (engine.driver.supportsTransactions) return "transaction";
-  if (engine.driver.supportsBatch) return "batch";
-  throw new QueryEngineError(
-    `Driver '${engine.driver.driverName}' supports neither transactions nor atomic batch execution.`
-  );
-}
 
 function parseRecord(
   schema: VibSchema,

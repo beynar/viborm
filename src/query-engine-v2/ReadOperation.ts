@@ -19,7 +19,11 @@ import {
   ref,
   type StatementStep,
 } from "./OperationFragment";
-import { isRecord, UnsupportedOperationError } from "./shared";
+import {
+  UnsupportedOperationError,
+  isRecord,
+  selectExecutionMode,
+} from "./shared";
 
 type ExecutionMode = "transaction" | "batch";
 
@@ -70,7 +74,7 @@ export class ReadOperation {
   ) {
     this.engine = engine;
     this.model = model;
-    this.mode = selectExecutionMode(engine);
+    this.mode = selectExecutionMode(engine, requestedOperation);
     this.requestedOperation = requestedOperation;
 
     const isOrThrow = requestedOperation.endsWith(OR_THROW_SUFFIX);
@@ -217,10 +221,3 @@ function requireFindUniqueArgs(args: Record<string, unknown>): {
   };
 }
 
-function selectExecutionMode(engine: QueryEngine): ExecutionMode {
-  if (engine.driver.supportsTransactions) return "transaction";
-  if (engine.driver.supportsBatch) return "batch";
-  throw new QueryEngineError(
-    `Driver '${engine.driver.driverName}' supports neither transactions nor atomic batch execution.`
-  );
-}

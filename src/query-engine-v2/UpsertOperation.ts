@@ -2,7 +2,10 @@
 import { QueryEngineError, ValidationError } from "@errors";
 import type { Model } from "@schema/model";
 import { parse, type VibSchema } from "@validation";
-import { getPrimaryKeyFields } from "../query-engine/builders/correlation-utils";
+import {
+  buildPrimaryKeyWhereUnique,
+  getPrimaryKeyFields,
+} from "../query-engine/builders/correlation-utils";
 import { separateData } from "../query-engine/builders/relation-data-builder";
 import { buildInsert } from "../query-engine/builders/values-builder";
 import { getWhereUniqueEntries } from "../query-engine/builders/where-unique-builder";
@@ -15,6 +18,7 @@ import {
   buildFindUnique,
   buildUpdate,
 } from "../query-engine/operations";
+import { getUpdatedPrimaryKeyWhere } from "../query-engine/operations/mutation-identity";
 import type { QueryEngine } from "../query-engine/query-engine";
 import { ResultParser } from "../query-engine/result/ResultParser";
 import type { QueryScope } from "../query-engine/types";
@@ -38,9 +42,10 @@ import {
 import { planningKey, planningOutputs } from "./Part";
 import { StepScope } from "./StepScope";
 import {
+  UnsupportedOperationError,
   getStepModelName,
   isRecord,
-  UnsupportedOperationError,
+  selectExecutionMode,
 } from "./shared";
 
 type ExecutionMode = "transaction" | "batch";
@@ -91,7 +96,7 @@ export class UpsertOperation {
   ) {
     this.engine = engine;
     this.model = model;
-    this.mode = selectExecutionMode(engine);
+    this.mode = selectExecutionMode(engine, "upsert");
     const txMode = this.mode === "transaction";
     this.scope = new StepScope();
     const scope = this.scope;
@@ -193,7 +198,7 @@ export class UpsertOperation {
     const steps =
       locateRows.length === 0
         ? this.compileCreateArm()
-        : this.compileFoundArm(known);
+        : this.compileFoundArm(known, locateRows[0] as Record<string, unknown>);
     return { steps, outputs: { result: ref(this.terminalId, "result") } };
   }
 
@@ -224,18 +229,22 @@ export class UpsertOperation {
       // targets; its violation is the raceable create-branch signal.
       racePin: childRacePin(parent, this.parentWhere),
     };
-    return [create, this.buildTerminal()];
+    // The created row is read back by its own primary key when the create data
+    // carries it — the `where` may target a non-PK unique the create data does
+    // not reproduce, so reading by `where` could miss the row it just inserted.
+    return [create, this.buildTerminal(this.createArmTerminalWhere())];
   }
 
   /** Present → skip (conditional no-match) or update (all conditionals match). */
   private compileFoundArm(
-    known: Readonly<Record<string, unknown>>
+    known: Readonly<Record<string, unknown>>,
+    locatedRow: Record<string, unknown>
   ): OperationStep[] {
     const unmatched = this.conditionals.find(
       (conditional) => !this.conditionalMatched(conditional, known)
     );
-    if (unmatched) return this.compileSkipArm(unmatched);
-    return this.compileUpdateArm();
+    if (unmatched) return this.compileSkipArm(unmatched, locatedRow);
+    return this.compileUpdateArm(locatedRow);
   }
 
   /**
@@ -244,20 +253,26 @@ export class UpsertOperation {
    * the retained `notExists` guard (the row still does NOT match the conditional,
    * `raceable: true`); transaction mode's locked probe pins it, needing no guard.
    */
-  private compileSkipArm(unmatched: Conditional): OperationStep[] {
-    if (this.mode === "transaction") return [this.buildTerminal()];
+  private compileSkipArm(
+    unmatched: Conditional,
+    locatedRow: Record<string, unknown>
+  ): OperationStep[] {
+    const terminalWhere = this.locatedTerminalWhere(locatedRow);
+    if (this.mode === "transaction") return [this.buildTerminal(terminalWhere)];
     return [
       absenceGuard(
         unmatched.guardId,
         unmatched.probe.statement,
         raceableQueryFailure(upsertSkipPremiseChanged(unmatched.field))
       ),
-      this.buildTerminal(),
+      this.buildTerminal(terminalWhere),
     ];
   }
 
   /** All conditionals match (or none present) → UPDATE the located row. */
-  private compileUpdateArm(): OperationStep[] {
+  private compileUpdateArm(
+    locatedRow: Record<string, unknown>
+  ): OperationStep[] {
     const parent = createQueryScope(this.engine.adapter, this.model);
     const txMode = this.mode === "transaction";
     const guards: OperationStep[] = [];
@@ -306,17 +321,21 @@ export class UpsertOperation {
           }
         : {}),
     };
-    return [...guards, update, this.buildTerminal()];
+    // The update arm may rewrite the very field the `where` located the row by
+    // (a non-PK unique) or the PK itself. The terminal read must therefore address
+    // the row by its POST-update primary key, not the original `where`, exactly as
+    // UpdateOperation does — otherwise a renamed row is invisible to its own read.
+    return [...guards, update, this.buildTerminal(this.updatedTerminalWhere(locatedRow))];
   }
 
-  private buildTerminal(): StatementStep {
+  private buildTerminal(where: Record<string, unknown>): StatementStep {
     const parent = createQueryScope(this.engine.adapter, this.model);
     const txMode = this.mode === "transaction";
     return {
       id: this.terminalId,
       kind: "read",
       statement: buildFindUnique(parent, {
-        where: this.parentWhere,
+        where,
         select: this.resultArgs.select as Record<string, unknown>,
       }),
       outputs: { result: { kind: "rows" } },
@@ -330,6 +349,55 @@ export class UpsertOperation {
           }
         : {}),
     };
+  }
+
+  /** The terminal where addressing the located (unchanged) row by its PK — the
+   *  skip arm reads the row without mutating it. */
+  private locatedTerminalWhere(
+    locatedRow: Record<string, unknown>
+  ): Record<string, unknown> {
+    return buildPrimaryKeyWhereUnique(
+      this.model,
+      Object.fromEntries(this.parentPrimaryKeys.map((pk) => [pk, locatedRow[pk]]))
+    );
+  }
+
+  /**
+   * The terminal where addressing the located row by its POST-update primary
+   * key: the update arm may rewrite a PK field (literal or portable arithmetic),
+   * moving the identity the located pre-update row no longer answers to. Reuses
+   * V1's `getUpdatedPrimaryKeyWhere` (unchanged located PK when the update leaves
+   * it alone; the same typed refusal of an ambiguous PK operation).
+   */
+  private updatedTerminalWhere(
+    locatedRow: Record<string, unknown>
+  ): Record<string, unknown> {
+    const parent = createQueryScope(this.engine.adapter, this.model);
+    return getUpdatedPrimaryKeyWhere(
+      parent,
+      locatedRow,
+      this.updateData,
+      getStepModelName(this.model, "record")
+    );
+  }
+
+  /**
+   * The create arm's terminal where: the created row's primary key when the
+   * create data carries every PK field (the common provided-PK case), else the
+   * original `where` — the fallback for an auto-generated identity, whose created
+   * row is addressable only by the unique `where` it was inserted to satisfy.
+   */
+  private createArmTerminalWhere(): Record<string, unknown> {
+    const hasEveryPk = this.parentPrimaryKeys.every(
+      (pk) => this.createData[pk] !== undefined
+    );
+    if (!hasEveryPk) return this.parentWhere;
+    return buildPrimaryKeyWhereUnique(
+      this.model,
+      Object.fromEntries(
+        this.parentPrimaryKeys.map((pk) => [pk, this.createData[pk]])
+      )
+    );
   }
 
   private pkSelect(): Record<string, boolean> {
@@ -395,13 +463,6 @@ export class UpsertOperation {
   }
 }
 
-function selectExecutionMode(engine: QueryEngine): ExecutionMode {
-  if (engine.driver.supportsTransactions) return "transaction";
-  if (engine.driver.supportsBatch) return "batch";
-  throw new QueryEngineError(
-    `Driver '${engine.driver.driverName}' supports neither transactions nor atomic batch execution.`
-  );
-}
 
 function defaultSelect(model: Model<any>): Record<string, unknown> {
   return Object.fromEntries(

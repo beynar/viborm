@@ -7,10 +7,7 @@ import {
 } from "@errors";
 import type { Model } from "@schema/model";
 import { parse, type VibSchema } from "@validation";
-import {
-  buildPrimaryKeyWhereUnique,
-  getPrimaryKeyFields,
-} from "../query-engine/builders/correlation-utils";
+import { getPrimaryKeyFields } from "../query-engine/builders/correlation-utils";
 import {
   type FkDirection,
   getFkDirection,
@@ -20,6 +17,7 @@ import {
 import { getRelationMutationKinds } from "../query-engine/builders/relation-mutation-parser";
 import { createQueryScope } from "../query-engine/context/query-scope";
 import { buildFindUnique, buildUpdate } from "../query-engine/operations";
+import { getUpdatedPrimaryKeyWhere } from "../query-engine/operations/mutation-identity";
 import type { QueryEngine } from "../query-engine/query-engine";
 import { assertNullable } from "../query-engine/RelationProgramValues";
 import { ResultParser } from "../query-engine/result/ResultParser";
@@ -58,9 +56,10 @@ import {
 } from "./RelationWritePart";
 import { StepScope } from "./StepScope";
 import {
+  UnsupportedOperationError,
   getStepModelName,
   isRecord,
-  UnsupportedOperationError,
+  selectExecutionMode,
 } from "./shared";
 
 type ExecutionMode = "transaction" | "batch";
@@ -104,6 +103,11 @@ export class UpdateOperation {
   private readonly parsedSelect: Record<string, unknown>;
   private readonly terminalId: string;
   private readonly rootGuardId: string;
+  // The parent SET (scalar data ∪ to-one FK folds), retained so the terminal read
+  // addresses the row by its POST-update primary key — a literal rename or a
+  // portable arithmetic increment on a PK field moves the identity the located
+  // (pre-update) row no longer answers to (the `DerivedValue` disposition, ATOM §3).
+  private readonly parentUpdateData: Record<string, unknown>;
 
   constructor(
     engine: QueryEngine,
@@ -112,7 +116,7 @@ export class UpdateOperation {
   ) {
     this.engine = engine;
     this.model = model;
-    this.mode = selectExecutionMode(engine);
+    this.mode = selectExecutionMode(engine, "update");
     const txMode = this.mode === "transaction";
     this.scope = new StepScope();
     const scope = this.scope;
@@ -219,6 +223,7 @@ export class UpdateOperation {
       );
     }
     for (const link of toOneLinks) Object.assign(parentSet, link.assignment);
+    this.parentUpdateData = parentSet;
     this.updateParent =
       Object.keys(parentSet).length > 0
         ? this.buildRootUpdate(parent, updateId, parentSet, parentName, txMode)
@@ -709,13 +714,17 @@ export class UpdateOperation {
       id: this.terminalId,
       kind: "read",
       statement: buildFindUnique(parent, {
-        // Compound PK: wrap the located PK values into the compound where-unique
-        // shape (`{ tenantId_id: { … } }`); single-field PKs stay flat.
-        where: buildPrimaryKeyWhereUnique(
-          this.model,
-          Object.fromEntries(
-            this.parentPrimaryKeys.map((pk) => [pk, locatedRow[pk]])
-          )
+        // Address the row by its POST-update primary key: a PK the update SET
+        // rewrote (literal rename or portable arithmetic) moves the identity, so
+        // the located pre-update PK would miss the row. `getUpdatedPrimaryKeyWhere`
+        // returns the located PK unchanged when the update leaves it alone, and
+        // wraps a compound PK into its where-unique shape. It reuses V1's exact
+        // arithmetic (and its typed refusal of an ambiguous PK operation).
+        where: getUpdatedPrimaryKeyWhere(
+          parent,
+          locatedRow,
+          this.parentUpdateData,
+          getStepModelName(this.model, "record")
         ),
         select: this.parsedSelect,
       }),
@@ -733,13 +742,6 @@ export class UpdateOperation {
   }
 }
 
-function selectExecutionMode(engine: QueryEngine): ExecutionMode {
-  if (engine.driver.supportsTransactions) return "transaction";
-  if (engine.driver.supportsBatch) return "batch";
-  throw new QueryEngineError(
-    `Driver '${engine.driver.driverName}' supports neither transactions nor atomic batch execution.`
-  );
-}
 
 function normalizeItems(
   value: unknown,

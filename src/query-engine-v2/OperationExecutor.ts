@@ -10,11 +10,18 @@ import {
   NotFoundError,
   QueryEngineError,
   TransactionError,
+  UniqueConstraintError,
 } from "@errors";
 import { isSql, Sql } from "@sql";
 import { createCorrelationId } from "../query-engine/execution-context";
 import { executeSkippableWrite } from "../query-engine/OperationRuntime";
 import type { QueryEngine } from "../query-engine/query-engine";
+import type {
+  Operation,
+  PreparedBatchGuard,
+  PreparedBatchOperation,
+  PreparedQuery,
+} from "../query-engine/types";
 import { validateFragment } from "./FragmentValidator";
 import {
   type Failure,
@@ -26,7 +33,8 @@ import {
   type StatementOutputSource,
   type StatementStep,
 } from "./OperationFragment";
-import { isRecord } from "./shared";
+import { markRaceable, markRaceIfPinned, racePinMatches } from "./race-retry";
+import { isRecord, noAtomicSubstrateError } from "./shared";
 
 type RuntimeValues = Map<string, Map<string, unknown>>;
 
@@ -62,6 +70,12 @@ interface AtomicPlan {
   readonly values: RuntimeValues;
 }
 
+/** A single-statement operation's compiled plan (PLAN P5 item 2b seam). */
+export interface SingleStatementPlan {
+  readonly fragment: OperationFragment;
+  readonly step: StatementStep;
+}
+
 export class OperationExecutor {
   private readonly engine: QueryEngine;
 
@@ -79,6 +93,19 @@ export class OperationExecutor {
     // rather than opening a second envelope.
     if (driverOverride) {
       return this.runLinearOn<T>(operation, context, driverOverride);
+    }
+    const driver = this.engine.driver;
+    // A driver with neither an atomic transaction nor an atomic batch can still
+    // run a SINGLE-statement operation directly (V1's statement-atomicity): a
+    // read or a scalar bulk write needs no atomic envelope. A multi-statement
+    // operation genuinely does — fail closed with V1's byte-identical error.
+    if (!(driver.supportsTransactions || driver.supportsBatch)) {
+      if (this.singleStatementPlan(operation)) {
+        return this.runLinearOn<T>(operation, context, driver);
+      }
+      return Promise.reject(
+        noAtomicSubstrateError(driver.driverName, context.operation ?? "query")
+      );
     }
     if (operation.mode === "transaction") {
       return this.runTransaction<T>(operation, context);
@@ -161,6 +188,102 @@ export class OperationExecutor {
     };
   }
 
+  /**
+   * The `$transaction([...])` array seam (PLAN P5 item 2c): lower this operation
+   * into a {@link PreparedBatchOperation} the client's **shared batch protocol**
+   * merges with other pending operations into ONE driver batch. It exposes the
+   * body queries, the guard index map (re-attributed by the client at the merge
+   * offset), and a `parseResult` closure — the exact shape V1's batch runtime
+   * returns, so a mixed V1/V2 array batches through one uniform path. Routed V2
+   * operations never thread an `insertId` across a write boundary (only the
+   * un-routed insert-with-generated-id family does), so no shared scratch state
+   * is needed; a fragment that somehow does fails closed rather than emit a
+   * colliding batch.
+   */
+  async prepareSharedBatch<T>(
+    operation: ExecutableOperation,
+    driver: AnyDriver,
+    context: QueryExecutionContext,
+    operationName: Operation
+  ): Promise<PreparedBatchOperation<T>> {
+    const plan = await this.buildAtomicPlan(operation, driver, context);
+    if (plan.entries.some((entry) => stepUsesInsertIdScratch(entry.step))) {
+      throw new TransactionError(
+        "query-engine-v2 cannot merge an insertId-scratch operation into a shared driver batch."
+      );
+    }
+    const queries: PreparedQuery[] = plan.entries.map((entry) =>
+      prepareBatchQuery(entry.statement, driver, context)
+    );
+    const guards: PreparedBatchGuard[] = [];
+    plan.entries.forEach((entry, queryIndex) => {
+      if (!(entry.guard && entry.guardProbe)) return;
+      guards.push({
+        queryIndex,
+        premise: entry.guard.premise.kind,
+        probe: entry.guardProbe,
+        failure: entry.guard.failure,
+        model: context.model ?? "record",
+        operation: operationName,
+      });
+    });
+    return {
+      queries,
+      guards,
+      parseResult: (results) =>
+        operation.parse<T>(assembleOutputs(plan, results)),
+    };
+  }
+
+  /**
+   * The single-statement seam (PLAN P5 item 2b): if this operation is one plain
+   * statement — empty planning, exactly one read/write step with no guard,
+   * postcondition, skip effect, unresolved reference, or insert-id scratch — return
+   * its compiled plan so the caller can expose it through `prepare()` (the cache
+   * flow's single-statement path, and the array-batch "single" fast path).
+   * Otherwise `undefined`: the operation runs through the atomic-batch seam.
+   */
+  singleStatementPlan(
+    operation: ExecutableOperation
+  ): SingleStatementPlan | undefined {
+    if (operation.planning().steps.length > 0) return undefined;
+    const fragment = operation.compile({});
+    if (fragment.steps.length !== 1) return undefined;
+    const [step] = fragment.steps;
+    if (!step || step.kind === "guard") return undefined;
+    if (step.expects || step.onUniqueConflict) return undefined;
+    if (!isSql(step.statement)) return undefined;
+    if (step.statement.values.some(isOperationValueReference)) return undefined;
+    if (stepUsesInsertIdScratch(step)) return undefined;
+    validateFragment(fragment);
+    return { fragment, step };
+  }
+
+  /** Prepare the single statement's driver query with the operation's context. */
+  prepareSingleStatement(
+    plan: SingleStatementPlan,
+    driver: AnyDriver,
+    context: QueryExecutionContext
+  ): PreparedQuery {
+    return prepareBatchQuery(plan.step.statement, driver, context);
+  }
+
+  /** Parse one statement's raw result into the operation's public shape. */
+  parseSingleStatement<T>(
+    operation: ExecutableOperation,
+    plan: SingleStatementPlan,
+    raw: { rows: unknown[]; rowCount: number }
+  ): T {
+    const result: QueryResult<unknown> = {
+      rows: raw.rows,
+      rowCount: raw.rowCount,
+    };
+    const values: RuntimeValues = new Map([
+      [plan.step.id, extractOutputs(plan.step, result)],
+    ]);
+    return operation.parse<T>(resolveFragmentOutputs(plan.fragment, values));
+  }
+
   private async buildAtomicPlan(
     operation: ExecutableOperation,
     driver: AnyDriver,
@@ -197,10 +320,7 @@ export class OperationExecutor {
       // result rather than aborting the surrounding atomic scope (V1's
       // `executeSkippableWrite`). This is a generic executor effect — no
       // operation-kind knowledge — so any step declaring it is served identically.
-      const result =
-        step.kind === "write" && step.onUniqueConflict === "skip"
-          ? await executeSkippableWrite(driver, statement, context)
-          : await driver._execute(statement, context);
+      const result = await this.executeStatement(step, statement, driver, context);
       assertNormalizedQueryResult(result, {
         provider: driver.driverName,
         operation: step.id,
@@ -209,6 +329,32 @@ export class OperationExecutor {
       values.set(step.id, extractOutputs(step, result));
     }
     return resolveFragmentOutputs(fragment, values);
+  }
+
+  /**
+   * Execute one materialized statement, classifying a race against the step's
+   * `racePin` (ATOM §1) so the retry layer **above** the executor (the routed
+   * `PendingOperation` lifecycle, PLAN P5 item 2f) can retry a matched
+   * insert-branch loser. The marking is invisible — the surfaced error is the
+   * same typed `UniqueConstraintError` a non-retrying caller would see.
+   */
+  private async executeStatement(
+    step: StatementStep,
+    statement: Sql,
+    driver: AnyDriver,
+    context: QueryExecutionContext
+  ): Promise<QueryResult<unknown>> {
+    try {
+      if (step.kind === "write" && step.onUniqueConflict === "skip") {
+        return await executeSkippableWrite(driver, statement, context);
+      }
+      return await driver._execute(statement, context);
+    } catch (error) {
+      if (step.kind === "write" && step.racePin) {
+        markRaceIfPinned(error, step.racePin);
+      }
+      throw error;
+    }
   }
 
   /** Compile-to-entries half: lower a fragment into a runnable atomic unit. */
@@ -296,8 +442,23 @@ export class OperationExecutor {
     let results: QueryResult<unknown>[];
     try {
       results = await driver._executeBatch(queries, undefined, context);
-    } catch (error) {
-      throw await attributeGuardFailure(error, entries, driver, context);
+    } catch (rawError) {
+      const error = await attributeGuardFailure(rawError, entries, driver, context);
+      // An insert-branch loser inside the atomic unit surfaces its pinned unique
+      // violation; classify it against any racePin so the retry layer above the
+      // executor converges (V1 parity, PLAN P5 item 2f). The batch is one unit,
+      // so the failing entry is not individually reported — match the error
+      // against every racePin the plan carries (there is one per insert branch).
+      if (error instanceof UniqueConstraintError) {
+        for (const entry of entries) {
+          const pin = entry.step?.racePin;
+          if (pin && racePinMatches(error, pin)) {
+            markRaceable(error);
+            break;
+          }
+        }
+      }
+      throw error;
     }
     assertNormalizedBatchResults(results, entries.length, {
       provider: driver.driverName,
@@ -324,6 +485,22 @@ function assembleOutputs(
     mergeBatchOutputs(step, result, values);
   }
   return resolveFragmentOutputs(fragment, values);
+}
+
+function stepUsesInsertIdScratch(step: StatementStep | undefined): boolean {
+  if (!step) return false;
+  return Object.values(step.outputs).some(
+    (source) => source.kind === "insertId"
+  );
+}
+
+function prepareBatchQuery(
+  statement: Sql,
+  driver: AnyDriver,
+  context: QueryExecutionContext
+): PreparedQuery {
+  const prepared = driver._prepare(statement);
+  return { sql: prepared.sql, params: prepared.params ?? [], context };
 }
 
 function enforcePostcondition(

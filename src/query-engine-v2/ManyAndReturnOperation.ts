@@ -29,7 +29,11 @@ import {
 } from "./OperationFragment";
 import { planningKey, planningOutputs } from "./Part";
 import { StepScope } from "./StepScope";
-import { isRecord, UnsupportedOperationError } from "./shared";
+import {
+  UnsupportedOperationError,
+  isRecord,
+  selectExecutionMode,
+} from "./shared";
 
 type ExecutionMode = "transaction" | "batch";
 type AndReturnKind = "createManyAndReturn" | "updateManyAndReturn";
@@ -83,7 +87,7 @@ export class ManyAndReturnOperation {
     this.engine = engine;
     this.model = model;
     this.kind = kind;
-    this.mode = selectExecutionMode(engine);
+    this.mode = selectExecutionMode(engine, kind);
     this.scope = new StepScope();
 
     this.args = validate<Record<string, unknown>>(
@@ -382,13 +386,6 @@ export class ManyAndReturnOperation {
   }
 }
 
-function selectExecutionMode(engine: QueryEngine): ExecutionMode {
-  if (engine.driver.supportsTransactions) return "transaction";
-  if (engine.driver.supportsBatch) return "batch";
-  throw new QueryEngineError(
-    `Driver '${engine.driver.driverName}' supports neither transactions nor atomic batch execution.`
-  );
-}
 
 function requireRecord(
   value: unknown,

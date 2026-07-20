@@ -28,7 +28,11 @@ import { OwnWritePreflight } from "./OwnWritePreflight";
 import { planningOutputs } from "./Part";
 import { RelationUpsertPart, refParentId } from "./RelationUpsertPart";
 import { StepScope } from "./StepScope";
-import { getStepModelName, isRecord } from "./shared";
+import {
+  getStepModelName,
+  isRecord,
+  selectExecutionMode,
+} from "./shared";
 
 type ExecutionMode = "transaction" | "batch";
 
@@ -51,7 +55,7 @@ export class CreateOperation {
   ) {
     this.engine = engine;
     this.model = model;
-    this.mode = selectExecutionMode(engine);
+    this.mode = selectExecutionMode(engine, "create");
     const txMode = this.mode === "transaction";
     this.scope = new StepScope();
     const scope = this.scope;
@@ -295,13 +299,6 @@ export class CreateOperation {
   }
 }
 
-function selectExecutionMode(engine: QueryEngine): ExecutionMode {
-  if (engine.driver.supportsTransactions) return "transaction";
-  if (engine.driver.supportsBatch) return "batch";
-  throw new TransactionError(
-    `Driver '${engine.driver.driverName}' supports neither transactions nor atomic batch execution.`
-  );
-}
 
 function parseRecord(
   schema: VibSchema,

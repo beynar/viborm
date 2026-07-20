@@ -13,7 +13,10 @@ import {
   ref,
   type StatementStep,
 } from "./OperationFragment";
-import { isRecord } from "./shared";
+import {
+  isRecord,
+  selectExecutionMode,
+} from "./shared";
 
 type ExecutionMode = "transaction" | "batch";
 type BulkCountKind = "updateMany" | "deleteMany";
@@ -46,7 +49,7 @@ export class BulkCountOperation {
     this.engine = engine;
     this.model = model;
     this.kind = kind;
-    this.mode = selectExecutionMode(engine);
+    this.mode = selectExecutionMode(engine, kind);
 
     // V1's validator applies the model's updateMany/deleteMany arg schema (which
     // forbids relation data on updateMany) and the portable-PK-update check, so
@@ -109,10 +112,3 @@ export class BulkCountOperation {
   }
 }
 
-function selectExecutionMode(engine: QueryEngine): ExecutionMode {
-  if (engine.driver.supportsTransactions) return "transaction";
-  if (engine.driver.supportsBatch) return "batch";
-  throw new QueryEngineError(
-    `Driver '${engine.driver.driverName}' supports neither transactions nor atomic batch execution.`
-  );
-}
