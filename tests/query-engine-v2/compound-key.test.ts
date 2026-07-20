@@ -192,6 +192,105 @@ const d4AccountMemberships = async (client: ReturnType<typeof makeClient>) => {
   });
 };
 
+// Per-field correlation is two-dimensional: to prove BOTH compound FK columns
+// are load-bearing in the reject direction, each column needs a reject where it
+// is the SOLE distinguisher. `compoundAuthorPosts`/`d4AccountMemberships` differ
+// on the FIRST referenced column (tenantId / provider), so their reject
+// scenarios catch a probe that drops the first column — but a probe that keeps
+// the first and DROPS the second (`fkFields.slice(0, 1)`) stays invisible to
+// them (the foreign child already differs on the surviving first column). The
+// seeds below make the SECOND referenced column the sole distinguisher, so
+// dropping it is caught.
+
+// Two authors sharing tenant "t1" but differing on the SECOND referenced column
+// (author id a1 vs a2). Post p2 belongs to a2, so a nested write correlated to
+// a1 rejects ONLY because the authorId→id column is correlated; a probe that
+// kept tenantId alone would wrongly reach p2 (both share tenantId="t1").
+const sameTenantTwoAuthors = async (client: ReturnType<typeof makeClient>) => {
+  await client.author.create({
+    data: {
+      tenantId: "t1",
+      id: "a1",
+      name: "Alice",
+      posts: { create: { id: "p1", title: "Hers" } },
+    },
+  });
+  await client.author.create({
+    data: {
+      tenantId: "t1",
+      id: "a2",
+      name: "Amy",
+      posts: { create: { id: "p2", title: "His" } },
+    },
+  });
+};
+
+// D4 counterpart to `sameTenantTwoAuthors`: two accounts sharing provider
+// "github" but differing on the SECOND referenced column (providerId u1 vs u2).
+// m2 references u2, so a nested write correlated to acc-1 (github/u1) rejects
+// ONLY because the accProviderId→providerId column is correlated; a probe that
+// kept provider alone would wrongly reach m2 (both share provider="github").
+const sameProviderTwoAccounts = async (
+  client: ReturnType<typeof makeClient>
+) => {
+  await client.account.create({
+    data: { id: "acc-1", provider: "github", providerId: "u1" },
+  });
+  await client.account.create({
+    data: { id: "acc-2", provider: "github", providerId: "u2" },
+  });
+  await client.membership.create({
+    data: {
+      id: "m1",
+      role: "member",
+      accProvider: "github",
+      accProviderId: "u1",
+    },
+  });
+  await client.membership.create({
+    data: {
+      id: "m2",
+      role: "member",
+      accProvider: "github",
+      accProviderId: "u2",
+    },
+  });
+};
+
+// D4 mirror: two accounts sharing providerId "u1" but differing on the FIRST
+// referenced column (provider github vs gitlab). m2 references gitlab, so a
+// nested write correlated to acc-1 (github/u1) rejects ONLY because the
+// accProvider→provider column is correlated; a probe that kept providerId alone
+// would wrongly reach m2 (both share providerId="u1"). Together with
+// `sameProviderTwoAccounts` this proves BOTH D4 columns per-field (the compound
+// FK's first column is already pinned by `compoundAuthorPosts`).
+const sameProviderIdTwoAccounts = async (
+  client: ReturnType<typeof makeClient>
+) => {
+  await client.account.create({
+    data: { id: "acc-1", provider: "github", providerId: "u1" },
+  });
+  await client.account.create({
+    data: { id: "acc-2", provider: "gitlab", providerId: "u1" },
+  });
+  await client.membership.create({
+    data: {
+      id: "m1",
+      role: "member",
+      accProvider: "github",
+      accProviderId: "u1",
+    },
+  });
+  await client.membership.create({
+    data: {
+      id: "m2",
+      role: "member",
+      accProvider: "gitlab",
+      accProviderId: "u1",
+    },
+  });
+};
+
 const scenarios: Scenario[] = [
   {
     name: "update by compound id targets only that tenant's row",
@@ -321,7 +420,9 @@ const scenarios: Scenario[] = [
       }),
   },
   {
-    name: "nested update of another tenant's post rejects (compound correlation)",
+    // The two authors differ on the FIRST referenced column (tenantId); this
+    // pins that column. The SECOND-column companion is below.
+    name: "nested update of another tenant's post rejects (first FK column correlated)",
     expectReject: true,
     seed: compoundAuthorPosts,
     act: (c) =>
@@ -329,6 +430,21 @@ const scenarios: Scenario[] = [
         where: { tenantId_id: { tenantId: "t1", id: "a1" } },
         data: {
           posts: { update: { where: { id: "p3" }, data: { title: "nope" } } },
+        },
+      }),
+  },
+  {
+    // Companion pinning the SECOND FK column: both authors share tenantId="t1",
+    // so a probe that dropped the authorId→id correlation (`fkFields.slice(0, 1)`)
+    // would reach p2 (a2's post) and wrongly succeed. Full per-field rejects.
+    name: "nested update of a same-tenant sibling's post rejects (second FK column correlated)",
+    expectReject: true,
+    seed: sameTenantTwoAuthors,
+    act: (c) =>
+      c.author!.update!({
+        where: { tenantId_id: { tenantId: "t1", id: "a1" } },
+        data: {
+          posts: { update: { where: { id: "p2" }, data: { title: "nope" } } },
         },
       }),
   },
@@ -475,9 +591,48 @@ const scenarios: Scenario[] = [
       }),
   },
   {
-    name: "nested update of another account's D4 child rejects (non-PK correlation)",
+    // acc-1 (github/u1) and acc-2 (gitlab/u2) differ on BOTH referenced columns,
+    // so this is only a foreign-child smoke — it proves neither column is
+    // individually load-bearing (either alone suffices to reject). The two
+    // single-column companions below carry the per-field claim.
+    name: "nested update of another account's D4 child rejects (foreign non-PK child)",
     expectReject: true,
     seed: d4AccountMemberships,
+    act: (c) =>
+      c.account!.update!({
+        where: { id: "acc-1" },
+        data: {
+          memberships: {
+            update: { where: { id: "m2" }, data: { role: "nope" } },
+          },
+        },
+      }),
+  },
+  {
+    // Pins the SECOND referenced column (providerId): both accounts share
+    // provider="github", so a probe that dropped the accProviderId→providerId
+    // correlation (`fkFields.slice(0, 1)`) would reach m2 (acc-2's member) and
+    // wrongly succeed. Full per-field rejects.
+    name: "nested update of a same-provider account's D4 child rejects (second referenced column correlated)",
+    expectReject: true,
+    seed: sameProviderTwoAccounts,
+    act: (c) =>
+      c.account!.update!({
+        where: { id: "acc-1" },
+        data: {
+          memberships: {
+            update: { where: { id: "m2" }, data: { role: "nope" } },
+          },
+        },
+      }),
+  },
+  {
+    // Pins the FIRST referenced column (provider): both accounts share
+    // providerId="u1", so a probe that dropped the accProvider→provider
+    // correlation would reach m2 (acc-2's member) and wrongly succeed.
+    name: "nested update of a same-providerId account's D4 child rejects (first referenced column correlated)",
+    expectReject: true,
+    seed: sameProviderIdTwoAccounts,
     act: (c) =>
       c.account!.update!({
         where: { id: "acc-1" },
