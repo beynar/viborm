@@ -22,7 +22,6 @@ import {
 import { planningKey, planningOutputs } from "./Part";
 import { StepScope } from "./StepScope";
 import {
-  assertAtomicResolutionSupported,
   getStepModelName,
   isRecord,
   selectExecutionMode,
@@ -149,12 +148,6 @@ export class DeleteOperation {
           }
         : {}),
     };
-
-    // ATOM §7 refusal (kept as contract), raised last so validation errors take
-    // precedence (V1's execute-time ordering): a non-returning delete captures
-    // its returned row by a pre-delete read whose parse a batch-only driver
-    // cannot roll back.
-    assertAtomicResolutionSupported(engine, "delete", this.mode);
   }
 
   planning(): OperationFragment {

@@ -42,34 +42,6 @@ export function noAtomicSubstrateError(
 }
 
 /**
- * ATOM §7's `requiresAtomicResolution` refusal, KEPT AS CONTRACT. A write whose
- * public result must be resolved by a post-commit read (any non-returning
- * `update`/`delete`/`upsert`: it locates/mutates then refetches the persisted
- * identity) cannot run on a **batch-only** driver, because result parsing happens
- * after the atomic batch commits and cannot be rolled back. V1 raises this
- * eagerly (`OperationRuntime.executeProgram` → `atomicExecutionErrorMessage`);
- * V2 raises it in the operation constructor — before any I/O — with the
- * byte-identical typed {@link TransactionError}, so the routed proxy propagates
- * it as V1's own error rather than reaching a runtime "Query execution failed".
- * `ManyAndReturnOperation` reproduces the same refusal for `*AndReturn`.
- */
-export function assertAtomicResolutionSupported(
-  engine: QueryEngine,
-  operation: "delete" | "update" | "upsert",
-  mode: ExecutionMode
-): void {
-  if (mode !== "batch" || engine.adapter.capabilities.supportsReturning) return;
-  const driverName = engine.driver.driverName;
-  const message =
-    operation === "upsert"
-      ? "cannot execute non-returning upsert writes atomically because public result parsing cannot be rolled back after an atomic batch commits"
-      : `Driver '${driverName}' cannot execute '${operation}' because public result parsing cannot be rolled back.`;
-  throw new TransactionError(message, {
-    meta: { driver: driverName, operation },
-  });
-}
-
-/**
  * Thrown by a concrete operation's constructor when the requested payload shape
  * is outside V2's supported family (a wrong argument key, an unsupported
  * relation kind, a compound key, a to-one upsert, …). It is the routing signal

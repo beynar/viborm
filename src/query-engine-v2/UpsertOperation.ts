@@ -42,7 +42,6 @@ import {
 import { planningKey, planningOutputs } from "./Part";
 import { StepScope } from "./StepScope";
 import {
-  assertAtomicResolutionSupported,
   getStepModelName,
   isRecord,
   selectExecutionMode,
@@ -181,12 +180,6 @@ export class UpsertOperation {
       }),
       outputs: { rows: { kind: "rows" } },
     };
-
-    // ATOM §7 refusal (kept as contract), raised last so it mirrors V1's
-    // execute-time ordering (validation/compile errors take precedence): a
-    // non-returning upsert must resolve its returned identity by a post-commit
-    // read, which a batch-only driver cannot roll back.
-    assertAtomicResolutionSupported(engine, "upsert", this.mode);
   }
 
   planning(): OperationFragment {
