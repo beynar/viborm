@@ -103,12 +103,18 @@ export class UpdateOperation {
   private readonly locate: StatementStep;
   private readonly updateParent?: StatementStep;
   // The returning-driver fast path (finding 4 / PERF.md P5): a simple update
-  // (scalar `data`, no nested relation mutation) on a driver with `RETURNING`
-  // folds locate+mutate+terminal into ONE `UPDATE … WHERE selector RETURNING
-  // select` — V1's `compileDirect`. Statement-atomic (empty planning, one step),
-  // so the executor runs it with no transaction envelope, closing the write-path
-  // regression. `undefined` on non-returning drivers or when nested relations
-  // make the mutation genuinely multi-statement (the plan-then-execute path).
+  // (scalar `data`, no nested relation mutation, a scalar-only projection) on a
+  // driver with `RETURNING` folds locate+mutate+terminal into ONE `UPDATE …
+  // WHERE selector RETURNING select` — V1's `compileDirect`. Statement-atomic
+  // (empty planning, exactly one step), so the executor runs it with no
+  // transaction/batch envelope (isStatementAtomic → runLinearOn), enforcing the
+  // affectedRows/notFound postcondition in JS after the single round-trip. The
+  // fold is gated to `transaction` mode: a folded step carries a postcondition,
+  // and the atomic-batch lowering (compileToEntries) does not yet enforce one, so
+  // batch-only drivers keep the plan-then-execute path (whose batch guard checks
+  // presence instead). `undefined` on non-returning drivers, batch mode, a
+  // relation projection, or when nested relations make the mutation genuinely
+  // multi-statement.
   private readonly directWrite?: StatementStep;
   private readonly updateId: string;
   private readonly parentPrimaryKeys: readonly string[];
@@ -260,16 +266,26 @@ export class UpdateOperation {
     this.parentUpdateData = parentSet;
 
     // Fast path (finding 4): a simple update — no nested relation mutation
-    // (no child Parts, no to-one FK folds) with a non-empty scalar SET — on a
-    // RETURNING driver is V1's `compileDirect`: one `UPDATE … WHERE selector
-    // RETURNING select`, the updated row (incl. any PK the SET rewrote) coming
-    // straight back. No locate, no terminal, no envelope. buildUpdate emits the
-    // same RETURNING projection buildFindUnique gives the terminal read (relation
-    // selects lower to correlated subqueries), so the parsed result is identical.
+    // (no child Parts, no to-one FK folds) with a non-empty scalar SET and a
+    // scalar-only projection — on a RETURNING driver is V1's `compileDirect`: one
+    // `UPDATE … WHERE selector RETURNING select`, the updated row (incl. any PK
+    // the SET rewrote) coming straight back. No locate, no terminal, no envelope.
+    // Gated to a scalar-only `select`: for scalars `buildUpdate`'s RETURNING
+    // projection and the terminal `buildFindUnique` projection are the same
+    // columns, so the parsed result is byte-identical; a relation projection
+    // (lateral joins vs RETURNING subqueries) keeps the proven terminal-read
+    // path. Gated to `transaction` mode: the folded step's postcondition has no
+    // atomic-batch lowering yet (compileToEntries), so batch-only drivers keep
+    // plan-then-execute (their batch guard checks presence).
+    const selectIsScalarOnly = !Object.keys(this.parsedSelect).some((field) =>
+      model["~"].relationSet.has(field)
+    );
     const canFold =
+      txMode &&
       engine.adapter.capabilities.supportsReturning &&
       childParts.length === 0 &&
       toOneLinks.length === 0 &&
+      selectIsScalarOnly &&
       Object.keys(parentSet).length > 0;
     this.directWrite = canFold
       ? {
@@ -330,6 +346,10 @@ export class UpdateOperation {
   }
 
   planning(): OperationFragment {
+    // The RETURNING fold is a single self-contained statement — no planning read
+    // (the located id it would carry is unused; the RETURNING clause returns the
+    // mutated row directly). Empty planning is what makes it statement-atomic.
+    if (this.directWrite) return { steps: [], outputs: {} };
     const steps: OperationStep[] = [this.locate];
     for (const link of this.toOneLinks) {
       if (link.connect) steps.push(link.connect.probe);
@@ -340,6 +360,16 @@ export class UpdateOperation {
   }
 
   compile(known: Readonly<Record<string, unknown>>): OperationFragment {
+    // The RETURNING fold compiles to its one write step regardless of `known`
+    // (it consumes no planning value): the `UPDATE … WHERE selector RETURNING
+    // select` locates, mutates, and returns the row in one statement, with the
+    // affectedRows/notFound postcondition enforced by the executor after it runs.
+    if (this.directWrite) {
+      return {
+        steps: [this.directWrite],
+        outputs: { result: ref(this.updateId, "result") },
+      };
+    }
     // Defensive: the locate's postcondition already aborts a missing root at
     // planning; this keeps compile fail-closed if it is ever called directly.
     const locateRows = known[planningKey(this.locate.id, "rows")];
