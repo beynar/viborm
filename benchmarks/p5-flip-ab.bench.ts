@@ -148,3 +148,31 @@ describe("flip A/B: nested create (user + one post)", () => {
     });
   });
 });
+
+// T1: parent-held to-one create — post carries the FK (authorId), so `author:
+// { create }` is a BEFORE-parent write (INSERT author, then INSERT post with
+// authorId = author.id). The T1 absorption; A/B vs V1's staged runtime.
+let phV1 = 0;
+let phV2 = 0;
+describe("flip A/B: parent-held to-one create (post + before-parent author)", () => {
+  bench("v1 create parent-held", async () => {
+    const id = `ph1_${phV1++}`;
+    await v1.post.create({
+      data: {
+        id,
+        title: "T",
+        author: { create: { id: `${id}_a`, name: "A", email: `${id}@x.com` } },
+      },
+    });
+  });
+  bench("v2 create parent-held", async () => {
+    const id = `ph2_${phV2++}`;
+    await v2.post.create({
+      data: {
+        id,
+        title: "T",
+        author: { create: { id: `${id}_a`, name: "A", email: `${id}@x.com` } },
+      },
+    });
+  });
+});

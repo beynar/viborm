@@ -87,7 +87,10 @@ type ExecutionMode = "transaction" | "batch";
  *   the target INSERT carrying a `racePin` (Pin Rule class 2, never a guard).
  */
 type ParentHeldArm =
-  | { readonly kind: "connect-covered"; readonly fkAssign: Record<string, unknown> }
+  | {
+      readonly kind: "connect-covered";
+      readonly fkAssign: Record<string, unknown>;
+    }
   | {
       readonly kind: "connect-probe";
       readonly relationName: string;
@@ -393,7 +396,11 @@ export class CreateOperation {
     // before-parent phase) in THIS record's arms is an unconditional witness a
     // sibling `connect` can adopt without a probe. Computed before interpreting the
     // arms so coverage is order-insensitive, exactly as V1's group-0 analysis.
-    const coverage = this.beforeParentCoverage(childScope, separated.relations, data);
+    const coverage = this.beforeParentCoverage(
+      childScope,
+      separated.relations,
+      data
+    );
 
     for (const [relationName, mutation] of Object.entries(
       separated.relations
@@ -604,7 +611,7 @@ export class CreateOperation {
         this.interpretParentHeldConnect(input, relationInfo, fk, childScope);
         return;
       case "create":
-        this.interpretParentHeldCreate(input, relationInfo, fk, childScope);
+        this.interpretParentHeldCreate(input, fk, childScope);
         return;
       case "connectOrCreate":
         this.interpretParentHeldConnectOrCreate(
@@ -633,7 +640,12 @@ export class CreateOperation {
   ): void {
     const { relationName, relationInput } = input;
     const where = normalizeSingle(relationInput.connect, relationName);
-    const fkAssign = this.toOneFkAssign(input.self.model, fk, where, relationName);
+    const fkAssign = this.toOneFkAssign(
+      input.self.model,
+      fk,
+      where,
+      relationName
+    );
     if (
       this.connectIsCovered(
         input.coverage,
@@ -678,7 +690,6 @@ export class CreateOperation {
    *  referencing the target's (possibly generated) identity by a backward `Ref`. */
   private interpretParentHeldCreate(
     input: Parameters<CreateOperation["interpretRelation"]>[0],
-    relationInfo: RelationInfo,
     fk: FkDirection,
     childScope: QueryScope
   ): void {
@@ -709,7 +720,10 @@ export class CreateOperation {
   ): void {
     const { relationName, relationInput } = input;
     const spec = normalizeSingle(relationInput.connectOrCreate, relationName);
-    const where = requireRecord(spec.where, `${relationName}.connectOrCreate.where`);
+    const where = requireRecord(
+      spec.where,
+      `${relationName}.connectOrCreate.where`
+    );
     const createData = requireRecord(
       spec.create,
       `${relationName}.connectOrCreate.create`
@@ -1088,10 +1102,22 @@ export class CreateOperation {
         Object.assign(insertData, arm.fkAssign);
         return;
       case "connect-probe":
-        this.requireConnectFound(arm.probeId, arm.relationName, arm.relationInfo, known);
+        this.requireConnectFound(
+          arm.probeId,
+          arm.relationName,
+          arm.relationInfo,
+          known
+        );
         Object.assign(insertData, arm.fkAssign);
         if (this.mode === "batch") {
-          guards.push(this.connectGuard(arm.guardId, arm.guardProbe, arm.relationInfo, arm.relationName));
+          guards.push(
+            this.connectGuard(
+              arm.guardId,
+              arm.guardProbe,
+              arm.relationInfo,
+              arm.relationName
+            )
+          );
         }
         return;
       case "create":
@@ -1104,7 +1130,14 @@ export class CreateOperation {
         if (found) {
           Object.assign(insertData, arm.foundFkAssign);
           if (this.mode === "batch") {
-            guards.push(this.connectGuard(arm.guardId, arm.guardProbe, arm.relationInfo, arm.relationName));
+            guards.push(
+              this.connectGuard(
+                arm.guardId,
+                arm.guardProbe,
+                arm.relationInfo,
+                arm.relationName
+              )
+            );
           }
         } else {
           this.emitBeforeParent(arm.before, arm.racePin, known, guards, writes);

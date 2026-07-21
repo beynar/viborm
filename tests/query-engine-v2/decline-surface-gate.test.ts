@@ -205,7 +205,12 @@ describe("decline-surface gate: absorbed create shapes carry NO fallback (P6 pre
   test("parent-held to-one create executes on V2 (fallback off) — the newly absorbed shape", async () => {
     const c = await freshClient(opf);
     const post = await c.post.create({
-      data: { id: 6, title: "t6", slug: "s6", author: { create: { name: "x" } } },
+      data: {
+        id: 6,
+        title: "t6",
+        slug: "s6",
+        author: { create: { name: "x" } },
+      },
       select: { id: true, userId: true },
     });
     expect(post).toEqual({ id: 6, userId: 1 });

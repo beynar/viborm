@@ -2,19 +2,19 @@ import { createClient } from "@client/client";
 import type { AnyDriver, BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
+import { push } from "@migrations";
 import { createOperationExecutionContext } from "@query-engine/execution-context";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
-import { push } from "@migrations";
 import { s } from "@schema";
 import type { Model } from "@schema/model";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
-import { nestedWriteBehaviorSchema } from "../fixtures/nested-write-behavior-schema";
 import { OperationExecutor } from "../../src/query-engine-v2/OperationExecutor";
 import {
   constructRoutedOperation,
   executeRoutedOperation,
 } from "../../src/query-engine-v2/routing";
+import { nestedWriteBehaviorSchema } from "../fixtures/nested-write-behavior-schema";
 import { operationFragmentSchema } from "./create-nested-upsert-behavior";
 import { createV2RoutedClient, type RouteRecord } from "./v2-client-proxy";
 
@@ -167,7 +167,12 @@ const scenarios: Scenario[] = [
     seed: () => Promise.resolve(),
     act: (c) =>
       c.post.create({
-        data: { id: 6, title: "t", slug: "s6", author: { create: { name: "x" } } },
+        data: {
+          id: 6,
+          title: "t",
+          slug: "s6",
+          author: { create: { name: "x" } },
+        },
         select: { id: true, userId: true },
       }),
     dump: (c) => c.user.findMany({ orderBy: { id: "asc" } }),
@@ -218,7 +223,9 @@ const scenarios: Scenario[] = [
           id: 8,
           title: "t",
           slug: "s8",
-          author: { connectOrCreate: { where: { id: 1 }, create: { name: "new" } } },
+          author: {
+            connectOrCreate: { where: { id: 1 }, create: { name: "new" } },
+          },
         },
         select: { id: true, userId: true },
       }),
@@ -234,7 +241,9 @@ const scenarios: Scenario[] = [
           id: 9,
           title: "t",
           slug: "s9",
-          author: { connectOrCreate: { where: { id: 50 }, create: { name: "fresh" } } },
+          author: {
+            connectOrCreate: { where: { id: 50 }, create: { name: "fresh" } },
+          },
         },
         select: { id: true, userId: true },
       }),
@@ -355,7 +364,11 @@ const scenarios: Scenario[] = [
       c.profile.create({ data: { id: "orphan", bio: "b", userId: null } }),
     act: (c) =>
       c.user.create({
-        data: { id: "u9", name: "adopter", profile: { connect: { id: "orphan" } } },
+        data: {
+          id: "u9",
+          name: "adopter",
+          profile: { connect: { id: "orphan" } },
+        },
         select: { id: true, profile: { select: { id: true, userId: true } } },
       }),
     dump: (c) => c.profile.findMany({ orderBy: { id: "asc" } }),
@@ -419,15 +432,25 @@ class BeforeBatchDriver extends BatchOnlyPGliteDriver {
 describe("query-engine-v2 to-one create family: T1 pin falsifications", () => {
   test("connectOrCreate FOUND-arm presence guard: target deleted before batch fails closed", async () => {
     const db = new PGlite();
-    const base = createClient({ schema: opf, driver: new PGliteDriver({ client: db }) });
+    const base = createClient({
+      schema: opf,
+      driver: new PGliteDriver({ client: db }),
+    });
     await push(base as never, { force: true } as never);
     await (base as any).user.create({ data: { name: "owner" } }); // id=1
 
-    const driver = new BeforeBatchDriver(async () => {
-      // A concurrent writer removes the found target after V2 planned.
-      await (base as any).user.deleteMany({ where: { id: 1 } });
-    }, { client: db });
-    const routed = createV2RoutedClient({ schema: opf, client: base as never, driver });
+    const driver = new BeforeBatchDriver(
+      async () => {
+        // A concurrent writer removes the found target after V2 planned.
+        await (base as any).user.deleteMany({ where: { id: 1 } });
+      },
+      { client: db }
+    );
+    const routed = createV2RoutedClient({
+      schema: opf,
+      client: base as never,
+      driver,
+    });
 
     // The found-arm connects to user id=1; if it vanishes before commit the batch
     // must fail closed (FK backstop / presence guard), never write a dangling post.
@@ -437,7 +460,9 @@ describe("query-engine-v2 to-one create family: T1 pin falsifications", () => {
           id: 40,
           title: "t",
           slug: "s40",
-          author: { connectOrCreate: { where: { id: 1 }, create: { name: "x" } } },
+          author: {
+            connectOrCreate: { where: { id: 1 }, create: { name: "x" } },
+          },
         },
       })
     ).rejects.toThrow();
@@ -451,26 +476,44 @@ describe("query-engine-v2 to-one create family: T1 pin falsifications", () => {
     // collide on the SAME key. The missing-arm INSERT's unique violation is the
     // raceable signal; the routed retry re-plans, finds the row, and adopts it.
     const db = new PGlite();
-    const base = createClient({ schema: nb, driver: new PGliteDriver({ client: db }) });
+    const base = createClient({
+      schema: nb,
+      driver: new PGliteDriver({ client: db }),
+    });
     await push(base as never, { force: true } as never);
 
-    const driver = new BeforeBatchDriver(async () => {
-      // A concurrent writer creates the very target the missing arm was about to.
-      await (base as any).user.create({ data: { id: "u1", name: "winner" } });
-    }, { client: db });
+    const driver = new BeforeBatchDriver(
+      async () => {
+        // A concurrent writer creates the very target the missing arm was about to.
+        await (base as any).user.create({ data: { id: "u1", name: "winner" } });
+      },
+      { client: db }
+    );
     const schemas = createSchemaRegistry(nb);
-    const engine = new QueryEngine(driver as AnyDriver, createModelRegistry(nb, schemas));
+    const engine = new QueryEngine(
+      driver as AnyDriver,
+      createModelRegistry(nb, schemas)
+    );
     const executor = new OperationExecutor(engine);
 
     const op = constructRoutedOperation(engine, nb.profile, "create", {
       data: {
         id: "pr1",
         bio: "b",
-        user: { connectOrCreate: { where: { id: "u1" }, create: { id: "u1", name: "loser" } } },
+        user: {
+          connectOrCreate: {
+            where: { id: "u1" },
+            create: { id: "u1", name: "loser" },
+          },
+        },
       },
       select: { id: true, userId: true },
     });
-    const context = createOperationExecutionContext("profile", "create", engine.instrumentation);
+    const context = createOperationExecutionContext(
+      "profile",
+      "create",
+      engine.instrumentation
+    );
     const result = await executeRoutedOperation<any>(executor, op!, context);
 
     // Converged: the profile links to the concurrently-created user, not a second one.
