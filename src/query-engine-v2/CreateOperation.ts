@@ -31,6 +31,7 @@ import type { QueryEngine } from "../query-engine/query-engine";
 import { ResultParser } from "../query-engine/result/ResultParser";
 import type { QueryScope, RelationInfo } from "../query-engine/types";
 import {
+  childRacePin,
   exactlyOneRow,
   nestedWriteFailure,
   presenceGuard,
@@ -42,6 +43,7 @@ import {
   type OperationStep,
   ref,
   type StatementStep,
+  type TargetConstraintPin,
 } from "./OperationFragment";
 import { OwnWritePreflight } from "./OwnWritePreflight";
 import type { Part, PlanningKnown } from "./Part";
@@ -65,23 +67,64 @@ import {
 type ExecutionMode = "transaction" | "batch";
 
 /**
- * A parent-held-FK to-one `connect` folded into a record's INSERT (WHY §4.2): the
- * target's referenced value becomes the parent row's own FK column, and its
- * existence is pinned by a planning probe (tx: found-at-compile) plus a batch
- * `exists` guard. This is the only parent-held (before-parent) shape V2 owns in a
- * create tree — to-one `create`/`connectOrCreate` (a child INSERT *before* the
- * parent, whose generated identity the parent references) is the deferred
- * before-parent-write ordering and routes to V1 (see the class doc).
+ * A parent-held-FK to-one arm folded into a record's INSERT (WHY §4.2, TO-ONE.md
+ * §1.1). The record holds the FK, so the target is a **before-parent write**: its
+ * referenced value is in the record's own FK column, so the target write (or the
+ * connect's existence pin) must resolve *before* the record INSERT. One of four
+ * shapes:
+ *
+ * - `connect-covered` — the target is created by a *sibling* before-parent `create`
+ *   in the same record (the incident's create-then-connect). Existence is our own
+ *   write inside the atomic envelope, so this is a pure FK assignment: no probe, no
+ *   guard, no pin (TO-ONE.md §2). Resolved at construction by the coverage ledger.
+ * - `connect-probe` — an uncovered `connect`: the FK is the connect target's
+ *   referenced literal, its existence pinned by a global planning probe (tx:
+ *   found-at-compile) plus a batch `exists` guard (`raceable: false`).
+ * - `create` — a before-parent `create`: INSERT the target first, the record's FK
+ *   referencing its (possibly generated) identity by a backward `Ref`.
+ * - `connectOrCreate` — a global probe decides: found → connect (FK ← literal,
+ *   `exists` guard); missing → create the target before the parent (FK ← `Ref`),
+ *   the target INSERT carrying a `racePin` (Pin Rule class 2, never a guard).
  */
-interface ToOneConnect {
-  readonly relationName: string;
-  readonly relationInfo: RelationInfo;
-  readonly guardId: string;
-  readonly probeId: string;
-  readonly probe: StatementStep;
-  readonly guardProbe: Sql;
-  /** FK column → the connect target's referenced value (a compile-time literal). */
-  readonly fkAssign: Record<string, unknown>;
+type ParentHeldArm =
+  | { readonly kind: "connect-covered"; readonly fkAssign: Record<string, unknown> }
+  | {
+      readonly kind: "connect-probe";
+      readonly relationName: string;
+      readonly relationInfo: RelationInfo;
+      readonly guardId: string;
+      readonly probeId: string;
+      readonly guardProbe: Sql;
+      readonly fkAssign: Record<string, unknown>;
+    }
+  | {
+      readonly kind: "create";
+      readonly before: RecordPlan;
+      /** FK column ← the before-parent target's referenced value (a `Ref` or literal). */
+      readonly fkAssign: Record<string, unknown>;
+    }
+  | {
+      readonly kind: "connectOrCreate";
+      readonly relationName: string;
+      readonly relationInfo: RelationInfo;
+      readonly probeId: string;
+      readonly guardId: string;
+      readonly guardProbe: Sql;
+      /** Found arm: FK ← the connect target's referenced literal. */
+      readonly foundFkAssign: Record<string, unknown>;
+      /** Missing arm: the before-parent target create, and the FK ← its `Ref`. */
+      readonly before: RecordPlan;
+      readonly missingFkAssign: Record<string, unknown>;
+      readonly racePin: TargetConstraintPin;
+    };
+
+/** A before-parent `create` target key, feeding the sibling-`connect` coverage
+ *  ledger (TO-ONE.md §2): a `connect` whose referenced value is created by a
+ *  sibling adopts it with no probe. */
+interface CreatedTarget {
+  readonly model: Model<any>;
+  /** Referenced field → the literal the sibling `create` writes for it. */
+  readonly key: Record<string, unknown>;
 }
 
 /** A child-held-FK nested `create` record spliced AFTER this record's INSERT. */
@@ -121,7 +164,7 @@ interface RecordPlan {
   /** The known PK values (literals); the generated PK is absent here. */
   readonly identity: Record<string, unknown>;
   readonly writeStepId: string;
-  readonly toOneConnects: readonly ToOneConnect[];
+  readonly parentHeldArms: readonly ParentHeldArm[];
   readonly childCreates: readonly ChildCreate[];
   readonly createManyGroups: readonly CreateManyGroup[];
   readonly afterParts: readonly Part[];
@@ -155,9 +198,14 @@ interface RecordIdentity {
  * - root scalars + defaults + generated/known PKs; select/include terminal; the
  *   statement-atomic fast path (one `INSERT … RETURNING select` on a returning
  *   driver with a scalar-only projection — no envelope, the PERF fast path);
- * - child-held-FK to-many: nested `create`/`createMany`/`connect`/
- *   `connectOrCreate`/`upsert` (fresh-parent global adopt), any depth;
- * - parent-held-FK to-one `connect` (fold the referenced value + existence pin);
+ * - child-held-FK to-many AND inverse-side to-one: nested `create`/`createMany`/
+ *   `connect`/`connectOrCreate`/`upsert` (fresh-parent global adopt), any depth;
+ * - **parent-held-FK to-one (the T1 family, TO-ONE.md): `connect`, `create` (a
+ *   before-parent INSERT whose identity the record FK references by a backward
+ *   `Ref`), and `connectOrCreate`; plus every same-record sibling combination —
+ *   a sibling `connect` observing a before-parent `create` is resolved by the
+ *   construction-time coverage ledger (the P6-prereq-2 create-then-connect
+ *   incident), no probe;**
  * - M2M `connect`/`create`/`connectOrCreate` through the junction.
  *
  * The child-held-FK one-to-many `upsert` is the deliberate P−1.2 Prisma SUPERSET
@@ -165,15 +213,13 @@ interface RecordIdentity {
  * oracle's extension-scenario class, not a V1-parity shape.
  *
  * Routed to V1 with a typed {@link UnsupportedOperationError} (the whole tree):
- * - parent-held-FK to-one `create`/`connectOrCreate` — a child INSERT *before*
- *   the parent whose (possibly generated) identity the parent references (the
- *   deferred before-parent-write ordering; the self-referential grandparent);
  * - a nested `update`/`delete`/`set`/… in a create payload (V1 rejects it too,
  *   with its own typed message — routing yields byte-identical behavior);
  * - M2M `upsert`/`disconnect`/`set`/`delete` under create (V1 rejects M2M upsert
  *   in parent create; the junction upsert needs a planned parent id a fresh
  *   parent cannot give);
- * - a to-one `connect` by a non-referenced unique (needs a lookup subquery);
+ * - a to-one `connect` by a non-referenced unique (needs a lookup subquery), and
+ *   a shared-primary-key parent-held edge (the PK is supplied by the fold);
  * - a nested `createMany skipDuplicates`, or a compound child edge.
  */
 export class CreateOperation {
@@ -247,7 +293,7 @@ export class CreateOperation {
     // PK) coming straight back. Empty planning + one step + no ref/insertId → the
     // executor runs it directly with no transaction/batch envelope.
     const isPureScalar =
-      this.root.toOneConnects.length === 0 &&
+      this.root.parentHeldArms.length === 0 &&
       this.root.childCreates.length === 0 &&
       this.root.createManyGroups.length === 0 &&
       this.root.afterParts.length === 0;
@@ -337,10 +383,17 @@ export class CreateOperation {
       model,
     };
 
-    const toOneConnects: ToOneConnect[] = [];
+    const parentHeldArms: ParentHeldArm[] = [];
     const childCreates: ChildCreate[] = [];
     const createManyGroups: CreateManyGroup[] = [];
     const afterParts: Part[] = [];
+
+    // The before-parent coverage ledger (TO-ONE.md §2): every parent-held `create`
+    // (and connectOrCreate — which guarantees the target exists after the
+    // before-parent phase) in THIS record's arms is an unconditional witness a
+    // sibling `connect` can adopt without a probe. Computed before interpreting the
+    // arms so coverage is order-insensitive, exactly as V1's group-0 analysis.
+    const coverage = this.beforeParentCoverage(childScope, separated.relations, data);
 
     for (const [relationName, mutation] of Object.entries(
       separated.relations
@@ -355,7 +408,8 @@ export class CreateOperation {
           `data.${relationName}`
         ),
         txMode,
-        toOneConnects,
+        coverage,
+        parentHeldArms,
         childCreates,
         createManyGroups,
         afterParts,
@@ -371,11 +425,76 @@ export class CreateOperation {
       generatedField,
       identity,
       writeStepId,
-      toOneConnects,
+      parentHeldArms,
       childCreates,
       createManyGroups,
       afterParts,
     };
+  }
+
+  /**
+   * Build the before-parent coverage ledger (TO-ONE.md §2): the set of target
+   * keys a sibling `connect` may adopt without a probe because a sibling arm
+   * guarantees the target exists after the before-parent phase. An unconditional
+   * `create` always writes its target; a `connectOrCreate` guarantees existence by
+   * found-or-create. Both contribute; a `connect` does not (it asserts, it does not
+   * produce). Only literal referenced fields enter the key — a generated target id
+   * is not connectable, so it can cover nothing.
+   */
+  private beforeParentCoverage(
+    childScope: QueryScope,
+    relations: Record<string, RelationMutation>,
+    data: Record<string, unknown>
+  ): CreatedTarget[] {
+    const targets: CreatedTarget[] = [];
+    for (const [relationName, mutation] of Object.entries(relations)) {
+      const relationInfo = mutation.relationInfo;
+      if (relationInfo.type === "manyToMany") continue;
+      const fk = getFkDirection(childScope, relationInfo);
+      if (!fk.holdsFK) continue;
+      const kinds = getRelationMutationKinds(mutation);
+      const producesTarget =
+        kinds.includes("create") || kinds.includes("connectOrCreate");
+      if (!producesTarget) continue;
+      const relationInput = data[relationName];
+      if (!isRecord(relationInput)) continue;
+      const createRaw = kinds.includes("create")
+        ? relationInput.create
+        : isRecord(relationInput.connectOrCreate)
+          ? relationInput.connectOrCreate.create
+          : undefined;
+      const createData = Array.isArray(createRaw) ? createRaw[0] : createRaw;
+      if (!isRecord(createData)) continue;
+      const key: Record<string, unknown> = {};
+      let hasAny = false;
+      for (const referenced of fk.pkFields) {
+        if (Object.hasOwn(createData, referenced)) {
+          key[referenced] = createData[referenced];
+          hasAny = true;
+        }
+      }
+      if (hasAny) targets.push({ model: relationInfo.targetModel, key });
+    }
+    return targets;
+  }
+
+  /** True iff a sibling before-parent arm creates the `connect` target (TO-ONE.md §2). */
+  private connectIsCovered(
+    coverage: readonly CreatedTarget[],
+    targetModel: Model<any>,
+    where: Record<string, unknown>,
+    referencedFields: readonly string[]
+  ): boolean {
+    return coverage.some(
+      (target) =>
+        target.model === targetModel &&
+        referencedFields.every(
+          (field) =>
+            Object.hasOwn(target.key, field) &&
+            Object.hasOwn(where, field) &&
+            target.key[field] === where[field]
+        )
+    );
   }
 
   private interpretRelation(input: {
@@ -385,7 +504,8 @@ export class CreateOperation {
     mutation: RelationMutation;
     relationInput: Record<string, unknown>;
     txMode: boolean;
-    toOneConnects: ToOneConnect[];
+    coverage: readonly CreatedTarget[];
+    parentHeldArms: ParentHeldArm[];
     childCreates: ChildCreate[];
     createManyGroups: CreateManyGroup[];
     afterParts: Part[];
@@ -448,78 +568,254 @@ export class CreateOperation {
     this.interpretChildHeld(input, relationInfo, fk, kinds);
   }
 
-  /** A parent-held-FK to-one relation: only `connect` (fold + pin) is on V2. */
+  /**
+   * A parent-held-FK to-one relation (the record holds the FK): a before-parent
+   * arm (TO-ONE.md §1.1). `connect` (covered / probed), `create`, and
+   * `connectOrCreate` are on V2; a shared-primary-key edge stays routed.
+   */
   private interpretParentHeld(
     input: Parameters<CreateOperation["interpretRelation"]>[0],
     relationInfo: RelationInfo,
     fk: FkDirection,
     kinds: readonly string[]
   ): void {
-    const { relationName, relationInput } = input;
-    if (kinds.length !== 1 || kinds[0] !== "connect") {
-      // to-one create / connectOrCreate is a child INSERT before the parent whose
-      // (possibly generated) identity the parent references — the deferred
-      // before-parent-write ordering. Route the whole tree to V1.
+    const { relationName } = input;
+    if (kinds.length !== 1) {
       throw new UnsupportedOperationError(
-        `query-engine-v2 create supports only 'connect' on the to-one relation '${relationName}'; it has ${kinds.join(", ") || "none"}.`
+        `query-engine-v2 create supports one operation on the to-one relation '${relationName}'; it has ${kinds.join(", ") || "none"}.`
       );
     }
-    // Shared-primary-key connect: the FK the parent holds IS (part of) this
-    // record's own primary key (a one-to-one shared-PK relation). The PK is then
-    // supplied by the connect fold, not by scalar data, so the terminal read has
-    // no known identity to address the created row by — route the tree to V1,
-    // whose `getCreatedRowWhere` resolves the shared PK from the connect target.
+    // Shared-primary-key edge: the FK the record holds IS (part of) its own primary
+    // key. The PK is then supplied by the connect/create fold, not by scalar data,
+    // so the terminal read has no known identity to address the created row by —
+    // route the tree to V1, whose `getCreatedRowWhere` resolves the shared PK.
     const recordPk = getPrimaryKeyFields(input.self.model);
     if (fk.fkFields.some((fkField) => recordPk.includes(fkField))) {
       throw new UnsupportedOperationError(
-        `query-engine-v2 create does not support a shared-primary-key connect on relation '${relationName}' (the foreign key '${fk.fkFields.join(", ")}' is this record's primary key).`
+        `query-engine-v2 create does not support a shared-primary-key ${kinds[0]} on relation '${relationName}' (the foreign key '${fk.fkFields.join(", ")}' is this record's primary key).`
       );
     }
-    const where = normalizeSingle(relationInput.connect, relationName);
     const childScope = createQueryScope(
       this.engine.adapter,
       relationInfo.targetModel
     );
+    switch (kinds[0]) {
+      case "connect":
+        this.interpretParentHeldConnect(input, relationInfo, fk, childScope);
+        return;
+      case "create":
+        this.interpretParentHeldCreate(input, relationInfo, fk, childScope);
+        return;
+      case "connectOrCreate":
+        this.interpretParentHeldConnectOrCreate(
+          input,
+          relationInfo,
+          fk,
+          childScope
+        );
+        return;
+      default:
+        // update/delete/disconnect on a to-one under create is V1's rejection
+        // (routed to V1 for the byte-identical typed message).
+        throw new UnsupportedOperationError(
+          `query-engine-v2 create does not support '${kinds[0]}' on the to-one relation '${relationName}'.`
+        );
+    }
+  }
+
+  /** A parent-held `connect`: covered by a sibling before-parent create (pure FK
+   *  assign, no probe) or an uncovered global existence probe + pin. */
+  private interpretParentHeldConnect(
+    input: Parameters<CreateOperation["interpretRelation"]>[0],
+    relationInfo: RelationInfo,
+    fk: FkDirection,
+    childScope: QueryScope
+  ): void {
+    const { relationName, relationInput } = input;
+    const where = normalizeSingle(relationInput.connect, relationName);
+    const fkAssign = this.toOneFkAssign(input.self.model, fk, where, relationName);
+    if (
+      this.connectIsCovered(
+        input.coverage,
+        relationInfo.targetModel,
+        where,
+        fk.pkFields
+      )
+    ) {
+      // The incident's create-then-connect: a sibling before-parent create writes
+      // this target, so existence is our own write inside the atomic envelope —
+      // pure FK assignment, no probe, no guard, no pin (TO-ONE.md §2.3).
+      input.parentHeldArms.push({ kind: "connect-covered", fkAssign });
+      return;
+    }
+    const childName = getStepModelName(relationInfo.targetModel, relationName);
+    const probeId = this.scope.allocate(`${childName}.find`);
+    const guardId = this.scope.allocate(`${childName}.guard.exists`);
+    const pkSelect = Object.fromEntries(fk.pkFields.map((f) => [f, true]));
+    const probe: StatementStep = {
+      id: probeId,
+      kind: "read",
+      statement: buildFindUnique(childScope, {
+        where,
+        select: pkSelect,
+        forUpdate: input.txMode,
+      }),
+      outputs: { rows: { kind: "rows" } },
+    };
+    input.parentHeldArms.push({
+      kind: "connect-probe",
+      relationName,
+      relationInfo,
+      guardId,
+      probeId,
+      guardProbe: buildFindUnique(childScope, { where, select: pkSelect }),
+      fkAssign,
+    });
+    this.planningSteps.push(probe);
+  }
+
+  /** A parent-held `create`: INSERT the target before the record, the record's FK
+   *  referencing the target's (possibly generated) identity by a backward `Ref`. */
+  private interpretParentHeldCreate(
+    input: Parameters<CreateOperation["interpretRelation"]>[0],
+    relationInfo: RelationInfo,
+    fk: FkDirection,
+    childScope: QueryScope
+  ): void {
+    const before = this.buildRecord(
+      childScope,
+      normalizeSingle(input.relationInput.create, input.relationName),
+      input.txMode
+    );
+    input.parentHeldArms.push({
+      kind: "create",
+      before,
+      fkAssign: this.beforeParentFkAssign(
+        input.self.model,
+        fk,
+        before,
+        input.relationName
+      ),
+    });
+  }
+
+  /** A parent-held `connectOrCreate`: a global probe decides found (connect) vs
+   *  missing (create the target before the parent, `racePin`ned). */
+  private interpretParentHeldConnectOrCreate(
+    input: Parameters<CreateOperation["interpretRelation"]>[0],
+    relationInfo: RelationInfo,
+    fk: FkDirection,
+    childScope: QueryScope
+  ): void {
+    const { relationName, relationInput } = input;
+    const spec = normalizeSingle(relationInput.connectOrCreate, relationName);
+    const where = requireRecord(spec.where, `${relationName}.connectOrCreate.where`);
+    const createData = requireRecord(
+      spec.create,
+      `${relationName}.connectOrCreate.create`
+    );
+    const foundFkAssign = this.toOneFkAssign(
+      input.self.model,
+      fk,
+      where,
+      relationName
+    );
+    const before = this.buildRecord(childScope, createData, input.txMode);
+    const childName = getStepModelName(relationInfo.targetModel, relationName);
+    const probeId = this.scope.allocate(`${childName}.find`);
+    const guardId = this.scope.allocate(`${childName}.guard.exists`);
+    const pkSelect = Object.fromEntries(fk.pkFields.map((f) => [f, true]));
+    input.parentHeldArms.push({
+      kind: "connectOrCreate",
+      relationName,
+      relationInfo,
+      probeId,
+      guardId,
+      guardProbe: buildFindUnique(childScope, { where, select: pkSelect }),
+      foundFkAssign,
+      before,
+      missingFkAssign: this.beforeParentFkAssign(
+        input.self.model,
+        fk,
+        before,
+        relationName
+      ),
+      racePin: childRacePin(childScope, where),
+    });
+    this.planningSteps.push({
+      id: probeId,
+      kind: "read",
+      statement: buildFindUnique(childScope, {
+        where,
+        select: pkSelect,
+        forUpdate: input.txMode,
+      }),
+      outputs: { rows: { kind: "rows" } },
+    });
+  }
+
+  /** The record's FK columns ← the connect target's referenced literals (TO-ONE.md
+   *  §1.1). Rejects a to-one connect by a non-referenced unique (needs a lookup). */
+  private toOneFkAssign(
+    recordModel: Model<any>,
+    fk: FkDirection,
+    where: Record<string, unknown>,
+    relationName: string
+  ): Record<string, unknown> {
     const fkAssign: Record<string, unknown> = {};
     for (let index = 0; index < fk.fkFields.length; index += 1) {
       const referenced = fk.pkFields[index]!;
       if (!Object.hasOwn(where, referenced)) {
-        // Connect by a non-referenced unique needs a lookup subquery — V1's
-        // surface, out of the create fold's scope.
         throw new UnsupportedOperationError(
           `query-engine-v2 create to-one connect for relation '${relationName}' must reference '${referenced}' directly.`
         );
       }
       fkAssign[fk.fkFields[index]!] = referenceSql(
         this.engine,
-        input.self.model,
+        recordModel,
         fk.fkFields[index]!,
         where[referenced]
       );
     }
-    const childName = getStepModelName(relationInfo.targetModel, relationName);
-    const probeId = this.scope.allocate(`${childName}.find`);
-    const guardId = this.scope.allocate(`${childName}.guard.exists`);
-    const pkSelect = Object.fromEntries(fk.pkFields.map((f) => [f, true]));
-    input.toOneConnects.push({
-      relationName,
-      relationInfo,
-      guardId,
-      probeId,
-      probe: {
-        id: probeId,
-        kind: "read",
-        statement: buildFindUnique(childScope, {
-          where,
-          select: pkSelect,
-          forUpdate: input.txMode,
-        }),
-        outputs: { rows: { kind: "rows" } },
-      },
-      guardProbe: buildFindUnique(childScope, { where, select: pkSelect }),
-      fkAssign,
-    });
-    this.planningSteps.push(input.toOneConnects.at(-1)!.probe);
+    return fkAssign;
+  }
+
+  /** The record's FK columns ← a before-parent target record's referenced values
+   *  (a `Ref` to a captured generated id, or a known literal). */
+  private beforeParentFkAssign(
+    recordModel: Model<any>,
+    fk: FkDirection,
+    target: RecordPlan,
+    relationName: string
+  ): Record<string, unknown> {
+    const fkAssign: Record<string, unknown> = {};
+    for (let index = 0; index < fk.fkFields.length; index += 1) {
+      fkAssign[fk.fkFields[index]!] = referenceSql(
+        this.engine,
+        recordModel,
+        fk.fkFields[index]!,
+        this.targetReferencedValue(target, fk.pkFields[index]!, relationName)
+      );
+    }
+    return fkAssign;
+  }
+
+  /** The value a before-parent target produces for one referenced field — a `Ref`
+   *  to its captured generated id, or its known literal identity. */
+  private targetReferencedValue(
+    target: RecordPlan,
+    referencedField: string,
+    relationName: string
+  ): unknown {
+    if (target.generatedField === referencedField) {
+      return ref(target.writeStepId, "id");
+    }
+    if (Object.hasOwn(target.identity, referencedField)) {
+      return target.identity[referencedField];
+    }
+    throw new UnsupportedOperationError(
+      `query-engine-v2 create cannot resolve referenced field '${referencedField}' for the before-parent target of relation '${relationName}'.`
+    );
   }
 
   /** A child-held-FK to-many relation: create/createMany/connect/adopt (after). */
@@ -748,28 +1044,16 @@ export class CreateOperation {
     guards: OperationStep[],
     writes: OperationStep[]
   ): void {
-    // 1. Before the INSERT: fold each to-one connect's FK value in, and pin the
-    //    target's existence (tx: found-at-compile throw; batch: exists guard).
     const insertData: Record<string, unknown> = {
       ...plan.scalarData,
       ...inject,
     };
-    for (const connect of plan.toOneConnects) {
-      this.requireConnectFound(connect, known);
-      Object.assign(insertData, connect.fkAssign);
-      if (this.mode === "batch") {
-        guards.push(
-          presenceGuard(
-            connect.guardId,
-            connect.guardProbe,
-            nestedWriteFailure(
-              relationTargetNotFound(connect.relationInfo, "connect"),
-              connect.relationName,
-              false
-            )
-          )
-        );
-      }
+    // 1. Before the record INSERT: resolve each parent-held to-one arm — a before-
+    //    parent target INSERT (emitted first, its id referenced backward), a covered
+    //    connect (pure FK assign), or an uncovered connect/connectOrCreate probe +
+    //    pin (TO-ONE.md §1.1/§2). Each folds its FK value into `insertData`.
+    for (const arm of plan.parentHeldArms) {
+      this.emitParentHeldArm(arm, insertData, known, guards, writes);
     }
 
     // 2. The record's own INSERT.
@@ -790,21 +1074,110 @@ export class CreateOperation {
     }
   }
 
+  /** Resolve one parent-held to-one arm into the record's `insertData`, emitting
+   *  any before-parent target write ahead of the record INSERT (TO-ONE.md §1.1). */
+  private emitParentHeldArm(
+    arm: ParentHeldArm,
+    insertData: Record<string, unknown>,
+    known: Readonly<Record<string, unknown>>,
+    guards: OperationStep[],
+    writes: OperationStep[]
+  ): void {
+    switch (arm.kind) {
+      case "connect-covered":
+        Object.assign(insertData, arm.fkAssign);
+        return;
+      case "connect-probe":
+        this.requireConnectFound(arm.probeId, arm.relationName, arm.relationInfo, known);
+        Object.assign(insertData, arm.fkAssign);
+        if (this.mode === "batch") {
+          guards.push(this.connectGuard(arm.guardId, arm.guardProbe, arm.relationInfo, arm.relationName));
+        }
+        return;
+      case "create":
+        this.emitBeforeParent(arm.before, undefined, known, guards, writes);
+        Object.assign(insertData, arm.fkAssign);
+        return;
+      case "connectOrCreate": {
+        const rows = known[planningKey(arm.probeId, "rows")];
+        const found = Array.isArray(rows) && rows.length > 0;
+        if (found) {
+          Object.assign(insertData, arm.foundFkAssign);
+          if (this.mode === "batch") {
+            guards.push(this.connectGuard(arm.guardId, arm.guardProbe, arm.relationInfo, arm.relationName));
+          }
+        } else {
+          this.emitBeforeParent(arm.before, arm.racePin, known, guards, writes);
+          Object.assign(insertData, arm.missingFkAssign);
+        }
+        return;
+      }
+      default: {
+        const _exhaustive: never = arm;
+        throw new QueryEngineError(
+          `query-engine-v2 create: unhandled parent-held arm ${JSON.stringify(_exhaustive)}.`
+        );
+      }
+    }
+  }
+
+  /** Emit a before-parent target record subtree ahead of the record INSERT,
+   *  applying a `racePin` to the target's own INSERT (connectOrCreate missing arm). */
+  private emitBeforeParent(
+    before: RecordPlan,
+    racePin: TargetConstraintPin | undefined,
+    known: Readonly<Record<string, unknown>>,
+    guards: OperationStep[],
+    writes: OperationStep[]
+  ): void {
+    const beforeWrites: OperationStep[] = [];
+    this.emitRecord(before, {}, known, guards, beforeWrites);
+    if (racePin) {
+      for (let index = 0; index < beforeWrites.length; index += 1) {
+        const step = beforeWrites[index]!;
+        if (step.id === before.writeStepId && step.kind === "write") {
+          beforeWrites[index] = { ...step, racePin };
+          break;
+        }
+      }
+    }
+    for (const step of beforeWrites) writes.push(step);
+  }
+
+  private connectGuard(
+    guardId: string,
+    guardProbe: Sql,
+    relationInfo: RelationInfo,
+    relationName: string
+  ): OperationStep {
+    return presenceGuard(
+      guardId,
+      guardProbe,
+      nestedWriteFailure(
+        relationTargetNotFound(relationInfo, "connect"),
+        relationName,
+        false
+      )
+    );
+  }
+
   private requireConnectFound(
-    connect: ToOneConnect,
+    probeId: string,
+    relationName: string,
+    relationInfo: RelationInfo,
     known: Readonly<Record<string, unknown>>
   ): void {
-    const rows = known[planningKey(connect.probeId, "rows")];
+    const rows = known[planningKey(probeId, "rows")];
     if (!Array.isArray(rows)) {
       throw new NestedWriteError(
-        `query-engine-v2 create connect probe for relation '${connect.relationName}' did not expose rows.`,
-        connect.relationName
+        `query-engine-v2 create connect probe for relation '${relationName}' did not expose rows.`,
+        relationName
       );
     }
     if (rows.length === 0) {
       throw new NestedWriteError(
-        relationTargetNotFound(connect.relationInfo, "connect"),
-        connect.relationName
+        relationTargetNotFound(relationInfo, "connect"),
+        relationName
       );
     }
   }
