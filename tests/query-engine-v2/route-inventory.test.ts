@@ -243,17 +243,18 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   // V2 source is a new route to V1 and must be added to the corpus (and to the
   // P6 deletion accounting) — update the count only alongside that.
   //
-  // 36 → 48: the create family (PLAN P6-prerequisite) adds 12 sub-shape routes in
+  // 36 → 49: the create family (PLAN P6-prerequisite) adds 13 sub-shape routes in
   // CreateOperation.ts — every create shape V1 accepts but V2's create fold does
   // not yet own, declined at CONSTRUCTION so the whole tree routes to V1
   // (impossible to fall back by omission now that `create` is in
   // ROUTED_OPERATIONS): a to-one `create`/`connectOrCreate` before the parent
   // (before-parent-write ordering); a to-one `connect` by a non-referenced unique;
-  // a nested `update`/`delete`/`set`/… kind in a create payload; a nested
+  // a shared-primary-key `connect` (the PK is supplied by the connect fold); a
+  // nested `update`/`delete`/`set`/… kind in a create payload; a nested
   // `createMany skipDuplicates`; a compound child edge / unresolvable referenced
-  // field; an M2M `disconnect`/`set`/`delete`; a non-record arg/where; and the
-  // arg-key guard. Each is a documented boundary of the create fold, not a
-  // silent gap.
+  // field; an M2M `upsert`/`disconnect`/`set`/`delete`; a non-record arg/where;
+  // and the arg-key guard. Each is a documented boundary of the create fold, not
+  // a silent gap.
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
@@ -264,7 +265,7 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
       const source = await readFile(join(dir, file), "utf8");
       sites += source.split("new UnsupportedOperationError(").length - 1;
     }
-    expect(sites).toBe(48);
+    expect(sites).toBe(49);
   });
 });
 

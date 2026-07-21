@@ -100,3 +100,51 @@ describe("flip A/B: upsert (update branch)", () => {
     });
   });
 });
+
+// The create family (P6-prerequisite). Unique ids per call per arm (the two arms
+// run on separate in-memory DBs) so each INSERT is a fresh row, never a PK
+// collision. The nested create exercises the child-held-FK fold.
+let cScalarV1 = 0;
+let cScalarV2 = 0;
+let cNestV1 = 0;
+let cNestV2 = 0;
+
+describe("flip A/B: scalar create", () => {
+  bench("v1 create", async () => {
+    const id = `cs1_${cScalarV1++}`;
+    await v1.user.create({
+      data: { id, name: "New", email: `${id}@x.com`, age: 20 },
+    });
+  });
+  bench("v2 create", async () => {
+    const id = `cs2_${cScalarV2++}`;
+    await v2.user.create({
+      data: { id, name: "New", email: `${id}@x.com`, age: 20 },
+    });
+  });
+});
+
+describe("flip A/B: nested create (user + one post)", () => {
+  bench("v1 create nested", async () => {
+    const id = `cn1_${cNestV1++}`;
+    await v1.user.create({
+      data: {
+        id,
+        name: "New",
+        email: `${id}@x.com`,
+        posts: { create: { id: `${id}_p`, title: "T" } },
+      },
+    });
+  });
+  bench("v2 create nested", async () => {
+    const id = `cn2_${cNestV2++}`;
+    await v2.user.create({
+      data: {
+        id,
+        name: "New",
+        email: `${id}@x.com`,
+        posts: { create: { id: `${id}_p`, title: "T" } },
+      },
+    });
+  });
+});
