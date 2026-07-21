@@ -27,6 +27,8 @@ import {
 } from "../query-engine/context/query-scope";
 import {
   buildCreate,
+  buildDeleteMany,
+  buildFind,
   buildFindUnique,
   buildUpdate,
 } from "../query-engine/operations";
@@ -50,7 +52,11 @@ import {
   queryFailure,
   referenceSql,
 } from "./fragment-builders";
-import { nestedReplacement, relationTargetNotFound } from "./messages";
+import {
+  nestedReplacement,
+  relationTargetNotFound,
+  upsertPremiseChanged,
+} from "./messages";
 import {
   type OperationFragment,
   type OperationStep,
@@ -61,6 +67,7 @@ import {
 import { OwnWritePreflight } from "./OwnWritePreflight";
 import type { Part } from "./Part";
 import { planningKey, planningOutputs } from "./Part";
+import { referencedFieldRef, referencedFieldValue } from "./parent-reference";
 import { buildJunctionParts } from "./RelationJunctionPart";
 import { buildToManyLinkParts } from "./RelationLinkPart";
 import {
@@ -153,7 +160,76 @@ type ParentHeldTarget =
       readonly before: BeforeTarget;
       readonly missingFkAssign: Record<string, unknown>;
       readonly racePin: TargetConstraintPin;
+    }
+  // FK-holder-side (parent-held) to-one `update` under update (TO-ONE.md §7.2,
+  // family A): mutate the REFERENCED target row located through the parent's own
+  // FK columns (`child.<referenced> = parent.<fk>`, the FINAL fk value after any
+  // same-root scalar rebind). A correlated child write — no parent-side FK change
+  // — pinned in batch by the split-witness `exists` guard (V1's
+  // `RelationUpdates.compileRelation` update arm + `compileLocatedUpdate`).
+  | {
+      readonly kind: "update";
+      readonly relationName: string;
+      readonly relationInfo: RelationInfo;
+      readonly childScope: QueryScope;
+      readonly childPrimaryKey: string;
+      readonly probeId: string;
+      readonly guardId: string;
+      readonly writeId: string;
+      readonly correlation: ParentHeldCorrelation;
+      readonly probe: StatementStep;
+      readonly data: Record<string, unknown>;
+    }
+  // FK-holder-side (parent-held) to-one `delete: true` (TO-ONE.md §7.2, family A):
+  // NULL the parent's FK first (a parent UPDATE — V1's `assertNullable` gate), then
+  // `deleteMany child WHERE <referenced> = <old fk>` (V1's `RelationRemovals.delete`
+  // `holdsFK` arm). No probe: zero matched rows is V1's silent success.
+  | {
+      readonly kind: "delete";
+      readonly relationName: string;
+      readonly relationInfo: RelationInfo;
+      readonly childScope: QueryScope;
+      readonly nullWriteId: string;
+      readonly deleteWriteId: string;
+      readonly fkFields: readonly string[];
+      readonly correlation: ParentHeldCorrelation;
+    }
+  // FK-holder-side (parent-held) to-one `upsert` (TO-ONE.md §7.2, family A): the
+  // correlated probe decides at compile — found → UPDATE the located target (the
+  // parent FK is already the located value, no rebind write); absent → INSERT the
+  // target (before-root) and set the parent's FK to the created identity (V1's
+  // `RelationBranches.compileOneUpsert` `holdsFK` arm + `updateParentForeignKey`).
+  | {
+      readonly kind: "upsert";
+      readonly relationName: string;
+      readonly relationInfo: RelationInfo;
+      readonly childScope: QueryScope;
+      readonly childPrimaryKey: string;
+      readonly probeId: string;
+      readonly guardId: string;
+      readonly writeId: string;
+      readonly parentSetId: string;
+      readonly correlation: ParentHeldCorrelation;
+      readonly probe: StatementStep;
+      readonly updateData: Record<string, unknown>;
+      readonly before: BeforeTarget;
+      readonly missingFkAssign: Record<string, unknown>;
     };
+
+/**
+ * How a family-A (parent-held) to-one write locates its referenced target:
+ * `child.<childReferencedFields[i]> = <finalFk[i]>` where `finalFk[i]` is the
+ * parent's FK column value AFTER any same-root scalar rebind (V1 correlates on the
+ * post-update `parentValues` for `holdsFK`). A rebound column resolves to a
+ * construction-time literal (`override`); an untouched column resolves to the
+ * located parent row's value (a SQL `Ref` at planning, the literal at compile).
+ */
+interface ParentHeldCorrelation {
+  readonly childReferencedFields: readonly string[];
+  readonly parentFkFields: readonly string[];
+  /** parentFkField → its rebound literal, when the same root update rewrites it. */
+  readonly override: Record<string, unknown>;
+}
 
 /**
  * The root `update` (PLAN P2a — generalized beyond the P1 upsert slice). It
@@ -177,6 +253,10 @@ export class UpdateOperation {
   // target INSERT whose identity the root parent UPDATE's FK column references
   // (TO-ONE.md §7.0.2). Emitted between the guards and the root UPDATE at compile.
   private readonly parentHeldTargets: readonly ParentHeldTarget[];
+  // The located-parent id source (a planning read inlined at compile) — consumed by
+  // the family-A parent-held correlation filters, which read/ref the parent's FK
+  // columns from the located row.
+  private readonly parentIdSource!: ReturnType<typeof plannedParentId>;
   private readonly locate: StatementStep;
   // Whether the non-fold path emits a parent-row UPDATE (a scalar SET ∪ to-one FK
   // folds). Built at compile so it can address the captured PK (V1's `WHERE id`);
@@ -304,6 +384,7 @@ export class UpdateOperation {
       locateId,
       this.parentPrimaryKeys[0]!
     );
+    this.parentIdSource = parentIdSource;
     const childParts: Part[] = [];
     const toOneLinks: ToOneLink[] = [];
     const parentHeldTargets: ParentHeldTarget[] = [];
@@ -313,6 +394,13 @@ export class UpdateOperation {
     // exposed as firstRowField outputs below so a per-field child part can read
     // each referenced value (compile literal) or ref it (planning correlation).
     const locateFields = new Set<string>(this.parentPrimaryKeys);
+    // The parent's OWN FK columns a family-A (parent-held) to-one arm correlates on
+    // (`child.<referenced> = parent.<fk>`). Selected by the locate read like
+    // `locateFields`, but held SEPARATELY: these columns are NOT child-referenced, so
+    // they must NOT drive `reorderRootUpdateAfterChildren` (a self-relation FK rebind
+    // like `partnerId` is the parent's own column; reordering the root UPDATE after a
+    // sibling child write would race an unfreed UNIQUE value — the inverse holder).
+    const parentFkLocateFields = new Set<string>();
     for (const [relationName, mutation] of Object.entries(
       separated.relations
     )) {
@@ -339,6 +427,7 @@ export class UpdateOperation {
         toOneLinks,
         parentHeldTargets,
         locateFields,
+        parentFkLocateFields,
         rootScalarData: separated.scalarData,
       });
     }
@@ -416,16 +505,27 @@ export class UpdateOperation {
       : undefined;
     // A parent-held `create`/`connectOrCreate` folds its FK into the root UPDATE at
     // compile (the value is a `Ref`, or a found/missing decision), so the parent
-    // UPDATE is needed even when the construction-time `parentSet` is empty.
+    // UPDATE is needed even when the construction-time `parentSet` is empty. The
+    // family-A `update`/`delete`/`upsert` arms emit their OWN parent/child writes
+    // (never a root-SET fold), so they do not force a root UPDATE — a pure such arm
+    // with an empty `parentSet` must not build an empty-SET root UPDATE.
     this.needsRootUpdate =
       !this.directWrite &&
-      (Object.keys(parentSet).length > 0 || parentHeldTargets.length > 0);
+      (Object.keys(parentSet).length > 0 ||
+        parentHeldTargets.some(
+          (target) =>
+            target.kind === "create" || target.kind === "connectOrCreate"
+        ));
 
     // 5. The locate planning read. It carries the `notFound` postcondition on
     //    BOTH substrates (enforced by the executor during planning): a missing
     //    root aborts before any write AND before any correlated child probe can
     //    dereference a located id that does not exist (ATOM §8.1 note (a)/(b)).
-    const locateSelectFields = [...locateFields];
+    // The SELECT unions the child-referenced fields (reorder-relevant) with the
+    // parent-held FK columns (family-A correlation, reorder-irrelevant).
+    const locateSelectFields = [
+      ...new Set<string>([...locateFields, ...parentFkLocateFields]),
+    ];
     this.locate = {
       id: locateId,
       kind: "read",
@@ -466,7 +566,13 @@ export class UpdateOperation {
       if (link.connect) steps.push(link.connect.probe);
     }
     for (const target of this.parentHeldTargets) {
-      if (target.kind === "connectOrCreate") steps.push(target.probe);
+      if (
+        target.kind === "connectOrCreate" ||
+        target.kind === "update" ||
+        target.kind === "upsert"
+      ) {
+        steps.push(target.probe);
+      }
     }
     for (const part of this.childParts)
       steps.push(...part.planning(this.scope));
@@ -519,8 +625,10 @@ export class UpdateOperation {
     const beforeRootWrites: OperationStep[] = [];
     const rootExtraSet = this.compileParentHeldTargets(
       known,
+      locatedRow,
       guards,
-      beforeRootWrites
+      beforeRootWrites,
+      writes
     );
     for (const part of this.childParts) {
       for (const step of part.compile(this.scope, known)) {
@@ -579,6 +687,9 @@ export class UpdateOperation {
     toOneLinks: ToOneLink[];
     parentHeldTargets: ParentHeldTarget[];
     locateFields: Set<string>;
+    /** Parent-held FK columns a family-A arm correlates on — selected but NOT
+     *  reorder-relevant (see the constructor's `parentFkLocateFields`). */
+    parentFkLocateFields: Set<string>;
     /** The root update's validated scalar writes — used to detect a concurrent
      *  referenced-key transition (a write to a parent column a child FK references)
      *  that puts a nested arm on V1's referential-legality path (§7.2). */
@@ -1045,13 +1156,335 @@ export class UpdateOperation {
           )
         );
         return;
+      case "update":
+        input.parentHeldTargets.push(
+          this.interpretParentHeldUpdate(input, relationName, relationInfo, fk)
+        );
+        return;
+      case "delete":
+        input.parentHeldTargets.push(
+          this.interpretParentHeldDelete(input, relationName, relationInfo, fk)
+        );
+        return;
+      case "upsert":
+        input.parentHeldTargets.push(
+          this.interpretParentHeldUpsert(input, relationName, relationInfo, fk)
+        );
+        return;
       default:
-        // update/delete on the FK-holder-side to-one — V1's surface (mutate/null
-        // the referenced row); route the whole tree to V1.
+        // set / other kinds on the FK-holder-side to-one — V1's surface; route the
+        // whole tree to V1.
         throw new UnsupportedOperationError(
           `query-engine-v2 update does not support '${kind}' on the parent-held to-one relation '${relationName}'.`
         );
     }
+  }
+
+  /**
+   * Build the family-A correlation ledger for a parent-held to-one arm: the child
+   * is located by `child.<referenced> = parent.<fk>` where the parent's FK value is
+   * its FINAL value (V1 correlates `holdsFK` on the post-scalar-update parentValues).
+   * A column the same root update rebinds resolves to a construction-time literal;
+   * an untouched column reads the located parent row. Only a single-field FK whose
+   * referenced column is the child's single primary key is supported natively; any
+   * other shape (compound edge, non-PK reference) routes the whole tree to V1.
+   */
+  private parentHeldCorrelation(
+    input: Parameters<UpdateOperation["interpretRelation"]>[0],
+    relationName: string,
+    fk: FkDirection,
+    childScope: QueryScope,
+    kind: string
+  ): { correlation: ParentHeldCorrelation; childPrimaryKey: string } {
+    const childPrimaryKeys = getPrimaryKeyFields(childScope.model);
+    if (
+      fk.fkFields.length !== 1 ||
+      fk.pkFields.length !== 1 ||
+      childPrimaryKeys.length !== 1 ||
+      fk.pkFields[0] !== childPrimaryKeys[0]
+    ) {
+      // A compound parent-held edge or a non-PK reference needs V1's staged
+      // mutation-identity resolution — a documented narrower boundary.
+      throw new UnsupportedOperationError(
+        `query-engine-v2 update supports only a single-field primary-key reference for '${kind}' on the parent-held to-one relation '${relationName}'.`
+      );
+    }
+    // Every parent FK column must be a firstRowField output of the locate read so
+    // the untouched-column path can ref/read it. Held in the parent-FK set (NOT
+    // `locateFields`): these are the parent's own columns, not child-referenced, so
+    // a same-root rebind of one must not trigger the child-edge reorder.
+    for (const field of fk.fkFields) input.parentFkLocateFields.add(field);
+    const override: Record<string, unknown> = {};
+    for (const fkField of fk.fkFields) {
+      if (!Object.hasOwn(input.rootScalarData, fkField)) continue;
+      // `assertRelationKeyUpdatesAreCompilable` already ran (constructor): a mutated
+      // parent-held FK column is resolvable to a literal, never a DerivedValue.
+      const resolved = classifyRelationKeyScalarUpdate(
+        input.rootScalarData[fkField]
+      );
+      if (resolved.resolved) override[fkField] = resolved.value;
+    }
+    return {
+      correlation: {
+        childReferencedFields: fk.pkFields,
+        parentFkFields: fk.fkFields,
+        override,
+      },
+      childPrimaryKey: childPrimaryKeys[0]!,
+    };
+  }
+
+  /** A parent-held to-one `update`: locate the referenced target by the parent's
+   *  (final) FK value, then UPDATE it by the captured PK. Nested-relation update
+   *  data (V1's staged recursion) routes the whole tree to V1. */
+  private interpretParentHeldUpdate(
+    input: Parameters<UpdateOperation["interpretRelation"]>[0],
+    relationName: string,
+    relationInfo: RelationInfo,
+    fk: FkDirection
+  ): ParentHeldTarget {
+    const childScope = createQueryScope(
+      this.engine.adapter,
+      relationInfo.targetModel
+    );
+    const { correlation, childPrimaryKey } = this.parentHeldCorrelation(
+      input,
+      relationName,
+      fk,
+      childScope,
+      "update"
+    );
+    const data = this.parentHeldScalarUpdateData(
+      childScope,
+      normalizeSingle(input.parsedRelation.update, relationName, "update"),
+      relationName,
+      "update"
+    );
+    const childName = getStepModelName(relationInfo.targetModel, relationName);
+    const probeId = input.scope.allocate(`${childName}.find`);
+    return {
+      kind: "update",
+      relationName,
+      relationInfo,
+      childScope,
+      childPrimaryKey,
+      probeId,
+      guardId: input.scope.allocate(`${childName}.guard.exists`),
+      writeId: input.scope.allocate(`${childName}.update`),
+      correlation,
+      probe: {
+        id: probeId,
+        kind: "read",
+        statement: this.parentHeldProbeStatement(
+          childScope,
+          childPrimaryKey,
+          correlation,
+          undefined,
+          true
+        ),
+        outputs: { rows: { kind: "rows" } },
+      },
+      data,
+    };
+  }
+
+  /** A parent-held to-one `delete: true`: NULL the parent FK (a required FK is V1's
+   *  typed reject), then correlated bulk-delete the referenced target. */
+  private interpretParentHeldDelete(
+    input: Parameters<UpdateOperation["interpretRelation"]>[0],
+    relationName: string,
+    relationInfo: RelationInfo,
+    fk: FkDirection
+  ): ParentHeldTarget {
+    if (input.parsedRelation.delete !== true) {
+      // A targeted (non-boolean) parent-held delete is V1's captured path.
+      throw new UnsupportedOperationError(
+        `query-engine-v2 update supports only 'delete: true' on the parent-held to-one relation '${relationName}'.`
+      );
+    }
+    // A required (non-nullable) FK cannot be nulled — V1's verbatim typed rejection.
+    assertNullable(relationInfo, fk);
+    const childScope = createQueryScope(
+      this.engine.adapter,
+      relationInfo.targetModel
+    );
+    const { correlation } = this.parentHeldCorrelation(
+      input,
+      relationName,
+      fk,
+      childScope,
+      "delete"
+    );
+    const childName = getStepModelName(relationInfo.targetModel, relationName);
+    return {
+      kind: "delete",
+      relationName,
+      relationInfo,
+      childScope,
+      nullWriteId: input.scope.allocate("parent.fknull"),
+      deleteWriteId: input.scope.allocate(`${childName}.delete`),
+      fkFields: fk.fkFields,
+      correlation,
+    };
+  }
+
+  /** A parent-held to-one `upsert`: found → UPDATE the located target; absent →
+   *  INSERT it (before root) and rebind the parent FK to the created identity. */
+  private interpretParentHeldUpsert(
+    input: Parameters<UpdateOperation["interpretRelation"]>[0],
+    relationName: string,
+    relationInfo: RelationInfo,
+    fk: FkDirection
+  ): ParentHeldTarget {
+    this.assertNotSharedPk(relationName, fk, "upsert");
+    const childScope = createQueryScope(
+      this.engine.adapter,
+      relationInfo.targetModel
+    );
+    const { correlation, childPrimaryKey } = this.parentHeldCorrelation(
+      input,
+      relationName,
+      fk,
+      childScope,
+      "upsert"
+    );
+    const spec = normalizeSingle(
+      input.parsedRelation.upsert,
+      relationName,
+      "upsert"
+    );
+    const updateData = this.parentHeldScalarUpdateData(
+      childScope,
+      requireRecord(spec.update, `${relationName}.upsert.update`),
+      relationName,
+      "upsert"
+    );
+    const before = this.buildBeforeTarget(
+      childScope,
+      requireRecord(spec.create, `${relationName}.upsert.create`),
+      relationName
+    );
+    const childName = getStepModelName(relationInfo.targetModel, relationName);
+    const probeId = input.scope.allocate(`${childName}.find`);
+    return {
+      kind: "upsert",
+      relationName,
+      relationInfo,
+      childScope,
+      childPrimaryKey,
+      probeId,
+      guardId: input.scope.allocate(`${childName}.guard.exists`),
+      writeId: input.scope.allocate(`${childName}.update`),
+      parentSetId: input.scope.allocate("parent.fkset"),
+      correlation,
+      probe: {
+        id: probeId,
+        kind: "read",
+        statement: this.parentHeldProbeStatement(
+          childScope,
+          childPrimaryKey,
+          correlation,
+          undefined,
+          true
+        ),
+        outputs: { rows: { kind: "rows" } },
+      },
+      updateData,
+      before,
+      missingFkAssign: this.beforeTargetFkAssign(fk, before, relationName),
+    };
+  }
+
+  /** The validated scalar update data for a parent-held to-one `update`/`upsert`
+   *  arm. Nested-relation data (the located target's own grandchild writes, V1's
+   *  staged recursion) routes the whole tree to V1 — the parent-held projection of
+   *  the family-B boundary. */
+  private parentHeldScalarUpdateData(
+    childScope: QueryScope,
+    data: Record<string, unknown>,
+    relationName: string,
+    kind: string
+  ): Record<string, unknown> {
+    const { scalarData, relations } = separateData(childScope, data);
+    if (Object.keys(relations).length > 0) {
+      throw new UnsupportedOperationError(
+        `query-engine-v2 update does not support nested relation writes in the '${kind}' data of the parent-held to-one relation '${relationName}'.`
+      );
+    }
+    assertPortablePrimaryKeyUpdateInput(childScope.model, "update", {
+      data: scalarData,
+    });
+    return scalarData;
+  }
+
+  /** `child.<referenced> = <finalFk>` — a SQL `Ref` to the located parent at
+   *  planning (technique #1) for an untouched FK column, the rebound literal for a
+   *  same-root-rewritten one; the inlined literal at compile. */
+  private parentHeldCorrelationFilters(
+    correlation: ParentHeldCorrelation,
+    relationName: string,
+    kind: string,
+    known: Readonly<Record<string, unknown>> | undefined,
+    useRef: boolean
+  ): Record<string, unknown>[] {
+    return correlation.childReferencedFields.map((childField, index) => {
+      const fkField = correlation.parentFkFields[index]!;
+      if (Object.hasOwn(correlation.override, fkField)) {
+        return { [childField]: { equals: correlation.override[fkField] } };
+      }
+      return {
+        [childField]: {
+          equals: useRef
+            ? referencedFieldRef(
+                this.parentIdSource,
+                fkField,
+                relationName,
+                kind
+              )
+            : referencedFieldValue(
+                this.parentIdSource,
+                fkField,
+                known,
+                relationName,
+                kind
+              ),
+        },
+      };
+    });
+  }
+
+  /** The correlated locate probe for a parent-held `update`/`upsert`: `WHERE
+   *  <referenced> = <finalFk> [AND <pk> = <capturedPk>]`, one row, FOR UPDATE in tx. */
+  private parentHeldProbeStatement(
+    childScope: QueryScope,
+    childPrimaryKey: string,
+    correlation: ParentHeldCorrelation,
+    capturedPk: unknown,
+    useRef: boolean,
+    known?: Readonly<Record<string, unknown>>
+  ): Sql {
+    return buildFind(
+      childScope,
+      {
+        where: {
+          AND: [
+            ...this.parentHeldCorrelationFilters(
+              correlation,
+              "parent-held",
+              "update",
+              known,
+              useRef
+            ),
+            ...(capturedPk === undefined
+              ? []
+              : [{ [childPrimaryKey]: { equals: capturedPk } }]),
+          ],
+        },
+        select: { [childPrimaryKey]: true },
+        forUpdate: this.mode === "transaction",
+      },
+      { limit: 1 }
+    );
   }
 
   /** A parent-held `create` under update: an unconditional before-root target
@@ -1283,52 +1716,318 @@ export class UpdateOperation {
   }
 
   /**
-   * Resolve every parent-held-target arm into (a) the before-root INSERT steps to
-   * emit ahead of the root UPDATE, and (b) the FK folds to merge into the root
-   * UPDATE's SET (TO-ONE.md §7.0.2). `create` is unconditional; `connectOrCreate`
-   * decides found/missing from its probe at compile.
+   * Resolve every parent-held-target arm. `create`/`connectOrCreate` fold their FK
+   * into the root UPDATE's SET (returned as `extraSet`) and emit before-root INSERTs
+   * (TO-ONE.md §7.0.2). The family-A `update`/`delete`/`upsert` arms emit their OWN
+   * correlated child writes (into `writes`, after the root update — V1's
+   * root-scalar-then-relations order) and, for `delete`/absent-`upsert`, a dedicated
+   * parent-FK write (never a root-SET fold).
    */
   private compileParentHeldTargets(
     known: Readonly<Record<string, unknown>>,
+    locatedRow: Record<string, unknown>,
     guards: OperationStep[],
-    beforeRootWrites: OperationStep[]
+    beforeRootWrites: OperationStep[],
+    writes: OperationStep[]
   ): Record<string, unknown> {
     const extraSet: Record<string, unknown> = {};
     for (const target of this.parentHeldTargets) {
-      if (target.kind === "create") {
-        beforeRootWrites.push(this.buildBeforeTargetInsert(target.before));
-        Object.assign(extraSet, target.fkAssign);
-        continue;
-      }
-      const rows = known[planningKey(target.probeId, "rows")];
-      const found = Array.isArray(rows) && rows.length > 0;
-      if (found) {
-        Object.assign(extraSet, target.foundFkAssign);
-        if (this.mode === "batch") {
-          guards.push(
-            presenceGuard(
-              target.guardId,
-              target.guardProbe,
-              nestedWriteFailure(
-                // V1's found-arm captured guard: the planning-seen target vanished
-                // before the batch — a replacement race, not a plain not-found
-                // (RelationBranches replacementFailure; byte-identical message).
-                nestedReplacement("connectOrCreate"),
-                target.relationName,
-                false
-              )
-            )
+      switch (target.kind) {
+        case "create":
+          beforeRootWrites.push(this.buildBeforeTargetInsert(target.before));
+          Object.assign(extraSet, target.fkAssign);
+          break;
+        case "connectOrCreate":
+          this.compileParentHeldConnectOrCreate(
+            target,
+            known,
+            guards,
+            beforeRootWrites,
+            extraSet
           );
-        }
-        continue;
+          break;
+        case "update":
+          this.compileParentHeldUpdate(target, known, guards, writes);
+          break;
+        case "delete":
+          this.compileParentHeldDelete(target, known, locatedRow, writes);
+          break;
+        default:
+          this.compileParentHeldUpsert(
+            target,
+            known,
+            locatedRow,
+            guards,
+            beforeRootWrites,
+            writes
+          );
+          break;
       }
-      beforeRootWrites.push({
-        ...this.buildBeforeTargetInsert(target.before),
-        racePin: target.racePin,
-      });
-      Object.assign(extraSet, target.missingFkAssign);
     }
     return extraSet;
+  }
+
+  private compileParentHeldConnectOrCreate(
+    target: Extract<ParentHeldTarget, { kind: "connectOrCreate" }>,
+    known: Readonly<Record<string, unknown>>,
+    guards: OperationStep[],
+    beforeRootWrites: OperationStep[],
+    extraSet: Record<string, unknown>
+  ): void {
+    const rows = known[planningKey(target.probeId, "rows")];
+    const found = Array.isArray(rows) && rows.length > 0;
+    if (found) {
+      Object.assign(extraSet, target.foundFkAssign);
+      if (this.mode === "batch") {
+        guards.push(
+          presenceGuard(
+            target.guardId,
+            target.guardProbe,
+            nestedWriteFailure(
+              // V1's found-arm captured guard: the planning-seen target vanished
+              // before the batch — a replacement race, not a plain not-found
+              // (RelationBranches replacementFailure; byte-identical message).
+              nestedReplacement("connectOrCreate"),
+              target.relationName,
+              false
+            )
+          )
+        );
+      }
+      return;
+    }
+    beforeRootWrites.push({
+      ...this.buildBeforeTargetInsert(target.before),
+      racePin: target.racePin,
+    });
+    Object.assign(extraSet, target.missingFkAssign);
+  }
+
+  /** Compile a family-A parent-held `update`: the captured PK addresses the located
+   *  target's UPDATE (empty capture is V1's "target record was not found for this
+   *  parent"); the batch split-witness guard pins the correlation. */
+  private compileParentHeldUpdate(
+    target: Extract<ParentHeldTarget, { kind: "update" }>,
+    known: Readonly<Record<string, unknown>>,
+    guards: OperationStep[],
+    writes: OperationStep[]
+  ): void {
+    const capturedPk = this.parentHeldCapturedPk(
+      known,
+      target.probeId,
+      target.childPrimaryKey,
+      target.relationInfo,
+      "update"
+    );
+    if (this.mode === "batch") {
+      guards.push(
+        presenceGuard(
+          target.guardId,
+          this.parentHeldProbeStatement(
+            target.childScope,
+            target.childPrimaryKey,
+            target.correlation,
+            capturedPk,
+            false,
+            known
+          ),
+          nestedWriteFailure(
+            relationTargetNotFound(target.relationInfo, "update"),
+            target.relationName,
+            false
+          )
+        )
+      );
+    }
+    writes.push({
+      id: target.writeId,
+      kind: "write",
+      statement: buildUpdate(target.childScope, {
+        where: { [target.childPrimaryKey]: capturedPk },
+        data: target.data,
+        select: { [target.childPrimaryKey]: true },
+      }),
+      outputs: {},
+    });
+  }
+
+  /** Compile a family-A parent-held `delete: true`: NULL the parent FK (V1's
+   *  `RelationRemovals.delete` `holdsFK` arm), then correlated bulk-delete the
+   *  referenced target by its (pre-null) FK value. Zero matches is silent success. */
+  private compileParentHeldDelete(
+    target: Extract<ParentHeldTarget, { kind: "delete" }>,
+    known: Readonly<Record<string, unknown>>,
+    locatedRow: Record<string, unknown>,
+    writes: OperationStep[]
+  ): void {
+    writes.push({
+      id: target.nullWriteId,
+      kind: "write",
+      statement: buildUpdate(
+        createQueryScope(this.engine.adapter, this.model),
+        {
+          where: this.parentPrimaryKeyWhere(locatedRow),
+          data: Object.fromEntries(
+            target.fkFields.map((field) => [field, { set: null }])
+          ),
+          select: this.pkSelect(),
+        }
+      ),
+      outputs: {},
+    });
+    writes.push({
+      id: target.deleteWriteId,
+      kind: "write",
+      statement: buildDeleteMany(target.childScope, {
+        where: this.parentHeldCorrelationWhere(
+          target.correlation,
+          target.relationName,
+          "delete",
+          known
+        ),
+      }),
+      outputs: {},
+    });
+  }
+
+  /** Compile a family-A parent-held `upsert`: found → UPDATE the located target
+   *  (the parent FK already equals the located value; V1's no-op re-write is
+   *  elided); absent → INSERT the target (before root) and set the parent FK to the
+   *  created identity. */
+  private compileParentHeldUpsert(
+    target: Extract<ParentHeldTarget, { kind: "upsert" }>,
+    known: Readonly<Record<string, unknown>>,
+    locatedRow: Record<string, unknown>,
+    guards: OperationStep[],
+    beforeRootWrites: OperationStep[],
+    writes: OperationStep[]
+  ): void {
+    const rows = known[planningKey(target.probeId, "rows")];
+    if (!Array.isArray(rows)) {
+      throw new NestedWriteError(
+        `query-engine-v2 upsert probe for relation '${target.relationName}' did not expose rows.`,
+        target.relationName
+      );
+    }
+    if (rows.length === 0) {
+      // Absent arm: INSERT the target before the root, then rebind the parent's FK
+      // to its (possibly generated) identity — V1's `updateParentForeignKey`.
+      beforeRootWrites.push(this.buildBeforeTargetInsert(target.before));
+      writes.push({
+        id: target.parentSetId,
+        kind: "write",
+        statement: buildUpdate(
+          createQueryScope(this.engine.adapter, this.model),
+          {
+            where: this.parentPrimaryKeyWhere(locatedRow),
+            data: target.missingFkAssign,
+            select: this.pkSelect(),
+          }
+        ),
+        outputs: {},
+      });
+      return;
+    }
+    const capturedPk = this.parentHeldCapturedPk(
+      known,
+      target.probeId,
+      target.childPrimaryKey,
+      target.relationInfo,
+      "update"
+    );
+    if (this.mode === "batch") {
+      guards.push(
+        presenceGuard(
+          target.guardId,
+          this.parentHeldProbeStatement(
+            target.childScope,
+            target.childPrimaryKey,
+            target.correlation,
+            capturedPk,
+            false,
+            known
+          ),
+          nestedWriteFailure(
+            upsertPremiseChanged(target.relationName),
+            target.relationName,
+            false
+          )
+        )
+      );
+    }
+    writes.push({
+      id: target.writeId,
+      kind: "write",
+      statement: buildUpdate(target.childScope, {
+        where: { [target.childPrimaryKey]: capturedPk },
+        data: target.updateData,
+        select: { [target.childPrimaryKey]: true },
+      }),
+      outputs: {},
+    });
+  }
+
+  /** The parent's primary-key where-unique for a dedicated parent-FK write. */
+  private parentPrimaryKeyWhere(
+    locatedRow: Record<string, unknown>
+  ): Record<string, unknown> {
+    return buildPrimaryKeyWhereUnique(
+      this.model,
+      Object.fromEntries(
+        this.parentPrimaryKeys.map((pk) => [pk, locatedRow[pk]])
+      )
+    );
+  }
+
+  /** The compile-time correlated `WHERE <referenced> = <finalFk>` for a bulk
+   *  parent-held write (the `delete` arm). */
+  private parentHeldCorrelationWhere(
+    correlation: ParentHeldCorrelation,
+    relationName: string,
+    kind: string,
+    known: Readonly<Record<string, unknown>>
+  ): Record<string, unknown> {
+    const filters = this.parentHeldCorrelationFilters(
+      correlation,
+      relationName,
+      kind,
+      known,
+      false
+    );
+    return filters.length === 1 ? filters[0]! : { AND: filters };
+  }
+
+  /** The PK the parent-held probe captured at planning — the located target this
+   *  arm mutates. An empty capture is V1's verbatim "target record was not found
+   *  for this parent" (the parent's FK pointed at nothing / a vanished row). */
+  private parentHeldCapturedPk(
+    known: Readonly<Record<string, unknown>>,
+    probeId: string,
+    childPrimaryKey: string,
+    relationInfo: RelationInfo,
+    op: "update"
+  ): unknown {
+    const rows = known[planningKey(probeId, "rows")];
+    if (!Array.isArray(rows)) {
+      throw new NestedWriteError(
+        `query-engine-v2 update probe for relation '${relationInfo.name}' did not expose rows.`,
+        relationInfo.name
+      );
+    }
+    if (rows.length === 0) {
+      throw new NestedWriteError(
+        relationTargetNotFound(relationInfo, op),
+        relationInfo.name
+      );
+    }
+    const first = rows[0];
+    if (!(first && typeof first === "object")) {
+      throw new NestedWriteError(
+        `query-engine-v2 update probe for relation '${relationInfo.name}' captured no row shape.`,
+        relationInfo.name
+      );
+    }
+    return (first as Record<string, unknown>)[childPrimaryKey];
   }
 
   private interpretToOneLink(

@@ -48,13 +48,14 @@ import {
  *
  *  2. **The reachable residual STILL lives behind the fallback (P6 not yet met).**
  *     {@link FALLBACK_OFF_RESIDUAL} (tests/query-engine-v2/fallback-off-residual.ts)
- *     is the MEASURED accept-and-execute + reject-parity decline surface: 43
- *     nested-write-conformance scenarios whose whole tree V2 declines with the
- *     fallback OFF, across EIGHT decline families (parent-held to-one
- *     update/delete/upsert; nested-relation-in-nested-update; m2m
- *     nested-create/update-with-relations; top-level upsert with nested arms;
- *     nested-create-under-update / D4; inverse-side to-one upsert; connectOrCreate
- *     create-arm depth; to-many upsert identity). This CORRECTS the census the gate
+ *     is the MEASURED accept-and-execute + reject-parity decline surface: 31
+ *     nested-write-conformance scenarios (43 at T3 start; −1 T3-r2 family F; −11 T3a
+ *     family A) whose whole tree V2 declines with the fallback OFF, across the
+ *     remaining decline families (parent-held to-one update with nested-relation
+ *     TARGET data — the 2 unabsorbed family-A shapes; nested-relation-in-nested-
+ *     update; m2m nested-create/update-with-relations; top-level upsert with nested
+ *     arms; nested-create-under-update / D4; connectOrCreate create-arm depth;
+ *     to-many upsert identity). This CORRECTS the census the gate
  *     carried through T1/T2 — a curated three-then-one to-one pin list that hid the
  *     true surface (the T2 "theater replay" lesson: the census is a run of the FULL
  *     conformance suite fallback-off, not a hand-maintained list). The bidirectional
@@ -63,7 +64,7 @@ import {
  *     substrates; a non-pinned one MUST run natively on V2. Below, this gate pins
  *     the census SIZE (so no entry can be silently trimmed) and re-proves one
  *     representative construct-time decline. **P6 may bulk-delete V1's runtime only
- *     when this set is EMPTY. It is not: 43 shapes remain, V1 is NOT deletable.**
+ *     when this set is EMPTY. It is not: 31 shapes remain, V1 is NOT deletable.**
  *     The day a family is absorbed, its entries leave FALLBACK_OFF_RESIDUAL, the
  *     count drops by the family size, and those scenarios must then pass
  *     fallback-off natively — both this gate and the conformance census move
@@ -347,6 +348,108 @@ describe("decline-surface gate: absorbed create shapes carry NO fallback (P6 pre
     ]);
     await c.$disconnect();
   });
+
+  // T3a (TO-ONE.md §7.2, family A): the FK-holder-side (parent-held) to-one `update`
+  // — mutate the REFERENCED target located through the parent's own FK column, at its
+  // FINAL value (a same-root scalar rebind moves the target). MULTI-PARENT WITNESS: a
+  // second post pointing at a different author must be untouched. Re-narrowing the
+  // parent-held `update` case to the V1 route makes this throw.
+  test("parent-held to-one update executes on V2 (fallback off) — absorbed", async () => {
+    const c = await freshClient(nb);
+    await c.user.create({ data: { id: "u1", name: "Original" } });
+    await c.user.create({ data: { id: "u2", name: "Final" } });
+    await c.user.create({ data: { id: "uW", name: "Witness" } });
+    await c.post.create({ data: { id: "po1", title: "t", userId: "u1" } });
+    // Correlation witness: a second post held by a different author.
+    await c.post.create({ data: { id: "poW", title: "w", userId: "uW" } });
+    await c.post.update({
+      where: { id: "po1" },
+      // Rebind the FK AND update the referenced target: the arm must hit the FINAL
+      // author (u2), never the located pre-rebind one (u1).
+      data: { userId: "u2", author: { update: { name: "Updated" } } },
+    });
+    const users = await c.user.findMany({ orderBy: { id: "asc" } });
+    expect(users).toEqual([
+      { id: "u1", name: "Original" },
+      { id: "u2", name: "Updated" },
+      { id: "uW", name: "Witness" },
+    ]);
+    const posts = await c.post.findMany({ orderBy: { id: "asc" } });
+    expect(posts).toEqual([
+      { id: "po1", title: "t", userId: "u2" },
+      { id: "poW", title: "w", userId: "uW" },
+    ]);
+    await c.$disconnect();
+  });
+
+  // T3a (family A): the FK-holder-side to-one `delete: true` — NULL the parent FK,
+  // then delete the referenced target (V1's null-then-delete). MULTI-PARENT WITNESS:
+  // a second post's author must survive. Re-narrowing the case makes this throw.
+  test("parent-held to-one delete executes on V2 (fallback off) — absorbed", async () => {
+    const c = await freshClient(nb);
+    await c.user.create({ data: { id: "u1", name: "target" } });
+    await c.user.create({ data: { id: "uW", name: "Witness" } });
+    await c.post.create({ data: { id: "po1", title: "t", userId: "u1" } });
+    await c.post.create({ data: { id: "poW", title: "w", userId: "uW" } });
+    await c.post.update({
+      where: { id: "po1" },
+      data: { author: { delete: true } },
+    });
+    const users = await c.user.findMany({ orderBy: { id: "asc" } });
+    expect(users).toEqual([{ id: "uW", name: "Witness" }]);
+    const posts = await c.post.findMany({ orderBy: { id: "asc" } });
+    expect(posts).toEqual([
+      { id: "po1", title: "t", userId: null },
+      { id: "poW", title: "w", userId: "uW" },
+    ]);
+    await c.$disconnect();
+  });
+
+  // T3a (family A): the FK-holder-side to-one `upsert` — absent → INSERT the target
+  // and rebind the parent FK to it; found → UPDATE the located target. MULTI-PARENT
+  // WITNESS: a second post's author must survive both arms. Re-narrowing the case
+  // makes this throw.
+  test("parent-held to-one upsert executes on V2 (fallback off) — absorbed", async () => {
+    const c = await freshClient(nb);
+    await c.user.create({ data: { id: "uW", name: "Witness" } });
+    await c.post.create({ data: { id: "po1", title: "t", userId: null } });
+    await c.post.create({ data: { id: "poW", title: "w", userId: "uW" } });
+    // Absent arm: po1 has no author → create u1 and bind it.
+    await c.post.update({
+      where: { id: "po1" },
+      data: {
+        author: {
+          upsert: {
+            create: { id: "u1", name: "Created" },
+            update: { name: "x" },
+          },
+        },
+      },
+    });
+    // Found arm: po1 now points at u1 → update it (create arm ignored).
+    await c.post.update({
+      where: { id: "po1" },
+      data: {
+        author: {
+          upsert: {
+            create: { id: "u-unused", name: "no" },
+            update: { name: "Updated" },
+          },
+        },
+      },
+    });
+    const users = await c.user.findMany({ orderBy: { id: "asc" } });
+    expect(users).toEqual([
+      { id: "u1", name: "Updated" },
+      { id: "uW", name: "Witness" },
+    ]);
+    const posts = await c.post.findMany({ orderBy: { id: "asc" } });
+    expect(posts).toEqual([
+      { id: "po1", title: "t", userId: "u1" },
+      { id: "poW", title: "w", userId: "uW" },
+    ]);
+    await c.$disconnect();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -368,18 +471,20 @@ describe("decline-surface gate: absorbed create shapes carry NO fallback (P6 pre
 // the full conformance census.
 // ---------------------------------------------------------------------------
 const REPRESENTATIVE_CONSTRUCT_DECLINE = {
-  // Family A — a parent-held (FK-holder-side) to-one `update` under an update root
-  // (`post` holds `userId` → `author`). Still declines (`interpretParentHeldToOne`
-  // default). Family F, the former representative, was absorbed (T3-r2) and now runs
-  // natively, so a still-declining family carries the construct-time tripwire. A
-  // construct-time probe: no seed, no execution.
-  label: "parent-held to-one update under update root (family A)",
+  // Family A RESIDUAL — a parent-held (FK-holder-side) to-one `update` whose located
+  // target's DATA carries a nested relation write (`author: { update: { posts: … } }`,
+  // the parent-held projection of family B's nested-relation-in-update boundary). T3a
+  // absorbed the 11 scalar-target family-A shapes (parent-held update/delete/upsert
+  // now run natively); the 2 nested-relation-target-data shapes stay pinned and carry
+  // the construct-time tripwire. A construct-time probe: no seed, no execution.
+  label:
+    "parent-held to-one update with nested-relation target data (family A residual)",
   schema: nb as Record<string, Model<any>>,
   operation: "update",
   args: {
     where: { id: "po1" },
     data: {
-      author: { update: { name: "renamed" } },
+      author: { update: { posts: { create: { id: "po2", title: "t" } } } },
     },
   } as Record<string, unknown>,
   rootModel: nb.post as Model<any>,
@@ -391,13 +496,14 @@ describe("decline-surface gate: the reachable residual STILL lives behind the fa
     expect(FALLBACK_OFF_RESIDUAL.size).toBeGreaterThan(0);
   });
 
-  test("the census is the MEASURED surface (43), not a curated pin list", () => {
+  test("the census is the MEASURED surface (31), not a curated pin list", () => {
     // Guards against silently trimming the census without a real absorption: the
-    // set and its declared count must agree, and the count is the T3 measurement.
-    // Absorbing a family drops BOTH by the same amount (and its scenarios must then
-    // pass the fallback-off conformance run). 43 corrects the T1/T2 "one entry".
+    // set and its declared count must agree, and the count is the running measurement.
+    // Absorbing a family (or a coherent slice) drops BOTH by the same amount (and its
+    // scenarios must then pass the fallback-off conformance run).
     expect(FALLBACK_OFF_RESIDUAL.size).toBe(FALLBACK_OFF_RESIDUAL_COUNT);
-    expect(FALLBACK_OFF_RESIDUAL_COUNT).toBe(42);
+    // 43 (T3) → 42 (T3-r2 family F) → 31 (T3a absorbed 11 of family A's 13).
+    expect(FALLBACK_OFF_RESIDUAL_COUNT).toBe(31);
   });
 
   test(`still declines at construction (routes to V1): ${REPRESENTATIVE_CONSTRUCT_DECLINE.label}`, () => {

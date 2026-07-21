@@ -19,11 +19,18 @@
  * counts the message-pin shapes whose reject-bool coincidentally matched V1 (e.g.
  * "to-one update (FK-holder side) with nothing connected rejects"), which a
  * pass/fail enumeration silently under-counts. Measured size at T3 start: 43; after
- * T3-r2 absorbed family F (inverse-side to-one upsert, size 1): 42.
+ * T3-r2 absorbed family F (inverse-side to-one upsert, size 1): 42; after T3a
+ * absorbed 11 of family A's 13 (see below): 31.
  *
- * The eight decline families (root-cause site → remaining count):
+ * The decline families (root-cause site → remaining count):
  *   A. parent-held (FK-holder-side) to-one `update`/`delete`/`upsert` under an
- *      update root — `UpdateOperation.interpretParentHeldToOne` default (13)
+ *      update root — ABSORBED (T3a): 11 of 13 now run natively (native
+ *      `UpdateOperation` parent-held correlated `update`/`delete`/`upsert` arms:
+ *      locate the referenced target by the parent's FINAL FK value, mutate/delete
+ *      it, or found→update / absent→create+rebind). The **2 remaining** are the
+ *      parent-held update whose located-target DATA carries a nested relation write
+ *      (`container: { update: { nodes: { update } } }`) — the parent-held projection
+ *      of family B's nested-relation-in-update boundary, which stays pinned (2)
  *   B. nested relation writes inside a nested to-many `update` —
  *      `RelationWritePart` scalarData boundary (8)
  *   C. nested relation writes inside an m2m nested `create`/`update` (incl. the
@@ -46,9 +53,7 @@
 export const FALLBACK_OFF_RESIDUAL: ReadonlySet<string> = new Set([
   "nested-write conformance: D4 non-PK reference (tx vs batch) > D4: updating the referenced non-PK column threads the new value to a nested create",
   "nested-write conformance: FK relations (tx vs batch) > connectOrCreate create branch accepts recursive nested writes",
-  "nested-write conformance: FK relations (tx vs batch) > parent-holds-FK scalar rebind targets the final related row",
   "nested-write conformance: FK relations (tx vs batch) > to-many upsert creates then updates the current parent's child",
-  "nested-write conformance: FK relations (tx vs batch) > to-one upsert creates then updates the current target",
   "nested-write conformance: FK relations (tx vs batch) > top-level upsert setWhere no-match skips the update branch",
   "nested-write conformance: FK relations (tx vs batch) > top-level upsert targetWhere no-match skips the update branch",
   "nested-write conformance: FK relations (tx vs batch) > top-level upsert targetWhere+setWhere match runs the update branch",
@@ -59,9 +64,6 @@ export const FALLBACK_OFF_RESIDUAL: ReadonlySet<string> = new Set([
   "nested-write conformance: deep transitive target dependencies (tx vs batch) > deep nested update create and disjoint root decision succeed",
   "nested-write conformance: deep transitive target dependencies (tx vs batch) > deep nested update create then root decision rejects",
   "nested-write conformance: own-write dependencies (tx vs batch) > create then disjoint numeric update is allowed",
-  "nested-write conformance: to-one ops (tx vs batch) > to-one delete true (FK-holder side) nulls the FK then deletes the target",
-  "nested-write conformance: to-one ops (tx vs batch) > to-one update (FK-holder side) updates the connected author",
-  "nested-write conformance: to-one ops (tx vs batch) > to-one update (FK-holder side) with nothing connected rejects, state unchanged",
   // ABSORBED (T3-r2, family F): "to-one ops … > to-one upsert (inverse side)
   // creates then updates the profile" was pinned here; the inverse-side to-one
   // upsert is now handled natively by V2 (RelationWritePart correlated upsert arm),
@@ -71,7 +73,6 @@ export const FALLBACK_OFF_RESIDUAL: ReadonlySet<string> = new Set([
   "nested-write conformance: transitive membership dependencies (tx vs batch) > nested physical membership allows a disjoint source endpoint",
   "nested-write conformance: transitive membership dependencies (tx vs batch) > nested physical membership allows a disjoint target endpoint",
   "nested-write conformance: transitive membership dependencies (tx vs batch) > nested physical membership stays isolated by named junction scope",
-  "nested-write conformance: transitive membership dependencies (tx vs batch) > nested scalar FK rebind does not leak into a direct relation read",
   "nested-write conformance: transitive predicate dependencies (tx vs batch) > nested predicate update allows a later identity-only root filter",
   "nested-write conformance: transitive predicate dependencies (tx vs batch) > nested predicate update allows a numerically disjoint root filter",
   "nested-write conformance: transitive predicate dependencies (tx vs batch) > upsert update alternative predicate delta ignores an id-only filter",
@@ -80,20 +81,18 @@ export const FALLBACK_OFF_RESIDUAL: ReadonlySet<string> = new Set([
   "nested-write conformance: transitive target dependencies (tx vs batch) > selected top-level upsert create branch gets inherited traversal",
   "nested-write conformance: transitive target dependencies (tx vs batch) > selected top-level upsert update branch gets inherited traversal",
   "nested-write conformance: update membership root (tx vs batch) > connectOrCreate membership allows a disjoint cross-scope to-one upsert",
-  "nested-write conformance: update membership root (tx vs batch) > direct self parent update stays legal after scalar FK rebind",
-  "nested-write conformance: update membership root (tx vs batch) > direct self partner update consumes the rebound FK and stays legal",
-  "nested-write conformance: update membership root (tx vs batch) > inverse root seed does not taint a direct relation in the same write",
   "nested-write conformance: update membership root (tx vs batch) > nested create membership allows a disjoint cross-scope to-one upsert",
   "nested-write conformance: update membership root (tx vs batch) > non-self nested FK rebind allows a disjoint inverse holder",
   "nested-write conformance: update membership root (tx vs batch) > same-node non-self FK rebind allows a disjoint inverse holder",
-  "nested-write conformance: update membership root (tx vs batch) > self parent and inverse disjoint updates stay legal (direct-first)",
-  "nested-write conformance: update membership root (tx vs batch) > self parent and inverse disjoint updates stay legal (inverse-first)",
   "nested-write conformance: update predicate root (tx vs batch) > existing top-level upsert uses its exact pk for disjointness",
   "nested-write conformance: update predicate root (tx vs batch) > nested to-many update allows a disjoint child decision",
 ]);
 
 /** The measured residual count — asserted by the gate so the set cannot be silently
- *  trimmed. Shrinks by exactly the family size when a family is absorbed. Started at
- *  43 (T3 enumeration); 42 after T3-r2 absorbed family F (inverse-side to-one upsert,
- *  size 1). Each further absorption drops this by that family's size. */
-export const FALLBACK_OFF_RESIDUAL_COUNT = 42;
+ *  trimmed. Shrinks by exactly the absorbed size when a family (or a coherent slice
+ *  of one) is absorbed. Started at 43 (T3 enumeration); 42 after T3-r2 absorbed
+ *  family F (inverse-side to-one upsert, size 1); 31 after T3a absorbed 11 of family
+ *  A's 13 (parent-held to-one update/delete/upsert with scalar target data; the 2
+ *  nested-relation-target-data shapes stay pinned). Each further absorption drops
+ *  this by that slice's size. */
+export const FALLBACK_OFF_RESIDUAL_COUNT = 31;

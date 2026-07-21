@@ -301,6 +301,23 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   //     V1 owns; §7.2's narrower boundary).
   // The census dropped 43 → 42 in lockstep (family F's one scenario now runs
   // natively). No route was removed; nothing was faked green.
+  //
+  // 62 → 65 (T3a, TO-ONE.md §7.2, family A): the FK-holder-side (parent-held) to-one
+  // `update`/`delete`/`upsert` under an update root are ABSORBED (11 of family A's 13
+  // scenarios now run natively). The single default throw that carried them is
+  // repurposed (set/other kinds still route to V1 — unchanged count), and 3 FINER
+  // boundary routes are added in UpdateOperation.ts, exactly as T1/T2/T3-r2 added
+  // finer routes when they absorbed a family:
+  //   (+1) a parent-held to-one arm whose FK is compound or references a non-PK
+  //        unique (needs V1's staged mutation-identity resolution);
+  //   (+1) a parent-held `delete` that is not the boolean `delete: true` (V1's
+  //        captured targeted-delete path);
+  //   (+1) a parent-held `update`/`upsert` whose located TARGET data carries a nested
+  //        relation write (`author: { update: { posts: … } }`) — the parent-held
+  //        projection of family B's nested-relation-in-update boundary; the 2
+  //        unabsorbed family-A scenarios (the `container` shapes) live here.
+  // The census dropped 42 → 31 in lockstep (11 family-A scenarios now run natively).
+  // No route was removed; nothing was faked green.
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
@@ -311,7 +328,7 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
       const source = await readFile(join(dir, file), "utf8");
       sites += source.split("new UnsupportedOperationError(").length - 1;
     }
-    expect(sites).toBe(62);
+    expect(sites).toBe(65);
   });
 });
 
