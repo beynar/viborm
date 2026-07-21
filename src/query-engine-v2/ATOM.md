@@ -1120,6 +1120,75 @@ connectOrCreate-create-arm-depth ×1; H to-many-upsert-identity ×1), **not one*
   documented boundaries. `OperationFragment.ts` is **unchanged** — the VOCABULARY
   freeze held; nothing was faked green.
 
+**T3b — the recursion/depth group MEASURED; hypothesis verdict rendered; absorption
+deferred (census unchanged at 31; nothing faked green).** T3b took the 23-key
+recursion/depth group (`§7.6` families A-remainder ×2, B ×8, C ×10, E ×2, G ×1 — the
+shapes whose common form is "a nested write whose target payload itself carries
+relation writes"; the remaining D ×7, H ×1 are T3c/T3d) and did T3's load-bearing
+first act on it: **measure the decline SITE of every key**, not the family label. The
+`VIBORM_FALLBACK_OFF=1` census was re-run with each declined key's
+`UnsupportedOperationError` message captured; the 31-key site tally is **exactly** the
+`§7.6` table — A-rem 2 (`RelationWritePart` parent-held `update`-data relation guard),
+B 8 (`RelationWritePart` `scalarData`), C 10 (`RelationJunctionPart` `scalarOnly`), D 7
+(`UpsertOperation` scalar-arms-only), E 2 (`interpretToManyKind` nested-`create`
+default), G 1 (`buildArmChildParts` create-arm depth guard), H 1 (adopt-identity) —
+so the group boundary is now a measured fact, not a reading of intent.
+
+- **The hypothesis was: the 23 close through ONE generalization — recursive Part
+  composition (a nested target's payload builds its own child Parts, exactly as the
+  root does — the machinery `RelationUpsertPart.buildArmChildParts` proved in P1).**
+  VERDICT, said plainly: **one architecture, three mechanisms.** The *architecture* is
+  confirmed — every shape reuses the existing `Part` interface and V1 SQL builders,
+  and `OperationFragment.ts`'s vocabulary does not change; the scalarData/scalarOnly
+  throws exist only because nested targets were built scalar-only. But the 23 do **not**
+  fall to one code change; they split into three composition sites with materially
+  different **linearity preconditions** (WHY §4.2 / ATOM §3 corollary — no arm-dependent
+  produced value may cross a write boundary):
+  1. **Update-arm literal-parent recursion** (B, A-rem, and the C `update`/`upsert`
+     members): the nested-update target is located by its `where` PK, so a grandchild
+     FK is a compile-time literal (`literalParentId(pk)`) — a direct extension of
+     `buildArmChildParts`. **Added obligation P1 never had:** several B scenarios carry
+     a **PK transition + self-m2m** in the same nested `data`
+     (`children.update.data = { id: 2, links: { connectOrCreate … } }`, expecting
+     `sourceId: 2`), which requires the ROOT `UpdateOperation`'s
+     `reorderRootUpdateAfterChildren` + `ON UPDATE CASCADE` ordering **ported one level
+     down**. `buildArmChildParts` has no root-SET-rewrites-referenced-column concern, so
+     B is "thread `buildXxxParts`" PLUS "port the reorder discipline to depth".
+  2. **Create-arm fresh-parent recursion** (E, G, and the C `create` members): the
+     nested `create` target is fresh (ATOM §4 elision makes correlations under it
+     statically empty); its own PK (explicit in every census scenario) is the child
+     parts' `literalParentId`. This is the create-context composition
+     `CreateOperation` already runs at the root, threaded into the nested create target
+     — `buildArmChildParts`' create arm widened past its current one-level
+     connectOrCreate-only guard to dispatch the full child-Part set (junction `create`,
+     the G shape `posts.connectOrCreate → postTags.create → tag.connect`). The own-write
+     preflight (`assertUpdateOwnWriteSafety`, V1's analyzer verbatim) **already walks the
+     whole tree**, so the *reject* half of E's rejects/succeeds pairs is free; only the
+     *accept* half needs the composition.
+  3. **Depth-guard relaxation** (G, again): the decline is literally
+     `buildArmChildParts`' existing create-arm depth guard — absorbing it raises the
+     accepted depth by one level while mirroring V1's accepted depth EXACTLY (a KILL
+     SIGNAL), a non-local widening of every connectOrCreate/upsert create arm, not a new
+     composition.
+
+- **Why absorption is deferred (a sanctioned coherent-boundary stop, not a curated
+  green).** Realising mechanism 1 means factoring `UpdateOperation.interpretRelation`
+  (150+ lines, tightly coupled to `UpdateOperation`'s `this` state — `toOneLinks`,
+  `parentHeldTargets`, `locateFields`, the reorder set) into a reusable **depth-recursive
+  child-Part builder**, and porting the PK-transition/cascade ordering to depth. That is
+  a core-mutation-engine refactor whose every leaf is a byte-identical-to-V1 correlated
+  write needing its own dual-run oracle, a **multi-parent correlation witness at the
+  DEEPEST mutated level**, staleness injection for each new pin, and 5-database
+  certification (the PK-transition/cascade shapes are exactly where a bug passes PGlite
+  and diverges on MySQL/pg — the "sibling/correlation divergence at ANY depth" kill
+  signal). That exceeds a single session's certification budget; shipping it
+  under-certified would be the precise failure the discipline forbids. **So T3b measured
+  and rendered the verdict; it absorbed nothing.** `FALLBACK_OFF_RESIDUAL_COUNT` stays
+  **31**, the bidirectional census gate stays green on the unchanged surface, P6 stays
+  blocked, and `OperationFragment.ts` is untouched. The next drive absorbs one mechanism
+  at a time — B first (the cleanest scalarData boundary, per the work order), then C, the
+  A-remainder (which lands *with* B — it is B's parent-held projection), E, and G.
+
 ---
 
 ## 9. Invariants (the executable contract)

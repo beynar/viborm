@@ -979,6 +979,37 @@ family F, driving the surface 43 → 42; T3a absorbed 11 of family A's 13, drivi
   62 → 65 (three finer parent-held boundaries), the same finer-boundary bookkeeping
   T1/T2 did; `OperationFragment.ts` stayed unchanged — the vocabulary freeze held.
 
+### T3b — recursion/depth group measured; hypothesis rendered; absorption deferred (census 31, unchanged)
+
+T3b scoped the 23-key recursion/depth group (families **A-rem 2, B 8, C 10, E 2, G 1**;
+D 7 and H 1 are later) and ran T3's load-bearing first act on it — **measure the decline
+SITE of every residual key**, capturing each `UnsupportedOperationError` message under
+`VIBORM_FALLBACK_OFF=1`. The 31-key site tally is **exactly** the ATOM §7.6 / TO-ONE
+§7.6 table, so the group boundary is a measured fact, not a reading of intent.
+
+- **Hypothesis** ("the 23 close through ONE generalization — recursive Part composition,
+  the `RelationUpsertPart.buildArmChildParts` machinery P1 proved"). **Verdict: one
+  architecture, three mechanisms.** The architecture holds (the `Part` interface and V1
+  builders are reused; `OperationFragment.ts` untouched; scalarData/scalarOnly throws
+  exist only because nested targets were built scalar-only). The 23 split by linearity
+  precondition: (1) **update-arm literal-parent recursion** (B, A-rem, C `update`/`upsert`)
+  — target located by `where` PK → `literalParentId` — **plus** porting the root's
+  `reorderRootUpdateAfterChildren` + `ON UPDATE CASCADE` to depth for the B
+  PK-transition/self-m2m scenarios; (2) **create-arm fresh-parent recursion** (E, G, C
+  `create`) — the create-context composition threaded into a fresh nested target;
+  (3) **create-arm depth-guard relaxation** (G). The own-write preflight already walks
+  the whole tree, so every rejects/succeeds pair's reject half is free.
+- **Absorbed nothing this drive (a sanctioned coherent-boundary stop).** Mechanism (1)
+  needs `UpdateOperation.interpretRelation` factored into a reusable depth-recursive
+  child-Part builder plus PK-transition/cascade ordering ported to depth — a core-engine
+  refactor whose every leaf needs a dual-run oracle, a deepest-level multi-parent witness,
+  staleness pins, and 5-DB certification (the cascade shapes are precisely where PGlite
+  passes and MySQL/pg can diverge). That exceeds a single drive's certification budget;
+  under-certified shipping is the forbidden failure. `FALLBACK_OFF_RESIDUAL_COUNT` stays
+  **31**, the bidirectional census gate stays green on the unchanged surface, P6 stays
+  blocked, `OperationFragment.ts` untouched. Next drive: B first (cleanest scalarData
+  boundary), then C, A-remainder (lands with B), E, G — one mechanism at a time.
+
 ## P6 — Deletion and the honest audit
 
 Bulk-delete V1's operation/execution root once unreachable; keep what V2

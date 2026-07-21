@@ -630,3 +630,43 @@ dual-run oracle, correlation witness, and 5-database certification). The honest
 disposition: the true surface is measured and pinned; **P6 stays blocked** until the
 set is empty; the gate turns green only when a real absorption removes a family,
 never when the pin list is curated down.
+
+### 7.7 T3b — the recursion/depth group's hypothesis, measured
+
+T3b took the 23-key recursion/depth group (§7.6 families **A-remainder ×2, B ×8,
+C ×10, E ×2, G ×1** — "a nested write whose target payload itself carries relation
+writes"; D ×7 and H ×1 are later drives) and MEASURED the decline SITE of each of the
+31 residual keys by capturing every `UnsupportedOperationError` message under
+`VIBORM_FALLBACK_OFF=1`. The site tally is **exactly** the §7.6 table (A-rem 2 · B 8 ·
+C 10 · D 7 · E 2 · G 1 · H 1 = 31), so the group boundary is a measured fact.
+
+**The hypothesis** — "the 23 close through ONE generalization: recursive Part
+composition, a nested target building its own child Parts as the root does (the
+`RelationUpsertPart.buildArmChildParts` machinery P1 proved)". **Verdict: one
+architecture, three mechanisms.** The architecture holds — every shape reuses the
+`Part` interface and V1 SQL builders, `OperationFragment.ts` vocabulary is untouched,
+and the scalarData/scalarOnly throws exist only because nested targets were built
+scalar-only. But the 23 split by **linearity precondition** (WHY §4.2):
+(1) **update-arm literal-parent recursion** (B, A-rem, C's `update`/`upsert`) — nested
+target located by its `where` PK → `literalParentId(pk)`, extending `buildArmChildParts`
+— **plus** porting the root's `reorderRootUpdateAfterChildren` + `ON UPDATE CASCADE`
+to depth for the B PK-transition/self-m2m scenarios (`children.update.data = { id: 2,
+links … }` expecting `sourceId: 2`), an obligation P1 never carried;
+(2) **create-arm fresh-parent recursion** (E, G, C's `create`) — fresh target (ATOM §4
+elision), its explicit PK the child parts' `literalParentId`, the create-context
+composition `CreateOperation` runs at the root threaded into the nested create;
+(3) **create-arm depth-guard relaxation** (G) — raise `buildArmChildParts`' one-level
+guard while mirroring V1's accepted depth exactly. The own-write preflight
+(`assertUpdateOwnWriteSafety`, V1's analyzer verbatim) already walks the whole tree, so
+the reject half of every rejects/succeeds pair is free.
+
+**Absorption is deferred** (a sanctioned coherent-boundary stop, not a curated green):
+mechanism (1) requires factoring `UpdateOperation.interpretRelation` into a reusable
+depth-recursive child-Part builder and porting PK-transition/cascade ordering to depth
+— a core-engine refactor whose every leaf needs its own dual-run oracle, a multi-parent
+witness at the **deepest** mutated level, staleness pins, and 5-DB certification (the
+PK-transition/cascade shapes are exactly where a bug passes PGlite and diverges on
+MySQL/pg). `FALLBACK_OFF_RESIDUAL_COUNT` stays **31**; the census gate stays green on
+the unchanged surface; **P6 stays blocked**. The next drive absorbs one mechanism at a
+time — B first, then C, A-remainder (which lands *with* B, being its parent-held
+projection), E, G.
