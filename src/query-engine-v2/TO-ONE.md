@@ -218,7 +218,7 @@ inherits the reject; see §4.
 | parent-held `create` target INSERT | **none** | — | unconditional nested create; a unique violation is a genuine error, never a probe's missing arm (ATOM §8.1 P6-prereq). No racePin. |
 | parent-held `connect`, **uncovered** | existing-row premise: tx FOR-UPDATE probe found-at-compile; batch `presenceGuard` (`exists`) | `false` | disable the guard → raw FK error instead of V1's "Cannot connect relation … target record was not found" |
 | parent-held `connect`, **covered** by sibling before-parent create | **none** | — | existence is our own before-parent write inside the envelope; no stale-read race exists |
-| parent-held `connectOrCreate` FOUND arm | existing-row premise: `presenceGuard` (`exists`) | `false` | same as uncovered connect |
+| parent-held `connectOrCreate` FOUND arm | existing-row premise: `presenceGuard` (`exists`) | `false` | disable the guard → raw FK error instead of V1's replacement-race message "Record was replaced by another transaction during nested connectOrCreate" (`nestedReplacement`, V1 `RelationBranches.replacementFailure`) |
 | parent-held `connectOrCreate` MISSING arm target INSERT | **constraint + `racePin`**, never a `notExists` guard (Pin Rule class 2) | `true` (the raceable create-branch signal) | disable racePin → a concurrent create of the same key surfaces as a hard `UniqueConstraintError` instead of the retry-and-adopt convergence |
 | child-held to-one `connect`/`connectOrCreate` (after-parent adopt) | reuses the existing `ChildConnectPart` / `RelationUpsertPart` pins (existing-row `exists`, `raceable: false`; missing arm constraint + racePin) | per part | already falsified for the to-many case; the to-one arity rides the same pins |
 

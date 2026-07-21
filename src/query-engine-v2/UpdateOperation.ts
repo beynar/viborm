@@ -50,7 +50,7 @@ import {
   queryFailure,
   referenceSql,
 } from "./fragment-builders";
-import { relationTargetNotFound } from "./messages";
+import { nestedReplacement, relationTargetNotFound } from "./messages";
 import {
   type OperationFragment,
   type OperationStep,
@@ -1276,7 +1276,10 @@ export class UpdateOperation {
               target.guardId,
               target.guardProbe,
               nestedWriteFailure(
-                relationTargetNotFound(target.relationInfo, "connect"),
+                // V1's found-arm captured guard: the planning-seen target vanished
+                // before the batch — a replacement race, not a plain not-found
+                // (RelationBranches replacementFailure; byte-identical message).
+                nestedReplacement("connectOrCreate"),
                 target.relationName,
                 false
               )

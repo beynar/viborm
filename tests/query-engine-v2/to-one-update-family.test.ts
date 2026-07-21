@@ -513,9 +513,11 @@ describe("query-engine-v2 to-one update family: T2 pin falsifications", () => {
       driver,
     });
 
-    // The found arm folds userId=1 into the root UPDATE; if the user vanishes before
-    // commit the batch must fail closed (presence guard / FK backstop), never write
-    // a dangling FK.
+    // The found arm folds userId=1 into the root UPDATE; if the user vanishes
+    // before commit the GUARD must fail the batch with V1's typed replacement
+    // message. Asserting the exact message isolates the guard from the DB FK
+    // backstop (which would reject with a different error) — disabling the
+    // guard now fails THIS assertion, not just the write.
     await expect(
       (routed.client as any).post.update({
         where: { id: 6 },
@@ -525,7 +527,9 @@ describe("query-engine-v2 to-one update family: T2 pin falsifications", () => {
           },
         },
       })
-    ).rejects.toThrow();
+    ).rejects.toThrow(
+      "Record was replaced by another transaction during nested connectOrCreate"
+    );
     const posts = await (base as any).post.findMany({ where: { id: 6 } });
     expect(posts[0].userId).toBeNull(); // the FK never landed
     await (base as any).$disconnect();
