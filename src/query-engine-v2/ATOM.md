@@ -1048,6 +1048,37 @@ write is a **root parent UPDATE**, not an INSERT fold.
   dual-run oracle (`to-one-update-family.test.ts`) certifies V1 == v2-tx == v2-batch
   across the family. `OperationFragment.ts` **unchanged** — the freeze held.
 
+**T3 — the final surface MEASURED, not curated (freeze held; NO vocabulary change;
+NO absorption landed).** `TO-ONE.md §7.6` is normative. The T2 entry above claimed
+the residual was "exactly one entry". That was the curated pin list carried since
+T1 — the exact dishonesty the T2 "theater replay" was chartered to end. T3's first
+and load-bearing act was to MEASURE the surface instead of curating it: run the
+full `nested-write-conformance` suite with `setV1FallbackDisabled(true)` and count
+every scenario whose whole tree V2 declines (`declinedToV1`, which also catches the
+reject-parity shapes a pass/fail count misses). The measure is **43 scenarios
+across EIGHT decline families** (A parent-held to-one update/delete/upsert ×13; B
+nested-relation-in-nested-update ×8; C m2m-nested-create/update-with-relations ×8;
+D top-level-upsert-nested-arms ×7; E nested-create-under-update/D4 ×2; F
+inverse-side-to-one-upsert ×1; G connectOrCreate-create-arm-depth ×1; H
+to-many-upsert-identity ×1), **not one**.
+
+- **The census is now machine-checked, not prose.** `FALLBACK_OFF_RESIDUAL`
+  (tests/query-engine-v2/fallback-off-residual.ts) pins the 43 `group > scenario`
+  keys; the `VIBORM_FALLBACK_OFF=1` conformance harness (wired into `pnpm
+  test:gates`) enforces it bidirectionally — a pinned scenario MUST decline on both
+  substrates, a non-pinned one MUST run natively on V2. The decline-surface gate
+  asserts the census SIZE (43) so it cannot be silently trimmed; falsified by
+  dropping one entry → gate red. This is the honest correction of the ATOM census:
+  §8.1's create-arm-deferral disposition and the T2 entry's "exactly one" are
+  superseded by a measured, falsifiable fact.
+- **No family was absorbed in T3.** Each of A–H is a coherent composite-absorption
+  unit — a byte-identical-to-V1 correlated write (§7.6) needing its own dual-run
+  oracle, correlation witness, and 5-database certification; eight of them exceed
+  one phase's honest capacity, and a rushed absorption is the failure mode the
+  charter forbids. Disposition: the surface is measured, pinned, and P6-blocking.
+  The route-inventory throw-site count (59) and `OperationFragment.ts` are
+  **unchanged** — the freeze held; nothing was faked green.
+
 ---
 
 ## 9. Invariants (the executable contract)

@@ -441,9 +441,23 @@ parent's own FK points at — mutate committed state correlated by the parent's 
 value (`correlatedWhere(fk, parentValues)` for `holdsFK` is `child.referenced =
 parent.fkValue`); `delete` additionally nulls the parent FK first (`RelationRemovals.
 delete`, the `fk.holdsFK` arm). These are the "FK-holder-side" arms; where a shape
-needs V1's staged `compileLocatedUpdate` recursion the whole tree routes to V1
-(a documented boundary, mirroring the to-many nested-`update`-grandchildren
-boundary `RelationWritePart.scalarData` already draws).
+needs V1's staged `compileLocatedUpdate` recursion the whole tree routes to V1.
+
+> **T3 amendment (this was NOT a durable "documented boundary").** T2 called the
+> FK-holder-side `update`/`delete` route-to-V1 a "documented boundary, mirroring
+> the to-many nested-`update`-grandchildren boundary". The T3 measurement (a full
+> `nested-write-conformance` run with the V1 fallback DISABLED) proves it is a
+> **migration target, not a boundary**: `UpdateOperation.interpretParentHeldToOne`
+> declines every parent-held to-one `update`/`delete`/`upsert` under an update
+> root — 13 conformance scenarios V1 accepts-and-executes (or reject-parities) and
+> V2 hands wholesale to V1. It is **family A** of the eight-family, 43-scenario
+> fallback-carrying surface (`FALLBACK_OFF_RESIDUAL`, tests/query-engine-v2/
+> fallback-off-residual.ts), not an intrinsic limit of the atom. Absorbing it is a
+> parent-held correlated child write (`child.referenced = parent.fkValue`, the
+> located FK value inlined at compile; a null FK is V1's typed "nothing connected"
+> reject) plus, for `delete`, the null-parent-FK-then-delete ordering — the same
+> `RelationRemovals`/`compileLocatedUpdate` shapes V1 already spells, reused. P6
+> may not delete V1 while this (or any of families B–H) remains pinned.
 
 ### 7.3 The sibling-coupling analysis for update roots (b)
 
@@ -492,3 +506,38 @@ close. T2 absorbs two, leaving one:
   nested-relation upsert branch (create-or-update the correlated child) whose D4
   threading and deliberate-decline closure T3 owns. The residual shrinks to exactly
   this one entry; the gate stays honestly non-empty.
+
+### 7.6 T3 correction — the residual was NEVER "exactly one entry"
+
+§7.5 stated the residual "shrinks to exactly this one entry" at T2's close. That
+was the curated pin list, not the measured surface — the exact mistake the T2
+theater replay was chartered to end. T3's first act was to MEASURE it: run the
+full `nested-write-conformance` suite with `setV1FallbackDisabled(true)` and count
+every scenario whose whole tree V2 declines (`declinedToV1` — a V2
+`UnsupportedOperationError` anywhere in seed/act, which also catches the
+reject-parity shapes whose reject-bool coincidentally matched V1 and which a
+pass/fail count under-reports). The measure is **43 scenarios across EIGHT
+families**, not one:
+
+| family | decline site | count |
+| --- | --- | --- |
+| A. parent-held to-one `update`/`delete`/`upsert` under update | `interpretParentHeldToOne` default | 13 |
+| B. nested relation writes inside a nested to-many `update` | `RelationWritePart` scalarData | 8 |
+| C. nested relation writes inside an m2m nested `create`/`update` | `RelationJunctionPart` scalarData | 8 |
+| D. top-level `upsert` with nested-relation create/update arms | `UpsertOperation` scalar-arms-only | 7 |
+| E. nested `create` under update whose create data carries relations / D4 | depth guard | 2 |
+| F. inverse-side to-one `upsert` (the sole pre-T3 pin) | `interpretInverseToOneKind` default | 1 |
+| G. `connectOrCreate` create-arm recursion one level too deep | depth guard | 1 |
+| H. to-many `upsert` create-then-update identity spelling | — | 1 |
+
+The census is now the machine-checked `FALLBACK_OFF_RESIDUAL`
+(tests/query-engine-v2/fallback-off-residual.ts), enforced bidirectionally by the
+`VIBORM_FALLBACK_OFF=1` conformance run wired into `pnpm test:gates`: a pinned
+scenario MUST decline on both substrates; a non-pinned one MUST run natively on V2.
+**No absorption landed in T3** — the surface proved to be eight coherent
+composite-absorption units (each a byte-identical-to-V1 correlated write requiring
+its own dual-run oracle, correlation witness, and 5-database certification), which
+is larger than one phase can absorb without the theater the mission forbids. The
+honest disposition: the true surface is measured and pinned; P6 stays blocked; the
+gate now turns green only when a real absorption removes a family, never when the
+pin list is curated down.

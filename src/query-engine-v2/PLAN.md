@@ -882,6 +882,68 @@ own-write preflight and per-tree routing enforce coherence, not a coverage ledge
   `OperationFragment.ts` surface was **unchanged** — the freeze held. **V1 stays
   reachable; P6 waits on T3.**
 
+## T3 — the final surface *(measured, not curated; NO absorption landed)*
+
+**T3 was chartered as the last absorption phase — drive the fallback-carrying
+decline surface to ZERO, then P6 deletes V1. Its first act instead exposed that the
+number the previous phases were driving to zero was a fiction.** The gate carried
+`FALLBACK_CARRYING_RESIDUAL` as "exactly one entry" (the inverse-side to-one upsert
+arm). T3 MEASURED the real surface — a full `nested-write-conformance` run with
+`setV1FallbackDisabled(true)`, counting every scenario V2 declines
+(`declinedToV1`) — and found **43 scenarios across EIGHT decline families**, not
+one. This is the T2 "theater replay" lesson made structural: the census is a run of
+the full suite fallback-off, never a hand-maintained pin list.
+
+- **The measured surface (the phase's contract).**
+
+  | family | decline site | count |
+  | --- | --- | --- |
+  | A. parent-held to-one `update`/`delete`/`upsert` under update | `interpretParentHeldToOne` | 13 |
+  | B. nested relation writes in a nested to-many `update` | `RelationWritePart.scalarData` | 8 |
+  | C. nested relation writes in an m2m nested `create`/`update` | `RelationJunctionPart.scalarData` | 8 |
+  | D. top-level `upsert` with nested-relation arms | `UpsertOperation` scalar-arms guard | 7 |
+  | E. nested `create` under update carrying relations / D4 | depth guard | 2 |
+  | F. inverse-side to-one `upsert` (the sole pre-T3 pin) | `interpretInverseToOneKind` | 1 |
+  | G. `connectOrCreate` create-arm one level too deep | depth guard | 1 |
+  | H. to-many `upsert` create-then-update identity | — | 1 |
+
+- **THE GATE delivered (the P6 premise, machine-checked at last).**
+  `FALLBACK_OFF_RESIDUAL` (tests/query-engine-v2/fallback-off-residual.ts) pins the
+  43 `group > scenario` keys. The `VIBORM_FALLBACK_OFF=1` conformance harness (env-
+  gated, inert on normal runs, wired into `pnpm test:gates`) enforces it
+  bidirectionally: a pinned scenario MUST decline on both substrates; a non-pinned
+  one MUST run natively on V2 with the fallback OFF. The decline-surface gate pins
+  the census SIZE (43) against silent trimming and re-proves one representative
+  construct-time decline. Falsified: drop one census entry → gate red (`expected 42
+  to be 43`) → restored. The `declinedToV1` measure (a V2 `UnsupportedOperationError`
+  anywhere in seed/act) is stricter than pass/fail — it caught the 43rd scenario, a
+  reject-parity shape ("to-one update (FK-holder side) with nothing connected
+  rejects") whose reject-bool coincidentally matched V1 and which the 42-count run
+  missed.
+
+- **NO family was absorbed, and that is the honest disposition — not a failure to
+  try.** Calibration (TO-ONE.md §7.6): even family F (the single pre-T3 pin) is a
+  new correlated Part with no unique `where` — an inverse-side present-or-create
+  keyed on `fk = parent`, byte-identical to V1 across tx/batch and five databases.
+  Each of A–H is a comparable or larger composite-absorption unit demanding its own
+  dual-run oracle, correlation witness, staleness injection, and 5-DB certification.
+  Eight such units exceed one phase's honest capacity; a rushed, half-verified
+  absorption is exactly the theater the charter forbids ("a smaller true census
+  beats a rushed absorption"). T3 therefore STOPS at a coherent boundary: the
+  surface is measured, machine-checked, and pinned; TO-ONE.md §7.2's "documented
+  boundary" is re-labelled a **migration target**; the route-inventory throw-site
+  count (59) and `OperationFragment.ts` are unchanged (freeze held). **P6 remains
+  blocked — V1 is reachable behind 43 shapes and is NOT deletable — and the gate now
+  turns green only when a real absorption removes a family, never when the pin list
+  is curated down.**
+
+- **What the next absorbing phase inherits.** A truthful, falsifiable spec: the 43
+  named scenarios, their eight decline sites, and a gate that fails the instant a
+  family is claimed-absorbed without the scenarios passing fallback-off natively.
+  Order of least-risk first: F (1, the adjacent Part), then A (13, §7.6's parent-
+  held correlated write), then D (7, `UpsertOperation` arms reusing create/update
+  trees), then B/C/E/G (the nested-relation-depth recursion), H last.
+
 ## P6 — Deletion and the honest audit
 
 Bulk-delete V1's operation/execution root once unreachable; keep what V2
