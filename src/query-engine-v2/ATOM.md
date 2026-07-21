@@ -824,6 +824,59 @@ absorbed — they die with V1 at P6. The write-path perf misses (`scalar update`
 deliberate trade-off**, deferred to a named backlog item, and are NOT part of the
 P5 gate. No behavior contract was weakened, no test skipped or pinned-to-hide.
 
+**P6-prerequisite update — the create family lands, and fresh-parent elision is
+witnessed across the whole surface (freeze held; NO vocabulary change).** The
+first P6 attempt correctly STOPPED before deletion: `create` — the largest write
+family — was never migrated (it fell back to V1 by *omission* from
+`ROUTED_OPERATIONS`, invisible to the throw-site route census). This phase
+migrates it. `CreateOperation` is generalized from the P1 nested-upsert proof
+slice to the full surface: root scalars/defaults/generated + known PKs,
+select/include, the statement-atomic `INSERT … RETURNING` fold; and the whole
+nested tree — nested `create`/`createMany` (grouped through `buildCreateManyPlan`,
+so heterogeneous rows split into contiguous same-shape INSERTs), `connect`
+(global reparent), `connectOrCreate`, the P−1.2 `upsert` superset, M2M
+create/connect/connectOrCreate through the junction, parent-held to-one
+`connect`, compound-FK children, self-relations, and depth (grandchildren+).
+
+**FRESH-PARENT ELISION (§4) is the central technique, now positively witnessed.**
+A child of a parent this operation just created cannot pre-exist, orphan, or
+collide with committed state, so the adopt family runs GLOBAL and a nested
+`create` is an unconditional INSERT (no probe, no `notExists` guard — its unique
+violation is a genuine error, never a raceable create-branch signal). The only
+NON-elided pins in a create tree are the existing-row premises the tree adopts —
+a parent-held to-one `connect` target and a child-held `connect` target — pinned
+`raceable: false` (tx: locked/found-at-compile; batch: `presenceGuard`). Both
+were falsified once (child-held: disabling the guard lets the create resolve with
+an orphaned edge instead of failing closed; parent-held: disabling it yields a raw
+FK error instead of V1's `Cannot connect relation … target record was not found`
+— the FK constraint is a fail-closed backstop, the guard is the V1 message). The
+racePins still ride the adopt family's create arms (`RelationUpsertPart`) per the
+Pin Rule; a nested `create`'s INSERT carries none. The census rows are exercised
+by a live consumer: `ProducedValue` (the child FK is `ref(parent.create, id)`),
+grouped multi-statement `createMany`, the adopt-family pins.
+
+The dual-run oracle (`create-family.test.ts`) certifies V1 == V2-tx == V2-batch
+byte-identical (state + result + error + message) across that surface, plus the
+**extension-scenario class**: nested one-to-many `upsert` under `create` is the
+deliberate P−1.2 Prisma superset — V1 REJECTS it at runtime (`Nested operation
+'upsert' … is not supported in parent create`), V2 adopts-and-updates globally;
+the oracle asserts V1's typed rejection and V2's pinned state (tx == batch). The
+one-directional divergences that remain are honest routes/retargets: shared-PK
+`connect`, M2M `upsert`-under-create, and a nested `create`/`connectOrCreate` on a
+parent-held to-one route to V1 (typed `UnsupportedOperationError` at construction);
+and a small set of SYNTHETIC-DRIVER and V1-INTERNAL-mechanics tests (V1's
+`compileCreate` compilation spy; the batch-only-driver shared insertId-scratch
+merge; the non-returning-*without*-`insertId` `lastInsertId()` refetch; a
+malformed-batch result-contract meta) are retargeted to the frozen V1 runtime —
+real drivers pass (Docker MySQL 468/468, Postgres 407), they assert V1's exact
+mechanics, and they die with V1 at P6. The `OperationFragment.ts` surface was
+**unchanged** (snapshot + token gate green), `StatementStep.onUniqueConflict` is
+still the only executor effect, and the one generic executor change — the V7006
+un-attributable-abort floor (V1's `attributeOperationBatchError`, ported) — is
+taxonomy already in the census, not an operation-specific branch. With the create
+family routed and a full-client-surface routing assertion pinning it (no family
+falls back to V1 by omission), the P6 deletion precondition is MET.
+
 ---
 
 ## 9. Invariants (the executable contract)

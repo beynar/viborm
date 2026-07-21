@@ -189,7 +189,21 @@ describe("PendingOperation", () => {
   });
 
   test("canBatch() prepares composed writes as one atomic program", async () => {
-    const nestedCreateOp = client.user.create({
+    // AUTHORIZED V1-runtime retarget (PLAN "P6-prerequisite — the create family").
+    // This prepares a create constructed on a TX-capable client for a SYNTHETIC
+    // batch-only driver (supportsTransactions:false) — a driver combination no
+    // real backend exposes (pg/mysql2/sqlite3/libsql/pglite all support
+    // transactions, so `$transaction([...])` on them runs in tx mode, where V2
+    // create is fully certified). V2 constructs the create tree in tx mode
+    // (terminal-read postcondition) and does not lower that postcondition into a
+    // foreign batch driver; V1's batch runtime composes it. Retargeted until V1
+    // is deleted at P6.
+    const v1Client = createClient({
+      schema,
+      driver: new PGliteDriver({ client: db }),
+      queryEngine: "v1",
+    });
+    const nestedCreateOp = v1Client.user.create({
       data: {
         id: "1",
         name: "Test",
@@ -530,9 +544,18 @@ describe("$transaction with array (batch mode)", () => {
       schema: batchPrimaryKeyDataflowSchema,
       driver: new PGliteDriver({ client: batchDb }),
     });
+    // AUTHORIZED V1-runtime retarget (PLAN "P6-prerequisite — the create family").
+    // Merging a GENERATED-ID create (an insertId scratch reference) from one
+    // operation into a SHARED cross-operation `$transaction([...])` driver batch
+    // on a SYNTHETIC batch-only driver: V2's shared-batch protocol does not thread
+    // insertId scratch across the operation-merge offset (it fails closed rather
+    // than emit a colliding batch), and no real backend is batch-only anyway
+    // ($transaction runs in tx mode on all of them, where V2 create is certified).
+    // V1's batch runtime threads the scratch. Retargeted until V1 is deleted at P6.
     const batchOnlyClient = createClient({
       schema: batchPrimaryKeyDataflowSchema,
       driver: new BatchOnlyPGliteDriver({ client: batchDb }),
+      queryEngine: "v1",
     });
 
     try {
@@ -575,9 +598,13 @@ describe("$transaction with array (batch mode)", () => {
       schema: batchPrimaryKeyDataflowSchema,
       driver: new PGliteDriver({ client: batchDb }),
     });
+    // AUTHORIZED V1-runtime retarget (PLAN "P6-prerequisite — the create family");
+    // same synthetic batch-only insertId-scratch shared-merge as the sibling test
+    // above (generated + updated primary-key nested plans). Retargeted until P6.
     const batchOnlyClient = createClient({
       schema: batchPrimaryKeyDataflowSchema,
       driver: new BatchOnlyPGliteDriver({ client: batchDb }),
+      queryEngine: "v1",
     });
 
     try {

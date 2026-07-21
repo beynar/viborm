@@ -87,7 +87,19 @@ async function setupDb(): Promise<PGlite> {
 function boot<TDriver extends PGliteDriver>(
   driver: TDriver
 ): VibORMClient<{ schema: BehaviorSchema; driver: TDriver }> {
-  return createClient({ schema: nestedWriteBehaviorSchema, driver });
+  // AUTHORIZED V1-runtime retarget (PLAN "P6-prerequisite — the create family",
+  // Class B). This whole file asserts a FROZEN V1 INTERNAL — that create trees
+  // compile through `RelationMutations.compileCreate` into one OperationProgram
+  // (the spy at every test). Once `create` routes to V2 (this phase), V2 owns
+  // create and never calls `compileCreate`, so the spy can never fire. The
+  // create BEHAVIOR these trees assert is certified head-to-head against V2 by
+  // the create-family dual-run oracle; this file keeps testing V1's compiler via
+  // the escape hatch until V1 (and this file) are deleted at P6.
+  return createClient({
+    schema: nestedWriteBehaviorSchema,
+    driver,
+    queryEngine: "v1",
+  }) as unknown as VibORMClient<{ schema: BehaviorSchema; driver: TDriver }>;
 }
 
 describe("relation create-family execution", () => {

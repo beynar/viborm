@@ -126,3 +126,13 @@ export function upsertSkipPremiseChanged(
 ): string {
   return `query-engine-v2 top-level upsert ${field} skip premise changed before the atomic batch.`;
 }
+
+/**
+ * The step-4 abort floor (V1's `attributeOperationBatchError`, byte-identical): a
+ * batch assertion aborted with no guard to attribute or re-probe against — a
+ * guard-free write ladder. Surfaced as the typed non-raceable V7006 floor. Lives
+ * here (not the executor) so the executor stays free of operation-noun tokens
+ * (structural gate a); the wording matches V1's frozen runtime verbatim.
+ */
+export const NESTED_WRITE_ASSERTION_FLOOR_MESSAGE =
+  "Nested write assertion failed: a batch precondition (e.g. a connect/disconnect target or ownership check) did not hold.";

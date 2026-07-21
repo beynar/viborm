@@ -114,15 +114,17 @@ function normalizeError(error: unknown): ErrorShape {
     : { name: error.name, code: stable, message: error.message };
 }
 
-type Client = Record<string, Record<string, (args: any) => Promise<any>>>;
+// A loose client shape for the scenario closures — the oracle drives many
+// schemas through one harness, so per-model typing is deliberately erased here.
+type AnyClient = any;
 type ArmKind = "v1" | "v2-tx" | "v2-batch";
 
 interface Scenario {
   name: string;
   schema: Record<string, Model<any>>;
-  seed: (client: Client) => Promise<unknown>;
-  act: (client: Client) => Promise<unknown>;
-  dump: (client: Client) => Promise<unknown>;
+  seed: (client: AnyClient) => Promise<unknown>;
+  act: (client: AnyClient) => Promise<unknown>;
+  dump: (client: AnyClient) => Promise<unknown>;
   /** Extension class (P−1.2): V1 rejects at runtime, V2 adopts. `v1Rejects`
    *  is a substring of V1's typed message; V2 tx/batch must agree and succeed. */
   extension?: { v1Rejects: string };
@@ -136,8 +138,8 @@ async function runArm(kind: ArmKind, scenario: Scenario) {
     schema: scenario.schema,
     driver: new PGliteDriver({ client: db }),
   });
-  await push(base as unknown as Client, { force: true } as never);
-  await scenario.seed(base as unknown as Client);
+  await push(base, { force: true });
+  await scenario.seed(base);
 
   let result: unknown;
   let error: ErrorShape | undefined;
@@ -149,7 +151,7 @@ async function runArm(kind: ArmKind, scenario: Scenario) {
         driver: new PGliteDriver({ client: db }),
         queryEngine: "v1",
       });
-      result = await scenario.act(v1 as unknown as Client);
+      result = await scenario.act(v1);
     } else {
       const driver =
         kind === "v2-tx"
@@ -161,13 +163,13 @@ async function runArm(kind: ArmKind, scenario: Scenario) {
         driver,
       });
       routes = routed.routes;
-      result = await scenario.act(routed.client as unknown as Client);
+      result = await scenario.act(routed.client);
     }
   } catch (thrown) {
     error = normalizeError(thrown);
   }
-  const state = await scenario.dump(base as unknown as Client);
-  await (base as unknown as { $disconnect: () => Promise<void> }).$disconnect();
+  const state = await scenario.dump(base);
+  await base.$disconnect();
   const routedToV2 = kind === "v1" || routes.every((r) => r.engine === "v2");
   return { result, error, state, routedToV2, routed: routes.length > 0 };
 }

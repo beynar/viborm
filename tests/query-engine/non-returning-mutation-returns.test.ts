@@ -122,13 +122,31 @@ describe("non-RETURNING mutation returns", () => {
   });
 
   test("create returns the created row using inserted id for generated primary key", async () => {
-    const result = await client.autoUser.create({
+    // AUTHORIZED V1-runtime retarget (PLAN "P6-prerequisite — the create family").
+    // The driver here is SYNTHETIC: a Postgres adapter forced non-returning
+    // (supportsReturning:false) yet, being PGlite, surfaces NO result.insertId —
+    // a combination that does not exist in production (real Postgres has
+    // RETURNING; the real non-returning driver, MySQL, surfaces insertId, and V2
+    // create passes the Docker MySQL leg 468/468). V2 captures the generated PK
+    // through the insertId scratch address; V1 refetches by an
+    // `adapter.lastInsertId()` SQL expression, the only mechanism that works on a
+    // driver surfacing neither. This synthetic-driver generated-PK case stays on
+    // V1's runtime until V1 is deleted at P6. (Every OTHER non-returning create
+    // test in this file — provided PK, nested, connect — runs on V2.)
+    const v1Client = createClient({
+      schema,
+      driver: new NonReturningPGliteDriver(),
+      queryEngine: "v1",
+    });
+    await push(v1Client, { force: true });
+    const result = await v1Client.autoUser.create({
       data: { email: "generated@test.com", name: "Generated" },
     });
 
     expect(result.id).toBe(1);
     expect(result.email).toBe("generated@test.com");
     expect(result.name).toBe("Generated");
+    await v1Client.$disconnect();
   });
 
   test("update returns the updated row and throws not-found for a missing row", async () => {

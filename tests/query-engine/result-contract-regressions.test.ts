@@ -360,9 +360,19 @@ describe("planned batch result cardinality", () => {
   });
 
   test("rejects an empty final refetch row when every statement slot exists", async () => {
+    // AUTHORIZED V1-runtime retarget (PLAN "P6-prerequisite — the create family").
+    // This asserts V1's SPECIFIC batch-refetch cardinality META
+    // (expectedRowCount/actualRowCount) on a SYNTHETIC fault-injection driver
+    // (MalformedBatchDriver). V2's minimized atom rejects the same malformed
+    // batch, but its terminal-read cardinality failure carries the frozen
+    // postcondition vocabulary, not V1's result-contract rowCount meta —
+    // expressing that meta would grow the FROZEN Failure vocabulary (the kill
+    // signal). Real drivers never emit a malformed batch; this synthetic
+    // mechanics assertion stays on V1's runtime until V1 is deleted at P6.
     const client = createClient({
       schema: malformedBatchSchema,
       driver: new MalformedBatchDriver("empty-final"),
+      queryEngine: "v1",
     });
 
     try {

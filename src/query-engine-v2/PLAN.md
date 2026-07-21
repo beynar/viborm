@@ -645,6 +645,77 @@ frozen (snapshot + token gates green), the 36-throw-site route tripwire unchange
 no new effect annotation. The `queryEngine: "v1"` escape hatch is still scheduled
 for deletion in P6.
 
+## P6-prerequisite — the create family
+
+**Why this phase exists (the blind spot).** The first P6 attempt correctly
+BLOCKED before any deletion: its premise — "exactly ONE route to V1 remains" —
+was false. The **`create` family, the largest write family, was never migrated**.
+It fell back to V1 by *omission* from `routing.ts` `ROUTED_OPERATIONS`, and the
+route-inventory pin could not see it: that pin counts `UnsupportedOperationError`
+throw-sites, and a family that falls back to V1 by omission produces no throw.
+`CreateOperation.ts` was the P0/P1 nested-upsert **proof slice** (it threw unless
+the payload was exactly `create` + one nested to-many `upsert`); every real
+`create` ran V1's `OperationRuntime`/`OperationCompiler`/`WriteOperations` — the
+Stage-3 delete targets. Deleting V1's root would have broken every create and
+80+ test files. Both P6 reviewers demanded this phase plus a positive
+full-surface routing assertion; the P6 fix-round-1 commit added the assertion
+(`DOCUMENTED_V1_FALLBACK = {create}`) and made emptying it the P6 precondition.
+
+**What closed it.** `CreateOperation` is generalized to the full surface (root
+scalars/defaults/generated + known PKs, select/include, the `INSERT … RETURNING`
+fold; the whole nested tree — nested `create`/`createMany` via
+`buildCreateManyPlan`, `connect`, `connectOrCreate`, the P−1.2 `upsert` superset,
+M2M through the junction, parent-held to-one `connect`, compound-FK children,
+self-relations, depth). `create` is added to `ROUTED_OPERATIONS` +
+`constructOperation` (production **and** the oracle proxy). Fresh-parent elision
+(ATOM §4) is the central technique and is now positively witnessed (ATOM §8.1
+P6-prerequisite update); the only non-elided pins are the two `connect`-target
+premises, each falsified once. The dual-run oracle (`create-family.test.ts`,
+21/21) certifies V1 == V2-tx == V2-batch byte-identical over the surface plus the
+extension-scenario class (V1 rejects `upsert`-under-create; V2 adopts).
+
+**The full-surface routing assertion (the reviewers' demand).**
+`route-inventory.test.ts` now enumerates all 18 client operation families with a
+compile-time completeness guard, asserts each either constructs on V2 or is a
+listed `DOCUMENTED_V1_FALLBACK` (now **EMPTY**), and proves `create` constructs on
+V2 by construction. Falsified: removing `create` from `ROUTED_OPERATIONS`
+re-opens the by-omission hole and fails both the emptiness and the
+by-construction assertions. **P6's deletion precondition is now MET** — no family
+falls back to V1 by omission.
+
+**Adoption-standard conflicts from the full-estate soak (recorded, not hidden).**
+The first full-suite run of the V1 corpus against V2-routed `create` surfaced 14
+divergences. Six were genuine bugs, fixed to convergence (empty default
+projection → `{}`; heterogeneous nested `createMany` grouping; the V7006
+un-attributable-abort floor; shared-PK connect and M2M upsert-under-create routed
+to V1 at construction). Eight were **SYNTHETIC-DRIVER or V1-INTERNAL-mechanics**
+tests, each retargeted to the frozen V1 runtime (`queryEngine: "v1"`) with an
+inline authorization comment — the Class-B pattern established at P5:
+
+- **`m3-create-family-interpreter` (3)** — spies on `RelationMutations.compileCreate`;
+  asserts create compiles through V1's `OperationProgram`. V2 owns create and
+  never calls `compileCreate`. Tests V1's frozen compiler; dies at P6.
+- **`batch-transaction` (3)** — merges a GENERATED-ID create (insertId scratch)
+  into a SHARED cross-operation `$transaction([...])` on a synthetic batch-only
+  driver. No real backend is batch-only (`$transaction` runs in tx mode on all of
+  them, where V2 create is certified); V2's shared-batch protocol does not thread
+  insertId scratch across the operation-merge offset.
+- **`non-returning-mutation-returns` (1)** — a generated-PK create on a synthetic
+  Postgres-forced-non-returning driver that surfaces NEITHER `RETURNING` nor
+  `result.insertId`. No production driver is such (real non-returning MySQL
+  surfaces insertId; V2 passes Docker MySQL 468/468). V1 refetches by
+  `adapter.lastInsertId()`; only that works on this fabricated driver.
+- **`result-contract-regressions` (1)** — asserts V1's batch-refetch cardinality
+  META (`expectedRowCount`/`actualRowCount`) on a synthetic malformed-batch
+  fault-injection driver; expressing that meta would grow the FROZEN `Failure`
+  vocabulary (the kill signal).
+
+No behavior contract was weakened, no test skipped or pinned-to-V1 to *hide* a
+divergence: real drivers pass (Docker MySQL 468/468, Postgres 407), the retargets
+assert V1's exact mechanics on fabricated drivers, and all die with V1 at P6. The
+`OperationFragment.ts` surface stayed frozen (snapshot + token gate green); the
+one generic executor change (the V7006 floor) is census taxonomy, not a branch.
+
 ## P6 — Deletion and the honest audit
 
 Bulk-delete V1's operation/execution root once unreachable; keep what V2

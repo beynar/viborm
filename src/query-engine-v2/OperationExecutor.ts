@@ -11,6 +11,7 @@ import {
   QueryEngineError,
   TransactionError,
   UniqueConstraintError,
+  VibORMErrorCode,
 } from "@errors";
 import { isSql, Sql } from "@sql";
 import { createCorrelationId } from "../query-engine/execution-context";
@@ -23,6 +24,7 @@ import type {
   PreparedQuery,
 } from "../query-engine/types";
 import { validateFragment } from "./FragmentValidator";
+import { NESTED_WRITE_ASSERTION_FLOOR_MESSAGE } from "./messages";
 import {
   type Failure,
   type FragmentOutputSource,
@@ -850,5 +852,15 @@ async function attributeGuardFailure(
     const holds = entry.guard.premise.kind === "exists" ? exists : !exists;
     if (!holds) return failureError(entry.guard.failure, context);
   }
-  return error;
+  // The step-4 floor (V1's `attributeOperationBatchError`, ported): a
+  // NestedWriteAssertionError with NO guard to attribute or re-probe against — a
+  // guard-free write ladder (a fragment carrying no premise) — surfaces the typed
+  // non-raceable V7006 floor, never a bare NestedWriteAssertionError leaking out.
+  // When guards exist but none held false, the abort is genuinely un-attributable
+  // among them: keep the raw error.
+  if (entries.some((entry) => entry.guard)) return error;
+  return new NestedWriteError(NESTED_WRITE_ASSERTION_FLOOR_MESSAGE, "", {
+    code: VibORMErrorCode.NESTED_WRITE_ASSERTION_FAILED,
+    cause: error,
+  });
 }
