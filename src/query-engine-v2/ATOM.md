@@ -877,6 +877,61 @@ taxonomy already in the census, not an operation-specific branch. With the creat
 family routed and a full-client-surface routing assertion pinning it (no family
 falls back to V1 by omission), the P6 deletion precondition is MET.
 
+**P6-prerequisite 2 — the decline surface (the shape-level correction; freeze
+held; NO vocabulary change).** The sentence above is true only at the FAMILY
+level. Two subsequent P6-deletion attempts blocked at Stage 0 on the same
+discovery: a family being in `ROUTED_OPERATIONS` means it CONSTRUCTS on V2 for
+the shapes V2 owns — it does not mean V2 owns every shape V1 accepts. 49
+`UnsupportedOperationError` throw sites still hand whole trees to V1 at
+construction, and a large subset are **accept-and-execute** shapes V1 runs
+correctly today: with the router's V1 fallback DISABLED, **56 nested-write
+conformance tests fail** (measured, not estimated), 49 of them on the
+accept-scenario `expected true to be false` pattern — true reachable behavior
+living behind the fallback, not error-contract mismatch. That reachable behavior
+is the deletion accounting the family-level assertion cannot see: **V1 is NOT
+deletable at this point.**
+
+This phase closed the tractable, vocabulary-fitting part of that surface and made
+the rest a machine-checked invariant:
+
+- **Child-held one-to-one `create` is absorbed.** The create-tree mechanics are
+  direction-based, not arity-based — a child holding the FK INSERTs AFTER the
+  parent with `fk = parent`, riding the already-certified `OwnWritePreflight`, so
+  a to-one is the arity-1 case of the child-held path (the one-to-many-only type
+  guard is widened to one-to-one). The mixed-directions conformance scenario now
+  executes on V2 and the create-family oracle certifies V1 == v2-tx == v2-batch.
+
+- **Parent-held to-one `create` is a genuine boundary, NOT absorbed — with a
+  falsified proof.** It is the before-parent-write ordering (the target INSERTs
+  first, its identity flows into the parent's FK by a backward `Ref`), which the
+  atom's refs-point-backward model does express in isolation. But absorbing it
+  standalone WEAKENS an accept-and-execute contract: `record.create({ primary: {
+  create: { id: 2 } }, secondary: { connect: { id: 2 } } })` — V1 executes the
+  before-parent create first, so the sibling `connect` observes the just-created
+  target; V2's flat plan-then-compile runs the connect's probe at PLANNING, before
+  that write, so it cannot see it and fails. V1 *accepts* this (the conformance
+  scenario expects success), so V2 rejecting it would also diverge. This is
+  precisely the ATOM §4 own-write boundary: the shape needs V1's staged
+  linearization the flat atom deliberately forgoes, or the own-write before-parent
+  ledger (modeling a nested create's target as a write a sibling read can depend
+  on) — P-phase-sized work, not a clean absorption. Converting the shape to a
+  refusal is the kill signal (an accept-and-execute shape → a refusal), so it
+  **stays routed** and V1 stays reachable.
+
+- **The decline-surface gate** (`decline-surface-gate.test.ts`, in `test:gates`)
+  makes the premise checkable: it runs the absorbed create shapes with the V1
+  fallback DISABLED (`setV1FallbackDisabled` — a test-only hook inert in
+  production) and they pass on V2 (falsified once by re-narrowing the type guard);
+  and it pins `FALLBACK_CARRYING_RESIDUAL` — the reachable accept-and-execute
+  shapes still declining (parent-held to-one `create`/`connectOrCreate`,
+  inverse-side to-one ops, nested-relation upsert arms). **P6 may bulk-delete V1
+  only when that list is empty.** The `OperationFragment.ts` surface was
+  **unchanged** (snapshot + token gate green): no step kind, Part method, or
+  executor branch was added — the one absorption is a widened type predicate, the
+  boundary is a documented route, and the gate is an executor-neutral test hook.
+  The residual — the whole UpdATE/UPSERT decline surface plus parent-held create —
+  is the P6-blocking write migration this prerequisite scopes but does not finish.
+
 ---
 
 ## 9. Invariants (the executable contract)

@@ -716,6 +716,65 @@ assert V1's exact mechanics on fabricated drivers, and all die with V1 at P6. Th
 `OperationFragment.ts` surface stayed frozen (snapshot + token gate green); the
 one generic executor change (the V7006 floor) is census taxonomy, not a branch.
 
+## P6-prerequisite 2 — the decline surface
+
+**Why a SECOND prerequisite, and why two blocked P6s were needed to see it.** The
+"precondition is now MET" claim above is true only at the FAMILY level: every
+client operation is in `ROUTED_OPERATIONS`, so nothing falls back to V1 *by
+omission*. Both P6-deletion attempts nonetheless blocked at Stage 0, on a hole the
+family-level assertion structurally **cannot see**: a family constructs on V2 for
+the shapes V2 owns and declines the rest with `UnsupportedOperationError` (a route
+to V1 *by decline*). 49 such throw sites remain, and a large subset route
+**accept-and-execute** shapes — payloads V1 runs correctly today. Family-level
+routing is a coarse instrument; the decline is a *shape*-level fact, and only a
+shape-level probe finds it. **The probe:** disable the router's V1 fallback and
+run the nested-write conformance estate — **56 tests fail, 49 on the
+accept-scenario `expected true to be false` pattern.** That is reachable client
+behavior living behind the fallback: V1 is executing it now, and is **not
+deletable**.
+
+**What this prerequisite delivered (and where it deliberately stopped).**
+
+- **Absorbed (clean, certified): child-held one-to-one `create`.** Direction, not
+  arity, is what the create tree keys on — a child holding the FK INSERTs after
+  the parent with `fk = parent`, so a to-one is the arity-1 case of the
+  already-certified child-held path (the one-to-many-only type guard widened to
+  one-to-one). The create-family oracle certifies V1 == v2-tx == v2-batch; the
+  mixed-directions conformance scenario now executes on V2.
+
+- **A documented boundary, NOT absorbed (kill signal, with a falsified proof):
+  parent-held to-one `create`.** Its before-parent-write ordering is expressible in
+  the atom in isolation (the target INSERTs first, its identity flows into the
+  parent FK by a backward `Ref`). But absorbing it standalone *weakens an
+  accept-and-execute contract*: in `record.create({ primary: { create: { id: 2 } },
+  secondary: { connect: { id: 2 } } })` the sibling `connect` must observe the
+  just-created target, which V1's staged runtime does and V2's flat plan-then-
+  compile (probe runs at planning, before the write) cannot — and V1 *accepts* the
+  shape, so V2 rejecting it would also diverge. This is the ATOM §4 own-write
+  boundary; closing it needs the own-write before-parent ledger (modeling a nested
+  create's target as a write a sibling read may depend on) — P-phase-sized, and
+  converting the shape to a refusal is the kill signal. It stays routed.
+
+- **The invariant: `decline-surface-gate.test.ts` (in `test:gates`).** It runs the
+  absorbed create shapes with the V1 fallback DISABLED (`setV1FallbackDisabled`, a
+  hook inert in production) and they pass on V2 (falsified once by re-narrowing the
+  guard); and it pins `FALLBACK_CARRYING_RESIDUAL` — the reachable accept-and-
+  execute shapes still declining (parent-held to-one `create`/`connectOrCreate`,
+  inverse-side to-one ops, nested-relation upsert arms). This is P6's premise made
+  machine-checkable: **P6 may bulk-delete V1 only when that residual is empty.**
+
+**The residual is the write migration P6 waits on.** The 56 fallback-disabled
+failures concentrate outside `create`: inverse-side to-one ops
+(connect/connectOrCreate/update/upsert/disconnect/delete on a child-held to-one
+through the parent), parent-held to-one `create`/`connectOrCreate` under both
+create and update roots, top-level and nested-relation upsert arms, and the
+own-write "disjoint decision" family under update roots. Each needs the own-write
+before-parent ledger and/or the inverse-side/nested-arm composition the atom
+permits but has not yet grown a consumer for. No `OperationFragment.ts` change, no
+new step kind / Part method / executor branch was made here (the freeze held); the
+absorption is a widened type predicate and the gate is an executor-neutral test
+hook. **V1 is not deletable; P6 stays blocked pending this residual.**
+
 ## P6 — Deletion and the honest audit
 
 Bulk-delete V1's operation/execution root once unreachable; keep what V2
