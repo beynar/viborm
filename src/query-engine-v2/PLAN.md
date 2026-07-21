@@ -882,7 +882,7 @@ own-write preflight and per-tree routing enforce coherence, not a coverage ledge
   `OperationFragment.ts` surface was **unchanged** — the freeze held. **V1 stays
   reachable; P6 waits on T3.**
 
-## T3 — the final surface *(measured, not curated; family F absorbed in T3-r2)*
+## T3 — the final surface *(measured, not curated; family F absorbed in T3-r2; 11 of family A absorbed in T3a, 42 → 31)*
 
 **T3 was chartered as the last absorption phase — drive the fallback-carrying
 decline surface to ZERO, then P6 deletes V1. Its first act instead exposed that the
@@ -893,13 +893,14 @@ arm). T3 MEASURED the real surface — a full `nested-write-conformance` run wit
 (`declinedToV1`) — and found **43 scenarios across EIGHT decline families**, not
 one. This is the T2 "theater replay" lesson made structural: the census is a run of
 the full suite fallback-off, never a hand-maintained pin list. **T3-r2 then absorbed
-family F, driving the surface 43 → 42.**
+family F, driving the surface 43 → 42; T3a absorbed 11 of family A's 13, driving it
+42 → 31.**
 
 - **The measured surface (the phase's contract).**
 
   | family | decline site | count |
   | --- | --- | --- |
-  | A. parent-held to-one `update`/`delete`/`upsert` under update | `interpretParentHeldToOne` | 13 |
+  | A. parent-held to-one `update`/`delete`/`upsert` under update | **ABSORBED (T3a): 11 of 13** — native parent-held correlated writes; 2 nested-relation-target-data shapes pinned (family-B projection) | ~~13~~ → 2 |
   | B. nested relation writes in a nested to-many `update` | `RelationWritePart.scalarData` | 8 |
   | C. nested relation writes in an m2m nested `create`/`update` (incl. deep-nested-update) | `RelationJunctionPart.scalarData` | 10 |
   | D. top-level `upsert` with nested-relation arms | `UpsertOperation` scalar-arms guard | 7 |
@@ -910,13 +911,15 @@ family F, driving the surface 43 → 42.**
 
 - **THE GATE delivered (the P6 premise, machine-checked at last).**
   `FALLBACK_OFF_RESIDUAL` (tests/query-engine-v2/fallback-off-residual.ts) pins the
-  now-42 `group > scenario` keys. The `VIBORM_FALLBACK_OFF=1` conformance harness (env-
+  now-31 `group > scenario` keys. The `VIBORM_FALLBACK_OFF=1` conformance harness (env-
   gated, inert on normal runs, wired into `pnpm test:gates`) enforces it
   bidirectionally: a pinned scenario MUST decline on both substrates; a non-pinned
   one MUST run natively on V2 with the fallback OFF. The decline-surface gate pins
-  the census SIZE (42) against silent trimming and re-proves one representative
-  construct-time decline (now family A, since F was absorbed). Falsified: drop one
-  census entry → gate red (`expected 41 to be 42`) → restored. The `declinedToV1`
+  the census SIZE (31) against silent trimming and re-proves one representative
+  construct-time decline (now the family-A residual: a parent-held update whose
+  target data carries a nested relation). Falsified: drop one census entry → gate red
+  → restored; re-add one absorbed key → its fallback-off scenario runs native
+  (`declinedToV1 === false` where `true` is pinned) → gate red → restored. The `declinedToV1`
   measure (a V2 `UnsupportedOperationError` anywhere in seed/act) is stricter than
   pass/fail — it caught the 43rd scenario, a reject-parity shape ("to-one update
   (FK-holder side) with nothing connected rejects") whose reject-bool coincidentally
@@ -937,23 +940,44 @@ family F, driving the surface 43 → 42.**
   the decline-surface gate, typecheck, Biome, the full estate, and the 5-database
   matrix.
 
-- **The remaining seven families (42 scenarios) stay pinned.** Each of A–E, G, H is
-  a comparable or larger composite-absorption unit demanding its own dual-run oracle,
-  correlation witness, staleness injection, and 5-DB certification. TO-ONE.md §7.2's
-  "documented boundary" is re-labelled a **migration target**. **P6 remains blocked
-  — V1 is reachable behind 42 shapes and is NOT deletable — and the gate turns green
-  only when a real absorption removes a family, never when the pin list is curated
-  down.**
+- **T3a absorbed 11 of family A's 13 (42 → 31), fully certified.** The FK-holder-side
+  (parent-held) to-one `update`/`delete`/`upsert` under an update root now run
+  natively on V2 whenever the located target's own mutation is scalar — new
+  `ParentHeldTarget` kinds in `UpdateOperation`: `update` locates the referenced
+  target by the parent's FINAL FK value and mutates it by captured PK (empty capture
+  = V1's "target record was not found for this parent"); `delete: true` nulls the
+  parent FK then bulk-deletes the target; `upsert` decides found→update /
+  absent→create+parent-FK-rebind at compile. A same-root FK rebind moves the target
+  (V1's post-update `parentValues` correlation); the parent's own FK columns live in a
+  separate locate-field set so a self-relation FK rebind does not spuriously reorder
+  the root UPDATE after a sibling child write (which would race an unfreed UNIQUE
+  inverse-holder value). Certified byte-identical: the `VIBORM_FALLBACK_OFF=1`
+  conformance run (11 native on both substrates), three absorbed positive tests each
+  with a multi-parent correlation witness, typecheck, Biome, the full estate, and the
+  5-database matrix. The route-inventory tripwire moved **62 → 65** (3 finer parent-
+  held boundaries). T3a's dual-run also proved the two T1 create-root declines
+  (connect-by-non-referenced-unique; shared-PK edge) are **accept-and-execute in V1,
+  not reject-parity** — separate create-root plan-shape units, left documented.
+- **The remaining families (31 scenarios) stay pinned.** The **2** unabsorbed family-A
+  shapes are the parent-held `update`/`upsert` whose located target's DATA carries a
+  nested relation write — the parent-held projection of family B. Families B–E, G, H
+  are each a comparable or larger composite-absorption unit demanding its own dual-run
+  oracle, correlation witness, staleness injection, and 5-DB certification. **P6
+  remains blocked — V1 is reachable behind 31 shapes and is NOT deletable — and the
+  gate turns green only when a real absorption removes a family (or a certified slice
+  of one), never when the pin list is curated down.**
 
-- **What the next absorbing phase inherits.** A truthful, falsifiable spec: the 42
-  remaining named scenarios (F absorbed in T3-r2), their seven decline sites, and a
-  gate that fails the instant a family is claimed-absorbed without the scenarios
-  passing fallback-off natively. Order of least-risk first: A (13, §7.6's parent-
-  held correlated write), then D (7, `UpsertOperation` arms reusing create/update
-  trees), then B/C/E/G (the nested-relation-depth recursion), H last. F's absorption
-  moved the route-inventory throw-site tripwire 59 → 62 (three finer narrower
-  boundaries), the same finer-boundary bookkeeping T1/T2 did; `OperationFragment.ts`
-  stayed unchanged — the vocabulary freeze held.
+- **What the next absorbing phase inherits.** A truthful, falsifiable spec: the 31
+  remaining named scenarios (F absorbed in T3-r2; 11 of A in T3a), their decline
+  sites, and a gate that fails the instant a family is claimed-absorbed without the
+  scenarios passing fallback-off natively. The 2 unabsorbed family-A shapes are the
+  parent-held update/upsert with nested-relation **target data** — they land WITH
+  family B (both are the same `compileLocatedUpdate` recursion). Order of least-risk
+  next: D (7, `UpsertOperation` arms reusing create/update trees), then B/C/E/G (the
+  nested-relation-depth recursion — which also closes family A's 2 residual shapes),
+  H last. F's absorption moved the route-inventory tripwire 59 → 62, T3a's moved it
+  62 → 65 (three finer parent-held boundaries), the same finer-boundary bookkeeping
+  T1/T2 did; `OperationFragment.ts` stayed unchanged — the vocabulary freeze held.
 
 ## P6 — Deletion and the honest audit
 

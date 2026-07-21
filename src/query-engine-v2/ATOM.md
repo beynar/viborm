@@ -1049,7 +1049,8 @@ write is a **root parent UPDATE**, not an INSERT fold.
   across the family. `OperationFragment.ts` **unchanged** — the freeze held.
 
 **T3 — the final surface MEASURED, not curated (freeze held; NO vocabulary change;
-family F absorbed in T3-r2, 43 → 42).** `TO-ONE.md §7.6` is normative. The T2 entry above claimed
+family F absorbed in T3-r2, 43 → 42; 11 of family A absorbed in T3a, 42 → 31).**
+`TO-ONE.md §7.6` is normative. The T2 entry above claimed
 the residual was "exactly one entry". That was the curated pin list carried since
 T1 — the exact dishonesty the T2 "theater replay" was chartered to end. T3's first
 and load-bearing act was to MEASURE the surface instead of curating it: run the
@@ -1083,17 +1084,41 @@ connectOrCreate-create-arm-depth ×1; H to-many-upsert-identity ×1), **not one*
   the decline-surface gate, typecheck, Biome, the full estate, and the 5-database
   matrix. `FALLBACK_OFF_RESIDUAL_COUNT` is now **42**; the gate asserts it so no
   entry can be trimmed without a matching absorption.
-- **The remaining seven families (42 scenarios) stay pinned.** Each of A–E, G, H is
-  a coherent composite-absorption unit — a byte-identical-to-V1 correlated write
-  (§7.6) needing its own dual-run oracle, correlation witness, and 5-database
-  certification. Disposition: the surface is measured, pinned, and P6-blocking until
-  empty. The route-inventory throw-site count moved **59 → 62** — family F's three
-  finer narrower boundaries (its create arm rejects a nested-relation payload and a
-  create payload spelling the owned FK; and the inverse-side upsert routes to V1 when
-  the same root update transitions a referenced key, V1's referential-legality path),
-  exactly the finer-boundary bookkeeping T1/T2 did when they absorbed a family.
-  `OperationFragment.ts` is **unchanged** — the VOCABULARY freeze held; nothing was
-  faked green.
+- **T3a absorbed 11 of family A's 13 (42 → 31).** The FK-holder-side (parent-held)
+  to-one `update`/`delete`/`upsert` under an update root now run natively on V2
+  whenever the located target's own mutation is **scalar** — new `ParentHeldTarget`
+  kinds in `UpdateOperation` (`interpretParentHeldUpdate`/`Delete`/`Upsert` +
+  `compileParentHeld{Update,Delete,Upsert}`): the target is located by the parent's
+  **FINAL** FK value (`child.<referenced> = parent.<fk>`, a same-root scalar rebind
+  moves it — V1's post-update `parentValues` correlation; rebound → construction
+  literal, untouched → located `Ref`), then `update` mutates by captured PK (empty
+  capture = V1's "target record was not found for this parent"), `delete: true` nulls
+  the parent FK then bulk-deletes the target, `upsert` decides found→update /
+  absent→create+rebind at compile. The parent's own FK columns live in a **separate**
+  locate-field set so a self-relation FK rebind does not spuriously trigger the
+  child-edge reorder (which would race an unfreed UNIQUE inverse-holder value — a
+  divergence the multi-parent witness catches). Certified: `VIBORM_FALLBACK_OFF=1`
+  conformance (11 run natively byte-identical on both substrates), three absorbed
+  positive tests each with a multi-parent correlation witness, typecheck, Biome, the
+  full estate, and the 5-database matrix. `FALLBACK_OFF_RESIDUAL_COUNT` is now **31**.
+- **The remaining families (31 scenarios) stay pinned.** The **2** unabsorbed family-A
+  shapes are the parent-held `update`/`upsert` whose located target's DATA carries a
+  nested relation write (`container: { update: { nodes: { update } } }`) — the
+  parent-held projection of **family B**, which stays on V1 until B lands. Families
+  B–E, G, H are each a coherent composite-absorption unit — a byte-identical-to-V1
+  correlated write (§7.6) needing its own dual-run oracle, correlation witness, and
+  5-database certification. Disposition: the surface is measured, pinned, and
+  P6-blocking until empty. The route-inventory throw-site count moved **59 → 62** (T3-r2
+  family F: create arm rejects a nested-relation payload / a payload spelling the
+  owned FK; inverse upsert under a referenced-key transition) **→ 65** (T3a family A: a
+  compound / non-PK-reference parent-held edge; a non-boolean parent-held `delete`; a
+  parent-held `update`/`upsert` with nested-relation target data), the same
+  finer-boundary bookkeeping T1/T2 did when they absorbed a family. **T3a's dual-run
+  also proved the two T1 create-root declines (connect-by-non-referenced-unique;
+  shared-PK edge) are accept-and-execute in V1, NOT reject-parity** — separate
+  create-root plan-shape units, not convertible to typed rejections; left as
+  documented boundaries. `OperationFragment.ts` is **unchanged** — the VOCABULARY
+  freeze held; nothing was faked green.
 
 ---
 

@@ -253,6 +253,22 @@ existing-row / create-branch pins, not elided.
   Each stays a construction-time `UnsupportedOperationError` route; the
   route-inventory census counts it.
 
+  > **T3a dual-run finding (item 2).** T3a probed whether the first two — the
+  > connect-by-non-referenced-unique and the shared-PK parent-held edge — are
+  > *accept-and-execute* (needing absorption) or *reject-parity* (convertible to a
+  > byte-identical V2 rejection). A dual-run proves **V1 ACCEPTS both**: the
+  > non-referenced-unique connect looks the target up by the unique and threads its
+  > `id` into the FK (`record.create({ account: { connect: { code } } })` →
+  > `accountId` filled, persisted); the shared-PK connect resolves the created row's
+  > identity from the fold (V1's `getCreatedRowWhere`/`getUpdatedPrimaryKeyWhere`).
+  > So neither is convertible to a typed rejection — each is a genuine
+  > accept-and-execute **create-root** plan shape (a lookup-subquery capture; a
+  > shared-PK identity fold), structurally distinct from family A's update-root
+  > correlated writes. They are **not part of family A's coherent unit** and are NOT
+  > in the measured `FALLBACK_OFF_RESIDUAL` census (no conformance scenario exercises
+  > them); T3a leaves them as documented create-root boundaries (route-inventory
+  > count for the two sites unchanged), a separate absorption unit for a later phase.
+
 ### T2 (update roots) — sketched, NOT this phase
 
 The same parent-held to-one family under `update`/`upsert` roots. The key
@@ -446,18 +462,57 @@ needs V1's staged `compileLocatedUpdate` recursion the whole tree routes to V1.
 > **T3 amendment (this was NOT a durable "documented boundary").** T2 called the
 > FK-holder-side `update`/`delete` route-to-V1 a "documented boundary, mirroring
 > the to-many nested-`update`-grandchildren boundary". The T3 measurement (a full
-> `nested-write-conformance` run with the V1 fallback DISABLED) proves it is a
+> `nested-write-conformance` run with the V1 fallback DISABLED) proved it a
 > **migration target, not a boundary**: `UpdateOperation.interpretParentHeldToOne`
-> declines every parent-held to-one `update`/`delete`/`upsert` under an update
+> declined every parent-held to-one `update`/`delete`/`upsert` under an update
 > root — 13 conformance scenarios V1 accepts-and-executes (or reject-parities) and
-> V2 hands wholesale to V1. It is **family A** of the eight-family, 43-scenario
-> fallback-carrying surface (`FALLBACK_OFF_RESIDUAL`, tests/query-engine-v2/
-> fallback-off-residual.ts), not an intrinsic limit of the atom. Absorbing it is a
-> parent-held correlated child write (`child.referenced = parent.fkValue`, the
-> located FK value inlined at compile; a null FK is V1's typed "nothing connected"
-> reject) plus, for `delete`, the null-parent-FK-then-delete ordering — the same
-> `RelationRemovals`/`compileLocatedUpdate` shapes V1 already spells, reused. P6
-> may not delete V1 while this (or any of families B–H) remains pinned.
+> V2 handed wholesale to V1. It is **family A** of the eight-family, 43-scenario
+> fallback-carrying surface (`FALLBACK_OFF_RESIDUAL`).
+>
+> **T3a absorbs 11 of family A's 13 (43 → 42 → 31).** The FK-holder-side (parent-
+> held) to-one `update`/`delete`/`upsert` now run natively on V2 whenever the
+> located target's own mutation is **scalar** — new `ParentHeldTarget` kinds in
+> `UpdateOperation`:
+> - **`update`** — locate the referenced target by the parent's **FINAL** FK value
+>   (`child.<referenced> = parent.<fk>`, where a same-root scalar rebind of the FK
+>   column moves the target, since V1 correlates `holdsFK` on the post-update
+>   `parentValues`; a rebound column resolves to its construction literal, an
+>   untouched one to the located parent row via a SQL `Ref`), then `UPDATE` it by
+>   the captured PK. An empty capture is V1's verbatim "Cannot update relation …:
+>   target record was not found for this parent" (the parent's FK pointed at
+>   nothing). The batch split-witness `exists` guard pins the correlation.
+> - **`delete: true`** — `NULL` the parent FK first (V1's `assertNullable` gate;
+>   a required FK is its verbatim reject), then correlated bulk-delete the referenced
+>   target by its (pre-null) FK value — V1's `RelationRemovals.delete` `holdsFK` arm.
+> - **`upsert`** — the correlated probe decides at compile: found → `UPDATE` the
+>   located target (the parent FK already equals the located value; V1's no-op
+>   re-write is elided); absent → `INSERT` the target before the root and rebind the
+>   parent FK to its created identity — V1's `RelationBranches.compileOneUpsert`
+>   `holdsFK` arm + `updateParentForeignKey`.
+>
+> The parent's own FK columns are held in a **separate** locate-field set so a
+> same-root FK rebind (e.g. a self-relation `partnerId`) does not spuriously trigger
+> the child-edge reorder — reordering the root UPDATE after a sibling child write
+> would race an unfreed UNIQUE value (the inverse holder), the divergence the
+> multi-parent correlation witness in the decline-surface gate catches.
+>
+> **Two of the 13 stay pinned — a documented NARROWER boundary** (the +1 finer
+> route, part of the +3 that moved the tripwire 62 → 65): a parent-held
+> `update`/`upsert` whose located **target's DATA carries a nested relation write**
+> (`container: { update: { nodes: { update } } }`). That is the parent-held
+> projection of **family B**'s nested-relation-in-nested-update boundary (V1's staged
+> `compileLocatedUpdate` recursion), and it stays on V1 until family B lands. The
+> other +2 finer routes: a compound / non-PK-reference parent-held edge (needs V1's
+> staged mutation-identity resolution), and a non-boolean parent-held `delete` (V1's
+> captured targeted-delete path).
+>
+> Certified byte-identical to V1: the `VIBORM_FALLBACK_OFF=1` conformance run (the 11
+> scenarios now run natively on BOTH substrates, byte-identical state + result +
+> error; the 2 nested-relation-target shapes still decline), three absorbed positive
+> tests each with a MULTI-PARENT correlation witness (a second parent's target
+> survives every arm), typecheck, Biome, the full estate, and the 5-database matrix.
+> P6 may not delete V1 while the residual (31 shapes: 2 of family A + families
+> B–E, G, H) remains pinned.
 
 ### 7.3 The sibling-coupling analysis for update roots (b)
 
@@ -521,7 +576,7 @@ families**, not one:
 
 | family | decline site | count |
 | --- | --- | --- |
-| A. parent-held to-one `update`/`delete`/`upsert` under update | `interpretParentHeldToOne` default | 13 |
+| A. parent-held to-one `update`/`delete`/`upsert` under update | ~~`interpretParentHeldToOne` default~~ **ABSORBED (T3a): 11 of 13** — native parent-held correlated `update`/`delete`/`upsert`; the 2 nested-relation-**target-data** shapes stay pinned (family-B projection) | ~~13~~ → **2** |
 | B. nested relation writes inside a nested to-many `update` | `RelationWritePart` scalarData | 8 |
 | C. nested relation writes inside an m2m nested `create`/`update` (incl. deep-nested-update) | `RelationJunctionPart` scalarData | 10 |
 | D. top-level `upsert` with nested-relation create/update arms | `UpsertOperation` scalar-arms-only | 7 |
