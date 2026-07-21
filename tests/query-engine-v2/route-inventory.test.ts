@@ -43,8 +43,11 @@ import { manyToManySchema } from "../fixtures/many-to-many-schema";
  * which are truly refusable/degenerate — lives in the decline-surface gate
  * ({@link file://./decline-surface-gate.test.ts}), which runs shapes with the V1
  * fallback DISABLED. This file remains the count tripwire; that gate is the
- * behavior-reachability invariant. P6 may delete V1 only when that gate's
- * `FALLBACK_CARRYING_RESIDUAL` is empty — it is not.
+ * behavior-reachability invariant. P6 may delete V1 only when that gate's census
+ * (`FALLBACK_OFF_RESIDUAL`, tests/query-engine-v2/fallback-off-residual.ts) is
+ * empty — it is not: the T3 measurement (full conformance run fallback-off) pins
+ * 43 reachable decline scenarios across eight families, correcting the curated
+ * one-entry list the gate carried through T1/T2.
  */
 
 const REMAINING_ROUTE =
@@ -282,8 +285,10 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   //     target create (V1's appendCreate recursion); an unresolvable before-root
   //     referenced field; a connectOrCreate by a NON-REFERENCED unique.
   // These are the SAME finer-boundary classes T1 drew under create roots, now under
-  // update. The inverse-side upsert arm is the only one still in the decline-surface
-  // gate's reachable residual (T3).
+  // update. The T3 measurement (FALLBACK_OFF_RESIDUAL) shows these throw sites still
+  // carry 43 reachable decline scenarios across eight families — NOT the single
+  // inverse-side upsert arm the pre-T3 census claimed; the throw-site COUNT below is
+  // unchanged (no absorption landed in T3), only the census was corrected.
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");

@@ -16,6 +16,10 @@ import { UnsupportedOperationError } from "../../src/query-engine-v2/shared";
 import { manyToManySchema } from "../fixtures/many-to-many-schema";
 import { nestedWriteBehaviorSchema } from "../fixtures/nested-write-behavior-schema";
 import { operationFragmentSchema } from "./create-nested-upsert-behavior";
+import {
+  FALLBACK_OFF_RESIDUAL,
+  FALLBACK_OFF_RESIDUAL_COUNT,
+} from "./fallback-off-residual";
 
 /**
  * The decline-surface gate (P6-prerequisite 2, the P6-rerun probe made a committed
@@ -43,17 +47,27 @@ import { operationFragmentSchema } from "./create-nested-upsert-behavior";
  *     one-to-many only): the corresponding test then throws instead of persisting.
  *
  *  2. **The reachable residual STILL lives behind the fallback (P6 not yet met).**
- *     {@link FALLBACK_CARRYING_RESIDUAL} enumerates the reachable accept-and-execute
- *     shapes V2 still declines. T1 (TO-ONE.md) absorbed the parent-held to-one
- *     `create` family under CREATE roots (including the create-then-connect
- *     incident — now in the absorbed slice above), so the residual is the
- *     remaining UPDATE/UPSERT-root to-one decline surface (T2/T3): parent-held
- *     to-one `connectOrCreate` under update, inverse-side to-one `update`/`upsert`
- *     arms. Each is asserted to STILL decline, so the census is a falsifiable fact,
- *     not prose. **P6 may bulk-delete V1's runtime only when this list is EMPTY.**
- *     It is not empty: V1 remains reachable and is NOT deletable. The day a shape is
- *     absorbed, it moves from the residual half to the absorbed half — both this
- *     gate and the route-inventory census move together.
+ *     {@link FALLBACK_OFF_RESIDUAL} (tests/query-engine-v2/fallback-off-residual.ts)
+ *     is the MEASURED accept-and-execute + reject-parity decline surface: 43
+ *     nested-write-conformance scenarios whose whole tree V2 declines with the
+ *     fallback OFF, across EIGHT decline families (parent-held to-one
+ *     update/delete/upsert; nested-relation-in-nested-update; m2m
+ *     nested-create/update-with-relations; top-level upsert with nested arms;
+ *     nested-create-under-update / D4; inverse-side to-one upsert; connectOrCreate
+ *     create-arm depth; to-many upsert identity). This CORRECTS the census the gate
+ *     carried through T1/T2 — a curated three-then-one to-one pin list that hid the
+ *     true surface (the T2 "theater replay" lesson: the census is a run of the FULL
+ *     conformance suite fallback-off, not a hand-maintained list). The bidirectional
+ *     machine-check is the `VIBORM_FALLBACK_OFF=1` census harness in the conformance
+ *     file, now part of `pnpm test:gates`: a pinned scenario MUST decline on both
+ *     substrates; a non-pinned one MUST run natively on V2. Below, this gate pins
+ *     the census SIZE (so no entry can be silently trimmed) and re-proves one
+ *     representative construct-time decline. **P6 may bulk-delete V1's runtime only
+ *     when this set is EMPTY. It is not: 43 shapes remain, V1 is NOT deletable.**
+ *     The day a family is absorbed, its entries leave FALLBACK_OFF_RESIDUAL, the
+ *     count drops by the family size, and those scenarios must then pass
+ *     fallback-off natively — both this gate and the conformance census move
+ *     together, or the run is red.
  */
 
 // The absorbed create decline surface is exercised end-to-end below. The residual
@@ -258,7 +272,9 @@ describe("decline-surface gate: absorbed create shapes carry NO fallback (P6 pre
     const updated = await c.post.update({
       where: { id: 6 },
       data: {
-        author: { connectOrCreate: { where: { id: 1 }, create: { name: "x" } } },
+        author: {
+          connectOrCreate: { where: { id: 1 }, create: { name: "x" } },
+        },
       },
       select: { id: true, userId: true },
     });
@@ -285,68 +301,67 @@ describe("decline-surface gate: absorbed create shapes carry NO fallback (P6 pre
 });
 
 // ---------------------------------------------------------------------------
-// The reachable accept-and-execute residual: shapes V1 runs correctly today but
-// V2 still DECLINES, so the router hands their whole tree to V1. Each entry is a
-// constructor whose decline is asserted below. **P6 may delete V1 only when this
-// list is EMPTY.** It is not — these are the create/update/upsert decline surface
-// the 56 fallback-disabled conformance failures measured.
+// The reachable accept-and-execute + reject-parity residual: shapes V1 runs (or
+// V1-rejects with its own typed message) today but V2 still DECLINES, so the
+// router hands their whole tree to V1. The AUTHORITATIVE census is
+// {@link FALLBACK_OFF_RESIDUAL} (tests/query-engine-v2/fallback-off-residual.ts):
+// 43 nested-write-conformance scenarios, MEASURED by running the FULL conformance
+// suite with `VIBORM_FALLBACK_OFF=1` (that run — the bidirectional machine-check
+// that these EXACTLY are the fallback carriers — is part of `pnpm test:gates`).
+// **P6 may delete V1 only when FALLBACK_OFF_RESIDUAL is EMPTY.** It is not.
+//
+// This replaces the curated single-entry `FALLBACK_CARRYING_RESIDUAL` the gate
+// carried through T1/T2, which understated the surface as "exactly one entry"
+// while the measured truth was 43 across eight families (the T2 theater-replay
+// lesson). Below: pin the census size (no silent trimming) and re-prove one
+// representative shape declines at CONSTRUCTION (no I/O — a decline is observable
+// before any effect), so the gate keeps a fast construct-time tripwire alongside
+// the full conformance census.
 // ---------------------------------------------------------------------------
-interface ResidualShape {
-  readonly label: string;
-  readonly schema: Record<string, Model<any>>;
-  readonly operation: string;
-  readonly args: Record<string, unknown>;
-  readonly rootModel: Model<any>;
-}
-
-const FALLBACK_CARRYING_RESIDUAL: readonly ResidualShape[] = [
-  // NOTE (T2, TO-ONE.md §7): the parent-held to-one `create`/`connectOrCreate` and
-  // the inverse-side to-one `update`/`connect`/`connectOrCreate`/`disconnect`/
-  // `delete` under UPDATE roots are now ABSORBED (a before-root target INSERT the
-  // root parent UPDATE references; the inverse side is the arity-1 child-held path).
-  // They moved from this residual to the absorbed-slice describe above. T1 earlier
-  // absorbed the parent-held create family under CREATE roots. The ONLY reachable
-  // accept-and-execute shape V2 still declines is the inverse-side to-one **upsert**
-  // arm — T3's (D4 threading + deliberate-decline closure). The residual is now
-  // exactly one entry; the gate stays honestly non-empty until T3 empties it.
-  {
-    label: "inverse-side to-one upsert (nested-relation arm)",
-    schema: nb,
-    operation: "update",
-    args: {
-      where: { id: "u1" },
-      data: {
-        profile: {
-          upsert: {
-            create: { id: "pr1", bio: "b" },
-            update: { bio: "u" },
-          },
-        },
+const REPRESENTATIVE_CONSTRUCT_DECLINE = {
+  // Family F — the inverse-side to-one `upsert` arm (was the sole pinned residual;
+  // still declines). A construct-time probe: no seed, no execution.
+  label: "inverse-side to-one upsert (nested-relation arm)",
+  schema: nb as Record<string, Model<any>>,
+  operation: "update",
+  args: {
+    where: { id: "u1" },
+    data: {
+      profile: {
+        upsert: { create: { id: "pr1", bio: "b" }, update: { bio: "u" } },
       },
     },
-    rootModel: nb.user,
-  },
-];
+  } as Record<string, unknown>,
+  rootModel: nb.user as Model<any>,
+} as const;
 
 describe("decline-surface gate: the reachable residual STILL lives behind the fallback (P6 blocked)", () => {
   test("the fallback-carrying residual is NON-EMPTY — V1 is not deletable", () => {
     // The census is a fact, not prose. When this reaches 0, P6 may delete V1.
-    expect(FALLBACK_CARRYING_RESIDUAL.length).toBeGreaterThan(0);
+    expect(FALLBACK_OFF_RESIDUAL.size).toBeGreaterThan(0);
   });
 
-  for (const shape of FALLBACK_CARRYING_RESIDUAL) {
-    test(`still declines (routes to V1): ${shape.label}`, () => {
-      const engine = pgEngine(shape.schema);
-      // Fallback disabled: a decline RE-THROWS, so a shape that still routes to V1
-      // surfaces its UnsupportedOperationError here rather than returning undefined.
-      expect(() =>
-        constructRoutedOperation(
-          engine,
-          shape.rootModel,
-          shape.operation,
-          shape.args
-        )
-      ).toThrow(UnsupportedOperationError);
-    });
-  }
+  test("the census is the MEASURED surface (43), not a curated pin list", () => {
+    // Guards against silently trimming the census without a real absorption: the
+    // set and its declared count must agree, and the count is the T3 measurement.
+    // Absorbing a family drops BOTH by the same amount (and its scenarios must then
+    // pass the fallback-off conformance run). 43 corrects the T1/T2 "one entry".
+    expect(FALLBACK_OFF_RESIDUAL.size).toBe(FALLBACK_OFF_RESIDUAL_COUNT);
+    expect(FALLBACK_OFF_RESIDUAL_COUNT).toBe(43);
+  });
+
+  test(`still declines at construction (routes to V1): ${REPRESENTATIVE_CONSTRUCT_DECLINE.label}`, () => {
+    const shape = REPRESENTATIVE_CONSTRUCT_DECLINE;
+    const engine = pgEngine(shape.schema);
+    // Fallback disabled: a decline RE-THROWS, so a shape that still routes to V1
+    // surfaces its UnsupportedOperationError here rather than returning undefined.
+    expect(() =>
+      constructRoutedOperation(
+        engine,
+        shape.rootModel,
+        shape.operation,
+        shape.args
+      )
+    ).toThrow(UnsupportedOperationError);
+  });
 });

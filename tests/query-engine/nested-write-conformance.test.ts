@@ -5,9 +5,34 @@ import type { BatchQuery, QueryResult } from "@drivers/types";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { push } from "@migrations";
 import { s } from "@schema";
-import { describe, expect, test } from "vitest";
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { setV1FallbackDisabled } from "../../src/query-engine-v2/routing";
+import { UnsupportedOperationError } from "../../src/query-engine-v2/shared";
 import { manyToManySchema } from "../fixtures/many-to-many-schema";
 import { nestedWriteBehaviorSchema } from "../fixtures/nested-write-behavior-schema";
+import { FALLBACK_OFF_RESIDUAL } from "../query-engine-v2/fallback-off-residual";
+
+// T3 — the fallback-off census harness (inert unless `VIBORM_FALLBACK_OFF=1`).
+// With it set, the whole file runs with V1 fallback DISABLED
+// ({@link setV1FallbackDisabled}): a V2 decline RE-THROWS instead of routing to
+// V1. Each scenario is then asserted against {@link FALLBACK_OFF_RESIDUAL} — a
+// scenario IN the set MUST decline (both substrates); a scenario NOT in the set
+// MUST run natively on V2 and satisfy its full V1 contract. This is P6's deletion
+// premise ("no reachable behavior lives behind the fallback") machine-checked
+// against the FULL conformance surface — the T2 theater-replay's measured truth,
+// wired into `pnpm test:gates`. Normal runs (env unset) are byte-for-byte
+// unchanged, so the estate stays green. See tests/query-engine-v2/
+// decline-surface-gate.test.ts for the pinned-census invariants.
+const FALLBACK_OFF = process.env.VIBORM_FALLBACK_OFF === "1";
+let __fallbackOffPrevious = false;
+if (FALLBACK_OFF) {
+  beforeAll(() => {
+    __fallbackOffPrevious = setV1FallbackDisabled(true);
+  });
+  afterAll(() => {
+    setV1FallbackDisabled(__fallbackOffPrevious);
+  });
+}
 
 // The conformance oracle (DESIGN.md §11 M0): run identical nested-write
 // scenarios through BOTH execution modes — the interactive-transaction engine
@@ -389,6 +414,10 @@ interface Outcome {
   rejected: boolean;
   error?: ErrorOutcome;
   state: PersistedState;
+  // T3 fallback-off census: true when the V2 engine DECLINED this scenario's tree
+  // (an {@link UnsupportedOperationError}) in seed or act. Meaningful only under
+  // `VIBORM_FALLBACK_OFF=1`, where a decline re-throws instead of routing to V1.
+  declinedToV1: boolean;
 }
 
 interface Scenario<TSchema extends Schema> {
@@ -436,7 +465,20 @@ async function runScenario<TSchema extends Schema>(
     driver: createDriver(db),
   });
   try {
-    await scenario.seed?.(client);
+    let declinedToV1 = false;
+    // Seed stays OUTSIDE the act try/catch (a seed failure is a test error, not a
+    // scenario reject) — but under fallback-off a V2 decline in seed still counts
+    // toward the census flag without changing normal semantics (env-off seeds
+    // never decline: the fallback executes them on V1).
+    try {
+      await scenario.seed?.(client);
+    } catch (error) {
+      if (error instanceof UnsupportedOperationError) {
+        declinedToV1 = true;
+      } else {
+        throw error;
+      }
+    }
     let rejected = false;
     let errorOutcome: ErrorOutcome | undefined;
     try {
@@ -444,8 +486,16 @@ async function runScenario<TSchema extends Schema>(
     } catch (error) {
       rejected = true;
       errorOutcome = normalizeErrorOutcome(error);
+      if (error instanceof UnsupportedOperationError) {
+        declinedToV1 = true;
+      }
     }
-    return { rejected, error: errorOutcome, state: await group.dump(client) };
+    return {
+      rejected,
+      error: errorOutcome,
+      state: await group.dump(client),
+      declinedToV1,
+    };
   } finally {
     await client.$disconnect();
   }
@@ -459,6 +509,9 @@ function registerGroup<TSchema extends Schema>(
     for (const scenario of group.scenarios) {
       // Each scenario boots two PGlite instances; well over the default 5s
       // timeout when the full suite runs in parallel.
+      const residualKey = `${title} > ${scenario.name}`;
+      const isPinnedResidual =
+        FALLBACK_OFF && FALLBACK_OFF_RESIDUAL.has(residualKey);
       test(scenario.name, { timeout: 30_000 }, async () => {
         const transaction = await runScenario(
           group,
@@ -470,6 +523,25 @@ function registerGroup<TSchema extends Schema>(
           scenario,
           (db) => new BatchOnlyPGliteDriver({ client: db })
         );
+
+        // T3 fallback-off census (VIBORM_FALLBACK_OFF=1). A scenario pinned in
+        // FALLBACK_OFF_RESIDUAL is reachable-behind-the-fallback: with V1 disabled
+        // its whole tree must DECLINE (UnsupportedOperationError) on BOTH
+        // substrates. That is the machine-check that this scenario still routes to
+        // V1 — the census cannot silently claim an absorption that did not happen.
+        if (isPinnedResidual) {
+          expect(transaction.declinedToV1).toBe(true);
+          expect(batch.declinedToV1).toBe(true);
+          return;
+        }
+        // Every OTHER scenario runs its full V1 contract. Under fallback-off this
+        // additionally proves V2 owns it with NO fallback (a native V2 divergence
+        // would fail these assertions instead of being masked by V1); a decline
+        // that is not pinned surfaces here (declinedToV1 must be false).
+        if (FALLBACK_OFF) {
+          expect(transaction.declinedToV1).toBe(false);
+          expect(batch.declinedToV1).toBe(false);
+        }
 
         // Both modes must agree on whether the act rejected.
         expect(batch.rejected).toBe(transaction.rejected);
