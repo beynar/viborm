@@ -534,8 +534,12 @@ export function runNestedWriteBehavior({
     // second user's profile is the correlation witness: neither arm may touch it.
     test("inverse-side to-one upsert: absent creates, found updates, witness survives", async () => {
       const currentClient = requireClient(client);
-      await currentClient.user.create({ data: { id: "u-upsert-inv", name: "a" } });
-      await currentClient.user.create({ data: { id: "u-upsert-wit", name: "b" } });
+      await currentClient.user.create({
+        data: { id: "u-upsert-inv", name: "a" },
+      });
+      await currentClient.user.create({
+        data: { id: "u-upsert-wit", name: "b" },
+      });
       await currentClient.profile.create({
         data: { id: "pr-witness", bio: "witness", userId: "u-upsert-wit" },
       });
