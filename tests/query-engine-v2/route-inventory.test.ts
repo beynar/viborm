@@ -1,3 +1,4 @@
+import type { Operations } from "@client/types";
 import { MySQL2Driver } from "@drivers/mysql2";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite } from "@electric-sql/pglite";
@@ -7,6 +8,10 @@ import type { Model } from "@schema/model";
 import { createSchemaRegistry } from "@validation";
 import { beforeAll, describe, expect, test } from "vitest";
 import { ManyAndReturnOperation } from "../../src/query-engine-v2/ManyAndReturnOperation";
+import {
+  constructRoutedOperation,
+  ROUTED_OPERATIONS,
+} from "../../src/query-engine-v2/routing";
 import { UnsupportedOperationError } from "../../src/query-engine-v2/shared";
 import { UpdateOperation } from "../../src/query-engine-v2/UpdateOperation";
 import { compoundKeyBehaviorSchema } from "../fixtures/compound-key-behavior-schema";
@@ -248,5 +253,101 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
       sites += source.split("new UnsupportedOperationError(").length - 1;
     }
     expect(sites).toBe(36);
+  });
+});
+
+/**
+ * Full-client-surface inventory (P6 precondition).
+ *
+ * The route inventory above pins the *tracked* write-shape routes: shapes a
+ * V2-owned operation DECLINES with {@link UnsupportedOperationError} at
+ * construction. By construction it cannot see an operation family that falls
+ * back to V1 by OMISSION from {@link ROUTED_OPERATIONS} — such a family produces
+ * no throw and is invisible to a throw-site census. That blind spot is exactly
+ * what let a P6 work order assert "exactly ONE route to V1 remains" while the
+ * entire `create` family was, and is, dispatched to V1's frozen OperationRuntime
+ * (via `pending-operation.ts`, a P6 KEEP file, when `resolveV2()` returns
+ * undefined). This block closes the hole: it enumerates the ENTIRE client
+ * operation surface and asserts each family either constructs on V2 or is a
+ * listed, deliberate V1 fallback — so the fallback set can never again be
+ * silent.
+ *
+ * P6 implication (the reason this is a *precondition*, not decoration): a family
+ * in {@link DOCUMENTED_V1_FALLBACK} means V1's operation/execution root is still
+ * reachable and therefore NOT deletable. P6 ("bulk-delete V1's operation/
+ * execution root once unreachable") may proceed only when this set is empty —
+ * or when a family in it is a recorded maintainer decision to keep it on V1
+ * permanently (which would itself change P6's "runtimes 2→1" premise and must be
+ * recorded, not silent). This assertion is decision-neutral: it neither migrates
+ * `create` nor blesses it as permanent; it only makes the true state a pinned,
+ * reviewable fact. The day the set changes, both this file and that decision
+ * must move together.
+ */
+
+// The authoritative 18-family client operation surface (`Operations` in
+// @client/types). `satisfies` rejects a typo or a name that is not a real
+// operation; `MissingFromSurface` (below) rejects a NEW operation added to the
+// union but not listed here — together they force this list to track the union.
+const CLIENT_OPERATION_SURFACE = [
+  "findFirst",
+  "findMany",
+  "findUnique",
+  "findUniqueOrThrow",
+  "findFirstOrThrow",
+  "count",
+  "aggregate",
+  "groupBy",
+  "exist",
+  "create",
+  "createMany",
+  "createManyAndReturn",
+  "update",
+  "updateMany",
+  "updateManyAndReturn",
+  "upsert",
+  "delete",
+  "deleteMany",
+] as const satisfies readonly Operations[];
+
+// Compile-time completeness: any `Operations` member absent from the list above
+// makes this alias a non-`never` type, and the annotated `true` assignment fails
+// to type-check. Adding a new client operation forces an update here.
+type MissingFromSurface = Exclude<
+  Operations,
+  (typeof CLIENT_OPERATION_SURFACE)[number]
+>;
+const _surfaceIsComplete: [MissingFromSurface] extends [never] ? true : false =
+  true;
+
+// Families dispatched to V1 by omission from ROUTED_OPERATIONS. Exactly one
+// today: `create` (never migrated to V2 — CreateOperation.ts is a P0/P1 proof
+// slice, unwired from routing.ts). Emptying this set is a precondition for P6
+// deletion; growing it is a new un-migrated family. Either edit is a decision.
+const DOCUMENTED_V1_FALLBACK: ReadonlySet<string> = new Set(["create"]);
+
+describe("query-engine-v2 full client operation surface (P6 precondition)", () => {
+  test("_surfaceIsComplete type-guard holds (list covers the Operations union)", () => {
+    expect(_surfaceIsComplete).toBe(true);
+    expect(CLIENT_OPERATION_SURFACE).toHaveLength(18);
+  });
+
+  test("every client operation family routes to V2 except the documented V1 fallbacks", () => {
+    const fellBackByOmission = CLIENT_OPERATION_SURFACE.filter(
+      (operation) => !ROUTED_OPERATIONS.has(operation)
+    );
+    expect(new Set(fellBackByOmission)).toEqual(DOCUMENTED_V1_FALLBACK);
+  });
+
+  test("each documented V1 fallback constructs to undefined (dispatched to V1), not a V2 operation", () => {
+    const engine = pgEngine(manyToManySchema);
+    for (const operation of DOCUMENTED_V1_FALLBACK) {
+      const routed = constructRoutedOperation(
+        engine,
+        manyToManySchema.tag,
+        operation,
+        { data: { id: "t1", name: "x" }, select: {} }
+      );
+      expect(routed).toBeUndefined();
+    }
   });
 });
