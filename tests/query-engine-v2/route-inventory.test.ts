@@ -252,18 +252,22 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   // V2 source is a new route to V1 and must be added to the corpus (and to the
   // P6 deletion accounting) — update the count only alongside that.
   //
-  // 36 → 49: the create family (PLAN P6-prerequisite) adds 13 sub-shape routes in
-  // CreateOperation.ts — every create shape V1 accepts but V2's create fold does
-  // not yet own, declined at CONSTRUCTION so the whole tree routes to V1
-  // (impossible to fall back by omission now that `create` is in
-  // ROUTED_OPERATIONS): a to-one `create`/`connectOrCreate` before the parent
-  // (before-parent-write ordering); a to-one `connect` by a non-referenced unique;
-  // a shared-primary-key `connect` (the PK is supplied by the connect fold); a
-  // nested `update`/`delete`/`set`/… kind in a create payload; a nested
-  // `createMany skipDuplicates`; a compound child edge / unresolvable referenced
-  // field; an M2M `upsert`/`disconnect`/`set`/`delete`; a non-record arg/where;
-  // and the arg-key guard. Each is a documented boundary of the create fold, not
-  // a silent gap.
+  // 36 → 49: the create family (PLAN P6-prerequisite) added 13 sub-shape routes in
+  // CreateOperation.ts.
+  //
+  // 49 → 51 (T1, TO-ONE.md): the parent-held to-one `create` family under create
+  // roots is ABSORBED — the single "supports only 'connect' on the to-one relation"
+  // decline is GONE (parent-held `create`/`connectOrCreate`, and a sibling `connect`
+  // covered by a before-parent create, now construct on V2). What remains is the
+  // FINER-GRAINED boundary surface of the same family, each a documented route: a
+  // to-one arm with more than one kind; an unsupported kind (update/delete/…) on a
+  // to-one under create; a SHARED-PRIMARY-KEY parent-held edge (the PK is supplied
+  // by the fold, so the terminal read has no scalar identity); a to-one `connect`
+  // by a NON-REFERENCED unique (needs a lookup subquery); and an unresolvable
+  // before-parent referenced field. Net −1 (removed) +3 (finer guards) = +2. The
+  // rest of the create-fold boundaries (nested update/…-kind in a create payload,
+  // `createMany skipDuplicates`, compound child edge, M2M upsert/disconnect/set/
+  // delete, non-record arg/where, arg-key guard) are unchanged.
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
@@ -274,7 +278,7 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
       const source = await readFile(join(dir, file), "utf8");
       sites += source.split("new UnsupportedOperationError(").length - 1;
     }
-    expect(sites).toBe(49);
+    expect(sites).toBe(51);
   });
 });
 

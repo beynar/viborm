@@ -1,12 +1,20 @@
 import { createClient } from "@client/client";
-import type { BatchQuery, QueryResult } from "@drivers";
+import type { AnyDriver, BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
+import { createOperationExecutionContext } from "@query-engine/execution-context";
+import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { push } from "@migrations";
 import { s } from "@schema";
 import type { Model } from "@schema/model";
+import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
 import { nestedWriteBehaviorSchema } from "../fixtures/nested-write-behavior-schema";
+import { OperationExecutor } from "../../src/query-engine-v2/OperationExecutor";
+import {
+  constructRoutedOperation,
+  executeRoutedOperation,
+} from "../../src/query-engine-v2/routing";
 import { operationFragmentSchema } from "./create-nested-upsert-behavior";
 import { createV2RoutedClient, type RouteRecord } from "./v2-client-proxy";
 
@@ -378,4 +386,97 @@ describe("query-engine-v2 to-one create family oracle (V1 vs V2 tx vs V2 batch)"
       expect(batch.state).toEqual(v1.state);
     });
   }
+});
+
+// A batch-only driver that runs a mutation on the same DB just before the atomic
+// batch commits — the staleness / concurrent-writer injection.
+class BeforeBatchDriver extends BatchOnlyPGliteDriver {
+  private hook: (() => Promise<void>) | undefined;
+  constructor(
+    hook: () => Promise<void>,
+    options: ConstructorParameters<typeof PGliteDriver>[0]
+  ) {
+    super(options);
+    this.hook = hook;
+  }
+  protected override async executeBatch<T>(
+    client: PGlite | Transaction,
+    queries: BatchQuery[]
+  ): Promise<QueryResult<T>[]> {
+    const hook = this.hook;
+    this.hook = undefined; // fire once (the retry runs clean)
+    if (hook) await hook();
+    return super.executeBatch<T>(client, queries);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Falsifications for the T1 pins (ATOM §2, TO-ONE.md §3). The covered-connect
+// ledger is falsified by the decline-surface-gate incident test (fallback OFF —
+// disabling the ledger makes the connect probe fail). Here: the connectOrCreate
+// FOUND-arm presence guard (raceable:false) and MISSING-arm racePin (raceable:true).
+// ---------------------------------------------------------------------------
+describe("query-engine-v2 to-one create family: T1 pin falsifications", () => {
+  test("connectOrCreate FOUND-arm presence guard: target deleted before batch fails closed", async () => {
+    const db = new PGlite();
+    const base = createClient({ schema: opf, driver: new PGliteDriver({ client: db }) });
+    await push(base as never, { force: true } as never);
+    await (base as any).user.create({ data: { name: "owner" } }); // id=1
+
+    const driver = new BeforeBatchDriver(async () => {
+      // A concurrent writer removes the found target after V2 planned.
+      await (base as any).user.deleteMany({ where: { id: 1 } });
+    }, { client: db });
+    const routed = createV2RoutedClient({ schema: opf, client: base as never, driver });
+
+    // The found-arm connects to user id=1; if it vanishes before commit the batch
+    // must fail closed (FK backstop / presence guard), never write a dangling post.
+    await expect(
+      (routed.client as any).post.create({
+        data: {
+          id: 40,
+          title: "t",
+          slug: "s40",
+          author: { connectOrCreate: { where: { id: 1 }, create: { name: "x" } } },
+        },
+      })
+    ).rejects.toThrow();
+    const posts = await (base as any).post.findMany({ where: { id: 40 } });
+    expect(posts).toHaveLength(0);
+    await (base as any).$disconnect();
+  }, 45_000);
+
+  test("connectOrCreate MISSING-arm racePin: a concurrent create converges by retry-and-adopt", async () => {
+    // A provided-PK target (nb.user.id is a string PK) so a concurrent create can
+    // collide on the SAME key. The missing-arm INSERT's unique violation is the
+    // raceable signal; the routed retry re-plans, finds the row, and adopts it.
+    const db = new PGlite();
+    const base = createClient({ schema: nb, driver: new PGliteDriver({ client: db }) });
+    await push(base as never, { force: true } as never);
+
+    const driver = new BeforeBatchDriver(async () => {
+      // A concurrent writer creates the very target the missing arm was about to.
+      await (base as any).user.create({ data: { id: "u1", name: "winner" } });
+    }, { client: db });
+    const schemas = createSchemaRegistry(nb);
+    const engine = new QueryEngine(driver as AnyDriver, createModelRegistry(nb, schemas));
+    const executor = new OperationExecutor(engine);
+
+    const op = constructRoutedOperation(engine, nb.profile, "create", {
+      data: {
+        id: "pr1",
+        bio: "b",
+        user: { connectOrCreate: { where: { id: "u1" }, create: { id: "u1", name: "loser" } } },
+      },
+      select: { id: true, userId: true },
+    });
+    const context = createOperationExecutionContext("profile", "create", engine.instrumentation);
+    const result = await executeRoutedOperation<any>(executor, op!, context);
+
+    // Converged: the profile links to the concurrently-created user, not a second one.
+    expect(result).toEqual({ id: "pr1", userId: "u1" });
+    const users = await (base as any).user.findMany();
+    expect(users).toEqual([{ id: "u1", name: "winner" }]); // no duplicate insert
+    await (base as any).$disconnect();
+  }, 45_000);
 });

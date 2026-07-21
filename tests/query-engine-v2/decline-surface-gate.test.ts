@@ -3,6 +3,7 @@ import { PGliteDriver } from "@drivers/pglite";
 import { PGlite } from "@electric-sql/pglite";
 import { push } from "@migrations";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
+import { s } from "@schema";
 import { hydrateSchemaNames } from "@schema/hydration";
 import type { Model } from "@schema/model";
 import { createSchemaRegistry } from "@validation";
@@ -43,10 +44,12 @@ import { operationFragmentSchema } from "./create-nested-upsert-behavior";
  *
  *  2. **The reachable residual STILL lives behind the fallback (P6 not yet met).**
  *     {@link FALLBACK_CARRYING_RESIDUAL} enumerates the reachable accept-and-execute
- *     shapes V2 still declines — the create/update/upsert decline surface the 56
- *     fallback-disabled conformance failures measured (parent-held to-one
- *     `create`/`connectOrCreate`, inverse-side to-one ops, nested-relation upsert
- *     arms). Each is asserted to STILL decline, so the census is a falsifiable fact,
+ *     shapes V2 still declines. T1 (TO-ONE.md) absorbed the parent-held to-one
+ *     `create` family under CREATE roots (including the create-then-connect
+ *     incident — now in the absorbed slice above), so the residual is the
+ *     remaining UPDATE/UPSERT-root to-one decline surface (T2/T3): parent-held
+ *     to-one `connectOrCreate` under update, inverse-side to-one `update`/`upsert`
+ *     arms. Each is asserted to STILL decline, so the census is a falsifiable fact,
  *     not prose. **P6 may bulk-delete V1's runtime only when this list is EMPTY.**
  *     It is not empty: V1 remains reachable and is NOT deletable. The day a shape is
  *     absorbed, it moves from the residual half to the absorbed half — both this
@@ -85,6 +88,41 @@ afterAll(() => {
 const opf = operationFragmentSchema;
 const nb = nestedWriteBehaviorSchema;
 const m2m = manyToManySchema;
+
+// Two parent-held to-one relations on one record, both referencing `account` —
+// the sibling-coupling witness the P6-prereq-2 incident lives in. Absorbed in T1
+// (TO-ONE.md), so the create-then-connect scenario now executes on V2 with the
+// fallback OFF (its own before-parent coverage ledger resolves the connect).
+const t1CrossSchema = (() => {
+  const account = s
+    .model({
+      id: s.int().id(),
+      label: s.string(),
+      primaryRecords: s.oneToMany(() => record).name("primary"),
+      secondaryRecords: s.oneToMany(() => record).name("secondary"),
+    })
+    .map("decline_gate_cross_accounts");
+  const record = s
+    .model({
+      id: s.int().id(),
+      primaryId: s.int().nullable(),
+      secondaryId: s.int().nullable(),
+      primary: s
+        .manyToOne(() => account)
+        .fields("primaryId")
+        .references("id")
+        .name("primary")
+        .optional(),
+      secondary: s
+        .manyToOne(() => account)
+        .fields("secondaryId")
+        .references("id")
+        .name("secondary")
+        .optional(),
+    })
+    .map("decline_gate_cross_records");
+  return { account, record };
+})();
 
 describe("decline-surface gate: absorbed create shapes carry NO fallback (P6 premise, absorbed slice)", () => {
   test("root scalar create executes on V2 (fallback off)", async () => {
@@ -160,6 +198,39 @@ describe("decline-surface gate: absorbed create shapes carry NO fallback (P6 pre
     await c.$disconnect();
   });
 
+  // T1: the parent-held to-one `create` family (the before-parent-write ordering),
+  // absorbed under create roots. It executes end-to-end on V2 with the fallback
+  // OFF — the target INSERTs first, its identity Ref'd into the record FK.
+  // Re-narrowing the parent-held type guard back to connect-only makes this throw.
+  test("parent-held to-one create executes on V2 (fallback off) — the newly absorbed shape", async () => {
+    const c = await freshClient(opf);
+    const post = await c.post.create({
+      data: { id: 6, title: "t6", slug: "s6", author: { create: { name: "x" } } },
+      select: { id: true, userId: true },
+    });
+    expect(post).toEqual({ id: 6, userId: 1 });
+    await c.$disconnect();
+  });
+
+  // T1: THE P6-prereq-2 KILL-SIGNAL INCIDENT, now on V2 with the fallback OFF. A
+  // sibling `connect` observing the before-parent `create` of the same target —
+  // the construction-time coverage ledger resolves it with no probe. Absorbing
+  // parent-held create standalone broke exactly this; disabling the ledger (or
+  // re-narrowing the type guard) makes this throw instead of persisting.
+  test("INCIDENT: sibling create-then-connect executes on V2 (fallback off)", async () => {
+    const c = await freshClient(t1CrossSchema);
+    await c.record.create({
+      data: {
+        id: 1,
+        primary: { create: { id: 2, label: "created" } },
+        secondary: { connect: { id: 2 } },
+      },
+    });
+    const records = await c.record.findMany();
+    expect(records).toEqual([{ id: 1, primaryId: 2, secondaryId: 2 }]);
+    await c.$disconnect();
+  });
+
   test("M2M create-through-junction executes on V2 (fallback off)", async () => {
     const c = await freshClient(m2m);
     await c.post.create({
@@ -188,24 +259,12 @@ interface ResidualShape {
 }
 
 const FALLBACK_CARRYING_RESIDUAL: readonly ResidualShape[] = [
-  {
-    // The own-write-entangled boundary: absorbing it standalone weakens the
-    // sibling `connect`-observes-the-created-target accept-and-execute scenario
-    // (a before-parent create the flat atom cannot linearize). Needs the
-    // own-write before-parent ordering machinery.
-    label: "parent-held to-one create (before-parent-write ordering)",
-    schema: opf,
-    operation: "create",
-    args: {
-      data: {
-        id: 6,
-        title: "t",
-        slug: "s6",
-        author: { create: { name: "x" } },
-      },
-    },
-    rootModel: opf.post,
-  },
+  // NOTE (T1, TO-ONE.md): "parent-held to-one create (before-parent-write
+  // ordering)" — the own-write-entangled boundary the P6-prereq-2 incident named
+  // — is now ABSORBED under create roots (the construction-time before-parent
+  // coverage ledger resolves the sibling connect). It moved from this residual to
+  // the absorbed-slice describe above (the create-then-connect INCIDENT test).
+  // The remaining residual is the UPDATE/UPSERT-root to-one decline surface (T2/T3).
   {
     label: "parent-held to-one connectOrCreate under update",
     schema: opf,
