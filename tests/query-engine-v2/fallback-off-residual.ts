@@ -25,8 +25,8 @@
  *      update root — `UpdateOperation.interpretParentHeldToOne` default (13)
  *   B. nested relation writes inside a nested to-many `update` —
  *      `RelationWritePart` scalarData boundary (8)
- *   C. nested relation writes inside an m2m nested `create`/`update` —
- *      `RelationJunctionPart` scalarData boundary (8)
+ *   C. nested relation writes inside an m2m nested `create`/`update` (incl. the
+ *      deep-nested-update variant) — `RelationJunctionPart` scalarData boundary (10)
  *   D. top-level `upsert` with nested-relation create/update arms —
  *      `UpsertOperation` scalar-arms-only guard (7)
  *   E. nested `create` under update whose create data carries relations / D4 (2)

@@ -900,7 +900,7 @@ the full suite fallback-off, never a hand-maintained pin list.
   | --- | --- | --- |
   | A. parent-held to-one `update`/`delete`/`upsert` under update | `interpretParentHeldToOne` | 13 |
   | B. nested relation writes in a nested to-many `update` | `RelationWritePart.scalarData` | 8 |
-  | C. nested relation writes in an m2m nested `create`/`update` | `RelationJunctionPart.scalarData` | 8 |
+  | C. nested relation writes in an m2m nested `create`/`update` (incl. deep-nested-update) | `RelationJunctionPart.scalarData` | 10 |
   | D. top-level `upsert` with nested-relation arms | `UpsertOperation` scalar-arms guard | 7 |
   | E. nested `create` under update carrying relations / D4 | depth guard | 2 |
   | F. inverse-side to-one `upsert` (the sole pre-T3 pin) | `interpretInverseToOneKind` | 1 |

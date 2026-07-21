@@ -1057,10 +1057,10 @@ full `nested-write-conformance` suite with `setV1FallbackDisabled(true)` and cou
 every scenario whose whole tree V2 declines (`declinedToV1`, which also catches the
 reject-parity shapes a pass/fail count misses). The measure is **43 scenarios
 across EIGHT decline families** (A parent-held to-one update/delete/upsert ×13; B
-nested-relation-in-nested-update ×8; C m2m-nested-create/update-with-relations ×8;
-D top-level-upsert-nested-arms ×7; E nested-create-under-update/D4 ×2; F
-inverse-side-to-one-upsert ×1; G connectOrCreate-create-arm-depth ×1; H
-to-many-upsert-identity ×1), **not one**.
+nested-relation-in-nested-update ×8; C m2m-nested-create/update-with-relations,
+incl. deep-nested-update ×10; D top-level-upsert-nested-arms ×7; E
+nested-create-under-update/D4 ×2; F inverse-side-to-one-upsert ×1; G
+connectOrCreate-create-arm-depth ×1; H to-many-upsert-identity ×1), **not one**.
 
 - **The census is now machine-checked, not prose.** `FALLBACK_OFF_RESIDUAL`
   (tests/query-engine-v2/fallback-off-residual.ts) pins the 43 `group > scenario`

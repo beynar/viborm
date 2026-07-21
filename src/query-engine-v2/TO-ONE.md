@@ -523,7 +523,7 @@ families**, not one:
 | --- | --- | --- |
 | A. parent-held to-one `update`/`delete`/`upsert` under update | `interpretParentHeldToOne` default | 13 |
 | B. nested relation writes inside a nested to-many `update` | `RelationWritePart` scalarData | 8 |
-| C. nested relation writes inside an m2m nested `create`/`update` | `RelationJunctionPart` scalarData | 8 |
+| C. nested relation writes inside an m2m nested `create`/`update` (incl. deep-nested-update) | `RelationJunctionPart` scalarData | 10 |
 | D. top-level `upsert` with nested-relation create/update arms | `UpsertOperation` scalar-arms-only | 7 |
 | E. nested `create` under update whose create data carries relations / D4 | depth guard | 2 |
 | F. inverse-side to-one `upsert` (the sole pre-T3 pin) | `interpretInverseToOneKind` default | 1 |
