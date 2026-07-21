@@ -8,6 +8,7 @@ import type { Model } from "@schema/model";
 import { describe, expect, test } from "vitest";
 import { compoundKeyBehaviorSchema } from "../fixtures/compound-key-behavior-schema";
 import { manyToManySchema } from "../fixtures/many-to-many-schema";
+import { nestedWriteBehaviorSchema } from "../fixtures/nested-write-behavior-schema";
 import { operationFragmentSchema } from "./create-nested-upsert-behavior";
 import { createV2RoutedClient, type RouteRecord } from "./v2-client-proxy";
 
@@ -182,6 +183,7 @@ async function runArm(kind: ArmKind, scenario: Scenario) {
 const opf = operationFragmentSchema;
 const m2m = manyToManySchema;
 const compound = compoundKeyBehaviorSchema;
+const nb = nestedWriteBehaviorSchema;
 
 const parityScenarios: Scenario[] = [
   {
@@ -468,6 +470,31 @@ const parityScenarios: Scenario[] = [
         },
       }),
     dump: (c) => c.post.findMany({ orderBy: { id: "asc" } }),
+  },
+  {
+    // Child-held one-to-one nested `create`: the profile (child holding `userId`)
+    // INSERTs AFTER the user with `userId = user.id` — the arity-1 case of the
+    // child-held path, previously declined by the one-to-many-only type guard.
+    // (Parent-held to-one `create` is NOT absorbed: the before-parent-write
+    // ordering entangles with own-write dependency semantics — a sibling `connect`
+    // observing the just-created target is an accept-and-execute V1 shape the flat
+    // atom cannot reproduce; see the P6-prereq-2 report boundary.)
+    name: "child-held one-to-one create (profile under user)",
+    schema: nb,
+    seed: () => Promise.resolve(),
+    act: (c) =>
+      c.user.create({
+        data: {
+          id: "u1",
+          name: "alice",
+          profile: { create: { id: "pr1", bio: "bio" } },
+        },
+        select: {
+          id: true,
+          profile: { select: { id: true, userId: true, bio: true } },
+        },
+      }),
+    dump: (c) => c.profile.findMany({ orderBy: { id: "asc" } }),
   },
 ];
 

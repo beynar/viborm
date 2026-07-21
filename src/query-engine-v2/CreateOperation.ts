@@ -431,9 +431,18 @@ export class CreateOperation {
       this.interpretParentHeld(input, relationInfo, fk, kinds);
       return;
     }
-    if (relationInfo.type !== "oneToMany") {
+    // A child-held relation this record is the referenced side of: to-many
+    // (`oneToMany`) or a to-one inverse (`oneToOne`, the child holding the FK).
+    // The create-tree mechanics are direction-based, not arity-based — a child
+    // INSERTs AFTER the parent with `fk = parent`, riding the same already-certified
+    // own-write machinery (a sibling reading a just-created child is still rejected
+    // by the OwnWritePreflight). A to-one is the arity-1 case of that path; the
+    // mixed-directions conformance scenario and the create-family oracle certify the
+    // one-to-one `create`. Any OTHER type here is a schema impossibility (M2M and
+    // parent-held were dispatched above) — kept as a defensive internal guard.
+    if (relationInfo.type !== "oneToMany" && relationInfo.type !== "oneToOne") {
       throw new UnsupportedOperationError(
-        `query-engine-v2 create supports only one-to-many child-held relations; relation '${relationName}' is '${relationInfo.type}'.`
+        `query-engine-v2 create supports only child-held one-to-many / one-to-one relations; relation '${relationName}' is '${relationInfo.type}'.`
       );
     }
     this.interpretChildHeld(input, relationInfo, fk, kinds);

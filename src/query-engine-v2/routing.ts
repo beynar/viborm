@@ -64,6 +64,28 @@ export const ROUTED_OPERATIONS: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * Test-only invariant probe (P6-prerequisite 2, the decline-surface gate). When
+ * set, a payload a V2 family DECLINES with {@link UnsupportedOperationError} at
+ * construction RE-THROWS instead of returning `undefined` — so the V1 fallback
+ * arm in `PendingOperation.runRouted` is never reached and any reachable
+ * accept-and-execute behavior still living behind the fallback surfaces as a hard
+ * failure. This is P6's deletion premise ("no reachable behavior lives behind the
+ * fallback") made machine-checkable. It is INERT in production: the flag defaults
+ * off, is flipped only by the `fallback-disabled-gate` test through
+ * {@link setV1FallbackDisabled}, and an unrouted operation name still returns
+ * `undefined` (that is not a decline — V2 never owned it). Never flip it from
+ * product code.
+ */
+let v1FallbackDisabled = false;
+
+/** @internal test-only. Returns the prior value so a test can restore it. */
+export function setV1FallbackDisabled(disabled: boolean): boolean {
+  const previous = v1FallbackDisabled;
+  v1FallbackDisabled = disabled;
+  return previous;
+}
+
+/**
  * Construct the V2 operation for a routed payload, or return `undefined` when
  * V2 does not own the tree (an unrouted operation name, or a supported family
  * declining this payload with {@link UnsupportedOperationError}). Any other
@@ -95,7 +117,13 @@ export function constructRoutedOperation(
   try {
     return constructOperation(engine, model, operation, args);
   } catch (error) {
-    if (error instanceof UnsupportedOperationError) return undefined;
+    if (error instanceof UnsupportedOperationError) {
+      // The decline surface: normally this whole tree hands off to V1. With the
+      // test-only probe engaged, re-throw so the fallback arm is never reached —
+      // proving no reachable behavior lives behind it.
+      if (v1FallbackDisabled) throw error;
+      return undefined;
+    }
     throw error;
   }
 }
