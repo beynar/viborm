@@ -831,6 +831,57 @@ semantics.
   kind / Part method / executor branch (the ledger is a plain `Map` in the Part
   constructor). **V1 stays reachable; P6 waits on T2/T3.**
 
+## T2 — the to-one family under update roots *(delivered)*
+
+**T2 closes the update-root portion.** The design note `TO-ONE.md §7` (written and
+committed *before* the absorption code) is normative; this section records the
+delivery. The absorption unit is again the tree class ("to-one arms under an update
+root"), but the coupling that made T1's arms inseparable is **absent** here — the
+own-write preflight and per-tree routing enforce coherence, not a coverage ledger.
+
+- **The one structural difference is that the parent EXISTS** (located first,
+  FOR-UPDATE). §4's fresh-parent elision does not apply, and the parent-held FK
+  write is the **root parent UPDATE**, not an INSERT fold (TO-ONE.md §7.0). A
+  parent-held `create`/`connectOrCreate` writes the target ahead of the root UPDATE
+  (`UpdateOperation`'s new `beforeRootWrites` phase) and the UPDATE's SET absorbs the
+  FK — a `Ref` (create / connectOrCreate-missing) or a compile-decided literal
+  (connectOrCreate-found). This is V1's `updateParentForeignKey`. Scalar-only target
+  creates land; a nested-relation target create is V1's `appendCreate` recursion (a
+  documented route).
+
+- **The coverage ledger is NOT ported** (TO-ONE.md §7.0.3). V1 gives `update` one
+  undivided own-write group, so a sibling `connect` observing a sibling `create` is a
+  rejected own-write — porting the ledger would flip that rejection into acceptance
+  (a kill signal). Each parent-held arm is independent; the sibling create-then-connect
+  under update is a REJECT-parity oracle witness, disjoint create+connect an
+  ACCEPT-parity one.
+
+- **The inverse-side one-to-one is the arity-1 child-held path** (TO-ONE.md §7.0.1).
+  The child-held type guard widens from `oneToMany` to `oneToOne` (the same widening
+  T1 made for create), reusing `RelationLinkPart` / `RelationWritePart` /
+  `RelationUpsertPart` verbatim, plus an **optional** unique `where` on
+  `RelationWritePart` for the correlated to-one `update` (correlation is the whole
+  locator). `connect` / `connectOrCreate` / `disconnect: true` / `delete: true` land;
+  steal/orphan is the DB unique constraint's (V1's call). The nested `upsert` arm
+  stays routed (T3).
+
+- **Pins** (TO-ONE.md §7.1): parent-held connectOrCreate FOUND = existing-row
+  `presenceGuard` (`raceable: false`), MISSING = constraint + `racePin`
+  (`raceable: true`); parent-held `create` = none; inverse-side correlated `update` =
+  the split-witness `presenceGuard` (`fk = parent ∧ pk = capturedPk`). Each falsified
+  once (found-arm deleted-before-batch → FK never lands; missing-arm concurrent create
+  → retry-and-adopt; correlated child reparented before batch → update never lands).
+
+- **Gate accounting moved together.** `parent-held connectOrCreate under update` and
+  `inverse-side to-one update` left `FALLBACK_CARRYING_RESIDUAL` for the
+  decline-surface gate's absorbed slice (fallback OFF); the residual is now **exactly
+  one** entry — the inverse-side to-one `upsert` arm (T3) — still non-empty. Route-
+  inventory tripwire 51 → 59 (8 finer-grained boundary routes, the same classes T1
+  drew under create roots). The dual-run oracle (`to-one-update-family.test.ts`, 16
+  scenarios + 3 pin falsifications) certifies V1 == v2-tx == v2-batch. The
+  `OperationFragment.ts` surface was **unchanged** — the freeze held. **V1 stays
+  reachable; P6 waits on T3.**
+
 ## P6 — Deletion and the honest audit
 
 Bulk-delete V1's operation/execution root once unreachable; keep what V2

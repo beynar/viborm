@@ -994,6 +994,60 @@ kill-signal incident** the prerequisite could not close standalone.
   `StatementStep.onUniqueConflict` is still the only executor effect: **the freeze
   held**, no design-note-to-amend-the-freeze required.
 
+**T2 — the to-one family under update roots (freeze held; NO vocabulary change).**
+`TO-ONE.md §7` (written before the code) is normative; this is its census entry.
+The to-one relation-write family under UPDATE roots is absorbed. The one structural
+difference from T1 reshapes the whole unit: **the parent already exists** (located
+first, FOR-UPDATE), so §4's fresh-parent elision does not apply and the parent's FK
+write is a **root parent UPDATE**, not an INSERT fold.
+
+- **Parent-held (FK-holder) `create`/`connectOrCreate`: a before-root target
+  INSERT the root UPDATE references.** The target INSERTs first (scalar-only; a
+  nested-relation target create is V1's `appendCreate` recursion, a documented
+  route), its identity flowing **backward** into the root parent UPDATE's FK column
+  by a `Ref` (create / connectOrCreate-missing) or a compile-decided literal
+  (connectOrCreate-found) — the same "refs point backward" shape as T1, with the
+  record INSERT replaced by the record UPDATE. `UpdateOperation` gains one
+  `beforeRootWrites` phase between the guards and the root UPDATE; the SET absorbs
+  the resolved FK fold. This is V1's `updateParentForeignKey` (the `fk.holdsFK` arms
+  of `RelationUpdates.compileRelation` / `RelationBranches.compileConnectOrCreate`).
+
+- **The coverage ledger does NOT generalize, and is NOT ported.** V1 gives `update`
+  one undivided own-write group (`getRelationEntryGroups` returns
+  `[Object.entries(relations)]`), so a sibling `connect` observing a sibling
+  `create`'s target write is a genuine own-write dependency V1 **rejects**
+  (`assertUpdate`). The T1 ledger — which turns that overlap into a covered adopt —
+  would flip a V1 rejection into acceptance (a kill signal), so `UpdateOperation`
+  ports no ledger. Each parent-held arm is independent; the own-write preflight is
+  the arbiter, unchanged. Sibling create-then-connect under update is a REJECT-parity
+  witness; disjoint create+connect is an ACCEPT-parity one.
+
+- **Inverse-side one-to-one is the arity-1 child-held path.** The child-held type
+  guard widens from `oneToMany` to `oneToOne` (the same widening T1 made for
+  create), reusing `RelationLinkPart` / `RelationWritePart` / `RelationUpsertPart`
+  verbatim, plus an **optional** unique `where` on `RelationWritePart` for the
+  correlated to-one `update` (correlation is the whole locator — V1's selector-less
+  `normalizeUpdateInputs`). `connect`/`connectOrCreate`/`disconnect: true`/`delete:
+  true` land; steal/orphan semantics are V1's (the DB unique constraint enforces the
+  one-to-one). The nested-relation `upsert` arm stays routed (T3).
+
+- **Pins per arm (TO-ONE.md §7.1), each falsified once.** parent-held
+  connectOrCreate FOUND = existing-row `presenceGuard` (`raceable: false`), MISSING
+  = constraint + `racePin` (`raceable: true`); parent-held `create` = no pin;
+  inverse-side correlated `update` = the split-witness `presenceGuard` (`fk = parent
+  ∧ pk = capturedPk`). Falsified: found-arm target deleted before batch → FK never
+  lands; missing-arm concurrent create → retry-and-adopt convergence; correlated
+  child reparented before batch → update never lands.
+
+- **Gate accounting moved together.** `parent-held connectOrCreate under update` and
+  `inverse-side to-one update` left `FALLBACK_CARRYING_RESIDUAL` for the
+  decline-surface gate's absorbed slice (fallback OFF). The residual is now **exactly
+  one** entry — the inverse-side to-one `upsert` arm (T3) — still non-empty (V1 not
+  yet deletable). The route-inventory tripwire moved 51 → 59 deliberately (8
+  finer-grained boundary routes, the same classes T1 drew under create roots). The
+  dual-run oracle (`to-one-update-family.test.ts`) certifies V1 == v2-tx == v2-batch
+  across the family. `OperationFragment.ts` **unchanged** — the freeze held.
+
 ---
 
 ## 9. Invariants (the executable contract)
