@@ -31,11 +31,20 @@ import { manyToManySchema } from "../fixtures/many-to-many-schema";
  * EXACTLY the one documented boundary. It is the P4 `routedToV1StillRemaining`
  * list minus the two P4.5 absorbs.
  *
- * Scope note: this pins the *tracked* route inventory (the P3/P4 report set). A
- * handful of narrower UnsupportedOperationError throws remain for edge shapes
- * that were never tracked as routes (e.g. a to-one `connect` by a non-referenced
- * unique) and are outside the P6 deletion accounting; they are not part of this
- * inventory.
+ * Scope note (CORRECTED, P6-prerequisite 2): this file pins the *tracked* route
+ * inventory (the P3/P4 report set) and the throw-SITE COUNT. It does NOT, on its
+ * own, prove those throws carry no reachable behavior — and the earlier framing
+ * that the untracked throws were "outside the P6 deletion accounting" was the
+ * exact blind spot both blocked P6 attempts hit. A throw site is a route to V1;
+ * many of the untracked ones (parent-held to-one `create`/`connectOrCreate`,
+ * inverse-side to-one ops, nested-relation upsert arms) route ACCEPT-AND-EXECUTE
+ * shapes V1 runs correctly today, so they ARE part of the deletion accounting.
+ * The genuine per-SHAPE accounting — which declines carry reachable behavior and
+ * which are truly refusable/degenerate — lives in the decline-surface gate
+ * ({@link file://./decline-surface-gate.test.ts}), which runs shapes with the V1
+ * fallback DISABLED. This file remains the count tripwire; that gate is the
+ * behavior-reachability invariant. P6 may delete V1 only when that gate's
+ * `FALLBACK_CARRYING_RESIDUAL` is empty — it is not.
  */
 
 const REMAINING_ROUTE =

@@ -119,7 +119,7 @@
     "test:ui": "vitest --ui",
     "test:types": "tsc --noEmit",
     "test:runtime": "vitest run tests/runtime/",
-    "test:gates": "vitest run tests/query-engine/operation-boundary-architecture-gates.test.ts tests/query-engine/operation-program-architecture-gates.test.ts tests/query-engine-v2/architecture-gates.test.ts",
+    "test:gates": "vitest run tests/query-engine/operation-boundary-architecture-gates.test.ts tests/query-engine/operation-program-architecture-gates.test.ts tests/query-engine-v2/architecture-gates.test.ts tests/query-engine-v2/decline-surface-gate.test.ts",
     "test:pg": "vitest run --no-file-parallelism tests/drivers/pg.test.ts tests/drivers/postgres.test.ts",
     "test:pglite": "vitest run tests/drivers/pglite.test.ts",
     "test:sqlite": "vitest run tests/drivers/sqlite3.test.ts tests/drivers/libsql.test.ts",
