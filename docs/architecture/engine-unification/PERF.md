@@ -139,3 +139,28 @@ documented, not smoothed over, and it is **NOT part of the P5 gate**.
   — memoize/prepare the constructed operation + its compiled fragment across
   repeat calls so the in-memory write ratios reach parity. Revisit post-P6, when
   the V1 root is deleted and routing is unconditional. Not gating.
+
+## P6-prerequisite — the create family A/B (in-memory SQLite)
+
+The create family flip, measured the same way (`benchmarks/p5-flip-ab.bench.ts`,
+`queryEngine` escape hatch, two seeded in-memory SQLite DBs, ratio = V2 hz / V1 hz):
+
+| workload | V1 hz | V2 hz | ratio | verdict |
+| --- | --- | --- | --- | --- |
+| scalar create | 26,524 | 22,950 | **0.87×** (V2 ~1.16× slower) | honest miss of ±10% |
+| nested create (user + one post) | 7,107 | 9,431 | **1.33×** (V2 faster) | within/beyond gate |
+
+- **Nested create is FASTER on V2 (1.33×).** The create fold emits one linear
+  plan (parent INSERT + child INSERT + one terminal read) that the executor runs
+  as a single atomic unit; V1's nested-write orchestration (OperationProgram build
+  + branch walk) carries more per-tree overhead, so as soon as a relation edge is
+  present V2 wins. This is the composition dividend the atom model predicted.
+- **Scalar create misses ±10% (~1.16× slower) — SAME class as P5 `scalar update`,
+  same mechanism, ACCEPTED.** A bare scalar create is one statement on both
+  engines (V2 folds `INSERT … RETURNING`), so the statement count is at parity;
+  the residual is V2's fixed **per-call construction cost** — a fresh operation
+  object, the own-write preflight, and a payload schema parse on every call —
+  which is a few µs, dominant only on an in-memory SQLite ~20 µs round-trip and
+  noise on any networked driver (MySQL create passes the Docker leg 468/468). It
+  falls under the already-named backlog item *"V2 per-call construction cost on
+  in-memory drivers"* and is NOT a new gate. No statement-count regression.
