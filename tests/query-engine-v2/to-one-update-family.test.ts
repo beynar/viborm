@@ -413,6 +413,109 @@ const scenarios: Scenario[] = [
       }),
     dump: (c) => c.profile.findMany({ orderBy: { id: "asc" } }),
   },
+  // -- Inverse-side (child-held) to-one UPSERT, family F (TO-ONE.md §7.2) ----------
+  {
+    // ABSORBED (T3-r2) family F, ABSENT arm: no profile correlated to u1 → INSERT
+    // it with fk = u1. No unique `where`; the FK correlation is the locator.
+    name: "inverse-side to-one upsert under update ABSENT (creates child, fk=parent)",
+    schema: nb,
+    seed: (c) => c.user.create({ data: { id: "u1", name: "a" } }),
+    act: (c) =>
+      c.user.update({
+        where: { id: "u1" },
+        data: {
+          profile: {
+            upsert: {
+              create: { id: "pr1", bio: "created" },
+              update: { bio: "unused" },
+            },
+          },
+        },
+        select: { id: true },
+      }),
+    dump: (c) => c.profile.findMany({ orderBy: { id: "asc" } }),
+  },
+  {
+    // ABSORBED (T3-r2) family F, FOUND arm: u1 already has a correlated profile →
+    // UPDATE it (the create arm is ignored, exactly as V1's found decision).
+    name: "inverse-side to-one upsert under update FOUND (updates correlated child)",
+    schema: nb,
+    seed: async (c) => {
+      await c.user.create({ data: { id: "u1", name: "a" } });
+      await c.profile.create({ data: { id: "pr1", bio: "old", userId: "u1" } });
+    },
+    act: (c) =>
+      c.user.update({
+        where: { id: "u1" },
+        data: {
+          profile: {
+            upsert: {
+              create: { id: "pr-unused", bio: "nope" },
+              update: { bio: "updated" },
+            },
+          },
+        },
+        select: { id: true },
+      }),
+    dump: (c) => c.profile.findMany({ orderBy: { id: "asc" } }),
+  },
+  {
+    // The correlation witness (T2 theater lesson) for family F's create arm: a
+    // SECOND parent's connected profile must survive u1's absent-arm upsert. An
+    // uncorrelated insert would be fine here, but a found-arm mis-correlation (or a
+    // create arm that reparented pr2) would surface as a cross-parent leak.
+    name: "inverse-side upsert ABSENT arm touches ONLY this parent (witness)",
+    schema: nb,
+    seed: async (c) => {
+      await c.user.create({ data: { id: "u1", name: "a" } });
+      await c.user.create({ data: { id: "u2", name: "b" } });
+      await c.profile.create({
+        data: { id: "pr2", bio: "witness", userId: "u2" },
+      });
+    },
+    act: (c) =>
+      c.user.update({
+        where: { id: "u1" },
+        data: {
+          profile: {
+            upsert: {
+              create: { id: "pr1", bio: "created" },
+              update: { bio: "unused" },
+            },
+          },
+        },
+        select: { id: true },
+      }),
+    dump: (c) => c.profile.findMany({ orderBy: { id: "asc" } }),
+  },
+  {
+    // Family F FOUND arm with a witness: u1's found-arm update must not touch u2's
+    // correlated profile (the WHERE fk = parent ∧ pk = capturedPk correlation).
+    name: "inverse-side upsert FOUND arm updates ONLY this parent (witness)",
+    schema: nb,
+    seed: async (c) => {
+      await c.user.create({ data: { id: "u1", name: "a" } });
+      await c.user.create({ data: { id: "u2", name: "b" } });
+      await c.profile.create({ data: { id: "pr1", bio: "old", userId: "u1" } });
+      await c.profile.create({
+        data: { id: "pr2", bio: "witness", userId: "u2" },
+      });
+    },
+    act: (c) =>
+      c.user.update({
+        where: { id: "u1" },
+        data: {
+          profile: {
+            upsert: {
+              create: { id: "pr-unused", bio: "nope" },
+              update: { bio: "updated" },
+            },
+          },
+        },
+        select: { id: true },
+      }),
+    dump: (c) => c.profile.findMany({ orderBy: { id: "asc" } }),
+  },
   // -- Sibling coupling under update (the ledger does NOT generalize, §7.0.3) ------
   {
     name: "REJECT parity: sibling create-then-connect under update (own-write)",
@@ -653,6 +756,60 @@ describe("query-engine-v2 to-one update family: T2 pin falsifications", () => {
       where: { id: "pr1" },
     });
     expect(profile[0].bio).toBe("old"); // the update never landed
+    await (base as any).$disconnect();
+  }, 45_000);
+
+  test("family F FOUND-arm guard: correlated child reparented before batch fails closed", async () => {
+    // The upsert probe found pr1 (userId u1) at planning → the FOUND (update) arm.
+    // A concurrent reparent moves pr1 off u1 before the batch; the found-arm
+    // presence guard (fk = parent ∧ pk = capturedPk) then fails closed with the
+    // upsert-premise wording — V2 never updates a child that left this parent, and
+    // never silently falls through to the create arm.
+    const db = new PGlite();
+    const base = createClient({
+      schema: nb,
+      driver: new PGliteDriver({ client: db }),
+    });
+    await push(base as never, { force: true } as never);
+    await (base as any).user.create({ data: { id: "u1", name: "a" } });
+    await (base as any).user.create({ data: { id: "u2", name: "b" } });
+    await (base as any).profile.create({
+      data: { id: "pr1", bio: "old", userId: "u1" },
+    });
+
+    const driver = new BeforeBatchDriver(
+      async () => {
+        await (base as any).profile.update({
+          where: { id: "pr1" },
+          data: { userId: "u2" },
+        });
+      },
+      { client: db }
+    );
+    const routed = createV2RoutedClient({
+      schema: nb,
+      client: base as never,
+      driver,
+    });
+
+    await expect(
+      (routed.client as any).user.update({
+        where: { id: "u1" },
+        data: {
+          profile: {
+            upsert: {
+              create: { id: "prX", bio: "created" },
+              update: { bio: "updated" },
+            },
+          },
+        },
+      })
+    ).rejects.toThrow("Nested upsert premise changed for relation 'profile'");
+    const profiles = await (base as any).profile.findMany({
+      orderBy: { id: "asc" },
+    });
+    // The update never landed and no create-arm child was inserted.
+    expect(profiles).toEqual([{ id: "pr1", bio: "old", userId: "u2" }]);
     await (base as any).$disconnect();
   }, 45_000);
 });

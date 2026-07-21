@@ -18,9 +18,10 @@
  * UnsupportedOperationError anywhere in seed/act), NOT the pass/fail flip — so it
  * counts the message-pin shapes whose reject-bool coincidentally matched V1 (e.g.
  * "to-one update (FK-holder side) with nothing connected rejects"), which a
- * pass/fail enumeration silently under-counts. Measured size: 43.
+ * pass/fail enumeration silently under-counts. Measured size at T3 start: 43; after
+ * T3-r2 absorbed family F (inverse-side to-one upsert, size 1): 42.
  *
- * The eight decline families (root-cause site → count):
+ * The eight decline families (root-cause site → remaining count):
  *   A. parent-held (FK-holder-side) to-one `update`/`delete`/`upsert` under an
  *      update root — `UpdateOperation.interpretParentHeldToOne` default (13)
  *   B. nested relation writes inside a nested to-many `update` —
@@ -30,7 +31,8 @@
  *   D. top-level `upsert` with nested-relation create/update arms —
  *      `UpsertOperation` scalar-arms-only guard (7)
  *   E. nested `create` under update whose create data carries relations / D4 (2)
- *   F. inverse-side to-one `upsert` — `interpretInverseToOneKind` default (1)
+ *   F. inverse-side to-one `upsert` — ABSORBED (T3-r2): native V2 correlated upsert
+ *      arm in `RelationWritePart` (found → update / absent → create, fk = parent) (0)
  *   G. `connectOrCreate` create-arm recursion one level too deep (1)
  *   H. to-many `upsert` create-then-update identity spelling (1)
  *
@@ -60,7 +62,10 @@ export const FALLBACK_OFF_RESIDUAL: ReadonlySet<string> = new Set([
   "nested-write conformance: to-one ops (tx vs batch) > to-one delete true (FK-holder side) nulls the FK then deletes the target",
   "nested-write conformance: to-one ops (tx vs batch) > to-one update (FK-holder side) updates the connected author",
   "nested-write conformance: to-one ops (tx vs batch) > to-one update (FK-holder side) with nothing connected rejects, state unchanged",
-  "nested-write conformance: to-one ops (tx vs batch) > to-one upsert (inverse side) creates then updates the profile",
+  // ABSORBED (T3-r2, family F): "to-one ops … > to-one upsert (inverse side)
+  // creates then updates the profile" was pinned here; the inverse-side to-one
+  // upsert is now handled natively by V2 (RelationWritePart correlated upsert arm),
+  // so it runs fallback-off and is no longer a fallback carrier. Count 43 → 42.
   "nested-write conformance: transitive createMany dependencies (tx vs batch) > nested createMany and disjoint later decision succeed",
   "nested-write conformance: transitive membership dependencies (tx vs batch) > nested identity transition exports the exact final membership source",
   "nested-write conformance: transitive membership dependencies (tx vs batch) > nested physical membership allows a disjoint source endpoint",
@@ -87,6 +92,8 @@ export const FALLBACK_OFF_RESIDUAL: ReadonlySet<string> = new Set([
   "nested-write conformance: update predicate root (tx vs batch) > nested to-many update allows a disjoint child decision",
 ]);
 
-/** The measured count at T3 start — asserted by the gate so the set cannot be
- *  silently trimmed. Shrinks by exactly the family size when a family is absorbed. */
-export const FALLBACK_OFF_RESIDUAL_COUNT = 43;
+/** The measured residual count — asserted by the gate so the set cannot be silently
+ *  trimmed. Shrinks by exactly the family size when a family is absorbed. Started at
+ *  43 (T3 enumeration); 42 after T3-r2 absorbed family F (inverse-side to-one upsert,
+ *  size 1). Each further absorption drops this by that family's size. */
+export const FALLBACK_OFF_RESIDUAL_COUNT = 42;

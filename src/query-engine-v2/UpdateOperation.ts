@@ -69,6 +69,7 @@ import {
   plannedParentId,
 } from "./RelationUpsertPart";
 import {
+  buildInverseToOneUpsertPart,
   buildToManyDeleteManyParts,
   buildToManyDeleteParts,
   buildToManySetPart,
@@ -831,9 +832,11 @@ export class UpdateOperation {
    * ordinary correlated / global-adopt child writes — the arity-1 case of the
    * to-many child-held family — differing only in the to-one payload spelling:
    * `update: <data>` (no unique selector, correlation is the locator), `disconnect:
-   * true` / `delete: true` (the whole correlated set). The nested-relation `upsert`
-   * arm is T3's; `create` / non-boolean disconnect/delete / `set` route the whole
-   * tree to V1 (documented boundaries, mirroring the to-many surface).
+   * true` / `delete: true` (the whole correlated set), and `upsert` (found → update
+   * the correlated child / absent → create it, fk = parent — TO-ONE.md §7.2, family
+   * F, scalar arms). `create` / non-boolean disconnect/delete / `set` / a
+   * relation-carrying upsert arm route the whole tree to V1 (documented boundaries,
+   * mirroring the to-many surface).
    */
   private interpretInverseToOneKind(args: {
     kind: string;
@@ -916,6 +919,14 @@ export class UpdateOperation {
           buildToOneUpdatePart(writeBase, parsedRelation.update)
         );
         return;
+      case "upsert":
+        // Correlated to-one upsert (TO-ONE.md §7.2, family F): the correlated probe
+        // decides found → update / absent → create (fk = parent), no unique `where`.
+        // The same correlated locator as the `update` arm, with a create branch.
+        input.childParts.push(
+          buildInverseToOneUpsertPart(writeBase, parsedRelation.upsert)
+        );
+        return;
       case "disconnect": {
         // A required child FK cannot be nulled — V1's verbatim typed rejection.
         assertNullable(relationInfo, fk);
@@ -958,8 +969,8 @@ export class UpdateOperation {
         push(buildToManyDeleteManyParts(writeBase, {}));
         return;
       default:
-        // upsert (T3), create/createMany/set/updateMany/deleteMany — V1's surface
-        // under an inverse-side to-one; route the whole tree to V1.
+        // create/createMany/set/updateMany/deleteMany — V1's surface under an
+        // inverse-side to-one; route the whole tree to V1.
         throw new UnsupportedOperationError(
           `query-engine-v2 update does not support nested '${kind}' on the inverse-side to-one relation '${relationName}'.`
         );

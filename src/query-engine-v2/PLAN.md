@@ -882,7 +882,7 @@ own-write preflight and per-tree routing enforce coherence, not a coverage ledge
   `OperationFragment.ts` surface was **unchanged** — the freeze held. **V1 stays
   reachable; P6 waits on T3.**
 
-## T3 — the final surface *(measured, not curated; NO absorption landed)*
+## T3 — the final surface *(measured, not curated; family F absorbed in T3-r2)*
 
 **T3 was chartered as the last absorption phase — drive the fallback-carrying
 decline surface to ZERO, then P6 deletes V1. Its first act instead exposed that the
@@ -892,7 +892,8 @@ arm). T3 MEASURED the real surface — a full `nested-write-conformance` run wit
 `setV1FallbackDisabled(true)`, counting every scenario V2 declines
 (`declinedToV1`) — and found **43 scenarios across EIGHT decline families**, not
 one. This is the T2 "theater replay" lesson made structural: the census is a run of
-the full suite fallback-off, never a hand-maintained pin list.
+the full suite fallback-off, never a hand-maintained pin list. **T3-r2 then absorbed
+family F, driving the surface 43 → 42.**
 
 - **The measured surface (the phase's contract).**
 
@@ -903,39 +904,46 @@ the full suite fallback-off, never a hand-maintained pin list.
   | C. nested relation writes in an m2m nested `create`/`update` (incl. deep-nested-update) | `RelationJunctionPart.scalarData` | 10 |
   | D. top-level `upsert` with nested-relation arms | `UpsertOperation` scalar-arms guard | 7 |
   | E. nested `create` under update carrying relations / D4 | depth guard | 2 |
-  | F. inverse-side to-one `upsert` (the sole pre-T3 pin) | `interpretInverseToOneKind` | 1 |
+  | F. inverse-side to-one `upsert` (the sole pre-T3 pin) | **ABSORBED (T3-r2)** — native `buildInverseToOneUpsertPart` | ~~1~~ → 0 |
   | G. `connectOrCreate` create-arm one level too deep | depth guard | 1 |
   | H. to-many `upsert` create-then-update identity | — | 1 |
 
 - **THE GATE delivered (the P6 premise, machine-checked at last).**
   `FALLBACK_OFF_RESIDUAL` (tests/query-engine-v2/fallback-off-residual.ts) pins the
-  43 `group > scenario` keys. The `VIBORM_FALLBACK_OFF=1` conformance harness (env-
+  now-42 `group > scenario` keys. The `VIBORM_FALLBACK_OFF=1` conformance harness (env-
   gated, inert on normal runs, wired into `pnpm test:gates`) enforces it
   bidirectionally: a pinned scenario MUST decline on both substrates; a non-pinned
   one MUST run natively on V2 with the fallback OFF. The decline-surface gate pins
-  the census SIZE (43) against silent trimming and re-proves one representative
-  construct-time decline. Falsified: drop one census entry → gate red (`expected 42
-  to be 43`) → restored. The `declinedToV1` measure (a V2 `UnsupportedOperationError`
-  anywhere in seed/act) is stricter than pass/fail — it caught the 43rd scenario, a
-  reject-parity shape ("to-one update (FK-holder side) with nothing connected
-  rejects") whose reject-bool coincidentally matched V1 and which the 42-count run
-  missed.
+  the census SIZE (42) against silent trimming and re-proves one representative
+  construct-time decline (now family A, since F was absorbed). Falsified: drop one
+  census entry → gate red (`expected 41 to be 42`) → restored. The `declinedToV1`
+  measure (a V2 `UnsupportedOperationError` anywhere in seed/act) is stricter than
+  pass/fail — it caught the 43rd scenario, a reject-parity shape ("to-one update
+  (FK-holder side) with nothing connected rejects") whose reject-bool coincidentally
+  matched V1 and which the 42-count run missed.
 
-- **NO family was absorbed, and that is the honest disposition — not a failure to
-  try.** Calibration (TO-ONE.md §7.6): even family F (the single pre-T3 pin) is a
-  new correlated Part with no unique `where` — an inverse-side present-or-create
-  keyed on `fk = parent`, byte-identical to V1 across tx/batch and five databases.
-  Each of A–H is a comparable or larger composite-absorption unit demanding its own
-  dual-run oracle, correlation witness, staleness injection, and 5-DB certification.
-  Eight such units exceed one phase's honest capacity; a rushed, half-verified
-  absorption is exactly the theater the charter forbids ("a smaller true census
-  beats a rushed absorption"). T3 therefore STOPS at a coherent boundary: the
-  surface is measured, machine-checked, and pinned; TO-ONE.md §7.2's "documented
-  boundary" is re-labelled a **migration target**; the route-inventory throw-site
-  count (59) and `OperationFragment.ts` are unchanged (freeze held). **P6 remains
-  blocked — V1 is reachable behind 43 shapes and is NOT deletable — and the gate now
-  turns green only when a real absorption removes a family, never when the pin list
-  is curated down.**
+- **T3-r2 absorbed family F (43 → 42), fully certified.** The inverse-side
+  (child-held) to-one `upsert` is a correlated present-or-create keyed on `fk =
+  parent` (no unique `where`, the FK correlation is the whole locator). V2 now
+  handles it natively via `buildInverseToOneUpsertPart` in `RelationWritePart`: the
+  correlated probe decides at plan time — found → UPDATE the correlated child (the
+  already-certified inverse-side to-one update leaf, pinned in batch by the
+  upsert-family `exists` premise guard, in tx by the upsert-vanished affected-rows
+  expectation); absent → INSERT with `fk = parent`, no `racePin` and no found guard
+  (V1's `missingPin: none`). Scalar arms only — a relation-carrying arm still routes
+  the whole tree to V1 (a documented narrower boundary, outside the conformance
+  census). Certified byte-identical to V1: the `VIBORM_FALLBACK_OFF=1` conformance
+  run (F now runs natively on both tx and batch), a two-parent correlation witness in
+  the decline-surface gate, typecheck, Biome, the full estate, and the 5-database
+  matrix.
+
+- **The remaining seven families (42 scenarios) stay pinned.** Each of A–E, G, H is
+  a comparable or larger composite-absorption unit demanding its own dual-run oracle,
+  correlation witness, staleness injection, and 5-DB certification. TO-ONE.md §7.2's
+  "documented boundary" is re-labelled a **migration target**. **P6 remains blocked
+  — V1 is reachable behind 42 shapes and is NOT deletable — and the gate turns green
+  only when a real absorption removes a family, never when the pin list is curated
+  down.**
 
 - **What the next absorbing phase inherits.** A truthful, falsifiable spec: the 43
   named scenarios, their eight decline sites, and a gate that fails the instant a

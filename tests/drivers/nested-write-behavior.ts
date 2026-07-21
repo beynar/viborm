@@ -528,6 +528,52 @@ export function runNestedWriteBehavior({
       expect(profiles).toHaveLength(0);
     });
 
+    // Family F (TO-ONE.md §7.2), absorbed in T3-r2: the inverse-side (child-held)
+    // to-one `upsert` — a correlated locate (WHERE fk = parent, no unique `where`).
+    // Runs V2's native correlated-upsert SQL on every driver here (5-DB matrix). The
+    // second user's profile is the correlation witness: neither arm may touch it.
+    test("inverse-side to-one upsert: absent creates, found updates, witness survives", async () => {
+      const currentClient = requireClient(client);
+      await currentClient.user.create({ data: { id: "u-upsert-inv", name: "a" } });
+      await currentClient.user.create({ data: { id: "u-upsert-wit", name: "b" } });
+      await currentClient.profile.create({
+        data: { id: "pr-witness", bio: "witness", userId: "u-upsert-wit" },
+      });
+
+      // Absent arm: u-upsert-inv has no profile → create it with fk = parent.
+      await currentClient.user.update({
+        where: { id: "u-upsert-inv" },
+        data: {
+          profile: {
+            upsert: {
+              create: { id: "pr-inv", bio: "created" },
+              update: { bio: "unused" },
+            },
+          },
+        },
+      });
+      // Found arm: now it has one → update it (create arm ignored).
+      await currentClient.user.update({
+        where: { id: "u-upsert-inv" },
+        data: {
+          profile: {
+            upsert: {
+              create: { id: "pr-nope", bio: "nope" },
+              update: { bio: "updated" },
+            },
+          },
+        },
+      });
+
+      const profiles = await currentClient.profile.findMany({
+        orderBy: { id: "asc" },
+      });
+      expect(profiles).toEqual([
+        { id: "pr-inv", bio: "updated", userId: "u-upsert-inv" },
+        { id: "pr-witness", bio: "witness", userId: "u-upsert-wit" },
+      ]);
+    });
+
     test("explicit join rows work as a practical many-to-many case", async () => {
       const currentClient = requireClient(client);
       await currentClient.tag.create({

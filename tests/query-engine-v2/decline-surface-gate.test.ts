@@ -298,6 +298,55 @@ describe("decline-surface gate: absorbed create shapes carry NO fallback (P6 pre
     expect(profiles).toEqual([{ id: "pr1", bio: "new", userId: "u1" }]);
     await c.$disconnect();
   });
+
+  // T3-r2 (TO-ONE.md §7.2, family F): the inverse-side (child-held) to-one `upsert`
+  // — a correlated locate (WHERE fk = parent, no unique selector). Both arms and a
+  // second-parent correlation witness: u2's profile must be untouched by u1's
+  // upsert (create arm), and by u1's second upsert (update arm). Was residual
+  // family F; executes on V2 with the fallback OFF. Re-narrowing the inverse-side
+  // upsert case back to the default V1-route makes this throw.
+  test("inverse-side to-one upsert executes on V2 (fallback off) — absorbed", async () => {
+    const c = await freshClient(nb);
+    await c.user.create({ data: { id: "u1", name: "a" } });
+    // Correlation witness: a second parent with its own connected profile.
+    await c.user.create({ data: { id: "u2", name: "b" } });
+    await c.profile.create({
+      data: { id: "pr2", bio: "witness", userId: "u2" },
+    });
+
+    // Absent arm: no profile correlated to u1 → create it (fk = u1).
+    await c.user.update({
+      where: { id: "u1" },
+      data: {
+        profile: {
+          upsert: {
+            create: { id: "pr1", bio: "created" },
+            update: { bio: "x" },
+          },
+        },
+      },
+    });
+    // Found arm: u1 now has a correlated profile → update it (create arm ignored).
+    await c.user.update({
+      where: { id: "u1" },
+      data: {
+        profile: {
+          upsert: {
+            create: { id: "pr-unused", bio: "nope" },
+            update: { bio: "updated" },
+          },
+        },
+      },
+    });
+
+    const profiles = await c.profile.findMany({ orderBy: { id: "asc" } });
+    expect(profiles).toEqual([
+      { id: "pr1", bio: "updated", userId: "u1" },
+      // The witness parent's child is untouched — no cross-parent leak.
+      { id: "pr2", bio: "witness", userId: "u2" },
+    ]);
+    await c.$disconnect();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -319,20 +368,21 @@ describe("decline-surface gate: absorbed create shapes carry NO fallback (P6 pre
 // the full conformance census.
 // ---------------------------------------------------------------------------
 const REPRESENTATIVE_CONSTRUCT_DECLINE = {
-  // Family F — the inverse-side to-one `upsert` arm (was the sole pinned residual;
-  // still declines). A construct-time probe: no seed, no execution.
-  label: "inverse-side to-one upsert (nested-relation arm)",
+  // Family A — a parent-held (FK-holder-side) to-one `update` under an update root
+  // (`post` holds `userId` → `author`). Still declines (`interpretParentHeldToOne`
+  // default). Family F, the former representative, was absorbed (T3-r2) and now runs
+  // natively, so a still-declining family carries the construct-time tripwire. A
+  // construct-time probe: no seed, no execution.
+  label: "parent-held to-one update under update root (family A)",
   schema: nb as Record<string, Model<any>>,
   operation: "update",
   args: {
-    where: { id: "u1" },
+    where: { id: "po1" },
     data: {
-      profile: {
-        upsert: { create: { id: "pr1", bio: "b" }, update: { bio: "u" } },
-      },
+      author: { update: { name: "renamed" } },
     },
   } as Record<string, unknown>,
-  rootModel: nb.user as Model<any>,
+  rootModel: nb.post as Model<any>,
 } as const;
 
 describe("decline-surface gate: the reachable residual STILL lives behind the fallback (P6 blocked)", () => {
@@ -347,7 +397,7 @@ describe("decline-surface gate: the reachable residual STILL lives behind the fa
     // Absorbing a family drops BOTH by the same amount (and its scenarios must then
     // pass the fallback-off conformance run). 43 corrects the T1/T2 "one entry".
     expect(FALLBACK_OFF_RESIDUAL.size).toBe(FALLBACK_OFF_RESIDUAL_COUNT);
-    expect(FALLBACK_OFF_RESIDUAL_COUNT).toBe(43);
+    expect(FALLBACK_OFF_RESIDUAL_COUNT).toBe(42);
   });
 
   test(`still declines at construction (routes to V1): ${REPRESENTATIVE_CONSTRUCT_DECLINE.label}`, () => {

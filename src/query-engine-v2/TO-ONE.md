@@ -526,7 +526,7 @@ families**, not one:
 | C. nested relation writes inside an m2m nested `create`/`update` (incl. deep-nested-update) | `RelationJunctionPart` scalarData | 10 |
 | D. top-level `upsert` with nested-relation create/update arms | `UpsertOperation` scalar-arms-only | 7 |
 | E. nested `create` under update whose create data carries relations / D4 | depth guard | 2 |
-| F. inverse-side to-one `upsert` (the sole pre-T3 pin) | `interpretInverseToOneKind` default | 1 |
+| F. inverse-side to-one `upsert` (the sole pre-T3 pin) | ~~`interpretInverseToOneKind` default~~ **ABSORBED (T3-r2)** | ~~1~~ → **0** |
 | G. `connectOrCreate` create-arm recursion one level too deep | depth guard | 1 |
 | H. to-many `upsert` create-then-update identity spelling | — | 1 |
 
@@ -534,10 +534,28 @@ The census is now the machine-checked `FALLBACK_OFF_RESIDUAL`
 (tests/query-engine-v2/fallback-off-residual.ts), enforced bidirectionally by the
 `VIBORM_FALLBACK_OFF=1` conformance run wired into `pnpm test:gates`: a pinned
 scenario MUST decline on both substrates; a non-pinned one MUST run natively on V2.
-**No absorption landed in T3** — the surface proved to be eight coherent
-composite-absorption units (each a byte-identical-to-V1 correlated write requiring
-its own dual-run oracle, correlation witness, and 5-database certification), which
-is larger than one phase can absorb without the theater the mission forbids. The
-honest disposition: the true surface is measured and pinned; P6 stays blocked; the
-gate now turns green only when a real absorption removes a family, never when the
-pin list is curated down.
+
+**T3-r2 absorbs family F (43 → 42).** The inverse-side (child-held) to-one `upsert`
+is now handled natively by V2 — a correlated locate (`WHERE fk = parent`, the FK
+correlation is the whole locator, no unique `where`) that decides at plan time:
+found → UPDATE the correlated child (the certified inverse-side to-one update leaf,
+pinned in batch by the upsert-family `exists` premise guard, in tx by the
+upsert-vanished affected-rows expectation); absent → INSERT the child with `fk =
+parent`, **no `racePin` and no found guard** (V1's `missingPin: none` — the child
+FK's UNIQUE constraint is the sole invariant, exactly as V1 leaves it). It composes
+`buildToOneUpdatePart`'s correlated-update leaf with a create leaf in
+`RelationWritePart` (`buildInverseToOneUpsertPart`); the root parent does not hold
+the FK, so no parent-side FK rebind follows. Scalar arms only — a relation-carrying
+create/update arm still routes the whole tree to V1 (a documented narrower boundary,
+not in the conformance census). Certified: the `VIBORM_FALLBACK_OFF=1` conformance
+run (the F scenario now runs natively on BOTH substrates, byte-identical to V1's
+expected state), a two-parent correlation witness in the decline-surface gate (the
+second parent's child survives both arms), typecheck, Biome, the full estate, and
+the 5-database matrix.
+
+The **remaining seven families (42 scenarios) stay pinned** — each a coherent
+composite-absorption unit (a byte-identical-to-V1 correlated write requiring its own
+dual-run oracle, correlation witness, and 5-database certification). The honest
+disposition: the true surface is measured and pinned; **P6 stays blocked** until the
+set is empty; the gate turns green only when a real absorption removes a family,
+never when the pin list is curated down.

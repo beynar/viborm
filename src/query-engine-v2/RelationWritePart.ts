@@ -2,7 +2,9 @@
 import { NestedWriteError, QueryEngineError } from "@errors";
 import type { Sql } from "@sql";
 import { separateData } from "../query-engine/builders/relation-data-builder";
+import { buildInsert } from "../query-engine/builders/values-builder";
 import { getWhereUniqueEntries } from "../query-engine/builders/where-unique-builder";
+import { getTableName } from "../query-engine/context/query-scope";
 import {
   buildDelete,
   buildDeleteMany,
@@ -15,11 +17,17 @@ import { assertPortablePrimaryKeyUpdateInput } from "../query-engine/operations/
 import type { QueryEngine } from "../query-engine/query-engine";
 import type { QueryScope, RelationInfo } from "../query-engine/types";
 import {
+  affectedRows,
   nestedWriteFailure,
   presenceGuard,
   referenceSql,
 } from "./fragment-builders";
-import { relationTargetNotFound, setRequiredOrphan } from "./messages";
+import {
+  relationTargetNotFound,
+  setRequiredOrphan,
+  upsertPremiseChanged,
+  upsertTargetVanished,
+} from "./messages";
 import type { OperationStep, StatementStep } from "./OperationFragment";
 import type { Part, PlanningKnown } from "./Part";
 import { planningKey } from "./Part";
@@ -79,12 +87,24 @@ export interface RelationWriteConfig {
   readonly data?: Record<string, unknown>;
   /** Bulk (`updateMany`/`deleteMany`): the user filter, correlated to the parent. */
   readonly filter?: Record<string, unknown>;
+  /**
+   * Inverse-side one-to-one **upsert** (TO-ONE.md §7.2, family F): the create-arm
+   * scalar data taken when the correlated probe finds NO child of this parent. When
+   * present, this `kind: "update"` part becomes an upsert — `data` is the found-arm
+   * update payload, `upsertCreateData` the absent-arm insert payload (fk = parent
+   * injected). The locator stays the FK correlation alone (no unique `where`); the
+   * absent arm has no `racePin` and no found guard (V1's `missingPin: none`), the
+   * found arm carries the upsert-family premise/vanished wording. Scalar-only arms;
+   * a relation-carrying arm routes the whole tree to V1 at construction.
+   */
+  readonly upsertCreateData?: Record<string, unknown>;
 }
 
 export class RelationWritePart implements Part {
   private readonly config: RelationWriteConfig;
   private readonly probeId: string;
   private readonly writeId: string;
+  private readonly upsertCreateId?: string;
   private readonly guardId: string;
   private readonly probe?: StatementStep;
 
@@ -117,6 +137,13 @@ export class RelationWritePart implements Part {
         );
       }
     }
+    if (config.upsertCreateData !== undefined) {
+      // Family F: the absent-arm insert. Allocate its own write id and validate the
+      // create payload at construction (scalar-only, no relations, no owned FK) so a
+      // relation-carrying create arm routes the whole tree to V1 before any I/O.
+      this.upsertCreateId = scope.allocate(`${config.childName}.create`);
+      this.upsertCreateScalarData();
+    }
   }
 
   planning(): readonly OperationStep[] {
@@ -139,6 +166,9 @@ export class RelationWritePart implements Part {
    * the replacement the selector-alone guard would have found.
    */
   private compileTargeted(known: PlanningKnown): readonly OperationStep[] {
+    if (this.config.upsertCreateData !== undefined) {
+      return this.compileInverseToOneUpsert(known);
+    }
     const capturedPk = this.capturedPk(known);
     const capturedWhere = { [this.config.childPrimaryKey]: capturedPk };
     const steps: OperationStep[] = [];
@@ -157,6 +187,161 @@ export class RelationWritePart implements Part {
         : this.buildDeleteOne(capturedWhere)
     );
     return steps;
+  }
+
+  /**
+   * Family F — the inverse-side one-to-one `upsert` (TO-ONE.md §7.2). The correlated
+   * probe (`WHERE fk = parent`) already decided the three-way at plan time:
+   *
+   * - absent (0 rows) → CREATE arm: `INSERT child (createData, fk = parent)`. No
+   *   `racePin`, no found guard — V1's `missingPin: none` for a to-one upsert with no
+   *   unique `where` (the child FK's UNIQUE constraint is the sole invariant; a losing
+   *   concurrent insert surfaces its constraint error, exactly as V1 leaves it).
+   * - found → UPDATE arm: the captured correlated child, pinned in batch by an exists
+   *   guard on `fk = parent AND pk = capturedPk` (the upsert-family premise wording),
+   *   and in tx by the update's affected-rows expectation (the upsert-vanished wording).
+   *
+   * This composes the already-certified correlated-update leaf with a create leaf; the
+   * root parent does not hold the FK, so no parent-side FK rebind follows.
+   */
+  private compileInverseToOneUpsert(
+    known: PlanningKnown
+  ): readonly OperationStep[] {
+    const rows = this.probeRows(known);
+    if (rows.length === 0) return [this.buildUpsertCreateArm(known)];
+    const first = rows[0];
+    if (!(first && typeof first === "object")) {
+      throw new NestedWriteError(
+        `query-engine-v2 upsert probe for relation '${this.config.relationName}' captured no row shape.`,
+        this.config.relationName
+      );
+    }
+    const capturedPk = (first as Record<string, unknown>)[
+      this.config.childPrimaryKey
+    ];
+    const capturedWhere = { [this.config.childPrimaryKey]: capturedPk };
+    const steps: OperationStep[] = [];
+    if (!this.config.txMode) {
+      steps.push(
+        presenceGuard(
+          this.guardId,
+          this.correlatedProbeStatement(known, false, capturedPk),
+          nestedWriteFailure(
+            upsertPremiseChanged(this.config.relationName),
+            this.config.relationName,
+            false
+          )
+        )
+      );
+    }
+    steps.push(this.buildUpsertUpdateArm(capturedWhere));
+    return steps;
+  }
+
+  /** The correlated probe's rows without the target-not-found throw — the upsert's
+   *  absent arm is legal, so an empty result is the CREATE decision, not an error. */
+  private probeRows(known: PlanningKnown): readonly unknown[] {
+    const rows = known[planningKey(this.probeId, "rows")];
+    if (!Array.isArray(rows)) {
+      throw new NestedWriteError(
+        `query-engine-v2 upsert probe for relation '${this.config.relationName}' did not expose rows.`,
+        this.config.relationName
+      );
+    }
+    return rows;
+  }
+
+  /** Found arm of the inverse-side to-one upsert: UPDATE the captured child, pinned
+   *  in tx by the upsert-vanished affected-rows expectation. */
+  private buildUpsertUpdateArm(where: Record<string, unknown>): StatementStep {
+    const step: StatementStep = {
+      id: this.writeId,
+      kind: "write",
+      statement: buildUpdate(this.config.childScope, {
+        where,
+        data: this.scalarData(),
+        select: { [this.config.childPrimaryKey]: true },
+      }),
+      outputs: {},
+    };
+    if (!this.config.txMode) return step;
+    return {
+      ...step,
+      expects: affectedRows(1, {
+        kind: "notFound",
+        message: upsertTargetVanished(this.config.relationName),
+        relation: this.config.relationName,
+        raceable: false,
+      }),
+    };
+  }
+
+  /** Absent arm of the inverse-side to-one upsert: INSERT the child with the FK set
+   *  to the parent (V1's `childForeignKeys`), no `racePin`, no guard. */
+  private buildUpsertCreateArm(known: PlanningKnown): StatementStep {
+    return {
+      id: this.upsertCreateId ?? this.writeId,
+      kind: "write",
+      statement: buildInsert(
+        this.config.childScope,
+        getTableName(this.config.childScope.model),
+        {
+          ...this.upsertCreateScalarData(),
+          ...this.upsertFkAssignData(known),
+        }
+      ),
+      outputs: {},
+    };
+  }
+
+  /** The create-arm scalar data (validated: no nested relations, no owned FK). */
+  private upsertCreateScalarData(): Record<string, unknown> {
+    const createData = this.config.upsertCreateData;
+    if (!createData) {
+      throw new QueryEngineError(
+        `query-engine-v2 upsert for relation '${this.config.relationName}' requires create data.`
+      );
+    }
+    const { scalarData, relations } = separateData(
+      this.config.childScope,
+      createData
+    );
+    if (Object.keys(relations).length > 0) {
+      // A relation-carrying create arm is V1's surface — route the whole tree to V1.
+      throw new UnsupportedOperationError(
+        `query-engine-v2 upsert for relation '${this.config.relationName}' does not support nested relation writes in its create arm.`
+      );
+    }
+    if (
+      this.config.fkFields.some((fkField) => Object.hasOwn(scalarData, fkField))
+    ) {
+      throw new UnsupportedOperationError(
+        `Relation '${this.config.relationName}' owns '${this.config.fkFields.join(", ")}'; omit it from the nested upsert create data.`
+      );
+    }
+    return scalarData;
+  }
+
+  /** `fk_i = <parent_i>` for the create arm — the referenced parent column inlined
+   *  as a compile-time literal (the parent was located by the root write). */
+  private upsertFkAssignData(known: PlanningKnown): Record<string, unknown> {
+    const data: Record<string, unknown> = {};
+    for (let index = 0; index < this.config.fkFields.length; index += 1) {
+      const fkField = this.config.fkFields[index]!;
+      data[fkField] = referenceSql(
+        this.config.engine,
+        this.config.childScope.model,
+        fkField,
+        referencedFieldValue(
+          this.config.parentId,
+          this.config.referencedFields[index]!,
+          known,
+          this.config.relationName,
+          "upsert"
+        )
+      );
+    }
+    return data;
   }
 
   private buildUpdateOne(where: Record<string, unknown>): StatementStep {
@@ -771,6 +956,48 @@ export function buildToOneUpdatePart(
   return new RelationWritePart(base.scope, {
     ...partConfig(base, "update"),
     data: data as Record<string, unknown>,
+  });
+}
+
+/**
+ * `upsert` on an **inverse-side one-to-one** (child-held FK) relation (TO-ONE.md
+ * §7.2, family F): the correlated child (`WHERE fk = parent`) is the locator — no
+ * unique `where`, exactly as the to-one `update` arm. Found → update it; absent →
+ * create it with `fk = parent`. Composes the certified correlated-update leaf
+ * ({@link buildToOneUpdatePart}) with an absent-arm create; scalar-only arms (a
+ * relation-carrying arm routes the whole tree to V1 at construction).
+ */
+export function buildInverseToOneUpsertPart(
+  base: WritePartBase,
+  input: unknown
+): RelationWritePart {
+  if (!(input && typeof input === "object" && !Array.isArray(input))) {
+    throw new QueryEngineError(
+      `query-engine-v2 upsert for relation '${base.relationName}' requires an object.`
+    );
+  }
+  const { create, update } = input as {
+    create?: unknown;
+    update?: unknown;
+  };
+  if (
+    !(
+      create &&
+      typeof create === "object" &&
+      !Array.isArray(create) &&
+      update &&
+      typeof update === "object" &&
+      !Array.isArray(update)
+    )
+  ) {
+    throw new QueryEngineError(
+      `query-engine-v2 upsert for relation '${base.relationName}' requires 'create' and 'update' objects.`
+    );
+  }
+  return new RelationWritePart(base.scope, {
+    ...partConfig(base, "update"),
+    data: update as Record<string, unknown>,
+    upsertCreateData: create as Record<string, unknown>,
   });
 }
 

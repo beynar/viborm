@@ -1049,7 +1049,7 @@ write is a **root parent UPDATE**, not an INSERT fold.
   across the family. `OperationFragment.ts` **unchanged** — the freeze held.
 
 **T3 — the final surface MEASURED, not curated (freeze held; NO vocabulary change;
-NO absorption landed).** `TO-ONE.md §7.6` is normative. The T2 entry above claimed
+family F absorbed in T3-r2, 43 → 42).** `TO-ONE.md §7.6` is normative. The T2 entry above claimed
 the residual was "exactly one entry". That was the curated pin list carried since
 T1 — the exact dishonesty the T2 "theater replay" was chartered to end. T3's first
 and load-bearing act was to MEASURE the surface instead of curating it: run the
@@ -1071,12 +1071,23 @@ connectOrCreate-create-arm-depth ×1; H to-many-upsert-identity ×1), **not one*
   dropping one entry → gate red. This is the honest correction of the ATOM census:
   §8.1's create-arm-deferral disposition and the T2 entry's "exactly one" are
   superseded by a measured, falsifiable fact.
-- **No family was absorbed in T3.** Each of A–H is a coherent composite-absorption
-  unit — a byte-identical-to-V1 correlated write (§7.6) needing its own dual-run
-  oracle, correlation witness, and 5-database certification; eight of them exceed
-  one phase's honest capacity, and a rushed absorption is the failure mode the
-  charter forbids. Disposition: the surface is measured, pinned, and P6-blocking.
-  The route-inventory throw-site count (59) and `OperationFragment.ts` are
+- **T3-r2 absorbed family F (43 → 42).** The inverse-side (child-held) to-one
+  `upsert` now runs natively on V2: a correlated locate (`WHERE fk = parent`, no
+  unique `where`) deciding found → UPDATE the correlated child (certified
+  inverse-side to-one update leaf) / absent → INSERT with `fk = parent` (V1's
+  `missingPin: none` — no `racePin`, no found guard). It composes
+  `buildToOneUpdatePart`'s leaf with a create leaf in `RelationWritePart`
+  (`buildInverseToOneUpsertPart`); scalar arms only (relation-carrying arms still
+  route to V1). Certified: the `VIBORM_FALLBACK_OFF=1` conformance run (F now runs
+  natively, byte-identical on both substrates), a two-parent correlation witness in
+  the decline-surface gate, typecheck, Biome, the full estate, and the 5-database
+  matrix. `FALLBACK_OFF_RESIDUAL_COUNT` is now **42**; the gate asserts it so no
+  entry can be trimmed without a matching absorption.
+- **The remaining seven families (42 scenarios) stay pinned.** Each of A–E, G, H is
+  a coherent composite-absorption unit — a byte-identical-to-V1 correlated write
+  (§7.6) needing its own dual-run oracle, correlation witness, and 5-database
+  certification. Disposition: the surface is measured, pinned, and P6-blocking until
+  empty. The route-inventory throw-site count and `OperationFragment.ts` are
   **unchanged** — the freeze held; nothing was faked green.
 
 ---
