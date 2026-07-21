@@ -242,6 +242,18 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   // untracked ones. Any new `throw new UnsupportedOperationError` site in the
   // V2 source is a new route to V1 and must be added to the corpus (and to the
   // P6 deletion accounting) — update the count only alongside that.
+  //
+  // 36 → 48: the create family (PLAN P6-prerequisite) adds 12 sub-shape routes in
+  // CreateOperation.ts — every create shape V1 accepts but V2's create fold does
+  // not yet own, declined at CONSTRUCTION so the whole tree routes to V1
+  // (impossible to fall back by omission now that `create` is in
+  // ROUTED_OPERATIONS): a to-one `create`/`connectOrCreate` before the parent
+  // (before-parent-write ordering); a to-one `connect` by a non-referenced unique;
+  // a nested `update`/`delete`/`set`/… kind in a create payload; a nested
+  // `createMany skipDuplicates`; a compound child edge / unresolvable referenced
+  // field; an M2M `disconnect`/`set`/`delete`; a non-record arg/where; and the
+  // arg-key guard. Each is a documented boundary of the create fold, not a
+  // silent gap.
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
@@ -252,7 +264,7 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
       const source = await readFile(join(dir, file), "utf8");
       sites += source.split("new UnsupportedOperationError(").length - 1;
     }
-    expect(sites).toBe(36);
+    expect(sites).toBe(48);
   });
 });
 
@@ -319,11 +331,14 @@ type MissingFromSurface = Exclude<
 const _surfaceIsComplete: [MissingFromSurface] extends [never] ? true : false =
   true;
 
-// Families dispatched to V1 by omission from ROUTED_OPERATIONS. Exactly one
-// today: `create` (never migrated to V2 — CreateOperation.ts is a P0/P1 proof
-// slice, unwired from routing.ts). Emptying this set is a precondition for P6
-// deletion; growing it is a new un-migrated family. Either edit is a decision.
-const DOCUMENTED_V1_FALLBACK: ReadonlySet<string> = new Set(["create"]);
+// Families dispatched to V1 by omission from ROUTED_OPERATIONS. NOW EMPTY: the
+// create family (the last un-migrated family, the P6 blocker) was migrated to V2
+// in the P6-prerequisite phase — `create` is in ROUTED_OPERATIONS and
+// constructs on V2 (CreateOperation is generalized far beyond the P0/P1 proof
+// slice; see below). The P6 deletion precondition this pin guards is therefore
+// MET: no client operation family falls back to V1 by omission. Growing this set
+// again would be a new un-migrated family; either edit is a decision.
+const DOCUMENTED_V1_FALLBACK: ReadonlySet<string> = new Set([]);
 
 describe("query-engine-v2 full client operation surface (P6 precondition)", () => {
   test("_surfaceIsComplete type-guard holds (list covers the Operations union)", () => {
@@ -335,17 +350,41 @@ describe("query-engine-v2 full client operation surface (P6 precondition)", () =
     const fellBackByOmission = CLIENT_OPERATION_SURFACE.filter(
       (operation) => !ROUTED_OPERATIONS.has(operation)
     );
+    // The falsifiable positive assertion the P6 reviewers demanded: with the
+    // fallback set now empty, EVERY one of the 18 families must be in
+    // ROUTED_OPERATIONS. Removing `create` from ROUTED_OPERATIONS (re-opening the
+    // by-omission hole) makes fellBackByOmission = ['create'] ≠ ∅ and fails here.
     expect(new Set(fellBackByOmission)).toEqual(DOCUMENTED_V1_FALLBACK);
+    expect(fellBackByOmission).toHaveLength(0);
   });
 
-  test("each documented V1 fallback constructs to undefined (dispatched to V1), not a V2 operation", () => {
+  test("the migrated `create` family constructs on V2 (proven by construction, not by listing)", () => {
+    // Item 4's "proven by construction": `create` is not merely listed in
+    // ROUTED_OPERATIONS — a representative create payload resolves to a real V2
+    // operation (never undefined, i.e. never dispatched to V1 by omission). This
+    // is the family whose absence blocked the first P6 attempt.
+    const engine = pgEngine(manyToManySchema);
+    const routed = constructRoutedOperation(
+      engine,
+      manyToManySchema.tag,
+      "create",
+      { data: { id: "t1", name: "x" } }
+    );
+    expect(routed).toBeDefined();
+    expect(routed?.constructor.name).toBe("CreateOperation");
+  });
+
+  test("each documented V1 fallback (if any) constructs to undefined (dispatched to V1)", () => {
+    // Guards the invariant should the set ever regrow: a fallback family must
+    // resolve to undefined (V1 by omission). Empty today — a no-op that documents
+    // the meaning of membership.
     const engine = pgEngine(manyToManySchema);
     for (const operation of DOCUMENTED_V1_FALLBACK) {
       const routed = constructRoutedOperation(
         engine,
         manyToManySchema.tag,
         operation,
-        { data: { id: "t1", name: "x" }, select: {} }
+        { data: { id: "t1", name: "x" }, select: { id: true } }
       );
       expect(routed).toBeUndefined();
     }

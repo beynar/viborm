@@ -4,6 +4,7 @@ import type { Model } from "@schema/model";
 import type { QueryEngine } from "../query-engine/query-engine";
 import { BulkCountOperation } from "./BulkCountOperation";
 import { CreateManyOperation } from "./CreateManyOperation";
+import { CreateOperation } from "./CreateOperation";
 import { DeleteOperation } from "./DeleteOperation";
 import { ManyAndReturnOperation } from "./ManyAndReturnOperation";
 import type {
@@ -52,6 +53,7 @@ const READ_OPERATIONS: ReadonlySet<string> = new Set([
  */
 export const ROUTED_OPERATIONS: ReadonlySet<string> = new Set([
   ...READ_OPERATIONS,
+  "create",
   "update",
   "delete",
   "upsert",
@@ -167,6 +169,8 @@ function constructOperation(
     return new ReadOperation(engine, model, operation, args);
   }
   switch (operation) {
+    case "create":
+      return new CreateOperation(engine, model, args);
     case "update":
       return new UpdateOperation(engine, model, args);
     case "delete":

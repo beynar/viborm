@@ -355,7 +355,12 @@ describe("query-engine-v2 linear operation fragments", () => {
             select: { name: true, posts: true },
           }
         )
-    ).toThrow("does not support deeper relation mutations");
+      // The create family generalized (PLAN P6-prerequisite): a nested upsert's
+      // create arm now composes deeper Parts, so a deeper `connect` is rejected by
+      // RelationUpsertPart's create-arm bound (only connectOrCreate one level
+      // deeper), not the old proof-slice's blanket "deeper relation mutations"
+      // refusal. Still an UnsupportedOperationError before any I/O (routes to V1).
+    ).toThrow("supports only nested connectOrCreate one level deeper");
 
     const upsert = createNestedUpsertArgs().data.posts.upsert;
     expect(
@@ -371,7 +376,14 @@ describe("query-engine-v2 linear operation fragments", () => {
             select: { name: true, posts: true },
           }
         )
-    ).toThrow("exactly one nested upsert object");
+      // The create family generalized (PLAN P6-prerequisite): a to-many `upsert`
+      // is now an ARRAY (V1's surface), no longer the proof-slice's single-object
+      // limitation. Two upserts naming the SAME target under a fresh parent is a
+      // genuine own-write dependency (arm 2's create/adopt decision depends on
+      // arm 1's write); the own-write preflight (ATOM §4) rejects it at
+      // construction with V1's BYTE-IDENTICAL NestedWriteError — the dual-run
+      // oracle confirms V1 and V2 emit the same error and the same (empty) state.
+    ).toThrow("Split these operations into separate queries");
     expect(driver.executions).toBe(0);
 
     // A neither-substrate driver is NOT rejected at construction — V1 parity
@@ -519,110 +531,122 @@ describe("query-engine-v2 linear operation fragments", () => {
     expect(short.batchCalls).toBe(1);
   });
 
-  test("rolls back transaction writes when result parsing fails", {
-    timeout: 30_000,
-  }, async () => {
-    const db = new PGlite();
-    const setup = createClient({
-      schema: operationFragmentSchema,
-      driver: new PGliteDriver({ client: db }),
-    });
-    const driver = new FailingResultPGliteDriver({ client: db });
-    try {
-      await push(setup, { force: true });
-
-      await expect(
-        createOperationExecutor(driver).executeCreate(
-          operationFragmentSchema.user,
-          createNestedUpsertArgs()
-        )
-      ).rejects.toBe(driver.failure);
-      await expect(setup.user.findMany()).resolves.toEqual([]);
-      await expect(setup.post.findMany()).resolves.toEqual([]);
-    } finally {
-      await setup.$disconnect();
-    }
-  });
-
-  test("propagates a post-guard unique conflict and rolls back without retry", {
-    timeout: 30_000,
-  }, async () => {
-    const db = new PGlite();
-    const setup = createClient({
-      schema: operationFragmentSchema,
-      driver: new PGliteDriver({ client: db }),
-    });
-    const driver = new BatchOnlyPGliteDriver({ client: db });
-    try {
-      await push(setup, { force: true });
-      await setup.post.create({
-        data: {
-          id: 2,
-          title: "existing",
-          slug: "post-key",
-          userId: null,
-        },
+  test(
+    "rolls back transaction writes when result parsing fails",
+    {
+      timeout: 30_000,
+    },
+    async () => {
+      const db = new PGlite();
+      const setup = createClient({
+        schema: operationFragmentSchema,
+        driver: new PGliteDriver({ client: db }),
       });
+      const driver = new FailingResultPGliteDriver({ client: db });
+      try {
+        await push(setup, { force: true });
 
-      await expect(
-        createOperationExecutor(driver).executeCreate(
-          operationFragmentSchema.user,
-          createNestedUpsertArgs()
-        )
-      ).rejects.toBeInstanceOf(UniqueConstraintError);
-      expect(driver.batchCalls).toBe(1);
-      await expect(setup.user.findMany()).resolves.toEqual([]);
-      await expect(setup.post.findMany()).resolves.toEqual([
-        {
-          id: 2,
-          title: "existing",
-          slug: "post-key",
-          userId: null,
-        },
-      ]);
-    } finally {
-      await setup.$disconnect();
+        await expect(
+          createOperationExecutor(driver).executeCreate(
+            operationFragmentSchema.user,
+            createNestedUpsertArgs()
+          )
+        ).rejects.toBe(driver.failure);
+        await expect(setup.user.findMany()).resolves.toEqual([]);
+        await expect(setup.post.findMany()).resolves.toEqual([]);
+      } finally {
+        await setup.$disconnect();
+      }
     }
-  });
+  );
 
-  test("fails a stale batch premise before writes and leaves no partial mutation", {
-    timeout: 30_000,
-  }, async () => {
-    const db = new PGlite();
-    const setup = createClient({
-      schema: operationFragmentSchema,
-      driver: new PGliteDriver({ client: db }),
-    });
-    try {
-      await push(setup, { force: true });
-      await setup.post.create({
-        data: {
-          id: 1,
-          title: "draft",
-          slug: "post-key",
-          userId: null,
-        },
+  test(
+    "propagates a post-guard unique conflict and rolls back without retry",
+    {
+      timeout: 30_000,
+    },
+    async () => {
+      const db = new PGlite();
+      const setup = createClient({
+        schema: operationFragmentSchema,
+        driver: new PGliteDriver({ client: db }),
       });
-      const driver = new BeforeBatchPGliteDriver(
-        async () => {
-          await setup.post.delete({ where: { id: 1 } });
-        },
-        { client: db }
-      );
+      const driver = new BatchOnlyPGliteDriver({ client: db });
+      try {
+        await push(setup, { force: true });
+        await setup.post.create({
+          data: {
+            id: 2,
+            title: "existing",
+            slug: "post-key",
+            userId: null,
+          },
+        });
 
-      await expect(
-        createOperationExecutor(driver).executeCreate(
-          operationFragmentSchema.user,
-          createNestedUpsertArgs("published")
-        )
-      ).rejects.toBeInstanceOf(NestedWriteError);
-      expect(driver.batchCalls).toBe(1);
-      await expect(setup.user.findMany()).resolves.toEqual([]);
-      await expect(setup.post.findMany()).resolves.toEqual([]);
-    } finally {
-      await setup.$disconnect();
+        await expect(
+          createOperationExecutor(driver).executeCreate(
+            operationFragmentSchema.user,
+            createNestedUpsertArgs()
+          )
+        ).rejects.toBeInstanceOf(UniqueConstraintError);
+        expect(driver.batchCalls).toBe(1);
+        await expect(setup.user.findMany()).resolves.toEqual([]);
+        await expect(setup.post.findMany()).resolves.toEqual([
+          {
+            id: 2,
+            title: "existing",
+            slug: "post-key",
+            userId: null,
+          },
+        ]);
+      } finally {
+        await setup.$disconnect();
+      }
     }
-  });
+  );
+
+  test(
+    "fails a stale batch premise before writes and leaves no partial mutation",
+    {
+      timeout: 30_000,
+    },
+    async () => {
+      const db = new PGlite();
+      const setup = createClient({
+        schema: operationFragmentSchema,
+        driver: new PGliteDriver({ client: db }),
+      });
+      try {
+        await push(setup, { force: true });
+        await setup.post.create({
+          data: {
+            id: 1,
+            title: "draft",
+            slug: "post-key",
+            userId: null,
+          },
+        });
+        const driver = new BeforeBatchPGliteDriver(
+          async () => {
+            await setup.post.delete({ where: { id: 1 } });
+          },
+          { client: db }
+        );
+
+        await expect(
+          createOperationExecutor(driver).executeCreate(
+            operationFragmentSchema.user,
+            createNestedUpsertArgs("published")
+          )
+        ).rejects.toBeInstanceOf(NestedWriteError);
+        expect(driver.batchCalls).toBe(1);
+        await expect(setup.user.findMany()).resolves.toEqual([]);
+        await expect(setup.post.findMany()).resolves.toEqual([]);
+      } finally {
+        await setup.$disconnect();
+      }
+    }
+  );
 
   test("emits Pin-Rule guard flags per premise class", () => {
     const batch = createOperation(new BatchProbeDriver());
@@ -659,65 +683,69 @@ describe("query-engine-v2 linear operation fragments", () => {
     ).toBe(true);
   });
 
-  test("surfaces a create-branch race as a pinned unique conflict, never a guard abort", {
-    timeout: 30_000,
-  }, async () => {
-    const db = new PGlite();
-    const setup = createClient({
-      schema: operationFragmentSchema,
-      driver: new PGliteDriver({ client: db }),
-    });
-    try {
-      await push(setup, { force: true });
-
-      // The racePin the missing-branch create carries (the child primary key).
-      const missing = createOperation(new BatchProbeDriver()).compile({
-        "post.find.rows": [],
+  test(
+    "surfaces a create-branch race as a pinned unique conflict, never a guard abort",
+    {
+      timeout: 30_000,
+    },
+    async () => {
+      const db = new PGlite();
+      const setup = createClient({
+        schema: operationFragmentSchema,
+        driver: new PGliteDriver({ client: db }),
       });
-      const createStep = missing.steps[1];
-      const racePin =
-        createStep?.kind === "write" ? createStep.racePin : undefined;
-      expect(racePin?.fields).toEqual(["id"]);
-      if (!racePin) return;
+      try {
+        await push(setup, { force: true });
 
-      // A concurrent winner commits the same child primary key just before the
-      // loser's batch runs; the loser's INSERT then violates that key.
-      const driver = new BeforeBatchPGliteDriver(
-        async () => {
-          await setup.post.create({
-            data: {
-              id: 1,
-              title: "winner",
-              slug: "winner-key",
-              userId: null,
-            },
-          });
-        },
-        { client: db }
-      );
-
-      let caught: unknown;
-      await createOperationExecutor(driver)
-        .executeCreate(operationFragmentSchema.user, createNestedUpsertArgs())
-        .catch((error) => {
-          caught = error;
+        // The racePin the missing-branch create carries (the child primary key).
+        const missing = createOperation(new BatchProbeDriver()).compile({
+          "post.find.rows": [],
         });
+        const createStep = missing.steps[1];
+        const racePin =
+          createStep?.kind === "write" ? createStep.racePin : undefined;
+        expect(racePin?.fields).toEqual(["id"]);
+        if (!racePin) return;
 
-      // The loser surfaces the pinned unique conflict, not a guard abort.
-      expect(caught).toBeInstanceOf(UniqueConstraintError);
-      expect(caught).not.toBeInstanceOf(NestedWriteError);
-      expect(matchesRacePin(caught as UniqueConstraintError, racePin)).toBe(
-        true
-      );
-      expect(driver.batchCalls).toBe(1);
-      await expect(setup.user.findMany()).resolves.toEqual([]);
-      await expect(setup.post.findMany()).resolves.toEqual([
-        { id: 1, title: "winner", slug: "winner-key", userId: null },
-      ]);
-    } finally {
-      await setup.$disconnect();
+        // A concurrent winner commits the same child primary key just before the
+        // loser's batch runs; the loser's INSERT then violates that key.
+        const driver = new BeforeBatchPGliteDriver(
+          async () => {
+            await setup.post.create({
+              data: {
+                id: 1,
+                title: "winner",
+                slug: "winner-key",
+                userId: null,
+              },
+            });
+          },
+          { client: db }
+        );
+
+        let caught: unknown;
+        await createOperationExecutor(driver)
+          .executeCreate(operationFragmentSchema.user, createNestedUpsertArgs())
+          .catch((error) => {
+            caught = error;
+          });
+
+        // The loser surfaces the pinned unique conflict, not a guard abort.
+        expect(caught).toBeInstanceOf(UniqueConstraintError);
+        expect(caught).not.toBeInstanceOf(NestedWriteError);
+        expect(matchesRacePin(caught as UniqueConstraintError, racePin)).toBe(
+          true
+        );
+        expect(driver.batchCalls).toBe(1);
+        await expect(setup.user.findMany()).resolves.toEqual([]);
+        await expect(setup.post.findMany()).resolves.toEqual([
+          { id: 1, title: "winner", slug: "winner-key", userId: null },
+        ]);
+      } finally {
+        await setup.$disconnect();
+      }
     }
-  });
+  );
 });
 
 /**
