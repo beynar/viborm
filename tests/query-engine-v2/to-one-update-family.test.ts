@@ -366,6 +366,27 @@ const scenarios: Scenario[] = [
     dump: (c) => c.profile.findMany({ orderBy: { id: "asc" } }),
   },
   {
+    // The correlation witness (T2 theater finding): a SECOND parent's profile
+    // must survive u1's disconnect. An unconditional null-out (dropping the
+    // WHERE fk = parent correlation) nulls pr2.userId too — this scenario is
+    // the only thing in the estate that catches it.
+    name: "inverse-side disconnect: true nulls ONLY the target parent's child",
+    schema: nb,
+    seed: async (c) => {
+      await c.user.create({ data: { id: "u1", name: "a" } });
+      await c.user.create({ data: { id: "u2", name: "b" } });
+      await c.profile.create({ data: { id: "pr1", bio: "b1", userId: "u1" } });
+      await c.profile.create({ data: { id: "pr2", bio: "b2", userId: "u2" } });
+    },
+    act: (c) =>
+      c.user.update({
+        where: { id: "u1" },
+        data: { profile: { disconnect: true } },
+        select: { id: true },
+      }),
+    dump: (c) => c.profile.findMany({ orderBy: { id: "asc" } }),
+  },
+  {
     name: "inverse-side to-one delete: true under update",
     schema: nb,
     seed: async (c) => {
