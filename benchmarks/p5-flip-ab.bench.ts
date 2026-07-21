@@ -109,6 +109,25 @@ describe("flip A/B: upsert (update branch)", () => {
   });
 });
 
+// T3a family A — the FK-holder-side (parent-held) to-one `update` under an update
+// root: `post.update({ author: { update } })` locates the referenced user through
+// the post's own authorId and mutates it. Absorbed on V2 (was a whole-tree route to
+// V1); this A/B is the honest V2-vs-V1 cost of the newly-native path.
+describe("flip A/B: parent-held to-one update (family A)", () => {
+  bench("v1 parent-held to-one update", async () => {
+    await v1.post.update({
+      where: { id: `p_${n++ % 200}` },
+      data: { author: { update: { name: `PH ${n}` } } },
+    });
+  });
+  bench("v2 parent-held to-one update", async () => {
+    await v2.post.update({
+      where: { id: `p_${n++ % 200}` },
+      data: { author: { update: { name: `PH ${n}` } } },
+    });
+  });
+});
+
 // The create family (P6-prerequisite). Unique ids per call per arm (the two arms
 // run on separate in-memory DBs) so each INSERT is a fresh row, never a PK
 // collision. The nested create exercises the child-held-FK fold.

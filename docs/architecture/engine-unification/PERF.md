@@ -215,3 +215,24 @@ seeded in-memory SQLite DBs, ratio = V2 hz / V1 hz):
   noise on any networked driver. It is the named backlog item, NOT a T2 regression.
   No statement-count regression on any absorbed T2 shape. The Docker legs pass with
   the T2 shapes routed on V2.
+
+## T3a — the parent-held to-one UPDATE under update A/B (in-memory SQLite)
+
+T3a absorbed 11 of family A's 13 (the FK-holder-side to-one `update`/`delete`/`upsert`
+under an update root, scalar target; TO-ONE.md §7.2). Measured the same way
+(`benchmarks/p5-flip-ab.bench.ts`, `queryEngine` escape hatch, two seeded in-memory
+SQLite DBs, ratio = V2 hz / V1 hz):
+
+| workload | V1 hz | V2 hz | ratio | verdict |
+| --- | --- | --- | --- | --- |
+| parent-held to-one `update` under update (`post.update({ author: { update } })`) | 6,884 | 12,400 | **1.80× (V2 faster)** | beyond gate |
+
+- **The FK-holder-side to-one update is FASTER on V2 (1.80×).** The gated shape is a
+  correlated probe (locate the referenced author by the post's own `authorId`) plus
+  one `UPDATE` of the captured row — two statements in one linear plan the executor
+  runs as a single atomic unit. V1's staged runtime pays its per-tree orchestration to
+  run the locate capture, `compileLocatedUpdate`, and the terminal refetch through the
+  OperationProgram walk. Same composition dividend as the T2 update-root arms: the
+  update root already carries a locate + terminal read, so V1's relative fixed
+  per-tree overhead dominates. No statement-count regression; the 5-DB matrix (local
+  drivers 1399, Docker MySQL 470, pg 411/14) passes with the family-A shapes on V2.
