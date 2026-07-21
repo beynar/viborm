@@ -20,9 +20,9 @@ import {
   type StatementStep,
 } from "./OperationFragment";
 import {
-  UnsupportedOperationError,
   isRecord,
   selectExecutionMode,
+  UnsupportedOperationError,
 } from "./shared";
 
 type ExecutionMode = "transaction" | "batch";
@@ -220,4 +220,3 @@ function requireFindUniqueArgs(args: Record<string, unknown>): {
     ...(isRecord(args.include) ? { include: args.include } : {}),
   };
 }
-

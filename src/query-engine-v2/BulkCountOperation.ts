@@ -13,10 +13,7 @@ import {
   ref,
   type StatementStep,
 } from "./OperationFragment";
-import {
-  isRecord,
-  selectExecutionMode,
-} from "./shared";
+import { isRecord, selectExecutionMode } from "./shared";
 
 type ExecutionMode = "transaction" | "batch";
 type BulkCountKind = "updateMany" | "deleteMany";
@@ -111,4 +108,3 @@ export class BulkCountOperation {
     return buildUpdateMany(ctx, where ? { where, data } : { data });
   }
 }
-

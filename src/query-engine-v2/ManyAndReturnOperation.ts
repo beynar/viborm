@@ -30,9 +30,9 @@ import {
 import { planningKey, planningOutputs } from "./Part";
 import { StepScope } from "./StepScope";
 import {
-  UnsupportedOperationError,
   isRecord,
   selectExecutionMode,
+  UnsupportedOperationError,
 } from "./shared";
 
 type ExecutionMode = "transaction" | "batch";
@@ -385,7 +385,6 @@ export class ManyAndReturnOperation {
     return Object.fromEntries(fields.map((field) => [field, true]));
   }
 }
-
 
 function requireRecord(
   value: unknown,
