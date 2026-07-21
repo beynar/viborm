@@ -335,3 +335,160 @@ Result byte-identical to V1: account `[{id:2}]`, record
 `[{id:1, primaryId:2, secondaryId:2}]`. The `secondary` connect never emitted a
 probe — the ledger resolved it at construction. Depth adds list entries, never
 vocabulary.
+
+---
+
+## 7. The to-one family under UPDATE roots (T2)
+
+> This section extends the note to the second absorption unit: the to-one
+> relation-write family under `update` roots. It is written first, before the
+> T2 absorption code, and it obeys the same discipline as §0–§6 — the absorption
+> unit is the tree class, the frozen vocabulary suffices, and every accept/reject
+> decision is V1's, discovered from V1 source and certified by the dual-run oracle.
+
+### 7.0 The one difference that reshapes everything: the parent EXISTS
+
+Under a `create` root the parent row is *fresh* — §1.2's fresh-parent elision
+applies, and §2's before-parent coverage ledger closes the sibling-coupling
+incident. Under an `update` root the parent row **already exists and is located
+first** (`UpdateOperation`'s FOR-UPDATE locate read). Three consequences follow,
+and they are the whole of T2's design:
+
+1. **No fresh-parent elision.** The parent-held direction was already global (§1.1);
+   now the *inverse* (child-held) direction is global too — a correlated child of
+   an existing parent CAN pre-exist, so its probes and adopt arms run against
+   committed state, exactly as the to-many child-held family under `update` already
+   does. The inverse-side to-one is the **arity-1 case of the to-many child-held
+   path** (§1.2), and `UpdateOperation` already ships that path for `oneToMany`.
+   T2 widens its type guard to `oneToOne` — the same widening T1 made for `create`.
+
+2. **The parent's FK write is an UPDATE, not an INSERT fold.** In the parent-held
+   direction (§1.1) the record's FK column carried the target's referenced value.
+   Under `create` that value was folded into the record's own INSERT. Under
+   `update` the parent row is already written, so the FK is set by the **root
+   parent UPDATE** — V1's `updateParentForeignKey` (`RelationUpdates.compileRelation`,
+   the `if (fk.holdsFK)` arms of `create`/`connect`/`connectOrCreate`). The
+   before-parent target write is still emitted first (INSERT the target, capture
+   its identity), and its identity flows **backward** into the parent UPDATE's SET
+   — the same "refs point backward" shape, with the record INSERT replaced by a
+   record UPDATE. `UpdateOperation` gains one `beforeRootWrites` phase between the
+   guards and the root UPDATE; the root UPDATE's SET absorbs the resolved FK fold.
+
+3. **The coverage ledger does NOT generalize, and MUST NOT be ported.** §2.4 is
+   the load-bearing contrast: V1's `OwnWriteAnalyzer` gives `update` **one
+   undivided relation group** (`getRelationEntryGroups` returns
+   `[Object.entries(relations)]` for the update family, vs the `currentHoldsFk` /
+   `relatedHoldsFk` split for create). So a sibling `connect` whose decision read
+   overlaps a sibling `create`'s target write is a genuine own-write dependency and
+   V1 **rejects** it (`assertUpdateOwnWriteSafety` → the typed "split these
+   operations"). The T1 ledger — which turns exactly that overlap into a covered,
+   probe-free adopt — would convert a V1 **rejection** into an **acceptance**: a
+   different kill signal (§2.4's explicit warning). T2 therefore ports **no**
+   ledger. Each parent-held arm under `update` is independent; the own-write
+   preflight (`OwnWritePreflight.assertUpdate`, already wired in `UpdateOperation`)
+   is the arbiter, unchanged. The create-then-connect incident under `update` is a
+   **REJECT parity** oracle witness, not an accept-and-execute one.
+
+### 7.1 The pinned-premise table for update roots (c)
+
+Every premise carries its pin per the Pin Rule; the `update`-root column differs
+from §3 only where the parent's existence and the UPDATE-vs-INSERT fold enter.
+
+| arm / premise | pin | raceable | falsification |
+| --- | --- | --- | --- |
+| **root parent presence** (all update roots) | existing-row: tx FOR-UPDATE locate found-at-compile; batch `presenceGuard` (`exists`) on the root `where` | `false` | disable the guard → a concurrent delete yields a silent empty result instead of V1's typed NotFound (ATOM §8.1 note (b)) — already shipped, re-exercised under every to-one arm |
+| parent-held `create` target INSERT | **none** | — | unconditional nested create; a unique violation is a genuine error, never a probe's missing arm. The record FK ← `ref(target.create, id)` in the root UPDATE SET |
+| parent-held `connect`, uncovered *(covered does not exist under update — §7.0.3)* | existing-row premise: tx probe found-at-compile; batch `presenceGuard` (`exists`) | `false` | disable → raw FK error instead of V1's "target record was not found" |
+| parent-held `connectOrCreate` FOUND arm | existing-row premise: `presenceGuard` (`exists`) on the connect target | `false` | same as uncovered connect |
+| parent-held `connectOrCreate` MISSING arm target INSERT | **constraint + `racePin`**, never a `notExists` guard | `true` | disable racePin → a concurrent create of the same key surfaces `UniqueConstraintError` instead of retry-and-adopt convergence |
+| inverse-side `connect` / `connectOrCreate` (child-held, global adopt) | reuses `RelationLinkPart` / `RelationUpsertPart` pins (existing-row `exists`, `false`; missing-arm constraint + `racePin`) | per part | already falsified for the to-many arity; the to-one arity rides the same pins |
+| inverse-side `update` (child-held, correlated) | **correlated** existing-row premise: tx probe `WHERE fk = Ref(locate)` found-at-compile; batch `presenceGuard` on `(fk = parent ∧ pk = capturedPk)` (the split-witness correlation, `RelationWritePart`) | `false` | disable → a concurrent reparent of the correlated child lets the update land on a stranger, instead of V1's "target record was not found for this parent" |
+| inverse-side `disconnect: true` / `delete: true` (child-held, correlated bulk) | **none** (bulk write, `WHERE fk = parent`; zero matched rows is V1's silent success) | — | the correlated `WHERE` is the whole pin; a required-FK disconnect is rejected at construction (`assertNullable`, V1-verbatim) |
+
+Fresh-parent elision (§4) recap: it applied ONLY to the create-root child-held
+direction. Under update it does not apply at all — every probe reads committed
+state.
+
+### 7.2 Inverse-side steal / orphan semantics — V1's call, cited
+
+The inverse (child-held) one-to-one arms write the **other** row's FK. Their
+steal/orphan behavior is V1's, and T2 reproduces it by reusing V1's builders, not
+by re-deciding:
+
+- **`connect` / `connectOrCreate` FOUND** — `RelationUpdates.compileRelation`'s
+  child-held `connect` arm (lines ~266–292): `UPDATE child SET fk = parent WHERE
+  unique`, then an `existsGuard` on the reparented row. It **steals** the target
+  from any prior owner by overwriting its FK; when the child's FK column carries a
+  UNIQUE constraint (a true one-to-one), a *second* row already pointing at this
+  parent makes the reparent's `UPDATE` collide on that unique — a genuine DB error,
+  V1's behavior, not a V2 refusal. No pre-disconnect of the parent's existing child
+  is emitted (V1 emits none); the one-to-one invariant is the DB's to enforce.
+- **`update`** — the correlated targeted arm (`RelationUpdates.compileRelation`'s
+  `updateStep` loop): locate the child by `filter: correlatedWhere(fk, parentValues)`
+  with **no** unique selector (`normalizeUpdateInputs` yields `{ data }` for a
+  to-one — `RelationMutationPlan`), capture-or-fail with "target record was not
+  found for this parent", then `compileLocatedUpdate`. V2 maps this to
+  `RelationWritePart` with an **absent `where`** (correlation is the whole locator).
+- **`disconnect: true` / `delete: true`** — `RelationRemovals` `input === true`:
+  a correlated bulk `updateMany child SET fk = NULL WHERE fk = parent` / `deleteMany
+  child WHERE fk = parent`. V2 maps `disconnect: true` to `RelationLinkPart`'s
+  `disconnectAll` and `delete: true` to `RelationWritePart`'s `deleteMany` with an
+  empty user filter. A required (non-nullable) FK disconnect is V1's typed
+  `assertNullable` rejection, reproduced verbatim.
+
+The **FK-holder-side** (parent-held) `update`/`delete` — mutating the row the
+parent's own FK points at — mutate committed state correlated by the parent's FK
+value (`correlatedWhere(fk, parentValues)` for `holdsFK` is `child.referenced =
+parent.fkValue`); `delete` additionally nulls the parent FK first (`RelationRemovals.
+delete`, the `fk.holdsFK` arm). These are the "FK-holder-side" arms; where a shape
+needs V1's staged `compileLocatedUpdate` recursion the whole tree routes to V1
+(a documented boundary, mirroring the to-many nested-`update`-grandchildren
+boundary `RelationWritePart.scalarData` already draws).
+
+### 7.3 The sibling-coupling analysis for update roots (b)
+
+Does the T1 coverage ledger generalize? **No — and that is the point (§7.0.3).**
+The ledger existed to turn a same-operation own-write overlap into a covered
+adopt; V1 permits that overlap under `create` (the group-0 `currentHoldsFk`
+observes a group-0 create) but **forbids** it under `update` (one undivided
+group). So under `update` the sibling arms are mutually independent: no arm's
+decision read may observe another arm's write, and `OwnWritePreflight.assertUpdate`
+enforces it before planning. The absorption unit is still the tree class ("to-one
+arms under an update root"), but the coupling that made T1's arms inseparable is
+**absent** here — the coherence is enforced by routing (any unsupported arm hands
+the whole tree to V1) plus the own-write preflight, not by a ledger.
+
+Two disjoint-decision families V1 **accepts** under update, and T2 mirrors:
+
+- **disjoint parent-held + inverse-side** (`{ author: { connect }, profile: {
+  update } }`): the parent-held arm folds into the root UPDATE SET, the inverse arm
+  is a correlated child write — no overlap, accepted on both.
+- **own-write disjoint decision** (`data: { userId: 5 }, author: { connect: {
+  id: 5 } }`) is V1's `assertRelationKeyUpdatesAreCompilable` / own-write surface,
+  already ported into `UpdateOperation` and unchanged by T2.
+
+### 7.4 Vocabulary sufficiency (e) — still YES
+
+No `OperationFragment` change, no new step kind, no Part method, no parent
+reference. The before-parent target INSERT is an ordinary `write` step; the root
+parent UPDATE is the ordinary root-`update` write step whose SET now carries a
+`Ref` (create) or a compile-decided literal (connectOrCreate found) in the FK
+column — the atom's native "refs point backward". The inverse-side arms reuse the
+already-live `RelationLinkPart` / `RelationWritePart` / `RelationUpsertPart` Parts
+verbatim, widened only in their `oneToOne` type guard and (for the correlated
+`update`) an **optional** unique `where`. The census (ATOM §8) is unmoved.
+
+### 7.5 The T2 / T3 boundary (d) — what lands, what stays pinned
+
+`FALLBACK_CARRYING_RESIDUAL` (decline-surface gate) holds three entries at T1's
+close. T2 absorbs two, leaving one:
+
+- **T2 lands** — parent-held to-one `connectOrCreate` under update (entry 1); the
+  inverse-side to-one `update` (entry 2). Plus the coherent family the tree class
+  requires: parent-held `create`; inverse-side `connect`/`connectOrCreate`/
+  `disconnect: true`/`delete: true`; the disjoint-sibling and REJECT-parity
+  witnesses.
+- **T3 keeps pinned** — the inverse-side to-one **`upsert`** arm (entry 3): the
+  nested-relation upsert branch (create-or-update the correlated child) whose D4
+  threading and deliberate-decline closure T3 owns. The residual shrinks to exactly
+  this one entry; the gate stays honestly non-empty.
