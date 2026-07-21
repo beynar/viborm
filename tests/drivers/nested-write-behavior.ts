@@ -528,6 +528,48 @@ export function runNestedWriteBehavior({
       expect(profiles).toHaveLength(0);
     });
 
+    // Family A (TO-ONE.md §7.2), absorbed in T3a: the FK-holder-side (parent-held)
+    // to-one `delete: true` — NULL the post's own FK, then delete the referenced
+    // author. A second post held by a different author is the witness: it must
+    // survive with its FK intact.
+    test("to-one delete true (FK-holder side) nulls the FK then deletes the author", async () => {
+      const currentClient = requireClient(client);
+      await currentClient.user.create({
+        data: {
+          id: "user-ph-delete",
+          name: "Doomed",
+          posts: { create: { id: "post-ph-delete", title: "Holder" } },
+        },
+      });
+      // Witness: a second author whose post must be untouched.
+      await currentClient.user.create({
+        data: {
+          id: "user-ph-witness",
+          name: "Witness",
+          posts: { create: { id: "post-ph-witness", title: "Other" } },
+        },
+      });
+
+      const updated = await currentClient.post.update({
+        where: { id: "post-ph-delete" },
+        data: { author: { delete: true } },
+      });
+      expect(updated.id).toBe("post-ph-delete");
+      expect(updated.userId).toBeNull();
+
+      const users = await currentClient.user.findMany({
+        orderBy: { id: "asc" },
+      });
+      expect(users.map((user) => user.id)).toEqual(["user-ph-witness"]);
+      const posts = await currentClient.post.findMany({
+        orderBy: { id: "asc" },
+      });
+      expect(posts.map((post) => [post.id, post.userId])).toEqual([
+        ["post-ph-delete", null],
+        ["post-ph-witness", "user-ph-witness"],
+      ]);
+    });
+
     // Family F (TO-ONE.md §7.2), absorbed in T3-r2: the inverse-side (child-held)
     // to-one `upsert` — a correlated locate (WHERE fk = parent, no unique `where`).
     // Runs V2's native correlated-upsert SQL on every driver here (5-DB matrix). The
