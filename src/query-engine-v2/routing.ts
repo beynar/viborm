@@ -26,12 +26,11 @@ import { UpsertOperation } from "./UpsertOperation";
  * preflight rejection, the ATOM §7 `requiresAtomicResolution` refusal) is a real
  * failure V1 would also raise and is allowed to propagate. One client call never
  * mixes engines — the decision is made once, for the whole payload, before any
- * I/O. Operations V2 does not own (e.g. `create`) return `undefined`, so the
- * caller runs the frozen V1 path unchanged.
- *
- * The migrated tree classes are EXACTLY the set the oracle certified; the
- * `create` family, and any shape a V2 operation declines with
- * `UnsupportedOperationError`, stay V1.
+ * I/O. Every client operation family is in ROUTED_OPERATIONS — falling back to
+ * V1 by OMISSION is impossible (the route-inventory full-surface assertion
+ * fails if a family is neither routed nor in DOCUMENTED_V1_FALLBACK, which is
+ * empty). The only V1 handoffs left are shapes a V2 operation declines with an
+ * explicit `UnsupportedOperationError` at construction.
  */
 
 const READ_OPERATIONS: ReadonlySet<string> = new Set([
