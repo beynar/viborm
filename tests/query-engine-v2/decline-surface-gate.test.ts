@@ -246,6 +246,42 @@ describe("decline-surface gate: absorbed create shapes carry NO fallback (P6 pre
     expect(tags[0]).toMatchObject({ id: "t1", name: "x" });
     await c.$disconnect();
   });
+
+  // T2 (TO-ONE.md §7): the parent-held to-one `connectOrCreate` under UPDATE — a
+  // before-root target INSERT (missing arm) or existence guard (found arm) whose
+  // FK the root parent UPDATE absorbs. Was residual entry 1; executes on V2 with
+  // the fallback OFF. Re-narrowing the parent-held update guard makes this throw.
+  test("parent-held connectOrCreate under update executes on V2 (fallback off) — absorbed", async () => {
+    const c = await freshClient(opf);
+    await c.user.create({ data: { name: "owner" } }); // id=1
+    await c.post.create({ data: { id: 6, title: "t6", slug: "s6" } });
+    const updated = await c.post.update({
+      where: { id: 6 },
+      data: {
+        author: { connectOrCreate: { where: { id: 1 }, create: { name: "x" } } },
+      },
+      select: { id: true, userId: true },
+    });
+    expect(updated).toEqual({ id: 6, userId: 1 });
+    await c.$disconnect();
+  });
+
+  // T2 (TO-ONE.md §7): the inverse-side (child-held) to-one `update` — a correlated
+  // targeted update whose locator is the FK correlation alone (no unique selector).
+  // Was residual entry 2; executes on V2 with the fallback OFF. Re-narrowing the
+  // child-held type guard back to one-to-many only makes this throw.
+  test("inverse-side to-one update executes on V2 (fallback off) — absorbed", async () => {
+    const c = await freshClient(nb);
+    await c.user.create({ data: { id: "u1", name: "a" } });
+    await c.profile.create({ data: { id: "pr1", bio: "old", userId: "u1" } });
+    await c.user.update({
+      where: { id: "u1" },
+      data: { profile: { update: { bio: "new" } } },
+    });
+    const profiles = await c.profile.findMany();
+    expect(profiles).toEqual([{ id: "pr1", bio: "new", userId: "u1" }]);
+    await c.$disconnect();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -264,36 +300,15 @@ interface ResidualShape {
 }
 
 const FALLBACK_CARRYING_RESIDUAL: readonly ResidualShape[] = [
-  // NOTE (T1, TO-ONE.md): "parent-held to-one create (before-parent-write
-  // ordering)" — the own-write-entangled boundary the P6-prereq-2 incident named
-  // — is now ABSORBED under create roots (the construction-time before-parent
-  // coverage ledger resolves the sibling connect). It moved from this residual to
-  // the absorbed-slice describe above (the create-then-connect INCIDENT test).
-  // The remaining residual is the UPDATE/UPSERT-root to-one decline surface (T2/T3).
-  {
-    label: "parent-held to-one connectOrCreate under update",
-    schema: opf,
-    operation: "update",
-    args: {
-      where: { id: 6 },
-      data: {
-        author: {
-          connectOrCreate: { where: { id: 1 }, create: { name: "x" } },
-        },
-      },
-    },
-    rootModel: opf.post,
-  },
-  {
-    label: "inverse-side to-one update (child holds FK)",
-    schema: nb,
-    operation: "update",
-    args: {
-      where: { id: "u1" },
-      data: { profile: { update: { bio: "new" } } },
-    },
-    rootModel: nb.user,
-  },
+  // NOTE (T2, TO-ONE.md §7): the parent-held to-one `create`/`connectOrCreate` and
+  // the inverse-side to-one `update`/`connect`/`connectOrCreate`/`disconnect`/
+  // `delete` under UPDATE roots are now ABSORBED (a before-root target INSERT the
+  // root parent UPDATE references; the inverse side is the arity-1 child-held path).
+  // They moved from this residual to the absorbed-slice describe above. T1 earlier
+  // absorbed the parent-held create family under CREATE roots. The ONLY reachable
+  // accept-and-execute shape V2 still declines is the inverse-side to-one **upsert**
+  // arm — T3's (D4 threading + deliberate-decline closure). The residual is now
+  // exactly one entry; the gate stays honestly non-empty until T3 empties it.
   {
     label: "inverse-side to-one upsert (nested-relation arm)",
     schema: nb,

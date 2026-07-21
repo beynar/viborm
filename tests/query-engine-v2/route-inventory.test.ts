@@ -268,6 +268,22 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   // rest of the create-fold boundaries (nested update/…-kind in a create payload,
   // `createMany skipDuplicates`, compound child edge, M2M upsert/disconnect/set/
   // delete, non-record arg/where, arg-key guard) are unchanged.
+  //
+  // 51 → 59 (T2, TO-ONE.md §7): the to-one family under UPDATE roots is ABSORBED,
+  // adding 8 FINER-GRAINED boundary routes in UpdateOperation.ts (each a documented
+  // shape whose whole tree still hands to V1). The absorption removed no route (the
+  // old inverse-side "supports only one-to-many child-held" decline is REPHRASED to
+  // "one-to-many or inverse-side one-to-one", still one throw). The 8 new routes:
+  //   inverse side — a non-boolean `disconnect`; a non-boolean `delete`; an
+  //     unsupported inverse-side kind (upsert [T3] / create / set / …);
+  //   parent-held (FK-holder) side — an unsupported kind (`update`/`delete`, which
+  //     mutate the referenced row: V1's staged recursion); a SHARED-PRIMARY-KEY
+  //     create/connectOrCreate (would rewrite the parent PK); a nested-relation
+  //     target create (V1's appendCreate recursion); an unresolvable before-root
+  //     referenced field; a connectOrCreate by a NON-REFERENCED unique.
+  // These are the SAME finer-boundary classes T1 drew under create roots, now under
+  // update. The inverse-side upsert arm is the only one still in the decline-surface
+  // gate's reachable residual (T3).
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
@@ -278,7 +294,7 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
       const source = await readFile(join(dir, file), "utf8");
       sites += source.split("new UnsupportedOperationError(").length - 1;
     }
-    expect(sites).toBe(51);
+    expect(sites).toBe(59);
   });
 });
 
