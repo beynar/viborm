@@ -164,3 +164,26 @@ The create family flip, measured the same way (`benchmarks/p5-flip-ab.bench.ts`,
   noise on any networked driver (MySQL create passes the Docker leg 468/468). It
   falls under the already-named backlog item *"V2 per-call construction cost on
   in-memory drivers"* and is NOT a new gate. No statement-count regression.
+
+## T1 — the parent-held to-one create A/B (in-memory SQLite)
+
+The T1 absorption (parent-held to-one `create` under create roots, TO-ONE.md)
+measured the same way (`benchmarks/p5-flip-ab.bench.ts`, `queryEngine` escape
+hatch, two seeded in-memory SQLite DBs, ratio = V2 hz / V1 hz):
+
+| workload | V1 hz | V2 hz | ratio | verdict |
+| --- | --- | --- | --- | --- |
+| parent-held to-one create (post + before-parent author) | 12,199 | 13,962 | **1.14× (V2 faster)** | beyond gate |
+| scalar create (re-measured) | 30,061 | 29,767 | 0.99× (parity) | within gate |
+| nested create (user + one post, re-measured) | 11,100 | 14,327 | 1.29× (V2 faster) | beyond gate |
+
+- **Parent-held to-one create is FASTER on V2 (1.14×).** The before-parent write
+  is one more entry in the same linear plan the executor runs as a single atomic
+  unit (INSERT author → INSERT post with `authorId = ref(author.id)` → terminal
+  read); V1's staged runtime pays its per-tree orchestration to linearize the
+  before-parent target and thread the produced id. As with any relation edge, the
+  composition dividend shows: V2 wins as soon as the tree has an FK edge. **No
+  P5-accepted-class miss applies to the parent-held create shape** — the only
+  in-memory miss remains the *bare scalar* create/update per-call construction
+  cost (here at parity within run-to-run noise), the named backlog item, not a T1
+  regression. The Docker MySQL leg passes 468/468 with the T1 shapes routed on V2.
