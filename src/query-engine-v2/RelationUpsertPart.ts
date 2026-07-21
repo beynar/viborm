@@ -478,13 +478,24 @@ export function buildToManyUpsertParts(
   family: UpsertFamily = "upsert"
 ): RelationUpsertPart[] {
   if (relationInfo.type !== "oneToMany") {
-    // A to-one or many-to-many nested target is outside V2's narrow door but
-    // within V1's — an UnsupportedOperationError so the whole tree routes to V1
-    // (shared.ts routing contract), never a bare QueryEngineError that hard-fails
-    // a shape V1 supports. All shape rejections in this file are typed this way.
-    throw new UnsupportedOperationError(
-      `query-engine-v2 supports only one-to-many nested ${family}; received '${relationName}'.`
-    );
+    // The **inverse-side one-to-one** (child-held FK) is the arity-1 case of this
+    // child-held path (TO-ONE.md §7.0.1): `connectOrCreate` adopts it globally,
+    // exactly as the to-many arity does (found → reparent; absent → create with the
+    // parent FK injected, constraint + racePin). Its nested-relation **upsert** arm
+    // is deferred to T3, so only the connectOrCreate family widens here. A
+    // many-to-many nested target stays V1's, and an FK-holder-side (parent-held)
+    // to-one is a same-row change, not this child-held Part.
+    const inverseToOne =
+      relationInfo.isToOne &&
+      !getFkDirection(parentScope, relationInfo).holdsFK;
+    if (!(inverseToOne && family === "connectOrCreate")) {
+      // Outside V2's narrow door but within V1's — an UnsupportedOperationError so
+      // the whole tree routes to V1 (shared.ts routing contract), never a bare
+      // QueryEngineError that hard-fails a shape V1 supports.
+      throw new UnsupportedOperationError(
+        `query-engine-v2 supports only one-to-many nested ${family}; received '${relationName}'.`
+      );
+    }
   }
   // First-create-wins dedup is a connectOrCreate-only, fixed-order ledger over the
   // sibling items' target PKs (compile-time literals) — the child-held analogue of

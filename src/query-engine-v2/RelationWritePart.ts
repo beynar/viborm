@@ -237,7 +237,7 @@ export class RelationWritePart implements Part {
       {
         where: {
           AND: [
-            ...this.uniqueEqualityFilters(this.requiredWhere()),
+            ...this.optionalWhereFilters(),
             ...this.correlationFilters(known, useRef),
             ...(capturedPk === undefined
               ? []
@@ -367,13 +367,18 @@ export class RelationWritePart implements Part {
     );
   }
 
-  private requiredWhere(): Record<string, unknown> {
-    if (!this.config.where) {
-      throw new QueryEngineError(
-        `query-engine-v2 ${this.config.kind} for relation '${this.config.relationName}' requires a unique where.`
-      );
-    }
-    return this.config.where;
+  /**
+   * The child's unique-selector equality filters, or `[]` when this targeted
+   * mutation has no unique `where` — the **inverse-side to-one** case (TO-ONE.md
+   * §7.2), where the FK correlation is the whole locator (V1's `normalizeUpdateInputs`
+   * yields `{ data }` with no selector for a to-one, and `RelationUpdates` locates
+   * the child by `filter: correlatedWhere(fk, parentValues)` alone). A to-many
+   * targeted `update`/`delete` always supplies its unique `where`.
+   */
+  private optionalWhereFilters(): Record<string, unknown>[] {
+    return this.config.where
+      ? this.uniqueEqualityFilters(this.config.where)
+      : [];
   }
 }
 
@@ -745,6 +750,28 @@ export function buildToManyUpdateParts(
         data: item.data,
       })
   );
+}
+
+/**
+ * `update` on an **inverse-side one-to-one** (child-held FK) relation: one
+ * targeted correlated part whose locator is the FK correlation alone — the to-one
+ * `update: <data>` payload carries no unique `where` (TO-ONE.md §7.2, V1's
+ * `normalizeUpdateInputs` yields `{ data }` for a to-one). The captured PK is the
+ * single correlated child; the write addresses it (V1's mutation-identity).
+ */
+export function buildToOneUpdatePart(
+  base: WritePartBase,
+  data: unknown
+): RelationWritePart {
+  if (!(data && typeof data === "object" && !Array.isArray(data))) {
+    throw new QueryEngineError(
+      `query-engine-v2 update for relation '${base.relationName}' requires a data object.`
+    );
+  }
+  return new RelationWritePart(base.scope, {
+    ...partConfig(base, "update"),
+    data: data as Record<string, unknown>,
+  });
 }
 
 /** `updateMany`: one bulk correlated part per `{ where?, data }` item. */

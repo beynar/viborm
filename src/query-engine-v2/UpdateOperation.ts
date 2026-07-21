@@ -6,6 +6,7 @@ import {
   ValidationError,
 } from "@errors";
 import type { Model } from "@schema/model";
+import type { Sql } from "@sql";
 import { parse, type VibSchema } from "@validation";
 import {
   buildPrimaryKeyWhereUnique,
@@ -18,14 +19,21 @@ import {
   separateData,
 } from "../query-engine/builders/relation-data-builder";
 import { getRelationMutationKinds } from "../query-engine/builders/relation-mutation-parser";
+import { buildInsert } from "../query-engine/builders/values-builder";
 import {
   createQueryScope,
   getDefaultScalarFieldNames,
+  getTableName,
 } from "../query-engine/context/query-scope";
-import { buildFindUnique, buildUpdate } from "../query-engine/operations";
+import {
+  buildCreate,
+  buildFindUnique,
+  buildUpdate,
+} from "../query-engine/operations";
 import {
   assertPortablePrimaryKeyUpdateInput,
   getUpdatedPrimaryKeyWhere,
+  planNestedCreateIdentity,
 } from "../query-engine/operations/mutation-identity";
 import type { QueryEngine } from "../query-engine/query-engine";
 import { assertNullable } from "../query-engine/RelationProgramValues";
@@ -34,11 +42,13 @@ import { classifyRelationKeyScalarUpdate } from "../query-engine/TargetConstrain
 import type { QueryScope, RelationInfo } from "../query-engine/types";
 import {
   affectedRows,
+  childRacePin,
   exactlyOneRow,
   nestedWriteFailure,
   notFoundFailure,
   presenceGuard,
   queryFailure,
+  referenceSql,
 } from "./fragment-builders";
 import { relationTargetNotFound } from "./messages";
 import {
@@ -46,6 +56,7 @@ import {
   type OperationStep,
   ref,
   type StatementStep,
+  type TargetConstraintPin,
 } from "./OperationFragment";
 import { OwnWritePreflight } from "./OwnWritePreflight";
 import type { Part } from "./Part";
@@ -63,6 +74,7 @@ import {
   buildToManySetPart,
   buildToManyUpdateManyParts,
   buildToManyUpdateParts,
+  buildToOneUpdatePart,
 } from "./RelationWritePart";
 import { StepScope } from "./StepScope";
 import {
@@ -89,6 +101,60 @@ interface ToOneLink {
 }
 
 /**
+ * A **before-root target** INSERT plan (TO-ONE.md §7.0.2): a scalar-only nested
+ * record created ahead of the root parent UPDATE, whose (possibly generated)
+ * identity the parent's FK column references. It is the arity-1 `create` payload
+ * of the parent-held direction, with the parent INSERT replaced by the parent
+ * UPDATE. A nested-relation target `create` is out of T2 scope (routes to V1).
+ */
+interface BeforeTarget {
+  readonly childScope: QueryScope;
+  /** Materialized scalar data (defaults applied, the generated PK removed). */
+  readonly scalarData: Record<string, unknown>;
+  /** The single auto-increment PK captured from the INSERT, if any. */
+  readonly generatedField: string | undefined;
+  /** The known PK literals (the generated PK is absent here). */
+  readonly identity: Record<string, unknown>;
+  readonly writeStepId: string;
+}
+
+/**
+ * A parent-held-FK to-one arm under **update** whose target is written before the
+ * root parent UPDATE and referenced by it (TO-ONE.md §7.0.2 / §7.1). Unlike the
+ * create-root fold (which lands in the record's own INSERT), the FK here is set by
+ * the root parent UPDATE, so the target write is emitted first and its identity
+ * flows backward into the UPDATE's SET. `connect`/`disconnect` stay in
+ * {@link ToOneLink} (their FK literal is known at construction).
+ *
+ * - `create` — unconditional before-root INSERT; FK ← `ref(target.create, id)` (or
+ *   a known literal). No pin (a unique violation is a genuine error).
+ * - `connectOrCreate` — a global probe decides at compile: found → FK ← the where's
+ *   referenced literal + a batch `exists` guard (`raceable: false`); missing →
+ *   before-root INSERT (constraint + `racePin`, Pin Rule class 2) + FK ← `ref`.
+ */
+type ParentHeldTarget =
+  | {
+      readonly kind: "create";
+      readonly relationName: string;
+      readonly relationInfo: RelationInfo;
+      readonly before: BeforeTarget;
+      readonly fkAssign: Record<string, unknown>;
+    }
+  | {
+      readonly kind: "connectOrCreate";
+      readonly relationName: string;
+      readonly relationInfo: RelationInfo;
+      readonly probeId: string;
+      readonly guardId: string;
+      readonly guardProbe: Sql;
+      readonly probe: StatementStep;
+      readonly foundFkAssign: Record<string, unknown>;
+      readonly before: BeforeTarget;
+      readonly missingFkAssign: Record<string, unknown>;
+      readonly racePin: TargetConstraintPin;
+    };
+
+/**
  * The root `update` (PLAN P2a — generalized beyond the P1 upsert slice). It
  * locates a row by ANY unique `where`, applies scalar `data`, and composes any
  * mix of nested to-many `upsert`/`connect`/`disconnect` (child-held FK) plus
@@ -106,6 +172,10 @@ export class UpdateOperation {
   private readonly resultArgs: Record<string, unknown>;
   private readonly childParts: readonly Part[];
   private readonly toOneLinks: readonly ToOneLink[];
+  // Parent-held to-one `create`/`connectOrCreate` under update: a before-root
+  // target INSERT whose identity the root parent UPDATE's FK column references
+  // (TO-ONE.md §7.0.2). Emitted between the guards and the root UPDATE at compile.
+  private readonly parentHeldTargets: readonly ParentHeldTarget[];
   private readonly locate: StatementStep;
   // Whether the non-fold path emits a parent-row UPDATE (a scalar SET ∪ to-one FK
   // folds). Built at compile so it can address the captured PK (V1's `WHERE id`);
@@ -235,6 +305,7 @@ export class UpdateOperation {
     );
     const childParts: Part[] = [];
     const toOneLinks: ToOneLink[] = [];
+    const parentHeldTargets: ParentHeldTarget[] = [];
     // Every parent column a child FK edge references must be exposed by the
     // locate read (a compound edge references several; a D4-style edge references
     // a non-PK unique). Collected here, unioned with the PK, and selected +
@@ -265,11 +336,13 @@ export class UpdateOperation {
         txMode,
         childParts,
         toOneLinks,
+        parentHeldTargets,
         locateFields,
       });
     }
     this.childParts = childParts;
     this.toOneLinks = toOneLinks;
+    this.parentHeldTargets = parentHeldTargets;
 
     // 4. The parent SET = validated scalar data ∪ to-one FK folds. Emitted only
     //    when non-empty (a relation-only update never writes the parent row;
@@ -318,6 +391,7 @@ export class UpdateOperation {
       engine.adapter.capabilities.supportsReturning &&
       childParts.length === 0 &&
       toOneLinks.length === 0 &&
+      parentHeldTargets.length === 0 &&
       selectIsScalarOnly &&
       Object.keys(parentSet).length > 0;
     this.directWrite = canFold
@@ -338,8 +412,12 @@ export class UpdateOperation {
           ),
         }
       : undefined;
+    // A parent-held `create`/`connectOrCreate` folds its FK into the root UPDATE at
+    // compile (the value is a `Ref`, or a found/missing decision), so the parent
+    // UPDATE is needed even when the construction-time `parentSet` is empty.
     this.needsRootUpdate =
-      !this.directWrite && Object.keys(parentSet).length > 0;
+      !this.directWrite &&
+      (Object.keys(parentSet).length > 0 || parentHeldTargets.length > 0);
 
     // 5. The locate planning read. It carries the `notFound` postcondition on
     //    BOTH substrates (enforced by the executor during planning): a missing
@@ -384,6 +462,9 @@ export class UpdateOperation {
     const steps: OperationStep[] = [this.locate];
     for (const link of this.toOneLinks) {
       if (link.connect) steps.push(link.connect.probe);
+    }
+    for (const target of this.parentHeldTargets) {
+      if (target.kind === "connectOrCreate") steps.push(target.probe);
     }
     for (const part of this.childParts)
       steps.push(...part.planning(this.scope));
@@ -430,14 +511,23 @@ export class UpdateOperation {
     for (const link of this.toOneLinks) {
       guards.push(...this.compileToOneConnect(link, known));
     }
+    // Parent-held `create`/`connectOrCreate`: the target INSERT(s) that must land
+    // BEFORE the root UPDATE, and the FK folds the UPDATE's SET absorbs (TO-ONE.md
+    // §7.0.2). The root UPDATE references the (possibly just-inserted) identity.
+    const beforeRootWrites: OperationStep[] = [];
+    const rootExtraSet = this.compileParentHeldTargets(
+      known,
+      guards,
+      beforeRootWrites
+    );
     for (const part of this.childParts) {
       for (const step of part.compile(this.scope, known)) {
         (step.kind === "guard" ? guards : writes).push(step);
       }
     }
-    const steps: OperationStep[] = [...guards];
+    const steps: OperationStep[] = [...guards, ...beforeRootWrites];
     const rootUpdate = this.needsRootUpdate
-      ? this.buildRootUpdate(locatedRow)
+      ? this.buildRootUpdate(locatedRow, rootExtraSet)
       : undefined;
     // A root SET that rewrites a child-referenced column (a PK transition
     // `id: 2`, or a literal on a non-PK referenced unique) must land AFTER the
@@ -485,6 +575,7 @@ export class UpdateOperation {
     txMode: boolean;
     childParts: Part[];
     toOneLinks: ToOneLink[];
+    parentHeldTargets: ParentHeldTarget[];
     locateFields: Set<string>;
   }): void {
     const { relationName, mutation, parsedRelation } = input;
@@ -514,29 +605,35 @@ export class UpdateOperation {
     const fk = getFkDirection(input.parent, relationInfo);
 
     if (fk.holdsFK) {
-      // A parent-held FK is a same-row change (folded into the root SET). Only a
-      // single connect/disconnect is in P2a scope; anything else routes to V1.
+      // A parent-held FK is a same-row change. `connect`/`disconnect` fold their
+      // (construction-known) FK literal into the root SET; `create`/`connectOrCreate`
+      // write the target before the root UPDATE and reference its identity from the
+      // UPDATE's SET (TO-ONE.md §7.0.2). Only one kind per to-one relation.
       if (kinds.length !== 1) {
         throw new UnsupportedOperationError(
           `query-engine-v2 update supports one mutation kind on the to-one relation '${relationName}'; it has ${kinds.join(", ") || "none"}.`
         );
       }
-      input.toOneLinks.push(
-        this.interpretToOneLink(
-          input.scope,
-          relationName,
-          relationInfo,
-          fk,
-          kinds[0]!,
-          parsedRelation
-        )
+      this.interpretParentHeldToOne(
+        input,
+        relationName,
+        relationInfo,
+        fk,
+        kinds[0]!
       );
       return;
     }
 
-    if (relationInfo.type !== "oneToMany") {
+    // Child-held direction (the target holds the FK). One-to-many is the plural
+    // case; the **inverse-side one-to-one** is its arity-1 case (TO-ONE.md §7.0.1)
+    // — the same correlated/global-adopt child writes, differing only in the to-one
+    // payload spelling (`update: <data>` with no selector, `disconnect: true`).
+    // The parent exists, so no fresh-parent elision: every probe reads committed
+    // state, exactly as the to-many family already does under update.
+    const isInverseToOne = relationInfo.isToOne;
+    if (!(isInverseToOne || relationInfo.type === "oneToMany")) {
       throw new UnsupportedOperationError(
-        `query-engine-v2 update supports only one-to-many child-held relations; relation '${relationName}' is '${relationInfo.type}'.`
+        `query-engine-v2 update supports only one-to-many or inverse-side one-to-one child-held relations; relation '${relationName}' is '${relationInfo.type}'.`
       );
     }
     // Compound foreign keys are per-field (ATOM §1): every referenced parent
@@ -570,11 +667,28 @@ export class UpdateOperation {
       txMode: input.txMode,
     } as const;
 
-    // Multiple mutation kinds may coexist on one to-many relation (V1's
-    // `{ delete, deleteMany }`, `{ update, updateMany }`, …). Each present kind
-    // contributes its own Part(s); they compose into the one linear fragment in
-    // a stable, V1-mirroring order (link/adopt, then removals, then updates).
+    // Multiple mutation kinds may coexist on one relation (V1's `{ delete,
+    // deleteMany }`, `{ update, updateMany }`, …). Each present kind contributes
+    // its own Part(s); they compose into the one linear fragment in a stable,
+    // V1-mirroring order (link/adopt, then removals, then updates).
     for (const kind of kinds) {
+      if (isInverseToOne) {
+        this.interpretInverseToOneKind({
+          kind,
+          relationName,
+          relationInfo,
+          fk,
+          parsedRelation,
+          childScope,
+          childName,
+          childPrimaryKey: childPrimaryKeys[0]!,
+          fkFields: fk.fkFields,
+          referencedFields: fk.pkFields,
+          writeBase,
+          input,
+        });
+        continue;
+      }
       this.interpretToManyKind({
         kind,
         relationName,
@@ -711,6 +825,475 @@ export class UpdateOperation {
     }
   }
 
+  /**
+   * One mutation kind on an **inverse-side one-to-one** (child-held FK) relation
+   * under update (TO-ONE.md §7). The parent exists (located first), so these are
+   * ordinary correlated / global-adopt child writes — the arity-1 case of the
+   * to-many child-held family — differing only in the to-one payload spelling:
+   * `update: <data>` (no unique selector, correlation is the locator), `disconnect:
+   * true` / `delete: true` (the whole correlated set). The nested-relation `upsert`
+   * arm is T3's; `create` / non-boolean disconnect/delete / `set` route the whole
+   * tree to V1 (documented boundaries, mirroring the to-many surface).
+   */
+  private interpretInverseToOneKind(args: {
+    kind: string;
+    relationName: string;
+    relationInfo: RelationInfo;
+    fk: FkDirection;
+    parsedRelation: Record<string, unknown>;
+    childScope: QueryScope;
+    childName: string;
+    childPrimaryKey: string;
+    fkFields: readonly string[];
+    referencedFields: readonly string[];
+    writeBase: Parameters<typeof buildToManyUpdateParts>[0];
+    input: {
+      scope: StepScope;
+      parent: QueryScope;
+      parentIdSource: ReturnType<typeof plannedParentId>;
+      txMode: boolean;
+      childParts: Part[];
+    };
+  }): void {
+    const {
+      kind,
+      relationName,
+      relationInfo,
+      fk,
+      parsedRelation,
+      childScope,
+      childName,
+      childPrimaryKey,
+      fkFields,
+      referencedFields,
+      writeBase,
+      input,
+    } = args;
+    const push = (parts: readonly Part[]) => input.childParts.push(...parts);
+
+    switch (kind) {
+      case "connect":
+        // Global lookup-and-adopt: UPDATE child SET fk = parent WHERE unique, pinned
+        // by an exists guard — V1's child-held connect arm. A one-to-one FK carries a
+        // UNIQUE constraint, so a second row already pointing at this parent makes the
+        // reparent collide (V1's steal semantics, the DB enforces the invariant).
+        push(
+          buildToManyLinkParts(
+            input.scope,
+            this.engine,
+            relationName,
+            relationInfo,
+            childName,
+            childScope,
+            fkFields,
+            referencedFields,
+            childPrimaryKey,
+            "connect",
+            parsedRelation.connect,
+            input.parentIdSource,
+            input.txMode
+          )
+        );
+        return;
+      case "connectOrCreate":
+        push(
+          buildConnectOrCreateParts(
+            input.scope,
+            input.parent,
+            this.engine,
+            relationName,
+            relationInfo,
+            normalizeItems(parsedRelation.connectOrCreate, relationName),
+            input.parentIdSource,
+            input.txMode
+          )
+        );
+        return;
+      case "update":
+        // Correlated targeted update with NO unique selector — the FK correlation
+        // (fk = parent) is the whole locator (TO-ONE.md §7.2).
+        input.childParts.push(
+          buildToOneUpdatePart(writeBase, parsedRelation.update)
+        );
+        return;
+      case "disconnect": {
+        // A required child FK cannot be nulled — V1's verbatim typed rejection.
+        assertNullable(relationInfo, fk);
+        if (parsedRelation.disconnect !== true) {
+          // A targeted (non-boolean) to-one disconnect is V1's captured path; out
+          // of T2 scope — route the whole tree to V1.
+          throw new UnsupportedOperationError(
+            `query-engine-v2 update supports only 'disconnect: true' on the inverse-side to-one relation '${relationName}'.`
+          );
+        }
+        push(
+          buildToManyLinkParts(
+            input.scope,
+            this.engine,
+            relationName,
+            relationInfo,
+            childName,
+            childScope,
+            fkFields,
+            referencedFields,
+            childPrimaryKey,
+            "disconnect",
+            true,
+            input.parentIdSource,
+            input.txMode
+          )
+        );
+        return;
+      }
+      case "delete":
+        if (parsedRelation.delete !== true) {
+          // A targeted (non-boolean) to-one delete is V1's captured path; out of
+          // T2 scope — route the whole tree to V1.
+          throw new UnsupportedOperationError(
+            `query-engine-v2 update supports only 'delete: true' on the inverse-side to-one relation '${relationName}'.`
+          );
+        }
+        // `delete: true` is a correlated bulk delete — DELETE child WHERE fk = parent
+        // (V1's `RelationRemovals.delete` input===true, child-held arm).
+        push(buildToManyDeleteManyParts(writeBase, {}));
+        return;
+      default:
+        // upsert (T3), create/createMany/set/updateMany/deleteMany — V1's surface
+        // under an inverse-side to-one; route the whole tree to V1.
+        throw new UnsupportedOperationError(
+          `query-engine-v2 update does not support nested '${kind}' on the inverse-side to-one relation '${relationName}'.`
+        );
+    }
+  }
+
+  /**
+   * A parent-held-FK (FK-holder-side) to-one arm under update. `connect`/
+   * `disconnect` fold their construction-known FK literal into the root SET
+   * ({@link interpretToOneLink}); `create`/`connectOrCreate` write the target
+   * ahead of the root UPDATE and reference its identity from the UPDATE's SET
+   * (TO-ONE.md §7.0.2). FK-holder-side `update`/`delete` (mutating the referenced
+   * row) route to V1 — a documented boundary (they need V1's staged
+   * `compileLocatedUpdate` / parent-FK-null-then-delete recursion).
+   */
+  private interpretParentHeldToOne(
+    input: Parameters<UpdateOperation["interpretRelation"]>[0],
+    relationName: string,
+    relationInfo: RelationInfo,
+    fk: FkDirection,
+    kind: string
+  ): void {
+    switch (kind) {
+      case "connect":
+      case "disconnect":
+        input.toOneLinks.push(
+          this.interpretToOneLink(
+            input.scope,
+            relationName,
+            relationInfo,
+            fk,
+            kind,
+            input.parsedRelation
+          )
+        );
+        return;
+      case "create":
+        input.parentHeldTargets.push(
+          this.interpretParentHeldCreate(input, relationName, relationInfo, fk)
+        );
+        return;
+      case "connectOrCreate":
+        input.parentHeldTargets.push(
+          this.interpretParentHeldConnectOrCreate(
+            input,
+            relationName,
+            relationInfo,
+            fk
+          )
+        );
+        return;
+      default:
+        // update/delete on the FK-holder-side to-one — V1's surface (mutate/null
+        // the referenced row); route the whole tree to V1.
+        throw new UnsupportedOperationError(
+          `query-engine-v2 update does not support '${kind}' on the parent-held to-one relation '${relationName}'.`
+        );
+    }
+  }
+
+  /** A parent-held `create` under update: an unconditional before-root target
+   *  INSERT, the root UPDATE's FK column referencing its identity by a `Ref`. */
+  private interpretParentHeldCreate(
+    input: Parameters<UpdateOperation["interpretRelation"]>[0],
+    relationName: string,
+    relationInfo: RelationInfo,
+    fk: FkDirection
+  ): ParentHeldTarget {
+    this.assertNotSharedPk(relationName, fk, "create");
+    const childScope = createQueryScope(
+      this.engine.adapter,
+      relationInfo.targetModel
+    );
+    const before = this.buildBeforeTarget(
+      childScope,
+      normalizeSingle(input.parsedRelation.create, relationName, "create"),
+      relationName
+    );
+    return {
+      kind: "create",
+      relationName,
+      relationInfo,
+      before,
+      fkAssign: this.beforeTargetFkAssign(fk, before, relationName),
+    };
+  }
+
+  /** A parent-held `connectOrCreate` under update: a global probe decides at
+   *  compile — found → FK ← the where's referenced literal (+ batch exists guard);
+   *  missing → before-root target INSERT (racePin) + FK ← its `Ref`. */
+  private interpretParentHeldConnectOrCreate(
+    input: Parameters<UpdateOperation["interpretRelation"]>[0],
+    relationName: string,
+    relationInfo: RelationInfo,
+    fk: FkDirection
+  ): ParentHeldTarget {
+    this.assertNotSharedPk(relationName, fk, "connectOrCreate");
+    const spec = normalizeSingle(
+      input.parsedRelation.connectOrCreate,
+      relationName,
+      "connectOrCreate"
+    );
+    const where = requireRecord(
+      spec.where,
+      `${relationName}.connectOrCreate.where`
+    );
+    const createData = requireRecord(
+      spec.create,
+      `${relationName}.connectOrCreate.create`
+    );
+    const childScope = createQueryScope(
+      this.engine.adapter,
+      relationInfo.targetModel
+    );
+    const before = this.buildBeforeTarget(childScope, createData, relationName);
+    const childName = getStepModelName(relationInfo.targetModel, relationName);
+    const probeId = input.scope.allocate(`${childName}.find`);
+    const guardId = input.scope.allocate(`${childName}.guard.exists`);
+    const pkSelect = Object.fromEntries(fk.pkFields.map((f) => [f, true]));
+    return {
+      kind: "connectOrCreate",
+      relationName,
+      relationInfo,
+      probeId,
+      guardId,
+      guardProbe: buildFindUnique(childScope, { where, select: pkSelect }),
+      probe: {
+        id: probeId,
+        kind: "read",
+        statement: buildFindUnique(childScope, {
+          where,
+          select: pkSelect,
+          forUpdate: input.txMode,
+        }),
+        outputs: { rows: { kind: "rows" } },
+      },
+      foundFkAssign: this.toOneFkAssignLiteral(fk, where, relationName),
+      before,
+      missingFkAssign: this.beforeTargetFkAssign(fk, before, relationName),
+      racePin: childRacePin(childScope, where),
+    };
+  }
+
+  /** A shared-primary-key parent-held edge (the FK IS this record's PK) under
+   *  create/connectOrCreate would rewrite the parent PK — a PK transition. Route
+   *  the whole tree to V1 (its `getUpdatedPrimaryKeyWhere` resolves it). */
+  private assertNotSharedPk(
+    relationName: string,
+    fk: FkDirection,
+    kind: string
+  ): void {
+    const recordPk = getPrimaryKeyFields(this.model);
+    if (fk.fkFields.some((fkField) => recordPk.includes(fkField))) {
+      throw new UnsupportedOperationError(
+        `query-engine-v2 update does not support a shared-primary-key ${kind} on relation '${relationName}' (the foreign key '${fk.fkFields.join(", ")}' is this record's primary key).`
+      );
+    }
+  }
+
+  /** Build a scalar-only before-root target INSERT plan (defaults materialized,
+   *  the generated PK captured). A nested-relation target create routes to V1. */
+  private buildBeforeTarget(
+    childScope: QueryScope,
+    createData: Record<string, unknown>,
+    relationName: string
+  ): BeforeTarget {
+    const separated = separateData(childScope, createData);
+    if (Object.keys(separated.relations).length > 0) {
+      throw new UnsupportedOperationError(
+        `query-engine-v2 update does not support a nested-relation target create on the parent-held to-one relation '${relationName}'.`
+      );
+    }
+    const { identity, generatedField } = planNestedCreateIdentity(
+      childScope.model,
+      separated.scalarData
+    );
+    const scalarData = { ...separated.scalarData };
+    if (generatedField) delete scalarData[generatedField];
+    const childName = getStepModelName(childScope.model, "record");
+    const writeStepId = this.scope.allocate(`${childName}.create`);
+    return { childScope, scalarData, generatedField, identity, writeStepId };
+  }
+
+  /** The record FK columns ← a before-root target's referenced values (a `Ref` to
+   *  a captured generated id, or a known literal) — for the root UPDATE's SET. */
+  private beforeTargetFkAssign(
+    fk: FkDirection,
+    before: BeforeTarget,
+    relationName: string
+  ): Record<string, unknown> {
+    const fkAssign: Record<string, unknown> = {};
+    for (let index = 0; index < fk.fkFields.length; index += 1) {
+      fkAssign[fk.fkFields[index]!] = referenceSql(
+        this.engine,
+        this.model,
+        fk.fkFields[index]!,
+        this.beforeTargetReferencedValue(
+          before,
+          fk.pkFields[index]!,
+          relationName
+        )
+      );
+    }
+    return fkAssign;
+  }
+
+  /** The value a before-root target produces for one referenced field — a `Ref`
+   *  to its captured generated id, or its known literal identity. */
+  private beforeTargetReferencedValue(
+    before: BeforeTarget,
+    referencedField: string,
+    relationName: string
+  ): unknown {
+    if (before.generatedField === referencedField) {
+      return ref(before.writeStepId, "id");
+    }
+    if (Object.hasOwn(before.identity, referencedField)) {
+      return before.identity[referencedField];
+    }
+    throw new UnsupportedOperationError(
+      `query-engine-v2 update cannot resolve referenced field '${referencedField}' for the before-root target of relation '${relationName}'.`
+    );
+  }
+
+  /** The record FK columns ← the connectOrCreate found-arm's referenced literals
+   *  (from the connect `where`) — the connect-by-non-referenced-unique shape routes
+   *  to V1 (needs a lookup subquery). */
+  private toOneFkAssignLiteral(
+    fk: FkDirection,
+    where: Record<string, unknown>,
+    relationName: string
+  ): Record<string, unknown> {
+    const fkAssign: Record<string, unknown> = {};
+    for (let index = 0; index < fk.fkFields.length; index += 1) {
+      const referenced = fk.pkFields[index]!;
+      if (!Object.hasOwn(where, referenced)) {
+        throw new UnsupportedOperationError(
+          `query-engine-v2 update to-one connectOrCreate for relation '${relationName}' must reference '${referenced}' directly.`
+        );
+      }
+      fkAssign[fk.fkFields[index]!] = referenceSql(
+        this.engine,
+        this.model,
+        fk.fkFields[index]!,
+        where[referenced]
+      );
+    }
+    return fkAssign;
+  }
+
+  /** The before-root target INSERT step (capturing a generated PK). Mirrors
+   *  `CreateOperation.buildInsertStep`: `firstRowField` on a returning driver in
+   *  tx mode, the driver `insertId` otherwise. */
+  private buildBeforeTargetInsert(before: BeforeTarget): StatementStep {
+    const { childScope, generatedField, writeStepId, scalarData } = before;
+    const txMode = this.mode === "transaction";
+    if (!generatedField) {
+      return {
+        id: writeStepId,
+        kind: "write",
+        statement: buildInsert(
+          childScope,
+          getTableName(childScope.model),
+          scalarData
+        ),
+        outputs: {},
+      };
+    }
+    const returning = this.engine.adapter.capabilities.supportsReturning;
+    return {
+      id: writeStepId,
+      kind: "write",
+      statement:
+        txMode && returning
+          ? buildCreate(childScope, {
+              data: scalarData,
+              select: { [generatedField]: true },
+            })
+          : buildInsert(childScope, getTableName(childScope.model), scalarData),
+      outputs: {
+        id:
+          txMode && returning
+            ? { kind: "firstRowField", field: generatedField }
+            : { kind: "insertId" },
+      },
+    };
+  }
+
+  /**
+   * Resolve every parent-held-target arm into (a) the before-root INSERT steps to
+   * emit ahead of the root UPDATE, and (b) the FK folds to merge into the root
+   * UPDATE's SET (TO-ONE.md §7.0.2). `create` is unconditional; `connectOrCreate`
+   * decides found/missing from its probe at compile.
+   */
+  private compileParentHeldTargets(
+    known: Readonly<Record<string, unknown>>,
+    guards: OperationStep[],
+    beforeRootWrites: OperationStep[]
+  ): Record<string, unknown> {
+    const extraSet: Record<string, unknown> = {};
+    for (const target of this.parentHeldTargets) {
+      if (target.kind === "create") {
+        beforeRootWrites.push(this.buildBeforeTargetInsert(target.before));
+        Object.assign(extraSet, target.fkAssign);
+        continue;
+      }
+      const rows = known[planningKey(target.probeId, "rows")];
+      const found = Array.isArray(rows) && rows.length > 0;
+      if (found) {
+        Object.assign(extraSet, target.foundFkAssign);
+        if (this.mode === "batch") {
+          guards.push(
+            presenceGuard(
+              target.guardId,
+              target.guardProbe,
+              nestedWriteFailure(
+                relationTargetNotFound(target.relationInfo, "connect"),
+                target.relationName,
+                false
+              )
+            )
+          );
+        }
+        continue;
+      }
+      beforeRootWrites.push({
+        ...this.buildBeforeTargetInsert(target.before),
+        racePin: target.racePin,
+      });
+      Object.assign(extraSet, target.missingFkAssign);
+    }
+    return extraSet;
+  }
+
   private interpretToOneLink(
     scope: StepScope,
     relationName: string,
@@ -804,7 +1387,10 @@ export class UpdateOperation {
     ];
   }
 
-  private buildRootUpdate(locatedRow: Record<string, unknown>): StatementStep {
+  private buildRootUpdate(
+    locatedRow: Record<string, unknown>,
+    extraSet: Record<string, unknown> = {}
+  ): StatementStep {
     const parent = createQueryScope(this.engine.adapter, this.model);
     const txMode = this.mode === "transaction";
     const parentName = getStepModelName(this.model, "parent");
@@ -824,7 +1410,10 @@ export class UpdateOperation {
         // immutable captured PK). Transaction mode only; batch mode keeps the
         // original `where` so the write and its presence guard pin one row.
         where: this.writeWhere(locatedRow),
-        data: this.parentUpdateData,
+        // The construction-time SET (scalar ∪ connect/disconnect folds) unioned
+        // with the compile-time parent-held create/connectOrCreate FK folds
+        // (`extraSet`), which reference the before-root target (TO-ONE.md §7.0.2).
+        data: { ...this.parentUpdateData, ...extraSet },
         select: this.pkSelect(),
       }),
       outputs: {},
