@@ -14,10 +14,7 @@ import {
   separateData,
 } from "../query-engine/builders/relation-data-builder";
 import { getRelationMutationKinds } from "../query-engine/builders/relation-mutation-parser";
-import {
-  buildInsert,
-  buildInsertMany,
-} from "../query-engine/builders/values-builder";
+import { buildInsert } from "../query-engine/builders/values-builder";
 import {
   createQueryScope,
   getDefaultScalarFieldNames,
@@ -25,6 +22,7 @@ import {
 } from "../query-engine/context/query-scope";
 import {
   buildCreate,
+  buildCreateManyPlan,
   buildFindUnique,
   buildUpdate,
 } from "../query-engine/operations";
@@ -93,11 +91,17 @@ interface ChildCreate {
   readonly inject: Record<string, unknown>;
 }
 
-/** A child-held-FK nested `createMany` group spliced AFTER this record's INSERT. */
+/**
+ * A child-held-FK nested `createMany` spliced AFTER this record's INSERT. The
+ * rows are lowered to one-or-more INSERT write steps by `buildCreateManyPlan` —
+ * one statement per same-shape group, so a heterogeneous batch (e.g. some rows
+ * supplying an increment PK, some omitting it) becomes several contiguous
+ * grouped INSERTs, exactly as the root `createMany` family (ATOM §8) and V1's
+ * grouped execution do. The steps carry no output (the terminal read fetches the
+ * created rows).
+ */
 interface CreateManyGroup {
-  readonly childScope: QueryScope;
-  readonly writeStepId: string;
-  readonly rows: readonly Record<string, unknown>[];
+  readonly steps: readonly StatementStep[];
 }
 
 /**
@@ -154,7 +158,11 @@ interface RecordIdentity {
  * - child-held-FK to-many: nested `create`/`createMany`/`connect`/
  *   `connectOrCreate`/`upsert` (fresh-parent global adopt), any depth;
  * - parent-held-FK to-one `connect` (fold the referenced value + existence pin);
- * - M2M `connect`/`create`/`connectOrCreate`/`upsert` through the junction.
+ * - M2M `connect`/`create`/`connectOrCreate` through the junction.
+ *
+ * The child-held-FK one-to-many `upsert` is the deliberate P−1.2 Prisma SUPERSET
+ * (global lookup, adopt-and-update); V1 rejects it at runtime, so it is the
+ * oracle's extension-scenario class, not a V1-parity shape.
  *
  * Routed to V1 with a typed {@link UnsupportedOperationError} (the whole tree):
  * - parent-held-FK to-one `create`/`connectOrCreate` — a child INSERT *before*
@@ -162,6 +170,9 @@ interface RecordIdentity {
  *   deferred before-parent-write ordering; the self-referential grandparent);
  * - a nested `update`/`delete`/`set`/… in a create payload (V1 rejects it too,
  *   with its own typed message — routing yields byte-identical behavior);
+ * - M2M `upsert`/`disconnect`/`set`/`delete` under create (V1 rejects M2M upsert
+ *   in parent create; the junction upsert needs a planned parent id a fresh
+ *   parent cannot give);
  * - a to-one `connect` by a non-referenced unique (needs a lookup subquery);
  * - a nested `createMany skipDuplicates`, or a compound child edge.
  */
@@ -385,9 +396,15 @@ export class CreateOperation {
 
     if (relationInfo.type === "manyToMany") {
       // M2M is not special (WHY §4.3): the junction composes as ordinary Parts. A
-      // fresh parent has no existing memberships, so connect/create/upsert only
-      // add join rows (elision). create/connect/connectOrCreate/upsert are the
-      // create-tree M2M surface; disconnect/set/delete route to V1 (its rejection).
+      // fresh parent has no existing memberships, so connect/create/connectOrCreate
+      // only add join rows (elision). create/connect/connectOrCreate are the
+      // create-tree M2M surface; disconnect/set/delete/upsert route to V1 (its
+      // rejection). M2M `upsert` under create is NOT the P−1.2 one-to-many
+      // superset — V1 rejects it (`NestedWriteError: … not supported in parent
+      // create`), so V2 declines it at construction and the whole tree routes to
+      // V1 for that byte-identical rejection (the junction upsert Part needs a
+      // *planned* parent id, which a fresh parent cannot supply — deferring the
+      // decision to compile would hard-fail instead of routing).
       this.assertCreateTreeKinds(kinds, relationName);
       input.afterParts.push(
         ...buildJunctionParts({
@@ -436,6 +453,17 @@ export class CreateOperation {
       // before-parent-write ordering. Route the whole tree to V1.
       throw new UnsupportedOperationError(
         `query-engine-v2 create supports only 'connect' on the to-one relation '${relationName}'; it has ${kinds.join(", ") || "none"}.`
+      );
+    }
+    // Shared-primary-key connect: the FK the parent holds IS (part of) this
+    // record's own primary key (a one-to-one shared-PK relation). The PK is then
+    // supplied by the connect fold, not by scalar data, so the terminal read has
+    // no known identity to address the created row by — route the tree to V1,
+    // whose `getCreatedRowWhere` resolves the shared PK from the connect target.
+    const recordPk = getPrimaryKeyFields(input.self.model);
+    if (fk.fkFields.some((fkField) => recordPk.includes(fkField))) {
+      throw new UnsupportedOperationError(
+        `query-engine-v2 create does not support a shared-primary-key connect on relation '${relationName}' (the foreign key '${fk.fkFields.join(", ")}' is this record's primary key).`
       );
     }
     const where = normalizeSingle(relationInput.connect, relationName);
@@ -617,12 +645,19 @@ export class CreateOperation {
       (row) => ({ ...row, ...inject })
     );
     if (rows.length === 0) return;
+    // Lower to grouped INSERTs (buildCreateManyPlan): one statement per same-shape
+    // group, so heterogeneous rows (some supplying a generated PK, some omitting
+    // it) split into contiguous grouped INSERTs — full parity with V1's grouped
+    // execution, never the single-VALUES "Heterogeneous insert rows" hard-fail.
+    const plan = buildCreateManyPlan(childScope, { data: rows }, false);
+    const base = getStepModelName(childScope.model, input.relationName);
     input.createManyGroups.push({
-      childScope,
-      writeStepId: this.scope.allocate(
-        `${getStepModelName(childScope.model, input.relationName)}.createMany`
-      ),
-      rows,
+      steps: plan.statements.map((statement) => ({
+        id: this.scope.allocate(`${base}.createMany`),
+        kind: "write" as const,
+        statement: statement.sql,
+        outputs: {},
+      })),
     });
   }
 
@@ -737,16 +772,7 @@ export class CreateOperation {
       this.emitRecord(child.record, child.inject, known, guards, writes);
     }
     for (const group of plan.createManyGroups) {
-      writes.push({
-        id: group.writeStepId,
-        kind: "write",
-        statement: buildInsertMany(
-          group.childScope,
-          getTableName(group.childScope.model),
-          group.rows as Record<string, unknown>[]
-        ),
-        outputs: {},
-      });
+      for (const step of group.steps) writes.push(step);
     }
     for (const part of plan.afterParts) {
       for (const step of part.compile(this.scope, known)) {
@@ -853,15 +879,18 @@ export class CreateOperation {
     kinds: readonly string[],
     relationName: string
   ): void {
+    // The M2M create-tree surface: create/connect/connectOrCreate only. `upsert`
+    // (and disconnect/set/delete) route to V1 — V1 rejects M2M upsert-under-create
+    // outright, so declining it here at construction yields V1's byte-identical
+    // NestedWriteError, never a compile-time hard failure.
     for (const kind of kinds) {
       if (
         kind !== "create" &&
         kind !== "connect" &&
-        kind !== "connectOrCreate" &&
-        kind !== "upsert"
+        kind !== "connectOrCreate"
       ) {
         throw new UnsupportedOperationError(
-          `query-engine-v2 create does not support nested '${kind}' on relation '${relationName}'.`
+          `query-engine-v2 create does not support nested '${kind}' on the many-to-many relation '${relationName}'.`
         );
       }
     }
@@ -971,12 +1000,17 @@ function terminalFailure() {
   };
 }
 
-function defaultSelect(model: Model<any>): Record<string, unknown> {
+function defaultSelect(model: Model<any>): Record<string, unknown> | undefined {
   // V1's default projection is every scalar EXCEPT `.omit()`-ed fields — the raw
-  // scalar names would leak an omitted column into the public result.
-  return Object.fromEntries(
-    getDefaultScalarFieldNames(model).map((field: string) => [field, true])
-  );
+  // scalar names would leak an omitted column into the public result. When EVERY
+  // scalar is `.omit()`-ed the projection is empty; an explicit `select: {}` is
+  // invalid SQL ("needs at least one truthy value"), so we return undefined and
+  // let the terminal read + ResultParser produce the empty public object `{}`
+  // exactly as `ReadOperation`/`findUnique` does with no select (the read builder
+  // already excludes omitted columns).
+  const fields = getDefaultScalarFieldNames(model);
+  if (fields.length === 0) return undefined;
+  return Object.fromEntries(fields.map((field: string) => [field, true]));
 }
 
 function assertCreateKeys(value: Record<string, unknown>): void {
