@@ -187,3 +187,31 @@ hatch, two seeded in-memory SQLite DBs, ratio = V2 hz / V1 hz):
   in-memory miss remains the *bare scalar* create/update per-call construction
   cost (here at parity within run-to-run noise), the named backlog item, not a T1
   regression. The Docker MySQL leg passes 468/468 with the T1 shapes routed on V2.
+
+## T2 — the parent-held to-one connectOrCreate under update A/B (in-memory SQLite)
+
+The T2 absorption (the to-one family under UPDATE roots, TO-ONE.md §7) measured
+the same way (`benchmarks/p5-flip-ab.bench.ts`, `queryEngine` escape hatch, two
+seeded in-memory SQLite DBs, ratio = V2 hz / V1 hz):
+
+| workload | V1 hz | V2 hz | ratio | verdict |
+| --- | --- | --- | --- | --- |
+| parent-held connectOrCreate under update (FOUND arm) | 5,206 | 10,411 | **2.00× (V2 faster)** | beyond gate |
+| scalar update (re-measured) | 36,312 | 31,226 | 0.86× (V2 ~1.16× slower) | accepted miss, same class |
+| nested create (re-measured) | 9,967 | 13,177 | 1.32× (V2 faster) | beyond gate |
+
+- **The update-root to-one arm is FASTER on V2 (2.00×).** The gated shape is a
+  probe (find the connect target) plus one parent UPDATE that folds `authorId` from
+  the found row — two statements in one linear plan the executor runs as a single
+  atomic unit. V1's staged runtime pays its per-tree orchestration to run the
+  connectOrCreate decision, the `updateParentForeignKey` write, and the terminal
+  refetch through the OperationProgram walk. The composition dividend is even larger
+  here than for the create-root arms: the update root already carries a locate read
+  and a terminal read, so the relative fixed overhead V1 spends per tree dominates.
+- **Scalar update misses ±10% (~1.16× slower) — the SAME accepted class as P5 /
+  T1.** A bare scalar update is one statement on both engines; the residual is V2's
+  fixed per-call construction cost (fresh operation object + own-write preflight +
+  payload parse), a few µs, dominant only on an in-memory ~25 µs round-trip and
+  noise on any networked driver. It is the named backlog item, NOT a T2 regression.
+  No statement-count regression on any absorbed T2 shape. The Docker legs pass with
+  the T2 shapes routed on V2.

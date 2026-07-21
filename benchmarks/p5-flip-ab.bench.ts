@@ -29,6 +29,14 @@ const makeClient = async (engine: "v1" | "v2") => {
       [`u_${i}`, `User ${i}`, `u${i}@example.com`, 30]
     );
   }
+  // Posts for the T2 update-root to-one A/B (parent-held connectOrCreate under
+  // update): each post p_i starts owned by u_i.
+  for (let i = 0; i < 200; i++) {
+    await driver._executeRaw(
+      'INSERT INTO "posts" ("id", "title", "content", "published", "views", "authorId") VALUES (?, ?, ?, ?, ?, ?)',
+      [`p_${i}`, `Post ${i}`, null, 0, 0, `u_${i}`]
+    );
+  }
   return client;
 };
 
@@ -172,6 +180,43 @@ describe("flip A/B: parent-held to-one create (post + before-parent author)", ()
         id,
         title: "T",
         author: { create: { id: `${id}_a`, name: "A", email: `${id}@x.com` } },
+      },
+    });
+  });
+});
+
+// T2 (TO-ONE.md §7): parent-held to-one connectOrCreate under UPDATE — the gated
+// residual entry. The probe finds the existing target (FOUND arm), and the root
+// parent UPDATE folds authorId = the found user's id. The A/B vs V1's staged
+// runtime (decision read + updateParentForeignKey). Two arms, separate DBs.
+let cocV1 = 0;
+let cocV2 = 0;
+describe("flip A/B: parent-held connectOrCreate under update (FOUND, T2)", () => {
+  bench("v1 update connectOrCreate", async () => {
+    const k = cocV1++ % 200;
+    await v1.post.update({
+      where: { id: `p_${k}` },
+      data: {
+        author: {
+          connectOrCreate: {
+            where: { id: `u_${(k + 1) % 200}` },
+            create: { id: `noop1_${k}`, name: "X", email: `noop1_${k}@x.com` },
+          },
+        },
+      },
+    });
+  });
+  bench("v2 update connectOrCreate", async () => {
+    const k = cocV2++ % 200;
+    await v2.post.update({
+      where: { id: `p_${k}` },
+      data: {
+        author: {
+          connectOrCreate: {
+            where: { id: `u_${(k + 1) % 200}` },
+            create: { id: `noop2_${k}`, name: "X", email: `noop2_${k}@x.com` },
+          },
+        },
       },
     });
   });
