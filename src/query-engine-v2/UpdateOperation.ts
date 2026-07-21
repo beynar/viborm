@@ -339,6 +339,7 @@ export class UpdateOperation {
         toOneLinks,
         parentHeldTargets,
         locateFields,
+        rootScalarData: separated.scalarData,
       });
     }
     this.childParts = childParts;
@@ -578,6 +579,10 @@ export class UpdateOperation {
     toOneLinks: ToOneLink[];
     parentHeldTargets: ParentHeldTarget[];
     locateFields: Set<string>;
+    /** The root update's validated scalar writes — used to detect a concurrent
+     *  referenced-key transition (a write to a parent column a child FK references)
+     *  that puts a nested arm on V1's referential-legality path (§7.2). */
+    rootScalarData: Record<string, unknown>;
   }): void {
     const { relationName, mutation, parsedRelation } = input;
     const relationInfo = mutation.relationInfo;
@@ -856,6 +861,7 @@ export class UpdateOperation {
       parentIdSource: ReturnType<typeof plannedParentId>;
       txMode: boolean;
       childParts: Part[];
+      rootScalarData: Record<string, unknown>;
     };
   }): void {
     const {
@@ -923,6 +929,23 @@ export class UpdateOperation {
         // Correlated to-one upsert (TO-ONE.md §7.2, family F): the correlated probe
         // decides found → update / absent → create (fk = parent), no unique `where`.
         // The same correlated locator as the `update` arm, with a create branch.
+        //
+        // NARROWER BOUNDARY: if the SAME root update transitions a parent column this
+        // child FK references (a referenced-key transition — the root `data` writes
+        // one of `referencedFields`), V1 runs its referential-action legality engine
+        // (reject-occupied for non-cascade, staged setNull/restrict re-point for an
+        // empty slot) around the upsert. Family F composes plain create/update leaves
+        // and does NOT replicate that engine, so it would diverge (accept an occupied
+        // non-cascade transition V1 rejects; mis-order the create's FK against the
+        // pre-transition id). Route the whole tree to V1 for that shape — exactly as
+        // the certified `nb` census case (no referenced-key write) stays on V2.
+        if (
+          referencedFields.some((f) => Object.hasOwn(input.rootScalarData, f))
+        ) {
+          throw new UnsupportedOperationError(
+            `query-engine-v2 update does not support a nested upsert on the inverse-side to-one relation '${relationName}' while the root update transitions a referenced key.`
+          );
+        }
         input.childParts.push(
           buildInverseToOneUpsertPart(writeBase, parsedRelation.upsert)
         );

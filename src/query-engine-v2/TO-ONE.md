@@ -545,13 +545,29 @@ parent`, **no `racePin` and no found guard** (V1's `missingPin: none` — the ch
 FK's UNIQUE constraint is the sole invariant, exactly as V1 leaves it). It composes
 `buildToOneUpdatePart`'s correlated-update leaf with a create leaf in
 `RelationWritePart` (`buildInverseToOneUpsertPart`); the root parent does not hold
-the FK, so no parent-side FK rebind follows. Scalar arms only — a relation-carrying
-create/update arm still routes the whole tree to V1 (a documented narrower boundary,
-not in the conformance census). Certified: the `VIBORM_FALLBACK_OFF=1` conformance
-run (the F scenario now runs natively on BOTH substrates, byte-identical to V1's
-expected state), a two-parent correlation witness in the decline-surface gate (the
-second parent's child survives both arms), typecheck, Biome, the full estate, and
-the 5-database matrix.
+the FK, so no parent-side FK rebind follows.
+
+Two **documented narrower boundaries** route the whole tree to V1 (finer than the
+absorbed shape, each a construction-time throw — the +3 route-inventory sites that
+moved the tripwire 59 → 62):
+  1. a **relation-carrying** create or update arm (family F composes scalar leaves
+     only);
+  2. a nested upsert while the **same root update transitions a referenced key** (a
+     write to a parent column this child FK references). There V1 runs its
+     referential-action legality engine — reject-occupied for a non-cascade child,
+     staged setNull/restrict re-point for an empty slot — around the upsert; family F
+     composes plain leaves and does not replicate that engine, so it defers to V1.
+     The certified census case writes no referenced key and stays on V2. This
+     boundary is proved by `relation-key-update-legality.test.ts` (the referential
+     oracle: the transition-upsert scenarios reject/re-point byte-identically once
+     routed to V1).
+
+Certified: the `VIBORM_FALLBACK_OFF=1` conformance run (the F scenario now runs
+natively on BOTH substrates, byte-identical to V1's expected state), a two-parent
+correlation witness in the decline-surface gate (the second parent's child survives
+both arms), the `relation-key-update-legality` referential oracle, typecheck, Biome,
+the full estate, and the 5-database matrix (sqlite3/libsql/pglite + Docker MySQL 469
++ pg 409).
 
 The **remaining seven families (42 scenarios) stay pinned** — each a coherent
 composite-absorption unit (a byte-identical-to-V1 correlated write requiring its own

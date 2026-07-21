@@ -1087,8 +1087,13 @@ connectOrCreate-create-arm-depth ×1; H to-many-upsert-identity ×1), **not one*
   a coherent composite-absorption unit — a byte-identical-to-V1 correlated write
   (§7.6) needing its own dual-run oracle, correlation witness, and 5-database
   certification. Disposition: the surface is measured, pinned, and P6-blocking until
-  empty. The route-inventory throw-site count and `OperationFragment.ts` are
-  **unchanged** — the freeze held; nothing was faked green.
+  empty. The route-inventory throw-site count moved **59 → 62** — family F's three
+  finer narrower boundaries (its create arm rejects a nested-relation payload and a
+  create payload spelling the owned FK; and the inverse-side upsert routes to V1 when
+  the same root update transitions a referenced key, V1's referential-legality path),
+  exactly the finer-boundary bookkeeping T1/T2 did when they absorbed a family.
+  `OperationFragment.ts` is **unchanged** — the VOCABULARY freeze held; nothing was
+  faked green.
 
 ---
 

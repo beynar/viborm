@@ -285,10 +285,22 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   //     target create (V1's appendCreate recursion); an unresolvable before-root
   //     referenced field; a connectOrCreate by a NON-REFERENCED unique.
   // These are the SAME finer-boundary classes T1 drew under create roots, now under
-  // update. The T3 measurement (FALLBACK_OFF_RESIDUAL) shows these throw sites still
-  // carry 43 reachable decline scenarios across eight families — NOT the single
-  // inverse-side upsert arm the pre-T3 census claimed; the throw-site COUNT below is
-  // unchanged (no absorption landed in T3), only the census was corrected.
+  // update. The T3 measurement (FALLBACK_OFF_RESIDUAL) showed these throw sites
+  // carried 43 reachable decline scenarios across eight families — NOT the single
+  // inverse-side upsert arm the pre-T3 census claimed.
+  //
+  // 59 → 62 (T3-r2, TO-ONE.md §7.2): family F (the inverse-side to-one `upsert`) is
+  // ABSORBED, adding 3 FINER-GRAINED boundary routes (each a documented narrower
+  // shape whose whole tree still hands to V1), exactly as T1/T2 added finer routes
+  // when they absorbed a family:
+  //   RelationWritePart.ts (+2) — the absorbed correlated upsert's create arm rejects
+  //     a nested-relation create payload, and rejects a create payload that spells
+  //     the owned FK (both route the whole tree to V1: V1's surface).
+  //   UpdateOperation.ts (+1) — a nested inverse-side upsert while the SAME root
+  //     update transitions a referenced key (the referential-action legality path
+  //     V1 owns; §7.2's narrower boundary).
+  // The census dropped 43 → 42 in lockstep (family F's one scenario now runs
+  // natively). No route was removed; nothing was faked green.
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
@@ -299,7 +311,7 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
       const source = await readFile(join(dir, file), "utf8");
       sites += source.split("new UnsupportedOperationError(").length - 1;
     }
-    expect(sites).toBe(59);
+    expect(sites).toBe(62);
   });
 });
 

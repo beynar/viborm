@@ -945,12 +945,15 @@ family F, driving the surface 43 → 42.**
   only when a real absorption removes a family, never when the pin list is curated
   down.**
 
-- **What the next absorbing phase inherits.** A truthful, falsifiable spec: the 43
-  named scenarios, their eight decline sites, and a gate that fails the instant a
-  family is claimed-absorbed without the scenarios passing fallback-off natively.
-  Order of least-risk first: F (1, the adjacent Part), then A (13, §7.6's parent-
+- **What the next absorbing phase inherits.** A truthful, falsifiable spec: the 42
+  remaining named scenarios (F absorbed in T3-r2), their seven decline sites, and a
+  gate that fails the instant a family is claimed-absorbed without the scenarios
+  passing fallback-off natively. Order of least-risk first: A (13, §7.6's parent-
   held correlated write), then D (7, `UpsertOperation` arms reusing create/update
-  trees), then B/C/E/G (the nested-relation-depth recursion), H last.
+  trees), then B/C/E/G (the nested-relation-depth recursion), H last. F's absorption
+  moved the route-inventory throw-site tripwire 59 → 62 (three finer narrower
+  boundaries), the same finer-boundary bookkeeping T1/T2 did; `OperationFragment.ts`
+  stayed unchanged — the vocabulary freeze held.
 
 ## P6 — Deletion and the honest audit
 
