@@ -775,6 +775,62 @@ new step kind / Part method / executor branch was made here (the freeze held); t
 absorption is a widened type predicate and the gate is an executor-neutral test
 hook. **V1 is not deletable; P6 stays blocked pending this residual.**
 
+## T1 — the to-one family under create roots *(delivered)*
+
+The migration is ordered FINISHED (V1 dies at P6). The ~55 to-one relation-write
+scenarios that reach V1 only through the decline fallback are being absorbed in
+three threads (T1 create roots, T2 update roots, T3 upsert arms + D4 + parity
+refusals + the full-estate gate). **T1 closes the create-root portion — including
+the recorded P6-prereq-2 kill-signal incident.** The design note `TO-ONE.md`
+(written and committed *before* any absorption code) is normative for the to-one
+write model; this section records the delivery.
+
+**The absorption unit is the tree class, not the throw site** (the P6-prereq-2
+cautionary tale). The coupled unit is "parent-held to-one arms under a create
+root": `create`, `connect`, `connectOrCreate`, and every same-record sibling
+combination, landed **together** — because a sibling `connect` observing a
+before-parent `create` cannot be absorbed one arm at a time without wrong sibling
+semantics.
+
+- **Parent-held to-one is a before-parent write** (TO-ONE.md §1.1): the target
+  INSERTs first, its identity `Ref`d backward into the record FK — ATOM §6 with the
+  FK direction reversed. `create` / `connect` / `connectOrCreate` all construct on
+  V2. Depth (a before-parent target with its own child-held children), self-
+  referential parent-held, generated and provided target PKs are covered.
+
+- **The incident is closed by a construction-time coverage ledger** (TO-ONE.md §2),
+  the "own-write before-parent ledger" P6-prereq-2 named. A before-parent `create`
+  is unconditional and its target key is a compile-time literal, so a sibling
+  `connect` observing it is decided by reading the payload — a `Set`, not a staged
+  DB read. A covered connect is a pure FK assignment (no probe, no guard, no pin;
+  existence is our own write inside the atomic envelope), order-insensitive,
+  matching V1. `to-one-create-family.test.ts` carries the incident as a **named
+  regression witness** (forward + reversed order), V1 == v2-tx == v2-batch.
+
+- **The create-root ledger is scoped to `CreateOperation`.** V1 accepts the sibling
+  create-then-connect under `create` (group-0 `currentHoldsFk` analysis) but
+  **rejects** it under `update` (one undivided own-write group); that split already
+  flows through `OwnWritePreflight` (create vs update), so T1 does **not** port the
+  ledger to `UpdateOperation` — T2 inherits the reject. Porting it would convert a
+  V1 rejection into acceptance (a kill signal).
+
+- **Pins** (TO-ONE.md §3): `connectOrCreate` FOUND = existing-row `presenceGuard`
+  (`raceable: false`); MISSING = constraint + `racePin` (`raceable: true`); a
+  before-parent `create` = none. Each falsified once (found-arm staleness;
+  missing-arm concurrent-create retry-and-adopt; the coverage ledger disabled → the
+  incident's "target record was not found").
+
+- **Gate accounting moved together.** `parent-held to-one create` left
+  `FALLBACK_CARRYING_RESIDUAL` for the decline-surface gate's absorbed slice
+  (fallback OFF); the residual is the remaining UPDATE/UPSERT-root to-one surface
+  (T2/T3), still non-empty. Route-inventory tripwire 49 → 51 (the single "supports
+  only 'connect'" decline removed; shared-PK / non-referenced-unique / wrong-kind
+  boundaries stay documented routes — a to-one `connect` by a non-referenced unique
+  and a shared-PK parent-held edge remain V1's, deliberately). The
+  `OperationFragment.ts` surface was **unchanged** — the freeze held, no new step
+  kind / Part method / executor branch (the ledger is a plain `Map` in the Part
+  constructor). **V1 stays reachable; P6 waits on T2/T3.**
+
 ## P6 — Deletion and the honest audit
 
 Bulk-delete V1's operation/execution root once unreachable; keep what V2

@@ -932,6 +932,68 @@ the rest a machine-checked invariant:
   The residual — the whole UpdATE/UPSERT decline surface plus parent-held create —
   is the P6-blocking write migration this prerequisite scopes but does not finish.
 
+**T1 — the to-one family under create roots, and the incident closed (freeze
+held; NO vocabulary change).** The design note `TO-ONE.md` (written before any
+absorption code) is normative for the to-one write model; this is its census
+entry. The parent-held to-one `create` family under CREATE roots — the largest
+piece of the P6-prereq-2 residual — is absorbed, **including the recorded
+kill-signal incident** the prerequisite could not close standalone.
+
+- **The FK-direction taxonomy is one code path with a reversed emit position.** A
+  parent-held to-one (the record holds the FK) is a **before-parent write**: the
+  target INSERTs first, its (possibly generated) identity flowing **backward** into
+  the record's FK column by a `Ref` — ATOM §6's trace with the FK direction
+  reversed. `create`, `connect`, and `connectOrCreate` all land. A child-held /
+  inverse-side to-one is the after-parent adopt path (already absorbed; the arity-1
+  case of the child-held family). Fresh-parent elision (§4) applies only to the
+  child-held direction — a parent-held target is looked up GLOBALLY, never
+  correlated to the fresh record.
+
+- **The incident is closed by a construction-time before-parent coverage ledger,
+  not staged linearization.** P6-prereq-2 left parent-held create routed because
+  absorbing it standalone broke `record.create({ primary: { create: { id: 2 } },
+  secondary: { connect: { id: 2 } } })`: V2's flat plan runs the sibling connect's
+  probe at planning, before the before-parent create, so it cannot observe it. The
+  key realization: a before-parent `create` is **unconditional** and its target key
+  is a **compile-time literal** (validation materializes defaults), so "does the
+  sibling connect observe the sibling create?" is decided by reading the payload —
+  a `Set<(model, field, value)>` — not by staging a DB read. A covered connect is a
+  pure FK assignment: no probe, no guard, no pin (existence is our own write inside
+  the atomic envelope). Order-insensitive, matching V1. This is *exactly* the
+  "own-write before-parent ledger (modeling a nested create's target as a write a
+  sibling read can depend on)" the P6-prereq-2 note named as the needed machinery.
+  It is data flowing through the fixed step vocabulary (WHY §7) — not a step kind,
+  a Part method, an executor branch, or a parent reference.
+
+- **The own-write preflight remains the accept/reject arbiter, and the create-root
+  ledger is scoped to `CreateOperation`.** `OwnWritePreflight.assertCreate` (V1's
+  `assertCreateOwnWriteSafety`, verbatim) already ACCEPTS every create-root sibling
+  shape (its group-0 `currentHoldsFk` analysis lets a before-parent connect observe
+  a before-parent create). V1 **rejects** the same shape under `update` (one
+  undivided group), and that rejection flows unchanged through
+  `assertUpdate` — so the ledger is NOT ported to `UpdateOperation` (T2 inherits
+  the reject; porting it would convert a V1 rejection into acceptance, a kill
+  signal). The pins are ordinary: `connectOrCreate` FOUND arm = existing-row
+  `presenceGuard` (`raceable: false`), MISSING arm = constraint + `racePin`
+  (`raceable: true`, Pin Rule class 2), a before-parent `create` = no pin. Each
+  falsified once (found-arm staleness; missing-arm concurrent-create retry-and-adopt
+  convergence; the coverage ledger disabled → the incident's "target record was not
+  found").
+
+- **Gate accounting moved together.** `parent-held to-one create` left
+  `FALLBACK_CARRYING_RESIDUAL` for the decline-surface gate's absorbed slice
+  (fallback OFF), the create-then-connect incident now a fallback-off witness; the
+  residual is the remaining UPDATE/UPSERT-root to-one surface (T2/T3), still
+  non-empty (V1 not yet deletable). The route-inventory tripwire moved 49 → 51
+  deliberately (the single "supports only 'connect'" decline removed; finer-grained
+  shared-PK / non-referenced-unique / wrong-kind boundaries remain documented
+  routes). The dual-run oracle (`to-one-create-family.test.ts`) certifies V1 ==
+  v2-tx == v2-batch across the family and every sibling combination, the incident a
+  named regression witness (forward + reversed order). The `OperationFragment.ts`
+  surface was **unchanged** — the P0 snapshot + executor token gate stayed green,
+  `StatementStep.onUniqueConflict` is still the only executor effect: **the freeze
+  held**, no design-note-to-amend-the-freeze required.
+
 ---
 
 ## 9. Invariants (the executable contract)
