@@ -284,3 +284,25 @@ in-memory SQLite DBs, ratio = V2 hz / V1 hz):
   paying per-tree orchestration at each `RelationJunctionPart`/membership level. Depth
   adds Part list entries and one parent-id value, never a new envelope. No
   statement-count regression; the 5-DB matrix passes with the C/E/G shapes on V2.
+
+## T3c — the family-D upsert nested-arm A/B (in-memory SQLite)
+
+T3c lifted the top-level `upsert` scalar-arms-only guard (family D ×7) + relaxed the
+nested to-many upsert create-identity (family H ×1) + absorbed the two create-root
+parent-held-FK declines; census **8 → 0** (TO-ONE.md §7.8). The family-D witness — an
+EXISTING-row upsert whose relation-bearing UPDATE arm delegates to an `UpdateOperation`
+sub-op and folds a nested to-many `update` — measured the same way
+(`benchmarks/t3c-upsert-nested-arm-ab.bench.ts`, `queryEngine` escape hatch, two seeded
+in-memory SQLite DBs, ratio = V2 hz / V1 hz):
+
+| workload | V1 hz | V2 hz | ratio | verdict |
+| --- | --- | --- | --- | --- |
+| top-level upsert, update arm folds a nested to-many update (`user.upsert({ where, create, update: { name, posts: { update } } })`) | 7,936 | 11,546 | **1.45× (V2 faster)** | beyond gate |
+
+- **The upsert nested-arm fold is FASTER on V2 (1.45×), the same composition dividend as
+  every prior absorption.** V2 locates the row once and runs the update arm as ONE linear
+  plan (the sub-op's locate + the nested `posts.update` probe + the writes) in a single
+  atomic unit; V1 routes the whole upsert tree to its staged branch runtime. The scalar
+  arms stay the proven inline path (unchanged); only the relation-bearing arm delegates.
+  No statement-count regression; the full estate is green and the 5-DB matrix passes
+  (SQLite3/LibSQL/PGlite + Docker MySQL 470/470 + pg 411/14).

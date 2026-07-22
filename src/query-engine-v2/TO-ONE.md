@@ -859,7 +859,23 @@ shapes natively, byte-identical to V1 (dual-run: reverting the create-src change
 them to V1 and yields the same expected state). Route inventory **88 → 87** (family D's
 scalar-arms guard deleted, no new upsert route — a shape neither root owns throws inside
 the delegated sub-op's already-audited surface) **→ 86** (the non-referenced connect
-throw deleted; the shared-PK throw reworded, not removed). The `VIBORM_FALLBACK_OFF=1`
+throw deleted; the shared-PK throw reworded, not removed) **→ 87** (one FINER boundary
+added: a parent-held to-one relation in the update arm, whose parent-correlated probe
+cannot plan when the create arm is taken, routes to V1 — category iii, no census key
+reaches it). The `VIBORM_FALLBACK_OFF=1`
 conformance census runs **172/172 natively on BOTH substrates**; the census edit is
 falsified (re-pinning an absorbed key fails the fallback-off gate). `OperationFragment.ts`
-vocabulary untouched; V1 frozen. **P6 is UNBLOCKED** — the census is empty.
+vocabulary untouched; V1 frozen.
+
+**The census deletion gate is MET; the full-estate blast-radius probe is the honest
+closing statement.** The machine-checked deletion gate (`FALLBACK_OFF_RESIDUAL`, the
+conformance run fallback-off) is EMPTY — P6's stated census precondition holds. Running
+the ORIGINAL blast-radius probe over the FULL local estate with the V1 fallback DISABLED
+(not just conformance) is NOT clean-green, and that is recorded honestly: ~82 non-
+conformance tests reach the documented category-iii finer boundaries (V1-accepted shapes
+V2 routes to V1 — batch PK-dataflow with a nested create, upsert-with-`include`, a
+compound-key/m2m-direct-delete edge, the referential-action legality engine) plus
+routing-documentation and parity-refusal-message tests. None is a T3c regression (the
+full estate is green with the fallback ON). So P6's V1-runtime deletion carries a
+nonzero blast radius the finer-boundary surface must still reconcile — enumerated, not
+hidden. The T3c report's `p6Readiness` holds the full accounting.

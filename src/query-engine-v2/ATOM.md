@@ -1222,7 +1222,10 @@ route inventory **75 → 87** (12 finer boundary routes, none removed). `Operati
 untouched. **P6 stays blocked** — 8 shapes remain (D ×7, H ×1 — T3c).
 
 **T3c — the drive to ZERO (census 8 → 0; TO-ONE.md §7.8).** The final 8 keys run natively
-fallback-off; the census is EMPTY and P6 is UNBLOCKED. **Family D ×7** (the top-level `upsert`
+fallback-off; the census — the machine-checked deletion gate — is EMPTY, so P6's census
+precondition holds. (The full-estate blast-radius probe with the fallback disabled is NOT
+clean-green — ~82 non-conformance tests reach documented category-iii finer boundaries;
+enumerated honestly in the T3c report, none a regression.) **Family D ×7** (the top-level `upsert`
 scalar-arms-only guard): the create/update arms compose the create-root / update-root
 machinery — a scalar arm inline (its proven INSERT-with-`racePin` / `UPDATE … RETURNING`
 path), a relation-bearing arm delegated to a `CreateOperation` / `UpdateOperation` sub-op that
@@ -1241,8 +1244,9 @@ create) threaded into the record identity by `resolveSharedPkIdentity` (the non-
 sub-cases — subquery / generated / connectOrCreate — route to V1 as finer boundaries).
 Certified: `VIBORM_FALLBACK_OFF=1` census **172/172 native** on both substrates,
 byte-identical to V1 (the create declines dual-run-proven); the census edit falsified
-(re-pinning an absorbed key → gate red); route inventory **88 → 86** (family D's guard deleted
-+ no new upsert route; the non-referenced connect throw deleted; the shared-PK throw reworded).
+(re-pinning an absorbed key → gate red); route inventory **88 → 87** (family D's guard deleted
++ no new upsert route; the non-referenced connect throw deleted; the shared-PK throw reworded;
+one FINER boundary added — a parent-held to-one relation in the update arm routes to V1).
 `OperationFragment.ts` untouched; V1 frozen.
 
 ---

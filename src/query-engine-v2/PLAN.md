@@ -1107,10 +1107,19 @@ is EMPTY. The V1 fallback arm holds no reachable accept-and-execute conformance 
   reworded). The census edit is falsified (re-pinning an absorbed key fails the fallback-off
   gate). `VIBORM_FALLBACK_OFF=1` conformance census **172/172 native** on both substrates.
 - **The final accounting** (route-inventory scope note): with the census empty, every one of
-  the 86 remaining `new UnsupportedOperationError` throw sites is (i) a parity refusal (V1 also
+  the 87 remaining `new UnsupportedOperationError` throw sites is (i) a parity refusal (V1 also
   rejects, byte-identical), (ii) the one deliberate refusal (createManyAndReturn skipDuplicates
   non-returning), or (iii) a documented finer boundary one level deeper than an absorbed
-  family's proven surface, reached by NO conformance scenario. **P6 is UNBLOCKED.**
+  family's proven surface, reached by NO conformance scenario.
+- **The P6 readiness probe (the closing statement).** The census — the machine-checked
+  deletion gate — is EMPTY, so P6's stated census precondition holds. But the ORIGINAL
+  blast-radius probe over the FULL local estate with the V1 fallback DISABLED is NOT
+  clean-green: ~82 non-conformance tests reach the documented category-iii finer boundaries
+  (V1-accepted shapes V2 routes to V1) plus routing-documentation and parity-refusal-message
+  tests — none a T3c regression (the full estate is green with the fallback ON). So P6's
+  V1-runtime deletion carries a nonzero blast radius the finer-boundary surface must reconcile
+  (absorb, retarget, or keep targeted V1 handlers). Recorded honestly, not a green light over
+  the full estate; the T3c report's `p6Readiness` holds the accounting.
 
 ## P6 — Deletion and the honest audit
 
