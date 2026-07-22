@@ -777,13 +777,16 @@ function buildArmChildParts(
       );
       continue;
     }
-    // T3b-2 (mechanism 3, family G): the create arm accepts a child-held `create` one
-    // level deeper — a fresh grandchild INSERT under this fresh child, correlated to
-    // this child's compile-time literal PK (ATOM §4 elision). Mirrors V1's accepted
-    // depth exactly: the grandchild's own data may fold a parent-held to-one `connect`
-    // (its FK a compile-time literal), nothing more; anything deeper routes to V1. The
-    // update arm keeps the correlated upsert/connectOrCreate surface (no bare create).
-    if (kinds === "create" && arm === "create") {
+    // T3b-2 (family G) / T4a (CLASS VI): a child-held `create` one level deeper is a
+    // grandchild INSERT under this child, correlated to the child's compile-time literal
+    // PK. It is direction-based, not arm-dependent: on the CREATE arm the child is fresh
+    // (ATOM §4 elision), on the UPDATE arm it is the found+correlated row — either way the
+    // grandchild FK is that literal PK and the INSERT is unconditional (its compile splices
+    // onto the taken arm, so the update-arm grandchild fires only when the row is found).
+    // Mirrors V1's accepted depth exactly: the grandchild's own data may fold a parent-held
+    // to-one `connect` (its FK a compile-time literal), nothing more; anything deeper routes
+    // to V1.
+    if (kinds === "create") {
       parts.push(
         ...buildCreateArmChildCreateParts(
           scope,
@@ -796,10 +799,10 @@ function buildArmChildParts(
       );
       continue;
     }
-    // NB: the create arm ALSO accepts a child-held `create` (T3b-2 family G, handled
-    // above); this message — surfaced only for a still-unsupported kind — keeps its
-    // pre-T3b-2 wording byte-identical (the "connectOrCreate" list is the leading
-    // accepted kind, not an exhaustive enumeration).
+    // NB: a child-held `create` is accepted on BOTH arms (handled above); this message —
+    // surfaced only for a still-unsupported kind — keeps its pre-T3b-2 wording
+    // byte-identical (the "connectOrCreate" list is the leading accepted kind, not an
+    // exhaustive enumeration).
     throw new UnsupportedOperationError(
       `query-engine-v2 supports only nested ${arm === "create" ? "connectOrCreate" : "upsert/connectOrCreate"} one level deeper on the ${arm} arm; relation '${childRelationName}' uses '${kinds}'.`
     );
@@ -823,12 +826,14 @@ class StaticWriteParts implements Part {
 }
 
 /**
- * A child-held `create` one level deeper on a connectOrCreate/upsert CREATE arm
- * (T3b-2 mechanism 3, family G). The enclosing child is fresh (its PK a compile-time
- * literal `parentId`), so the grandchild is an unconditional INSERT: its parent FK is
- * that literal, and its own data may fold a parent-held to-one `connect` (its FK the
- * connect's literal referenced value). A m2m grandchild, a parent-held-to-one grandchild
- * create, or any deeper nested write beyond a single to-one connect routes to V1.
+ * A child-held `create` one level deeper on either arm of a connectOrCreate/upsert
+ * (T3b-2 mechanism 3, family G, CREATE arm; T4a CLASS VI, UPDATE arm). The enclosing
+ * child is located by its PK — a compile-time literal `parentId` (a fresh row's own PK on
+ * the create arm, the found+correlated row's PK on the update arm) — so the grandchild is
+ * an unconditional INSERT: its parent FK is that literal, and its own data may fold a
+ * parent-held to-one `connect` (its FK the connect's literal referenced value). A m2m
+ * grandchild, a parent-held-to-one grandchild create, or any deeper nested write beyond a
+ * single to-one connect routes to V1.
  */
 function buildCreateArmChildCreateParts(
   scope: StepScope,

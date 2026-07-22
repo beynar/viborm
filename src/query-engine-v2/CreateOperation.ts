@@ -230,7 +230,12 @@ interface RecordIdentity {
  *   parent cannot give);
  * - a to-one `connect` by a non-referenced unique (needs a lookup subquery), and
  *   a shared-primary-key parent-held edge (the PK is supplied by the fold);
- * - a nested `createMany skipDuplicates`, or a compound child edge.
+ * - a compound child edge.
+ *
+ * A nested `createMany skipDuplicates` is composed (T4a CLASS VI): the plan carries the
+ * skip in its SQL leaf (`ON CONFLICT DO NOTHING`/`INSERT OR IGNORE`) or, on a
+ * `recoverableUniqueError` dialect, per-row `onUniqueConflict` effects. A default-only
+ * row under skipDuplicates stays V1's byte-identical `QueryEngineError`.
  */
 export class CreateOperation {
   readonly mode: ExecutionMode;
@@ -1072,26 +1077,23 @@ export class CreateOperation {
       createManyInput,
       `${input.relationName}.createMany`
     );
-    if (createMany.skipDuplicates === true) {
-      // V1's portability guard, run BEFORE the parent write (construction time):
-      // a nested `skipDuplicates` createMany carrying a default-only row (no
-      // explicit user scalar — the FK is system-derived, so injection does not
-      // count) is inexpressible, so V1 rejects with a typed `QueryEngineError`.
-      // `buildValueGroups` on the pre-injection user rows detects the zero-column
-      // group exactly as V1's `buildCreateManyStatement` does, and
-      // `assertPortableCreateManySkip` throws V1's byte-identical message. A
-      // non-default-only nested `skipDuplicates` is accept-and-execute in V1 but
-      // needs the dialect-specific ON CONFLICT / recoverable-unique wiring one
-      // level deeper — a documented finer boundary that routes the whole tree to
-      // V1 (no estate scenario reaches it; the reached shape is the rejection).
-      const userRows = normalizeItems(createMany.data, input.relationName);
+    const skipDuplicates = createMany.skipDuplicates === true;
+    const userRows = normalizeItems(createMany.data, input.relationName);
+    if (skipDuplicates) {
+      // V1's portability guard, run BEFORE the parent write (construction time) on
+      // the PRE-injection user rows: a `skipDuplicates` createMany carrying a
+      // default-only row (no explicit user scalar — the FK is system-derived, so
+      // injection does not count) is inexpressible, so V1 rejects with a typed
+      // `QueryEngineError`. `buildValueGroups` on the user rows detects the
+      // zero-column group exactly as V1's `buildCreateManyStatement` does, and
+      // `assertPortableCreateManySkip` throws V1's byte-identical message. The
+      // FK-injected plan below never trips its OWN internal check (every row carries
+      // the injected FK column), so this pre-injection check is the sole V1-parity
+      // gate for the default-only shape (T4a CLASS VI).
       const groups = buildValueGroups(childScope, userRows);
       assertPortableCreateManySkip(
         true,
         groups.some((group) => group.columns.length === 0)
-      );
-      throw new UnsupportedOperationError(
-        `query-engine-v2 create does not support nested createMany skipDuplicates on relation '${input.relationName}'.`
       );
     }
     const inject = this.childFkAssign(
@@ -1100,15 +1102,22 @@ export class CreateOperation {
       childScope.model,
       input.relationName
     );
-    const rows = normalizeItems(createMany.data, input.relationName).map(
-      (row) => ({ ...row, ...inject })
-    );
+    const rows = userRows.map((row) => ({ ...row, ...inject }));
     if (rows.length === 0) return;
     // Lower to grouped INSERTs (buildCreateManyPlan): one statement per same-shape
     // group, so heterogeneous rows (some supplying a generated PK, some omitting
     // it) split into contiguous grouped INSERTs — full parity with V1's grouped
     // execution, never the single-VALUES "Heterogeneous insert rows" hard-fail.
-    const plan = buildCreateManyPlan(childScope, { data: rows }, false);
+    // `skipDuplicates` rides the plan: a dialect whose skip IS a SQL leaf
+    // (`ON CONFLICT DO NOTHING`, `INSERT OR IGNORE`) carries the semantics in the
+    // statement; a `recoverableUniqueError` dialect (MySQL) has no leaf, so each
+    // per-row statement carries the savepoint-wrapped `onUniqueConflict: "skip"`
+    // executor effect — exactly as the root `createMany` (ATOM §8, CreateManyOperation).
+    const plan = buildCreateManyPlan(childScope, { data: rows, skipDuplicates }, false);
+    const recoverUnique =
+      skipDuplicates &&
+      this.engine.adapter.mutations.skipDuplicatesStrategy ===
+        "recoverableUniqueError";
     const base = getStepModelName(childScope.model, input.relationName);
     input.createManyGroups.push({
       steps: plan.statements.map((statement) => ({
@@ -1116,6 +1125,7 @@ export class CreateOperation {
         kind: "write" as const,
         statement: statement.sql,
         outputs: {},
+        ...(recoverUnique ? { onUniqueConflict: "skip" as const } : {}),
       })),
     });
   }

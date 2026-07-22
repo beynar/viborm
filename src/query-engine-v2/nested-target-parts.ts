@@ -6,7 +6,10 @@ import {
   separateData,
 } from "../query-engine/builders/relation-data-builder";
 import { getRelationMutationKinds } from "../query-engine/builders/relation-mutation-parser";
-import { buildInsert } from "../query-engine/builders/values-builder";
+import {
+  buildInsert,
+  buildValueGroups,
+} from "../query-engine/builders/values-builder";
 import {
   createQueryScope,
   getTableName,
@@ -369,31 +372,60 @@ function foldOneChildHeldKind(args: {
       parts.push(buildToManySetPart(writeBase, parsedRelation.set));
       return;
     case "create":
+      // A child-held create leaf under a located target. A LITERAL parent id (a
+      // child-held nested update located by its `where` PK) resolves its FK at
+      // construction; a PLANNED parent id (a parent-held to-one `update` target,
+      // located by a planning read) or a `ref` (a fresh create-context parent)
+      // resolves its FK at COMPILE — the created row's FK carries the captured id,
+      // exactly as the root's depth recursion threads a first-class parent value
+      // (T4a CLASS VI, one step past the literal-parent reach).
       parts.push(
-        buildLiteralParentCreatePart({
-          scope,
-          engine,
-          childScope,
-          childName,
-          relationName,
-          fk,
-          parentId,
-          creates: normalizeItems(parsedRelation.create, relationName),
-        })
+        parentId.kind === "literal"
+          ? buildLiteralParentCreatePart({
+              scope,
+              engine,
+              childScope,
+              childName,
+              relationName,
+              fk,
+              parentId,
+              creates: normalizeItems(parsedRelation.create, relationName),
+            })
+          : buildDeferredParentCreatePart({
+              scope,
+              engine,
+              childScope,
+              childName,
+              relationName,
+              fk,
+              parentId,
+              creates: normalizeItems(parsedRelation.create, relationName),
+            })
       );
       return;
     case "createMany":
       parts.push(
-        buildLiteralParentCreateManyPart({
-          scope,
-          engine,
-          childScope,
-          childName,
-          relationName,
-          fk,
-          parentId,
-          createManyInput: parsedRelation.createMany,
-        })
+        parentId.kind === "literal"
+          ? buildLiteralParentCreateManyPart({
+              scope,
+              engine,
+              childScope,
+              childName,
+              relationName,
+              fk,
+              parentId,
+              createManyInput: parsedRelation.createMany,
+            })
+          : buildDeferredParentCreateManyPart({
+              scope,
+              engine,
+              childScope,
+              childName,
+              relationName,
+              fk,
+              parentId,
+              createManyInput: parsedRelation.createMany,
+            })
       );
       return;
     default:
@@ -431,11 +463,11 @@ function literalFkInject(
   parentId: ParentIdSource
 ): Record<string, unknown> {
   if (parentId.kind !== "literal") {
-    // A create/createMany leaf resolves its FK at CONSTRUCTION, so it needs a
-    // compile-time literal parent id (a child-held nested update, located by its
-    // `where` PK). Under a parent-held target (a `planned` id captured at compile)
-    // the FK is not yet known — a documented narrower boundary; route to V1. No
-    // family-B/A-remainder census shape creates under a parent-held target.
+    // Defensive contract check: this construction-time inline path is dispatched only
+    // for a compile-time literal parent id (a child-held nested update located by its
+    // `where` PK). A `planned`/`ref` parent id is routed upstream to the DEFERRED leaf
+    // ({@link buildDeferredParentCreatePart}), which resolves the FK from `known` at
+    // compile (T4a CLASS VI). Reaching here with a non-literal id is an internal error.
     throw new UnsupportedOperationError(
       `query-engine-v2 update does not support a nested create/createMany on relation '${relationName}' under a parent-held target one level deeper.`
     );
@@ -541,6 +573,161 @@ export function buildLiteralParentCreateManyPart(input: {
     outputs: {},
   }));
   return new LiteralParentWriteParts(steps);
+}
+
+/**
+ * The DEFERRED child-held straight-write leaf (T4a CLASS VI): a `create`/`createMany`
+ * under a target located by a PLANNED id (a parent-held to-one `update` target, read at
+ * planning) or a `ref` (a fresh create-context parent). Its step ids are allocated at
+ * construction (stable, no planning read of its own — the enclosing operation already
+ * plans the target's locate probe), but its INSERT statements are built at COMPILE: the
+ * grandchild FK carries the captured parent id — inlined from the located planning row
+ * (`planned`, ATOM §9 inv. 2) or a backward `Ref` (`ref`) — exactly as the root's depth
+ * recursion threads a first-class parent value. A relation-carrying create arm (deeper
+ * create-context) still routes to V1, byte-identical to the literal leaf.
+ */
+class DeferredParentWriteParts implements Part {
+  private readonly build: (known: PlanningKnown) => readonly OperationStep[];
+  constructor(build: (known: PlanningKnown) => readonly OperationStep[]) {
+    this.build = build;
+  }
+  planning(): readonly OperationStep[] {
+    return [];
+  }
+  compile(_scope: StepScope, known: PlanningKnown): readonly OperationStep[] {
+    return this.build(known);
+  }
+}
+
+/** The child FK columns a deferred leaf writes, resolved at compile: a `planned`
+ *  parent id inlines the located row's referenced value from `known`; a `ref` parent
+ *  id is a symbolic backward `Ref`. One entry per (single-field, here) FK column. */
+function deferredFkInject(
+  engine: QueryEngine,
+  childScope: QueryScope,
+  fk: ReturnType<typeof getFkDirection>,
+  relationName: string,
+  parentId: ParentIdSource,
+  known: PlanningKnown
+): Record<string, unknown> {
+  const inject: Record<string, unknown> = {};
+  for (let index = 0; index < fk.fkFields.length; index += 1) {
+    const fkField = fk.fkFields[index]!;
+    const value =
+      parentId.kind === "ref"
+        ? parentId.ref
+        : referencedFieldValue(
+            parentId,
+            fk.pkFields[index]!,
+            known,
+            relationName,
+            "create"
+          );
+    inject[fkField] = referenceSql(engine, childScope.model, fkField, value);
+  }
+  return inject;
+}
+
+export function buildDeferredParentCreatePart(input: {
+  scope: StepScope;
+  engine: QueryEngine;
+  childScope: QueryScope;
+  childName: string;
+  relationName: string;
+  fk: ReturnType<typeof getFkDirection>;
+  parentId: ParentIdSource;
+  creates: readonly Record<string, unknown>[];
+}): Part {
+  const { scope, engine, childScope, childName, relationName, fk, parentId } =
+    input;
+  // Separate + validate + allocate ids at construction; resolve the FK at compile.
+  const items = input.creates.map((create) => {
+    const { scalarData, relations } = separateData(childScope, create);
+    if (Object.keys(relations).length > 0) {
+      // A relation-carrying create arm one level deeper is deeper create-context —
+      // route the whole tree to V1, byte-identical to the literal leaf.
+      throw new UnsupportedOperationError(
+        `query-engine-v2 update does not support nested relation writes in the create data of relation '${relationName}' one level deeper.`
+      );
+    }
+    return { scalarData, id: scope.allocate(`${childName}.create`) };
+  });
+  return new DeferredParentWriteParts((known) => {
+    const inject = deferredFkInject(
+      engine,
+      childScope,
+      fk,
+      relationName,
+      parentId,
+      known
+    );
+    return items.map((item) => ({
+      id: item.id,
+      kind: "write" as const,
+      statement: buildInsert(childScope, getTableName(childScope.model), {
+        ...item.scalarData,
+        ...inject,
+      }),
+      outputs: {},
+    }));
+  });
+}
+
+export function buildDeferredParentCreateManyPart(input: {
+  scope: StepScope;
+  engine: QueryEngine;
+  childScope: QueryScope;
+  childName: string;
+  relationName: string;
+  fk: ReturnType<typeof getFkDirection>;
+  parentId: ParentIdSource;
+  createManyInput: unknown;
+}): Part {
+  const { scope, engine, childScope, childName, relationName, fk, parentId } =
+    input;
+  const createMany = requireRecord(
+    input.createManyInput,
+    `${relationName}.createMany`
+  );
+  if (createMany.skipDuplicates === true) {
+    // Nested `skipDuplicates` one level deeper under a planned/ref target needs the
+    // dialect ON CONFLICT / recoverable-unique wiring, a documented narrower boundary
+    // (byte-identical to the literal leaf) — route the whole tree to V1.
+    throw new UnsupportedOperationError(
+      `query-engine-v2 update does not support nested createMany skipDuplicates on relation '${relationName}' one level deeper.`
+    );
+  }
+  const userRows = normalizeItems(createMany.data, relationName);
+  if (userRows.length === 0) return new DeferredParentWriteParts(() => []);
+  // The FK injection is uniform across rows, so it never re-partitions the contiguous
+  // same-shape grouping — the statement count is knowable at construction, so allocate
+  // one stable id per group now and build the FK-injected plan at compile.
+  const ids = buildValueGroups(childScope, userRows).map(() =>
+    scope.allocate(`${childName}.createMany`)
+  );
+  return new DeferredParentWriteParts((known) => {
+    const inject = deferredFkInject(
+      engine,
+      childScope,
+      fk,
+      relationName,
+      parentId,
+      known
+    );
+    const rows = userRows.map((row) => ({ ...row, ...inject }));
+    const plan = buildCreateManyPlan(childScope, { data: rows }, false);
+    if (plan.statements.length !== ids.length) {
+      throw new QueryEngineError(
+        `query-engine-v2 update nested createMany on relation '${relationName}' produced an unexpected statement count one level deeper.`
+      );
+    }
+    return plan.statements.map((statement, index) => ({
+      id: ids[index]!,
+      kind: "write" as const,
+      statement: statement.sql,
+      outputs: {},
+    }));
+  });
 }
 
 function normalizeItems(
