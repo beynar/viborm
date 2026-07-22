@@ -683,7 +683,10 @@ m2m witnesses, `children.update.data = { id: 4, friends: { connect } }` expectin
 friend `sourceId` of 4) emits its self-UPDATE **after** its child edges, whose FK's
 `ON UPDATE CASCADE` then carries the vacated id forward — `reorderRootUpdateAfterChildren`
 ported to depth, computed per Part as `childParts.length > 0 && scalarData rewrites the
-target PK`. A relation-only nested update writes no self-UPDATE row at all.
+target PK`. A relation-only nested update writes no self-UPDATE row at all. This trick is
+sound **only when the deeper edge cascades on update** — an implicit m2m junction FK
+(serializer default), the only PK-transition shape in the census; a non-cascade child-held
+edge is bounded out below (§7.7.2).
 
 **Two literal-parent seams the root never needed.** A depth-composed junction
 membership read (`RelationJunctionPart.parentRef`) and an inverse-side to-one correlated
@@ -710,6 +713,31 @@ container→to-many-update→inverse-to-one-upsert chain); typecheck, Biome, the
 would pass PGlite and diverge on MySQL/pg; it does not). A/B: the family-B deep tree is
 **1.85× faster on V2** (PERF.md). **P6 stays blocked** (21 shapes remain: families C ×10,
 D ×7, E ×2, G ×1, H ×1).
+
+### 7.7.2 T3b-1 fixer round 1 — the PK-transition cascade boundary (finding #1)
+
+Mechanism 1's reorder path (§7.7.1's "obligation ported to depth") over-widened the
+native surface. Writing a deeper edge against the target's **pre-transition** literal PK
+and relying on `ON UPDATE CASCADE` to carry it forward is sound only when that edge's FK
+actually cascades. The implicit m2m junction FK does (serializer default) — every
+absorbed PK-transition census witness is a self-m2m connect. A **child-held** one-to-many
+/ inverse-side one-to-one edge defaults to `NO ACTION`, so the edge written against the
+old id is stranded the moment the PK moves: native V2 raised a `ForeignKeyError` and
+rolled back where V1 succeeds (V1 orders the edge against the **post-transition** id).
+The witness: `node.update({ children: { update: { where: { id: 1 }, data: { id: 7,
+children: { connect: { id: 5 } } } } } })` — V1 yields parents `[[2,null],[3,10],[5,7],
+[7,10],[10,null]]`; native V2 threw. This routed to V1 before mechanism 1, so it was a
+fresh regression, not a listed residual — and no conformance scenario exercised it, which
+is why the gate stayed green while the divergence went unmeasured.
+
+**The fix** (`pkTransitionCascadeSafe`, `RelationWritePart.ts`): when a nested update
+transitions its target PK **and** carries a child-held (non-cascade) deeper edge that
+references that PK, decline at construction so the whole tree routes to V1. The m2m
+PK-transition witnesses stay native (cascade-safe). Route inventory **74 → 75** (one finer
+boundary, none removed); `FALLBACK_OFF_RESIDUAL_COUNT` **unchanged at 21** (the shape is
+not a census key). Certified on both PGlite substrates + the dual-run witness
+(`nested-update-pk-transition-cascade.test.ts`, child-held→V1 / m2m→native, multi-parent
+isolation, guard falsified); estate 6111/0, MySQL 470, pg 411/14; typecheck + Biome clean.
 
 The next drive absorbs mechanism (2) — create-arm fresh-parent recursion (C's create,
 E, G) — then mechanism (3), the create-arm depth-guard relaxation.

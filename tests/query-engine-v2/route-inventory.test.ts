@@ -344,6 +344,21 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   // in nested-target-parts.ts — a nested create/createMany under a parent-held
   // (`planned`) target, whose FK is not a construction-time literal, routes to V1.
   // The census dropped 25 → 21 in lockstep. No route was removed; nothing was faked.
+  //
+  // 74 → 75 (T3b-1 fixer round 1, finding #1 — a REGRESSION re-narrowing, NOT a family
+  // absorption): mechanism 1's reorder path (a nested `update` whose target rewrites its
+  // own PK, its self-UPDATE emitted AFTER the child edges, the deeper FK carried old→new
+  // by ON UPDATE CASCADE) over-widened the native surface. It is sound only when the
+  // deeper edge cascades on update — the implicit m2m junction FK (the ONLY PK-transition
+  // shape in the absorbed census). A CHILD-HELD one-to-many / inverse-side one-to-one FK
+  // defaults to NO ACTION: writing the edge against the pre-transition id then rewriting
+  // the PK strands it (a ForeignKeyError V1 never raises — V1 orders the edge against the
+  // POST-transition id). That shape routed to V1 before mechanism 1; the new
+  // `pkTransitionCascadeSafe` guard in RelationWritePart.ts (+1) routes it back to V1.
+  // The census count is UNCHANGED at 21 — no conformance scenario exercises the child-
+  // held PK-transition shape (that is why the gate stayed green while the divergence went
+  // unmeasured); the m2m PK-transition census witnesses stay native (cascade-safe).
+  // Witness: nested-update-pk-transition-cascade.test.ts. No census key moved.
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
@@ -354,7 +369,7 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
       const source = await readFile(join(dir, file), "utf8");
       sites += source.split("new UnsupportedOperationError(").length - 1;
     }
-    expect(sites).toBe(74);
+    expect(sites).toBe(75);
   });
 });
 

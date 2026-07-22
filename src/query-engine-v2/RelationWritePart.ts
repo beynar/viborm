@@ -1,7 +1,11 @@
 // biome-ignore-all lint/style/useFilenamingConvention: RelationWritePart is the architecture name.
 import { NestedWriteError, QueryEngineError } from "@errors";
 import type { Sql } from "@sql";
-import { separateData } from "../query-engine/builders/relation-data-builder";
+import {
+  getFkDirection,
+  type RelationMutation,
+  separateData,
+} from "../query-engine/builders/relation-data-builder";
 import { buildInsert } from "../query-engine/builders/values-builder";
 import { getWhereUniqueEntries } from "../query-engine/builders/where-unique-builder";
 import { getTableName } from "../query-engine/context/query-scope";
@@ -592,6 +596,27 @@ export class RelationWritePart implements Part {
     const reorderAfterChildren =
       childParts.length > 0 &&
       Object.hasOwn(scalarData, this.config.childPrimaryKey);
+    // The pre-transition-literal + reorder trick is sound ONLY when every deeper edge
+    // that references the transitioning PK carries ON UPDATE CASCADE (an implicit m2m
+    // junction FK — serializer default — the only PK-transition shape in the absorbed
+    // census). A child-held one-to-many / inverse-side one-to-one edge whose FK does
+    // NOT cascade (default NO ACTION) would be stranded: the edge is written against the
+    // pre-transition id, then rewriting the PK orphans it (a ForeignKeyError V1 never
+    // raises — V1 orders the edge against the POST-transition id instead). That shape is
+    // outside the reorder/cascade surface; route the whole tree to V1 (no census key
+    // reaches it — every absorbed PK-transition witness is a self-m2m junction edge).
+    if (
+      reorderAfterChildren &&
+      !pkTransitionCascadeSafe(
+        childScope,
+        relations,
+        this.config.childPrimaryKey
+      )
+    ) {
+      throw new UnsupportedOperationError(
+        `query-engine-v2 update for relation '${relationName}' transitions the target primary key '${this.config.childPrimaryKey}' while writing a child-held edge whose foreign key does not cascade on update.`
+      );
+    }
     return { childParts, reorderAfterChildren, scalarData };
   }
 
@@ -674,6 +699,38 @@ export class RelationWritePart implements Part {
       ? this.uniqueEqualityFilters(this.config.where)
       : [];
   }
+}
+
+/**
+ * Whether a nested-update PK transition can safely use the pre-transition-literal +
+ * reorder mechanism ({@link RelationWritePart} `compileTargeted`): the child edge is
+ * written against the target's OLD primary key, then the self-UPDATE rewrites that PK,
+ * and the deeper FK is carried old→new by ON UPDATE CASCADE. That is sound only when
+ * every deeper edge referencing the transitioning PK cascades on update:
+ *
+ * - an implicit **m2m junction** FK is ON UPDATE CASCADE by default (serializer) — safe;
+ * - a **child-held** one-to-many / inverse-side one-to-one FK defaults to NO ACTION, so
+ *   the edge written against the old id is stranded when the PK moves (a ForeignKeyError
+ *   V1 never raises — V1 orders the edge against the POST-transition id). Route to V1.
+ *
+ * All non-m2m relations reaching here already survived the child-Part builder, so their
+ * FK is child-held (`holdsFK: false`) and `pkFields` are the target's referenced fields.
+ */
+function pkTransitionCascadeSafe(
+  targetScope: QueryScope,
+  relations: Record<string, RelationMutation>,
+  transitioningPk: string
+): boolean {
+  for (const mutation of Object.values(relations)) {
+    const info = mutation.relationInfo;
+    // getFkDirection throws for m2m; a junction FK cascades on update by default.
+    if (info.type === "manyToMany") continue;
+    const fk = getFkDirection(targetScope, info);
+    if (fk.pkFields.includes(transitioningPk) && fk.onUpdate !== "cascade") {
+      return false;
+    }
+  }
+  return true;
 }
 
 // ---------------------------------------------------------------------------
