@@ -720,10 +720,12 @@ export class UpdateOperation {
       // Many-to-many is not special (WHY §4.3): junction as ordinary Parts. Each
       // membership kind is a leaf feeding the same step vocabulary; the whole
       // family lives in one file, never an `M2M*` subsystem.
+      const engine = this.engine;
+      const scope = input.scope;
       input.childParts.push(
         ...buildJunctionParts({
-          scope: input.scope,
-          engine: this.engine,
+          scope,
+          engine,
           parentScope: input.parent,
           relationName,
           relationInfo,
@@ -731,6 +733,19 @@ export class UpdateOperation {
           parsedRelation,
           parentId: input.parentIdSource,
           txMode: input.txMode,
+          // T3b-2 (family C): a junction create/update/upsert target whose data
+          // carries its own relations folds them one level deeper through the same
+          // literal-parent builder the child-held families use (mechanism 1 reuse for
+          // located update targets; mechanism 2 fresh-parent elision for create arms).
+          nestedBuilder: (targetScope, parentId, relations, nestedTxMode) =>
+            buildNestedTargetChildParts(
+              scope,
+              engine,
+              targetScope,
+              relations,
+              parentId,
+              nestedTxMode
+            ),
         })
       );
       return;

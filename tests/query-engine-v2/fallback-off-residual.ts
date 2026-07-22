@@ -57,12 +57,7 @@ export const FALLBACK_OFF_RESIDUAL: ReadonlySet<string> = new Set([
   "nested-write conformance: FK relations (tx vs batch) > top-level upsert setWhere no-match skips the update branch",
   "nested-write conformance: FK relations (tx vs batch) > top-level upsert targetWhere no-match skips the update branch",
   "nested-write conformance: FK relations (tx vs batch) > top-level upsert targetWhere+setWhere match runs the update branch",
-  "nested-write conformance: alternative branch dependencies (tx vs batch) > merged alternative writes allow a numerically disjoint later sibling",
-  "nested-write conformance: alternative branch dependencies (tx vs batch) > upsert alternatives may repeat a nested connectOrCreate key when the target exists",
-  "nested-write conformance: alternative branch dependencies (tx vs batch) > upsert alternatives may repeat a nested connectOrCreate key when the target is missing",
   "nested-write conformance: create root barrier (tx vs batch) > missing top-level upsert applies the create-branch insert barrier",
-  "nested-write conformance: deep transitive target dependencies (tx vs batch) > deep nested update create and disjoint root decision succeed",
-  "nested-write conformance: deep transitive target dependencies (tx vs batch) > deep nested update create then root decision rejects",
   "nested-write conformance: own-write dependencies (tx vs batch) > create then disjoint numeric update is allowed",
   // ABSORBED (T3-r2, family F): "to-one ops … > to-one upsert (inverse side)
   // creates then updates the profile" was pinned here; the inverse-side to-one
@@ -83,11 +78,6 @@ export const FALLBACK_OFF_RESIDUAL: ReadonlySet<string> = new Set([
   //   · transitive membership > nested physical membership allows a disjoint target endpoint
   //   · transitive membership > nested physical membership stays isolated by named junction scope
   //   · update predicate root > nested to-many update allows a disjoint child decision
-  "nested-write conformance: transitive predicate dependencies (tx vs batch) > nested predicate update allows a later identity-only root filter",
-  "nested-write conformance: transitive predicate dependencies (tx vs batch) > nested predicate update allows a numerically disjoint root filter",
-  "nested-write conformance: transitive predicate dependencies (tx vs batch) > upsert update alternative predicate delta ignores an id-only filter",
-  "nested-write conformance: transitive target dependencies (tx vs batch) > nested create and disjoint later root connectOrCreate succeed",
-  "nested-write conformance: transitive target dependencies (tx vs batch) > outer create and disjoint nested connectOrCreate succeed",
   "nested-write conformance: transitive target dependencies (tx vs batch) > selected top-level upsert create branch gets inherited traversal",
   "nested-write conformance: transitive target dependencies (tx vs batch) > selected top-level upsert update branch gets inherited traversal",
   // ABSORBED (T3b-1, family B ×2 + family A-remainder ×2 — mechanism 1 extended to
@@ -104,6 +94,26 @@ export const FALLBACK_OFF_RESIDUAL: ReadonlySet<string> = new Set([
   //     .nodes.update scalar grandchild, container located at the final FK)
   //   · same-node non-self FK rebind allows a disjoint inverse holder
   "nested-write conformance: update predicate root (tx vs batch) > existing top-level upsert uses its exact pk for disjointness",
+  // ABSORBED (T3b-2, family C — mechanism 2 create-arm / mechanism 1 update-arm
+  // reuse, TO-ONE.md §7.7): the 10 m2m-junction-target-carrying-relations shapes now
+  // run fallback-off. A junction create/update/upsert target whose data carries its
+  // own relations folds them one level deeper against the target's literal PK through
+  // the same `buildNestedTargetChildParts` seam the child-held families use — a
+  // located update target (its `where` PK) or a fresh create target (its explicit
+  // `create` PK, fresh-parent elision ATOM §4). `RelationJunctionPart` slots carry the
+  // per-target child Parts; `planning` plans their probes one level deeper (superset,
+  // ATOM §3 technique 2), `compile` emits only the taken arm's writes after the
+  // relevant junction row. Removed from this set (Count 21 → 11):
+  //   · alternative branch > merged alternative writes allow a numerically disjoint later sibling
+  //   · alternative branch > upsert alternatives may repeat a nested connectOrCreate key when the target exists
+  //   · alternative branch > upsert alternatives may repeat a nested connectOrCreate key when the target is missing
+  //   · deep transitive target > deep nested update create and disjoint root decision succeed
+  //   · deep transitive target > deep nested update create then root decision rejects
+  //   · transitive predicate > nested predicate update allows a later identity-only root filter
+  //   · transitive predicate > nested predicate update allows a numerically disjoint root filter
+  //   · transitive predicate > upsert update alternative predicate delta ignores an id-only filter
+  //   · transitive target > nested create and disjoint later root connectOrCreate succeed
+  //   · transitive target > outer create and disjoint nested connectOrCreate succeed
 ]);
 
 /** The measured residual count — asserted by the gate so the set cannot be silently
@@ -115,6 +125,9 @@ export const FALLBACK_OFF_RESIDUAL: ReadonlySet<string> = new Set([
  *  child-held family-B shapes (mechanism 1 — a nested to-many `update`'s located
  *  target builds its own child Parts + reorder/cascade to depth); 21 after T3b-1
  *  extended mechanism 1 to the parent-held `update` arm (family B's 2 remaining
- *  membership-root shapes + family A-remainder's 2). Each further absorption drops
- *  this by that slice's size. */
-export const FALLBACK_OFF_RESIDUAL_COUNT = 21;
+ *  membership-root shapes + family A-remainder's 2); 11 after T3b-2 absorbed family C
+ *  (mechanism 2 create-arm / mechanism 1 update-arm reuse — a m2m junction
+ *  create/update/upsert target whose data carries its own relations folds them one
+ *  level deeper against the target's literal PK). Each further absorption drops this
+ *  by that slice's size. */
+export const FALLBACK_OFF_RESIDUAL_COUNT = 11;

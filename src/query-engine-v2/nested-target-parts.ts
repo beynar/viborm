@@ -125,10 +125,31 @@ function foldOneNestedRelation(input: {
   const relationInfo = mutation.relationInfo;
   const parsedRelation = mutation as unknown as Record<string, unknown>;
 
+  // The recursion seam threaded to every kind that may carry its own relations one
+  // level deeper (the m2m junction here; the child-held write/link/adopt families
+  // via `writeBase` below): the same builder, one operation's scope + engine
+  // captured, depth adding list entries and one parent-id value (WHY §4.2).
+  const deeperBuilder: NestedChildBuilder = (
+    deeperScope,
+    deeperParentId,
+    deeperRelations,
+    deeperTxMode
+  ) =>
+    buildNestedTargetChildParts(
+      scope,
+      engine,
+      deeperScope,
+      deeperRelations,
+      deeperParentId,
+      deeperTxMode
+    );
+
   if (relationInfo.type === "manyToMany") {
     // Many-to-many is not special (WHY §4.3): junction as ordinary Parts, correlated
     // to the located target's literal PK (its membership reads inline the literal —
-    // RelationJunctionPart.parentRef).
+    // RelationJunctionPart.parentRef). A junction create/update/upsert target whose
+    // data carries its own relations folds them one level deeper through the same
+    // seam (T3b-2 family C at depth).
     input.parts.push(
       ...buildJunctionParts({
         scope,
@@ -140,6 +161,7 @@ function foldOneNestedRelation(input: {
         parsedRelation,
         parentId,
         txMode,
+        nestedBuilder: deeperBuilder,
       })
     );
     return;
@@ -170,23 +192,6 @@ function foldOneNestedRelation(input: {
     );
   }
   const childName = getStepModelName(relationInfo.targetModel, relationName);
-  // The recursion seam: a nested `update` whose located target data carries its own
-  // relations folds them one level deeper through this same builder, with the scope
-  // and engine of the enclosing operation captured here.
-  const deeperBuilder: NestedChildBuilder = (
-    deeperScope,
-    deeperParentId,
-    deeperRelations,
-    deeperTxMode
-  ) =>
-    buildNestedTargetChildParts(
-      scope,
-      engine,
-      deeperScope,
-      deeperRelations,
-      deeperParentId,
-      deeperTxMode
-    );
   const writeBase = {
     scope,
     engine,

@@ -1390,21 +1390,31 @@ export function buildJunctionParts(input: {
           relationName,
           kind
         );
+        const wheres = items.map((item) => {
+          if (!item.where) {
+            throw new QueryEngineError(
+              `query-engine-v2 update for relation '${relationName}' requires a where.`
+            );
+          }
+          return item.where;
+        });
+        // T3b-2 mechanism 1 reuse: a relation-carrying update target folds its own
+        // relations one level deeper against its located (literal `where`) PK; a
+        // scalar-only target keeps its empty child Parts (the pre-T3b-2 behavior).
+        const folded = items.map((item, index) =>
+          foldTarget(
+            item.data,
+            () => requireWherePk(wheres[index]!, "update"),
+            "update"
+          )
+        );
         parts.push(
           new RelationJunctionPart(scope, {
             ...base,
             kind: "update",
-            wheres: items.map((item) => {
-              if (!item.where) {
-                throw new QueryEngineError(
-                  `query-engine-v2 update for relation '${relationName}' requires a where.`
-                );
-              }
-              return item.where;
-            }),
-            data: items.map((item) =>
-              scalarOnly(childScope, item.data, relationName, kind)
-            ),
+            wheres,
+            data: folded.map((f) => f.scalar),
+            updateChildParts: folded.map((f) => f.childParts),
           })
         );
         break;
@@ -1427,20 +1437,30 @@ export function buildJunctionParts(input: {
         );
         break;
       }
-      case "create":
-        // INSERT the fresh child (scalar-only), then the join row (V1's
-        // `ManyToManyMemberships.create`). Deeper nested relations in the create
-        // data are create-through-junction depth — route the whole tree to V1.
+      case "create": {
+        // INSERT the fresh child, then the join row (V1's
+        // `ManyToManyMemberships.create`). T3b-2 mechanism 2: deeper nested relations
+        // in the create data fold one level deeper against the fresh target's
+        // explicit literal PK, emitted after its INSERT + join (fresh-parent elision,
+        // ATOM §4); a scalar-only create keeps its empty child Parts.
+        const folded = normalizeCreates(parsedRelation.create, relationName).map(
+          (create) =>
+            foldTarget(
+              create,
+              () => requireCreatePkValue(create, "create"),
+              "create"
+            )
+        );
         parts.push(
           new RelationJunctionPart(scope, {
             ...base,
             kind: "create",
-            creates: normalizeCreates(parsedRelation.create, relationName).map(
-              (create) => scalarOnly(childScope, create, relationName, kind)
-            ),
+            creates: folded.map((f) => f.scalar),
+            createChildParts: folded.map((f) => f.childParts),
           })
         );
         break;
+      }
       case "connectOrCreate":
         parts.push(
           new RelationJunctionPart(scope, {
@@ -1457,21 +1477,41 @@ export function buildJunctionParts(input: {
           })
         );
         break;
-      case "upsert":
+      case "upsert": {
+        // T3b-2: both arms fold their own relations one level deeper against the
+        // target's literal PK — the create arm (mechanism 2, fresh target) against
+        // its `create` PK, the update arm (mechanism 1 reuse) against its `where` PK.
+        // Each arm's child Parts are emitted branch-specifically by `compileUpsert`.
+        const items = normalizeUpserts(parsedRelation.upsert, relationName);
+        const foldedCreates = items.map((item) =>
+          foldTarget(
+            item.create,
+            () => requireCreatePkValue(item.create, "upsert create"),
+            "upsert create"
+          )
+        );
+        const foldedUpdates = items.map((item) =>
+          foldTarget(
+            item.update,
+            () => requireWherePk(item.where, "upsert update"),
+            "upsert update"
+          )
+        );
         parts.push(
           new RelationJunctionPart(scope, {
             ...base,
             kind: "upsert",
-            upserts: normalizeUpserts(parsedRelation.upsert, relationName).map(
-              (item) => ({
-                where: item.where,
-                create: scalarOnly(childScope, item.create, relationName, kind),
-                update: scalarOnly(childScope, item.update, relationName, kind),
-              })
-            ),
+            upserts: items.map((item, index) => ({
+              where: item.where,
+              create: foldedCreates[index]!.scalar,
+              update: foldedUpdates[index]!.scalar,
+            })),
+            upsertCreateChildParts: foldedCreates.map((f) => f.childParts),
+            upsertUpdateChildParts: foldedUpdates.map((f) => f.childParts),
           })
         );
         break;
+      }
       default:
         // createMany and any other kind not enumerated stay V1's surface — route
         // the whole tree to V1.

@@ -45,6 +45,7 @@ import {
   type StatementStep,
   type TargetConstraintPin,
 } from "./OperationFragment";
+import { buildNestedTargetChildParts } from "./nested-target-parts";
 import { OwnWritePreflight } from "./OwnWritePreflight";
 import type { Part, PlanningKnown } from "./Part";
 import { planningKey, planningOutputs } from "./Part";
@@ -533,10 +534,12 @@ export class CreateOperation {
       // *planned* parent id, which a fresh parent cannot supply — deferring the
       // decision to compile would hard-fail instead of routing).
       this.assertCreateTreeKinds(kinds, relationName);
+      const engine = this.engine;
+      const scope = this.scope;
       input.afterParts.push(
         ...buildJunctionParts({
-          scope: this.scope,
-          engine: this.engine,
+          scope,
+          engine,
           parentScope: input.childScope,
           relationName,
           relationInfo,
@@ -548,6 +551,19 @@ export class CreateOperation {
             relationName
           ),
           txMode,
+          // T3b-2 (family C): a junction create target whose data carries its own
+          // relations folds them one level deeper against the fresh target's explicit
+          // literal PK (mechanism 2, fresh-parent elision — ATOM §4). The fold
+          // correlates to the junction target's OWN PK, not this fresh parent's.
+          nestedBuilder: (targetScope, parentId, relations, nestedTxMode) =>
+            buildNestedTargetChildParts(
+              scope,
+              engine,
+              targetScope,
+              relations,
+              parentId,
+              nestedTxMode
+            ),
         })
       );
       return;

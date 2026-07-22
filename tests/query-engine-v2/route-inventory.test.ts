@@ -359,6 +359,20 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   // held PK-transition shape (that is why the gate stayed green while the divergence went
   // unmeasured); the m2m PK-transition census witnesses stay native (cascade-safe).
   // Witness: nested-update-pk-transition-cascade.test.ts. No census key moved.
+  //
+  // 75 → 78 (T3b-2, TO-ONE.md §7.7, family C): `RelationJunctionPart.buildJunctionParts`
+  // lifts the m2m scalarOnly boundary — a junction create/update/upsert target whose
+  // data carries its own relations folds them one level deeper (mechanism 2 create-arm
+  // / mechanism 1 update-arm reuse). This adds THREE FINER boundary routes in
+  // RelationJunctionPart.ts, each narrower than the one scalarOnly throw it replaces
+  // for those arms: (a) `requireWherePk` — a relation-carrying update/upsert target NOT
+  // located by its PK routes to V1 (the deeper FK must be a construction-time literal);
+  // (b) `requireCreatePkValue` — a relation-carrying create arm without an explicit PK
+  // (a generated identity) routes to V1; (c) `foldTarget`'s no-`nestedBuilder` guard — a
+  // defensive seam documenting that a caller which does not thread the recursion
+  // builder keeps the pre-T3b-2 scalar-only boundary (all three current callers thread
+  // it). The 10 family-C census keys dropped in lockstep (21 → 11). `scalarOnly` stays
+  // for updateMany (filter target, no literal PK) and the connectOrCreate adopt arm.
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
@@ -369,7 +383,7 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
       const source = await readFile(join(dir, file), "utf8");
       sites += source.split("new UnsupportedOperationError(").length - 1;
     }
-    expect(sites).toBe(75);
+    expect(sites).toBe(78);
   });
 });
 
