@@ -1626,9 +1626,12 @@ export class UpdateOperation {
     isInverseToOne: boolean;
     childScope: QueryScope;
     childName: string;
-  }): { regime: "none" } | { regime: "guarded"; after: unknown } | {
-    regime: "pastSurface";
-  } {
+  }):
+    | { regime: "none" }
+    | { regime: "guarded"; after: unknown }
+    | {
+        regime: "pastSurface";
+      } {
     const {
       input,
       relationName,
