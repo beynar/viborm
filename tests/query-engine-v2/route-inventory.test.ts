@@ -381,6 +381,14 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   // referenced key, a non-literal (arithmetic) rewrite of the referenced column, and a
   // referenced column resolvable only from the located row (a planned FK) each route to
   // V1. The 2 family-E census keys dropped in lockstep (11 -> 9).
+  //
+  // 81 -> 86 (T3b-2, family G): `RelationUpsertPart.buildArmChildParts` accepts a
+  // child-held `create` one level deeper on the connectOrCreate CREATE arm (mechanism 3
+  // depth-guard relaxation). `buildCreateArmChildCreateParts` (m2m grandchild, parent-
+  // held-to-one grandchild create) and `foldParentHeldConnect` (a non-connect grandchild
+  // relation, a non-object connect input, a connect not locating by its referenced key)
+  // add FIVE finer boundary routes — each narrower than V1's accepted one-level-deeper
+  // create surface. The 1 family-G census key dropped in lockstep (9 -> 8).
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
@@ -391,7 +399,7 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
       const source = await readFile(join(dir, file), "utf8");
       sites += source.split("new UnsupportedOperationError(").length - 1;
     }
-    expect(sites).toBe(81);
+    expect(sites).toBe(86);
   });
 });
 

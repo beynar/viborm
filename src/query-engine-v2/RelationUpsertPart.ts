@@ -766,11 +766,159 @@ function buildArmChildParts(
       );
       continue;
     }
+    // T3b-2 (mechanism 3, family G): the create arm accepts a child-held `create` one
+    // level deeper — a fresh grandchild INSERT under this fresh child, correlated to
+    // this child's compile-time literal PK (ATOM §4 elision). Mirrors V1's accepted
+    // depth exactly: the grandchild's own data may fold a parent-held to-one `connect`
+    // (its FK a compile-time literal), nothing more; anything deeper routes to V1. The
+    // update arm keeps the correlated upsert/connectOrCreate surface (no bare create).
+    if (kinds === "create" && arm === "create") {
+      parts.push(
+        ...buildCreateArmChildCreateParts(
+          scope,
+          child,
+          engine,
+          childRelationName,
+          mutation,
+          parentId
+        )
+      );
+      continue;
+    }
     throw new UnsupportedOperationError(
-      `query-engine-v2 supports only nested ${arm === "create" ? "connectOrCreate" : "upsert/connectOrCreate"} one level deeper on the ${arm} arm; relation '${childRelationName}' uses '${kinds}'.`
+      `query-engine-v2 supports only nested ${arm === "create" ? "connectOrCreate/create" : "upsert/connectOrCreate"} one level deeper on the ${arm} arm; relation '${childRelationName}' uses '${kinds}'.`
     );
   }
   return parts;
+}
+
+/** An unconditional set of write steps (no planning read, no probe) — a fresh
+ *  child-held grandchild INSERT whose every column is a compile-time literal. */
+class StaticWriteParts implements Part {
+  private readonly steps: readonly OperationStep[];
+  constructor(steps: readonly OperationStep[]) {
+    this.steps = steps;
+  }
+  planning(): readonly OperationStep[] {
+    return [];
+  }
+  compile(): readonly OperationStep[] {
+    return this.steps;
+  }
+}
+
+/**
+ * A child-held `create` one level deeper on a connectOrCreate/upsert CREATE arm
+ * (T3b-2 mechanism 3, family G). The enclosing child is fresh (its PK a compile-time
+ * literal `parentId`), so the grandchild is an unconditional INSERT: its parent FK is
+ * that literal, and its own data may fold a parent-held to-one `connect` (its FK the
+ * connect's literal referenced value). A m2m grandchild, a parent-held-to-one grandchild
+ * create, or any deeper nested write beyond a single to-one connect routes to V1.
+ */
+function buildCreateArmChildCreateParts(
+  scope: StepScope,
+  parentScope: QueryScope,
+  engine: QueryEngine,
+  relationName: string,
+  mutation: RelationMutation,
+  parentId: ParentIdSource
+): readonly Part[] {
+  const relationInfo = mutation.relationInfo;
+  if (relationInfo.type === "manyToMany") {
+    throw new UnsupportedOperationError(
+      `query-engine-v2 does not support a nested many-to-many create one level deeper on the create arm of relation '${relationName}'.`
+    );
+  }
+  const fk = getFkDirection(parentScope, relationInfo);
+  if (fk.holdsFK) {
+    throw new UnsupportedOperationError(
+      `query-engine-v2 does not support a parent-held to-one create one level deeper on the create arm of relation '${relationName}'.`
+    );
+  }
+  const childScope = createQueryScope(engine.adapter, relationInfo.targetModel);
+  const childName = getStepModelName(relationInfo.targetModel, relationName);
+  const steps: OperationStep[] = normalizeUpsertItems(
+    mutation.create,
+    relationName
+  ).map((create) => {
+    const { scalarData, relations } = separateData(childScope, create);
+    const inject: Record<string, unknown> = {};
+    for (let index = 0; index < fk.fkFields.length; index += 1) {
+      inject[fk.fkFields[index]!] = referenceSql(
+        engine,
+        childScope.model,
+        fk.fkFields[index]!,
+        referencedFieldValue(
+          parentId,
+          fk.pkFields[index]!,
+          undefined,
+          relationName,
+          "create"
+        )
+      );
+    }
+    for (const [childRelation, childMutation] of Object.entries(relations)) {
+      foldParentHeldConnect(engine, childScope, childRelation, childMutation, inject);
+    }
+    return {
+      id: scope.allocate(`${childName}.create`),
+      kind: "write" as const,
+      statement: buildInsert(childScope, getTableName(childScope.model), {
+        ...scalarData,
+        ...inject,
+      }),
+      outputs: {},
+    };
+  });
+  return [new StaticWriteParts(steps)];
+}
+
+/** Fold a single parent-held to-one `connect` into a grandchild INSERT's columns —
+ *  its FK is the connect's referenced value (a compile-time literal). Any other kind,
+ *  a child-held relation, or a non-literal locator routes the whole tree to V1. */
+function foldParentHeldConnect(
+  engine: QueryEngine,
+  childScope: QueryScope,
+  relationName: string,
+  mutation: RelationMutation,
+  inject: Record<string, unknown>
+): void {
+  const relationInfo = mutation.relationInfo;
+  const fk = getFkDirection(childScope, relationInfo);
+  const kinds = getRelationMutationKinds(mutation);
+  if (!(fk.holdsFK && kinds.length === 1 && kinds[0] === "connect")) {
+    throw new UnsupportedOperationError(
+      `query-engine-v2 supports only a nested parent-held to-one connect one level deeper on a create-arm nested create; relation '${relationName}' uses '${kinds.join(", ") || "none"}'.`
+    );
+  }
+  const raw = (mutation as unknown as { connect: unknown }).connect;
+  const where = Array.isArray(raw) ? raw[0] : raw;
+  if (!(where && typeof where === "object")) {
+    throw new UnsupportedOperationError(
+      `query-engine-v2 nested connect on relation '${relationName}' requires a where object one level deeper.`
+    );
+  }
+  const targetScope = createQueryScope(engine.adapter, relationInfo.targetModel);
+  const entries = getWhereUniqueEntries(
+    targetScope,
+    where as Record<string, unknown>
+  );
+  for (let index = 0; index < fk.fkFields.length; index += 1) {
+    const entry = entries.find(
+      (candidate) => candidate.fieldName === fk.pkFields[index]!
+    );
+    if (entry === undefined) {
+      throw new UnsupportedOperationError(
+        `query-engine-v2 nested connect on relation '${relationName}' must locate the target by its referenced key '${fk.pkFields[index]!}' one level deeper.`
+      );
+    }
+    inject[fk.fkFields[index]!] = referenceSql(
+      engine,
+      childScope.model,
+      fk.fkFields[index]!,
+      entry.value
+    );
+  }
 }
 
 function normalizeUpsertItems(

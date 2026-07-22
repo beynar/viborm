@@ -51,7 +51,6 @@
  * asserted so no entry can be dropped without a matching absorption.
  */
 export const FALLBACK_OFF_RESIDUAL: ReadonlySet<string> = new Set([
-  "nested-write conformance: FK relations (tx vs batch) > connectOrCreate create branch accepts recursive nested writes",
   "nested-write conformance: FK relations (tx vs batch) > to-many upsert creates then updates the current parent's child",
   "nested-write conformance: FK relations (tx vs batch) > top-level upsert setWhere no-match skips the update branch",
   "nested-write conformance: FK relations (tx vs batch) > top-level upsert targetWhere no-match skips the update branch",
@@ -120,6 +119,16 @@ export const FALLBACK_OFF_RESIDUAL: ReadonlySet<string> = new Set([
   // root UPDATE ordered BEFORE the INSERT). Removed from this set (Count 11 → 9):
   //   · D4 non-PK reference > D4: updating the referenced non-PK column threads the new value to a nested create
   //   · own-write dependencies > create then disjoint numeric update is allowed
+  // ABSORBED (T3b-2, family G — mechanism 3 depth-guard relaxation, TO-ONE.md §7.7):
+  // the connectOrCreate create-arm now recurses one level deeper on a child-held
+  // `create`. A fresh grandchild INSERT under the fresh child (its PK a compile-time
+  // literal, ATOM §4 elision), its own data folding a single parent-held to-one
+  // `connect`; anything deeper routes to V1 — mirroring V1's accepted depth exactly.
+  // Removed from this set (Count 9 → 8):
+  //   · FK relations > connectOrCreate create branch accepts recursive nested writes
+  // The remaining 8 are T3c's surface: family D (7 — top-level `upsert` with nested-
+  // relation arms, the UpsertOperation scalar-arms-only guard) + family H (1 — a
+  // to-many upsert create-then-update identity spelling).
 ]);
 
 /** The measured residual count — asserted by the gate so the set cannot be silently
@@ -137,6 +146,9 @@ export const FALLBACK_OFF_RESIDUAL: ReadonlySet<string> = new Set([
  *  level deeper against the target's literal PK); 9 after T3b-2 absorbed family E (a
  *  nested `create`/`createMany` under the update root on a child-held to-many, its FK a
  *  construction-time literal — the `where`-pinned PK or a D4 root-SET-rewritten column,
- *  the root UPDATE ordered before the fresh INSERT). Each further absorption drops this
- *  by that slice's size. */
-export const FALLBACK_OFF_RESIDUAL_COUNT = 9;
+ *  the root UPDATE ordered before the fresh INSERT); 8 after T3b-2 absorbed family G
+ *  (mechanism 3 — the connectOrCreate create arm recurses one level deeper on a
+ *  child-held create, folding a parent-held to-one connect). The remaining 8 are T3c's
+ *  surface (family D ×7 + family H ×1). Each further absorption drops this by that
+ *  slice's size. */
+export const FALLBACK_OFF_RESIDUAL_COUNT = 8;

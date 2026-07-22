@@ -705,7 +705,7 @@ describe("decline-surface gate: the reachable residual STILL lives behind the fa
     expect(FALLBACK_OFF_RESIDUAL.size).toBeGreaterThan(0);
   });
 
-  test("the census is the MEASURED surface (9), not a curated pin list", () => {
+  test("the census is the MEASURED surface (8), not a curated pin list", () => {
     // Guards against silently trimming the census without a real absorption: the
     // set and its declared count must agree, and the count is the running measurement.
     // Absorbing a family (or a coherent slice) drops BOTH by the same amount (and its
@@ -717,8 +717,10 @@ describe("decline-surface gate: the reachable residual STILL lives behind the fa
     // membership-root shapes + family A-remainder's 2) → 11 (T3b-2 absorbed family C:
     // the 10 m2m-junction-target-carrying-relations shapes, mechanism 2 create-arm /
     // mechanism 1 update-arm reuse) → 9 (T3b-2 absorbed family E: the 2 nested-create-
-    // under-update shapes incl. D4's rewritten-non-PK-reference threading).
-    expect(FALLBACK_OFF_RESIDUAL_COUNT).toBe(9);
+    // under-update shapes incl. D4's rewritten-non-PK-reference threading) → 8 (T3b-2
+    // absorbed family G: the connectOrCreate create-arm one-level-deeper create,
+    // mechanism 3). The remaining 8 are T3c's surface (family D ×7 + family H ×1).
+    expect(FALLBACK_OFF_RESIDUAL_COUNT).toBe(8);
   });
 
   test(`still declines at construction (routes to V1): ${REPRESENTATIVE_CONSTRUCT_DECLINE.label}`, () => {
