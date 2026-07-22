@@ -1298,6 +1298,46 @@ export class UpdateOperation {
       probeId,
       childPrimaryKey
     );
+    // A parent-held update whose located target carries nested relation writes exposes
+    // its captured PK as a firstRowField output so the target's own child Parts (family
+    // A-remainder recursion) correlate to it by a `planned` source. That eager output
+    // extraction throws on a MISSING target, so the probe additionally carries the
+    // not-found postcondition (enforced during planning, before extraction) — V1's
+    // `Cannot update relation` wording. A scalar-only target keeps the plain probe (its
+    // missing-target check stays at compile, `parentHeldCapturedPk`), byte-identical to
+    // pre-T3b.
+    const hasChildParts = built.childParts.length > 0;
+    const probe: StatementStep = {
+      id: probeId,
+      kind: "read",
+      statement: this.parentHeldProbeStatement(
+        childScope,
+        childPrimaryKey,
+        correlation,
+        undefined,
+        true
+      ),
+      outputs: hasChildParts
+        ? {
+            rows: { kind: "rows" },
+            [childPrimaryKey]: {
+              kind: "firstRowField",
+              field: childPrimaryKey,
+            },
+          }
+        : { rows: { kind: "rows" } },
+      ...(hasChildParts
+        ? {
+            expects: exactlyOneRow(
+              nestedWriteFailure(
+                relationTargetNotFound(relationInfo, "update"),
+                relationName,
+                false
+              )
+            ),
+          }
+        : {}),
+    };
     return {
       kind: "update",
       relationName,
@@ -1308,24 +1348,7 @@ export class UpdateOperation {
       guardId: input.scope.allocate(`${childName}.guard.exists`),
       writeId: input.scope.allocate(`${childName}.update`),
       correlation,
-      probe: {
-        id: probeId,
-        kind: "read",
-        statement: this.parentHeldProbeStatement(
-          childScope,
-          childPrimaryKey,
-          correlation,
-          undefined,
-          true
-        ),
-        // The captured PK is exposed as a firstRowField so the located target's own
-        // child Parts (family A-remainder recursion) correlate to it by a `planned`
-        // source — the parent-held projection of a nested update's literal parent.
-        outputs: {
-          rows: { kind: "rows" },
-          [childPrimaryKey]: { kind: "firstRowField", field: childPrimaryKey },
-        },
-      },
+      probe,
       data: built.scalarData,
       childParts: built.childParts,
       reorderAfterChildren: built.reorderAfterChildren,
