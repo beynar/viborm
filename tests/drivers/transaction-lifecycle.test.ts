@@ -13,7 +13,7 @@ import {
 } from "@planetscale/database";
 import { sql } from "@sql";
 import { describe, expect, test, vi } from "vitest";
-import { executeSkippableWrite } from "../../src/query-engine/OperationRuntime";
+import { executeSkippableWrite } from "../../src/query-engine/skippable-write";
 
 interface Deferred {
   readonly promise: Promise<void>;
