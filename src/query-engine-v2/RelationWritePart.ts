@@ -593,6 +593,14 @@ export class RelationWritePart implements Part {
     // Reorder the self-UPDATE after the child edges when the SET rewrites this target's
     // own PK (a transition the deeper FK references): the child edge is written against
     // the pre-transition literal and the FK's ON UPDATE CASCADE carries it forward.
+    //
+    // Named reorder obligation (TO-ONE.md §7.7): the root reorders on its full
+    // referenced-column union (PK ∪ every child-referenced column, D4-style non-PK
+    // references included); the PK is the ONLY referenced column that can reach this
+    // depth check, because `buildNestedTargetChildParts` routes every deeper edge whose
+    // FK references a non-PK column of the target to V1 (the literal/planned parent id
+    // carries only the target's PK per-field). So checking the PK here is complete —
+    // no D4-style deep non-PK reference is silently reordered wrong; it never arrives.
     const reorderAfterChildren =
       childParts.length > 0 &&
       Object.hasOwn(scalarData, this.config.childPrimaryKey);

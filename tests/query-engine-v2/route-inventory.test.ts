@@ -389,6 +389,13 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   // relation, a non-object connect input, a connect not locating by its referenced key)
   // add FIVE finer boundary routes — each narrower than V1's accepted one-level-deeper
   // create surface. The 1 family-G census key dropped in lockstep (9 -> 8).
+  //
+  // 86 -> 87 (T3b-2, named reorder obligation): `buildNestedTargetChildParts` routes a
+  // deeper child-held edge whose FK references a NON-PK column of the located target to
+  // V1 (the literal/planned parent id carries only the target's PK per-field, so a
+  // D4-style deep non-PK reference cannot be injected — nor would it be caught by the
+  // PK-only depth reorder). No census key moved (every absorbed deeper edge references
+  // the target PK). Witness: nested-update-d4-deep-nonpk-reference.test.ts.
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
@@ -399,7 +406,7 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
       const source = await readFile(join(dir, file), "utf8");
       sites += source.split("new UnsupportedOperationError(").length - 1;
     }
-    expect(sites).toBe(86);
+    expect(sites).toBe(87);
   });
 });
 

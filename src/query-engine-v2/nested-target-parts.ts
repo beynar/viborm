@@ -184,6 +184,26 @@ function foldOneNestedRelation(input: {
     );
   }
 
+  // T3b-2 (named reorder obligation, TO-ONE.md §7.7): the deeper FK must reference the
+  // located target's OWN single primary key. The literal/planned parent id carries the
+  // target's PK per-field, so a **D4-style deeper edge referencing a non-PK unique** (or
+  // a compound-arity reference) would be mis-injected with the PK value AND would miss
+  // the PK-only reorder check — so route it to V1 instead of diverging silently. The
+  // root threads a non-PK reference from its located row (D4 at the root, family E); the
+  // literal-parent depth builder cannot, so this is a documented narrower boundary. No
+  // absorbed census key reaches it (every deeper edge references the target PK). Witness:
+  // nested-update-d4-deep-nonpk-reference.test.ts.
+  const targetPrimaryKeys = getPrimaryKeyFields(targetScope.model);
+  const referencesTargetPk =
+    targetPrimaryKeys.length === 1 &&
+    fk.pkFields.length === 1 &&
+    fk.pkFields[0] === targetPrimaryKeys[0];
+  if (!referencesTargetPk) {
+    throw new UnsupportedOperationError(
+      `query-engine-v2 update does not support a nested relation on '${relationName}' whose foreign key references a non-primary-key column of the target one level deeper.`
+    );
+  }
+
   const childScope = createQueryScope(engine.adapter, relationInfo.targetModel);
   const childPrimaryKeys = getPrimaryKeyFields(childScope.model);
   if (childPrimaryKeys.length !== 1) {
