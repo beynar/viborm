@@ -1233,10 +1233,29 @@ level; the top-level upsert's parent-held-to-one update arm plans its superset a
 OPTIONAL-firstRowField locate (an absent create-arm parent → `undefined`, never a planning abort)
 and rejects only when the found branch is taken (V1's whenTrue timing). All 15 keys native
 fallback-off; every verdict path falsified once; V2 suite 437/437. `BLAST_RADIUS_RESIDUAL` 18 → 3.
-**Every reachable behavior is native — the P6 deletion premise is TRUE**, modulo the 3
-`BLAST_RADIUS_ROUTING_DOC` V1-seam meta-tests, which assert the fallback route itself and are
-rewritten at P6 (the route has no meaning once V1 is deleted). P6's Stage 0 blast-radius gate is
-GREEN at its irreducible floor. **P6 is GREEN — unblocked.**
+The blast radius holds at 3 (`BLAST_RADIUS_ROUTING_DOC` V1-seam meta-tests, which assert the
+fallback route itself and are rewritten at P6). P6's Stage 0 blast-radius gate is GREEN at its
+irreducible floor.
+
+**T4c-fix — the occupied guard was upsert-only (a corruption the T4c "every reachable behavior is
+native" claim MISSED).** T4c wired V1's occupied guard into `interpretTransitionedChildUpsert` — the
+inverse-to-one **upsert** alone — but V1's `compileRelationKeyGuards` is kind- AND cardinality-
+agnostic (it loops every non-M2M relation). So a child-held, non-cascade relation under a referenced-
+PK transition rejects an occupied slot for `update` / `delete` / `disconnect` / `create` and the
+whole **to-many** family too; those reached NO guard and diverged accept-where-V1-rejects (UPDATE
+orphaned + applied the write, DELETE lost the child) — a corruption / data-loss class the blast-radius
+gate could not see (no estate test). The T4c round-1 fixer moved the guard to the RELATION level
+(`interpretReferencedKeyTransition`, once per relation, mirroring V1's loop): a single-PK where-pinned
+non-cascade transition emits V1's byte-identical occupied guard; the correlated / literal-parent-
+create kinds stay native, the to-one upsert reroutes unchanged. Two narrower boundaries route to V1
+(category-iii, unreached): an **adopt** kind (connect / connectOrCreate / set + to-many upsert), and a
+**`pastSurface`** reference (compound / non-PK D4 / unpinned) where only create/createMany proceed.
+`relation-key-update-legality` +12 dual-run parity cases; falsified (guard→upsert-only → the 8 new
+occupied cases fail); V2 suite 437/437, blast-radius GREEN@3, route-inventory net ±0. **The reachable
+referential-action CORRUPTION is gone; every reachable accept-and-execute shape is native, every
+rejection is V1's own message, and the remaining adopt/`pastSurface` transitions route to V1 correctly
+— documented narrower boundaries, not corruption. The P6 deletion premise holds at its honest floor
+(blast radius 3, GREEN bidirectional). P6 is GREEN — unblocked.**
 
 ## P6 — Deletion and the honest audit
 

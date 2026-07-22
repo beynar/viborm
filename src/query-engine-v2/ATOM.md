@@ -1409,7 +1409,34 @@ transition, a pre-transition value the unique `where` does not pin. `OperationFr
 one optional flag on `firstRowField` (a deliberate, snapshot-frozen type-surface change); the
 executor gained no operation-kind token; V1 frozen. **P6-readiness: the blast radius is 3 —
 BLAST_RADIUS_ROUTING_DOC's V1-seam meta-tests, which have no meaning without V1 and are rewritten
-at P6 itself. Every reachable behavior is native.**
+at P6 itself.**
+
+**T4c-fix — the occupied guard was upsert-only; the corruption it left.** T4c wired V1's occupied
+guard into `interpretTransitionedChildUpsert` — the inverse-to-one **upsert** alone. But V1's
+`compileRelationKeyGuards` is kind- AND cardinality-agnostic: it loops EVERY non-M2M relation
+independent of the mutation planning, so a child-held, non-cascade relation whose referenced PK the
+same root update transitions rejects an occupied OLD slot for `update` / `delete` / `disconnect` /
+`create` and the whole **to-many** family too — not only `upsert`. Those variants reached NO guard
+and DIVERGED from V1 (accept-where-V1-rejects: setNull/restrict UPDATE orphaned + applied the
+forbidden write, DELETE lost the child, connect/connectOrCreate wrote a fresh FK on the vacated
+value) — a corruption / data-loss class invisible to the blast-radius gate because no estate test
+exercised it. The claim "every reachable behavior is native" was therefore FALSE, caught by the
+T4c round-1 fixer. The guard MOVED to the relation level — `interpretReferencedKeyTransition`, called
+once per relation before the per-kind dispatch, exactly mirroring V1's loop. A real single-PK
+where-pinned non-cascade transition emits V1's byte-identical occupied guard; the correlated /
+literal-parent-create kinds keep their ordinary part (empty-slot native), the to-one upsert reroutes
+its create arm (unchanged). Two narrower boundaries route to V1 (category-iii, unreached by the
+estate): an **adopt** kind (connect / connectOrCreate / set + to-many upsert) whose empty-slot fresh
+FK needs V1's post-transition adopt; and a **`pastSurface`** reference (compound / non-PK — the D4
+case / unpinned) where only nested create/createMany proceed via `resolveLiteralCreateParent`.
+Falsified: restrict the guard to upsert-only → exactly the 8 new occupied parity cases fail
+(accept-where-V1-rejects), the original upsert case + the empty-slot accepts still pass.
+`relation-key-update-legality` gains 12 dual-run parity cases; route-inventory net ±0 (the 2 upsert
+throws swap for an adopt decline + a `pastSurface` decline). **P6-readiness: the reachable
+referential-action CORRUPTION is gone and the blast radius holds at 3 (GREEN, bidirectional); every
+reachable accept-and-execute shape is native, every rejection is V1's own message, and the remaining
+adopt/`pastSurface` transitions route to V1 correctly — documented narrower boundaries, not
+corruption.**
 
 ---
 

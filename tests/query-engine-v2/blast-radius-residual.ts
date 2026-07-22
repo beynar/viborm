@@ -82,16 +82,24 @@ export const BLAST_RADIUS_BATCH_PK_DATAFLOW: readonly string[] = [];
  *  (visibility-only exports `assertRelationKeyUpdatesAreCompilable` /
  *  `assertUpdateManyRelationsAreCompilable`, byte-identical `NestedWriteError`
  *  messages) and executing every accepted shape on V2:
- *   · CLASS IV — a child-held (inverse one-to-one) upsert under a referenced-PK
- *     transition. `interpretTransitionedChildUpsert` classifies at compile from the
- *     where-pinned pre-value and `getUpdatedPrimaryKeyValue`: CASCADE keeps the
- *     ordinary correlated part (the DB re-points on `ON UPDATE CASCADE` + the root
- *     reorder); a NO-OP transition (`increment: 0` / `set` same, before == after) is
- *     byte-identical to a non-transition; a real NON-cascade transition emits V1's
- *     occupied guard (`compileRelationKeyGuards`, ported to V2's guard/probe
- *     vocabulary — a tx-mode compile throw off the locked probe, a batch-mode raceable
- *     `notExists` guard pinning the empty-slot race) and reroutes the create arm to a
- *     POST-transition-FK leaf ordered after the root UPDATE (the T4b
+ *   · CLASS IV — a child-held (inverse one-to-one OR one-to-many) nested write under a
+ *     referenced-PK transition. V1's occupied guard (`compileRelationKeyGuards`) is
+ *     kind- AND cardinality-agnostic — it loops every non-M2M relation independent of
+ *     the mutation planning — so the guard is emitted at the RELATION level
+ *     (`interpretReferencedKeyTransition`, once per relation before the per-kind
+ *     dispatch; T4c-fix generalized this from the original upsert-only wiring, which
+ *     left update/delete/disconnect/create + the whole to-many family diverging
+ *     accept-where-V1-rejects). Classified at compile from the where-pinned pre-value
+ *     and `getUpdatedPrimaryKeyValue`: CASCADE keeps the ordinary correlated part (the
+ *     DB re-points on `ON UPDATE CASCADE` + the root reorder); a NO-OP (`increment: 0`
+ *     / `set` same, before == after) is byte-identical to a non-transition; a real
+ *     NON-cascade transition of a single PK pinned by the unique `where` emits V1's
+ *     occupied guard (ported to V2's guard/probe vocabulary — a tx-mode compile throw
+ *     off the locked probe, a batch-mode raceable `notExists` guard pinning the
+ *     empty-slot race). The correlated / literal-parent-create kinds
+ *     (update/delete/disconnect/create/createMany) keep their ordinary part — their
+ *     empty-slot behavior is already native; the to-one upsert reroutes its create arm
+ *     to a POST-transition-FK leaf ordered after the root UPDATE (the T4b
  *     `afterRootCreateParts` machinery; the upsert update arm is unreachable). The
  *     nested-update recursion runs `assertRelationKeyUpdatesAreCompilable` at every
  *     child-part level; the top-level upsert's parent-held-to-one update arm plans its
@@ -102,7 +110,13 @@ export const BLAST_RADIUS_BATCH_PK_DATAFLOW: readonly string[] = [];
  *     byte-identical message: immediate at construction for a plain update, deferred
  *     to the taken branch for an upsert update arm (runtime-branch-gated).
  *
- *  This class is now EMPTY. */
+ *  This class is now EMPTY. Narrower boundaries under such a transition still route to
+ *  V1 (category-iii, reached by no estate test): an ADOPT kind (connect / connectOrCreate
+ *  / set, and a to-many upsert) whose fresh FK would be written on the pre-transition
+ *  value (its post-transition adopt is V1's, not built natively); and a `pastSurface`
+ *  reference — compound, non-PK (the D4 case), or a pre-value the unique `where` does not
+ *  pin — where only nested create/createMany proceed (their literal FK is threaded by
+ *  `resolveLiteralCreateParent`) and every other kind routes to V1. */
 export const BLAST_RADIUS_RELATION_KEY_LEGALITY: readonly string[] = [];
 
 /** CLASS VI — deep create-context grandchildren. ABSORBED by T4a (blast radius 43 -> 40).
