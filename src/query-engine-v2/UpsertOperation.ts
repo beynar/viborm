@@ -6,7 +6,10 @@ import {
   buildPrimaryKeyWhereUnique,
   getPrimaryKeyFields,
 } from "../query-engine/builders/correlation-utils";
-import { separateData } from "../query-engine/builders/relation-data-builder";
+import {
+  getFkDirection,
+  separateData,
+} from "../query-engine/builders/relation-data-builder";
 import { buildInsert } from "../query-engine/builders/values-builder";
 import { getWhereUniqueEntries } from "../query-engine/builders/where-unique-builder";
 import {
@@ -176,6 +179,25 @@ export class UpsertOperation {
     const createHasRelations = Object.keys(createSep.relations).length > 0;
     const updateHasRelations = Object.keys(updateSep.relations).length > 0;
 
+    // A **parent-held to-one** relation in the update arm builds a probe correlated
+    // to the located parent's FK (a `firstRowField` of the update sub-op's locate).
+    // That probe is planned in the upsert's superset — but when the CREATE arm is
+    // taken the parent is ABSENT, so the located FK does not exist and the probe
+    // cannot plan (V1 simply never validates the untaken update branch). The whole
+    // tree routes to V1 for this shape (a documented narrower boundary; no census key
+    // reaches it — every family-D update arm is child-held / m2m, whose planning probe
+    // reads the child by its own `where`, not the parent's produced FK).
+    if (updateHasRelations) {
+      for (const mutation of Object.values(updateSep.relations)) {
+        const info = mutation.relationInfo;
+        if (info.isToOne && getFkDirection(parent, info).holdsFK) {
+          throw new UnsupportedOperationError(
+            "query-engine-v2 upsert does not support a parent-held to-one relation in the update arm (its parent-correlated probe cannot plan when the create arm is taken)."
+          );
+        }
+      }
+    }
+
     const parentSchemas = engine.schemaRegistry.getModelSchemas(model);
     this.parentWhere = parseRecord(
       parentSchemas.core.whereUnique,
@@ -262,7 +284,11 @@ export class UpsertOperation {
           engine,
           model,
           { where, data: update, ...subSelect },
-          { ...subOptions, locateNotFoundOptional: true }
+          {
+            ...subOptions,
+            locateNotFoundOptional: true,
+            deferArmLegality: true,
+          }
         )
       : undefined;
   }
@@ -371,16 +397,19 @@ export class UpsertOperation {
     known: Readonly<Record<string, unknown>>,
     locatedRow: Record<string, unknown>
   ): ArmResult {
-    // V1 runs the update-arm own-write barrier for the WHOLE found branch (its
-    // whenTrue), before the conditional skip/update decision. A relation-bearing
-    // update arm therefore rejects a barrier violation whether it later updates or
-    // skips — the byte-identical `NestedWriteError` (the D6 witness).
+    // V1 runs the update-arm barrier + payload-legality analyses for the WHOLE found
+    // branch (its whenTrue), before the conditional skip/update decision — an invalid
+    // UNTAKEN update branch (the create arm is taken) never reaches here. A
+    // relation-bearing update arm therefore rejects a barrier / legality violation
+    // whether it later updates or skips (the D6 own-write witness; the relation-key /
+    // PK-portability legality the sub-op deferred at construction).
     if (this.updateArmOp) {
       assertUpdateOwnWriteSafety(
         createQueryScope(this.engine.adapter, this.model),
         this.rawUpdate,
         this.parentWhere
       );
+      this.updateArmOp.assertArmLegality();
     }
     const unmatched = this.conditionals.find(
       (conditional) => !this.conditionalMatched(conditional, known)

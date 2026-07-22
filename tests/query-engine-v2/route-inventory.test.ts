@@ -452,6 +452,14 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   // the same "no compile-time-literal identity" class (route-inventory category iii). New
   // conformance coverage ("create-root FK declines (tx vs batch)") runs all three natively
   // fallback-off, byte-identical to V1 (dual-run confirmed).
+  //
+  // 86 -> 87 (T3c, family D narrower boundary): the upsert's update arm declines a
+  // PARENT-HELD to-one relation (`author: { update/connect/… }`). Its probe correlates to
+  // the located parent's produced FK (a `firstRowField` of the update sub-op's locate),
+  // which the upsert's superset planning cannot resolve when the CREATE arm is taken (the
+  // parent is absent — V1 simply never validates the untaken update branch). Routes the
+  // whole tree to V1 (category iii); no census key reaches it — every family-D update arm
+  // is child-held / m2m, whose planning probe reads the child by its own `where`.
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
@@ -462,7 +470,7 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
       const source = await readFile(join(dir, file), "utf8");
       sites += source.split("new UnsupportedOperationError(").length - 1;
     }
-    expect(sites).toBe(86);
+    expect(sites).toBe(87);
   });
 });
 

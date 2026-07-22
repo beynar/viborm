@@ -309,6 +309,10 @@ export class UpdateOperation {
   // portable arithmetic increment on a PK field moves the identity the located
   // (pre-update) row no longer answers to (the `DerivedValue` disposition, ATOM §3).
   private readonly parentUpdateData: Record<string, unknown>;
+  // T3c: an upsert update arm defers its payload-legality analyses to the enclosing
+  // per-arm compile (`deferArmLegality`) — V1 validates the update branch only when
+  // it is taken. `undefined` for a standalone update (validated at construction).
+  private readonly armLegalityChecks?: () => void;
 
   constructor(
     engine: QueryEngine,
@@ -337,7 +341,12 @@ export class UpdateOperation {
     // is not supported for to-one relation" where V1 rejects "Unknown key:
     // deleteMany" at schema validation, before the parent mutation. Run V1's
     // whole-args validation first so the rejection ordering AND message match.
-    validateUpdateArgs(parentSchemas.args.update, args);
+    // As an upsert update arm (`deferArmLegality`), V1 validates the update branch
+    // INSIDE the taken whenTrue branch only — an invalid UNTAKEN update branch (the
+    // create arm is taken) must not reject the whole tree — so the caller runs these
+    // three legality analyses per-arm via `assertArmLegality()` instead.
+    const deferLegality = options.deferArmLegality === true;
+    if (!deferLegality) validateUpdateArgs(parentSchemas.args.update, args);
     const where = requireRecord(args.where, "update.where");
     const data = requireRecord(args.data, "update.data");
     // V1 runs this in its shared `validator` (validator.ts) for every operation;
@@ -345,7 +354,9 @@ export class UpdateOperation {
     // is not portable (float/decimal), divides by zero, or stacks operations was
     // caught late (at the terminal read's `getUpdatedPrimaryKeyWhere`, after the
     // locate ran) with V1's OTHER message. Run it at construction, before any I/O.
-    assertPortablePrimaryKeyUpdateInput(model, "update", args);
+    if (!deferLegality) {
+      assertPortablePrimaryKeyUpdateInput(model, "update", args);
+    }
     const parent = createQueryScope(engine.adapter, model);
     const separated = separateData(parent, data);
 
@@ -367,11 +378,24 @@ export class UpdateOperation {
     // edge. Both substrates, before any effect. V2 previously only rejected the
     // holds-FK case by routing to-one update/upsert to V1; the child-holds-FK
     // referenced-field case (a supported one-to-many update) reached no check.
-    assertRelationKeyUpdatesAreCompilable(
-      parent,
-      separated.scalarData,
-      separated.relations
-    );
+    if (deferLegality) {
+      // Retained for the caller's per-arm invocation (the upsert's whenTrue branch).
+      this.armLegalityChecks = () => {
+        validateUpdateArgs(parentSchemas.args.update, args);
+        assertPortablePrimaryKeyUpdateInput(model, "update", args);
+        assertRelationKeyUpdatesAreCompilable(
+          parent,
+          separated.scalarData,
+          separated.relations
+        );
+      };
+    } else {
+      assertRelationKeyUpdatesAreCompilable(
+        parent,
+        separated.scalarData,
+        separated.relations
+      );
+    }
 
     this.parentWhere = parseRecord(
       parentSchemas.core.whereUnique,
@@ -709,6 +733,13 @@ export class UpdateOperation {
       this.model,
       this.engine.driver
     ).parse<T>("update", outputs.result, this.resultArgs);
+  }
+
+  /** Run the deferred payload-legality analyses of an upsert update arm (T3c). The
+   *  enclosing upsert calls this only on the taken found branch — V1's whenTrue
+   *  timing — so an invalid untaken update branch never rejects the whole tree. */
+  assertArmLegality(): void {
+    this.armLegalityChecks?.();
   }
 
   // -------------------------------------------------------------------------

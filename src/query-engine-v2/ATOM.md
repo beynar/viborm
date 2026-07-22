@@ -1221,6 +1221,30 @@ family-C dual-run/multi-parent/raw-A-B witnesses; the D4-deep guard witness + fa
 route inventory **75 → 87** (12 finer boundary routes, none removed). `OperationFragment.ts`
 untouched. **P6 stays blocked** — 8 shapes remain (D ×7, H ×1 — T3c).
 
+**T3c — the drive to ZERO (census 8 → 0; TO-ONE.md §7.8).** The final 8 keys run natively
+fallback-off; the census is EMPTY and P6 is UNBLOCKED. **Family D ×7** (the top-level `upsert`
+scalar-arms-only guard): the create/update arms compose the create-root / update-root
+machinery — a scalar arm inline (its proven INSERT-with-`racePin` / `UPDATE … RETURNING`
+path), a relation-bearing arm delegated to a `CreateOperation` / `UpdateOperation` sub-op that
+SHARES the upsert's `StepScope` (no step-id collision), plans its whole superset (§3 technique
+2), and DEFERS its own-write barrier to the enclosing per-arm compile (V1 checks each arm's
+barrier inside its own branch — the create arm's is the D4/D5 create-branch insert barrier).
+The update arm's sub-op drops its locate not-found postcondition (absent → the upsert's create
+decision). Both arms compose their own child Parts with the probe-decided selection, the
+skip pins, and the create-branch racePin. **Family H ×1**: the nested to-many upsert
+create-identity over-restriction is relaxed to match V1's `input.create`-verbatim absent arm
+(`assertMatchingCreateIdentity` now fires only when the create arm folds grandchildren). **The
+two create-root parent-held-FK declines** T1 deferred are ABSORBED with census coverage: a
+non-referenced-unique connect via V1's verbatim `buildConnectSubqueryForField` subquery, and a
+shared-primary-key edge for its compile-time-literal fold (a direct connect / literal-id
+create) threaded into the record identity by `resolveSharedPkIdentity` (the non-literal
+sub-cases — subquery / generated / connectOrCreate — route to V1 as finer boundaries).
+Certified: `VIBORM_FALLBACK_OFF=1` census **172/172 native** on both substrates,
+byte-identical to V1 (the create declines dual-run-proven); the census edit falsified
+(re-pinning an absorbed key → gate red); route inventory **88 → 86** (family D's guard deleted
++ no new upsert route; the non-referenced connect throw deleted; the shared-PK throw reworded).
+`OperationFragment.ts` untouched; V1 frozen.
+
 ---
 
 ## 9. Invariants (the executable contract)

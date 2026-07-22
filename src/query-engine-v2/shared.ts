@@ -23,6 +23,13 @@ export interface SubOperationOptions {
   readonly skipOwnWrite?: boolean;
   /** Drop the locate's exactly-one-row postcondition (upsert: absent → create arm). */
   readonly locateNotFoundOptional?: boolean;
+  /**
+   * Skip the constructor payload-legality analyses (whole-args validation, PK-arithmetic
+   * portability, relation-key-update legality) and expose them as a method the caller runs
+   * per-arm. V1's upsert validates its update branch INSIDE the whenTrue branch only — an
+   * invalid UNTAKEN update branch (the create arm is taken) must not reject the whole tree.
+   */
+  readonly deferArmLegality?: boolean;
 }
 
 export function isRecord(value: unknown): value is Record<string, unknown> {

@@ -1070,6 +1070,48 @@ only D ×7 + H ×1 (T3c) remain.
 - **P6 stays blocked** — 8 shapes remain (D ×7, H ×1 — T3c), `OperationFragment.ts`
   untouched. Next drive: family D (top-level `upsert` with nested-relation arms) + family H.
 
+### T3c — the drive to ZERO: census 8 → 0, P6 UNBLOCKED (TO-ONE.md §7.8)
+
+The final 8 census keys run natively fallback-off; the fallback-carrying decline surface
+is EMPTY. The V1 fallback arm holds no reachable accept-and-execute conformance behavior.
+
+- **Family D (×7) — the top-level `upsert` scalar-arms-only guard, LIFTED.** The create /
+  update arms compose the root machinery: a **scalar** arm stays inline (its proven
+  INSERT-with-`racePin` / `UPDATE … [RETURNING]` path); a **relation-bearing** arm delegates
+  to a `CreateOperation` (mechanism 2, fresh-parent elision / the create-root traversal
+  barrier) / `UpdateOperation` (mechanism 1, `buildNestedTargetChildParts` + reorder/cascade)
+  sub-op that SHARES the upsert's `StepScope`, plans its whole superset (ATOM §3 technique 2 —
+  only the taken arm's writes compile), and DEFERS its own-write barrier to the enclosing
+  per-arm compile (V1 checks each arm's barrier inside its own branch — the create arm's is
+  the D4/D5 create-branch insert barrier, the update arm's the D6 found-branch barrier). The
+  update arm's sub-op drops its locate not-found postcondition (absent → the upsert's create
+  decision). The probe-decided arm selection, the setWhere/targetWhere skip pins, and the
+  create-branch racePin all compose with each arm's own child Parts. The D7 witness (an
+  existing-row upsert whose update arm transitions the PK and writes a self-m2m) exercises the
+  reorder/cascade at the root.
+- **Family H (×1)** — the nested to-many upsert create-identity over-restriction is relaxed to
+  match V1's `input.create`-verbatim absent arm (which pins on `input.where`, never validating
+  a `create.id = where.id`): `assertMatchingCreateIdentity` now fires ONLY when the create arm
+  folds grandchildren (which correlate to the fresh row through `where`'s PK).
+- **The two create-root parent-held-FK declines** T1 deferred (outside the pre-T3c census),
+  ABSORBED with coverage: (1) a to-one `connect` by a NON-REFERENCED unique resolves through
+  V1's verbatim `buildConnectSubqueryForField` lookup subquery; (2) a SHARED-PRIMARY-KEY edge
+  for its compile-time-literal fold (a direct connect / literal-id create) threaded into the
+  record identity by `resolveSharedPkIdentity` — the non-literal sub-cases (subquery /
+  generated / connectOrCreate) route to V1 as documented finer boundaries. New conformance
+  group "create-root FK declines (tx vs batch)" runs both natively, byte-identical to V1
+  (dual-run-proven by reverting the create-src changes and re-running against V1).
+- **`FALLBACK_OFF_RESIDUAL_COUNT` 8 → 0.** Route-inventory **88 → 87** (family D's guard
+  deleted; no new upsert route — a shape neither root owns throws inside the delegated sub-op's
+  already-audited surface) **→ 86** (non-referenced connect throw deleted; shared-PK throw
+  reworded). The census edit is falsified (re-pinning an absorbed key fails the fallback-off
+  gate). `VIBORM_FALLBACK_OFF=1` conformance census **172/172 native** on both substrates.
+- **The final accounting** (route-inventory scope note): with the census empty, every one of
+  the 86 remaining `new UnsupportedOperationError` throw sites is (i) a parity refusal (V1 also
+  rejects, byte-identical), (ii) the one deliberate refusal (createManyAndReturn skipDuplicates
+  non-returning), or (iii) a documented finer boundary one level deeper than an absorbed
+  family's proven surface, reached by NO conformance scenario. **P6 is UNBLOCKED.**
+
 ## P6 — Deletion and the honest audit
 
 Bulk-delete V1's operation/execution root once unreachable; keep what V2

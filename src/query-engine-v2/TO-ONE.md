@@ -808,3 +808,58 @@ byte-identical to V1's state/result/error/message; the census edit is falsified 
 count pin catches a wrong count; re-pinning an absorbed key fails the fallback-off gate —
 absorption is real). `OperationFragment.ts` vocabulary untouched; V1 frozen. **P6 stays
 blocked** (8 shapes remain: families D ×7, H ×1 — T3c).
+
+### 7.8 T3c — the drive to ZERO (census 8 → 0; the two create-root declines absorbed)
+
+T3c took the final 8 census keys to **ZERO**. The V1 fallback arm now carries no
+reachable accept-and-execute conformance behavior — P6's deletion premise, finally
+true.
+
+**Family D ×7 — the top-level `upsert` scalar-arms-only guard, LIFTED.** The
+`UpsertOperation` no longer declines a relation-bearing create/update arm. A **scalar**
+arm stays the proven inline path (a plain INSERT with the raceable missing-premise
+`racePin`, or `UPDATE … [RETURNING]`). A **relation-bearing** arm composes the
+root machinery it always should have: the update arm delegates to an `UpdateOperation`
+sub-op (mechanism 1 — `buildNestedTargetChildParts`, the reorder/cascade root handling,
+the D7 PK-transition + self-m2m witness), the create arm to a `CreateOperation` sub-op
+(mechanism 2 — fresh-parent elision, the create-root traversal barrier). Both share the
+upsert's `StepScope` (no step-id collision across arms), plan their WHOLE superset (ATOM
+§3 technique 2 — only the taken arm's writes compile), and defer their own-write barrier
+to the enclosing per-arm compile: V1 runs the barrier inside the taken branch ONLY, so a
+create-arm violation rejects only on the create arm (D4/D5's create-branch insert
+barrier) and an update-arm violation only on the found branch (D6). The update arm's
+sub-op drops its locate not-found postcondition — under an upsert a located-miss is the
+CREATE decision, not an error. The probe-decided arm selection, the setWhere/targetWhere
+skip pins, and the create-branch racePin all compose with each arm's own child Parts.
+
+**Family H ×1 — the nested to-many upsert create-identity over-restriction, RELAXED.**
+V1's absent arm inserts `input.create` verbatim and pins the missing premise on
+`input.where` (RelationBranches.compileOneUpsert), so a `create.id ≠ where.id` is legal
+and a FOUND arm never touches `create`. V2's `assertMatchingCreateIdentity` was too
+eager; it now fires ONLY when the create arm folds GRANDCHILDREN (which correlate to the
+fresh row through `where`'s PK — the only place the identity must match).
+
+**The two create-root parent-held-FK declines T1 deferred, ABSORBED (outside the
+pre-T3c census, now given coverage).**
+  1. A to-one **`connect` by a NON-REFERENCED unique** — `toOneFkAssign` resolves the FK
+     through V1's verbatim `buildConnectSubqueryForField` lookup subquery `(SELECT
+     referenced FROM target WHERE unique = …)`. The parent-held connect's probe/guard
+     reads by the same `where`, so a missing target is caught as before.
+  2. A **SHARED-PRIMARY-KEY parent-held edge** (the record's PK IS its FK). For a
+     COMPILE-TIME-LITERAL fold — a direct-referenced connect, a literal-id create —
+     `resolveSharedPkIdentity` threads the value into the record identity so the terminal
+     read can address the created row. A non-literal fold (a non-referenced connect
+     subquery, a generated create id, a connectOrCreate) has no compile-time identity;
+     the reworded decline routes those finer sub-cases to V1 (route-inventory category
+     iii — the same class as the deep narrower boundaries every absorption drew).
+
+**Certified.** `FALLBACK_OFF_RESIDUAL_COUNT` **8 → 0**. New conformance group
+"create-root FK declines (tx vs batch)" (3 scenarios) runs the two absorbed create
+shapes natively, byte-identical to V1 (dual-run: reverting the create-src changes routes
+them to V1 and yields the same expected state). Route inventory **88 → 87** (family D's
+scalar-arms guard deleted, no new upsert route — a shape neither root owns throws inside
+the delegated sub-op's already-audited surface) **→ 86** (the non-referenced connect
+throw deleted; the shared-PK throw reworded, not removed). The `VIBORM_FALLBACK_OFF=1`
+conformance census runs **172/172 natively on BOTH substrates**; the census edit is
+falsified (re-pinning an absorbed key fails the fallback-off gate). `OperationFragment.ts`
+vocabulary untouched; V1 frozen. **P6 is UNBLOCKED** — the census is empty.
