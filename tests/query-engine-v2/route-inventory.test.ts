@@ -460,6 +460,20 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   // parent is absent — V1 simply never validates the untaken update branch). Routes the
   // whole tree to V1 (category iii); no census key reaches it — every family-D update arm
   // is child-held / m2m, whose planning probe reads the child by its own `where`.
+  //
+  // 87 -> 87 (T4a CLASS VI, a swap that nets to zero): the three CLASS VI blast-radius
+  // keys are absorbed (deep create-context grandchildren under a PLANNED / create-context
+  // parent id). `nested-target-parts.ts` gained the planned-parent `create` leaf
+  // (`buildPlannedParentCreatePart`) whose FK inlines the located target's captured PK at
+  // compile — key 1; its dead `literalFkInject` non-literal throw was DELETED (both literal
+  // leaves are dispatched only for a literal parent) and a `createMany` one step past that
+  // leaf (still a documented finer boundary, measured-not-curated) throws at dispatch: net
+  // +1 in this file. `CreateOperation.foldCreateMany` DELETED its `nested createMany
+  // skipDuplicates` decline (it now composes `buildCreateManyPlan`'s skip leaf / recoverable
+  // `onUniqueConflict` effect — keys 3): net -1. `RelationUpsertPart` accepts a child-held
+  // `create` on BOTH upsert arms now (key 2) — a widened condition, no throw added/removed.
+  // The two deltas cancel; the surface changed, the count did not. The three keys drop from
+  // BLAST_RADIUS_RESIDUAL in lockstep (43 -> 40).
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");

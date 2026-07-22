@@ -678,22 +678,24 @@ describe("decline-surface gate: absorbed nested-relation-in-update shapes carry 
 // the full conformance census.
 // ---------------------------------------------------------------------------
 const REPRESENTATIVE_CONSTRUCT_DECLINE = {
-  // A parent-held (FK-holder-side) to-one `update` whose located target's DATA carries
-  // a nested CREATE (`author: { update: { posts: { create } } }`). T3b-1 absorbed the
-  // update-arm literal-parent recursion (a parent-held update's target builds its own
-  // child Parts), but a create/createMany leaf under a parent-held (`planned`) target
-  // resolves its FK at construction and so needs a compile-time literal parent it does
-  // not have here — a documented narrower boundary that still routes the whole tree to
-  // V1 (create-context depth is a later mechanism). A construct-time probe: no seed,
-  // no execution.
+  // A parent-held (FK-holder-side) to-one `update` whose located target's DATA carries a
+  // nested `createMany` (`author: { update: { posts: { createMany } } }`). T4a CLASS VI
+  // absorbed the single-`create` leaf under a `planned` parent-held target (its FK inlined
+  // from the located row at compile), but a `createMany` one step past it is a documented
+  // finer boundary reached by no estate scenario (measured-not-curated), so it still
+  // routes the whole tree to V1. A construct-time probe: no seed, no execution.
   label:
-    "parent-held to-one update whose target creates under a parent-held (planned) id",
+    "parent-held to-one update whose target createMany's under a parent-held (planned) id",
   schema: nb as Record<string, Model<any>>,
   operation: "update",
   args: {
     where: { id: "po1" },
     data: {
-      author: { update: { posts: { create: { id: "po2", title: "t" } } } },
+      author: {
+        update: {
+          posts: { createMany: { data: [{ id: "po2", title: "t" }] } },
+        },
+      },
     },
   } as Record<string, unknown>,
   rootModel: nb.post as Model<any>,

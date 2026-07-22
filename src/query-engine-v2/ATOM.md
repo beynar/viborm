@@ -1296,6 +1296,44 @@ wired the probe as a committed, falsifiable gate.
   were machinery-complete this drive; the rest are enumerated exactly in the T3d report,
   none a regression (the full estate is green with the fallback ON).
 
+**T4a — CLASS VI absorbed (blast radius 43 → 40).** The first and smallest of the three
+final subsystems. **Deep create-context grandchildren**: a nested `create` whose FK carries
+a captured parent id one step past `buildNestedTargetChildParts`' literal-parent reach —
+refs point backward, exactly as P1's depth recursion threaded a produced id. Three keys, one
+mechanism family:
+- **Key 1 — a `create` under a PLANNED parent-held `update` target** (`post.update →
+  author.update → posts.create`). The target (the author) is located by this operation's own
+  parent-held probe (family A-remainder); the grandchild's FK is resolved at COMPILE from the
+  located planning row and inlined as a literal (`buildPlannedParentCreatePart`,
+  nested-target-parts.ts) — ATOM §9 inv. 2 forbids a final-fragment step reffing a planning
+  step, so a `planned` id is a compile-time literal, never a SQL `Ref`. An unconditional
+  INSERT: no probe, guard, or racePin (leaf-never-axis). A relation-carrying grandchild, and a
+  `createMany` one step past this leaf, remain documented finer boundaries (measured-not-
+  curated; the decline-surface gate's representative construct-decline is now that
+  `createMany`).
+- **Key 2 — a `create` on the UPDATE arm of a to-many `upsert`** (`user.update →
+  posts.upsert(update) → comments.create`). `RelationUpsertPart.buildArmChildParts` now
+  accepts a child-held `create` on BOTH arms (direction-based, not arm-dependent): the
+  grandchild correlates to the child's compile-time literal PK — the fresh row's own PK on the
+  create arm, the found+correlated row's PK on the update arm — and its compile splices onto
+  the taken arm, so the update-arm grandchild fires only when the row is found.
+- **Key 3 — a root-`create` nested `createMany skipDuplicates`** whose child FK refs the fresh
+  parent's produced id (`parent.create → children.createMany`). `CreateOperation.foldCreateMany`
+  composes `buildCreateManyPlan`'s skip leaf (`ON CONFLICT DO NOTHING` / `INSERT OR IGNORE`) or,
+  on a `recoverableUniqueError` dialect, the per-row savepoint-wrapped `onUniqueConflict: "skip"`
+  executor effect — the SAME machinery the root `createMany` runs (ATOM §8). The default-only
+  parity refusal (V1's `QueryEngineError`, CLASS VII) stays raised at construction.
+
+Certified: dual-run oracle per key (V1 vs V2-tx vs V2-batch, byte-identical final state; the
+routed engine is V2, a native execution) with a multi-parent grandchild-level isolation
+witness on keys 1 & 2 and a falsification (neuter the planned FK inject → the grandchild lands
+under the wrong / no parent and diverges); the three keys deleted from `BLAST_RADIUS_RESIDUAL`
+in lockstep (43 → 40, gate green bidirectionally); throw-site count unchanged at 87 (a net-zero
+swap: `CreateOperation` deleted the `skipDuplicates` decline, `nested-target-parts` gained the
+planned create leaf and the `createMany`-under-planned finer boundary, deleted its dead
+`literalFkInject` throw). `OperationFragment.ts` untouched; V1 frozen. **P6-readiness: the two
+larger subsystems (III batch PK-dataflow; IV+V referential-action legality) remain.**
+
 ---
 
 ## 9. Invariants (the executable contract)

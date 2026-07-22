@@ -1113,7 +1113,11 @@ export class CreateOperation {
     // statement; a `recoverableUniqueError` dialect (MySQL) has no leaf, so each
     // per-row statement carries the savepoint-wrapped `onUniqueConflict: "skip"`
     // executor effect — exactly as the root `createMany` (ATOM §8, CreateManyOperation).
-    const plan = buildCreateManyPlan(childScope, { data: rows, skipDuplicates }, false);
+    const plan = buildCreateManyPlan(
+      childScope,
+      { data: rows, skipDuplicates },
+      false
+    );
     const recoverUnique =
       skipDuplicates &&
       this.engine.adapter.mutations.skipDuplicatesStrategy ===

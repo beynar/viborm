@@ -909,3 +909,38 @@ literal-parent reach. The third — batch generated/updated-PK dataflow — is d
 plumbing (an adapter batch-reference store), not a to-one concern. P6-readiness is AMBER:
 the census gate is met, the blast-radius gate is green-by-allowlist, and the exact
 remaining subsystem list is enumerated for P6 to land or keep-handlered.
+
+### 7.10 T4a — CLASS VI absorbed: deep create-context grandchildren (43 → 40)
+
+The first and smallest of T3d's three residual subsystems is landed. **The to-one half** of
+CLASS VI is key 1: a `create` under a **parent-held to-one `update` target located by a
+PLANNED id** (`post.update → author.update → posts.create`). The author is read by this
+operation's own locate probe (family A-remainder, §7.7.1); its captured PK is exposed as a
+`firstRowField`, and the new **`buildPlannedParentCreatePart`** (`nested-target-parts.ts`)
+resolves the grandchild's FK at COMPILE by inlining that located row's referenced value as a
+literal — a `planned` source is never a SQL `Ref` (ATOM §9 inv. 2: a final-fragment step may
+not ref a planning step). This is the create-arm sibling of §7.7.1's located-update recursion:
+the same first-class parent-id threading, one step past the literal-parent reach. The leaf is
+an unconditional INSERT (no probe/guard/racePin — leaf-never-axis).
+
+The other two keys are outside to-one but share the family: key 2, a child-held `create` on
+the UPDATE arm of a to-many upsert (`RelationUpsertPart.buildArmChildParts` now accepts a
+create on both arms, correlated to the child's literal PK, compiled only onto the taken arm);
+key 3, a root-`create` nested `createMany skipDuplicates` (`CreateOperation.foldCreateMany`
+composes `buildCreateManyPlan`'s skip leaf / recoverable `onUniqueConflict` effect).
+
+**The documented finer boundaries kept (measured-not-curated).** A `createMany` one step past
+the planned create leaf, and a relation-carrying grandchild create, both route the whole tree
+to V1 — no estate scenario reaches them, so they are left declined rather than absorbed on a
+hand-written witness. The decline-surface gate's representative construct-decline is retargeted
+to exactly that `createMany`-under-planned shape.
+
+**Certified.** Dual-run oracle per key (V1 vs V2-tx vs V2-batch, byte-identical final state,
+routed engine V2 — a native execution, `nested-create-context-grandchild.test.ts`), with a
+multi-parent grandchild-level isolation witness on keys 1 & 2 (a disjoint second parent's
+subtree stays untouched) and a falsification (neuter the planned FK inject → the grandchild
+lands under the wrong / no parent, state diverges). The three keys leave `BLAST_RADIUS_RESIDUAL`
+in lockstep (43 → 40; the gate is green bidirectionally); the route-inventory throw-site count
+is unchanged at 87 (a net-zero swap). `OperationFragment.ts` untouched; V1 frozen. **P6 stays
+AMBER** — the two larger subsystems (III batch PK-dataflow; IV+V referential-action legality)
+remain.

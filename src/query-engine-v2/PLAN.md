@@ -1176,6 +1176,25 @@ boundary subsystems (batch-PK dataflow store; the referential-action legality en
 deep create-context id-threading) — or keep targeted V1 handlers for them — and rewrite
 the three V1-seam meta-tests. The exact remaining list is `BLAST_RADIUS_RESIDUAL`.
 
+**T4a — CLASS VI absorbed (blast radius 43 → 40).** The first and smallest of the three
+final subsystems is landed: **deep create-context grandchildren**, a nested `create` whose FK
+carries a captured parent id one step past `buildNestedTargetChildParts`' literal-parent reach
+(refs point backward — the ATOM depth-recursion mechanism). Three keys, one family: (1) a
+`create` under a PLANNED parent-held `update` target — its FK inlined at compile from the
+located planning row (`buildPlannedParentCreatePart`, nested-target-parts.ts); (2) a `create`
+on the UPDATE arm of a to-many upsert — correlated to the found row's literal PK
+(`RelationUpsertPart` accepts a child-held create on both arms); (3) a root-`create` nested
+`createMany skipDuplicates` — composing `buildCreateManyPlan`'s skip leaf / recoverable
+`onUniqueConflict` effect (`CreateOperation.foldCreateMany`). A `createMany` one step past the
+planned create leaf, and a relation-carrying grandchild, stay documented finer boundaries
+(measured-not-curated; the decline-surface gate's representative is retargeted to the
+`createMany`-under-planned shape). Certified: dual-run oracle per key (V1 vs V2-tx vs V2-batch,
+byte-identical, engine V2) + multi-parent grandchild isolation (keys 1 & 2) + falsification
+(`nested-create-context-grandchild.test.ts`); the three keys leave `BLAST_RADIUS_RESIDUAL` in
+lockstep (43 → 40, gate green bidirectionally + falsified); throw-site count unchanged at 87
+(net-zero swap). `OperationFragment.ts` untouched; V1 frozen. **P6 stays AMBER** — the two
+larger subsystems (III batch PK-dataflow; IV+V referential-action legality) remain.
+
 ## P6 — Deletion and the honest audit
 
 Bulk-delete V1's operation/execution root once unreachable; keep what V2

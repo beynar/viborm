@@ -12,7 +12,12 @@
  *   · CLASS VII — nested `createMany skipDuplicates` default-only PARITY refusal
  *                (V1's byte-identical `QueryEngineError` raised at construction).
  *
- * The remaining 43 are the documented residual below. Each is EITHER (b) a test
+ * T4a then absorbed CLASS VI — deep create-context grandchildren (43 → 40): a `create`
+ * under a PLANNED / create-context parent id (a parent-held to-one `update` target, an
+ * upsert `update` arm, a root-`create` nested `createMany skipDuplicates`). Its FK carries
+ * the captured parent id, one step past the literal-parent reach. That class is now EMPTY.
+ *
+ * The remaining 40 are the documented residual below. Each is EITHER (b) a test
  * that asserts/exercises the V1-FALLBACK ROUTE itself (it is rewritten when V1 is
  * deleted at P6 — it cannot pass with the fallback OFF by construction), OR a
  * boundary-stopped DECLINE SUBSYSTEM: an accept-and-execute shape V1 runs today
@@ -112,18 +117,18 @@ export const BLAST_RADIUS_RELATION_KEY_LEGALITY: readonly string[] = [
   "tests/query-engine/nested-mutation-routing.test.ts > Nested Mutation Routing > nested relation writes inside updateMany data fail closed",
 ];
 
-/** CLASS VI — deep create-context grandchildren. A `create`/`createMany` nested
- *  under a target located by a PLANNED (runtime-captured) id — a parent-held
- *  to-one `update` whose target then creates a to-many child, or an upsert arm one
- *  level deeper that itself creates — needs the captured id THREADED as the fresh
- *  insert's FK (the create-context depth mechanism, one step past
- *  buildNestedTargetChildParts' current literal-parent reach). V2 declines one
- *  level short; V1 executes it. */
-export const BLAST_RADIUS_DEEP_CREATE_CONTEXT: readonly string[] = [
-  "tests/query-engine/nested-mutation-routing.test.ts > Nested Mutation Routing > nested upsert branches execute supported recursive nested writes",
-  "tests/query-engine/nested-mutation-routing.test.ts > Nested Mutation Routing > recursive nested update executes supported nested writes",
-  "tests/query-engine/bulk-insert-row-shapes.test.ts > bulk insert row shapes > nested createMany preserves generated values and conflict input order",
-];
+/** CLASS VI — deep create-context grandchildren. ABSORBED by T4a (blast radius 43 -> 40).
+ *  A `create` nested under a target located by a PLANNED / create-context parent id — a
+ *  parent-held to-one `update` whose target then creates a to-many child (key 1, its FK
+ *  inlined from the located planning row at compile via `buildPlannedParentCreatePart`); an
+ *  upsert `update` arm one level deeper that itself creates a grandchild correlated to the
+ *  found row's literal PK (key 2, `RelationUpsertPart` accepts a child-held create on both
+ *  arms); and a root-`create` nested `createMany skipDuplicates` whose FK refs the fresh
+ *  parent's produced id (key 3, `CreateOperation.foldCreateMany` composes the skip leaf /
+ *  recoverable `onUniqueConflict` effect). A `createMany` one step past the planned create
+ *  leaf remains a documented finer boundary (measured-not-curated, reached by no estate
+ *  scenario) that routes to V1. This class is now EMPTY. */
+export const BLAST_RADIUS_DEEP_CREATE_CONTEXT: readonly string[] = [];
 
 /** The full documented residual: the ONLY fallback-off estate failures P6 Stage 0
  *  tolerates. Everything else must be green with the V1 fallback disabled. */
