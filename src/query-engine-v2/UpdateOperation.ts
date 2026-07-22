@@ -40,11 +40,11 @@ import {
   planNestedCreateIdentity,
 } from "../query-engine/operations/mutation-identity";
 import type { QueryEngine } from "../query-engine/query-engine";
+import { assertNullable } from "../query-engine/RelationProgramValues";
 import {
   assertRelationKeyUpdatesAreCompilable,
   assertUpdateManyRelationsAreCompilable,
 } from "../query-engine/RelationUpdates";
-import { assertNullable } from "../query-engine/RelationProgramValues";
 import { ResultParser } from "../query-engine/result/ResultParser";
 import { classifyRelationKeyScalarUpdate } from "../query-engine/TargetConstraint";
 import type { QueryScope, RelationInfo } from "../query-engine/types";
@@ -890,7 +890,10 @@ export class UpdateOperation {
     guards: OperationStep[]
   ): void {
     for (const guard of this.relationKeyGuards) {
-      const message = relationKeyOccupiedMessage(guard.relationName, guard.action);
+      const message = relationKeyOccupiedMessage(
+        guard.relationName,
+        guard.action
+      );
       if (this.mode === "batch") {
         // V1's `notExistsWhenChanged` premise: assert the OLD slot is EMPTY; the batch
         // aborts (rejects "occupied") if a row exists — a `notExists` guard whose
@@ -1493,7 +1496,9 @@ export class UpdateOperation {
         // the reproduced surface (compound / non-PK reference, unpinned pre-value)
         // routes the whole tree to V1.
         if (
-          referencedFields.some((f) => Object.hasOwn(input.rootScalarData, f)) &&
+          referencedFields.some((f) =>
+            Object.hasOwn(input.rootScalarData, f)
+          ) &&
           this.interpretTransitionedChildUpsert({
             input,
             relationName,
@@ -2905,7 +2910,9 @@ function updateManyCarriesRelations(
   const inputs = Array.isArray(input) ? input : [input];
   return inputs.some((item) => {
     if (!(isRecord(item) && isRecord(item.data))) return false;
-    return Object.keys(separateData(childScope, item.data).relations).length > 0;
+    return (
+      Object.keys(separateData(childScope, item.data).relations).length > 0
+    );
   });
 }
 

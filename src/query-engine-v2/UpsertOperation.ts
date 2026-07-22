@@ -6,10 +6,7 @@ import {
   buildPrimaryKeyWhereUnique,
   getPrimaryKeyFields,
 } from "../query-engine/builders/correlation-utils";
-import {
-  getFkDirection,
-  separateData,
-} from "../query-engine/builders/relation-data-builder";
+import { separateData } from "../query-engine/builders/relation-data-builder";
 import { buildInsert } from "../query-engine/builders/values-builder";
 import { getWhereUniqueEntries } from "../query-engine/builders/where-unique-builder";
 import {
