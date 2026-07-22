@@ -1035,6 +1035,41 @@ planned-parent root paths are byte-identical.
   `OperationFragment.ts` untouched. Next drive: mechanism (2), create-arm fresh-parent
   recursion (C's create, E, G), then mechanism (3), the create-arm depth-guard relaxation.
 
+### T3b-2 — mechanisms 2 + 3 landed: families C + E + G (census 21 → 8)
+
+Mechanisms (2) **create-arm fresh-parent recursion** and (3) **create-arm depth-guard
+relaxation** are landed. All 13 remaining recursion/depth keys run natively fallback-off;
+only D ×7 + H ×1 (T3c) remain.
+
+- **Family C (×10)** — `RelationJunctionPart.buildJunctionParts` lifts the m2m scalarOnly
+  boundary: a junction `create`/`update`/`upsert`-arm target whose data carries its own
+  relations folds them one level deeper through the SAME `buildNestedTargetChildParts` seam
+  (a located update/upsert-update target by its `where` PK — mechanism 1 reuse; a fresh
+  create/upsert-create target by its explicit `create` PK — mechanism 2, ATOM §4 elision).
+  Slots carry per-target child Parts; `planning` plans the superset; `compile` emits the
+  taken arm's writes; `nestedBuilder` threaded at all three call sites.
+- **Family E (×2)** — `UpdateOperation.interpretChildHeldCreate` routes a child-held to-many
+  `create`/`createMany` under the update root to the literal-parent create leaf, its FK the
+  `where`-pinned PK or a **D4** root-SET-rewritten column (create-only relations add no
+  referenced column to `locateFields`, so reorder stays FALSE and the root UPDATE precedes
+  the fresh INSERT).
+- **Family G (×1)** — `RelationUpsertPart.buildArmChildParts` accepts a child-held `create`
+  one level deeper on the connectOrCreate create arm: a fresh grandchild INSERT folding a
+  single parent-held to-one `connect`, mirroring V1's accepted depth exactly.
+- **Named reorder obligation closed** — `buildNestedTargetChildParts` routes a deeper edge
+  whose FK references a NON-PK column of the located target to V1 (the literal/planned parent
+  id carries only the target's PK per-field, so a D4-style deep non-PK reference cannot be
+  injected and would miss the PK-only depth reorder); the PK-only reorder check is therefore
+  complete. Witness `nested-update-d4-deep-nonpk-reference.test.ts`.
+- **`FALLBACK_OFF_RESIDUAL_COUNT` 21 → 11 → 9 → 8.** −10 family C, −2 family E, −1 family G.
+  Route-inventory 75 → 87 (12 finer boundary routes, none removed). The census edit is
+  falsified twice (the count pin catches a wrong count; re-pinning an absorbed key fails the
+  fallback-off gate — absorption is real). Family-C dual-run/multi-parent/raw-junction-A/B
+  witnesses (`nested-junction-target-recursion.test.ts`); the D4-deep guard witness +
+  falsification.
+- **P6 stays blocked** — 8 shapes remain (D ×7, H ×1 — T3c), `OperationFragment.ts`
+  untouched. Next drive: family D (top-level `upsert` with nested-relation arms) + family H.
+
 ## P6 — Deletion and the honest audit
 
 Bulk-delete V1's operation/execution root once unreachable; keep what V2

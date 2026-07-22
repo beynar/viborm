@@ -1195,6 +1195,32 @@ tree is **1.85× faster on V2** (PERF.md, the same composition dividend as T2/T3
 E ×2, G ×1, H ×1). The next drive absorbs mechanism (2), create-arm fresh-parent
 recursion (C's create, E, G), then mechanism (3), the create-arm depth-guard relaxation.
 
+**T3b-2 — mechanisms 2 + 3 DELIVERED (families C ×10 + E ×2 + G ×1; census 21 → 8).** All
+13 remaining recursion/depth keys run natively fallback-off; only D ×7 + H ×1 (T3c) remain.
+**Family C**: `RelationJunctionPart.buildJunctionParts` folds a junction `create`/`update`/
+`upsert`-arm target whose data carries its own relations one level deeper through the SAME
+`buildNestedTargetChildParts` seam — a located update/upsert-update target by its `where` PK
+(mechanism 1 reuse), a fresh create/upsert-create target by its explicit `create` PK
+(mechanism 2, ATOM §4 fresh-parent elision). The slots carry per-target child Parts,
+`planning` plans their probes as the unconditional superset (§3 technique 2), `compile`
+emits only the taken arm's writes; `nestedBuilder` threaded at all three call sites.
+**Family E**: `UpdateOperation.interpretChildHeldCreate` routes a child-held to-many
+`create`/`createMany` under the update root to the literal-parent create leaf, its FK the
+`where`-pinned PK or a D4 root-SET-rewritten column (create-only relations add no referenced
+column to `locateFields`, keeping reorder FALSE so the root UPDATE precedes the fresh INSERT).
+**Family G**: `RelationUpsertPart.buildArmChildParts` accepts a child-held `create` one level
+deeper on the connectOrCreate create arm — a fresh grandchild INSERT folding a single
+parent-held to-one `connect`, mirroring V1's accepted depth exactly. **Named reorder
+obligation closed**: `buildNestedTargetChildParts` routes a deeper edge whose FK references a
+NON-PK column of the located target to V1 (the literal/planned parent id carries only the
+target's PK per-field), so the PK-only depth reorder check is complete; the root threads such
+a value from its located row (D4), the depth builder is a documented narrower boundary.
+Certified: the `VIBORM_FALLBACK_OFF=1` census runs all 13 natively on both substrates
+byte-identical to V1; the census edit falsified twice (count pin + re-pin an absorbed key);
+family-C dual-run/multi-parent/raw-A-B witnesses; the D4-deep guard witness + falsification;
+route inventory **75 → 87** (12 finer boundary routes, none removed). `OperationFragment.ts`
+untouched. **P6 stays blocked** — 8 shapes remain (D ×7, H ×1 — T3c).
+
 ---
 
 ## 9. Invariants (the executable contract)

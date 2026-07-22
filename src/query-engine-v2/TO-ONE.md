@@ -741,3 +741,70 @@ isolation, guard falsified); estate 6111/0, MySQL 470, pg 411/14; typecheck + Bi
 
 The next drive absorbs mechanism (2) — create-arm fresh-parent recursion (C's create,
 E, G) — then mechanism (3), the create-arm depth-guard relaxation.
+
+### 7.7.3 T3b-2 — mechanisms 2 + 3 DELIVERED (families C + E + G, census 21 → 8)
+
+Mechanisms (2) and (3) are landed. The delivered truth — all 13 remaining recursion/depth
+keys (**C ×10, E ×2, G ×1**) run natively fallback-off; only D ×7 + H ×1 (T3c) remain.
+
+**Family C — the m2m junction scalarOnly boundary lifted.** `RelationJunctionPart`'s
+`buildJunctionParts` folds a junction `create`/`update`/`upsert`-arm target whose data
+carries its OWN relations one level deeper through the SAME `buildNestedTargetChildParts`
+seam mechanism 1 introduced — a located `update`/`upsert`-update target by its `where` PK
+(mechanism 1 reuse), a fresh `create`/`upsert`-create target by its explicit `create` PK
+(mechanism 2, ATOM §4 fresh-parent elision — the just-created junction target has no
+memberships, so a correlated read below it is statically empty). The `RelationJunctionPart`
+slots carry the per-target child Parts; `planning` plans their probes one level deeper
+(the unconditional superset, ATOM §3 technique 2), `compile` emits only the taken arm's
+writes after the relevant junction row (branch-specific for the upsert arms). The
+`nestedBuilder` is threaded at all three call sites (`UpdateOperation`, `CreateOperation`,
+`nested-target-parts`); a caller that does not thread it keeps the pre-T3b-2 scalar-only
+boundary. `scalarOnly` stays for `updateMany` (a filter target, no literal PK) and the
+`connectOrCreate` adopt arm. Witnesses (`nested-junction-target-recursion.test.ts`): a
+live V1-vs-V2 dual-run oracle with a native-route assertion; a deepest-level multi-parent
+correlation witness (two junction targets in ONE operation, deeper writes isolated); raw
+junction-row A/B inspection for a deep self-referential m2m (orientation preserved at
+depth).
+
+**Family E — a nested `create`/`createMany` under the update root.** `UpdateOperation.`
+`interpretChildHeldCreate` routes a child-held to-many create under the update root to the
+literal-parent create leaf (mechanism 2 create-arm), resolving the FK from the update's own
+inputs: the referenced column pinned by the unique `where` (the common PK case), or — **D4**
+— rewritten by the root SET, its new value threaded to the fresh row. A create-only relation
+adds NO referenced column to `locateFields`, so the reorder stays FALSE and the root UPDATE
+lands BEFORE the child INSERT (the fresh row references the post-transition value, which must
+already exist). A referenced column knowable only from the located row (a planned FK), a
+compound key, or a non-literal (arithmetic) rewrite routes to V1.
+
+**Family G — the create-arm depth-guard relaxation (mechanism 3).** `RelationUpsertPart.`
+`buildArmChildParts` accepts a child-held `create` one level deeper on the connectOrCreate
+CREATE arm: a fresh grandchild INSERT under the fresh child (its PK a compile-time literal,
+ATOM §4 elision), its own data folding a single parent-held to-one `connect` (its FK the
+connect's literal referenced value). Anything deeper — a m2m grandchild, a parent-held-to-one
+grandchild create, a non-connect grandchild relation — routes to V1, mirroring V1's accepted
+depth exactly. The decline message keeps its pre-T3b-2 wording (byte-identical).
+
+**The named reorder obligation, closed.** The depth reorder check
+(`RelationWritePart`, `UpdateOperation.parentHeldUpdateData`) tested only the target PK,
+while the root reorders on its full referenced-column union (PK ∪ every child-referenced
+column, D4-style non-PK references included). A **D4-style deeper edge referencing a non-PK
+unique the target rewrites** is the gap. Resolution: `buildNestedTargetChildParts` now routes
+every deeper child-held edge whose FK references a NON-PK column of the located target to V1
+— the literal/planned parent id carries only the target's PK per-field, so such a reference
+cannot be injected AND would miss the PK-only reorder. The PK is therefore the only referenced
+column that can reach the depth check, so the PK-only check is complete. The root threads a
+non-PK reference from its located row (D4 at the root, family E); the depth builder is a
+documented narrower boundary. Witness (`nested-update-d4-deep-nonpk-reference.test.ts`): a
+deeper edge referencing a non-PK unique routes to V1, state byte-identical, both substrates;
+guard falsified (neuter it → V2 injects the target's id and the witness diverges).
+
+**Certified.** `FALLBACK_OFF_RESIDUAL_COUNT` **21 → 11** (family C ×10) **→ 9** (family E
+×2) **→ 8** (family G ×1). Route inventory **75 → 87** (12 finer boundary routes, none
+removed): C's `requireWherePk`/`requireCreatePkValue`/`foldTarget`-no-builder (×3), E's
+`resolveLiteralCreateParent` compound/non-literal/planned (×3), G's create-arm
+`buildCreateArmChildCreateParts`/`foldParentHeldConnect` (×5), the D4-deep non-PK guard
+(×1). The `VIBORM_FALLBACK_OFF=1` conformance census runs all 13 natively on BOTH substrates,
+byte-identical to V1's state/result/error/message; the census edit is falsified twice (the
+count pin catches a wrong count; re-pinning an absorbed key fails the fallback-off gate —
+absorption is real). `OperationFragment.ts` vocabulary untouched; V1 frozen. **P6 stays
+blocked** (8 shapes remain: families D ×7, H ×1 — T3c).
