@@ -7,6 +7,7 @@ import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
 import { isOperationValueReference } from "../../src/query-engine-v2/OperationFragment";
+import { UnsupportedOperationError } from "../../src/query-engine-v2/shared";
 import { UpdateOperation } from "../../src/query-engine-v2/UpdateOperation";
 import {
   runUpdateFamilyBehavior,
@@ -349,53 +350,40 @@ describe("query-engine-v2 technique #1 witness (correlated disconnect probe)", (
 });
 
 // ---------------------------------------------------------------------------
-// Routing (PLAN P2a): a supported tree runs on V2; a shape outside V2's family
-// (nested to-many `create`) falls back to the real V1 client — one call never
-// mixes engines. Proven by the proxy's route spy.
+// V2 construction surface (was PLAN P2a per-tree routing). Pre-P6 a shape outside
+// V2's family routed the whole tree to the V1 client; post-P6 there is no V1, so
+// V2's construction-time decision IS the caller's outcome — a supported tree
+// constructs, an unsupported tree declines with the typed refusal (an
+// UnsupportedOperationError, a QueryEngineError subclass) before any I/O.
 // ---------------------------------------------------------------------------
 
-describe("query-engine-v2 per-tree routing", () => {
-  test("supported update routes to V2; unsupported nested-create routes to V1", async () => {
-    const db = new PGlite();
-    const client = makeClient(db);
-    await push(client, { force: true });
-    await client.user.create({ data: { email: "r@x", count: 0 } });
+describe("query-engine-v2 update construction surface", () => {
+  test("supported update constructs on V2; nested to-many create is the documented refusal", () => {
+    const schemas = createSchemaRegistry(updateFamilySchema);
+    const engine = new QueryEngine(
+      new PGliteDriver(),
+      createModelRegistry(updateFamilySchema, schemas)
+    );
+    const userModel = updateFamilySchema.user;
 
-    const routed = createV2RoutedClient({
-      schema: updateFamilySchema,
-      client: client as unknown as Record<string, RoutedModel>,
-      driver: new PGliteDriver({ client: db }),
-    });
+    // Supported: a scalar update is V2-native — it constructs for the whole tree.
+    expect(
+      new UpdateOperation(engine, userModel, {
+        where: { email: "r@x" },
+        data: { count: { increment: 1 } },
+        select: { email: true },
+      })
+    ).toBeInstanceOf(UpdateOperation);
 
-    // Supported: scalar update → V2.
-    await routed.client.user!.update!({
-      where: { email: "r@x" },
-      data: { count: { increment: 1 } },
-      select: { email: true },
-    });
-    expect(routed.routes.at(-1)).toEqual({
-      model: "user",
-      operation: "update",
-      engine: "v2",
-    });
-
-    // Unsupported by V2 (nested to-many create) → routes to the real V1 client,
-    // which handles it. The whole tree runs on one engine.
-    await routed.client.user!.update!({
-      where: { email: "r@x" },
-      data: { posts: { create: { id: 1, title: "t", slug: "sr" } } },
-      select: { email: true, posts: { select: { id: true } } },
-    });
-    expect(routed.routes.at(-1)).toEqual({
-      model: "user",
-      operation: "update",
-      engine: "v1",
-    });
-    // V1 actually created the post.
-    await expect(
-      client.post.findUnique({ where: { id: 1 } })
-    ).resolves.toMatchObject({ userId: 1 });
-
-    await client.$disconnect();
+    // Outside V2's surface (a nested to-many `create` under `update`): V2 declines
+    // at construction, before any I/O, with the typed refusal.
+    expect(
+      () =>
+        new UpdateOperation(engine, userModel, {
+          where: { email: "r@x" },
+          data: { posts: { create: { id: 1, title: "t", slug: "sr" } } },
+          select: { email: true, posts: { select: { id: true } } },
+        })
+    ).toThrow(UnsupportedOperationError);
   });
 });

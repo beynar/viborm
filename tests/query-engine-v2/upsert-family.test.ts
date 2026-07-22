@@ -14,6 +14,7 @@ import type { Model } from "@schema/model";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
 import { OperationExecutor } from "../../src/query-engine-v2/OperationExecutor";
+import { UnsupportedOperationError } from "../../src/query-engine-v2/shared";
 import { UpdateOperation } from "../../src/query-engine-v2/UpdateOperation";
 import { UpsertOperation } from "../../src/query-engine-v2/UpsertOperation";
 import {
@@ -244,120 +245,92 @@ describe("query-engine-v2 upsert family dual-run oracle (V1 vs V2)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Routing (PLAN P2b): a supported upsert runs on V2; an upsert whose arm carries
-// a nested relation mutation (out of P2b scope) falls back to the real V1 client
-// — one call never mixes engines. Proven by the proxy's route spy.
+// V2 upsert construction surface (was PLAN P2b per-tree routing). Pre-P6 an upsert
+// whose arm carried a nested relation mutation routed the whole tree to the V1
+// client; post-P6 there is no V1, so V2's construction-time decision IS the
+// caller's outcome — a supported upsert constructs, an out-of-surface arm declines
+// with the typed refusal (an UnsupportedOperationError) before any I/O.
 // ---------------------------------------------------------------------------
 
-describe("query-engine-v2 per-tree routing (upsert)", () => {
-  test("scalar upsert routes to V2; nested-arm upsert routes to V1", async () => {
-    const db = new PGlite();
-    const client = makeClient(db);
-    await push(client, { force: true });
-    await client.user.create({ data: { email: "r@x", score: 0 } });
+describe("query-engine-v2 upsert construction surface", () => {
+  test("scalar upsert constructs on V2; a nested-arm relation mutation is the documented refusal", () => {
+    const schemas = createSchemaRegistry(upsertFamilySchema);
+    const engine = new QueryEngine(
+      new PGliteDriver(),
+      createModelRegistry(upsertFamilySchema, schemas)
+    );
+    const userModel = upsertFamilySchema.user;
 
-    const routed = createV2RoutedClient({
-      schema: upsertFamilySchema,
-      client: client as unknown as Record<string, RoutedModel>,
-      driver: new PGliteDriver({ client: db }),
-    });
+    // Supported: a scalar upsert is V2-native.
+    expect(
+      new UpsertOperation(engine, userModel, {
+        where: { email: "r@x" },
+        create: { email: "r@x", score: 0 },
+        update: { score: { increment: 1 } },
+        select: { email: true },
+      })
+    ).toBeInstanceOf(UpsertOperation);
 
-    await routed.client.user!.upsert!({
-      where: { email: "r@x" },
-      create: { email: "r@x", score: 0 },
-      update: { score: { increment: 1 } },
-      select: { email: true },
-    });
-    expect(routed.routes.at(-1)).toEqual({
-      model: "user",
-      operation: "upsert",
-      engine: "v2",
-    });
-
-    // A nested relation mutation in the update arm is out of P2b scope → V1.
-    await routed.client.user!.upsert!({
-      where: { email: "r@x" },
-      create: { email: "r@x", score: 0 },
-      update: {
-        posts: { create: { id: 1, title: "t", slug: "sr" } },
-      },
-      select: { email: true, posts: { select: { id: true } } },
-    });
-    expect(routed.routes.at(-1)).toEqual({
-      model: "user",
-      operation: "upsert",
-      engine: "v1",
-    });
-    await expect(
-      client.post.findUnique({ where: { id: 1 } })
-    ).resolves.toMatchObject({ userId: 1 });
-
-    await client.$disconnect();
+    // A nested relation mutation in the update arm is outside V2's upsert surface:
+    // V2 declines at construction with the typed refusal.
+    expect(
+      () =>
+        new UpsertOperation(engine, userModel, {
+          where: { email: "r@x" },
+          create: { email: "r@x", score: 0 },
+          update: {
+            posts: { create: { id: 1, title: "t", slug: "sr" } },
+          },
+          select: { email: true, posts: { select: { id: true } } },
+        })
+    ).toThrow(UnsupportedOperationError);
   });
 });
 
 // ---------------------------------------------------------------------------
-// Scope-shrink routing (attack #4): a depth-2 shape whose grandchild is a to-one
-// relation is inside V1's surface but outside V2's narrow door. V2's depth
-// recursion must reject it as an UnsupportedOperationError (a QueryEngineError
-// SUBCLASS) so the proxy catches it and routes the WHOLE tree to V1 — never a
-// bare QueryEngineError that hard-fails a shape V1 supports. `posts.upsert` is
-// one-to-many (V2 depth-composes it), but its update arm's `author` is a
-// many-to-one grandchild: the RelationUpsertPart depth builder throws during
-// UpdateOperation construction, before any I/O, and the tree falls to V1.
+// Scope-shrink refusal (attack #4): a depth-2 shape whose grandchild is a to-one
+// relation. `posts.upsert` is one-to-many (V2 depth-composes it), but its update
+// arm's `author` is a many-to-one grandchild outside V2's narrow door. V2's depth
+// recursion declines with an UnsupportedOperationError (a QueryEngineError
+// SUBCLASS, never a bare QueryEngineError) during UpdateOperation construction,
+// before any I/O. Pre-P6 the proxy caught that and routed the whole tree to V1;
+// post-P6 the typed refusal is the caller's outcome.
 // ---------------------------------------------------------------------------
 
-describe("query-engine-v2 per-tree routing (depth-2 to-one grandchild)", () => {
-  test("nested upsert whose update arm has a to-one connectOrCreate falls to V1", async () => {
-    const db = new PGlite();
-    const client = makeClient(db);
-    await push(client, { force: true });
-    await client.user.create({ data: { email: "gp@x", score: 0 } });
-    await client.post.create({
-      data: { id: 50, title: "orig", slug: "s50", userId: 1 },
-    });
+describe("query-engine-v2 depth-2 to-one grandchild refusal", () => {
+  test("a nested upsert whose update arm has a to-one connectOrCreate is the documented refusal", () => {
+    const schemas = createSchemaRegistry(upsertFamilySchema);
+    const engine = new QueryEngine(
+      new PGliteDriver(),
+      createModelRegistry(upsertFamilySchema, schemas)
+    );
+    const userModel = upsertFamilySchema.user;
 
-    const routed = createV2RoutedClient({
-      schema: upsertFamilySchema,
-      client: client as unknown as Record<string, RoutedModel>,
-      driver: new PGliteDriver({ client: db }),
-    });
-
-    // `posts.upsert` is one-to-many (V2's surface), but `update.author` is a
-    // many-to-one grandchild (V1's surface, not V2's). The whole tree routes to
-    // V1 and returns cleanly — the fix under test is that V2's rejection is an
-    // UnsupportedOperationError, not a bare QueryEngineError that would propagate.
-    const result = await routed.client.user!.update!({
-      where: { email: "gp@x" },
-      data: {
-        posts: {
-          upsert: [
-            {
-              where: { id: 50 },
-              create: { id: 50, title: "created", slug: "s50c" },
-              update: {
-                author: {
-                  connectOrCreate: {
-                    where: { id: 1 },
-                    create: { id: 1, email: "gp@x", score: 0 },
+    expect(
+      () =>
+        new UpdateOperation(engine, userModel, {
+          where: { email: "gp@x" },
+          data: {
+            posts: {
+              upsert: [
+                {
+                  where: { id: 50 },
+                  create: { id: 50, title: "created", slug: "s50c" },
+                  update: {
+                    author: {
+                      connectOrCreate: {
+                        where: { id: 1 },
+                        create: { id: 1, email: "gp@x", score: 0 },
+                      },
+                    },
                   },
                 },
-              },
+              ],
             },
-          ],
-        },
-      },
-      select: { email: true },
-    });
-
-    expect(result).toEqual({ email: "gp@x" });
-    expect(routed.routes.at(-1)).toEqual({
-      model: "user",
-      operation: "update",
-      engine: "v1",
-    });
-
-    await client.$disconnect();
+          },
+          select: { email: true },
+        })
+    ).toThrow(UnsupportedOperationError);
   });
 });
 
