@@ -45,9 +45,34 @@ import { manyToManySchema } from "../fixtures/many-to-many-schema";
  * fallback DISABLED. This file remains the count tripwire; that gate is the
  * behavior-reachability invariant. P6 may delete V1 only when that gate's census
  * (`FALLBACK_OFF_RESIDUAL`, tests/query-engine-v2/fallback-off-residual.ts) is
- * empty — it is not: the T3 measurement (full conformance run fallback-off) pins
- * 43 reachable decline scenarios across eight families, correcting the curated
- * one-entry list the gate carried through T1/T2.
+ * empty.
+ *
+ * **T3c — THE FINAL TRUTH: the census is ZERO.** Every conformance scenario runs
+ * natively on V2 under `VIBORM_FALLBACK_OFF=1` (172 scenarios, both substrates,
+ * byte-identical to V1) — including the two create-root parent-held-FK shapes T1
+ * deferred (a non-referenced-unique connect, a shared-primary-key edge), now
+ * absorbed and given census coverage ("create-root FK declines"). With the census
+ * empty, the 86 remaining `new UnsupportedOperationError` throw sites fall into
+ * exactly three categories, none of which is reachable accept-and-execute behavior:
+ *   (i)   PARITY REFUSAL — V1 ALSO rejects the shape; the whole tree routes to V1 for
+ *         V1's byte-identical typed message (a nested `update`/`delete`/`set` in a
+ *         create payload; an m2m upsert/disconnect/set under create; a to-one
+ *         `delete`/`update` under create that mutates the referenced row; etc.).
+ *   (ii)  THE ONE DELIBERATE REFUSAL — {@link REMAINING_ROUTE} (createManyAndReturn
+ *         skipDuplicates on a non-returning driver): inexpressible (no portable
+ *         ON CONFLICT DO NOTHING that reports a skipped-row count), maintainer-
+ *         authorized.
+ *   (iii) DOCUMENTED-DEGENERATE / NARROWER BOUNDARY — a shape one level DEEPER than an
+ *         absorbed family's proven surface, whose fold value is not a compile-time
+ *         literal (a deeper parent-held-FK to-one needing child-SET folding; a
+ *         compound-PK child at depth; a create-context grandchild under a planned
+ *         parent-held id; a shared-PK edge whose fold is a subquery / generated id /
+ *         connectOrCreate). Each routes the whole tree to V1; NO conformance scenario
+ *         reaches any of them (that is why the census is zero) — they are the finer
+ *         boundaries every absorption from T1 onward drew, tracked in the count
+ *         evolution below. A future test that DOES reach one surfaces there, not here.
+ * No throw site is an accept-and-execute shape a conformance scenario reaches: the
+ * census gate is the proof. P6 may delete the V1 runtime.
  */
 
 const REMAINING_ROUTE =
