@@ -1216,6 +1216,28 @@ bidirectionally + falsified; `OperationFragment.ts` untouched; V1 frozen. **P6 s
 only IV+V (referential-action legality, 15 keys) and the (b) V1-fallback-route doc tests (3)
 remain.
 
+**T4c — CLASS IV+V absorbed, the FINAL absorption (blast radius 18 → 3).** The referential-action
+legality engine + its runtime-branch-gated `updateMany` companion — the pre-sanctioned
+"maybe subsystem-sized" boundary stop. Reuse WAS the strategy: V1's legality is ANALYSIS plus one
+runtime guard. The pure-analysis verdicts (`assertRelationKeyUpdatesAreCompilable`,
+`assertUpdateManyRelationsAreCompilable`) became visibility-only exports of frozen `RelationUpdates`
+and are wired into V2 construction/compile, so every typed rejection is byte-identical because it
+is V1's own function; only `compileRelationKeyGuards`' occupied guard — execution-coupled to V1's
+step vocabulary — was ported to V2's guard/probe vocabulary. Accepted shapes execute native: a
+child-held transition upsert classifies cascade (DB re-point) / no-op / real-non-cascade at compile
+(the where-pinned pre-value + `getUpdatedPrimaryKeyValue`, both literals), emitting the occupied
+guard (tx compile-throw off the locked probe; batch raceable `notExists` guard for the empty-slot
+race) and rerouting the empty-slot create to a POST-transition-FK leaf after the root UPDATE (T4b
+`afterRootCreateParts`); the nested-update recursion runs the reused analysis at every child-part
+level; the top-level upsert's parent-held-to-one update arm plans its superset against an
+OPTIONAL-firstRowField locate (an absent create-arm parent → `undefined`, never a planning abort)
+and rejects only when the found branch is taken (V1's whenTrue timing). All 15 keys native
+fallback-off; every verdict path falsified once; V2 suite 437/437. `BLAST_RADIUS_RESIDUAL` 18 → 3.
+**Every reachable behavior is native — the P6 deletion premise is TRUE**, modulo the 3
+`BLAST_RADIUS_ROUTING_DOC` V1-seam meta-tests, which assert the fallback route itself and are
+rewritten at P6 (the route has no meaning once V1 is deleted). P6's Stage 0 blast-radius gate is
+GREEN at its irreducible floor. **P6 is GREEN — unblocked.**
+
 ## P6 — Deletion and the honest audit
 
 Bulk-delete V1's operation/execution root once unreachable; keep what V2

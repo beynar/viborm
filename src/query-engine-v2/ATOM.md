@@ -1368,6 +1368,49 @@ a compound generated PK, a non-portable arithmetic op. `OperationFragment.ts` un
 executor gained no operation-kind token; V1 frozen. **P6-readiness: only IV+V (referential-
 action legality, 15 keys) and the (b) V1-fallback-route doc tests (3) remain.**
 
+**T4c — CLASS IV+V absorbed, the FINAL absorption (blast radius 18 → 3).** The referential-action
+LEGALITY ENGINE and its runtime-branch-gated `updateMany` companion — a root update/upsert that
+TRANSITIONS a referenced key while a nested write targets the relation on that key. Reuse-vs-port:
+V1's legality is ANALYSIS + one runtime guard. The pure-analysis VERDICTS are reused wholesale as
+kept mass — `assertRelationKeyUpdatesAreCompilable` / `assertUpdateManyRelationsAreCompilable` are
+now visibility-only exports of the frozen `RelationUpdates` (like `OwnWriteAnalyzer`), so every
+typed `NestedWriteError` rejection is byte-identical because it is V1's own function. The ONE
+execution-coupled piece — `compileRelationKeyGuards`' occupied guard — was ported to V2's
+guard/probe vocabulary; every accepted shape executes native.
+- **CLASS IV, child-held transition** (`interpretTransitionedChildUpsert`): a child-held (inverse
+  one-to-one) upsert under a referenced-PK transition. Classified at compile from the where-pinned
+  pre-value and V1's `getUpdatedPrimaryKeyValue` (both literals): **cascade** keeps the ordinary
+  correlated part (the DB re-points on `ON UPDATE CASCADE` + the root reorder); a **no-op**
+  (`increment: 0` / `set` same, before == after) is byte-identical to a non-transition; a real
+  **non-cascade** transition emits V1's occupied guard (tx-mode compile throw off the locked
+  planning probe; batch-mode a raceable `notExists`/absence guard pinning the empty-slot race) and
+  reroutes the create arm to a POST-transition-FK leaf ordered after the root UPDATE (the T4b
+  `afterRootCreateParts` machinery — the upsert update arm is unreachable: occupied rejects, empty
+  creates). `compileRelationKeyGuards` (V2's, `notExistsWhenChanged` ported).
+- **CLASS IV, recursion**: `assertRelationKeyUpdatesAreCompilable` now runs at every nested
+  `RelationWritePart.interpretChildParts` level, so `authorId: { increment }` beside
+  `author: { update }` in nested update data rejects before outer effects.
+- **CLASS IV, top-level upsert parent-held-to-one update arm**: the delegated update sub-op's
+  locate gained an **optional firstRowField** (`StatementOutputSource.optional`, set only under
+  `locateNotFoundOptional`) — when the create arm leaves the parent absent the parent-correlated
+  superset probe resolves the FK to `undefined` and plans cleanly instead of aborting; the taken
+  (found) branch rejects via the deferred `assertArmLegality` (V1's whenTrue timing), the untaken
+  (create) branch succeeds. The parent-held-to-one decline is gone.
+- **CLASS V**: a nested relation write inside `updateMany` data rejects with V1's byte-identical
+  message — immediate at construction for a plain update, deferred to the taken branch for an
+  upsert update arm.
+
+Certified: all 15 keys green fallback-off (`relation-key-update-legality` 10, `legality-gate` 4,
+`nested-mutation-routing` 1); each verdict path falsified once (flip the occupied guard →
+accept-where-V1-rejects; drop the no-op classify → reject-where-V1-accepts; before-FK create →
+FK-violation; drop the recursion analysis → decline-not-reject; remove the deferred CLASS V check →
+untaken-arm over-rejects). Narrower boundaries still routing to V1: a compound / non-PK referenced
+transition, a pre-transition value the unique `where` does not pin. `OperationFragment.ts` gained
+one optional flag on `firstRowField` (a deliberate, snapshot-frozen type-surface change); the
+executor gained no operation-kind token; V1 frozen. **P6-readiness: the blast radius is 3 —
+BLAST_RADIUS_ROUTING_DOC's V1-seam meta-tests, which have no meaning without V1 and are rewritten
+at P6 itself. Every reachable behavior is native.**
+
 ---
 
 ## 9. Invariants (the executable contract)
