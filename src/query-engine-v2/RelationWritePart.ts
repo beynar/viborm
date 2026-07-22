@@ -19,6 +19,7 @@ import {
 } from "../query-engine/operations";
 import { assertPortablePrimaryKeyUpdateInput } from "../query-engine/operations/mutation-identity";
 import type { QueryEngine } from "../query-engine/query-engine";
+import { assertRelationKeyUpdatesAreCompilable } from "../query-engine/RelationUpdates";
 import type { QueryScope, RelationInfo } from "../query-engine/types";
 import {
   affectedRows,
@@ -558,6 +559,13 @@ export class RelationWritePart implements Part {
       );
     }
     const { scalarData, relations } = separateData(childScope, data);
+    // CLASS IV (T4c) — V1's `assertRelationKeyUpdatesAreCompilable`, reused: the
+    // located target's own relation-key fields may not be rewritten by a non-literal
+    // op while it mutates that relation (`authorId: { increment }` alongside
+    // `author: { update }`). V1 runs this at EVERY `compileLocatedUpdate` level; this
+    // is the nested level (a to-many/inverse-to-one `update` target's payload), so the
+    // reject recurses into nested update data BEFORE any outer effect, byte-identical.
+    assertRelationKeyUpdatesAreCompilable(childScope, scalarData, relations);
     if (Object.keys(relations).length === 0) {
       if (Object.keys(scalarData).length === 0) {
         throw new UnsupportedOperationError(

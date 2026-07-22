@@ -159,13 +159,7 @@ export class RelationUpdates<T> {
     relationName: string,
     relations: Record<string, RelationMutation>
   ): void {
-    const relationKeys = Object.keys(relations);
-    if (relationKeys.length === 0) return;
-    throw new NestedWriteError(
-      `Nested relation writes inside updateMany data for relation '${relationName}' are not supported.`,
-      relationName,
-      { meta: { operation: "updateMany", relations: relationKeys } }
-    );
+    assertUpdateManyRelationsAreCompilable(relationName, relations);
   }
 
   collectSteps(compile: () => void): readonly OperationStep[] {
@@ -444,7 +438,26 @@ export class RelationUpdates<T> {
   }
 }
 
-function assertRelationKeyUpdatesAreCompilable(
+/**
+ * V1's updateMany-data relation legality (T4c visibility export, reused wholesale by
+ * V2): a nested relation write inside `updateMany` data is inexpressible, rejected
+ * before any effect with the byte-identical typed message. `relations` is the
+ * `separateData` relation split of one updateMany input's `data`.
+ */
+export function assertUpdateManyRelationsAreCompilable(
+  relationName: string,
+  relations: Record<string, RelationMutation>
+): void {
+  const relationKeys = Object.keys(relations);
+  if (relationKeys.length === 0) return;
+  throw new NestedWriteError(
+    `Nested relation writes inside updateMany data for relation '${relationName}' are not supported.`,
+    relationName,
+    { meta: { operation: "updateMany", relations: relationKeys } }
+  );
+}
+
+export function assertRelationKeyUpdatesAreCompilable(
   ctx: QueryScope,
   scalarData: Record<string, unknown>,
   relations: Record<string, RelationMutation>

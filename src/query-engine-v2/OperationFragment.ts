@@ -25,7 +25,18 @@ export type StatementOutputSource =
   | { readonly kind: "rows" }
   | { readonly kind: "rowCount" }
   | { readonly kind: "insertId" }
-  | { readonly kind: "firstRowField"; readonly field: string };
+  | {
+      readonly kind: "firstRowField";
+      readonly field: string;
+      /**
+       * Tolerate an empty result (resolve to `undefined`) instead of throwing.
+       * Set ONLY on a locate whose missing row is a legitimate branch — an upsert
+       * update arm's superset locate (`locateNotFoundOptional`): when the create
+       * arm is taken the parent is absent, so this firstRowField has no compiled
+       * consumer and must not fail planning. A required locate never sets it.
+       */
+      readonly optional?: boolean;
+    };
 
 /**
  * A typed operation failure (ATOM §1 `Failure`). Carries the full V1 taxonomy

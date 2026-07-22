@@ -40,6 +40,10 @@ import {
   planNestedCreateIdentity,
 } from "../query-engine/operations/mutation-identity";
 import type { QueryEngine } from "../query-engine/query-engine";
+import {
+  assertRelationKeyUpdatesAreCompilable,
+  assertUpdateManyRelationsAreCompilable,
+} from "../query-engine/RelationUpdates";
 import { assertNullable } from "../query-engine/RelationProgramValues";
 import { ResultParser } from "../query-engine/result/ResultParser";
 import { classifyRelationKeyScalarUpdate } from "../query-engine/TargetConstraint";
@@ -396,6 +400,7 @@ export class UpdateOperation {
           separated.scalarData,
           separated.relations
         );
+        this.assertUpdateManyRelationLegality(separated.relations);
       };
     } else {
       assertRelationKeyUpdatesAreCompilable(
@@ -403,6 +408,12 @@ export class UpdateOperation {
         separated.scalarData,
         separated.relations
       );
+      // CLASS V (T4c) — V1's `assertUpdateManyDataIsCompilable`, reused: a nested
+      // relation write inside `updateMany` data rejects (byte-identical) BEFORE the
+      // parent mutation. Runtime-branch-gated inside an upsert update arm (the
+      // deferred branch above), so a missing-target upsert taking the create arm never
+      // validates it.
+      this.assertUpdateManyRelationLegality(separated.relations);
     }
 
     this.parentWhere = parseRecord(
@@ -609,13 +620,20 @@ export class UpdateOperation {
       }),
       // Each PK field AND each child-FK-referenced field is a firstRowField
       // output so a per-field child FK edge can ref it (compound keys / D4-style
-      // non-PK references — the census's multi-field produces).
+      // non-PK references — the census's multi-field produces). As an upsert update
+      // arm (`locateNotFoundOptional`) the create arm may leave the parent absent, so
+      // these firstRowField outputs are optional — an untaken update arm's superset
+      // locate must not fail planning on the empty result (T4c).
       outputs: {
         rows: { kind: "rows" },
         ...Object.fromEntries(
           locateSelectFields.map((field) => [
             field,
-            { kind: "firstRowField", field },
+            {
+              kind: "firstRowField",
+              field,
+              ...(options.locateNotFoundOptional ? { optional: true } : {}),
+            },
           ])
         ),
       },
@@ -784,6 +802,37 @@ export class UpdateOperation {
    *  timing — so an invalid untaken update branch never rejects the whole tree. */
   assertArmLegality(): void {
     this.armLegalityChecks?.();
+  }
+
+  /**
+   * CLASS V (T4c) — V1's `RelationUpdates.assertUpdateManyDataIsCompilable`, reused:
+   * a nested relation write inside a to-many relation's `updateMany` data is
+   * inexpressible; reject with V1's byte-identical `NestedWriteError` before any
+   * effect. Mirrors `compileRelation`, which separates each updateMany input's data
+   * and runs the check. The offending `updateMany` Part is skipped at interpretation
+   * ({@link updateManyCarriesRelations}); this owns the rejection, immediate at
+   * construction (a plain update) or deferred to the taken upsert branch.
+   */
+  private assertUpdateManyRelationLegality(
+    relations: Record<string, RelationMutation>
+  ): void {
+    for (const mutation of Object.values(relations)) {
+      const updateMany = mutation.updateMany;
+      if (updateMany === undefined) continue;
+      const childScope = createQueryScope(
+        this.engine.adapter,
+        mutation.relationInfo.targetModel
+      );
+      const inputs = Array.isArray(updateMany) ? updateMany : [updateMany];
+      for (const input of inputs) {
+        if (!(isRecord(input) && isRecord(input.data))) continue;
+        const { relations: nested } = separateData(childScope, input.data);
+        assertUpdateManyRelationsAreCompilable(
+          mutation.relationInfo.name,
+          nested
+        );
+      }
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -1231,6 +1280,14 @@ export class UpdateOperation {
         push(buildToManyUpdateParts(writeBase, parsedRelation.update));
         return;
       case "updateMany":
+        // CLASS V (T4c): a relation-carrying updateMany is rejected by the legality
+        // check (immediate at construction for a plain update, or deferred to the taken
+        // upsert branch). Skip building the Part so its construction does not throw
+        // ahead of that runtime-branch-gated verdict (an untaken upsert update arm
+        // whose invalid updateMany never runs must not reject the whole tree).
+        if (updateManyCarriesRelations(childScope, parsedRelation.updateMany)) {
+          return;
+        }
         push(buildToManyUpdateManyParts(writeBase, parsedRelation.updateMany));
         return;
       case "delete":
@@ -2632,41 +2689,18 @@ export class UpdateOperation {
   }
 }
 
-/**
- * V1's `RelationUpdates.assertRelationKeyUpdatesAreCompilable`, ported byte-for-
- * byte (including its message and `NestedWriteError` meta). For every non-M2M
- * relation being mutated, the relation-key fields (the FK when the parent holds
- * it, else the parent column the child FK references) may not be rewritten by a
- * non-literal operation: a `DerivedValue` on the referenced key would break the
- * correlation the nested write depends on.
- */
-function assertRelationKeyUpdatesAreCompilable(
-  parent: QueryScope,
-  scalarData: Record<string, unknown>,
-  relations: Record<string, RelationMutation>
-): void {
-  const primaryKeyFields = new Set(getPrimaryKeyFields(parent.model));
-  for (const mutation of Object.values(relations)) {
-    if (mutation.relationInfo.type === "manyToMany") continue;
-    const fk = getFkDirection(parent, mutation.relationInfo);
-    const relationKeyFields = fk.holdsFK ? fk.fkFields : fk.pkFields;
-    for (const field of relationKeyFields) {
-      if (scalarData[field] === undefined) continue;
-      if (primaryKeyFields.has(field) && !fk.holdsFK) continue;
-      if (classifyRelationKeyScalarUpdate(scalarData[field]).resolved) continue;
-      throw new NestedWriteError(
-        `Cannot update relation key field '${field}' with a non-literal operation while mutating relation '${mutation.relationInfo.name}'. Use a literal value or '{ set: ... }'.`,
-        mutation.relationInfo.name,
-        {
-          meta: {
-            operation: "update",
-            field,
-            relation: mutation.relationInfo.name,
-          },
-        }
-      );
-    }
-  }
+/** CLASS V (T4c): whether an `updateMany` input (one item or an array) carries a
+ *  nested relation write in its data — the shape V1 rejects with `NestedWriteError`
+ *  ({@link UpdateOperation.assertUpdateManyRelationLegality}). */
+function updateManyCarriesRelations(
+  childScope: QueryScope,
+  input: unknown
+): boolean {
+  const inputs = Array.isArray(input) ? input : [input];
+  return inputs.some((item) => {
+    if (!(isRecord(item) && isRecord(item.data))) return false;
+    return Object.keys(separateData(childScope, item.data).relations).length > 0;
+  });
 }
 
 function normalizeItems(

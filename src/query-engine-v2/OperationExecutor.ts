@@ -701,6 +701,10 @@ function extractOutput(
     !(isRecord(row) && Object.hasOwn(row, source.field)) ||
     row[source.field] === undefined
   ) {
+    // An `optional` firstRowField tolerates an empty result: a planning read whose
+    // missing row is a legitimate branch has no compiled consumer for the value, so
+    // resolve it to `undefined` instead of aborting the linear pass (T4c).
+    if (source.kind === "firstRowField" && source.optional) return undefined;
     throw new TransactionError(
       `Step '${step}' did not produce row field '${source.field}'.`
     );
