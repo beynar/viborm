@@ -1171,23 +1171,29 @@ so the group boundary is now a measured fact, not a reading of intent.
      SIGNAL), a non-local widening of every connectOrCreate/upsert create arm, not a new
      composition.
 
-- **Why absorption is deferred (a sanctioned coherent-boundary stop, not a curated
-  green).** Realising mechanism 1 means factoring `UpdateOperation.interpretRelation`
-  (150+ lines, tightly coupled to `UpdateOperation`'s `this` state — `toOneLinks`,
-  `parentHeldTargets`, `locateFields`, the reorder set) into a reusable **depth-recursive
-  child-Part builder**, and porting the PK-transition/cascade ordering to depth. That is
-  a core-mutation-engine refactor whose every leaf is a byte-identical-to-V1 correlated
-  write needing its own dual-run oracle, a **multi-parent correlation witness at the
-  DEEPEST mutated level**, staleness injection for each new pin, and 5-database
-  certification (the PK-transition/cascade shapes are exactly where a bug passes PGlite
-  and diverges on MySQL/pg — the "sibling/correlation divergence at ANY depth" kill
-  signal). That exceeds a single session's certification budget; shipping it
-  under-certified would be the precise failure the discipline forbids. **So T3b measured
-  and rendered the verdict; it absorbed nothing.** `FALLBACK_OFF_RESIDUAL_COUNT` stays
-  **31**, the bidirectional census gate stays green on the unchanged surface, P6 stays
-  blocked, and `OperationFragment.ts` is untouched. The next drive absorbs one mechanism
-  at a time — B first (the cleanest scalarData boundary, per the work order), then C, the
-  A-remainder (which lands *with* B — it is B's parent-held projection), E, and G.
+**T3b-1 — mechanism 1 DELIVERED (family B ×8 + A-remainder ×2; census 31 → 21).** The
+depth-recursive child-Part builder the verdict called for is landed as
+`buildNestedTargetChildParts` (`nested-target-parts.ts`): a **located-by-PK** target's
+data relations fold into deeper Parts through the SAME per-kind builders the root uses,
+parameterized only by `ParentIdSource` — `literalParentId(pk)` for a child-held nested
+update (its `where` PK, in `RelationWritePart`), `plannedParentId(probe, pk)` for a
+parent-held one (its captured PK, exposed as a firstRowField, in
+`UpdateOperation.parentHeldUpdateData` — family A-remainder's projection). The obligation
+P1 never carried is ported per Part: a target whose SET rewrites its own PK emits its
+self-UPDATE **after** its child edges, the FK's `ON UPDATE CASCADE` carrying the vacated
+id (`reorderRootUpdateAfterChildren` at depth; the `nested identity transition` witness,
+`sourceId` cascades 1→4). Two literal-parent seams the root never needed — a junction
+membership read and an inverse-side to-one correlated probe — inline the literal even at
+planning (no `Ref` for a compile-time constant); the planned-parent root paths are
+byte-identical. Certified: the `VIBORM_FALLBACK_OFF=1` census runs all 10 natively on
+both substrates byte-identical to V1, with multi-parent witnesses at the deepest mutated
+level and 3 decline-surface native/falsification witnesses; typecheck, Biome, full estate
+(6107/0), and the 5-DB matrix (sqlite3/libsql/pglite + Docker MySQL 470 + pg 411/14 — the
+PK-transition/cascade shapes pass on MySQL/pg, not only PGlite). A/B: the family-B deep
+tree is **1.85× faster on V2** (PERF.md, the same composition dividend as T2/T3a).
+`OperationFragment.ts` untouched. **P6 stays blocked** — 21 shapes remain (C ×10, D ×7,
+E ×2, G ×1, H ×1). The next drive absorbs mechanism (2), create-arm fresh-parent
+recursion (C's create, E, G), then mechanism (3), the create-arm depth-guard relaxation.
 
 ---
 

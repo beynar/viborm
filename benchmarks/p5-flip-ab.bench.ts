@@ -12,6 +12,7 @@
 import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { push } from "@migrations";
+import { s } from "@schema";
 import { bench, describe } from "vitest";
 import { sqliteUserPostSchema } from "../tests/fixtures/user-post-schema";
 
@@ -234,6 +235,95 @@ describe("flip A/B: parent-held connectOrCreate under update (FOUND, T2)", () =>
           connectOrCreate: {
             where: { id: `u_${(k + 1) % 200}` },
             create: { id: `noop2_${k}`, name: "X", email: `noop2_${k}@x.com` },
+          },
+        },
+      },
+    });
+  });
+});
+
+// T3b-1 family B (TO-ONE.md §7.7, mechanism 1) — the deep-tree A/B. A nested
+// to-many `update` whose located target carries its own relation write: on V2 the
+// child builds its own child Parts (a self-m2m junction update), correlated to its
+// literal PK. On V1 the whole tree routes to V1's staged runtime. Idempotent (the
+// friend's label is re-set), so both arms run on separate DBs against a fixed seed.
+const membershipSchema = (() => {
+  const node = s
+    .model({
+      id: s.int().id(),
+      label: s.string(),
+      parentId: s.int().nullable(),
+      parent: s
+        .manyToOne(() => node)
+        .fields("parentId")
+        .references("id")
+        .name("bParent")
+        .optional(),
+      children: s.oneToMany(() => node).name("bParent"),
+      friends: s
+        .manyToMany(() => node)
+        .name("bFriends")
+        .A("bSourceId")
+        .B("bTargetId"),
+      friendedBy: s.manyToMany(() => node).name("bFriends"),
+    })
+    .map("bench_membership_nodes");
+  return { node };
+})();
+
+const makeMembershipClient = async (engine: "v1" | "v2") => {
+  const driver = new SQLite3Driver({ dataDir: ":memory:" });
+  const client = createClient({
+    schema: membershipSchema,
+    driver,
+    queryEngine: engine,
+  });
+  await push(client, { force: true });
+  // Root 1 → child 2 → friend 3 (child 2 connected to friend 3).
+  await client.node.create({ data: { id: 1, label: "root" } });
+  await client.node.create({ data: { id: 3, label: "friend" } });
+  await client.node.create({ data: { id: 2, label: "child", parentId: 1 } });
+  await client.node.update({
+    where: { id: 2 },
+    data: { friends: { connect: { id: 3 } } },
+  });
+  return client;
+};
+
+const bv1 = await makeMembershipClient("v1");
+const bv2 = await makeMembershipClient("v2");
+let bN = 0;
+
+describe("flip A/B: family-B deep tree (nested to-many update → self-m2m junction update)", () => {
+  bench("v1 nested update > junction update", async () => {
+    await bv1.node.update({
+      where: { id: 1 },
+      data: {
+        children: {
+          update: {
+            where: { id: 2 },
+            data: {
+              friends: {
+                update: { where: { id: 3 }, data: { label: `f${bN++}` } },
+              },
+            },
+          },
+        },
+      },
+    });
+  });
+  bench("v2 nested update > junction update", async () => {
+    await bv2.node.update({
+      where: { id: 1 },
+      data: {
+        children: {
+          update: {
+            where: { id: 2 },
+            data: {
+              friends: {
+                update: { where: { id: 3 }, data: { label: `f${bN++}` } },
+              },
+            },
           },
         },
       },

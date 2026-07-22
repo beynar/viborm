@@ -979,7 +979,7 @@ family F, driving the surface 43 → 42; T3a absorbed 11 of family A's 13, drivi
   62 → 65 (three finer parent-held boundaries), the same finer-boundary bookkeeping
   T1/T2 did; `OperationFragment.ts` stayed unchanged — the vocabulary freeze held.
 
-### T3b — recursion/depth group measured; hypothesis rendered; absorption deferred (census 31, unchanged)
+### T3b — recursion/depth group measured; hypothesis rendered; mechanism 1 delivered in T3b-1 (census 31 → 21)
 
 T3b scoped the 23-key recursion/depth group (families **A-rem 2, B 8, C 10, E 2, G 1**;
 D 7 and H 1 are later) and ran T3's load-bearing first act on it — **measure the decline
@@ -999,16 +999,41 @@ SITE of every residual key**, capturing each `UnsupportedOperationError` message
   `create`) — the create-context composition threaded into a fresh nested target;
   (3) **create-arm depth-guard relaxation** (G). The own-write preflight already walks
   the whole tree, so every rejects/succeeds pair's reject half is free.
-- **Absorbed nothing this drive (a sanctioned coherent-boundary stop).** Mechanism (1)
-  needs `UpdateOperation.interpretRelation` factored into a reusable depth-recursive
-  child-Part builder plus PK-transition/cascade ordering ported to depth — a core-engine
-  refactor whose every leaf needs a dual-run oracle, a deepest-level multi-parent witness,
-  staleness pins, and 5-DB certification (the cascade shapes are precisely where PGlite
-  passes and MySQL/pg can diverge). That exceeds a single drive's certification budget;
-  under-certified shipping is the forbidden failure. `FALLBACK_OFF_RESIDUAL_COUNT` stays
-  **31**, the bidirectional census gate stays green on the unchanged surface, P6 stays
-  blocked, `OperationFragment.ts` untouched. Next drive: B first (cleanest scalarData
-  boundary), then C, A-remainder (lands with B), E, G — one mechanism at a time.
+- **T3b measured and rendered the verdict; T3b-1 DELIVERED mechanism (1).**
+
+### T3b-1 — mechanism 1 landed: family B + A-remainder (census 31 → 21)
+
+Mechanism (1) — **update-arm literal-parent recursion** — is landed and 5-DB certified.
+`buildNestedTargetChildParts` (`nested-target-parts.ts`) is the reusable depth-recursive
+child-Part builder: a **located-by-PK** target folds its data relations into deeper Parts
+through the SAME per-kind builders the root's `interpretRelation` uses, parameterized only
+by `ParentIdSource` — `literalParentId(pk)` for a child-held nested `update`
+(`RelationWritePart`), `plannedParentId(probe, pk)` for a parent-held one
+(`UpdateOperation.parentHeldUpdateData`, family A-remainder's projection, its captured PK
+exposed as a firstRowField). The obligation P1 never carried is ported per Part: a target
+whose SET rewrites its own PK emits its self-UPDATE **after** its child edges, the FK's
+`ON UPDATE CASCADE` carrying the vacated id (`reorderRootUpdateAfterChildren` at depth).
+Two literal-parent seams the root never needed — a junction membership read
+(`RelationJunctionPart.parentRef`) and an inverse-side to-one probe
+(`RelationWritePart.correlationFilters`) — inline the literal even at planning; the
+planned-parent root paths are byte-identical.
+
+- **`FALLBACK_OFF_RESIDUAL_COUNT` 31 → 25 → 21.** −6 child-held family-B shapes (m2m
+  junction / to-many createMany grandchildren, incl. the `nested identity transition`
+  PK-transition/cascade witness `sourceId` 1→4), then −4 (family B's 2 parent-held
+  membership-root shapes + family A-remainder's 2, incl. the 3-level
+  container→to-many-update→inverse-to-one-upsert chain). The `VIBORM_FALLBACK_OFF=1`
+  census runs all 10 natively on both substrates byte-identical to V1; route-inventory
+  65 → 74 (9 finer boundary routes, none removed); the decline-surface gate carries 3
+  native + falsification witnesses. Falsified: drop a census entry → gate red; re-narrow
+  the recursion → the native witness throws.
+- **5-DB certified.** typecheck, Biome, full estate (6107/0/895), sqlite3/libsql/pglite
+  in-estate, Docker MySQL 470, pg 411/14 (serial) — the PK-transition/`ON UPDATE CASCADE`
+  shapes pass on MySQL/pg, not only PGlite. A/B: the family-B deep tree is **1.85×
+  faster on V2** (PERF.md).
+- **P6 stays blocked** — 21 shapes remain (C ×10, D ×7, E ×2, G ×1, H ×1),
+  `OperationFragment.ts` untouched. Next drive: mechanism (2), create-arm fresh-parent
+  recursion (C's create, E, G), then mechanism (3), the create-arm depth-guard relaxation.
 
 ## P6 — Deletion and the honest audit
 

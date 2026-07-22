@@ -660,13 +660,56 @@ guard while mirroring V1's accepted depth exactly. The own-write preflight
 (`assertUpdateOwnWriteSafety`, V1's analyzer verbatim) already walks the whole tree, so
 the reject half of every rejects/succeeds pair is free.
 
-**Absorption is deferred** (a sanctioned coherent-boundary stop, not a curated green):
-mechanism (1) requires factoring `UpdateOperation.interpretRelation` into a reusable
-depth-recursive child-Part builder and porting PK-transition/cascade ordering to depth
-— a core-engine refactor whose every leaf needs its own dual-run oracle, a multi-parent
-witness at the **deepest** mutated level, staleness pins, and 5-DB certification (the
-PK-transition/cascade shapes are exactly where a bug passes PGlite and diverges on
-MySQL/pg). `FALLBACK_OFF_RESIDUAL_COUNT` stays **31**; the census gate stays green on
-the unchanged surface; **P6 stays blocked**. The next drive absorbs one mechanism at a
-time — B first, then C, A-remainder (which lands *with* B, being its parent-held
-projection), E, G.
+### 7.7.1 T3b-1 — mechanism 1 DELIVERED (family B + A-remainder, census 31 → 21)
+
+Mechanism (1) is landed. The delivered truth:
+
+**The recursion.** `buildNestedTargetChildParts` (`nested-target-parts.ts`) is the
+reusable depth-recursive child-Part builder the hypothesis called for — it folds a
+**located-by-PK** target's data relations into deeper Parts through the SAME per-kind
+builders the root's `interpretRelation` uses (m2m junction, the correlated
+write/link/adopt families, the inverse-side to-one, and a literal-parent create/
+createMany leaf), differing only in the `ParentIdSource`: a compile-time
+`literalParentId(pk)` for a child-held nested update (the target's own `where` PK), a
+`plannedParentId(probe, pk)` for a parent-held one (its captured PK, exposed as a
+firstRowField). Both callers — `RelationWritePart` (child-held) and
+`UpdateOperation.parentHeldUpdateData` (parent-held, family A-remainder's projection) —
+share it. Depth adds list entries and one parent-id value, never vocabulary or a Part
+method; `OperationFragment.ts` is untouched.
+
+**The obligation P1 never carried, now ported to depth.** A nested target whose SET
+rewrites its own PK (a transition the deeper FK references — the B PK-transition/self-
+m2m witnesses, `children.update.data = { id: 4, friends: { connect } }` expecting a
+friend `sourceId` of 4) emits its self-UPDATE **after** its child edges, whose FK's
+`ON UPDATE CASCADE` then carries the vacated id forward — `reorderRootUpdateAfterChildren`
+ported to depth, computed per Part as `childParts.length > 0 && scalarData rewrites the
+target PK`. A relation-only nested update writes no self-UPDATE row at all.
+
+**Two literal-parent seams the root never needed.** A depth-composed junction
+membership read (`RelationJunctionPart.parentRef`) and an inverse-side to-one correlated
+probe (`RelationWritePart.correlationFilters`) inline the literal parent value even at
+planning — no SQL `Ref` is possible or needed for a compile-time constant. The
+planned-parent root paths are byte-identical.
+
+**The documented narrower routes (65 → 74, all finer, none removed).** A deeper
+parent-held-FK to-one at depth (needs child-SET folding); a compound-PK child at depth;
+a relation-carrying or FK-not-a-literal create arm at depth (create-context depth is
+mechanism 2/3, a later drive); an unenumerated nested kind. Each routes the whole tree
+to V1.
+
+**Certified.** `FALLBACK_OFF_RESIDUAL_COUNT` **31 → 25** (the 6 child-held family-B
+shapes) **→ 21** (family B's 2 parent-held membership-root shapes + family A-remainder's
+2). The `VIBORM_FALLBACK_OFF=1` conformance census runs all 10 natively on BOTH
+substrates, byte-identical to V1's state/result/error/message; multi-parent correlation
+witnesses at the deepest mutated level (the "disjoint" scenarios — a second parent's
+child untouched by either arm); the decline-surface gate carries 3 native + falsification
+witnesses (PK-transition/cascade, parent-held target update, the 3-level
+container→to-many-update→inverse-to-one-upsert chain); typecheck, Biome, the full estate
+(6107/0), and the 5-database matrix (sqlite3/libsql/pglite + Docker MySQL 470 + pg
+411/14 — the PK-transition/`ON UPDATE CASCADE` shapes are exactly where an ordering bug
+would pass PGlite and diverge on MySQL/pg; it does not). A/B: the family-B deep tree is
+**1.85× faster on V2** (PERF.md). **P6 stays blocked** (21 shapes remain: families C ×10,
+D ×7, E ×2, G ×1, H ×1).
+
+The next drive absorbs mechanism (2) — create-arm fresh-parent recursion (C's create,
+E, G) — then mechanism (3), the create-arm depth-guard relaxation.

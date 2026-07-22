@@ -236,3 +236,29 @@ SQLite DBs, ratio = V2 hz / V1 hz):
   update root already carries a locate + terminal read, so V1's relative fixed
   per-tree overhead dominates. No statement-count regression; the 5-DB matrix (local
   drivers 1399, Docker MySQL 470, pg 411/14) passes with the family-A shapes on V2.
+
+## T3b-1 — the family-B deep-tree A/B (in-memory SQLite)
+
+T3b-1 absorbed family B (8: a nested to-many `update` whose located target carries its
+own relation writes — mechanism 1, update-arm literal-parent recursion) and family
+A-remainder (2: the parent-held projection); census 31 → 21 (TO-ONE.md §7.7). The
+deep-tree witness — a nested to-many `update` whose child builds its own self-m2m
+junction update one level deeper — measured the same way
+(`benchmarks/p5-flip-ab.bench.ts`, `queryEngine` escape hatch, two seeded in-memory
+SQLite DBs, ratio = V2 hz / V1 hz):
+
+| workload | V1 hz | V2 hz | ratio | verdict |
+| --- | --- | --- | --- | --- |
+| nested to-many `update` → self-m2m junction `update` (`node.update({ children: { update: { data: { friends: { update } } } } })`) | 6,115 | 11,300 | **1.85× (V2 faster)** | beyond gate |
+
+- **The family-B deep tree is FASTER on V2 (1.85×), the same composition dividend as
+  T2/T3a.** V2 folds the whole depth into ONE linear plan (locate root, correlated
+  child probe, the deeper junction membership probe, then the writes), run as a single
+  atomic unit; V1 routes the whole tree to its staged runtime, paying per-tree
+  orchestration at each level of the `RelationUpdates`/junction recursion. Depth adds
+  Part list entries and one parent-id value, never a new envelope — so the deeper the
+  nesting, the larger V1's relative fixed overhead. No statement-count regression; the
+  5-DB matrix (local drivers, Docker MySQL 470, pg 411/14) passes with the family-B and
+  A-remainder shapes on V2, including the PK-transition/`ON UPDATE CASCADE` witnesses
+  (exactly where an ordering bug would pass PGlite and diverge on MySQL/pg — it does
+  not).
