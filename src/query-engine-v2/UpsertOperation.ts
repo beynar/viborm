@@ -122,6 +122,7 @@ export class UpsertOperation {
   private readonly terminalId: string;
   private readonly foundGuardId: string;
   private readonly parsedSelect: Record<string, unknown>;
+  private readonly parsedInclude: Record<string, unknown> | undefined;
   // The update-arm RETURNING fold (finding 4 / PERF.md P5): on a RETURNING driver
   // with a scalar-only projection the scalar update arm folds its terminal refetch
   // into the mutation. `false` for a non-returning driver, a relation projection,
@@ -223,14 +224,22 @@ export class UpsertOperation {
     this.parsedSelect = isRecord(args.select)
       ? parseRecord(parentSchemas.core.select, args.select, "select")
       : defaultSelect(model);
-    this.resultArgs = { select: this.parsedSelect };
+    // `include` rides alongside the projection (the `create`/`update` surface). A
+    // relation projection forces the terminal-read path (lateral joins), never the
+    // scalar RETURNING fold, on both the scalar and delegated arms.
+    this.parsedInclude = isRecord(args.include) ? args.include : undefined;
+    this.resultArgs = {
+      select: this.parsedSelect,
+      ...(this.parsedInclude ? { include: this.parsedInclude } : {}),
+    };
     const selectIsScalarOnly = !Object.keys(this.parsedSelect).some((field) =>
       model["~"].relationSet.has(field)
     );
     this.canFoldUpdateArm =
       !updateHasRelations &&
       engine.adapter.capabilities.supportsReturning &&
-      selectIsScalarOnly;
+      selectIsScalarOnly &&
+      !this.parsedInclude;
 
     const parentName = getStepModelName(model, "parent");
     const locateId = scope.allocate(`${parentName}.locate`);
@@ -267,9 +276,13 @@ export class UpsertOperation {
     // `create`/`update` sub-ops carry the FULL payload; a shape neither root owns
     // still throws `UnsupportedOperationError` (the whole tree routes to V1 exactly
     // as a standalone create/update would — the already-audited route surface).
-    const subSelect: Record<string, unknown> = isRecord(args.select)
-      ? { select: args.select }
-      : {};
+    // The delegated arms shape their own terminal read, so they carry the same
+    // `select`/`include` this upsert would apply (an explicit select, else the
+    // sub-op defaults the scalar projection; `include` rides alongside).
+    const subSelect: Record<string, unknown> = {
+      ...(isRecord(args.select) ? { select: args.select } : {}),
+      ...(this.parsedInclude ? { include: this.parsedInclude } : {}),
+    };
     const subOptions: SubOperationOptions = { scope, skipOwnWrite: true };
     this.createArmOp = createHasRelations
       ? new CreateOperation(
@@ -564,6 +577,7 @@ export class UpsertOperation {
       statement: buildFindUnique(parent, {
         where,
         select: this.resultArgs.select as Record<string, unknown>,
+        ...(this.parsedInclude ? { include: this.parsedInclude } : {}),
       }),
       outputs: { result: { kind: "rows" } },
       ...(txMode
@@ -737,13 +751,13 @@ function parseRecord(
 
 function assertUpsertKeys(value: Record<string, unknown>): void {
   const required = ["where", "create", "update"] as const;
-  const optional = new Set(["select", "targetWhere", "setWhere"]);
+  const optional = new Set(["select", "include", "targetWhere", "setWhere"]);
   const allowed = new Set<string>([...required, ...optional]);
   const unexpected = Object.keys(value).filter((key) => !allowed.has(key));
   const missing = required.filter((key) => !Object.hasOwn(value, key));
   if (unexpected.length === 0 && missing.length === 0) return;
   throw new UnsupportedOperationError(
-    `upsert arguments require ${required.join(", ")} (optional select, targetWhere, setWhere); received ${Object.keys(value).join(", ") || "none"}.`
+    `upsert arguments require ${required.join(", ")} (optional select, include, targetWhere, setWhere); received ${Object.keys(value).join(", ") || "none"}.`
   );
 }
 

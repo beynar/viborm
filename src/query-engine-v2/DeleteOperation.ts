@@ -6,7 +6,10 @@ import {
   buildPrimaryKeyWhereUnique,
   getPrimaryKeyFields,
 } from "../query-engine/builders/correlation-utils";
-import { createQueryScope } from "../query-engine/context/query-scope";
+import {
+  createQueryScope,
+  getDefaultScalarFieldNames,
+} from "../query-engine/context/query-scope";
 import { buildDelete, buildFindUnique } from "../query-engine/operations";
 import type { QueryEngine } from "../query-engine/query-engine";
 import { ResultParser } from "../query-engine/result/ResultParser";
@@ -49,7 +52,8 @@ export class DeleteOperation {
   private readonly scope: StepScope;
   private readonly resultArgs: Record<string, unknown>;
   private readonly parentWhere: Record<string, unknown>;
-  private readonly parsedSelect: Record<string, unknown>;
+  private readonly parsedSelect: Record<string, unknown> | undefined;
+  private readonly parsedInclude: Record<string, unknown> | undefined;
   private readonly parentPrimaryKeys: readonly string[];
   private readonly locate: StatementStep;
   private readonly readId: string;
@@ -68,9 +72,11 @@ export class DeleteOperation {
     this.scope = new StepScope();
     const scope = this.scope;
 
-    assertExactKeys(args, ["where", "select"], "delete arguments");
+    // `select` is optional (default the scalar projection, exactly as V1's
+    // no-select delete returns the whole row) and `include` rides alongside it —
+    // the same result-shaping surface `create` already owns (CreateOperation).
+    assertDeleteKeys(args);
     const where = requireRecord(args.where, "delete.where");
-    const select = requireRecord(args.select, "delete.select");
     const parent = createQueryScope(engine.adapter, model);
 
     const parentPrimaryKeys = getPrimaryKeyFields(model);
@@ -89,12 +95,20 @@ export class DeleteOperation {
       where,
       "where"
     );
-    this.parsedSelect = parseRecord(
-      parentSchemas.core.select,
-      select,
-      "select"
-    );
-    this.resultArgs = { select: this.parsedSelect };
+    // The projection: an explicit `select`, else the default scalar projection
+    // (respecting `.omit()`). `include` rides alongside the default scalars —
+    // when both are absent the row is captured with every non-omitted scalar,
+    // V1's default delete shape. An all-`.omit()` model with no include yields
+    // undefined (the read builder + parser then produce `{}`, as ReadOperation
+    // does), preserved here so a delete cannot leak an omitted column.
+    this.parsedInclude = isRecord(args.include) ? args.include : undefined;
+    this.parsedSelect = isRecord(args.select)
+      ? parseRecord(parentSchemas.core.select, args.select, "select")
+      : defaultSelect(model);
+    this.resultArgs = {
+      ...(this.parsedSelect ? { select: this.parsedSelect } : {}),
+      ...(this.parsedInclude ? { include: this.parsedInclude } : {}),
+    };
 
     const parentName = getStepModelName(model, "parent");
     const locateId = scope.allocate(`${parentName}.locate`);
@@ -154,8 +168,14 @@ export class DeleteOperation {
       kind: "read",
       statement: buildFindUnique(parent, {
         where,
-        select: this.parsedSelect,
-        forUpdate: txMode,
+        ...(this.parsedSelect ? { select: this.parsedSelect } : {}),
+        ...(this.parsedInclude ? { include: this.parsedInclude } : {}),
+        // `FOR UPDATE` cannot be applied to an include's relation join/aggregate
+        // (Postgres 0A000). The PK-only locate above already took the row lock in
+        // transaction mode, so the shape-capturing read never needs to re-lock —
+        // it drops `FOR UPDATE` whenever a relation projection is present, exactly
+        // as the create/update terminal reads (which never re-lock) do.
+        forUpdate: txMode && !this.parsedInclude,
       }),
       outputs: { result: { kind: "rows" } },
     };
@@ -252,18 +272,23 @@ function parseRecord(
   return result.value;
 }
 
-function assertExactKeys(
-  value: Record<string, unknown>,
-  expected: readonly string[],
-  label: string
-): void {
-  const allowed = new Set(expected);
+function assertDeleteKeys(value: Record<string, unknown>): void {
+  const allowed = new Set(["where", "select", "include"]);
   const unexpected = Object.keys(value).filter((key) => !allowed.has(key));
-  const missing = expected.filter((key) => !Object.hasOwn(value, key));
-  if (unexpected.length === 0 && missing.length === 0) return;
+  if (Object.hasOwn(value, "where") && unexpected.length === 0) return;
   throw new UnsupportedOperationError(
-    `${label} requires exactly ${expected.join(", ")}; received ${Object.keys(value).join(", ") || "none"}.`
+    `delete arguments require where (optional select, include); received ${Object.keys(value).join(", ") || "none"}.`
   );
+}
+
+function defaultSelect(model: Model<any>): Record<string, unknown> | undefined {
+  // V1's default projection is every scalar EXCEPT `.omit()`-ed fields. An
+  // all-omitted model yields undefined (the read builder + parser then produce
+  // `{}`, as ReadOperation does with no select), so a delete never leaks an
+  // omitted column.
+  const fields = getDefaultScalarFieldNames(model);
+  if (fields.length === 0) return undefined;
+  return Object.fromEntries(fields.map((field: string) => [field, true]));
 }
 
 function requireRecord(value: unknown, label: string): Record<string, unknown> {

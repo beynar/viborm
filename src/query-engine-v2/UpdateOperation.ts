@@ -302,6 +302,7 @@ export class UpdateOperation {
   private readonly parentPrimaryKeys: readonly string[];
   private readonly parentWhere: Record<string, unknown>;
   private readonly parsedSelect: Record<string, unknown>;
+  private readonly parsedInclude: Record<string, unknown> | undefined;
   private readonly terminalId: string;
   private readonly rootGuardId: string;
   // The parent SET (scalar data ∪ to-one FK folds), retained so the terminal read
@@ -405,7 +406,14 @@ export class UpdateOperation {
     this.parsedSelect = isRecord(args.select)
       ? parseRecord(parentSchemas.core.select, args.select, "select")
       : defaultSelect(model);
-    this.resultArgs = { select: this.parsedSelect };
+    // `include` rides alongside the (default or explicit-scalar) projection —
+    // the same result-shaping surface `create` owns. A relation projection forces
+    // the proven terminal-read path (below): lateral joins, not the RETURNING fold.
+    this.parsedInclude = isRecord(args.include) ? args.include : undefined;
+    this.resultArgs = {
+      select: this.parsedSelect,
+      ...(this.parsedInclude ? { include: this.parsedInclude } : {}),
+    };
 
     // 2. Own-write preflight (ATOM §4): any decision read overlapping this
     //    operation's own writes is rejected here with V1's typed "split these
@@ -531,6 +539,7 @@ export class UpdateOperation {
       toOneLinks.length === 0 &&
       parentHeldTargets.length === 0 &&
       selectIsScalarOnly &&
+      !this.parsedInclude &&
       Object.keys(parentSet).length > 0;
     this.directWrite = canFold
       ? {
@@ -2542,6 +2551,7 @@ export class UpdateOperation {
           getStepModelName(this.model, "record")
         ),
         select: this.parsedSelect,
+        ...(this.parsedInclude ? { include: this.parsedInclude } : {}),
       }),
       outputs: { result: { kind: "rows" } },
       ...(txMode
@@ -2682,12 +2692,12 @@ function parseRecord(
 
 function assertUpdateKeys(value: Record<string, unknown>): void {
   const required = ["where", "data"] as const;
-  const allowed = new Set<string>([...required, "select"]);
+  const allowed = new Set<string>([...required, "select", "include"]);
   const unexpected = Object.keys(value).filter((key) => !allowed.has(key));
   const missing = required.filter((key) => !Object.hasOwn(value, key));
   if (unexpected.length === 0 && missing.length === 0) return;
   throw new UnsupportedOperationError(
-    `update arguments require where, data (optional select); received ${Object.keys(value).join(", ") || "none"}.`
+    `update arguments require where, data (optional select, include); received ${Object.keys(value).join(", ") || "none"}.`
   );
 }
 
