@@ -145,7 +145,8 @@ async function run(
       'SELECT "fromId", "toId" FROM "project_project" ORDER BY "fromId", "toId"'
     )
   ).rows;
-  const routedToV2 = routes.length > 0 && routes.every((r) => r.engine === "v2");
+  const routedToV2 =
+    routes.length > 0 && routes.every((r) => r.engine === "v2");
   await client.$disconnect();
   return { state, related, routedToV2 };
 }
@@ -161,26 +162,32 @@ describe("nested junction-target recursion (family C witnesses)", () => {
           update: {
             where: { id: 1 },
             data: {
-              tags: { connectOrCreate: { where: { id: 100 }, create: { id: 100 } } },
+              tags: {
+                connectOrCreate: { where: { id: 100 }, create: { id: 100 } },
+              },
             },
           },
         },
       },
     });
 
-  test("deep junction-target relation folds natively and matches V1", { timeout: 30_000 }, async () => {
-    const v1 = await run("v1", oracleAct);
-    const tx = await run("v2-tx", oracleAct);
-    const batch = await run("v2-batch", oracleAct);
+  test(
+    "deep junction-target relation folds natively and matches V1",
+    { timeout: 30_000 },
+    async () => {
+      const v1 = await run("v1", oracleAct);
+      const tx = await run("v2-tx", oracleAct);
+      const batch = await run("v2-batch", oracleAct);
 
-    expect(tx.routedToV2).toBe(true);
-    expect(batch.routedToV2).toBe(true);
-    expect(tx.state).toEqual(v1.state);
-    expect(batch.state).toEqual(v1.state);
-    // Project 1 gained tag 100; projects 2 and 3 untouched.
-    expect(v1.state).toContainEqual({ id: 1, tags: [100], related: [] });
-    expect(v1.state).toContainEqual({ id: 2, tags: [], related: [] });
-  });
+      expect(tx.routedToV2).toBe(true);
+      expect(batch.routedToV2).toBe(true);
+      expect(tx.state).toEqual(v1.state);
+      expect(batch.state).toEqual(v1.state);
+      // Project 1 gained tag 100; projects 2 and 3 untouched.
+      expect(v1.state).toContainEqual({ id: 1, tags: [100], related: [] });
+      expect(v1.state).toContainEqual({ id: 2, tags: [], related: [] });
+    }
+  );
 
   // (2) Deepest-level multi-parent correlation: ONE operation updates BOTH junction
   // targets (projects 1 and 2), each carrying a DISTINCT deeper junction write. Each
@@ -198,20 +205,24 @@ describe("nested junction-target recursion (family C witnesses)", () => {
       },
     });
 
-  test("two junction targets keep their deeper writes isolated", { timeout: 30_000 }, async () => {
-    const v1 = await run("v1", multiParentAct);
-    const tx = await run("v2-tx", multiParentAct);
-    const batch = await run("v2-batch", multiParentAct);
+  test(
+    "two junction targets keep their deeper writes isolated",
+    { timeout: 30_000 },
+    async () => {
+      const v1 = await run("v1", multiParentAct);
+      const tx = await run("v2-tx", multiParentAct);
+      const batch = await run("v2-batch", multiParentAct);
 
-    expect(tx.routedToV2).toBe(true);
-    expect(batch.routedToV2).toBe(true);
-    expect(tx.state).toEqual(v1.state);
-    expect(batch.state).toEqual(v1.state);
-    // No cross-contamination: project 1 has ONLY tag 100, project 2 ONLY tag 200.
-    expect(v1.state).toContainEqual({ id: 1, tags: [100], related: [] });
-    expect(v1.state).toContainEqual({ id: 2, tags: [200], related: [] });
-    expect(v1.state).toContainEqual({ id: 3, tags: [], related: [] });
-  });
+      expect(tx.routedToV2).toBe(true);
+      expect(batch.routedToV2).toBe(true);
+      expect(tx.state).toEqual(v1.state);
+      expect(batch.state).toEqual(v1.state);
+      // No cross-contamination: project 1 has ONLY tag 100, project 2 ONLY tag 200.
+      expect(v1.state).toContainEqual({ id: 1, tags: [100], related: [] });
+      expect(v1.state).toContainEqual({ id: 2, tags: [200], related: [] });
+      expect(v1.state).toContainEqual({ id: 3, tags: [], related: [] });
+    }
+  );
 
   // (3) Raw junction A/B orientation at depth: a self-referential m2m connect one level
   // deeper. The junction row must be (fromId = the located target, toId = the connected
@@ -229,19 +240,23 @@ describe("nested junction-target recursion (family C witnesses)", () => {
       },
     });
 
-  test("deep self-referential m2m keeps A/B orientation (raw junction rows)", { timeout: 30_000 }, async () => {
-    const v1 = await run("v1", selfRefAct);
-    const tx = await run("v2-tx", selfRefAct);
-    const batch = await run("v2-batch", selfRefAct);
+  test(
+    "deep self-referential m2m keeps A/B orientation (raw junction rows)",
+    { timeout: 30_000 },
+    async () => {
+      const v1 = await run("v1", selfRefAct);
+      const tx = await run("v2-tx", selfRefAct);
+      const batch = await run("v2-batch", selfRefAct);
 
-    expect(tx.routedToV2).toBe(true);
-    expect(batch.routedToV2).toBe(true);
-    expect(tx.state).toEqual(v1.state);
-    expect(batch.state).toEqual(v1.state);
-    // The located target (project 1) is the source; project 2 is the target — never
-    // the reverse. Byte-identical raw junction rows across V1 and both V2 substrates.
-    expect(v1.related).toEqual([{ fromId: 1, toId: 2 }]);
-    expect(tx.related).toEqual(v1.related);
-    expect(batch.related).toEqual(v1.related);
-  });
+      expect(tx.routedToV2).toBe(true);
+      expect(batch.routedToV2).toBe(true);
+      expect(tx.state).toEqual(v1.state);
+      expect(batch.state).toEqual(v1.state);
+      // The located target (project 1) is the source; project 2 is the target — never
+      // the reverse. Byte-identical raw junction rows across V1 and both V2 substrates.
+      expect(v1.related).toEqual([{ fromId: 1, toId: 2 }]);
+      expect(tx.related).toEqual(v1.related);
+      expect(batch.related).toEqual(v1.related);
+    }
+  );
 });

@@ -35,13 +35,13 @@ import {
   relationTargetNotFound,
   upsertTargetNotFoundForParent,
 } from "./messages";
+import type { NestedChildBuilder } from "./nested-target-parts";
 import {
   type GuardStep,
   type OperationStep,
   ref,
   type StatementStep,
 } from "./OperationFragment";
-import type { NestedChildBuilder } from "./nested-target-parts";
 import type { Part, PlanningKnown } from "./Part";
 import { planningKey } from "./Part";
 import { literalParentId, type ParentIdSource } from "./RelationUpsertPart";
@@ -287,12 +287,14 @@ export class RelationJunctionPart implements Part {
       // Depth (T3b-2): the located update target's own child Parts plan their probes
       // here, one level deeper — the unconditional planning superset (ATOM §3
       // technique 2), identical to the root and the child-held recursion.
-      for (const child of target.childParts) steps.push(...child.planning(scope));
+      for (const child of target.childParts)
+        steps.push(...child.planning(scope));
     }
     for (const bulk of this.bulks) steps.push(bulk.read);
     for (const adopt of this.adopts) steps.push(adopt.probe);
     for (const create of this.creates) {
-      for (const child of create.childParts) steps.push(...child.planning(scope));
+      for (const child of create.childParts)
+        steps.push(...child.planning(scope));
     }
     for (const upsert of this.upserts) {
       steps.push(upsert.membershipProbe, upsert.globalProbe);
@@ -679,9 +681,7 @@ export class RelationJunctionPart implements Part {
         outputs: { rows: { kind: "rows" } },
       },
       childParts:
-        kind === "update"
-          ? (this.config.updateChildParts?.[index] ?? [])
-          : [],
+        kind === "update" ? (this.config.updateChildParts?.[index] ?? []) : [],
     };
   }
 
@@ -1443,13 +1443,15 @@ export function buildJunctionParts(input: {
         // in the create data fold one level deeper against the fresh target's
         // explicit literal PK, emitted after its INSERT + join (fresh-parent elision,
         // ATOM §4); a scalar-only create keeps its empty child Parts.
-        const folded = normalizeCreates(parsedRelation.create, relationName).map(
-          (create) =>
-            foldTarget(
-              create,
-              () => requireCreatePkValue(create, "create"),
-              "create"
-            )
+        const folded = normalizeCreates(
+          parsedRelation.create,
+          relationName
+        ).map((create) =>
+          foldTarget(
+            create,
+            () => requireCreatePkValue(create, "create"),
+            "create"
+          )
         );
         parts.push(
           new RelationJunctionPart(scope, {

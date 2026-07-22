@@ -38,6 +38,7 @@ import {
   referenceSql,
 } from "./fragment-builders";
 import { relationTargetNotFound } from "./messages";
+import { buildNestedTargetChildParts } from "./nested-target-parts";
 import {
   type OperationFragment,
   type OperationStep,
@@ -45,7 +46,6 @@ import {
   type StatementStep,
   type TargetConstraintPin,
 } from "./OperationFragment";
-import { buildNestedTargetChildParts } from "./nested-target-parts";
 import { OwnWritePreflight } from "./OwnWritePreflight";
 import type { Part, PlanningKnown } from "./Part";
 import { planningKey, planningOutputs } from "./Part";

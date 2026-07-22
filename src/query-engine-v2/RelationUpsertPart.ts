@@ -785,8 +785,12 @@ function buildArmChildParts(
       );
       continue;
     }
+    // NB: the create arm ALSO accepts a child-held `create` (T3b-2 family G, handled
+    // above); this message — surfaced only for a still-unsupported kind — keeps its
+    // pre-T3b-2 wording byte-identical (the "connectOrCreate" list is the leading
+    // accepted kind, not an exhaustive enumeration).
     throw new UnsupportedOperationError(
-      `query-engine-v2 supports only nested ${arm === "create" ? "connectOrCreate/create" : "upsert/connectOrCreate"} one level deeper on the ${arm} arm; relation '${childRelationName}' uses '${kinds}'.`
+      `query-engine-v2 supports only nested ${arm === "create" ? "connectOrCreate" : "upsert/connectOrCreate"} one level deeper on the ${arm} arm; relation '${childRelationName}' uses '${kinds}'.`
     );
   }
   return parts;
@@ -858,7 +862,13 @@ function buildCreateArmChildCreateParts(
       );
     }
     for (const [childRelation, childMutation] of Object.entries(relations)) {
-      foldParentHeldConnect(engine, childScope, childRelation, childMutation, inject);
+      foldParentHeldConnect(
+        engine,
+        childScope,
+        childRelation,
+        childMutation,
+        inject
+      );
     }
     return {
       id: scope.allocate(`${childName}.create`),
@@ -898,7 +908,10 @@ function foldParentHeldConnect(
       `query-engine-v2 nested connect on relation '${relationName}' requires a where object one level deeper.`
     );
   }
-  const targetScope = createQueryScope(engine.adapter, relationInfo.targetModel);
+  const targetScope = createQueryScope(
+    engine.adapter,
+    relationInfo.targetModel
+  );
   const entries = getWhereUniqueEntries(
     targetScope,
     where as Record<string, unknown>

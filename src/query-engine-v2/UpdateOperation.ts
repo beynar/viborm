@@ -804,7 +804,8 @@ export class UpdateOperation {
     // correct: the root UPDATE stays reorder-FALSE (before the child INSERT), so the
     // fresh row references the post-transition value that already exists.
     const needsLocatedReference = kinds.some(
-      (mutationKind) => mutationKind !== "create" && mutationKind !== "createMany"
+      (mutationKind) =>
+        mutationKind !== "create" && mutationKind !== "createMany"
     );
     if (needsLocatedReference) {
       for (const field of fk.pkFields) input.locateFields.add(field);
@@ -925,8 +926,15 @@ export class UpdateOperation {
     childName: string;
     input: Parameters<UpdateOperation["interpretRelation"]>[0];
   }): void {
-    const { kind, relationName, fk, parsedRelation, childScope, childName, input } =
-      args;
+    const {
+      kind,
+      relationName,
+      fk,
+      parsedRelation,
+      childScope,
+      childName,
+      input,
+    } = args;
     const parentId = this.resolveLiteralCreateParent(input, fk, relationName);
     if (kind === "create") {
       input.childParts.push(
