@@ -879,3 +879,33 @@ routing-documentation and parity-refusal-message tests. None is a T3c regression
 full estate is green with the fallback ON). So P6's V1-runtime deletion carries a
 nonzero blast radius the finer-boundary surface must still reconcile — enumerated, not
 hidden. The T3c report's `p6Readiness` holds the full accounting.
+
+### 7.9 T3d — the finer boundaries absorbed and gated (83 → 43)
+
+T3d worked the full-estate blast-radius surface T3c enumerated. Two classes were
+machinery-complete and landed; three decline SUBSYSTEMS were boundary-stopped with an
+exact list and wired behind a committed, falsifiable gate (`pnpm test:gates:blast-radius`,
+`scripts/blast-radius-gate.mjs`, asserting the observed fallback-off failure set equals
+`tests/query-engine-v2/blast-radius-residual.ts` exactly).
+
+**Absorbed.** (I) `select`/`include` result-shaping on `delete`/`update`/`upsert` — the
+delete required exactly `{where, select}` and the update/upsert ops rejected `include`,
+so plain deletes, `*-with-include`, and the whole `staleness-injection` suite (plain
+no-select deletes) routed to V1; all three now accept the optional `select` (default
+scalar projection) + `include` `create` already owned, and the include read drops
+`FOR UPDATE` (Postgres `0A000` on a locked join). (VII) nested `createMany skipDuplicates`
+default-only — V1's byte-identical portability `QueryEngineError` raised at construction.
+
+**Boundary-stopped (route to V1; the exact list is `BLAST_RADIUS_RESIDUAL`).** Two of the
+three touch to-one semantics directly and belong here: the **relation-key /
+referential-action legality engine** — a root `update`/`upsert` that transitions a
+referenced key (PK arithmetic, an FK-referenced column rewrite) while a nested write
+targets the inverse-side to-one relation on that key needs V1's occupied-slot /
+cascade / setNull / restrict staging, no-op-transition detection, empty-slot race pin,
+and validate-only-the-taken-branch (this is the class the drive pre-sanctioned as a stop);
+and **deep create-context grandchildren** — a `create` under a parent-held to-one target
+located by a runtime-captured (planned) id, one step past `buildNestedTargetChildParts`'
+literal-parent reach. The third — batch generated/updated-PK dataflow — is dialect
+plumbing (an adapter batch-reference store), not a to-one concern. P6-readiness is AMBER:
+the census gate is met, the blast-radius gate is green-by-allowlist, and the exact
+remaining subsystem list is enumerated for P6 to land or keep-handlered.

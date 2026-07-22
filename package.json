@@ -138,7 +138,8 @@
     "test:package:phase7": "pnpm package:build && node tests/package-error-names-smoke.mjs && node tests/package-otel-absent-smoke.mjs",
     "package:dev": "tsdown --watch",
     "size": "size-limit",
-    "size:why": "size-limit --why"
+    "size:why": "size-limit --why",
+    "test:gates:blast-radius": "node scripts/blast-radius-gate.mjs"
   },
   "keywords": [
     "orm",

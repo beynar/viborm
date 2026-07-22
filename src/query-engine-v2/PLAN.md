@@ -1121,6 +1121,61 @@ is EMPTY. The V1 fallback arm holds no reachable accept-and-execute conformance 
   (absorb, retarget, or keep targeted V1 handlers). Recorded honestly, not a green light over
   the full estate; the T3c report's `p6Readiness` holds the accounting.
 
+## T3d — the finer boundaries (the last absorption drive; 83 → 43 + the gate)
+
+T3c's census was ZERO but its full-estate blast-radius probe surfaced 83 failures —
+the finer boundaries reached only by NON-conformance estate tests. T3d absorbed the
+two machinery-complete classes, wired the probe as a committed falsifiable gate, and
+boundary-stopped the rest with design notes and an exact list.
+
+- **CLASS I — `select`/`include` on `delete`/`update`/`upsert` (ABSORBED; the largest
+  chunk).** `DeleteOperation` demanded exactly `{where, select}` and the update/upsert
+  ops rejected `include`, so a plain `delete({where})`, any `*-with-include`, and — the
+  surprise — the WHOLE `staleness-injection` suite (its scenarios do plain no-select
+  deletes) all routed to V1 and blew up fallback-off. All three ops now accept an
+  optional `select` (defaulting the scalar projection, V1's no-select shape) and an
+  `include` riding alongside (`create`'s surface), forcing the terminal-read path over a
+  scalar RETURNING fold; delete drops `FOR UPDATE` on the include read (the PK locate
+  already locked; `FOR UPDATE` + join is Postgres `0A000`). Full normal-mode estate
+  stayed green (6119/0/895); throw-site count unchanged at 87.
+- **CLASS VII — nested `createMany skipDuplicates` default-only (ABSORBED, parity
+  refusal).** A default-only-row nested `skipDuplicates` createMany is inexpressible; V1
+  rejects before the parent write. `foldCreateMany` runs V1's own guard
+  (`buildValueGroups` on the pre-injection user rows → `assertPortableCreateManySkip`),
+  raising V1's byte-identical `QueryEngineError` at construction. Non-default-only stays
+  a documented finer boundary.
+- **THE GATE (P6 Stage 0 made a passing test).** `pnpm test:gates:blast-radius` runs the
+  full estate with the V1 fallback globally disabled (`vitest.blast-radius.config.ts` +
+  `tests/query-engine-v2/blast-radius.setup.ts`) and asserts the observed failure set
+  equals the documented residual (`tests/query-engine-v2/blast-radius-residual.ts`)
+  EXACTLY — bidirectionally, so a NEW decline behind the fallback OR a listed class
+  absorbed-but-not-delisted both turn it RED. It shrinks toward EMPTY as the subsystems
+  land, and is EMPTY the day V1 is deletable. Falsified: re-introducing one decline
+  surfaces an unexpected failure → gate RED → restored.
+- **The 43 boundary-stopped (design-noted, exact list in `blast-radius-residual.ts`).**
+  (III) **batch generated/updated-PK dataflow** (22) — a nested create whose FK
+  references a PK the same atomic batch transitions needs an internal adapter
+  batch-reference store (batch-primary-key-dataflow-plan.md), unbuilt; (IV+V) the
+  **relation-key / referential-action legality engine** (15) — the mission's
+  pre-sanctioned boundary stop plus its runtime-branch-gated `updateMany`-nested-relation
+  companion (occupied-slot / cascade / setNull / restrict staging, no-op-transition
+  detection, empty-slot race pin, validate-only-the-taken-branch); (VI) **deep
+  create-context grandchildren** (3) — a create under a runtime-captured target id, one
+  step past `buildNestedTargetChildParts`; plus (b) three routing-doc tests that assert
+  the V1-fallback route itself (rewritten when V1 dies at P6). Honest outcome: two
+  classes were machinery-complete this drive; three remain as subsystems, one of which
+  (the referential engine) the mission pre-sanctioned. None a regression — the full
+  estate is green with the fallback ON.
+
+**P6-readiness (T3d closing statement).** The census-deletion gate is GREEN (172/172
+native fallback-off). The full-estate blast-radius gate is GREEN-BY-ALLOWLIST: the only
+fallback-off estate failures are the 43 enumerated, design-noted boundaries + 3
+V1-seam meta-tests. P6's Stage 0 is now a committed, falsifiable test, not a probe. The
+remaining light is AMBER, not green: P6's V1-runtime deletion must first land the three
+boundary subsystems (batch-PK dataflow store; the referential-action legality engine;
+deep create-context id-threading) — or keep targeted V1 handlers for them — and rewrite
+the three V1-seam meta-tests. The exact remaining list is `BLAST_RADIUS_RESIDUAL`.
+
 ## P6 — Deletion and the honest audit
 
 Bulk-delete V1's operation/execution root once unreachable; keep what V2

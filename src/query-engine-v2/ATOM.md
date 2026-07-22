@@ -1249,6 +1249,53 @@ byte-identical to V1 (the create declines dual-run-proven); the census edit fals
 one FINER boundary added — a parent-held to-one relation in the update arm routes to V1).
 `OperationFragment.ts` untouched; V1 frozen.
 
+**T3d — the finer boundaries, and the blast-radius gate (83 → 43).** T3c's census
+was ZERO but its full-estate blast-radius probe (V1 fallback disabled globally, the
+whole ~7000-test estate) surfaced 83 failures — the finer boundaries reached only by
+NON-conformance estate tests. T3d absorbed the two machinery-complete classes and
+wired the probe as a committed, falsifiable gate.
+- **CLASS I — `select`/`include` result-shaping on `delete`/`update`/`upsert` (the
+  largest chunk).** `DeleteOperation` required exactly `{where, select}`;
+  `UpdateOperation`/`UpsertOperation` rejected `include`. All three now accept an
+  optional `select` (defaulting the scalar projection — V1's no-select shape) and an
+  `include` riding alongside, the surface `create` already owned. `include` forces
+  the terminal-read path over any scalar RETURNING fold (relations are lateral joins,
+  not RETURNING subqueries); the delete drops `FOR UPDATE` on the include read (the
+  PK-only locate already locked the row; `FOR UPDATE` + join is Postgres `0A000`).
+  This closed the plain-delete tests, the delete/update/upsert-with-include tests, AND
+  the whole `staleness-injection` suite (whose scenarios do plain no-select deletes) —
+  the largest single reason the probe failed. Full normal-mode estate stayed green.
+- **CLASS VII — nested `createMany skipDuplicates` default-only PARITY refusal.** A
+  nested `create` whose child `createMany` carries a default-only row (no explicit
+  user scalar) with `skipDuplicates` is inexpressible; V1 rejects it before the parent
+  write with a typed `QueryEngineError`. `foldCreateMany` now runs V1's own portability
+  guard (`buildValueGroups` on the pre-injection user rows → `assertPortableCreateManySkip`)
+  and raises V1's byte-identical message at construction. Non-default-only nested
+  `skipDuplicates` stays a documented finer boundary (dialect ON CONFLICT one level
+  deeper), reached by no estate scenario.
+- **THE GATE.** `pnpm test:gates:blast-radius` (`scripts/blast-radius-gate.mjs` +
+  `vitest.blast-radius.config.ts` + `tests/query-engine-v2/blast-radius.setup.ts`) runs
+  the full estate fallback-off and asserts the observed failure set equals the
+  documented residual (`blast-radius-residual.ts`) EXACTLY — bidirectionally, so a NEW
+  decline pushed behind the fallback OR a listed class absorbed-but-not-delisted both
+  turn it RED. This is P6's Stage 0 made a passing test rather than a probe; it shrinks
+  toward EMPTY as the subsystems land. Throw-site count unchanged at 87; `OperationFragment.ts`
+  untouched; V1 frozen.
+- **The 43 that remain (boundary-stopped, design-noted).** Three DECLINE subsystems
+  need an unbuilt mechanism, so they route to V1: (III) **batch generated/updated-PK
+  dataflow** — a nested create whose FK references a PK the same atomic batch
+  transitions needs an internal adapter batch-reference store (SQLite/D1 have no
+  `RETURNING`-as-CTE, `last_insert_rowid()` is volatile); (IV+V) the **relation-key /
+  referential-action legality engine** (the mission's pre-sanctioned boundary stop) and
+  its runtime-branch-gated `updateMany`-nested-relation companion — occupied-slot
+  detection, cascade/setNull/restrict staged re-point, no-op-transition detection,
+  empty-slot race pin, validate-only-the-taken-branch; (VI) **deep create-context
+  grandchildren** — a create under a PLANNED (runtime-captured) target id, one step past
+  `buildNestedTargetChildParts`' literal-parent reach. Plus (b) three routing-doc tests
+  that assert the V1-fallback route itself (rewritten when V1 dies at P6). Only I + VII
+  were machinery-complete this drive; the rest are enumerated exactly in the T3d report,
+  none a regression (the full estate is green with the fallback ON).
+
 ---
 
 ## 9. Invariants (the executable contract)
