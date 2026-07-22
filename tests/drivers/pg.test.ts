@@ -11,19 +11,20 @@ import { createClient as PgCreateClient, PgDriver } from "@drivers/pg";
 import { UniqueConstraintError } from "@errors";
 import { push } from "@migrations";
 import { s } from "@schema";
+import { runBulkWriteBehavior } from "../query-engine-v2/bulk-write-behavior";
 import { runCreateManyBehavior } from "../query-engine-v2/create-many-behavior";
 import { runCreateNestedUpsertBehavior } from "../query-engine-v2/create-nested-upsert-behavior";
 import { runNestedMutationBehavior } from "../query-engine-v2/nested-mutation-behavior";
+import { runReadBehavior } from "../query-engine-v2/read-behavior";
 import { runUpdateFamilyBehavior } from "../query-engine-v2/update-family-behavior";
 import { runUpdateNestedUpsertBehavior } from "../query-engine-v2/update-nested-upsert-behavior";
 import { runUpsertFamilyBehavior } from "../query-engine-v2/upsert-family-behavior";
-import { runReadBehavior } from "../query-engine-v2/read-behavior";
-import { runBulkWriteBehavior } from "../query-engine-v2/bulk-write-behavior";
 import {
   PgBatchForcedDriver,
   PgBeforeFirstBatchDriver,
   PgRacePlantingBatchDriver,
 } from "./batch-forced-pg";
+import { runBatchPrimaryKeyDataflowBehavior } from "./batch-primary-key-dataflow-behavior";
 import { runClientRawBehavior } from "./client-raw-behavior";
 import { runListJsonFilterBehavior } from "./list-json-filter-behavior";
 import { runM2mDeleteManyStalenessBehavior } from "./m2m-deletemany-staleness-behavior";
@@ -559,6 +560,14 @@ describeIf("pg Driver", () => {
   });
   runCreateNestedUpsertBehavior({
     name: "pg atomic batch",
+    createDriver: () =>
+      new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+  // T4b CLASS III — the batch updated/generated-PK dataflow on the RETURNING/lastval
+  // driver: updated-PK (compile-derived literal FK) and generated-PK (lastval batch-ref
+  // store) both proven on a real Postgres atomic batch.
+  runBatchPrimaryKeyDataflowBehavior({
+    driverName: "pg batch-only",
     createDriver: () =>
       new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
   });

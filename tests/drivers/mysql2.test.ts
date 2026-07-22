@@ -20,14 +20,14 @@ import {
 } from "@query-engine/result-aliases";
 import { s } from "@schema";
 import { sql } from "@sql";
+import { runBulkWriteBehavior } from "../query-engine-v2/bulk-write-behavior";
 import { runCreateManyBehavior } from "../query-engine-v2/create-many-behavior";
 import { runCreateNestedUpsertBehavior } from "../query-engine-v2/create-nested-upsert-behavior";
 import { runNestedMutationBehavior } from "../query-engine-v2/nested-mutation-behavior";
+import { runReadBehavior } from "../query-engine-v2/read-behavior";
 import { runUpdateFamilyBehavior } from "../query-engine-v2/update-family-behavior";
 import { runUpdateNestedUpsertBehavior } from "../query-engine-v2/update-nested-upsert-behavior";
 import { runUpsertFamilyBehavior } from "../query-engine-v2/upsert-family-behavior";
-import { runReadBehavior } from "../query-engine-v2/read-behavior";
-import { runBulkWriteBehavior } from "../query-engine-v2/bulk-write-behavior";
 import { MySQL2BatchForcedDriver } from "./batch-forced-mysql2";
 import { runClientRawBehavior } from "./client-raw-behavior";
 import { runCompoundKeyBehavior } from "./compound-key-behavior";
@@ -312,6 +312,14 @@ describeIf("MySQL2 Driver", () => {
       }),
     createStateDriver: createMySQL2Driver,
   });
+  // T4b CLASS III boundary-stop — MySQL has no RETURNING, so a batch-only MySQL is a
+  // non-returning atomic driver: V1 AND V2 refuse the single-row update/delete/upsert
+  // refetch family before I/O (byte-identical `TransactionError`, routing.ts
+  // `assertRoutedAtomicResolution`), so `runBatchPrimaryKeyDataflowBehavior`'s
+  // updated-PK cases are not runnable here (the family is refused, not the CLASS III
+  // dataflow specifically). MySQL certifies these mutations in TRANSACTION mode (the
+  // MySQL2 transaction blocks above and the full estate). The RETURNING-capable
+  // batch-only drivers (SQLite3, LibSQL, PGlite, Postgres) carry the batch dataflow.
 
   runUpdateNestedUpsertBehavior({
     name: "MySQL2 transaction",

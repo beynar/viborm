@@ -35,6 +35,7 @@ import {
 } from "../query-engine/operations";
 import {
   assertPortablePrimaryKeyUpdateInput,
+  getUpdatedPrimaryKeyValue,
   getUpdatedPrimaryKeyWhere,
   planNestedCreateIdentity,
 } from "../query-engine/operations/mutation-identity";
@@ -264,6 +265,12 @@ export class UpdateOperation {
   private readonly scope: StepScope;
   private readonly resultArgs: Record<string, unknown>;
   private readonly childParts: readonly Part[];
+  // Transitioned-PK nested `create` leaves (T4b CLASS III): literal-FK INSERTs whose
+  // FK is the POST-transition primary key, ordered AFTER the root UPDATE at compile —
+  // the new parent row must exist first (a NO-ACTION FK does not cascade a fresh row).
+  // Held apart from `childParts` (which are cascade-carried edges written BEFORE the
+  // update shape). See `resolveLiteralCreateParent` and `compile`.
+  private readonly afterRootCreateParts: readonly Part[];
   private readonly toOneLinks: readonly ToOneLink[];
   // Parent-held to-one `create`/`connectOrCreate` under update: a before-root
   // target INSERT whose identity the root parent UPDATE's FK column references
@@ -441,6 +448,9 @@ export class UpdateOperation {
     );
     this.parentIdSource = parentIdSource;
     const childParts: Part[] = [];
+    // T4b CLASS III — transitioned-PK creates collect here (see the field comment),
+    // routed by `resolveLiteralCreateParent` and emitted after the root UPDATE.
+    const afterRootCreateParts: Part[] = [];
     const toOneLinks: ToOneLink[] = [];
     const parentHeldTargets: ParentHeldTarget[] = [];
     // Every parent column a child FK edge references must be exposed by the
@@ -479,6 +489,7 @@ export class UpdateOperation {
         parentIdSource,
         txMode,
         childParts,
+        afterRootCreateParts,
         toOneLinks,
         parentHeldTargets,
         locateFields,
@@ -487,6 +498,7 @@ export class UpdateOperation {
       });
     }
     this.childParts = childParts;
+    this.afterRootCreateParts = afterRootCreateParts;
     this.toOneLinks = toOneLinks;
     this.parentHeldTargets = parentHeldTargets;
 
@@ -536,6 +548,9 @@ export class UpdateOperation {
       txMode &&
       engine.adapter.capabilities.supportsReturning &&
       childParts.length === 0 &&
+      // A transitioned-PK create (T4b CLASS III) is a real second statement that
+      // the single-statement RETURNING fold cannot carry — never fold past one.
+      afterRootCreateParts.length === 0 &&
       toOneLinks.length === 0 &&
       parentHeldTargets.length === 0 &&
       selectIsScalarOnly &&
@@ -727,6 +742,26 @@ export class UpdateOperation {
     if (rootUpdate && this.reorderRootUpdateAfterChildren) {
       steps.push(rootUpdate);
     }
+    // T4b CLASS III — transitioned-PK creates are literal-FK write leaves (empty
+    // planning) whose FK is the POST-transition primary key: they must land AFTER the
+    // root UPDATE, which creates the new parent row a NO-ACTION FK does not cascade to.
+    if (this.afterRootCreateParts.length > 0) {
+      if (!rootUpdate) {
+        throw new QueryEngineError(
+          "query-engine-v2 update built a transitioned-PK create with no root UPDATE to run before it."
+        );
+      }
+      for (const part of this.afterRootCreateParts) {
+        for (const step of part.compile(this.scope, known)) {
+          if (step.kind === "guard") {
+            throw new QueryEngineError(
+              "query-engine-v2 update transitioned-PK create leaf must not emit a guard step."
+            );
+          }
+          steps.push(step);
+        }
+      }
+    }
     steps.push(this.buildTerminal(locatedRow));
     return { steps, outputs: { result: ref(this.terminalId, "result") } };
   }
@@ -762,6 +797,7 @@ export class UpdateOperation {
     parentIdSource: ReturnType<typeof plannedParentId>;
     txMode: boolean;
     childParts: Part[];
+    afterRootCreateParts: Part[];
     toOneLinks: ToOneLink[];
     parentHeldTargets: ParentHeldTarget[];
     locateFields: Set<string>;
@@ -990,9 +1026,16 @@ export class UpdateOperation {
       childName,
       input,
     } = args;
-    const parentId = this.resolveLiteralCreateParent(input, fk, relationName);
+    const { parentId, afterRoot } = this.resolveLiteralCreateParent(
+      input,
+      fk,
+      relationName
+    );
+    // A transitioned-PK parent (T4b CLASS III) orders its fresh INSERT AFTER the root
+    // UPDATE; every other literal-FK create rides the normal child-part order.
+    const target = afterRoot ? input.afterRootCreateParts : input.childParts;
     if (kind === "create") {
-      input.childParts.push(
+      target.push(
         buildLiteralParentCreatePart({
           scope: input.scope,
           engine: this.engine,
@@ -1006,7 +1049,7 @@ export class UpdateOperation {
       );
       return;
     }
-    input.childParts.push(
+    target.push(
       buildLiteralParentCreateManyPart({
         scope: input.scope,
         engine: this.engine,
@@ -1020,17 +1063,23 @@ export class UpdateOperation {
     );
   }
 
-  /** The construction-time literal a child-held nested create injects for its FK. A
-   *  single-field referenced column, resolved from the root SET's new value (D4 — the
-   *  order stays root-UPDATE-before-child-INSERT so the fresh row references the
-   *  post-transition value) or the unique `where`'s pinned value; any other shape (a
-   *  compound key, a non-literal rewrite, or a column knowable only from the located
-   *  row) routes the whole tree to V1 — a documented narrower boundary. */
+  /** The construction-time literal a child-held nested create injects for its FK, and
+   *  where the fresh INSERT is ordered (`afterRoot`). A single-field referenced column,
+   *  resolved from:
+   *   - the unique `where`'s pinned value or a non-PK literal rewrite → `afterRoot: false`
+   *     (the fresh row rides the normal child order, UPDATE-before-INSERT or the cascade);
+   *   - a **transitioned PRIMARY KEY** (T4b CLASS III) → the fresh row references the
+   *     POST-transition id, derived at compile from the where-pinned pre-transition value by
+   *     `getUpdatedPrimaryKeyValue` (the same JS==SQL derivation the terminal read already
+   *     trusts, portability guaranteed by `assertPortablePrimaryKeyUpdateInput` on the root
+   *     SET) → `afterRoot: true`, so the INSERT lands after the root UPDATE creates the row.
+   *  Any other shape (a compound key, a non-literal rewrite, or a PK whose pre-transition
+   *  value is not where-pinned) routes the whole tree to V1 — a documented narrower boundary. */
   private resolveLiteralCreateParent(
     input: Parameters<UpdateOperation["interpretRelation"]>[0],
     fk: FkDirection,
     relationName: string
-  ): ParentIdSource {
+  ): { parentId: ParentIdSource; afterRoot: boolean } {
     if (fk.pkFields.length !== 1) {
       throw new UnsupportedOperationError(
         `query-engine-v2 update does not support a compound-key nested create on relation '${relationName}'.`
@@ -1038,17 +1087,31 @@ export class UpdateOperation {
     }
     const referencedField = fk.pkFields[0]!;
     if (Object.hasOwn(input.rootScalarData, referencedField)) {
-      // A rewritten PRIMARY KEY is a transition: the fresh child references the new PK,
-      // which requires the root UPDATE BEFORE the child INSERT — but the PK is always in
-      // `locateFields`, so the reorder is forced AFTER the children (the cascade path for
-      // existing edges). That ordering strands a fresh INSERT (the new PK does not yet
-      // exist → ForeignKeyError). Route the whole tree to V1, exactly as a non-literal
-      // (`{ set }`) PK rewrite already does. A NON-PK rewritten reference (D4) is safe:
-      // it is not in `locateFields`, so the reorder stays FALSE (UPDATE before INSERT).
+      // A rewritten PRIMARY KEY is a transition: the fresh child references the new PK.
+      // T4b CLASS III — the post-transition value is COMPILE-known, derived from the
+      // where-pinned pre-transition value by `getUpdatedPrimaryKeyValue` (the same exact
+      // JS==SQL arithmetic the terminal read trusts; the root SET already passed
+      // `assertPortablePrimaryKeyUpdateInput`, so a non-portable op is impossible here).
+      // The INSERT is ordered AFTER the root UPDATE (`afterRoot: true`) because a
+      // NO-ACTION FK does not cascade a fresh row: the new parent must exist first.
       if (this.parentPrimaryKeys.includes(referencedField)) {
-        throw new UnsupportedOperationError(
-          `query-engine-v2 update nested create on relation '${relationName}' references a primary key '${referencedField}' the update transitions; the fresh insert cannot be ordered after the transition.`
+        const pinnedBefore = getWhereUniqueEntries(
+          input.parent,
+          this.parentWhere
+        ).find((entry) => entry.fieldName === referencedField);
+        if (!pinnedBefore) {
+          throw new UnsupportedOperationError(
+            `query-engine-v2 update nested create on relation '${relationName}' transitions primary key '${referencedField}' whose pre-transition value is not pinned by the unique where.`
+          );
+        }
+        const transitioned = getUpdatedPrimaryKeyValue(
+          this.model,
+          referencedField,
+          pinnedBefore.value,
+          input.rootScalarData[referencedField],
+          getStepModelName(this.model, "record")
         );
+        return { parentId: literalParentId(transitioned), afterRoot: true };
       }
       const rewritten = input.rootScalarData[referencedField];
       if (!isConstructionLiteral(rewritten)) {
@@ -1056,12 +1119,14 @@ export class UpdateOperation {
           `query-engine-v2 update nested create on relation '${relationName}' references a non-literal rewritten column '${referencedField}'.`
         );
       }
-      return literalParentId(rewritten);
+      return { parentId: literalParentId(rewritten), afterRoot: false };
     }
     const pinned = getWhereUniqueEntries(input.parent, this.parentWhere).find(
       (entry) => entry.fieldName === referencedField
     );
-    if (pinned) return literalParentId(pinned.value);
+    if (pinned) {
+      return { parentId: literalParentId(pinned.value), afterRoot: false };
+    }
     throw new UnsupportedOperationError(
       `query-engine-v2 update nested create on relation '${relationName}' requires the referenced parent column '${referencedField}' to be pinned by the unique where or rewritten by the update.`
     );

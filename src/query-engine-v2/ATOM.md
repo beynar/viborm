@@ -1334,6 +1334,40 @@ planned create leaf and the `createMany`-under-planned finer boundary, deleted i
 `literalFkInject` throw). `OperationFragment.ts` untouched; V1 frozen. **P6-readiness: the two
 larger subsystems (III batch PK-dataflow; IV+V referential-action legality) remain.**
 
+**T4b — CLASS III absorbed (blast radius 40 → 18).** The batch **updated-PK dataflow**: a
+top-level `update` (or upsert update branch) that TRANSITIONS its primary key (literal rename,
+`{ set }`, or portable int·bigint arithmetic) while a nested `create`/`createMany` references
+that PK. The fresh row must carry the POST-transition value. The reconciliation with the plan
+doc (`docs/architecture/batch-primary-key-dataflow-plan.md` §T4b): on V2 the updated PK is NOT
+a runtime-deferred `BatchValueRef` and needs NO adapter batch-ref STORE — it is **compile-
+derived** from the where-pinned pre-transition value by V1's exact `getUpdatedPrimaryKeyValue`
+arithmetic (the SAME derivation `buildTerminal` already trusts to address the post-update row;
+`assertPortablePrimaryKeyUpdateInput` guarantees JS==SQL by rejecting non-portable float/decimal
+ops), so the child FK lowers to a construction **literal**. The one new mechanism is ORDERING:
+`UpdateOperation.afterRootCreateParts` — a transitioned-PK create is emitted AFTER the root
+UPDATE in BOTH `reorder` branches (a NO-ACTION FK does not cascade, so the new parent row must
+exist before the INSERT; distinct from the M2M / existing-edge reorder, which writes against the
+pre-transition value under an ON UPDATE CASCADE junction FK). `resolveLiteralCreateParent`
+returns `{ parentId, afterRoot }`; the `canFold` RETURNING fast path is gated off when an
+after-root create is present. The upsert case flows through unchanged (its relation-bearing
+update arm delegates to `UpdateOperation`). The generated-PK class is untouched — it still
+threads `adapter.batchRefs.storeLastInsertId`/`read` (the per-dialect insertId store) in
+`OperationExecutor.compileToEntries`.
+
+Certified: the 22 keys run native fallback-off (7 pglite + 8 sqlite3 incl. the tx-mode divide +
+7 nested-mutation-routing); a MULTI-ROW / MULTI-ENTRY wrong-row witness
+(`batch-updated-pk-dataflow-witness.test.ts`: disjoint parents transition to distinct computed
+ids 141/600 with distinctly-titled children + an untouched control parent; v1==v2-tx==v2-batch
+byte-identical; both transitioning updates route to V2) plus a falsification (return the
+pre-transition value → the vacated id FK-violates). 5-DB coverage: the RETURNING-capable
+batch-only drivers (SQLite3, LibSQL, PGlite, Postgres) carry the batch dataflow behavior; MySQL
+is a boundary-stop (non-returning batch-only refuses the single-row update/upsert refetch family
+before I/O, V1==V2 parity — `assertRoutedAtomicResolution`) and certifies these in transaction
+mode. Narrower boundaries still routing to V1: a located-only pre-transition PK (non-PK `where`),
+a compound generated PK, a non-portable arithmetic op. `OperationFragment.ts` untouched; the
+executor gained no operation-kind token; V1 frozen. **P6-readiness: only IV+V (referential-
+action legality, 15 keys) and the (b) V1-fallback-route doc tests (3) remain.**
+
 ---
 
 ## 9. Invariants (the executable contract)

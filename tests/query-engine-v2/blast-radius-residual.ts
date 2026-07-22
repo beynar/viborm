@@ -53,39 +53,24 @@ export const BLAST_RADIUS_ROUTING_DOC: readonly string[] = [
   "tests/query-engine-v2/upsert-family.test.ts > query-engine-v2 per-tree routing (depth-2 to-one grandchild) > nested upsert whose update arm has a to-one connectOrCreate falls to V1",
 ];
 
-/** CLASS III — batch generated/updated-PK dataflow. A nested `create` whose FK
- *  references a parent primary key the SAME batch update transitions (literal
- *  rename, `set`, or portable arithmetic) needs the produced/updated id THREADED
- *  to the fresh INSERT inside one prebuilt atomic batch. SQLite/D1 cannot use
- *  `INSERT … RETURNING` as a CTE source and `last_insert_rowid()` is volatile, so
- *  this needs an internal adapter-owned batch reference store
- *  (docs/architecture/batch-primary-key-dataflow-plan.md) that does not yet exist.
- *  V2 fails closed at construction; V1 executes it. The one transaction-mode case
- *  (sqlite3 "divides an integer PK") declines from the same construction guard. */
-export const BLAST_RADIUS_BATCH_PK_DATAFLOW: readonly string[] = [
-  "tests/drivers/pglite.test.ts > PGlite Driver > PGlite batch-only batch primary-key dataflow > top-level update changes PK with direct literal and nested create uses it",
-  "tests/drivers/pglite.test.ts > PGlite Driver > PGlite batch-only batch primary-key dataflow > top-level update changes PK with set operation and nested create uses it",
-  "tests/drivers/pglite.test.ts > PGlite Driver > PGlite batch-only batch primary-key dataflow > top-level update changes numeric PK with decrement and nested create uses it",
-  "tests/drivers/pglite.test.ts > PGlite Driver > PGlite batch-only batch primary-key dataflow > top-level update changes numeric PK with divide and nested create uses it",
-  "tests/drivers/pglite.test.ts > PGlite Driver > PGlite batch-only batch primary-key dataflow > top-level update changes numeric PK with increment and nested create uses it",
-  "tests/drivers/pglite.test.ts > PGlite Driver > PGlite batch-only batch primary-key dataflow > top-level update changes numeric PK with multiply and nested create uses it",
-  "tests/drivers/pglite.test.ts > PGlite Driver > PGlite batch-only batch primary-key dataflow > top-level upsert update branch changes PK before nested create",
-  "tests/drivers/sqlite3.test.ts > SQLite3 Driver > SQLite3 batch-only batch primary-key dataflow > top-level update changes PK with direct literal and nested create uses it",
-  "tests/drivers/sqlite3.test.ts > SQLite3 Driver > SQLite3 batch-only batch primary-key dataflow > top-level update changes PK with set operation and nested create uses it",
-  "tests/drivers/sqlite3.test.ts > SQLite3 Driver > SQLite3 batch-only batch primary-key dataflow > top-level update changes numeric PK with decrement and nested create uses it",
-  "tests/drivers/sqlite3.test.ts > SQLite3 Driver > SQLite3 batch-only batch primary-key dataflow > top-level update changes numeric PK with divide and nested create uses it",
-  "tests/drivers/sqlite3.test.ts > SQLite3 Driver > SQLite3 batch-only batch primary-key dataflow > top-level update changes numeric PK with increment and nested create uses it",
-  "tests/drivers/sqlite3.test.ts > SQLite3 Driver > SQLite3 batch-only batch primary-key dataflow > top-level update changes numeric PK with multiply and nested create uses it",
-  "tests/drivers/sqlite3.test.ts > SQLite3 Driver > SQLite3 batch-only batch primary-key dataflow > top-level upsert update branch changes PK before nested create",
-  "tests/drivers/sqlite3.test.ts > SQLite3 Driver > transactional nested update divides an integer PK and propagates it",
-  "tests/query-engine/nested-mutation-routing.test.ts > Nested Mutation Routing > PGlite batch-only routing batch primary-key dataflow > top-level update changes PK with direct literal and nested create uses it",
-  "tests/query-engine/nested-mutation-routing.test.ts > Nested Mutation Routing > PGlite batch-only routing batch primary-key dataflow > top-level update changes PK with set operation and nested create uses it",
-  "tests/query-engine/nested-mutation-routing.test.ts > Nested Mutation Routing > PGlite batch-only routing batch primary-key dataflow > top-level update changes numeric PK with decrement and nested create uses it",
-  "tests/query-engine/nested-mutation-routing.test.ts > Nested Mutation Routing > PGlite batch-only routing batch primary-key dataflow > top-level update changes numeric PK with divide and nested create uses it",
-  "tests/query-engine/nested-mutation-routing.test.ts > Nested Mutation Routing > PGlite batch-only routing batch primary-key dataflow > top-level update changes numeric PK with increment and nested create uses it",
-  "tests/query-engine/nested-mutation-routing.test.ts > Nested Mutation Routing > PGlite batch-only routing batch primary-key dataflow > top-level update changes numeric PK with multiply and nested create uses it",
-  "tests/query-engine/nested-mutation-routing.test.ts > Nested Mutation Routing > PGlite batch-only routing batch primary-key dataflow > top-level upsert update branch changes PK before nested create",
-];
+/** CLASS III — batch generated/updated-PK dataflow. ABSORBED by T4b (blast radius 40 -> 18).
+ *  A nested `create` whose FK references a parent primary key the SAME update TRANSITIONS
+ *  (literal rename, `{ set }`, or portable arithmetic) needs the POST-transition id on the
+ *  fresh INSERT. The reconciliation (docs/architecture/batch-primary-key-dataflow-plan.md,
+ *  §T4b): the updated PK is NOT a runtime-deferred value on V2 — it is COMPILE-derived from
+ *  the where-pinned pre-transition value by the SAME exact `getUpdatedPrimaryKeyValue`
+ *  arithmetic (JS==SQL for portable int/bigint ops) the terminal read already trusts, so the
+ *  child FK lowers to a construction LITERAL, and the INSERT is ordered AFTER the root UPDATE
+ *  (`afterRootCreateParts` in UpdateOperation) — a NO-ACTION FK does not cascade, so the new
+ *  parent row must exist first. No adapter batch-ref STORE is needed for the updated-PK class
+ *  (the generated-PK class already uses `batchRefs.storeLastInsertId`, unchanged). Proven
+ *  native fallback-off on every RETURNING-capable batch-only driver (SQLite3, LibSQL, PGlite,
+ *  Postgres) plus SQLite3 transaction mode; the pre-transition value knowable only from the
+ *  located row (a non-PK `where`), a compound key, or a non-portable op remains a documented
+ *  narrower boundary that routes to V1. MySQL batch-only is a non-returning driver and refuses
+ *  the whole single-row update/upsert refetch family before I/O (V1==V2 parity), so it carries
+ *  these mutations in TRANSACTION mode only. This class is now EMPTY. */
+export const BLAST_RADIUS_BATCH_PK_DATAFLOW: readonly string[] = [];
 
 /** CLASS IV + V — the relation-key / referential-action legality engine (the
  *  subsystem the T3d mission pre-sanctions as a boundary stop) plus its

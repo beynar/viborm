@@ -306,3 +306,30 @@ in-memory SQLite DBs, ratio = V2 hz / V1 hz):
   arms stay the proven inline path (unchanged); only the relation-bearing arm delegates.
   No statement-count regression; the full estate is green and the 5-DB matrix passes
   (SQLite3/LibSQL/PGlite + Docker MySQL 470/470 + pg 411/14).
+
+## T4b — the batch updated-PK dataflow A/B (in-memory SQLite)
+
+T4b absorbed CLASS III (blast radius **40 → 18**): a top-level `update`/`upsert` that
+TRANSITIONS its primary key while a nested `create` references it. The post-transition
+PK is compile-derived (V1's `getUpdatedPrimaryKeyValue`, the same arithmetic the terminal
+read trusts) into a literal child FK, and the INSERT is ordered after the root UPDATE
+(`UpdateOperation.afterRootCreateParts`) — no adapter batch-ref store needed for the
+updated-PK class. The witness shape — `user.update({ where: { id }, data: { id: {
+increment }, name, posts: { create } } })` — measured the same way
+(`benchmarks/t4b-updated-pk-dataflow-ab.bench.ts`, `queryEngine` escape hatch, two seeded
+in-memory SQLite DBs on the transaction substrate, each iteration consuming a fresh
+childless parent, ratio = V2 hz / V1 hz):
+
+| workload | V1 hz | V2 hz | ratio | verdict |
+| --- | --- | --- | --- | --- |
+| update transitions PK + nested create (`user.update({ where: { id }, data: { id: { increment: N }, name, posts: { create } } })`) | 6,119 | 11,549 | **1.89× (V2 faster)** | beyond gate |
+
+- **The transition-with-nested-create is FASTER on V2 (1.89×), the same composition
+  dividend.** V2 runs locate + the single root UPDATE + the child INSERT + the terminal
+  read as ONE linear plan (tx) / one atomic batch; V1 routes the whole tree to its batch
+  runtime with its symbol-ref lowering and temp-table scaffolding even for a value that is
+  compile-known. 5-DB certification: the RETURNING-capable batch-only drivers (SQLite3,
+  LibSQL, PGlite, Postgres) carry the batch dataflow behavior (Docker pg 426/14 incl. the
+  new CLASS III behavior); MySQL is a boundary-stop (non-returning batch-only refuses the
+  single-row update/upsert refetch family before I/O, V1==V2 parity) and certifies in
+  transaction mode (Docker mysql 470/470).

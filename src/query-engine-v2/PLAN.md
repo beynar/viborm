@@ -1195,6 +1195,27 @@ lockstep (43 → 40, gate green bidirectionally + falsified); throw-site count u
 (net-zero swap). `OperationFragment.ts` untouched; V1 frozen. **P6 stays AMBER** — the two
 larger subsystems (III batch PK-dataflow; IV+V referential-action legality) remain.
 
+**T4b — CLASS III absorbed (blast radius 40 → 18).** The batch **updated-PK dataflow**: a
+top-level `update`/`upsert` that TRANSITIONS its primary key (literal rename, `{ set }`, or
+portable int·bigint arithmetic) while a nested `create`/`createMany` references it. The plan
+doc (`docs/architecture/batch-primary-key-dataflow-plan.md`) envisioned an adapter batch-ref
+STORE for the computed PK; the delivered V2 reconciliation (§T4b there) is leaner and more
+faithful: the updated PK is **compile-derived** from the where-pinned pre-transition value by
+V1's exact `getUpdatedPrimaryKeyValue` arithmetic — the SAME derivation `buildTerminal` already
+trusts (JS==SQL, guarded by `assertPortablePrimaryKeyUpdateInput`) — so the child FK is a
+construction LITERAL, no batch-ref store needed. The one new mechanism is ORDERING:
+`UpdateOperation.afterRootCreateParts` emits the transitioned-PK create AFTER the root UPDATE in
+both reorder branches (a NO-ACTION FK does not cascade). The generated-PK class is untouched (it
+still uses `adapter.batchRefs.storeLastInsertId`, unchanged). Certified: 22 keys native
+fallback-off; a multi-row/multi-entry wrong-row witness + falsification
+(`batch-updated-pk-dataflow-witness.test.ts`); 5-DB coverage on the RETURNING-capable batch-only
+drivers (SQLite3, LibSQL, PGlite, Postgres) plus SQLite3 tx mode, with MySQL a documented
+boundary-stop (non-returning batch-only refuses the whole single-row update/upsert refetch
+family, V1==V2 parity — transaction mode only). `BLAST_RADIUS_RESIDUAL` 40 → 18, gate green
+bidirectionally + falsified; `OperationFragment.ts` untouched; V1 frozen. **P6 stays AMBER** —
+only IV+V (referential-action legality, 15 keys) and the (b) V1-fallback-route doc tests (3)
+remain.
+
 ## P6 — Deletion and the honest audit
 
 Bulk-delete V1's operation/execution root once unreachable; keep what V2

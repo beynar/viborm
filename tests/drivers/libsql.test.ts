@@ -2,14 +2,15 @@ import { LibSQLDriver } from "@drivers/libsql";
 import type { BatchQuery, QueryResult } from "@drivers/types";
 import type { Client, Transaction } from "@libsql/client";
 import { createInMemoryLibSQLDriver } from "../fixtures/drivers/libsql";
+import { runBulkWriteBehavior } from "../query-engine-v2/bulk-write-behavior";
 import { runCreateManyBehavior } from "../query-engine-v2/create-many-behavior";
 import { runCreateNestedUpsertBehavior } from "../query-engine-v2/create-nested-upsert-behavior";
 import { runNestedMutationBehavior } from "../query-engine-v2/nested-mutation-behavior";
+import { runReadBehavior } from "../query-engine-v2/read-behavior";
 import { runUpdateFamilyBehavior } from "../query-engine-v2/update-family-behavior";
 import { runUpdateNestedUpsertBehavior } from "../query-engine-v2/update-nested-upsert-behavior";
 import { runUpsertFamilyBehavior } from "../query-engine-v2/upsert-family-behavior";
-import { runReadBehavior } from "../query-engine-v2/read-behavior";
-import { runBulkWriteBehavior } from "../query-engine-v2/bulk-write-behavior";
+import { runBatchPrimaryKeyDataflowBehavior } from "./batch-primary-key-dataflow-behavior";
 import { runClientRawBehavior } from "./client-raw-behavior";
 import { runCompoundKeyBehavior } from "./compound-key-behavior";
 import { runCountAggregateWindowBehavior } from "./count-aggregate-window-behavior";
@@ -170,6 +171,13 @@ describe("LibSQL Driver", () => {
   });
   runCreateNestedUpsertBehavior({
     name: "LibSQL atomic batch",
+    createDriver: () => new BatchOnlyLibSQLDriver(),
+  });
+  // T4b CLASS III — the batch updated/generated-PK dataflow on the volatile-rowid
+  // driver: the updated-PK cases (compile-derived literal FK) and the generated-PK
+  // cases (last_insert_rowid batch-ref store) both proven on a real LibSQL batch.
+  runBatchPrimaryKeyDataflowBehavior({
+    driverName: "LibSQL batch-only",
     createDriver: () => new BatchOnlyLibSQLDriver(),
   });
 

@@ -28,6 +28,53 @@ current proof. Hosted D1 bindings and Neon HTTP are not blanket nested-write
 gaps, but hosted conformance should be called externally verified only after
 external runs.
 
+## T4b Reconciliation — the updated-PK class on V2 (delivered 2026-07-22)
+
+Phases 1–5 below describe the **V1** batch runtime (the `batch-references.ts` /
+`batch-updated-primary-keys.ts` symbol model, an adapter-owned batch-ref STORE for
+computed PKs). That machinery still lives, frozen, in V1 (`src/query-engine/`,
+`src/adapters/shared/batch-refs.ts`) and is the fallback. On the V2 query engine (the
+default since P5) the **updated-PK** class — a top-level `update`/`upsert` that
+TRANSITIONS its primary key while a nested `create` references it — is solved WITHOUT
+any new adapter machinery, and reality diverged from the plan in one load-bearing way:
+
+- **The updated PK is compile-known, not runtime-deferred.** V2's batch executor runs
+  planning (the locate read) before it compiles the atomic batch, so at compile the
+  located row's pre-transition PK is a concrete JS value; the where-pinned cases carry it
+  even earlier, at construction. The post-transition value is therefore derived by V1's
+  exact `getUpdatedPrimaryKeyValue` arithmetic (literal / `{ set }` / portable
+  int·bigint `increment`·`decrement`·`multiply`·`divide`, `Math.trunc` for int divide) —
+  the **same** function `UpdateOperation.buildTerminal` already uses to address the
+  post-update row. Because `assertPortablePrimaryKeyUpdateInput` rejects non-portable
+  (float/decimal) PK arithmetic up front, JS arithmetic equals the SQL the UPDATE's SET
+  computes, so the child FK lowers to a construction **literal** — not a `BatchValueRef`,
+  not an `adapter.batchRefs.store` of a computed expression. The batch-ref STORE the plan
+  envisioned for computed updated PKs is **not needed on V2**.
+- **Ordering, not a ref, is the mechanism.** A NO-ACTION child FK does not cascade, so the
+  fresh INSERT must run AFTER the root UPDATE (the new parent row must exist first). V2
+  collects such creates in `UpdateOperation.afterRootCreateParts` and emits them after the
+  root UPDATE in BOTH `reorderRootUpdateAfterChildren` branches. This is distinct from the
+  existing M2M / existing-edge reorder (those write against the PRE-transition value and
+  rely on the junction FK's ON UPDATE CASCADE).
+- **The generated-PK class is unchanged.** The `insertId` scratch (a produced
+  auto-increment id a child FK reads) DOES use `adapter.batchRefs.storeLastInsertId` /
+  `read`, already wired in `OperationExecutor.compileToEntries` and unchanged by T4b.
+  So the adapter batch-ref store lives and is exercised — for generated ids, per dialect
+  (`last_insert_rowid` / `lastval` / `LAST_INSERT_ID`) — but the updated-PK class rides
+  compile-time literals instead.
+- **Dialect coverage.** The updated-PK lowering is dialect-agnostic, but the family it
+  belongs to (single-row `update`/`upsert` refetch) needs RETURNING on a batch-only
+  driver. Certified native fallback-off on the RETURNING-capable batch-only drivers —
+  SQLite3, LibSQL, PGlite, Postgres — plus SQLite3 transaction mode.
+  **MySQL boundary-stop:** MySQL has no RETURNING, so a batch-only MySQL is a
+  non-returning atomic driver; V1 AND V2 refuse the whole single-row update/upsert refetch
+  family before I/O (byte-identical `TransactionError`, `routing.ts`
+  `assertRoutedAtomicResolution`). MySQL therefore carries these mutations in
+  TRANSACTION mode only — this is a family-level capability boundary, not a CLASS III gap.
+- **Narrower boundaries still routing to V1:** a pre-transition PK knowable only from the
+  located row (a non-PK `where` selecting the transitioning row), a compound generated PK,
+  or a non-portable arithmetic op.
+
 ## Non-Negotiable Contract
 
 - Query engine decides the mutation graph and primary-key data dependencies.
