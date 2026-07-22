@@ -180,24 +180,17 @@ export class UpsertOperation {
     const createHasRelations = Object.keys(createSep.relations).length > 0;
     const updateHasRelations = Object.keys(updateSep.relations).length > 0;
 
-    // A **parent-held to-one** relation in the update arm builds a probe correlated
-    // to the located parent's FK (a `firstRowField` of the update sub-op's locate).
-    // That probe is planned in the upsert's superset — but when the CREATE arm is
-    // taken the parent is ABSENT, so the located FK does not exist and the probe
-    // cannot plan (V1 simply never validates the untaken update branch). The whole
-    // tree routes to V1 for this shape (a documented narrower boundary; no census key
-    // reaches it — every family-D update arm is child-held / m2m, whose planning probe
-    // reads the child by its own `where`, not the parent's produced FK).
-    if (updateHasRelations) {
-      for (const mutation of Object.values(updateSep.relations)) {
-        const info = mutation.relationInfo;
-        if (info.isToOne && getFkDirection(parent, info).holdsFK) {
-          throw new UnsupportedOperationError(
-            "query-engine-v2 upsert does not support a parent-held to-one relation in the update arm (its parent-correlated probe cannot plan when the create arm is taken)."
-          );
-        }
-      }
-    }
+    // CLASS IV (T4c): a **parent-held to-one** relation in the update arm builds a
+    // probe correlated to the located parent's FK (a `firstRowField` of the delegated
+    // update sub-op's locate). When the CREATE arm is taken the parent is ABSENT, so
+    // that FK does not exist — but the delegated arm's locate carries `locateNotFound-
+    // Optional`, which makes its firstRowField outputs OPTIONAL: the superset probe
+    // plans against an empty locate (resolving the FK to `undefined`) instead of
+    // aborting, and the untaken arm's writes never compile. When the update arm IS
+    // taken (found), `compileFoundArm` runs its deferred payload legality — V1's
+    // update-branch validation, only-when-taken — so an invalid update branch rejects
+    // byte-identical and a missing-target upsert taking the create arm never does. No
+    // decline needed; the shape is native.
 
     const parentSchemas = engine.schemaRegistry.getModelSchemas(model);
     this.parentWhere = parseRecord(

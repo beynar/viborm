@@ -73,34 +73,37 @@ export const BLAST_RADIUS_ROUTING_DOC: readonly string[] = [
 export const BLAST_RADIUS_BATCH_PK_DATAFLOW: readonly string[] = [];
 
 /** CLASS IV + V — the relation-key / referential-action legality engine (the
- *  subsystem the T3d mission pre-sanctions as a boundary stop) plus its
- *  runtime-branch-gated companion. A root update/upsert that TRANSITIONS a
- *  referenced key (PK arithmetic, an FK-referenced column rewrite) while a nested
- *  write targets the relation on that key needs V1's engine: occupied-slot
- *  detection, the cascade / setNull / restrict staged re-point, no-op-transition
- *  detection (`set` same / `increment: 0`), an empty-slot race pin, and — for the
- *  top-level upsert — validating ONLY the branch the existence probe takes (an
- *  invalid UNTAKEN update branch must not reject). CLASS V is the same
- *  runtime-branch-gating over an `updateMany` whose data carries nested relation
- *  writes (V1's `NestedWriteError`), taken only when the update branch runs. V2
- *  declines the whole shape to V1 with an explicit `UnsupportedOperationError`. */
-export const BLAST_RADIUS_RELATION_KEY_LEGALITY: readonly string[] = [
-  "tests/query-engine/relation-key-update-legality.test.ts > relation-key update legality > allows a restrict key transition when the old slot is empty",
-  "tests/query-engine/relation-key-update-legality.test.ts > relation-key update legality > allows a setNull key transition when the old slot is empty",
-  "tests/query-engine/relation-key-update-legality.test.ts > relation-key update legality > allows increment zero on an occupied setNull relation",
-  "tests/query-engine/relation-key-update-legality.test.ts > relation-key update legality > allows primary-key arithmetic transition with cascade upsert",
-  "tests/query-engine/relation-key-update-legality.test.ts > relation-key update legality > allows same-value set on an occupied setNull relation",
-  "tests/query-engine/relation-key-update-legality.test.ts > relation-key update legality > does not validate an untaken top-level upsert update branch",
-  "tests/query-engine/relation-key-update-legality.test.ts > relation-key update legality > pins an empty setNull slot until the parent update executes",
-  "tests/query-engine/relation-key-update-legality.test.ts > relation-key update legality > recurses into nested update data before outer effects",
-  "tests/query-engine/relation-key-update-legality.test.ts > relation-key update legality > rejects non-cascade child-holds key transition with nested upsert",
-  "tests/query-engine/relation-key-update-legality.test.ts > relation-key update legality > validates the taken top-level upsert update branch",
-  "tests/query-engine/legality-gate.test.ts > M2 legality gate > upsert branch validation stays runtime-branch-gated > batch mode: existing target rejects the taken update branch, same message",
-  "tests/query-engine/legality-gate.test.ts > M2 legality gate > upsert branch validation stays runtime-branch-gated > batch mode: missing target with invalid update branch succeeds",
-  "tests/query-engine/legality-gate.test.ts > M2 legality gate > upsert branch validation stays runtime-branch-gated > transaction mode: existing target rejects the taken update branch",
-  "tests/query-engine/legality-gate.test.ts > M2 legality gate > upsert branch validation stays runtime-branch-gated > transaction mode: missing target with invalid update branch succeeds",
-  "tests/query-engine/nested-mutation-routing.test.ts > Nested Mutation Routing > nested relation writes inside updateMany data fail closed",
-];
+ *  subsystem the T3d mission pre-sanctioned as a boundary stop) plus its
+ *  runtime-branch-gated companion. ABSORBED by T4c (blast radius 18 -> 3).
+ *
+ *  A root update/upsert that TRANSITIONS a referenced key while a nested write
+ *  targets the relation on that key was V1's engine; V2 now reproduces its verdict
+ *  natively, reusing V1's PURE-ANALYSIS legality functions wholesale as kept mass
+ *  (visibility-only exports `assertRelationKeyUpdatesAreCompilable` /
+ *  `assertUpdateManyRelationsAreCompilable`, byte-identical `NestedWriteError`
+ *  messages) and executing every accepted shape on V2:
+ *   · CLASS IV — a child-held (inverse one-to-one) upsert under a referenced-PK
+ *     transition. `interpretTransitionedChildUpsert` classifies at compile from the
+ *     where-pinned pre-value and `getUpdatedPrimaryKeyValue`: CASCADE keeps the
+ *     ordinary correlated part (the DB re-points on `ON UPDATE CASCADE` + the root
+ *     reorder); a NO-OP transition (`increment: 0` / `set` same, before == after) is
+ *     byte-identical to a non-transition; a real NON-cascade transition emits V1's
+ *     occupied guard (`compileRelationKeyGuards`, ported to V2's guard/probe
+ *     vocabulary — a tx-mode compile throw off the locked probe, a batch-mode raceable
+ *     `notExists` guard pinning the empty-slot race) and reroutes the create arm to a
+ *     POST-transition-FK leaf ordered after the root UPDATE (the T4b
+ *     `afterRootCreateParts` machinery; the upsert update arm is unreachable). The
+ *     nested-update recursion runs `assertRelationKeyUpdatesAreCompilable` at every
+ *     child-part level; the top-level upsert's parent-held-to-one update arm plans its
+ *     superset against an OPTIONAL-firstRowField locate (an absent create-arm parent
+ *     resolves to `undefined`, never a planning abort) and rejects only when the found
+ *     branch is taken (V1's whenTrue timing, the deferred `assertArmLegality`).
+ *   · CLASS V — a nested relation write inside `updateMany` data rejects with V1's
+ *     byte-identical message: immediate at construction for a plain update, deferred
+ *     to the taken branch for an upsert update arm (runtime-branch-gated).
+ *
+ *  This class is now EMPTY. */
+export const BLAST_RADIUS_RELATION_KEY_LEGALITY: readonly string[] = [];
 
 /** CLASS VI — deep create-context grandchildren. ABSORBED by T4a (blast radius 43 -> 40).
  *  A `create` nested under a target located by a PLANNED / create-context parent id — a
