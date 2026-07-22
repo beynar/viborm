@@ -281,7 +281,7 @@ export function buildConnectFkValues(
 /**
  * Build subquery to select a specific field for connect
  */
-function buildConnectSubqueryForField(
+export function buildConnectSubqueryForField(
   ctx: QueryScope,
   relationInfo: RelationInfo,
   connectInput: Record<string, unknown>,

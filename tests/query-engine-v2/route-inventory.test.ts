@@ -415,6 +415,18 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   // in lockstep (8 -> 1). Family H (nested to-many upsert create-identity) added no route:
   // `assertMatchingCreateIdentity` is now GATED on the create arm carrying grandchildren
   // (its `new UnsupportedOperationError` site stays; the census key dropped 1 -> 0).
+  //
+  // 87 -> 86 (T3c, the two create-root declines): the parent-held to-one `connect` by a
+  // NON-REFERENCED unique is ABSORBED — `toOneFkAssign` resolves it through V1's verbatim
+  // `buildConnectSubqueryForField` lookup subquery, so its "must reference … directly"
+  // throw is DELETED (-1). The SHARED-PRIMARY-KEY parent-held edge is absorbed for the
+  // COMPILE-TIME-LITERAL sub-cases (a direct-referenced connect / a literal-id create,
+  // threaded into the record identity by `resolveSharedPkIdentity`); its throw stays,
+  // REWORDED to fire only when the fold value is not a literal (a non-referenced connect
+  // subquery, a generated create id, a connectOrCreate) — a documented finer boundary of
+  // the same "no compile-time-literal identity" class (route-inventory category iii). New
+  // conformance coverage ("create-root FK declines (tx vs batch)") runs all three natively
+  // fallback-off, byte-identical to V1 (dual-run confirmed).
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
@@ -425,7 +437,7 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
       const source = await readFile(join(dir, file), "utf8");
       sites += source.split("new UnsupportedOperationError(").length - 1;
     }
-    expect(sites).toBe(87);
+    expect(sites).toBe(86);
   });
 });
 

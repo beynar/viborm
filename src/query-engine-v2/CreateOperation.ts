@@ -8,6 +8,7 @@ import {
   getPrimaryKeyFields,
 } from "../query-engine/builders/correlation-utils";
 import {
+  buildConnectSubqueryForField,
   type FkDirection,
   getFkDirection,
   type RelationMutation,
@@ -386,10 +387,22 @@ export class CreateOperation {
   ): RecordPlan {
     const model = childScope.model;
     const separated = separateData(childScope, data);
-    const { identity, generatedField } = planNestedCreateIdentity(
-      model,
-      separated.scalarData
+    // T3c (shared-PK parent-held edge absorbed): a record whose primary key IS its
+    // FK gets that PK from the edge fold, not scalar data — so `planNestedCreateIdentity`
+    // would reject it as "primary key not known". Resolve the shared PK from a
+    // COMPILE-TIME-LITERAL edge (a direct-referenced `connect` / a literal-id `create`)
+    // and thread it into the identity so the terminal read can address the created row.
+    // A non-literal edge (non-referenced connect, generated-id create, connectOrCreate)
+    // yields no literal here; the shared-PK decline below still routes those to V1.
+    const sharedPkIdentity = this.resolveSharedPkIdentity(
+      childScope,
+      separated.relations,
+      data
     );
+    const { identity, generatedField } = planNestedCreateIdentity(model, {
+      ...separated.scalarData,
+      ...sharedPkIdentity,
+    });
     const scalarData = { ...separated.scalarData };
     if (generatedField) delete scalarData[generatedField];
 
@@ -453,6 +466,56 @@ export class CreateOperation {
       createManyGroups,
       afterParts,
     };
+  }
+
+  /**
+   * Resolve a shared-primary-key parent-held edge's PK from a COMPILE-TIME LITERAL
+   * fold (T3c). A record whose FK is (part of) its own primary key gets that PK from
+   * the edge, not scalar data; when the edge is a direct-referenced `connect` (the
+   * referenced column is in `where`) or a literal-id `create` (the referenced column
+   * is in the nested create data), that value is known at construction and becomes the
+   * record's identity for the terminal read. A non-referenced connect (a subquery), a
+   * generated-id create (a produced `Ref`), or a `connectOrCreate` (a runtime decision)
+   * yields nothing here — the shared-PK decline routes those to V1.
+   */
+  private resolveSharedPkIdentity(
+    childScope: QueryScope,
+    relations: Record<string, RelationMutation>,
+    data: Record<string, unknown>
+  ): Record<string, unknown> {
+    const recordPk = getPrimaryKeyFields(childScope.model);
+    const identity: Record<string, unknown> = {};
+    for (const [relationName, mutation] of Object.entries(relations)) {
+      const relationInfo = mutation.relationInfo;
+      if (relationInfo.type === "manyToMany") continue;
+      const fk = getFkDirection(childScope, relationInfo);
+      if (!fk.holdsFK) continue;
+      const sharedFkFields = fk.fkFields.filter((fkField) =>
+        recordPk.includes(fkField)
+      );
+      if (sharedFkFields.length === 0) continue;
+      const kinds = getRelationMutationKinds(mutation);
+      if (kinds.length !== 1) continue;
+      const relationInput = data[relationName];
+      if (!isRecord(relationInput)) continue;
+      // The literal source of the referenced columns: a `connect`'s `where`, or a
+      // `create`'s data. `connectOrCreate` is a runtime decision — no literal here.
+      const source =
+        kinds[0] === "connect"
+          ? normalizeSingle(relationInput.connect, relationName)
+          : kinds[0] === "create"
+            ? normalizeSingle(relationInput.create, relationName)
+            : undefined;
+      if (!source) continue;
+      for (let index = 0; index < fk.fkFields.length; index += 1) {
+        const fkField = fk.fkFields[index]!;
+        const referenced = fk.pkFields[index]!;
+        if (recordPk.includes(fkField) && Object.hasOwn(source, referenced)) {
+          identity[fkField] = source[referenced];
+        }
+      }
+    }
+    return identity;
   }
 
   /**
@@ -624,13 +687,27 @@ export class CreateOperation {
       );
     }
     // Shared-primary-key edge: the FK the record holds IS (part of) its own primary
-    // key. The PK is then supplied by the connect/create fold, not by scalar data,
-    // so the terminal read has no known identity to address the created row by —
-    // route the tree to V1, whose `getCreatedRowWhere` resolves the shared PK.
+    // key. The PK is then supplied by the connect/create fold, not by scalar data.
+    // T3c: when that fold value is a COMPILE-TIME LITERAL (a direct-referenced connect,
+    // a literal-id create), `resolveSharedPkIdentity` threaded it into `self.identity`
+    // above, so the terminal read can address the created row — proceed natively. A
+    // fold value that is NOT a literal (a non-referenced connect subquery, a generated
+    // create id, a connectOrCreate runtime decision) leaves the shared PK field absent
+    // from the identity; the terminal read cannot address it without a produced value it
+    // does not carry, so route the whole tree to V1 (whose `getCreatedRowWhere` resolves
+    // the shared PK). A finer boundary of the same class as the non-referenced connect.
     const recordPk = getPrimaryKeyFields(input.self.model);
-    if (fk.fkFields.some((fkField) => recordPk.includes(fkField))) {
+    const sharedFkFields = fk.fkFields.filter((fkField) =>
+      recordPk.includes(fkField)
+    );
+    if (
+      sharedFkFields.length > 0 &&
+      !sharedFkFields.every((fkField) =>
+        Object.hasOwn(input.self.identity, fkField)
+      )
+    ) {
       throw new UnsupportedOperationError(
-        `query-engine-v2 create does not support a shared-primary-key ${kinds[0]} on relation '${relationName}' (the foreign key '${fk.fkFields.join(", ")}' is this record's primary key).`
+        `query-engine-v2 create does not support a shared-primary-key ${kinds[0]} on relation '${relationName}' whose foreign key '${fk.fkFields.join(", ")}' (this record's primary key) is not a compile-time literal.`
       );
     }
     const childScope = createQueryScope(
@@ -673,6 +750,7 @@ export class CreateOperation {
     const where = normalizeSingle(relationInput.connect, relationName);
     const fkAssign = this.toOneFkAssign(
       input.self.model,
+      relationInfo,
       fk,
       where,
       relationName
@@ -761,6 +839,7 @@ export class CreateOperation {
     );
     const foundFkAssign = this.toOneFkAssign(
       input.self.model,
+      relationInfo,
       fk,
       where,
       relationName
@@ -799,28 +878,37 @@ export class CreateOperation {
     });
   }
 
-  /** The record's FK columns ← the connect target's referenced literals (TO-ONE.md
-   *  §1.1). Rejects a to-one connect by a non-referenced unique (needs a lookup). */
+  /**
+   * The record's FK columns ← the connect target's referenced values (TO-ONE.md
+   * §1.1). A directly-referenced unique (`where` carries the referenced column) is a
+   * compile-time literal; a **NON-referenced unique** (`where` carries some OTHER
+   * unique — a to-one connect by e.g. `email` when the FK references `id`) resolves
+   * through a correlated lookup subquery `(SELECT referenced FROM target WHERE …)` —
+   * V1's `buildConnectSubqueryForField`, verbatim (T3c create-root decline absorbed).
+   * The existence premise is unaffected: the parent-held connect's probe/guard reads
+   * the target by the SAME `where`, so a missing target is caught exactly as the
+   * directly-referenced case is.
+   */
   private toOneFkAssign(
     recordModel: Model<any>,
+    relationInfo: RelationInfo,
     fk: FkDirection,
     where: Record<string, unknown>,
-    relationName: string
+    _relationName: string
   ): Record<string, unknown> {
+    const recordScope = createQueryScope(this.engine.adapter, recordModel);
     const fkAssign: Record<string, unknown> = {};
     for (let index = 0; index < fk.fkFields.length; index += 1) {
       const referenced = fk.pkFields[index]!;
-      if (!Object.hasOwn(where, referenced)) {
-        throw new UnsupportedOperationError(
-          `query-engine-v2 create to-one connect for relation '${relationName}' must reference '${referenced}' directly.`
-        );
-      }
-      fkAssign[fk.fkFields[index]!] = referenceSql(
-        this.engine,
-        recordModel,
-        fk.fkFields[index]!,
-        where[referenced]
-      );
+      const fkField = fk.fkFields[index]!;
+      fkAssign[fkField] = Object.hasOwn(where, referenced)
+        ? referenceSql(this.engine, recordModel, fkField, where[referenced])
+        : buildConnectSubqueryForField(
+            recordScope,
+            relationInfo,
+            where,
+            referenced
+          );
     }
     return fkAssign;
   }

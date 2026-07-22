@@ -119,6 +119,51 @@ const selfRefFkSchema = (() => {
   return { category };
 })();
 
+// T3c — the two create-root parent-held-FK declines V1 accepts-and-executes and V2
+// deferred at T1 (outside the pre-T3c conformance census): a to-one `connect` by a
+// NON-REFERENCED unique (the FK references `id`, the connect names `email`; V1 resolves
+// it through a lookup subquery), and a SHARED-PRIMARY-KEY parent-held edge (the record's
+// PK IS its FK, supplied by the fold, not scalar data). `crd_profile.userId` is both the
+// PK and the FK to `crd_user.id`; `crd_note.userId` references `crd_user.id` but is
+// connected by the non-referenced `email`.
+const createRootFkDeclineSchema = (() => {
+  const user = s
+    .model({
+      id: s.string().id(),
+      email: s.string().unique(),
+      name: s.string(),
+      profile: s.oneToOne(() => profile).optional(),
+      notes: s.oneToMany(() => note),
+    })
+    .map("conformance_crd_users");
+
+  const profile = s
+    .model({
+      userId: s.string().id(),
+      bio: s.string(),
+      user: s
+        .oneToOne(() => user)
+        .fields("userId")
+        .references("id"),
+    })
+    .map("conformance_crd_profiles");
+
+  const note = s
+    .model({
+      id: s.string().id(),
+      text: s.string(),
+      userId: s.string().nullable(),
+      author: s
+        .manyToOne(() => user)
+        .fields("userId")
+        .references("id")
+        .optional(),
+    })
+    .map("conformance_crd_notes");
+
+  return { user, profile, note };
+})();
+
 const createRootDependencySchema = (() => {
   const node = s
     .model({
@@ -5959,9 +6004,80 @@ const transitiveMembershipDependencyScenarios: Scenario<TransitiveMembershipDepe
     },
   ];
 
+type CreateRootFkDeclineSchema = typeof createRootFkDeclineSchema;
+
+async function dumpCreateRootFkDecline(
+  client: SchemaClient<CreateRootFkDeclineSchema>
+): Promise<PersistedState> {
+  const [users, profiles, notes] = await Promise.all([
+    client.user.findMany({ orderBy: { id: "asc" } }),
+    client.profile.findMany({ orderBy: { userId: "asc" } }),
+    client.note.findMany({ orderBy: { id: "asc" } }),
+  ]);
+  return { users, profiles, notes };
+}
+
+// T3c — the two create-root parent-held-FK declines, now absorbed and run natively.
+// Each is a V1 accept-and-execute shape the pre-T3c census did not cover; adding them
+// here makes the census machinery see them, so the final zero includes them.
+const createRootFkDeclineScenarios: Scenario<CreateRootFkDeclineSchema>[] = [
+  {
+    name: "to-one connect by a non-referenced unique resolves through a lookup subquery",
+    seed: (client) =>
+      client.user.create({ data: { id: "u1", email: "a@x", name: "A" } }),
+    act: (client) =>
+      client.note.create({
+        data: { id: "n1", text: "hi", author: { connect: { email: "a@x" } } },
+      }),
+    expected: {
+      users: [{ id: "u1", email: "a@x", name: "A" }],
+      profiles: [],
+      notes: [{ id: "n1", text: "hi", userId: "u1" }],
+    },
+  },
+  {
+    name: "shared-primary-key parent-held connect sets the record PK from the fold",
+    seed: (client) =>
+      client.user.create({ data: { id: "u1", email: "a@x", name: "A" } }),
+    act: (client) =>
+      client.profile.create({
+        data: { bio: "b", user: { connect: { id: "u1" } } },
+      }),
+    expected: {
+      users: [{ id: "u1", email: "a@x", name: "A" }],
+      profiles: [{ userId: "u1", bio: "b" }],
+      notes: [],
+    },
+  },
+  {
+    name: "shared-primary-key parent-held create threads the literal target id to the record PK",
+    act: (client) =>
+      client.profile.create({
+        data: {
+          bio: "b2",
+          user: { create: { id: "u2", email: "b@x", name: "B" } },
+        },
+      }),
+    expected: {
+      users: [{ id: "u2", email: "b@x", name: "B" }],
+      profiles: [{ userId: "u2", bio: "b2" }],
+      notes: [],
+    },
+  },
+];
+
 // ---------------------------------------------------------------------------
 // Registration.
 // ---------------------------------------------------------------------------
+
+registerGroup(
+  "nested-write conformance: create-root FK declines (tx vs batch)",
+  {
+    schema: createRootFkDeclineSchema,
+    dump: dumpCreateRootFkDecline,
+    scenarios: createRootFkDeclineScenarios,
+  }
+);
 
 registerGroup("nested-write conformance: FK relations (tx vs batch)", {
   schema: nestedWriteBehaviorSchema,
