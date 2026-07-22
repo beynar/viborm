@@ -983,6 +983,18 @@ export class UpdateOperation {
     }
     const referencedField = fk.pkFields[0]!;
     if (Object.hasOwn(input.rootScalarData, referencedField)) {
+      // A rewritten PRIMARY KEY is a transition: the fresh child references the new PK,
+      // which requires the root UPDATE BEFORE the child INSERT — but the PK is always in
+      // `locateFields`, so the reorder is forced AFTER the children (the cascade path for
+      // existing edges). That ordering strands a fresh INSERT (the new PK does not yet
+      // exist → ForeignKeyError). Route the whole tree to V1, exactly as a non-literal
+      // (`{ set }`) PK rewrite already does. A NON-PK rewritten reference (D4) is safe:
+      // it is not in `locateFields`, so the reorder stays FALSE (UPDATE before INSERT).
+      if (this.parentPrimaryKeys.includes(referencedField)) {
+        throw new UnsupportedOperationError(
+          `query-engine-v2 update nested create on relation '${relationName}' references a primary key '${referencedField}' the update transitions; the fresh insert cannot be ordered after the transition.`
+        );
+      }
       const rewritten = input.rootScalarData[referencedField];
       if (!isConstructionLiteral(rewritten)) {
         throw new UnsupportedOperationError(

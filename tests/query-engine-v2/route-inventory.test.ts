@@ -396,6 +396,15 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   // D4-style deep non-PK reference cannot be injected — nor would it be caught by the
   // PK-only depth reorder). No census key moved (every absorbed deeper edge references
   // the target PK). Witness: nested-update-d4-deep-nonpk-reference.test.ts.
+  //
+  // 87 -> 88 (T3b-2, family E ordering fix): `resolveLiteralCreateParent` routes a nested
+  // create whose referenced column is the parent's PRIMARY KEY that the same update
+  // TRANSITIONS to V1. The fresh insert references the new PK (requires the root UPDATE
+  // first), but the PK is always in `locateFields`, forcing the reorder AFTER the children
+  // — which strands the insert (ForeignKeyError). This mirrors the `{ set }` PK rewrite,
+  // which already routes to V1 as a non-literal. No census key (a routing regression the
+  // batch-only PK-dataflow drivers surfaced). A NON-PK rewritten reference (D4) stays
+  // native (not in `locateFields`, reorder stays FALSE).
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
@@ -406,7 +415,7 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
       const source = await readFile(join(dir, file), "utf8");
       sites += source.split("new UnsupportedOperationError(").length - 1;
     }
-    expect(sites).toBe(87);
+    expect(sites).toBe(88);
   });
 });
 
