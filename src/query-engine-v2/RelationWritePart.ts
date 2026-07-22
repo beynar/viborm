@@ -28,11 +28,12 @@ import {
   upsertPremiseChanged,
   upsertTargetVanished,
 } from "./messages";
+import type { NestedChildBuilder } from "./nested-target-parts";
 import type { OperationStep, StatementStep } from "./OperationFragment";
 import type { Part, PlanningKnown } from "./Part";
 import { planningKey } from "./Part";
 import { referencedFieldRef, referencedFieldValue } from "./parent-reference";
-import type { ParentIdSource } from "./RelationUpsertPart";
+import { literalParentId, type ParentIdSource } from "./RelationUpsertPart";
 import type { StepScope } from "./StepScope";
 import { UnsupportedOperationError } from "./shared";
 
@@ -98,6 +99,15 @@ export interface RelationWriteConfig {
    * a relation-carrying arm routes the whole tree to V1 at construction.
    */
   readonly upsertCreateData?: Record<string, unknown>;
+  /**
+   * T3b mechanism 1: the recursion seam. When a targeted `update`'s `data` carries
+   * nested relation writes, its located target builds its OWN child Parts through
+   * this builder (correlated to the target's compile-time literal PK, {@link
+   * literalParentId}), exactly as a root update does — the family-B boundary lifted.
+   * A relation-carrying `update` with no builder (or a bulk `updateMany`, or an
+   * inverse-side to-one update with no unique locator) still routes to V1.
+   */
+  readonly nestedBuilder?: NestedChildBuilder;
 }
 
 export class RelationWritePart implements Part {
@@ -107,6 +117,17 @@ export class RelationWritePart implements Part {
   private readonly upsertCreateId?: string;
   private readonly guardId: string;
   private readonly probe?: StatementStep;
+  // T3b mechanism 1 — the located target's own child Parts (built from its `data`
+  // relations) and whether its self-UPDATE must land AFTER them (a PK transition it
+  // rewrites, carried to the deeper FK by ON UPDATE CASCADE — the root's
+  // `reorderRootUpdateAfterChildren` ported to depth). Empty / false when the
+  // targeted update carries no nested relation writes.
+  private readonly childParts: readonly Part[];
+  private readonly reorderAfterChildren: boolean;
+  // The validated scalar assignments of a targeted `update`/`updateMany` (∅ when a
+  // relation-only nested update carries no scalars — then no self-UPDATE is emitted,
+  // only the child Parts). Computed once at construction.
+  private readonly updateScalarData?: Record<string, unknown>;
 
   constructor(scope: StepScope, config: RelationWriteConfig) {
     this.config = config;
@@ -114,25 +135,28 @@ export class RelationWritePart implements Part {
     this.writeId = scope.allocate(`${config.childName}.${config.kind}`);
     this.guardId = scope.allocate(`${config.childName}.guard.exists`);
     this.probe = this.isTargeted() ? this.buildProbe() : undefined;
+    this.childParts = [];
+    this.reorderAfterChildren = false;
     // Payload-determined support decisions are made at CONSTRUCTION — before any
     // I/O — so the per-tree router falls back to V1 for a shape V2 does not own.
-    // A nested relation write inside `update`/`updateMany` data (V1's surface,
-    // not P2c's) is such a shape. Deferring this `scalarData()` rejection to
-    // `compile()` fired it AFTER the planning read, escaping the router's
-    // construction-time `UnsupportedOperationError` catch and surfacing V2's
-    // message where V1's byte-identical error was the contract.
+    // A nested relation write inside `update`/`updateMany` data was, pre-T3b, such
+    // a shape; mechanism 1 now folds it one level deeper (see `interpretChildParts`).
     if (config.kind === "update" || config.kind === "updateMany") {
-      this.scalarData();
+      const built = this.interpretChildParts();
+      this.childParts = built.childParts;
+      this.reorderAfterChildren = built.reorderAfterChildren;
+      this.updateScalarData = built.scalarData;
       // V1's PK-arithmetic portability check on the nested child data (float/decimal
       // non-portability, divide-by-zero, one-op) — a payload legality gate at
       // construction (before the probe), matching RelationUpdates. Reuses V1's
-      // verbatim messages.
+      // verbatim messages. Applied to the scalar assignments only (nested relation
+      // writes are not PK arithmetic).
       if (config.data) {
         assertPortablePrimaryKeyUpdateInput(
           config.childScope.model,
           config.kind,
           {
-            data: config.data,
+            data: built.scalarData,
           }
         );
       }
@@ -146,14 +170,19 @@ export class RelationWritePart implements Part {
     }
   }
 
-  planning(): readonly OperationStep[] {
-    return this.probe ? [this.probe] : [];
+  planning(scope: StepScope): readonly OperationStep[] {
+    const steps: OperationStep[] = this.probe ? [this.probe] : [];
+    // Depth (T3b mechanism 1): the located target's own child Parts plan their
+    // probes here, one level deeper — the same unconditional planning superset the
+    // root and the upsert-arm recursion already use (ATOM §3 technique 2).
+    for (const child of this.childParts) steps.push(...child.planning(scope));
+    return steps;
   }
 
-  compile(_scope: StepScope, known: PlanningKnown): readonly OperationStep[] {
+  compile(scope: StepScope, known: PlanningKnown): readonly OperationStep[] {
     if (this.config.kind === "updateMany") return [this.buildUpdateMany(known)];
     if (this.config.kind === "deleteMany") return [this.buildDeleteMany(known)];
-    return this.compileTargeted(known);
+    return this.compileTargeted(scope, known);
   }
 
   /**
@@ -165,7 +194,10 @@ export class RelationWritePart implements Part {
    * matching both, so the guard fails and the batch rolls back — V2 never mutates
    * the replacement the selector-alone guard would have found.
    */
-  private compileTargeted(known: PlanningKnown): readonly OperationStep[] {
+  private compileTargeted(
+    scope: StepScope,
+    known: PlanningKnown
+  ): readonly OperationStep[] {
     if (this.config.upsertCreateData !== undefined) {
       return this.compileInverseToOneUpsert(known);
     }
@@ -181,12 +213,34 @@ export class RelationWritePart implements Part {
         )
       );
     }
-    steps.push(
-      this.config.kind === "update"
-        ? this.buildUpdateOne(capturedWhere)
-        : this.buildDeleteOne(capturedWhere)
-    );
+    if (this.config.kind === "delete") {
+      steps.push(this.buildDeleteOne(capturedWhere));
+      return steps;
+    }
+    // `update` — mechanism 1. The self-UPDATE (emitted only when the payload carries
+    // scalar assignments; a relation-only nested update writes no parent row) lands
+    // BEFORE the located target's child Parts by default, or AFTER them when its SET
+    // rewrites the target's own primary key (a PK transition the deeper FK references,
+    // carried to the new value by ON UPDATE CASCADE — `reorderRootUpdateAfterChildren`
+    // ported to depth). The child Parts correlate to the PRE-transition literal PK.
+    const childSteps: OperationStep[] = [];
+    for (const child of this.childParts) {
+      childSteps.push(...child.compile(scope, known));
+    }
+    const selfUpdate = this.hasSelfUpdate()
+      ? this.buildUpdateOne(capturedWhere)
+      : undefined;
+    if (selfUpdate && !this.reorderAfterChildren) steps.push(selfUpdate);
+    steps.push(...childSteps);
+    if (selfUpdate && this.reorderAfterChildren) steps.push(selfUpdate);
     return steps;
+  }
+
+  /** Whether a targeted `update` writes the target row itself (a non-empty scalar
+   *  SET). A relation-only nested update (`{ friends: { connect } }`) writes only its
+   *  child Parts — no empty-SET UPDATE. */
+  private hasSelfUpdate(): boolean {
+    return Object.keys(this.updateScalarData ?? {}).length > 0;
   }
 
   /**
@@ -259,7 +313,7 @@ export class RelationWritePart implements Part {
       kind: "write",
       statement: buildUpdate(this.config.childScope, {
         where,
-        data: this.scalarData(),
+        data: this.requireUpdateScalarData(),
         select: { [this.config.childPrimaryKey]: true },
       }),
       outputs: {},
@@ -350,7 +404,7 @@ export class RelationWritePart implements Part {
       kind: "write",
       statement: buildUpdate(this.config.childScope, {
         where,
-        data: this.scalarData(),
+        data: this.requireUpdateScalarData(),
         select: { [this.config.childPrimaryKey]: true },
       }),
       outputs: {},
@@ -372,7 +426,7 @@ export class RelationWritePart implements Part {
       kind: "write",
       statement: buildUpdateMany(this.config.childScope, {
         where: this.correlatedFilter(known),
-        data: this.scalarData(),
+        data: this.requireUpdateScalarData(),
       }),
       outputs: {},
     };
@@ -475,7 +529,20 @@ export class RelationWritePart implements Part {
     }));
   }
 
-  private scalarData(): Record<string, unknown> {
+  /**
+   * Separate a targeted `update`/`updateMany` payload into its scalar assignments
+   * and its child Parts (T3b mechanism 1). Pre-T3b this threw for any nested relation
+   * write; now a targeted `update` located by its unique PK folds those relations one
+   * level deeper ({@link nestedBuilder}), the located target building its own child
+   * Parts exactly as a root update does. A relation-carrying `updateMany` (bulk, no
+   * captured PK), an inverse-side to-one `update` with no unique `where`, or a build
+   * without the recursion seam still routes the whole tree to V1.
+   */
+  private interpretChildParts(): {
+    childParts: readonly Part[];
+    reorderAfterChildren: boolean;
+    scalarData: Record<string, unknown>;
+  } {
     const { data, childScope, relationName, kind } = this.config;
     if (!data) {
       throw new QueryEngineError(
@@ -483,19 +550,57 @@ export class RelationWritePart implements Part {
       );
     }
     const { scalarData, relations } = separateData(childScope, data);
-    if (Object.keys(relations).length > 0) {
-      // Nested relation writes inside a nested update/updateMany are V1's
-      // surface, not P2c's — route the whole tree to V1.
+    if (Object.keys(relations).length === 0) {
+      if (Object.keys(scalarData).length === 0) {
+        throw new UnsupportedOperationError(
+          `query-engine-v2 ${kind} for relation '${relationName}' requires at least one scalar assignment.`
+        );
+      }
+      return { childParts: [], reorderAfterChildren: false, scalarData };
+    }
+    // Nested relation writes present. Only a targeted `update` located by a unique
+    // `where` (its PK is a compile-time literal, the deeper FK a known value) with the
+    // recursion seam folds them; every other shape routes to V1.
+    if (kind !== "update" || !this.config.where || !this.config.nestedBuilder) {
       throw new UnsupportedOperationError(
         `query-engine-v2 ${kind} for relation '${relationName}' does not support nested relation writes in its data.`
       );
     }
-    if (Object.keys(scalarData).length === 0) {
+    const pkEntry = getWhereUniqueEntries(childScope, this.config.where).find(
+      (entry) => entry.fieldName === this.config.childPrimaryKey
+    );
+    if (pkEntry === undefined) {
+      // The deeper FK references this target's PK; the nested update must locate it by
+      // that PK so the FK is a known literal (buildArmChildParts' precondition).
       throw new UnsupportedOperationError(
-        `query-engine-v2 ${kind} for relation '${relationName}' requires at least one scalar assignment.`
+        `query-engine-v2 update for relation '${relationName}' carries nested relation writes; it must locate the target by its primary key '${this.config.childPrimaryKey}'.`
       );
     }
-    return scalarData;
+    const childParts = this.config.nestedBuilder(
+      childScope,
+      literalParentId(pkEntry.value),
+      relations,
+      this.config.txMode
+    );
+    // Reorder the self-UPDATE after the child edges when the SET rewrites this target's
+    // own PK (a transition the deeper FK references): the child edge is written against
+    // the pre-transition literal and the FK's ON UPDATE CASCADE carries it forward.
+    const reorderAfterChildren =
+      childParts.length > 0 &&
+      Object.hasOwn(scalarData, this.config.childPrimaryKey);
+    return { childParts, reorderAfterChildren, scalarData };
+  }
+
+  /** The validated scalar assignments of a targeted `update`/`updateMany`; the leaf
+   *  UPDATE consumes them. Present for every `update`/`updateMany` (computed once at
+   *  construction); a relation-only nested update never reaches a leaf that needs it. */
+  private requireUpdateScalarData(): Record<string, unknown> {
+    if (!this.updateScalarData) {
+      throw new QueryEngineError(
+        `query-engine-v2 ${this.config.kind} for relation '${this.config.relationName}' has no scalar data.`
+      );
+    }
+    return this.updateScalarData;
   }
 
   /**
@@ -920,6 +1025,10 @@ interface WritePartBase {
   readonly childPrimaryKey: string;
   readonly parentId: ParentIdSource;
   readonly txMode: boolean;
+  /** T3b mechanism 1: the recursion seam a targeted `update` uses to fold nested
+   *  relation writes in its `data` one level deeper. Absent for the leaf families
+   *  (delete/deleteMany/updateMany), so those keep declining a relation payload. */
+  readonly nestedBuilder?: NestedChildBuilder;
 }
 
 /** `update`: one targeted correlated part per `{ where, data }` item. */
@@ -1083,6 +1192,7 @@ function partConfig(
     childPrimaryKey: base.childPrimaryKey,
     parentId: base.parentId,
     txMode: base.txMode,
+    nestedBuilder: base.nestedBuilder,
   };
 }
 

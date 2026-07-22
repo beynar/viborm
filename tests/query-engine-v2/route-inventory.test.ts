@@ -318,6 +318,24 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   //        unabsorbed family-A scenarios (the `container` shapes) live here.
   // The census dropped 42 → 31 in lockstep (11 family-A scenarios now run natively).
   // No route was removed; nothing was faked green.
+  //
+  // 65 → 73 (T3b-1, TO-ONE.md §7.7, family B — mechanism 1): a nested to-many
+  // `update`'s located target now builds its OWN child Parts (update-arm literal-
+  // parent recursion). Absorbing the 6 child-held family-B shapes adds 8 FINER
+  // boundary routes, exactly as every prior absorption did:
+  //   nested-target-parts.ts (+7) — the depth builder's documented narrower shapes,
+  //     each routing the whole tree to V1: a deeper parent-held-FK to-one (needs
+  //     child-SET folding); a non-child-held/non-inverse relation one level deeper;
+  //     a compound-PK child at depth; a non-boolean inverse-to-one delete at depth;
+  //     an unenumerated nested kind at depth; a relation-carrying create arm at depth
+  //     (create-context depth, a later mechanism); createMany skipDuplicates at depth.
+  //   RelationWritePart.ts (+1 net) — `interpretChildParts` replaces the old two-throw
+  //     `scalarData` gate with three: the empty-scalar and the still-declined
+  //     relation-in-update shapes (no unique `where` / bulk updateMany / no seam), plus
+  //     the new "must locate the target by its primary key" boundary for a nested
+  //     relation payload that does not.
+  // The census dropped 31 → 25 in lockstep (6 family-B scenarios now run natively).
+  // No route was removed; nothing was faked green.
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
@@ -328,7 +346,7 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
       const source = await readFile(join(dir, file), "utf8");
       sites += source.split("new UnsupportedOperationError(").length - 1;
     }
-    expect(sites).toBe(65);
+    expect(sites).toBe(73);
   });
 });
 

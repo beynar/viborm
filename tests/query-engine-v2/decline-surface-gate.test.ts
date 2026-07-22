@@ -502,8 +502,9 @@ describe("decline-surface gate: the reachable residual STILL lives behind the fa
     // Absorbing a family (or a coherent slice) drops BOTH by the same amount (and its
     // scenarios must then pass the fallback-off conformance run).
     expect(FALLBACK_OFF_RESIDUAL.size).toBe(FALLBACK_OFF_RESIDUAL_COUNT);
-    // 43 (T3) → 42 (T3-r2 family F) → 31 (T3a absorbed 11 of family A's 13).
-    expect(FALLBACK_OFF_RESIDUAL_COUNT).toBe(31);
+    // 43 (T3) → 42 (T3-r2 family F) → 31 (T3a absorbed 11 of family A's 13) → 25
+    // (T3b-1 absorbed the 6 child-held family-B nested-relation-in-update shapes).
+    expect(FALLBACK_OFF_RESIDUAL_COUNT).toBe(25);
   });
 
   test(`still declines at construction (routes to V1): ${REPRESENTATIVE_CONSTRUCT_DECLINE.label}`, () => {

@@ -1062,12 +1062,22 @@ export class RelationJunctionPart implements Part {
     return (row as Record<string, unknown>)[this.targetPkField];
   }
 
-  /** The parent-id Ref used by planning membership reads (technique #1). */
+  /**
+   * The parent-id a planning membership read correlates on. A `planned` source
+   * refs the not-yet-run locate by a SQL `Ref` (technique #1). A `literal` source
+   * — a depth-composed junction under a located-by-PK nested target (T3b mechanism
+   * 1) — inlines its compile-time value directly: the correlation is a known
+   * constant, so the membership read is `WHERE parentColumn = <literal>`, exactly
+   * as the write correlation ({@link parentLiteral}) already does. The membership
+   * read's `parentValue` is materialized identically for a `Ref` or a literal
+   * (both ride through `ManyToManyStatements.materialize`), so no leaf learns which.
+   */
   private parentRef(): unknown {
     const source = this.config.parentId;
+    if (source.kind === "literal") return source.value;
     if (source.kind !== "planned") {
       throw new QueryEngineError(
-        `query-engine-v2 junction for relation '${this.config.relationName}' requires a planned parent id to correlate its membership reads.`
+        `query-engine-v2 junction for relation '${this.config.relationName}' requires a planned or literal parent id to correlate its membership reads.`
       );
     }
     return ref(source.readStep, source.field);

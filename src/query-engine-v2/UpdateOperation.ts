@@ -57,6 +57,7 @@ import {
   relationTargetNotFound,
   upsertPremiseChanged,
 } from "./messages";
+import { buildNestedTargetChildParts } from "./nested-target-parts";
 import {
   type OperationFragment,
   type OperationStep,
@@ -73,6 +74,7 @@ import { buildToManyLinkParts } from "./RelationLinkPart";
 import {
   buildConnectOrCreateParts,
   buildToManyUpsertParts,
+  type ParentIdSource,
   plannedParentId,
 } from "./RelationUpsertPart";
 import {
@@ -770,9 +772,10 @@ export class UpdateOperation {
       );
     }
     const childName = getStepModelName(relationInfo.targetModel, relationName);
+    const engine = this.engine;
     const writeBase = {
       scope: input.scope,
-      engine: this.engine,
+      engine,
       relationName,
       relationInfo,
       childName,
@@ -782,6 +785,23 @@ export class UpdateOperation {
       childPrimaryKey: childPrimaryKeys[0]!,
       parentId: input.parentIdSource,
       txMode: input.txMode,
+      // T3b mechanism 1: a targeted nested `update` whose located target data carries
+      // its own relations folds them one level deeper (family B). The seam captures
+      // this operation's scope + engine; depth adds list entries, never vocabulary.
+      nestedBuilder: (
+        targetScope: QueryScope,
+        parentId: ParentIdSource,
+        relations: Record<string, RelationMutation>,
+        txMode: boolean
+      ) =>
+        buildNestedTargetChildParts(
+          input.scope,
+          engine,
+          targetScope,
+          relations,
+          parentId,
+          txMode
+        ),
     } as const;
 
     // Multiple mutation kinds may coexist on one relation (V1's `{ delete,

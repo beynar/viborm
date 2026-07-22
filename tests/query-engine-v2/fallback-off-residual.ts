@@ -68,11 +68,21 @@ export const FALLBACK_OFF_RESIDUAL: ReadonlySet<string> = new Set([
   // creates then updates the profile" was pinned here; the inverse-side to-one
   // upsert is now handled natively by V2 (RelationWritePart correlated upsert arm),
   // so it runs fallback-off and is no longer a fallback carrier. Count 43 → 42.
-  "nested-write conformance: transitive createMany dependencies (tx vs batch) > nested createMany and disjoint later decision succeed",
-  "nested-write conformance: transitive membership dependencies (tx vs batch) > nested identity transition exports the exact final membership source",
-  "nested-write conformance: transitive membership dependencies (tx vs batch) > nested physical membership allows a disjoint source endpoint",
-  "nested-write conformance: transitive membership dependencies (tx vs batch) > nested physical membership allows a disjoint target endpoint",
-  "nested-write conformance: transitive membership dependencies (tx vs batch) > nested physical membership stays isolated by named junction scope",
+  //
+  // ABSORBED (T3b-1, family B — mechanism 1, update-arm literal-parent recursion):
+  // the 6 child-held nested-relation-in-update shapes now run fallback-off. A nested
+  // to-many `update`'s located target builds its OWN child Parts (m2m junction /
+  // to-many createMany), correlated to its compile-time literal PK, with its self-
+  // UPDATE reordered AFTER those children on a PK transition (ON UPDATE CASCADE
+  // ported to depth — the `nested identity transition` witness: id 1→4, friend
+  // sourceId cascades to 4). Removed from this set (Count 31 → 25):
+  //   · transitive createMany > nested createMany and disjoint later decision succeed
+  //   · transitive membership > nested identity transition exports the exact final
+  //     membership source
+  //   · transitive membership > nested physical membership allows a disjoint source endpoint
+  //   · transitive membership > nested physical membership allows a disjoint target endpoint
+  //   · transitive membership > nested physical membership stays isolated by named junction scope
+  //   · update predicate root > nested to-many update allows a disjoint child decision
   "nested-write conformance: transitive predicate dependencies (tx vs batch) > nested predicate update allows a later identity-only root filter",
   "nested-write conformance: transitive predicate dependencies (tx vs batch) > nested predicate update allows a numerically disjoint root filter",
   "nested-write conformance: transitive predicate dependencies (tx vs batch) > upsert update alternative predicate delta ignores an id-only filter",
@@ -85,7 +95,6 @@ export const FALLBACK_OFF_RESIDUAL: ReadonlySet<string> = new Set([
   "nested-write conformance: update membership root (tx vs batch) > non-self nested FK rebind allows a disjoint inverse holder",
   "nested-write conformance: update membership root (tx vs batch) > same-node non-self FK rebind allows a disjoint inverse holder",
   "nested-write conformance: update predicate root (tx vs batch) > existing top-level upsert uses its exact pk for disjointness",
-  "nested-write conformance: update predicate root (tx vs batch) > nested to-many update allows a disjoint child decision",
 ]);
 
 /** The measured residual count — asserted by the gate so the set cannot be silently
@@ -93,6 +102,8 @@ export const FALLBACK_OFF_RESIDUAL: ReadonlySet<string> = new Set([
  *  of one) is absorbed. Started at 43 (T3 enumeration); 42 after T3-r2 absorbed
  *  family F (inverse-side to-one upsert, size 1); 31 after T3a absorbed 11 of family
  *  A's 13 (parent-held to-one update/delete/upsert with scalar target data; the 2
- *  nested-relation-target-data shapes stay pinned). Each further absorption drops
- *  this by that slice's size. */
-export const FALLBACK_OFF_RESIDUAL_COUNT = 31;
+ *  nested-relation-target-data shapes stay pinned); 25 after T3b-1 absorbed the 6
+ *  child-held family-B shapes (mechanism 1 — a nested to-many `update`'s located
+ *  target builds its own child Parts + reorder/cascade to depth). Each further
+ *  absorption drops this by that slice's size. */
+export const FALLBACK_OFF_RESIDUAL_COUNT = 25;
