@@ -41,9 +41,10 @@ import {
   ref,
   type StatementStep,
 } from "./OperationFragment";
+import type { NestedChildBuilder } from "./nested-target-parts";
 import type { Part, PlanningKnown } from "./Part";
 import { planningKey } from "./Part";
-import type { ParentIdSource } from "./RelationUpsertPart";
+import { literalParentId, type ParentIdSource } from "./RelationUpsertPart";
 import type { StepScope } from "./StepScope";
 import { getStepModelName, UnsupportedOperationError } from "./shared";
 
@@ -119,6 +120,18 @@ export interface RelationJunctionConfig {
     readonly create: Record<string, unknown>;
     readonly update: Record<string, unknown>;
   }[];
+  // T3b-2 mechanism 2 / mechanism 1 reuse (TO-ONE.md §7.7). A junction create /
+  // update / upsert target whose data carries its own relation writes folds them
+  // one level deeper through the same {@link NestedChildBuilder} the child-held
+  // families use — a fresh created target (mechanism 2, its explicit PK the child
+  // parts' literal parent) or a located-by-PK updated target (mechanism 1, the
+  // `where` PK the literal parent). Aligned index-for-index to `creates` / `wheres`
+  // (update) / `upserts`; emitted after the relevant child write, branch-specific
+  // for the upsert arms. Empty when the target payload is scalar-only.
+  readonly createChildParts?: readonly (readonly Part[])[];
+  readonly updateChildParts?: readonly (readonly Part[])[];
+  readonly upsertCreateChildParts?: readonly (readonly Part[])[];
+  readonly upsertUpdateChildParts?: readonly (readonly Part[])[];
 }
 
 /** A per-target probe slot (connect/set/delete/update) with its write ids. */
@@ -129,6 +142,9 @@ interface TargetSlot {
   readonly writeId: string;
   readonly childId: string;
   readonly probe: StatementStep;
+  /** update (mechanism 1): the located target's own nested child Parts, folded one
+   *  level deeper against its literal `where` PK. Empty for a scalar-only update. */
+  readonly childParts: readonly Part[];
 }
 
 /** A per-filter bulk slot (deleteMany) with its materialized-set difference ids. */
@@ -157,6 +173,9 @@ interface CreateSlot {
   readonly createPk: unknown;
   readonly childId: string;
   readonly joinId: string;
+  /** create (mechanism 2): the fresh target's own nested child Parts, folded one
+   *  level deeper against its explicit literal PK. Empty for a scalar-only create. */
+  readonly childParts: readonly Part[];
 }
 
 /** A `connectOrCreate` slot — a global probe, then adopt (join) or create+join. */
@@ -185,6 +204,13 @@ interface UpsertSlot {
   readonly joinId: string;
   readonly membershipProbe: StatementStep;
   readonly globalProbe: StatementStep;
+  /** upsert arms (mechanism 2 / mechanism 1 reuse): the create-arm and update-arm
+   *  nested child Parts, folded one level deeper against the target's literal PK
+   *  (`create` PK / `where` PK — validated equal). Emitted branch-specifically:
+   *  create-arm on the absent decision, update-arm on the member / created-earlier
+   *  decision. Empty for a scalar-only arm. */
+  readonly createChildParts: readonly Part[];
+  readonly updateChildParts: readonly Part[];
 }
 
 export class RelationJunctionPart implements Part {
@@ -234,8 +260,8 @@ export class RelationJunctionPart implements Part {
     this.bare = this.buildBareSlots(scope);
     this.creates =
       kind === "create"
-        ? (config.creates ?? []).map((create) =>
-            this.buildCreateSlot(scope, create)
+        ? (config.creates ?? []).map((create, index) =>
+            this.buildCreateSlot(scope, create, index)
           )
         : [];
     this.adopts =
@@ -244,8 +270,8 @@ export class RelationJunctionPart implements Part {
         : [];
     this.upserts =
       kind === "upsert"
-        ? (config.upserts ?? []).map((item) =>
-            this.buildUpsertSlot(scope, item)
+        ? (config.upserts ?? []).map((item, index) =>
+            this.buildUpsertSlot(scope, item, index)
           )
         : [];
     this.setClearId =
@@ -254,18 +280,35 @@ export class RelationJunctionPart implements Part {
       kind === "set" ? scope.allocate(`${config.childName}.set.insert`) : "";
   }
 
-  planning(): readonly OperationStep[] {
+  planning(scope: StepScope): readonly OperationStep[] {
     const steps: OperationStep[] = [];
-    for (const target of this.targets) steps.push(target.probe);
+    for (const target of this.targets) {
+      steps.push(target.probe);
+      // Depth (T3b-2): the located update target's own child Parts plan their probes
+      // here, one level deeper — the unconditional planning superset (ATOM §3
+      // technique 2), identical to the root and the child-held recursion.
+      for (const child of target.childParts) steps.push(...child.planning(scope));
+    }
     for (const bulk of this.bulks) steps.push(bulk.read);
     for (const adopt of this.adopts) steps.push(adopt.probe);
+    for (const create of this.creates) {
+      for (const child of create.childParts) steps.push(...child.planning(scope));
+    }
     for (const upsert of this.upserts) {
       steps.push(upsert.membershipProbe, upsert.globalProbe);
+      // Both arms' child Parts plan unconditionally (a superset); `compile` emits
+      // only the taken arm's writes (technique 2), exactly as the arm decision itself.
+      for (const child of upsert.createChildParts) {
+        steps.push(...child.planning(scope));
+      }
+      for (const child of upsert.updateChildParts) {
+        steps.push(...child.planning(scope));
+      }
     }
     return steps;
   }
 
-  compile(_scope: StepScope, known: PlanningKnown): readonly OperationStep[] {
+  compile(scope: StepScope, known: PlanningKnown): readonly OperationStep[] {
     const parent = this.parentLiteral(known);
     switch (this.config.kind) {
       case "connect":
@@ -279,15 +322,15 @@ export class RelationJunctionPart implements Part {
       case "deleteMany":
         return this.compileDeleteMany(parent, known);
       case "update":
-        return this.compileUpdate(parent, known);
+        return this.compileUpdate(scope, parent, known);
       case "updateMany":
         return this.compileUpdateMany(parent);
       case "create":
-        return this.compileCreate(parent);
+        return this.compileCreate(scope, parent, known);
       case "connectOrCreate":
         return this.compileConnectOrCreate(parent, known);
       case "upsert":
-        return this.compileUpsert(parent, known);
+        return this.compileUpsert(scope, parent, known);
       default: {
         const exhaustive: never = this.config.kind;
         throw new QueryEngineError(
@@ -411,6 +454,7 @@ export class RelationJunctionPart implements Part {
 
   // update — locate the connected child, UPDATE it by primary key.
   private compileUpdate(
+    scope: StepScope,
     parent: unknown,
     known: PlanningKnown
   ): readonly OperationStep[] {
@@ -425,9 +469,17 @@ export class RelationJunctionPart implements Part {
           this.connectedPresenceGuard(target, parent, "update", targetPk)
         );
       }
-      writes.push(
-        this.childUpdate(target.writeId, targetPk, data[index] ?? {})
-      );
+      // The self-UPDATE lands only when the payload carries scalar assignments; a
+      // relation-only nested update (`data: { tags: { create } }`) writes no target
+      // row, only its child Parts (mechanism 1). Membership is still validated by
+      // `requireTarget`/the presence guard above.
+      const scalar = data[index] ?? {};
+      if (Object.keys(scalar).length > 0) {
+        writes.push(this.childUpdate(target.writeId, targetPk, scalar));
+      }
+      for (const child of target.childParts) {
+        writes.push(...child.compile(scope, known));
+      }
     }
     return [...guards, ...writes];
   }
@@ -464,7 +516,11 @@ export class RelationJunctionPart implements Part {
   // create — INSERT the fresh child row, then the join row (V1's
   // `ManyToManyMemberships.create`). No probe, no missing premise: an
   // unconditional insert whose own unique violation is a genuine error.
-  private compileCreate(parent: unknown): readonly OperationStep[] {
+  private compileCreate(
+    scope: StepScope,
+    parent: unknown,
+    known: PlanningKnown
+  ): readonly OperationStep[] {
     const steps: OperationStep[] = [];
     for (const slot of this.creates) {
       steps.push(this.childInsert(slot.childId, slot.create));
@@ -474,6 +530,14 @@ export class RelationJunctionPart implements Part {
           targetValue: slot.createPk,
         })
       );
+      // Mechanism 2: the fresh target's own relations fold one level deeper against
+      // its explicit literal PK, emitted AFTER its INSERT + join (the deeper FK edges
+      // reference the now-existing target). Fresh-parent elision (ATOM §4): no
+      // pre-existing membership, so a correlated read below vanishes to its
+      // uncorrelated part — the child builders already produce unconditional writes.
+      for (const child of slot.childParts) {
+        steps.push(...child.compile(scope, known));
+      }
     }
     return steps;
   }
@@ -522,10 +586,14 @@ export class RelationJunctionPart implements Part {
   // absent target is created and joined. Member premise pinned by the membership
   // exists guard (raceable:false); absent premise by the child constraint (racePin).
   private compileUpsert(
+    scope: StepScope,
     parent: unknown,
     known: PlanningKnown
   ): readonly OperationStep[] {
     const steps: OperationStep[] = [];
+    const emitChildren = (parts: readonly Part[]) => {
+      for (const child of parts) steps.push(...child.compile(scope, known));
+    };
     // Targets an earlier array item already created+joined in THIS operation: it
     // is now a member, so a duplicate item updates it (V1's sequential merge).
     const created = new Set<string>();
@@ -536,13 +604,23 @@ export class RelationJunctionPart implements Part {
         if (!this.config.txMode) {
           steps.push(this.upsertMemberGuard(slot, parent, memberPk));
         }
-        steps.push(this.childUpdate(slot.updateId, memberPk, slot.update));
+        // Update arm (a scalar SET only when non-empty; a relation-only update arm
+        // writes just its child Parts — mechanism 1 reused at the arm level).
+        if (Object.keys(slot.update).length > 0) {
+          steps.push(this.childUpdate(slot.updateId, memberPk, slot.update));
+        }
+        emitChildren(slot.updateChildParts);
         continue;
       }
       if (created.has(pkKey(slot.createPk))) {
         // Created+joined by an earlier same-target item — now a member (no guard;
         // our own earlier insert guarantees its presence). Update it.
-        steps.push(this.childUpdate(slot.updateId, slot.createPk, slot.update));
+        if (Object.keys(slot.update).length > 0) {
+          steps.push(
+            this.childUpdate(slot.updateId, slot.createPk, slot.update)
+          );
+        }
+        emitChildren(slot.updateChildParts);
         continue;
       }
       const globalRows = known[planningKey(slot.globalProbeId, "rows")];
@@ -559,6 +637,9 @@ export class RelationJunctionPart implements Part {
         this.childInsert(slot.childId, slot.create, slot.where),
         this.joinInsert(slot.joinId, parent, slot.createPk)
       );
+      // Create arm (mechanism 2): the fresh target's relations, emitted after its
+      // INSERT + join, correlated to its explicit literal PK.
+      emitChildren(slot.createChildParts);
     }
     return steps;
   }
@@ -569,7 +650,7 @@ export class RelationJunctionPart implements Part {
   private buildTargetSlot(
     scope: StepScope,
     where: Record<string, unknown>,
-    _index: number
+    index: number
   ): TargetSlot {
     const { kind, childName } = this.config;
     const connected = kind === "delete" || kind === "update";
@@ -597,6 +678,10 @@ export class RelationJunctionPart implements Part {
         statement,
         outputs: { rows: { kind: "rows" } },
       },
+      childParts:
+        kind === "update"
+          ? (this.config.updateChildParts?.[index] ?? [])
+          : [],
     };
   }
 
@@ -647,7 +732,8 @@ export class RelationJunctionPart implements Part {
 
   private buildCreateSlot(
     scope: StepScope,
-    create: Record<string, unknown>
+    create: Record<string, unknown>,
+    index: number
   ): CreateSlot {
     const { childName } = this.config;
     return {
@@ -655,6 +741,7 @@ export class RelationJunctionPart implements Part {
       createPk: this.requireCreatePk(create),
       childId: scope.allocate(`${childName}.create`),
       joinId: scope.allocate(`${childName}.junction.insert`),
+      childParts: this.config.createChildParts?.[index] ?? [],
     };
   }
 
@@ -692,7 +779,8 @@ export class RelationJunctionPart implements Part {
       where: Record<string, unknown>;
       create: Record<string, unknown>;
       update: Record<string, unknown>;
-    }
+    },
+    index: number
   ): UpsertSlot {
     const { childName } = this.config;
     const membershipProbeId = scope.allocate(`${childName}.member`);
@@ -708,6 +796,8 @@ export class RelationJunctionPart implements Part {
       childId: scope.allocate(`${childName}.create`),
       updateId: scope.allocate(`${childName}.update`),
       joinId: scope.allocate(`${childName}.junction.insert`),
+      createChildParts: this.config.upsertCreateChildParts?.[index] ?? [],
+      updateChildParts: this.config.upsertUpdateChildParts?.[index] ?? [],
       // Two widened probes (technique #2): whether the target is a member of this
       // parent (correlated by a SQL Ref) AND whether it exists globally. `compile`
       // decides member / exists-not-member / absent from both.
@@ -1125,6 +1215,11 @@ export function buildJunctionParts(input: {
   parsedRelation: Record<string, unknown>;
   parentId: ParentIdSource;
   txMode: boolean;
+  /** T3b-2: the depth-recursive child-Part builder (mechanism 2 / mechanism 1
+   *  reuse). Present at the root (UpdateOperation/CreateOperation) and at depth
+   *  (nested-target-parts). When absent, a relation-carrying create/update/upsert
+   *  target payload routes the whole tree to V1 (the pre-T3b-2 scalar-only boundary). */
+  nestedBuilder?: NestedChildBuilder;
 }): RelationJunctionPart[] {
   const {
     scope,
@@ -1139,6 +1234,10 @@ export function buildJunctionParts(input: {
   } = input;
   const childName = getStepModelName(relationInfo.targetModel, relationName);
   const childScope = createQueryScope(engine.adapter, relationInfo.targetModel);
+  const targetPkField = getManyToManyJoinInfo(
+    parentScope,
+    relationInfo
+  ).targetPkField;
   const base = {
     engine,
     parentScope,
@@ -1148,6 +1247,66 @@ export function buildJunctionParts(input: {
     parentId,
     txMode,
   } as const;
+  // T3b-2 — fold a create/update/upsert-arm target payload into (scalar SET, deeper
+  // child Parts). A scalar-only payload keeps the pre-T3b-2 behavior (empty child
+  // Parts); a relation-carrying one folds those relations one level deeper against
+  // the target's literal PK through the shared `nestedBuilder`, or — when no builder
+  // was threaded — routes the whole tree to V1 (the documented scalar-only boundary).
+  const foldTarget = (
+    data: Record<string, unknown>,
+    resolvePk: () => unknown,
+    foldKind: string
+  ): { scalar: Record<string, unknown>; childParts: readonly Part[] } => {
+    const { scalarData, relations } = separateData(childScope, data);
+    if (Object.keys(relations).length === 0) {
+      return { scalar: scalarData, childParts: [] };
+    }
+    if (!input.nestedBuilder) {
+      throw new UnsupportedOperationError(
+        `query-engine-v2 nested '${foldKind}' on many-to-many relation '${relationName}' does not support nested relation writes in its data.`
+      );
+    }
+    return {
+      scalar: scalarData,
+      childParts: input.nestedBuilder(
+        childScope,
+        literalParentId(resolvePk()),
+        relations,
+        txMode
+      ),
+    };
+  };
+  // The literal PK a relation-carrying update/upsert target is located by (the
+  // deeper FK references it, so it must be a compile-time constant — mechanism 1's
+  // precondition). A non-PK `where` with nested relations routes to V1.
+  const requireWherePk = (
+    where: Record<string, unknown>,
+    foldKind: string
+  ): unknown => {
+    const entry = getWhereUniqueEntries(childScope, where).find(
+      (candidate) => candidate.fieldName === targetPkField
+    );
+    if (entry === undefined) {
+      throw new UnsupportedOperationError(
+        `query-engine-v2 nested '${foldKind}' on many-to-many relation '${relationName}' carries nested relation writes; it must locate the target by its primary key '${targetPkField}'.`
+      );
+    }
+    return entry.value;
+  };
+  // The literal PK a relation-carrying create arm supplies (mechanism 2's fresh
+  // target; an auto-generated identity routes to V1, as the scalar create already does).
+  const requireCreatePkValue = (
+    create: Record<string, unknown>,
+    foldKind: string
+  ): unknown => {
+    const pk = create[targetPkField];
+    if (pk === undefined || pk === null) {
+      throw new UnsupportedOperationError(
+        `query-engine-v2 create-through-junction for relation '${relationName}' requires the target primary key '${targetPkField}' in the create data (${foldKind}).`
+      );
+    }
+    return pk;
+  };
   const parts: RelationJunctionPart[] = [];
   // A stable, V1-mirroring kind order: adopt/link first, then set, then the
   // correlated writes, then removals — every kind independent (the own-write

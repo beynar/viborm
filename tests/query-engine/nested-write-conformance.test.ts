@@ -418,6 +418,7 @@ interface Outcome {
   // (an {@link UnsupportedOperationError}) in seed or act. Meaningful only under
   // `VIBORM_FALLBACK_OFF=1`, where a decline re-throws instead of routing to V1.
   declinedToV1: boolean;
+  declineMessage?: string;
 }
 
 interface Scenario<TSchema extends Schema> {
@@ -466,6 +467,7 @@ async function runScenario<TSchema extends Schema>(
   });
   try {
     let declinedToV1 = false;
+    let declineMessage: string | undefined;
     // Seed stays OUTSIDE the act try/catch (a seed failure is a test error, not a
     // scenario reject) — but under fallback-off a V2 decline in seed still counts
     // toward the census flag without changing normal semantics (env-off seeds
@@ -488,6 +490,7 @@ async function runScenario<TSchema extends Schema>(
       errorOutcome = normalizeErrorOutcome(error);
       if (error instanceof UnsupportedOperationError) {
         declinedToV1 = true;
+        declineMessage = (error as Error).message;
       }
     }
     return {
@@ -495,6 +498,7 @@ async function runScenario<TSchema extends Schema>(
       error: errorOutcome,
       state: await group.dump(client),
       declinedToV1,
+      declineMessage,
     };
   } finally {
     await client.$disconnect();
@@ -530,6 +534,12 @@ function registerGroup<TSchema extends Schema>(
         // substrates. That is the machine-check that this scenario still routes to
         // V1 — the census cannot silently claim an absorption that did not happen.
         if (isPinnedResidual) {
+          if (process.env.VIBORM_CENSUS_SITES) {
+            // biome-ignore lint/suspicious/noConsole: temporary census measurement
+            console.error(
+              `CENSUS_SITE:: ${residualKey} :: ${transaction.declineMessage ?? "(none)"}`
+            );
+          }
           expect(transaction.declinedToV1).toBe(true);
           expect(batch.declinedToV1).toBe(true);
           return;
