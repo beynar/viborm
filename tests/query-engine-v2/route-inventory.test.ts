@@ -373,6 +373,14 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   // builder keeps the pre-T3b-2 scalar-only boundary (all three current callers thread
   // it). The 10 family-C census keys dropped in lockstep (21 → 11). `scalarOnly` stays
   // for updateMany (filter target, no literal PK) and the connectOrCreate adopt arm.
+  //
+  // 78 -> 81 (T3b-2, family E): `UpdateOperation.interpretChildHeldCreate` routes a
+  // nested `create`/`createMany` under the update root to the literal-parent create leaf
+  // (mechanism 2 create-arm). `resolveLiteralCreateParent` adds THREE finer boundary
+  // routes, each narrower than the one create/createMany decline it replaces: a compound
+  // referenced key, a non-literal (arithmetic) rewrite of the referenced column, and a
+  // referenced column resolvable only from the located row (a planned FK) each route to
+  // V1. The 2 family-E census keys dropped in lockstep (11 -> 9).
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
@@ -383,7 +391,7 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
       const source = await readFile(join(dir, file), "utf8");
       sites += source.split("new UnsupportedOperationError(").length - 1;
     }
-    expect(sites).toBe(78);
+    expect(sites).toBe(81);
   });
 });
 

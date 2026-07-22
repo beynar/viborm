@@ -20,6 +20,7 @@ import {
 } from "../query-engine/builders/relation-data-builder";
 import { getRelationMutationKinds } from "../query-engine/builders/relation-mutation-parser";
 import { buildInsert } from "../query-engine/builders/values-builder";
+import { getWhereUniqueEntries } from "../query-engine/builders/where-unique-builder";
 import {
   createQueryScope,
   getDefaultScalarFieldNames,
@@ -57,7 +58,11 @@ import {
   relationTargetNotFound,
   upsertPremiseChanged,
 } from "./messages";
-import { buildNestedTargetChildParts } from "./nested-target-parts";
+import {
+  buildLiteralParentCreateManyPart,
+  buildLiteralParentCreatePart,
+  buildNestedTargetChildParts,
+} from "./nested-target-parts";
 import {
   type OperationFragment,
   type OperationStep,
@@ -74,6 +79,7 @@ import { buildToManyLinkParts } from "./RelationLinkPart";
 import {
   buildConnectOrCreateParts,
   buildToManyUpsertParts,
+  literalParentId,
   type ParentIdSource,
   plannedParentId,
 } from "./RelationUpsertPart";
@@ -790,7 +796,19 @@ export class UpdateOperation {
     // to the locate read's select/outputs so a per-field child part reads or refs
     // each one. The whole family (link/adopt/write/set) generalizes together; no
     // shape routes to V1 on account of compound arity any longer.
-    for (const field of fk.pkFields) input.locateFields.add(field);
+    //
+    // T3b-2 (family E): a nested `create`/`createMany` resolves its FK from the
+    // update's own inputs (the referenced column pinned by the unique `where`, or
+    // rewritten by the root SET — D4), NOT from the located row, so a create-ONLY
+    // relation adds no referenced column to `locateFields`. This keeps the D4 order
+    // correct: the root UPDATE stays reorder-FALSE (before the child INSERT), so the
+    // fresh row references the post-transition value that already exists.
+    const needsLocatedReference = kinds.some(
+      (mutationKind) => mutationKind !== "create" && mutationKind !== "createMany"
+    );
+    if (needsLocatedReference) {
+      for (const field of fk.pkFields) input.locateFields.add(field);
+    }
     const childScope = createQueryScope(
       this.engine.adapter,
       relationInfo.targetModel
@@ -856,6 +874,24 @@ export class UpdateOperation {
         });
         continue;
       }
+      // T3b-2 (family E): a nested `create`/`createMany` under the update root on a
+      // child-held to-many. The located parent's FK is a construction-time literal
+      // (the referenced column pinned by the unique `where`, or rewritten by the root
+      // SET — D4's "thread the new value"), so it reuses the same literal-parent create
+      // leaf the child-held recursion uses. A referenced column resolvable only from the
+      // located row (a planned FK), a compound key, or a non-literal rewrite routes to V1.
+      if (kind === "create" || kind === "createMany") {
+        this.interpretChildHeldCreate({
+          kind,
+          relationName,
+          fk,
+          parsedRelation,
+          childScope,
+          childName,
+          input,
+        });
+        continue;
+      }
       this.interpretToManyKind({
         kind,
         relationName,
@@ -870,6 +906,90 @@ export class UpdateOperation {
         input,
       });
     }
+  }
+
+  /**
+   * A child-held nested `create`/`createMany` under the update root (T3b-2 family E).
+   * The located parent's referenced column is a construction-time literal — pinned by
+   * the unique `where` (the common PK case) or rewritten by the root SET (D4) — so the
+   * fresh child rides the same {@link buildLiteralParentCreatePart} leaf the child-held
+   * recursion uses. Anything whose FK is knowable only from the located row (a planned
+   * FK), a compound key, or a non-literal (arithmetic) rewrite routes the tree to V1.
+   */
+  private interpretChildHeldCreate(args: {
+    kind: string;
+    relationName: string;
+    fk: FkDirection;
+    parsedRelation: Record<string, unknown>;
+    childScope: QueryScope;
+    childName: string;
+    input: Parameters<UpdateOperation["interpretRelation"]>[0];
+  }): void {
+    const { kind, relationName, fk, parsedRelation, childScope, childName, input } =
+      args;
+    const parentId = this.resolveLiteralCreateParent(input, fk, relationName);
+    if (kind === "create") {
+      input.childParts.push(
+        buildLiteralParentCreatePart({
+          scope: input.scope,
+          engine: this.engine,
+          childScope,
+          childName,
+          relationName,
+          fk,
+          parentId,
+          creates: normalizeItems(parsedRelation.create, relationName),
+        })
+      );
+      return;
+    }
+    input.childParts.push(
+      buildLiteralParentCreateManyPart({
+        scope: input.scope,
+        engine: this.engine,
+        childScope,
+        childName,
+        relationName,
+        fk,
+        parentId,
+        createManyInput: parsedRelation.createMany,
+      })
+    );
+  }
+
+  /** The construction-time literal a child-held nested create injects for its FK. A
+   *  single-field referenced column, resolved from the root SET's new value (D4 — the
+   *  order stays root-UPDATE-before-child-INSERT so the fresh row references the
+   *  post-transition value) or the unique `where`'s pinned value; any other shape (a
+   *  compound key, a non-literal rewrite, or a column knowable only from the located
+   *  row) routes the whole tree to V1 — a documented narrower boundary. */
+  private resolveLiteralCreateParent(
+    input: Parameters<UpdateOperation["interpretRelation"]>[0],
+    fk: FkDirection,
+    relationName: string
+  ): ParentIdSource {
+    if (fk.pkFields.length !== 1) {
+      throw new UnsupportedOperationError(
+        `query-engine-v2 update does not support a compound-key nested create on relation '${relationName}'.`
+      );
+    }
+    const referencedField = fk.pkFields[0]!;
+    if (Object.hasOwn(input.rootScalarData, referencedField)) {
+      const rewritten = input.rootScalarData[referencedField];
+      if (!isConstructionLiteral(rewritten)) {
+        throw new UnsupportedOperationError(
+          `query-engine-v2 update nested create on relation '${relationName}' references a non-literal rewritten column '${referencedField}'.`
+        );
+      }
+      return literalParentId(rewritten);
+    }
+    const pinned = getWhereUniqueEntries(input.parent, this.parentWhere).find(
+      (entry) => entry.fieldName === referencedField
+    );
+    if (pinned) return literalParentId(pinned.value);
+    throw new UnsupportedOperationError(
+      `query-engine-v2 update nested create on relation '${relationName}' requires the referenced parent column '${referencedField}' to be pinned by the unique where or rewritten by the update.`
+    );
   }
 
   private interpretToManyKind(args: {
@@ -2421,6 +2541,16 @@ function normalizeItems(
     }
     return item;
   });
+}
+
+/** A construction-time scalar literal (a value a nested-create FK can inline). An
+ *  object (a `{ increment }` / `{ set }` arithmetic op, a Date is allowed) or null
+ *  is not — those route the create to V1 (D4 threads only a plain rewritten value). */
+function isConstructionLiteral(value: unknown): boolean {
+  if (value === null || value === undefined) return false;
+  const t = typeof value;
+  if (t === "object") return value instanceof Date;
+  return t === "string" || t === "number" || t === "bigint" || t === "boolean";
 }
 
 function normalizeSingle(

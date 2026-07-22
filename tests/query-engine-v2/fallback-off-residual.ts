@@ -51,14 +51,12 @@
  * asserted so no entry can be dropped without a matching absorption.
  */
 export const FALLBACK_OFF_RESIDUAL: ReadonlySet<string> = new Set([
-  "nested-write conformance: D4 non-PK reference (tx vs batch) > D4: updating the referenced non-PK column threads the new value to a nested create",
   "nested-write conformance: FK relations (tx vs batch) > connectOrCreate create branch accepts recursive nested writes",
   "nested-write conformance: FK relations (tx vs batch) > to-many upsert creates then updates the current parent's child",
   "nested-write conformance: FK relations (tx vs batch) > top-level upsert setWhere no-match skips the update branch",
   "nested-write conformance: FK relations (tx vs batch) > top-level upsert targetWhere no-match skips the update branch",
   "nested-write conformance: FK relations (tx vs batch) > top-level upsert targetWhere+setWhere match runs the update branch",
   "nested-write conformance: create root barrier (tx vs batch) > missing top-level upsert applies the create-branch insert barrier",
-  "nested-write conformance: own-write dependencies (tx vs batch) > create then disjoint numeric update is allowed",
   // ABSORBED (T3-r2, family F): "to-one ops … > to-one upsert (inverse side)
   // creates then updates the profile" was pinned here; the inverse-side to-one
   // upsert is now handled natively by V2 (RelationWritePart correlated upsert arm),
@@ -114,6 +112,14 @@ export const FALLBACK_OFF_RESIDUAL: ReadonlySet<string> = new Set([
   //   · transitive predicate > upsert update alternative predicate delta ignores an id-only filter
   //   · transitive target > nested create and disjoint later root connectOrCreate succeed
   //   · transitive target > outer create and disjoint nested connectOrCreate succeed
+  // ABSORBED (T3b-2, family E — mechanism 2 create-arm, TO-ONE.md §7.7): the 2 nested-
+  // `create`-under-update shapes now run fallback-off. A child-held to-many `create`/
+  // `createMany` under the update root builds a literal-parent create leaf; its FK is a
+  // construction-time literal (the referenced column pinned by the unique `where`, or —
+  // D4 — rewritten by the root SET, its new value threaded to the fresh row with the
+  // root UPDATE ordered BEFORE the INSERT). Removed from this set (Count 11 → 9):
+  //   · D4 non-PK reference > D4: updating the referenced non-PK column threads the new value to a nested create
+  //   · own-write dependencies > create then disjoint numeric update is allowed
 ]);
 
 /** The measured residual count — asserted by the gate so the set cannot be silently
@@ -128,6 +134,9 @@ export const FALLBACK_OFF_RESIDUAL: ReadonlySet<string> = new Set([
  *  membership-root shapes + family A-remainder's 2); 11 after T3b-2 absorbed family C
  *  (mechanism 2 create-arm / mechanism 1 update-arm reuse — a m2m junction
  *  create/update/upsert target whose data carries its own relations folds them one
- *  level deeper against the target's literal PK). Each further absorption drops this
+ *  level deeper against the target's literal PK); 9 after T3b-2 absorbed family E (a
+ *  nested `create`/`createMany` under the update root on a child-held to-many, its FK a
+ *  construction-time literal — the `where`-pinned PK or a D4 root-SET-rewritten column,
+ *  the root UPDATE ordered before the fresh INSERT). Each further absorption drops this
  *  by that slice's size. */
-export const FALLBACK_OFF_RESIDUAL_COUNT = 11;
+export const FALLBACK_OFF_RESIDUAL_COUNT = 9;

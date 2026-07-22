@@ -439,7 +439,7 @@ function literalFkInject(
   return inject;
 }
 
-function buildLiteralParentCreatePart(input: {
+export function buildLiteralParentCreatePart(input: {
   scope: StepScope;
   engine: QueryEngine;
   childScope: QueryScope;
@@ -480,7 +480,7 @@ function buildLiteralParentCreatePart(input: {
   return new LiteralParentWriteParts(steps);
 }
 
-function buildLiteralParentCreateManyPart(input: {
+export function buildLiteralParentCreateManyPart(input: {
   scope: StepScope;
   engine: QueryEngine;
   childScope: QueryScope;
