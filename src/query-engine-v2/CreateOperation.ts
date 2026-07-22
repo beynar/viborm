@@ -15,7 +15,10 @@ import {
   separateData,
 } from "../query-engine/builders/relation-data-builder";
 import { getRelationMutationKinds } from "../query-engine/builders/relation-mutation-parser";
-import { buildInsert } from "../query-engine/builders/values-builder";
+import {
+  buildInsert,
+  buildValueGroups,
+} from "../query-engine/builders/values-builder";
 import {
   createQueryScope,
   getDefaultScalarFieldNames,
@@ -27,6 +30,7 @@ import {
   buildFindUnique,
   buildUpdate,
 } from "../query-engine/operations";
+import { assertPortableCreateManySkip } from "../query-engine/operations/create-many-portability";
 import { planNestedCreateIdentity } from "../query-engine/operations/mutation-identity";
 import type { QueryEngine } from "../query-engine/query-engine";
 import { ResultParser } from "../query-engine/result/ResultParser";
@@ -1069,6 +1073,23 @@ export class CreateOperation {
       `${input.relationName}.createMany`
     );
     if (createMany.skipDuplicates === true) {
+      // V1's portability guard, run BEFORE the parent write (construction time):
+      // a nested `skipDuplicates` createMany carrying a default-only row (no
+      // explicit user scalar — the FK is system-derived, so injection does not
+      // count) is inexpressible, so V1 rejects with a typed `QueryEngineError`.
+      // `buildValueGroups` on the pre-injection user rows detects the zero-column
+      // group exactly as V1's `buildCreateManyStatement` does, and
+      // `assertPortableCreateManySkip` throws V1's byte-identical message. A
+      // non-default-only nested `skipDuplicates` is accept-and-execute in V1 but
+      // needs the dialect-specific ON CONFLICT / recoverable-unique wiring one
+      // level deeper — a documented finer boundary that routes the whole tree to
+      // V1 (no estate scenario reaches it; the reached shape is the rejection).
+      const userRows = normalizeItems(createMany.data, input.relationName);
+      const groups = buildValueGroups(childScope, userRows);
+      assertPortableCreateManySkip(
+        true,
+        groups.some((group) => group.columns.length === 0)
+      );
       throw new UnsupportedOperationError(
         `query-engine-v2 create does not support nested createMany skipDuplicates on relation '${input.relationName}'.`
       );
