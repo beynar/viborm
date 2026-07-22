@@ -7,73 +7,37 @@ import { s } from "@schema";
 import { hydrateSchemaNames } from "@schema/hydration";
 import type { Model } from "@schema/model";
 import { createSchemaRegistry } from "@validation";
-import { afterAll, beforeAll, describe, expect, test } from "vitest";
-import {
-  constructRoutedOperation,
-  setV1FallbackDisabled,
-} from "../../src/query-engine-v2/routing";
+import { describe, expect, test } from "vitest";
+import { constructRoutedOperation } from "../../src/query-engine-v2/routing";
 import { UnsupportedOperationError } from "../../src/query-engine-v2/shared";
 import { manyToManySchema } from "../fixtures/many-to-many-schema";
 import { nestedWriteBehaviorSchema } from "../fixtures/nested-write-behavior-schema";
 import { operationFragmentSchema } from "./create-nested-upsert-behavior";
-import {
-  FALLBACK_OFF_RESIDUAL,
-  FALLBACK_OFF_RESIDUAL_COUNT,
-} from "./fallback-off-residual";
 
 /**
- * The decline-surface gate (P6-prerequisite 2, the P6-rerun probe made a committed
- * invariant). The two blocked P6 attempts failed because family-level assertions
- * (route-inventory: "every family is in ROUTED_OPERATIONS") cannot see SHAPE-level
- * declines: a family constructs on V2 for the shapes V2 owns, and hands whole trees
- * to V1 for the shapes it declines with {@link UnsupportedOperationError}. A large
- * subset of those declines are ACCEPT-AND-EXECUTE shapes V1 runs correctly today —
- * reachable behavior living behind the router's V1 fallback arm. P6's deletion
- * premise ("no reachable behavior lives behind the fallback") is therefore an
- * invariant about the decline surface, and this gate machine-checks it.
+ * The decline-surface gate (P6). With V1 deleted, the single engine either
+ * constructs a payload's whole tree or declines it with an
+ * {@link UnsupportedOperationError} — there is no fallback to catch that decline.
+ * This gate holds both sides of that boundary:
  *
- * The whole file runs with the V1 fallback DISABLED ({@link setV1FallbackDisabled}
- * — inert in production, engaged only here): a V2 decline RE-THROWS instead of
- * routing to V1, so any shape that secretly depended on the fallback surfaces as a
- * hard failure rather than silently passing through V1.
+ *  1. **The absorbed write surface executes end-to-end on the one engine.** Every
+ *     shape the migration absorbed — root/nested/child-held/parent-held create,
+ *     inverse-side and FK-holder-side to-one update/delete/upsert, m2m through the
+ *     junction, and the deepest nested-relation-in-update chains — persists the
+ *     correct state. FALSIFY by re-introducing a decline for a listed shape (e.g.
+ *     narrowing a type guard): the corresponding test then throws instead of
+ *     persisting.
  *
- * Two halves, both machine-checked:
- *
- *  1. **The absorbed slice carries NO fallback (must pass).** Every create shape V2
- *     owns — including the newly-absorbed child-held one-to-one `create` — executes
- *     end-to-end on V2 with the fallback OFF and persists the correct state. This is
- *     P6's premise proven for the slice it holds. FALSIFY it by re-introducing a
- *     decline for a listed shape (e.g. narrowing the child-held type guard back to
- *     one-to-many only): the corresponding test then throws instead of persisting.
- *
- *  2. **The reachable residual STILL lives behind the fallback (P6 not yet met).**
- *     {@link FALLBACK_OFF_RESIDUAL} (tests/query-engine-v2/fallback-off-residual.ts)
- *     is the MEASURED accept-and-execute + reject-parity decline surface: 31
- *     nested-write-conformance scenarios (43 at T3 start; −1 T3-r2 family F; −11 T3a
- *     family A) whose whole tree V2 declines with the fallback OFF, across the
- *     remaining decline families (parent-held to-one update with nested-relation
- *     TARGET data — the 2 unabsorbed family-A shapes; nested-relation-in-nested-
- *     update; m2m nested-create/update-with-relations; top-level upsert with nested
- *     arms; nested-create-under-update / D4; connectOrCreate create-arm depth;
- *     to-many upsert identity). This CORRECTS the census the gate
- *     carried through T1/T2 — a curated three-then-one to-one pin list that hid the
- *     true surface (the T2 "theater replay" lesson: the census is a run of the FULL
- *     conformance suite fallback-off, not a hand-maintained list). The bidirectional
- *     machine-check is the `VIBORM_FALLBACK_OFF=1` census harness in the conformance
- *     file, now part of `pnpm test:gates`: a pinned scenario MUST decline on both
- *     substrates; a non-pinned one MUST run natively on V2. Below, this gate pins
- *     the census SIZE (so no entry can be silently trimmed) and re-proves one
- *     representative construct-time decline. **P6 may bulk-delete V1's runtime only
- *     when this set is EMPTY. It is not: 31 shapes remain, V1 is NOT deletable.**
- *     The day a family is absorbed, its entries leave FALLBACK_OFF_RESIDUAL, the
- *     count drops by the family size, and those scenarios must then pass
- *     fallback-off natively — both this gate and the conformance census move
- *     together, or the run is red.
+ *  2. **A documented narrower boundary still declines (route-inventory category
+ *     iii).** A shape one level deeper than an absorbed family's proven surface
+ *     (here: a nested `createMany` under a parent-held `planned` target) is
+ *     reached by no conformance scenario, so it declines with an
+ *     `UnsupportedOperationError` at construction — a tripwire that a future
+ *     regression silently changing its disposition would surface here. Its
+ *     absorption is post-P6 backlog.
  */
 
-// The absorbed create decline surface is exercised end-to-end below. The residual
-// is pinned by construction (no I/O needed — a decline is observable at construct
-// time). A minimal engine, mirroring route-inventory.test.ts's `pgEngine`.
+// A minimal engine, mirroring route-inventory.test.ts's `pgEngine`.
 function pgEngine(schema: Record<string, Model<any>>): QueryEngine {
   hydrateSchemaNames(schema);
   const schemas = createSchemaRegistry(schema);
@@ -91,14 +55,6 @@ async function freshClient(schema: Record<string, Model<any>>) {
   await push(client as never, { force: true } as never);
   return client as any;
 }
-
-let previous = false;
-beforeAll(() => {
-  previous = setV1FallbackDisabled(true);
-});
-afterAll(() => {
-  setV1FallbackDisabled(previous);
-});
 
 const opf = operationFragmentSchema;
 const nb = nestedWriteBehaviorSchema;
@@ -139,15 +95,15 @@ const t1CrossSchema = (() => {
   return { account, record };
 })();
 
-describe("decline-surface gate: absorbed create shapes carry NO fallback (P6 premise, absorbed slice)", () => {
-  test("root scalar create executes on V2 (fallback off)", async () => {
+describe("decline-surface gate: absorbed create shapes execute on the one engine", () => {
+  test("root scalar create executes on V2", async () => {
     const c = await freshClient(opf);
     const created = await c.user.create({ data: { name: "root" } });
     expect(created).toMatchObject({ name: "root" });
     await c.$disconnect();
   });
 
-  test("nested child-held to-many create executes on V2 (fallback off)", async () => {
+  test("nested child-held to-many create executes on V2", async () => {
     const c = await freshClient(opf);
     await c.user.create({
       data: {
@@ -168,7 +124,7 @@ describe("decline-surface gate: absorbed create shapes carry NO fallback (P6 pre
   // The falsification target: this is the shape absorbed in P6-prereq-2. Narrowing
   // the child-held type guard back to one-to-many only makes THIS test throw an
   // UnsupportedOperationError (the fallback that would have hidden it is OFF).
-  test("child-held ONE-TO-ONE create executes on V2 (fallback off) — the newly absorbed shape", async () => {
+  test("child-held ONE-TO-ONE create executes on V2 — the newly absorbed shape", async () => {
     const c = await freshClient(nb);
     await c.user.create({
       data: {
@@ -182,7 +138,7 @@ describe("decline-surface gate: absorbed create shapes carry NO fallback (P6 pre
     await c.$disconnect();
   });
 
-  test("nested createMany under create executes on V2 (fallback off)", async () => {
+  test("nested createMany under create executes on V2", async () => {
     const c = await freshClient(opf);
     await c.user.create({
       data: {
@@ -202,7 +158,7 @@ describe("decline-surface gate: absorbed create shapes carry NO fallback (P6 pre
     await c.$disconnect();
   });
 
-  test("parent-held to-one connect executes on V2 (fallback off)", async () => {
+  test("parent-held to-one connect executes on V2", async () => {
     const c = await freshClient(opf);
     await c.user.create({ data: { name: "owner" } });
     const post = await c.post.create({
@@ -217,7 +173,7 @@ describe("decline-surface gate: absorbed create shapes carry NO fallback (P6 pre
   // absorbed under create roots. It executes end-to-end on V2 with the fallback
   // OFF — the target INSERTs first, its identity Ref'd into the record FK.
   // Re-narrowing the parent-held type guard back to connect-only makes this throw.
-  test("parent-held to-one create executes on V2 (fallback off) — the newly absorbed shape", async () => {
+  test("parent-held to-one create executes on V2 — the newly absorbed shape", async () => {
     const c = await freshClient(opf);
     const post = await c.post.create({
       data: {
@@ -237,7 +193,7 @@ describe("decline-surface gate: absorbed create shapes carry NO fallback (P6 pre
   // the construction-time coverage ledger resolves it with no probe. Absorbing
   // parent-held create standalone broke exactly this; disabling the ledger (or
   // re-narrowing the type guard) makes this throw instead of persisting.
-  test("INCIDENT: sibling create-then-connect executes on V2 (fallback off)", async () => {
+  test("INCIDENT: sibling create-then-connect executes on V2", async () => {
     const c = await freshClient(t1CrossSchema);
     await c.record.create({
       data: {
@@ -251,7 +207,7 @@ describe("decline-surface gate: absorbed create shapes carry NO fallback (P6 pre
     await c.$disconnect();
   });
 
-  test("M2M create-through-junction executes on V2 (fallback off)", async () => {
+  test("M2M create-through-junction executes on V2", async () => {
     const c = await freshClient(m2m);
     await c.post.create({
       data: { id: "p1", title: "t", tags: { create: { id: "t1", name: "x" } } },
@@ -266,7 +222,7 @@ describe("decline-surface gate: absorbed create shapes carry NO fallback (P6 pre
   // before-root target INSERT (missing arm) or existence guard (found arm) whose
   // FK the root parent UPDATE absorbs. Was residual entry 1; executes on V2 with
   // the fallback OFF. Re-narrowing the parent-held update guard makes this throw.
-  test("parent-held connectOrCreate under update executes on V2 (fallback off) — absorbed", async () => {
+  test("parent-held connectOrCreate under update executes on V2 — absorbed", async () => {
     const c = await freshClient(opf);
     await c.user.create({ data: { name: "owner" } }); // id=1
     await c.post.create({ data: { id: 6, title: "t6", slug: "s6" } });
@@ -287,7 +243,7 @@ describe("decline-surface gate: absorbed create shapes carry NO fallback (P6 pre
   // targeted update whose locator is the FK correlation alone (no unique selector).
   // Was residual entry 2; executes on V2 with the fallback OFF. Re-narrowing the
   // child-held type guard back to one-to-many only makes this throw.
-  test("inverse-side to-one update executes on V2 (fallback off) — absorbed", async () => {
+  test("inverse-side to-one update executes on V2 — absorbed", async () => {
     const c = await freshClient(nb);
     await c.user.create({ data: { id: "u1", name: "a" } });
     await c.profile.create({ data: { id: "pr1", bio: "old", userId: "u1" } });
@@ -306,7 +262,7 @@ describe("decline-surface gate: absorbed create shapes carry NO fallback (P6 pre
   // upsert (create arm), and by u1's second upsert (update arm). Was residual
   // family F; executes on V2 with the fallback OFF. Re-narrowing the inverse-side
   // upsert case back to the default V1-route makes this throw.
-  test("inverse-side to-one upsert executes on V2 (fallback off) — absorbed", async () => {
+  test("inverse-side to-one upsert executes on V2 — absorbed", async () => {
     const c = await freshClient(nb);
     await c.user.create({ data: { id: "u1", name: "a" } });
     // Correlation witness: a second parent with its own connected profile.
@@ -354,7 +310,7 @@ describe("decline-surface gate: absorbed create shapes carry NO fallback (P6 pre
   // FINAL value (a same-root scalar rebind moves the target). MULTI-PARENT WITNESS: a
   // second post pointing at a different author must be untouched. Re-narrowing the
   // parent-held `update` case to the V1 route makes this throw.
-  test("parent-held to-one update executes on V2 (fallback off) — absorbed", async () => {
+  test("parent-held to-one update executes on V2 — absorbed", async () => {
     const c = await freshClient(nb);
     await c.user.create({ data: { id: "u1", name: "Original" } });
     await c.user.create({ data: { id: "u2", name: "Final" } });
@@ -385,7 +341,7 @@ describe("decline-surface gate: absorbed create shapes carry NO fallback (P6 pre
   // T3a (family A): the FK-holder-side to-one `delete: true` — NULL the parent FK,
   // then delete the referenced target (V1's null-then-delete). MULTI-PARENT WITNESS:
   // a second post's author must survive. Re-narrowing the case makes this throw.
-  test("parent-held to-one delete executes on V2 (fallback off) — absorbed", async () => {
+  test("parent-held to-one delete executes on V2 — absorbed", async () => {
     const c = await freshClient(nb);
     await c.user.create({ data: { id: "u1", name: "target" } });
     await c.user.create({ data: { id: "uW", name: "Witness" } });
@@ -409,7 +365,7 @@ describe("decline-surface gate: absorbed create shapes carry NO fallback (P6 pre
   // and rebind the parent FK to it; found → UPDATE the located target. MULTI-PARENT
   // WITNESS: a second post's author must survive both arms. Re-narrowing the case
   // makes this throw.
-  test("parent-held to-one upsert executes on V2 (fallback off) — absorbed", async () => {
+  test("parent-held to-one upsert executes on V2 — absorbed", async () => {
     const c = await freshClient(nb);
     await c.user.create({ data: { id: "uW", name: "Witness" } });
     await c.post.create({ data: { id: "po1", title: "t", userId: null } });
@@ -502,14 +458,14 @@ const t3bMembershipSchema = (() => {
   return { container, node };
 })();
 
-describe("decline-surface gate: absorbed nested-relation-in-update shapes carry NO fallback (T3b-1 family B + A-remainder)", () => {
+describe("decline-surface gate: absorbed nested-relation-in-update shapes execute on the one engine (family B + A-remainder)", () => {
   // Family B — the PK-transition + self-m2m CASCADE witness at the DEEPEST mutated
   // level (the strongest reorder/cascade proof, per §7.7). The nested child update
   // sets id 1→4 AND connects friend 2; the friend junction row is written against the
   // located id (1) and the child UPDATE's ON UPDATE CASCADE carries `friendSourceId`
   // to 4. MULTI-PARENT WITNESS: node 3's own friend edge (sourceId 3) is untouched.
   // Re-narrowing RelationWritePart's recursion makes this throw.
-  test("family B: child-held nested update — PK transition + self-m2m cascade (fallback off)", async () => {
+  test("family B: child-held nested update — PK transition + self-m2m cascade", async () => {
     const c = await freshClient(t3bMembershipSchema);
     await c.node.create({ data: { id: 10, label: "root" } });
     await c.node.create({ data: { id: 2, label: "two" } });
@@ -562,7 +518,7 @@ describe("decline-surface gate: absorbed nested-relation-in-update shapes carry 
   // container is located at the parent's FINAL FK (rebind 10→20), and its own child
   // Parts correlate to its captured PK by a planned source. MULTI-PARENT WITNESS:
   // container 10 keeps node 9. Re-narrowing `parentHeldUpdateData` makes this throw.
-  test("family A-remainder: parent-held update with a nested to-many update target (fallback off)", async () => {
+  test("family A-remainder: parent-held update with a nested to-many update target", async () => {
     const c = await freshClient(t3bMembershipSchema);
     await c.container.create({ data: { id: 10 } });
     await c.container.create({ data: { id: 20 } });
@@ -606,7 +562,7 @@ describe("decline-surface gate: absorbed nested-relation-in-update shapes carry 
   // (inverse-to-one create under a literal parent) AND
   // `container.update.nodes.update.partnerOf.upsert` (parent-held → to-many update →
   // inverse-to-one upsert, the deepest mutated level). Re-narrowing any layer throws.
-  test("deep chain: children.partnerOf.create + container.nodes.update.partnerOf.upsert (fallback off)", async () => {
+  test("deep chain: children.partnerOf.create + container.nodes.update.partnerOf.upsert", async () => {
     const c = await freshClient(t3bMembershipSchema);
     await c.container.create({ data: { id: 10 } });
     await c.node.create({ data: { id: 9, label: "nine", containerId: 10 } });
@@ -660,22 +616,15 @@ describe("decline-surface gate: absorbed nested-relation-in-update shapes carry 
 });
 
 // ---------------------------------------------------------------------------
-// The reachable accept-and-execute + reject-parity residual: shapes V1 runs (or
-// V1-rejects with its own typed message) today but V2 still DECLINES, so the
-// router hands their whole tree to V1. The AUTHORITATIVE census is
-// {@link FALLBACK_OFF_RESIDUAL} (tests/query-engine-v2/fallback-off-residual.ts):
-// 43 nested-write-conformance scenarios, MEASURED by running the FULL conformance
-// suite with `VIBORM_FALLBACK_OFF=1` (that run — the bidirectional machine-check
-// that these EXACTLY are the fallback carriers — is part of `pnpm test:gates`).
-// **P6 may delete V1 only when FALLBACK_OFF_RESIDUAL is EMPTY.** It is not.
-//
-// This replaces the curated single-entry `FALLBACK_CARRYING_RESIDUAL` the gate
-// carried through T1/T2, which understated the surface as "exactly one entry"
-// while the measured truth was 43 across eight families (the T2 theater-replay
-// lesson). Below: pin the census size (no silent trimming) and re-prove one
-// representative shape declines at CONSTRUCTION (no I/O — a decline is observable
-// before any effect), so the gate keeps a fast construct-time tripwire alongside
-// the full conformance census.
+// The single engine either constructs a payload's whole tree or declines it with
+// an UnsupportedOperationError at construction — no fallback catches the decline.
+// Every conformance scenario constructs (the migration reached census zero before
+// V1 was deleted). A handful of DEEPER narrower-boundary shapes (create-context
+// depth under a planned parent-held id, a compound-PK child at depth, …) reached
+// by no conformance scenario still decline — documented route-inventory category
+// (iii), their absorption post-P6 backlog. This witness keeps one such shape
+// honestly visible so a future regression that silently changed its disposition
+// would surface here.
 // ---------------------------------------------------------------------------
 const REPRESENTATIVE_CONSTRUCT_DECLINE = {
   // A parent-held (FK-holder-side) to-one `update` whose located target's DATA carries a
@@ -683,7 +632,7 @@ const REPRESENTATIVE_CONSTRUCT_DECLINE = {
   // absorbed the single-`create` leaf under a `planned` parent-held target (its FK inlined
   // from the located row at compile), but a `createMany` one step past it is a documented
   // finer boundary reached by no estate scenario (measured-not-curated), so it still
-  // routes the whole tree to V1. A construct-time probe: no seed, no execution.
+  // declines. A construct-time probe: no seed, no execution.
   label:
     "parent-held to-one update whose target createMany's under a parent-held (planned) id",
   schema: nb as Record<string, Model<any>>,
@@ -701,43 +650,12 @@ const REPRESENTATIVE_CONSTRUCT_DECLINE = {
   rootModel: nb.post as Model<any>,
 } as const;
 
-describe("decline-surface gate: the fallback-carrying residual is EMPTY (T3c — P6 unblocked)", () => {
-  test("the fallback-carrying residual is EMPTY — no conformance behavior lives behind the fallback", () => {
-    // The census is a fact, not prose. It reached 0 at T3c: EVERY conformance scenario
-    // now runs natively on V2 under `VIBORM_FALLBACK_OFF=1`. P6 may delete V1's runtime.
-    expect(FALLBACK_OFF_RESIDUAL.size).toBe(0);
-  });
-
-  test("the census is the MEASURED surface (0), not a curated pin list", () => {
-    // Guards against silently trimming the census without a real absorption: the
-    // set and its declared count must agree, and the count is the running measurement.
-    // Absorbing a family (or a coherent slice) drops BOTH by the same amount (and its
-    // scenarios must then pass the fallback-off conformance run).
-    expect(FALLBACK_OFF_RESIDUAL.size).toBe(FALLBACK_OFF_RESIDUAL_COUNT);
-    // 43 (T3) → 42 (T3-r2 family F) → 31 (T3a absorbed 11 of family A's 13) → 25
-    // (T3b-1 absorbed the 6 child-held family-B nested-relation-in-update shapes) →
-    // 21 (T3b-1 extended mechanism 1 to the parent-held `update` arm: family B's 2
-    // membership-root shapes + family A-remainder's 2) → 11 (T3b-2 absorbed family C:
-    // the 10 m2m-junction-target-carrying-relations shapes, mechanism 2 create-arm /
-    // mechanism 1 update-arm reuse) → 9 (T3b-2 absorbed family E: the 2 nested-create-
-    // under-update shapes incl. D4's rewritten-non-PK-reference threading) → 8 (T3b-2
-    // absorbed family G: the connectOrCreate create-arm one-level-deeper create,
-    // mechanism 3) → 0 (T3c absorbed family D ×7 — the top-level upsert nested-relation
-    // arms — and family H ×1 — the nested to-many upsert create-identity relaxation).
-    expect(FALLBACK_OFF_RESIDUAL_COUNT).toBe(0);
-  });
-
-  // The census is ZERO, but the throw-site surface is not: a handful of DEEPER
-  // narrower-boundary shapes (create-context depth under a planned parent-held id, a
-  // compound-PK child at depth, …) still route the whole tree to V1 — documented
-  // route-inventory category (iii). No CONFORMANCE scenario reaches them (that is why
-  // the census is zero); this witness keeps one such route honestly visible so a future
-  // regression that silently changed its disposition would surface here.
-  test(`documented narrower boundary still routes to V1: ${REPRESENTATIVE_CONSTRUCT_DECLINE.label}`, () => {
+describe("decline-surface gate: the documented narrower boundary still declines (P6)", () => {
+  test(`documented narrower boundary still declines: ${REPRESENTATIVE_CONSTRUCT_DECLINE.label}`, () => {
     const shape = REPRESENTATIVE_CONSTRUCT_DECLINE;
     const engine = pgEngine(shape.schema);
-    // Fallback disabled: a decline RE-THROWS, so a shape that still routes to V1
-    // surfaces its UnsupportedOperationError here rather than returning undefined.
+    // With V1 deleted, a decline propagates: constructing this shape throws the
+    // UnsupportedOperationError rather than handing the tree to a fallback.
     expect(() =>
       constructRoutedOperation(
         engine,

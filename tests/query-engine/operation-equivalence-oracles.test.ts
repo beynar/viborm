@@ -5,7 +5,6 @@ import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { type Dialect, Driver } from "@drivers";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames } from "@schema";
-import { isSql } from "@sql";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, it } from "vitest";
 import { sqlGenerationUserPostSchema } from "../fixtures/user-post-schema";
@@ -58,19 +57,11 @@ const expected = {
       sql: 'SELECT "t0"."id" AS "id", "t0"."title" AS "title" FROM "posts" AS "t0" WHERE ("t0"."published" = $1 AND "t0"."views" >= $2) ORDER BY "t0"."views" DESC NULLS FIRST, "t0"."id" ASC NULLS LAST LIMIT $3',
       params: [true, 10, 5],
     },
-    write: {
-      sql: 'INSERT INTO "Author" ("id", "name", "email", "age", "metadata") VALUES ($1, $2, $3, $4, NULL) RETURNING "id" AS "id", "name" AS "name", "email" AS "email", "age" AS "age", "metadata" AS "metadata"',
-      params: ["author-1", "Arnaud", "arnaud@example.com", 42],
-    },
   },
   mysql: {
     read: {
       sql: "SELECT `t0`.`id` AS `id`, `t0`.`title` AS `title` FROM `posts` AS `t0` WHERE (`t0`.`published` = ? AND `t0`.`views` >= ?) ORDER BY (`t0`.`views` IS NULL) DESC, `t0`.`views` DESC, (`t0`.`id` IS NULL) ASC, `t0`.`id` ASC LIMIT 5",
       params: [true, 10],
-    },
-    write: {
-      sql: "INSERT INTO `Author` (`id`, `name`, `email`, `age`, `metadata`) VALUES (?, ?, ?, ?, NULL)",
-      params: ["author-1", "Arnaud", "arnaud@example.com", 42],
     },
   },
   sqlite: {
@@ -78,17 +69,13 @@ const expected = {
       sql: 'SELECT "t0"."id" AS "id", "t0"."title" AS "title" FROM "posts" AS "t0" WHERE ("t0"."published" = ? AND "t0"."views" >= ?) ORDER BY ("t0"."views" IS NULL) DESC, "t0"."views" DESC, ("t0"."id" IS NULL) ASC, "t0"."id" ASC LIMIT ?',
       params: [true, 10, 5],
     },
-    write: {
-      sql: 'INSERT INTO "Author" ("id", "name", "email", "age", "metadata") VALUES (?, ?, ?, ?, NULL) RETURNING "id" AS "id", "name" AS "name", "email" AS "email", "age" AS "age", "metadata" AS "metadata"',
-      params: ["author-1", "Arnaud", "arnaud@example.com", 42],
-    },
   },
 } as const;
 
 describe("operation SQL and parameter equivalence oracles", () => {
   it.each(
     dialects
-  )("freezes representative %s read and write SQL", (dialect, adapter, placeholder) => {
+  )("freezes representative %s read SQL", (dialect, adapter, placeholder) => {
     const engine = new QueryEngine(
       new OracleDriver(adapter, dialect),
       registry
@@ -99,35 +86,9 @@ describe("operation SQL and parameter equivalence oracles", () => {
       orderBy: { views: "desc" },
       take: 5,
     });
-    const writeProgram = engine
-      .prepare(schema.Author, "create", {
-        data: {
-          id: "author-1",
-          name: "Arnaud",
-          email: "arnaud@example.com",
-          age: 42,
-          metadata: null,
-        },
-      })
-      .compile();
-    const [writeStep] = writeProgram.steps;
-    if (
-      !writeStep ||
-      writeStep.kind !== "write" ||
-      !isSql(writeStep.statement)
-    ) {
-      throw new Error(
-        "Expected create to begin with one concrete write statement."
-      );
-    }
 
     expect({
       read: { sql: read.toStatement(placeholder), params: read.values },
-      write: {
-        sql: writeStep.statement.toStatement(placeholder),
-        params: writeStep.statement.values,
-      },
     }).toEqual(expected[dialect]);
-    expect(writeProgram.steps).toHaveLength(dialect === "mysql" ? 2 : 1);
   });
 });

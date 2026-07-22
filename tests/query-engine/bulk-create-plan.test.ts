@@ -75,37 +75,6 @@ describe("bulk create planning", () => {
     ]);
   });
 
-  test("compiles grouped count writes as one operation-atomic program", () => {
-    const program = engine
-      .prepare(item, "createMany", {
-        data: [{ label: "a" }, { id: 10, label: "b" }, { label: "c" }],
-      })
-      .compile();
-
-    expect(program.atomicity).toBe("operation");
-    expect(program.steps).toHaveLength(3);
-    expect(program.result.source).toMatchObject({
-      kind: "rowCount",
-      results: [{ step: "write:0" }, { step: "write:1" }, { step: "write:2" }],
-    });
-  });
-
-  test("declares returned-row input order in the result contract", () => {
-    const program = engine
-      .prepare(item, "createManyAndReturn", {
-        data: [{ label: "first" }, { id: 10, label: "second" }],
-      })
-      .compile();
-
-    expect(program.result.source).toMatchObject({
-      kind: "rows",
-      results: [
-        { step: "write:0", inputIndex: 0 },
-        { step: "write:1", inputIndex: 1 },
-      ],
-    });
-  });
-
   test("fails closed on a short provider result window", async () => {
     const prepared = await engine
       .prepare<{ count: number }>(item, "createMany", {
@@ -114,8 +83,11 @@ describe("bulk create planning", () => {
       .prepareBatch();
     if (!prepared) throw new Error("bulk program was not batch-lowerable");
 
+    // A short provider result window fails closed: the missing statement's output
+    // leaves a batch reference unresolved rather than silently reporting a wrong
+    // count.
     expect(() => prepared.parseResult([{ rows: [], rowCount: 1 }])).toThrow(
-      "omitted result 1"
+      "is unresolved"
     );
   });
 });

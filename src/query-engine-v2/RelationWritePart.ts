@@ -19,7 +19,7 @@ import {
 } from "../query-engine/operations";
 import { assertPortablePrimaryKeyUpdateInput } from "../query-engine/operations/mutation-identity";
 import type { QueryEngine } from "../query-engine/query-engine";
-import { assertRelationKeyUpdatesAreCompilable } from "../query-engine/RelationUpdates";
+import { assertRelationKeyUpdatesAreCompilable } from "../query-engine/relation-key-legality";
 import type { QueryScope, RelationInfo } from "../query-engine/types";
 import {
   affectedRows,

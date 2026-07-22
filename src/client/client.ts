@@ -29,6 +29,7 @@ function isInstrumentationContext(
   return value !== undefined && "config" in value && "tracer" in value;
 }
 
+import { attributeOperationBatchError } from "@query-engine/batch-error-attribution";
 import {
   createCacheExecutionOptions,
   executeCachedOperation,
@@ -37,16 +38,12 @@ import {
   withMutationCacheInvalidation,
 } from "@query-engine/cache-flow";
 import { createOperationExecutionContext } from "@query-engine/execution-context";
-import { attributeOperationBatchError } from "@query-engine/OperationBatchRuntime";
 import {
   isPendingOperation,
   PendingOperation,
 } from "@query-engine/pending-operation";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
-import type {
-  BatchPreparationContext,
-  PreparedBatchGuard,
-} from "@query-engine/types";
+import type { PreparedBatchGuard } from "@query-engine/types";
 import { hydrateSchemaNames } from "@schema/hydration";
 import type { Sql } from "@sql";
 import { createSchemaRegistry } from "@validation";
@@ -129,17 +126,6 @@ export interface VibORMConfig {
   waitUntil?: WaitUntilFn;
   /** Cache version for invalidating cache on schema changes */
   cacheVersion?: number | string;
-  /**
-   * Which query engine serves migrated operations. Defaults to `"v2"` — the
-   * per-tree routing of PLAN P5, ON for everyone. `"v1"` forces the frozen V1
-   * runtime for every tree: the soak's A/B lever and the rollback story.
-   *
-   * MIGRATION-TEMPORARY: this escape hatch exists only for the P5 parity soak
-   * and is scheduled for deletion in P6 (PLAN §P6), when V1's operation/execution
-   * root is removed and routing becomes unconditional. Do not build durable
-   * behaviour on it.
-   */
-  queryEngine?: "v1" | "v2";
 }
 
 export interface DriverConfig extends Omit<VibORMConfig, "driver"> {}
@@ -211,11 +197,6 @@ export class VibORM<C extends VibORMConfig> {
   private readonly waitUntil: WaitUntilFn | undefined;
   private readonly cacheVersion: string | number | undefined;
   private readonly engine: QueryEngine;
-  /**
-   * Whether migrated trees route to the V2 engine (PLAN P5, default ON). The
-   * `queryEngine: "v1"` escape hatch flips this off for the whole client.
-   */
-  private readonly routeToV2: boolean;
 
   /**
    * Unique identifier for this client instance.
@@ -236,7 +217,6 @@ export class VibORM<C extends VibORMConfig> {
         : undefined;
     this.waitUntil = config.waitUntil;
     this.cacheVersion = config.cacheVersion;
-    this.routeToV2 = config.queryEngine !== "v1";
 
     // Create registry and engine once, reuse for all operations
     const schemaRegistry = createSchemaRegistry(this.schema);
@@ -272,16 +252,13 @@ export class VibORM<C extends VibORMConfig> {
         cleanArgs = rest;
       }
 
-      // Engine handles OrThrow suffix internally. Per-tree V2 routing (PLAN P5)
-      // is decided here — before any I/O — for the whole payload; a tree V2 does
-      // not own runs the frozen V1 runtime unchanged.
-      const pendingOp = PendingOperation.createRouted(
+      // Engine handles OrThrow suffix internally. Routing to the V2 operation is
+      // decided lazily — before any I/O — for the whole payload.
+      const pendingOp = PendingOperation.create(
         engine,
         model,
         operation,
-        cleanArgs,
-        undefined,
-        this.routeToV2
+        cleanArgs
       );
 
       // Wrap with cache invalidation for mutations (client-level concern)
@@ -344,17 +321,14 @@ export class VibORM<C extends VibORMConfig> {
 
       // Preparing remains lazy: it captures one immutable execution context
       // now, while validation, SQL building, and execution still wait for a miss.
-      // Cached reads route through V2 too (PLAN P5 item 2b) — the routing law is
-      // identical; a read V2 does not own runs the frozen V1 read path.
-      const pendingOperation = PendingOperation.createRouted(
+      const pendingOperation = PendingOperation.create(
         this.engine,
         model,
         operation,
         (args ?? {}) as Record<string, unknown>,
         {
           skipSpan: true, // Cache driver provides its own SPAN_OPERATION
-        },
-        this.routeToV2
+        }
       );
       return executeCachedOperation(
         this.cache!,
@@ -466,7 +440,6 @@ export class VibORM<C extends VibORMConfig> {
                 let setupQueries: BatchQuery[] = [];
                 let cleanupQueries: BatchQuery[] = [];
                 let hasProgramBatchState = false;
-                const batchContext: BatchPreparationContext = {};
                 const batchGuards: PreparedBatchGuard[] = [];
                 const parsers: Array<{
                   start: number;
@@ -486,10 +459,7 @@ export class VibORM<C extends VibORMConfig> {
                       }
                       return {
                         kind: "batch" as const,
-                        preparedBatch: await op.prepareBatch(
-                          driver,
-                          batchContext
-                        ),
+                        preparedBatch: await op.prepareBatch(driver),
                       };
                     }
                   );

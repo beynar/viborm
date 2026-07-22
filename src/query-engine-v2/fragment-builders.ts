@@ -3,7 +3,7 @@ import type { Sql } from "@sql";
 import { getScalarCastType } from "../query-engine/builders/values-builder";
 import type { QueryEngine } from "../query-engine/query-engine";
 import type { QueryScope } from "../query-engine/types";
-import { uniqueConflictTarget } from "../query-engine/WritePrograms";
+import { uniqueConflictTarget } from "../query-engine/unique-conflict-target";
 import { upsertPremiseChanged } from "./messages";
 import type {
   Failure,

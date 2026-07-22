@@ -589,15 +589,19 @@ describe("request-aware result shapes", () => {
       select,
     });
 
+    // An inherited request key is rejected with a typed ValidationError — never a
+    // raw TypeError from a prototype-chain collision. The engine validates the
+    // request at construction, so both the prepare and the parse seams surface the
+    // same typed rejection.
     expect(() => findMany.prepare()).toThrow(ValidationError);
     expect(() => findMany.parseResult({ rows: [], rowCount: 0 })).toThrow(
-      QueryEngineError
+      ValidationError
     );
 
     const count = createEngine().prepare(models.parent, "count", { select });
     const row = Object.fromEntries([[identifier, "1"]]);
     expect(() => count.parseResult({ rows: [row], rowCount: 1 })).toThrow(
-      QueryEngineError
+      ValidationError
     );
   });
 

@@ -15,8 +15,8 @@ import {
 } from "@errors";
 import { isSql, Sql } from "@sql";
 import { createCorrelationId } from "../query-engine/execution-context";
-import { executeSkippableWrite } from "../query-engine/OperationRuntime";
 import type { QueryEngine } from "../query-engine/query-engine";
+import { executeSkippableWrite } from "../query-engine/skippable-write";
 import type {
   Operation,
   PreparedBatchGuard,

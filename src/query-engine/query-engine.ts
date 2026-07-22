@@ -1,7 +1,7 @@
 import type { AnyDriver } from "@drivers";
 import type { InstrumentationContext } from "@instrumentation";
 import type { Model } from "@schema/model";
-import { isSql, type Sql } from "@sql";
+import type { Sql } from "@sql";
 import type { SchemaRegistryLookup } from "@validation";
 import { PendingOperation } from "./pending-operation";
 import {
@@ -71,15 +71,13 @@ export class QueryEngine {
     operation: Operation,
     args: Record<string, unknown>
   ): Sql {
-    const program = this.prepare<unknown>(model, operation, args).compile();
-    const [step] = program.steps;
-    if (
-      program.steps.length === 1 &&
-      step &&
-      (step.kind === "read" || step.kind === "write") &&
-      isSql(step.statement)
-    ) {
-      return step.statement;
+    const statement = this.prepare<unknown>(
+      model,
+      operation,
+      args
+    ).buildStatement();
+    if (statement) {
+      return statement;
     }
     throw new QueryEngineError(
       `Operation '${operation}' does not compile to one SQL statement. Execute the operation instead.`

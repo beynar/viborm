@@ -107,7 +107,7 @@ function unsupportedOperation(
   }
 }
 
-describe("OperationRuntime capability matrix", () => {
+describe("operation executor capability matrix", () => {
   test(
     "transaction driver executes an operation program in one transaction",
     { timeout: 30_000 },
@@ -118,7 +118,6 @@ describe("OperationRuntime capability matrix", () => {
       const batchSpy = vi.spyOn(driver, "_executeBatch");
       const { client, operation } = nestedCreate(driver, "transaction");
 
-      expect(operation.compile()).toMatchObject({ atomicity: "operation" });
       await operation;
 
       expect(transactionSpy).toHaveBeenCalledTimes(1);
@@ -137,7 +136,6 @@ describe("OperationRuntime capability matrix", () => {
       const batchSpy = vi.spyOn(driver, "_executeBatch");
       const { client, operation } = nestedCreate(driver, "both");
 
-      expect(operation.compile()).toMatchObject({ atomicity: "operation" });
       await operation;
 
       expect(transactionSpy).toHaveBeenCalledTimes(1);
@@ -156,7 +154,6 @@ describe("OperationRuntime capability matrix", () => {
       const batchSpy = vi.spyOn(driver, "_executeBatch");
       const { client, operation } = nestedCreate(driver, "batch");
 
-      expect(operation.compile()).toMatchObject({ atomicity: "operation" });
       await operation;
 
       expect(batchSpy).toHaveBeenCalledTimes(1);

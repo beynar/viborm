@@ -115,7 +115,6 @@ function makeV1Client(schema: Schema, db: PGlite) {
   return createClient({
     schema: schema as never,
     driver: new PGliteDriver({ client: db }),
-    queryEngine: "v1",
   });
 }
 type AnyClient = ReturnType<typeof makeV1Client>;

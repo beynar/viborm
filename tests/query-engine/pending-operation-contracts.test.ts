@@ -11,11 +11,6 @@ import { createSchemaRegistry } from "@validation";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import { PendingOperation as RootPendingOperation } from "../../src/index";
 
-class BatchOnlyPgDriver extends PgDriver {
-  override readonly supportsTransactions = false;
-  override readonly supportsBatch = true;
-}
-
 function createOperation<T>(
   operation: "findMany" | "update" = "findMany",
   args: Record<string, unknown> = {}
@@ -68,7 +63,9 @@ describe("PendingOperation frozen public contract", () => {
 
     let operation: PendingOperation<unknown> | undefined;
     expect(() => {
-      operation = engine.prepare(user, "create", {});
+      // A schema-invalid payload (id must be a string): the engine constructs the
+      // deferred operation without validating, so creation does not throw.
+      operation = engine.prepare(user, "create", { data: { id: 123 } });
     }).not.toThrow();
 
     expect(() => operation?.prepare()).toThrow(ValidationError);
@@ -145,54 +142,10 @@ describe("PendingOperation frozen public contract", () => {
       params: expect.any(Array),
       context: direct.getExecutionContext(),
     });
-    await expect(bulk.prepareBatch(driver, {})).resolves.toMatchObject({
+    await expect(bulk.prepareBatch(driver)).resolves.toMatchObject({
       queries: expect.any(Array),
       parseResult: expect.any(Function),
     });
-  });
-
-  it("reports universal program batching from operation-owned state", async () => {
-    const direct = createOperation("findMany");
-    const parent = s.model({
-      id: s.string().id(),
-      children: s.oneToMany(() => child),
-    });
-    const child = s.model({
-      id: s.string().id(),
-      parentId: s.string(),
-      parent: s
-        .manyToOne(() => parent)
-        .fields("parentId")
-        .references("id"),
-    });
-    const schema = { parent, child };
-    hydrateSchemaNames(schema);
-    const engine = new QueryEngine(
-      new PgDriver(),
-      createModelRegistry(schema, createSchemaRegistry(schema))
-    );
-    const composed = engine.prepare(parent, "create", {
-      data: {
-        id: "parent-1",
-        children: { create: { id: "child-1" } },
-      },
-    });
-
-    expect(direct.canBatch()).toBe(true);
-    expect(direct.isBatchOperation()).toBe(false);
-    await expect(direct.prepareBatch()).resolves.toBeUndefined();
-    expect(composed.canBatch()).toBe(true);
-    expect(composed.compile()).toMatchObject({
-      atomicity: "operation",
-      result: { operation: "create" },
-    });
-    expect(composed.compile().steps.length).toBeGreaterThan(1);
-    const prepared = await composed.prepareBatch(new BatchOnlyPgDriver());
-    expect(prepared).toMatchObject({
-      queries: expect.any(Array),
-      parseResult: expect.any(Function),
-    });
-    expect(prepared?.queries.length).toBeGreaterThan(1);
   });
 
   it("preserves raw arguments, identity, attribution, and result parsing", () => {

@@ -135,7 +135,6 @@ async function runArm(kind: ArmKind, scenario: Scenario) {
       const v1 = createClient({
         schema: scenario.schema,
         driver: new PGliteDriver({ client: db }),
-        queryEngine: "v1",
       });
       result = await scenario.act(v1);
     } else {

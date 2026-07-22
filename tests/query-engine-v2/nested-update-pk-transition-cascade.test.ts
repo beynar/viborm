@@ -5,10 +5,11 @@ import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { push } from "@migrations";
 import { s } from "@schema";
 import { describe, expect, test } from "vitest";
-import { createV2RoutedClient } from "./v2-client-proxy";
+import { UnsupportedOperationError } from "../../src/query-engine-v2/shared";
 
 /**
- * T3b1 fixer round 1, finding #1 — the PK-transition cascade boundary.
+ * T3b1 fixer round 1, finding #1 — the PK-transition cascade boundary, post-P6 (the
+ * single engine).
  *
  * Mechanism 1 lets a nested to-many `update`'s located target build its own child
  * Parts, and when the target's SET rewrites its own PK it reorders the self-UPDATE
@@ -17,18 +18,19 @@ import { createV2RoutedClient } from "./v2-client-proxy";
  * (`RelationWritePart.compileTargeted`). That trick is sound only when the deeper edge
  * cascades on update:
  *
- *  - a self-**m2m** junction FK is ON UPDATE CASCADE by default (serializer) → V2 runs
- *    the whole tree natively, byte-identical to V1 (the absorbed "nested identity
- *    transition" census witness: the junction's sourceId cascades 1→7).
+ *  - a self-**m2m** junction FK is ON UPDATE CASCADE by default (serializer) → the
+ *    engine runs the whole tree natively (the absorbed "nested identity transition"
+ *    census witness: the junction's sourceId cascades 1→7).
  *  - a **child-held** one-to-many FK defaults to NO ACTION → the edge written against
- *    the old id is stranded when the PK moves. V1 never fails (it orders the edge
- *    against the POST-transition id); native V2 raised a ForeignKeyError and rolled
- *    back — a divergence on a shape that routed to V1 before mechanism 1. The fix
- *    routes that shape back to V1 (`pkTransitionCascadeSafe`).
+ *    the old id would be stranded when the PK moves. The `pkTransitionCascadeSafe` guard
+ *    DECLINES that shape ({@link UnsupportedOperationError}); with V1 deleted the decline
+ *    is terminal (its native absorption is post-P6 backlog). Because the decline fires at
+ *    construction — before any I/O — the seeded state is untouched.
  *
- * These two arms bracket the guard: remove it and the child-held arm routes to V2 and
- * diverges (state mismatch); widen it to catch m2m and the m2m arm stops routing to V2
- * (route assertion fails). A second root's subtree is asserted untouched in every arm.
+ * These two arms bracket the guard: remove it and the child-held arm executes and
+ * strands the FK (a ForeignKeyError / wrong state, caught here as a non-decline); widen
+ * it to catch m2m and the m2m arm stops executing (its state pin fails). A second root's
+ * subtree is asserted untouched in every arm.
  */
 
 const cascadeSchema = (() => {
@@ -75,16 +77,10 @@ class BatchOnlyPGliteDriver extends PGliteDriver {
   }
 }
 
-// The concrete V1 client type (the frozen-runtime escape hatch); a loose alias so the
-// test's helpers can pass it around without re-inferring the schema generics.
-function makeV1Client(db: PGlite) {
-  return createClient({
-    schema: cascadeSchema,
-    driver: new PGliteDriver({ client: db }),
-    queryEngine: "v1",
-  });
+function makeClient(driver: PGliteDriver) {
+  return createClient({ schema: cascadeSchema, driver });
 }
-type AnyClient = ReturnType<typeof makeV1Client>;
+type AnyClient = ReturnType<typeof makeClient>;
 
 async function seed(client: AnyClient): Promise<void> {
   // Root 10 with children 1 (the transition target) and 3 (a sibling, untouched).
@@ -135,81 +131,56 @@ async function snapshot(client: AnyClient): Promise<Snapshot> {
   };
 }
 
-function v1Client(db: PGlite): AnyClient {
-  return makeV1Client(db);
-}
-
-/** Run `operation` once through the frozen V1 runtime; return the resulting state. */
-async function runV1(operation: unknown): Promise<Snapshot> {
+function freshClient(substrate: "tx" | "batch"): {
+  client: AnyClient;
+  db: PGlite;
+} {
   const db = new PGlite();
-  const client = v1Client(db);
-  await push(client as any, { force: true });
-  await seed(client);
-  await (client as any).node.update(operation);
-  const state = await snapshot(client);
-  await client.$disconnect();
-  return state;
-}
-
-/**
- * Run `operation` through the V2 router (with a true-V1 fallback) on the given
- * substrate; return the resulting state and which engine served the tree.
- */
-async function runV2(
-  operation: unknown,
-  substrate: "tx" | "batch"
-): Promise<{ state: Snapshot; engines: Set<"v1" | "v2"> }> {
-  const db = new PGlite();
-  const fallback = v1Client(db);
-  await push(fallback as any, { force: true });
-  await seed(fallback);
   const driver =
     substrate === "tx"
       ? new PGliteDriver({ client: db })
       : new BatchOnlyPGliteDriver({ client: db });
-  const routed = createV2RoutedClient({
-    schema: cascadeSchema,
-    client: fallback as unknown as Record<string, any>,
-    driver,
-  });
-  await routed.client.node!.update!(operation as Record<string, unknown>);
-  const state = await snapshot(fallback);
-  await fallback.$disconnect();
-  return { state, engines: new Set(routed.routes.map((r) => r.engine)) };
+  return { client: makeClient(driver), db };
 }
 
 describe("nested update PK-transition cascade boundary (finding #1)", () => {
   for (const substrate of ["tx", "batch"] as const) {
     test(
-      `child-held deeper edge under a PK transition routes to V1 and matches (${substrate})`,
+      `child-held deeper edge under a PK transition declines with no partial mutation (${substrate})`,
       { timeout: 30_000 },
       async () => {
-        const v1 = await runV1(op(CHILD_HELD_EDGE));
-        // V1's post-transition ordering: node 1→7 keeps parent 10; node 5 reparents to 7.
-        expect(v1.parents).toEqual([
+        const { client } = freshClient(substrate);
+        await push(client as any, { force: true });
+        await seed(client);
+
+        // The reorder/cascade trick is unsound for the NO-ACTION child FK: the shape
+        // declines at construction, before any I/O — the seeded state is untouched.
+        await expect(
+          (client as any).node.update(op(CHILD_HELD_EDGE))
+        ).rejects.toBeInstanceOf(UnsupportedOperationError);
+        expect((await snapshot(client)).parents).toEqual([
+          [1, 10],
           [3, 10],
           [4, 20],
-          [5, 7],
-          [7, 10],
+          [5, null],
           [10, null],
           [20, null],
         ]);
-        const { state, engines } = await runV2(op(CHILD_HELD_EDGE), substrate);
-        // The reorder/cascade trick is unsound for the NO-ACTION child FK — the whole
-        // tree routes to V1 (one engine served it, and that engine is V1).
-        expect(engines).toEqual(new Set(["v1"]));
-        // Byte-identical state, including the disjoint second parent (node 4 → 20).
-        expect(state).toEqual(v1);
+        await client.$disconnect();
       }
     );
 
     test(
-      `self-m2m deeper edge under a PK transition stays native and matches (${substrate})`,
+      `self-m2m deeper edge under a PK transition executes natively (${substrate})`,
       { timeout: 30_000 },
       async () => {
-        const v1 = await runV1(op(M2M_EDGE));
+        const { client } = freshClient(substrate);
+        await push(client as any, { force: true });
+        await seed(client);
+        await (client as any).node.update(op(M2M_EDGE));
+        const state = await snapshot(client);
         // The junction FK cascades: the link written against source 1 follows the PK to 7.
-        expect(v1.parents).toEqual([
+        expect(state.parents).toEqual([
           [3, 10],
           [4, 20],
           [5, null],
@@ -217,11 +188,8 @@ describe("nested update PK-transition cascade boundary (finding #1)", () => {
           [10, null],
           [20, null],
         ]);
-        expect(v1.links).toContainEqual([7, [5]]);
-        const { state, engines } = await runV2(op(M2M_EDGE), substrate);
-        // The reorder/cascade path is load-bearing here — V2 owns the whole tree natively.
-        expect(engines).toEqual(new Set(["v2"]));
-        expect(state).toEqual(v1);
+        expect(state.links).toContainEqual([7, [5]]);
+        await client.$disconnect();
       }
     );
   }

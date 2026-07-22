@@ -13,24 +13,18 @@ import type {
 } from "./OperationExecutor";
 import { ReadOperation } from "./ReadOperation";
 import { isRetryableRace } from "./race-retry";
-import { UnsupportedOperationError } from "./shared";
 import { UpdateOperation } from "./UpdateOperation";
 import { UpsertOperation } from "./UpsertOperation";
 
 /**
- * Per-tree routing (PLAN P5 item 1) — the production form of the P2a test proxy
- * ({@link file://../../tests/query-engine-v2/v2-client-proxy.ts}), obeying the
- * SAME routing law it proved against the oracle: construct the V2 operation for
- * the whole payload; an {@link UnsupportedOperationError} means "hand this whole
- * tree to V1"; every OTHER construction error (a `ValidationError`, the own-write
- * preflight rejection, the ATOM §7 `requiresAtomicResolution` refusal) is a real
- * failure V1 would also raise and is allowed to propagate. One client call never
- * mixes engines — the decision is made once, for the whole payload, before any
- * I/O. Every client operation family is in ROUTED_OPERATIONS — falling back to
- * V1 by OMISSION is impossible (the route-inventory full-surface assertion
- * fails if a family is neither routed nor in DOCUMENTED_V1_FALLBACK, which is
- * empty). The only V1 handoffs left are shapes a V2 operation declines with an
- * explicit `UnsupportedOperationError` at construction.
+ * Per-tree routing (P6 — the single engine). Construct the V2 operation for the
+ * whole payload before any I/O. Every construction error propagates: a
+ * `ValidationError`, the own-write preflight rejection, the ATOM §7
+ * `requiresAtomicResolution` refusal, and — with V1 deleted — an
+ * {@link UnsupportedOperationError} for a shape V2 does not express (a parity
+ * refusal V1 also rejects, or a documented narrower boundary reached by no
+ * conformance scenario; see route-inventory.test.ts). Every client operation
+ * family is in ROUTED_OPERATIONS, so no client tree resolves to `undefined`.
  */
 
 const READ_OPERATIONS: ReadonlySet<string> = new Set([
@@ -46,9 +40,9 @@ const READ_OPERATIONS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * The operation names V2 owns a construction path for. A name outside this set
- * is not routed (pure V1); a name inside it is constructed, and if that throws
- * {@link UnsupportedOperationError} the whole tree still falls back to V1.
+ * The operation names the engine owns a construction path for. Every client
+ * operation family is here; a name outside it (there is none on the client path)
+ * resolves to `undefined`.
  */
 export const ROUTED_OPERATIONS: ReadonlySet<string> = new Set([
   ...READ_OPERATIONS,
@@ -64,32 +58,11 @@ export const ROUTED_OPERATIONS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Test-only invariant probe (P6-prerequisite 2, the decline-surface gate). When
- * set, a payload a V2 family DECLINES with {@link UnsupportedOperationError} at
- * construction RE-THROWS instead of returning `undefined` — so the V1 fallback
- * arm in `PendingOperation.runRouted` is never reached and any reachable
- * accept-and-execute behavior still living behind the fallback surfaces as a hard
- * failure. This is P6's deletion premise ("no reachable behavior lives behind the
- * fallback") made machine-checkable. It is INERT in production: the flag defaults
- * off, is flipped only by the `fallback-disabled-gate` test through
- * {@link setV1FallbackDisabled}, and an unrouted operation name still returns
- * `undefined` (that is not a decline — V2 never owned it). Never flip it from
- * product code.
- */
-let v1FallbackDisabled = false;
-
-/** @internal test-only. Returns the prior value so a test can restore it. */
-export function setV1FallbackDisabled(disabled: boolean): boolean {
-  const previous = v1FallbackDisabled;
-  v1FallbackDisabled = disabled;
-  return previous;
-}
-
-/**
- * Construct the V2 operation for a routed payload, or return `undefined` when
- * V2 does not own the tree (an unrouted operation name, or a supported family
- * declining this payload with {@link UnsupportedOperationError}). Any other
- * construction error propagates — it is V1's error too.
+ * Construct the V2 operation for a routed payload. Returns `undefined` only for an
+ * operation name outside {@link ROUTED_OPERATIONS} (no client family is — the
+ * full-surface assertion in route-inventory.test.ts pins that). Every construction
+ * error propagates, including an {@link UnsupportedOperationError} for a shape V2
+ * does not express: with V1 deleted there is no fallback arm to catch it.
  */
 export function constructRoutedOperation(
   engine: QueryEngine,
@@ -98,34 +71,23 @@ export function constructRoutedOperation(
   args: Record<string, unknown>
 ): ExecutableOperation | undefined {
   if (!ROUTED_OPERATIONS.has(operation)) return undefined;
-  // V1's `requiresAtomicResolution` refusal (ATOM §7), reproduced at the ROUTED
+  // The `requiresAtomicResolution` refusal (ATOM §7), reproduced at the ROUTED
   // layer only. A batch-only, non-returning driver cannot resolve a single-row
   // mutation's returned identity atomically — its public result is parsed after
-  // the atomic batch commits, and that parse cannot be rolled back — so V1
-  // refuses `update`/`delete`/`upsert` before any I/O with a typed
+  // the atomic batch commits, and that parse cannot be rolled back — so
+  // `update`/`delete`/`upsert` are refused before any I/O with a typed
   // `TransactionError`. V2's executor deliberately CAN run these in a forced
   // batch (via an in-batch terminal SELECT), and 31 executor-level batch
   // contracts depend on that capability, so the refusal must NOT live in the
   // operation constructor (it would regress them). It lives here, on the public
   // client path (this function is reached only through `client.ts` →
-  // `PendingOperation.createRouted`), so V2 converges on V1's user-visible
-  // behavior while the executor keeps its capability for the direct-executor
-  // contracts. `*AndReturn` refuses in its own constructor (its identities need a
-  // post-commit read no in-batch SELECT can supply); `create*`/`updateMany`/
-  // `deleteMany` do not require atomic resolution and are unaffected.
+  // `PendingOperation.create`), while the executor keeps its capability for the
+  // direct-executor contracts. `*AndReturn` refuses in its own constructor (its
+  // identities need a post-commit read no in-batch SELECT can supply);
+  // `create*`/`updateMany`/`deleteMany` do not require atomic resolution and are
+  // unaffected.
   assertRoutedAtomicResolution(engine, operation);
-  try {
-    return constructOperation(engine, model, operation, args);
-  } catch (error) {
-    if (error instanceof UnsupportedOperationError) {
-      // The decline surface: normally this whole tree hands off to V1. With the
-      // test-only probe engaged, re-throw so the fallback arm is never reached —
-      // proving no reachable behavior lives behind it.
-      if (v1FallbackDisabled) throw error;
-      return undefined;
-    }
-    throw error;
-  }
+  return constructOperation(engine, model, operation, args);
 }
 
 /** The single-row refetch operations whose returned identity needs atomic

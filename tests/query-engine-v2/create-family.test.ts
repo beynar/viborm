@@ -126,9 +126,11 @@ interface Scenario {
   seed: (client: AnyClient) => Promise<unknown>;
   act: (client: AnyClient) => Promise<unknown>;
   dump: (client: AnyClient) => Promise<unknown>;
-  /** Extension class (P−1.2): V1 rejects at runtime, V2 adopts. `v1Rejects`
-   *  is a substring of V1's typed message; V2 tx/batch must agree and succeed. */
-  extension?: { v1Rejects: string };
+  /** Extension class (P−1.2): a DELIBERATE Prisma superset that V1 rejected at
+   *  runtime and the single engine adopts. The pinned successful result + persisted
+   *  state (V2 tx/batch must agree on them) — the V1-reference rejection is retired
+   *  with V1. */
+  extension?: { result: unknown; state: unknown };
 }
 
 async function runArm(kind: ArmKind, scenario: Scenario) {
@@ -147,12 +149,13 @@ async function runArm(kind: ArmKind, scenario: Scenario) {
   let routes: RouteRecord[] = [];
   try {
     if (kind === "v1") {
-      const v1 = createClient({
+      // The reference arm: the plain production client, executed directly (the
+      // tx/batch arms wrap the same engine in the routing proxy).
+      const reference = createClient({
         schema: scenario.schema,
         driver: new PGliteDriver({ client: db }),
-        queryEngine: "v1",
       });
-      result = await scenario.act(v1);
+      result = await scenario.act(reference);
     } else {
       const driver =
         kind === "v2-tx"
@@ -508,9 +511,15 @@ const parityScenarios: Scenario[] = [
 
 const extensionScenarios: Scenario[] = [
   {
-    name: "upsert-under-create adopts a foreign-owned target (V1 rejects, V2 adopts)",
+    name: "upsert-under-create adopts a foreign-owned target (V2 adopts)",
     schema: opf,
-    extension: { v1Rejects: "is not supported in parent create" },
+    extension: {
+      result: {
+        name: "adopter",
+        posts: [{ id: 1, title: "adopted", userId: 2 }],
+      },
+      state: [{ id: 1, title: "adopted", slug: "s1", userId: 2 }],
+    },
     seed: async (c) => {
       await c.user.create({ data: { name: "owner" } });
       await c.post.create({
@@ -542,9 +551,15 @@ const extensionScenarios: Scenario[] = [
     dump: (c) => c.post.findMany({ orderBy: { id: "asc" } }),
   },
   {
-    name: "upsert-under-create creates a missing target (V1 rejects, V2 creates)",
+    name: "upsert-under-create creates a missing target (V2 creates)",
     schema: opf,
-    extension: { v1Rejects: "is not supported in parent create" },
+    extension: {
+      result: {
+        name: "creator",
+        posts: [{ id: 20, title: "fresh", userId: 1 }],
+      },
+      state: [{ id: 20, title: "fresh", slug: "s20", userId: 1 }],
+    },
     seed: () => Promise.resolve(),
     act: (c) =>
       c.user.create({
@@ -595,29 +610,23 @@ describe("query-engine-v2 create family dual-run oracle (V1 vs V2 tx vs V2 batch
   }
 });
 
-describe("query-engine-v2 create family extension class (P−1.2 superset; V1 rejects, V2 adopts)", () => {
+describe("query-engine-v2 create family extension class (P−1.2 superset; the single engine adopts)", () => {
   for (const scenario of extensionScenarios) {
     test(scenario.name, { timeout: 45_000 }, async () => {
-      const v1 = await runArm("v1", scenario);
       const tx = await runArm("v2-tx", scenario);
       const batch = await runArm("v2-batch", scenario);
 
-      // V1 arm: typed rejection; the seeded/empty state is unchanged.
-      expect(v1.error).toBeDefined();
-      expect(v1.error?.message).toContain(scenario.extension!.v1Rejects);
-
-      // V2 arms: both succeed, and tx and batch agree byte-for-byte on the
-      // pinned result and persisted state (V2 substrate parity is the certifier
-      // here — there is no V1 success to compare against).
+      // A DELIBERATE Prisma superset V1 rejected at runtime and the single engine
+      // adopts. Both substrates succeed, agree byte-for-byte, and match the pinned
+      // result + persisted state (the V1-reference rejection retired with V1).
       expect(tx.error).toBeUndefined();
       expect(batch.error).toBeUndefined();
       expect(tx.routedToV2).toBe(true);
       expect(batch.routedToV2).toBe(true);
-      expect(tx.result).toEqual(batch.result);
-      expect(tx.state).toEqual(batch.state);
-
-      // V2 mutated where V1 refused: the persisted state differs from V1's.
-      expect(tx.state).not.toEqual(v1.state);
+      expect(tx.result).toEqual(scenario.extension!.result);
+      expect(batch.result).toEqual(scenario.extension!.result);
+      expect(tx.state).toEqual(scenario.extension!.state);
+      expect(batch.state).toEqual(scenario.extension!.state);
     });
   }
 });

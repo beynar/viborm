@@ -111,6 +111,11 @@ export function runManyAndReturnBehavior({
 }: ManyAndReturnBehaviorOptions) {
   describe(`${driverName} createManyAndReturn / updateManyAndReturn`, () => {
     let client: ManyAndReturnClient | undefined;
+    // `createManyAndReturn` with `skipDuplicates` is the one documented deliberate
+    // refusal on a NON-returning driver (route-inventory category ii): there is no
+    // portable `ON CONFLICT DO NOTHING` that also reports which rows it inserted.
+    const supportsReturning =
+      createDriver().adapter.capabilities.supportsReturning;
 
     beforeEach(async () => {
       const driver = createDriver();
@@ -343,14 +348,26 @@ export function runManyAndReturnBehavior({
         data: { id: "g1", code: "c1", name: "Existing" },
       });
 
-      const rows = await client!.gadget.createManyAndReturn({
-        data: [
-          { id: "g1", code: "c1", name: "Duplicate" },
-          { id: "g3", code: "c3", name: "Fresh" },
-        ],
-        skipDuplicates: true,
-      });
+      const call = () =>
+        client!.gadget.createManyAndReturn({
+          data: [
+            { id: "g1", code: "c1", name: "Duplicate" },
+            { id: "g3", code: "c3", name: "Fresh" },
+          ],
+          skipDuplicates: true,
+        });
 
+      if (!supportsReturning) {
+        // The one documented deliberate refusal (route-inventory category ii): a
+        // non-returning driver cannot both skip duplicates and report the inserted
+        // rows. Maintainer-authorized; its absorption is post-P6 backlog.
+        await expect(call()).rejects.toThrow(
+          "does not support skipDuplicates on a non-returning driver"
+        );
+        return;
+      }
+
+      const rows = await call();
       expect(rows).toHaveLength(1);
       expect(rows[0]).toMatchObject({ id: "g3", name: "Fresh" });
     });

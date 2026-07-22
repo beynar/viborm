@@ -119,8 +119,7 @@
     "test:ui": "vitest --ui",
     "test:types": "tsc --noEmit",
     "test:runtime": "vitest run tests/runtime/",
-    "test:gates:fallback-off": "VIBORM_FALLBACK_OFF=1 vitest run tests/query-engine/nested-write-conformance.test.ts",
-    "test:gates": "vitest run tests/query-engine/operation-boundary-architecture-gates.test.ts tests/query-engine/operation-program-architecture-gates.test.ts tests/query-engine-v2/architecture-gates.test.ts tests/query-engine-v2/decline-surface-gate.test.ts && pnpm test:gates:fallback-off",
+    "test:gates": "vitest run tests/query-engine-v2/architecture-gates.test.ts tests/query-engine-v2/decline-surface-gate.test.ts",
     "test:pg": "vitest run --no-file-parallelism tests/drivers/pg.test.ts tests/drivers/postgres.test.ts",
     "test:pglite": "vitest run tests/drivers/pglite.test.ts",
     "test:sqlite": "vitest run tests/drivers/sqlite3.test.ts tests/drivers/libsql.test.ts",
@@ -138,8 +137,7 @@
     "test:package:phase7": "pnpm package:build && node tests/package-error-names-smoke.mjs && node tests/package-otel-absent-smoke.mjs",
     "package:dev": "tsdown --watch",
     "size": "size-limit",
-    "size:why": "size-limit --why",
-    "test:gates:blast-radius": "node scripts/blast-radius-gate.mjs"
+    "size:why": "size-limit --why"
   },
   "keywords": [
     "orm",

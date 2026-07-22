@@ -77,7 +77,6 @@ function makeClient(db: PGlite) {
   return createClient({
     schema,
     driver: new PGliteDriver({ client: db }),
-    queryEngine: "v1",
   });
 }
 type AnyClient = ReturnType<typeof makeClient>;

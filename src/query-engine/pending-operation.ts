@@ -1,12 +1,13 @@
 /**
  * Deferred operation lifecycle owned by the query engine.
  * Validation, SQL construction, and execution remain lazy until a lifecycle
- * method is called.
+ * method is called. Every operation is served by the single (V2) engine.
  */
 
 import type { AnyDriver, QueryExecutionContext } from "@drivers";
 import { PendingOperationError } from "@errors";
 import type { Model } from "@schema/model";
+import { isSql, type Sql } from "@sql";
 import type {
   ExecutableOperation,
   SingleStatementPlan,
@@ -22,18 +23,14 @@ import {
   observeOperationExecution,
   observePendingBatchPhase,
 } from "./execution-context";
-import { OperationCompiler } from "./OperationCompiler";
-import { OperationResults } from "./OperationResults";
-import { OperationRuntime } from "./OperationRuntime";
-import type { OperationProgram } from "./operation-program";
 import type { QueryEngine } from "./query-engine";
 import {
-  type BatchPreparationContext,
   isBatchOperation,
   type Operation,
   type PreparedBatchOperation,
   type PreparedQuery,
   type PrepareOptions,
+  QueryEngineError,
 } from "./types";
 
 export const PENDING_OPERATION_SYMBOL = Symbol.for("viborm.pendingOperation");
@@ -56,29 +53,18 @@ export class PendingOperation<T> implements PromiseLike<T> {
   readonly operation: Operation;
   readonly options: PrepareOptions;
   readonly context: OperationExecutionContext;
-  private readonly compiler: OperationCompiler<T>;
-  private readonly results: OperationResults<T>;
-  private readonly runtime: OperationRuntime<T>;
 
   private promise: Promise<T> | null = null;
   private executedWith: AnyDriver | "default" | null = null;
   private readonly deferredExecution: DeferredExecution<T> | undefined;
 
-  /**
-   * Per-tree V2 routing (PLAN P5). When set, every lifecycle seam attempts to
-   * construct the V2 operation for this payload (memoized in {@link v2Operation})
-   * and delegates to the V2 executor; a payload V2 declines
-   * (`UnsupportedOperationError`) runs the frozen V1 runtime unchanged. When
-   * false — the migration escape hatch, and every non-client caller — this is
-   * the pure V1 path, byte-identical to before the flip.
-   */
-  private readonly routeToV2: boolean;
-  private v2Operation: ExecutableOperation | undefined;
-  private v2Resolved = false;
-  private v2ExecutorInstance: OperationExecutor | undefined;
+  // The V2 operation for this payload, constructed once (lazily, before any I/O).
+  private operationInstance: ExecutableOperation | undefined;
+  private operationResolved = false;
+  private executorInstance: OperationExecutor | undefined;
   // The single-statement plan, memoized: `null` uncomputed, `undefined` when the
-  // V2 operation is multi-statement (runs through the atomic-batch seam).
-  private v2SinglePlan: SingleStatementPlan | undefined | null = null;
+  // operation is multi-statement (runs through the atomic-batch seam).
+  private singlePlan: SingleStatementPlan | undefined | null = null;
 
   private constructor(
     engine: QueryEngine,
@@ -87,14 +73,12 @@ export class PendingOperation<T> implements PromiseLike<T> {
     args: Record<string, unknown>,
     options?: PrepareOptions,
     context?: OperationExecutionContext,
-    deferredExecution?: DeferredExecution<T>,
-    routeToV2 = false
+    deferredExecution?: DeferredExecution<T>
   ) {
     this.engine = engine;
     this.model = model;
     this.args = args;
     this.deferredExecution = deferredExecution;
-    this.routeToV2 = routeToV2;
     const isOrThrow = requestedOperation.endsWith(OR_THROW_SUFFIX);
     this.operation = isOrThrow
       ? (requestedOperation.slice(0, -OR_THROW_SUFFIX.length) as Operation)
@@ -114,9 +98,6 @@ export class PendingOperation<T> implements PromiseLike<T> {
         engine.clientId,
         engine.scopeId
       );
-    this.compiler = new OperationCompiler(this);
-    this.results = new OperationResults(this);
-    this.runtime = new OperationRuntime(this, this.compiler, this.results);
   }
 
   static create<T>(
@@ -130,70 +111,49 @@ export class PendingOperation<T> implements PromiseLike<T> {
   }
 
   /**
-   * The production routing entry point (PLAN P5 item 1): a `PendingOperation`
-   * that, when `routeToV2` is true, serves migrated trees through the V2 engine
-   * and everything else through the frozen V1 runtime — one call never mixing
-   * engines. `routeToV2 = false` reproduces {@link create} exactly (the escape
-   * hatch and non-routed internals).
+   * Construct (once) the V2 operation for this payload. Routing is decided here —
+   * lazily, before any I/O — so a validation error surfaces at execution time
+   * exactly as intended, never synchronously at client-dispatch time. Every client
+   * operation family constructs; a name outside the routed set (unreachable on the
+   * client path) is an internal error rather than a silent no-op.
    */
-  static createRouted<T>(
-    engine: QueryEngine,
-    model: Model<any>,
-    operation: Operation | `${Operation}OrThrow`,
-    args: Record<string, unknown>,
-    options: PrepareOptions | undefined,
-    routeToV2: boolean
-  ): PendingOperation<T> {
-    return new PendingOperation<T>(
-      engine,
-      model,
-      operation,
-      args,
-      options,
-      undefined,
-      undefined,
-      routeToV2
-    );
-  }
-
-  /**
-   * Construct (once) the V2 operation for this payload, or `undefined` when V2
-   * does not own the tree. Routing is decided here — lazily, before any I/O —
-   * so a validation error surfaces at execution time exactly as V1's does, never
-   * synchronously at client-dispatch time.
-   */
-  private resolveV2(): ExecutableOperation | undefined {
-    if (!this.routeToV2) return undefined;
-    if (this.v2Resolved) return this.v2Operation;
-    this.v2Operation = constructRoutedOperation(
+  private resolveOperation(): ExecutableOperation {
+    if (this.operationResolved && this.operationInstance) {
+      return this.operationInstance;
+    }
+    const operation = constructRoutedOperation(
       this.engine,
       this.model,
       this.options.originalOperation ?? this.operation,
       this.args
     );
-    this.v2Resolved = true;
-    return this.v2Operation;
+    if (!operation) {
+      throw new QueryEngineError(
+        `Operation '${this.operation}' has no execution path.`
+      );
+    }
+    this.operationInstance = operation;
+    this.operationResolved = true;
+    return operation;
   }
 
-  private v2Executor(): OperationExecutor {
-    if (!this.v2ExecutorInstance) {
-      this.v2ExecutorInstance = new OperationExecutor(this.engine);
+  private executor(): OperationExecutor {
+    if (!this.executorInstance) {
+      this.executorInstance = new OperationExecutor(this.engine);
     }
-    return this.v2ExecutorInstance;
+    return this.executorInstance;
   }
 
   /**
-   * The single-statement plan for a V2-owned operation, memoized. `undefined`
-   * means either V2 does not own this tree or the operation is multi-statement
-   * (both fall through to the atomic-batch seam).
+   * The single-statement plan for this operation, memoized. `undefined` means the
+   * operation is multi-statement (it uses the atomic-batch seam instead).
    */
-  private resolveV2Single(): SingleStatementPlan | undefined {
-    if (this.v2SinglePlan !== null) return this.v2SinglePlan;
-    const operation = this.resolveV2();
-    this.v2SinglePlan = operation
-      ? this.v2Executor().singleStatementPlan(operation)
-      : undefined;
-    return this.v2SinglePlan;
+  private resolveSinglePlan(): SingleStatementPlan | undefined {
+    if (this.singlePlan !== null) return this.singlePlan;
+    this.singlePlan = this.executor().singleStatementPlan(
+      this.resolveOperation()
+    );
+    return this.singlePlan;
   }
 
   private getPromise(): Promise<T> {
@@ -215,35 +175,28 @@ export class PendingOperation<T> implements PromiseLike<T> {
     if (this.deferredExecution) {
       return this.deferredExecution(driverOverride);
     }
-    if (this.routeToV2) {
-      return this.runRouted(driverOverride);
-    }
-    return this.runtime.execute(driverOverride);
+    return this.run(driverOverride);
   }
 
   /**
-   * Execute through the V2 engine when it owns this tree, else the frozen V1
-   * runtime — each under exactly ONE {@link observeOperationExecution} wrapper,
-   * so the instrumentation shape (SPAN_OPERATION, error logging) is byte-identical
-   * across the flip. A V2 construction rejection (a `ValidationError`, the
-   * own-write preflight, the ATOM §7 refusal) is surfaced through the same
-   * observation wrapper V1 uses for its validation errors.
+   * Execute through the single engine under exactly ONE
+   * {@link observeOperationExecution} wrapper, so the instrumentation shape
+   * (SPAN_OPERATION, error logging) is uniform. A construction rejection (a
+   * `ValidationError`, the own-write preflight, the ATOM §7 refusal, an
+   * `UnsupportedOperationError` for a shape the engine does not express) is
+   * surfaced through the same observation wrapper.
    */
-  private runRouted(driverOverride?: AnyDriver): Promise<T> {
-    let operation: ExecutableOperation | undefined;
+  private run(driverOverride?: AnyDriver): Promise<T> {
+    let operation: ExecutableOperation;
     try {
-      operation = this.resolveV2();
+      operation = this.resolveOperation();
     } catch (error) {
       return observeOperationExecution(this, () => Promise.reject(error));
     }
-    if (!operation) {
-      return this.runtime.execute(driverOverride);
-    }
-    const v2Operation = operation;
     return observeOperationExecution(this, () =>
       executeRoutedOperation<T>(
-        this.v2Executor(),
-        v2Operation,
+        this.executor(),
+        operation,
         this.context.attribution,
         driverOverride
       )
@@ -308,67 +261,58 @@ export class PendingOperation<T> implements PromiseLike<T> {
   }
 
   prepare(driver?: AnyDriver): PreparedQuery | undefined {
-    if (this.routeToV2 && this.resolveV2()) {
-      // A single-statement V2 operation (every read, plus scalar bulk writes)
-      // exposes its one statement through this seam, exactly as V1 does — the
-      // cache flow and the array-batch "single" fast path depend on it. A
-      // multi-statement (composed) operation returns undefined and uses the
-      // atomic-batch seam.
-      const single = this.resolveV2Single();
-      if (!single) return undefined;
-      return this.v2Executor().prepareSingleStatement(
-        single,
-        driver ?? this.engine.driver,
-        this.context.attribution
-      );
-    }
-    return this.runtime.prepare(driver);
+    // A single-statement operation (every read, plus scalar bulk writes) exposes
+    // its one statement through this seam — the cache flow and the array-batch
+    // "single" fast path depend on it. A multi-statement (composed) operation
+    // returns undefined and uses the atomic-batch seam.
+    const single = this.resolveSinglePlan();
+    if (!single) return undefined;
+    return this.executor().prepareSingleStatement(
+      single,
+      driver ?? this.engine.driver,
+      this.context.attribution
+    );
   }
 
-  /** @internal Inspect the declarative program without executing it. */
-  compile(): OperationProgram {
-    return this.compiler.compile();
+  /**
+   * The one SQL statement this operation compiles to, or `undefined` when it is
+   * multi-statement (backs {@link QueryEngine.build}). Unlike the cache/array-batch
+   * `prepare()` seam this permits a postcondition — a returning-driver
+   * create/update/delete is one `… RETURNING` statement whose exactly-one-row
+   * assertion is enforced after execution, and `build()` still wants its SQL.
+   */
+  buildStatement(): Sql | undefined {
+    const operation = this.resolveOperation();
+    if (operation.planning().steps.length > 0) return undefined;
+    const fragment = operation.compile({});
+    if (fragment.steps.length !== 1) return undefined;
+    const [step] = fragment.steps;
+    if (!step || step.kind === "guard") return undefined;
+    return isSql(step.statement) ? step.statement : undefined;
   }
 
   async prepareBatch(
-    driver?: AnyDriver,
-    context?: BatchPreparationContext
+    driver?: AnyDriver
   ): Promise<PreparedBatchOperation<T> | undefined> {
     const targetDriver = driver ?? this.engine.driver;
-    if (this.routeToV2) {
-      const operation = this.resolveV2();
-      if (operation) {
-        return this.v2Executor().prepareSharedBatch<T>(
-          operation,
-          targetDriver,
-          this.context.attribution,
-          this.operation
-        );
-      }
-    }
-    const prepared = await this.runtime.prepareBatch(targetDriver, context);
-    return prepared;
+    return this.executor().prepareSharedBatch<T>(
+      this.resolveOperation(),
+      targetDriver,
+      this.context.attribution,
+      this.operation
+    );
   }
 
   parseResult(raw: { rows: unknown[]; rowCount: number }): T {
-    if (this.routeToV2) {
-      const operation = this.resolveV2();
-      if (operation) {
-        // parseResult pairs with the single-statement `prepare()` seam (the
-        // array-batch "single" path calls prepare then parseResult), so resolve
-        // the same plan and map the raw result through the fragment's outputs.
-        const single = this.resolveV2Single();
-        if (single) {
-          return this.v2Executor().parseSingleStatement<T>(
-            operation,
-            single,
-            raw
-          );
-        }
-        return operation.parse<T>({ result: raw.rows });
-      }
+    const operation = this.resolveOperation();
+    // parseResult pairs with the single-statement `prepare()` seam (the
+    // array-batch "single" path calls prepare then parseResult), so resolve the
+    // same plan and map the raw result through the fragment's outputs.
+    const single = this.resolveSinglePlan();
+    if (single) {
+      return this.executor().parseSingleStatement<T>(operation, single, raw);
     }
-    return this.results.resolvePrepared(raw, this.engine.driver, this.args);
+    return operation.parse<T>({ result: raw.rows });
   }
 
   /** Attribute native-batch preparation/parsing to this logical operation. */
@@ -389,11 +333,7 @@ export class PendingOperation<T> implements PromiseLike<T> {
       this.args,
       this.options,
       this.context,
-      deferredExecution,
-      // The wrapped clone keeps this operation's routing decision: its own
-      // prepare/prepareBatch seams must reach the V2 engine for the array-batch
-      // path, exactly as the original would.
-      this.routeToV2
+      deferredExecution
     );
   }
 

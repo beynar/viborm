@@ -12,8 +12,8 @@ import {
   createQueryScope,
   getTableName,
 } from "../query-engine/context/query-scope";
-import { manyToManyStatement } from "../query-engine/ManyToManyMemberships";
 import { ManyToManyStatements } from "../query-engine/ManyToManyStatements";
+import { manyToManyStatement } from "../query-engine/many-to-many-statement";
 import {
   buildDelete,
   buildDeleteMany,

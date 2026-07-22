@@ -44,7 +44,7 @@ import { assertNullable } from "../query-engine/RelationProgramValues";
 import {
   assertRelationKeyUpdatesAreCompilable,
   assertUpdateManyRelationsAreCompilable,
-} from "../query-engine/RelationUpdates";
+} from "../query-engine/relation-key-legality";
 import { ResultParser } from "../query-engine/result/ResultParser";
 import { classifyRelationKeyScalarUpdate } from "../query-engine/TargetConstraint";
 import type { QueryScope, RelationInfo } from "../query-engine/types";

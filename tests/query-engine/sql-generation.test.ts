@@ -653,14 +653,19 @@ describe("Basic CRUD Operations", () => {
   });
 
   describe("delete", () => {
-    test("by id", () => {
-      const { statement, values } = getSql(Author, "delete", {
-        where: { id: "author-1" },
-      });
-
-      expect(statement).toContain("DELETE FROM");
-      expect(statement).toContain("WHERE");
-      expect(values).toContain("author-1");
+    test("multi-step delete rejects the single-statement build API", () => {
+      // A root delete locates the row by its unique `where` (a notFound-enforcing
+      // planning read) before deleting it, so it is a multi-statement operation —
+      // the single-statement `build()` API rejects it, exactly as it does an
+      // upsert. The delete's persisted effect is covered by the delete-behavior and
+      // nested-write-conformance suites.
+      expect(() =>
+        getSql(Author, "delete", {
+          where: { id: "author-1" },
+        })
+      ).toThrow(
+        "Operation 'delete' does not compile to one SQL statement. Execute the operation instead."
+      );
     });
 
     test("empty where fails before SQL generation", () => {
