@@ -61,6 +61,7 @@ import { StepScope } from "./StepScope";
 import {
   getStepModelName,
   isRecord,
+  type SubOperationOptions,
   selectExecutionMode,
   UnsupportedOperationError,
 } from "./shared";
@@ -245,13 +246,16 @@ export class CreateOperation {
   constructor(
     engine: QueryEngine,
     model: Model<any>,
-    args: Record<string, unknown>
+    args: Record<string, unknown>,
+    options: SubOperationOptions = {}
   ) {
     this.engine = engine;
     this.model = model;
     this.mode = selectExecutionMode(engine, "create");
     const txMode = this.mode === "transaction";
-    this.scope = new StepScope();
+    // T3c: an upsert's create arm reuses this operation as one arm of a larger
+    // fragment, sharing the enclosing scope so no two arms collide on a step id.
+    this.scope = options.scope ?? new StepScope();
 
     assertCreateKeys(args);
     const parentSchemas = engine.schemaRegistry.getModelSchemas(model);
@@ -265,8 +269,13 @@ export class CreateOperation {
 
     const parent = createQueryScope(engine.adapter, model);
     // Own-write preflight (ATOM §4): reject any payload whose nested decision
-    // reads depend on this operation's own writes, before planning.
-    new OwnWritePreflight().assertCreate(parent, data);
+    // reads depend on this operation's own writes, before planning. As an upsert
+    // create arm the caller runs this per-arm at compile (V1 checks it inside the
+    // whenFalse branch only — a create-arm violation must not reject when the
+    // update arm is taken), so it is skipped here.
+    if (!options.skipOwnWrite) {
+      new OwnWritePreflight().assertCreate(parent, data);
+    }
 
     const hasSelect = isRecord(parsedArgs.select);
     this.parsedInclude = isRecord(parsedArgs.include)
@@ -354,6 +363,12 @@ export class CreateOperation {
       this.model,
       this.engine.driver
     ).parse<T>("create", outputs.result, this.resultArgs);
+  }
+
+  /** The step id of the root parent INSERT — the write an enclosing upsert create
+   *  arm annotates with its raceable missing-premise `racePin` (T3c). */
+  get rootWriteStepId(): string {
+    return this.root.writeStepId;
   }
 
   // -------------------------------------------------------------------------

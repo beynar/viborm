@@ -631,12 +631,23 @@ function buildOneUpsertPart(
       `Relation '${relationName}' owns '${fkFields.join(", ")}'; omit it from nested create and update data.`
     );
   }
-  assertMatchingCreateIdentity(
-    child,
-    where,
-    childCreate.scalarData,
-    relationName
-  );
+  // T3c (family H): V1 does NOT require the nested create's identity to match the
+  // `where` — its absent arm inserts `input.create` verbatim and pins the missing
+  // premise on `input.where` (RelationBranches.compileOneUpsert), so a found arm
+  // (the row exists) never touches `create` and a `create.id ≠ where.id` is legal.
+  // V2's create arm inserts `create` too; the ONLY place the created row's identity
+  // must equal the `where` PK is when the create arm folds GRANDCHILDREN — they
+  // correlate to the fresh row through `where`'s PK entry (buildArmChildParts), so a
+  // mismatch would strand them. Gate the check on that: a scalar (grandchild-free)
+  // create arm with a divergent identity now runs natively, matching V1.
+  if (Object.keys(childCreate.relations).length > 0) {
+    assertMatchingCreateIdentity(
+      child,
+      where,
+      childCreate.scalarData,
+      relationName
+    );
+  }
   const childPrimaryKeys = getPrimaryKeyFields(child.model);
   if (childPrimaryKeys.length !== 1) {
     throw new UnsupportedOperationError(

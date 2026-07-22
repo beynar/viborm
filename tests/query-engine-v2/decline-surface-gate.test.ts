@@ -699,13 +699,14 @@ const REPRESENTATIVE_CONSTRUCT_DECLINE = {
   rootModel: nb.post as Model<any>,
 } as const;
 
-describe("decline-surface gate: the reachable residual STILL lives behind the fallback (P6 blocked)", () => {
-  test("the fallback-carrying residual is NON-EMPTY — V1 is not deletable", () => {
-    // The census is a fact, not prose. When this reaches 0, P6 may delete V1.
-    expect(FALLBACK_OFF_RESIDUAL.size).toBeGreaterThan(0);
+describe("decline-surface gate: the fallback-carrying residual is EMPTY (T3c — P6 unblocked)", () => {
+  test("the fallback-carrying residual is EMPTY — no conformance behavior lives behind the fallback", () => {
+    // The census is a fact, not prose. It reached 0 at T3c: EVERY conformance scenario
+    // now runs natively on V2 under `VIBORM_FALLBACK_OFF=1`. P6 may delete V1's runtime.
+    expect(FALLBACK_OFF_RESIDUAL.size).toBe(0);
   });
 
-  test("the census is the MEASURED surface (8), not a curated pin list", () => {
+  test("the census is the MEASURED surface (0), not a curated pin list", () => {
     // Guards against silently trimming the census without a real absorption: the
     // set and its declared count must agree, and the count is the running measurement.
     // Absorbing a family (or a coherent slice) drops BOTH by the same amount (and its
@@ -719,11 +720,18 @@ describe("decline-surface gate: the reachable residual STILL lives behind the fa
     // mechanism 1 update-arm reuse) → 9 (T3b-2 absorbed family E: the 2 nested-create-
     // under-update shapes incl. D4's rewritten-non-PK-reference threading) → 8 (T3b-2
     // absorbed family G: the connectOrCreate create-arm one-level-deeper create,
-    // mechanism 3). The remaining 8 are T3c's surface (family D ×7 + family H ×1).
-    expect(FALLBACK_OFF_RESIDUAL_COUNT).toBe(8);
+    // mechanism 3) → 0 (T3c absorbed family D ×7 — the top-level upsert nested-relation
+    // arms — and family H ×1 — the nested to-many upsert create-identity relaxation).
+    expect(FALLBACK_OFF_RESIDUAL_COUNT).toBe(0);
   });
 
-  test(`still declines at construction (routes to V1): ${REPRESENTATIVE_CONSTRUCT_DECLINE.label}`, () => {
+  // The census is ZERO, but the throw-site surface is not: a handful of DEEPER
+  // narrower-boundary shapes (create-context depth under a planned parent-held id, a
+  // compound-PK child at depth, …) still route the whole tree to V1 — documented
+  // route-inventory category (iii). No CONFORMANCE scenario reaches them (that is why
+  // the census is zero); this witness keeps one such route honestly visible so a future
+  // regression that silently changed its disposition would surface here.
+  test(`documented narrower boundary still routes to V1: ${REPRESENTATIVE_CONSTRUCT_DECLINE.label}`, () => {
     const shape = REPRESENTATIVE_CONSTRUCT_DECLINE;
     const engine = pgEngine(shape.schema);
     // Fallback disabled: a decline RE-THROWS, so a shape that still routes to V1

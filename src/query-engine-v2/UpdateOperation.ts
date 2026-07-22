@@ -96,6 +96,7 @@ import { StepScope } from "./StepScope";
 import {
   getStepModelName,
   isRecord,
+  type SubOperationOptions,
   selectExecutionMode,
   UnsupportedOperationError,
 } from "./shared";
@@ -312,13 +313,16 @@ export class UpdateOperation {
   constructor(
     engine: QueryEngine,
     model: Model<any>,
-    args: Record<string, unknown>
+    args: Record<string, unknown>,
+    options: SubOperationOptions = {}
   ) {
     this.engine = engine;
     this.model = model;
     this.mode = selectExecutionMode(engine, "update");
     const txMode = this.mode === "transaction";
-    this.scope = new StepScope();
+    // T3c: an upsert's update arm reuses this operation as one arm of a larger
+    // fragment, sharing the enclosing scope so no two arms collide on a step id.
+    this.scope = options.scope ?? new StepScope();
     const scope = this.scope;
 
     // 1. Validate the argument shape. `where` locates by any unique; `data`
@@ -381,8 +385,12 @@ export class UpdateOperation {
 
     // 2. Own-write preflight (ATOM §4): any decision read overlapping this
     //    operation's own writes is rejected here with V1's typed "split these
-    //    operations" error, before planning — identically on both substrates.
-    new OwnWritePreflight().assertUpdate(parent, data, where);
+    //    operations" error, before planning — identically on both substrates. As
+    //    an upsert update arm the caller runs this per-arm at compile (V1 checks it
+    //    inside the whenTrue branch only), so it is skipped here.
+    if (!options.skipOwnWrite) {
+      new OwnWritePreflight().assertUpdate(parent, data, where);
+    }
 
     const parentName = getStepModelName(model, "parent");
     const locateId = scope.allocate(`${parentName}.locate`);
@@ -563,11 +571,18 @@ export class UpdateOperation {
           ])
         ),
       },
-      expects: exactlyOneRow(
-        notFoundFailure(
-          `query-engine-v2 update located no '${parentName}' row for its unique where.`
-        )
-      ),
+      // As an upsert update arm the located-miss is the CREATE decision (the
+      // enclosing upsert's own locate decides the branch), not a not-found error,
+      // so the postcondition is dropped — planning must not abort on an absent row.
+      ...(options.locateNotFoundOptional
+        ? {}
+        : {
+            expects: exactlyOneRow(
+              notFoundFailure(
+                `query-engine-v2 update located no '${parentName}' row for its unique where.`
+              )
+            ),
+          }),
     };
   }
 

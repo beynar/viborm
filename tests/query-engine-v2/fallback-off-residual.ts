@@ -51,11 +51,34 @@
  * asserted so no entry can be dropped without a matching absorption.
  */
 export const FALLBACK_OFF_RESIDUAL: ReadonlySet<string> = new Set([
-  "nested-write conformance: FK relations (tx vs batch) > to-many upsert creates then updates the current parent's child",
-  "nested-write conformance: FK relations (tx vs batch) > top-level upsert setWhere no-match skips the update branch",
-  "nested-write conformance: FK relations (tx vs batch) > top-level upsert targetWhere no-match skips the update branch",
-  "nested-write conformance: FK relations (tx vs batch) > top-level upsert targetWhere+setWhere match runs the update branch",
-  "nested-write conformance: create root barrier (tx vs batch) > missing top-level upsert applies the create-branch insert barrier",
+  // ============================ ZERO (T3c) ============================
+  // The fallback-carrying decline surface is EMPTY. Every conformance scenario now
+  // runs natively on V2 under `VIBORM_FALLBACK_OFF=1` — the V1 fallback arm carries
+  // no reachable accept-and-execute behavior, the P6 deletion premise made true.
+  //
+  // ABSORBED (T3c, family D — the UpsertOperation scalar-arms-only guard lifted,
+  // TO-ONE.md §7.8): the 7 top-level-`upsert`-with-nested-relation-arm shapes now run
+  // fallback-off. A scalar arm stays the proven inline path; a relation-bearing create
+  // arm delegates to the create-root machinery (mechanism 2, fresh-parent elision) and
+  // a relation-bearing update arm to the update-root machinery (mechanism 1,
+  // `buildNestedTargetChildParts` + reorder/cascade), both sharing the upsert's scope
+  // and running V1's own-write barrier per-arm at compile (the whenFalse/whenTrue
+  // timing). Removed from this set (Count 8 → 1):
+  //   · top-level upsert setWhere no-match skips the update branch
+  //   · top-level upsert targetWhere no-match skips the update branch
+  //   · top-level upsert targetWhere+setWhere match runs the update branch
+  //   · missing top-level upsert applies the create-branch insert barrier (D4 witness)
+  //   · selected top-level upsert create branch gets inherited traversal (create-barrier)
+  //   · selected top-level upsert update branch gets inherited traversal (update-barrier)
+  //   · existing top-level upsert uses its exact pk for disjointness (PK-transition+m2m)
+  // ABSORBED (T3c, family H — the nested to-many upsert create-identity over-restriction
+  // relaxed): V1 inserts `input.create` verbatim on the absent arm and pins on
+  // `input.where`, so a `create.id ≠ where.id` is legal and a FOUND arm never touches
+  // `create`; V2's `assertMatchingCreateIdentity` now fires only when the create arm
+  // folds grandchildren (which correlate to the fresh row via `where`'s PK). Removed
+  // from this set (Count 1 → 0):
+  //   · to-many upsert creates then updates the current parent's child
+  // ===================================================================
   // ABSORBED (T3-r2, family F): "to-one ops … > to-one upsert (inverse side)
   // creates then updates the profile" was pinned here; the inverse-side to-one
   // upsert is now handled natively by V2 (RelationWritePart correlated upsert arm),
@@ -75,8 +98,8 @@ export const FALLBACK_OFF_RESIDUAL: ReadonlySet<string> = new Set([
   //   · transitive membership > nested physical membership allows a disjoint target endpoint
   //   · transitive membership > nested physical membership stays isolated by named junction scope
   //   · update predicate root > nested to-many update allows a disjoint child decision
-  "nested-write conformance: transitive target dependencies (tx vs batch) > selected top-level upsert create branch gets inherited traversal",
-  "nested-write conformance: transitive target dependencies (tx vs batch) > selected top-level upsert update branch gets inherited traversal",
+  // (T3c absorbed the two "selected top-level upsert create/update branch gets inherited
+  //  traversal" keys that were pinned here — see the ZERO block at the top of this set.)
   // ABSORBED (T3b-1, family B ×2 + family A-remainder ×2 — mechanism 1 extended to
   // the parent-held to-one `update` arm). A parent-held `update`'s located target now
   // builds its OWN child Parts, correlated to its captured PK by a `planned` source on
@@ -90,7 +113,8 @@ export const FALLBACK_OFF_RESIDUAL: ReadonlySet<string> = new Set([
   //   · non-self nested FK rebind allows a disjoint inverse holder  (container.update
   //     .nodes.update scalar grandchild, container located at the final FK)
   //   · same-node non-self FK rebind allows a disjoint inverse holder
-  "nested-write conformance: update predicate root (tx vs batch) > existing top-level upsert uses its exact pk for disjointness",
+  // (T3c absorbed the "existing top-level upsert uses its exact pk for disjointness" key
+  //  that was pinned here — the PK-transition + m2m update arm. See the ZERO block above.)
   // ABSORBED (T3b-2, family C — mechanism 2 create-arm / mechanism 1 update-arm
   // reuse, TO-ONE.md §7.7): the 10 m2m-junction-target-carrying-relations shapes now
   // run fallback-off. A junction create/update/upsert target whose data carries its
@@ -126,9 +150,9 @@ export const FALLBACK_OFF_RESIDUAL: ReadonlySet<string> = new Set([
   // `connect`; anything deeper routes to V1 — mirroring V1's accepted depth exactly.
   // Removed from this set (Count 9 → 8):
   //   · FK relations > connectOrCreate create branch accepts recursive nested writes
-  // The remaining 8 are T3c's surface: family D (7 — top-level `upsert` with nested-
-  // relation arms, the UpsertOperation scalar-arms-only guard) + family H (1 — a
-  // to-many upsert create-then-update identity spelling).
+  // T3c absorbed the final 8 (family D ×7 + family H ×1 — see the ZERO block at the
+  // top of this set): the census is now ZERO. The gate now proves the FULL conformance
+  // set runs natively on V2 with the fallback disabled, on both substrates.
 ]);
 
 /** The measured residual count — asserted by the gate so the set cannot be silently
@@ -148,7 +172,10 @@ export const FALLBACK_OFF_RESIDUAL: ReadonlySet<string> = new Set([
  *  construction-time literal — the `where`-pinned PK or a D4 root-SET-rewritten column,
  *  the root UPDATE ordered before the fresh INSERT); 8 after T3b-2 absorbed family G
  *  (mechanism 3 — the connectOrCreate create arm recurses one level deeper on a
- *  child-held create, folding a parent-held to-one connect). The remaining 8 are T3c's
- *  surface (family D ×7 + family H ×1). Each further absorption drops this by that
- *  slice's size. */
-export const FALLBACK_OFF_RESIDUAL_COUNT = 8;
+ *  child-held create, folding a parent-held to-one connect); **0 after T3c absorbed the
+ *  final family D ×7 (top-level `upsert` with nested-relation create/update arms — the
+ *  UpsertOperation scalar-arms-only guard lifted, its arms delegating to the create-root
+ *  / update-root machinery) and family H ×1 (the nested to-many upsert create-identity
+ *  over-restriction relaxed to match V1's `input.create`-verbatim absent arm).** The
+ *  surface is EMPTY: P6 may delete the V1 fallback arm. */
+export const FALLBACK_OFF_RESIDUAL_COUNT = 0;

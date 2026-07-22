@@ -405,6 +405,16 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   // which already routes to V1 as a non-literal. No census key (a routing regression the
   // batch-only PK-dataflow drivers surfaced). A NON-PK rewritten reference (D4) stays
   // native (not in `locateFields`, reorder stays FALSE).
+  //
+  // 88 -> 87 (T3c, family D): the `UpsertOperation` scalar-arms-only guard is DELETED —
+  // the top-level upsert's create/update arms now compose the create-root / update-root
+  // machinery (a scalar arm inline, a relation-bearing arm delegated to CreateOperation /
+  // UpdateOperation sharing the upsert's scope). No new upsert route is added: a shape
+  // neither root owns throws inside the delegated sub-op (the already-audited create/update
+  // route surface), never a new upsert-specific site. The family D ×7 census keys dropped
+  // in lockstep (8 -> 1). Family H (nested to-many upsert create-identity) added no route:
+  // `assertMatchingCreateIdentity` is now GATED on the create arm carrying grandchildren
+  // (its `new UnsupportedOperationError` site stays; the census key dropped 1 -> 0).
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
@@ -415,7 +425,7 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
       const source = await readFile(join(dir, file), "utf8");
       sites += source.split("new UnsupportedOperationError(").length - 1;
     }
-    expect(sites).toBe(88);
+    expect(sites).toBe(87);
   });
 });
 

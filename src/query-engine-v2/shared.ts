@@ -1,6 +1,29 @@
 import { QueryEngineError, TransactionError } from "@errors";
 import type { Model } from "@schema/model";
 import type { QueryEngine } from "../query-engine/query-engine";
+import type { StepScope } from "./StepScope";
+
+/**
+ * How a root operation is reused as one arm of a composing operation (T3c — the
+ * top-level `upsert`'s create/update arms compose the create-root / update-root
+ * machinery, TO-ONE.md §7.8). A `CreateOperation`/`UpdateOperation` constructed
+ * with these options is NOT a standalone operation: it shares the enclosing
+ * operation's {@link StepScope} (so no two arms collide on a step id), and it
+ * defers the analyses the enclosing operation must run **per-arm** — V1's upsert
+ * runs the own-write barrier inside the taken branch only, so a violation in an
+ * un-taken arm must not reject the whole tree (`skipOwnWrite` hands that timing to
+ * the caller). The absent-row postcondition is dropped for the update arm
+ * (`locateNotFoundOptional`): under an upsert a located-miss is the CREATE
+ * decision, not a not-found error.
+ */
+export interface SubOperationOptions {
+  /** Share the enclosing operation's id allocator instead of minting a fresh one. */
+  readonly scope?: StepScope;
+  /** Skip the constructor own-write preflight; the caller runs it per-arm (deferred). */
+  readonly skipOwnWrite?: boolean;
+  /** Drop the locate's exactly-one-row postcondition (upsert: absent → create arm). */
+  readonly locateNotFoundOptional?: boolean;
+}
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
