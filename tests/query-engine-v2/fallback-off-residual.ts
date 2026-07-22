@@ -90,10 +90,19 @@ export const FALLBACK_OFF_RESIDUAL: ReadonlySet<string> = new Set([
   "nested-write conformance: transitive target dependencies (tx vs batch) > outer create and disjoint nested connectOrCreate succeed",
   "nested-write conformance: transitive target dependencies (tx vs batch) > selected top-level upsert create branch gets inherited traversal",
   "nested-write conformance: transitive target dependencies (tx vs batch) > selected top-level upsert update branch gets inherited traversal",
-  "nested-write conformance: update membership root (tx vs batch) > connectOrCreate membership allows a disjoint cross-scope to-one upsert",
-  "nested-write conformance: update membership root (tx vs batch) > nested create membership allows a disjoint cross-scope to-one upsert",
-  "nested-write conformance: update membership root (tx vs batch) > non-self nested FK rebind allows a disjoint inverse holder",
-  "nested-write conformance: update membership root (tx vs batch) > same-node non-self FK rebind allows a disjoint inverse holder",
+  // ABSORBED (T3b-1, family B ×2 + family A-remainder ×2 — mechanism 1 extended to
+  // the parent-held to-one `update` arm). A parent-held `update`'s located target now
+  // builds its OWN child Parts, correlated to its captured PK by a `planned` source on
+  // the parent-held probe (the parent-held projection of the child-held nested-update
+  // recursion). This unblocked the four "update membership root" scenarios whose FIRST
+  // decline was the children/container relation-in-update boundary (Count 25 → 21):
+  //   · nested create membership allows a disjoint cross-scope to-one upsert
+  //     (children.update.data.partnerOf: create + container.update.nodes.update
+  //      .partnerOf.upsert — a 3-level parent-held/inverse-to-one chain)
+  //   · connectOrCreate membership allows a disjoint cross-scope to-one upsert
+  //   · non-self nested FK rebind allows a disjoint inverse holder  (container.update
+  //     .nodes.update scalar grandchild, container located at the final FK)
+  //   · same-node non-self FK rebind allows a disjoint inverse holder
   "nested-write conformance: update predicate root (tx vs batch) > existing top-level upsert uses its exact pk for disjointness",
 ]);
 
@@ -104,6 +113,8 @@ export const FALLBACK_OFF_RESIDUAL: ReadonlySet<string> = new Set([
  *  A's 13 (parent-held to-one update/delete/upsert with scalar target data; the 2
  *  nested-relation-target-data shapes stay pinned); 25 after T3b-1 absorbed the 6
  *  child-held family-B shapes (mechanism 1 — a nested to-many `update`'s located
- *  target builds its own child Parts + reorder/cascade to depth). Each further
- *  absorption drops this by that slice's size. */
-export const FALLBACK_OFF_RESIDUAL_COUNT = 25;
+ *  target builds its own child Parts + reorder/cascade to depth); 21 after T3b-1
+ *  extended mechanism 1 to the parent-held `update` arm (family B's 2 remaining
+ *  membership-root shapes + family A-remainder's 2). Each further absorption drops
+ *  this by that slice's size. */
+export const FALLBACK_OFF_RESIDUAL_COUNT = 21;

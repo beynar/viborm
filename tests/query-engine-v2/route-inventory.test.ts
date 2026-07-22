@@ -336,6 +336,14 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   //     relation payload that does not.
   // The census dropped 31 → 25 in lockstep (6 family-B scenarios now run natively).
   // No route was removed; nothing was faked green.
+  //
+  // 73 → 74 (T3b-1, TO-ONE.md §7.7, family A-remainder): mechanism 1 extended to the
+  // parent-held to-one `update` arm (its located target builds its own child Parts,
+  // correlated to the captured PK by a `planned` source). This absorbs family B's 2
+  // membership-root shapes + family A-remainder's 2, and adds 1 FINER boundary route
+  // in nested-target-parts.ts — a nested create/createMany under a parent-held
+  // (`planned`) target, whose FK is not a construction-time literal, routes to V1.
+  // The census dropped 25 → 21 in lockstep. No route was removed; nothing was faked.
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
@@ -346,7 +354,7 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
       const source = await readFile(join(dir, file), "utf8");
       sites += source.split("new UnsupportedOperationError(").length - 1;
     }
-    expect(sites).toBe(73);
+    expect(sites).toBe(74);
   });
 });
 

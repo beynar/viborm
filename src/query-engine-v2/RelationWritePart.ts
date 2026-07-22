@@ -503,15 +503,19 @@ export class RelationWritePart implements Part {
   }
 
   /** `fk_i = <parent_i>` for every compound-key field — a SQL `Ref` to the
-   *  located-parent read at planning (technique #1), or the inlined literal at
-   *  compile. */
+   *  located-parent read at planning (technique #1) for a `planned` parent, or the
+   *  inlined literal at compile. A `literal` parent id — a depth-composed inverse-side
+   *  to-one under a located-by-PK nested target (T3b mechanism 1) — is a compile-time
+   *  constant, so even the planning probe inlines its value (no `Ref` is possible or
+   *  needed), exactly as the junction membership read already does. */
   private correlationFilters(
     known: PlanningKnown | undefined,
     useRef: boolean
   ): Record<string, unknown>[] {
+    const refable = useRef && this.config.parentId.kind === "planned";
     return this.config.fkFields.map((fkField, index) => ({
       [fkField]: {
-        equals: useRef
+        equals: refable
           ? referencedFieldRef(
               this.config.parentId,
               this.config.referencedFields[index]!,

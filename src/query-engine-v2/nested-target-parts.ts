@@ -405,6 +405,16 @@ function literalFkInject(
   relationName: string,
   parentId: ParentIdSource
 ): Record<string, unknown> {
+  if (parentId.kind !== "literal") {
+    // A create/createMany leaf resolves its FK at CONSTRUCTION, so it needs a
+    // compile-time literal parent id (a child-held nested update, located by its
+    // `where` PK). Under a parent-held target (a `planned` id captured at compile)
+    // the FK is not yet known — a documented narrower boundary; route to V1. No
+    // family-B/A-remainder census shape creates under a parent-held target.
+    throw new UnsupportedOperationError(
+      `query-engine-v2 update does not support a nested create/createMany on relation '${relationName}' under a parent-held target one level deeper.`
+    );
+  }
   const inject: Record<string, unknown> = {};
   for (let index = 0; index < fk.fkFields.length; index += 1) {
     const fkField = fk.fkFields[index]!;

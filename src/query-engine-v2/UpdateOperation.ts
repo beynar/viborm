@@ -181,6 +181,13 @@ type ParentHeldTarget =
       readonly correlation: ParentHeldCorrelation;
       readonly probe: StatementStep;
       readonly data: Record<string, unknown>;
+      // T3b family A-remainder — the located target's own child Parts, built from its
+      // `data` relations and correlated to its captured PK (a `planned` source on this
+      // probe). The self-UPDATE reorders AFTER them on a PK transition (ON UPDATE
+      // CASCADE to depth), exactly as the child-held nested update does. Empty when the
+      // parent-held update's target data carries no nested relation writes.
+      readonly childParts: readonly Part[];
+      readonly reorderAfterChildren: boolean;
     }
   // FK-holder-side (parent-held) to-one `delete: true` (TO-ONE.md §7.2, family A):
   // NULL the parent's FK first (a parent UPDATE — V1's `assertNullable` gate), then
@@ -574,6 +581,14 @@ export class UpdateOperation {
         target.kind === "upsert"
       ) {
         steps.push(target.probe);
+      }
+      // A parent-held `update` whose located target carries nested relation writes
+      // (family A-remainder): its child Parts plan their probes here, correlated to
+      // the target's captured PK by a `planned` source on `target.probe`.
+      if (target.kind === "update") {
+        for (const part of target.childParts) {
+          steps.push(...part.planning(this.scope));
+        }
       }
     }
     for (const part of this.childParts)
@@ -1274,14 +1289,15 @@ export class UpdateOperation {
       childScope,
       "update"
     );
-    const data = this.parentHeldScalarUpdateData(
-      childScope,
-      normalizeSingle(input.parsedRelation.update, relationName, "update"),
-      relationName,
-      "update"
-    );
     const childName = getStepModelName(relationInfo.targetModel, relationName);
     const probeId = input.scope.allocate(`${childName}.find`);
+    const built = this.parentHeldUpdateData(
+      input,
+      childScope,
+      normalizeSingle(input.parsedRelation.update, relationName, "update"),
+      probeId,
+      childPrimaryKey
+    );
     return {
       kind: "update",
       relationName,
@@ -1302,10 +1318,56 @@ export class UpdateOperation {
           undefined,
           true
         ),
-        outputs: { rows: { kind: "rows" } },
+        // The captured PK is exposed as a firstRowField so the located target's own
+        // child Parts (family A-remainder recursion) correlate to it by a `planned`
+        // source — the parent-held projection of a nested update's literal parent.
+        outputs: {
+          rows: { kind: "rows" },
+          [childPrimaryKey]: { kind: "firstRowField", field: childPrimaryKey },
+        },
       },
-      data,
+      data: built.scalarData,
+      childParts: built.childParts,
+      reorderAfterChildren: built.reorderAfterChildren,
     };
+  }
+
+  /**
+   * The validated scalar assignments AND the child Parts of a family-A parent-held
+   * `update` target's payload (TO-ONE.md §7.7, A-remainder). Pre-T3b a nested relation
+   * write here threw; now the located target builds its own child Parts one level
+   * deeper — the parent-held projection of the child-held nested-update recursion —
+   * correlated to its captured PK by a `planned` source on the parent-held probe.
+   */
+  private parentHeldUpdateData(
+    input: Parameters<UpdateOperation["interpretRelation"]>[0],
+    childScope: QueryScope,
+    data: Record<string, unknown>,
+    probeId: string,
+    childPrimaryKey: string
+  ): {
+    scalarData: Record<string, unknown>;
+    childParts: readonly Part[];
+    reorderAfterChildren: boolean;
+  } {
+    const { scalarData, relations } = separateData(childScope, data);
+    assertPortablePrimaryKeyUpdateInput(childScope.model, "update", {
+      data: scalarData,
+    });
+    if (Object.keys(relations).length === 0) {
+      return { scalarData, childParts: [], reorderAfterChildren: false };
+    }
+    const childParts = buildNestedTargetChildParts(
+      input.scope,
+      this.engine,
+      childScope,
+      relations,
+      plannedParentId(probeId, childPrimaryKey),
+      input.txMode
+    );
+    const reorderAfterChildren =
+      childParts.length > 0 && Object.hasOwn(scalarData, childPrimaryKey);
+    return { scalarData, childParts, reorderAfterChildren };
   }
 
   /** A parent-held to-one `delete: true`: NULL the parent FK (a required FK is V1's
@@ -1859,16 +1921,33 @@ export class UpdateOperation {
         )
       );
     }
-    writes.push({
-      id: target.writeId,
-      kind: "write",
-      statement: buildUpdate(target.childScope, {
-        where: { [target.childPrimaryKey]: capturedPk },
-        data: target.data,
-        select: { [target.childPrimaryKey]: true },
-      }),
-      outputs: {},
-    });
+    // The located target's self-UPDATE (emitted only when its payload carries scalar
+    // assignments — a relation-only parent-held update writes no target row) lands
+    // BEFORE its child Parts by default, or AFTER them on a PK transition it rewrites
+    // (ON UPDATE CASCADE ported to depth). Its child Parts' guards hoist ahead of every
+    // write via the bucketing in `compileParentHeldTargets`' caller.
+    const selfUpdate =
+      Object.keys(target.data).length > 0
+        ? {
+            id: target.writeId,
+            kind: "write" as const,
+            statement: buildUpdate(target.childScope, {
+              where: { [target.childPrimaryKey]: capturedPk },
+              data: target.data,
+              select: { [target.childPrimaryKey]: true },
+            }),
+            outputs: {},
+          }
+        : undefined;
+    const childSteps: OperationStep[] = [];
+    for (const part of target.childParts) {
+      for (const step of part.compile(this.scope, known)) {
+        (step.kind === "guard" ? guards : childSteps).push(step);
+      }
+    }
+    if (selfUpdate && !target.reorderAfterChildren) writes.push(selfUpdate);
+    writes.push(...childSteps);
+    if (selfUpdate && target.reorderAfterChildren) writes.push(selfUpdate);
   }
 
   /** Compile a family-A parent-held `delete: true`: NULL the parent FK (V1's

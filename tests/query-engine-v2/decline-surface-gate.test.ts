@@ -452,6 +452,213 @@ describe("decline-surface gate: absorbed create shapes carry NO fallback (P6 pre
   });
 });
 
+// T3b-1 (TO-ONE.md §7.7, family B + A-remainder — mechanism 1, update-arm literal-
+// parent recursion). A self-referential membership schema: `children` (self one-to-
+// many), `friends` (self m2m, its junction FK ON UPDATE CASCADE by default), and
+// `container` (parent-held to-one). The witnesses below execute on V2 with the
+// fallback OFF — re-narrowing the recursion (RelationWritePart's `interpretChildParts`
+// throwing on relations, or `parentHeldUpdateData` throwing) makes them throw instead.
+const t3bMembershipSchema = (() => {
+  const container = s
+    .model({ id: s.int().id(), nodes: s.oneToMany(() => node) })
+    .map("t3b_gate_containers");
+  const node: ReturnType<typeof s.model> = s
+    .model({
+      id: s.int().id(),
+      label: s.string(),
+      containerId: s.int().nullable(),
+      container: s
+        .manyToOne(() => container)
+        .fields("containerId")
+        .references("id")
+        .optional(),
+      parentId: s.int().nullable(),
+      parent: s
+        .manyToOne(() => node)
+        .fields("parentId")
+        .references("id")
+        .name("t3bParent")
+        .optional(),
+      children: s.oneToMany(() => node).name("t3bParent"),
+      friends: s
+        .manyToMany(() => node)
+        .name("t3bFriends")
+        .A("friendSourceId")
+        .B("friendTargetId"),
+      friendedBy: s.manyToMany(() => node).name("t3bFriends"),
+      partnerId: s.int().unique().nullable(),
+      partner: s
+        .oneToOne(() => node)
+        .fields("partnerId")
+        .references("id")
+        .name("t3bPartner")
+        .optional(),
+      partnerOf: s
+        .oneToOne(() => node)
+        .name("t3bPartner")
+        .optional(),
+    })
+    .map("t3b_gate_nodes");
+  return { container, node };
+})();
+
+describe("decline-surface gate: absorbed nested-relation-in-update shapes carry NO fallback (T3b-1 family B + A-remainder)", () => {
+  // Family B — the PK-transition + self-m2m CASCADE witness at the DEEPEST mutated
+  // level (the strongest reorder/cascade proof, per §7.7). The nested child update
+  // sets id 1→4 AND connects friend 2; the friend junction row is written against the
+  // located id (1) and the child UPDATE's ON UPDATE CASCADE carries `friendSourceId`
+  // to 4. MULTI-PARENT WITNESS: node 3's own friend edge (sourceId 3) is untouched.
+  // Re-narrowing RelationWritePart's recursion makes this throw.
+  test("family B: child-held nested update — PK transition + self-m2m cascade (fallback off)", async () => {
+    const c = await freshClient(t3bMembershipSchema);
+    await c.node.create({ data: { id: 10, label: "root" } });
+    await c.node.create({ data: { id: 2, label: "two" } });
+    await c.node.create({ data: { id: 1, label: "one", parentId: 10 } });
+    await c.node.create({ data: { id: 3, label: "three", parentId: 10 } });
+    await c.node.update({
+      where: { id: 3 },
+      data: { friends: { connect: { id: 2 } } },
+    });
+    await c.node.update({
+      where: { id: 10 },
+      data: {
+        children: {
+          update: [
+            {
+              where: { id: 1 },
+              data: { id: 4, friends: { connect: { id: 2 } } },
+            },
+            {
+              where: { id: 3 },
+              data: {
+                friends: {
+                  update: { where: { id: 2 }, data: { label: "after" } },
+                },
+              },
+            },
+          ],
+        },
+      },
+    });
+    const nodes = await c.node.findMany({
+      orderBy: { id: "asc" },
+      include: { friends: { orderBy: { id: "asc" } } },
+    });
+    const edges = nodes.flatMap(
+      (n: { id: number; friends: { id: number }[] }) =>
+        n.friends.map((f) => ({ sourceId: n.id, targetId: f.id }))
+    );
+    // The PK transition (1→4) cascaded to the friend junction: sourceId is the FINAL 4.
+    expect(edges).toEqual([
+      { sourceId: 3, targetId: 2 },
+      { sourceId: 4, targetId: 2 },
+    ]);
+    expect(nodes.find((n: { id: number }) => n.id === 2)?.label).toBe("after");
+    await c.$disconnect();
+  });
+
+  // Family A-remainder — a parent-held `update` whose located target's data carries a
+  // nested relation write (`container: { update: { nodes: { update } } }`). The
+  // container is located at the parent's FINAL FK (rebind 10→20), and its own child
+  // Parts correlate to its captured PK by a planned source. MULTI-PARENT WITNESS:
+  // container 10 keeps node 9. Re-narrowing `parentHeldUpdateData` makes this throw.
+  test("family A-remainder: parent-held update with a nested to-many update target (fallback off)", async () => {
+    const c = await freshClient(t3bMembershipSchema);
+    await c.container.create({ data: { id: 10 } });
+    await c.container.create({ data: { id: 20 } });
+    await c.node.create({ data: { id: 9, label: "nine", containerId: 10 } });
+    await c.node.create({ data: { id: 1, label: "one", containerId: 10 } });
+    await c.node.create({ data: { id: 3, label: "three", containerId: 20 } });
+    await c.node.update({
+      where: { id: 1 },
+      data: {
+        containerId: 20,
+        container: {
+          update: {
+            nodes: { update: { where: { id: 3 }, data: { label: "after" } } },
+          },
+        },
+      },
+    });
+    const nodes = await c.node.findMany({ orderBy: { id: "asc" } });
+    expect(
+      nodes.map((n: { id: number; label: string }) => [n.id, n.label])
+    ).toEqual([
+      [1, "one"],
+      [3, "after"],
+      [9, "nine"],
+    ]);
+    // Witness: node 1 rebound to 20; node 9 stayed in 10; node 3 updated in 20.
+    expect(
+      nodes.map((n: { id: number; containerId: number | null }) => [
+        n.id,
+        n.containerId,
+      ])
+    ).toEqual([
+      [1, 20],
+      [3, 20],
+      [9, 10],
+    ]);
+    await c.$disconnect();
+  });
+
+  // Family B + A-remainder — the 3-level chain: `children.update.partnerOf.create`
+  // (inverse-to-one create under a literal parent) AND
+  // `container.update.nodes.update.partnerOf.upsert` (parent-held → to-many update →
+  // inverse-to-one upsert, the deepest mutated level). Re-narrowing any layer throws.
+  test("deep chain: children.partnerOf.create + container.nodes.update.partnerOf.upsert (fallback off)", async () => {
+    const c = await freshClient(t3bMembershipSchema);
+    await c.container.create({ data: { id: 10 } });
+    await c.node.create({ data: { id: 9, label: "nine", containerId: 10 } });
+    await c.node.create({
+      data: { id: 1, label: "one", containerId: 10, parentId: 9 },
+    });
+    await c.node.create({ data: { id: 4, label: "four", containerId: 10 } });
+    await c.node.update({
+      where: { id: 9 },
+      data: {
+        children: {
+          update: {
+            where: { id: 1 },
+            data: { partnerOf: { create: { id: 2, label: "two" } } },
+          },
+        },
+        container: {
+          update: {
+            nodes: {
+              update: {
+                where: { id: 4 },
+                data: {
+                  partnerOf: {
+                    upsert: {
+                      create: { id: 3, label: "three" },
+                      update: { label: "updated" },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+    const nodes = await c.node.findMany({ orderBy: { id: "asc" } });
+    const partners = nodes.map(
+      (n: { id: number; partnerId: number | null }) => [n.id, n.partnerId]
+    );
+    // node 2 (partnerOf.create) points at node 1; node 3 (partnerOf.upsert create arm)
+    // points at node 4 — the exact cross-scope disjoint final state.
+    expect(partners).toEqual([
+      [1, null],
+      [2, 1],
+      [3, 4],
+      [4, null],
+      [9, null],
+    ]);
+    await c.$disconnect();
+  });
+});
+
 // ---------------------------------------------------------------------------
 // The reachable accept-and-execute + reject-parity residual: shapes V1 runs (or
 // V1-rejects with its own typed message) today but V2 still DECLINES, so the
@@ -471,14 +678,16 @@ describe("decline-surface gate: absorbed create shapes carry NO fallback (P6 pre
 // the full conformance census.
 // ---------------------------------------------------------------------------
 const REPRESENTATIVE_CONSTRUCT_DECLINE = {
-  // Family A RESIDUAL — a parent-held (FK-holder-side) to-one `update` whose located
-  // target's DATA carries a nested relation write (`author: { update: { posts: … } }`,
-  // the parent-held projection of family B's nested-relation-in-update boundary). T3a
-  // absorbed the 11 scalar-target family-A shapes (parent-held update/delete/upsert
-  // now run natively); the 2 nested-relation-target-data shapes stay pinned and carry
-  // the construct-time tripwire. A construct-time probe: no seed, no execution.
+  // A parent-held (FK-holder-side) to-one `update` whose located target's DATA carries
+  // a nested CREATE (`author: { update: { posts: { create } } }`). T3b-1 absorbed the
+  // update-arm literal-parent recursion (a parent-held update's target builds its own
+  // child Parts), but a create/createMany leaf under a parent-held (`planned`) target
+  // resolves its FK at construction and so needs a compile-time literal parent it does
+  // not have here — a documented narrower boundary that still routes the whole tree to
+  // V1 (create-context depth is a later mechanism). A construct-time probe: no seed,
+  // no execution.
   label:
-    "parent-held to-one update with nested-relation target data (family A residual)",
+    "parent-held to-one update whose target creates under a parent-held (planned) id",
   schema: nb as Record<string, Model<any>>,
   operation: "update",
   args: {
@@ -496,15 +705,17 @@ describe("decline-surface gate: the reachable residual STILL lives behind the fa
     expect(FALLBACK_OFF_RESIDUAL.size).toBeGreaterThan(0);
   });
 
-  test("the census is the MEASURED surface (31), not a curated pin list", () => {
+  test("the census is the MEASURED surface (21), not a curated pin list", () => {
     // Guards against silently trimming the census without a real absorption: the
     // set and its declared count must agree, and the count is the running measurement.
     // Absorbing a family (or a coherent slice) drops BOTH by the same amount (and its
     // scenarios must then pass the fallback-off conformance run).
     expect(FALLBACK_OFF_RESIDUAL.size).toBe(FALLBACK_OFF_RESIDUAL_COUNT);
     // 43 (T3) → 42 (T3-r2 family F) → 31 (T3a absorbed 11 of family A's 13) → 25
-    // (T3b-1 absorbed the 6 child-held family-B nested-relation-in-update shapes).
-    expect(FALLBACK_OFF_RESIDUAL_COUNT).toBe(25);
+    // (T3b-1 absorbed the 6 child-held family-B nested-relation-in-update shapes) →
+    // 21 (T3b-1 extended mechanism 1 to the parent-held `update` arm: family B's 2
+    // membership-root shapes + family A-remainder's 2).
+    expect(FALLBACK_OFF_RESIDUAL_COUNT).toBe(21);
   });
 
   test(`still declines at construction (routes to V1): ${REPRESENTATIVE_CONSTRUCT_DECLINE.label}`, () => {
