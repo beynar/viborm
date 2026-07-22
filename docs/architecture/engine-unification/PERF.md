@@ -262,3 +262,25 @@ SQLite DBs, ratio = V2 hz / V1 hz):
   A-remainder shapes on V2, including the PK-transition/`ON UPDATE CASCADE` witnesses
   (exactly where an ordering bug would pass PGlite and diverge on MySQL/pg — it does
   not).
+
+## T3b-2 — the deep-junction A/B (in-memory SQLite)
+
+T3b-2 absorbed families C (10: a m2m junction `create`/`update`/`upsert`-arm target
+carrying its own relations), E (2: a nested `create` under the update root, incl. D4),
+and G (1: the connectOrCreate create-arm one-level-deeper create); census 21 → 8
+(TO-ONE.md §7.7.3). The family-C deep-junction witness — a m2m junction UPDATE target
+that folds a deeper m2m `connect` one level deeper — measured the same way
+(`benchmarks/t3b2-deep-junction-ab.bench.ts`, `queryEngine` escape hatch, two seeded
+in-memory SQLite DBs, ratio = V2 hz / V1 hz):
+
+| workload | V1 hz | V2 hz | ratio | verdict |
+| --- | --- | --- | --- | --- |
+| m2m junction `update` → deeper m2m `connect` (`workspace.update({ projects: { update: { data: { tags: { connect } } } } })`) | 8,247 | 13,528 | **1.64× (V2 faster)** | beyond gate |
+
+- **The deep junction fold is FASTER on V2 (1.64×), the same composition dividend as
+  T2/T3a/T3b-1.** V2 folds the whole depth into ONE linear plan (locate root, the
+  junction membership probes for `projects` and, one level deeper, `tags`, then the
+  writes), run as a single atomic unit; V1 routes the whole tree to its staged runtime,
+  paying per-tree orchestration at each `RelationJunctionPart`/membership level. Depth
+  adds Part list entries and one parent-id value, never a new envelope. No
+  statement-count regression; the 5-DB matrix passes with the C/E/G shapes on V2.
