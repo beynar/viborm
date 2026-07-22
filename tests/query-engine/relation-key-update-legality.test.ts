@@ -13,6 +13,9 @@ const ID_RELATION_KEY_ERROR = /relation key field 'id'/;
 const OCCUPIED_RELATION_ERROR = /current relation is occupied/;
 const SET_NULL_OCCUPIED_ERROR =
   /onUpdate\('setNull'\).*current relation is occupied/;
+const RESTRICT_OCCUPIED_ERROR =
+  /onUpdate\('restrict'\).*current relation is occupied/;
+const TARGET_NOT_FOUND_ERROR = /target record was not found for this parent/;
 
 class BatchOnlyPGliteDriver extends PGliteDriver {
   override readonly supportsTransactions = false;
@@ -132,6 +135,30 @@ const setNullChild = s
   })
   .map("relation_key_set_null_children");
 
+// A NON-cascade ONE-TO-MANY: V1's occupied guard is cardinality-agnostic, so a
+// child-held to-many under a referenced-PK transition rejects an occupied slot too.
+const setNullList = s
+  .model({
+    id: s.int().id(),
+    name: s.string(),
+    items: s.oneToMany(() => setNullItem),
+  })
+  .map("relation_key_set_null_lists");
+
+const setNullItem = s
+  .model({
+    id: s.int().id(),
+    label: s.string(),
+    listId: s.int().nullable(),
+    list: s
+      .manyToOne(() => setNullList)
+      .fields("listId")
+      .references("id")
+      .optional()
+      .onUpdate("setNull"),
+  })
+  .map("relation_key_set_null_items");
+
 const restrictParent = s
   .model({
     id: s.int().id(),
@@ -203,6 +230,8 @@ const schema = {
   member,
   setNullParent,
   setNullChild,
+  setNullList,
+  setNullItem,
   restrictParent,
   restrictChild,
   cascadeParent,
@@ -770,6 +799,276 @@ describe("relation-key update legality", () => {
         expectedState: {
           parents: [{ id: 2, name: "Parent" }],
           children: [{ id: 1, label: "Updated", parentId: 2 }],
+        },
+      },
+      undefined
+    );
+  });
+
+  // T4c-fix — V1's occupied guard is kind- AND cardinality-agnostic: EVERY nested
+  // mutation on a child-held, non-cascade relation whose referenced PK the SAME root
+  // update transitions rejects an occupied OLD slot, not only the nested `upsert` the
+  // original T4c wired. The finding: update / delete / disconnect / create (and the whole
+  // to-many family) reached NO guard and diverged (accept-where-V1-rejects — corruption /
+  // data-loss). These reproduce V1's verdict natively (byte-identical NestedWriteError,
+  // both substrates); the empty-slot accept-shapes stay native.
+  const seedOccupiedSetNullOneToOne = async (client: LegalityClient) => {
+    await client.setNullParent.create({ data: { id: 1, name: "Parent" } });
+    await client.setNullChild.create({
+      data: { id: 1, label: "Child", parentId: 1 },
+    });
+  };
+  const setNullOneToOneState = async (client: LegalityClient) => ({
+    parents: await client.setNullParent.findMany(),
+    children: await client.setNullChild.findMany(),
+  });
+  const occupiedSetNullOneToOneUnchanged = {
+    parents: [{ id: 1, name: "Parent" }],
+    children: [{ id: 1, label: "Child", parentId: 1 }],
+  };
+
+  test("rejects an occupied setNull child-held UPDATE under a PK transition", async () => {
+    await expectParity(
+      {
+        seed: seedOccupiedSetNullOneToOne,
+        act: (client) =>
+          client.setNullParent.update({
+            where: { id: 1 },
+            data: {
+              id: { increment: 1 },
+              child: { update: { label: "must not change" } },
+            },
+          }),
+        snapshot: setNullOneToOneState,
+        expectedState: occupiedSetNullOneToOneUnchanged,
+      },
+      SET_NULL_OCCUPIED_ERROR
+    );
+  });
+
+  test("rejects an occupied setNull child-held DELETE under a PK transition", async () => {
+    await expectParity(
+      {
+        seed: seedOccupiedSetNullOneToOne,
+        act: (client) =>
+          client.setNullParent.update({
+            where: { id: 1 },
+            data: { id: { increment: 1 }, child: { delete: true } },
+          }),
+        snapshot: setNullOneToOneState,
+        expectedState: occupiedSetNullOneToOneUnchanged,
+      },
+      SET_NULL_OCCUPIED_ERROR
+    );
+  });
+
+  test("rejects an occupied setNull child-held DISCONNECT under a PK transition", async () => {
+    await expectParity(
+      {
+        seed: seedOccupiedSetNullOneToOne,
+        act: (client) =>
+          client.setNullParent.update({
+            where: { id: 1 },
+            data: { id: { increment: 1 }, child: { disconnect: true } },
+          }),
+        snapshot: setNullOneToOneState,
+        expectedState: occupiedSetNullOneToOneUnchanged,
+      },
+      SET_NULL_OCCUPIED_ERROR
+    );
+  });
+
+  test("reports not-found for an empty setNull child-held UPDATE under a PK transition", async () => {
+    await expectParity(
+      {
+        seed: async (client) => {
+          await client.setNullParent.create({
+            data: { id: 1, name: "Parent" },
+          });
+        },
+        act: (client) =>
+          client.setNullParent.update({
+            where: { id: 1 },
+            data: {
+              id: { increment: 1 },
+              child: { update: { label: "no target" } },
+            },
+          }),
+        snapshot: setNullOneToOneState,
+        expectedState: { parents: [{ id: 1, name: "Parent" }], children: [] },
+      },
+      TARGET_NOT_FOUND_ERROR
+    );
+  });
+
+  test("allows an empty setNull child-held DELETE under a PK transition", async () => {
+    await expectParity(
+      {
+        seed: async (client) => {
+          await client.setNullParent.create({
+            data: { id: 1, name: "Parent" },
+          });
+        },
+        act: (client) =>
+          client.setNullParent.update({
+            where: { id: 1 },
+            data: { id: { increment: 1 }, child: { delete: true } },
+          }),
+        snapshot: setNullOneToOneState,
+        expectedState: { parents: [{ id: 2, name: "Parent" }], children: [] },
+      },
+      undefined
+    );
+  });
+
+  test("rejects an occupied restrict child-held UPDATE under a PK transition", async () => {
+    await expectParity(
+      {
+        seed: async (client) => {
+          await client.restrictParent.create({
+            data: { id: 1, name: "Parent" },
+          });
+          await client.restrictChild.create({
+            data: { id: 1, label: "Child", parentId: 1 },
+          });
+        },
+        act: (client) =>
+          client.restrictParent.update({
+            where: { id: 1 },
+            data: {
+              id: { increment: 1 },
+              child: { update: { label: "must not change" } },
+            },
+          }),
+        snapshot: async (client) => ({
+          parents: await client.restrictParent.findMany(),
+          children: await client.restrictChild.findMany(),
+        }),
+        expectedState: {
+          parents: [{ id: 1, name: "Parent" }],
+          children: [{ id: 1, label: "Child", parentId: 1 }],
+        },
+      },
+      RESTRICT_OCCUPIED_ERROR
+    );
+  });
+
+  test("rejects an occupied restrict child-held DELETE under a PK transition", async () => {
+    await expectParity(
+      {
+        seed: async (client) => {
+          await client.restrictParent.create({
+            data: { id: 1, name: "Parent" },
+          });
+          await client.restrictChild.create({
+            data: { id: 1, label: "Child", parentId: 1 },
+          });
+        },
+        act: (client) =>
+          client.restrictParent.update({
+            where: { id: 1 },
+            data: { id: { increment: 1 }, child: { delete: true } },
+          }),
+        snapshot: async (client) => ({
+          parents: await client.restrictParent.findMany(),
+          children: await client.restrictChild.findMany(),
+        }),
+        expectedState: {
+          parents: [{ id: 1, name: "Parent" }],
+          children: [{ id: 1, label: "Child", parentId: 1 }],
+        },
+      },
+      RESTRICT_OCCUPIED_ERROR
+    );
+  });
+
+  const seedOccupiedSetNullToMany = async (client: LegalityClient) => {
+    await client.setNullList.create({ data: { id: 1, name: "List" } });
+    await client.setNullItem.create({
+      data: { id: 10, label: "Item", listId: 1 },
+    });
+  };
+  const setNullToManyState = async (client: LegalityClient) => ({
+    lists: await client.setNullList.findMany({ orderBy: { id: "asc" } }),
+    items: await client.setNullItem.findMany({ orderBy: { id: "asc" } }),
+  });
+  const occupiedSetNullToManyUnchanged = {
+    lists: [{ id: 1, name: "List" }],
+    items: [{ id: 10, label: "Item", listId: 1 }],
+  };
+
+  test("rejects an occupied setNull TO-MANY UPDATE under a PK transition", async () => {
+    await expectParity(
+      {
+        seed: seedOccupiedSetNullToMany,
+        act: (client) =>
+          client.setNullList.update({
+            where: { id: 1 },
+            data: {
+              id: { increment: 5 },
+              items: { update: { where: { id: 10 }, data: { label: "X" } } },
+            },
+          }),
+        snapshot: setNullToManyState,
+        expectedState: occupiedSetNullToManyUnchanged,
+      },
+      SET_NULL_OCCUPIED_ERROR
+    );
+  });
+
+  test("rejects an occupied setNull TO-MANY DELETE under a PK transition", async () => {
+    await expectParity(
+      {
+        seed: seedOccupiedSetNullToMany,
+        act: (client) =>
+          client.setNullList.update({
+            where: { id: 1 },
+            data: { id: { increment: 5 }, items: { delete: { id: 10 } } },
+          }),
+        snapshot: setNullToManyState,
+        expectedState: occupiedSetNullToManyUnchanged,
+      },
+      SET_NULL_OCCUPIED_ERROR
+    );
+  });
+
+  test("rejects an occupied setNull TO-MANY CREATE under a PK transition", async () => {
+    await expectParity(
+      {
+        seed: seedOccupiedSetNullToMany,
+        act: (client) =>
+          client.setNullList.update({
+            where: { id: 1 },
+            data: {
+              id: { increment: 5 },
+              items: { create: { id: 20, label: "New" } },
+            },
+          }),
+        snapshot: setNullToManyState,
+        expectedState: occupiedSetNullToManyUnchanged,
+      },
+      SET_NULL_OCCUPIED_ERROR
+    );
+  });
+
+  test("allows an empty setNull TO-MANY CREATE under a PK transition", async () => {
+    await expectParity(
+      {
+        seed: async (client) => {
+          await client.setNullList.create({ data: { id: 1, name: "List" } });
+        },
+        act: (client) =>
+          client.setNullList.update({
+            where: { id: 1 },
+            data: {
+              id: { increment: 5 },
+              items: { create: { id: 20, label: "New" } },
+            },
+          }),
+        snapshot: setNullToManyState,
+        expectedState: {
+          lists: [{ id: 6, name: "List" }],
+          items: [{ id: 20, label: "New", listId: 6 }],
         },
       },
       undefined

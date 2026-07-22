@@ -474,6 +474,23 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   // `create` on BOTH upsert arms now (key 2) — a widened condition, no throw added/removed.
   // The two deltas cancel; the surface changed, the count did not. The three keys drop from
   // BLAST_RADIUS_RESIDUAL in lockstep (43 -> 40).
+  //
+  // 87 -> 87 (T4c-fix, the relation-level occupied guard, a swap that nets to zero): T4c
+  // wired V1's occupied guard only into the inverse-to-one `upsert`
+  // (`interpretTransitionedChildUpsert`, 2 throw sites: non-single-PK, unpinned). V1's
+  // guard is kind- AND cardinality-agnostic (`compileRelationKeyGuards` loops all non-M2M
+  // relations), so update/delete/disconnect/create and the whole to-many family under a
+  // non-cascade referenced-PK transition reached NO guard and diverged (accept-where-V1-
+  // rejects — corruption / data-loss). The guard moved to the relation-level
+  // `interpretReferencedKeyTransition`: the correlated / literal-parent-create kinds now
+  // execute native behind it. The 2 upsert throws were DELETED; the compound / non-PK /
+  // unpinned reference became a `pastSurface` regime (no throw — nested `create`/`createMany`
+  // still absorb it via `resolveLiteralCreateParent`, incl. the D4 non-PK rewrite). Two new
+  // throws replace them: an ADOPT decline (connect/connectOrCreate/set + to-many upsert,
+  // whose empty-slot fresh FK would be orphaned by the transition — their post-transition
+  // adopt is V1's) in the classifier, and a `pastSurface` non-create decline in
+  // `interpretRelation`. Net -2 + 2 = 0. No new BLAST_RADIUS_RESIDUAL entry: both declines
+  // are category-iii narrower boundaries reached by no estate test.
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");

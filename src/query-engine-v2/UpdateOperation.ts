@@ -1046,6 +1046,34 @@ export class UpdateOperation {
       );
     }
     const childName = getStepModelName(relationInfo.targetModel, relationName);
+    // CLASS IV (T4c-fix) — V1's relation-level occupied guard for a non-cascade
+    // referenced-PK transition, emitted ONCE for the relation before the per-kind
+    // dispatch (kind- and cardinality-agnostic, exactly as V1). It rejects an occupied
+    // OLD slot for any nested mutation, declines an adopt kind / a past-surface
+    // reference (route to V1), and tells the to-one upsert to reroute its create arm.
+    const keyTransition = this.interpretReferencedKeyTransition({
+      input,
+      relationName,
+      fk,
+      kinds,
+      isInverseToOne,
+      childScope,
+      childName,
+    });
+    if (keyTransition.regime === "pastSurface") {
+      // A real transition past the reproduced single-PK surface (a compound / non-PK /
+      // unpinned reference). Only nested `create` / `createMany` proceed — their FK
+      // literal (incl. a non-PK D4 rewrite) is resolved by `resolveLiteralCreateParent`
+      // against the empty-slot accept. Every other kind needs V1's occupied guard on a
+      // pre-transition value V2 cannot compile-correlate — route the whole tree to V1.
+      for (const kind of kinds) {
+        if (kind !== "create" && kind !== "createMany") {
+          throw new UnsupportedOperationError(
+            `query-engine-v2 update does not support a nested '${kind}' on the child-held relation '${relationName}' while the root update transitions a compound / non-PK / unpinned referenced column.`
+          );
+        }
+      }
+    }
     const engine = this.engine;
     const writeBase = {
       scope: input.scope,
@@ -1097,6 +1125,7 @@ export class UpdateOperation {
           referencedFields: fk.pkFields,
           writeBase,
           input,
+          keyTransition,
         });
         continue;
       }
@@ -1419,6 +1448,9 @@ export class UpdateOperation {
     referencedFields: readonly string[];
     writeBase: Parameters<typeof buildToManyUpdateParts>[0];
     input: Parameters<UpdateOperation["interpretRelation"]>[0];
+    keyTransition: ReturnType<
+      UpdateOperation["interpretReferencedKeyTransition"]
+    >;
   }): void {
     const {
       kind,
@@ -1433,6 +1465,7 @@ export class UpdateOperation {
       referencedFields,
       writeBase,
       input,
+      keyTransition,
     } = args;
     const push = (parts: readonly Part[]) => input.childParts.push(...parts);
 
@@ -1486,29 +1519,22 @@ export class UpdateOperation {
         // decides found → update / absent → create (fk = parent), no unique `where`.
         // The same correlated locator as the `update` arm, with a create branch.
         //
-        // CLASS IV (T4c): if the SAME root update TRANSITIONS a parent PK this child FK
-        // references (the root `data` writes one of `referencedFields`), V1 runs its
-        // referential-action legality engine around the upsert. `interpretTransitioned-
-        // ChildUpsert` reproduces its verdict natively: a CASCADE or NO-OP transition
-        // keeps the ordinary part (the DB re-points, or the value is unchanged); a real
-        // NON-cascade transition emits the occupied guard + reroutes the create arm to
-        // the POST-transition FK (returns `true`, the part is not built). A shape past
-        // the reproduced surface (compound / non-PK reference, unpinned pre-value)
-        // routes the whole tree to V1.
-        if (
-          referencedFields.some((f) =>
-            Object.hasOwn(input.rootScalarData, f)
-          ) &&
-          this.interpretTransitionedChildUpsert({
+        // CLASS IV (T4c): when the SAME root update TRANSITIONS a parent PK this child
+        // FK references, the relation-level {@link interpretReferencedKeyTransition} has
+        // already emitted V1's occupied guard (reject an occupied OLD slot); here the
+        // empty-slot accept-shape reroutes the CREATE arm to a POST-transition-FK leaf
+        // ordered after the root UPDATE (the update arm is unreachable: occupied rejects,
+        // empty creates). A cascade / no-op / non-transition keeps the ordinary part.
+        if (keyTransition.regime === "guarded") {
+          this.rerouteTransitionedUpsertCreateArm({
             input,
             relationName,
             fk,
-            referencedFields,
             childScope,
             childName,
             upsertInput: parsedRelation.upsert,
-          })
-        ) {
+            after: keyTransition.after,
+          });
           return;
         }
         input.childParts.push(
@@ -1566,67 +1592,76 @@ export class UpdateOperation {
   }
 
   /**
-   * CLASS IV (T4c) — the referential-action legality engine for a child-held (inverse
-   * one-to-one) `upsert` whose referenced PK the SAME root update transitions. V1's
-   * verdict, reproduced native:
-   *   · **cascade** — the DB re-points the child on the root UPDATE's `ON UPDATE
-   *     CASCADE`; the ordinary correlated upsert part + the root reorder already carry
-   *     it. Returns `false` (build the normal part).
-   *   · **no-op** (`{ increment: 0 }`, `{ set: <same> }` — before == after, both
-   *     compile-known literals) — no transition fires; the normal part is correct.
-   *     Returns `false`.
-   *   · **real non-cascade** (setNull / restrict / noAction, before != after) —
-   *     V1's `compileRelationKeyGuards`: reject the OLD slot when occupied. Emits the
-   *     occupied guard and reroutes the upsert's CREATE arm to a POST-transition-FK
-   *     leaf ordered after the root UPDATE (the empty slot the guard admits; the
-   *     update arm is unreachable). Returns `true` (the part is NOT built).
-   * A shape past this reproduced surface — a compound / non-PK reference, or a
-   * pre-transition value the unique `where` does not pin — throws
-   * {@link UnsupportedOperationError} (the whole tree routes to V1).
+   * CLASS IV (T4c / T4c-fix) — V1's `RelationUpdates.compileRelationKeyGuards`,
+   * reproduced at the RELATION level (kind- AND cardinality-agnostic, exactly as V1
+   * loops `relations` independent of the mutation planning). A child-held, non-cascade
+   * relation whose referenced key the SAME root update TRANSITIONS may not leave the OLD
+   * slot occupied: V1 rejects `Cannot update relation '…' with onUpdate('…') while the
+   * current relation is occupied.` for ANY nested mutation on it (upsert / update /
+   * delete / disconnect / create / …) and either cardinality. Called once per relation
+   * before the per-kind dispatch; returns which regime applies:
+   *   · **`"none"`** — parent-held / `ON UPDATE CASCADE`, no referenced column written,
+   *     or a no-op (`increment: 0` / `set` same, before == after). The ordinary parts
+   *     are byte-identical; no guard.
+   *   · **`"guarded"`** — a real non-cascade transition of a SINGLE PRIMARY KEY pinned by
+   *     the unique `where` (before is a compile literal). V1's occupied guard is emitted
+   *     (reject an occupied OLD slot); the correlated / literal-parent-create kinds keep
+   *     their ordinary part (empty-slot native), the to-one upsert reroutes its create
+   *     arm off `after`. An ADOPT kind here (`connect` / `connectOrCreate` / `set`, and a
+   *     to-many `upsert`) writes a fresh FK on the pre-transition value — route to V1.
+   *   · **`"pastSurface"`** — a real transition past the reproduced surface (a compound
+   *     edge, a non-PK referenced unique — the D4 case, or a pre-value the `where` does
+   *     not pin). V2 cannot compile-correlate the occupied guard, so only nested
+   *     `create` / `createMany` proceed (their FK literal, incl. a non-PK D4 rewrite, is
+   *     resolved by {@link resolveLiteralCreateParent} against the empty-slot accept); any
+   *     other kind routes the tree to V1 ({@link interpretRelation} enforces this). The
+   *     remaining narrower boundary — a non-PK / compound occupied slot under such a
+   *     create — is V1's staged mutation-identity engine, unreached by the estate.
    */
-  private interpretTransitionedChildUpsert(args: {
+  private interpretReferencedKeyTransition(args: {
     input: Parameters<UpdateOperation["interpretRelation"]>[0];
     relationName: string;
     fk: FkDirection;
-    referencedFields: readonly string[];
+    kinds: readonly string[];
+    isInverseToOne: boolean;
     childScope: QueryScope;
     childName: string;
-    upsertInput: unknown;
-  }): boolean {
+  }): { regime: "none" } | { regime: "guarded"; after: unknown } | {
+    regime: "pastSurface";
+  } {
     const {
       input,
       relationName,
       fk,
-      referencedFields,
+      kinds,
+      isInverseToOne,
       childScope,
       childName,
-      upsertInput,
     } = args;
-    // Cascade: the DB carries the FK to the new value; the ordinary part is correct.
-    if (fk.onUpdate === "cascade") return false;
-    // Only a single-field primary-key reference is reproduced natively (the whole
-    // legality surface the census + blast radius reach). A compound edge or a non-PK
-    // referenced column needs V1's staged mutation-identity resolution.
+    // Parent-held FK or an ON UPDATE CASCADE relation: no referential-action guard.
+    if (fk.holdsFK || fk.onUpdate === "cascade") return { regime: "none" };
+    // Does the root SET rewrite a referenced parent column?
+    const changed = fk.pkFields.filter((field) =>
+      Object.hasOwn(input.rootScalarData, field)
+    );
+    if (changed.length === 0) return { regime: "none" };
+    // The occupied guard is reproduced natively only for a single primary-key reference
+    // pinned by the unique `where` (before is a compile literal). A compound edge, a
+    // non-PK referenced unique (D4), or an unpinned pre-value is past that surface.
     if (
+      fk.pkFields.length !== 1 ||
       fk.fkFields.length !== 1 ||
-      referencedFields.length !== 1 ||
-      !this.parentPrimaryKeys.includes(referencedFields[0]!)
+      !this.parentPrimaryKeys.includes(fk.pkFields[0]!)
     ) {
-      throw new UnsupportedOperationError(
-        `query-engine-v2 update does not support a nested upsert on the inverse-side to-one relation '${relationName}' while the root update transitions a non-single-primary-key referenced column.`
-      );
+      return { regime: "pastSurface" };
     }
-    const referencedField = referencedFields[0]!;
+    const referencedField = fk.pkFields[0]!;
     const fkField = fk.fkFields[0]!;
-    // The pre-transition value must be pinned by the unique `where` so both the
-    // occupied-guard correlation and the POST-transition create FK are compile-known.
     const pinned = getWhereUniqueEntries(input.parent, this.parentWhere).find(
       (entry) => entry.fieldName === referencedField
     );
     if (!pinned) {
-      throw new UnsupportedOperationError(
-        `query-engine-v2 update nested upsert on relation '${relationName}' transitions primary key '${referencedField}' whose pre-transition value is not pinned by the unique where.`
-      );
+      return { regime: "pastSurface" };
     }
     const before = pinned.value;
     const after = getUpdatedPrimaryKeyValue(
@@ -1636,14 +1671,69 @@ export class UpdateOperation {
       input.rootScalarData[referencedField],
       getStepModelName(this.model, "record")
     );
-    // No-op transition (increment 0 / set same): the slot stays; the normal upsert
-    // part updates the still-correlated child, byte-identical to a non-transition.
-    if (sameScalarValue(before, after)) return false;
+    // No-op transition (increment 0 / set same): the slot stays; ordinary parts hold.
+    if (sameScalarValue(before, after)) return { regime: "none" };
+    // Real non-cascade transition. An adopt/external-target kind writes a fresh FK on
+    // the pre-transition value (orphaned by the referential action) — route to V1.
+    if (
+      kinds.some((kind) =>
+        UpdateOperation.isAdoptKindUnderTransition(kind, isInverseToOne)
+      )
+    ) {
+      throw new UnsupportedOperationError(
+        `query-engine-v2 update does not support a nested adopt (connect / connectOrCreate / set / to-many upsert) on the child-held relation '${relationName}' while the root update transitions its non-cascade referenced primary key.`
+      );
+    }
+    // Emit V1's occupied guard (reject when the OLD slot, a child correlated on the
+    // pre-transition parent value, is occupied). Hoisted ahead of every write, so the
+    // rejection lands before the ordinary correlated / literal-parent-create part runs.
+    this.pushOccupiedGuard({
+      input,
+      relationName,
+      fk,
+      childScope,
+      childName,
+      before,
+      fkField,
+    });
+    return { regime: "guarded", after };
+  }
 
-    // Real non-cascade transition. Emit V1's occupied guard: reject when the OLD slot
-    // (a child correlated on the pre-transition parent value) is occupied.
-    const childPrimaryKeys = getPrimaryKeyFields(childScope.model);
-    const childPk = childPrimaryKeys[0]!;
+  /** CLASS IV (T4c-fix) — an ADOPT / external-target nested mutation whose fresh FK is
+   *  written on the parent's pre-transition value: it would be orphaned by the
+   *  referential action, and its empty-slot accept-shape needs V1's post-transition
+   *  adopt (not built natively yet), so it routes the whole tree to V1 under a real
+   *  non-cascade referenced-PK transition. `connect` / `connectOrCreate` / `set` on
+   *  either cardinality; `upsert` only on the TO-MANY side (the to-one upsert reroutes
+   *  its create arm to a POST-transition-FK leaf — {@link rerouteTransitionedUpsertCreateArm}). */
+  private static isAdoptKindUnderTransition(
+    kind: string,
+    isInverseToOne: boolean
+  ): boolean {
+    if (kind === "connect" || kind === "connectOrCreate" || kind === "set") {
+      return true;
+    }
+    return kind === "upsert" && !isInverseToOne;
+  }
+
+  /** CLASS IV (T4c) — emit V1's occupied guard onto `relationKeyGuards`: a read of the
+   *  OLD slot (a child correlated on the pre-transition parent value), locked in tx mode.
+   *  The probe reads at planning; the verdict fires at compile ({@link compileRelationKeyGuards}),
+   *  independent of the nested mutation kind — tx throws V1's byte-identical
+   *  `NestedWriteError` before any write, batch pins the empty-slot race with an absence
+   *  guard. */
+  private pushOccupiedGuard(args: {
+    input: Parameters<UpdateOperation["interpretRelation"]>[0];
+    relationName: string;
+    fk: FkDirection;
+    childScope: QueryScope;
+    childName: string;
+    before: unknown;
+    fkField: string;
+  }): void {
+    const { input, relationName, fk, childScope, childName, before, fkField } =
+      args;
+    const childPk = getPrimaryKeyFields(childScope.model)[0]!;
     const probeId = input.scope.allocate(`${childName}.transition.find`);
     input.relationKeyGuards.push({
       relationName,
@@ -1665,10 +1755,33 @@ export class UpdateOperation {
         outputs: { rows: { kind: "rows" } },
       },
     });
-    // The empty-slot accept-shape: the upsert's CREATE arm runs with the POST-transition
-    // FK, ordered AFTER the root UPDATE (a NO-ACTION FK does not cascade a fresh row —
-    // the new parent must exist first), exactly the T4b transitioned-PK create leaf. The
-    // update arm never runs (occupied rejects, empty creates).
+  }
+
+  /** CLASS IV (T4c) — the to-one upsert's empty-slot accept-shape under a real
+   *  non-cascade referenced-PK transition: its CREATE arm runs with the POST-transition
+   *  FK, ordered AFTER the root UPDATE (a NO-ACTION FK does not cascade a fresh row — the
+   *  new parent must exist first), exactly the T4b transitioned-PK create leaf. The
+   *  update arm never runs (the occupied guard rejects an occupied slot; an empty slot
+   *  creates). The relation-level occupied guard is already emitted
+   *  ({@link interpretReferencedKeyTransition}). */
+  private rerouteTransitionedUpsertCreateArm(args: {
+    input: Parameters<UpdateOperation["interpretRelation"]>[0];
+    relationName: string;
+    fk: FkDirection;
+    childScope: QueryScope;
+    childName: string;
+    upsertInput: unknown;
+    after: unknown;
+  }): void {
+    const {
+      input,
+      relationName,
+      fk,
+      childScope,
+      childName,
+      upsertInput,
+      after,
+    } = args;
     const spec = normalizeSingle(upsertInput, relationName, "upsert");
     const createData = requireRecord(
       spec.create,
@@ -1686,7 +1799,6 @@ export class UpdateOperation {
         creates: normalizeItems(createData, relationName),
       })
     );
-    return true;
   }
 
   /**
