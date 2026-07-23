@@ -1517,7 +1517,10 @@ fixed-expectation oracles (tx vs batch byte-identical, native V2) carrying a par
 a located target three levels deep with a generated-PK badge (the insertId leg), a D4 non-PK
 referenced update edge, multi-parent + WRONG-ROW witnesses, a cross-parent falsification (the
 correlation is load-bearing), a staleness pin (a concurrent delete of the located target fails the
-batch closed), and a combined ≥6-level tree mixing fresh creates and located update targets.
+batch closed), and a combined ≥6-level tree mixing fresh creates and located update targets. Bench
+(PGlite, absolute median ms/op, a parent-held-to-one badge folded into a located target at
+increasing depth): d1 2.00, d2 1.75, d4 2.97, d6 3.20, d8 4.13 — LINEAR (≈ +0.3 ms/level), no
+superlinear blow-up.
 
 **No engine depth limit, anywhere — now unqualified.** After X1c there is no shape a nested write can
 carry that the engine declines on account of DEPTH: fresh subtrees, located update targets,

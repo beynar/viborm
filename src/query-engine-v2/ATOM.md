@@ -1625,7 +1625,10 @@ native V2, with a parent-held to-one under a located target THREE levels deep wh
 GENERATED PK (the insertId leg), a D4 non-PK referenced update edge, multi-parent + WRONG-ROW
 witnesses, a cross-parent falsification (the correlation is load-bearing), a staleness pin (a
 concurrent delete of the located target fails the batch closed), and a combined ≥6-level tree mixing
-fresh creates and located update targets (`x1c-located-target-depth`). **"No engine depth limit,
+fresh creates and located update targets (`x1c-located-target-depth`). Bench (PGlite, absolute,
+median ms/op, a parent-held-to-one badge folded into a located target at increasing depth):
+d1 2.00, d2 1.75, d4 2.97, d6 3.20, d8 4.13 — LINEAR (≈ +0.3 ms/level, no superlinear blow-up;
+depth stays a list splice + one correlated locate). **"No engine depth limit,
 anywhere" is now UNQUALIFIED:** no shape a nested write can carry is declined on account of DEPTH —
 fresh subtrees, located update targets, parent-held to-ones, D4 references, m2m junction targets
 (create and update), and the create / update / delete families all fold to arbitrary depth through
