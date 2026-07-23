@@ -72,14 +72,16 @@ export function noAtomicSubstrateError(
 }
 
 /**
- * Thrown by a concrete operation's constructor when the requested payload shape
- * is outside V2's supported family (a wrong argument key, an unsupported
- * relation kind, a compound key, a to-one upsert, …). It is the routing signal
- * the P2a client proxy switches on: an `UnsupportedOperationError` means "let V1
- * handle this whole tree"; any other construction error (a `ValidationError`,
- * the own-write preflight rejection) is a real failure V1 would also raise and
- * is allowed to propagate. It is never surfaced to end users through the routed
- * path — the proxy converts it into a V1 call.
+ * Thrown by a concrete operation's constructor when the requested payload shape is
+ * outside V2's supported family (a wrong argument key, an unsupported relation kind, a
+ * compound key or a non-literal fold at a documented boundary, …). **Post-P6 there is no V1
+ * and no fallback:** this error PROPAGATES as a typed refusal — the pre-P6 framing (the P2a
+ * proxy switched on it to "let V1 handle this whole tree") describes a mechanism deleted at
+ * P6. Every shape that raises it is either a PARITY REFUSAL V1 also rejected, or a DOCUMENTED
+ * narrower boundary reached by no conformance scenario (route-inventory category iii); the
+ * decline-surface gate proves no accept-and-execute shape raises it. Any other construction
+ * error (a `ValidationError` from the parse boundary, the own-write preflight rejection) is a
+ * real failure the schema / preflight raises and likewise propagates.
  */
 export class UnsupportedOperationError extends QueryEngineError {}
 

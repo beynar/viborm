@@ -75,22 +75,28 @@ const WHOLE_ARGS_WRITE_OPS = [
 const MAX_PAYLOAD_RECORD_CASTS = 38;
 const MAX_SHAPE_THROW_MESSAGES = 22;
 
+const PARSE_VALIDATED_DEF = /export function parseValidated\b/;
+const INFER_OUTPUT_CAST = /as InferOutput\b/;
+const KEY_GATE_FUNCTION = /function assert\w*Keys\b/;
+const KEY_GATE_MESSAGE = /arguments require .+\(optional/;
+const PAYLOAD_RECORD_CAST = /as Record<string, unknown>/g;
+const SHAPE_THROW_MESSAGE = /requires an? [^`"']*object|must be an object/g;
+
 describe("query-engine-v2 parse-boundary gate (X2 — one home for validation)", () => {
   it("(1) parseValidated is defined once — in the boundary — with the lone whole-tree cast", () => {
     const definers = engineFiles().filter((file) =>
-      /export function parseValidated\b/.test(read(file))
+      PARSE_VALIDATED_DEF.test(read(file))
     );
     expect(definers).toEqual([BOUNDARY]);
     // The only `as InferOutput` in the engine is the boundary's sanctioned parse cast.
     const casters = engineFiles().filter((file) =>
-      /as InferOutput\b/.test(read(file))
+      INFER_OUTPUT_CAST.test(read(file))
     );
     expect(casters).toEqual([BOUNDARY]);
   });
 
   it("(2) each single-record write op validates its whole args through the boundary", () => {
     const unwired = WHOLE_ARGS_WRITE_OPS.filter(([file, op]) => {
-      // biome-ignore lint/performance/useTopLevelRegex: one per write op, built rarely
       const wholeArgsParse = new RegExp(
         `parseValidated\\(\\s*parentSchemas\\.args\\.${op}\\b`
       );
@@ -102,29 +108,24 @@ describe("query-engine-v2 parse-boundary gate (X2 — one home for validation)",
   it("(3) no pre-validate key gate returns (assert*Keys / 'arguments require' message)", () => {
     const offenders = engineFiles().filter((file) => {
       const source = read(file);
-      return (
-        /function assert\w*Keys\b/.test(source) ||
-        /arguments require .+\(optional/.test(source)
-      );
+      return KEY_GATE_FUNCTION.test(source) || KEY_GATE_MESSAGE.test(source);
     });
     expect(offenders).toEqual([]);
   });
 
   it("(4) the in-engine shape-check surface may only shrink (X2 ratchet)", () => {
-    const payloadRecordCasts = countAll(/as Record<string, unknown>/g);
-    const shapeThrowMessages = countAll(
-      /requires an? [^`"']*object|must be an object/g
+    expect(countAll(PAYLOAD_RECORD_CAST)).toBeLessThanOrEqual(
+      MAX_PAYLOAD_RECORD_CASTS
     );
-    expect(payloadRecordCasts).toBeLessThanOrEqual(MAX_PAYLOAD_RECORD_CASTS);
-    expect(shapeThrowMessages).toBeLessThanOrEqual(MAX_SHAPE_THROW_MESSAGES);
+    expect(countAll(SHAPE_THROW_MESSAGE)).toBeLessThanOrEqual(
+      MAX_SHAPE_THROW_MESSAGES
+    );
   });
 
   it("(ratchet self-check) the current counts equal the pinned ceilings", () => {
     // If a change legitimately reduces the surface, drop the ceiling in lockstep so the
     // ratchet keeps biting at the new floor. This equality tripwire forces that update.
-    expect(countAll(/as Record<string, unknown>/g)).toBe(MAX_PAYLOAD_RECORD_CASTS);
-    expect(countAll(/requires an? [^`"']*object|must be an object/g)).toBe(
-      MAX_SHAPE_THROW_MESSAGES
-    );
+    expect(countAll(PAYLOAD_RECORD_CAST)).toBe(MAX_PAYLOAD_RECORD_CASTS);
+    expect(countAll(SHAPE_THROW_MESSAGE)).toBe(MAX_SHAPE_THROW_MESSAGES);
   });
 });

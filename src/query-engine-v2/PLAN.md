@@ -1366,6 +1366,59 @@ conflict signal that depth had become an axis instead of a list splice).
 
 ---
 
+## X2 — one home for validation *(delivered — the typed parse boundary; the deletion; the gate)*
+
+**The premise, audited first.** With V1 deleted, a user payload becomes a validated value in
+exactly one way: the schema layer. An audit classified every defensive guard in
+`src/query-engine-v2` and found ZERO schema gaps — the write schemas validate the whole tree
+recursively inside the constructors (`object.ts:392` fails non-objects, strict mode rejects
+unknown keys, `singleOrArray` validates + normalizes elements), so every in-engine payload
+shape-check is runtime-unreachable, shadowed by the schema layer.
+
+**Deliverable 1 — the typed parse boundary.** `parse-boundary.ts` exports the single
+`parseValidated(schema, value, operation, path): InferOutput<S>`, replacing FIVE local
+`parseRecord`/`validateCreateArgs`/`validateUpdateArgs` copies (each with its own hardcoded
+operation name + its own dead `isRecord(result.value)` re-check). It raises V1's byte-identical
+`ValidationError` and returns the schema's INFERRED output type instead of erasing it to
+`Record<string, unknown>`; its lone `as InferOutput<S>` is the ONLY assertion inference cannot
+reach. Census **90 → 89** (only `CreateManyOperation`'s post threw
+`UnsupportedOperationError`).
+
+**Deliverable 2 — the deletion (census 89 → 82, net −7, NO route removed).** Every deleted site
+is unreachable at runtime; its pre-P6 "route to V1" disposition is moot (no conformance shape
+reaches it). The seven: the four pre-validate KEY GATES
+(`assertCreateKeys`/`assertDeleteKeys`/`assertUpdateKeys` — each shadowed by the whole-args
+`parseValidated` that ran right after it; `assertUpsertKeys` — upsert had NO whole-args parse,
+so X2 added `parseValidated(parentSchemas.args.upsert, …)` as its one home, the update arm's
+DEEP legality still deferred via `deferArmLegality`); the two `requireRecord` shape helpers those
+parses made dead (delete, upsert); and the dead-CAPABILITY guard `RelationJunctionPart`'s
+`!input.nestedBuilder` (T3b-2 threads `nestedBuilder` at all three callers, so X2 made its type
+non-optional and tsc proves the throw unconstructible; the `foldKind` param that fed only it went
+too). **The one authorized behavior change:** a malformed top-level payload now raises the
+schema's precise per-key `ValidationError` instead of the gate's coarse
+`UnsupportedOperationError`. No estate test pinned the old class (verified — the suite never fed
+a malformed top-level payload); the upsert one-home change is dual-run-oracle byte-identical.
+
+**Deliverable 4 — the gate** (`parse-boundary-gate.test.ts`, in `test:gates`). Five falsified
+assertions: `parseValidated` and the whole-tree cast live in one home; each write op validates
+its whole args through the boundary (delete the upsert parse → fails); no `assert*Keys` /
+`arguments require` pre-validate gate returns (re-add `assertUpsertKeys` → fails); and a growth
+RATCHET on the shape-check surface (payload `as Record<string, unknown>` + `requires a … object`
+throws may only shrink → add one → fails).
+
+**The honest residue (deliverable 2 scope boundary).** The remaining
+`requireRecord`/`normalizeSingle`/`normalizeItems`/`isRecord` narrowings on payload paths are
+runtime-unreachable too, but they are `unknown -> Record` TYPE narrowings: a dynamic
+`data[relationName]` / `spec.create` widens to `unknown`, and the engine ALSO carries ~38
+`as Record<string, unknown>` casts (most on driver-result rows — no schema promises those —
+KEEP). Removing the payload narrowings without an `as` (forbidden outside the boundary) needs the
+precise per-relation parsed type threaded through `interpretRelation` and every Part builder — a
+type refactor deferred past X2, not a mechanical deletion. The gate's ratchet locks in the
+current floor so the residue can only shrink, and any RE-INTRODUCTION of a re-validation branch
+fails loudly — the invariant the deliverable asked for, at the honest surface X2 reached.
+
+---
+
 ## What failure looks like (so it can be seen early)
 
 Every kill signal above is a variant of one sentence: **the vocabulary, the

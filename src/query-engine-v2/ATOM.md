@@ -33,6 +33,21 @@ can be the *only* mode, with the branch decisions hoisted into compile-time JS.
 
 ---
 
+## 0. Conventions (normative)
+
+**Cross-cutting seam helpers live in ONE home.** A helper that mediates a boundary shared by
+every operation — turning a user payload into a validated, typed value; lowering a result
+across the statement boundary — is defined once and imported, never re-copied per operation
+file. The absence of this norm is what let FIVE `parseRecord`/`validateCreateArgs`/
+`validateUpdateArgs` copies drift apart (each with its own hardcoded operation name and its
+own dead `isRecord(result.value)` re-check). X2's `parseValidated` (`parse-boundary.ts`) is
+the enforced instance: the single typed parse seam, returning the schema's `InferOutput` and
+carrying the ONLY `as` the engine needs (after the schema has proven the shape). A new
+per-file copy of a seam helper is a regression — `parse-boundary-gate.test.ts` pins
+`parseValidated` (and its whole-tree cast) to one home and fails loudly if a copy reappears.
+
+---
+
 ## 1. The shapes
 
 ```ts
@@ -1497,6 +1512,41 @@ the fresh-parent adopt family — each a distinct mechanism, none a depth counte
 type-instantiation ceiling is a real DX limit measured separately (deeply-nested literal
 payload types), not an engine limit — the runtime folds deeper than the compiler will
 comfortably infer.**
+
+**X2 — ONE HOME FOR VALIDATION (the post-P6 consolidation, maintainer-directed).** With V1
+deleted, a user payload becomes a validated value in exactly one way: the schema layer. X2
+makes that the *single, typed* seam and removes the defensive re-validation that shadowed it.
+(a) **The typed parse boundary** (`parse-boundary.ts`, X2 deliverable 1). One
+`parseValidated(schema, value, operation, path): InferOutput<S>` replaced FIVE local
+`parseRecord`/`validateCreateArgs`/`validateUpdateArgs` copies. It raises V1's byte-identical
+`ValidationError` and returns the schema's INFERRED output type instead of erasing it to
+`Record<string, unknown>`; its lone `as InferOutput<S>` — after the issues guard has proven
+the shape — is the ONLY assertion inference cannot reach, and the parse-boundary gate pins it
+as the only one in the engine. (b) **The dead guards deleted** (deliverable 2, census 89 → 82,
+net −7, NO route removed): the four pre-validate key gates
+(`assertCreateKeys`/`assertDeleteKeys`/`assertUpdateKeys`/`assertUpsertKeys`) each duplicated
+the schemas' strict + `atLeast` checks and ran BEFORE `validate()`, degrading a precise
+per-key `ValidationError` into a coarse `UnsupportedOperationError`; three were shadowed by the
+whole-args parse that ran right after them, and `upsert` — which had NO whole-args parse — got
+one (`parseValidated(parentSchemas.args.upsert, …)` is upsert's one home; the update arm's DEEP
+legality stays deferred via `deferArmLegality`, so the dual-run oracle stays byte-identical).
+Also the two `requireRecord` shape helpers those parses made dead (delete, upsert), and the
+dead-CAPABILITY guard `RelationJunctionPart`'s `!input.nestedBuilder` — T3b-2 threads
+`nestedBuilder` at all three `buildJunctionParts` callers, so X2 made its type non-optional and
+tsc proves the throw unconstructible. Authorized error-class change (the ONLY behavior change):
+a malformed top-level payload now raises the schema's `ValidationError`, not the gate's
+`UnsupportedOperationError`; no estate test pinned the old class. (c) **The honest residue.**
+The remaining `requireRecord`/`normalizeSingle`/`normalizeItems`/`isRecord` narrowings on
+payload paths are runtime-UNREACHABLE too (the whole-args parse already validated the tree),
+but they are `unknown -> Record` TYPE narrowings: a dynamic `data[relationName]` / `spec.create`
+widens to `unknown`, and removing the narrowing without an `as` (forbidden outside the boundary)
+needs the precise per-relation parsed type threaded through `interpretRelation` and every Part
+builder — a type refactor deferred past X2, not a mechanical deletion. The parse-boundary gate
+(deliverable 4) pins this surface as a growth RATCHET (payload `as Record<string, unknown>` and
+`requires a … object` throws may only shrink) plus a positive assertion that every write op
+validates its whole args through the boundary, so a future phase re-introducing a re-validation
+branch fails loudly. **Shared-seam norm (below): a cross-cutting seam helper lives in ONE home
+— the norm whose absence let the five parse copies drift.**
 
 ---
 
