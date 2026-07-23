@@ -425,9 +425,16 @@ describe("X1c — D4 at depth: a located target's non-PK-referenced child UPDATE
 });
 
 // ---------------------------------------------------------------------------
-// The combined ≥6-level tree: fresh creates and located update targets MIXED, the
-// closing witness — one operation, one engine, all X1c/X1b mechanisms through one
-// architecture at arbitrary depth. Distinct models per level (no self-ref):
+// The combined ≥6-level tree: located child-held UPDATE targets (L1/L2) feeding a
+// FRESH create subtree (L3-L6) with a generated-PK parent-held to-one at the bottom
+// — X1b fresh-depth and mixed located/fresh nesting through one architecture at
+// arbitrary depth. NOTE: the located targets here carry only scalar+child-held
+// updates, so this tree does NOT exercise the X1c located-target *fold* delegation
+// (targetNeedsFullUpdate); that mechanism is witnessed — and falsification-proven
+// load-bearing — by the dedicated level-3 parent-held and D4 describes above.
+// (A parent-held fold on a located target in THIS 8-model graph trips the
+// pre-existing terminal-read 42P01 documented in the file header, unrelated to X1c.)
+// Distinct models per level (no self-ref):
 //
 //   L0  org u0                    (root update)
 //   L1  → teams.update t1         (LOCATED, child-held)
