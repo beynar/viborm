@@ -68,9 +68,11 @@ import { UpdateOperation } from "./UpdateOperation";
  * one architecture, one vocabulary, depth adds list entries and one parent-id value.
  *
  * A **parent-held FK to-one at depth** (the located target itself holds an FK it would
- * rewrite in its own SET) needs child-SET folding this depth builder does not carry;
- * it throws {@link UnsupportedOperationError} so the whole tree routes to V1 — a
- * documented narrower boundary (no family-B/A-remainder census shape reaches it).
+ * rewrite in its own SET) needs child-SET folding this in-place builder does not carry;
+ * X1c lifts it by delegating the WHOLE located target UPDATE to `UpdateOperation`
+ * ({@link targetNeedsFullUpdate} + {@link buildNestedTargetUpdatePart}) BEFORE this builder
+ * is reached, so a parent-held to-one (and a non-PK / compound D4 reference) never arrives
+ * here — the two former boundary throws are now fail-closed internal invariants.
  */
 
 /** How a located-by-PK target's relations are folded one level deeper — the

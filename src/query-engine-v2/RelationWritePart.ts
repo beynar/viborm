@@ -1135,7 +1135,10 @@ export function buildToManyUpdateParts(
             childFields: base.fkFields,
             parentFields: base.referencedFields,
             relationName: base.relationName,
-            notFoundMessage: relationTargetNotFound(base.relationInfo, "update"),
+            notFoundMessage: relationTargetNotFound(
+              base.relationInfo,
+              "update"
+            ),
           },
         })
       : new RelationWritePart(base.scope, {

@@ -1584,15 +1584,58 @@ because the own-write preflight + validation run on the whole payload TREE befor
 multi-parent + WRONG-ROW witnesses at the deepest mutated level (each produced id / injected FK
 pinned to its immediate ancestor — an off-by-one diverges), plus a combined ≥6-level tree
 exercising all four at once and a load-bearing-skip falsification. **The genuinely-remaining
-boundary (recorded, a follow-up X1c, not a cliff): the LOCATED-target projection of mechanism 1/2
-— a deeper parent-held-to-one, or a non-PK / compound reference, of an EXISTING row being
-`update`d (child-SET folding on an UPDATE, not INSERT-column folding on a fresh create). It needs
-an analogous UpdateOperation reuse; no census/conformance shape reaches it.** **The TS ceiling is
+boundary (a follow-up X1c, not a cliff) — now LIFTED (X1c below): the LOCATED-target projection of
+mechanism 1/2 — a deeper parent-held-to-one, or a non-PK / compound reference, of an EXISTING row
+being `update`d (child-SET folding on an UPDATE, not INSERT-column folding on a fresh create). It
+needed an analogous UpdateOperation reuse; X1c delivered it (`nestedTarget` mode), census 78 → 76.**
+**The TS ceiling is
 the compiler's, not the atom's:** a rich per-level LITERAL create payload type-checks to ~31 levels
 then raises TS2321 (measured; depth 30 compiles, 32 fails) — a DX limit on client input inference,
 NOT an engine limit; the runtime folds a 40-level chain built programmatically
 (`x1b-ts-ceiling`). Bench (PGlite, absolute, no V1 to A/B): d1 1.00, d2 1.04, d4 1.39, d6 1.81,
 d8 1.97 ms/graft — LINEAR (≈ +0.15 ms/level), no superlinear blow-up.
+
+**X1c — NO ENGINE DEPTH LIMIT, ANYWHERE (the FINAL boundary, finished; maintainer-directed "no
+depth limit, finish it").** X1b's one recorded boundary — the LOCATED-target projection of mechanism
+1/2 — is now lifted by the SAME consolidating move, one projection over: **a located UPDATE target
+IS an update root, so it delegates to `UpdateOperation` in a new additive, default-off `nestedTarget`
+mode** (the update-root analogue of X1b's `nestedFresh` create-root reuse — a shared `StepScope`, no
+whole-args re-parse, no terminal read). Every mechanism the update root already carries falls out at
+any depth: **a parent-held to-one before-root write folded into the located target's OWN update SET**
+(child-SET folding, X1b's fresh mechanism one projection over — the FK lands in the located row's SET,
+not a fresh INSERT column), **a generated / D4 referenced identity threaded from the located row** (the
+update root's `locateFields` firstRowField outputs), the PK-transition reorder, and the child-held /
+m2m families. **The one seam the located reuse adds over `nestedFresh`: a CORRELATED locate.** A fresh
+create needs no locate; a located target must be verified to belong to its enclosing parent —
+`child.<fk> = parent.<referenced>` (a SQL `Ref` to the enclosing locate for a `planned` parent —
+technique #1 — or an inlined literal) ANDed with the target's own unique `where`, a batch split-witness
+presence guard re-correlating the captured PK — so a wrong-parent selector still yields V1's verbatim
+`Cannot update relation … for this parent`, never a silent cross-parent write (a KILL SIGNAL). The
+delegation is wired at ALL THREE callers so the two `nested-target-parts` throws become
+unreachable-by-construction: the child-held leaf (`buildToManyUpdateParts` / `buildToOneUpdatePart`),
+the parent-held A-remainder (`tryDelegateParentHeldUpdate`), and the m2m junction (`buildJunctionParts`'
+update arm returns an empty scalar + the delegated Part; its create / upsert-create arms delegate the
+FRESH target to `CreateOperation` `nestedFresh` via a `delegated` slot that replaces `childInsert`).
+The two throws are DELETED (they become fail-closed `QueryEngineError` internal invariants, NOT
+`UnsupportedOperationError` routes — no reachable behavior); no new route site (the delegated sub-ops
+raise the update/create root's OWN already-counted refusals at depth). Census **78 → 76**. SEMANTIC
+refusals are untouched and byte-stable at every depth (own-write, validation, legality run on the
+whole payload tree before any Part is built). Oracles: fixed-expectation, tx vs batch byte-identical,
+native V2, with a parent-held to-one under a located target THREE levels deep whose target has a
+GENERATED PK (the insertId leg), a D4 non-PK referenced update edge, multi-parent + WRONG-ROW
+witnesses, a cross-parent falsification (the correlation is load-bearing), a staleness pin (a
+concurrent delete of the located target fails the batch closed), and a combined ≥6-level tree mixing
+fresh creates and located update targets (`x1c-located-target-depth`). **"No engine depth limit,
+anywhere" is now UNQUALIFIED:** no shape a nested write can carry is declined on account of DEPTH —
+fresh subtrees, located update targets, parent-held to-ones, D4 references, m2m junction targets
+(create and update), and the create / update / delete families all fold to arbitrary depth through
+ONE architecture, the root operation each already is, spliced with a shared scope and a correlated
+locate; depth is a list splice and one parent-id value, never a counter, never a Part method. (The
+TS ceiling — §X1b, ~31 literal levels — is the compiler's, not the atom's.) **Pre-existing
+observation, out of scope, tracked separately:** a nested update whose located target holds a
+`manyToOne` to a model declared LATER in the schema file throws a Postgres `42P01` (confirmed at
+baseline deaf5de, before X1c — a schema-registry / migration ordering bug, not a depth boundary);
+the X1c oracles declare referenced models first to avoid it.
 
 ---
 

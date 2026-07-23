@@ -471,7 +471,12 @@ export class UpdateOperation {
     // upsert-arm path parses its user `where` through the whereUnique schema.
     this.parentWhere = nestedTarget
       ? where
-      : parseValidated(parentSchemas.core.whereUnique, where, "update", "where");
+      : parseValidated(
+          parentSchemas.core.whereUnique,
+          where,
+          "update",
+          "where"
+        );
     this.parsedSelect =
       !nestedTarget && isRecord(args.select)
         ? parseValidated(

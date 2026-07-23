@@ -1550,9 +1550,10 @@ export function buildJunctionParts(input: {
         // in the create data fold one level deeper against the fresh target's
         // explicit literal PK, emitted after its INSERT + join (fresh-parent elision,
         // ATOM §4); a scalar-only create keeps its empty child Parts.
-        const folded = normalizeCreates(parsedRelation.create, relationName).map(
-          (create) => foldOrDelegateCreate(create)
-        );
+        const folded = normalizeCreates(
+          parsedRelation.create,
+          relationName
+        ).map((create) => foldOrDelegateCreate(create));
         parts.push(
           new RelationJunctionPart(scope, {
             ...base,
