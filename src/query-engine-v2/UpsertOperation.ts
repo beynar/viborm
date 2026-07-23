@@ -1,7 +1,6 @@
 // biome-ignore-all lint/style/useFilenamingConvention: UpsertOperation is the architecture name.
-import { QueryEngineError, ValidationError } from "@errors";
+import { QueryEngineError } from "@errors";
 import type { Model } from "@schema/model";
-import { parse, type VibSchema } from "@validation";
 import {
   buildPrimaryKeyWhereUnique,
   getPrimaryKeyFields,
@@ -47,6 +46,7 @@ import {
   type StatementStep,
 } from "./OperationFragment";
 import { planningKey, planningOutputs } from "./Part";
+import { parseValidated } from "./parse-boundary";
 import { StepScope } from "./StepScope";
 import {
   getStepModelName,
@@ -190,29 +190,37 @@ export class UpsertOperation {
     // decline needed; the shape is native.
 
     const parentSchemas = engine.schemaRegistry.getModelSchemas(model);
-    this.parentWhere = parseRecord(
+    this.parentWhere = parseValidated(
       parentSchemas.core.whereUnique,
       where,
+      "upsert",
       "where"
     );
     // The scalar arms parse their own scalar data here; the delegated arms leave
     // it empty (the sub-op validates and builds the FULL payload itself).
     this.createData = createHasRelations
       ? {}
-      : parseRecord(
+      : parseValidated(
           parentSchemas.core.scalarCreate,
           createSep.scalarData,
+          "upsert",
           "create"
         );
     this.updateData = updateHasRelations
       ? {}
-      : parseRecord(
+      : parseValidated(
           parentSchemas.core.scalarUpdate,
           updateSep.scalarData,
+          "upsert",
           "update"
         );
     this.parsedSelect = isRecord(args.select)
-      ? parseRecord(parentSchemas.core.select, args.select, "select")
+      ? parseValidated(
+          parentSchemas.core.select,
+          args.select,
+          "upsert",
+          "select"
+        )
       : defaultSelect(model);
     // `include` rides alongside the projection (the `create`/`update` surface). A
     // relation projection forces the terminal-read path (lateral joins), never the
@@ -651,7 +659,12 @@ export class UpsertOperation {
     for (const field of ["targetWhere", "setWhere"] as const) {
       const raw = inputs[field];
       if (!(isRecord(raw) && Object.keys(raw).length > 0)) continue;
-      const where = parseRecord(parentSchemas.core.where, raw, field);
+      const where = parseValidated(
+        parentSchemas.core.where,
+        raw,
+        "upsert",
+        field
+      );
       const probeId = this.scope.allocate(`${parentName}.${field}`);
       const guardId = this.scope.allocate(`${parentName}.guard.${field}`);
       conditionals.push({
@@ -716,27 +729,6 @@ function defaultSelect(model: Model<any>): Record<string, unknown> {
   return Object.fromEntries(
     getDefaultScalarFieldNames(model).map((field: string) => [field, true])
   );
-}
-
-function parseRecord(
-  schema: VibSchema,
-  value: unknown,
-  path: string
-): Record<string, unknown> {
-  const result = parse(schema, value);
-  if ("issues" in result && result.issues) {
-    throw new ValidationError(
-      "upsert",
-      result.issues.map((issue) => ({
-        path: [path, ...(issue.path?.map(String) ?? [])].join("."),
-        message: issue.message,
-      }))
-    );
-  }
-  if (!isRecord(result.value)) {
-    throw new QueryEngineError(`Validated '${path}' is not an object.`);
-  }
-  return result.value;
 }
 
 function assertUpsertKeys(value: Record<string, unknown>): void {

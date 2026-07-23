@@ -1,8 +1,7 @@
 // biome-ignore-all lint/style/useFilenamingConvention: CreateOperation is the architecture name.
-import { NestedWriteError, QueryEngineError, ValidationError } from "@errors";
+import { NestedWriteError, QueryEngineError } from "@errors";
 import type { Model } from "@schema/model";
 import type { Sql } from "@sql";
-import { parse, type VibSchema } from "@validation";
 import {
   buildPrimaryKeyWhereUnique,
   getPrimaryKeyFields,
@@ -54,6 +53,7 @@ import {
 import { OwnWritePreflight } from "./OwnWritePreflight";
 import type { Part, PlanningKnown } from "./Part";
 import { planningKey, planningOutputs } from "./Part";
+import { parseValidated } from "./parse-boundary";
 import { buildJunctionParts } from "./RelationJunctionPart";
 import {
   buildConnectOrCreateParts,
@@ -274,7 +274,12 @@ export class CreateOperation {
     // ValidationError with V1's byte-identical message and ordering, and the
     // parsed value carries every scalar default (ulid/cuid/now) materialized — so
     // a nested child's PK is a known literal, not a DB-side default.
-    const parsedArgs = validateCreateArgs(parentSchemas.args.create, args);
+    const parsedArgs = parseValidated(
+      parentSchemas.args.create,
+      args,
+      "create",
+      ""
+    );
     const data = requireRecord(parsedArgs.data, "create.data");
 
     const parent = createQueryScope(engine.adapter, model);
@@ -1590,26 +1595,6 @@ function assertCreateKeys(value: Record<string, unknown>): void {
       `create arguments require data (optional select, include); received ${Object.keys(value).join(", ") || "none"}.`
     );
   }
-}
-
-function validateCreateArgs(
-  schema: VibSchema,
-  args: unknown
-): Record<string, unknown> {
-  const result = parse(schema, args);
-  if ("issues" in result && result.issues) {
-    throw new ValidationError(
-      "create",
-      result.issues.map((issue) => ({
-        path: issue.path?.map(String).join(".") || "root",
-        message: issue.message,
-      }))
-    );
-  }
-  if (!isRecord(result.value)) {
-    throw new QueryEngineError("Validated create arguments are not an object.");
-  }
-  return result.value;
 }
 
 function normalizeSingle(

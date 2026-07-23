@@ -1,7 +1,6 @@
 // biome-ignore-all lint/style/useFilenamingConvention: CreateManyOperation is the architecture name.
-import { QueryEngineError, ValidationError } from "@errors";
+import { QueryEngineError } from "@errors";
 import type { Model } from "@schema/model";
-import { parse, type VibSchema } from "@validation";
 import { createQueryScope } from "../query-engine/context/query-scope";
 import { buildCreateManyPlan } from "../query-engine/operations";
 import type { QueryEngine } from "../query-engine/query-engine";
@@ -12,13 +11,9 @@ import {
   ref,
   type StatementStep,
 } from "./OperationFragment";
+import { parseValidated } from "./parse-boundary";
 import { StepScope } from "./StepScope";
-import {
-  getStepModelName,
-  isRecord,
-  selectExecutionMode,
-  UnsupportedOperationError,
-} from "./shared";
+import { getStepModelName, selectExecutionMode } from "./shared";
 
 type ExecutionMode = "transaction" | "batch";
 
@@ -57,9 +52,10 @@ export class CreateManyOperation {
     const scope = new StepScope();
 
     const parentSchemas = engine.schemaRegistry.getModelSchemas(model);
-    const parsed = parseRecord(
+    const parsed = parseValidated(
       parentSchemas.args.createMany,
       args,
+      "createMany",
       "createMany"
     );
     const data = parsed.data;
@@ -141,27 +137,4 @@ export class CreateManyOperation {
     }
     return { count: Number(count) } as T;
   }
-}
-
-function parseRecord(
-  schema: VibSchema,
-  value: unknown,
-  path: string
-): { data: unknown; skipDuplicates?: unknown } {
-  const result = parse(schema, value);
-  if ("issues" in result && result.issues) {
-    throw new ValidationError(
-      "createMany",
-      result.issues.map((issue) => ({
-        path: [path, ...(issue.path?.map(String) ?? [])].join("."),
-        message: issue.message,
-      }))
-    );
-  }
-  if (!isRecord(result.value)) {
-    throw new UnsupportedOperationError(
-      "query-engine-v2 createMany requires an object argument."
-    );
-  }
-  return result.value as { data: unknown; skipDuplicates?: unknown };
 }

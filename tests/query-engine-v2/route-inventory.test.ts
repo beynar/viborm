@@ -514,6 +514,19 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   //     referential-action/atomic-resolution/skipDuplicates throw fires byte-identically at
   //     every depth (X1 semantic-stability witnesses pin this). See PLAN "X1 — the depth
   //     lift" and ATOM §8.1.
+  //
+  // 90 -> 89 (X2 deliverable 1, THE TYPED PARSE BOUNDARY): the five local parse seams
+  // (`parseRecord`/`validateCreateArgs`/`validateUpdateArgs`) collapse into the single
+  // `parseValidated` (parse-boundary.ts). Each seam's post-validate `isRecord(result.value)`
+  // re-check is a DEAD branch — `object.ts:392` already fails a non-object with a
+  // `ValidationError` before the guard could fire — so the boundary makes it unreachable by
+  // construction and returns the schema's inferred output type instead of erasing it. Only
+  // ONE of those five posts threw `UnsupportedOperationError` (CreateManyOperation's "requires
+  // an object argument"); the other four threw `QueryEngineError` (never in this census). Net
+  // -1. No route removed. See PLAN "X2 — one home for validation" and ATOM §8.1.
+  //
+  // 89 -> N (X2 deliverable 2, THE DELETION): see the X2 entry appended below for the
+  // key-gate + requireRecord + shape-check delta.
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
@@ -524,7 +537,7 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
       const source = await readFile(join(dir, file), "utf8");
       sites += source.split("new UnsupportedOperationError(").length - 1;
     }
-    expect(sites).toBe(90);
+    expect(sites).toBe(89);
   });
 });
 

@@ -1,13 +1,7 @@
 // biome-ignore-all lint/style/useFilenamingConvention: UpdateOperation is the architecture name.
-import {
-  NestedWriteError,
-  NotFoundError,
-  QueryEngineError,
-  ValidationError,
-} from "@errors";
+import { NestedWriteError, NotFoundError, QueryEngineError } from "@errors";
 import type { Model } from "@schema/model";
 import type { Sql } from "@sql";
-import { parse, type VibSchema } from "@validation";
 import {
   buildPrimaryKeyWhereUnique,
   getPrimaryKeyFields,
@@ -80,6 +74,7 @@ import { OwnWritePreflight } from "./OwnWritePreflight";
 import type { Part } from "./Part";
 import { planningKey, planningOutputs } from "./Part";
 import { referencedFieldRef, referencedFieldValue } from "./parent-reference";
+import { parseValidated } from "./parse-boundary";
 import { buildJunctionParts } from "./RelationJunctionPart";
 import { buildToManyLinkParts } from "./RelationLinkPart";
 import {
@@ -387,7 +382,8 @@ export class UpdateOperation {
     // create arm is taken) must not reject the whole tree — so the caller runs these
     // three legality analyses per-arm via `assertArmLegality()` instead.
     const deferLegality = options.deferArmLegality === true;
-    if (!deferLegality) validateUpdateArgs(parentSchemas.args.update, args);
+    if (!deferLegality)
+      parseValidated(parentSchemas.args.update, args, "update", "");
     const where = requireRecord(args.where, "update.where");
     const data = requireRecord(args.data, "update.data");
     // V1 runs this in its shared `validator` (validator.ts) for every operation;
@@ -422,7 +418,7 @@ export class UpdateOperation {
     if (deferLegality) {
       // Retained for the caller's per-arm invocation (the upsert's whenTrue branch).
       this.armLegalityChecks = () => {
-        validateUpdateArgs(parentSchemas.args.update, args);
+        parseValidated(parentSchemas.args.update, args, "update", "");
         assertPortablePrimaryKeyUpdateInput(model, "update", args);
         assertRelationKeyUpdatesAreCompilable(
           parent,
@@ -445,13 +441,19 @@ export class UpdateOperation {
       this.assertUpdateManyRelationLegality(separated.relations);
     }
 
-    this.parentWhere = parseRecord(
+    this.parentWhere = parseValidated(
       parentSchemas.core.whereUnique,
       where,
+      "update",
       "where"
     );
     this.parsedSelect = isRecord(args.select)
-      ? parseRecord(parentSchemas.core.select, args.select, "select")
+      ? parseValidated(
+          parentSchemas.core.select,
+          args.select,
+          "update",
+          "select"
+        )
       : defaultSelect(model);
     // `include` rides alongside the (default or explicit-scalar) projection —
     // the same result-shaping surface `create` owns. A relation projection forces
@@ -516,9 +518,10 @@ export class UpdateOperation {
           `No validation schema exists for relation '${relationName}'.`
         );
       }
-      const parsedRelation = parseRecord(
+      const parsedRelation = parseValidated(
         relationSchemas.update,
         requireRecord(data[relationName], relationName),
+        "update",
         `data.${relationName}`
       );
       this.interpretRelation({
@@ -552,9 +555,10 @@ export class UpdateOperation {
     if (Object.keys(separated.scalarData).length > 0) {
       Object.assign(
         parentSet,
-        parseRecord(
+        parseValidated(
           parentSchemas.core.scalarUpdate,
           separated.scalarData,
+          "update",
           "data"
         )
       );
@@ -3103,48 +3107,6 @@ function normalizeSingle(
     );
   }
   return item;
-}
-
-/**
- * V1's whole-args `args.update` validation (validator.ts's `validate`), ported so
- * the schema-level rejection (an unknown nested key, a type mismatch) fires
- * BEFORE `separateData`'s relation-mutation parser and before any I/O — V1's
- * ordering and byte-identical `ValidationError` message. The validated value is
- * discarded: V2 re-parses each piece from the original args, so this call is a
- * pure legality gate, not a transform.
- */
-function validateUpdateArgs(schema: VibSchema, args: unknown): void {
-  const result = parse(schema, args);
-  if ("issues" in result && result.issues) {
-    throw new ValidationError(
-      "update",
-      result.issues.map((issue) => ({
-        path: issue.path?.map(String).join(".") || "root",
-        message: issue.message,
-      }))
-    );
-  }
-}
-
-function parseRecord(
-  schema: VibSchema,
-  value: unknown,
-  path: string
-): Record<string, unknown> {
-  const result = parse(schema, value);
-  if ("issues" in result && result.issues) {
-    throw new ValidationError(
-      "update",
-      result.issues.map((issue) => ({
-        path: [path, ...(issue.path?.map(String) ?? [])].join("."),
-        message: issue.message,
-      }))
-    );
-  }
-  if (!isRecord(result.value)) {
-    throw new QueryEngineError(`Validated '${path}' is not an object.`);
-  }
-  return result.value;
 }
 
 function assertUpdateKeys(value: Record<string, unknown>): void {

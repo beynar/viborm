@@ -1,7 +1,6 @@
 // biome-ignore-all lint/style/useFilenamingConvention: DeleteOperation is the architecture name.
-import { NotFoundError, QueryEngineError, ValidationError } from "@errors";
+import { NotFoundError, QueryEngineError } from "@errors";
 import type { Model } from "@schema/model";
-import { parse, type VibSchema } from "@validation";
 import {
   buildPrimaryKeyWhereUnique,
   getPrimaryKeyFields,
@@ -26,6 +25,7 @@ import {
   type StatementStep,
 } from "./OperationFragment";
 import { planningKey, planningOutputs } from "./Part";
+import { parseValidated } from "./parse-boundary";
 import { StepScope } from "./StepScope";
 import {
   getStepModelName,
@@ -90,9 +90,10 @@ export class DeleteOperation {
     this.parentPrimaryKeys = parentPrimaryKeys;
 
     const parentSchemas = engine.schemaRegistry.getModelSchemas(model);
-    this.parentWhere = parseRecord(
+    this.parentWhere = parseValidated(
       parentSchemas.core.whereUnique,
       where,
+      "delete",
       "where"
     );
     // The projection: an explicit `select`, else the default scalar projection
@@ -103,7 +104,12 @@ export class DeleteOperation {
     // does), preserved here so a delete cannot leak an omitted column.
     this.parsedInclude = isRecord(args.include) ? args.include : undefined;
     this.parsedSelect = isRecord(args.select)
-      ? parseRecord(parentSchemas.core.select, args.select, "select")
+      ? parseValidated(
+          parentSchemas.core.select,
+          args.select,
+          "delete",
+          "select"
+        )
       : defaultSelect(model);
     this.resultArgs = {
       ...(this.parsedSelect ? { select: this.parsedSelect } : {}),
@@ -249,27 +255,6 @@ export class DeleteOperation {
       )
     );
   }
-}
-
-function parseRecord(
-  schema: VibSchema,
-  value: unknown,
-  path: string
-): Record<string, unknown> {
-  const result = parse(schema, value);
-  if ("issues" in result && result.issues) {
-    throw new ValidationError(
-      "delete",
-      result.issues.map((issue) => ({
-        path: [path, ...(issue.path?.map(String) ?? [])].join("."),
-        message: issue.message,
-      }))
-    );
-  }
-  if (!isRecord(result.value)) {
-    throw new QueryEngineError(`Validated '${path}' is not an object.`);
-  }
-  return result.value;
 }
 
 function assertDeleteKeys(value: Record<string, unknown>): void {
