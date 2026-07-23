@@ -1274,7 +1274,7 @@ dead-symbol check.
 |---|---|---|---|
 | **Deleted** — V1's write engine (Stage 3) | 15 | 5 831 | ~4 400 |
 | **Kept-as-earned** — the WHY §6 irreducibles V2 consumes: `TargetConstraint`, the `OwnWrite*` preflight, `mutation-identity`, `RelationMutationPlan`, `RelationProgramValues`, `ManyToManyStatements`, `RelationMembership`, builders + `result/` | — | — | (unchanged, shared by both engines from day one) |
-| **Extracted leaves** — the 5 pure functions V2 reached through V1 hosts, now standalone: `relation-key-legality`, `unique-conflict-target`, `many-to-many-statement`, `skippable-write`, `batch-error-attribution` | +5 | ~330 | ~230 |
+| **Extracted leaves** — the 5 pure functions V2 reached through V1 hosts, now standalone: `relation-key-legality`, `unique-conflict-target`, `many-to-many-statement`, `skippable-write`, `batch-error-attribution` | +5 | 249 | ~200 |
 | **V2 engine** (`query-engine-v2/*.ts`) — the single runtime | 26 | 13 984 | 10 623 |
 | **`query-engine/` (kept)** — facade + shared builders/context/operations/result + preflight cluster | 79 | 16 069 | 12 947 |
 
