@@ -252,6 +252,12 @@ export class CreateOperation {
   private readonly registeredParts = new Set<Part>();
   /** The single-step `INSERT … RETURNING select` fold, when eligible. */
   private readonly foldStep: StatementStep | undefined;
+  /** X1b — a nested fresh subtree emits no terminal read (the enclosing op owns
+   *  the result) and injects the located parent's FK into its root INSERT. */
+  private readonly suppressTerminal: boolean;
+  private readonly rootFkInject:
+    | ((known: Readonly<Record<string, unknown>>) => Record<string, unknown>)
+    | undefined;
 
   constructor(
     engine: QueryEngine,
@@ -267,54 +273,71 @@ export class CreateOperation {
     // fragment, sharing the enclosing scope so no two arms collide on a step id.
     this.scope = options.scope ?? new StepScope();
 
-    const parentSchemas = engine.schemaRegistry.getModelSchemas(model);
-    // THE one home for create's legality (X2): the whole-args schema is the front
-    // line — an unknown top-level key, a missing `data`, an unknown nested key, a
-    // type mismatch, or an omitted-FK violation is a ValidationError with V1's
-    // byte-identical message and ordering (there is no pre-validate key gate to
-    // shadow it into a coarser UnsupportedOperationError). The parsed value carries
-    // every scalar default (ulid/cuid/now) materialized — so a nested child's PK is
-    // a known literal, not a DB-side default. `data` is present-and-an-object by
-    // `atLeast: ["data"]` + `core.create` (object.ts:392), so it flows straight to
-    // the tree walk as the open field bag the interpreter reads.
-    const parsedArgs = parseValidated(
-      parentSchemas.args.create,
-      args,
-      "create",
-      ""
-    );
-    const data: Record<string, unknown> = parsedArgs.data;
+    // X1b — a nested fresh subtree at depth carries its already-validated create
+    // data (no re-parse — the enclosing op's whole-args boundary validated the
+    // whole tree; a schema's transformed output is non-idempotent under re-parse,
+    // X2), emits no terminal read, and folds the located parent's FK into its root
+    // INSERT at compile.
+    const nestedFresh = options.nestedFresh;
+    this.suppressTerminal = nestedFresh !== undefined;
+    this.rootFkInject = nestedFresh?.rootFkInject;
+
+    let data: Record<string, unknown>;
+    if (nestedFresh) {
+      data = nestedFresh.data;
+      this.parsedInclude = undefined;
+      this.parsedSelect = undefined;
+      this.resultArgs = {};
+    } else {
+      const parentSchemas = engine.schemaRegistry.getModelSchemas(model);
+      // THE one home for create's legality (X2): the whole-args schema is the front
+      // line — an unknown top-level key, a missing `data`, an unknown nested key, a
+      // type mismatch, or an omitted-FK violation is a ValidationError with V1's
+      // byte-identical message and ordering (there is no pre-validate key gate to
+      // shadow it into a coarser UnsupportedOperationError). The parsed value carries
+      // every scalar default (ulid/cuid/now) materialized — so a nested child's PK is
+      // a known literal, not a DB-side default. `data` is present-and-an-object by
+      // `atLeast: ["data"]` + `core.create` (object.ts:392), so it flows straight to
+      // the tree walk as the open field bag the interpreter reads.
+      const parsedArgs = parseValidated(
+        parentSchemas.args.create,
+        args,
+        "create",
+        ""
+      );
+      data = parsedArgs.data;
+      const hasSelect = isRecord(parsedArgs.select);
+      this.parsedInclude = isRecord(parsedArgs.include)
+        ? parsedArgs.include
+        : undefined;
+      // The projection: an explicit `select`, else the default scalar projection
+      // (respecting `.omit()`, exactly as the update/upsert families do). `include`
+      // rides alongside the default scalar projection.
+      this.parsedSelect = hasSelect
+        ? (parsedArgs.select as Record<string, unknown>)
+        : this.parsedInclude
+          ? undefined
+          : defaultSelect(model);
+      this.resultArgs = {
+        ...(this.parsedSelect ? { select: this.parsedSelect } : {}),
+        ...(this.parsedInclude ? { include: this.parsedInclude } : {}),
+      };
+    }
 
     const parent = createQueryScope(engine.adapter, model);
     // Own-write preflight (ATOM §4): reject any payload whose nested decision
     // reads depend on this operation's own writes, before planning. As an upsert
-    // create arm the caller runs this per-arm at compile (V1 checks it inside the
-    // whenFalse branch only — a create-arm violation must not reject when the
-    // update arm is taken), so it is skipped here.
+    // create arm — or a nested fresh subtree — the caller runs this per-arm / on
+    // the whole enclosing tree, so it is skipped here (V1 checks it inside the
+    // whenFalse branch only; a nested subtree's own-write is covered by the
+    // enclosing operation's whole-tree walk).
     if (!options.skipOwnWrite) {
       new OwnWritePreflight().assertCreate(parent, data);
     }
 
-    const hasSelect = isRecord(parsedArgs.select);
-    this.parsedInclude = isRecord(parsedArgs.include)
-      ? parsedArgs.include
-      : undefined;
-    // The projection: an explicit `select`, else the default scalar projection
-    // (respecting `.omit()`, exactly as the update/upsert families do). `include`
-    // rides alongside the default scalar projection.
-    this.parsedSelect = hasSelect
-      ? (parsedArgs.select as Record<string, unknown>)
-      : this.parsedInclude
-        ? undefined
-        : defaultSelect(model);
-    this.resultArgs = {
-      ...(this.parsedSelect ? { select: this.parsedSelect } : {}),
-      ...(this.parsedInclude ? { include: this.parsedInclude } : {}),
-    };
-
-    this.terminalId = this.scope.allocate(
-      `${getStepModelName(model, "record")}.select`
-    );
+    this.terminalId = this.suppressTerminal
+      ? ""
+      : this.scope.allocate(`${getStepModelName(model, "record")}.select`);
 
     this.root = this.buildRecord(parent, data, txMode);
 
@@ -329,6 +352,7 @@ export class CreateOperation {
       this.root.createManyGroups.length === 0 &&
       this.root.afterParts.length === 0;
     this.foldStep =
+      !this.suppressTerminal &&
       txMode &&
       isPureScalar &&
       this.projectionIsScalarOnly() &&
@@ -363,7 +387,15 @@ export class CreateOperation {
     }
     const guards: OperationStep[] = [];
     const writes: OperationStep[] = [];
-    this.emitRecord(this.root, {}, known, guards, writes);
+    // X1b — the located parent's FK is folded into the root record's INSERT
+    // (resolved here at compile: a literal constant, or a planned locate-row value).
+    const rootInject = this.rootFkInject ? this.rootFkInject(known) : {};
+    this.emitRecord(this.root, rootInject, known, guards, writes);
+    if (this.suppressTerminal) {
+      // A nested fresh subtree contributes only its writes/guards; the enclosing
+      // operation owns the terminal read and the result.
+      return { steps: [...guards, ...writes], outputs: {} };
+    }
     return {
       steps: [...guards, ...writes, this.buildTerminal(this.root)],
       outputs: { result: ref(this.terminalId, "result") },

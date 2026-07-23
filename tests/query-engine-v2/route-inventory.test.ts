@@ -570,6 +570,22 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   // CLASS VI), one level past the create root. The default-only-row parity refusal
   // (`assertPortableCreateManySkip`) STILL fires at depth. No FINER boundary is introduced (the
   // composed skip is total for the createMany leaf). See PLAN "X1b" and ATOM §8.1.
+  //
+  // 83 -> 78 (X1b mechanisms 1 (fresh) + 2 + 4, THE FRESH-CREATE-SUBTREE REUSE — a depth lift
+  // that CONSOLIDATES two create-tree implementations into one): a relation-carrying fresh
+  // `create` at depth is now a create SUBTREE delegated to the create-ROOT machinery
+  // (`CreateOperation` `nestedFresh` mode — a shared scope, no re-parse, no terminal, the located
+  // parent's FK folded into the root INSERT). Every mechanism the create root already carries
+  // falls out at any depth: a database-generated / compound PK (produced id threaded as a backward
+  // `Ref` / per-field identity — mechanism 2), a parent-held-FK to-one grandchild (a before-parent
+  // create — mechanism 1 fresh projection), and the fresh-parent adopt family + M2M (the GLOBAL
+  // elision, ATOM §4 — mechanism 4). The FIVE bespoke fresh-context throws are DELETED (-5):
+  // `buildFreshCreateGrandchildParts` (compound-PK + generated-PK) and `assertFreshCreateContext`
+  // (m2m + parent-held-FK + non-create-kind) — both functions removed, their duty subsumed by the
+  // create root. No new throw site: the shapes those five declined now either EXECUTE natively or
+  // raise the create root's OWN already-counted refusal (an M2M `upsert` under create, a compound
+  // child edge, …) — one home for the create tree, the SEMANTIC refusals byte-identical at depth.
+  // See PLAN "X1b" and ATOM §8.1.
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
@@ -580,7 +596,7 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
       const source = await readFile(join(dir, file), "utf8");
       sites += source.split("new UnsupportedOperationError(").length - 1;
     }
-    expect(sites).toBe(83);
+    expect(sites).toBe(78);
   });
 });
 

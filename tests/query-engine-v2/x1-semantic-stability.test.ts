@@ -33,25 +33,6 @@ const tree = (() => {
   return { node };
 })();
 
-// An auto-increment (database-generated) self-ref tree, to witness the
-// generated-PK fresh-child narrower boundary.
-const genTree = (() => {
-  const node = s
-    .model({
-      id: s.int().id().increment(),
-      name: s.string(),
-      parentId: s.int().nullable(),
-      parent: s
-        .manyToOne(() => node)
-        .fields("parentId")
-        .references("id")
-        .optional(),
-      children: s.oneToMany(() => node),
-    })
-    .map("x1ss_gen");
-  return { node };
-})();
-
 function makeClient(schema: any, db: PGlite) {
   return createClient({
     schema,
@@ -177,68 +158,14 @@ describe("X1 semantic stability — validation error at depth", () => {
   });
 });
 
-describe("X1 create-context narrower boundaries — byte-stable declines", () => {
-  test("an adopt-family (connect) grandchild under a fresh create declines", async () => {
-    await withClient(tree, async (c) => {
-      await c.node.create({ data: { id: "c0", name: "c0" } });
-      await c.node.create({ data: { id: "c1", name: "c1", parentId: "c0" } });
-      await c.node.create({ data: { id: "adopt", name: "adopt" } });
-      const msg = await messageOf(() =>
-        c.node.update({
-          where: { id: "c0" },
-          data: {
-            children: {
-              update: {
-                where: { id: "c1" },
-                data: {
-                  children: {
-                    create: {
-                      id: "g1",
-                      name: "g1",
-                      children: { connect: { id: "adopt" } },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        })
-      );
-      expect(msg).toContain(
-        "does not support a nested 'connect' on relation 'children' in the create data of relation 'children' one level deeper"
-      );
-    });
-  });
-
-  test("a database-generated (auto-increment) fresh child carrying its own relations declines", async () => {
-    await withClient(genTree, async (c) => {
-      await c.node.create({ data: { name: "c0" } }); // id 1
-      await c.node.create({ data: { name: "c1", parentId: 1 } }); // id 2
-      // update(c0) -> children.update(c1) -> children.create({ name, children:{create} }):
-      // the fresh grandchild's PK is DB-generated, so it is not a construction-time
-      // literal parent for its own grandchildren — a documented narrower boundary
-      // (needs a backward Ref, the root create-tree mechanism), not a depth cap.
-      const msg = await messageOf(() =>
-        c.node.update({
-          where: { id: 1 },
-          data: {
-            children: {
-              update: {
-                where: { id: 2 },
-                data: {
-                  children: {
-                    create: {
-                      name: "g1",
-                      children: { create: { name: "g2" } },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        })
-      );
-      expect(msg).toContain("is database-generated one level deeper");
-    });
-  });
-});
+// AUTHORIZED RETARGET (X1b — the depth lift finished). The two shapes this block
+// pinned as "byte-stable declines" — an adopt-family (connect) grandchild under a
+// fresh create, and a database-generated fresh child carrying its own relations —
+// were CAPABILITY boundaries (a distinct dataflow the fresh-parent leaf did not
+// carry), NOT semantic refusals. X1b lifts them by delegating a relation-carrying
+// fresh create at depth to the create-ROOT machinery (mechanisms 1, 2, 4), so they
+// now EXECUTE natively at any depth. Their positive fixed-expectation oracles (with
+// multi-parent + wrong-row witnesses) live in `x1b-fresh-create-subtree.test.ts`.
+// The SEMANTIC refusals above (own-write "Split these operations", validation) are
+// unchanged and still fire byte-identically at depth — that is this file's charter.
+//

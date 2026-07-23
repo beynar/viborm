@@ -30,6 +30,26 @@ export interface SubOperationOptions {
    * invalid UNTAKEN update branch (the create arm is taken) must not reject the whole tree.
    */
   readonly deferArmLegality?: boolean;
+  /**
+   * X1b — a nested fresh `create` at DEPTH: this `CreateOperation` is not a standalone
+   * operation but a create SUBTREE spliced under a located target's write (a nested
+   * `create` arm one or more levels deep). It carries the ALREADY-VALIDATED create data
+   * (`data` — the enclosing operation's whole-args parse validated the whole tree, so this
+   * subtree does NOT re-parse; re-parsing a schema's transformed output is non-idempotent,
+   * X2). It emits NO terminal read (the enclosing operation owns the result), and it folds
+   * the located parent's foreign key into its ROOT record's INSERT via `rootFkInject`,
+   * resolved at COMPILE (a `literal` parent id yields a constant; a `planned` parent id
+   * reads the located row from `known`). Every mechanism the create ROOT already
+   * supports — a database-generated / compound PK (backward `Ref` / per-field identity),
+   * a parent-held-FK to-one grandchild (before-parent create), the fresh-parent adopt
+   * family and M2M — falls out unchanged, one architecture, at any depth.
+   */
+  readonly nestedFresh?: {
+    readonly data: Record<string, unknown>;
+    readonly rootFkInject: (
+      known: Readonly<Record<string, unknown>>
+    ) => Record<string, unknown>;
+  };
 }
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
