@@ -1530,10 +1530,18 @@ each already is, spliced with a shared scope and a correlated locate, depth a li
 parent-id value, never a counter and never a Part method. The remaining depth ceiling is the TS
 compiler's (§X1b, ~31 literal levels), a DX limit on client *input* inference, not the runtime.
 
-**Pre-existing observation (out of X1c scope, tracked separately):** a nested update whose located
-target holds a `manyToOne` to a model declared LATER in the schema file throws a Postgres `42P01`
-(confirmed at baseline deaf5de, before X1c — a schema-registry / migration ordering bug, not a
-depth boundary). The X1c oracles use referenced-model-first declaration order to avoid it.
+**Pre-existing observation (out of X1c scope, since FIXED):** a schema whose model holds a
+`manyToOne` to a model declared LATER in the schema file used to throw a Postgres `42P01` on
+`push()` (observed at baseline deaf5de, before X1c). PROVEN root cause — a **migration DDL-ordering
+bug, not a query-engine / schema-registry bug and not a depth boundary**: `push()` applied a
+schema's DDL in model declaration order with no topological sort, emitting each new table's foreign
+keys inline (MySQL) or as an `ALTER TABLE … ADD CONSTRAINT` bundled immediately after its
+`CREATE TABLE` (Postgres), so a forward-declared FK ran before its referenced table's `CREATE TABLE`
+existed. FIXED entirely in `src/migrations/` (`extractForwardReferenceForeignKeys` in `utils.ts`,
+capability-gated on `supportsAddForeignKeyViaAlter`): forward-reference FKs are lifted into separate
+`addForeignKey` operations for Postgres/MySQL, so every referenced table is created first;
+SQLite/LibSQL keep FKs inline (lazy resolution). The X1c oracles' referenced-model-first ordering
+was a convenience, not a requirement.
 
 ---
 

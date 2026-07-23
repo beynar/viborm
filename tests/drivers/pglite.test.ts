@@ -14,6 +14,7 @@ import { runCompoundKeyBehavior } from "./compound-key-behavior";
 import { runCountAggregateWindowBehavior } from "./count-aggregate-window-behavior";
 import { runCursorPaginationBehavior } from "./cursor-pagination-behavior";
 import { runDistinctSkipWindowBehavior } from "./distinct-skip-window-behavior";
+import { runForwardFkOrderingBehavior } from "./forward-fk-ordering-behavior";
 import { runLikeEscapeBehavior } from "./like-escape-behavior";
 import { runListJsonFilterBehavior } from "./list-json-filter-behavior";
 import { runManyAndReturnBehavior } from "./many-and-return-behavior";
@@ -56,6 +57,15 @@ function createBatchOnlyPGliteDriver(): PGliteDriver {
 }
 
 describe("PGlite Driver", () => {
+  runForwardFkOrderingBehavior({
+    driverName: "PGlite (tx)",
+    createDriver: createInMemoryPGliteDriver,
+  });
+  runForwardFkOrderingBehavior({
+    driverName: "PGlite (batch)",
+    createDriver: createBatchOnlyPGliteDriver,
+  });
+
   runCountAggregateWindowBehavior({
     driverName: "PGlite",
     createDriver: createInMemoryPGliteDriver,

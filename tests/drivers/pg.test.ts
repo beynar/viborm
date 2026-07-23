@@ -26,6 +26,7 @@ import {
 } from "./batch-forced-pg";
 import { runBatchPrimaryKeyDataflowBehavior } from "./batch-primary-key-dataflow-behavior";
 import { runClientRawBehavior } from "./client-raw-behavior";
+import { runForwardFkOrderingBehavior } from "./forward-fk-ordering-behavior";
 import { runListJsonFilterBehavior } from "./list-json-filter-behavior";
 import { runM2mDeleteManyStalenessBehavior } from "./m2m-deletemany-staleness-behavior";
 import { runNestedOrderByBehavior } from "./nested-orderby-behavior";
@@ -472,6 +473,16 @@ describeIf("pg Driver", () => {
 
       await client.$disconnect();
     });
+  });
+
+  runForwardFkOrderingBehavior({
+    driverName: "pg (tx)",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+  runForwardFkOrderingBehavior({
+    driverName: "pg (batch)",
+    createDriver: () =>
+      new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
   });
 
   // Real multi-connection driver: the concurrent upsert tests in this suite

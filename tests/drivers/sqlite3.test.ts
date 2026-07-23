@@ -19,14 +19,14 @@ import {
   setupSQLite3UserPostDatabase,
 } from "../fixtures/drivers/sqlite3";
 import { seedWindowUserPosts } from "../fixtures/user-post-seed";
+import { runBulkWriteBehavior } from "../query-engine-v2/bulk-write-behavior";
 import { runCreateManyBehavior } from "../query-engine-v2/create-many-behavior";
 import { runCreateNestedUpsertBehavior } from "../query-engine-v2/create-nested-upsert-behavior";
 import { runNestedMutationBehavior } from "../query-engine-v2/nested-mutation-behavior";
+import { runReadBehavior } from "../query-engine-v2/read-behavior";
 import { runUpdateFamilyBehavior } from "../query-engine-v2/update-family-behavior";
 import { runUpdateNestedUpsertBehavior } from "../query-engine-v2/update-nested-upsert-behavior";
 import { runUpsertFamilyBehavior } from "../query-engine-v2/upsert-family-behavior";
-import { runReadBehavior } from "../query-engine-v2/read-behavior";
-import { runBulkWriteBehavior } from "../query-engine-v2/bulk-write-behavior";
 import { runBatchPrimaryKeyDataflowBehavior } from "./batch-primary-key-dataflow-behavior";
 import { runBatchRefSmokeBehavior } from "./batch-ref-smoke-behavior";
 import { runClientRawBehavior } from "./client-raw-behavior";
@@ -34,6 +34,7 @@ import { runCompoundKeyBehavior } from "./compound-key-behavior";
 import { runCountAggregateWindowBehavior } from "./count-aggregate-window-behavior";
 import { runCursorPaginationBehavior } from "./cursor-pagination-behavior";
 import { runDistinctSkipWindowBehavior } from "./distinct-skip-window-behavior";
+import { runForwardFkOrderingBehavior } from "./forward-fk-ordering-behavior";
 import { runLikeEscapeBehavior } from "./like-escape-behavior";
 import { runListJsonFilterBehavior } from "./list-json-filter-behavior";
 import { runManyAndReturnBehavior } from "./many-and-return-behavior";
@@ -692,6 +693,12 @@ describe("SQLite3 Driver", () => {
       expect(result._max.age).toBe(35);
       expect(result._sum.age).toBe(90);
     });
+  });
+
+  runForwardFkOrderingBehavior({
+    driverName: "SQLite3",
+    createDriver: createInMemorySQLite3Driver,
+    fkNamesRoundTrip: false,
   });
 
   runCountAggregateWindowBehavior({

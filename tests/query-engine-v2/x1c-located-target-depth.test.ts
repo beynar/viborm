@@ -23,9 +23,14 @@ import { createV2RoutedClient } from "./v2-client-proxy";
  * staleness pin (a concurrent delete of the located target before the batch); and a
  * combined ≥6-level tree mixing fresh creates and located update targets.
  *
- * The chain models are DISTINCT (org→team→member→badge, …), NOT self-referential: a
- * self-referential model that ALSO holds a second manyToOne throws a pre-existing V2
- * `42P01` at baseline (a terminal-read SQL bug unrelated to X1c; tracked separately).
+ * The chain models are DISTINCT (org→team→member→badge, …) and declared referenced-
+ * model-first. That ordering was, at this file's baseline, a workaround for a
+ * forward-declaration `push()` failure: a model holding a `manyToOne` to a model
+ * declared LATER used to throw a Postgres `42P01`. That was a MIGRATION DDL-ordering
+ * bug (push() emitted a new table's FK before the referenced table's CREATE TABLE),
+ * NOT a query-engine / terminal-read bug — and it is now FIXED in `src/migrations/`
+ * (forward-reference FKs are lifted into separate `addForeignKey` ops for PG/MySQL).
+ * The referenced-first ordering below is retained as-is; it is no longer required.
  */
 
 class BatchOnlyPGliteDriver extends PGliteDriver {
@@ -432,8 +437,11 @@ describe("X1c — D4 at depth: a located target's non-PK-referenced child UPDATE
 // updates, so this tree does NOT exercise the X1c located-target *fold* delegation
 // (targetNeedsFullUpdate); that mechanism is witnessed — and falsification-proven
 // load-bearing — by the dedicated level-3 parent-held and D4 describes above.
-// (A parent-held fold on a located target in THIS 8-model graph trips the
-// pre-existing terminal-read 42P01 documented in the file header, unrelated to X1c.)
+// (When this test was written, a parent-held fold on a located target in THIS
+// 8-model graph tripped the forward-declaration `push()` 42P01 documented in the
+// file header — a MIGRATION DDL-ordering bug, since fixed in `src/migrations/`,
+// not a query-engine / terminal-read bug. This combined tree is left as-is,
+// exercising the scalar+child-held located path rather than the fold.)
 // Distinct models per level (no self-ref):
 //
 //   L0  org u0                    (root update)

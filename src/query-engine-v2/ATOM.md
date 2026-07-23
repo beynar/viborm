@@ -1635,10 +1635,14 @@ fresh subtrees, located update targets, parent-held to-ones, D4 references, m2m 
 ONE architecture, the root operation each already is, spliced with a shared scope and a correlated
 locate; depth is a list splice and one parent-id value, never a counter, never a Part method. (The
 TS ceiling — §X1b, ~31 literal levels — is the compiler's, not the atom's.) **Pre-existing
-observation, out of scope, tracked separately:** a nested update whose located target holds a
-`manyToOne` to a model declared LATER in the schema file throws a Postgres `42P01` (confirmed at
-baseline deaf5de, before X1c — a schema-registry / migration ordering bug, not a depth boundary);
-the X1c oracles declare referenced models first to avoid it.
+observation, out of scope, since FIXED:** a schema whose model holds a `manyToOne` to a model
+declared LATER in the schema file used to throw a Postgres `42P01` on `push()` (observed at baseline
+deaf5de, before X1c). PROVEN root cause — a **migration DDL-ordering bug, not a query-engine /
+schema-registry bug and not a depth boundary**: `push()` emitted a new table's FK (inline on MySQL,
+an `ALTER … ADD CONSTRAINT` right after `CREATE TABLE` on Postgres) before the referenced table's
+`CREATE TABLE` ran. FIXED in `src/migrations/` by lifting forward-reference FKs into separate
+`addForeignKey` operations for Postgres/MySQL (SQLite/LibSQL keep inline FKs); the X1c oracles'
+referenced-model-first ordering was a convenience, not a requirement.
 
 ---
 

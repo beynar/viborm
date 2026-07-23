@@ -126,6 +126,7 @@ export {
 export {
   DEFAULT_MIGRATIONS_DIR,
   DEFAULT_TABLE_NAME,
+  extractForwardReferenceForeignKeys,
   formatMigrationFilename,
   generateMigrationName,
   normalizeDialect,
