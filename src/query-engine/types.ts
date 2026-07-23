@@ -92,23 +92,6 @@ export interface PreparedBatchGuard {
   readonly operation: Operation;
 }
 
-/** Shared lowering state for several programs in one atomic driver batch. */
-export interface OperationProgramBatchState {
-  readonly batchId: string;
-  nextReference: number;
-  initialized: boolean;
-  readonly setup: import("@sql").Sql[];
-  readonly cleanup: import("@sql").Sql[];
-}
-
-/**
- * Shared state used while flattening several logical operations into one
- * atomic driver batch.
- */
-export interface BatchPreparationContext {
-  operationProgramState?: OperationProgramBatchState;
-}
-
 /**
  * Options for engine.prepare()
  */
