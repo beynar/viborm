@@ -560,6 +560,16 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   // Part builder — a large type refactor deferred past X2, not a mechanical deletion. They
   // throw `QueryEngineError`, never `UnsupportedOperationError`, so they are outside this
   // census. See PLAN "X2 — one home for validation" and ATOM §8.1.
+  //
+  // 84 -> 83 (X1b mechanism 3, createMany skipDuplicates AT DEPTH — a depth-only lift, no new
+  // boundary): `buildLiteralParentCreateManyPart` (nested-target-parts.ts) DELETED its `does not
+  // support nested createMany skipDuplicates ... one level deeper` throw (-1). It now composes
+  // `buildCreateManyPlan`'s skip leaf (SQL `ON CONFLICT DO NOTHING` / `INSERT OR IGNORE`) plus the
+  // pre-injection portability guard + the `recoverableUniqueError` (MySQL) per-row
+  // `onUniqueConflict: skip` effect — byte-identical to `CreateOperation.foldCreateMany` (T4a
+  // CLASS VI), one level past the create root. The default-only-row parity refusal
+  // (`assertPortableCreateManySkip`) STILL fires at depth. No FINER boundary is introduced (the
+  // composed skip is total for the createMany leaf). See PLAN "X1b" and ATOM §8.1.
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
@@ -570,7 +580,7 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
       const source = await readFile(join(dir, file), "utf8");
       sites += source.split("new UnsupportedOperationError(").length - 1;
     }
-    expect(sites).toBe(84);
+    expect(sites).toBe(83);
   });
 });
 

@@ -6,12 +6,16 @@ import {
   separateData,
 } from "../query-engine/builders/relation-data-builder";
 import { getRelationMutationKinds } from "../query-engine/builders/relation-mutation-parser";
-import { buildInsert } from "../query-engine/builders/values-builder";
+import {
+  buildInsert,
+  buildValueGroups,
+} from "../query-engine/builders/values-builder";
 import {
   createQueryScope,
   getTableName,
 } from "../query-engine/context/query-scope";
 import { buildCreateManyPlan } from "../query-engine/operations/create";
+import { assertPortableCreateManySkip } from "../query-engine/operations/create-many-portability";
 import type { QueryEngine } from "../query-engine/query-engine";
 import type { QueryScope } from "../query-engine/types";
 import { referenceSql } from "./fragment-builders";
@@ -669,9 +673,25 @@ export function buildLiteralParentCreateManyPart(input: {
     input.createManyInput,
     `${relationName}.createMany`
   );
-  if (createMany.skipDuplicates === true) {
-    throw new UnsupportedOperationError(
-      `query-engine-v2 update does not support nested createMany skipDuplicates on relation '${relationName}' one level deeper.`
+  // X1b mechanism 3 — createMany skipDuplicates at depth. The composed skip leaf
+  // (T4a CLASS VI, generalized one level past the create root): the skip rides the
+  // plan (a dialect whose skip IS a SQL leaf carries `ON CONFLICT DO NOTHING` /
+  // `INSERT OR IGNORE`; a `recoverableUniqueError` dialect — MySQL — has no leaf,
+  // so each per-row statement carries the savepoint-wrapped `onUniqueConflict: skip`
+  // executor effect). Byte-identical to `CreateOperation.foldCreateMany`.
+  const skipDuplicates = createMany.skipDuplicates === true;
+  const userRows = normalizeItems(createMany.data, relationName);
+  if (skipDuplicates) {
+    // V1's portability guard, on the PRE-injection user rows (construction time): a
+    // skipDuplicates createMany carrying a default-only row (no explicit user scalar
+    // — the injected FK is system-derived, so it does not count) is inexpressible.
+    // The FK-injected plan below never trips its OWN internal check (every row carries
+    // the injected FK column), so this pre-injection check is the sole V1-parity gate
+    // for the default-only shape — exactly as `foldCreateMany` runs it.
+    const groups = buildValueGroups(childScope, userRows);
+    assertPortableCreateManySkip(
+      true,
+      groups.some((group) => group.columns.length === 0)
     );
   }
   const inject = literalFkInject(
@@ -681,17 +701,23 @@ export function buildLiteralParentCreateManyPart(input: {
     relationName,
     parentId
   );
-  const rows = normalizeItems(createMany.data, relationName).map((row) => ({
-    ...row,
-    ...inject,
-  }));
+  const rows = userRows.map((row) => ({ ...row, ...inject }));
   if (rows.length === 0) return new LiteralParentWriteParts([]);
-  const plan = buildCreateManyPlan(childScope, { data: rows }, false);
+  const plan = buildCreateManyPlan(
+    childScope,
+    { data: rows, skipDuplicates },
+    false
+  );
+  const recoverUnique =
+    skipDuplicates &&
+    engine.adapter.mutations.skipDuplicatesStrategy ===
+      "recoverableUniqueError";
   const steps: OperationStep[] = plan.statements.map((statement) => ({
     id: scope.allocate(`${childName}.createMany`),
     kind: "write" as const,
     statement: statement.sql,
     outputs: {},
+    ...(recoverUnique ? { onUniqueConflict: "skip" as const } : {}),
   }));
   return new LiteralParentWriteParts(steps);
 }
