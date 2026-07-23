@@ -1257,18 +1257,63 @@ rejection is V1's own message, and the remaining adopt/`pastSurface` transitions
 — documented narrower boundaries, not corruption. The P6 deletion premise holds at its honest floor
 (blast radius 3, GREEN bidirectional). P6 is GREEN — unblocked.**
 
-## P6 — Deletion and the honest audit
+## P6 — Deletion and the honest audit *(delivered)*
 
-Bulk-delete V1's operation/execution root once unreachable; keep what V2
-consumes (builders, `result/`, `TargetConstraint`, `mutation-identity`, the
-preflight analysis, error mapping). The structural gates have been running
-since P0; P6 only adds the dead-symbol check (deleted V1 names stay dead) and
-retires the routing seam and the oracle's V1 arm (the oracle itself survives
-as V2's tx-vs-batch conformance suite).
-*Gate:* everything green; the **nouns-per-verb audit** written into this file
-as a measured table under WHY §6's accounting (irreducibles counted as kept,
-not saved). If the structure did not compress materially, this file says so —
-the unification set that precedent and it held.
+V1's operation/execution root is deleted; there is one runtime. The plan held:
+keep what V2 consumes (builders, `result/`, `context/`, `operations/`,
+`operation-program` vocabulary, `TargetConstraint`, `mutation-identity`, the
+own-write preflight, `RelationMutationPlan`/`RelationProgramValues`/
+`ManyToManyStatements`), extract the five pure leaves V2 called through V1 hosts,
+retire the routing seam + fallback harness + the oracle's V1 arm (the oracle
+survives as V2's tx-vs-batch conformance suite), and gate the absence with the
+dead-symbol check.
+
+**The measured table (WHY §6 accounting — irreducibles counted as kept, not saved).**
+
+| | files | lines (raw) | code (comments stripped) |
+|---|---|---|---|
+| **Deleted** — V1's write engine (Stage 3) | 15 | 5 831 | ~4 400 |
+| **Kept-as-earned** — the WHY §6 irreducibles V2 consumes: `TargetConstraint`, the `OwnWrite*` preflight, `mutation-identity`, `RelationMutationPlan`, `RelationProgramValues`, `ManyToManyStatements`, `RelationMembership`, builders + `result/` | — | — | (unchanged, shared by both engines from day one) |
+| **Extracted leaves** — the 5 pure functions V2 reached through V1 hosts, now standalone: `relation-key-legality`, `unique-conflict-target`, `many-to-many-statement`, `skippable-write`, `batch-error-attribution` | +5 | ~330 | ~230 |
+| **V2 engine** (`query-engine-v2/*.ts`) — the single runtime | 26 | 13 984 | 10 623 |
+| **`query-engine/` (kept)** — facade + shared builders/context/operations/result + preflight cluster | 79 | 16 069 | 12 947 |
+
+**Runtimes: 2 → 1.** `PendingOperation` no longer holds an
+`OperationCompiler`/`OperationResults`/`OperationRuntime` arm; the client has no
+`queryEngine: "v1"` escape hatch; `engine.build()` runs through the V2 read path.
+`query-engine/` root `.ts` files: 33 → 23 (−15 deleted, +5 extracted leaves).
+
+**The PLAIN verdict (no dressing).** V2 did **not** shrink the volume. WHY §6's
+theoretical prize was "10.8k operation/execution root → ~3–4k"; V2's engine is
+13 984 raw / 10 623 code — **≈1.3–1.6× V1's write root, larger, not smaller**. The
+maintainer knows this and it is the right trade: what compressed is **structure,
+not lines**. V1 was 23 nouns for one verb (five orthogonal axes — kind × direction ×
+arity × substrate × depth — promoted from data to file families). V2 is one fixed
+step vocabulary (`OperationFragment`: read/write/guard steps + `Ref`) that every verb
+flows through, one runtime, no cross-product: the axes are back to being *data*. The
+line count is the price of making each verb explicit as its own operation class and
+Part; the win is that the day someone adds `RelationUpsert.ts` + `M2MUpsert.ts` +
+`BatchUpsert.ts` the structural gates fail (WHY §7's standing rule, now machine-checked
+by `architecture-gates` + `dead-symbol-gate`). Benchmark sanity (PERF.md): the
+composition-heavy deep junction fold is **1.64× FASTER** on V2 — the structural
+dividend shows up where V1's cross-product was densest — while the simple-path A/B stays
+within the recorded gate.
+
+**Post-P6 backlog (the boundaries V2 declines, absorption ordered).**
+1. **FIRST — lift the nesting-depth limit.** The category-(iii) declines are all
+   *one level deeper* than an absorbed family's proven surface (a nested `createMany`
+   under a `planned` parent-held target; a compound-PK child at depth; a create-context
+   grandchild; a deeper edge referencing a non-PK unique — witnessed by
+   `nested-update-d4-deep-nonpk-reference` / `nested-update-pk-transition-cascade` /
+   the decline-surface-gate representative). Each needs the depth builder to carry a
+   non-literal parent identity; the contract extension + fixed-expectation oracles are
+   the first post-P6 unit.
+2. **`createManyAndReturn` + `skipDuplicates` on a non-returning driver** — the one
+   maintainer-authorized deliberate refusal (no portable `ON CONFLICT DO NOTHING` that
+   also reports the inserted rows). Needs an in-batch skipped-row-count port.
+3. The child-held PK-transition-under-NO-ACTION edge (routed for correctness, not
+   inexpressibility) — absorb once the depth builder orders the self-UPDATE after a
+   cascade-safe edge.
 
 ---
 

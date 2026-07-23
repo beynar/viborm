@@ -1438,6 +1438,26 @@ reachable accept-and-execute shape is native, every rejection is V1's own messag
 adopt/`pastSurface` transitions route to V1 correctly — documented narrower boundaries, not
 corruption.**
 
+**P6 — DELIVERED. V1 is deleted; there is one runtime.** The escape hatch
+(`queryEngine: "v1"`), the routing fallback (`setV1FallbackDisabled` and the whole
+blast-radius/fallback-off harness), and V1's 15-file write engine are gone (−5 831 lines);
+`PendingOperation` is V2-only and `engine.build()` runs the V2 read path. Five pure leaves
+V2 reached through V1 hosts were extracted standalone (`relation-key-legality`,
+`unique-conflict-target`, `many-to-many-statement`, `skippable-write`,
+`batch-error-attribution`); the WHY §6 irreducibles V2 shares (`TargetConstraint`,
+`OwnWrite*`, `mutation-identity`, `RelationMutationPlan`, `RelationProgramValues`,
+`ManyToManyStatements`, builders, `result/`) stay. A dead-symbol gate (in `test:gates`,
+falsified) proves the 15 deleted names appear in no `src` code. `OperationFragment.ts` and
+`architecture-gates.test.ts` were untouched throughout — the freeze held. The former
+route-to-V1 declines are now terminal `UnsupportedOperationError`s: reachable conformance
+behavior is 0 (census empty before deletion), so the only shapes that surface them are the
+documented category-(iii) narrower boundaries (post-P6 backlog, PLAN §P6, nesting-depth-limit
+lift first) and the one maintainer-authorized refusal (`createManyAndReturn skipDuplicates`
+on a non-returning driver). Estate green: local 6003, Docker MySQL 470, pg 426, gates,
+typecheck, Biome. **The honest verdict (PLAN §P6): volume did not shrink (≈1.3–1.6× V1's
+write root) — structure did (2 runtimes → 1, five axes back to data through one fixed step
+vocabulary); PERF's deep junction fold is 1.64× faster.**
+
 ---
 
 ## 9. Invariants (the executable contract)
