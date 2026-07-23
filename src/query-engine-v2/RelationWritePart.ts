@@ -143,9 +143,10 @@ export class RelationWritePart implements Part {
     this.childParts = [];
     this.reorderAfterChildren = false;
     // Payload-determined support decisions are made at CONSTRUCTION — before any
-    // I/O — so the per-tree router falls back to V1 for a shape V2 does not own.
-    // A nested relation write inside `update`/`updateMany` data was, pre-T3b, such
-    // a shape; mechanism 1 now folds it one level deeper (see `interpretChildParts`).
+    // I/O — so a shape V2 does not own declines with a typed UnsupportedOperationError
+    // that PROPAGATES (post-P6: no V1 fallback catches it). A nested relation write
+    // inside `update`/`updateMany` data was, pre-T3b, such a shape; mechanism 1 now
+    // folds it one level deeper (see `interpretChildParts`).
     if (config.kind === "update" || config.kind === "updateMany") {
       const built = this.interpretChildParts();
       this.childParts = built.childParts;

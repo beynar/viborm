@@ -287,8 +287,9 @@ export class UpsertOperation {
     // defers its own-write barrier to compile (V1's per-branch timing); the update
     // arm drops its locate postcondition (absent → this upsert's create arm). The
     // `create`/`update` sub-ops carry the FULL payload; a shape neither root owns
-    // still throws `UnsupportedOperationError` (the whole tree routes to V1 exactly
-    // as a standalone create/update would — the already-audited route surface).
+    // still throws `UnsupportedOperationError`, which PROPAGATES as a typed refusal
+    // (post-P6: no V1 fallback) exactly as a standalone create/update would — the
+    // already-audited decline surface.
     // The delegated arms shape their own terminal read, so they carry the same
     // `select`/`include` this upsert would apply (an explicit select, else the
     // sub-op defaults the scalar projection; `include` rides alongside).
@@ -371,7 +372,8 @@ export class UpsertOperation {
       // barrier INSIDE the whenFalse branch only (the create-then-connect insert
       // barrier, D4/D5) — a barrier violation must reject only when the create arm
       // is taken. Run it here, per-arm; a `NestedWriteError` is V1's byte-identical
-      // reject (it is not an `UnsupportedOperationError`, so it never routes to V1).
+      // reject — a real parity failure that propagates, distinct from V2's typed
+      // UnsupportedOperationError decline (both propagate post-P6; neither has a fallback).
       assertCreateOwnWriteSafety(
         createQueryScope(this.engine.adapter, this.model),
         this.rawCreate
