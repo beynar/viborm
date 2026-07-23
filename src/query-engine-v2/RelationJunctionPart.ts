@@ -35,7 +35,12 @@ import {
   relationTargetNotFound,
   upsertTargetNotFoundForParent,
 } from "./messages";
-import type { NestedChildBuilder } from "./nested-target-parts";
+import {
+  buildNestedTargetFreshCreatePart,
+  buildNestedTargetUpdatePart,
+  type NestedChildBuilder,
+  targetNeedsFullUpdate,
+} from "./nested-target-parts";
 import {
   type GuardStep,
   type OperationStep,
@@ -132,6 +137,15 @@ export interface RelationJunctionConfig {
   readonly updateChildParts?: readonly (readonly Part[])[];
   readonly upsertCreateChildParts?: readonly (readonly Part[])[];
   readonly upsertUpdateChildParts?: readonly (readonly Part[])[];
+  // X1c — a FRESH create/upsert-create junction target whose data carries the
+  // parent-held to-one projection (its FK folds into the target's OWN INSERT — X1b's
+  // fresh mechanism) delegates its whole create to `CreateOperation`. When present at an
+  // index, the delegated Part REPLACES the slot's `childInsert` (it does the target
+  // INSERT and its before-parent writes); the join row references the target's literal
+  // PK after. Aligned to `creates` / `upserts`; `undefined` for a scalar-only or
+  // located-update-projection target.
+  readonly createDelegated?: readonly (Part | undefined)[];
+  readonly upsertCreateDelegated?: readonly (Part | undefined)[];
 }
 
 /** A per-target probe slot (connect/set/delete/update) with its write ids. */
@@ -176,6 +190,10 @@ interface CreateSlot {
   /** create (mechanism 2): the fresh target's own nested child Parts, folded one
    *  level deeper against its explicit literal PK. Empty for a scalar-only create. */
   readonly childParts: readonly Part[];
+  /** X1c — when present, the fresh target's whole create delegates to `CreateOperation`
+   *  (a parent-held to-one folds into its OWN INSERT); this Part REPLACES `childInsert`,
+   *  emitted BEFORE the join (the target must exist first). */
+  readonly delegated?: Part;
 }
 
 /** A `connectOrCreate` slot — a global probe, then adopt (join) or create+join. */
@@ -211,6 +229,11 @@ interface UpsertSlot {
    *  decision. Empty for a scalar-only arm. */
   readonly createChildParts: readonly Part[];
   readonly updateChildParts: readonly Part[];
+  /** X1c — when present, the fresh create-arm target's whole create delegates to
+   *  `CreateOperation`, REPLACING the create branch's `childInsert` (emitted before the
+   *  join). The update arm keeps the located-update projection (empty scalar + the
+   *  delegated update Part in `updateChildParts`). */
+  readonly createDelegated?: Part;
 }
 
 export class RelationJunctionPart implements Part {
@@ -293,6 +316,9 @@ export class RelationJunctionPart implements Part {
     for (const bulk of this.bulks) steps.push(bulk.read);
     for (const adopt of this.adopts) steps.push(adopt.probe);
     for (const create of this.creates) {
+      // X1c: a delegated fresh-create target plans its whole `CreateOperation` subtree
+      // (its before-parent writes / generated-PK probes) one level deeper.
+      if (create.delegated) steps.push(...create.delegated.planning(scope));
       for (const child of create.childParts)
         steps.push(...child.planning(scope));
     }
@@ -300,6 +326,9 @@ export class RelationJunctionPart implements Part {
       steps.push(upsert.membershipProbe, upsert.globalProbe);
       // Both arms' child Parts plan unconditionally (a superset); `compile` emits
       // only the taken arm's writes (technique 2), exactly as the arm decision itself.
+      if (upsert.createDelegated) {
+        steps.push(...upsert.createDelegated.planning(scope));
+      }
       for (const child of upsert.createChildParts) {
         steps.push(...child.planning(scope));
       }
@@ -525,6 +554,19 @@ export class RelationJunctionPart implements Part {
   ): readonly OperationStep[] {
     const steps: OperationStep[] = [];
     for (const slot of this.creates) {
+      if (slot.delegated) {
+        // X1c: the fresh target's create delegates to `CreateOperation` (a parent-held
+        // to-one folds into its OWN INSERT). The subtree — its before-parent writes then
+        // the target INSERT — runs FIRST so the target exists before the join row.
+        steps.push(...slot.delegated.compile(scope, known));
+        steps.push(
+          this.junctionWrite(slot.joinId, "junctionInsert", {
+            parentValue: parent,
+            targetValue: slot.createPk,
+          })
+        );
+        continue;
+      }
       steps.push(this.childInsert(slot.childId, slot.create));
       steps.push(
         this.junctionWrite(slot.joinId, "junctionInsert", {
@@ -635,6 +677,14 @@ export class RelationJunctionPart implements Part {
         );
       }
       created.add(pkKey(slot.createPk));
+      if (slot.createDelegated) {
+        // X1c: the fresh create-arm target delegates its whole create to
+        // `CreateOperation` (a parent-held to-one folds into its OWN INSERT); the
+        // subtree runs BEFORE the join so the target exists first.
+        steps.push(...slot.createDelegated.compile(scope, known));
+        steps.push(this.joinInsert(slot.joinId, parent, slot.createPk));
+        continue;
+      }
       steps.push(
         this.childInsert(slot.childId, slot.create, slot.where),
         this.joinInsert(slot.joinId, parent, slot.createPk)
@@ -742,6 +792,7 @@ export class RelationJunctionPart implements Part {
       childId: scope.allocate(`${childName}.create`),
       joinId: scope.allocate(`${childName}.junction.insert`),
       childParts: this.config.createChildParts?.[index] ?? [],
+      delegated: this.config.createDelegated?.[index],
     };
   }
 
@@ -798,6 +849,7 @@ export class RelationJunctionPart implements Part {
       joinId: scope.allocate(`${childName}.junction.insert`),
       createChildParts: this.config.upsertCreateChildParts?.[index] ?? [],
       updateChildParts: this.config.upsertUpdateChildParts?.[index] ?? [],
+      createDelegated: this.config.upsertCreateDelegated?.[index],
       // Two widened probes (technique #2): whether the target is a member of this
       // parent (correlated by a SQL Ref) AND whether it exists globally. `compile`
       // decides member / exists-not-member / absent from both.
@@ -1304,6 +1356,68 @@ export function buildJunctionParts(input: {
     }
     return pk;
   };
+  // X1c — a junction target whose data carries the parent-held to-one projection (or a
+  // D4 edge) is not folded in place; its WHOLE target write delegates to the update /
+  // create ROOT. An UPDATE target (located by its `where` PK, membership verified by the
+  // junction slot's own probe/guard) delegates to `UpdateOperation`, returned as an empty
+  // scalar + the delegated Part in child Parts (the slot skips its empty self-UPDATE). A
+  // CREATE target (a fresh row, its parent-held FK folded into its OWN INSERT — X1b's
+  // fresh mechanism) delegates to `CreateOperation`, carried as `delegated` so the slot
+  // skips its `childInsert`.
+  const foldOrDelegateUpdate = (
+    data: Record<string, unknown>,
+    where: Record<string, unknown>
+  ): { scalar: Record<string, unknown>; childParts: readonly Part[] } => {
+    if (!targetNeedsFullUpdate(childScope, data)) {
+      return foldTarget(data, () => requireWherePk(where, "update"));
+    }
+    return {
+      scalar: {},
+      childParts: [
+        buildNestedTargetUpdatePart({
+          scope,
+          engine,
+          targetModel: relationInfo.targetModel,
+          data,
+          locate: {
+            where,
+            parentId: literalParentId(requireWherePk(where, "update")),
+            childFields: [],
+            parentFields: [],
+            relationName,
+            notFoundMessage: relationTargetNotFound(relationInfo, "update"),
+          },
+        }),
+      ],
+    };
+  };
+  const foldOrDelegateCreate = (
+    create: Record<string, unknown>
+  ): {
+    scalar: Record<string, unknown>;
+    childParts: readonly Part[];
+    delegated: Part | undefined;
+  } => {
+    if (!targetNeedsFullUpdate(childScope, create)) {
+      const folded = foldTarget(create, () =>
+        requireCreatePkValue(create, "create")
+      );
+      return { ...folded, delegated: undefined };
+    }
+    // Validate the fresh target's PK is present (a delegated create still keys the join
+    // row by the literal PK; an auto-generated identity routes to V1, as scalar does).
+    requireCreatePkValue(create, "create");
+    return {
+      scalar: separateData(childScope, create).scalarData,
+      childParts: [],
+      delegated: buildNestedTargetFreshCreatePart({
+        scope,
+        engine,
+        targetModel: relationInfo.targetModel,
+        data: create,
+      }),
+    };
+  };
   const parts: RelationJunctionPart[] = [];
   // A stable, V1-mirroring kind order: adopt/link first, then set, then the
   // correlated writes, then removals — every kind independent (the own-write
@@ -1399,7 +1513,7 @@ export function buildJunctionParts(input: {
         // relations one level deeper against its located (literal `where`) PK; a
         // scalar-only target keeps its empty child Parts (the pre-T3b-2 behavior).
         const folded = items.map((item, index) =>
-          foldTarget(item.data, () => requireWherePk(wheres[index]!, "update"))
+          foldOrDelegateUpdate(item.data, wheres[index]!)
         );
         parts.push(
           new RelationJunctionPart(scope, {
@@ -1436,11 +1550,8 @@ export function buildJunctionParts(input: {
         // in the create data fold one level deeper against the fresh target's
         // explicit literal PK, emitted after its INSERT + join (fresh-parent elision,
         // ATOM §4); a scalar-only create keeps its empty child Parts.
-        const folded = normalizeCreates(
-          parsedRelation.create,
-          relationName
-        ).map((create) =>
-          foldTarget(create, () => requireCreatePkValue(create, "create"))
+        const folded = normalizeCreates(parsedRelation.create, relationName).map(
+          (create) => foldOrDelegateCreate(create)
         );
         parts.push(
           new RelationJunctionPart(scope, {
@@ -1448,6 +1559,7 @@ export function buildJunctionParts(input: {
             kind: "create",
             creates: folded.map((f) => f.scalar),
             createChildParts: folded.map((f) => f.childParts),
+            createDelegated: folded.map((f) => f.delegated),
           })
         );
         break;
@@ -1475,14 +1587,10 @@ export function buildJunctionParts(input: {
         // Each arm's child Parts are emitted branch-specifically by `compileUpsert`.
         const items = normalizeUpserts(parsedRelation.upsert, relationName);
         const foldedCreates = items.map((item) =>
-          foldTarget(item.create, () =>
-            requireCreatePkValue(item.create, "upsert create")
-          )
+          foldOrDelegateCreate(item.create)
         );
         const foldedUpdates = items.map((item) =>
-          foldTarget(item.update, () =>
-            requireWherePk(item.where, "upsert update")
-          )
+          foldOrDelegateUpdate(item.update, item.where)
         );
         parts.push(
           new RelationJunctionPart(scope, {
@@ -1495,6 +1603,7 @@ export function buildJunctionParts(input: {
             })),
             upsertCreateChildParts: foldedCreates.map((f) => f.childParts),
             upsertUpdateChildParts: foldedUpdates.map((f) => f.childParts),
+            upsertCreateDelegated: foldedCreates.map((f) => f.delegated),
           })
         );
         break;

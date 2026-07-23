@@ -586,6 +586,29 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   // raise the create root's OWN already-counted refusal (an M2M `upsert` under create, a compound
   // child edge, …) — one home for the create tree, the SEMANTIC refusals byte-identical at depth.
   // See PLAN "X1b" and ATOM §8.1.
+  //
+  // 78 -> 76 (X1c — NO ENGINE DEPTH LIMIT, the FINAL boundary: the located-UPDATE-target
+  // projection of mechanisms 1/2 LIFTED). The two retained `nested-target-parts.ts`
+  // throws — a nested UPDATE target whose data carries a parent-held to-one write
+  // (child-SET folding: the deeper target's identity folded into the located target's OWN
+  // update SET) or a non-PK / compound referenced edge (D4) — are DELETED (-2). The whole
+  // located target's update now delegates to an `UpdateOperation` `nestedTarget` sub-op
+  // (the update-root analogue of X1b's `nestedFresh` create-root reuse): a shared
+  // `StepScope`, no whole-args re-parse, no terminal read, and a CORRELATED locate
+  // (`child.<fk> = parent.<referenced>`, technique #1, the cross-parent membership check
+  // the located-target leaf enforced) so a wrong-parent selector still yields V1's verbatim
+  // `Cannot update relation … for this parent`. Every mechanism the update root already
+  // carries falls out at any depth: a parent-held to-one before-root write folded into the
+  // SET, a generated / D4 referenced identity threaded from the located row, the
+  // PK-transition reorder. Delegated at ALL THREE callers — the child-held leaf
+  // (`buildToManyUpdateParts` / `buildToOneUpdatePart`), the parent-held A-remainder
+  // (`tryDelegateParentHeldUpdate`), and the m2m junction (`buildJunctionParts`'
+  // update / create / upsert arms, the fresh create arm reusing `CreateOperation`
+  // `nestedFresh`) — so the two `foldOneNestedRelation` branches are unreachable by
+  // construction and become fail-closed `QueryEngineError` internal invariants (NOT
+  // `UnsupportedOperationError` routes; they carry no reachable behavior). No new route
+  // site: the delegated sub-ops raise the update/create ROOT's OWN already-counted
+  // refusals at depth. See PLAN "X1c" and ATOM §8.1.
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
@@ -596,7 +619,7 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
       const source = await readFile(join(dir, file), "utf8");
       sites += source.split("new UnsupportedOperationError(").length - 1;
     }
-    expect(sites).toBe(78);
+    expect(sites).toBe(76);
   });
 });
 

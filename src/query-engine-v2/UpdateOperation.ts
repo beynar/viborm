@@ -62,6 +62,8 @@ import {
   buildLiteralParentCreateManyPart,
   buildLiteralParentCreatePart,
   buildNestedTargetChildParts,
+  buildNestedTargetUpdatePart,
+  targetNeedsFullUpdate,
 } from "./nested-target-parts";
 import {
   type OperationFragment,
@@ -1929,11 +1931,27 @@ export class UpdateOperation {
           )
         );
         return;
-      case "update":
+      case "update": {
+        // X1c: a parent-held to-one UPDATE target whose own data carries the
+        // located-target projection of mechanism 1/2 (a deeper parent-held to-one —
+        // child-SET folding on the referenced row — or a D4 edge) delegates its WHOLE
+        // update to the update root, correlated to THIS parent by `child.<referenced> =
+        // parent.<fk>`. The remaining A-remainder shapes keep the in-place fold.
+        const delegated = this.tryDelegateParentHeldUpdate(
+          input,
+          relationName,
+          relationInfo,
+          fk
+        );
+        if (delegated) {
+          input.childParts.push(delegated);
+          return;
+        }
         input.parentHeldTargets.push(
           this.interpretParentHeldUpdate(input, relationName, relationInfo, fk)
         );
         return;
+      }
       case "delete":
         input.parentHeldTargets.push(
           this.interpretParentHeldDelete(input, relationName, relationInfo, fk)
@@ -1951,6 +1969,48 @@ export class UpdateOperation {
           `query-engine-v2 update does not support '${kind}' on the parent-held to-one relation '${relationName}'.`
         );
     }
+  }
+
+  /**
+   * X1c — a parent-held to-one UPDATE target whose OWN data carries the located-target
+   * projection of mechanism 1/2 delegates its whole update to an {@link UpdateOperation}
+   * nested-target sub-op, correlated to THIS parent by `child.<referenced> = parent.<fk>`
+   * (the referenced-row locator the A-remainder fold uses). The parent's FK columns are
+   * added to `parentFkLocateFields` so the locate exposes them for the correlation `Ref`
+   * (technique #1). Relation-key legality forbids the same update rebinding its FK while
+   * mutating this relation, so the located FK value is the correct correlation target.
+   * Returns `undefined` when the target keeps the in-place A-remainder fold.
+   */
+  private tryDelegateParentHeldUpdate(
+    input: Parameters<UpdateOperation["interpretRelation"]>[0],
+    relationName: string,
+    relationInfo: RelationInfo,
+    fk: FkDirection
+  ): Part | undefined {
+    const childScope = createQueryScope(
+      this.engine.adapter,
+      relationInfo.targetModel
+    );
+    const data = normalizeSingle(
+      input.parsedRelation.update,
+      relationName,
+      "update"
+    );
+    if (!targetNeedsFullUpdate(childScope, data)) return undefined;
+    for (const field of fk.fkFields) input.parentFkLocateFields.add(field);
+    return buildNestedTargetUpdatePart({
+      scope: input.scope,
+      engine: this.engine,
+      targetModel: relationInfo.targetModel,
+      data,
+      locate: {
+        parentId: input.parentIdSource,
+        childFields: fk.pkFields,
+        parentFields: fk.fkFields,
+        relationName,
+        notFoundMessage: relationTargetNotFound(relationInfo, "update"),
+      },
+    });
   }
 
   /**

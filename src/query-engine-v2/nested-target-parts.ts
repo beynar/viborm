@@ -192,6 +192,35 @@ export function buildNestedTargetUpdatePart(input: {
   return new NestedTargetUpdatePart(op);
 }
 
+/**
+ * X1c — a FRESH m2m junction target whose create data carries the parent-held to-one
+ * projection (child-SET folding on a fresh row — the FK folds into the target's OWN
+ * INSERT, X1b's fresh mechanism) delegates its whole create to {@link CreateOperation}
+ * `nestedFresh`. The junction target holds NO foreign key to the enclosing parent (its
+ * membership is the join row, written by the junction Part), so the root FK inject is
+ * empty — the create subtree is a standalone row keyed by its explicit literal PK, the
+ * same PK the junction row references. Reuses the create ROOT for the whole fresh
+ * subtree exactly as the located-update reuse does for the update root.
+ */
+export function buildNestedTargetFreshCreatePart(input: {
+  scope: StepScope;
+  engine: QueryEngine;
+  targetModel: Model<any>;
+  data: Record<string, unknown>;
+}): Part {
+  const op = new CreateOperation(
+    input.engine,
+    input.targetModel,
+    {},
+    {
+      scope: input.scope,
+      skipOwnWrite: true,
+      nestedFresh: { data: input.data, rootFkInject: () => ({}) },
+    }
+  );
+  return new NestedFreshCreatePart(op);
+}
+
 function foldOneNestedRelation(input: {
   scope: StepScope;
   engine: QueryEngine;
@@ -258,17 +287,16 @@ function foldOneNestedRelation(input: {
 
   const fk = getFkDirection(targetScope, relationInfo);
   if (fk.holdsFK) {
-    // X1b BOUNDARY-STOP (the located-target parent-held-to-one, child-SET folding). The
-    // LOCATED target (an existing row being UPDATEd) holds this FK — writing a deeper
-    // parent-held to-one would create the target before the located row and fold the FK
-    // into the located row's own UPDATE SET. X1b lifted the FRESH projection of this
-    // mechanism (a parent-held-to-one grandchild of a fresh CREATE, via the create-root
-    // reuse — see `buildNestedFreshCreateParts`), but the located-UPDATE projection is a
-    // distinct dataflow: the target is an UPDATE (child-SET folding), not a create
-    // (INSERT-column folding), needing an analogous UpdateOperation reuse — an X1c
-    // follow-up, not a depth counter. No family-B/A-remainder census shape reaches it.
-    throw new UnsupportedOperationError(
-      `query-engine-v2 update does not support a nested parent-held to-one write on relation '${relationName}' one level deeper.`
+    // X1c LIFTED (the located-target parent-held-to-one, child-SET folding). A located
+    // target that holds this FK — a deeper parent-held to-one whose identity folds into
+    // the target's OWN update SET — no longer reaches this in-place child-Part builder:
+    // {@link targetNeedsFullUpdate} routes the WHOLE target to `UpdateOperation`
+    // ({@link buildNestedTargetUpdatePart}) at EVERY caller (the child-held leaf, the
+    // parent-held A-remainder, the m2m junction), so the target's SET absorbs the fold at
+    // the update root, one architecture, at any depth. This branch is therefore
+    // unreachable by construction — a fail-closed internal invariant, not a route.
+    throw new QueryEngineError(
+      `query-engine-v2 internal: a parent-held to-one on relation '${relationName}' reached the in-place child-Part builder; it must delegate to the update root (targetNeedsFullUpdate).`
     );
   }
 
@@ -279,23 +307,23 @@ function foldOneNestedRelation(input: {
     );
   }
 
-  // T3b-2 (named reorder obligation, TO-ONE.md §7.7) / X1b BOUNDARY-STOP: the deeper FK
-  // must reference the located target's OWN single primary key. The literal/planned parent
-  // id carries the target's PK per-field, so a **D4-style deeper edge referencing a non-PK
-  // unique of the located target** would be mis-injected with the PK value AND would miss
-  // the PK-only reorder check. This is the LOCATED-target D4 projection: it needs the
-  // located row's non-PK referenced column threaded (an X1c UpdateOperation-reuse concern,
-  // like the parent-held case above), distinct from the FRESH-child generated/compound PK
-  // X1b lifted through the create root. No absorbed census key reaches it (every deeper
-  // edge references the target PK). Witness: nested-update-d4-deep-nonpk-reference.test.ts.
+  // X1c LIFTED (the located-target D4 projection): the deeper FK must reference the
+  // located target's OWN single primary key. A **D4-style deeper edge referencing a
+  // non-PK unique of the located target** needs the located row's non-PK referenced
+  // column threaded from a locate read — which the update root exposes via `locateFields`
+  // firstRowField outputs. {@link targetNeedsFullUpdate} routes any such target's WHOLE
+  // update to `UpdateOperation`, so this in-place builder never sees a non-PK reference;
+  // the branch is a fail-closed internal invariant, not a route. (Witness:
+  // nested-update-d4-deep-nonpk-reference.test.ts — the create-arm non-PK reference is the
+  // update root's own family-E boundary, byte-identical at depth.)
   const targetPrimaryKeys = getPrimaryKeyFields(targetScope.model);
   const referencesTargetPk =
     targetPrimaryKeys.length === 1 &&
     fk.pkFields.length === 1 &&
     fk.pkFields[0] === targetPrimaryKeys[0];
   if (!referencesTargetPk) {
-    throw new UnsupportedOperationError(
-      `query-engine-v2 update does not support a nested relation on '${relationName}' whose foreign key references a non-primary-key column of the target one level deeper.`
+    throw new QueryEngineError(
+      `query-engine-v2 internal: a non-primary-key referenced edge on relation '${relationName}' reached the in-place child-Part builder; it must delegate to the update root (targetNeedsFullUpdate).`
     );
   }
 
