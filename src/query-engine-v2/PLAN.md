@@ -1384,27 +1384,39 @@ operation name + its own dead `isRecord(result.value)` re-check). It raises V1's
 reach. Census **90 → 89** (only `CreateManyOperation`'s post threw
 `UnsupportedOperationError`).
 
-**Deliverable 2 — the deletion (census 89 → 82, net −7, NO route removed).** Every deleted site
+**Deliverable 2 — the deletion (census 89 → 84, net −5, NO route removed).** Every deleted site
 is unreachable at runtime; its pre-P6 "route to V1" disposition is moot (no conformance shape
-reaches it). The seven: the four pre-validate KEY GATES
+reaches it). The five: THREE pre-validate KEY GATES
 (`assertCreateKeys`/`assertDeleteKeys`/`assertUpdateKeys` — each shadowed by the whole-args
-`parseValidated` that ran right after it; `assertUpsertKeys` — upsert had NO whole-args parse,
-so X2 added `parseValidated(parentSchemas.args.upsert, …)` as its one home, the update arm's
-DEEP legality still deferred via `deferArmLegality`); the two `requireRecord` shape helpers those
-parses made dead (delete, upsert); and the dead-CAPABILITY guard `RelationJunctionPart`'s
-`!input.nestedBuilder` (T3b-2 threads `nestedBuilder` at all three callers, so X2 made its type
-non-optional and tsc proves the throw unconstructible; the `foldKind` param that fed only it went
-too). **The one authorized behavior change:** a malformed top-level payload now raises the
-schema's precise per-key `ValidationError` instead of the gate's coarse
-`UnsupportedOperationError`. No estate test pinned the old class (verified — the suite never fed
-a malformed top-level payload); the upsert one-home change is dual-run-oracle byte-identical.
+`parseValidated` that runs right after it); `DeleteOperation.requireRecord` (its
+`args.delete` parse makes the object-shape check dead); and the dead-CAPABILITY guard
+`RelationJunctionPart`'s `!input.nestedBuilder` (T3b-2 threads `nestedBuilder` at all three
+callers, so X2 made its type non-optional and tsc proves the throw unconstructible; the
+`foldKind` param that fed only it went too). **The one authorized behavior change:** a malformed
+top-level create/update/delete payload now raises the schema's precise per-key `ValidationError`
+instead of the gate's coarse `UnsupportedOperationError`. No estate test pinned the old class
+(verified — the suite never fed a malformed top-level payload).
+
+**The fourth key gate is a CONFLICT (`assertUpsertKeys` + upsert's `requireRecord`, KEPT).**
+Upsert is the one write op with NO whole-args parse: its create/update arms are delegated to
+`CreateOperation`/`UpdateOperation` sub-ops that re-parse the RAW payload FRESH. An attempt to add
+`parseValidated(parentSchemas.args.upsert, …)` (which would subsume the key gate) regressed the
+estate: the delegated arms then received the schema's transformed OUTPUT and re-parsed it, and a
+non-idempotent transform failed (`tests/query-engine/nested-create-many.test.ts` upsert-update
+branch: `ValidationError … for update: Expected string`); separately, validating the whole
+`args.upsert` upfront validates the UNTAKEN update arm's structure, which `deferArmLegality`
+deliberately forbids ("an invalid untaken update branch must not reject the whole tree"). Both are
+observable changes beyond the authorized error-class improvement, so the change was REVERTED and
+upsert keeps its key gate + requireRecord. Clean removal needs the delegated sub-ops to accept a
+pre-parsed payload (skip their re-parse) — bundled with the narrowing-refactor follow-up.
 
 **Deliverable 4 — the gate** (`parse-boundary-gate.test.ts`, in `test:gates`). Five falsified
-assertions: `parseValidated` and the whole-tree cast live in one home; each write op validates
-its whole args through the boundary (delete the upsert parse → fails); no `assert*Keys` /
-`arguments require` pre-validate gate returns (re-add `assertUpsertKeys` → fails); and a growth
-RATCHET on the shape-check surface (payload `as Record<string, unknown>` + `requires a … object`
-throws may only shrink → add one → fails).
+assertions: `parseValidated` and the whole-tree cast live in one home; create/update/delete each
+validate their whole args through the boundary (delete the `args.delete` parse → fails); the
+three deleted key gates stay deleted and `assertUpsertKeys` is the lone surviving exception
+(re-add `assertCreateKeys` → two key gates, fails); and a growth RATCHET on the shape-check
+surface (payload `as Record<string, unknown>` + `requires a … object` throws may only shrink →
+add one → fails).
 
 **The honest residue (deliverable 2 scope boundary).** The remaining
 `requireRecord`/`normalizeSingle`/`normalizeItems`/`isRecord` narrowings on payload paths are

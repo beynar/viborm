@@ -12,17 +12,19 @@ import { describe, expect, it } from "vitest";
  *
  *  1. ONE HOME (positive). `parseValidated` is defined exactly once (parse-boundary.ts),
  *     the lone whole-tree `as InferOutput` cast — the only assertion inference cannot
- *     reach — lives only there, and each single-record write operation
- *     (create/update/delete/upsert) validates its WHOLE args through it
- *     (`parseValidated(parentSchemas.args.<op>, …)`). Deleting a write op's whole-args
- *     parse — the exact gap X2 closed for `upsert`, which had none — fails here.
+ *     reach — lives only there, and each of the three single-record write operations that
+ *     CAN (create/update/delete) validates its WHOLE args through it
+ *     (`parseValidated(parentSchemas.args.<op>, …)`). Deleting one of those parses fails
+ *     here. (`upsert` is the documented exception — see (2).)
  *
- *  2. NO PRE-VALIDATE KEY GATE (negative). The four `assert*Keys` gates X2 deleted
- *     duplicated the schemas' strict + `atLeast` checks AND ran BEFORE validate(),
- *     degrading a precise per-key `ValidationError` into a coarse
- *     `UnsupportedOperationError`. No such gate may return: no `assert*Keys` function, no
- *     `… arguments require … (optional …` pre-validate message. Re-adding
- *     `assertUpsertKeys` fails here.
+ *  2. THE THREE DELETED KEY GATES STAY DELETED (negative). X2 deleted `assertCreateKeys`,
+ *     `assertDeleteKeys`, `assertUpdateKeys` — each duplicated the schemas' strict +
+ *     `atLeast` checks AND ran BEFORE its whole-args validate(), degrading a precise
+ *     per-key `ValidationError` into a coarse `UnsupportedOperationError`. Re-adding any of
+ *     the three fails here. `assertUpsertKeys` is the ONE surviving key gate — kept
+ *     deliberately (X2 conflict): upsert has no whole-args parse (its delegated arms
+ *     re-parse the RAW payload, and the update arm's structure must stay deferred), so it
+ *     remains upsert's front line. The gate pins EXACTLY that one, in `UpsertOperation.ts`.
  *
  *  3. RATCHET (growth fails). The in-engine shape-check surface — payload
  *     `as Record<string, unknown>` narrowings and `requires a … object` / `must be an
@@ -34,9 +36,9 @@ import { describe, expect, it } from "vitest";
  *     re-introduces a re-validation branch (a new requireRecord throw, a new payload cast)
  *     trips this gate, while the deferred refactor is free to reduce it.
  *
- * Falsified: (1) delete `parseValidated(parentSchemas.args.upsert, …)` -> test 2 fails;
- * (2) re-add `function assertUpsertKeys` -> test 3 fails; (3) add one payload
- * `as Record<string, unknown>` -> the count exceeds the ceiling -> test 4 fails.
+ * Falsified: (1) delete `parseValidated(parentSchemas.args.delete, …)` -> test 2 fails;
+ * (2) re-add `function assertCreateKeys` -> test 3 fails (two key gates, not one); (3) add
+ * one payload `as Record<string, unknown>` -> the count exceeds the ceiling -> test 4 fails.
  */
 
 const ENGINE = join(
@@ -61,24 +63,30 @@ function countAll(pattern: RegExp): number {
   return total;
 }
 
-// The single-record write operations and the operation-name segment of the args schema
-// each must validate its whole payload against (`parentSchemas.args.<op>`).
+// The single-record write ops that validate their whole payload through the boundary
+// (`parentSchemas.args.<op>`). `upsert` is deliberately absent — its delegated arms
+// re-parse the raw payload and its update arm's structure stays deferred (see (2)).
 const WHOLE_ARGS_WRITE_OPS = [
   ["CreateOperation.ts", "create"],
   ["UpdateOperation.ts", "update"],
   ["DeleteOperation.ts", "delete"],
-  ["UpsertOperation.ts", "upsert"],
+] as const;
+
+// The three key gates X2 deleted; `assertUpsertKeys` is the surviving exception.
+const DELETED_KEY_GATES = [
+  "assertCreateKeys",
+  "assertDeleteKeys",
+  "assertUpdateKeys",
 ] as const;
 
 // X2's measured shape-check surface (comments included — a stable, greppable ceiling).
 // These may only shrink; growth is a re-introduced re-validation branch.
 const MAX_PAYLOAD_RECORD_CASTS = 38;
-const MAX_SHAPE_THROW_MESSAGES = 22;
+const MAX_SHAPE_THROW_MESSAGES = 23;
 
 const PARSE_VALIDATED_DEF = /export function parseValidated\b/;
 const INFER_OUTPUT_CAST = /as InferOutput\b/;
 const KEY_GATE_FUNCTION = /function assert\w*Keys\b/;
-const KEY_GATE_MESSAGE = /arguments require .+\(optional/;
 const PAYLOAD_RECORD_CAST = /as Record<string, unknown>/g;
 const SHAPE_THROW_MESSAGE = /requires an? [^`"']*object|must be an object/g;
 
@@ -95,7 +103,7 @@ describe("query-engine-v2 parse-boundary gate (X2 — one home for validation)",
     expect(casters).toEqual([BOUNDARY]);
   });
 
-  it("(2) each single-record write op validates its whole args through the boundary", () => {
+  it("(2) create/update/delete validate their whole args through the boundary", () => {
     const unwired = WHOLE_ARGS_WRITE_OPS.filter(([file, op]) => {
       const wholeArgsParse = new RegExp(
         `parseValidated\\(\\s*parentSchemas\\.args\\.${op}\\b`
@@ -105,12 +113,17 @@ describe("query-engine-v2 parse-boundary gate (X2 — one home for validation)",
     expect(unwired).toEqual([]);
   });
 
-  it("(3) no pre-validate key gate returns (assert*Keys / 'arguments require' message)", () => {
-    const offenders = engineFiles().filter((file) => {
-      const source = read(file);
-      return KEY_GATE_FUNCTION.test(source) || KEY_GATE_MESSAGE.test(source);
-    });
-    expect(offenders).toEqual([]);
+  it("(3) the three deleted key gates stay deleted; assertUpsertKeys is the lone exception", () => {
+    // The only surviving `assert*Keys` is upsert's (the documented conflict).
+    const keyGateFiles = engineFiles().filter((file) =>
+      KEY_GATE_FUNCTION.test(read(file))
+    );
+    expect(keyGateFiles).toEqual(["UpsertOperation.ts"]);
+    // None of the three deleted gates may reappear anywhere.
+    const revived = DELETED_KEY_GATES.filter((gate) =>
+      engineFiles().some((file) => read(file).includes(`function ${gate}`))
+    );
+    expect(revived).toEqual([]);
   });
 
   it("(4) the in-engine shape-check surface may only shrink (X2 ratchet)", () => {

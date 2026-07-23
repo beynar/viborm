@@ -525,31 +525,34 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   // an object argument"); the other four threw `QueryEngineError` (never in this census). Net
   // -1. No route removed. See PLAN "X2 — one home for validation" and ATOM §8.1.
   //
-  // 89 -> 82 (X2 deliverable 2, THE DELETION — dead guards that throw
-  // `UnsupportedOperationError`): net -7, and NO route was removed — every deleted site
-  // is a re-validation branch the schema layer already shadows, or a capability guard the
-  // type system now makes structurally impossible. Each is unreachable at RUNTIME, so its
+  // 89 -> 84 (X2 deliverable 2, THE DELETION — dead guards that throw
+  // `UnsupportedOperationError`): net -5, and NO route was removed — every deleted site is a
+  // re-validation branch the schema layer already shadows, or a capability guard the type
+  // system now makes structurally impossible. Each is unreachable at RUNTIME, so its
   // disposition (a route to V1, in the pre-P6 world) is moot: no conformance shape reaches
-  // it. The seven:
-  //   (1-4) THE FOUR PRE-VALIDATE KEY GATES — `assertCreateKeys`, `assertDeleteKeys`,
-  //         `assertUpdateKeys` (each shadowed by the whole-args `parseValidated` that runs
+  // it. The five:
+  //   (1-3) THREE PRE-VALIDATE KEY GATES — `assertCreateKeys`, `assertDeleteKeys`,
+  //         `assertUpdateKeys` — each shadowed by the whole-args `parseValidated` that runs
   //         right after it: strict mode + `atLeast` reject the SAME unknown-key / missing-
   //         required-key payloads, with a precise per-key `ValidationError` instead of the
-  //         gate's coarse `UnsupportedOperationError`), and `assertUpsertKeys` (upsert had
-  //         NO whole-args parse — X2 added `parseValidated(args.upsert)` as its one home,
-  //         which subsumes the key gate; the update arm's DEEP legality stays deferred via
-  //         `deferArmLegality`, so behavior is byte-identical — dual-run oracle verified).
-  //         Authorized error-class change: a malformed top-level payload now raises the
-  //         schema's `ValidationError`, not the gate's `UnsupportedOperationError`. No test
-  //         pinned the old class (the estate never fed a malformed top-level payload).
-  //   (5)   `DeleteOperation.requireRecord` and (6) `UpsertOperation.requireRecord` — the
-  //         local `'... must be an object'` shape helpers, dead once the whole-args parse
-  //         (delete: `args.delete`; upsert: `args.upsert`) guarantees the object shape.
-  //   (7)   THE DEAD-CAPABILITY GUARD — `RelationJunctionPart`'s `!input.nestedBuilder`
+  //         gate's coarse `UnsupportedOperationError`. Authorized error-class change: a
+  //         malformed top-level create/update/delete payload now raises the schema's
+  //         `ValidationError`, not the gate's `UnsupportedOperationError`. No test pinned the
+  //         old class (the estate never fed a malformed top-level payload).
+  //   (4)   `DeleteOperation.requireRecord` — the local `'... must be an object'` shape
+  //         helper, dead once the whole-args `args.delete` parse guarantees the object shape.
+  //   (5)   THE DEAD-CAPABILITY GUARD — `RelationJunctionPart`'s `!input.nestedBuilder`
   //         throw. T3b-2 threads `nestedBuilder` at all three `buildJunctionParts` callers;
   //         X2 made its type non-optional, so `!input.nestedBuilder` is unconstructible and
   //         tsc proves no caller can fall back to the scalar-only boundary. The `foldKind`
   //         param that fed only this throw was removed too.
+  // `assertUpsertKeys` + `UpsertOperation.requireRecord` are the FOURTH-key-gate exception,
+  // KEPT deliberately (X2 conflict): upsert has no whole-args parse — its create/update arms
+  // are delegated to CreateOperation/UpdateOperation sub-ops that re-parse the RAW payload
+  // fresh, so a whole-args `parseValidated(args.upsert)` both (a) feeds the arms a transformed
+  // OUTPUT the sub-op then re-parses (regressed `nested-create-many`: "Expected string" on a
+  // non-idempotent transform) AND (b) validates the UNTAKEN update arm's structure upfront,
+  // which `deferArmLegality` deliberately forbids. Kept; see PLAN "X2".
   // The remaining requireRecord / normalizeSingle / normalizeItems / isRecord narrowings on
   // payload paths are runtime-unreachable too, but they are `unknown -> Record` TYPE
   // narrowings (dynamic `data[relationName]` / `spec.create` widen to `unknown`); removing
@@ -567,7 +570,7 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
       const source = await readFile(join(dir, file), "utf8");
       sites += source.split("new UnsupportedOperationError(").length - 1;
     }
-    expect(sites).toBe(82);
+    expect(sites).toBe(84);
   });
 });
 

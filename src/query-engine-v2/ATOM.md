@@ -45,6 +45,8 @@ the enforced instance: the single typed parse seam, returning the schema's `Infe
 carrying the ONLY `as` the engine needs (after the schema has proven the shape). A new
 per-file copy of a seam helper is a regression — `parse-boundary-gate.test.ts` pins
 `parseValidated` (and its whole-tree cast) to one home and fails loudly if a copy reappears.
+The one deliberate exception, `assertUpsertKeys`, is documented in §8.1 (X2): upsert's
+delegated arms re-parse the RAW payload, so it cannot flow through a single whole-args parse.
 
 ---
 
@@ -1522,20 +1524,25 @@ makes that the *single, typed* seam and removes the defensive re-validation that
 `ValidationError` and returns the schema's INFERRED output type instead of erasing it to
 `Record<string, unknown>`; its lone `as InferOutput<S>` — after the issues guard has proven
 the shape — is the ONLY assertion inference cannot reach, and the parse-boundary gate pins it
-as the only one in the engine. (b) **The dead guards deleted** (deliverable 2, census 89 → 82,
-net −7, NO route removed): the four pre-validate key gates
-(`assertCreateKeys`/`assertDeleteKeys`/`assertUpdateKeys`/`assertUpsertKeys`) each duplicated
-the schemas' strict + `atLeast` checks and ran BEFORE `validate()`, degrading a precise
-per-key `ValidationError` into a coarse `UnsupportedOperationError`; three were shadowed by the
-whole-args parse that ran right after them, and `upsert` — which had NO whole-args parse — got
-one (`parseValidated(parentSchemas.args.upsert, …)` is upsert's one home; the update arm's DEEP
-legality stays deferred via `deferArmLegality`, so the dual-run oracle stays byte-identical).
-Also the two `requireRecord` shape helpers those parses made dead (delete, upsert), and the
-dead-CAPABILITY guard `RelationJunctionPart`'s `!input.nestedBuilder` — T3b-2 threads
-`nestedBuilder` at all three `buildJunctionParts` callers, so X2 made its type non-optional and
-tsc proves the throw unconstructible. Authorized error-class change (the ONLY behavior change):
-a malformed top-level payload now raises the schema's `ValidationError`, not the gate's
-`UnsupportedOperationError`; no estate test pinned the old class. (c) **The honest residue.**
+as the only one in the engine. (b) **The dead guards deleted** (deliverable 2, census 89 → 84,
+net −5, NO route removed): THREE pre-validate key gates
+(`assertCreateKeys`/`assertDeleteKeys`/`assertUpdateKeys`) each duplicated the schemas'
+strict + `atLeast` checks and ran BEFORE the whole-args parse that shadows them, degrading a
+precise per-key `ValidationError` into a coarse `UnsupportedOperationError`; `DeleteOperation`'s
+`requireRecord` shape helper that its `args.delete` parse made dead; and the dead-CAPABILITY
+guard `RelationJunctionPart`'s `!input.nestedBuilder` — T3b-2 threads `nestedBuilder` at all
+three `buildJunctionParts` callers, so X2 made its type non-optional and tsc proves the throw
+unconstructible (the `foldKind` param that fed only it went too). Authorized error-class change
+(the ONLY behavior change): a malformed top-level create/update/delete payload now raises the
+schema's `ValidationError`, not the gate's `UnsupportedOperationError`; no estate test pinned the
+old class. **The fourth key gate, `assertUpsertKeys` (+ upsert's `requireRecord`), is KEPT — the
+one X2 conflict.** Upsert has no whole-args parse: its create/update arms are delegated to
+`CreateOperation`/`UpdateOperation` sub-ops that re-parse the RAW payload fresh, so a
+`parseValidated(args.upsert)` both feeds the arms the schema's transformed OUTPUT (which the
+sub-op re-parses — a non-idempotent transform regressed `nested-create-many`: "Expected string")
+AND validates the UNTAKEN update arm upfront, which `deferArmLegality` deliberately forbids.
+Clean removal needs the sub-ops to accept a pre-parsed payload — deferred with the narrowing
+residue. (c) **The honest residue.**
 The remaining `requireRecord`/`normalizeSingle`/`normalizeItems`/`isRecord` narrowings on
 payload paths are runtime-UNREACHABLE too (the whole-args parse already validated the tree),
 but they are `unknown -> Record` TYPE narrowings: a dynamic `data[relationName]` / `spec.create`
