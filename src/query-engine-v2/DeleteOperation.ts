@@ -95,7 +95,12 @@ export class DeleteOperation {
     this.parentPrimaryKeys = parentPrimaryKeys;
 
     const parentSchemas = engine.schemaRegistry.getModelSchemas(model);
-    const validated = parseValidated(parentSchemas.args.delete, args, "delete", "");
+    const validated = parseValidated(
+      parentSchemas.args.delete,
+      args,
+      "delete",
+      ""
+    );
     this.parentWhere = validated.where;
     // The projection: an explicit `select`, else the default scalar projection
     // (respecting `.omit()`). `include` rides alongside the default scalars —
@@ -103,7 +108,9 @@ export class DeleteOperation {
     // V1's default delete shape. An all-`.omit()` model with no include yields
     // undefined (the read builder + parser then produce `{}`, as ReadOperation
     // does), preserved here so a delete cannot leak an omitted column.
-    this.parsedInclude = isRecord(validated.include) ? validated.include : undefined;
+    this.parsedInclude = isRecord(validated.include)
+      ? validated.include
+      : undefined;
     this.parsedSelect = isRecord(validated.select)
       ? validated.select
       : defaultSelect(model);
