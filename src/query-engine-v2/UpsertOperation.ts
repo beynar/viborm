@@ -151,10 +151,26 @@ export class UpsertOperation {
     this.scope = new StepScope();
     const scope = this.scope;
 
-    assertUpsertKeys(args);
-    const where = requireRecord(args.where, "upsert.where");
-    const create = requireRecord(args.create, "upsert.create");
-    const update = requireRecord(args.update, "upsert.update");
+    // THE one home for upsert's legality (X2): the whole-args `args.upsert` schema is
+    // the front line — a missing where/create/update, an unknown top-level key, an
+    // unknown nested key, or a type mismatch surfaces V1's byte-identical
+    // ValidationError (there is no pre-validate key gate shadowing it into a coarser
+    // UnsupportedOperationError). where/create/update are present-and-objects by
+    // `atLeast: ["where","create","update"]` + their core sub-schemas, so they flow
+    // straight through as typed records. The update arm's DEEP legality (PK-arithmetic
+    // portability, relation-key-update compilability) stays deferred to the taken
+    // whenTrue branch (`deferArmLegality`) — only the schema structure is validated
+    // here, exactly as V1's shared validator validates the whole args before execution.
+    const parentSchemas = engine.schemaRegistry.getModelSchemas(model);
+    const validatedArgs = parseValidated(
+      parentSchemas.args.upsert,
+      args,
+      "upsert",
+      ""
+    );
+    const where: Record<string, unknown> = validatedArgs.where;
+    const create: Record<string, unknown> = validatedArgs.create;
+    const update: Record<string, unknown> = validatedArgs.update;
     this.rawCreate = create;
     this.rawUpdate = update;
     const parent = createQueryScope(engine.adapter, model);
@@ -189,7 +205,6 @@ export class UpsertOperation {
     // byte-identical and a missing-target upsert taking the create arm never does. No
     // decline needed; the shape is native.
 
-    const parentSchemas = engine.schemaRegistry.getModelSchemas(model);
     this.parentWhere = parseValidated(
       parentSchemas.core.whereUnique,
       where,
@@ -729,21 +744,4 @@ function defaultSelect(model: Model<any>): Record<string, unknown> {
   return Object.fromEntries(
     getDefaultScalarFieldNames(model).map((field: string) => [field, true])
   );
-}
-
-function assertUpsertKeys(value: Record<string, unknown>): void {
-  const required = ["where", "create", "update"] as const;
-  const optional = new Set(["select", "include", "targetWhere", "setWhere"]);
-  const allowed = new Set<string>([...required, ...optional]);
-  const unexpected = Object.keys(value).filter((key) => !allowed.has(key));
-  const missing = required.filter((key) => !Object.hasOwn(value, key));
-  if (unexpected.length === 0 && missing.length === 0) return;
-  throw new UnsupportedOperationError(
-    `upsert arguments require ${required.join(", ")} (optional select, include, targetWhere, setWhere); received ${Object.keys(value).join(", ") || "none"}.`
-  );
-}
-
-function requireRecord(value: unknown, label: string): Record<string, unknown> {
-  if (isRecord(value)) return value;
-  throw new UnsupportedOperationError(`'${label}' must be an object.`);
 }

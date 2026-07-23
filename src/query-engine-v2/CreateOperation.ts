@@ -267,20 +267,23 @@ export class CreateOperation {
     // fragment, sharing the enclosing scope so no two arms collide on a step id.
     this.scope = options.scope ?? new StepScope();
 
-    assertCreateKeys(args);
     const parentSchemas = engine.schemaRegistry.getModelSchemas(model);
-    // V1's whole-args validation runs BEFORE any tree walk (validator.ts): an
-    // unknown nested key, a type mismatch, or an omitted-FK violation is a
-    // ValidationError with V1's byte-identical message and ordering, and the
-    // parsed value carries every scalar default (ulid/cuid/now) materialized — so
-    // a nested child's PK is a known literal, not a DB-side default.
+    // THE one home for create's legality (X2): the whole-args schema is the front
+    // line — an unknown top-level key, a missing `data`, an unknown nested key, a
+    // type mismatch, or an omitted-FK violation is a ValidationError with V1's
+    // byte-identical message and ordering (there is no pre-validate key gate to
+    // shadow it into a coarser UnsupportedOperationError). The parsed value carries
+    // every scalar default (ulid/cuid/now) materialized — so a nested child's PK is
+    // a known literal, not a DB-side default. `data` is present-and-an-object by
+    // `atLeast: ["data"]` + `core.create` (object.ts:392), so it flows straight to
+    // the tree walk as the open field bag the interpreter reads.
     const parsedArgs = parseValidated(
       parentSchemas.args.create,
       args,
       "create",
       ""
     );
-    const data = requireRecord(parsedArgs.data, "create.data");
+    const data: Record<string, unknown> = parsedArgs.data;
 
     const parent = createQueryScope(engine.adapter, model);
     // Own-write preflight (ATOM §4): reject any payload whose nested decision
@@ -1585,16 +1588,6 @@ function defaultSelect(model: Model<any>): Record<string, unknown> | undefined {
   const fields = getDefaultScalarFieldNames(model);
   if (fields.length === 0) return undefined;
   return Object.fromEntries(fields.map((field: string) => [field, true]));
-}
-
-function assertCreateKeys(value: Record<string, unknown>): void {
-  const allowed = new Set(["data", "select", "include"]);
-  const unexpected = Object.keys(value).filter((key) => !allowed.has(key));
-  if (!Object.hasOwn(value, "data") || unexpected.length > 0) {
-    throw new UnsupportedOperationError(
-      `create arguments require data (optional select, include); received ${Object.keys(value).join(", ") || "none"}.`
-    );
-  }
 }
 
 function normalizeSingle(

@@ -525,8 +525,38 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   // an object argument"); the other four threw `QueryEngineError` (never in this census). Net
   // -1. No route removed. See PLAN "X2 — one home for validation" and ATOM §8.1.
   //
-  // 89 -> N (X2 deliverable 2, THE DELETION): see the X2 entry appended below for the
-  // key-gate + requireRecord + shape-check delta.
+  // 89 -> 82 (X2 deliverable 2, THE DELETION — dead guards that throw
+  // `UnsupportedOperationError`): net -7, and NO route was removed — every deleted site
+  // is a re-validation branch the schema layer already shadows, or a capability guard the
+  // type system now makes structurally impossible. Each is unreachable at RUNTIME, so its
+  // disposition (a route to V1, in the pre-P6 world) is moot: no conformance shape reaches
+  // it. The seven:
+  //   (1-4) THE FOUR PRE-VALIDATE KEY GATES — `assertCreateKeys`, `assertDeleteKeys`,
+  //         `assertUpdateKeys` (each shadowed by the whole-args `parseValidated` that runs
+  //         right after it: strict mode + `atLeast` reject the SAME unknown-key / missing-
+  //         required-key payloads, with a precise per-key `ValidationError` instead of the
+  //         gate's coarse `UnsupportedOperationError`), and `assertUpsertKeys` (upsert had
+  //         NO whole-args parse — X2 added `parseValidated(args.upsert)` as its one home,
+  //         which subsumes the key gate; the update arm's DEEP legality stays deferred via
+  //         `deferArmLegality`, so behavior is byte-identical — dual-run oracle verified).
+  //         Authorized error-class change: a malformed top-level payload now raises the
+  //         schema's `ValidationError`, not the gate's `UnsupportedOperationError`. No test
+  //         pinned the old class (the estate never fed a malformed top-level payload).
+  //   (5)   `DeleteOperation.requireRecord` and (6) `UpsertOperation.requireRecord` — the
+  //         local `'... must be an object'` shape helpers, dead once the whole-args parse
+  //         (delete: `args.delete`; upsert: `args.upsert`) guarantees the object shape.
+  //   (7)   THE DEAD-CAPABILITY GUARD — `RelationJunctionPart`'s `!input.nestedBuilder`
+  //         throw. T3b-2 threads `nestedBuilder` at all three `buildJunctionParts` callers;
+  //         X2 made its type non-optional, so `!input.nestedBuilder` is unconstructible and
+  //         tsc proves no caller can fall back to the scalar-only boundary. The `foldKind`
+  //         param that fed only this throw was removed too.
+  // The remaining requireRecord / normalizeSingle / normalizeItems / isRecord narrowings on
+  // payload paths are runtime-unreachable too, but they are `unknown -> Record` TYPE
+  // narrowings (dynamic `data[relationName]` / `spec.create` widen to `unknown`); removing
+  // them needs precise per-relation types threaded through `interpretRelation` and every
+  // Part builder — a large type refactor deferred past X2, not a mechanical deletion. They
+  // throw `QueryEngineError`, never `UnsupportedOperationError`, so they are outside this
+  // census. See PLAN "X2 — one home for validation" and ATOM §8.1.
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
@@ -537,7 +567,7 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
       const source = await readFile(join(dir, file), "utf8");
       sites += source.split("new UnsupportedOperationError(").length - 1;
     }
-    expect(sites).toBe(89);
+    expect(sites).toBe(82);
   });
 });
 

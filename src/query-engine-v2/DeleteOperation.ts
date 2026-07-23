@@ -72,11 +72,16 @@ export class DeleteOperation {
     this.scope = new StepScope();
     const scope = this.scope;
 
-    // `select` is optional (default the scalar projection, exactly as V1's
-    // no-select delete returns the whole row) and `include` rides alongside it —
-    // the same result-shaping surface `create` already owns (CreateOperation).
-    assertDeleteKeys(args);
-    const where = requireRecord(args.where, "delete.where");
+    // THE one home for delete's legality (X2): the whole-args `args.delete` schema is
+    // the front line. V1 runs the same `getDeleteArgs` (it validates `where` against
+    // whereUnique, `select`/`include` against their core schemas, enforces the
+    // select/include exclusivity, and rejects a missing `where` or an unknown
+    // top-level key with a byte-identical ValidationError). V2 previously validated
+    // only the pieces behind a coarser `assertDeleteKeys`/`requireRecord` key gate; the
+    // whole-args parse is the single home, and `where` needs no re-parse (it is
+    // whereUnique-validated by it). `select` is optional (default the scalar
+    // projection, exactly as V1's no-select delete returns the whole row) and
+    // `include` rides alongside it — the same result-shaping surface `create` owns.
     const parent = createQueryScope(engine.adapter, model);
 
     const parentPrimaryKeys = getPrimaryKeyFields(model);
@@ -90,26 +95,17 @@ export class DeleteOperation {
     this.parentPrimaryKeys = parentPrimaryKeys;
 
     const parentSchemas = engine.schemaRegistry.getModelSchemas(model);
-    this.parentWhere = parseValidated(
-      parentSchemas.core.whereUnique,
-      where,
-      "delete",
-      "where"
-    );
+    const validated = parseValidated(parentSchemas.args.delete, args, "delete", "");
+    this.parentWhere = validated.where;
     // The projection: an explicit `select`, else the default scalar projection
     // (respecting `.omit()`). `include` rides alongside the default scalars —
     // when both are absent the row is captured with every non-omitted scalar,
     // V1's default delete shape. An all-`.omit()` model with no include yields
     // undefined (the read builder + parser then produce `{}`, as ReadOperation
     // does), preserved here so a delete cannot leak an omitted column.
-    this.parsedInclude = isRecord(args.include) ? args.include : undefined;
-    this.parsedSelect = isRecord(args.select)
-      ? parseValidated(
-          parentSchemas.core.select,
-          args.select,
-          "delete",
-          "select"
-        )
+    this.parsedInclude = isRecord(validated.include) ? validated.include : undefined;
+    this.parsedSelect = isRecord(validated.select)
+      ? validated.select
       : defaultSelect(model);
     this.resultArgs = {
       ...(this.parsedSelect ? { select: this.parsedSelect } : {}),
@@ -257,15 +253,6 @@ export class DeleteOperation {
   }
 }
 
-function assertDeleteKeys(value: Record<string, unknown>): void {
-  const allowed = new Set(["where", "select", "include"]);
-  const unexpected = Object.keys(value).filter((key) => !allowed.has(key));
-  if (Object.hasOwn(value, "where") && unexpected.length === 0) return;
-  throw new UnsupportedOperationError(
-    `delete arguments require where (optional select, include); received ${Object.keys(value).join(", ") || "none"}.`
-  );
-}
-
 function defaultSelect(model: Model<any>): Record<string, unknown> | undefined {
   // V1's default projection is every scalar EXCEPT `.omit()`-ed fields. An
   // all-omitted model yields undefined (the read builder + parser then produce
@@ -274,9 +261,4 @@ function defaultSelect(model: Model<any>): Record<string, unknown> | undefined {
   const fields = getDefaultScalarFieldNames(model);
   if (fields.length === 0) return undefined;
   return Object.fromEntries(fields.map((field: string) => [field, true]));
-}
-
-function requireRecord(value: unknown, label: string): Record<string, unknown> {
-  if (isRecord(value)) return value;
-  throw new UnsupportedOperationError(`'${label}' must be an object.`);
 }

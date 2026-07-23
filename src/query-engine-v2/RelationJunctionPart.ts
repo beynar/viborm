@@ -1216,10 +1216,12 @@ export function buildJunctionParts(input: {
   parentId: ParentIdSource;
   txMode: boolean;
   /** T3b-2: the depth-recursive child-Part builder (mechanism 2 / mechanism 1
-   *  reuse). Present at the root (UpdateOperation/CreateOperation) and at depth
-   *  (nested-target-parts). When absent, a relation-carrying create/update/upsert
-   *  target payload routes the whole tree to V1 (the pre-T3b-2 scalar-only boundary). */
-  nestedBuilder?: NestedChildBuilder;
+   *  reuse). REQUIRED — every `buildJunctionParts` caller threads it: the root
+   *  (UpdateOperation.ts:977, CreateOperation.ts:653) and depth
+   *  (nested-target-parts.ts:164). A relation-carrying create/update/upsert target
+   *  folds those relations one level deeper through it; the type makes threading it
+   *  mandatory so no caller can silently fall back to a scalar-only boundary. */
+  nestedBuilder: NestedChildBuilder;
 }): RelationJunctionPart[] {
   const {
     scope,
@@ -1250,21 +1252,16 @@ export function buildJunctionParts(input: {
   // T3b-2 — fold a create/update/upsert-arm target payload into (scalar SET, deeper
   // child Parts). A scalar-only payload keeps the pre-T3b-2 behavior (empty child
   // Parts); a relation-carrying one folds those relations one level deeper against
-  // the target's literal PK through the shared `nestedBuilder`, or — when no builder
-  // was threaded — routes the whole tree to V1 (the documented scalar-only boundary).
+  // the target's literal PK through the shared `nestedBuilder`, which every caller
+  // threads — its non-optional type (interface note above) makes it mandatory, so no
+  // caller can silently fall back to a scalar-only boundary.
   const foldTarget = (
     data: Record<string, unknown>,
-    resolvePk: () => unknown,
-    foldKind: string
+    resolvePk: () => unknown
   ): { scalar: Record<string, unknown>; childParts: readonly Part[] } => {
     const { scalarData, relations } = separateData(childScope, data);
     if (Object.keys(relations).length === 0) {
       return { scalar: scalarData, childParts: [] };
-    }
-    if (!input.nestedBuilder) {
-      throw new UnsupportedOperationError(
-        `query-engine-v2 nested '${foldKind}' on many-to-many relation '${relationName}' does not support nested relation writes in its data.`
-      );
     }
     return {
       scalar: scalarData,
@@ -1402,11 +1399,7 @@ export function buildJunctionParts(input: {
         // relations one level deeper against its located (literal `where`) PK; a
         // scalar-only target keeps its empty child Parts (the pre-T3b-2 behavior).
         const folded = items.map((item, index) =>
-          foldTarget(
-            item.data,
-            () => requireWherePk(wheres[index]!, "update"),
-            "update"
-          )
+          foldTarget(item.data, () => requireWherePk(wheres[index]!, "update"))
         );
         parts.push(
           new RelationJunctionPart(scope, {
@@ -1447,11 +1440,7 @@ export function buildJunctionParts(input: {
           parsedRelation.create,
           relationName
         ).map((create) =>
-          foldTarget(
-            create,
-            () => requireCreatePkValue(create, "create"),
-            "create"
-          )
+          foldTarget(create, () => requireCreatePkValue(create, "create"))
         );
         parts.push(
           new RelationJunctionPart(scope, {
@@ -1486,17 +1475,13 @@ export function buildJunctionParts(input: {
         // Each arm's child Parts are emitted branch-specifically by `compileUpsert`.
         const items = normalizeUpserts(parsedRelation.upsert, relationName);
         const foldedCreates = items.map((item) =>
-          foldTarget(
-            item.create,
-            () => requireCreatePkValue(item.create, "upsert create"),
-            "upsert create"
+          foldTarget(item.create, () =>
+            requireCreatePkValue(item.create, "upsert create")
           )
         );
         const foldedUpdates = items.map((item) =>
-          foldTarget(
-            item.update,
-            () => requireWherePk(item.where, "upsert update"),
-            "upsert update"
+          foldTarget(item.update, () =>
+            requireWherePk(item.where, "upsert update")
           )
         );
         parts.push(

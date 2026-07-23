@@ -368,11 +368,13 @@ export class UpdateOperation {
     // 1. Validate the argument shape. `where` locates by any unique; `data`
     //    mixes scalar assignments and nested relation mutations; `select` is
     //    optional and shapes the terminal read (Prisma's default is all scalars).
-    assertUpdateKeys(args);
     const parentSchemas = engine.schemaRegistry.getModelSchemas(model);
-    // V1's shared validator (validator.ts) validates the WHOLE args against the
-    // `args.update` schema BEFORE any relation parsing. V2's per-field parse path
-    // reaches `separateData`'s relation-mutation parser first, so an unknown nested
+    // THE one home for update's legality (X2): the whole-args `args.update` schema is
+    // the front line — a missing `where`/`data`, an unknown top-level key, or an
+    // unknown nested key surfaces V1's byte-identical ValidationError with no
+    // pre-validate key gate shadowing it into a coarser UnsupportedOperationError.
+    // V2's per-field parse path reaches
+    // `separateData`'s relation-mutation parser first, so an unknown nested
     // key — a `deleteMany` on a to-one relation — surfaced V2's "Nested operation …
     // is not supported for to-one relation" where V1 rejects "Unknown key:
     // deleteMany" at schema validation, before the parent mutation. Run V1's
@@ -518,9 +520,12 @@ export class UpdateOperation {
           `No validation schema exists for relation '${relationName}'.`
         );
       }
+      // `data[relationName]` is already whole-args-validated (the `args.update` parse
+      // above) and `parseValidated` accepts `unknown`, so the pre-check is redundant —
+      // the relation schema re-parse is the one home that both narrows and validates.
       const parsedRelation = parseValidated(
         relationSchemas.update,
-        requireRecord(data[relationName], relationName),
+        data[relationName],
         "update",
         `data.${relationName}`
       );
@@ -3107,17 +3112,6 @@ function normalizeSingle(
     );
   }
   return item;
-}
-
-function assertUpdateKeys(value: Record<string, unknown>): void {
-  const required = ["where", "data"] as const;
-  const allowed = new Set<string>([...required, "select", "include"]);
-  const unexpected = Object.keys(value).filter((key) => !allowed.has(key));
-  const missing = required.filter((key) => !Object.hasOwn(value, key));
-  if (unexpected.length === 0 && missing.length === 0) return;
-  throw new UnsupportedOperationError(
-    `update arguments require where, data (optional select, include); received ${Object.keys(value).join(", ") || "none"}.`
-  );
 }
 
 function defaultSelect(model: Model<any>): Record<string, unknown> {
