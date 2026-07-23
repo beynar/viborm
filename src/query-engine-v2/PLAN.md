@@ -1442,7 +1442,7 @@ machinery it already IS. `CreateOperation` gains an additive, default-off `neste
 shared scope, no re-parse, no terminal read, the located parent's FK folded into the root INSERT at
 compile); `nested-target-parts` wires the two create leaves to it. Because the option is inert
 unless set, the 6042-test estate can only be affected on the previously-throwing shapes — it stayed
-green (6054/0, +12 X1b tests, 0 regressions).
+green (6054/0, +16 X1b tests, 0 regressions).
 
 **What that one seam lifts (mechanisms 1-fresh, 2, 4), plus mechanism 3 in place:**
 - **(2) database-generated / compound-PK fresh child** — the create root's `referencedValue` /
