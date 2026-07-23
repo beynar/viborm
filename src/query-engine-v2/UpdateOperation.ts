@@ -1199,7 +1199,7 @@ export class UpdateOperation {
     const target = afterRoot ? input.afterRootCreateParts : input.childParts;
     if (kind === "create") {
       target.push(
-        buildLiteralParentCreatePart({
+        ...buildLiteralParentCreatePart({
           scope: input.scope,
           engine: this.engine,
           childScope,
@@ -1207,6 +1207,7 @@ export class UpdateOperation {
           relationName,
           fk,
           parentId,
+          txMode: this.mode === "transaction",
           creates: normalizeItems(parsedRelation.create, relationName),
         })
       );
@@ -1791,7 +1792,7 @@ export class UpdateOperation {
       `${relationName}.upsert.create`
     );
     input.afterRootCreateParts.push(
-      buildLiteralParentCreatePart({
+      ...buildLiteralParentCreatePart({
         scope: input.scope,
         engine: this.engine,
         childScope,
@@ -1799,6 +1800,7 @@ export class UpdateOperation {
         relationName,
         fk,
         parentId: literalParentId(after),
+        txMode: this.mode === "transaction",
         creates: normalizeItems(createData, relationName),
       })
     );

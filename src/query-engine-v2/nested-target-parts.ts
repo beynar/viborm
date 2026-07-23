@@ -377,7 +377,7 @@ function foldOneChildHeldKind(args: {
       // planning row exactly as the root's depth recursion threads a first-class
       // parent value (T4a CLASS VI, one step past the literal-parent reach).
       parts.push(
-        parentId.kind === "literal"
+        ...(parentId.kind === "literal"
           ? buildLiteralParentCreatePart({
               scope,
               engine,
@@ -386,6 +386,7 @@ function foldOneChildHeldKind(args: {
               relationName,
               fk,
               parentId,
+              txMode,
               creates: normalizeItems(parsedRelation.create, relationName),
             })
           : buildPlannedParentCreatePart({
@@ -396,8 +397,9 @@ function foldOneChildHeldKind(args: {
               relationName,
               fk,
               parentId,
+              txMode,
               creates: normalizeItems(parsedRelation.create, relationName),
-            })
+            }))
       );
       return;
     case "createMany":
@@ -489,10 +491,19 @@ export function buildLiteralParentCreatePart(input: {
   relationName: string;
   fk: ReturnType<typeof getFkDirection>;
   parentId: ParentIdSource;
+  txMode: boolean;
   creates: readonly Record<string, unknown>[];
-}): Part {
-  const { scope, engine, childScope, childName, relationName, fk, parentId } =
-    input;
+}): readonly Part[] {
+  const {
+    scope,
+    engine,
+    childScope,
+    childName,
+    relationName,
+    fk,
+    parentId,
+    txMode,
+  } = input;
   const inject = literalFkInject(
     engine,
     childScope,
@@ -500,26 +511,146 @@ export function buildLiteralParentCreatePart(input: {
     relationName,
     parentId
   );
-  const steps: OperationStep[] = input.creates.map((create) => {
+  // Loop 1: the fresh child INSERTs. Allocation is IDENTICAL to the pre-X1
+  // scalar-only leaf (one id per item, in order), so no create-context grandchild
+  // shifts an existing scalar-only oracle's step ids.
+  const items = input.creates.map((create) => {
     const { scalarData, relations } = separateData(childScope, create);
-    if (Object.keys(relations).length > 0) {
-      // A relation-carrying create arm one level deeper is create-context depth
-      // (fresh-parent recursion, a later mechanism) — route the whole tree to V1.
-      throw new UnsupportedOperationError(
-        `query-engine-v2 update does not support nested relation writes in the create data of relation '${relationName}' one level deeper.`
-      );
-    }
     return {
-      id: scope.allocate(`${childName}.create`),
-      kind: "write" as const,
-      statement: buildInsert(childScope, getTableName(childScope.model), {
-        ...scalarData,
-        ...inject,
-      }),
-      outputs: {},
+      scalarData,
+      relations,
+      step: {
+        id: scope.allocate(`${childName}.create`),
+        kind: "write" as const,
+        statement: buildInsert(childScope, getTableName(childScope.model), {
+          ...scalarData,
+          ...inject,
+        }),
+        outputs: {},
+      } satisfies OperationStep,
     };
   });
-  return new LiteralParentWriteParts(steps);
+  const parts: Part[] = [
+    new LiteralParentWriteParts(items.map((item) => item.step)),
+  ];
+  // Loop 2 (X1 depth lift): each fresh child that carries its own nested writes
+  // folds its create-context grandchildren one level deeper, correlated to the
+  // fresh child's OWN literal primary key — the same seam, no counter.
+  for (const item of items) {
+    if (Object.keys(item.relations).length > 0) {
+      parts.push(
+        ...buildFreshCreateGrandchildParts({
+          scope,
+          engine,
+          childScope,
+          relationName,
+          scalarData: item.scalarData,
+          relations: item.relations,
+          txMode,
+        })
+      );
+    }
+  }
+  return parts;
+}
+
+/**
+ * X1 depth lift — a fresh nested `create` arm's create-context grandchildren.
+ *
+ * A `create` under a located target may itself carry nested `create`/`createMany`
+ * relations (a create SUBTREE). The fresh child's own primary key is a
+ * construction-time literal (validation materializes generated string defaults),
+ * so it is a LITERAL PARENT for its grandchildren — the SAME
+ * {@link buildNestedTargetChildParts} seam, one level deeper, bounded only by the
+ * payload: a nested-create chain of any depth folds into a plain list of INSERTs,
+ * each grandchild's FK inlined from its parent's literal PK. No depth counter, no
+ * one-more-level special case — level N and level N+1 run identical code.
+ *
+ * Pure CREATE-CONTEXT only. A fresh parent has no committed children, so the adopt
+ * family (connect/connectOrCreate/upsert/set) would need CreateOperation's GLOBAL
+ * fresh-parent elision, not the correlated probe this seam builds; those — plus an
+ * m2m or parent-held-FK grandchild, and a compound-PK or database-generated
+ * (auto-increment) fresh child, whose PK is not a construction-time literal — stay
+ * declined as documented narrower boundaries (each a real seam difference, not a
+ * depth boundary).
+ */
+function buildFreshCreateGrandchildParts(input: {
+  scope: StepScope;
+  engine: QueryEngine;
+  childScope: QueryScope;
+  relationName: string;
+  scalarData: Record<string, unknown>;
+  relations: Record<string, RelationMutation>;
+  txMode: boolean;
+}): readonly Part[] {
+  const {
+    scope,
+    engine,
+    childScope,
+    relationName,
+    scalarData,
+    relations,
+    txMode,
+  } = input;
+  const primaryKeys = getPrimaryKeyFields(childScope.model);
+  if (primaryKeys.length !== 1) {
+    // A compound-PK fresh child cannot be a single-field {@link literalParentId};
+    // its grandchildren need per-field literal folding this seam does not carry.
+    throw new UnsupportedOperationError(
+      `query-engine-v2 update does not support a nested create carrying its own relations on relation '${relationName}' when the created row has a compound primary key one level deeper.`
+    );
+  }
+  const pkField = primaryKeys[0]!;
+  if (!Object.hasOwn(scalarData, pkField)) {
+    // A database-generated (auto-increment) fresh child has no construction-time
+    // PK literal; its grandchildren would need a backward Ref (CreateOperation's
+    // root create-tree mechanism), which this fresh-parent leaf does not thread.
+    throw new UnsupportedOperationError(
+      `query-engine-v2 update does not support a nested create carrying its own relations on relation '${relationName}' when the created row's primary key '${pkField}' is database-generated one level deeper.`
+    );
+  }
+  assertFreshCreateContext(childScope, relations, relationName);
+  return buildNestedTargetChildParts(
+    scope,
+    engine,
+    childScope,
+    relations,
+    literalParentId(scalarData[pkField]),
+    txMode
+  );
+}
+
+/** Every relation on a fresh nested `create` arm must be a child-held to-many /
+ *  inverse-side to-one carrying only `create`/`createMany` (a pure create-context
+ *  subtree). Any adopt-family kind, m2m, or parent-held-FK edge needs a mechanism the
+ *  fresh-parent create seam does not carry and stays a declined narrower boundary. The
+ *  guard is re-asserted at every level (each recursion re-enters this leaf), so the
+ *  whole subtree is create-context — no correlated probe ever runs under a fresh row. */
+function assertFreshCreateContext(
+  childScope: QueryScope,
+  relations: Record<string, RelationMutation>,
+  relationName: string
+): void {
+  for (const [childRelation, mutation] of Object.entries(relations)) {
+    const relationInfo = mutation.relationInfo;
+    if (relationInfo.type === "manyToMany") {
+      throw new UnsupportedOperationError(
+        `query-engine-v2 update does not support a nested many-to-many write in the create data of relation '${relationName}' one level deeper.`
+      );
+    }
+    if (getFkDirection(childScope, relationInfo).holdsFK) {
+      throw new UnsupportedOperationError(
+        `query-engine-v2 update does not support a nested parent-held to-one write in the create data of relation '${relationName}' one level deeper.`
+      );
+    }
+    for (const kind of getRelationMutationKinds(mutation)) {
+      if (kind !== "create" && kind !== "createMany") {
+        throw new UnsupportedOperationError(
+          `query-engine-v2 update does not support a nested '${kind}' on relation '${childRelation}' in the create data of relation '${relationName}' one level deeper.`
+        );
+      }
+    }
+  }
 }
 
 export function buildLiteralParentCreateManyPart(input: {
@@ -630,41 +761,65 @@ export function buildPlannedParentCreatePart(input: {
   relationName: string;
   fk: ReturnType<typeof getFkDirection>;
   parentId: ParentIdSource;
+  txMode: boolean;
   creates: readonly Record<string, unknown>[];
-}): Part {
-  const { scope, engine, childScope, childName, relationName, fk, parentId } =
-    input;
+}): readonly Part[] {
+  const {
+    scope,
+    engine,
+    childScope,
+    childName,
+    relationName,
+    fk,
+    parentId,
+    txMode,
+  } = input;
   // Separate + validate + allocate ids at construction; resolve the FK at compile.
+  // Allocation is IDENTICAL to the pre-X1 leaf (one id per item, in order).
   const items = input.creates.map((create) => {
     const { scalarData, relations } = separateData(childScope, create);
-    if (Object.keys(relations).length > 0) {
-      // A relation-carrying create arm one level deeper is deeper create-context —
-      // route the whole tree to V1, byte-identical to the literal leaf.
-      throw new UnsupportedOperationError(
-        `query-engine-v2 update does not support nested relation writes in the create data of relation '${relationName}' one level deeper.`
+    return { scalarData, relations, id: scope.allocate(`${childName}.create`) };
+  });
+  const parts: Part[] = [
+    new PlannedParentCreatePart((known) => {
+      const inject = plannedFkInject(
+        engine,
+        childScope,
+        fk,
+        relationName,
+        parentId,
+        known
+      );
+      return items.map((item) => ({
+        id: item.id,
+        kind: "write" as const,
+        statement: buildInsert(childScope, getTableName(childScope.model), {
+          ...item.scalarData,
+          ...inject,
+        }),
+        outputs: {},
+      }));
+    }),
+  ];
+  // X1 depth lift: create-context grandchildren correlate to the fresh child's own
+  // literal PK (from its create data — independent of the planned parent), so the
+  // whole subtree is construction-time, one step past the planned-parent leaf.
+  for (const item of items) {
+    if (Object.keys(item.relations).length > 0) {
+      parts.push(
+        ...buildFreshCreateGrandchildParts({
+          scope,
+          engine,
+          childScope,
+          relationName,
+          scalarData: item.scalarData,
+          relations: item.relations,
+          txMode,
+        })
       );
     }
-    return { scalarData, id: scope.allocate(`${childName}.create`) };
-  });
-  return new PlannedParentCreatePart((known) => {
-    const inject = plannedFkInject(
-      engine,
-      childScope,
-      fk,
-      relationName,
-      parentId,
-      known
-    );
-    return items.map((item) => ({
-      id: item.id,
-      kind: "write" as const,
-      statement: buildInsert(childScope, getTableName(childScope.model), {
-        ...item.scalarData,
-        ...inject,
-      }),
-      outputs: {},
-    }));
-  });
+  }
+  return parts;
 }
 
 function normalizeItems(

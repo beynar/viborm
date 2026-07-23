@@ -1458,6 +1458,46 @@ typecheck, Biome. **The honest verdict (PLAN §P6): volume did not shrink (≈1.
 write root) — structure did (2 runtimes → 1, five axes back to data through one fixed step
 vocabulary); PERF's deep junction fold is 1.64× faster.**
 
+**X1 — THE DEPTH LIFT (the first post-P6 contract extension, maintainer-authorized).** The
+P6 backlog's first item: lift the nesting-depth limits V1's staged runtime imposed and the
+migration MIRRORED for parity. The measurement first, honestly: the engine's
+construction-time recursion (`buildNestedTargetChildParts`, the coverage ledger,
+fresh-parent elision) had NO architectural depth constraint even before X1 — a
+self-referential child-held `create` OR `update` chain already folded to arbitrary depth
+(measured green at 12 levels, tx and batch), and the validation layer's `v.lazy` relation
+schemas recurse lazily with no cap. So the depth "limits" were never a global cliff; they
+were a finite set of SPECIFIC shapes one level past a located target's proven surface
+(route-inventory category iii). X1 lifts the marquee one: **a nested `create` under a
+located target may now carry its own create-context grandchildren to arbitrary depth** (a
+create SUBTREE — `update → …update → …create({ …, children: { create: { …, children:
+{ create: … } } } })`). The fresh child's own primary key is a construction-time literal
+(validation materializes generated string defaults), so it is a `literalParentId` for its
+grandchildren — the SAME `buildNestedTargetChildParts` seam, one level deeper, NO counter:
+level N and level N+1 run identical code (`buildFreshCreateGrandchildParts`,
+`nested-target-parts.ts`). The two `... nested relation writes in the create data … one
+level deeper` throws (literal + planned leaf) are DELETED; five FINER-boundary throws
+replace them (census 87 → 90), each a REAL seam difference reached by no create chain of
+pure creates: a compound-PK or database-generated fresh child (not a single-field literal
+parent — needs per-field folding / a backward Ref, the root create-tree's mechanism), and
+an m2m / parent-held-FK / adopt-family (connect/connectOrCreate/upsert/set) grandchild
+(needs `CreateOperation`'s GLOBAL fresh-parent elision, not the correlated probe this seam
+builds). SEMANTIC refusals are untouched and pinned byte-stable at depth: the own-write
+preflight and validation run on the whole payload TREE before any Part is built, so a
+depth-4 create-context chain bottoming out in a `create`+`connectOrCreate` same-key
+interplay rejects with V1's verbatim "Split these operations into separate queries", exactly
+as the depth-1 shape (`x1-semantic-stability.test.ts`). Oracle: fixed-expectation, tx vs
+batch byte-identical, native V2, with a multi-parent witness at the deepest level (each
+grandchild's `parentId` pinned to its IMMEDIATE ancestor, not the located target) and a
+standing falsification (break the fresh-parent PK threading → the whole chain collapses onto
+the located target and the pinned map diverges) — `x1-depth-lift.test.ts`,
+`x1-depth-stress.test.ts`. **The genuinely-remaining depth boundaries (recorded honestly, a
+follow-up not a cliff): parent-held-FK to-one at depth (needs child-SET folding),
+createMany-skipDuplicates at depth, compound-PK / D4-non-PK / generated-PK grandchildren, and
+the fresh-parent adopt family — each a distinct mechanism, none a depth counter. The TS
+type-instantiation ceiling is a real DX limit measured separately (deeply-nested literal
+payload types), not an engine limit — the runtime folds deeper than the compiler will
+comfortably infer.**
+
 ---
 
 ## 9. Invariants (the executable contract)

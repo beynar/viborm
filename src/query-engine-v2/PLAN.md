@@ -1317,6 +1317,55 @@ within the recorded gate.
 
 ---
 
+## X1 — the depth lift *(delivered — the first post-P6 contract extension)*
+
+**The measurement rewrote the premise.** The backlog framed the depth limit as a global
+cliff; it was not. The engine's construction-time recursion has no architectural depth
+constraint, and never did: a child-held `create` OR `update` chain on a self-referential
+model already folds to arbitrary depth (measured green at 5 / 8 / 12 levels, tx and batch —
+`x1-depth-stress.test.ts`), and the validation layer's `v.lazy` relation schemas recurse
+lazily with no cap (a naive "cap at 6" reading was a probe artifact — a chain schema only 7
+models deep, not a validator limit). The depth "limits" were a finite set of SPECIFIC shapes
+one level past a located target's proven surface (route-inventory category iii), each a
+distinct mechanism.
+
+**What X1 lifts (the marquee): the create-context grandchild at depth.** A nested `create`
+under a located target (a child-held nested `update`, a parent-held planned `update`, an
+after-root upsert create arm — all three leaves share the code) may now carry its OWN nested
+`create` / `createMany` relations, to arbitrary depth. The fresh child's primary key is a
+construction-time literal, so it is a `literalParentId` for its grandchildren — the SAME
+`buildNestedTargetChildParts` seam, one level deeper, NO counter and no one-more-level special
+case (`buildFreshCreateGrandchildParts` in `nested-target-parts.ts`). The two `... nested
+relation writes in the create data … one level deeper` throws are DELETED; five finer-boundary
+throws replace them (census **87 → 90**), each a real seam difference (route-inventory §
+"87 -> 90"), not a moved cliff. Delivered with: a fixed-expectation oracle (tx vs batch
+byte-identical, native V2) with a multi-parent witness at the deepest level and a standing
+falsification (`x1-depth-lift.test.ts`); a depth-stress proof to 12 levels; and semantic-
+stability witnesses proving own-write ("Split these operations…") and validation fire
+byte-identically at depth (`x1-semantic-stability.test.ts`).
+
+**The genuine remaining ceilings (recorded honestly — a follow-up backlog, not a cliff):**
+- parent-held-FK to-one at depth (`nested-target-parts` line ~175) — needs child-SET folding
+  (the located target rewrites an FK in its own SET); a distinct mechanism, not a counter.
+- `createMany skipDuplicates` at depth — needs the depth leaf to compose `buildCreateManyPlan`'s
+  skip (as the root `foldCreateMany` does since T4a).
+- compound-PK / D4-non-PK / generated-PK grandchildren, and the adopt family (connect/
+  connectOrCreate/upsert/set) under a fresh create — each needs a mechanism (`literalParentId`
+  is single-field; a generated PK needs a backward Ref; the adopt family needs
+  `CreateOperation`'s GLOBAL fresh-parent elision, not this seam's correlated probe).
+- **The TS type-instantiation ceiling is real and separate.** The engine folds deeper than
+  the compiler comfortably infers a deeply-nested literal payload type; that is a DX ceiling
+  measured on the client input types, NOT an engine limit. Recorded, not "lifted" — the
+  runtime accepts what the type system strains to express.
+
+Bench — a create-context chain grafted under a located update target, PGlite, ms per graft
+(mean of 40, absolute; no V1 to A/B against): d1 1.47, d2 1.44, d3 1.64, d4 1.86, **d5 1.83**,
+d6 2.02, d7 2.20, d8 2.32. The per-level curve is LINEAR (≈ +0.12 ms/level — each level adds
+one INSERT step and one FK inline), no superlinear blow-up (a superlinear curve would be the
+conflict signal that depth had become an axis instead of a list splice).
+
+---
+
 ## What failure looks like (so it can be seen early)
 
 Every kill signal above is a variant of one sentence: **the vocabulary, the

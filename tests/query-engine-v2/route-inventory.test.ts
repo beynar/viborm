@@ -491,6 +491,29 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   // adopt is V1's) in the classifier, and a `pastSurface` non-create decline in
   // `interpretRelation`. Net -2 + 2 = 0. No new BLAST_RADIUS_RESIDUAL entry: both declines
   // are category-iii narrower boundaries reached by no estate test.
+  //
+  // 87 -> 90 (X1, THE DEPTH LIFT — the first genuinely new capability, not an absorption):
+  // a nested `create` under a LOCATED target may now carry its own create-context
+  // grandchildren to ARBITRARY depth. The fresh child's own primary key is a
+  // construction-time literal, so it is a `literalParentId` for its grandchildren — the
+  // SAME `buildNestedTargetChildParts` seam, one level deeper, no counter (level N and
+  // N+1 run identical code; a create chain of any depth folds into a plain INSERT list).
+  // This is a DEPTH-ONLY lift: the two `does not support nested relation writes in the
+  // create data ... one level deeper` throws (the literal- AND planned-parent leaves,
+  // category-iii "narrower boundary" for exactly this shape) are DELETED (-2). Five FINER
+  // boundary throws replace them in `nested-target-parts.ts`, each a REAL seam difference
+  // (not a depth cap), reached by no create-context chain of pure creates:
+  //   `buildFreshCreateGrandchildParts` (+2) — a compound-PK fresh child (not a single-
+  //     field literal parent), and a database-generated (auto-increment) fresh child (no
+  //     construction-time PK literal; its grandchild FK would need a backward Ref, the
+  //     root create-tree's mechanism this fresh-parent leaf does not thread);
+  //   `assertFreshCreateContext` (+3) — an m2m, a parent-held-FK, or an adopt-family kind
+  //     (connect/connectOrCreate/upsert/set) grandchild under a fresh create, each needing
+  //     CreateOperation's GLOBAL fresh-parent elision, not the correlated probe this seam
+  //     builds. Net -2 + 5 = +3. SEMANTIC refusals are untouched: every parity/own-write/
+  //     referential-action/atomic-resolution/skipDuplicates throw fires byte-identically at
+  //     every depth (X1 semantic-stability witnesses pin this). See PLAN "X1 — the depth
+  //     lift" and ATOM §8.1.
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
@@ -501,7 +524,7 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
       const source = await readFile(join(dir, file), "utf8");
       sites += source.split("new UnsupportedOperationError(").length - 1;
     }
-    expect(sites).toBe(87);
+    expect(sites).toBe(90);
   });
 });
 
