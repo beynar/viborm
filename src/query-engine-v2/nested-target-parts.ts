@@ -1,4 +1,5 @@
 import { QueryEngineError } from "@errors";
+import type { Model } from "@schema/model";
 import { getPrimaryKeyFields } from "../query-engine/builders/correlation-utils";
 import {
   getFkDirection,
@@ -40,7 +41,12 @@ import {
   buildToOneUpdatePart,
 } from "./RelationWritePart";
 import type { StepScope } from "./StepScope";
-import { getStepModelName, UnsupportedOperationError } from "./shared";
+import {
+  getStepModelName,
+  type NestedTargetLocate,
+  UnsupportedOperationError,
+} from "./shared";
+import { UpdateOperation } from "./UpdateOperation";
 
 /**
  * T3b mechanism 1 — update-arm literal-parent recursion (TO-ONE.md §7.7).
@@ -105,6 +111,85 @@ export function buildNestedTargetChildParts(
     });
   }
   return parts;
+}
+
+/**
+ * X1c — whether a located UPDATE target's data carries the located-target projection
+ * of mechanism 1/2 that the in-place child-Part builder cannot fold: a **parent-held
+ * to-one write** (the target holds the FK, so a deeper create/connect/update folds its
+ * identity into the target's OWN update SET — child-SET folding, not a child edge) or a
+ * **non-PK / compound referenced edge** (D4 — the deeper FK references a column the
+ * literal/planned parent id does not carry). Either delegates the WHOLE target UPDATE to
+ * {@link UpdateOperation} (which does child-SET folding + before-root writes + reorder +
+ * the D4 located-row reference at the ROOT); the common child-held-to-PK / m2m / create
+ * target stays on the proven {@link RelationWritePart} path.
+ */
+export function targetNeedsFullUpdate(
+  targetScope: QueryScope,
+  data: Record<string, unknown>
+): boolean {
+  const { relations } = separateData(targetScope, data);
+  const targetPrimaryKeys = getPrimaryKeyFields(targetScope.model);
+  for (const mutation of Object.values(relations)) {
+    const relationInfo = mutation.relationInfo;
+    // Many-to-many is never parent-held and is folded through the junction, not the
+    // located-target update root — it never needs the full-update delegation.
+    if (relationInfo.type === "manyToMany") continue;
+    const fk = getFkDirection(targetScope, relationInfo);
+    if (fk.holdsFK) return true;
+    const referencesTargetPk =
+      targetPrimaryKeys.length === 1 &&
+      fk.pkFields.length === 1 &&
+      fk.pkFields[0] === targetPrimaryKeys[0];
+    if (!referencesTargetPk) return true;
+  }
+  return false;
+}
+
+/**
+ * X1c — the located UPDATE target reuse: the target's WHOLE update (its SET ∪ every
+ * relation it carries) delegates to an {@link UpdateOperation} in its `nestedTarget`
+ * mode, the update-root analogue of X1b's `nestedFresh` create-root reuse. The op
+ * shares the enclosing {@link StepScope} (no step-id collision), skips the whole-args
+ * re-parse (the enclosing op validated the tree), emits no terminal read (the enclosing
+ * op owns the result), and LOCATES + CORRELATES the target to its enclosing parent
+ * ({@link NestedTargetLocate}). Every mechanism the update root already carries falls
+ * out unchanged at any depth: a parent-held to-one before-root write folded into the
+ * SET (child-SET folding), a generated / D4 referenced identity threaded from the
+ * located row, the PK-transition reorder, the child-held / m2m families. The SEMANTIC
+ * refusals the update root raises fire byte-identically — one home for the update tree.
+ */
+class NestedTargetUpdatePart implements Part {
+  private readonly op: UpdateOperation;
+  constructor(op: UpdateOperation) {
+    this.op = op;
+  }
+  planning(): readonly OperationStep[] {
+    return this.op.planning().steps;
+  }
+  compile(_scope: StepScope, known: PlanningKnown): readonly OperationStep[] {
+    return this.op.compile(known).steps;
+  }
+}
+
+export function buildNestedTargetUpdatePart(input: {
+  scope: StepScope;
+  engine: QueryEngine;
+  targetModel: Model<any>;
+  data: Record<string, unknown>;
+  locate: NestedTargetLocate;
+}): Part {
+  const op = new UpdateOperation(
+    input.engine,
+    input.targetModel,
+    {},
+    {
+      scope: input.scope,
+      skipOwnWrite: true,
+      nestedTarget: { data: input.data, locate: input.locate },
+    }
+  );
+  return new NestedTargetUpdatePart(op);
 }
 
 function foldOneNestedRelation(input: {

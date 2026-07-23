@@ -1,7 +1,42 @@
 import { QueryEngineError, TransactionError } from "@errors";
 import type { Model } from "@schema/model";
 import type { QueryEngine } from "../query-engine/query-engine";
+import type { ParentIdSource } from "./RelationUpsertPart";
 import type { StepScope } from "./StepScope";
+
+/**
+ * X1c — how a nested UPDATE target (a to-many / inverse-to-one child, or a
+ * parent-held to-one) whose data carries a mechanism the child-Part builder cannot
+ * fold in place — a **parent-held to-one write** (its identity folded into the
+ * target's OWN update SET — child-SET folding) or a **non-PK / compound referenced
+ * edge** (D4) — is located and correlated by the delegated {@link UpdateOperation}.
+ * The correlation is the ONE piece the located-target reuse adds over `nestedFresh`
+ * (a fresh create needs no locate): the target is verified to belong to the
+ * enclosing parent by `child.<childFields[i]> = parent.<parentFields[i]>` (a SQL
+ * `Ref` to the enclosing locate for a `planned` parent — technique #1 — or an
+ * inlined literal), ANDed with the target's own unique `where` when it has one (a
+ * child-held to-many `update`; a to-one / parent-held target locates by correlation
+ * alone). A located miss is the target's own `Cannot … relation` not-found, not the
+ * root not-found.
+ */
+export interface NestedTargetLocate {
+  /** The target's unique selector (child-held to-many `update`); absent for a
+   *  to-one / parent-held target located by correlation alone. */
+  readonly where?: Record<string, unknown>;
+  /** The enclosing parent's id — a `planned` locate (a SQL `Ref`) or a compile-time
+   *  literal (a depth-composed literal-parent target). */
+  readonly parentId: ParentIdSource;
+  /** The target's correlation columns (child-held: its FK; parent-held: the columns
+   *  the parent's FK references), index-aligned with {@link parentFields}. */
+  readonly childFields: readonly string[];
+  /** The enclosing parent's columns the correlation reads (child-held: the parent's
+   *  referenced columns; parent-held: the parent's FK columns). */
+  readonly parentFields: readonly string[];
+  readonly relationName: string;
+  /** V1's byte-identical `Cannot … relation … for this parent` not-found message
+   *  the enclosing caller sources from `relationTargetNotFound(info, "update")`. */
+  readonly notFoundMessage: string;
+}
 
 /**
  * How a root operation is reused as one arm of a composing operation (T3c — the
@@ -49,6 +84,25 @@ export interface SubOperationOptions {
     readonly rootFkInject: (
       known: Readonly<Record<string, unknown>>
     ) => Record<string, unknown>;
+  };
+  /**
+   * X1c — a nested UPDATE target at DEPTH whose data carries the located-target
+   * projection of mechanism 1/2 (a parent-held to-one write needing child-SET
+   * folding, or a non-PK / compound referenced edge — D4) is not folded in place by
+   * the child-Part builder; the whole target UPDATE delegates to this operation, the
+   * update-root analogue of `nestedFresh`. It carries the ALREADY-VALIDATED update
+   * `data` (the enclosing op's whole-args parse validated the tree; no re-parse), it
+   * emits NO terminal read (the enclosing op owns the result), it shares the
+   * enclosing `StepScope`, and it LOCATES + CORRELATES the target to its enclosing
+   * parent ({@link NestedTargetLocate}). Every mechanism the update ROOT already
+   * carries — a parent-held to-one before-root write folded into the SET, a
+   * generated / D4 referenced identity threaded from the located row, the PK-transition
+   * reorder, the child-held / m2m families — falls out unchanged, one architecture,
+   * at any depth.
+   */
+  readonly nestedTarget?: {
+    readonly data: Record<string, unknown>;
+    readonly locate: NestedTargetLocate;
   };
 }
 

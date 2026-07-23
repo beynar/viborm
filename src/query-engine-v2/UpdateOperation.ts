@@ -71,7 +71,7 @@ import {
   type TargetConstraintPin,
 } from "./OperationFragment";
 import { OwnWritePreflight } from "./OwnWritePreflight";
-import type { Part } from "./Part";
+import type { Part, PlanningKnown } from "./Part";
 import { planningKey, planningOutputs } from "./Part";
 import { referencedFieldRef, referencedFieldValue } from "./parent-reference";
 import { parseValidated } from "./parse-boundary";
@@ -97,6 +97,7 @@ import { StepScope } from "./StepScope";
 import {
   getStepModelName,
   isRecord,
+  type NestedTargetLocate,
   type SubOperationOptions,
   selectExecutionMode,
   UnsupportedOperationError,
@@ -349,6 +350,12 @@ export class UpdateOperation {
   // per-arm compile (`deferArmLegality`) — V1 validates the update branch only when
   // it is taken. `undefined` for a standalone update (validated at construction).
   private readonly armLegalityChecks?: () => void;
+  // X1c: this update is a nested UPDATE target spliced under an enclosing write (a
+  // located-target subtree; ATOM §8.1 X1c). Its locate is CORRELATED to the enclosing
+  // parent, it emits no terminal read, and it carries pre-validated data. `undefined`
+  // for a standalone / upsert-arm update.
+  private readonly nestedTarget?: NestedTargetLocate;
+  private readonly suppressTerminal: boolean;
 
   constructor(
     engine: QueryEngine,
@@ -383,18 +390,30 @@ export class UpdateOperation {
     // INSIDE the taken whenTrue branch only — an invalid UNTAKEN update branch (the
     // create arm is taken) must not reject the whole tree — so the caller runs these
     // three legality analyses per-arm via `assertArmLegality()` instead.
+    // X1c: a nested UPDATE target subtree carries its ALREADY-VALIDATED update data
+    // (the enclosing op's whole-args parse validated the whole tree; a schema's
+    // transformed output is non-idempotent under re-parse, X2), locates + correlates
+    // to its enclosing parent, and emits no terminal read. Its own-write is covered by
+    // the enclosing operation's whole-tree preflight walk.
+    const nestedTarget = options.nestedTarget;
+    this.nestedTarget = nestedTarget?.locate;
+    this.suppressTerminal = nestedTarget !== undefined;
     const deferLegality = options.deferArmLegality === true;
-    if (!deferLegality)
+    if (!(deferLegality || nestedTarget))
       parseValidated(parentSchemas.args.update, args, "update", "");
-    const where = requireRecord(args.where, "update.where");
-    const data = requireRecord(args.data, "update.data");
+    const where = nestedTarget
+      ? (nestedTarget.locate.where ?? {})
+      : requireRecord(args.where, "update.where");
+    const data = nestedTarget
+      ? nestedTarget.data
+      : requireRecord(args.data, "update.data");
     // V1 runs this in its shared `validator` (validator.ts) for every operation;
     // V2's per-schema parse path bypasses it, so a top-level PK arithmetic that
     // is not portable (float/decimal), divides by zero, or stacks operations was
     // caught late (at the terminal read's `getUpdatedPrimaryKeyWhere`, after the
     // locate ran) with V1's OTHER message. Run it at construction, before any I/O.
     if (!deferLegality) {
-      assertPortablePrimaryKeyUpdateInput(model, "update", args);
+      assertPortablePrimaryKeyUpdateInput(model, "update", { data });
     }
     const parent = createQueryScope(engine.adapter, model);
     const separated = separateData(parent, data);
@@ -443,24 +462,29 @@ export class UpdateOperation {
       this.assertUpdateManyRelationLegality(separated.relations);
     }
 
-    this.parentWhere = parseValidated(
-      parentSchemas.core.whereUnique,
-      where,
-      "update",
-      "where"
-    );
-    this.parsedSelect = isRecord(args.select)
-      ? parseValidated(
-          parentSchemas.core.select,
-          args.select,
-          "update",
-          "select"
-        )
-      : defaultSelect(model);
+    // A nested target's `where` (a child-held to-many `update` selector) is already
+    // validated by the enclosing tree parse — re-parsing a transformed value is
+    // non-idempotent (X2); a parent-held / to-one target has no `where` at all (it
+    // locates by correlation alone), so `{}` is its non-selector. The standalone /
+    // upsert-arm path parses its user `where` through the whereUnique schema.
+    this.parentWhere = nestedTarget
+      ? where
+      : parseValidated(parentSchemas.core.whereUnique, where, "update", "where");
+    this.parsedSelect =
+      !nestedTarget && isRecord(args.select)
+        ? parseValidated(
+            parentSchemas.core.select,
+            args.select,
+            "update",
+            "select"
+          )
+        : defaultSelect(model);
     // `include` rides alongside the (default or explicit-scalar) projection —
     // the same result-shaping surface `create` owns. A relation projection forces
     // the proven terminal-read path (below): lateral joins, not the RETURNING fold.
-    this.parsedInclude = isRecord(args.include) ? args.include : undefined;
+    // A nested target emits no terminal read, so it carries no projection.
+    this.parsedInclude =
+      !nestedTarget && isRecord(args.include) ? args.include : undefined;
     this.resultArgs = {
       select: this.parsedSelect,
       ...(this.parsedInclude ? { include: this.parsedInclude } : {}),
@@ -471,7 +495,7 @@ export class UpdateOperation {
     //    operations" error, before planning — identically on both substrates. As
     //    an upsert update arm the caller runs this per-arm at compile (V1 checks it
     //    inside the whenTrue branch only), so it is skipped here.
-    if (!options.skipOwnWrite) {
+    if (!(options.skipOwnWrite || nestedTarget)) {
       new OwnWritePreflight().assertUpdate(parent, data, where);
     }
 
@@ -598,6 +622,10 @@ export class UpdateOperation {
     );
     const canFold =
       txMode &&
+      // X1c: a nested target emits no terminal read and must LOCATE + CORRELATE (its
+      // membership in the enclosing parent is verified by the locate) — never the
+      // single-statement RETURNING fold, which skips both the locate and the terminal.
+      !this.suppressTerminal &&
       engine.adapter.capabilities.supportsReturning &&
       childParts.length === 0 &&
       // A transitioned-PK create (T4b CLASS III) is a real second statement that
@@ -649,16 +677,49 @@ export class UpdateOperation {
     const locateSelectFields = [
       ...new Set<string>([...locateFields, ...parentFkLocateFields]),
     ];
+    // X1c: a nested target's locate is CORRELATED to its enclosing parent — the
+    // target's own unique `where` (child-held to-many; empty for a to-one / parent-held
+    // target) ANDed with `child.<childField> = parent.<referenced>` (a SQL `Ref` to the
+    // enclosing locate for a `planned` parent — technique #1 — or an inlined literal).
+    // A cross-parent selector finds no row, so the not-found is the target's own
+    // `Cannot … relation … for this parent`, byte-identical to the located-target leaf.
+    const locateStatement = this.nestedTarget
+      ? buildFind(
+          parent,
+          {
+            where: {
+              AND: [
+                ...this.nestedTargetWhereFilters(parent),
+                ...this.nestedTargetCorrelationFilters(undefined, true),
+              ],
+            },
+            select: Object.fromEntries(
+              locateSelectFields.map((field) => [field, true])
+            ),
+            forUpdate: txMode,
+          },
+          { limit: 1 }
+        )
+      : buildFindUnique(parent, {
+          where: this.parentWhere,
+          select: Object.fromEntries(
+            locateSelectFields.map((field) => [field, true])
+          ),
+          forUpdate: txMode,
+        });
+    const locateNotFound = this.nestedTarget
+      ? nestedWriteFailure(
+          this.nestedTarget.notFoundMessage,
+          this.nestedTarget.relationName,
+          false
+        )
+      : notFoundFailure(
+          `query-engine-v2 update located no '${parentName}' row for its unique where.`
+        );
     this.locate = {
       id: locateId,
       kind: "read",
-      statement: buildFindUnique(parent, {
-        where: this.parentWhere,
-        select: Object.fromEntries(
-          locateSelectFields.map((field) => [field, true])
-        ),
-        forUpdate: txMode,
-      }),
+      statement: locateStatement,
       // Each PK field AND each child-FK-referenced field is a firstRowField
       // output so a per-field child FK edge can ref it (compound keys / D4-style
       // non-PK references — the census's multi-field produces). As an upsert update
@@ -681,15 +742,12 @@ export class UpdateOperation {
       // As an upsert update arm the located-miss is the CREATE decision (the
       // enclosing upsert's own locate decides the branch), not a not-found error,
       // so the postcondition is dropped — planning must not abort on an absent row.
+      // A nested target's miss is its own `Cannot … relation … for this parent`
+      // (`locateNotFound`, byte-identical to the located-target leaf), on BOTH
+      // substrates, before any correlated grandchild probe dereferences it.
       ...(options.locateNotFoundOptional
         ? {}
-        : {
-            expects: exactlyOneRow(
-              notFoundFailure(
-                `query-engine-v2 update located no '${parentName}' row for its unique where.`
-              )
-            ),
-          }),
+        : { expects: exactlyOneRow(locateNotFound) }),
     };
   }
 
@@ -748,6 +806,12 @@ export class UpdateOperation {
       );
     }
     if (locateRows.length === 0) {
+      if (this.nestedTarget) {
+        throw new NestedWriteError(
+          this.nestedTarget.notFoundMessage,
+          this.nestedTarget.relationName
+        );
+      }
       throw new NotFoundError(getStepModelName(this.model, "record"), "update");
     }
     const locatedRow = locateRows[0] as Record<string, unknown>;
@@ -763,7 +827,7 @@ export class UpdateOperation {
     // staleness window between the unlocked locate read and the batch; a
     // concurrent delete aborts the batch typed instead of a silent empty result.
     if (this.mode === "batch") {
-      guards.push(this.buildRootPresenceGuard());
+      guards.push(this.buildRootPresenceGuard(known, locatedRow));
     }
     // CLASS IV (T4c): the referential-action occupied guards. The transition is real
     // (before != after, decided at construction). tx mode inspects the locked probe
@@ -830,6 +894,11 @@ export class UpdateOperation {
           steps.push(step);
         }
       }
+    }
+    // X1c: a nested target contributes only its writes/guards; the enclosing operation
+    // owns the terminal read and the result (no double refetch, no cross-fragment ref).
+    if (this.suppressTerminal) {
+      return { steps, outputs: {} };
     }
     steps.push(this.buildTerminal(locatedRow));
     return { steps, outputs: { result: ref(this.terminalId, "result") } };
@@ -2958,11 +3027,16 @@ export class UpdateOperation {
   }
 
   /** The row's post-locate address: the captured PK in transaction mode (V1's
-   *  `WHERE id`), the original `where` in batch mode (guard/write pin one row). */
+   *  `WHERE id`), the original `where` in batch mode (guard/write pin one row). A
+   *  nested target has no standalone unique `where` (a to-one / parent-held target
+   *  locates by correlation) and its batch presence guard already pins the correlated
+   *  captured PK, so it addresses by the captured PK on BOTH substrates (X1c). */
   private writeWhere(
     locatedRow: Record<string, unknown>
   ): Record<string, unknown> {
-    if (this.mode !== "transaction") return this.parentWhere;
+    if (this.mode !== "transaction" && !this.nestedTarget) {
+      return this.parentWhere;
+    }
     return buildPrimaryKeyWhereUnique(
       this.model,
       Object.fromEntries(
@@ -2971,9 +3045,43 @@ export class UpdateOperation {
     );
   }
 
-  /** The batch-mode root-presence assertion (ATOM §8.1 note (b)). */
-  private buildRootPresenceGuard(): OperationStep {
+  /** The batch-mode root-presence assertion (ATOM §8.1 note (b)). A nested target's
+   *  guard is the located-target split-witness (X1c): the original correlation AND the
+   *  captured PK must still name the same row, so a concurrent cross-parent move of the
+   *  selector leaves no such row and the batch aborts typed, never mutating the
+   *  replacement a selector-alone guard would have found. */
+  private buildRootPresenceGuard(
+    known?: Readonly<Record<string, unknown>>,
+    locatedRow?: Record<string, unknown>
+  ): OperationStep {
     const parent = createQueryScope(this.engine.adapter, this.model);
+    if (this.nestedTarget && known && locatedRow) {
+      const capturedPk = Object.fromEntries(
+        this.parentPrimaryKeys.map((pk) => [pk, { equals: locatedRow[pk] }])
+      );
+      return presenceGuard(
+        this.rootGuardId,
+        buildFind(
+          parent,
+          {
+            where: {
+              AND: [
+                ...this.nestedTargetWhereFilters(parent),
+                ...this.nestedTargetCorrelationFilters(known, false),
+                capturedPk,
+              ],
+            },
+            select: this.pkSelect(),
+          },
+          { limit: 1 }
+        ),
+        nestedWriteFailure(
+          this.nestedTarget.notFoundMessage,
+          this.nestedTarget.relationName,
+          false
+        )
+      );
+    }
     return presenceGuard(
       this.rootGuardId,
       buildFindUnique(parent, {
@@ -2984,6 +3092,49 @@ export class UpdateOperation {
         `query-engine-v2 update located no '${getStepModelName(this.model, "record")}' row for its unique where.`
       )
     );
+  }
+
+  /** A nested target's own unique-selector equality filters (a child-held to-many
+   *  `update`); `[]` for a to-one / parent-held target located by correlation alone. */
+  private nestedTargetWhereFilters(
+    parent: QueryScope
+  ): Record<string, unknown>[] {
+    const where = this.nestedTarget?.where;
+    if (!where) return [];
+    return getWhereUniqueEntries(parent, where).map(({ fieldName, value }) => ({
+      [fieldName]: { equals: value },
+    }));
+  }
+
+  /** `child.<childField> = parent.<referenced>` per correlation field — a SQL `Ref` to
+   *  the enclosing locate for a `planned` parent in a planning step (technique #1), the
+   *  inlined literal at compile (the batch guard) or for a compile-time literal parent
+   *  (a depth-composed literal-parent target). Mirrors `RelationWritePart`'s locator. */
+  private nestedTargetCorrelationFilters(
+    known: PlanningKnown | undefined,
+    useRef: boolean
+  ): Record<string, unknown>[] {
+    const nt = this.nestedTarget;
+    if (!nt) return [];
+    const refable = useRef && nt.parentId.kind === "planned";
+    return nt.childFields.map((childField, index) => ({
+      [childField]: {
+        equals: refable
+          ? referencedFieldRef(
+              nt.parentId,
+              nt.parentFields[index]!,
+              nt.relationName,
+              "update"
+            )
+          : referencedFieldValue(
+              nt.parentId,
+              nt.parentFields[index]!,
+              known,
+              nt.relationName,
+              "update"
+            ),
+      },
+    }));
   }
 
   private pkSelect(): Record<string, boolean> {

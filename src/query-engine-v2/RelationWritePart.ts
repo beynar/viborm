@@ -33,7 +33,11 @@ import {
   upsertPremiseChanged,
   upsertTargetVanished,
 } from "./messages";
-import type { NestedChildBuilder } from "./nested-target-parts";
+import {
+  buildNestedTargetUpdatePart,
+  type NestedChildBuilder,
+  targetNeedsFullUpdate,
+} from "./nested-target-parts";
 import type { OperationStep, StatementStep } from "./OperationFragment";
 import type { Part, PlanningKnown } from "./Part";
 import { planningKey } from "./Part";
@@ -1109,18 +1113,36 @@ interface WritePartBase {
   readonly nestedBuilder?: NestedChildBuilder;
 }
 
-/** `update`: one targeted correlated part per `{ where, data }` item. */
+/** `update`: one targeted correlated part per `{ where, data }` item. A target whose
+ *  data carries the located-target projection of mechanism 1/2 (a parent-held to-one
+ *  write, or a non-PK / compound referenced edge — D4) delegates its WHOLE update to an
+ *  {@link UpdateOperation} nested-target sub-op (X1c); the common child-held-to-PK / m2m
+ *  / create target stays on the proven leaf path. */
 export function buildToManyUpdateParts(
   base: WritePartBase,
   input: unknown
-): RelationWritePart[] {
-  return normalizeWhereData(input, base.relationName, "update").map(
-    (item) =>
-      new RelationWritePart(base.scope, {
-        ...partConfig(base, "update"),
-        where: item.where,
-        data: item.data,
-      })
+): Part[] {
+  return normalizeWhereData(input, base.relationName, "update").map((item) =>
+    targetNeedsFullUpdate(base.childScope, item.data)
+      ? buildNestedTargetUpdatePart({
+          scope: base.scope,
+          engine: base.engine,
+          targetModel: base.childScope.model,
+          data: item.data,
+          locate: {
+            where: item.where,
+            parentId: base.parentId,
+            childFields: base.fkFields,
+            parentFields: base.referencedFields,
+            relationName: base.relationName,
+            notFoundMessage: relationTargetNotFound(base.relationInfo, "update"),
+          },
+        })
+      : new RelationWritePart(base.scope, {
+          ...partConfig(base, "update"),
+          where: item.where,
+          data: item.data,
+        })
   );
 }
 
@@ -1131,18 +1153,34 @@ export function buildToManyUpdateParts(
  * `normalizeUpdateInputs` yields `{ data }` for a to-one). The captured PK is the
  * single correlated child; the write addresses it (V1's mutation-identity).
  */
-export function buildToOneUpdatePart(
-  base: WritePartBase,
-  data: unknown
-): RelationWritePart {
+export function buildToOneUpdatePart(base: WritePartBase, data: unknown): Part {
   if (!(data && typeof data === "object" && !Array.isArray(data))) {
     throw new QueryEngineError(
       `query-engine-v2 update for relation '${base.relationName}' requires a data object.`
     );
   }
+  const updateData = data as Record<string, unknown>;
+  // X1c: an inverse-side to-one target whose data carries a parent-held to-one write
+  // (child-SET folding) or a D4 edge delegates its whole update to the update root,
+  // located by the FK correlation alone (a to-one carries no unique `where`).
+  if (targetNeedsFullUpdate(base.childScope, updateData)) {
+    return buildNestedTargetUpdatePart({
+      scope: base.scope,
+      engine: base.engine,
+      targetModel: base.childScope.model,
+      data: updateData,
+      locate: {
+        parentId: base.parentId,
+        childFields: base.fkFields,
+        parentFields: base.referencedFields,
+        relationName: base.relationName,
+        notFoundMessage: relationTargetNotFound(base.relationInfo, "update"),
+      },
+    });
+  }
   return new RelationWritePart(base.scope, {
     ...partConfig(base, "update"),
-    data: data as Record<string, unknown>,
+    data: updateData,
   });
 }
 
