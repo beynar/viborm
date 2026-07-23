@@ -54,6 +54,9 @@ export class SQLite3MigrationDriver extends MigrationDriver {
     supportsAddEnumValueInTransaction: true, // N/A but doesn't matter
     supportsIndexTypes: ["btree"],
     supportsNativeArrays: false,
+    // No `ALTER TABLE ADD FOREIGN KEY`: FKs stay inline in CREATE TABLE and
+    // rely on SQLite's lazy reference resolution (forward refs are fine).
+    supportsAddForeignKeyViaAlter: false,
   };
 
   // ===========================================================================

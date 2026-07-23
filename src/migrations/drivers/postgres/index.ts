@@ -43,6 +43,7 @@ export class PostgresMigrationDriver extends MigrationDriver {
     supportsAddEnumValueInTransaction: false,
     supportsIndexTypes: ["btree", "hash", "gin", "gist"],
     supportsNativeArrays: true,
+    supportsAddForeignKeyViaAlter: true,
   };
 
   // ===========================================================================

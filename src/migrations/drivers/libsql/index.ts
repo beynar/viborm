@@ -29,6 +29,10 @@ export class LibSQLMigrationDriver extends SQLite3MigrationDriver {
     supportsAddEnumValueInTransaction: true,
     supportsIndexTypes: ["btree"],
     supportsNativeArrays: false,
+    // Adds FKs by rewriting the column (`ALTER COLUMN ... TO`), which needs the
+    // existing column def — not a standalone add. Keep FKs inline in CREATE
+    // TABLE and rely on lazy reference resolution (forward refs are fine).
+    supportsAddForeignKeyViaAlter: false,
   };
 
   // ===========================================================================

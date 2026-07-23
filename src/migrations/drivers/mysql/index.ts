@@ -61,6 +61,7 @@ export class MySQLMigrationDriver extends MigrationDriver {
     supportsAddEnumValueInTransaction: false, // MODIFY COLUMN is DDL and causes implicit commit
     supportsIndexTypes: ["btree", "fulltext", "spatial"], // InnoDB does not support user-defined HASH indexes
     supportsNativeArrays: false, // Use JSON instead
+    supportsAddForeignKeyViaAlter: true, // ALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY
   };
 
   // ===========================================================================

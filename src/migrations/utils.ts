@@ -8,6 +8,7 @@
 import { relative, resolve } from "node:path";
 import type { AnyDriver } from "../drivers/driver";
 import { MigrationError, VibORMErrorCode } from "../errors";
+import type { MigrationDriver } from "./drivers";
 import type {
   Dialect,
   DiffOperation,
@@ -164,6 +165,98 @@ export function sortOperations(operations: DiffOperation[]): DiffOperation[] {
   return [...operations].sort(
     (a, b) => OPERATION_PRIORITY[a.type] - OPERATION_PRIORITY[b.type]
   );
+}
+
+/**
+ * Lifts *forward-reference* foreign keys out of `createTable` operations into
+ * separate `addForeignKey` operations, so a table whose FK points at a table
+ * created later in the same batch does not emit the constraint before its
+ * referenced table exists.
+ *
+ * This is the DDL-ordering fix for `push()` / generated migrations: a schema
+ * that declares a child model (holding a `manyToOne` FK) *before* its parent
+ * would otherwise emit `ALTER TABLE child ADD ... FOREIGN KEY REFERENCES parent`
+ * (Postgres) or an inline FK (MySQL) immediately after `CREATE TABLE child`,
+ * before `CREATE TABLE parent` runs — Postgres `42P01`, MySQL analogous — and
+ * the whole transactional push aborts with zero tables created.
+ *
+ * The transform is capability-gated and deliberately *surgical*:
+ * - Drivers that cannot `ALTER TABLE ADD FOREIGN KEY` (SQLite/LibSQL) keep FKs
+ *   inline and are returned untouched — they resolve forward references lazily
+ *   and rewriting an FK into an `addForeignKey` op would trigger a table
+ *   recreation against an introspected-empty current schema.
+ * - Only FKs that reference a table created *later* in this batch are lifted.
+ *   Backward references (referenced-first schemas, self-references, FKs to
+ *   pre-existing tables) already work and are left byte-identical, preserving
+ *   the DDL of schemas that were never broken.
+ *
+ * Lifted `addForeignKey` operations are appended after every other operation so
+ * they run once all `CREATE TABLE`s have executed. Non-lifted operations retain
+ * their exact input order.
+ */
+export function extractForwardReferenceForeignKeys(
+  operations: DiffOperation[],
+  migrationDriver: MigrationDriver
+): DiffOperation[] {
+  if (!migrationDriver.capabilities.supportsAddForeignKeyViaAlter) {
+    return operations;
+  }
+
+  // Position of each table within the sequence of createTable operations.
+  const createdTablePosition = new Map<string, number>();
+  let position = 0;
+  for (const op of operations) {
+    if (op.type === "createTable") {
+      createdTablePosition.set(op.table.name, position);
+      position += 1;
+    }
+  }
+
+  const result: DiffOperation[] = [];
+  const liftedForeignKeys: DiffOperation[] = [];
+
+  for (const op of operations) {
+    if (op.type !== "createTable") {
+      result.push(op);
+      continue;
+    }
+
+    const selfPosition = createdTablePosition.get(op.table.name);
+    // Partition this table's FKs into those that must stay inline and those
+    // that point forward to a table created later in the batch.
+    const retained = op.table.foreignKeys.filter((fk) => {
+      const targetPosition = createdTablePosition.get(fk.referencedTable);
+      const isForwardReference =
+        targetPosition !== undefined &&
+        selfPosition !== undefined &&
+        targetPosition > selfPosition;
+      return !isForwardReference;
+    });
+
+    if (retained.length === op.table.foreignKeys.length) {
+      // No forward references — leave the operation byte-identical.
+      result.push(op);
+      continue;
+    }
+
+    const forwardForeignKeys = op.table.foreignKeys.filter(
+      (fk) => !retained.includes(fk)
+    );
+
+    result.push({
+      ...op,
+      table: { ...op.table, foreignKeys: retained },
+    });
+    for (const fk of forwardForeignKeys) {
+      liftedForeignKeys.push({
+        type: "addForeignKey",
+        tableName: op.table.name,
+        fk,
+      });
+    }
+  }
+
+  return [...result, ...liftedForeignKeys];
 }
 
 // =============================================================================

@@ -19,6 +19,7 @@ import {
 import type { GenerateOptions, GenerateResult } from "../types";
 import {
   DEFAULT_MIGRATIONS_DIR,
+  extractForwardReferenceForeignKeys,
   generateMigrationName,
   normalizeDialect,
   resolveEnumValueRemovals,
@@ -82,6 +83,14 @@ export async function generate(
   finalOperations = await resolveEnumValueRemovals(
     finalOperations,
     enumValueResolver
+  );
+
+  // 5b. Lift forward-reference FKs out of CREATE TABLE so the generated
+  // migration file orders every referenced table before its constraint
+  // (Postgres/MySQL). No-op on SQLite/LibSQL (inline FKs, lazy resolution).
+  finalOperations = extractForwardReferenceForeignKeys(
+    finalOperations,
+    migrationDriver
   );
 
   // 6. Check if there are any changes
