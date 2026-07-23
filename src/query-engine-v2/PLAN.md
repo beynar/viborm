@@ -1431,6 +1431,60 @@ fails loudly — the invariant the deliverable asked for, at the honest surface 
 
 ---
 
+## X1b — finishing the depth lift: no engine depth limit *(delivered — maintainer-directed)*
+
+**The premise, one line: a relation-carrying fresh `create` at depth IS a create root.** X1 lifted
+the create-context grandchild but left four of its remaining ceilings — each a distinct dataflow,
+not a counter. X1b lifts them by CONSOLIDATION, not re-derivation: instead of teaching the bespoke
+fresh-context recursion (`buildFreshCreateGrandchildParts`) four new tricks — the very move ATOM
+warns is "V2 re-deriving V1" — a relation-carrying fresh child is delegated to the create-ROOT
+machinery it already IS. `CreateOperation` gains an additive, default-off `nestedFresh` mode (a
+shared scope, no re-parse, no terminal read, the located parent's FK folded into the root INSERT at
+compile); `nested-target-parts` wires the two create leaves to it. Because the option is inert
+unless set, the 6042-test estate can only be affected on the previously-throwing shapes — it stayed
+green (6054/0, +12 X1b tests, 0 regressions).
+
+**What that one seam lifts (mechanisms 1-fresh, 2, 4), plus mechanism 3 in place:**
+- **(2) database-generated / compound-PK fresh child** — the create root's `referencedValue` /
+  `edgeParentId` thread the produced id to grandchildren as a backward `Ref` (insertId in batch,
+  `INSERT … RETURNING` in tx) or per-field literal identity. The generated leg is certified on the
+  Docker MySQL insertId path.
+- **(1, fresh projection) a parent-held-FK to-one grandchild** — the create root's before-parent
+  arm creates the target first, its id folded into the fresh child's own FK column (the T1 pattern,
+  recursive; refs point backward at every level).
+- **(4) the fresh-parent adopt family + M2M** — the GLOBAL fresh-parent elision (ATOM §4) runs at
+  the grandchild's level: a `connect` is a global reparent, an M2M edge a junction insert.
+- **(3) `createMany skipDuplicates` at depth** — lifted in place (`buildLiteralParentCreateManyPart`
+  composes `buildCreateManyPlan`'s skip leaf + the pre-injection portability guard + the
+  `recoverableUniqueError` per-row effect), byte-identical to `foldCreateMany`.
+
+Six throws deleted (the depth-skip + five fresh-context), no new site (the declined shapes now
+execute or raise the create root's own already-counted refusal); census **84 → 78**. Semantic
+refusals (own-write, validation) fire byte-identically at depth — the preflight and validation walk
+the whole tree before any Part is built. Delivered with fixed-expectation oracles (tx vs batch
+byte-identical, native V2) carrying multi-parent + WRONG-ROW witnesses at the deepest level, a
+combined ≥6-level tree exercising all four mechanisms at once, and a load-bearing-skip falsification.
+
+**The genuine remaining boundary (recorded honestly — an X1c follow-up, not a cliff):** the
+LOCATED-target projection of mechanisms 1/2 — a deeper parent-held-to-one, or a non-PK / compound
+reference, of an EXISTING row being `update`d. That is child-SET folding on an UPDATE (the located
+row's own SET carries the deeper FK), not INSERT-column folding on a fresh create, so it needs an
+analogous UpdateOperation reuse. No census or conformance shape reaches it; it routes as a typed
+refusal at `nested-target-parts` ~175/~205.
+
+**The TS ceiling is real, separate, and the compiler's.** A rich per-level LITERAL create payload
+(each level a `children.create` + a parent-held create + an M2M create) type-checks to ~31 levels
+then raises TS2321 "Excessive stack depth comparing types" (measured: depth 30 compiles, 32 fails).
+That is a DX limit on the client *input* inference, NOT the engine — recorded, not "lifted". The
+workaround is documented (build the payload programmatically, widened to the input type); a runtime
+test folds a 40-level chain that way (`x1b-ts-ceiling`), proving the engine executes beyond it.
+
+Bench — a create-context chain grafted under a located update target, PGlite, ms/graft (mean,
+absolute; no V1 to A/B): d1 1.00, d2 1.04, d4 1.39, d6 1.81, d8 1.97. LINEAR (≈ +0.15 ms/level),
+no superlinear blow-up — depth stayed a list splice, never a correlation axis.
+
+---
+
 ## What failure looks like (so it can be seen early)
 
 Every kill signal above is a variant of one sentence: **the vocabulary, the

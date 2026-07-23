@@ -173,9 +173,15 @@ function foldOneNestedRelation(input: {
 
   const fk = getFkDirection(targetScope, relationInfo);
   if (fk.holdsFK) {
-    // The located target holds this FK — a same-row change it would fold into its own
-    // SET (a deeper parent-held to-one). Out of the update-arm literal-parent surface;
-    // route the whole tree to V1.
+    // X1b BOUNDARY-STOP (the located-target parent-held-to-one, child-SET folding). The
+    // LOCATED target (an existing row being UPDATEd) holds this FK — writing a deeper
+    // parent-held to-one would create the target before the located row and fold the FK
+    // into the located row's own UPDATE SET. X1b lifted the FRESH projection of this
+    // mechanism (a parent-held-to-one grandchild of a fresh CREATE, via the create-root
+    // reuse — see `buildNestedFreshCreateParts`), but the located-UPDATE projection is a
+    // distinct dataflow: the target is an UPDATE (child-SET folding), not a create
+    // (INSERT-column folding), needing an analogous UpdateOperation reuse — an X1c
+    // follow-up, not a depth counter. No family-B/A-remainder census shape reaches it.
     throw new UnsupportedOperationError(
       `query-engine-v2 update does not support a nested parent-held to-one write on relation '${relationName}' one level deeper.`
     );
@@ -188,15 +194,15 @@ function foldOneNestedRelation(input: {
     );
   }
 
-  // T3b-2 (named reorder obligation, TO-ONE.md §7.7): the deeper FK must reference the
-  // located target's OWN single primary key. The literal/planned parent id carries the
-  // target's PK per-field, so a **D4-style deeper edge referencing a non-PK unique** (or
-  // a compound-arity reference) would be mis-injected with the PK value AND would miss
-  // the PK-only reorder check — so route it to V1 instead of diverging silently. The
-  // root threads a non-PK reference from its located row (D4 at the root, family E); the
-  // literal-parent depth builder cannot, so this is a documented narrower boundary. No
-  // absorbed census key reaches it (every deeper edge references the target PK). Witness:
-  // nested-update-d4-deep-nonpk-reference.test.ts.
+  // T3b-2 (named reorder obligation, TO-ONE.md §7.7) / X1b BOUNDARY-STOP: the deeper FK
+  // must reference the located target's OWN single primary key. The literal/planned parent
+  // id carries the target's PK per-field, so a **D4-style deeper edge referencing a non-PK
+  // unique of the located target** would be mis-injected with the PK value AND would miss
+  // the PK-only reorder check. This is the LOCATED-target D4 projection: it needs the
+  // located row's non-PK referenced column threaded (an X1c UpdateOperation-reuse concern,
+  // like the parent-held case above), distinct from the FRESH-child generated/compound PK
+  // X1b lifted through the create root. No absorbed census key reaches it (every deeper
+  // edge references the target PK). Witness: nested-update-d4-deep-nonpk-reference.test.ts.
   const targetPrimaryKeys = getPrimaryKeyFields(targetScope.model);
   const referencesTargetPk =
     targetPrimaryKeys.length === 1 &&

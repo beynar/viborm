@@ -1555,6 +1555,45 @@ validates its whole args through the boundary, so a future phase re-introducing 
 branch fails loudly. **Shared-seam norm (below): a cross-cutting seam helper lives in ONE home
 — the norm whose absence let the five parse copies drift.**
 
+**X1b — NO ENGINE DEPTH LIMIT (the depth lift, finished; maintainer-directed "finish it").** X1
+lifted the marquee create-context grandchild; four of X1's remaining ceilings — each a distinct
+dataflow, none a counter — are now lifted, and the fifth (a *located*-target projection) is a
+recorded boundary-stop, not a cliff. **The consolidating move: a relation-carrying fresh `create`
+at depth is a create SUBTREE, so it delegates to the create-ROOT machinery
+(`CreateOperation`'s new `nestedFresh` mode — a shared `StepScope`, no whole-args re-parse (the
+enclosing op validated the tree; a schema's transformed output is non-idempotent under re-parse),
+no terminal read (the enclosing op owns the result), the located parent's FK folded into the
+subtree's ROOT `INSERT` via `rootFkInject` resolved at compile — a `literal` parent id a constant,
+a `planned` one read from `known`).** Every mechanism the create root already carried falls out at
+any depth, in ONE home: **(2) a database-generated / compound-PK fresh child** — its produced id
+threads to its grandchildren as a backward `Ref` (insertId in batch, `INSERT … RETURNING` in tx) /
+per-field identity; **(1, fresh projection) a parent-held-FK to-one grandchild** — a before-parent
+create whose id folds into the fresh child's own FK column (the T1 pattern, recursive); **(4) the
+fresh-parent adopt family (`connect`/`connectOrCreate`/`upsert`) + M2M** — the GLOBAL fresh-parent
+elision (§4) at the grandchild's level. **(3) `createMany skipDuplicates` at depth** is lifted in
+place (`buildLiteralParentCreateManyPart` composes `buildCreateManyPlan`'s skip leaf + the
+pre-injection portability guard + the `recoverableUniqueError` per-row `onUniqueConflict` effect —
+byte-identical to `foldCreateMany`). The FIVE bespoke fresh-context throws
+(`buildFreshCreateGrandchildParts` + `assertFreshCreateContext`, both DELETED) plus the depth
+`skipDuplicates` throw are gone; the shapes they declined now either execute natively or raise the
+create root's OWN already-counted parity refusal (an M2M `upsert` under create, a compound child
+edge). Census **84 → 78** (−1 skip, −5 fresh-context; NO new throw). SEMANTIC refusals are
+untouched and pinned byte-stable at every depth (own-write "Split these operations…", validation),
+because the own-write preflight + validation run on the whole payload TREE before any Part is built
+(`x1-semantic-stability`). Oracles: fixed-expectation, tx vs batch byte-identical, native V2, with
+multi-parent + WRONG-ROW witnesses at the deepest mutated level (each produced id / injected FK
+pinned to its immediate ancestor — an off-by-one diverges), plus a combined ≥6-level tree
+exercising all four at once and a load-bearing-skip falsification. **The genuinely-remaining
+boundary (recorded, a follow-up X1c, not a cliff): the LOCATED-target projection of mechanism 1/2
+— a deeper parent-held-to-one, or a non-PK / compound reference, of an EXISTING row being
+`update`d (child-SET folding on an UPDATE, not INSERT-column folding on a fresh create). It needs
+an analogous UpdateOperation reuse; no census/conformance shape reaches it.** **The TS ceiling is
+the compiler's, not the atom's:** a rich per-level LITERAL create payload type-checks to ~31 levels
+then raises TS2321 (measured; depth 30 compiles, 32 fails) — a DX limit on client input inference,
+NOT an engine limit; the runtime folds a 40-level chain built programmatically
+(`x1b-ts-ceiling`). Bench (PGlite, absolute, no V1 to A/B): d1 1.00, d2 1.04, d4 1.39, d6 1.81,
+d8 1.97 ms/graft — LINEAR (≈ +0.15 ms/level), no superlinear blow-up.
+
 ---
 
 ## 9. Invariants (the executable contract)
