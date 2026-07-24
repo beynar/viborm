@@ -333,3 +333,66 @@ childless parent, ratio = V2 hz / V1 hz):
   new CLASS III behavior); MySQL is a boundary-stop (non-returning batch-only refuses the
   single-row update/upsert refetch family before I/O, V1==V2 parity) and certifies in
   transaction mode (Docker mysql 470/470).
+
+## Read fast path — identity decoders + whole-row passthrough (async PGlite vs Drizzle)
+
+A pure read-path optimization (branch `read-fast-path`, off the merged V2 engine).
+Profiling the async-PGlite `findMany 1000` gap vs Drizzle attributed it to two result-handling
+costs: (1) the per-cell typed decode (every cell through a field-chain closure → adapter/driver
+middleware → a typed switch) plus viborm's per-row object construction, and (2) PGlite's own
+object-mode row construction (`Object.fromEntries` per row).
+
+**What shipped — Part A only.** For a plain scalar column whose native driver value the full
+parser returns UNCHANGED — `string`/`int`/`float`/`boolean` on a native-passthrough provider
+(Postgres family: `PostgresAdapter.result.nativeScalarPassthrough` + no driver field middleware)
+— the row parser now takes an *identity* step that skips the switch and middleware, and when
+EVERY cell of an all-scalar row is native it returns the driver row itself (skipping viborm's
+per-row allocation). It is gated and byte-identical: a per-value guard defers null, wrong-typed,
+unsafe-int, non-finite-float, and every coercing type (enum/json/vector/date/bigint/decimal/list)
+back to the full parser. Any non-passthrough provider (MySQL/SQLite adapters) keeps the full path
+unchanged.
+
+**Isolated parser A/B (the low-noise, definitive measurement** —
+`benchmarks/read-fastpath-parse.bench.ts`, the SAME 1000 post rows the `findMany 1000` bench
+reads, parse only, no round trip):
+
+| parse of 1000 rows | hz | mean | rme |
+| --- | --- | --- | --- |
+| full typed parse (fast path OFF) | 3,537 | 0.283 ms | ±0.99% |
+| identity + whole-row passthrough (fast path ON) | 7,349 | 0.136 ms | ±0.84% |
+
+**2.08× on the parse step — ~0.147 ms/op removed on `findMany 1000`.** This is the honest,
+reproducible signal; it confirms the mechanism fires (the fast path is a no-op unless the shape
+is all-native-scalar on a passthrough provider) and roughly halves the parse cost.
+
+**End-to-end (async PGlite, `benchmarks/drizzle-pglite.bench.ts`)** — round-trip-dominated, so
+the ~0.147 ms parse win is ~3–4 % of the ~4 ms op and sits inside the run-to-run noise (drizzle
+and raw themselves swing ±5–8 % between runs). `findMany 1000` viborm hz (baseline `f41c7ec` →
+two post-change runs), with the stable in-run references:
+
+| run | raw | drizzle | viborm | viborm/raw | viborm/drizzle |
+| --- | --- | --- | --- | --- | --- |
+| before (`f41c7ec`) | 284.2 | 268.8 | 242.5 | 0.853 | 0.902 |
+| after #1 | 293.9 | 290.0 | 249.2 | 0.848 | 0.860 |
+| after #2 | 275.6 | 273.6 | 259.2 | 0.941 | 0.948 |
+
+viborm's absolute `findMany 1000` hz rose in both after-runs (242.5 → 249–259), but the
+end-to-end ratio-vs-Drizzle is noise-limited (0.86 and 0.95 across two runs) — the isolated A/B
+above is the reliable number. **No regression on the round-trip-bound ops** (the gate): findUnique
+5817 → 5801/5883, insert 5473 → 5517/5427, findMany-20-filter 2612 → 2633/2582 — all within noise,
+findUnique/nested still at/ahead of Drizzle.
+
+**Part B (array-mode driver rows) — descoped, no regression.** Eliminating PGlite's object-mode
+`Object.fromEntries` (~0.31 ms/op, the residual end-to-end gap) needs array-mode rows to reach the
+parser. That crosses the normalized cross-driver `QueryResult` contract (`assertNormalizedQueryResult`
+requires object rows) AND needs the row column-order threaded to the parser — a query-engine-v2
+fragment-vocabulary change the standing rules forbid. Per the work order's own "if array-mode is
+risky for a driver, keep object-mode — no regression" clause, PGlite keeps object mode. Drivers
+that got the identity/passthrough fast path: **pglite, pg, postgres** (Postgres family). MySQL/SQLite
+keep the full path.
+
+Certification: full local estate 6108 passed / 0 failed; `test:gates` 43 passed (parse-boundary
+ratchet unchanged); typecheck + Biome clean; Docker pg 434 passed (identity fast path exercised on
+real Postgres via `pg` + `postgres.js`), Docker mysql 474 passed (fallback path unaffected). Focused
+parity/gating test `tests/query-engine/result-identity-fast-path.test.ts` (7) + enum-forced
+falsification (verified red, restored).

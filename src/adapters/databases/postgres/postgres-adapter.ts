@@ -441,6 +441,11 @@ export class PostgresAdapter implements DatabaseAdapter {
   // ============================================================
 
   result = {
+    // PostgreSQL returns native JS scalars and parseField below is a pure
+    // passthrough, so the result parser may take the identity fast path for
+    // plain string/int/float/boolean columns (byte-identical, guarded).
+    nativeScalarPassthrough: true,
+
     parseResult: (
       raw: unknown,
       _operation: import("../../../query-engine/types").Operation,
