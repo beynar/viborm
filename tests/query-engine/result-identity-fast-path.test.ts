@@ -3,6 +3,9 @@ import { ResultParser } from "@query-engine";
 import { s } from "@schema";
 import { describe, expect, test } from "vitest";
 
+const ENUM_ERROR = /enum/i;
+const INTEGER_ERROR = /integer/i;
+
 /**
  * The read fast path (identity decoders + whole-row passthrough) is a PURE
  * performance optimization: for plain string/int/float/boolean columns on a
@@ -46,7 +49,9 @@ const pureScalarModel = s.model({
 });
 
 /** Fast path ON: Postgres declares native passthrough and there is no driver. */
-function fastPathParser(model: Parameters<typeof ResultParser>[1]): ResultParser {
+function fastPathParser(
+  model: ConstructorParameters<typeof ResultParser>[1]
+): ResultParser {
   return new ResultParser(new PostgresAdapter(), model);
 }
 
@@ -56,10 +61,13 @@ function fastPathParser(model: Parameters<typeof ResultParser>[1]): ResultParser
  * models any provider that cannot take the fast path — its output must match the
  * fast path exactly.
  */
-function fullPathParser(model: Parameters<typeof ResultParser>[1]): ResultParser {
+function fullPathParser(
+  model: ConstructorParameters<typeof ResultParser>[1]
+): ResultParser {
   const adapter = new PostgresAdapter();
-  (adapter.result as { nativeScalarPassthrough?: boolean }).nativeScalarPassthrough =
-    false;
+  (
+    adapter.result as { nativeScalarPassthrough?: boolean }
+  ).nativeScalarPassthrough = false;
   return new ResultParser(adapter, model);
 }
 
@@ -164,7 +172,14 @@ describe("read fast path — identity decoders + whole-row passthrough", () => {
   });
 
   test("a non-native cell falls the row back to the full build, still byte-identical", () => {
-    const row = { id: "a", name: "Ann", nick: null, age: 30, score: 3.5, active: true };
+    const row = {
+      id: "a",
+      name: "Ann",
+      nick: null,
+      age: 30,
+      score: 3.5,
+      active: true,
+    };
     const parsed = fastPathParser(pureScalarModel).parse<
       Record<string, unknown>[]
     >("findMany", [{ ...row }], {});
@@ -177,7 +192,7 @@ describe("read fast path — identity decoders + whole-row passthrough", () => {
     (rows[0] as Record<string, unknown>).status = "NOPE";
     expect(() =>
       fastPathParser(mixedModel).parse("findMany", rows, {})
-    ).toThrow(/enum/i);
+    ).toThrow(ENUM_ERROR);
   });
 
   test("gate: the int guard defers a non-integer number to the full parser's rejection", () => {
@@ -185,7 +200,7 @@ describe("read fast path — identity decoders + whole-row passthrough", () => {
     (rows[0] as Record<string, unknown>).age = 3.5;
     expect(() =>
       fastPathParser(pureScalarModel).parse("findMany", rows, {})
-    ).toThrow(/integer/i);
+    ).toThrow(INTEGER_ERROR);
   });
 
   test("gate: a wrong-typed value defers to the full parser (int column receiving a string)", () => {
@@ -193,6 +208,6 @@ describe("read fast path — identity decoders + whole-row passthrough", () => {
     (rows[0] as Record<string, unknown>).age = "not-a-number";
     expect(() =>
       fastPathParser(pureScalarModel).parse("findMany", rows, {})
-    ).toThrow(/integer/i);
+    ).toThrow(INTEGER_ERROR);
   });
 });
